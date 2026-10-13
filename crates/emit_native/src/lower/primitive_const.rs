@@ -1,14 +1,14 @@
-//! O valor de uma variável `const` de tipo `int`, `double` ou `bool` cujo
-//! inicializador é um literal (ou aritmética de inteiros sobre literais e
-//! outras dessas constantes): a leitura vira a constante, sem o getter
-//! preguiçoso do global (a bandeira, o valor e a chamada de inicialização).
+//! The value of a `const` variable of type `int`, `double` or `bool` whose
+//! initializer is a literal (or integer arithmetic over literals and
+//! other such constants): the read becomes the constant, without the lazy
+//! getter of the global (the flag, the value and the initialization call).
 //!
-//! É o que o CFE faz com toda constante (a leitura de `static const int X`
-//! é um `ConstantExpression` no kernel): o `switch (_state) { case
-//! _State.START: … }` do `_HttpParser._doParse` compara com imediatos, e o
-//! LLVM o transforma numa tabela de saltos, em vez de uma cadeia de leituras
-//! de globais — antes, cada byte da requisição passava por uma dezena delas.
-//! O `String` fica de fora (o literal canônico tem identidade própria).
+//! It is what the CFE does with every constant (the read of `static const int X`
+//! is a `ConstantExpression` in the kernel): the `switch (_state) { case
+//! _State.START: … }` of `_HttpParser._doParse` compares against immediates, and
+//! LLVM turns it into a jump table, instead of a chain of reads of
+//! globals — before, each byte of the request went through a dozen of them.
+//! `String` is left out (the canonical literal has its own identity).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -24,8 +24,8 @@ enum Primitive {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// A constante no lugar da leitura do global `vid`, quando ele é uma
-    /// `const` primitiva (ver o módulo).
+    /// The constant in place of the read of the global `vid`, when it is a
+    /// primitive `const` (see the module).
     pub(super) fn read_primitive_const(&mut self, vid: VariableId) -> Option<Operand> {
         let (c, ty) = match self.primitive_const_value(vid, 0)? {
             Primitive::Int(v) => (Constant::Int(v), Type::I64),
@@ -37,8 +37,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.coerce(v, repr))
     }
 
-    /// A chave estrutural (`constants.rs`) do valor de uma `const`
-    /// primitiva: `const [top]` é a mesma constante que `const [7]`.
+    /// The structural key (`constants.rs`) of the value of a primitive
+    /// `const`: `const [top]` is the same constant as `const [7]`.
     pub(super) fn primitive_const_key(&self, vid: VariableId) -> Option<String> {
         Some(match self.primitive_const_value(vid, 0)? {
             Primitive::Int(v) => format!("i:{v}"),
@@ -58,9 +58,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let init = self.variable_initializer_in(vid)?;
         let v = self.evaluate_primitive(unit, init, prof)?;
-        // Só quando o tipo da variável é exatamente o do valor: `const
-        // double x = 1` (o literal integer vira `double` pelo contexto) e
-        // `const num`/`Object` ficam com o getter.
+        // Only when the type of the variable is exactly that of the value: `const
+        // double x = 1` (the integer literal becomes `double` from the context) and
+        // `const num`/`Object` keep the getter.
         let t = super::members::variable_type(self.ctx, vid);
         let core = &self.ctx.core;
         match v {

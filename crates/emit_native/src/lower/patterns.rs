@@ -1,18 +1,18 @@
-//! Padrões (P3): o casamento como árvore de decisão sobre os testes que o
-//! lowering já tem (`test_type`, `==` do Dart, comparações).
+//! Patterns (P3): matching as a decision tree over the tests the
+//! lowering already has (`test_type`, Dart's `==`, comparisons).
 //!
-//! A semântica é a da especificação de padrões (`patterns-feature-
-//! specification.md`, "Pattern matching"): cada subpadrão é testado da
-//! esquerda para a direita; o primeiro que falha desvia para o bloco de
-//! falha; as variáveis são ligadas à medida que o casamento avança; `||`
-//! tenta o segundo lado só se o primeiro falhar; o padrão constante casa se
-//! `constant == value` (o `==` da constante); o relacional é `valor op
-//! operando`; o de list checks o length exact (or mínimo, com `...`);
-//! o de mapa confere `containsKey` antes de ler; o de objeto testa o tipo e
-//! lê os getters pelo nome.
+//! The semantics is that of the patterns specification (`patterns-feature-
+//! specification.md`, "Pattern matching"): each subpattern is tested from
+//! left to right; the first one that fails branches to the failure
+//! block; the variables are bound as matching proceeds; `||`
+//! tries the second side only if the first fails; a constant pattern matches if
+//! `constant == value` (the constant's `==`); a relational one is `value op
+//! operand`; a list one checks the exact length (or the minimum, with `...`);
+//! a map one checks `containsKey` before reading; an object one tests the type and
+//! reads the getters by name.
 //!
-//! Os comandos e expressões com padrão (`switch`, `if-case`, declaração e
-//! atribuição por padrão, `for-in` com padrão) estão no fim.
+//! The statements and expressions with patterns (`switch`, `if-case`, declaration and
+//! assignment by pattern, `for-in` with a pattern) are at the end.
 
 use super::fn_builder::FnBuilder;
 use super::locals::Mode;
@@ -26,17 +26,17 @@ use dartforge_intern::SymbolId;
 use dartforge_types::resolved::MemberRef;
 use std::collections::HashSet;
 
-/// Como um padrão liga os nomes.
+/// How a pattern binds the names.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Linkage {
-    /// Padrão de declaração (`var (a, b) = …`, `case`): declara.
+    /// Declaration pattern (`var (a, b) = …`, `case`): declares.
     Declare,
-    /// Padrão de atribuição (`(a, b) = …`): grava em variáveis existentes.
+    /// Assignment pattern (`(a, b) = …`): writes into existing variables.
     Assign,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Segue adiante se `cond` (um `i1`), senão desvia para `failure`.
+    /// Continues ahead if `cond` (an `i1`), otherwise branches to `failure`.
     fn require(&mut self, cond: Operand, failure: BlockId) {
         let cond = self.to_bool(cond);
         let ok = self.new_block();
@@ -48,7 +48,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(ok);
     }
 
-    /// Liga o nome de um padrão de variável ao valor.
+    /// Binds the name of a variable pattern to the value.
     fn link_default(
         &mut self,
         name_str: ast::Name,
@@ -59,8 +59,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) {
         if linkage == Linkage::Assign || linked.contains(&name_str.sym) {
             if self.store_local(name_str.sym, val_ref.clone()).is_none() {
-                // Atribuição por padrão a um nome que não é local: pelo
-                // escopo léxico (campo, global).
+                // Assignment by pattern to a name that is not a local: through the
+                // lexical scope (field, global).
                 match self.resolve_by_name(name_str.sym) {
                     Some(dartforge_types::resolved::Resolved::Element(Element::Variable(vid))) => {
                         self.store_global(vid, val_ref, span);
@@ -86,7 +86,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         linked.insert(name_str.sym);
     }
 
-    /// A classe do programa nomeada por um tipo anotado, se for uma.
+    /// The program class named by an annotated type, if it is one.
     fn type_class(&self, ty: &ast::TypeAnnotation) -> Option<ClassId> {
         let ast::TypeKind::Named { name, .. } = &ty.kind else {
             return None;
@@ -103,8 +103,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Lê o membro `name` de `value` para um padrão de objeto: pela classe
-    /// do padrão quando ela é do programa, senão pelo despacho dinâmico.
+    /// Reads member `name` of `value` for an object pattern: through the class
+    /// of the pattern when it belongs to the program, otherwise through dynamic dispatch.
     fn read_pattern_member(
         &mut self,
         val_ref: Operand,
@@ -114,13 +114,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) -> Operand {
         let text = self.ctx.symbol_name(name_str).to_string();
-        // Tipo de extensão: o membro dele, estático (`extension_types.rs`);
-        // o que ele não declara é o da representação, pelo despacho.
+        // Extension type: its member, statically (`extension_types.rs`);
+        // what it does not declare is the representation's, through dispatch.
         if let Some(c) = class.filter(|&c| self.ctx.is_extension_type(c))
             && let Some(r) = self.member_te_in_class(c, name_str)
             && let Some(m) = self.resolved_member_te(Some(&r))
         {
-            // O getter de um tipo genérico recebe a tupla da anotação.
+            // The getter of a generic type receives the tuple of the annotation.
             if let (MemberRef::Function(f), Some(tuple)) = (m, self.pattern_tuple_te.clone())
                 && !self.is_representation(m)
                 && self.ctx.program.functions[f.0 as usize].kind == FunctionKind::Getter
@@ -139,7 +139,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && self.ctx.compiled_library(self.ctx.program.classes[c.0 as usize].library)
             && !self.ctx.is_extension_type(c)
         {
-            // `index`/`name` de enum.
+            // `index`/`name` of an enum.
             if let Some(op) = self.enum_member(c, &text, val_ref.clone()) {
                 return op;
             }
@@ -170,8 +170,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.coerce(r, Type::Ref)
     }
 
-    /// Casa `value` com o padrão `p`; em falha desvia para `failure`. `origin`
-    /// é a expressão do valor casado (para os membros do SDK por nome).
+    /// Matches `value` against pattern `p`; on failure branches to `failure`. `origin`
+    /// is the expression of the matched value (for SDK members by name).
     pub fn match_pattern(
         &mut self,
         ast: &ast::Ast,
@@ -184,8 +184,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) {
         let pat = ast.pattern(p);
         let span = pat.span;
-        // `<int>[…]`/`<K, V>{…}`: o valor tem de ser `List<int>`/`Map<K, V>`
-        // (RTI); depois, o casamento dos elementos é o de sempre.
+        // `<int>[…]`/`<K, V>{…}`: the value must be a `List<int>`/`Map<K, V>`
+        // (RTI); after that, the matching of the elements is the usual one.
         if let PatternKind::List { type_args, .. } | PatternKind::Map { type_args, .. } = &pat.kind
             && !type_args.is_empty()
         {
@@ -234,9 +234,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 var_: false,
                 final_: false,
             } if self.refutable_pattern && linkage == Linkage::Declare && self.ctx.symbol_name(name.sym) != "_" => {
-                // Num padrão de casamento, um nome solto é um padrão
-                // constante (especificação de padrões, "Constant patterns"):
-                // casa se `constant == value`.
+                // In a matching pattern, a bare name is a constant
+                // pattern (patterns specification, "Constant patterns"):
+                // it matches if `constant == value`.
                 let c = match self.read_local_by_name(name.sym) {
                     Some(v) => v,
                     None => match self.read_unresolved_name(name.sym, span) {
@@ -259,9 +259,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.link_default(*name, val_ref, linkage, linked, span);
             }
             PatternKind::Constant(e) => {
-                // `const (e)`: expressão constante entre parênteses (o
-                // parser a lê como record de um campo; sem a vírgula final
-                // ela é só `e`).
+                // `const (e)`: a parenthesized constant expression (the
+                // parser reads it as a one-field record; without the trailing comma
+                // it is just `e`).
                 let e = match &ast.expr(*e).kind {
                     ExprKind::Record { positional, named, .. } if positional.len() == 1 && named.is_empty() => {
                         let s = ast.expr(*e).span;
@@ -340,8 +340,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.check_type_or_throw(ast.ty(*ty), v, super::rti::CastContext::How);
                 self.match_pattern(ast, *pattern, val_ref, failure, linkage, linked, origin);
             }
-            // Listas e mapas são as classes da fonte do SDK: pelos membros
-            // (`length`, `[]`, `containsKey`…) da classe dinâmica.
+            // Lists and maps are the classes of the SDK source: through the members
+            // (`length`, `[]`, `containsKey`…) of the dynamic class.
             PatternKind::List { elements, .. } => {
                 self.match_source_list(ast, elements, val_ref, failure, linkage, linked, origin);
             }
@@ -349,8 +349,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.match_source_map(ast, entries, val_ref, failure, linkage, linked, origin);
             }
             PatternKind::Record { fields } if fields.iter().any(|f| f.name.is_some() || self.implicit_name(ast, f).is_some()) => {
-                // Forma com campo nomeado (`records.rs`): a classe do
-                // valor tem de ser a da forma do padrão.
+                // A shape with a named field (`records.rs`): the class of the
+                // value must be that of the pattern's shape.
                 let mut npos = 0usize;
                 let mut names = Vec::new();
                 let mut field_list = Vec::new();
@@ -397,7 +397,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some(n) => npos + sorted.iter().position(|x| *x == n).expect("nome"),
                     };
                     let x = self.shape_field(v.clone(), idx);
-                    // `:x` declara `x` mesmo num padrão de casamento.
+                    // `:x` declares `x` even in a matching pattern.
                     let saved = self.refutable_pattern;
                     if implicit {
                         self.refutable_pattern = false;
@@ -416,8 +416,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::I64,
                 );
-                // Record só posicional: a classe `_Record` (cid fixo,
-                // `REFS`); o record com nome é de outra classe (a da forma).
+                // Positional-only record: the `_Record` class (fixed cid,
+                // `REFS`); a record with names is of another class (that of its shape).
                 let record_cid = i64::from(dartforge_runtime::layout::cid::RECORD);
                 let is_rec = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(record_cid))), Type::I1);
                 self.require(is_rec, failure);
@@ -455,8 +455,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let ok = self.test_type(t, v.clone());
                 self.require(ok, failure);
                 let class = self.type_class(t);
-                // Os argumentos de tipo escritos de um tipo de extensão
-                // genérico: a tupla dos getters dele.
+                // The written type arguments of a generic extension type:
+                // the tuple of its getters.
                 let tuple_te = match class {
                     Some(c) if self.ctx.is_extension_type(c) && self.generic_class(c) => self.annotation_tuple(t),
                     _ => None,
@@ -472,7 +472,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         continue;
                     };
                     let x = self.read_pattern_member(v.clone(), class, name_str, origin, f.span);
-                    // `:x` declara `x` mesmo num padrão de casamento.
+                    // `:x` declares `x` even in a matching pattern.
                     let saved = self.refutable_pattern;
                     if f.name.is_none() {
                         self.refutable_pattern = false;
@@ -485,15 +485,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O nome de um campo `:x` (o do padrão de variável dentro dele).
+    /// The name of a `:x` field (that of the variable pattern inside it).
     fn implicit_name(&self, ast: &ast::Ast, f: &ast::PatternField) -> Option<SymbolId> {
         let mut p = f.pattern;
         loop {
             match &ast.pattern(p).kind {
                 PatternKind::Variable { name, .. } => {
-                    // `:x` tem o nome do campo vazio no texto: o `name` do
-                    // campo é `None` só nesse caso quando o padrão é variável
-                    // e o texto começa com `:`.
+                    // `:x` has an empty field name in the text: the `name` of the
+                    // field is `None` only in that case when the pattern is a variable
+                    // and the text starts with `:`.
                     let source = self.source();
                     let ini = f.span.start as usize;
                     return source[ini..].trim_start().starts_with(':').then_some(name.sym);
@@ -507,11 +507,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     // ------------------------------------------------------------------
-    // Construções com padrão
+    // Constructs with patterns
 
-    /// `switch` como comando: casos em ordem, `when`, corpo vazio que cai no
-    /// seguinte (vários `case` rotulando o mesmo corpo), `default`, `break`
-    /// e `continue rótulo` para o rótulo de um `case`.
+    /// `switch` as a statement: cases in order, `when`, an empty body that falls into the
+    /// next one (several `case`s labeling the same body), `default`, `break`
+    /// and `continue label` to the label of a `case`.
     pub fn lower_switch_statement(&mut self, ast: &ast::Ast, value: ExprId, cases: &[ast::SwitchCase]) {
         let v = self.lower_expr(ast, value);
         let exit = self.new_block();
@@ -519,15 +519,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for &l in &external_labels {
             self.labeled_break_targets.insert(l, exit);
         }
-        // O bloco do corpo de cada caso (o dos casos vazios é o do próximo
-        // caso não vazio: eles compartilham o corpo).
+        // The body block of each case (that of the empty cases is the one of the next
+        // non-empty case: they share the body).
         let mut bodies: Vec<BlockId> = cases.iter().map(|_| self.new_block()).collect();
         for i in (0..cases.len()).rev() {
             if cases[i].body.is_empty() && i + 1 < cases.len() {
                 bodies[i] = bodies[i + 1];
             }
         }
-        // `continue rótulo` para o rótulo de um caso vai ao corpo dele.
+        // `continue label` to the label of a case goes to its body.
         let mut case_labels = Vec::new();
         for (i, c) in cases.iter().enumerate() {
             for l in c.labels.iter() {
@@ -536,7 +536,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         self.break_targets.push(exit);
-        // Testes, em ordem; as variáveis de cada caso vivem no escopo dele.
+        // Tests, in order; the variables of each case live in its scope.
         let mut case_scopes = Vec::with_capacity(cases.len());
         let mut successes = Vec::with_capacity(cases.len());
         for c in cases.iter() {
@@ -565,11 +565,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         // Nenhum caso casou: sai.
         self.terminate(Terminator::Branch(exit));
-        // `case A(:final x): case B(:final x): body` tem um único `x`
-        // observável no corpo. Cada teste acima criou um local próprio; antes
-        // de saltar ao corpo, o caso anterior copia seus valores para os
-        // locais do último case que o rotula. Sem isso, o corpo lê `alloca`
-        // não inicializado quando o primeiro padrão casa.
+        // `case A(:final x): case B(:final x): body` has a single `x`
+        // observable in the body. Each test above created its own local; before
+        // jumping to the body, the previous case copies its values into the
+        // locals of the last case that labels it. Without that, the body reads an
+        // uninitialized `alloca` when the first pattern matches.
         for i in 0..cases.len() {
             let Some(passing) = successes[i] else { continue };
             let Some(j) = (i + 1..cases.len()).find(|&j| bodies[j] == bodies[i] && !cases[j].body.is_empty()) else {
@@ -589,8 +589,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.emit(Instruction::Store { ptr: ptr.clone(), val: val_ref }, Type::Void);
                     }
                     Mode::Cell(ptr) => {
-                        // O último case não executou seu declarador neste
-                        // caminho: crie a célula que o corpo capturado usa.
+                        // The last case did not run its declarator on this
+                        // path: create the cell that the captured body uses.
                         let cell = self.emit(Instruction::AllocCell { value: val_ref }, Type::Ref);
                         self.emit(Instruction::Store { ptr: ptr.clone(), val: cell }, Type::Void);
                     }
@@ -599,8 +599,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.terminate(Terminator::Branch(bodies[i]));
         }
-        // Os corpos. O escopo de um corpo compartilhado é o do último caso
-        // que o rotula; os casos anteriores escreveram nesses mesmos locais.
+        // The bodies. The scope of a shared body is that of the last case
+        // that labels it; the previous cases wrote into these same locals.
         let mut done_set = HashSet::new();
         for (i, c) in cases.iter().enumerate() {
             if c.body.is_empty() || !done_set.insert(bodies[i]) {
@@ -612,10 +612,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_stmt(ast, s);
             }
             self.close_scope();
-            // Dart 3: um caso não vazio não cai no seguinte.
+            // Dart 3: a non-empty case does not fall into the next one.
             self.terminate(Terminator::Branch(exit));
         }
-        // Um caso vazio sem caso seguinte (o último): o corpo dele é vazio.
+        // An empty case without a following case (the last one): its body is empty.
         for (i, c) in cases.iter().enumerate() {
             if c.body.is_empty() && !done_set.contains(&bodies[i]) {
                 done_set.insert(bodies[i]);
@@ -633,9 +633,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(exit);
     }
 
-    /// `switch` como expressão: o primeiro caso que casa dá o valor; nenhum
-    /// casando é erro em tempo de execução (a exaustividade é do
-    /// front-end; aqui o caminho inalcançável lança `StateError`).
+    /// `switch` as an expression: the first case that matches gives the value; none
+    /// matching is a run-time error (exhaustiveness belongs to the
+    /// front end; here the unreachable path throws `StateError`).
     pub fn lower_switch_expression(
         &mut self,
         ast: &ast::Ast,
@@ -720,9 +720,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(end);
     }
 
-    /// Um padrão irrefutável (declaração, atribuição, `for-in`): a falha é
-    /// um erro em tempo de execução (só o `as` e o `!` podem falhar, e esses
-    /// lançam por si; um padrão refutável aqui é recusado pelo front-end).
+    /// An irrefutable pattern (declaration, assignment, `for-in`): failure is
+    /// a run-time error (only `as` and `!` may fail, and those
+    /// throw by themselves; a refutable pattern here is rejected by the front end).
     pub fn match_irrefutable(
         &mut self,
         ast: &ast::Ast,

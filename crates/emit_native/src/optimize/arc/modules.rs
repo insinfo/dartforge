@@ -1,15 +1,15 @@
-//! Preparação conjunta de corpos separados para emissão em módulos distintos.
+//! Joint preparation of separate bodies for emission in distinct modules.
 
 use super::*;
 
-/// Certifica as portas AOT de cada módulo de um conjunto preparado por
-/// [`prepare_arc_dart_modules`]. As gravações conferidas levam os layouts
-/// do conjunto (a união que a preparação conferiu, sem conflitos), e cada
-/// módulo é conferido contra essa união. Publica
-/// somente se todos forem certificados; devolve o total de portas.
+/// Certifies the AOT ports of each module of a set prepared by
+/// [`prepare_arc_dart_modules`]. The checked writes carry the layouts
+/// of the set (the union the preparation checked, without conflicts), and each
+/// module is checked against that union. Publishes
+/// only if all are certified; returns the total number of ports.
 ///
-/// # Erros
-/// Quantidade de planos incompatível ou falha de qualquer certificação.
+/// # Errors
+/// Incompatible number of plans or a failure of any certification.
 pub fn certify_arc_module_ports(
     modules: &mut [Module],
     plans: &[HashMap<String, DartFunctionPlan>],
@@ -26,8 +26,8 @@ pub fn certify_arc_module_ports(
         }
     }
     let mut new_set = modules.to_vec();
-    // A idempotência do conjunto inteiro (os callees de outros módulos fazem
-    // parte da prova), uma vez; cada módulo confere o resto sozinho.
+    // The idempotence of the whole set (the callees of other modules are
+    // part of the proof), once; each module checks the rest on its own.
     let mut again = new_set.clone();
     let mut plans_again = plans.to_vec();
     let changes = prepare_arc_dart_modules(&mut again, &mut plans_again)?;
@@ -46,38 +46,38 @@ pub fn certify_arc_module_ports(
     Ok(total)
 }
 
-/// Prepara atomicamente um conjunto fechado de módulos Dart com a mesma ABI ARC.
+/// Atomically prepares a closed set of Dart modules with the same ARC ABI.
 ///
-/// Chamadas entre módulos usam os corpos desta transação. Nenhum resumo de um
-/// SDK já emitido é presumido Owned: os corpos preparados devem ser os emitidos.
-/// Preserva a distribuição das funções, globais e demais metadados de cada
-/// módulo. Publica somente corpos, tabelas verificadas e planos após sucesso do
-/// conjunto inteiro. Cada variante compartilhada é verificada separadamente,
-/// com a mesma interface e áreas globais distintas. Falhas de qualquer variante
-/// propagam aos chamadores. Não prova equivalência funcional ODR. Layouts
-/// compartilhados precisam coincidir. Tracing é uma operação sem alterações.
-/// Não integra o pipeline nem certifica dispatch indireto, callbacks ou recarga.
+/// Calls between modules use the bodies of this transaction. No summary of an
+/// already emitted SDK is presumed Owned: the prepared bodies must be the emitted ones.
+/// Preserves the distribution of functions, globals and other metadata of each
+/// module. Publishes bodies, verified tables and plans only after the success of the
+/// whole set. Each shared variant is verified separately,
+/// with the same interface and distinct global areas. Failures of any variant
+/// propagate to the callers. Does not prove ODR functional equivalence. Shared
+/// layouts must coincide. Tracing is an operation without changes.
+/// Does not integrate the pipeline nor certify indirect dispatch, callbacks or reload.
 ///
-/// # Erros
-/// Quantidades/modos incompatíveis, fatos atribuídos ao módulo errado, símbolos
-/// repetidos, layouts conflitantes ou qualquer falha da preparação ARC.
+/// # Errors
+/// Incompatible counts/modes, facts assigned to the wrong module, repeated
+/// symbols, conflicting layouts or any failure of the ARC preparation.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let folha = Function { symbol: "folha".into(), name: "folha".into(),
-///     depuracao: None, params: vec![], return_ty: Type::Void,
+/// let leaf = Function { symbol: "leaf".into(), name: "leaf".into(),
+///     debug_info: None, params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(None) }] };
-/// let mut caller = folha.clone(); caller.symbol = "caller".into();
+/// let mut caller = leaf.clone(); caller.symbol = "caller".into();
 /// caller.blocks[0].instructions.push((ValueId(0), Instruction::CallStatic {
-///     symbol: "folha".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
-/// let mut a = Module::new(); a.memoria_arc = true; a.functions.push(caller);
-/// let mut b = Module::new(); b.memoria_arc = true; b.functions.push(folha);
-/// let mut modulos = [a, b];
-/// let mut planos = [HashMap::from([("caller".into(), PlanoFuncaoDart::default())]),
-///     HashMap::from([("folha".into(), PlanoFuncaoDart::default())])];
-/// assert_eq!(preparar_arc_modulos_dart(&mut modulos, &mut planos)?, (0, 0));
+///     symbol: "leaf".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+/// let mut a = Module::new(); a.arc_memory = true; a.functions.push(caller);
+/// let mut b = Module::new(); b.arc_memory = true; b.functions.push(leaf);
+/// let mut modules = [a, b];
+/// let mut plans = [HashMap::from([("caller".into(), DartFunctionPlan::default())]),
+///     HashMap::from([("leaf".into(), DartFunctionPlan::default())])];
+/// assert_eq!(prepare_arc_dart_modules(&mut modules, &mut plans)?, (0, 0));
 /// # Ok::<(), String>(())
 /// ```
 pub fn prepare_arc_dart_modules(
@@ -120,7 +120,7 @@ pub fn prepare_arc_dart_modules(
         .collect();
     let mut next_item = 0u64;
     for (module_index, (m, p)) in modules.iter().zip(plans.iter()).enumerate() {
-        // Entradas nativas continuam abertas ao inferir argumentos do grupo.
+        // Native entries stay open when inferring the arguments of the group.
         set.helpers.extend(m.helpers.iter().cloned());
         set.method_tables.extend(m.method_tables.iter().cloned());
         let locals: HashSet<_> = m.functions.iter().map(|f| &f.symbol).collect();
@@ -302,8 +302,8 @@ pub fn prepare_arc_dart_modules(
         }
         error
     })?;
-    // Restaura os nomes físicos e vincula novamente os certificados ainda em
-    // cópias privadas. Qualquer falha preserva todos os módulos de entrada.
+    // Restores the physical names and rebinds the certificates still in
+    // private copies. Any failure preserves all the input modules.
     let mut physical_names = HashMap::new();
     let mut physical_facts = Vec::new();
     for (m, (indices, _)) in modules.iter().zip(&distribution) {
@@ -369,8 +369,8 @@ fn private_name(
     }
 }
 
-// Interface verificada, não igualdade do corpo nem promessa de ODR funcional.
-// IDs SSA são locais: os papéis semânticos pertencem às posições da assinatura.
+// A verified interface, not equality of the body nor a promise of functional ODR.
+// SSA IDs are local: the semantic roles belong to the positions of the signature.
 fn protocol(
     m: &Module,
     f: &Function,
@@ -493,11 +493,11 @@ mod tests {
             for m in &mut ms[1..] {
                 m.arc_shared_functions.insert("biblioteca".into());
             }
-            // Somente a segunda definição confere a pilha no prólogo. O ligador
-            // pode escolhê-la; o chamador não pode presumir a primeira, pura.
+            // Only the second definition checks the stack in the prologue. The linker
+            // may choose it; the caller cannot presume the first, pure one.
             ps[2].get_mut("biblioteca").unwrap().tables.checks_stack = true;
-            // Exercita as duas formas de saída, independentemente do host da CI.
-            // A chamada continua dependendo da união das falhas das variantes.
+            // Exercises both exit shapes, regardless of the CI host.
+            // The call still depends on the union of the failures of the variants.
             let f = &mut ms[0].functions[0];
             f.blocks[0].terminator = Terminator::CondBranch {
                 cond: Operand::Constant(Constant::Bool(false)),
@@ -528,8 +528,8 @@ mod tests {
             let landing_pad = p.tables.invocations[&ValueId(1)];
             assert_eq!(p.owners_at_landing_pad[&landing_pad], vec![ValueId(0)]);
             if p.tables.exits.get(&landing_pad) == Some(&ExceptionExit::Resume) {
-                // Itanium executa a limpeza explícita antes do resume. O certificado
-                // adicional só atende pousos que o emissor ainda precisa limpar.
+                // Itanium runs the explicit cleanup before the resume. The additional
+                // certificate only serves landing pads that the emitter still needs to clean.
                 assert!(p.tables.foreign_cleanup.is_none());
                 let block = ms[0].functions[0]
                     .blocks
@@ -627,8 +627,8 @@ mod tests {
         let mut ps = vec![HashMap::from([("getter".into(), DartFunctionPlan::default())]); 2];
         let originals: Vec<_> = ms.iter().map(|m| format!("{m:?}")).collect();
         prepare_arc_dart_modules(&mut ms, &mut ps).unwrap();
-        // Esta prova é de ownership/ABI, não de igualdade dos valores ODR.
-        // Fora a marca da preparação publicada, nada muda.
+        // This proof is about ownership/ABI, not about the equality of ODR values.
+        // Apart from the published preparation mark, nothing changes.
         for (m, original) in ms.iter().zip(originals) {
             assert!(m.arc_prepared);
             let mut without_mark = m.clone();

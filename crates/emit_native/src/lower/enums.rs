@@ -1,16 +1,16 @@
-//! Enums (P3): cada valor é um objeto canônico do programa, guardado num
-//! global preguiçoso (o mesmo mecanismo das variáveis de topo, N6).
+//! Enums (P3): each value is a canonical object of the program, kept in a
+//! lazy global (the same mechanism as top-level variables, N6).
 //!
-//! O objeto de um enum tem, antes dos campos declarados, os dois campos
-//! implícitos da especificação (§13 "Enums"): `index` (posição 0, `int`) e
-//! `_name` (posição 1, a `String` do nome). O valor é criado como o `const`
-//! de um enum aprimorado: aloca, grava `index` e `_name`, e roda o
-//! construtor escolhido (`value(args)`/`value.name(args)`) com os campos
-//! declarados. `values` é a lista dos valores na ordem de declaração;
-//! `toString()` é `Enum.value` (o do `_Enum` da VM), a menos que o enum
-//! declare o seu. A igualdade é identidade (o valor é canônico), e a chave
-//! de recarga é `(class, name)` (PESQUISA-HOT-RELOAD §4.7): o símbolo do
-//! global é o caminho `dfg.<library>.<Enum>.<value>`.
+//! The object of an enum has, before the declared fields, the two implicit
+//! fields of the specification (§13 "Enums"): `index` (position 0, `int`) and
+//! `_name` (position 1, the `String` of the name). The value is created like the `const`
+//! of an enhanced enum: it allocates, writes `index` and `_name`, and runs the
+//! chosen constructor (`value(args)`/`value.name(args)`) with the declared
+//! fields. `values` is the list of the values in declaration order;
+//! `toString()` is `Enum.value` (the one of the VM's `_Enum`), unless the enum
+//! declares its own. Equality is identity (the value is canonical), and the reload
+//! key is `(class, name)` (PESQUISA-HOT-RELOAD §4.7): the symbol of the
+//! global is the path `dfg.<library>.<Enum>.<value>`.
 
 use super::fn_builder::FnBuilder;
 use crate::context::Context;
@@ -19,19 +19,19 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, VariableId, VariableRef};
 use dartforge_frontend::ast::DeclKind;
 
-/// A classe é um `enum` do programa.
+/// The class is an `enum` of the program.
 pub fn is_enum(ctx: &Context, cid: ClassId) -> bool {
     let c = &ctx.program.classes[cid.0 as usize];
     c.kind == ClassKind::Enum && ctx.compiled_library(c.library)
 }
 
-/// Quantos campos implícitos vêm antes do layout declarado (2 num enum).
+/// How many implicit fields come before the declared layout (2 in an enum).
 pub fn layout_base(ctx: &Context, cid: ClassId) -> usize {
     if is_enum(ctx, cid) { 2 } else { 0 }
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `index`/`name` de um valor de enum da classe `cid`.
+    /// `index`/`name` of an enum value of class `cid`.
     pub fn enum_member(&mut self, cid: ClassId, name: &str, value: Operand) -> Option<Operand> {
         if !is_enum(self.ctx, cid) {
             return None;
@@ -55,10 +55,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ))
     }
 
-    /// `E.values`: a lista dos valores, na ordem de declaração.
+    /// `E.values`: the list of the values, in declaration order.
     pub fn enum_values(&mut self, cid: ClassId, span: Span) -> Operand {
-        // `E.values` é uma constante: a mesma lista (`List<E>`, imutável)
-        // em toda leitura.
+        // `E.values` is a constant: the same list (`List<E>`, immutable)
+        // on every read.
         let class = &self.ctx.program.classes[cid.0 as usize];
         let symbol = format!(
             "dfc.{}.{}.values",
@@ -84,10 +84,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         })
     }
 
-    /// Corpo do getter preguiçoso de um valor de enum: cria o objeto
-    /// canônico na primeira leitura.
+    /// Body of the lazy getter of an enum value: creates the canonical
+    /// object on the first read.
     pub fn lower_enum_value(&mut self, vid: VariableId) {
-        // O getter devolve o valor como as funções Dart: Ref é Owned.
+        // The getter returns the value like Dart functions: a Ref is Owned.
         if self.ctx.arc_memory {
             self.dart_ref_returns.insert(self.func.symbol.clone());
         }
@@ -148,9 +148,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        // Enum genérico: o valor guarda o tipo dele, como qualquer instância
-        // genérica — os argumentos escritos (`a<bool>()`) ou, sem eles, os
-        // limites dos parâmetros (`E<Object>` para `T extends Object`).
+        // Generic enum: the value keeps its type, like any generic
+        // instance — the written arguments (`a<bool>()`) or, without them, the
+        // bounds of the parameters (`E<Object>` for `T extends Object`).
         if self.generic_class(cid)
             && let DeclKind::Enum(e) = &self.ctx.program.unit(unit).ast.decl(decl).kind
         {
@@ -162,7 +162,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if i > 0 {
                         r.text.push(',');
                     }
-                    // Sem limite escrito, `dynamic` (instanciar para os limites).
+                    // Without a written bound, `dynamic` (instantiate to bounds).
                     let d = self.ctx.table.param(*p);
                     if !d.explicito {
                         r.text.push('D');
@@ -187,8 +187,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.define_rti(obj.clone(), r);
             }
         }
-        // O objeto já é o valor do global (e raiz) antes do construtor: um
-        // valor que se refere a si mesmo no construtor lê o objeto.
+        // The object is already the value of the global (and a root) before the constructor: a
+        // value that refers to itself in the constructor reads the object.
         self.emit(
             Instruction::StoreGlobal {
                 symbol: value.clone(),
@@ -234,7 +234,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        // O construtor do valor (o sem nome quando o valor não escolhe).
+        // The constructor of the value (the unnamed one when the value does not choose).
         let ast = &self.ctx.program.unit(unit).ast;
         let DeclKind::Enum(e) = &ast.decl(decl).kind else {
             self.terminate(Terminator::Return(Some(obj)));
@@ -268,10 +268,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Return(Some(obj)));
     }
 
-    /// `toString()` padrão de um enum: `Enum.value`.
+    /// Default `toString()` of an enum: `Enum.value`.
     pub fn lower_enum_to_string(&mut self, cid: ClassId) {
-        // Corpo chamado como função Dart (pelo `toString$c` e pelo
-        // despacho): o retorno Ref é Owned.
+        // Body called as a Dart function (by `toString$c` and by
+        // dispatch): the Ref return is Owned.
         if self.ctx.arc_memory {
             self.dart_ref_returns.insert(self.func.symbol.clone());
         }

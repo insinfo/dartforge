@@ -1,26 +1,26 @@
-//! Promoção dos locais (`Alloca` lido e gravado só por `Load`/`Store`) a
-//! valores SSA, com `phi` nas fronteiras de dominância das gravações
-//! (Cytron et al.). O LLVM faria o mesmo depois, mas os passes da HIR
-//! (substituição escalar, inlining) precisam ver os valores; e um local
-//! `Ref` promovido deixa de ter slot fixo no quadro de raízes (a
-//! vivacidade decide).
+//! Promotion of locals (an `Alloca` read and written only by `Load`/`Store`) to
+//! SSA values, with a `phi` at the dominance frontiers of the writes
+//! (Cytron et al.). LLVM would do the same later, but the HIR passes
+//! (scalar replacement, inlining) need to see the values; and a promoted `Ref`
+//! local no longer has a fixed slot in the roots frame (liveness
+//! decides).
 
 use super::cfg::Cfg;
 use super::operands::*;
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
-/// Os tipos são compatíveis para trocar a leitura pelo valor gravado? O
-/// emissor converte entre escalares pela representação; um `Ref` (raiz
-/// do coletor) só troca com `Ref`.
+/// Are the types compatible to replace the read with the written value? The
+/// emitter converts between scalars by representation; a `Ref` (a collector
+/// root) is only exchanged with a `Ref`.
 pub fn compatible(local: Type, value: Type) -> bool {
     local == value || (local != Type::Ref && value != Type::Ref && !local.is_vector() && !value.is_vector())
 }
 
-/// Promove os locais promovíveis de `func`. Devolve se mudou algo.
+/// Promotes the promotable locals of `func`. Returns whether anything changed.
 pub fn promote(func: &mut Function) -> bool {
     let types = function_types(func);
-    // Os candidatos e os blocos que gravam cada um.
+    // The candidates and the blocks that write each one.
     let mut locals: HashMap<ValueId, Type> = HashMap::new();
     for b in &func.blocks {
         for (v, inst, _) in &b.instructions {
@@ -83,7 +83,7 @@ pub fn promote(func: &mut Function) -> bool {
     let df = cfg.boundaries();
     let (mut next_value, _) = largest_ids(func);
 
-    // Os `phi` de cada local, por bloco.
+    // The `phi`s of each local, per block.
     let mut local_order: Vec<ValueId> = locals.keys().copied().collect();
     local_order.sort_by_key(|v| v.0);
     let mut phis: Vec<Vec<(ValueId, ValueId)>> = vec![Vec::new(); n]; // (local, phi)
@@ -110,13 +110,13 @@ pub fn promote(func: &mut Function) -> bool {
         }
     }
 
-    // Renomeação pela árvore de dominância.
+    // Renaming over the dominator tree.
     let children = cfg.children();
     let mut swap: HashMap<ValueId, Operand> = HashMap::new();
     let mut entries: Vec<Vec<(ValueId, BlockId, Operand)>> = vec![Vec::new(); n]; // (phi, origem, valor)
     let mut stacks: HashMap<ValueId, Vec<Operand>> = local_order.iter().map(|&l| (l, Vec::new())).collect();
     let ids: Vec<BlockId> = func.blocks.iter().map(|b| b.id).collect();
-    // Pilha explícita: (bloco, fase, quantos empilhados por local).
+    // Explicit stack: (block, phase, how many were pushed per local).
     enum Step {
         Enter(usize),
         Exit(Vec<ValueId>),
@@ -162,7 +162,7 @@ pub fn promote(func: &mut Function) -> bool {
         }
     }
 
-    // Leituras em blocos inalcançáveis: a constante neutra.
+    // Reads in unreachable blocks: the neutral constant.
     for (i, b) in func.blocks.iter().enumerate() {
         if cfg.reachable(i) {
             continue;
@@ -176,7 +176,7 @@ pub fn promote(func: &mut Function) -> bool {
         }
     }
 
-    // Monta os `phi` e tira locais, leituras e gravações.
+    // Builds the `phi`s and removes locals, reads and writes.
     for (i, b) in func.blocks.iter_mut().enumerate() {
         b.instructions.retain(|(v, inst, _)| match inst {
             Instruction::Alloca(_) => !locals.contains_key(v),
@@ -213,7 +213,7 @@ pub fn promote(func: &mut Function) -> bool {
     true
 }
 
-/// Tira os `phi` inseridos que ninguém usa (fora eles mesmos).
+/// Removes the inserted `phi`s that nobody uses (other than themselves).
 fn prune_phis(func: &mut Function, inserted: &HashSet<ValueId>) {
     loop {
         let mut used_set: HashSet<ValueId> = HashSet::new();

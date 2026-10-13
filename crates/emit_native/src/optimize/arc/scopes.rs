@@ -1,5 +1,5 @@
-//! Conferência dos limites de borrows no CFG preparado, incluindo arestas.
-//! O lowering deverá fornecer o plano; não inferimos escopos por vivacidade.
+//! Check of the borrow limits in the prepared CFG, including edges.
+//! The lowering is expected to supply the plan; we do not infer scopes by liveness.
 
 use super::super::{
     cfg::Cfg,
@@ -9,39 +9,39 @@ use super::{OwnerOrigin, Ownership, classified_liveness};
 use crate::hir::*;
 use std::collections::{HashMap, VecDeque};
 
-/// Abertura ou fechamento léxico; zero designa a invocação inteira.
+/// Lexical opening or closing; zero designates the whole invocation.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::AlteracaoEscopo;
-/// let abrir = AlteracaoEscopo::Abrir(1);
-/// assert_ne!(abrir, AlteracaoEscopo::Fechar(1));
+/// use dartforge_emit_native::optimize::arc::ScopeChange;
+/// let open = ScopeChange::Open(1);
+/// assert_ne!(open, ScopeChange::Close(1));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopeChange {
-    /// Entra num escopo que ainda não está ativo.
+    /// Enters a scope that is not active yet.
     Open(u32),
-    /// Sai exatamente do escopo mais interno.
+    /// Leaves exactly the innermost scope.
     Close(u32),
 }
 
-/// Limites explícitos na mesma HIR que o inventário de ownership.
+/// Explicit limits in the same HIR as the ownership inventory.
 ///
-/// Alterações ocorrem antes da instrução, antes do terminador e na aresta,
-/// nessa ordem. Arestas permitem representar cleanup sem atribuí-lo a todos
-/// os sucessores. O escopo zero está sempre ativo e não pode ser fechado.
+/// Changes happen before the instruction, before the terminator and on the edge,
+/// in that order. Edges allow representing cleanup without assigning it to all
+/// successors. Scope zero is always active and cannot be closed.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::PlanoEscopos;
-/// let plano = PlanoEscopos::default();
-/// assert!(plano.arestas.is_empty());
+/// use dartforge_emit_native::optimize::arc::ScopePlan;
+/// let plan = ScopePlan::default();
+/// assert!(plan.edges.is_empty());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScopePlan {
-    /// Alterações antes de uma definição identificada pelo ValueId.
+    /// Changes before a definition identified by the ValueId.
     pub before: HashMap<ValueId, Vec<ScopeChange>>,
-    /// Alterações antes do terminador do bloco.
+    /// Changes before the terminator of the block.
     pub exits: HashMap<BlockId, Vec<ScopeChange>>,
-    /// Alterações depois do terminador e antes dos Phi do sucessor.
+    /// Changes after the terminator and before the Phis of the successor.
     pub edges: HashMap<(BlockId, BlockId), Vec<ScopeChange>>,
 }
 
@@ -63,7 +63,7 @@ fn check(
     classes: &HashMap<ValueId, Ownership>,
     stack: &[u32],
 ) -> Result<(), String> {
-    // O inventário já foi conferido: a cadeia tem origem e não tem ciclos.
+    // The inventory was already checked: the chain has an origin and no cycles.
     while let Some(Ownership::Borrowed { scope, owner }) = classes.get(&v) {
         if !stack.contains(scope) {
             return Err(format!(
@@ -79,8 +79,8 @@ fn check(
     Ok(())
 }
 
-/// Reconstrói só no erro o caminho da árvore de descoberta, sem guardar
-/// uma cópia de todos os prefixos em cada bloco.
+/// Rebuilds the path of the discovery tree only on error, without keeping
+/// a copy of every prefix in each block.
 fn path(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
     let mut path = vec![f.blocks[b].id.0];
     while let Some(p) = pais[b] {
@@ -109,29 +109,29 @@ fn error_in_flow(
     )
 }
 
-/// Confere limites e usos de borrows com pilhas iguais nas junções.
+/// Checks borrow limits and uses with equal stacks at joins.
 ///
-/// Exige CFG/SSA válidos e plano explícito da mesma função. Escopos zero dos
-/// parâmetros duram a invocação. Phi lê a entrada depois dos eventos da sua
-/// aresta. Cada uso confere também a cadeia de sustentação transitiva.
-/// Esta análise não prova consumo de owners, contrato do tipo,
-/// transferência no retorno nem disponibilidade excepcional de invoke.
+/// Requires a valid CFG/SSA and an explicit plan of the same function. The zero scopes of the
+/// parameters last for the invocation. A Phi reads its entry after the events of its
+/// edge. Each use also checks the transitive sustaining chain.
+/// This analysis does not prove consumption of owners, the type contract,
+/// transfer on return nor exceptional availability of an invoke.
 ///
-/// # Erros
-/// Retorna ARC003 com função e ponto se houver limite obsoleto, fechamento
-/// fora de ordem, pilhas diferentes na junção, escopo aberto na saída ou
-/// definição/uso borrowed fora de seu escopo. Ignora fluxo inalcançável,
-/// mas rejeita chaves do plano ausentes da HIR.
-/// Erros de fluxo incluem um caminho desde a entrada; junções incluem
-/// os dois caminhos que apresentam pilhas distintas.
+/// # Errors
+/// Returns ARC003 with the function and the point if there is a stale limit, a close
+/// out of order, different stacks at a join, a scope open at the exit or a
+/// borrowed definition/use outside its scope. Ignores unreachable flow,
+/// but rejects plan keys absent from the HIR.
+/// Flow errors include a path from the entry; joins include
+/// the two paths that present distinct stacks.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
 /// let f = Function { symbol: "f".into(), name: "f".into(), params: vec![],
-///     return_ty: Type::Void, depuracao: None, blocks: vec![BasicBlock {
+///     return_ty: Type::Void, debug_info: None, blocks: vec![BasicBlock {
 ///     id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// verificar_escopos(&f, &HashMap::new(), &PlanoEscopos::default())?;
+/// verify_scopes(&f, &HashMap::new(), &ScopePlan::default())?;
 /// # Ok::<(), String>(())
 /// ```
 pub fn verify_scopes(
@@ -142,8 +142,8 @@ pub fn verify_scopes(
     analyze(f, Some(classes), plan).map(|_| ())
 }
 
-/// Reconstrói pilhas léxicas nos sítios de chamada sem inventar classes de
-/// ownership. A verificação dos usos borrowed continua no passe completo.
+/// Rebuilds lexical stacks at call sites without inventing ownership
+/// classes. The verification of borrowed uses stays in the full pass.
 pub(super) fn stacks_at_calls(
     f: &Function,
     plan: &ScopePlan,
@@ -461,7 +461,7 @@ mod tests {
                 && error.contains("caminho [0, 2, 3]"),
             "{error}"
         );
-        // A volta precisa fechar a ativação anterior antes de abrir a próxima.
+        // The back edge must close the previous activation before opening the next one.
         f.blocks.truncate(1);
         f.blocks[0].terminator = Terminator::Branch(BlockId(0));
         plan.edges.clear();

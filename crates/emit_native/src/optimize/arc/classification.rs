@@ -1,83 +1,83 @@
-//! Inventário tipado de ownership fornecido pelos produtores da HIR.
-//! A cobertura e as dependências são conferidas antes da vivacidade;
-//! contratos de externs, proveniência, escopo e consumo exigem outros passes.
+//! Typed ownership inventory supplied by the HIR producers.
+//! Coverage and dependencies are checked before liveness;
+//! extern contracts, provenance, scope and consumption require other passes.
 
 use super::super::cfg::Cfg;
 use super::{Liveness, liveness_with_borrows};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
-/// Quem sustenta um empréstimo: o chamador ou um valor desta função.
+/// Who sustains a borrow: the caller or a value of this function.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::ValueId, optimize::arc::OrigemOwner};
-/// let origem = OrigemOwner::Valor(ValueId(3));
-/// assert_ne!(origem, OrigemOwner::Chamador);
+/// use dartforge_emit_native::{hir::ValueId, optimize::arc::OwnerOrigin};
+/// let origin = OwnerOrigin::Value(ValueId(3));
+/// assert_ne!(origin, OwnerOrigin::Caller);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OwnerOrigin {
-    /// Parâmetro emprestado pelo chamador durante a invocação.
+    /// A parameter borrowed from the caller during the invocation.
     Caller,
-    /// Valor gerenciado ou slot proprietário local, com proveniência explícita.
+    /// A managed value or a local owner slot, with explicit provenance.
     Value(ValueId),
 }
 
-/// Classificação semântica de uma definição HIR (§20.1).
+/// Semantic classification of an HIR definition (§20.1).
 ///
-/// `Owned` descreve a obrigação de um token, não um incremento já emitido.
-/// O número do escopo é uma identidade; seus limites ainda precisam ser
-/// descritos e conferidos pelo verificador de empréstimos.
+/// `Owned` describes the obligation of a token, not an already emitted increment.
+/// The scope number is an identity; its limits still need to be
+/// described and checked by the borrow verifier.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::{Ownership, OrigemOwner};
-/// let parametro = Ownership::Borrowed { owner: OrigemOwner::Chamador, escopo: 0 };
-/// assert_ne!(parametro, Ownership::Owned);
-/// assert_ne!(parametro, Ownership::Trivial);
+/// use dartforge_emit_native::optimize::arc::{Ownership, OwnerOrigin};
+/// let parameter = Ownership::Borrowed { owner: OwnerOrigin::Caller, scope: 0 };
+/// assert_ne!(parameter, Ownership::Owned);
+/// assert_ne!(parameter, Ownership::Trivial);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ownership {
-    /// Não tem obrigação de ownership gerenciado.
+    /// Has no managed ownership obligation.
     Trivial,
-    /// Define um owner que deverá ser consumido, movido ou devolvido.
+    /// Defines an owner that must be consumed, moved or returned.
     Owned,
-    /// Alias sustentado por um owner durante um escopo.
+    /// An alias sustained by an owner during a scope.
     Borrowed {
-        /// Origem da sustentação, que não cria um token independente.
+        /// Origin of the sustainment, which does not create an independent token.
         owner: OwnerOrigin,
-        /// Identidade do escopo de empréstimo.
+        /// Identity of the borrow scope.
         scope: u32,
     },
 }
 
-/// Consome um inventário completo e inclui dependências borrowed na vivacidade.
+/// Consumes a complete inventory and includes borrowed dependencies in the liveness.
 ///
-/// A classificação deve vir dos contratos e da proveniência semântica,
-/// inclusive quando a representação for `I64` ou um slot `Ptr`. A função
-/// confere cobertura, origem externa de parâmetros, dominância SSA dos owners
-/// locais em blocos alcançáveis e cadeias de sustentação;
-/// não prova a classificação, os limites dos escopos nem o consumo de tokens.
-/// A função deve ter CFG/SSA válidos. Definições `Phi` são simultâneas na
-/// entrada do bloco. A existência do resultado de `invoke` só no sucesso
-/// ainda precisa ser conferida pela análise de tokens excepcional.
-/// Incluir todas as definições e parâmetros, também `Void` como `Trivial`.
+/// The classification must come from the contracts and from the semantic provenance,
+/// even when the representation is `I64` or a `Ptr` slot. The function
+/// checks coverage, the external origin of parameters, the SSA dominance of local
+/// owners in reachable blocks and the sustaining chains;
+/// it does not prove the classification, the limits of the scopes nor the consumption of tokens.
+/// The function must have a valid CFG/SSA. `Phi` definitions are simultaneous at the
+/// entry of the block. The existence of the result of an `invoke` only on success
+/// still has to be checked by the exceptional token analysis.
+/// Include every definition and parameter, `Void` ones too as `Trivial`.
 ///
-/// # Erros
-/// Retorna diagnóstico com símbolo e ID se faltar classificação, houver ID
-/// estranho, um resultado local alegar empréstimo do chamador, ou a definição
-/// do owner não dominar a do alias. Dependências
-/// inválidas mantêm o diagnóstico `ARC003` de [`liveness_with_borrows`].
+/// # Errors
+/// Returns a diagnostic with the symbol and the ID if a classification is missing, there is a
+/// strange ID, a local result claims a borrow from the caller, or the definition
+/// of the owner does not dominate that of the alias. Invalid
+/// dependencies keep the `ARC003` diagnostic of [`liveness_with_borrows`].
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
 ///     params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
 /// let classes = HashMap::from([(ValueId(0), Ownership::Borrowed {
-///     owner: OrigemOwner::Chamador, escopo: 0 })]);
-/// let v = vivacidade_classificada(&f, &classes)?;
-/// assert!(v.entrada[&BlockId(0)].contains(&ValueId(0)));
+///     owner: OwnerOrigin::Caller, scope: 0 })]);
+/// let v = classified_liveness(&f, &classes)?;
+/// assert!(v.entry[&BlockId(0)].contains(&ValueId(0)));
 /// # Ok::<(), String>(())
 /// ```
 pub fn classified_liveness(
@@ -109,8 +109,8 @@ pub fn classified_liveness(
     }
     let mut ids: Vec<ValueId> = classes.keys().copied().collect();
     ids.sort_by_key(|v| v.0);
-    // As definições locais de tipo Ref (uma trivial dessas é null, constante
-    // ou um Phi delas); parâmetros não entram.
+    // The local definitions of type Ref (a trivial one of these is null, a constant
+    // or a Phi of them); parameters do not count.
     let ref_types: HashSet<ValueId> = f.blocks.iter().flat_map(|b| &b.instructions)
         .filter(|(_, _, t)| *t == Type::Ref).map(|(v, _, _)| *v).collect();
     let mut references = HashSet::new();
@@ -137,9 +137,9 @@ pub fn classified_liveness(
                         ));
                     }
                     OwnerOrigin::Caller => {}
-                    // Emprestado de um valor trivial (null ou constante
-                    // permanente, inclusive por um Phi só de nulls): nada a
-                    // manter vivo.
+                    // Borrowed from a trivial value (null or a permanent
+                    // constant, including through a Phi of only nulls): nothing to
+                    // keep alive.
                     OwnerOrigin::Value(owner) if classes.get(&owner) == Some(&Ownership::Trivial)
                         && ref_types.contains(&owner) => {}
                     OwnerOrigin::Value(owner) => {
@@ -153,8 +153,8 @@ pub fn classified_liveness(
     liveness_with_borrows(f, &references, &borrows).map_err(|e| e.to_string())
 }
 
-/// `(block, posição, phi)`: parâmetros ficam fora dos blocos e dominam
-/// suas instruções; phis são produzidos simultaneamente na entrada.
+/// `(block, position, phi)`: parameters stay outside the blocks and dominate
+/// their instructions; phis are produced simultaneously at the entry.
 fn check_dominance(
     f: &Function,
     borrows: &HashMap<ValueId, ValueId>,
@@ -174,7 +174,7 @@ fn check_dominance(
     aliases.sort_by_key(|v| v.0);
     for alias in aliases {
         let owner = borrows[&alias];
-        // IDs ausentes recebem o diagnóstico da validação de dependências.
+        // Missing IDs get the diagnostic of the dependency validation.
         let (Some(&(b_alias, i_alias, phi_alias)), Some(&(b_owner, i_owner, phi_owner))) =
             (definitions.get(&alias), definitions.get(&owner))
         else {
@@ -217,26 +217,26 @@ fn check_dominance(
     Ok(())
 }
 
-/// Confere também que owners produzidos por `invoke` existem no caminho do alias.
+/// Also checks that owners produced by an `invoke` exist on the path of the alias.
 ///
-/// Exige CFG/SSA válidos e o plano excepcional da mesma HIR preparada.
-/// A disponibilidade exige
-/// dominância da aresta de sucesso, inclusive quando pouso e sucesso se juntam.
-/// Usos diretos do resultado também são conferidos; entradas de Phi usam
-/// a disponibilidade na sua aresta, não a do bloco de destino.
-/// Não prova consumo de tokens nem resultados de chamadas sem `invoke`.
+/// Requires a valid CFG/SSA and the exceptional plan of the same prepared HIR.
+/// Availability requires
+/// dominance of the success edge, including when the landing pad and the success join.
+/// Direct uses of the result are also checked; Phi entries use
+/// the availability on their edge, not that of the destination block.
+/// Does not prove consumption of tokens nor results of calls without an `invoke`.
 ///
-/// # Erros
-/// Retorna erro se o plano não corresponder à forma preparada, ou se um alias
-/// puder ser definido sem atravessar o sucesso de seu owner local.
+/// # Errors
+/// Returns an error if the plan does not match the prepared shape, or if an alias
+/// can be defined without going through the success of its local owner.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
 ///     params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
 ///     id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// vivacidade_classificada_com_excecoes(&f, &HashMap::new(), &TabelasDaFuncao::default())?;
+/// classified_liveness_with_exceptions(&f, &HashMap::new(), &FunctionTables::default())?;
 /// # Ok::<(), String>(())
 /// ```
 pub fn classified_liveness_with_exceptions(
@@ -320,7 +320,7 @@ pub(super) fn liveness_with_exits(
                 f.symbol, call.0
             )
         })?;
-        // Retirar a aresta distingue dominância de bloco e de resultado.
+        // Removing the edge distinguishes block dominance from result dominance.
         let without_success = reachable_without_edge(&cfg, (origin, success));
         let mut aliases: Vec<_> = classes.iter().filter_map(|(&alias,class)| {
             matches!(class, Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } if *owner == call)
@@ -343,7 +343,7 @@ pub(super) fn liveness_with_exits(
     Ok(v)
 }
 
-/// Confere o sufixo de leitura de pendência sem criar um pouso LLVM.
+/// Checks the suffix that reads the pending state without creating an LLVM landing pad.
 pub(super) fn check_pending(b: &BasicBlock, call: ValueId, error: BlockId) -> Option<BlockId> {
     let n = b.instructions.len();
     if n < 3 {
@@ -381,8 +381,8 @@ pub(super) fn check_pending(b: &BasicBlock, call: ValueId, error: BlockId) -> Op
     }
 }
 
-/// O resultado de invoke não existe antes de atravessar sua aresta de sucesso.
-/// Phi pode juntar sucesso e erro se a entrada excepcional não usar o resultado.
+/// The result of an invoke does not exist before going through its success edge.
+/// A Phi may join success and error if the exceptional entry does not use the result.
 fn check_result_uses(
     f: &Function,
     cfg: &Cfg,
@@ -401,8 +401,8 @@ fn check_result_uses(
             if let Instruction::Phi { incoming, .. } = inst {
                 for (de, op) in incoming {
                     let Some(&p) = pos.get(de) else { continue };
-                    // A aresta de sucesso publica o resultado; todas as
-                    // outras precisam ser dominadas por essa publicação.
+                    // The success edge publishes the result; all the
+                    // others must be dominated by that publication.
                     if uses(op) && cfg.reachable(p) && without_success.contains(&p) && (p, i) != success
                     {
                         invalid = true;

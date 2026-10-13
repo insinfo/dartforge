@@ -1,27 +1,27 @@
-//! Verificador da HIR, antes da emissão (E3 do contrato,
+//! HIR verifier, before emission (E3 of the contract,
 //! `docs/NATIVO-PLANO.md` §6.3).
 //!
-//! Recusa o que, emitido, vira `panic` no runtime ou IR aceito calado pelo
-//! Clang: gravação no heap com tag incoerente com a representação do valor
-//! (um escalar marcado como referência vira "handle inválido" no coletor;
-//! uma referência marcada como escalar é coletada viva); constante inteira
-//! numa posição `Ref` (a única constante `Ref` é `Null`); instrução que o
-//! emissor não sabe baixar (o antigo `; inst pending`) ou que saiu com o
-//! espaço unificado (`AllocMap`, `AllocSet`); record posicional com campo que
-//! não é `Ref` (o `_Record` é `REFS`); e captura lida numa representação
-//! diferente da gravada (docs/NATIVO-ESPACO-UNIFICADO.md §6, risco 12: o
-//! `_Contexto` e a `_Celula` guardam a palavra crua, e só o bit do mapa diz se
-//! é referência — ler um `int` gravado cru como `Ref` é um handle falso).
+//! Rejects what, once emitted, becomes a `panic` in the runtime or IR silently
+//! accepted by Clang: a heap write with a tag inconsistent with the representation of the value
+//! (a scalar marked as a reference becomes an "invalid handle" in the collector;
+//! a reference marked as a scalar is collected while alive); an integer constant
+//! in a `Ref` position (the only `Ref` constant is `Null`); an instruction the
+//! emitter cannot lower (the old `; inst pending`) or that left with the
+//! unified space (`AllocMap`, `AllocSet`); a positional record with a field that
+//! is not a `Ref` (the `_Record` is `REFS`); and a capture read in a representation
+//! different from the one written (docs/NATIVO-ESPACO-UNIFICADO.md §6, risk 12: the
+//! `_Contexto` and the `_Celula` keep the raw word, and only the map bit tells whether
+//! it is a reference — reading an `int` written raw as a `Ref` is a fake handle).
 //!
-//! Um problema aqui é bug do compilador, não do programa: a mensagem diz a
-//! função e a instrução.
+//! A problem here is a compiler bug, not a program bug: the message names the
+//! function and the instruction.
 
 use crate::hir::*;
 use std::collections::HashMap;
 
-/// Pares (índice do argumento com os bits, índice do argumento com a tag)
-/// das externs do runtime que recebem um valor com tag (a ABI plana `(bits,
-/// tag)`: 1 `int`, 2 `bool`, 3 `Ref`, 4 `double`).
+/// Pairs (index of the argument with the bits, index of the argument with the tag)
+/// of the runtime externs that receive a tagged value (the flat `(bits,
+/// tag)` ABI: 1 `int`, 2 `bool`, 3 `Ref`, 4 `double`).
 fn pairs_with_tag(name: &str) -> &'static [(usize, usize)] {
     match name {
         "dartforge_exception_throw" | "dartforge_tagged_to_string" => &[(0, 1)],
@@ -29,7 +29,7 @@ fn pairs_with_tag(name: &str) -> &'static [(usize, usize)] {
     }
 }
 
-/// Pares (bits, `is_ref`) das externs que recebem a marca de referência.
+/// Pairs (bits, `is_ref`) of the externs that receive the reference mark.
 fn pairs_with_is_ref(name: &str) -> &'static [(usize, usize)] {
     match name {
         "dartforge_object_set" => &[(2, 3)],
@@ -40,17 +40,17 @@ fn pairs_with_is_ref(name: &str) -> &'static [(usize, usize)] {
     }
 }
 
-/// Uma posição de um `_Contexto` (`AllocEnv`): a representação gravada e,
-/// se o valor é uma `_Celula` da mesma função, as representações gravadas
-/// nela.
+/// A position of a `_Contexto` (`AllocEnv`): the written representation and,
+/// if the value is a `_Celula` of the same function, the representations written
+/// into it.
 #[derive(Clone, PartialEq)]
 struct Capture {
     ty: Type,
     cell: Option<Vec<Type>>,
 }
 
-/// A representação de `a` e `b` é a mesma palavra no contexto? (`I1` e `I8`
-/// são o mesmo `bool` de 0/1.)
+/// Is the representation of `a` and `b` the same word in the context? (`I1` and `I8`
+/// are the same 0/1 `bool`.)
 fn same_representation(a: Type, b: Type) -> bool {
     a == b || matches!((a, b), (Type::I1 | Type::I8, Type::I1 | Type::I8))
 }
@@ -61,14 +61,14 @@ struct Context<'m> {
     params: &'m HashMap<&'m str, Vec<Type>>,
     function: &'m Function,
     errors: Vec<String>,
-    /// As representações gravadas em cada `_Celula` alocada nesta função
-    /// (`AllocCell` e `CellSet` sobre o mesmo valor).
+    /// The representations written into each `_Celula` allocated in this function
+    /// (`AllocCell` and `CellSet` over the same value).
     cells: HashMap<ValueId, Vec<Type>>,
-    /// Os valores lidos do ambiente da closure (`EnvGet` sobre o parâmetro
-    /// `env`), com a posição lida.
+    /// The values read from the closure environment (`EnvGet` over the `env`
+    /// parameter), with the position read.
     read_from_env: HashMap<ValueId, usize>,
-    /// O ambiente desta função (o de toda closure que a usa como corpo),
-    /// quando ele é conhecido e único no módulo.
+    /// The environment of this function (that of every closure that uses it as its body),
+    /// when it is known and unique in the module.
     env: Option<&'m [Capture]>,
 }
 
@@ -89,7 +89,7 @@ impl Context<'_> {
             .push(format!("verificador da HIR ({}): {msg}", self.function.name));
     }
 
-    /// E1: a tag gravada tem de ser a da representação do valor.
+    /// E1: the written tag must be that of the value's representation.
     fn check_tag(&mut self, location: &str, bits: &Operand, tag: &Operand) {
         let Operand::Constant(Constant::Int(t)) = tag else {
             return;
@@ -115,21 +115,21 @@ impl Context<'_> {
         }
     }
 
-    /// E3: constante inteira numa posição `Ref`.
+    /// E3: an integer constant in a `Ref` position.
     fn check_ref(&mut self, location: &str, op: &Operand, position: Type) {
         if position == Type::Ref && matches!(op, Operand::Constant(Constant::Int(_))) {
             self.error(format!("{location}: constante inteira numa posição Ref"));
         }
     }
 
-    /// O parâmetro `env` desta função (o ambiente do corpo de uma closure).
+    /// The `env` parameter of this function (the environment of a closure body).
     fn is_env_parameter(&self, op: &Operand) -> bool {
         let Operand::Val(v) = op else { return false };
         self.function.params.iter().any(|(p, name, _)| p == v && name == "env")
     }
 
-    /// As representações gravadas na célula `cell`, se conhecidas: uma
-    /// `_Celula` desta função, ou uma lida do ambiente da closure.
+    /// The representations written into cell `cell`, if known: a
+    /// `_Celula` of this function, or one read from the closure environment.
     fn stored_in_cell(&self, cell: &Operand) -> Option<Vec<Type>> {
         let Operand::Val(v) = cell else { return None };
         if let Some(t) = self.cells.get(v) {
@@ -139,8 +139,8 @@ impl Context<'_> {
         self.env?.get(i)?.cell.clone()
     }
 
-    /// Risco 12: o valor lido de uma captura tem de estar na representação
-    /// com que ela foi gravada.
+    /// Risk 12: the value read from a capture must be in the representation
+    /// it was written with.
     fn check_read(&mut self, location: &str, read_value: Type, written_set: &[Type]) {
         if let Some(g) = written_set.iter().find(|&&g| !same_representation(g, read_value)) {
             self.error(format!("{location}: lida como {read_value:?}, gravada como {g:?}"));
@@ -148,8 +148,8 @@ impl Context<'_> {
     }
 }
 
-/// As capturas de cada `AllocEnv` de `f` (pelo valor dele), com as células
-/// alocadas em `f` que ele guarda.
+/// The captures of each `AllocEnv` of `f` (by its value), with the cells
+/// allocated in `f` that it holds.
 fn function_envs(f: &Function) -> HashMap<ValueId, Vec<Capture>> {
     let mut types: HashMap<ValueId, Type> = HashMap::new();
     for (vid, _, ty) in &f.params {
@@ -194,7 +194,7 @@ fn function_envs(f: &Function) -> HashMap<ValueId, Vec<Capture>> {
     exit
 }
 
-/// A representação de `op` pelos tipos registrados.
+/// The representation of `op` from the recorded types.
 fn operand_type(types: &HashMap<ValueId, Type>, op: &Operand) -> Type {
     match op {
         Operand::Val(v) => types.get(v).copied().unwrap_or(Type::I64),
@@ -205,9 +205,9 @@ fn operand_type(types: &HashMap<ValueId, Type>, op: &Operand) -> Type {
     }
 }
 
-/// O ambiente de cada corpo de closure do módulo (a entrada uniforme e o corpo
-/// tipado): o `AllocEnv` passado a `AllocClosure`/`AllocClosureTyped`. Um
-/// corpo com ambientes de formas diferentes fica de fora (`None`).
+/// The environment of each closure body of the module (the uniform entry and the typed
+/// body): the `AllocEnv` passed to `AllocClosure`/`AllocClosureTyped`. A
+/// body with environments of different shapes is left out (`None`).
 fn body_envs(module: &Module) -> HashMap<String, Option<Vec<Capture>>> {
     let mut exit: HashMap<String, Option<Vec<Capture>>> = HashMap::new();
     for f in &module.functions {
@@ -241,7 +241,7 @@ fn body_envs(module: &Module) -> HashMap<String, Option<Vec<Capture>>> {
     exit
 }
 
-/// Verifica o módulo inteiro; devolve os problemas encontrados.
+/// Verifies the whole module; returns the problems found.
 pub fn verify(module: &Module) -> Vec<String> {
     let params: HashMap<&str, Vec<Type>> = module
         .functions
@@ -272,8 +272,8 @@ pub fn verify(module: &Module) -> Vec<String> {
                 }
             }
         }
-        // As células desta função e o que foi gravado nelas, e o que foi
-        // lido do ambiente (a posição), antes de conferir as leituras.
+        // The cells of this function and what was written into them, and what was
+        // read from the environment (the position), before checking the reads.
         for b in &f.blocks {
             for (vid, inst, _) in &b.instructions {
                 match inst {
@@ -378,7 +378,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
                 );
             }
         }
-        // O record posicional é `REFS` (§2.5): todo campo é `Ref`.
+        // The positional record is `REFS` (§2.5): every field is a `Ref`.
         Instruction::AllocRecord { elements } => {
             for (op, _) in elements {
                 let t = c.ty(op);
@@ -388,7 +388,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
                 c.check_ref("record posicional", op, Type::Ref);
             }
         }
-        // Risco 12: a captura lida na representação gravada.
+        // Risk 12: the capture read in the written representation.
         Instruction::EnvGet { env, index } if c.is_env_parameter(env) => {
             if let Some(g) = c.env.and_then(|a| a.get(*index)).map(|x| x.ty) {
                 c.check_read(&format!("captura {index} do ambiente"), ty, &[g]);
@@ -400,7 +400,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
             }
         }
         Instruction::CellSet { cell, value } => {
-            // Gravar numa célula que veio do ambiente: na representação dela.
+            // Writing into a cell that came from the environment: in its representation.
             if let Operand::Val(v) = cell
                 && !c.cells.contains_key(v)
                 && let Some(g) = c.stored_in_cell(cell)

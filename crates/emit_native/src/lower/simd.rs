@@ -1,17 +1,17 @@
-//! `Float32x4`, `Int32x4` e `Float64x2` sem caixa (`docs/SIMD-NATIVO.md`).
+//! Unboxed `Float32x4`, `Int32x4` and `Float64x2` (`docs/SIMD-NATIVO.md`).
 //!
-//! Os locais SIMD de uma função síncrona que não são capturados guardam o
-//! vetor (`Type::V4F32`…), e as expressões SIMD que o compilador reconhece
-//! (operadores, métodos, getters e construtores do SDK, `a[i]` de uma lista
-//! SIMD) viram instruções vetoriais (`Instruction::Simd`, emitidas em
-//! `llvm/simd.rs`). A caixa (`Ref`) continua sendo o valor em toda
-//! fronteira — parâmetros, retornos, campos, coleções, `dynamic`: o
-//! `lower_expr` geral coage ao tipo estático, que é `Ref`, e só
-//! `FnBuilder::lower_simd` entrega o vetor.
+//! The SIMD locals of a synchronous function that are not captured keep the
+//! vector (`Type::V4F32`…), and the SIMD expressions the compiler recognizes
+//! (operators, methods, getters and constructors of the SDK, `a[i]` of a SIMD
+//! list) become vector instructions (`Instruction::Simd`, emitted in
+//! `llvm/simd.rs`). The box (`Ref`) stays the value at every
+//! boundary — parameters, returns, fields, collections, `dynamic`: the
+//! general `lower_expr` coerces to the static type, which is `Ref`, and only
+//! `FnBuilder::lower_simd` hands over the vector.
 //!
-//! O que não é reconhecido (máscara de `shuffle` que não é constante, um
-//! membro sem forma vetorial) segue o caminho de sempre, pela caixa e pelo
-//! `simd.rs` do runtime, com a mesma semântica.
+//! What is not recognized (a `shuffle` mask that is not constant, a
+//! member without a vector form) follows the usual path, through the box and the
+//! runtime's `simd.rs`, with the same semantics.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -20,17 +20,17 @@ use dartforge_types::resolved::Resolved;
 use dartforge_types::table::Type as T;
 use dartforge_types::TypeId;
 
-/// Como um argumento entra na operação.
+/// How an argument enters the operation.
 #[derive(Clone, Copy)]
 enum Arg {
-    /// Vetor do tipo dado (por [`FnBuilder::lower_simd`]).
+    /// A vector of the given type (through [`FnBuilder::lower_simd`]).
     Vector(Type),
-    /// Escalar na representação dada (`double`, `int`, `bool`).
+    /// A scalar in the given representation (`double`, `int`, `bool`).
     Scalar(Type),
 }
 
-/// Uma expressão SIMD com forma sem caixa: a operação, o receptor (se há),
-/// os argumentos e o tipo do resultado.
+/// A SIMD expression with an unboxed form: the operation, the receiver (if any),
+/// the arguments and the result type.
 struct Recipe {
     op: OpSimd,
     receiver: Option<(ExprId, Type)>,
@@ -38,7 +38,7 @@ struct Recipe {
     result: Type,
 }
 
-/// A pista de `x`/`y`/`z`/`w`.
+/// The lane of `x`/`y`/`z`/`w`.
 fn lane(c: char) -> Option<u8> {
     match c {
         'x' => Some(0),
@@ -50,9 +50,9 @@ fn lane(c: char) -> Option<u8> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O vetor sem caixa do tipo estático `ty`, se ele é `Float32x4`,
-    /// `Int32x4` ou `Float64x2` não anulável e a função é síncrona (um
-    /// quadro assíncrono guarda 64 bits por posição).
+    /// The unboxed vector of static type `ty`, if it is a non-nullable `Float32x4`,
+    /// `Int32x4` or `Float64x2` and the function is synchronous (an
+    /// asynchronous frame keeps 64 bits per position).
     pub(super) fn simd_type(&self, ty: Option<TypeId>) -> Option<Type> {
         if self.async_state.is_some() {
             return None;
@@ -72,13 +72,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O vetor sem caixa do tipo estático da expressão `e`.
+    /// The unboxed vector of the static type of expression `e`.
     pub(super) fn expr_simd(&self, e: ExprId) -> Option<Type> {
         self.simd_type(self.ctx.get_type(self.unit_id, e))
     }
 
-    /// A máscara constante de um `shuffle`: literal `0..=255`, ou uma das
-    /// constantes `xyzw` das classes SIMD (o nome dá as pistas).
+    /// The constant mask of a `shuffle`: a `0..=255` literal, or one of the
+    /// `xyzw` constants of the SIMD classes (the name gives the lanes).
     fn constant_mask(&self, ast: &ast::Ast, e: ExprId) -> Option<u8> {
         match &ast.expr(e).kind {
             ExprKind::Parenthesized(x) => self.constant_mask(ast, *x),
@@ -106,7 +106,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// A forma sem caixa da expressão `e`, se o compilador a reconhece.
+    /// The unboxed form of expression `e`, if the compiler recognizes it.
     fn simd_recipe(&self, ast: &ast::Ast, e: ExprId) -> Option<Recipe> {
         use Type::{V2F64, V4F32, V4I32};
         if let Some(r) = self.recipe_api_314(ast, e) {
@@ -221,11 +221,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `e` chama um membro de uma extensão sobre `Int32x4` marcada com
-    /// `@pragma('dartforge:simd-api', '3.14')` — a API de `Int32x4` do Dart
-    /// 3.14 escrita em Dart 3.6 (`docs/SIMD-NATIVO.md` §6). O corpo dos
-    /// membros é o do `typed_data_patch.dart` da VM (roda na VM 3.6.2, que é
-    /// o oráculo); aqui a chamada vira a instrução vetorial.
+    /// `e` calls a member of an extension on `Int32x4` marked with
+    /// `@pragma('dartforge:simd-api', '3.14')` — the `Int32x4` API of Dart
+    /// 3.14 written in Dart 3.6 (`docs/SIMD-NATIVO.md` §6). The body of the
+    /// members is that of the VM's `typed_data_patch.dart` (it runs on VM 3.6.2, which is
+    /// the oracle); here the call becomes the vector instruction.
     fn api_314(&self, e: ExprId) -> bool {
         let Some(Resolved::ExtensionMember { extension, .. }) = self.ctx.get_resolved(self.unit_id, e) else {
             return false;
@@ -250,7 +250,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         })
     }
 
-    /// `e` tem tipo estático `int` não anulável.
+    /// `e` has non-nullable static type `int`.
     fn is_int(&self, e: ExprId) -> bool {
         matches!(
             self.ctx.get_type(self.unit_id, e).map(|t| self.ctx.table.get(t)),
@@ -258,9 +258,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// A forma sem caixa de um membro da API de `Int32x4` do Dart 3.14
-    /// ([`Self::api_314`]): operadores `~`, `-` unário, `*`, `<<`, `>>`;
-    /// `andNot`, `abs`, as comparações com sinal, `min`/`max`; `anyTrue` e
+    /// The unboxed form of a member of the Dart 3.14 `Int32x4` API
+    /// ([`Self::api_314`]): operators `~`, unary `-`, `*`, `<<`, `>>`;
+    /// `andNot`, `abs`, the signed comparisons, `min`/`max`; `anyTrue` and
     /// `allTrue`.
     fn recipe_api_314(&self, ast: &ast::Ast, e: ExprId) -> Option<Recipe> {
         use Type::V4I32;
@@ -327,7 +327,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// A forma sem caixa de um construtor das classes SIMD.
+    /// The unboxed form of a constructor of the SIMD classes.
     fn constructor_recipe(&self, fid: usize, args: Vec<ExprId>) -> Option<Recipe> {
         use Type::{V2F64, V4F32, V4I32};
         let f = &self.ctx.program.functions[fid];
@@ -365,9 +365,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Emite a receita: o receptor e os argumentos (vetores sem caixa pelo
-    /// próprio `lower_simd`, escalares na representação da operação), na
-    /// ordem de avaliação do Dart.
+    /// Emits the recipe: the receiver and the arguments (unboxed vectors through
+    /// `lower_simd` itself, scalars in the representation of the operation), in
+    /// Dart evaluation order.
     fn emit_recipe(&mut self, ast: &ast::Ast, r: Recipe) -> Operand {
         let mut ops = Vec::with_capacity(r.args.len() + 1);
         if let Some((recv, k)) = r.receiver {
@@ -386,11 +386,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Simd { op: r.op, args: ops }, r.result)
     }
 
-    /// Uma expressão SIMD reconhecida, no `lower_expr` geral: o resultado
-    /// escalar direto, ou o vetor (que o `lower_expr` põe na caixa do tipo
-    /// estático). `None`: a expressão segue o caminho de sempre.
+    /// A recognized SIMD expression, in the general `lower_expr`: the direct scalar
+    /// result, or the vector (which `lower_expr` puts in the box of the static
+    /// type). `None`: the expression follows the usual path.
     pub(super) fn simd_expression(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
-        // O membro de um tipo de extensão sobre um tipo SIMD é o dele.
+        // The member of an extension type over a SIMD type is its own.
         let member = match &ast.expr(e).kind {
             ExprKind::Call { target, .. } => *target,
             _ => e,
@@ -402,14 +402,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.emit_recipe(ast, r))
     }
 
-    /// A expressão `e`, de tipo estático SIMD `k`, como vetor sem caixa:
-    /// pela forma reconhecida, pelo local que guarda o vetor, pelo acesso a
-    /// uma lista SIMD, ou desencaixotando o valor do caminho geral.
+    /// Expression `e`, of SIMD static type `k`, as an unboxed vector:
+    /// through the recognized form, through the local that keeps the vector, through access to
+    /// a SIMD list, or by unboxing the value from the general path.
     pub(super) fn lower_simd(&mut self, ast: &ast::Ast, e: ExprId, k: Type) -> Operand {
         match &ast.expr(e).kind {
             ExprKind::Parenthesized(x) => return self.lower_simd(ast, *x, k),
             ExprKind::Identifier(_) => {
-                // O local sem caixa sai direto (o `lower_expr` o encaixotaria).
+                // The unboxed local comes out directly (`lower_expr` would box it).
                 let v = self.lower_expr_raw(ast, e);
                 return self.coerce(v, k);
             }
@@ -419,7 +419,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 {
                     let list = self.lower_expr(ast, *target);
                     let i = self.lower_expr(ast, *index);
-                    // Coagido uma vez: o caminho lento reusa o mesmo valor.
+                    // Coerced once: the slow path reuses the same value.
                     let i = if self.operand_type(&i) == Type::Ref { self.coerce(i, Type::I64) } else { i };
                     self.access_proven = self.proven_of(ast, *target, Some(*index));
                     let read_done = self.read_indexed(list, i, ix, k);
@@ -441,25 +441,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.coerce(v, k)
     }
 
-    /// A ida e volta pista a pista entre `Int32x4` e `Float32x4` que a API
-    /// do Dart 3.6 obriga (não há conversão numérica entre os dois), como
-    /// conversão vetorial:
+    /// The lane-by-lane round trip between `Int32x4` and `Float32x4` that the Dart 3.6
+    /// API forces (there is no numeric conversion between the two), as a
+    /// vector conversion:
     ///
     /// * `Float32x4(v.x.toDouble(), v.y.toDouble(), v.z.toDouble(),
-    ///   v.w.toDouble())`, com `v` one local `Int32x4`: `sitofp` — o mesmo
-    ///   valor por pista (o `int` de 32 bits é exato em `double`, e o
-    ///   `double` vira `float` com um arredondamento só, como o `sitofp`);
-    /// * `Int32x4(r.x.toInt(), …)` e `Int32x4(r.x.toInt() >> c, …)` (o mesmo
-    ///   `c` literal em `0..=31`), com `r` um local `Float32x4`: se todas as
-    ///   pistas estão em `[-2^31, 2^31)`, `fptosi` (o `toInt()` trunca, e aí
-    ///   não lança nem satura) e `ashr` por `c` (o `>> c` do `int` de 64 bits
-    ///   de um valor de 32 bits, truncado a 32 bits pelo construtor, é o
-    ///   `ashr` de 32 bits); senão (NaN, infinito, fora da faixa), o caminho
-    ///   pista a pista de sempre, que lança o `UnsupportedError` do `toInt()`
-    ///   ou satura e trunca como a VM.
+    ///   v.w.toDouble())`, with `v` an `Int32x4` local: `sitofp` — the same
+    ///   value per lane (the 32-bit `int` is exact in `double`, and the
+    ///   `double` becomes a `float` with a single rounding, like `sitofp`);
+    /// * `Int32x4(r.x.toInt(), …)` and `Int32x4(r.x.toInt() >> c, …)` (the same
+    ///   literal `c` in `0..=31`), with `r` a `Float32x4` local: if all
+    ///   lanes are in `[-2^31, 2^31)`, `fptosi` (`toInt()` truncates, and then
+    ///   neither throws nor saturates) and `ashr` by `c` (the `>> c` of the 64-bit `int`
+    ///   of a 32-bit value, truncated to 32 bits by the constructor, is the
+    ///   32-bit `ashr`); otherwise (NaN, infinity, out of range), the usual
+    ///   lane-by-lane path, which throws the `UnsupportedError` of `toInt()`
+    ///   or saturates and truncates like the VM.
     ///
-    /// Os locais são lidos uma vez em vez de quatro (ler um local não tem
-    /// efeito).
+    /// The locals are read once instead of four times (reading a local has no
+    /// effect).
     fn lane_conversion(&mut self, ast: &ast::Ast, e: ExprId, k: Type) -> Option<Operand> {
         use Type::{V4F32, V4I32};
         if k != V4F32 && k != V4I32 {
@@ -489,7 +489,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             x
         };
-        // `origin.<lane i>.<method>()`: o símbolo do local `origin`.
+        // `origin.<lane i>.<method>()`: the symbol of local `origin`.
         let converted_lane = |x: ExprId, i: u8, method: &str, origin: Type| -> Option<dartforge_intern::SymbolId> {
             let ExprKind::Call { target, arguments } = &ast.expr(without_parentheses(x)).kind else { return None };
             if !arguments.args.is_empty() || !arguments.type_args.is_empty() {

@@ -1,7 +1,7 @@
-//! Validação do par nativo que os cleanups ARC devolvem ao unwind Itanium.
+//! Validation of the native pair that ARC cleanups hand back to the Itanium unwinder.
 use super::*;
 
-/// Cleanup que preserva o par nativo: drops e fechamento auditado sem coleta.
+/// A cleanup that preserves the native pair: drops and an audited close without collection.
 pub(crate) fn resume_instruction(i: &Instruction) -> bool {
     match i {
         Instruction::ArcDrop { .. } => true,
@@ -14,7 +14,7 @@ pub(crate) fn resume_instruction(i: &Instruction) -> bool {
     }
 }
 
-// O emissor e os tokens compartilham o contrato antes de referenciar o pouso.
+// The emitter and the tokens share the contract before referencing the landing pad.
 pub(crate) fn check(f: &Function, t: &FunctionTables) -> Result<(), String> {
     if !t
         .exits

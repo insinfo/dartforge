@@ -1,26 +1,26 @@
-//! Cache de objeto: o `.obj` que o Clang produz de um LLVM IR, por hash.
+//! Object cache: the `.obj` that Clang produces from an LLVM IR, by hash.
 //!
-//! É a disciplina do cache do runtime (`cache.rs`) aplicada ao programa:
-//! mesma entrada, mesma chave, mesmo `.obj`, e o Clang não roda de novo
-//! (PESQUISA-OTIMIZACAO §6 e §11). A chave é o IR inteiro mais tudo o que
-//! muda o objeto sem mudar o IR: a identidade do Clang (`clang --version`
-//! completo), as bandeiras, a versão do DartForge e a do formato deste cache.
+//! It is the discipline of the runtime cache (`cache.rs`) applied to the program:
+//! same input, same key, same `.obj`, and Clang does not run again
+//! (PESQUISA-OTIMIZACAO §6 and §11). The key is the whole IR plus everything that
+//! changes the object without changing the IR: the identity of Clang (the full
+//! `clang --version`), the flags, the DartForge version and that of the format of this cache.
 //!
-//! Hoje o módulo é UM por programa, com os corpos do SDK dentro e índices
-//! globais de função e de classe, então a unidade de cache é o programa
-//! inteiro: acerta ao repetir o mesmo programa (as passadas do harness, uma
-//! nova passada depois de mudar só o runtime ou o harness, a iteração local) e
-//! erra em qualquer mudança do emissor. O cache por módulo, com o SDK
-//! compartilhado entre programas, depende de separar o SDK em módulo próprio
-//! com símbolos estáveis (ESTADO.md §2.5).
+//! Today the module is ONE per program, with the SDK bodies inside and global
+//! function and class indices, so the cache unit is the whole
+//! program: it hits when the same program repeats (the harness passes, a
+//! new pass after changing only the runtime or the harness, local iteration) and
+//! misses on any change of the emitter. A per-module cache, with the SDK
+//! shared between programs, depends on splitting the SDK into its own module
+//! with stable symbols (ESTADO.md §2.5).
 //!
-//! Disco: `<native_cache_dir>/obj/<2 hex>/<32 hex>.obj`. O objeto só aparece
-//! com o nome final inteiro (`rename` de um temporário), nunca é
-//! sobrescrito, e a poda apaga os mais antigos por data de uso quando o total
-//! passa do teto — nunca um objeto que este processo obteve (a ligação ainda
-//! vai lê-lo) nem um usado há menos de [`MIN_AGE_TO_PRUNE`] (o de outro
-//! processo que ainda liga). Um programa maior que o teto (o executor de
-//! builders, com o `analyzer`) fica no cache até a próxima poda depois disso.
+//! Disk: `<native_cache_dir>/obj/<2 hex>/<32 hex>.obj`. The object only appears
+//! with its whole final name (`rename` of a temporary), it is never
+//! overwritten, and pruning deletes the oldest by usage date when the total
+//! exceeds the cap — never an object this process obtained (the link will still
+//! read it) nor one used less than [`MIN_AGE_TO_PRUNE`] ago (that of another
+//! process still linking). A program larger than the cap (the builders
+//! runner, with `analyzer`) stays in the cache until the next pruning after that.
 
 use crate::cache::native_cache_dir;
 use crate::resumo::Fnv128;
@@ -30,29 +30,29 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
-/// Muda quando o que vai no cache muda de significado (bandeiras implícitas,
-/// forma do nome do arquivo): invalida tudo o que foi gravado antes.
+/// Changes when what goes into the cache changes meaning (implicit flags,
+/// shape of the file name): invalidates everything written before.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Teto padrão do cache em disco; `DARTFORGE_CACHE_OBJ_MB` ajusta. Cabe as
-/// partes de um programa grande (o new_sali/backend: ~60 objetos, ~600 MB,
-/// docs/NATIVO-PROJETOS-REAIS.md C9) — com 256 MB a poda tirava as partes
-/// e a recompilação nunca as achava.
+/// Default cap of the disk cache; `DARTFORGE_CACHE_OBJ_MB` adjusts it. It fits the
+/// parts of a large program (new_sali/backend: ~60 objects, ~600 MB,
+/// docs/NATIVO-PROJETOS-REAIS.md C9) — with 256 MB pruning removed the parts
+/// and recompilation never found them.
 pub const DEFAULT_CAP_MB: u64 = 2048;
 
-/// A cada quantas inserções a poda roda de novo.
+/// Every how many insertions the pruning runs again.
 const PRUNE_EVERY: usize = 16;
 
-/// Temporários mais velhos que isto são sobra de processo que morreu.
+/// Temporaries older than this are leftovers of a process that died.
 const ORPHAN_TEMP_AGE: Duration = Duration::from_secs(3600);
 
-/// Objeto usado há menos que isto não é podado: outro processo pode tê-lo
-/// acabado de obter e ainda não ter ligado (a ligação de um programa grande
-/// leva minutos).
+/// An object used less than this ago is not pruned: another process may have
+/// just obtained it and not linked yet (the link of a large program
+/// takes minutes).
 pub const MIN_AGE_TO_PRUNE: Duration = Duration::from_secs(10 * 60);
 
-/// `clang --version` inteiro (versão, alvo, modelo de threads, diretório de
-/// instalação), uma vez por caminho do Clang e por processo.
+/// The whole `clang --version` (version, target, thread model, installation
+/// directory), once per Clang path and per process.
 pub fn clang_identity(clang: &Path) -> Result<String, String> {
     static IDENTITIES: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
     let map = IDENTITIES.get_or_init(|| Mutex::new(HashMap::new()));
@@ -71,14 +71,14 @@ pub fn clang_identity(clang: &Path) -> Result<String, String> {
     Ok(id)
 }
 
-/// A chave de um objeto. Cada componente é separado por `\0`, para que duas
-/// divisões diferentes das mesmas bytes não colidam.
+/// The key of an object. Each component is separated by `\0`, so that two
+/// different splits of the same bytes do not collide.
 pub fn key(ir: &str, clang_id: &str, args: &[&str]) -> u128 {
     bytes_key(ir.as_bytes(), clang_id, args)
 }
 
-/// Como [`key`], para uma entrada que não é texto (o bitcode de uma parte
-/// do ThinLTO distribuído).
+/// Like [`key`], for an input that is not text (the bitcode of a part
+/// of the distributed ThinLTO).
 pub fn bytes_key(ir: &[u8], clang_id: &str, args: &[&str]) -> u128 {
     let mut h = Fnv128::default();
     h.write(b"dartforge-obj\0")
@@ -94,23 +94,23 @@ pub fn bytes_key(ir: &[u8], clang_id: &str, args: &[&str]) -> u128 {
     h.end()
 }
 
-/// O cache de objetos de um diretório.
+/// The object cache of a directory.
 #[derive(Debug)]
 pub struct ObjectCache {
     dir: PathBuf,
     cap_bytes: u64,
-    /// Chaves sendo criadas neste processo: a segunda thread com a mesma chave
-    /// espera a primeira em vez de rodar outro Clang.
+    /// Keys being created in this process: a second thread with the same key
+    /// waits for the first instead of running another Clang.
     in_progress: Mutex<HashSet<u128>>,
     finished: Condvar,
     insertions: AtomicUsize,
     tmp_counter: AtomicUsize,
-    /// Objetos que este processo obteve: a poda não os apaga.
+    /// Objects this process obtained: pruning does not delete them.
     in_use: Mutex<HashSet<PathBuf>>,
 }
 
 impl ObjectCache {
-    /// Um cache em `dir` (o diretório `obj/` fica dentro dele).
+    /// A cache in `dir` (the `obj/` directory lives inside it).
     pub fn new(dir: PathBuf, cap_bytes: u64) -> ObjectCache {
         let c = ObjectCache {
             dir: dir.join("obj"),
@@ -125,8 +125,8 @@ impl ObjectCache {
         c
     }
 
-    /// O cache do processo em [`native_cache_dir`], ou `None` com
-    /// `DARTFORGE_CACHE_OBJ=0`. O teto vem de `DARTFORGE_CACHE_OBJ_MB`.
+    /// The process cache in [`native_cache_dir`], or `None` with
+    /// `DARTFORGE_CACHE_OBJ=0`. The cap comes from `DARTFORGE_CACHE_OBJ_MB`.
     pub fn from_env() -> Option<&'static ObjectCache> {
         static CACHE: OnceLock<Option<ObjectCache>> = OnceLock::new();
         CACHE
@@ -148,12 +148,12 @@ impl ObjectCache {
         self.dir.join(&hex[..2]).join(format!("{hex}.obj"))
     }
 
-    /// Devolve o objeto da `key`, criando-o com `create` se ainda não existe.
+    /// Returns the object of `key`, creating it with `create` if it does not exist yet.
     ///
-    /// `create` recebe o caminho temporário onde deve escrever o objeto, dentro
-    /// de um diretório só dele (onde pode deixar o que quiser, como o `.ll`:
-    /// o diretório inteiro é apagado depois). O objeto só é publicado se
-    /// `create` teve sucesso e escreveu algo. O `bool` diz se foi acerto.
+    /// `create` receives the temporary path where it must write the object, inside
+    /// a directory of its own (where it may leave whatever it wants, like the `.ll`:
+    /// the whole directory is deleted afterwards). The object is only published if
+    /// `create` succeeded and wrote something. The `bool` says whether it was a hit.
     pub fn get_or_create(
         &self,
         key: u128,
@@ -175,7 +175,7 @@ impl ObjectCache {
                 progress = self.finished.wait(progress).unwrap();
             }
         }
-        // Daqui até o fim a chave é nossa; o guarda a devolve mesmo em pânico.
+        // From here to the end the key is ours; the guard gives it back even on panic.
         let _guard = InProgress { cache: self, key };
 
         let hex = format!("{key:032x}");
@@ -194,8 +194,8 @@ impl ObjectCache {
         Ok((final_, hit))
     }
 
-    /// Move o temporário para o nome final. `Ok(true)` quando outro processo
-    /// publicou a mesma chave primeiro (vale o dele, que tem o mesmo conteúdo).
+    /// Moves the temporary to the final name. `Ok(true)` when another process
+    /// published the same key first (its object counts, which has the same content).
     fn publish(&self, tmp: &Path, final_: &Path) -> Result<bool, String> {
         if !std::fs::metadata(tmp).is_ok_and(|m| m.len() > 0) {
             return Err(format!("o objeto {} não foi escrito", tmp.display()));
@@ -213,13 +213,13 @@ impl ObjectCache {
         }
     }
 
-    /// Tira uma entrada (objeto que o ligador recusou).
+    /// Removes an entry (an object the linker rejected).
     pub fn remove(&self, key: u128) {
         let _ = std::fs::remove_file(self.path(key));
     }
 
-    /// Apaga os objetos menos usados até o total caber no teto, e temporários
-    /// órfãos de processos que morreram.
+    /// Deletes the least used objects until the total fits the cap, and orphaned
+    /// temporaries of processes that died.
     pub fn prune(&self) {
         let now = SystemTime::now();
         if let Ok(tmps) = std::fs::read_dir(self.dir.join("tmp")) {
@@ -270,7 +270,7 @@ impl ObjectCache {
     }
 }
 
-/// Devolve a chave em andamento e acorda quem espera por ela.
+/// Returns the in-progress key and wakes whoever waits for it.
 struct InProgress<'a> {
     cache: &'a ObjectCache,
     key: u128,
@@ -287,8 +287,8 @@ fn whole_exists(p: &Path) -> bool {
     std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() > 0)
 }
 
-/// Marca o uso de um objeto (a poda apaga os menos usados primeiro). Falha em
-/// silêncio: o objeto pode estar aberto pelo ligador de outro processo.
+/// Marks the use of an object (pruning deletes the least used first). Fails
+/// silently: the object may be open by another process's linker.
 fn touch(p: &Path) {
     if let Ok(f) = std::fs::File::options().write(true).open(p) {
         let _ = f.set_modified(SystemTime::now());
@@ -326,8 +326,8 @@ mod tests {
         assert_ne!(base, key("ir", "clang 23", &["-c", "-O0"]));
         assert_ne!(base, key("ir", "clang 22", &["-c", "-O2"]));
         assert_ne!(base, key("ir", "clang 22", &["-c"]));
-        // A separação entre componentes conta: mover um byte de um para outro
-        // não pode dar a mesma chave.
+        // The separation between components counts: moving a byte from one to another
+        // cannot give the same key.
         assert_ne!(key("ir", "clang 22", &["-c-O0"]), key("ir", "clang 22", &["-c", "-O0"]));
     }
 
@@ -370,11 +370,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let c = ObjectCache::new(dir.path().to_path_buf(), u64::MAX);
         assert!(c.get_or_create(1, |_| Err("clang falhou".into())).is_err());
-        // Sucesso sem escrever nada também não publica.
+        // Success without writing anything does not publish either.
         assert!(c.get_or_create(1, |_| Ok(())).is_err());
         assert!(c.get_or_create(1, write(b"")).is_err());
         assert!(files_in(&dir.path().join("obj")).is_empty());
-        // E a chave não fica presa: a próxima tentativa cria.
+        // And the key does not stay locked: the next attempt creates it.
         assert!(!c.get_or_create(1, write(b"x")).unwrap().1);
     }
 
@@ -384,22 +384,22 @@ mod tests {
         let c = ObjectCache::new(dir.path().to_path_buf(), 25);
         for k in 0..5u128 {
             c.get_or_create(k, write(b"0123456789")).unwrap();
-            // Datas distintas, para a ordem de uso ser a de criação.
+            // Distinct dates, so that the usage order is the creation order.
             let f = std::fs::File::options().write(true).open(c.path(k)).unwrap();
             f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000 + k as u64)).unwrap();
         }
-        // A poda de outro processo (os objetos deste estão em uso).
+        // The pruning of another process (the objects of this one are in use).
         ObjectCache::new(dir.path().to_path_buf(), 25).prune();
         let remaining = files_in(&dir.path().join("obj"));
         let total: u64 = remaining.iter().map(|p| std::fs::metadata(p).unwrap().len()).sum();
         assert!(total <= 25, "{total} bytes");
-        // Ficam os usados por último.
+        // The last used ones stay.
         assert_eq!(remaining.len(), 2);
         assert!(remaining.contains(&c.path(3)) && remaining.contains(&c.path(4)), "{remaining:?}");
     }
 
-    /// Um objeto maior que o teto, obtido por este processo ou usado há
-    /// pouco por outro, sobrevive à poda: a ligação ainda vai lê-lo.
+    /// An object larger than the cap, obtained by this process or used
+    /// recently by another, survives pruning: the link will still read it.
     #[test]
     fn prune_spares_what_is_in_use() {
         let dir = tempfile::tempdir().unwrap();
@@ -409,8 +409,8 @@ mod tests {
         f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000)).unwrap();
         c.prune();
         assert!(c.path(1).is_file(), "o objeto deste processo foi podado");
-        // Outro processo (um cache novo sobre o mesmo diretório): o antigo
-        // sai, o recente fica.
+        // Another process (a new cache over the same directory): the old one
+        // goes, the recent one stays.
         let other = ObjectCache::new(dir.path().to_path_buf(), 5);
         assert!(!c.path(1).is_file());
         c.get_or_create(2, write(b"0123456789")).unwrap();

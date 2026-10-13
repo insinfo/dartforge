@@ -1,23 +1,23 @@
-//! A emissão das operações SIMD sem caixa (`Instruction::Simd`,
-//! `docs/SIMD-NATIVO.md`): vetores do LLVM (`<4 x float>`, `<4 x i32>`,
-//! `<2 x double>`) com a semântica pista a pista da VM — a mesma de
-//! `runtime/src/simd.rs`, que continua servindo os valores em caixa. Sem
-//! `fast-math`: `min`/`max` são `fcmp` + `select` (com NaN, o segundo
-//! operando, o `Utils::Minimum`/`Maximum` da VM), a raiz é `llvm.sqrt` (a
-//! correta do IEEE), e o `double` vira `float` por `fptrunc` (o `as f32`).
+//! Emission of unboxed SIMD operations (`Instruction::Simd`,
+//! `docs/SIMD-NATIVO.md`): LLVM vectors (`<4 x float>`, `<4 x i32>`,
+//! `<2 x double>`) with the VM's lane-by-lane semantics — the same as
+//! `runtime/src/simd.rs`, which still serves the boxed values. No
+//! `fast-math`: `min`/`max` are `fcmp` + `select` (with NaN, the second
+//! operand, the VM's `Utils::Minimum`/`Maximum`), the square root is `llvm.sqrt` (the
+//! correct IEEE one), and a `double` becomes a `float` by `fptrunc` (the `as f32`).
 
 use super::LlvmEmitter;
 use crate::hir::*;
 use std::fmt::Write;
 
-/// As declarações das intrínsecas que a emissão usa.
+/// The declarations of the intrinsics the emission uses.
 pub const DECLARATIONS: &str = "declare <4 x float> @llvm.fabs.v4f32(<4 x float>)\n\
     declare <2 x double> @llvm.fabs.v2f64(<2 x double>)\n\
     declare <4 x float> @llvm.sqrt.v4f32(<4 x float>)\n\
     declare <2 x double> @llvm.sqrt.v2f64(<2 x double>)\n\
     declare <4 x i32> @llvm.abs.v4i32(<4 x i32>, i1)\n";
 
-/// Pistas, tipo da pista e sufixo das intrínsecas de um vetor.
+/// Lanes, lane type and intrinsic suffix of a vector.
 fn shape(k: Type) -> (u32, &'static str, &'static str) {
     match k {
         Type::V4F32 => (4, "float", "v4f32"),
@@ -28,9 +28,9 @@ fn shape(k: Type) -> (u32, &'static str, &'static str) {
 }
 
 impl LlvmEmitter<'_> {
-    /// `%v{v}` = a operação `op` sobre `args`, com resultado `ty`.
+    /// `%v{v}` = the operation `op` over `args`, with result `ty`.
     pub(super) fn emit_simd(&mut self, v: u32, op: OpSimd, args: &[Operand], ty: Type) {
-        // O tipo do vetor: o do primeiro operando vetorial, ou o resultado.
+        // The vector type: that of the first vector operand, or the result.
         let k = args.iter().map(|a| self.type_of(a)).find(|t| t.is_vector()).unwrap_or(ty);
         let (n, el, suf) = if k.is_vector() { shape(k) } else { shape(ty) };
         let kt = k.llvm_ir();
@@ -50,7 +50,7 @@ impl LlvmEmitter<'_> {
                     (OpSimd::Mul, true) => "fmul",
                     (OpSimd::Div, true) => "fdiv",
                     (OpSimd::Add, false) => "add",
-                    // `Int32x4 * Int32x4` (3.14): os 32 bits baixos do produto.
+                    // `Int32x4 * Int32x4` (3.14): the low 32 bits of the product.
                     (OpSimd::Mul, false) => "mul",
                     (OpSimd::Sub, false) => "sub",
                     (OpSimd::And, false) => "and",
@@ -60,7 +60,7 @@ impl LlvmEmitter<'_> {
                 };
                 writeln!(w, "  {r} = {instr} {kt} {x}, {y}").unwrap();
             }
-            // `Int32x4.min`/`max` (3.14): comparação com sinal.
+            // `Int32x4.min`/`max` (3.14): signed comparison.
             OpSimd::Min | OpSimd::Max if !floating_point => {
                 let (x, y) = (a(self, 0), a(self, 1));
                 let p = if op == OpSimd::Min { "slt" } else { "sgt" };
@@ -74,10 +74,10 @@ impl LlvmEmitter<'_> {
                 writeln!(w, "  {r} = select <{n} x i1> %sc{v}, {kt} {x}, {kt} {y}").unwrap();
             }
             OpSimd::Clamp if cfg!(target_arch = "aarch64") => {
-                // O `vminf`/`vmaxf` da VM no arm64 (`simd128.cc`, e o
-                // `clamp_pista` do runtime): fora da igualdade, com NaN fica
-                // o primeiro operando; na igualdade (só ±0 importa) o `min`
-                // é o OU dos bits (`-0`) e o `max` é o E (`+0`).
+                // The VM's `vminf`/`vmaxf` on arm64 (`simd128.cc`, and the
+                // runtime's `clamp_pista`): outside equality, with NaN the
+                // first operand stays; on equality (only ±0 matters) `min`
+                // is the OR of the bits (`-0`) and `max` is the AND (`+0`).
                 let (x, lo, hi) = (a(self, 0), a(self, 1), a(self, 2));
                 let it = format!("<{n} x i{}>", if k == Type::V2F64 { 64 } else { 32 });
                 writeln!(w, "  %sa{v} = fcmp ogt {kt} {x}, {hi}").unwrap();
@@ -104,8 +104,8 @@ impl LlvmEmitter<'_> {
                 writeln!(w, "  %sb{v} = fcmp ogt {kt} %sm{v}, {lo}").unwrap();
                 writeln!(w, "  {r} = select <{n} x i1> %sb{v}, {kt} %sm{v}, {kt} {lo}").unwrap();
             }
-            // `-Int32x4` e `Int32x4.abs()` (3.14): com volta, e o `abs` de
-            // -2^31 é -2^31 (`llvm.abs` com `is_int_min_poison` falso).
+            // `-Int32x4` and `Int32x4.abs()` (3.14): wrapping, and the `abs` of
+            // -2^31 is -2^31 (`llvm.abs` with `is_int_min_poison` false).
             OpSimd::Neg if !floating_point => {
                 let x = a(self, 0);
                 writeln!(w, "  {r} = sub {kt} zeroinitializer, {x}").unwrap();
@@ -140,7 +140,7 @@ impl LlvmEmitter<'_> {
                 }
             }
             OpSimd::Shifts(right) => {
-                // A quantidade é `s & 31` (também a negativa), como a VM.
+                // The amount is `s & 31` (also for a negative one), like the VM.
                 let x = a(self, 0);
                 let s = self.coerce(&args[1], Type::I64);
                 writeln!(w, "  %sm{v} = and i64 {s}, 31").unwrap();
@@ -309,7 +309,7 @@ impl LlvmEmitter<'_> {
                     writeln!(w, "  %sv{v}_0 = insertelement <4 x float> zeroinitializer, float %sf{v}_0, i32 0").unwrap();
                     writeln!(w, "  {r} = insertelement <4 x float> %sv{v}_0, float %sf{v}_1, i32 1").unwrap();
                 } else {
-                    // `Float64x2.fromFloat32x4`: as pistas 0 e 1.
+                    // `Float64x2.fromFloat32x4`: lanes 0 and 1.
                     for i in 0..2 {
                         writeln!(w, "  %sf{v}_{i} = extractelement <4 x float> {x}, i32 {i}").unwrap();
                         writeln!(w, "  %sd{v}_{i} = fpext float %sf{v}_{i} to double").unwrap();
@@ -327,8 +327,8 @@ impl LlvmEmitter<'_> {
                 writeln!(w, "  {r} = fptosi <4 x float> {x} to <4 x i32>").unwrap();
             }
             OpSimd::InInt32Range => {
-                // -2^31 e 2^31, exatos em `float` (a notação hexadecimal do
-                // LLVM é a do `double`); comparações ordenadas: NaN fica fora.
+                // -2^31 and 2^31, exact in `float` (LLVM's hexadecimal
+                // notation is the `double` one); ordered comparisons: NaN stays out.
                 let x = a(self, 0);
                 let lo = self.constant_splat(4, "float", "0xC1E0000000000000");
                 let hi = self.constant_splat(4, "float", "0x41E0000000000000");
@@ -360,8 +360,8 @@ impl LlvmEmitter<'_> {
         self.out.push_str(&w);
     }
 
-    /// Um `double` já coagido como pista do vetor `k` (`fptrunc` no
-    /// `Float32x4`); devolve o nome.
+    /// A `double` already coerced as a lane of vector `k` (`fptrunc` in
+    /// `Float32x4`); returns the name.
     fn lane_scalar(&self, w: &mut String, v: u32, suffix: &str, s: &str, k: Type) -> String {
         if k == Type::V4F32 {
             writeln!(w, "  %sx{suffix}{v} = fptrunc double {s} to float").unwrap();
@@ -371,7 +371,7 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// `%ss{suffix}{v}` = o vetor `k` com `esc` em todas as pistas.
+    /// `%ss{suffix}{v}` = vector `k` with `esc` in every lane.
     fn spread(&self, w: &mut String, v: u32, suffix: &str, esc: &str, k: Type) {
         let (n, el, _) = shape(k);
         let kt = k.llvm_ir();
@@ -379,7 +379,7 @@ impl LlvmEmitter<'_> {
         writeln!(w, "  %ss{suffix}{v} = shufflevector {kt} %si{suffix}{v}, {kt} poison, <{n} x i32> zeroinitializer").unwrap();
     }
 
-    /// Uma constante vetorial com `value` em todas as pistas.
+    /// A vector constant with `value` in every lane.
     fn constant_splat(&self, n: u32, el: &str, value: &str) -> String {
         let lanes: Vec<String> = (0..n).map(|_| format!("{el} {value}")).collect();
         format!("<{}>", lanes.join(", "))

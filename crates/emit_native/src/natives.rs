@@ -1,47 +1,47 @@
-//! A tabela de natives do SDK da fonte (P5b, docs/NATIVO-PLANO.md §7).
+//! The native table of the source SDK (P5b, docs/NATIVO-PLANO.md §7).
 //!
-//! No SDK da VM, um membro `external` sem patch é implementado de um de dois
-//! jeitos: **native** — `@pragma("vm:external-name", "Nome")`, uma função C++
-//! do runtime da VM (`runtime/lib/*.cc`) — ou **intrínseco** —
-//! `@pragma("vm:recognized", ...)` sem nome de native, que o compilador da
-//! VM gera no lugar da chamada (aritmética de `double`, `[]` de `_List`,
-//! campos invisíveis de `_GrowableList`/`_compact_hash`/`Record`…). O nativo
-//! faz o mesmo: todo native das [`SOURCE_LIBRARIES`] tem uma entrada
-//! aqui, com o que o backend faz com ele.
+//! In the VM SDK, an `external` member without a patch is implemented in one of two
+//! ways: **native** — `@pragma("vm:external-name", "Name")`, a C++ function
+//! of the VM runtime (`runtime/lib/*.cc`) — or **intrinsic** —
+//! `@pragma("vm:recognized", ...)` without a native name, which the VM
+//! compiler generates in place of the call (`double` arithmetic, `[]` of `_List`,
+//! invisible fields of `_GrowableList`/`_compact_hash`/`Record`…). The native backend
+//! does the same: every native of the [`SOURCE_LIBRARIES`] has an entry
+//! here, with what the backend does with it.
 //!
-//! * [`State::Runtime`]: uma função do runtime Rust,
-//!   `dartforge_nativo_<Nome>` (o fragmento `natives` de `crates/runtime`),
-//!   com a assinatura na representação da HIR (R1) dos tipos Dart
-//!   declarados: `int` → `i64`, `double` → `double`, `bool` → `i8`, o resto
-//!   (receptor inclusive) → `Ref`. Erros saem pela exceção pendente.
-//! * [`State::Pending`]: ainda sem implementação; o lowering de P5d
-//!   transforma a chamada em diagnóstico (N1), nunca em chamada a símbolo
-//!   inexistente.
+//! * [`State::Runtime`]: a function of the Rust runtime,
+//!   `dartforge_nativo_<Name>` (the `natives` fragment of `crates/runtime`),
+//!   with the signature in the HIR representation (R1) of the declared Dart
+//!   types: `int` → `i64`, `double` → `double`, `bool` → `i8`, the rest
+//!   (receiver included) → `Ref`. Errors leave through the pending exception.
+//! * [`State::Pending`]: not implemented yet; the P5d lowering
+//!   turns the call into a diagnostic (N1), never into a call to a nonexistent
+//!   symbol.
 //!
-//! Os efeitos seguem G8 (NATIVO-PLANO §6.5): marcados de forma conservadora
-//! (aloca, lança) até um teste sob `DARTFORGE_GC_STRESS=1` provar o
-//! contrário.
+//! The effects follow G8 (NATIVO-PLANO §6.5): marked conservatively
+//! (allocates, throws) until a test under `DARTFORGE_GC_STRESS=1` proves the
+//! opposite.
 //!
-//! O teste `inventory::every_source_native_has_entry` carrega o SDK com a
-//! sobreposição, percorre os `external` sem patch das bibliotecas da fonte e
-//! recusa native sem entrada (e entrada que não é mais native): é o que
-//! impede um patch novo do SDK — ou da sobreposição — de entrar em silêncio.
+//! The `inventory::every_source_native_has_entry` test loads the SDK with the
+//! overlay, walks the unpatched `external`s of the source libraries and
+//! rejects a native without an entry (and an entry that is no longer a native): that is what
+//! prevents a new patch of the SDK — or of the overlay — from coming in silently.
 //!
-//! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::BIBLIOTECAS_DA_FONTE
+//! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::SOURCE_LIBRARIES
 
-/// O que o backend faz com um native.
+/// What the backend does with a native.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
-    /// Função do runtime `dartforge_nativo_<Nome>`.
+    /// Runtime function `dartforge_nativo_<Name>`.
     Runtime,
-    /// Sem implementação ainda: chamar é diagnóstico.
+    /// Not implemented yet: calling it is a diagnostic.
     Pending,
-    /// O lowering gera o código no lugar da chamada (`Internal_unsafeCast`
-    /// é o próprio valor).
+    /// The lowering generates the code in place of the call (`Internal_unsafeCast`
+    /// is the value itself).
     Builtin,
 }
 
-/// Efeitos de uma chamada (G8).
+/// Effects of a call (G8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Effects {
     pub allocates: bool,
@@ -49,10 +49,10 @@ pub struct Effects {
     pub calls_dart: bool,
 }
 
-/// Conservador: aloca e lança, não chama Dart.
+/// Conservative: allocates and throws, does not call Dart.
 pub const CONSERVATIVE: Effects = Effects { allocates: true, throws: true, calls_dart: false };
 
-/// Um native de `@pragma("vm:external-name", name)`.
+/// A native from `@pragma("vm:external-name", name)`.
 #[derive(Debug, Clone, Copy)]
 pub struct NativeEntry {
     pub name: &'static str,
@@ -68,16 +68,16 @@ const fn embedded(name: &'static str) -> NativeEntry {
     NativeEntry { name, state: State::Builtin, effects: CONSERVATIVE }
 }
 
-/// Natives que o SDK declara com retornos diferentes conforme o ponto de uso
-/// e que o runtime implementa com o mais largo, `Ref`: `Double_parse` é
-/// `double?` no `double._nativeParse` e `double` no `_parseDouble` do
-/// `convert_patch.dart` (o número do JSON). O `external` chama com `Ref` e
-/// converte para o tipo declarado — sem isso o handle da caixa era lido
-/// como os bits do `double`.
+/// Natives that the SDK declares with different returns depending on the use site
+/// and that the runtime implements with the widest one, `Ref`: `Double_parse` is
+/// `double?` in `double._nativeParse` and `double` in `_parseDouble` of
+/// `convert_patch.dart` (the JSON number). The `external` calls with `Ref` and
+/// converts to the declared type — without that the handle of the box was read
+/// as the bits of the `double`.
 pub const RETURN_REF: &[&str] = &["Double_parse"];
 
-/// Intrínsecos da VM (`vm:recognized` sem native) que o nativo implementa
-/// com uma função do runtime, pelo `Classe.member`: (membro, native).
+/// VM intrinsics (`vm:recognized` without a native) that the native backend implements
+/// with a runtime function, by `Class.member`: (member, native).
 pub const INTRINSICS: &[(&str, &str)] = &[
     ("_Array.[]", "DartForge_lista_get"),
     ("_Double._modulo", "DartForge_double_modulo"),
@@ -171,7 +171,7 @@ pub const INTRINSICS: &[(&str, &str)] = &[
     ("has63BitSmis", "DartForge_verdadeiro"),
 ];
 
-/// A função do runtime de um intrínseco da VM, se o nativo a tem.
+/// The runtime function of a VM intrinsic, if the native backend has it.
 pub fn intrinsic(member: &str) -> Option<&'static str> {
     INTRINSICS.iter().find(|(m, _)| *m == member).map(|(_, n)| *n)
 }
@@ -180,8 +180,8 @@ const fn pending(name: &'static str) -> NativeEntry {
     NativeEntry { name, state: State::Pending, effects: CONSERVATIVE }
 }
 
-/// Todo native das bibliotecas da fonte com a sobreposição `native_sdk/`,
-/// em ordem de bytes (a de `str`, que a busca binária usa). Os `DartForge_*` são os da sobreposição.
+/// Every native of the source libraries with the `native_sdk/` overlay,
+/// in byte order (that of `str`, which the binary search uses). The `DartForge_*` ones are from the overlay.
 pub const NATIVES: &[NativeEntry] = &[
     pending("AbstractType_equality"),
     pending("AbstractType_getHashCode"),
@@ -190,7 +190,7 @@ pub const NATIVES: &[NativeEntry] = &[
     pending("AssertionError_throwNewSource"),
     pending("Bool_fromEnvironment"),
     pending("Bool_hasEnvironment"),
-    // A classe do valor em linha (`@df.class`, docs/NATIVO-ESPACO-UNIFICADO.md §3.8).
+    // The class of the value inline (`@df.class`, docs/NATIVO-ESPACO-UNIFICADO.md §3.8).
     embedded("ClassID_getID"),
     runtime("Closure_computeHash"),
     runtime("Closure_equals"),
@@ -726,34 +726,34 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("WeakReference_setTarget"),
 ];
 
-/// A entrada de um native, se existe.
+/// The entry of a native, if it exists.
 pub fn native(name: &str) -> Option<&'static NativeEntry> {
     NATIVES.binary_search_by(|n| n.name.cmp(name)).ok().map(|i| &NATIVES[i])
 }
 
-/// Os pacotes da especificação do espaço unificado
-/// (docs/NATIVO-ESPACO-UNIFICADO.md §4): quem muda a implementação de um native.
+/// The packages of the unified space specification
+/// (docs/NATIVO-ESPACO-UNIFICADO.md §4): which one changes the implementation of a native.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Package {
-    /// Fundação: layout, espaço, coletor, contrato do emissor.
+    /// Foundation: layout, space, collector, emitter contract.
     P0,
     /// Strings.
     P1,
-    /// Caixas, células, contextos, closures, records.
+    /// Boxes, cells, contexts, closures, records.
     P2,
     /// Listas, mapas, conjuntos.
     P3,
-    /// Listas tipadas, SIMD, FFI, E/S.
+    /// Typed lists, SIMD, FFI, I/O.
     P4,
-    /// Transversais (isolados, RTI, erros, saída).
+    /// Cross-cutting (isolates, RTI, errors, output).
     P5,
 }
 
-/// O que o espaço unificado muda num native (a tabela §3.8 da especificação):
-/// o pacote que troca a implementação e se ela passa a ser **em linha** (pelos
-/// ajudantes `@df.*` e pelos ganchos `*_em_linha` do lowering; o native do
-/// runtime, quando fica, é o caminho lento). `None`: o native não muda de
-/// representação (só de API do heap, quando a tem).
+/// What the unified space changes in a native (table §3.8 of the specification):
+/// the package that replaces the implementation and whether it becomes **inline** (through the
+/// `@df.*` helpers and the `*_em_linha` hooks of the lowering; the runtime
+/// native, when it stays, is the slow path). `None`: the native does not change its
+/// representation (only its heap API, when it has one).
 pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
     use Package::*;
     let r = match name {
@@ -779,9 +779,9 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
         n if n.starts_with("DartForge_string_") || n.starts_with("DartForge_sb_") || n.starts_with("DartForge_regexp_") => {
             (P1, false)
         }
-        // P0: a classe do valor.
+        // P0: the class of the value.
         "ClassID_getID" => (P0, true),
-        // P3: listas do núcleo (o em linha de `List<E>` em `lower/typed_items.rs` é da P4).
+        // P3: core lists (the inline code for `List<E>` in `lower/typed_items.rs` belongs to P4).
         "List_getLength" | "GrowableList_getLength" | "GrowableList_getCapacity" | "GrowableList_setLength"
         | "GrowableList_setData" | "GrowableList_setIndexed" | "List_setIndexed" | "DartForge_lista_get" => (P3, true),
         "List_allocate"
@@ -810,7 +810,7 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
         {
             (P2, false)
         }
-        // P4: listas tipadas e SIMD.
+        // P4: typed lists and SIMD.
         "TypedDataBase_length" | "TypedDataView_typedData" | "TypedDataView_offsetInBytes" => (P4, true),
         n if n.starts_with("TypedData_Get") || n.starts_with("TypedData_Set") || n.starts_with("DartForge_typed_") => {
             (P4, true)
@@ -831,26 +831,26 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
     Some(r)
 }
 
-/// O símbolo do runtime que implementa um native.
+/// The runtime symbol that implements a native.
 pub fn symbol(name: &str) -> String {
     format!("dartforge_nativo_{name}")
 }
 
-/// Um `external` sem patch das bibliotecas da fonte: o que o implementa.
+/// An unpatched `external` of the source libraries: what implements it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdkExternal {
     /// `dart:core`…
     pub library: String,
-    /// `Classe.member` ou `member` (de topo).
+    /// `Class.member` or `member` (top level).
     pub member: String,
-    /// O nome do native, se é um.
+    /// The name of the native, if it is one.
     pub native: Option<String>,
-    /// Tem `@pragma("vm:recognized", ...)` (intrínseco da VM).
+    /// Has `@pragma("vm:recognized", ...)` (a VM intrinsic).
     pub recognized: bool,
 }
 
-/// O que os `@pragma` de uma função dizem: o nome do native
-/// (`vm:external-name`) e se ela é `vm:recognized` (intrínseco).
+/// What the `@pragma`s of a function say: the name of the native
+/// (`vm:external-name`) and whether it is `vm:recognized` (intrinsic).
 pub fn pragmas(
     program: &dartforge_elements::Program,
     interner: &dartforge_intern::Interner,
@@ -858,7 +858,7 @@ pub fn pragmas(
 ) -> (Option<String>, bool) {
     use dartforge_elements::model::FunctionRef;
     use dartforge_frontend::ast;
-    // O pragma mora no `Member`/`Decl` que declara a função.
+    // The pragma lives on the `Member`/`Decl` that declares the function.
     let metadata: &[ast::Annotation] = match f.node {
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
@@ -908,9 +908,9 @@ pub fn pragmas(
     (native, recognized)
 }
 
-/// Os `external` sem patch das bibliotecas dadas, com o pragma que os
-/// implementa. Um `external` que tem patch não entra: quem o implementa é o
-/// membro do patch (que entra, se for `external` também).
+/// The unpatched `external`s of the given libraries, with the pragma that
+/// implements them. An `external` that has a patch does not come in: what implements it is the
+/// patch member (which comes in, if it is `external` too).
 pub fn inventory(
     program: &dartforge_elements::Program,
     interner: &dartforge_intern::Interner,
@@ -958,8 +958,8 @@ mod inventory {
         assert!(native("Inexistente").is_none());
     }
 
-    /// Todo native da fonte (com a sobreposição) tem entrada, e toda entrada
-    /// ainda é um native da fonte.
+    /// Every source native (with the overlay) has an entry, and every entry
+    /// is still a source native.
     #[test]
     fn every_source_native_has_entry() {
         crate::sdk_tests();
@@ -988,8 +988,8 @@ mod inventory {
         assert!(without_entry.is_empty(), "natives da fonte sem entrada em NATIVOS: {without_entry:?}");
         let leftover: Vec<&str> = NATIVES.iter().map(|n| n.name).filter(|n| !names.contains(n)).collect();
         assert!(leftover.is_empty(), "entradas de NATIVOS que não são mais natives da fonte: {leftover:?}");
-        // Um `external` sem patch sem native nem `vm:recognized` não tem
-        // implementação em lugar nenhum — nem na VM.
+        // An unpatched `external` without a native nor `vm:recognized` has no
+        // implementation anywhere — not even in the VM.
         let orphans: Vec<String> = externals
             .iter()
             .filter(|e| e.native.is_none() && !e.recognized)

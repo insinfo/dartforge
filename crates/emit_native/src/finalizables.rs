@@ -1,5 +1,5 @@
-//! Classificação estática da obrigação de vida de Finalizable (§22.4).
-//! Não emite proteção: escopos, this, saídas e suspensão pertencem ao lowering.
+//! Static classification of the liveness obligation of Finalizable (§22.4).
+//! Emits no protection: scopes, this, exits and suspension belong to the lowering.
 
 use dartforge_elements::model::ClassId;
 use dartforge_types::{
@@ -9,7 +9,7 @@ use dartforge_types::{
 };
 use std::collections::HashSet;
 
-/// None exige completar a prova; não é autorização para omitir proteção.
+/// None requires completing the proof; it is not permission to omit protection.
 pub(crate) fn classify(
     table: &TypeTable,
     hierarchy: &ClassHierarchy,
@@ -41,7 +41,7 @@ pub(crate) fn classify(
     }
 }
 
-/// Classifica o receptor por identidade estática, sem fabricar um TypeId.
+/// Classifies the receiver by static identity, without forging a TypeId.
 pub(crate) fn classify_class(
     hierarchy: &ClassHierarchy,
     marker: Option<ClassId>,

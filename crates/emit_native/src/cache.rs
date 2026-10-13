@@ -1,20 +1,21 @@
-//! O runtime nativo do AOT e o diretório dos caches do backend.
+//! The native AOT runtime and the directory of the backend caches.
 //!
-//! O runtime é a `staticlib` de `crates/runtime_static`, compilada pelo
-//! `build.rs` deste crate com o `cargo` do build (três variantes: a do
-//! executável, com o `main` C, a da biblioteca compartilhada do SDK da
-//! fonte e a de produção, que é a da biblioteca com `panic=abort`). Vem pronta com o dartforge: em `lib/` da distribuição, ou no
-//! diretório do build numa árvore de desenvolvimento. Quem usa o dartforge
-//! não compila Rust. O nome leva o hash do fonte do runtime e do
-//! `Cargo.lock`: só o runtime deste compilador casa.
+//! The runtime is the `staticlib` of `crates/runtime_static`, compiled by the
+//! `build.rs` of this crate with the build's `cargo` (three variants: the
+//! executable one, with the C `main`, the one for the shared library of the
+//! source SDK, and the production one, which is the library one with `panic=abort`). It
+//! ships with dartforge: in the distribution's `lib/`, or in the build
+//! directory in a development tree. Users of dartforge do not compile
+//! Rust. The name carries the hash of the runtime source and of
+//! `Cargo.lock`: only the runtime of this compiler matches.
 
 use std::path::{Path, PathBuf};
 
-/// Diretório dos caches do backend nativo (objetos, SDK da fonte):
-/// `DARTFORGE_CACHE_NATIVO`; na distribuição, o cache do usuário
-/// (`~/.cache/dartforge/native`…); numa árvore de desenvolvimento,
-/// `$CARGO_TARGET_DIR/native_cache` ou `target/native_cache` do repositório
-/// que compilou este binário.
+/// Directory of the native backend caches (objects, source SDK):
+/// `DARTFORGE_CACHE_NATIVO`; in the distribution, the user cache
+/// (`~/.cache/dartforge/native`…); in a development tree,
+/// `$CARGO_TARGET_DIR/native_cache` or `target/native_cache` of the repository
+/// that compiled this binary.
 pub fn native_cache_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_CACHE_NATIVO") {
         return PathBuf::from(d);
@@ -35,27 +36,27 @@ pub struct RuntimeCache {
 }
 
 impl RuntimeCache {
-    /// O runtime do executável (com o `main` C).
+    /// The executable runtime (with the C `main`).
     pub fn get_or_compile() -> Result<Self, String> {
         precompiled_runtime(env!("DARTFORGE_RUNTIME_PRINCIPAL")).map(|lib_path| Self { lib_path })
     }
 
-    /// A variante do runtime que vai para a DLL do SDK da fonte (P5c): sem o
-    /// `main` C (cfg `dartforge_runtime_dll`); o `main` é o do executável.
+    /// The runtime variant that goes into the DLL of the source SDK (P5c): without the
+    /// C `main` (cfg `dartforge_runtime_dll`); the `main` is the executable's.
     pub fn para_dll() -> Result<Self, String> {
         precompiled_runtime(env!("DARTFORGE_RUNTIME_DLL")).map(|lib_path| Self { lib_path })
     }
 
-    /// A variante de [`RuntimeCache::para_dll`] que o executável de produção
-    /// com o SDK da fonte liga estaticamente: compilada com `panic=abort`
-    /// (`build.rs`, `ABORT`). A da DLL, que o JIT também carrega, desenrola.
+    /// The variant of [`RuntimeCache::para_dll`] that the production executable
+    /// with the source SDK links statically: compiled with `panic=abort`
+    /// (`build.rs`, `ABORT`). The DLL one, which the JIT also loads, unwinds.
     pub fn para_producao() -> Result<Self, String> {
         precompiled_runtime(env!("DARTFORGE_RUNTIME_PRODUCAO")).map(|lib_path| Self { lib_path })
     }
 }
 
-/// Onde a distribuição guarda o runtime pré-compilado: `lib/runtime/`
-/// (`dartforge_elements::distribution`), ou `DARTFORGE_LIB`.
+/// Where the distribution keeps the precompiled runtime: `lib/runtime/`
+/// (`dartforge_elements::distribution`), or `DARTFORGE_LIB`.
 pub fn distribution_lib_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("DARTFORGE_LIB") {
         return Some(PathBuf::from(d));
@@ -63,8 +64,8 @@ pub fn distribution_lib_dir() -> Option<PathBuf> {
     dartforge_elements::distribuicao::em_lib("runtime")
 }
 
-/// O runtime pré-compilado `name`: na distribuição, senão no diretório do
-/// build.
+/// The precompiled runtime `name`: in the distribution, otherwise in the build
+/// directory.
 fn precompiled_runtime(name: &str) -> Result<PathBuf, String> {
     let candidates: Vec<PathBuf> = [distribution_lib_dir(), Some(PathBuf::from(env!("DARTFORGE_RUNTIME_DIR_DO_BUILD")))]
         .into_iter()

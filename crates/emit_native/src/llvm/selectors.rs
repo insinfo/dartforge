@@ -1,31 +1,31 @@
-//! Emissão do SDK da fonte (P5c, δ): a chamada por seletor, as tabelas de
-//! métodos das classes e as declarações do que mora em outro módulo.
+//! Emission of the source SDK (P5c, δ): the call by selector, the method tables
+//! of the classes and the declarations of what lives in another module.
 //!
-//! **Por que tabelas por classe e não a tabela global de despacho.** A
-//! *global dispatch table* da VM AOT (deslocamento por seletor + id de
-//! classe) supõe o programa inteiro: os deslocamentos são escolhidos vendo
-//! todas as classes. Com o SDK compilado **uma vez**, antes de qualquer
-//! programa, os deslocamentos do SDK não podem depender das classes do
-//! programa, e cada programa teria de redefinir um global por seletor que o
-//! SDK usa (milhares) — ou o COFF teria de resolver símbolos fracos, que ele
-//! não resolve do jeito que o ELF resolve. O que a VM faz no JIT resolve o
-//! mesmo problema: cada classe tem a sua tabela (seletor → código), a busca
-//! acontece na primeira chamada de um ponto e fica num cache do ponto
-//! (*inline cache*). O seletor é identificado pelo hash FNV-1a de 64 bits do
-//! texto (`c:m`, `g:x`, `s:x`; privado com `@library`), o mesmo em
-//! qualquer módulo, sem numeração combinada. A classe registra a tabela na
-//! partida (`dartforge_registrar_metodos`).
+//! **Why per-class tables and not the global dispatch table.** The
+//! *global dispatch table* of the AOT VM (offset per selector + class
+//! id) assumes the whole program: the offsets are chosen seeing
+//! every class. With the SDK compiled **once**, before any
+//! program, the SDK offsets cannot depend on the classes of the
+//! program, and each program would have to redefine a global per selector that the
+//! SDK uses (thousands) — or COFF would have to resolve weak symbols, which it
+//! does not resolve the way ELF does. What the VM does in the JIT solves the
+//! same problem: each class has its own table (selector → code), the lookup
+//! happens on the first call at a site and stays in a cache of the site
+//! (*inline cache*). The selector is identified by the 64-bit FNV-1a hash of its
+//! text (`c:m`, `g:x`, `s:x`; private ones with `@library`), the same in
+//! any module, without a combined numbering. The class registers its table at
+//! startup (`dartforge_registrar_metodos`).
 
 use super::LlvmEmitter;
 use crate::hir::*;
 use std::fmt::Write;
 
-/// O hash de um seletor (o mesmo de `lower::sdk_source::selector_hash`).
+/// The hash of a selector (the same as `lower::sdk_source::selector_hash`).
 pub fn selector_hash(text: &str) -> i64 {
     crate::lower::closures::hash_name(text)
 }
 
-/// Escapa bytes para um `c"…"` do LLVM.
+/// Escapes bytes for an LLVM `c"…"`.
 pub(super) fn llvm_bytes(s: &str) -> String {
     let mut t = String::new();
     for &b in s.as_bytes() {
@@ -39,10 +39,10 @@ pub(super) fn llvm_bytes(s: &str) -> String {
 }
 
 impl LlvmEmitter<'_> {
-    /// `%v = recv.<selector>(args)`: a entrada vem de
-    /// `dartforge_seletor(cache, recv, hash, name, n)` — o cache do ponto de
-    /// chamada (id de classe, entrada), a busca na tabela da classe na falha,
-    /// e a entrada de `NoSuchMethodError` quando a classe não tem o membro.
+    /// `%v = recv.<selector>(args)`: the entry comes from
+    /// `dartforge_seletor(cache, recv, hash, name, n)` — the call-site cache
+    /// (class id, entry), the lookup in the class table on a miss,
+    /// and the `NoSuchMethodError` entry when the class does not have the member.
     pub(super) fn emit_selector_call(
         &mut self,
         v: u32,
@@ -75,8 +75,8 @@ impl LlvmEmitter<'_> {
         let slot = self.cache_slot();
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         if self.compact_selector {
-            // O hash, o nome e o comprimento num descritor estático
-            // (`@df.seld.<k>`): três argumentos no lugar de cinco.
+            // The hash, the name and the length in a static descriptor
+            // (`@df.seld.<k>`): three arguments instead of five.
             writeln!(self.out, "  %sf{v} = call ptr @df.seletor_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
         } else {
             writeln!(
@@ -96,9 +96,9 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// `%v = recv.<selector>` com o vetor de argumentos e o descritor de uma
-    /// entrada uniforme repassados como vieram (`CallSelectorForward`); a
-    /// busca da entrada é a de [`Self::emit_selector_call`].
+    /// `%v = recv.<selector>` with the argument vector and the descriptor of a
+    /// uniform entry forwarded as they came (`CallSelectorForward`); the
+    /// lookup of the entry is that of [`Self::emit_selector_call`].
     pub(super) fn emit_selector_forward(
         &mut self,
         v: u32,
@@ -123,8 +123,8 @@ impl LlvmEmitter<'_> {
         let slot = self.cache_slot();
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         if self.compact_selector {
-            // O hash, o nome e o comprimento num descritor estático
-            // (`@df.seld.<k>`): três argumentos no lugar de cinco.
+            // The hash, the name and the length in a static descriptor
+            // (`@df.seld.<k>`): three arguments instead of five.
             writeln!(self.out, "  %sf{v} = call ptr @df.seletor_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
         } else {
             writeln!(
@@ -146,7 +146,7 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// Os nomes das funções do rastro (`DARTFORGE_RASTRO=1`).
+    /// The names of the call-trace functions (`DARTFORGE_RASTRO=1`).
     pub(super) fn emit_stack_trace_names(&mut self) {
         for (k, s) in std::mem::take(&mut self.stack_trace_names).iter().enumerate() {
             writeln!(self.out, "@df.rastro.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
@@ -154,13 +154,13 @@ impl LlvmEmitter<'_> {
 
     }
 
-    /// Os caches dos pontos de chamada e os nomes dos seletores.
+    /// The call-site caches and the names of the selectors.
     pub(super) fn emit_selector_globals(&mut self) {
         if self.selector_caches == 0 {
             return;
         }
-        // Os caches por ponto de chamada (id de classe, entrada) moram na
-        // área de globais do isolado; aqui só os nomes dos seletores.
+        // The per-call-site caches (class id, entry) live in the
+        // isolate's global area; here only the names of the selectors.
         for (j, s) in self.selector_names.iter().enumerate() {
             writeln!(
                 self.out,
@@ -182,8 +182,8 @@ impl LlvmEmitter<'_> {
         self.out.push('\n');
     }
 
-    /// A função `<record>`: os nomes das classes do módulo, as arestas de
-    /// subtipo e as tabelas de métodos, entregues ao runtime.
+    /// The `<record>` function: the names of the classes of the module, the subtype
+    /// edges and the method tables, handed to the runtime.
     pub(super) fn emit_registration(&mut self, record: &str) {
         let module = self.module;
         let mut body = String::new();
@@ -204,29 +204,29 @@ impl LlvmEmitter<'_> {
             writeln!(body, "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})").unwrap();
         }
         body.push_str(&self.emit_method_tables());
-        // A seção dos objetos estáticos desta imagem (docs/NATIVO-ESPACO-UNIFICADO.md
-        // §2.11): cada módulo com estáticos registra a da imagem em que foi
-        // ligado (o executável, a DLL do SDK); o registro é idempotente.
+        // The section of the static objects of this image (docs/NATIVO-ESPACO-UNIFICADO.md
+        // §2.11): each module with statics registers that of the image it was
+        // linked into (the executable, the SDK DLL); the registration is idempotent.
         if self.static_objects {
             let (globals, start, end) = crate::alvo::image_markers();
             self.out.push_str(&globals);
             writeln!(body, "  call void @dartforge_registrar_imagem(ptr {start}, ptr {end})").unwrap();
         }
-        // Raízes por mapas: os mapas de pilha da imagem em que este módulo
-        // foi ligado (o registro é idempotente, por imagem), pelo formato
-        // dela. O JIT acha e registra o mapa de cada objeto.
+        // Roots by maps: the stack maps of the image this module
+        // was linked into (the registration is idempotent, per image), in its
+        // format. The JIT finds and registers the map of each object.
         if self.maps && !self.maps_in_jit {
             body.push_str(Self::maps_registration_call());
         }
-        // O rastro simbólico (§13.14): a tabela da imagem, idempotente.
+        // The symbolic stack trace (§13.14): the table of the image, idempotent.
         if let Some(c) = self.trace_registration_call() {
             body.push_str(&c);
             body.push_str(&self.trace_field_registration_calls());
         }
-        // As classes do programa (e as formas de record) registram a tabela
-        // na partida. `_StackTrace` do SDK também precisa: o runtime cria o
-        // primeiro trace diretamente, sem passar por `object_new_t`, que é o
-        // ponto de registro preguiçoso das demais classes do SDK.
+        // The program classes (and the record shapes) register their table
+        // at startup. The SDK's `_StackTrace` needs it too: the runtime creates the
+        // first trace directly, without going through `object_new_t`, which is the
+        // lazy registration point of the other SDK classes.
         for (cid, symbol, _) in &module.method_tables {
             let runtime_trace = module.sdk_library && module.classes.iter()
                 .any(|cls| cls.id == *cid && cls.name == "_StackTrace");
@@ -272,9 +272,9 @@ impl LlvmEmitter<'_> {
         self.out.push_str("  ret void\n}\n\n");
     }
 
-    /// `dartforge_dispatch_toString` (o runtime pede o texto de um valor) pelo
-    /// seletor `c:toString`: o `toString()` da classe dinâmica, do programa
-    /// ou do SDK da fonte.
+    /// `dartforge_dispatch_toString` (the runtime asks for the text of a value) through the
+    /// `c:toString` selector: the `toString()` of the dynamic class, of the program
+    /// or of the source SDK.
     pub(super) fn emit_to_string_by_selector(&mut self) {
         let s = "c:toString";
         let name = match self.selector_names.iter().position(|x| x == s) {
@@ -303,18 +303,18 @@ impl LlvmEmitter<'_> {
         .unwrap();
     }
 
-    /// As tabelas de métodos das classes do módulo, como dados, e a função
-    /// pública de cada uma, `df.mt.<library>.<Classe>`, que devolve o
-    /// endereço dela. A tabela é registrada no runtime **na primeira
-    /// alocação** de um objeto da classe (`dartforge_object_new_t`): uma
-    /// classe que o programa nunca instancia não tem a tabela alcançada, e o
-    /// ligador (`/OPT:REF`, no perfil de produção) tira a tabela, os
-    /// adaptadores e os métodos que só ela alcançava. As classes dos valores
-    /// do runtime são registradas pela entrada do programa.
+    /// The method tables of the classes of the module, as data, and the public
+    /// function of each one, `df.mt.<library>.<Class>`, which returns its
+    /// address. The table is registered in the runtime **on the first
+    /// allocation** of an object of the class (`dartforge_object_new_t`): a
+    /// class the program never instantiates does not have its table reached, and the
+    /// linker (`/OPT:REF`, in the production profile) removes the table, the
+    /// adapters and the methods that only it reached. The classes of the
+    /// runtime values are registered by the program entry.
     ///
-    /// Com as tabelas na ligação (o SDK de produção,
-    /// docs/NATIVO-PODA-DE-TABELAS.md §3.2) nada sai aqui: o módulo do
-    /// programa define as tabelas do SDK, só com os pares vivos
+    /// With the tables at link time (the production SDK,
+    /// docs/NATIVO-PODA-DE-TABELAS.md §3.2) nothing comes out here: the program
+    /// module defines the SDK tables, with only the live pairs
     /// (`pruning::assemble`).
     fn emit_method_tables(&mut self) -> String {
         if self.tables_at_link {
@@ -332,10 +332,10 @@ impl LlvmEmitter<'_> {
         }
         String::new()
     }
-    /// `define` de uma função que pode aparecer em mais de um módulo
-    /// (entradas de tear-off, constantes canônicas): `linkonce_odr` num
-    /// `comdat` próprio — o ligador fica com uma. Os outros símbolos não
-    /// mudam.
+    /// `define` of a function that may appear in more than one module
+    /// (tear-off entries, canonical constants): `linkonce_odr` in its own
+    /// `comdat` — the linker keeps one. The other symbols do not
+    /// change.
     pub(super) fn linkage_of(&mut self, symbol: &str) -> (&'static str, String) {
         if !self.module.sdk_mode {
             return ("", String::new());
@@ -349,22 +349,22 @@ impl LlvmEmitter<'_> {
             return ("", String::new());
         }
         if !crate::alvo::has_comdat() {
-            // Mach-O: a definição `linkonce_odr` já é fraca, sem `comdat`.
+            // Mach-O: the `linkonce_odr` definition is already weak, without a `comdat`.
             return ("linkonce_odr ", String::new());
         }
         self.comdats.push(symbol.to_string());
         ("linkonce_odr ", format!(" comdat($\"{symbol}\")"))
     }
 
-    /// Declarações do que o módulo usa e outro módulo define (P5c): funções
-    /// Dart chamadas diretamente, entradas de closure, natives do runtime
-    /// fora da tabela de externs. Sem o SDK da fonte o módulo é o programa
-    /// inteiro, e nada sai aqui.
-    /// Os thunks Owned genéricos (`optimize::arc::natives`): a base roda num
-    /// escopo nativo (os tokens que portas Dart devolvem ficam nele), e o
-    /// resultado ganha um owner do código antes de o escopo fechar; com
-    /// exceção pendente, null sem owner — o mesmo protocolo de
-    /// `owner_em_escopo_nativo` no runtime.
+    /// Declarations of what the module uses and another module defines (P5c): Dart
+    /// functions called directly, closure entries, runtime natives
+    /// outside the extern table. Without the source SDK the module is the whole
+    /// program, and nothing comes out here.
+    /// The generic Owned thunks (`optimize::arc::natives`): the base runs in a
+    /// native scope (the tokens that Dart ports return stay in it), and the
+    /// result gets a code owner before the scope closes; with a
+    /// pending exception, null without an owner — the same protocol as
+    /// `owner_em_escopo_nativo` in the runtime.
     fn emit_owned_thunks(&mut self) {
         let thunks = std::mem::take(&mut self.owned_thunks);
         for (name, (base, types)) in thunks {
@@ -391,9 +391,9 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// Os thunks de escopo nativo (`optimize::arc::natives`): a base roda
-    /// num escopo nativo, e o resultado (escalar, emprestado ou nenhum) e a
-    /// pendência ficam como a base os deixou.
+    /// The native scope thunks (`optimize::arc::natives`): the base runs
+    /// in a native scope, and the result (scalar, borrowed or none) and the
+    /// pending state stay as the base left them.
     fn emit_scope_thunks(&mut self) {
         let thunks = std::mem::take(&mut self.scope_thunks);
         for (name, (base, types, ret)) in thunks {
@@ -422,7 +422,7 @@ impl LlvmEmitter<'_> {
         self.emit_owned_thunks();
         self.emit_scope_thunks();
         self.emit_stack_trace_names();
-        // `DARTFORGE_EFEITOS=check`: os nomes das externs conferidas.
+        // `DARTFORGE_EFEITOS=conferir`: the names of the checked externs.
         for (k, s) in std::mem::take(&mut self.checked_externs).iter().enumerate() {
             writeln!(self.out, "@df.efn.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
         }
@@ -431,8 +431,8 @@ impl LlvmEmitter<'_> {
         }
         let mut defined: std::collections::HashSet<&str> =
             self.module.functions.iter().map(|f| f.symbol.as_str()).collect();
-        // As funções das tabelas de métodos do módulo (`emit_method_tables`).
-        // Com as tabelas na ligação, elas são do módulo do programa.
+        // The functions of the method tables of the module (`emit_method_tables`).
+        // With the tables at link time, they belong to the program module.
         if !self.tables_at_link {
             defined.extend(self.module.method_tables.iter().map(|(_, s, _)| s.as_str()));
         }
@@ -449,8 +449,8 @@ impl LlvmEmitter<'_> {
             if defined.contains(symbol.as_str()) || runtime_declared.contains(symbol.as_str()) {
                 continue;
             }
-            // O que o próprio emissor escreve (`dartforge_dispatch_toString`,
-            // `dartforge_entry`, os registros) não é externo.
+            // What the emitter itself writes (`dartforge_dispatch_toString`,
+            // `dartforge_entry`, the registrations) is not external.
             if (symbol.starts_with("dartforge_") && !symbol.starts_with("dartforge_nativo_"))
                 || symbol == "df.registrar.programa"
             {
@@ -469,8 +469,8 @@ impl LlvmEmitter<'_> {
         self.out.push('\n');
     }
 
-    /// Anota a assinatura de uma chamada a um símbolo, para declará-lo se
-    /// ele não for definido no módulo.
+    /// Records the signature of a call to a symbol, to declare it if
+    /// it is not defined in the module.
     pub(super) fn annotate_external(&mut self, symbol: &str, ret: Type, args: &[Type]) {
         if self.externals.contains_key(symbol) {
             return;

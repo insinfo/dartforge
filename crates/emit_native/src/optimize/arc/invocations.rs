@@ -1,5 +1,5 @@
-//! Geração de pousos locais para propagar falhas de chamadas Dart diretas.
-//! Executa nas cópias da transação, preservando sítios já preparados.
+//! Generation of local landing pads to propagate failures of direct Dart calls.
+//! Runs on the transaction copies, preserving already prepared sites.
 
 use super::*;
 
@@ -9,9 +9,9 @@ pub(super) fn prepare(
     do_not_throw: &HashSet<String>,
     by_tables: bool,
 ) -> Result<(), String> {
-    // O lowering de checagem já escolheu catch/finally e a continuação.
-    // Reconhecer a forma exata conserva esse CFG como pending, sem inventar
-    // invoke LLVM nem substituir o tratador por propagação da exceção.
+    // The check lowering has already chosen catch/finally and the continuation.
+    // Recognizing the exact shape keeps that CFG as pending, without inventing
+    // an LLVM invoke nor replacing the handler with exception propagation.
     super::ssa::verify(f)?;
     let mut pendings = HashMap::new();
     for b in &f.blocks {
@@ -43,8 +43,8 @@ pub(super) fn prepare(
     {
         return Ok(());
     }
-    // Uma conferência existente pode selecionar catch/finally. Não a
-    // substituímos por propagação sem os sítios fornecidos pelo lowering.
+    // An existing check may select catch/finally. We do not replace it
+    // with propagation without the sites supplied by the lowering.
     if f.blocks.iter().any(|b| {
         b.instructions.windows(2).any(|par| {
             absent(&par[0].0, &par[0].1)
@@ -111,9 +111,9 @@ pub(super) fn prepare(
                     },
                 );
             } else {
-                // Exceções por checagem: a guarda que o lowering emitiria
-                // (uma otimização a tirou supondo o callee sem exceção);
-                // a saída devolve o valor padrão com a exceção pendente.
+                // Exceptions by check: the guard the lowering would emit
+                // (an optimization removed it assuming the callee throws nothing);
+                // the exit returns the default value with the pending exception.
                 let p = ValueId(u32::try_from(next_val).map_err(|_| "IDs SSA esgotados ao preparar guarda Dart")?);
                 let c = ValueId(p.0.checked_add(1).ok_or("IDs SSA esgotados ao preparar guarda Dart")?);
                 next_val = u64::from(c.0) + 1;
@@ -128,8 +128,8 @@ pub(super) fn prepare(
                 };
                 plan.tokens.pendings.insert(v, error);
             }
-            // O pouso libera os tokens antes de sair dos escopos ativos.
-            // Chamadas inalcançáveis não têm pilha executável a fechar.
+            // The landing pad releases the tokens before leaving the active scopes.
+            // Unreachable calls have no executable stack to close.
             let close: Vec<_> = stacks
                 .get(&v)
                 .into_iter()
@@ -162,8 +162,8 @@ pub(super) fn prepare(
             finals.insert(origin, f.blocks[current].id);
         }
     }
-    // Só o último segmento conserva o terminador original. Atualizamos
-    // Phis e eventos uma vez por função, sem buscas por chamada/sucessor.
+    // Only the last segment keeps the original terminator. We update
+    // Phis and events once per function, without searching per call/successor.
     for b in &mut f.blocks {
         for (_, inst, _) in &mut b.instructions {
             if let Instruction::Phi { incoming, .. } = inst {
@@ -265,8 +265,8 @@ mod tests {
             (1, 4)
         );
         let p = &plans["caller"];
-        // O owner v1 termina na continuação normal da primeira chamada;
-        // não precisa permanecer até o pouso da segunda.
+        // The owner v1 ends in the normal continuation of the first call;
+        // it does not need to stay until the landing pad of the second one.
         for (v, expected) in [(2, vec![1]), (3, vec![2])] {
             let error = p.tables.invocations[&ValueId(v)];
             assert!(p.tables.landing_pads.contains(&error));

@@ -1,43 +1,43 @@
-//! A emissão das listas do núcleo (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.5 e
-//! §4.5): o literal de lista (`AllocList`) e os ajudantes `@df.lista_*` do
-//! prelúdio.
+//! Emission of core lists (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.5 and
+//! §4.5): the list literal (`AllocList`) and the `@df.lista_*` helpers of the
+//! prelude.
 //!
-//! O literal vai ao runtime como palavras (`dartforge_lista_nova`), na forma que
-//! os elementos pedem: todos `Ref` → geral; todos `int`, todos `double` ou todos
-//! `bool` sem caixa → a forma compacta desse escalar (o `E` reificado, gravado
-//! logo depois pelo `rti_definir`, a confirma ou a desfaz: `Heap::lista_ajustar_forma`);
-//! misturados → geral, com um vetor de tags que diz ao runtime quais palavras
-//! encaixotar. O código gerado não encaixota: uma caixa feita antes da lista
-//! ficaria sem raiz na alocação seguinte.
+//! The literal goes to the runtime as words (`dartforge_lista_nova`), in the shape
+//! the elements ask for: all `Ref` → general; all unboxed `int`, all `double` or all
+//! `bool` → the compact shape of that scalar (the reified `E`, written
+//! right after by `rti_definir`, confirms or undoes it: `Heap::lista_ajustar_forma`);
+//! mixed → general, with a tag vector that tells the runtime which words
+//! to box. The generated code does not box: a box made before the list
+//! would have no root at the next allocation.
 //!
-//! Os ajudantes leem o bloco pelos deslocamentos de `layout::off` (conferidos
-//! abaixo, em tempo de compilação, contra os números do texto do IR). Nenhum
-//! aloca nem lança ([`HELPER_EFFECTS`]).
+//! The helpers read the block through the offsets of `layout::off` (checked
+//! below, at compile time, against the numbers in the IR text). None
+//! allocates or throws ([`HELPER_EFFECTS`]).
 
 use super::LlvmEmitter;
 use crate::hir::*;
 use dartforge_runtime::layout::{self, cid, desl, flags};
 use std::fmt::Write;
 
-/// Os ajudantes `@df.lista_*` (§3.5), impressos no prelúdio de cada módulo por
-/// `emit_runtime_decls`. `%l` é uma lista do núcleo (`_List`, `_ImmutableList` ou
-/// `_GrowableList`); `%a`, um armazenamento (`_List`/`_ImmutableList`), o que
-/// `@df.lista_armazenamento` devolve.
+/// The `@df.lista_*` helpers (§3.5), printed in the prelude of each module by
+/// `emit_runtime_decls`. `%l` is a core list (`_List`, `_ImmutableList` or
+/// `_GrowableList`); `%a`, a storage (`_List`/`_ImmutableList`), what
+/// `@df.lista_armazenamento` returns.
 ///
-/// * `@df.lista_len(l)`: o comprimento, `[l+14]` nas três classes;
-/// * `@df.lista_armazenamento(l)`: cid 10 → `[l+22]`, senão `l`;
-/// * `@df.lista_elemento(a, i)`: o endereço `a + 22 + 8i`;
-/// * `@df.lista_forma(a)`: `[a−1] & 0x66` (`FORMA` e `ELEMENTO`: 0x04 geral,
+/// * `@df.lista_len(l)`: the length, `[l+14]` in all three classes;
+/// * `@df.lista_armazenamento(l)`: cid 10 → `[l+22]`, otherwise `l`;
+/// * `@df.lista_elemento(a, i)`: the address `a + 22 + 8i`;
+/// * `@df.lista_forma(a)`: `[a−1] & 0x66` (`FORMA` and `ELEMENTO`: 0x04 general,
 ///   0x22 `int`, 0x42 `double`, 0x62 `bool`);
-/// * `@df.lista_capacidade(l)`: o comprimento do armazenamento;
-/// * `@df.lista_ler(a, i)`: a palavra `i` (um `Ref` na forma geral);
-/// * `@df.lista_gravar_ref(a, i, v)`: grava o `Ref` e aplica a barreira de
-///   elemento (`@df.barreira_elemento`, com cartões);
-/// * `@df.lista_gravar_len(l, n)`: o comprimento de uma `_GrowableList`, sem
-///   barreira (não é referência; o `_setLength` da VM);
-/// * `@df.lista_gravar_dados(l, d)`: troca o armazenamento de uma `_GrowableList`
-///   com a barreira quando `d` tem a forma do atual (devolve 1); senão não grava
-///   e devolve 0 (o native devolve a forma ao novo).
+/// * `@df.lista_capacidade(l)`: the length of the storage;
+/// * `@df.lista_ler(a, i)`: word `i` (a `Ref` in the general shape);
+/// * `@df.lista_gravar_ref(a, i, v)`: writes the `Ref` and applies the element
+///   barrier (`@df.barreira_elemento`, with cards);
+/// * `@df.lista_gravar_len(l, n)`: the length of a `_GrowableList`, without a
+///   barrier (it is not a reference; the VM's `_setLength`);
+/// * `@df.lista_gravar_dados(l, d)`: replaces the storage of a `_GrowableList`
+///   with the barrier when `d` has the shape of the current one (returns 1); otherwise it does not write
+///   and returns 0 (the native gives the shape to the new one).
 pub const HELPERS: &str = "define internal i64 @df.lista_len(i64 %l) alwaysinline {\n\
   %p = inttoptr i64 %l to ptr\n\
   %q = getelementptr inbounds i8, ptr %p, i64 14\n\
@@ -112,8 +112,8 @@ fim:\n\
   ret i64 %r\n\
 }\n";
 
-// Os números do texto de `HELPERS` são os do contrato de layout (relativos ao
-// handle, bloco + 2).
+// The numbers in the text of `HELPERS` are those of the layout contract (relative to the
+// handle, block + 2).
 const _: () = {
     let h = layout::DESLOCAMENTO_DO_HANDLE as usize;
     assert!(desl::COMPRIMENTO - h == 14);
@@ -125,11 +125,11 @@ const _: () = {
     assert!(flags::FORMA | flags::ELEMENTO == 102);
 };
 
-/// Os ajudantes do módulo: no ARC (`Module::arc_memory`), a gravação do
-/// elemento e a troca do armazenamento da `_GrowableList` passam pelo
-/// runtime, que conta a troca e aplica a barreira: o elemento pela palavra
-/// do corpo `REFS` (`dartforge_arc_gravar_ref`), o armazenamento pelo campo
-/// 1 da `INSTANCIA` (`dartforge_object_set`).
+/// The helpers of the module: under ARC (`Module::arc_memory`), the element write
+/// and the storage replacement of the `_GrowableList` go through the
+/// runtime, which counts the replacement and applies the barrier: the element through the word
+/// of the `REFS` body (`dartforge_arc_gravar_ref`), the storage through field
+/// 1 of the `INSTANCIA` (`dartforge_object_set`).
 pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
     if !arc {
         return std::borrow::Cow::Borrowed(HELPERS);
@@ -142,9 +142,9 @@ pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
     std::borrow::Cow::Owned(HELPERS.replace(element, arc_element).replace(data, arc_data))
 }
 
-/// Os efeitos de cada ajudante `@df.*` deste arquivo chamado por
-/// `CallRuntime`: `(name, allocates, lança)`. `externs::effects_of` os consulta
-/// antes da tabela de externs (um ajudante fora daqui é conservador).
+/// The effects of each `@df.*` helper of this file called by
+/// `CallRuntime`: `(name, allocates, throws)`. `externs::effects_of` consults them
+/// before the extern table (a helper outside here is conservative).
 pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.lista_len", false, false),
     ("df.lista_armazenamento", false, false),
@@ -156,31 +156,31 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.lista_gravar_dados", false, false),
 ];
 
-/// O estado da emissão de listas por módulo.
+/// The per-module emission state of lists.
 #[derive(Default)]
 pub(super) struct ListState {}
 
-/// A tag de ABI de uma palavra do literal misto (a de `LlvmEmitter::tag_de`): 1
-/// `int`, 2 `bool`, 3 `Ref`, 4 bits de `double`.
+/// The ABI tag of a word of the mixed literal (that of `LlvmEmitter::tag_de`): 1
+/// `int`, 2 `bool`, 3 `Ref`, 4 bits of a `double`.
 const TAG_REF: u8 = 3;
 
 impl LlvmEmitter<'_> {
-    /// Os `alloca`s do bloco de entrada de um `AllocList`: as palavras e as tags
-    /// (usadas só no literal misto; o LLVM tira a que sobra).
+    /// The `alloca`s of the entry block of an `AllocList`: the words and the tags
+    /// (used only in the mixed literal; LLVM removes the leftover).
     pub(super) fn list_buffer(&mut self, v: u32, elements: &[(Operand, u8)]) {
         let n = elements.len().max(1);
         writeln!(self.out, "  %list_buf_{v} = alloca [{n} x i64], align 8").unwrap();
         writeln!(self.out, "  %list_tags_{v} = alloca [{n} x i8], align 1").unwrap();
     }
 
-    /// A lista literal: uma `_GrowableList` de capacidade `n` com as palavras
-    /// dos elementos (`dartforge_lista_nova(words, n, cid, shape)`).
+    /// The literal list: a `_GrowableList` of capacity `n` with the words
+    /// of the elements (`dartforge_lista_nova(words, n, cid, shape)`).
     pub(super) fn emit_alloc_list(&mut self, v: u32, elements: &[(Operand, u8)]) {
         let n = elements.len();
         let width = n.max(1);
         let tags: Vec<u8> = elements.iter().map(|(op, _)| self.tag_de(op)).collect();
-        // A forma pelo código de `lists::Elemento` (0 geral, 1 int, 2 double,
-        // 3 bool); `None`: misturado.
+        // The shape by the code of `lists::Elemento` (0 general, 1 int, 2 double,
+        // 3 bool); `None`: mixed.
         let shape: Option<i64> = match tags.first() {
             None => Some(0),
             Some(&t) if tags.iter().all(|&x| x == t) => Some(match t {
@@ -192,8 +192,8 @@ impl LlvmEmitter<'_> {
             _ => None,
         };
         for (k, (elem, _)) in elements.iter().enumerate() {
-            // A palavra na representação do elemento: o `Ref`, o `i64`, os bits
-            // do `double` (`bitcast`) ou 0/1 (`zext`).
+            // The word in the representation of the element: the `Ref`, the `i64`, the bits
+            // of the `double` (`bitcast`) or 0/1 (`zext`).
             let word = if tags[k] == TAG_REF { self.coerce(elem, Type::Ref) } else { self.coerce(elem, Type::I64) };
             writeln!(self.out, "  %lp{v}_{k} = getelementptr [{width} x i64], ptr %list_buf_{v}, i64 0, i64 {k}").unwrap();
             writeln!(self.out, "  store i64 {word}, ptr %lp{v}_{k}, align 8").unwrap();

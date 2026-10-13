@@ -1,10 +1,10 @@
-//! `super` (P4): `super.m(…)`, `super.x`, `super.x = v` e `super op e`.
+//! `super` (P4): `super.m(…)`, `super.x`, `super.x = v` and `super op e`.
 //!
-//! A especificação (§17.21.3 "Super Invocation") procura o membro a partir
-//! da superclasse da classe **lexicamente** envolvente, sem despacho pela
-//! classe dinâmica: a chamada é direta. Quando a busca chega ao SDK
-//! (`Object`), os membros de `Object` são os do runtime: `toString()` é o
-//! `Instance of 'C'` e `==` é a identidade.
+//! The specification (§17.21.3 "Super Invocation") looks the member up starting from
+//! the superclass of the **lexically** enclosing class, without dispatch on the
+//! dynamic class: the call is direct. When the lookup reaches the SDK
+//! (`Object`), the members of `Object` are the runtime's: `toString()` is
+//! `Instance of 'C'` and `==` is identity.
 
 use super::fn_builder::FnBuilder;
 use super::members::{Evaluated, has_body};
@@ -13,20 +13,20 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionKind, VariableId};
 use dartforge_intern::SymbolId;
 
-/// O que `super.name` encontrou.
+/// What `super.name` found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuperMember {
     Function(usize),
     Field(VariableId),
-    /// A busca chegou ao SDK.
+    /// The lookup reached the SDK.
     Sdk,
-    /// `super` dentro de um `mixin`: o alvo depende da aplicação.
+    /// `super` inside a `mixin`: the target depends on the application.
     OfMixin,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Procura `name` (ou o setter `name=`) a partir da superclasse da
-    /// classe envolvente.
+    /// Looks `name` (or the setter `name=`) up starting from the superclass of the
+    /// enclosing class.
     pub fn super_member(&self, name: SymbolId, setter: bool) -> SuperMember {
         let Some(cid) = self.enclosing_class else {
             return SuperMember::Sdk;
@@ -37,17 +37,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             Some(name)
         };
-        // A superclasse de `C` na linearização é o que vem depois dele (os
-        // mixins aplicados e depois a superclasse); num `mixin` o `super`
-        // depende da classe que o aplica (`SuperMember::OfMixin`).
+        // The superclass of `C` in the linearization is what comes after it (the
+        // applied mixins and then the superclass); in a `mixin` the `super`
+        // depends on the class that applies it (`SuperMember::OfMixin`).
         if super::members::is_mixin(self.ctx, cid) {
             return SuperMember::OfMixin;
         }
         self.search_after(cid, cid, name, key)
     }
 
-    /// Procura `name` (`key`: o nome ou o do setter) na linearização de
-    /// `class`, depois de `after`.
+    /// Looks `name` up (`key`: the name or the setter's) in the linearization of
+    /// `class`, after `after`.
     fn search_after(
         &self,
         class: dartforge_elements::model::ClassId,
@@ -81,12 +81,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
 
-    /// `super.name` dentro de um `mixin` M: o alvo é o que vem depois de M na
-    /// linearização da classe **dinâmica** de `this` (especificação §12.3:
-    /// cada aplicação de M tem a sua superclasse). O código do mixin é
-    /// compilado uma vez, então o alvo é escolhido pela classe (o mesmo
-    /// mecanismo dos campos de mixin): um alvo por classe concreta que
-    /// aplica M.
+    /// `super.name` inside a `mixin` M: the target is what comes after M in the
+    /// linearization of the **dynamic** class of `this` (specification §12.3:
+    /// each application of M has its own superclass). The mixin code is
+    /// compiled once, so the target is chosen by the class (the same
+    /// mechanism as mixin fields): one target per concrete class that
+    /// applies M.
     fn mixin_super_targets(&self, name: SymbolId, setter: bool) -> Vec<(i64, SuperMember)> {
         let Some(mixin) = self.enclosing_class else {
             return Vec::new();
@@ -100,8 +100,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut exit = Vec::new();
         for (k, class) in self.ctx.program.classes.iter().enumerate() {
             let kid = dartforge_elements::model::ClassId(k as u32);
-            // As classes do SDK da fonte também aplicam mixins com `super`
-            // (`_ConstMap` com `_ImmutableLinkedHashMapMixin`).
+            // The classes of the source SDK also apply mixins with `super`
+            // (`_ConstMap` with `_ImmutableLinkedHashMapMixin`).
             if !self.ctx.compiled_library(class.library)
                 || class.modifiers.abstract_
                 || super::members::is_mixin(self.ctx, kid)
@@ -125,9 +125,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         t
     }
 
-    /// Faz `use_site` com o alvo de `super.name`: direto, ou — dentro de um
-    /// mixin — pela classe dinâmica de `this` (`switch`), com o resultado
-    /// `Ref` numa junção.
+    /// Performs `use_site` with the target of `super.name`: directly, or — inside a
+    /// mixin — by the dynamic class of `this` (`switch`), with the `Ref`
+    /// result at a join.
     fn with_super_target(
         &mut self,
         this: Operand,
@@ -235,7 +235,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if s.ctx.program.functions[f].kind == FunctionKind::Getter {
                     s.call_direct(f, Some(this), Vec::new())
                 } else {
-                    // Tear-off de `super.m`: liga ao método da superclasse.
+                    // Tear-off of `super.m`: binds to the superclass method.
                     s.method_tearoff(this, f, span)
                 }
             }

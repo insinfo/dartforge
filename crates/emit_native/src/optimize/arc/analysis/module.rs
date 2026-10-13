@@ -1,37 +1,37 @@
-//! Liga origens/layouts do lowering à extração local, sem selecionar políticas.
-//! Acessos selecionam o campo nominal pelo esquema de cada receiver possível.
+//! Binds lowering origins/layouts to the local extraction, without selecting policies.
+//! Accesses select the nominal field through the schema of each possible receiver.
 
 use super::{hir::*, model::*, points_to::*};
 use crate::hir::*;
 use std::collections::HashMap;
 
-/// Analisa um corpo ARC usando origens e layouts já registrados no módulo.
-/// Tracing devolve None sem executar a análise. Origem/layout ausente conserva
-/// desconhecimento; nunca cria sítio a partir do ID SSA atual. Campos de um
-/// receiver selecionam o campo do próprio layout, incluindo uniões de classes
-/// e leituras encadeadas, no mesmo ponto fixo dos aliases. Esquema/índice
-/// ausente e receiver opaco ou vazio conservam uma fronteira desconhecida.
-/// Cópias/Phis preservam a união; parâmetro e call sem resumo não provam layout.
-/// Chaves de layout são locais à versão do módulo, sem validade de recarga.
-/// CallStatic usa aliases normais dos corpos locais até ponto fixo por SCC.
-/// Folha com cobertura de campos e ABI exata preserva a precisão dos campos;
-/// publicação pode ser limitada ao resultado pela cobertura própria; demais
-/// escapes/retenções continuam opacos. Guarda corpos transitivos e tabelas de
-/// emissão consultadas, inclusive conferência implícita de pilha.
-/// Contexto explícito e caminhos de tabelas sem resumo conservam uma fronteira
-/// de emissão opaca, separada dos IDs de instruções. Quadros por vivacidade
-/// também conservam essa fronteira antes de reduções por mapas. Instrumentação
-/// e demais opções do emissor ainda exigem cobertura própria.
+/// Analyzes an ARC body using origins and layouts already recorded in the module.
+/// Tracing returns None without running the analysis. A missing origin/layout keeps
+/// lack of knowledge; never creates a site from the current SSA ID. Fields of a
+/// receiver select the field of its own layout, including unions of classes
+/// and chained reads, in the same fixpoint as the aliases. A missing schema/index
+/// and an opaque or empty receiver keep an unknown boundary.
+/// Copies/Phis preserve the union; a parameter and a call without a summary do not prove a layout.
+/// Layout keys are local to the module version, with no validity across reloads.
+/// CallStatic uses the normal aliases of local bodies up to a fixpoint per SCC.
+/// A leaf with field coverage and an exact ABI preserves the precision of the fields;
+/// publication may be limited to the result by its own coverage; other
+/// escapes/retentions stay opaque. Guards transitive bodies and consulted emission
+/// tables, including the implicit stack check.
+/// An explicit context and table paths without a summary keep an opaque emission
+/// boundary, separate from the instruction IDs. Frames by liveness
+/// also keep that boundary before reductions by maps. Instrumentation
+/// and other emitter options still require their own coverage.
 ///
-/// # Erros
-/// Símbolo ausente/duplicado, fato de sítio obsoleto, origem com classes
-/// conflitantes, inicializador incompatível ou falha da extração/SSA.
-/// Módulo não é alterado; resultado não é certificado de política.
+/// # Errors
+/// Missing/duplicated symbol, stale site fact, an origin with conflicting
+/// classes, an incompatible initializer or a failure of the extraction/SSA.
+/// The module is not changed; the result is not a policy certificate.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::analise::modulo::analisar_no_modulo};
+/// use dartforge_emit_native::{hir::*, optimize::arc::analysis::module::analyze_in_module};
 /// let m = Module::new();
-/// assert!(analisar_no_modulo(&m, "ausente", 8)?.is_none());
+/// assert!(analyze_in_module(&m, "absent", 8)?.is_none());
 /// # Ok::<(), String>(())
 /// ```
 pub fn analyze_in_module(
@@ -64,20 +64,20 @@ pub fn analyze_in_module(
         .collect();
     let summaries = super::calls::solve(m, &calls, limit)?;
     let facts = facts_in_module(m, f)?;
-    // A seleção acompanha aliases e campos na mesma solução. Não refinar
-    // topo de uma primeira passagem nem pressupor um layout único do Phi.
+    // The selection follows aliases and fields in the same solution. Do not refine
+    // the top of a first pass nor assume a single layout for the Phi.
     let mut analysis = analyze_with_summaries(f, &facts, limit, &summaries, true)?;
     analysis.module_premises = Some(premises_signature(m, sym_name));
-    // Guarda conservadora de todo o alcance consultado, inclusive corpos
-    // transitivos. Não é cache persistente nem dependência de geração JIT.
+    // A conservative guard of the whole consulted reach, including transitive
+    // bodies. It is neither a persistent cache nor a JIT generation dependency.
     let positions: HashMap<_, _> = m
         .functions
         .iter()
         .enumerate()
         .map(|(i, f)| (f.symbol.as_str(), i))
         .collect();
-    // O prólogo/cleanup do próprio chamador também depende destas tabelas,
-    // inclusive quando o corpo não possui nenhuma chamada direta local.
+    // The prologue/cleanup of the caller itself also depends on these tables,
+    // even when the body has no local direct call.
     analysis
         .table_dependencies
         .insert(sym_name.to_string(), table_state(m, positions[sym_name]));
@@ -86,9 +86,9 @@ pub fn analyze_in_module(
     } else {
         None
     };
-    // Contexto implica CheckStackOverflow no prólogo, mesmo se toda a HIR
-    // explícita tiver cobertura. Pousos/saídas/cleanup também inserem caminhos
-    // sem contrato de heap aqui. Não inventar um ValueId para esses efeitos.
+    // A context implies CheckStackOverflow in the prologue, even if the whole explicit
+    // HIR has coverage. Landing pads/exits/cleanup also insert paths
+    // without a heap contract here. Do not invent a ValueId for these effects.
     analysis.opaque_implicit_emission = (m.excecoes_por_tabelas && table.is_none())
         || crate::llvm::LlvmEmitter::requires_explicit_context(f, table)
         || crate::llvm::LlvmEmitter::may_require_context_for_roots(f)
@@ -110,8 +110,8 @@ pub fn analyze_in_module(
     Ok(Some(analysis))
 }
 
-// Uma única validação das origens/layouts para o corpo local e para os
-// objetos mencionados pelos resumos de callees. Não fabrica origem por SSA.
+// A single validation of origins/layouts for the local body and for the
+// objects mentioned by the callee summaries. Does not forge an origin from SSA.
 pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, String> {
     let instructions: HashMap<_, _> = f
         .blocks
@@ -194,14 +194,14 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
     Ok(facts)
 }
 
-// Guarda local dos fatos lidos; ordenação nominal evita depender da ordem
-// de inserção/capacidade dos HashMaps. Layouts não usados também invalidam,
-// conservadoramente, até termos dependências finas/versionadas de esquema.
+// A local guard of the facts read; nominal ordering avoids depending on the
+// insertion order/capacity of the HashMaps. Unused layouts also invalidate,
+// conservatively, until we have fine-grained/versioned schema dependencies.
 pub(super) fn premises_signature(m: &Module, sym_name: &str) -> blake3::Hash {
     let layouts: std::collections::BTreeMap<_, _> = m.arc_field_layouts.iter().collect();
-    // A identidade de um resultado alocado pode vir de outro corpo. Guarda
-    // nominal do módulo antes de consumir essas origens entre chamadas;
-    // mudar só a proveniência também precisa invalidar a solução anterior.
+    // The identity of an allocated result may come from another body. A nominal
+    // guard of the module before consuming those origins across calls;
+    // changing only the provenance must also invalidate the previous solution.
     let sites: std::collections::BTreeMap<_, _> = m
         .arc_sites
         .iter()
@@ -211,7 +211,7 @@ pub(super) fn premises_signature(m: &Module, sym_name: &str) -> blake3::Hash {
             (function, origins)
         })
         .collect();
-    // Preservar duplicatas: uma declaração repetida deixa de ser ABI válida.
+    // Keep duplicates: a repeated declaration is no longer a valid ABI.
     let mut globals: Vec<_> = m
         .globals
         .iter()
@@ -306,7 +306,7 @@ mod tests {
                 == BTreeSet::from([owner.clone(), action.clone()])));
         assert!(g.opaque());
         g.check_in_module(&m, "anexo_local").unwrap();
-        // Uma captura null não fecha o ciclo, nem cobre os efeitos do anexo.
+        // A null capture does not close the cycle, nor covers the effects of the attachment.
         if let Instruction::AllocClosureTyped { env, .. } =
             &mut m.functions[0].blocks[0].instructions[1].1
         {
@@ -541,7 +541,7 @@ mod tests {
         let cell = a.value(ValueId(2)).unwrap().nodes().unwrap().first().unwrap();
         assert_eq!(g.edges()[cell], expected_set);
         g.check_in_module(&m, "captura").unwrap();
-        // Nem o bit escalar nem índice ausente viram referência null precisa.
+        // Neither the scalar bit nor a missing index become a precise null reference.
         for index in [0, 2] {
             if let Instruction::EnvGet { index: alvo, .. } =
                 &mut m.functions[0].blocks[0].instructions[4].1
@@ -798,7 +798,7 @@ mod tests {
                 a.value(ValueId(1)).unwrap().nodes(),
                 Some(&BTreeSet::from([parent.clone()]))
             );
-            // A aresta conhecida não torna o campo importado completamente conhecido.
+            // The known edge does not make the imported field completely known.
             assert!(
                 a.points()
                     .field(
@@ -889,7 +889,7 @@ mod tests {
             }]))
         );
         compute_in_module(&m, "caller", &a).unwrap();
-        // Reconstruir tabelas com outra ordem/capacidade não muda premissas.
+        // Rebuilding tables with another order/capacity does not change premises.
         let mut origins: Vec<_> = m.arc_sites.drain().collect();
         origins.reverse();
         m.arc_sites = origins.into_iter().collect();
@@ -1354,7 +1354,7 @@ mod tests {
                     .nodes()
                     .is_none()
             );
-            // Ordem nominal das declarações não muda a premissa; duplicação muda.
+            // The nominal order of the declarations does not change the premise; duplication does.
             m.globals.reverse();
             assert!(compute_in_module(&m, "caller", &a).is_ok());
             m.globals.push((0, Type::Ref, "g".into()));
@@ -1580,9 +1580,9 @@ mod tests {
         let g = super::super::graph::build_local_in_module(&m, "cadeia", 8)
             .unwrap()
             .unwrap();
-        // O prólogo ainda é opaco; esta etapa só resolve as arestas conhecidas.
+        // The prologue is still opaque; this step only resolves the known edges.
         assert!(g.opaque());
-        // Índice fora do esquema não pode produzir resultado vazio preciso.
+        // An index outside the schema cannot produce a precise empty result.
         if let Instruction::GetField { index, .. } = &mut m.functions[0].blocks[0].instructions[5].1
         {
             *index = 1;
@@ -1632,7 +1632,7 @@ mod tests {
         ));
         m.functions.push(f);
         let a = analyze_in_module(&m, "f", 8).unwrap().unwrap();
-        assert!(a.unknown_set().is_empty()); // A folha id é coberta.
+        assert!(a.unknown_set().is_empty()); // The id leaf is covered.
         assert!(
             compute_in_module(&m, "f", &a).unwrap().publications[&EscapeCause::ImplicitEmission]
                 .nodes()
@@ -1667,7 +1667,7 @@ mod tests {
                 ..Default::default()
             }];
             let a = analyze_in_module(&m, "f", 8).unwrap().unwrap();
-            assert!(a.unknown_set().is_empty()); // Não há instrução explícita.
+            assert!(a.unknown_set().is_empty()); // There is no explicit instruction.
             let e = compute_in_module(&m, "f", &a).unwrap();
             if checks {
                 assert!(
@@ -1685,11 +1685,11 @@ mod tests {
                     .opaque(),
                 checks
             );
-            // Confere o caminho realmente inserido na emissão, além da metadata.
+            // Checks the path really inserted at emission, besides the metadata.
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
             assert_eq!(ir.contains("pilha.estouro:"), checks);
         }
-        m.tables.clear(); // Sem tabela, não há cobertura da emissão disponível.
+        m.tables.clear(); // Without a table, no emission coverage is available.
         let a = analyze_in_module(&m, "f", 8).unwrap().unwrap();
         assert!(
             compute_in_module(&m, "f", &a).unwrap().publications[&EscapeCause::ImplicitEmission]
@@ -1728,7 +1728,7 @@ mod tests {
         assert!(super::super::escape::compute_in_module(&m, "f", &a).is_ok());
         m.functions.reverse();
         m.tables.reverse();
-        m.tables[0].checks_stack = true; // Mudança só em g, fora das dependências.
+        m.tables[0].checks_stack = true; // A change only in g, outside the dependencies.
         assert!(super::super::escape::compute_in_module(&m, "f", &a).is_ok());
         m.tables[1].checks_stack = true;
         assert!(super::super::escape::compute_in_module(&m, "f", &a).is_err());
@@ -1813,7 +1813,7 @@ mod tests {
             e.publications[&super::super::escape::EscapeCause::Return],
             *a.value(ValueId(0)).unwrap()
         );
-        // Ignorar o resultado da identidade não publica o argumento.
+        // Ignoring the result of the identity does not publish the argument.
         m.functions[0].blocks[0].terminator =
             Terminator::Return(Some(Operand::Constant(Constant::Null)));
         let discarded = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
@@ -1829,8 +1829,8 @@ mod tests {
                 .contains_key(&super::super::escape::EscapeCause::OpaqueOperation(2))
         );
         m.functions[0].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(3))));
-        // Metadados de emissão podem introduzir chamada implícita, mesmo
-        // sem mudança do corpo HIR; devem invalidar o consumo anterior.
+        // Emission metadata may introduce an implicit call, even
+        // without a change of the HIR body; they must invalidate the previous consumption.
         m.excecoes_por_tabelas = true;
         m.tables = vec![FunctionTables::default(); 2];
         assert!(super::super::escape::compute_in_module(&m, "caller", &a).is_err());
@@ -1852,7 +1852,7 @@ mod tests {
         m.excecoes_por_tabelas = false;
         m.tables.clear();
         let leaf = m.functions[1].clone();
-        // Alias normal não apaga escrita explícita.
+        // A normal alias does not erase an explicit write.
         m.functions[1].blocks[0].instructions.push((
             ValueId(1),
             Instruction::SetField {
@@ -1893,7 +1893,7 @@ mod tests {
                 .is_none()
         );
         m.functions[1] = leaf;
-        // Preservação de campos independe de existir retorno Ref/alias.
+        // Field preservation does not depend on the existence of a Ref return/alias.
         m.functions[1].return_ty = Type::Void;
         m.functions[1].blocks[0].terminator = Terminator::Return(None);
         m.functions[0].blocks[0].instructions[2].2 = Type::Void;
@@ -1910,7 +1910,7 @@ mod tests {
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(a.value(ValueId(0)), a.value(ValueId(3)));
         for constant in [Constant::Int(42), Constant::String("texto".into())] {
-            // Converter/materializar um argumento pode coletar antes da folha.
+            // Converting/materializing an argument may collect before the leaf.
             if let Instruction::CallStatic { args, .. } =
                 &mut m.functions[0].blocks[0].instructions[2].1
             {
@@ -2011,8 +2011,8 @@ mod tests {
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(a.value(ValueId(0)), a.value(ValueId(1)));
         assert_eq!(a.value(ValueId(1)).unwrap().nodes().unwrap().len(), 1);
-        // Devolver o argumento não garante que o campo continue null:
-        // o callee acima escreve uma autoaresta antes do retorno normal.
+        // Returning the argument does not guarantee that the field stays null:
+        // the callee above writes a self-edge before the normal return.
         assert!(a.value(ValueId(2)).unwrap().nodes().is_none());
         assert_eq!(a.unknown_set(), &[ValueId(1)]);
         assert!(super::super::escape::compute(&m.functions[0], &a).is_err());
@@ -2106,7 +2106,7 @@ mod tests {
         assert!(super::super::escape::compute_in_module(&m, "criar", &a).is_err());
         m.arc_memory = true;
         assert!(super::super::escape::compute_in_module(&m, "criar", &a).is_ok());
-        // Reconstruir HashMaps em outra ordem não muda as premissas nominais.
+        // Rebuilding HashMaps in another order does not change the nominal premises.
         m.arc_field_layouts.insert(2, vec![Type::F64]);
         m.arc_field_layouts.insert(3, vec![Type::I1]);
         let sorted = analyze_in_module(&m, "criar", 8).unwrap().unwrap();
@@ -2114,7 +2114,7 @@ mod tests {
         layouts.sort_by_key(|(id, _)| std::cmp::Reverse(*id));
         m.arc_field_layouts.extend(layouts);
         assert!(super::super::escape::compute_in_module(&m, "criar", &sorted).is_ok());
-        // ABI/contagem alteradas invalidam o reconhecimento, sem reinterpretar bits.
+        // A changed ABI/count invalidates the recognition, without reinterpreting bits.
         if let Instruction::CallRuntime { args, .. } =
             &mut m.functions[0].blocks[0].instructions[0].1
         {

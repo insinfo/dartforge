@@ -1,7 +1,7 @@
-//! Disponibilidade linear de tokens no CFG preparado, com Phi por aresta.
-//! O inventário e os efeitos são contratos semânticos fornecidos pelo produtor.
-//! Barreiras de borrows derivados são conservadoras; externs, aliases de
-//! slots, regiões, keepalive e versões/pins continuam exigindo produtores.
+//! Linear availability of tokens in the prepared CFG, with Phi per edge.
+//! The inventory and the effects are semantic contracts supplied by the producer.
+//! Barriers of derived borrows are conservative; externs, slot aliases,
+//! regions, keepalive and versions/pins still require producers.
 
 use super::super::{
     cfg::Cfg,
@@ -11,75 +11,75 @@ use super::{OwnerOrigin, Ownership};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Consumo explícito de argumentos de uma instrução ordinária.
+/// Explicit consumption of the arguments of an ordinary instruction.
 ///
-/// As listas preservam multiplicidade: consumir o mesmo token duas vezes
-/// exige duas cópias distintas. Não há contrato implícito para chamada ausente.
+/// The lists preserve multiplicity: consuming the same token twice
+/// requires two distinct copies. There is no implicit contract for a missing call.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::EfeitoTokens;
-/// let efeito = EfeitoTokens::default();
-/// assert!(!efeito.pode_falhar && efeito.erro.is_empty());
+/// use dartforge_emit_native::optimize::arc::TokenEffect;
+/// let effect = TokenEffect::default();
+/// assert!(!effect.may_fail && effect.error.is_empty());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TokenEffect {
-    /// Consumo tanto no sucesso quanto na falha, antes do resultado.
+    /// Consumption both on success and on failure, before the result.
     pub always: Vec<ValueId>,
-    /// Consumo apenas no sucesso.
+    /// Consumption only on success.
     pub success: Vec<ValueId>,
-    /// Consumo apenas na falha de invoke ou conferência de pendência runtime.
+    /// Consumption only on the failure of an invoke or of a runtime pending check.
     pub error: Vec<ValueId>,
-    /// Exige saída excepcional em invoke ou no mapa de pendências do plano.
+    /// Requires an exceptional exit in an invoke or in the pending map of the plan.
     pub may_fail: bool,
 }
 
-/// Contrato de transferência do resultado ao chamador.
+/// Contract for transferring the result to the caller.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::RetornoTokens;
-/// assert_ne!(RetornoTokens::Owned, RetornoTokens::Borrowed);
+/// use dartforge_emit_native::optimize::arc::TokenReturn;
+/// assert_ne!(TokenReturn::Owned, TokenReturn::Borrowed);
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TokenReturn {
-    /// Resultado sem token gerenciado (inclusive funções void).
+    /// A result without a managed token (void functions included).
     #[default]
     Trivial,
-    /// Transfere um token owned; null não exige contagem física.
+    /// Transfers an owned token; null requires no physical count.
     Owned,
-    /// Empréstimo sustentado pelo chamador, nunca por owner local.
+    /// A borrow sustained by the caller, never by a local owner.
     Borrowed,
 }
 
-/// Contratos na mesma versão do CFG e do inventário de ownership.
+/// Contracts on the same version of the CFG and of the ownership inventory.
 ///
-/// Fornecer uma entrada por instrução ordinária, também sem consumo; as
-/// operações ARC e Phi têm regras próprias e não aceitam sobrescrita.
-/// Um plano ausente não significa que argumentos sejam emprestados.
+/// Supply one entry per ordinary instruction, also without consumption; the
+/// ARC and Phi operations have their own rules and do not accept overrides.
+/// A missing plan does not mean that the arguments are borrowed.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::PlanoTokens;
-/// assert!(PlanoTokens::default().instrucoes.is_empty());
-/// assert!(PlanoTokens::default().pendencias.is_empty());
+/// use dartforge_emit_native::optimize::arc::TokenPlan;
+/// assert!(TokenPlan::default().instructions.is_empty());
+/// assert!(TokenPlan::default().pendings.is_empty());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TokenPlan {
-    /// Efeitos exatos antes do resultado e nas saídas de invoke/pendência.
+    /// Exact effects before the result and on the invoke/pending exits.
     pub instructions: HashMap<ValueId, TokenEffect>,
-    /// Convenção do retorno, não deduzida da largura da representação.
+    /// Convention of the return, not deduced from the width of the representation.
     pub ret: TokenReturn,
-    /// Chamada runtime pending e bloco de erro após conferência explícita.
-    /// Não são pousos LLVM. Exige sufixo exception_pending/ICmp Ne zero e
-    /// CondBranch para erro/sucesso, sem outra operação entre chamada e teste.
+    /// A pending runtime call and the error block after an explicit check.
+    /// They are not LLVM landing pads. Requires the exception_pending/ICmp Ne zero suffix and
+    /// a CondBranch to error/success, with no other operation between the call and the test.
     pub pendings: HashMap<ValueId, BlockId>,
-    /// Papéis nativos de pares quadro/índice de uma família fechada verificada.
-    /// Não é um owner Ref nem substitui o certificado de unwind estrangeiro.
+    /// Native roles of frame/index pairs of a verified closed family.
+    /// It is neither a Ref owner nor a replacement for the foreign-unwind certificate.
     pub shared_frames: Option<super::SharedFramesCfgContract>,
-    /// Parâmetros `Ptr` de função local direta que recebem o endereço de um
-    /// local escalar de quem a declara (captura por endereço), com o tipo
-    /// dele; inicializado na entrada (`locals::produce_addresses`).
+    /// `Ptr` parameters of a direct local function that receive the address of a
+    /// scalar local of its declarer (capture by address), with its
+    /// type; initialized at the entry (`locals::produce_addresses`).
     pub received_addresses: HashMap<ValueId, Type>,
-    /// Chamada a função local direta → posição e tipo dos endereços de locais
-    /// escalares que ela cede ao callee.
+    /// A call to a direct local function → position and type of the addresses of scalar
+    /// locals it yields to the callee.
     pub yielded_addresses: HashMap<ValueId, Vec<(usize, Type)>>,
 }
 
@@ -201,7 +201,7 @@ fn of_caller(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> bool {
     }
 }
 
-/// O inventário já excluiu ciclos; aliases emprestados conservam a raiz.
+/// The inventory already excluded cycles; borrowed aliases keep the root.
 fn owner_root(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> Option<OwnerOrigin> {
     loop {
         match classes[&v] {
@@ -219,7 +219,7 @@ fn owner_root(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> Option<O
     }
 }
 
-/// Limites léxicos herdados também precisam sobreviver à criação de um alias.
+/// Inherited lexical limits must also survive the creation of an alias.
 fn owner_scopes(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> HashSet<u32> {
     let mut scopes = HashSet::new();
     while let Ownership::Borrowed { owner, scope } = classes[&v] {
@@ -253,44 +253,44 @@ fn flow_error(f: &Function, pais: &[Option<usize>], b: usize, message: String) -
     )
 }
 
-/// Confere disponibilidade, transferência e consumo único no CFG preparado.
+/// Checks availability, transfer and single consumption in the prepared CFG.
 ///
-/// Requer CFG/SSA e representações válidos, inventário semântico completo e
-/// contratos previamente certificados pelo produtor. Invoke só produz token
-/// no sucesso. Phi owned consome entradas simultaneamente na aresta, inclusive
-/// trocas em backedges; null produz uma obrigação lógica sem RC físico.
-/// Junções exigem inventários iguais, sem união que esconda consumo condicional.
-/// Saídas devem consumir todos os tokens locais, transferindo o retorno owned.
-/// Borrowed só pode voltar quando sua cadeia termina no chamador.
-/// Reconstrói contratos de locais escalares privados no corpo atual, incluindo
-/// ausência de escape, tipagem, inicialização e valores gravados Trivial.
-/// Confere também as operações puras cobertas, seu tipo, efeito vazio e
-/// origem Trivial dos operandos escalares, pelas mesmas regras do produtor.
+/// Requires a valid CFG/SSA and representations, a complete semantic inventory and
+/// contracts previously certified by the producer. An invoke only produces a token
+/// on success. An owned Phi consumes its entries simultaneously on the edge, including
+/// swaps on backedges; null produces a logical obligation without a physical RC.
+/// Joins require equal inventories, without a union that hides conditional consumption.
+/// Exits must consume every local token, transferring the owned return.
+/// Borrowed may only return when its chain ends at the caller.
+/// Rebuilds the contracts of private scalar locals on the current body, including
+/// absence of escape, typing, initialization and Trivial written values.
+/// Also checks the covered pure operations, their type, empty effect and
+/// the Trivial origin of the scalar operands, by the same rules as the producer.
 ///
-/// Não insere operações, certifica os demais contratos, verifica escopos léxicos,
-/// aliases/invalidação de slots, regiões ou limpeza de estados suspensos.
-/// Rejeita aliases derivados após barreiras e como argumentos de reentrada;
-/// não insere keepalive e depende da classificação/proveniência fornecida.
-/// Essas obrigações continuam necessárias para aceitar o pipeline ARC inteiro.
+/// Does not insert operations, certify the other contracts, verify lexical scopes,
+/// slot aliases/invalidation, regions or the cleanup of suspended states.
+/// Rejects aliases derived after barriers and as reentry arguments;
+/// does not insert keepalive and depends on the supplied classification/provenance.
+/// These obligations remain necessary to accept the whole ARC pipeline.
 ///
-/// # Erros
-/// Retorna símbolo, ponto e caminho para uso/consumo indisponível, fuga de token,
-/// junção incompatível, retorno inválido ou metadado ausente/obsoleto. Também
-/// propaga diagnósticos de cobertura, dependências e forma excepcional.
+/// # Errors
+/// Returns the symbol, the point and the path for an unavailable use/consumption, a token leak,
+/// an incompatible join, an invalid return or missing/stale metadata. Also
+/// propagates coverage, dependency and exceptional shape diagnostics.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
 ///     params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
 ///         (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
 ///         (ValueId(2), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void)],
 ///         terminator: Terminator::Return(None) }] };
 /// let classes = HashMap::from([(ValueId(0), Ownership::Borrowed {
-///     owner: OrigemOwner::Chamador, escopo: 0 }), (ValueId(1), Ownership::Owned),
+///     owner: OwnerOrigin::Caller, scope: 0 }), (ValueId(1), Ownership::Owned),
 ///     (ValueId(2), Ownership::Trivial)]);
-/// verificar_tokens(&f, &classes, &TabelasDaFuncao::default(), &PlanoTokens::default())?;
+/// verify_tokens(&f, &classes, &FunctionTables::default(), &TokenPlan::default())?;
 /// # Ok::<(), String>(())
 /// ```
 pub fn verify_tokens(
@@ -305,8 +305,8 @@ pub fn verify_tokens(
     analyze_tokens(f, classes, tables, plan, false, false).map(|_| ())
 }
 
-/// Confere o mesmo fluxo, admitindo somente tokens restantes em Return.
-/// Não relaxa consumo duplicado, disponibilidade, convenção ou junções.
+/// Checks the same flow, admitting only remaining tokens at Return.
+/// Does not relax double consumption, availability, convention or joins.
 pub(super) fn cleanup_exits(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
@@ -316,8 +316,8 @@ pub(super) fn cleanup_exits(
     analyze_tokens(f, classes, tables, plan, true, false).map(|flow| flow.exits)
 }
 
-// O modo de planejamento admite somente descarte de tokens mortos por aresta.
-// O verificador público continua exigindo inventários idênticos sem descarte.
+// The planning mode only admits discarding dead tokens per edge.
+// The public verifier still requires identical inventories without discarding.
 pub(super) fn cleanup_edges(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
@@ -327,24 +327,24 @@ pub(super) fn cleanup_edges(
     analyze_tokens(f, classes, tables, plan, true, true).map(|flow| flow.edges)
 }
 
-/// Entrega o inventário linear validado na entrada de cada pouso alcançável.
+/// Hands over the validated linear inventory at the entry of each reachable landing pad.
 ///
-/// Aplica os consumos da aresta de erro e exclui resultados exclusivos do
-/// sucesso. Inclui tokens Phi transferidos pela aresta; ordena por ValueId.
-/// Não gera cleanup estrangeiro nem substitui a conferência dos escopos.
-/// Deve ser recalculado após qualquer mudança do CFG ou dos contratos.
+/// Applies the consumptions of the error edge and excludes results exclusive to
+/// success. Includes Phi tokens transferred through the edge; sorts by ValueId.
+/// Does not generate foreign cleanup nor replace the check of the scopes.
+/// Must be recomputed after any change of the CFG or of the contracts.
 ///
-/// # Erros
-/// Falha de verificação de tokens ou pouso sem entrada alcançável.
+/// # Errors
+/// A token verification failure or a landing pad without a reachable entry.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let f = Function { symbol: "vazia".into(), name: "vazia".into(), depuracao: None,
+/// let f = Function { symbol: "empty".into(), name: "empty".into(), debug_info: None,
 ///     params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
 ///     id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// assert!(tokens_na_entrada_dos_pousos(&f, &HashMap::new(),
-///     &TabelasDaFuncao::default(), &PlanoTokens::default())?.is_empty());
+/// assert!(tokens_at_landing_pad_entry(&f, &HashMap::new(),
+///     &FunctionTables::default(), &TokenPlan::default())?.is_empty());
 /// # Ok::<(), String>(())
 /// ```
 pub fn tokens_at_landing_pad_entry(
@@ -426,7 +426,7 @@ pub(super) fn check_exceptional_exits(
     Ok(())
 }
 
-// Só normaliza corpos temporários: o chamador publica após verificar tudo.
+// Only normalizes temporary bodies: the caller publishes after verifying everything.
 pub(super) fn normalize_exits_throws(
     f: &mut Function,
     tables: &FunctionTables,
@@ -542,8 +542,8 @@ fn analyze_tokens(
                     }
                 }
             }
-            // Um invoke de callee que não falha (a análise conjunta sabe mais
-            // que a do módulo que pôs o pouso) só deixa um pouso morto.
+            // An invoke of a callee that does not fail (the joint analysis knows more
+            // than that of the module that put the landing pad) only leaves a dead landing pad.
             let invoke = tables.invocations.contains_key(v);
             let pending_state = plan.pendings.contains_key(v);
             if (e.may_fail && !invoke && !pending_state)
@@ -642,8 +642,8 @@ fn analyze_tokens(
                     _ => {
                         let e = &plan.instructions[v];
                         apply(&e.always, classes, &mut active_set)?;
-                        // Um invoke (mesmo de callee que não falha) só
-                        // produz o resultado na aresta de sucesso.
+                        // An invoke (even of a callee that does not fail) only
+                        // produces the result on the success edge.
                         if e.may_fail || tables.invocations.contains_key(v) {
                             invoke = Some(*v);
                             Ok(())
@@ -695,8 +695,8 @@ fn analyze_tokens(
                 }
             }
         }
-        // `Unreachable` não continua (o caminho morto depois de um lançamento,
-        // o fim de quem encerra o processo): um token vivo ali não vaza.
+        // `Unreachable` does not continue (the dead path after a throw,
+        // the end of whoever terminates the process): a live token there does not leak.
         if cfg.successors[i].is_empty() && !active_set.is_empty() && !matches!(b.terminator, Terminator::Unreachable) {
             if allow_cleanup && matches!(b.terminator, Terminator::Return(_)) {
                 let mut remaining: Vec<_> = active_set.iter().copied().collect();
@@ -780,11 +780,11 @@ fn analyze_tokens(
                     }
                 }
                 apply(&consumed, classes, &mut r)?;
-                // Resultados Phi nascem no destino. Tokens transferidos já
-                // saíram de r; nenhum dos dois recebe drop no predecessor.
-                // Os mortos saem antes das produções: o valor antigo de um
-                // Phi de laço que não volta para ele (foi copiado na aresta)
-                // é morto aqui, e o novo nasce com o mesmo ID.
+                // Phi results are born at the destination. Transferred tokens already
+                // left r; neither receives a drop in the predecessor.
+                // The dead ones leave before the productions: the old value of a
+                // loop Phi that does not come back to it (it was copied on the edge)
+                // is dead here, and the new one is born with the same ID.
                 let error = invoke.is_some_and(|v| tables.invocations.get(&v)
                     .or_else(|| plan.pendings.get(&v)) == Some(&dest.id));
                 if clear_edges && !error && !tables.landing_pads.contains(&dest.id) {

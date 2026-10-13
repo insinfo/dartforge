@@ -1,13 +1,13 @@
-//! Cascata (P4): `e..a = 1..b()` e `e?..a()`.
+//! Cascade (P4): `e..a = 1..b()` and `e?..a()`.
 //!
-//! A especificação (§17.23 "Cascades"): `e` é avaliado uma vez; cada seção é
-//! avaliada com o receptor implícito `e` (o marcador `CascadeTarget` no
-//! AST), em ordem; o valor da cascata é o de `e`. Em `e?..s`, se `e` é null
-//! nenhuma seção é avaliada e o valor é null.
+//! The specification (§17.23 "Cascades"): `e` is evaluated once; each section is
+//! evaluated with the implicit receiver `e` (the `CascadeTarget` marker in the
+//! AST), in order; the value of the cascade is that of `e`. In `e?..s`, if `e` is null
+//! no section is evaluated and the value is null.
 //!
-//! As seções não têm tipo inferido (o receptor implícito é `dynamic` para a
-//! inferência de hoje): os membros delas vão pelo despacho dinâmico
-//! (`dispatch.rs`), que acha o membro pela classe do receptor.
+//! The sections have no inferred type (the implicit receiver is `dynamic` for
+//! today's inference): their members go through dynamic dispatch
+//! (`dispatch.rs`), which finds the member by the receiver's class.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;

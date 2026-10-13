@@ -1,4 +1,4 @@
-//! Classes físicas por fluxo SSA e argumentos de chamadas diretas fechadas.
+//! Physical classes per SSA flow and arguments of closed direct calls.
 use super::*;
 use std::collections::{BTreeSet, VecDeque};
 
@@ -63,8 +63,8 @@ pub(super) fn produce(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
             states[dest].top = true;
         }
     };
-    // Endereço materializado é uma entrada aberta, mesmo que existam callers
-    // locais conhecidos. Nunca inferir todos os argumentos só desses callers.
+    // A materialized address is an open entry, even when known local callers
+    // exist. Never infer all the arguments from those callers alone.
     for f in &m.functions {
         for (_, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             match i {
@@ -376,9 +376,9 @@ mod tests {
             let before = format!("{m:?}/{plans:?}");
             let result = prepare_arc_dart_module(&mut m, &mut plans);
             if matches!(case, 0 | 1 | 2 | 4 | 5 | 6) {
-                // Entradas abertas não ganham classe por haver callers
-                // conhecidos. Entradas expostas também exigem guarda física;
-                // null, CID ou tamanho inválido serão recusados pelo runtime.
+                // Open entries do not get a class because there are known
+                // callers. Exposed entries also require a physical guard;
+                // null, a CID or an invalid size will be rejected by the runtime.
                 result.unwrap();
                 assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
                     matches!(i, Instruction::CallRuntime { name, .. }

@@ -1,24 +1,24 @@
-//! Cópias nas arestas dos Phis Ref que juntam owners e empréstimos.
-//! Um Phi que recebe algum owner transfere um token em toda aresta: cada
-//! entrada emprestada ou trivial ganha um `ArcCopy` num bloco novo
-//! na própria aresta. Arestas de pouso, de pendência ou com eventos de escopo
-//! ficam como estão, e o produtor de contratos continua a recusá-las.
+//! Copies on the edges of Ref Phis that join owners and borrows.
+//! A Phi that receives some owner transfers a token on every edge: each
+//! borrowed or trivial entry gets an `ArcCopy` in a new block
+//! on the edge itself. Landing-pad edges, pending edges or edges with scope events
+//! stay as they are, and the contract producer still rejects them.
 
 use super::*;
 use std::collections::BTreeMap;
 
-/// Insere as cópias das entradas não-owned dos Phis Ref que precisam de
-/// owner e devolve quantas inseriu.
+/// Inserts the copies of the non-owned entries of the Ref Phis that need an
+/// owner and returns how many it inserted.
 ///
-/// Classifica as definições sem resolver Phis (`calls::classify_without_phis`);
-/// se isso falhar, não altera nada e deixa o erro para a produção completa.
-/// Um Phi precisa de owner quando é devolvido (a convenção Owned do retorno),
-/// quando junta empréstimos de raízes diferentes, ou quando alguma entrada é
-/// Owned, diretamente ou por outro Phi que precise. As demais entradas dele — empréstimos, triviais e
-/// Phis emprestados — são copiadas na aresta; null não.
+/// Classifies the definitions without resolving Phis (`calls::classify_without_phis`);
+/// if that fails, it changes nothing and leaves the error to the full production.
+/// A Phi needs an owner when it is returned (the Owned convention of the return),
+/// when it joins borrows of different roots, or when some entry is
+/// Owned, directly or through another Phi that needs one. Its other entries — borrows, trivials and
+/// borrowed Phis — are copied on the edge; null is not.
 ///
-/// # Erros
-/// IDs SSA ou de bloco esgotados.
+/// # Errors
+/// SSA or block IDs exhausted.
 pub(super) fn copy_borrows(
     f: &mut Function,
     index: &super::calls::DartFunctionIndex<'_>,
@@ -45,11 +45,11 @@ pub(super) fn copy_borrows(
     copy(f, p, &classes, &pending_set)
 }
 
-/// [`copy_borrows`] com as classes das definições já conhecidas (sem
-/// as dos Phis): o caminho do `protect`, depois de promover empréstimos.
+/// [`copy_borrows`] with the classes of the definitions already known (without
+/// those of the Phis): the `protect` path, after promoting borrows.
 ///
-/// # Erros
-/// IDs SSA ou de bloco esgotados.
+/// # Errors
+/// SSA or block IDs exhausted.
 pub(super) fn copy_with_classes(
     f: &mut Function,
     p: &DartFunctionPlan,
@@ -77,17 +77,17 @@ fn copy(
         return Ok(0);
     }
     let owned = |de: &ValueId| !phis.contains_key(de) && classes.get(de) == Some(&Ownership::Owned);
-    // Também o Phi devolvido: a convenção Owned do retorno passa por ele.
+    // Also the returned Phi: the Owned convention of the return goes through it.
     let returned_set: HashSet<ValueId> = f.blocks.iter().filter_map(|b| match &b.terminator {
         Terminator::Return(Some(Operand::Val(v))) if phis.contains_key(v) => Some(*v),
         _ => None,
     }).collect();
-    // Os contratos de empréstimo que chegam a cada Phi, com a entrada que
-    // primeiro trouxe cada um: o produtor só deixa um Phi emprestado quando
-    // todas as entradas diretas têm a mesma classe crua (owner e escopo); um
-    // Phi interno entra com a classe que ele recebe (o empréstimo do
-    // chamador preso à entrada de origem). Com dois contratos o Phi precisa
-    // de owner — mesmo que os owners sejam aliases de uma raiz comum.
+    // The borrow contracts that reach each Phi, with the entry that
+    // first brought each one: the producer only leaves a Phi borrowed when
+    // all the direct entries have the same raw class (owner and scope); an
+    // inner Phi enters with the class it receives (the caller's borrow
+    // bound to the origin entry). With two contracts the Phi needs
+    // an owner — even if the owners are aliases of a common root.
     let mut roots: HashMap<ValueId, Vec<(Ownership, ValueId)>> = HashMap::new();
     loop {
         let mut changed = false;
@@ -98,8 +98,8 @@ fn copy(
             for (_, op) in entries.iter() {
                 let Operand::Val(de) = op else { continue };
                 if phis.contains_key(de) {
-                    // Com dois ou mais, o Phi interno precisa de owner e este
-                    // também (entrada que precisa); basta propagar todos.
+                    // With two or more, the inner Phi needs an owner and so does this
+                    // one (an entry that needs one); propagating all of them is enough.
                     let internals = roots.get(de).cloned().unwrap_or_default();
                     for (c, origin) in internals {
                         let c = match (c, roots[de].len()) {
@@ -122,16 +122,16 @@ fn copy(
             break;
         }
     }
-    // O Phi devolvido com alguma entrada emprestada (direta ou por um Phi com
-    // raiz de empréstimo) segue o desenho do keepalive (empréstimo até a
-    // cópia do retorno); só o de entradas triviais (literais, inclusive por
-    // Phis só deles) ou owners precisa das cópias aqui.
+    // The returned Phi with some borrowed entry (direct or through a Phi with a
+    // borrow root) follows the keepalive design (a borrow until the
+    // copy of the return); only one with trivial entries (literals, including through
+    // Phis of only those) or owners needs the copies here.
     let borrowed = |op: &Operand| matches!(op, Operand::Val(de)
         if matches!(classes.get(de), Some(Ownership::Borrowed { .. }))
             || roots.get(de).is_some_and(|r| !r.is_empty()));
-    // O owner de um empréstimo precisa dominar o Phi (ARC003): o laço que
-    // carrega um alias de um valor definido depois do cabeçalho precisa de
-    // owner próprio. Phis do mesmo bloco são simultâneos.
+    // The owner of a borrow must dominate the Phi (ARC003): the loop that
+    // carries an alias of a value defined after the header needs its
+    // own owner. Phis of the same block are simultaneous.
     let cfg = super::super::cfg::Cfg::new(f);
     let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
     let definitions: HashMap<ValueId, (usize, bool)> = f.blocks.iter().enumerate()
@@ -179,12 +179,12 @@ fn copy(
         }
         need.extend(new_set);
     }
-    // Uma entrada owned usada depois da junção (no bloco do Phi ou adiante)
-    // não pode ter o token transferido ao Phi: ela também ganha a cópia.
+    // An owned entry used after the join (in the block of the Phi or further on)
+    // cannot have its token transferred to the Phi: it also gets the copy.
     let mut uses: HashMap<ValueId, Vec<BlockId>> = HashMap::new();
     for b in &f.blocks {
         for (_, i, _) in &b.instructions {
-            // A entrada de um Phi é usada no fim do seu predecessor.
+            // The entry of a Phi is used at the end of its predecessor.
             if let Instruction::Phi { incoming, .. } = i {
                 for (pred, o) in incoming {
                     if let Operand::Val(x) = o { uses.entry(*x).or_default().push(*pred); }
@@ -198,9 +198,9 @@ fn copy(
     let successors: HashMap<BlockId, Vec<BlockId>> = f.blocks.iter().map(|b| (b.id, super::super::cfg::successors(&b.terminator))).collect();
     let definition: HashMap<ValueId, BlockId> = f.blocks.iter()
         .flat_map(|b| b.instructions.iter().map(move |(v, _, _)| (*v, b.id))).collect();
-    // `de` vivo na entrada do bloco do Phi: um uso alcançável dali sem
-    // passar pela (re)definição dele — num laço, o que vem depois da
-    // definição já é o valor da volta seguinte.
+    // `de` live at the entry of the Phi's block: a use reachable from there without
+    // going through its (re)definition — in a loop, what comes after the
+    // definition is already the value of the next iteration.
     let used_after = |de: &ValueId, block: BlockId| {
         let Some(bs) = uses.get(de) else { return false };
         let def = definition.get(de).copied();
@@ -224,21 +224,21 @@ fn copy(
     let pending_set: HashSet<BlockId> = extra_pending.iter().chain(p.tokens.pendings.values()).copied().collect();
     let dests = |b: &BasicBlock| super::super::cfg::successors(&b.terminator);
     let blocks: HashMap<BlockId, &BasicBlock> = f.blocks.iter().map(|b| (b.id, b)).collect();
-    // (predecessor, bloco do Phi) → [(Phi, entrada)].
+    // (predecessor, block of the Phi) → [(Phi, entry)].
     let mut edges: BTreeMap<(u32, u32), Vec<(ValueId, Operand)>> = BTreeMap::new();
     let mut order: Vec<_> = need.iter().copied().collect();
     order.sort_unstable_by_key(|v| v.0);
-    // Entradas owned já transferidas a um Phi, por aresta: um token só vai
-    // para um Phi; os outros Phis da mesma aresta ganham cópia.
+    // Owned entries already transferred to a Phi, per edge: a token only goes
+    // to one Phi; the other Phis of the same edge get a copy.
     let mut taken: HashSet<(BlockId, ValueId)> = HashSet::new();
     for v in order {
         let (block, entries) = phis[&v];
         for (pred, op) in entries.iter() {
             let copy = match op {
-                // Um Phi do próprio bloco lido pela aresta é o valor da volta
-                // anterior (cópia paralela): ganha cópia antes da junção.
-                // Um Phi owned ainda lido depois da junção também não cede
-                // o token.
+                // A Phi of the block itself read through the edge is the value of the previous
+                // iteration (parallel copy): it gets a copy before the join.
+                // An owned Phi still read after the join does not give up
+                // its token either.
                 Operand::Val(de) if phis.contains_key(de) => !need.contains(de) || (phis[de].0 == block && *de != v)
                     || used_after(de, block),
                 Operand::Val(de) => classes.get(de) != Some(&Ownership::Owned) || used_after(de, block),
@@ -303,7 +303,7 @@ fn copy(
             }
             _ => unreachable!("terminador conferido"),
         }
-        // Todos os Phis do bloco passam a chegar pela aresta nova.
+        // All the Phis of the block now arrive through the new edge.
         let alvo = f.blocks.iter_mut().find(|b| b.id == block).expect("bloco do Phi");
         for (v, i, _) in &mut alvo.instructions {
             if let Instruction::Phi { incoming, .. } = i {
@@ -326,7 +326,7 @@ fn copy(
 mod tests {
     use super::*;
 
-    /// `c ? this.field : call()`: o campo emprestado e o owner da chamada.
+    /// `c ? this.field : call()`: the borrowed field and the owner of the call.
     fn mixed() -> (Function, Function) {
         let val = |n| Operand::Val(ValueId(n));
         let f = Function {
@@ -379,7 +379,7 @@ mod tests {
             assert_eq!(incoming[1], (BlockId(2), Operand::Val(ValueId(4))));
             super::super::calls::produce_dart_calls_and_instructions(&f, &index, &mut p.classes, &mut p.tokens).unwrap();
             assert_eq!(p.classes[&ValueId(5)], Ownership::Owned);
-            // Idempotente: nada mais a copiar.
+            // Idempotent: nothing more to copy.
             assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 0);
         }
     }
@@ -394,14 +394,14 @@ mod tests {
         let index = super::super::calls::DartFunctionIndex::new(&summaries).unwrap();
         let mut p = DartFunctionPlan::default();
         p.classes.insert(ValueId(3), Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(0)), scope: 0 });
-        // O bloco do Phi é um pouso: a aresta não é dividida.
+        // The block of the Phi is a landing pad: the edge is not split.
         let mut f = f0.clone();
         p.tables.landing_pads.insert(BlockId(3));
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 0);
         assert_eq!(format!("{f:?}"), format!("{f0:?}"));
         p.tables.landing_pads.clear();
-        // Sem owner entre as entradas e sem ser devolvido, o Phi continua
-        // emprestado.
+        // With no owner among the entries and not returned, the Phi stays
+        // borrowed.
         let mut f = f0.clone();
         let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else { unreachable!() };
         incoming[1].1 = Operand::Constant(Constant::Null);
@@ -409,15 +409,15 @@ mod tests {
         let before = format!("{f:?}");
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 0);
         assert_eq!(format!("{f:?}"), before);
-        // Devolvido com entrada emprestada, segue o keepalive: nada aqui.
+        // Returned with a borrowed entry, it follows the keepalive: nothing here.
         f.blocks[3].terminator = Terminator::Return(Some(Operand::Val(ValueId(5))));
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 0);
     }
 
     #[test]
     fn owned_entry_read_by_later_phi_gets_copy() {
-        // `x = c ? a : b; ...; y = c ? a : b`: a e b seguem vivos até o
-        // segundo Phi, então o primeiro não pode tomar os tokens deles.
+        // `x = c ? a : b; ...; y = c ? a : b`: a and b stay live until the
+        // second Phi, so the first one cannot take their tokens.
         let val = |n| Operand::Val(ValueId(n));
         let call = || Instruction::CallStatic { symbol: "fonte".into(), args: vec![], ret_ty: Type::Ref };
         let branch = |id, dest| BasicBlock { id: BlockId(id), instructions: vec![], terminator: Terminator::Branch(BlockId(dest)) };
@@ -448,7 +448,7 @@ mod tests {
         ];
         let index = super::super::calls::DartFunctionIndex::new(&summaries).unwrap();
         let p = DartFunctionPlan::default();
-        // Só o primeiro Phi copia: depois do segundo, a e b não são mais lidos.
+        // Only the first Phi copies: after the second, a and b are no longer read.
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 2);
         let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else { unreachable!() };
         assert!(incoming.iter().all(|(_, op)| !matches!(op, Operand::Val(ValueId(1 | 2)))));
@@ -458,8 +458,8 @@ mod tests {
 
     #[test]
     fn same_owned_entry_in_two_edge_phis_copies_once() {
-        // `x = c ? a : b; y = c ? a : another`: na aresta de b1 o token de a
-        // vai para x; y recebe a cópia.
+        // `x = c ? a : b; y = c ? a : another`: on the edge of b1 the token of a
+        // goes to x; y gets the copy.
         let val = |n| Operand::Val(ValueId(n));
         let call = || Instruction::CallStatic { symbol: "fonte".into(), args: vec![], ret_ty: Type::Ref };
         let branch = |id| BasicBlock { id: BlockId(id), instructions: vec![], terminator: Terminator::Branch(BlockId(3)) };
@@ -499,8 +499,8 @@ mod tests {
 
     #[test]
     fn phi_returned_from_trivials_through_other_phi_gets_copies() {
-        // `c ? true : (d ? false : null)` devolvido: o Phi de dentro só junta
-        // triviais, não é empréstimo; o de fora precisa de owner.
+        // `c ? true : (d ? false : null)` returned: the inner Phi only joins
+        // trivials, it is not a borrow; the outer one needs an owner.
         let val = |n| Operand::Val(ValueId(n));
         let boxed = |b| Instruction::Box { op: Operand::Constant(Constant::Bool(b)), from: Type::I1 };
         let mut f = Function {
@@ -536,8 +536,8 @@ mod tests {
 
     #[test]
     fn loop_phi_with_owner_defined_in_body_gets_copy() {
-        // `var next; while (c) { e = source(); next = e.field; }`: o owner do
-        // empréstimo nasce depois do cabeçalho, que não pode tomá-lo emprestado.
+        // `var next; while (c) { e = source(); next = e.field; }`: the owner of the
+        // borrow is born after the header, which cannot borrow it.
         let val = |n| Operand::Val(ValueId(n));
         let mut f = Function {
             symbol: "laco".into(), name: "laco".into(), debug_info: None,

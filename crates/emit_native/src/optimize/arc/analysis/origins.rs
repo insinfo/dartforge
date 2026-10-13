@@ -1,6 +1,6 @@
-//! Origem nominal atribuída antes dos passes que renumeram/clonam SSA.
-//! A identidade vale para a versão do corpo; não certifica pins/recarga,
-//! contexto especializado ou singleton. Operações opacas continuam sem sítio.
+//! Nominal origin assigned before the passes that renumber/clone SSA.
+//! The identity holds for the body version; it does not certify pins/reload,
+//! specialized context or singleton. Opaque operations still have no site.
 
 use super::model::ArcSite;
 use crate::hir::*;
@@ -22,8 +22,8 @@ pub(crate) fn allocation(i: &Instruction) -> bool {
                 | "dartforge_arc_objeto_owned_v1" | "dartforge_arc_objeto_owned_t_v1"))
 }
 
-/// Registra a origem dos corpos recém-produzidos, somente no lowering ARC.
-/// O ordinal identifica a alocação original, não seu futuro ValueId SSA.
+/// Records the origin of freshly produced bodies, only in the ARC lowering.
+/// The ordinal identifies the original allocation, not its future SSA ValueId.
 pub(crate) fn register(m: &mut Module, start: usize, arc_memory: bool) {
     if !arc_memory {
         return;
@@ -47,7 +47,7 @@ pub(crate) fn register(m: &mut Module, start: usize, arc_memory: bool) {
     }
 }
 
-/// Remove fatos de instruções eliminadas, sem fabricar origens para novas operações.
+/// Removes facts of eliminated instructions, without forging origins for new operations.
 pub(crate) fn prune(m: &mut Module) {
     let live_set: std::collections::HashMap<_, _> = m
         .functions
@@ -133,7 +133,7 @@ mod tests {
         m.functions.push(factory.clone());
         register(&mut m, 0, true);
         let site = m.arc_sites["criar"][&ValueId(57)].clone();
-        assert_eq!(site.origin, 0); // Não é o ValueId 57 do corpo original.
+        assert_eq!(site.origin, 0); // Not ValueId 57 of the original body.
         let mut locals = std::collections::HashMap::new();
         let copies = std::collections::HashMap::from([("criar".into(), (factory, false))]);
         assert!(crate::optimize::inline::inlining_with_origins(

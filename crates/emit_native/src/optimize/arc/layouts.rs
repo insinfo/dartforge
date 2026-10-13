@@ -1,4 +1,4 @@
-//! Coerência estrutural dos fatos declarados; não prova origem dos receivers.
+//! Structural coherence of the declared facts; does not prove the receivers' origin.
 
 use crate::hir::*;
 use std::collections::HashMap;

@@ -1,14 +1,14 @@
-//! Componentes fortemente conexos de um grafo dirigido, sem recursão Rust.
-//! O domínio dos nós pertence ao chamador: chamadas, sítios, tipos ou unidades.
+//! Strongly connected components of a directed graph, without Rust recursion.
+//! The node domain belongs to the caller: calls, sites, types or units.
 
-/// Decompõe o grafo por Tarjan iterativo em O(V + E), com espaço O(V + E),
-/// incluindo a conferência independente da partição antes de devolvê-la.
-/// Cada nó aparece em exatamente um componente; componentes são emitidos
-/// depois dos sucessores externos, permitindo resolver dependências primeiro.
-/// Não interpreta uma SCC como prova de ciclos de instâncias ou de ownership.
+/// Decomposes the graph by iterative Tarjan in O(V + E), with O(V + E) space,
+/// including the independent check of the partition before returning it.
+/// Each node appears in exactly one component; components are emitted
+/// after their external successors, allowing dependencies to be resolved first.
+/// Does not interpret an SCC as proof of instance or ownership cycles.
 ///
 /// # Panics
-/// Uma aresta cujo destino não existe no vetor do grafo viola a precondição.
+/// An edge whose destination does not exist in the graph vector violates the precondition.
 pub(crate) fn components(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
     let n = edges.len();
     assert!(
@@ -25,7 +25,7 @@ pub(crate) fn components(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
         if order[root] != usize::MAX {
             continue;
         }
-        // (nó, próxima aresta a visitar)
+        // (node, next edge to visit)
         let mut calls: Vec<(usize, usize)> = vec![(root, 0)];
         order[root] = next_item;
         low[root] = next_item;
@@ -71,15 +71,15 @@ pub(crate) fn components(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
     components
 }
 
-/// Confere uma partição sem executar Tarjan: cobertura única dos nós,
-/// alcance interno nos dois sentidos e ordem estrita das dependências externas.
-/// Essa ordem impede ciclos entre componentes, portanto também confere que
-/// uma SCC não foi dividida. Não interpreta os nós nem certifica o produtor
-/// das arestas. Tempo/espaço O(V + E), sem recursão Rust.
+/// Checks a partition without running Tarjan: unique coverage of the nodes,
+/// internal reachability in both directions and strict order of external dependencies.
+/// That order prevents cycles between components, so it also checks that
+/// an SCC was not split. Does not interpret the nodes nor certify the producer
+/// of the edges. O(V + E) time/space, without Rust recursion.
 ///
-/// # Erros
-/// Aresta/nó fora do grafo, componente vazio, nó omitido/duplicado, componente
-/// sem conexão forte ou dependência externa fora da ordem declarada.
+/// # Errors
+/// Edge/node outside the graph, empty component, omitted/duplicated node, component
+/// without strong connectivity or an external dependency out of the declared order.
 pub(crate) fn check(edges: &[Vec<usize>], cs: &[Vec<usize>]) -> Result<(), String> {
     let n = edges.len();
     let mut owners = vec![usize::MAX; n];
@@ -111,8 +111,8 @@ pub(crate) fn check(edges: &[Vec<usize>], cs: &[Vec<usize>]) -> Result<(), Strin
         }
     }
     for adjacent in [edges, inverses.as_slice()] {
-        // Cada nó é visitado no máximo uma vez por direção; componentes
-        // são disjuntos. Não zerar um vetor de V marcas para cada SCC.
+        // Each node is visited at most once per direction; components
+        // are disjoint. Do not clear a vector of V marks for each SCC.
         let mut seen_set = vec![false; n];
         for (id, c) in cs.iter().enumerate() {
             let mut queue = vec![c[0]];
@@ -145,17 +145,17 @@ mod tests {
         assert!(check(&g, &[vec![2], vec![0, 1]]).is_ok());
         assert!(check(&g, &[vec![2], vec![1, 0]]).is_ok());
         for cs in [
-            vec![vec![2], vec![0]],       // Omissão.
-            vec![vec![2], vec![0, 1, 1]], // Duplicação.
+            vec![vec![2], vec![0]],       // Omission.
+            vec![vec![2], vec![0, 1, 1]], // Duplication.
             vec![vec![], vec![2], vec![0, 1]],
-            vec![vec![2], vec![0, 1, 3]],    // Nó inexistente.
+            vec![vec![2], vec![0, 1, 3]],    // Nonexistent node.
             vec![vec![0, 1], vec![2]],       // Ordem invertida.
             vec![vec![2], vec![0], vec![1]], // Ciclo dividido.
-            vec![vec![0, 1, 2]],             // Fusão de SCCs diferentes.
+            vec![vec![0, 1, 2]],             // Merge of different SCCs.
         ] {
             assert!(check(&g, &cs).is_err(), "{cs:?}");
         }
-        // Alcance somente no sentido direto não prova conexão forte.
+        // Reachability in the forward direction alone does not prove strong connectivity.
         assert!(check(&[vec![1], vec![]], &[vec![0, 1]]).is_err());
         assert!(check(&[vec![3]], &[vec![0]]).is_err());
         assert!(check(&[], &[]).is_ok());
@@ -178,7 +178,7 @@ mod tests {
                     reachability[v][w] = true;
                 }
             }
-            // Fecho transitivo de Floyd-Warshall, independente de Tarjan.
+            // Floyd-Warshall transitive closure, independent of Tarjan.
             for k in 0..3 {
                 for v in 0..3 {
                     for w in 0..3 {
@@ -186,9 +186,9 @@ mod tests {
                     }
                 }
             }
-            // Todas as atribuições de três nós a até três componentes:
-            // Floyd decide equivalência; as arestas decidem a ordem. Isso
-            // testa também candidatos incorretos, sem usar a saída de Tarjan.
+            // All assignments of three nodes to up to three components:
+            // Floyd decides equivalence; the edges decide the order. This
+            // also tests incorrect candidates, without using Tarjan's output.
             for assignment in 0..27 {
                 let mut code = assignment;
                 let mut candidate = vec![vec![]; 3];

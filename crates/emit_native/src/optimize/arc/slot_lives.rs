@@ -1,31 +1,31 @@
-//! Vida dos pares quadro/índice em um conjunto fechado de corpos intermediários.
-//! Confere saídas explícitas do CFG; unwind implícito e tokens exigem outro gate.
+//! Lifetime of frame/index pairs in a closed set of intermediate bodies.
+//! Checks explicit CFG exits; implicit unwinding and tokens require another gate.
 
 use super::super::operands::{operands, terminator_operands};
 use super::{ArcRefSlotsDraft, audit_shared_ref_slots};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Verifica origem, repasse e vida explícita dos slots compartilhados baixados.
+/// Verifies the origin, forwarding and explicit lifetime of the lowered shared slots.
 ///
-/// Reconstrói os papéis a partir dos endereços auditados do módulo original.
-/// Confere assinaturas atuais, capacidade e atividade de quadros locais,
-/// associação do índice importado, ausência de escape e todos os chamadores.
-/// Ciclos de repasse precisam de uma origem local alcançável. O callee pode
-/// ler/copiar o slot, mas não fechar, mover ou publicar o quadro do chamador.
-/// Não altera o original nem o rascunho e não publica certificado de emissão.
-/// Não verifica tokens Ref nem unwind estrangeiro fora das arestas do CFG.
-/// Tracing exige corpos copiados sem transformações ARC.
+/// Rebuilds the roles from the audited addresses of the original module.
+/// Checks current signatures, capacity and activity of local frames, the
+/// association of the imported index, absence of escape and every caller.
+/// Forwarding cycles need a reachable local origin. The callee may
+/// read/copy the slot, but not close, move or publish the caller's frame.
+/// Changes neither the original nor the draft and publishes no emission certificate.
+/// Does not verify Ref tokens nor foreign unwinding outside the CFG edges.
+/// Tracing requires bodies copied without ARC transformations.
 ///
-/// # Erros
-/// Metadados incompatíveis com a origem, assinatura/tipo inválido, escape,
-/// repasse sem origem, índice errado, quadro fechado ou cleanup fora de LIFO.
+/// # Errors
+/// Metadata incompatible with the origin, invalid signature/type, escape,
+/// forwarding without origin, wrong index, closed frame or cleanup out of LIFO order.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::Module, optimize::arc::*};
-/// let mut m = Module::new(); m.memoria_arc = true;
-/// let r = baixar_slots_ref_compartilhados(&m)?;
-/// verificar_vidas_slots_ref_cfg(&m, &r)?;
+/// let mut m = Module::new(); m.arc_memory = true;
+/// let r = lower_shared_ref_slots(&m)?;
+/// verify_cfg_ref_slot_lives(&m, &r)?;
 /// # Ok::<(), String>(())
 /// ```
 pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(), String> {
@@ -184,8 +184,8 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
     let mut anchored = HashSet::<(String, ValueId)>::new();
     let mut edges = HashMap::<(String, ValueId), Vec<(String, ValueId)>>::new();
     for f in &r.functions {
-        // Um endereço materializado reabre a fronteira mesmo se o original
-        // era fechado. Verificar também funções sem slots locais/importados.
+        // A materialized address reopens the boundary even if the original
+        // was closed. Also verify functions without local/imported slots.
         for b in &f.blocks {
             let mut open = false;
             let mut constant = |o: &Operand| {
@@ -490,7 +490,7 @@ pub(super) mod tests {
         assert_eq!(format!("{r:?}"), before);
         r.functions.reverse();
         verify_cfg_ref_slot_lives(&m, &r).unwrap();
-        // A pilha de cleanup de um callee não contém quadros emprestados.
+        // The cleanup stack of a callee holds no borrowed frames.
         let a = r
             .functions
             .iter()

@@ -1,5 +1,5 @@
-//! Pré-condições estruturais para publicar os planos ARC de uma função.
-//! Tipagem completa e proveniência continuam pertencendo a outros passes.
+//! Structural preconditions for publishing the ARC plans of a function.
+//! Complete typing and provenance still belong to other passes.
 
 use super::super::{
     cfg::{Cfg, successors},
@@ -65,7 +65,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             return Err(error(format!("v{} ausente", v.0)));
         };
         let Some(origin) = origin else { return Ok(()) };
-        // Nos blocos mortos, exige existência; não inventa dominadores.
+        // In dead blocks, require existence; do not invent dominators.
         if !cfg.reachable(bi) {
             return Ok(());
         }

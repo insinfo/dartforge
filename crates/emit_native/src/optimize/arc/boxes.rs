@@ -1,4 +1,4 @@
-//! Prepara boxing Owned e unboxing escalar auditado antes da produção ARC.
+//! Prepares Owned boxing and audited scalar unboxing before ARC production.
 use crate::hir::*;
 
 pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
@@ -34,7 +34,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         let name = match *from {
             Type::I64 => "dartforge_arc_box_int_owned_v1",
             Type::F64 => "dartforge_arc_box_double_owned_v1",
-            Type::I1 | Type::I8 => continue, // As duas caixas bool são estáticas.
+            Type::I1 | Type::I8 => continue, // The two bool boxes are static.
             Type::V4F32 | Type::V4I32 | Type::V2F64 => continue,
             _ => {
                 return Err(format!(

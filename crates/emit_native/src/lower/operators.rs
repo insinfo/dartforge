@@ -1,12 +1,12 @@
-//! Operadores binários sobre operandos já na representação do seu tipo (R5).
+//! Binary operators over operands already in the representation of their type (R5).
 //!
-//! A escolha da operação vem das representações: `I64` com `I64` é aritmética
-//! inteira; um `F64` promove o outro lado (`IntToDouble`, nunca `bitcast`);
-//! igualdade envolvendo `Ref` vai ao `==` do Dart pela classe dinâmica (a
-//! regra do null em linha, `source_equality`); `identical` de `Ref` é o
-//! `@df.identico` em linha (docs/NATIVO-ESPACO-UNIFICADO.md §2.10). Antes,
-//! "algum lado é `Ref`" queria dizer "concatena strings", o que valia só
-//! porque tudo que não era `int` era `Ref`.
+//! The choice of the operation comes from the representations: `I64` with `I64` is integer
+//! arithmetic; an `F64` promotes the other side (`IntToDouble`, never `bitcast`);
+//! equality involving a `Ref` goes to Dart's `==` through the dynamic class (the
+//! inline null rule, `source_equality`); `identical` of a `Ref` is the
+//! inline `@df.identico` (docs/NATIVO-ESPACO-UNIFICADO.md §2.10). Before,
+//! "some side is a `Ref`" meant "concatenate strings", which only held
+//! because everything that was not an `int` was a `Ref`.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -17,10 +17,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         matches!(t, Type::I64 | Type::F64)
     }
 
-    /// `identical(a, b)`: escalares por valor (bits, para `double`); se
-    /// algum lado é `Ref`, pelo `@df.identico` em linha (handle igual, ou
-    /// `_Mint`/`_Double` de mesmo valor — `Instance::IsIdenticalTo` da VM;
-    /// o ajudante é da P2, `llvm/ir_boxes.rs`).
+    /// `identical(a, b)`: scalars by value (bits, for `double`); if
+    /// some side is a `Ref`, through the inline `@df.identico` (equal handle, or
+    /// `_Mint`/`_Double` of the same value — the VM's `Instance::IsIdenticalTo`;
+    /// the helper is from P2, `llvm/ir_boxes.rs`).
     pub fn identical(&mut self, a: Operand, b: Operand) -> Operand {
         let (ta, tb) = (self.operand_type(&a), self.operand_type(&b));
         match (ta, tb) {
@@ -60,10 +60,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `a == b` com `a` de tipo estático `String` não anulável (o `==` da
-    /// `String` não é sobrescrevível): o `@df.texto_igual_a` em linha — a
-    /// identidade, a classe de `b`, o comprimento e o hash, e as unidades no
-    /// runtime só quando preciso (P1, `llvm/ir_strings.rs`).
+    /// `a == b` with `a` of non-nullable static type `String` (the `==` of
+    /// `String` cannot be overridden): the inline `@df.texto_igual_a` — the
+    /// identity, the class of `b`, the length and the hash, and the code units in the
+    /// runtime only when needed (P1, `llvm/ir_strings.rs`).
     pub fn string_equality(&mut self, a: Operand, b: Operand) -> Operand {
         let a = self.coerce(a, Type::Ref);
         let b = self.coerce(b, Type::Ref);
@@ -77,9 +77,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// Operando `Ref` cujo tipo estático é `int?`/`double?` (ou `int`,
-    /// `double`) volta ao escalar por `Unbox` — o operador exige o valor, e
-    /// num programa Dart válido ele não é null aqui (foi promovido).
+    /// A `Ref` operand whose static type is `int?`/`double?` (or `int`,
+    /// `double`) goes back to the scalar through `Unbox` — the operator requires the value, and
+    /// in a valid Dart program it is not null here (it was promoted).
     pub fn denullify_numeric(
         &mut self,
         e: dartforge_frontend::ast::ExprId,
@@ -105,7 +105,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `toString()` de um valor em qualquer representação.
+    /// `toString()` of a value in any representation.
     pub fn text_of(&mut self, op: Operand) -> Operand {
         let (name, ty) = match self.operand_type(&op) {
             Type::I64 => ("dartforge_to_string_i64", Type::I64),
@@ -140,17 +140,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.emit(Instruction::ICmp(ICmpOp::Eq, x, y), Type::I1);
         }
         if ta != Type::Ref && tb != Type::Ref {
-            // Escalares de tipos diferentes (`1 == true`): nunca iguais.
+            // Scalars of different types (`1 == true`): never equal.
             return Operand::Constant(Constant::Bool(false));
         }
         let a = self.coerce(a, Type::Ref);
         let b = self.coerce(b, Type::Ref);
-        // §17.26: com um lado null vale `identical`; senão, `a.==(b)` pela
-        // classe dinâmica de `a` (o `==` da fonte do SDK ou do programa).
+        // §17.26: with one side null it is `identical`; otherwise, `a.==(b)` through the
+        // dynamic class of `a` (the `==` of the SDK source or of the program).
         self.source_equality(a, b)
     }
 
-    /// O operador de `int` que o caminho do `Smi` calcula em linha.
+    /// The `int` operator that the `Smi` path computes inline.
     fn smi_op(op: BinaryOp) -> bool {
         matches!(
             op,
@@ -167,9 +167,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    // Uma interface que não intersecta a família fechada de int nunca
-    // contém Smi. Sem tipo ou sem a prova de fechamento, mantém a guarda.
-    // Inclui as interfaces dos subtipos de int, não apenas as de int.
+    // An interface that does not intersect the closed int family never
+    // contains a Smi. Without a type or without the closure proof, keep the guard.
+    // Includes the interfaces of the subtypes of int, not only those of int.
     pub(super) fn type_admits_smi(&self, ty: Option<dartforge_types::table::TypeId>) -> bool {
         let Some(ty) = ty else { return true; };
         let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(ty)
@@ -179,18 +179,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.ctx.subtypes(int).iter().any(|&c| super::members::subclass_of(self.ctx, c, *class))
     }
 
-    /// `a op b` com algum lado `Ref` (`num`, `dynamic`, `Object`…): se os
-    /// dois são `int` pequenos — só um `int` pode ser `Smi` (R10), então o
-    /// operador é o de `int`, qualquer que seja o tipo estático —, a conta
-    /// em linha, com o estouro de 64 bits do Dart; senão o despacho de
-    /// sempre. É o `this < other` do `int.compareTo(num other)` do SDK.
+    /// `a op b` with some `Ref` side (`num`, `dynamic`, `Object`…): if both
+    /// are small `int`s — only an `int` can be a `Smi` (R10), so the
+    /// operator is the `int` one, whatever the static type —, the computation
+    /// inline, with Dart's 64-bit overflow; otherwise the usual
+    /// dispatch. It is the `this < other` of the SDK's `int.compareTo(num other)`.
     fn operate_smi(&mut self, op: BinaryOp, lop: Operand, rop: Operand, span: dartforge_diagnostics::Span) -> Operand {
         let one = Operand::Constant(Constant::Int(1));
         let mut conds = Vec::new();
         for x in [&lop, &rop] {
             if self.operand_type(x) == Type::Ref {
-                // Sob ARC, o bit de tag pelo ajudante com o `Ref` emprestado:
-                // um word Dart não vira operando escalar.
+                // Under ARC, the tag bit through the helper with the borrowed `Ref`:
+                // a Dart word does not become a scalar operand.
                 let b = if self.ctx.arc_memory {
                     self.emit(Instruction::CallRuntime { name: "df.bit_smi".into(), args: vec![(x.clone(), Type::Ref)], ret_ty: Type::I64 }, Type::I64)
                 } else {
@@ -236,8 +236,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::Gt => self.emit(Instruction::ICmp(ICmpOp::Sgt, a, b), Type::I1),
             _ => self.emit(Instruction::ICmp(ICmpOp::Sge, a, b), Type::I1),
         };
-        // O resultado do despacho é `Ref` (a soma de `num` pode ser
-        // `double`); a comparação, `bool`.
+        // The result of the dispatch is a `Ref` (the sum of `num`s may be a
+        // `double`); the comparison, a `bool`.
         let ty = if comparison { Type::I1 } else { Type::Ref };
         let r = self.coerce(r, ty);
         let fast_end = self.current_block;
@@ -256,8 +256,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(fast_end, r), (slow_end, s)], ty }, ty)
     }
 
-    /// Operador binário (não curto-circuito). `text`: algum lado é
-    /// `String` pelo tipo estático — `+` concatena, `*` repete.
+    /// Binary operator (not short-circuit). `text`: some side is a
+    /// `String` by its static type — `+` concatenates, `*` repeats.
     pub fn operate(
         &mut self,
         op: BinaryOp,
@@ -269,8 +269,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.operate_with_smi(op, lop, rop, text, true, span)
     }
 
-    // O tipo da fonte pode excluir o caminho inteiro. Os chamadores sem
-    // esse fato continuam usando operar, que preserva a guarda dinâmica.
+    // The source type may exclude the whole path. Callers without
+    // that fact keep using operate, which preserves the dynamic guard.
     pub(super) fn operate_with_smi(
         &mut self, op: BinaryOp, lop: Operand, rop: Operand, text: bool,
         admits_smi: bool, span: dartforge_diagnostics::Span,
@@ -288,7 +288,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
         }
         if text && matches!(op, BinaryOp::Mul) {
-            // `String.*` da fonte do SDK (`_StringBase.operator *`).
+            // `String.*` from the SDK source (`_StringBase.operator *`).
             let a = self.coerce(lop, Type::Ref);
             let n = self.coerce(rop, Type::Ref);
             let r = self.call_by_name(a, super::sdk_source::AccessKind::Call, "*", &[(None, n)]);
@@ -349,11 +349,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::Sub => self.emit(Instruction::Sub(lop, rop), Type::I64),
             BinaryOp::Mul => self.emit(Instruction::Mul(lop, rop), Type::I64),
             BinaryOp::TruncDiv => self.emit_trunc_div(lop, rop),
-            // `a % c` com `c` constante: em linha. O `%` do Dart devolve um
-            // valor em `[0, |c|)`: o resto truncado mais `|c|` quando ele é
-            // negativo (`(r >> 63) & |c|`, sem desvio). `c = ±1` dá sempre 0
-            // (e evita o `srem` de `i64::MIN` por `-1`, indefinido no LLVM);
-            // `c = 0` lança e `c = i64::MIN` não tem `|c|`: ficam com o runtime.
+            // `a % c` with a constant `c`: inline. Dart's `%` returns a
+            // value in `[0, |c|)`: the truncated remainder plus `|c|` when it is
+            // negative (`(r >> 63) & |c|`, without a branch). `c = ±1` always gives 0
+            // (and avoids the `srem` of `i64::MIN` by `-1`, undefined in LLVM);
+            // `c = 0` throws and `c = i64::MIN` has no `|c|`: they stay with the runtime.
             BinaryOp::Rem
                 if matches!(rop, Operand::Constant(Constant::Int(c)) if c != 0 && c != i64::MIN) =>
             {
@@ -381,7 +381,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull => {
                 unreachable!("curto-circuito tem lowering próprio")
             }
-            // `a ~ b` é erro de compilação (`not_binary_operator`).
+            // `a ~ b` is a compile error (`not_binary_operator`).
             BinaryOp::NaoBinario => unreachable!("operador não binário"),
         }
     }

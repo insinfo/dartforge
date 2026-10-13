@@ -1,34 +1,34 @@
-//! Convenções Owned nominais de corpos Dart e entradas uniformes geradas.
-//! Uma representação Ref isolada não certifica a ABI de outro produtor.
+//! Nominal Owned conventions of Dart bodies and generated uniform entries.
+//! An isolated Ref representation does not certify the ABI of another producer.
 
 use super::*;
 
-/// Produz a convenção Owned dos retornos Ref registrados pelo lowering Dart.
+/// Produces the Owned convention of the Ref returns recorded by the Dart lowering.
 ///
-/// Fatos devem corresponder aos símbolos e representações atuais. O plano
-/// padrão Trivial é preenchido; Owned permanece e Borrowed conflita com a ABI.
-/// Isso não certifica o corpo: inserção e verificação devem provar a transferência
-/// do token, incluindo retenção de retornos emprestados e cleanup de falhas.
-/// A entrada uniforme exige declaração própria e vínculo aos vetores da ABI.
-/// Esse fato não certifica chamadores indiretos, callbacks C ou SDK importado.
-/// Tracing não altera planos. Retorna o número de convenções acrescentadas.
+/// Facts must match the current symbols and representations. The default
+/// Trivial plan is filled in; Owned stays and Borrowed conflicts with the ABI.
+/// This does not certify the body: insertion and verification must prove the transfer
+/// of the token, including retention of borrowed returns and cleanup of failures.
+/// The uniform entry requires its own declaration and a binding to the ABI vectors.
+/// That fact does not certify indirect callers, C callbacks or an imported SDK.
+/// Tracing does not change plans. Returns the number of conventions added.
 ///
-/// # Erros
-/// Símbolo duplicado/obsoleto, plano ausente, retorno não Ref ou convenção
-/// incompatível. Nenhum plano é alterado, mesmo se outros fatos forem válidos.
+/// # Errors
+/// Duplicated/stale symbol, missing plan, non-Ref return or incompatible
+/// convention. No plan is changed, even if other facts are valid.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut m = Module::new(); m.memoria_arc = true;
-/// m.functions.push(Function { symbol: "identidade".into(), name: "identidade".into(),
-///     depuracao: None, params: vec![(ValueId(0), "x".into(), Type::Ref)],
+/// let mut m = Module::new(); m.arc_memory = true;
+/// m.functions.push(Function { symbol: "identity".into(), name: "identity".into(),
+///     debug_info: None, params: vec![(ValueId(0), "x".into(), Type::Ref)],
 ///     return_ty: Type::Ref, blocks: vec![BasicBlock { id: BlockId(0),
 ///     instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
-/// m.retornos_ref_dart.insert("identidade".into());
-/// let mut planos = HashMap::from([("identidade".into(), PlanoFuncaoDart::default())]);
-/// assert_eq!(produzir_retornos_ref_do_lowering(&m, &mut planos)?, 1);
-/// assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos)?, (1, 0));
+/// m.dart_ref_returns.insert("identity".into());
+/// let mut plans = HashMap::from([("identity".into(), DartFunctionPlan::default())]);
+/// assert_eq!(produce_lowering_ref_returns(&m, &mut plans)?, 1);
+/// assert_eq!(prepare_arc_dart_module(&mut m, &mut plans)?, (1, 0));
 /// # Ok::<(), String>(())
 /// ```
 pub fn produce_lowering_ref_returns(
@@ -44,8 +44,8 @@ pub fn produce_lowering_ref_returns(
             return Err(format!("retorno Dart: símbolo repetido {}", f.symbol));
         }
     }
-    // A ABI uniforme precisa de declaração própria: nem Ref nem os vetores
-    // sozinhos declaram o modo de retorno. Revalida o vínculo à mesma HIR.
+    // The uniform ABI needs its own declaration: neither Ref nor the vectors
+    // alone declare the return mode. Revalidates the binding to the same HIR.
     for sym_name in &module.arc_uniform_returns {
         let f = functions.get(sym_name).ok_or_else(|| format!("retorno uniforme ARC: símbolo obsoleto {sym_name}"))?;
         let roles = module.dart_vector_parameters.get(sym_name);

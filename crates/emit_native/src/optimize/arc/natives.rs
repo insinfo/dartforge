@@ -1,10 +1,10 @@
-//! Seleciona entradas auditadas para operações nativas ARC.
-//! Os contratos conferem SSA, pendência e callbacks na preparação completa.
+//! Selects audited entries for ARC native operations.
+//! The contracts check SSA, pending state and callbacks in the full preparation.
 
 use crate::hir::*;
 
 pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
-    // O tear-off canônico, com owner do código (`dartforge_arc_tearoff_owned_v1`).
+    // The canonical tear-off, with a code owner (`dartforge_arc_tearoff_owned_v1`).
     for (v, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
         if let Instruction::TearOff { code_symbol } = inst {
             if *ty != Type::Ref {
@@ -21,7 +21,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         let Instruction::CallRuntime { name, args, ret_ty } = inst else {
             continue;
         };
-        // A exceção e o rastro pendentes com owner independente do `clear`.
+        // The pending exception and stack trace with an owner independent of `clear`.
         let pending = match name.as_str() {
             "dartforge_exception_peek_ref" => Some("dartforge_arc_excecao_owned_v1"),
             "dartforge_stack_trace_get" => Some("dartforge_arc_rastro_owned_v1"),
@@ -34,18 +34,18 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = owned.into();
             continue;
         }
-        // Os acessos físicos por índice (o quadro de `lower/async_sm.rs`, os
-        // campos de record, o `name` de enum, o campo por índice dinâmico):
-        // as entradas auditadas, que conferem o objeto, o índice e o mapa do
-        // campo (a leitura escalar recusa um campo Ref). A marca da gravação
-        // é a representação estática do valor.
+        // Physical accesses by index (the frame of `lower/async_sm.rs`, record
+        // fields, the `name` of an enum, the field by dynamic index):
+        // the audited entries, which check the object, the index and the map of the
+        // field (the scalar read rejects a Ref field). The mark of the write
+        // is the static representation of the value.
         if name == "dartforge_object_get" {
             if *ty != *ret_ty || !matches!(ret_ty, Type::I64 | Type::Ref)
                 || !matches!(args.as_slice(), [(_, Type::Ref), (_, Type::I64)])
             {
                 return Err(format!("leitura de campo ARC em {} v{}: ABI incompatível", f.symbol, v.0));
             }
-            // Ref: um empréstimo do receiver, sem retenção.
+            // Ref: a borrow of the receiver, without retention.
             *name = if *ret_ty == Type::Ref { "dartforge_arc_ler_campo_ref_v1" } else { "dartforge_arc_ler_campo_escalar_v1" }.into();
             continue;
         }
@@ -64,7 +64,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = name_str.into();
             continue;
         }
-        // A string nova (`@df.texto_alocar`) com owner do código.
+        // The new string (`@df.texto_alocar`) with a code owner.
         if name == "df.texto_alocar" {
             let [(len, Type::I64), (Operand::Constant(Constant::Bool(two)), Type::I1)] = args.as_slice() else {
                 return Err(format!("alocação de texto ARC em {} v{}: ABI incompatível", f.symbol, v.0));
@@ -76,8 +76,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = "dartforge_arc_texto_novo_owned_v1".into();
             continue;
         }
-        // Os construtores de erro do runtime: a variante Owned (o par
-        // bits/é-referência vira o valor `Ref`).
+        // The runtime error constructors: the Owned variant (the
+        // bits/is-reference pair becomes the `Ref` value).
         if let Some(base) = name.strip_prefix("dartforge_")
             && ERRORS_WITH_ARC_VARIANT.contains(&base)
         {
@@ -108,8 +108,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = "dartforge_arc_lista_len_v1".into();
             continue;
         }
-        // Callback FFI: a closure do contexto e o `Pointer` do argumento
-        // ganham owner do código, pela porta Owned no caso do ponteiro.
+        // FFI callback: the context closure and the argument's `Pointer`
+        // get a code owner, through the Owned port in the pointer case.
         let callback = match name.as_str() {
             "dartforge_ffi_callback_closure" => Some(("dartforge_arc_ffi_callback_closure_owned_v1", 1)),
             "dartforge_ffi_callback_ponteiro" => Some(("dartforge_arc_ffi_callback_ponteiro_owned_v1", 3)),
@@ -122,8 +122,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = owned.into();
             continue;
         }
-        // O objeto de um `Handle`: argumento de callback ou retorno de uma
-        // chamada nativa (lido antes de fechar o escopo das células).
+        // The object of a `Handle`: a callback argument or the return of a
+        // native call (read before closing the cell scope).
         let handle = match name.as_str() {
             "dartforge_ffi_objeto_do_handle" => Some(("dartforge_arc_ffi_objeto_do_handle_owned_v1", 1)),
             "dartforge_ffi_handles_fechar_com_objeto" => Some(("dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1", 2)),
@@ -136,8 +136,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = owned.into();
             continue;
         }
-        // O `Pointer` devolvido por uma chamada nativa: endereço e closure
-        // emprestada, owner do código pela porta Owned do ajudante.
+        // The `Pointer` returned by a native call: an address and a borrowed
+        // closure, with a code owner through the helper's Owned port.
         if name == "dartforge_ffi_ponteiro_de_retorno" {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64), (_, Type::Ref)]) {
                 return Err(format!("ponteiro de retorno ARC em {} v{}: ABI I64,Ref/Ref incompatível", f.symbol, v.0));
@@ -168,8 +168,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = "dartforge_arc_socket_recvfrom_owned_v1".into();
             continue;
         }
-        // Uma função do runtime que devolve um objeto vivo sem owner do
-        // código: o thunk Owned genérico (escopo nativo, guarda, retain).
+        // A runtime function that returns a live object without a code
+        // owner: the generic Owned thunk (native scope, guard, retain).
         if *ret_ty == Type::Ref && generic_owned(name) && super::contract(name).is_err() {
             if *ty != Type::Ref || args.iter().any(|(_, t)| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I8 | Type::I1 | Type::Ptr)) {
                 return Err(format!("thunk Owned em {} v{}: ABI incompatível", f.symbol, v.0));
@@ -180,10 +180,10 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
     Ok(())
 }
 
-/// Cada chamada a uma função do runtime que pode rodar Dart, com contrato
-/// próprio, passa a rodar num escopo nativo (`NATIVE_SCOPE_PREFIX`). Roda
-/// depois das preparações que criam chamadas (`boxes`, `fields`…). As ABIs
-/// `dartforge_arc_*` já escopam por dentro (`em_escopo_nativo`).
+/// Each call to a runtime function that may run Dart, with its own contract,
+/// now runs in a native scope (`NATIVE_SCOPE_PREFIX`). Runs
+/// after the preparations that create calls (`boxes`, `fields`…). The
+/// `dartforge_arc_*` ABIs already scope internally (`em_escopo_nativo`).
 pub(super) fn scope(f: &mut Function) {
     for (_, inst, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
         if let Instruction::CallRuntime { name, .. } = inst
@@ -197,8 +197,8 @@ pub(super) fn scope(f: &mut Function) {
     }
 }
 
-/// Os construtores de erro do runtime com variante Owned (o nome sem o
-/// prefixo `dartforge_`; `lower/runtime_errors.rs` os emite).
+/// The runtime error constructors with an Owned variant (the name without the
+/// `dartforge_` prefix; `lower/runtime_errors.rs` emits them).
 pub(crate) const ERRORS_WITH_ARC_VARIANT: &[&str] = &[
     "exception_new", "assertion_error_new", "state_error_new", "unsupported_error_new",
     "unimplemented_error_new", "argument_error_new", "argument_error_value",
@@ -206,10 +206,10 @@ pub(crate) const ERRORS_WITH_ARC_VARIANT: &[&str] = &[
     "late_error_new", "stack_overflow_error_new", "no_such_method_error_new",
 ];
 
-/// As funções do runtime cujo resultado `Ref` está vivo ao voltar, sem owner
-/// do código e sem consumir argumentos: os natives do SDK e os construtores
-/// do runtime chamados pelo lowering. Leitura de campo, alocação de objeto e
-/// as de endereço nativo têm produtores próprios.
+/// The runtime functions whose `Ref` result is live on return, without a code
+/// owner and without consuming arguments: the SDK natives and the runtime
+/// constructors called by the lowering. Field reads, object allocation and
+/// the native-address ones have their own producers.
 fn generic_owned(name_str: &str) -> bool {
     name_str.starts_with("dartforge_nativo_")
         || matches!(
@@ -474,7 +474,7 @@ mod tests {
                 (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
             ];
             let native = if case == 1 {
-                // Um argumento sem representação no thunk: recusado.
+                // An argument without a representation in the thunk: rejected.
                 rt("dartforge_nativo_X_y", vec![(Operand::Val(ValueId(0)), Type::Ptr)], Type::Ref)
             } else {
                 rt("dartforge_nativo_X_y", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Double(1.5)), Type::F64)], Type::Ref)
@@ -733,7 +733,7 @@ mod tests {
                         instructions: vec![],
                         terminator: Terminator::Branch(BlockId(3)),
                     },
-                    // Ordem física: o Phi externo é visitado antes do join interno.
+                    // Physical order: the outer Phi is visited before the inner join.
                     BasicBlock {
                         id: BlockId(3),
                         instructions: vec![

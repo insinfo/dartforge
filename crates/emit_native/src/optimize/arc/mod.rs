@@ -1,22 +1,22 @@
-//! Análises e inserção inicial de ownership ARC na HIR (§20 da especificação).
+//! Analyses and initial insertion of ARC ownership in the HIR (§20 of the specification).
 //!
-//! A vivacidade recebe o inventário semântico de referências/slots; não
-//! classifica externs nem prova consumo de tokens por si só. Produtores,
-//! verificadores e inserção em retornos/saídas existem como passes explícitos;
-//! ainda precisam de cobertura completa e integração no pipeline padrão.
+//! Liveness receives the semantic inventory of references/slots; it does not
+//! classify externs nor prove token consumption by itself. Producers,
+//! verifiers and insertion into returns/exits exist as explicit passes;
+//! they still need full coverage and integration into the default pipeline.
 
 use super::cfg::Cfg;
 use super::operands::{operands, terminator_operands};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
-/// O prefixo do thunk Owned genérico de uma função do runtime que devolve
-/// `Ref` (`natives::prepare`, `contracts::generic_owned_contract`); o
-/// emissor LLVM define o thunk (`llvm/selectors.rs`).
+/// The prefix of the generic Owned thunk of a runtime function that returns a
+/// `Ref` (`natives::prepare`, `contracts::generic_owned_contract`); the
+/// LLVM emitter defines the thunk (`llvm/selectors.rs`).
 pub const GENERIC_OWNED_PREFIX: &str = "df.arc.owned.";
-/// O thunk de escopo nativo: a função do runtime que pode rodar Dart, com o
-/// resultado e o contrato da base, dentro de um escopo nativo (os tokens que
-/// portas Dart devolvem morrem no fechamento), definido pelo emissor.
+/// The native scope thunk: the runtime function that may run Dart, with the
+/// result and the contract of the base, inside a native scope (the tokens that
+/// Dart ports return die at the close), defined by the emitter.
 pub const NATIVE_SCOPE_PREFIX: &str = "df.arc.escopo.";
 pub(crate) use natives::ERRORS_WITH_ARC_VARIANT;
 
@@ -84,25 +84,25 @@ pub use classification::{
     OwnerOrigin, Ownership, classified_liveness, classified_liveness_with_exceptions,
 };
 
-/// Vivacidade dos valores classificados pelo chamador, só em blocos alcançáveis.
+/// Liveness of the values classified by the caller, only in reachable blocks.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::Vivacidade;
-/// let vazia = Vivacidade::default();
-/// assert!(vazia.entrada.is_empty() && vazia.arestas.is_empty());
+/// use dartforge_emit_native::optimize::arc::Liveness;
+/// let empty = Liveness::default();
+/// assert!(empty.entry.is_empty() && empty.edges.is_empty());
 /// ```
 #[derive(Debug, Default)]
 pub struct Liveness {
-    /// Antes das definições de `Phi` na entrada do bloco.
+    /// Before the `Phi` definitions at the entry of the block.
     pub entry: HashMap<BlockId, HashSet<ValueId>>,
-    /// Depois do terminador, união das necessidades das arestas de saída.
+    /// After the terminator, the union of the needs of the outgoing edges.
     pub exit: HashMap<BlockId, HashSet<ValueId>>,
-    /// Antes de cada instrução; entradas de `Phi` pertencem às arestas.
+    /// Before each instruction; `Phi` entries belong to the edges.
     pub before: HashMap<ValueId, HashSet<ValueId>>,
-    /// Depois de cada instrução.
+    /// After each instruction.
     pub after: HashMap<ValueId, HashSet<ValueId>>,
-    /// Necessidade específica de `(predecessor, sucessor)`, incluindo apenas
-    /// as entradas de `Phi` desse predecessor.
+    /// The specific need of `(predecessor, successor)`, including only
+    /// the `Phi` entries of that predecessor.
     pub edges: HashMap<(BlockId, BlockId), HashSet<ValueId>>,
 }
 
@@ -173,29 +173,29 @@ fn retreat(
     }
 }
 
-/// Calcula vivacidade reversa em ponto fixo, com `Phi` por predecessor.
+/// Computes reverse liveness as a fixpoint, with `Phi` per predecessor.
 ///
-/// A função deve ter CFG/SSA válidos. `references` vem da classificação
-/// semântica: não deduzimos ownership de `Type::I64` nem de `Type::Ptr`.
-/// Incluir aliases com proveniência gerenciada e slots proprietários, quando
-/// classificados. Dependências de borrows e extensões de vida precisam ser
-/// materializadas como usos antes desta análise. No modo tabelas, executar
-/// depois da preparação excepcional. Conjuntos não têm ordem de emissão;
-/// ordenar IDs antes de materializar operações para manter determinismo.
+/// The function must have a valid CFG/SSA. `references` comes from the semantic
+/// classification: we do not deduce ownership from `Type::I64` nor from `Type::Ptr`.
+/// Include aliases with managed provenance and owner slots, when
+/// classified. Borrow dependencies and lifetime extensions must be
+/// materialized as uses before this analysis. In tables mode, run
+/// after the exceptional preparation. Sets have no emission order;
+/// sort IDs before materializing operations to keep determinism.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::vivacidade};
+/// use dartforge_emit_native::{hir::*, optimize::arc::liveness};
 /// use std::collections::HashSet;
 /// let f = Function {
-///     symbol: "identidade".into(), name: "identidade".into(),
+///     symbol: "identity".into(), name: "identity".into(),
 ///     params: vec![(ValueId(0), "x".into(), Type::Ref)],
-///     return_ty: Type::Ref, depuracao: None,
+///     return_ty: Type::Ref, debug_info: None,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }],
 /// };
-/// let vivos = vivacidade(&f, &HashSet::from([ValueId(0)]));
-/// assert!(vivos.entrada[&BlockId(0)].contains(&ValueId(0)));
-/// assert!(vivos.saida[&BlockId(0)].is_empty());
+/// let live = liveness(&f, &HashSet::from([ValueId(0)]));
+/// assert!(live.entry[&BlockId(0)].contains(&ValueId(0)));
+/// assert!(live.exit[&BlockId(0)].is_empty());
 /// ```
 pub fn liveness(f: &Function, references: &HashSet<ValueId>) -> Liveness {
     analyze(
@@ -207,23 +207,23 @@ pub fn liveness(f: &Function, references: &HashSet<ValueId>) -> Liveness {
     )
 }
 
-/// Dependência de empréstimo inválida, com origem e caminho (`ARC003`).
+/// An invalid borrow dependency, with origin and path (`ARC003`).
 ///
 /// ```
-/// use dartforge_emit_native::{hir::ValueId, optimize::arc::ErroEmprestimo};
-/// let erro = ErroEmprestimo { funcao: "f".into(), origem: ValueId(2),
-///     caminho: vec![ValueId(2), ValueId(2)], motivo: "dependência cíclica" };
-/// assert!(erro.to_string().starts_with("ARC003"));
+/// use dartforge_emit_native::{hir::ValueId, optimize::arc::BorrowError};
+/// let error = BorrowError { function: "f".into(), origin: ValueId(2),
+///     path: vec![ValueId(2), ValueId(2)], reason: "dependência cíclica" };
+/// assert!(error.to_string().starts_with("ARC003"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BorrowError {
-    /// Símbolo da função analisada.
+    /// Symbol of the analyzed function.
     pub function: String,
-    /// Alias que iniciou a verificação desta cadeia.
+    /// Alias that started the verification of this chain.
     pub origin: ValueId,
-    /// Cadeia de aliases/owners; um ciclo termina repetindo seu primeiro ID.
+    /// Chain of aliases/owners; a cycle ends by repeating its first ID.
     pub path: Vec<ValueId>,
-    /// Razão da rejeição do inventário.
+    /// Reason for rejecting the inventory.
     pub reason: &'static str,
 }
 
@@ -239,30 +239,30 @@ impl std::fmt::Display for BorrowError {
 
 impl std::error::Error for BorrowError {}
 
-/// Inclui a cadeia de sustentação de cada alias borrowed nos seus usos.
+/// Includes the sustaining chain of each borrowed alias in its uses.
 ///
-/// `borrows` associa alias a owner imediato; cadeias incluem também os
-/// aliases intermediários. Vale o contrato de CFG/SSA de [`liveness`].
-/// Escopos, dominância e escape ainda precisam do verificador de ownership.
-/// A análise de `Phi` trata cada entrada na aresta do seu predecessor;
-/// transferências de tokens devem usar essas arestas, não pontos entre `Phi`.
+/// `borrows` associates an alias with its immediate owner; chains also include the
+/// intermediate aliases. The CFG/SSA contract of [`liveness`] applies.
+/// Scopes, dominance and escape still need the ownership verifier.
+/// The `Phi` analysis treats each entry on the edge of its predecessor;
+/// token transfers must use those edges, not points between `Phi`s.
 ///
-/// # Erros
-/// Retorna `ARC003` se alias/owner não existe na função ou no inventário,
-/// ou se a cadeia de sustentação tem ciclo. Verifica em ordem de ID para
-/// produzir o mesmo primeiro diagnóstico independentemente da ordem do mapa.
+/// # Errors
+/// Returns `ARC003` if an alias/owner does not exist in the function or in the inventory,
+/// or if the sustaining chain has a cycle. Checks in ID order to
+/// produce the same first diagnostic regardless of the map order.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::vivacidade_com_emprestimos};
+/// use dartforge_emit_native::{hir::*, optimize::arc::liveness_with_borrows};
 /// use std::collections::{HashMap, HashSet};
-/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
 ///     params: vec![(ValueId(0), "owner".into(), Type::Ref),
 ///                  (ValueId(1), "alias".into(), Type::Ref)], return_ty: Type::Ref,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] };
 /// let refs = HashSet::from([ValueId(0), ValueId(1)]);
-/// let v = vivacidade_com_emprestimos(&f, &refs, &HashMap::from([(ValueId(1), ValueId(0))]))?;
-/// assert_eq!(v.entrada[&BlockId(0)], refs);
+/// let v = liveness_with_borrows(&f, &refs, &HashMap::from([(ValueId(1), ValueId(0))]))?;
+/// assert_eq!(v.entry[&BlockId(0)], refs);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn liveness_with_borrows(

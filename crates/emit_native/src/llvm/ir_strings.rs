@@ -1,46 +1,46 @@
-//! A emissão das strings (P1, docs/NATIVO-ESPACO-UNIFICADO.md §2.11, §3.5 e
-//! §4.3): os literais (`Const(String/StringWtf8)`), a interpolação
-//! (`ConcatStrings`) e os ajudantes `@df.texto_*` do prelúdio.
+//! Emission of strings (P1, docs/NATIVO-ESPACO-UNIFICADO.md §2.11, §3.5 and
+//! §4.3): the literals (`Const(String/StringWtf8)`), interpolation
+//! (`ConcatStrings`) and the `@df.texto_*` helpers of the prelude.
 //!
-//! Uma string é um bloco `BRUTO` de cid 6 (`_OneByteString`) ou 7
-//! (`_TwoByteString`): com o handle `h = block + 2`, o cid em `h+2` (`i32`), o
-//! hash em `h+6` (`i32`, 0 = não calculado), o comprimento em `h+14` (`i64`) e as
-//! unidades a partir de `h+22` (`layout::off`).
+//! A string is a `BRUTO` block of cid 6 (`_OneByteString`) or 7
+//! (`_TwoByteString`): with the handle `h = block + 2`, the cid at `h+2` (`i32`), the
+//! hash at `h+6` (`i32`, 0 = not computed), the length at `h+14` (`i64`) and the
+//! code units starting at `h+22` (`layout::off`).
 //!
-//! **Literal no AOT** (`static_objects`): um objeto estático do módulo,
-//! `@df.s.<key>`, `linkonce_odr` num `comdat` pela chave do conteúdo (o ligador
-//! mantém uma cópia só entre o programa e os módulos do SDK: `identical` de
-//! literais iguais vale entre bibliotecas), estado `PERMANENTE`, na seção da
-//! imagem, com o hash já calculado (`layout::string_hash`). O valor é a
-//! constante `ptrtoint (gep @df.s.<key>, 2)`: sem chamada nem cache no ponto
-//! de uso. **No JIT** a memória de uma geração é liberada (J02), então o literal
-//! continua internado no heap pelo runtime (`dartforge_string_new`) com o cache
-//! do ponto de uso na área do isolado.
+//! **Literal in AOT** (`static_objects`): a static object of the module,
+//! `@df.s.<key>`, `linkonce_odr` in a `comdat` keyed by the content (the linker
+//! keeps a single copy across the program and the SDK modules: `identical` of
+//! equal literals holds across libraries), state `PERMANENTE`, in the image
+//! section, with the hash already computed (`layout::string_hash`). The value is the
+//! constant `ptrtoint (gep @df.s.<key>, 2)`: no call nor cache at the use
+//! site. **In the JIT** the memory of a generation is freed (J02), so the literal
+//! stays interned in the heap by the runtime (`dartforge_string_new`) with the
+//! use-site cache in the isolate area.
 //!
-//! Os ajudantes são `define internal … alwaysinline`; os números deles (cids,
-//! deslocamentos, palavra do cabeçalho) são os de `layout`, conferidos pelo teste
-//! `string_helpers_follow_layout`.
+//! The helpers are `define internal … alwaysinline`; their numbers (cids,
+//! offsets, header word) are those of `layout`, checked by the
+//! `string_helpers_follow_layout` test.
 
 use super::LlvmEmitter;
 use crate::hir::*;
 use dartforge_runtime::layout::{self, cid, desl, estado, flags};
 use std::fmt::Write;
 
-/// Os ajudantes `@df.texto_*` (§3.5), impressos no prelúdio de cada módulo por
+/// The `@df.texto_*` helpers (§3.5), printed in the prelude of each module by
 /// `emit_runtime_decls`.
 ///
-/// * `@df.texto_len(s)`: o comprimento (`s` é string);
-/// * `@df.texto_unidade(s, i)`: a unidade `i`, sem conferir limites;
-/// * `@df.texto_alocar(len, two)`: string de `len` unidades zeradas, em linha
-///   por `@df.allocate` até 16 palavras, senão `@dartforge_texto_novo`;
-/// * `@df.texto_gravar(s, i, u)`: o `writeInto*String` (grava sem barreira: a
-///   string é `BRUTO` e ainda não foi publicada);
-/// * `@df.texto_hash(s)`: o hash do cabeçalho, ou `@dartforge_texto_hash` na
-///   primeira consulta;
-/// * `@df.texto_igual(a, b)`: `==` entre duas strings (identidade; comprimento e
-///   hashes calculados diferentes dão falso sem chamada);
-/// * `@df.texto_igual_a(a, b)`: `==` de uma string com um `Object?` (o
-///   `_StringBase.==` da sobreposição): o que não é string é diferente.
+/// * `@df.texto_len(s)`: the length (`s` is a string);
+/// * `@df.texto_unidade(s, i)`: code unit `i`, without checking bounds;
+/// * `@df.texto_alocar(len, two)`: a string of `len` zeroed code units, inline
+///   through `@df.allocate` up to 16 words, otherwise `@dartforge_texto_novo`;
+/// * `@df.texto_gravar(s, i, u)`: the `writeInto*String` (writes without a barrier: the
+///   string is `BRUTO` and has not been published yet);
+/// * `@df.texto_hash(s)`: the hash in the header, or `@dartforge_texto_hash` on the
+///   first query;
+/// * `@df.texto_igual(a, b)`: `==` between two strings (identity; different lengths and
+///   different computed hashes give false without a call);
+/// * `@df.texto_igual_a(a, b)`: `==` of a string with an `Object?` (the
+///   overlay's `_StringBase.==`): what is not a string is different.
 pub const HELPERS: &str = "\
 define internal i64 @df.texto_len(i64 %s) alwaysinline nounwind {
   %p = inttoptr i64 %s to ptr
@@ -183,9 +183,9 @@ nao:
 }
 ";
 
-/// Os efeitos de cada ajudante `@df.*` deste arquivo chamado por
-/// `CallRuntime`: `(name, allocates, lança)`. `externs::effects_of` os consulta
-/// antes da tabela de externs (um ajudante fora daqui é conservador).
+/// The effects of each `@df.*` helper of this file called by
+/// `CallRuntime`: `(name, allocates, throws)`. `externs::effects_of` consults them
+/// before the extern table (a helper outside here is conservative).
 pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.texto_len", false, false),
     ("df.texto_unidade", false, false),
@@ -196,15 +196,15 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.texto_igual_a", false, false),
 ];
 
-/// O estado da emissão de strings por módulo.
+/// The per-module emission state of strings.
 #[derive(Default)]
 pub(super) struct StringState {
-    /// Os literais estáticos usados pelo módulo: a chave (`@df.s.<key>`) e a
-    /// definição do global, escritos no fim do módulo em ordem de chave.
+    /// The static literals used by the module: the key (`@df.s.<key>`) and the
+    /// definition of the global, written at the end of the module in key order.
     literals: std::collections::BTreeMap<String, String>,
 }
 
-/// A seção da imagem (§2.11) no formato de objeto do hospedeiro.
+/// The image section (§2.11) in the object format of the host.
 fn image_section() -> &'static str {
     match crate::alvo::sistema() {
         crate::alvo::Sistema::Windows => ".dfimg$m",
@@ -213,7 +213,7 @@ fn image_section() -> &'static str {
     }
 }
 
-/// Um literal estático: a chave e a definição do global.
+/// A static literal: the key and the definition of the global.
 fn static_literal(bytes: &[u8]) -> (String, String) {
     let text = dartforge_runtime::heap::Texto::de_wtf8(bytes);
     let seen = text.vista();
@@ -221,7 +221,7 @@ fn static_literal(bytes: &[u8]) -> (String, String) {
     let c = if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING };
     let len = seen.len();
     let w = layout::palavras_de_texto(len, two);
-    // As unidades em bytes (little-endian), completadas com zeros até a palavra.
+    // The code units in bytes (little-endian), padded with zeros up to the word.
     let mut units: Vec<u8> = match seen {
         dartforge_runtime::textos::TextoRef::Um(b) => b.to_vec(),
         dartforge_runtime::textos::TextoRef::Dois(u) => u.iter().flat_map(|x| x.to_le_bytes()).collect(),
@@ -264,7 +264,7 @@ fn static_literal(bytes: &[u8]) -> (String, String) {
 }
 
 impl LlvmEmitter<'_> {
-    /// O literal de string `bytes` (WTF-8) em `%v<v>`.
+    /// The string literal `bytes` (WTF-8) into `%v<v>`.
     pub(super) fn emit_const_string(&mut self, v: u32, bytes: &[u8]) {
         if self.static_objects {
             let (key, def) = static_literal(bytes);
@@ -279,9 +279,9 @@ impl LlvmEmitter<'_> {
         }
         let idx = self.string_const_index(bytes).unwrap_or(0);
         let len = bytes.len();
-        // JIT: o handle do literal fica num cache do ponto de uso, na área do
-        // isolado (o literal é canônico e permanente; a recarga do JIT
-        // esvazia os caches): a busca no runtime só na primeira avaliação.
+        // JIT: the handle of the literal stays in a use-site cache, in the isolate
+        // area (the literal is canonical and permanent; a JIT reload
+        // empties the caches): the lookup in the runtime only on the first evaluation.
         let slot = self.cache_slot();
         let previous = self.current_label.clone();
         let o = &mut self.out;
@@ -299,16 +299,16 @@ impl LlvmEmitter<'_> {
         self.current_label = format!("ls{v}.fim");
     }
 
-    /// O `alloca` do bloco de entrada que `ConcatStrings` usa (se usar).
+    /// The `alloca` of the entry block that `ConcatStrings` uses (if it does).
     pub(super) fn concat_strings_buffer(&mut self, v: u32, parts: &[Operand]) {
         writeln!(self.out, "  %jbuf{v} = alloca [{} x i64]", 2 * parts.len().max(1)).unwrap();
     }
 
-    /// A interpolação: as partes (texto `Ref` ou `int` sem caixa) numa string.
-    /// O runtime (`dartforge_string_juntar_tipado`) mede as partes pelas vistas
-    /// dos blocos, aloca uma vez e copia as unidades, sem cópia intermediária.
+    /// Interpolation: the parts (a `Ref` string or an unboxed `int`) into one string.
+    /// The runtime (`dartforge_string_juntar_tipado`) measures the parts through the views
+    /// of the blocks, allocates once and copies the code units, without an intermediate copy.
     pub(super) fn emit_concat_strings(&mut self, v: u32, parts: &[Operand]) {
-        // Pares (espécie, bits): 0 e o `Ref` de um texto, 1 e um `int`.
+        // Pairs (kind, bits): 0 and the `Ref` of a string, 1 and an `int`.
         let n = parts.len();
         for (i, p) in parts.iter().enumerate() {
             let (kind, s) = if self.type_of(p) == Type::I64 {
@@ -321,13 +321,13 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %jp{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i + 1).unwrap();
             writeln!(self.out, "  store i64 {s}, ptr %jp{v}_{i}").unwrap();
         }
-        // Sob ARC, a fábrica enraíza as partes e entrega o owner do resultado.
+        // Under ARC, the factory roots the parts and hands over the owner of the result.
         let name = if self.arc_owned_factories() { "dartforge_arc_string_juntar_owned_v1" } else { "dartforge_string_juntar_tipado" };
         writeln!(self.out, "  %v{v} = call i64 @{name}(ptr %jbuf{v}, i64 {n})").unwrap();
     }
 
-    /// Os globais de nível de módulo das strings: os literais estáticos usados
-    /// pelo módulo (com o `comdat` de cada um), escritos no fim do módulo.
+    /// The module-level globals of the strings: the static literals used
+    /// by the module (with the `comdat` of each one), written at the end of the module.
     pub(super) fn emit_string_globals(&mut self) {
         let literals = std::mem::take(&mut self.strings.literals);
         if literals.is_empty() {
@@ -341,7 +341,7 @@ impl LlvmEmitter<'_> {
     }
 }
 
-// Confere que os números escritos à mão em `HELPERS` são os de `layout`.
+// Checks that the numbers written by hand in `HELPERS` are those of `layout`.
 const _: () = {
     assert!(desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE == 2);
     assert!(desl::HASH_DO_TEXTO as i64 - layout::DESLOCAMENTO_DO_HANDLE == 6);
@@ -358,15 +358,15 @@ mod tests {
 
     #[test]
     fn string_helpers_follow_layout() {
-        // A máscara de `e_objeto` (`h & (7 | i64::MIN) == 2`).
+        // The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
         assert!(HELPERS.contains(&format!("and i64 %b, {}", 7 | i64::MIN)));
-        // A palavra do cabeçalho montada em `@df.texto_alocar` é a de `layout`.
+        // The header word built in `@df.texto_alocar` is the one from `layout`.
         for (len, two) in [(0usize, false), (5, false), (9, true), (60, false)] {
             let w = layout::palavras_de_texto(len, two);
             let c = if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING };
             let assembled = (c as u64) << 32 | (w as u64) << 16 | 513;
             assert_eq!(assembled, layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, w, c));
-            // A conta de `w` do ajudante: 1 + ((len << dois) + 7) >> 3.
+            // The helper's computation of `w`: 1 + ((len << two) + 7) >> 3.
             assert_eq!(1 + (((len << u32::from(two)) + 7) >> 3), w);
         }
         for (name, _, _) in HELPER_EFFECTS {
@@ -382,7 +382,7 @@ mod tests {
         let hash = layout::hash_de_texto("ab".encode_utf16());
         assert!(def.contains(&format!("{{ i64 {w0}, i64 {hash}, i64 2, [8 x i8] c\"ab\\00\\00\\00\\00\\00\\00\" }}")), "{def}");
         assert!(def.contains("linkonce_odr constant"));
-        // A mesma string dá a mesma chave; a forma entra na chave.
+        // The same string gives the same key; the shape goes into the key.
         assert_eq!(static_literal(b"ab").0, key);
         assert_ne!(static_literal(b"ac").0, key);
         let (_, two) = static_literal("€".as_bytes());

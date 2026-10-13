@@ -1,14 +1,14 @@
-//! As classes de erro que o runtime representa (ids 1000–1012:
-//! `Exception`, `StateError`, `ArgumentError`, `RangeError`…) criadas pelo
-//! código das bibliotecas da fonte (P6): `new StateError(m)`,
+//! The error classes the runtime represents (ids 1000–1012:
+//! `Exception`, `StateError`, `ArgumentError`, `RangeError`…) created by the
+//! code of the source libraries (P6): `new StateError(m)`,
 //! `ArgumentError.value(v, n)`, `Error.throwWithStackTrace(e, s)`.
 //!
-//! Enquanto essas classes não vêm da fonte (P5d), um objeto delas é o do
-//! runtime — é ele que `catch (e) on ArgumentError` testa e que o runtime
-//! imprime —, então a construção é a mesma extern que o runtime já usa para
-//! os erros que ele lança (`dartforge_argument_error_value`…). Não é caso
-//! novo do casamento por nome (que saiu com o espaço unificado): é a representação do
-//! runtime das mesmas classes, e sai com a faixa 1000–1012 em P5d.
+//! While these classes do not come from source (P5d), an object of theirs is the
+//! runtime's — it is what `catch (e) on ArgumentError` tests and what the runtime
+//! prints —, so the construction is the same extern the runtime already uses for
+//! the errors it throws (`dartforge_argument_error_value`…). It is not a new case
+//! of matching by name (which left with the unified space): it is the runtime's
+//! representation of the same classes, and it goes away with the 1000–1012 range in P5d.
 
 use super::fn_builder::FnBuilder;
 use super::members::Evaluated;
@@ -18,8 +18,8 @@ use dartforge_diagnostics::Span;
 use crate::optimize::arc::ERRORS_WITH_ARC_VARIANT;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Os argumentos casados com os parâmetros do outline de `fid`, pelo
-    /// nome do parâmetro (ausente = null).
+    /// The arguments matched with the parameters of the outline of `fid`, by
+    /// parameter name (absent = null).
     fn args_by_name(&self, fid: usize, evaluated: &[Evaluated]) -> Vec<(String, Operand)> {
         let Some(data) = self.ctx.outline.functions.get(fid) else {
             return Vec::new();
@@ -48,20 +48,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.new_runtime_error(name, args)
     }
 
-    /// Um erro novo de um construtor do runtime (`dartforge_*_error_new`…).
+    /// A new error from a runtime constructor (`dartforge_*_error_new`…).
     ///
-    /// Sob ARC, a pendência é conferida e um par (bits, é-referência) no
-    /// começo dos argumentos leva o valor como `Ref`; a preparação ARC troca
-    /// pela variante `dartforge_arc_<name>_owned_v1` (`excecoes.rs`). Sem a
-    /// preparação (o regime legado da CLI), fica a extern de sempre.
+    /// Under ARC, the pending state is checked and a (bits, is-reference) pair at the
+    /// start of the arguments carries the value as `Ref`; the ARC preparation replaces it
+    /// with the `dartforge_arc_<name>_owned_v1` variant (`excecoes.rs`). Without the
+    /// preparation (the legacy CLI regime), the usual extern stays.
     pub fn new_runtime_error(&mut self, name: &str, mut args: Vec<(Operand, Type)>) -> Operand {
         let base = name.strip_prefix("dartforge_").unwrap_or(name);
         if !self.ctx.arc_memory || !ERRORS_WITH_ARC_VARIANT.contains(&base) {
             return self.emit(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Ref }, Type::Ref);
         }
-        // Sob ARC o valor do par (bits, é-referência) vai como `Ref` (a
-        // marca fica 1) e a pendência é conferida: a preparação troca pela
-        // variante Owned (`optimize::arc::natives`), que roda Dart.
+        // Under ARC the value of the (bits, is-reference) pair goes as `Ref` (the
+        // mark stays 1) and the pending state is checked: the preparation replaces it with the
+        // Owned variant (`optimize::arc::natives`), which runs Dart.
         if matches!(base, "exception_new" | "assertion_error_new" | "argument_error_value") {
             let value = self.coerce(args[0].0.clone(), Type::Ref);
             args[0].0 = value;
@@ -70,7 +70,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit_call_with_check(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Ref }, Type::Ref)
     }
 
-    /// `C(...)`/`C.name(...)` de uma classe de erro do runtime; `None` se não é.
+    /// `C(...)`/`C.name(...)` of a runtime error class; `None` if it is not one.
     pub fn runtime_error_constructor(&mut self, fid: usize, evaluated: &[Evaluated]) -> Option<Operand> {
         let f = &self.ctx.program.functions[fid];
         let class = f.class?;
@@ -121,9 +121,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         })
     }
 
-    /// Métodos estáticos das classes de erro do runtime que o código da
-    /// fonte chama: `Error.throwWithStackTrace`, `ArgumentError.checkNotNull`,
-    /// `RangeError.checkNotNegative`. `None` se não é um deles.
+    /// Static methods of the runtime error classes that the source
+    /// code calls: `Error.throwWithStackTrace`, `ArgumentError.checkNotNull`,
+    /// `RangeError.checkNotNegative`. `None` if it is not one of them.
     pub fn runtime_error_static(&mut self, fid: usize, evaluated: &[Evaluated], span: Span) -> Option<Operand> {
         let f = &self.ctx.program.functions[fid];
         let class = f.class?;
@@ -191,18 +191,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Depois de uma extern que deixou exceção pendente: o desvio para o
-    /// tratador corrente (o `finally`, ou a saída da função).
-    /// Lança `value` (com o `StackTrace` `stack_trace`, se dado) e deixa o bloco
-    /// corrente pronto para o desvio ao tratador.
+    /// After an extern that left a pending exception: the branch to the
+    /// current handler (the `finally`, or the exit of the function).
+    /// Throws `value` (with the `StackTrace` `stack_trace`, if given) and leaves the current
+    /// block ready for the branch to the handler.
     ///
-    /// Sob tracing, `dartforge_exception_throw` com a etiqueta da
-    /// representação (1 `int`, 2 `bool`, 3 `Ref`, 4 `double`), ou
-    /// `dartforge_throw_with_stack_trace`. Sob ARC, o valor vai como `Ref`
-    /// emprestado (um escalar é encaixotado antes) a
-    /// `dartforge_arc_lancar_ref_v1`/`…_com_rastro_ref_v1`, que publicam a
-    /// raiz própria da exceção, seguido da guarda de pendência que a
-    /// preparação ARC reconhece; o caminho sem pendência é inalcançável.
+    /// Under tracing, `dartforge_exception_throw` with the tag of the
+    /// representation (1 `int`, 2 `bool`, 3 `Ref`, 4 `double`), or
+    /// `dartforge_throw_with_stack_trace`. Under ARC, the value goes as a borrowed
+    /// `Ref` (a scalar is boxed first) to
+    /// `dartforge_arc_lancar_ref_v1`/`…_com_rastro_ref_v1`, which publish the
+    /// exception's own root, followed by the pending guard that the
+    /// ARC preparation recognizes; the path without a pending exception is unreachable.
     pub fn emit_throw_value(&mut self, value: Operand, stack_trace: Option<Operand>) {
         if self.ctx.arc_memory {
             let value = self.coerce(value, Type::Ref);
@@ -246,14 +246,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Void }, Type::Void);
     }
 
-    /// A exceção pendente como `Ref` (a variável do `catch`, a guardada pelo
+    /// The pending exception as a `Ref` (the `catch` variable, the one kept by the
     /// `finally`).
     pub fn pending_exception(&mut self) -> Operand {
         self.emit(Instruction::CallRuntime { name: "dartforge_exception_peek_ref".into(), args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
     }
 
-    /// O `StackTrace` da exceção pendente. A preparação ARC dá a ele (e à
-    /// exceção) um owner próprio, independente do `clear` que segue.
+    /// The `StackTrace` of the pending exception. The ARC preparation gives it (and the
+    /// exception) an owner of its own, independent of the `clear` that follows.
     pub fn pending_stack_trace(&mut self) -> Operand {
         self.emit(Instruction::CallRuntime { name: "dartforge_stack_trace_get".into(), args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
     }

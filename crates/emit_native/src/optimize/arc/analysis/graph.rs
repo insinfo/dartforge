@@ -1,18 +1,18 @@
-//! Grafo local de sítios/campos e SCCs de objetos (§29.1).
-//! Ausência de ciclo conhecido não é certificado durante toda a vida do objeto.
+//! Local graph of sites/fields and object SCCs (§29.1).
+//! The absence of a known cycle is not a certificate for the whole lifetime of the object.
 
 use super::{hir::HirAnalysis, model::AbstractNode};
 use crate::hir::{Function, Module, Type};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Fotografia imutável das arestas locais inferidas, incluindo fronteiras opacas.
-/// SCC representa possibilidade abstrata, não grupo de instâncias concreto.
-/// Não seleciona política nem certifica NaoParticipa/AciclicoProvado: mutações
-/// futuras, entradas externas e observadores exigem a cobertura global da §29.
+/// An immutable snapshot of the inferred local edges, including opaque boundaries.
+/// An SCC represents an abstract possibility, not a concrete group of instances.
+/// Does not select a policy nor certify NaoParticipa/AciclicoProvado: future
+/// mutations, external entries and observers require the global coverage of §29.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::Module, optimize::arc::analise::grafo::*};
-/// assert!(construir_local_no_modulo(&Module::new(), "f", 8)?.is_none());
+/// use dartforge_emit_native::{hir::Module, optimize::arc::analysis::graph::*};
+/// assert!(build_local_in_module(&Module::new(), "f", 8)?.is_none());
 /// # Ok::<(), String>(())
 /// ```
 #[derive(Debug)]
@@ -24,23 +24,23 @@ pub struct ArcHeapGraph {
 }
 
 impl ArcHeapGraph {
-    /// Confere dependências locais e a projeção do points-to sem repetir o solver
-    /// nem Tarjan. Exige todos os nós/arestas inferidos, preserva desconhecimento
-    /// e confere a partição SCC e suas marcas de ciclo independentemente.
-    /// Sobreaproximações são aceitas, mas não podem apagar fronteiras opacas.
-    /// Não prova cobertura global, vida, SDK, observadores ou política.
+    /// Checks local dependencies and the points-to projection without repeating the solver
+    /// nor Tarjan. Requires every inferred node/edge, preserves lack of knowledge
+    /// and checks the SCC partition and its cycle marks independently.
+    /// Over-approximations are accepted, but cannot erase opaque boundaries.
+    /// Does not prove global coverage, lifetime, SDK, observers or policy.
     ///
-    /// # Erros
-    /// Módulo/corpo/tabelas obsoletos, nó/aresta omitido, destino ausente,
-    /// opacidade apagada ou partição/marca de ciclo inválida.
+    /// # Errors
+    /// Stale module/body/tables, an omitted node/edge, a missing destination,
+    /// erased opacity or an invalid partition/cycle mark.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::grafo::*};
-    /// let mut m = Module::new(); m.memoria_arc = true;
-    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::graph::*};
+    /// let mut m = Module::new(); m.arc_memory = true;
+    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] });
-    /// construir_local_no_modulo(&m, "f", 8)?.unwrap().conferir_no_modulo(&m, "f")?;
+    /// build_local_in_module(&m, "f", 8)?.unwrap().check_in_module(&m, "f")?;
     /// # Ok::<(), String>(())
     /// ```
     pub fn check_in_module(&self, m: &Module, symbol: &str) -> Result<(), String> {
@@ -48,48 +48,48 @@ impl ArcHeapGraph {
         check_projection(f, self)
     }
 
-    /// Consulta arestas conhecidas sem apagar as fronteiras opacas.
+    /// Queries the known edges without erasing the opaque boundaries.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::grafo::*};
-    /// let mut m = Module::new(); m.memoria_arc = true;
-    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::graph::*};
+    /// let mut m = Module::new(); m.arc_memory = true;
+    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] });
-    /// assert!(construir_local_no_modulo(&m, "f", 8)?.unwrap().arestas().is_empty());
+    /// assert!(build_local_in_module(&m, "f", 8)?.unwrap().edges().is_empty());
     /// # Ok::<(), String>(())
     /// ```
     pub fn edges(&self) -> &BTreeMap<AbstractNode, BTreeSet<AbstractNode>> {
         &self.edges
     }
 
-    /// Consulta se faltam arestas/esquemas ou efeitos da fotografia local.
-    /// Falso não prova cobertura durante toda a vida de nenhuma instância.
+    /// Queries whether edges/schemas or effects are missing from the local snapshot.
+    /// False does not prove coverage during the whole lifetime of any instance.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::grafo::*};
-    /// let mut m = Module::new(); m.memoria_arc = true;
-    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::graph::*};
+    /// let mut m = Module::new(); m.arc_memory = true;
+    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] });
-    /// assert!(!construir_local_no_modulo(&m, "f", 8)?.unwrap().opaco());
+    /// assert!(!build_local_in_module(&m, "f", 8)?.unwrap().opaque());
     /// # Ok::<(), String>(())
     /// ```
     pub fn opaque(&self) -> bool {
         self.opaque
     }
 
-    /// Enumera SCCs e a presença de ciclo abstrato nas arestas conhecidas.
-    /// Componente unitário é cíclico somente quando contém autoaresta.
-    /// Um falso não exclui ciclos por fronteiras opacas/mutações futuras.
+    /// Enumerates SCCs and the presence of an abstract cycle in the known edges.
+    /// A unit component is cyclic only when it contains a self-edge.
+    /// A false does not exclude cycles through opaque boundaries/future mutations.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::grafo::*};
-    /// let mut m = Module::new(); m.memoria_arc = true;
-    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::graph::*};
+    /// let mut m = Module::new(); m.arc_memory = true;
+    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] });
-    /// assert_eq!(construir_local_no_modulo(&m, "f", 8)?.unwrap().componentes().count(), 0);
+    /// assert_eq!(build_local_in_module(&m, "f", 8)?.unwrap().components().count(), 0);
     /// # Ok::<(), String>(())
     /// ```
     pub fn components(&self) -> impl Iterator<Item = (&[AbstractNode], bool)> {
@@ -99,16 +99,16 @@ impl ArcHeapGraph {
     }
 }
 
-/// Analisa o corpo e extrai SCCs de arestas de campos, sem usar SCCs de chamadas.
-/// Só no módulo ARC; tracing devolve None. O resultado é local à versão atual,
-/// não certificado de política, grupo concreto, vida ou cobertura do programa.
+/// Analyzes the body and extracts SCCs of field edges, without using call SCCs.
+/// Only in the ARC module; tracing returns None. The result is local to the current version,
+/// not a certificate of policy, concrete group, lifetime or program coverage.
 ///
-/// # Erros
-/// Corpo/SSA ou premissas de sítio/layout/resumos inválidos na análise do módulo.
+/// # Errors
+/// Invalid body/SSA or site/layout/summary premises in the module analysis.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::Module, optimize::arc::analise::grafo::*};
-/// assert!(construir_local_no_modulo(&Module::new(), "ausente", 8)?.is_none());
+/// use dartforge_emit_native::{hir::Module, optimize::arc::analysis::graph::*};
+/// assert!(build_local_in_module(&Module::new(), "absent", 8)?.is_none());
 /// # Ok::<(), String>(())
 /// ```
 pub fn build_local_in_module(
@@ -137,8 +137,8 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
         .map(|node| (node, BTreeSet::new()))
         .collect();
     let mut opaque = !a.unknown_set().is_empty() || a.opaque_implicit_emission;
-    // Valores que podem ser handles/endereços sem origem fechada conservam
-    // uma fronteira, mesmo quando nenhuma aresta desse valor foi materializada.
+    // Values that may be handles/addresses without a closed origin keep
+    // a boundary, even when no edge of that value was materialized.
     for (v, t) in f.params.iter().map(|(v, _, t)| (v, t)).chain(
         f.blocks
             .iter()
@@ -169,9 +169,9 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
             }
         }
     }
-    // Um escritor coberto apenas na HIR explícita pode manter campos topo.
-    // Mesmo assim suas inclusões positivas não desaparecem do supergrafo;
-    // isso não fecha a fronteira ou fornece uma prova de não participação.
+    // A writer covered only in the explicit HIR may keep top fields.
+    // Even so its positive inclusions do not disappear from the supergraph;
+    // that does not close the boundary nor provide a proof of non-participation.
     for &(object, value) in &a.write_inclusions {
         match (
             a.points().variable(object).and_then(|p| p.nodes()),
@@ -214,8 +214,8 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
     }
 }
 
-// Confere obrigações por inclusão, não por igualdade com uma nova execução
-// do produtor. A análise é premissa local imutável, não certificado global.
+// Checks obligations by inclusion, not by equality with a new run
+// of the producer. The analysis is an immutable local premise, not a global certificate.
 fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
     let a = &g.analysis;
     let require_opaque = || {
@@ -277,8 +277,8 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
             _ => require_opaque()?,
         }
     }
-    // Inclui nós extras de sobreaproximações: um destino sem esquema não
-    // pode ser tratado como folha fechada só por não ter arestas explícitas.
+    // Includes extra nodes from over-approximations: a destination without a schema cannot
+    // be treated as a closed leaf just because it has no explicit edges.
     for (node, exits) in &g.edges {
         if !a.schemas.contains_key(node) {
             require_opaque()?;
@@ -462,8 +462,8 @@ mod tests {
         for mask in 0..512 {
             let m = module(mask);
             let mut g = build_local_in_module(&m, "f", 8).unwrap().unwrap();
-            // Campos/alocação em linha exigem contexto: a conferência de
-            // pilha do prólogo permanece opaca, sem apagar as arestas.
+            // Inline fields/allocation require a context: the stack check
+            // of the prologue stays opaque, without erasing the edges.
             assert!(g.opaque());
             assert_eq!(g.edges().len(), 3);
             let nodes: Vec<_> = (0..3)
@@ -479,8 +479,8 @@ mod tests {
                     assert_eq!(g.edges()[&nodes[v]].contains(&nodes[w]), *dest);
                 }
             }
-            // Adulterações são conferidas contra as obrigações inferidas,
-            // não contra uma nova execução do produtor/Tarjan.
+            // Tampering is checked against the inferred obligations,
+            // not against a new run of the producer/Tarjan.
             g.check_in_module(&m, "f").unwrap();
             for node in &nodes {
                 let dests: Vec<_> = g.edges[node].iter().cloned().collect();
@@ -505,7 +505,7 @@ mod tests {
             assert!(g.check_in_module(&m, "f").is_err());
             g.components.push(last_one);
             g.check_in_module(&m, "f").unwrap();
-            // Fecho sem identidade: diagonal só verdadeira quando há ciclo.
+            // Closure without identity: the diagonal is only true when there is a cycle.
             for k in 0..3 {
                 for v in 0..3 {
                     for w in 0..3 {
@@ -545,16 +545,16 @@ mod tests {
             (vec![nodes[2].clone()], false),
         ];
         g.check_in_module(&m, "f").unwrap();
-        // União de nós sem alcance de volta não é componente forte.
+        // A union of nodes without reachability back is not a strong component.
         g.components = vec![
             (vec![nodes[0].clone(), nodes[1].clone()], true),
             (vec![nodes[2].clone()], false),
         ];
         assert!(g.check_in_module(&m, "f").is_err());
-        // Acrescentar aresta de volta torna a união forte, sem executar Tarjan.
+        // Adding a back edge makes the union strong, without running Tarjan.
         g.edges.get_mut(&nodes[1]).unwrap().insert(nodes[0].clone());
         g.check_in_module(&m, "f").unwrap();
-        // Dividir o ciclo em duas SCCs é inválido mesmo com cobertura única.
+        // Splitting the cycle into two SCCs is invalid even with unique coverage.
         g.components = vec![
             (vec![nodes[1].clone()], false),
             (vec![nodes[0].clone()], false),
@@ -575,7 +575,7 @@ mod tests {
         g.edges.get_mut(&nodes[0]).unwrap().insert(external.clone());
         assert!(g.check_in_module(&m, "f").is_err());
         g.edges.insert(external.clone(), BTreeSet::new());
-        // Nó extra sem esquema exige fronteira opaca e partição completa.
+        // An extra node without a schema requires an opaque boundary and a complete partition.
         g.components.insert(0, (vec![external], false));
         g.check_in_module(&m, "f").unwrap();
         g.opaque = false;
@@ -608,7 +608,7 @@ mod tests {
         ));
         let g = build_local_in_module(&m, "f", 8).unwrap().unwrap();
         g.check_in_module(&m, "f").unwrap();
-        // Reordenação nominal mantém dependências; símbolo é a identidade.
+        // Nominal reordering keeps the dependencies; the symbol is the identity.
         m.functions.swap(0, 1);
         g.check_in_module(&m, "f").unwrap();
         m.functions.swap(0, 1);
@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn summarized_instances_at_same_site_do_not_prove_singleton_or_cycle_absence() {
-        let mut m = module(1 << 1); // Instância 0 aponta para instância 1.
+        let mut m = module(1 << 1); // Instance 0 points to instance 1.
         let origin = m.arc_sites["f"][&ValueId(0)].clone();
         m.arc_sites
             .get_mut("f")
@@ -683,7 +683,7 @@ mod tests {
         let g = build_local_in_module(&m, "f", 8).unwrap().unwrap();
         assert_eq!(g.edges().len(), 2);
         assert!(g.components().any(|(_, cycle)| cycle));
-        assert!(g.opaque()); // O prólogo com contexto ainda não possui resumo.
+        assert!(g.opaque()); // The prologue with a context has no summary yet.
     }
 
     #[test]

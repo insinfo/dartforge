@@ -1,38 +1,38 @@
-//! A forma compacta da tabela do rastro no formato da VM
-//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14, item 1): o conversor da
-//! seção `dfpcl` de um objeto COFF ou ELF, que troca as entradas de 12 bytes
-//! (duas relocações cada) pelo **DFPC v1**, reescrevendo o objeto no lugar,
-//! como o conversor do mapa de pilha (`gcmap.rs`).
+//! The compact form of the stack trace table in the VM format
+//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14, item 1): the converter of the
+//! `dfpcl` section of a COFF or ELF object, which replaces the 12-byte entries
+//! (two relocations each) with **DFPC v1**, rewriting the object in place,
+//! like the stack map converter (`gcmap.rs`).
 //!
 //! ```text
-//! cabeçalho (20 bytes)
-//!   "DFPC"; u8 versão = 1; u8 forma (1 = ELF, 2 = COFF); u16 0
-//!   u32 tamanho total do blob (múltiplo de 4); u32 n_funcoes; u32 n_registros
-//! índice: n_funcoes × { i32 endereço da função; u32 início no fluxo }
-//! registros: n_registros × i32 endereço do registro
-//!   cada endereço é relocado relativo ao próprio campo: no ELF, `field + v`
-//!   (`R_X86_64_PC32`, `R_AARCH64_PREL32`); no COFF, `field + 4 + v`
-//!   (`IMAGE_REL_AMD64_REL32`, relativo ao byte seguinte)
-//! fluxo (varints LEB128 sem sinal), por função:
-//!   n; n × { delta do rótulo desde o anterior (o primeiro, desde o começo
-//!            da função); registro << 2 | espécie; palavra }
-//! zeros até múltiplo de 4
+//! header (20 bytes)
+//!   "DFPC"; u8 version = 1; u8 format (1 = ELF, 2 = COFF); u16 0
+//!   u32 total size of the blob (multiple of 4); u32 n_functions; u32 n_records
+//! index: n_functions × { i32 address of the function; u32 start in the stream }
+//! records: n_records × i32 address of the record
+//!   each address is relocated relative to the field itself: in ELF, `field + v`
+//!   (`R_X86_64_PC32`, `R_AARCH64_PREL32`); in COFF, `field + 4 + v`
+//!   (`IMAGE_REL_AMD64_REL32`, relative to the next byte)
+//! stream (unsigned LEB128 varints), per function:
+//!   n; n × { delta of the label from the previous one (the first, from the start
+//!            of the function); record << 2 | kind; word }
+//! zeros up to a multiple of 4
 //! ```
 //!
-//! As espécies e as palavras são as da forma de 12 bytes (`llvm/stack_trace.rs`);
-//! as entradas do mesmo rótulo ficam na ordem da seção (a cadeia de quadros
-//! embutidos). Uma entrada de espécie 3 (o elo) não tem registro (0). O
-//! runtime lê as duas formas na mesma seção, pela assinatura `DFPC`
-//! (`RT/stack_trace.rs`). O Mach-O não é convertido (como o mapa).
+//! The kinds and the words are those of the 12-byte form (`llvm/stack_trace.rs`);
+//! the entries of the same label stay in section order (the chain of inlined
+//! frames). An entry of kind 3 (the link) has no record (0). The
+//! runtime reads both forms in the same section, by the `DFPC` signature
+//! (`RT/stack_trace.rs`). Mach-O is not converted (like the map).
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::gcmap::{read_varint, u16_at, u32_at, u64_at, varint};
 
 const MACHINE_X86_64: u16 = 0x8664;
 const COFF_REL32: u16 = 0x0004;
 const SCN_NRELOC_OVFL: u32 = 0x0100_0000;
-/// O tipo de símbolo de função do COFF (`DTYPE_FUNCTION << 4`).
+/// The COFF function symbol type (`DTYPE_FUNCTION << 4`).
 const COFF_FUNCTION: u16 = 0x20;
 const ELF_X86_64: u16 = 62;
 const ELF_AARCH64: u16 = 183;
@@ -43,8 +43,8 @@ const STT_FUNC: u8 = 2;
 const SHAPE_ELF: u8 = 1;
 const SHAPE_COFF: u8 = 2;
 
-/// Uma entrada lida: a função do rótulo (o símbolo) e o deslocamento nela,
-/// o registro (símbolo, adendo), a espécie e a palavra.
+/// An entry read: the function of the label (the symbol) and the offset in it,
+/// the record (symbol, addend), the kind and the word.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
     function: u32,
@@ -54,15 +54,15 @@ struct Entry {
     word: u32,
 }
 
-/// Uma relocação a escrever: a posição no blob, o símbolo e o adendo.
+/// A relocation to write: the position in the blob, the symbol and the addend.
 type Relocation = (u32, u32, i64);
 
-/// Codifica as entradas. Devolve o blob (com os adendos já no lugar quando
-/// `addendum_in_place`, a forma do COFF) e as relocações: uma por função, na
-/// ordem do índice, e uma por registro.
+/// Encodes the entries. Returns the blob (with the addends already in place when
+/// `addendum_in_place`, the COFF form) and the relocations: one per function, in
+/// index order, and one per record.
 fn encode(entries: &[Entry], shape: u8, addendum_in_place: bool) -> (Vec<u8>, Vec<Relocation>) {
-    // As funções na ordem da primeira aparição; as entradas de cada uma pelo
-    // deslocamento, estável (a ordem da seção nos empates).
+    // The functions in order of first appearance; the entries of each by
+    // offset, stable (section order on ties).
     let mut functions: Vec<u32> = Vec::new();
     let mut by_function: std::collections::HashMap<u32, Vec<&Entry>> = std::collections::HashMap::new();
     for e in entries {
@@ -130,8 +130,8 @@ fn encode(entries: &[Entry], shape: u8, addendum_in_place: bool) -> (Vec<u8>, Ve
     (blob, relocations)
 }
 
-/// Decodifica o fluxo de um blob (a ida e volta): por função do índice, as
-/// entradas `(offset, record, espécie, word)`.
+/// Decodes the stream of a blob (the round trip): per index function, the
+/// entries `(offset, record, kind, word)`.
 fn decode(blob: &[u8]) -> Result<Vec<Vec<(u64, usize, u32, u32)>>, String> {
     if blob.get(..4) != Some(b"DFPC") || blob.get(4) != Some(&1) {
         return Err("blob DFPC sem a assinatura".to_string());
@@ -154,7 +154,7 @@ fn decode(blob: &[u8]) -> Result<Vec<Vec<(u64, usize, u32, u32)>>, String> {
     Ok(exit)
 }
 
-/// A ida e volta: o que o runtime vai ler é o que a seção dizia.
+/// The round trip: what the runtime will read is what the section said.
 fn check_round_trip(blob: &[u8], entries: &[Entry], relocations: &[Relocation]) -> Result<(), String> {
     let back = decode(blob)?;
     let nf = u32_at(blob, 12)? as usize;
@@ -185,12 +185,12 @@ fn check_round_trip(blob: &[u8], entries: &[Entry], relocations: &[Relocation]) 
     Ok(())
 }
 
-/// Um símbolo de função: `(seção, value, size)` (tamanho 0: até o
-/// próximo).
+/// A function symbol: `(section, value, size)` (size 0: up to the
+/// next one).
 type FunctionSymbol = (u32, u64, u64);
 
-/// O símbolo de função que contém `(section, offset)`: o de maior valor
-/// que não passa dele (e, com tamanho, que o cobre).
+/// The function symbol that contains `(section, offset)`: the one with the largest value
+/// that does not go past it (and, with a size, that covers it).
 fn function_in(functions: &[(u32, FunctionSymbol)], section: u32, offset: u64) -> Option<(u32, u64)> {
     functions
         .iter()
@@ -199,13 +199,13 @@ fn function_in(functions: &[(u32, FunctionSymbol)], section: u32, offset: u64) -
         .map(|(i, (_, v, _))| (*i, offset - v))
 }
 
-/// Converte, no lugar, a seção `.dfpcl$m` de um objeto COFF x86-64.
-/// Devolve `false`, sem mexer, quando não há seção ou ela não tem entradas,
-/// ou numa forma que o conversor não reescreve (a original fica, e o runtime
-/// a lê do mesmo jeito).
+/// Converts, in place, the `.dfpcl$m` section of an x86-64 COFF object.
+/// Returns `false`, without touching anything, when there is no section or it has no entries,
+/// or for a form the converter does not rewrite (the original stays, and the runtime
+/// reads it the same way).
 ///
 /// # Errors
-/// Objeto malformado, ou uma entrada que o conversor não entende.
+/// Malformed object, or an entry the converter does not understand.
 pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     if object.len() < 20 || u16_at(object, 0)? != MACHINE_X86_64 {
         return Ok(false);
@@ -214,7 +214,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     let symbols = u32_at(object, 8)? as usize;
     let n_symbols = u32_at(object, 12)? as usize;
     let optional = u16_at(object, 16)? as usize;
-    // Os símbolos: o valor e a seção de cada um; os de função à parte.
+    // The symbols: the value and the section of each one; the function ones apart.
     let mut value_of: Vec<(u32, u64)> = vec![(0, 0); n_symbols];
     let mut functions: Vec<(u32, FunctionSymbol)> = Vec::new();
     let mut i = 0;
@@ -249,7 +249,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         if sec.starts_with(b"DFPC") {
             return Ok(false);
         }
-        // Pelo deslocamento na seção, o símbolo relocado.
+        // By the offset in the section, the relocated symbol.
         let mut rel: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
         for k in 0..n_rel {
             let e = rel_start + 10 * k;
@@ -270,7 +270,7 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
                 p += 12;
                 continue;
             };
-            // `alvo − field` com o adendo no lugar: o alvo é `S + A − 4`.
+            // `target − field` with the addend in place: the target is `S + A − 4`.
             let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "símbolo fora da tabela".to_string())?;
             let label = (value as i64 + field(0) - 4) as u64;
             let Some((function, offset)) = function_in(&functions, section, label) else {
@@ -312,12 +312,12 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     Ok(false)
 }
 
-/// Converte, no lugar, cada seção `dfpcl` de um objeto ELF de 64 bits
-/// (x86-64 ou aarch64): uma por grupo `comdat`, cada uma com as relocações
-/// dela. Devolve se converteu alguma.
+/// Converts, in place, each `dfpcl` section of a 64-bit ELF object
+/// (x86-64 or aarch64): one per `comdat` group, each with its own
+/// relocations. Returns whether it converted any.
 ///
 /// # Errors
-/// Objeto malformado, ou uma entrada que o conversor não entende.
+/// Malformed object, or an entry the converter does not understand.
 pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     if object.len() < 64 || &object[..4] != b"\x7fELF" || object[4] != 2 || object[5] != 1 {
         return Ok(false);
@@ -346,7 +346,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         if name_of(object, m)? != b"dfpcl" {
             continue;
         }
-        // A `SHT_RELA` (4) da seção, e a tabela de símbolos dela.
+        // The `SHT_RELA` (4) of the section, and its symbol table.
         let mut relocations = None;
         for i in 0..n_sections {
             if u32_at(object, header(i) + 4)? == 4 && u32_at(object, header(i) + 44)? as usize == m {
@@ -406,7 +406,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
                 p += 12;
                 continue;
             };
-            // `S + A − P`: o alvo é `S + A`.
+            // `S + A − P`: the target is `S + A`.
             let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "símbolo fora da tabela".to_string())?;
             let label = (value as i64 + a0) as u64;
             let Some((function, offset)) = function_in(&functions, section, label) else {
@@ -449,17 +449,17 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     Ok(converted)
 }
 
-/// Se a tabela do rastro do objeto gerado neste hospedeiro passa pelo
-/// conversor: no COFF e no ELF, salvo a medida `DARTFORGE_RASTRO_CRU=1`; no
-/// Mach-O nunca.
+/// Whether the stack trace table of the object generated on this host goes through the
+/// converter: in COFF and ELF, except for the `DARTFORGE_RASTRO_CRU=1` measurement; in
+/// Mach-O never.
 pub fn convert_here() -> bool {
     crate::alvo::sistema() != crate::alvo::Sistema::MacOs && !std::env::var_os("DARTFORGE_RASTRO_CRU").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
-/// O conversor do formato do objeto. Devolve se converteu.
+/// The converter for the object format. Returns whether it converted.
 ///
 /// # Errors
-/// Os dos conversores.
+/// Those of the converters.
 pub fn convert(object: &mut [u8]) -> Result<bool, String> {
     if object.starts_with(b"\x7fELF") { convert_elf(object) } else { convert_coff(object) }
 }
@@ -477,7 +477,7 @@ mod tests {
         let entries = vec![
             e(7, 40, Some((3, 16)), 0, 3 << 12 | 5),
             e(7, 12, Some((3, 0)), 0, 2 << 12),
-            // A cadeia de um ponto embutido: o mesmo rótulo, na ordem.
+            // The chain of an inlined point: the same label, in order.
             e(7, 40, Some((3, 32)), 0, 9 << 12 | 1),
             e(9, 0, Some((4, 8)), 1, 1 << 12 | 6),
             e(9, 0, Some((4, 8)), 2, 5 << 12 | 9),
@@ -486,16 +486,16 @@ mod tests {
         let (blob, relocations) = encode(&entries, SHAPE_ELF, false);
         assert_eq!(blob.len() % 4, 0);
         assert_eq!(&blob[..4], b"DFPC");
-        // Duas funções e quatro registros distintos (o da cadeia embutida,
-        // `(3, 32)`, é outro).
+        // Two functions and four distinct records (the one of the inlined chain,
+        // `(3, 32)`, is another).
         assert_eq!(relocations.len(), 6);
         assert_eq!(relocations[0].1, 7);
         assert_eq!(relocations[1].1, 9);
         assert!(check_round_trip(&blob, &entries, &relocations).is_ok());
         let back = decode(&blob).unwrap();
-        // A ordem dos empates é a da seção: 3:5 antes de 9:1.
+        // The order of ties is that of the section: 3:5 before 9:1.
         assert_eq!(back[0].iter().map(|x| x.3).collect::<Vec<_>>(), vec![2 << 12, 3 << 12 | 5, 9 << 12 | 1]);
-        // O COFF leva o adendo no lugar.
+        // COFF carries the addend in place.
         let (coff, _) = encode(&entries, SHAPE_COFF, true);
         let first_record = 20 + 8 * 2;
         assert_eq!(i32::from_le_bytes(coff[first_record..first_record + 4].try_into().unwrap()), 16);

@@ -1,27 +1,27 @@
-//! Endereços derivados de listas: os dados de uma lista tipada
-//! (`@df.tipada_dados`) e o armazenamento de uma lista do núcleo
-//! (`@df.nucleo_armazenamento`). Cada acesso por eles ganha, logo depois,
-//! `@df.keep_alive(list)`: a lista fica emprestada e viva até ali, e o ARC
-//! põe o drop depois do último acesso. Os dados de uma lista tipada não
-//! mudam enquanto ela vive; o armazenamento do núcleo muda quando a lista
-//! cresce, então nenhum caminho da leitura dele ao acesso passa por uma
-//! barreira. Não prova limites nem a forma dos elementos (o lowering confere).
+//! Addresses derived from lists: the data of a typed list
+//! (`@df.tipada_dados`) and the storage of a core list
+//! (`@df.nucleo_armazenamento`). Each access through them gets, right after,
+//! `@df.keep_alive(list)`: the list stays borrowed and alive up to there, and ARC
+//! puts the drop after the last access. The data of a typed list does not
+//! change while it lives; the storage of a core list changes when the list
+//! grows, so no path from its read to the access goes through a
+//! barrier. Proves neither bounds nor the shape of the elements (the lowering checks).
 
 use super::super::cfg::Cfg;
 use super::super::operands::{largest_ids, operands, terminator_operands};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
-/// O uso que segura a lista depois de um acesso pelo endereço derivado.
+/// The use that holds the list after an access through the derived address.
 pub(crate) const KEEP_ALIVE: &str = "df.manter_vivo";
 
 #[derive(Clone, Copy, PartialEq)]
 struct Origin {
-    /// A lista da qual o endereço deriva.
+    /// The list the address derives from.
     list: ValueId,
-    /// A leitura do endereço (o ajudante).
+    /// The read of the address (the helper).
     root: ValueId,
-    /// Armazenamento do núcleo (muda quando a lista cresce).
+    /// Core storage (changes when the list grows).
     core: bool,
 }
 
@@ -61,12 +61,12 @@ fn origins(f: &Function) -> HashMap<ValueId, Origin> {
     }
 }
 
-/// Os valores que são endereços derivados de listas.
+/// The values that are addresses derived from lists.
 pub(super) fn addresses(f: &Function) -> HashSet<ValueId> {
     origins(f).into_keys().collect()
 }
 
-/// O endereço lido ou gravado por `inst`, se é um acesso à memória.
+/// The address read or written by `inst`, if it is a memory access.
 fn address(inst: &Instruction) -> Option<&Operand> {
     match inst {
         Instruction::NativeLoad { address, .. } | Instruction::NativeWrite { address, .. } => Some(address),
@@ -89,11 +89,11 @@ fn keep_alive(list: ValueId) -> Instruction {
     }
 }
 
-/// Pode trocar o armazenamento de uma lista do núcleo (chama Dart ou o
-/// runtime sem contrato que o exclua). O ponto seguro não troca: as
-/// mensagens de controle (pausa, ping, kill) não rodam Dart do programa, e
-/// o kill sai do laço pela pendência, antes do próximo acesso. Limpar a
-/// pendência só solta a exceção: a lista segue segura pelo `keep_alive`.
+/// May replace the storage of a core list (calls Dart or the
+/// runtime without a contract that excludes it). The safepoint does not: the
+/// control messages (pause, ping, kill) do not run the program's Dart, and
+/// kill leaves the loop through the pending state, before the next access. Clearing the
+/// pending state only releases the exception: the list is still held by `keep_alive`.
 fn barrier(inst: &Instruction) -> bool {
     match inst {
         Instruction::CallRuntime { name, .. } => {
@@ -115,8 +115,8 @@ fn barrier(inst: &Instruction) -> bool {
     }
 }
 
-/// Põe `@df.keep_alive(list)` depois de cada acesso por endereço derivado
-/// que ainda não o tem (repetir não muda nada) e confere a forma resultante
+/// Puts `@df.keep_alive(list)` after each access through a derived address
+/// that does not have it yet (repeating changes nothing) and checks the resulting shape
 /// ([`verify`]).
 pub(super) fn keep_live(f: &mut Function) -> Result<(), String> {
     let der = origins(f);
@@ -144,8 +144,8 @@ pub(super) fn keep_live(f: &mut Function) -> Result<(), String> {
     verify(f)
 }
 
-/// As leituras de armazenamento do núcleo ainda válidas na entrada de cada
-/// bloco: valem em todo caminho desde a leitura, sem barreira no meio.
+/// The reads of core storage still valid at the entry of each
+/// block: valid on every path since the read, with no barrier in between.
 fn valid_storages(f: &Function, der: &HashMap<ValueId, Origin>) -> Vec<HashSet<ValueId>> {
     let roots: HashSet<ValueId> = der.values().filter(|o| o.core).map(|o| o.root).collect();
     let cfg = Cfg::new(f);
@@ -185,9 +185,9 @@ fn valid_storages(f: &Function, der: &HashMap<ValueId, Origin>) -> Vec<HashSet<V
     }
 }
 
-/// Confere que o endereço derivado só serve a derivações e acessos, que
-/// cada acesso é seguido de `@df.keep_alive` da lista dele, e que nenhum
-/// caminho da leitura do armazenamento do núcleo ao acesso tem barreira.
+/// Checks that the derived address only serves derivations and accesses, that
+/// each access is followed by `@df.keep_alive` of its list, and that no
+/// path from the read of core storage to the access has a barrier.
 pub(super) fn verify(f: &Function) -> Result<(), String> {
     let der = origins(f);
     if der.is_empty() {
@@ -214,7 +214,7 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                     }
                 }
             });
-            // Num acesso, o endereço é o único operando derivado.
+            // In an access, the address is the only derived operand.
             if access.is_some() && occurrences != 1 {
                 error = Some(*v);
             }
@@ -299,31 +299,31 @@ mod tests {
             _ => format!("v{}", v.0),
         }).collect();
         assert_eq!(names, ["v2", "v3", "manter6", "v4", "v5", "manter7"]);
-        // Repetir não muda nada.
+        // Repeating changes nothing.
         let before = format!("{f:?}");
         keep_live(&mut f).unwrap();
         assert_eq!(format!("{f:?}"), before);
-        // Sem o manter_vivo depois do acesso, recusa.
+        // Without the keep_alive after the access, it is rejected.
         f.blocks[0].instructions.remove(2);
         assert!(verify(&f).unwrap_err().contains("sem manter"));
     }
 
     #[test]
     fn derived_address_does_not_escape_or_cross_core_barrier() {
-        // Passar o endereço a uma chamada.
+        // Passing the address to a call.
         let mut f = function(vec![
             (ValueId(2), rt("df.tipada_dados", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![val(2)], ret_ty: Type::Void }, Type::Void),
         ]);
         assert!(keep_live(&mut f).unwrap_err().contains("escapa"));
-        // Uma chamada entre a leitura do armazenamento e o acesso.
+        // A call between the read of the storage and the access.
         let mut f = function(vec![
             (ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
             (ValueId(4), Instruction::NativeLoad { address: val(2), index: val(1), ty: CType::I64 }, Type::I64),
         ]);
         assert!(keep_live(&mut f).unwrap_err().contains("barreira"));
-        // Sem barreira, passa; a forma também é um acesso.
+        // Without a barrier, it passes; the shape is also an access.
         let mut f = function(vec![
             (ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), rt("df.nucleo_forma", vec![(val(2), Type::I64)], Type::I64), Type::I64),
@@ -334,8 +334,8 @@ mod tests {
         assert_eq!(f.blocks[0].instructions.len(), 6);
     }
 
-    /// O armazenamento lido antes das voltas (N13): o ponto seguro no corpo
-    /// não o invalida; uma chamada no corpo, sim (pela aresta de volta).
+    /// The storage read before the loop iterations (N13): the safepoint in the body
+    /// does not invalidate it; a call in the body does (through the back edge).
     #[test]
     fn storage_read_before_loop_crosses_safepoint() {
         let loop_fn = |body: Instruction| Function {

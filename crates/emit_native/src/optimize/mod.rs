@@ -1,19 +1,19 @@
-//! Otimizações sobre a HIR, antes do LLVM (docs/NATIVO-PLANO.md §8).
+//! Optimizations over the HIR, before LLVM (docs/NATIVO-PLANO.md §8).
 //!
-//! O LLVM só otimiza o que recebe: um objeto criado pelo runtime e lido por
-//! chamadas opacas não some lá. Aqui, com a semântica do Dart à mão, os
-//! passes eliminam o trabalho antes de ele virar chamada:
+//! LLVM only optimizes what it receives: an object created by the runtime and read by
+//! opaque calls does not go away there. Here, with Dart semantics at hand, the
+//! passes remove the work before it becomes a call:
 //!
-//! 1. `mem2reg`: locais viram valores SSA;
-//! 2. resumo de exceções (`effects`) e a conferência depois de uma chamada
-//!    que não lança dobrada (`simplify`);
-//! 3. inlining das funções pequenas (`inline`) — construtores, getters,
-//!    operadores —, também das que lançam (a conferência depois da chamada
-//!    leva a exceção ao tratador de quem chama);
-//! 4. substituição escalar dos objetos que não escapam (`escape`), e de
-//!    novo `mem2reg` e as limpezas.
+//! 1. `mem2reg`: locals become SSA values;
+//! 2. exception summary (`effects`) and the check after a call
+//!    that does not throw folded away (`simplify`);
+//! 3. inlining of small functions (`inline`) — constructors, getters,
+//!    operators —, also of those that throw (the check after the call
+//!    takes the exception to the caller's handler);
+//! 4. scalar replacement of objects that do not escape (`escape`), and
+//!    `mem2reg` and the cleanups again.
 //!
-//! `DARTFORGE_OTIMIZAR_HIR=0` desliga tudo (para comparar).
+//! `DARTFORGE_OTIMIZAR_HIR=0` turns everything off (for comparison).
 
 mod cfg;
 pub mod arc;
@@ -33,32 +33,32 @@ mod tests;
 use crate::hir::*;
 use std::collections::HashMap;
 
-/// Prepara programa e bibliotecas do SDK pelo mesmo pipeline de emissão.
-/// O modelo de memória fica definido antes dos passes; a materialização das
-/// exceções permanece por último, pois seus IDs descrevem a HIR final.
-/// A inserção de owners ARC ainda não faz parte deste pipeline (§20).
-/// Sua integração deve ficar condicionada a `arc_memory` (`--memoria=arc`):
-/// tracing não recebe fábricas Owned, retenções ou liberações ARC.
+/// Prepares the program and the SDK libraries through the same emission pipeline.
+/// The memory model is defined before the passes; the materialization of
+/// exceptions stays last, since its IDs describe the final HIR.
+/// The insertion of ARC owners is not part of this pipeline yet (§20).
+/// Its integration must stay conditioned on `arc_memory` (`--memoria=arc`):
+/// tracing gets no Owned factories, ARC retains or releases.
 pub(crate) fn prepare_for_emission(module: &mut Module, arc_memory: bool, by_tables: bool) {
     module.arc_memory = arc_memory;
     optimize(module);
     if by_tables {
         let plan = tables::prepare(module);
-        // A inserção/verificação de ownership deverá ocorrer aqui, sobre
-        // o CFG excepcional preparado, antes de publicar tabelas LLVM.
+        // The insertion/verification of ownership is expected to happen here, over
+        // the prepared exceptional CFG, before publishing LLVM tables.
         tables::materialize(module, plan);
     }
 }
 
-/// Os passes desligados pelo ambiente?
+/// Are the passes turned off by the environment?
 fn disabled() -> bool {
     std::env::var("DARTFORGE_OTIMIZAR_HIR").is_ok_and(|v| v == "0")
 }
 
 fn clear(func: &mut Function, do_not_throw: &std::collections::HashSet<String>) {
-    // Numa função que não lança, a exceção nunca está pendente: o
-    // `dartforge_exception_clear` do `return` (que descarta a pendente ao
-    // sair de um `finally`) não tem o que limpar.
+    // In a function that does not throw, the exception is never pending: the
+    // `dartforge_exception_clear` of the `return` (which discards the pending one when
+    // leaving a `finally`) has nothing to clear.
     if do_not_throw.contains(&func.symbol) {
         for b in &mut func.blocks {
             b.instructions.retain(|(_, i, _)| !matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear"));
@@ -71,13 +71,13 @@ fn clear(func: &mut Function, do_not_throw: &std::collections::HashSet<String>) 
     simplify::remove_dead(func);
 }
 
-/// A entrada é o primeiro bloco em todo o resto do compilador.
+/// The entry is the first block in all the rest of the compiler.
 fn valid(f: &Function) -> bool {
     f.blocks.first().is_some_and(|b| b.id.0 == 0)
 }
 
-/// Quantas threads os passes por função usam: as da máquina, no máximo 4
-/// (`DARTFORGE_THREADS_HIR` escolhe; 1 = sequencial).
+/// How many threads the per-function passes use: the machine's, at most 4
+/// (`DARTFORGE_THREADS_HIR` chooses; 1 = sequential).
 fn threads() -> usize {
     std::env::var("DARTFORGE_THREADS_HIR")
         .ok()
@@ -86,11 +86,11 @@ fn threads() -> usize {
         .max(1)
 }
 
-/// Aplica `pass` a cada função válida, em pedaços contíguos por thread: os
-/// passes por função só leem o resto do módulo pelo que recebem pronto
-/// (`do_not_throw`, as cópias do inliner), então o resultado é o mesmo da
-/// ordem sequencial. Devolve se algum passe mudou alguma função. No
-/// new_sali/backend (~180 mil funções) os passes levavam ~20 s numa thread.
+/// Applies `pass` to each valid function, in contiguous chunks per thread: the
+/// per-function passes only read the rest of the module through what they receive ready
+/// (`do_not_throw`, the inliner's copies), so the result is the same as the
+/// sequential order. Returns whether some pass changed some function. In
+/// new_sali/backend (~180 thousand functions) the passes took ~20 s on one thread.
 fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool + Sync)) -> bool {
     let n = threads();
     if n == 1 || functions.len() < 2048 {
@@ -100,9 +100,9 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
         }
         return changed;
     }
-    // Pedaços pequenos distribuídos sob demanda: as funções grandes (os
-    // literais e as tabelas de dados) se agrupam, e um pedaço por thread
-    // deixava uma thread com quase todo o trabalho.
+    // Small chunks distributed on demand: the large functions (the
+    // literals and the data tables) cluster together, and one chunk per thread
+    // left one thread with almost all the work.
     let chunks: Vec<std::sync::Mutex<&mut [Function]>> =
         functions.chunks_mut(256).map(std::sync::Mutex::new).collect();
     let next_item = std::sync::atomic::AtomicUsize::new(0);
@@ -131,15 +131,15 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
     })
 }
 
-/// Passa o módulo para as exceções por tabelas (`--excecoes=tables`,
-/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): o último passe sobre a HIR,
-/// depois de [`optimize`] e logo antes da emissão. Sem ele o módulo fica no
-/// modelo de sempre (a pendência conferida depois de cada chamada).
+/// Switches the module to exceptions by tables (`--excecoes=tables`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): the last pass over the HIR,
+/// after [`optimize`] and right before emission. Without it the module stays in the
+/// usual model (the pending state checked after each call).
 pub fn excecoes_por_tabelas(module: &mut Module) {
     tables::apply(module);
 }
 
-/// Otimiza as funções do módulo.
+/// Optimizes the functions of the module.
 pub fn optimize(module: &mut Module) {
     if disabled() {
         return;
@@ -154,15 +154,15 @@ pub fn optimize(module: &mut Module) {
             clear(f, &do_not_throw);
             false
         });
-        // A limpeza pode liberar IDs SSA que as próximas cópias reutilizam.
-        // Não deixar uma origem morta aderir a uma instrução nova com esse ID.
+        // The cleanup may free SSA IDs that the next copies reuse.
+        // Do not let a dead origin stick to a new instruction with that ID.
         if module.arc_memory { arc::analysis::origins::prune(module); }
         let copies: HashMap<String, (Function, bool)> = module
             .functions
             .iter()
-            // J05: a função compilada com informação de depuração não é
-            // embutida — o corpo copiado perderia a posição, e o breakpoint
-            // nela nunca pararia.
+            // J05: a function compiled with debug information is not
+            // inlined — the copied body would lose its position, and a breakpoint
+            // in it would never stop.
             .filter(|f| f.debug_info.is_none() && inline::copyable(f))
             .map(|f| (f.symbol.clone(), (f.clone(), !do_not_throw.contains(&f.symbol))))
             .collect();
@@ -180,8 +180,8 @@ pub fn optimize(module: &mut Module) {
             } else {
                 inline::inlining(f, &copies)
             };
-            // O corpo embutido de uma função local direta deixa o local que
-            // ela recebia por endereço só com `Load`/`Store`: promovível.
+            // The inlined body of a direct local function leaves the local that
+            // it received by address with only `Load`/`Store`: promotable.
             if changed {
                 mem2reg::promote(f);
                 clear(f, &do_not_throw);

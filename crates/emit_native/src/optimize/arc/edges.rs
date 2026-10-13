@@ -1,8 +1,8 @@
-//! Cleanup de tokens mortos nas arestas normais da transação ARC.
-//! Preserva transferências Phi e dependências de borrows. Pousos e arestas
-//! excepcionais exigem o protocolo de cleanup já preparado pelo lowering.
-//! Extensões de vida semânticas devem estar materializadas como usos na HIR;
-//! este passe não deduz ausência de Finalizable, captura ou suspensão.
+//! Cleanup of dead tokens on the normal edges of the ARC transaction.
+//! Preserves Phi transfers and borrow dependencies. Landing pads and
+//! exceptional edges require the cleanup protocol already prepared by the lowering.
+//! Semantic lifetime extensions must be materialized as uses in the HIR;
+//! this pass does not deduce the absence of a Finalizable, a capture or a suspension.
 
 use super::*;
 
@@ -24,7 +24,7 @@ pub(super) fn next_val(f: &Function, p: &DartFunctionPlan) -> u64 {
         .map_or(0, |v| u64::from(v) + 1)
 }
 
-// Opera apenas sobre corpos/mapas privados do conjunto fechado.
+// Operates only on private bodies/maps of the closed set.
 pub(super) fn prepare(
     f: &mut Function,
     p: &mut DartFunctionPlan,
@@ -35,8 +35,8 @@ pub(super) fn prepare(
         next_item += 1;
         Ok(ValueId(v))
     };
-    // A análise linear precisa ver a transferência Owned do retorno antes
-    // de decidir o que fica morto nas arestas anteriores.
+    // The linear analysis must see the Owned transfer of the return before
+    // deciding what is dead on the previous edges.
     let mut copies = super::contracts::copy_returns(f, &p.classes, &mut id)?;
     super::produce_arc_contracts(f, &mut p.classes, &mut p.tokens)?;
     let mut drops = 0;
@@ -136,8 +136,8 @@ pub(super) fn prepare(
             });
         }
         super::produce_arc_contracts(f, &mut p.classes, &mut p.tokens)?;
-        // Release é uma barreira conservadora; novos keepalives precisam
-        // entrar no próximo inventário antes de planejar mais drops.
+        // Release is a conservative barrier; new keepalives must
+        // enter the next inventory before more drops are planned.
         copies += super::borrows::protect(f, p)?;
     }
     Ok((copies, drops))

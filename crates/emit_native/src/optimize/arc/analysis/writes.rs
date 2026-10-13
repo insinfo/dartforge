@@ -1,6 +1,6 @@
-//! Inclusões de arestas fortes produzidas por stores parametrizados (§28.3).
-//! Não são cobertura de vida/publicação: campos opacos e caminhos implícitos
-//! continuam exigindo ARC geral mesmo quando estas inclusões são conhecidas.
+//! Strong-edge inclusions produced by parameterized stores (§28.3).
+//! They are not liveness/publication coverage: opaque fields and implicit paths
+//! still require general ARC even when these inclusions are known.
 
 use super::escape::EscapeCause;
 use super::summaries::*;
@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum PathOrigin {
     Parameter(usize),
-    // Contexto insensível: chamadas repetidas podem representar muitas
-    // instâncias. Esquema acompanha a origem; não é prova de singleton.
+    // Context-insensitive: repeated calls may represent many
+    // instances. The schema follows the origin; it is not a proof of singleton.
     Allocation {
         node: AbstractNode,
         fields: Vec<ArcField>,
@@ -58,8 +58,8 @@ impl SummaryPath {
     }
 }
 
-// Bottom sem evidência de resultado normal fica interno à solução da SCC.
-// Null é separado dos caminhos: nunca ganha identidade de objeto abstrato.
+// A bottom without evidence of a normal result stays internal to the SCC solution.
+// Null is kept apart from the paths: it never gets the identity of an abstract object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ReturnPaths {
     pub paths: Option<BTreeSet<SummaryPath>>,
@@ -92,7 +92,7 @@ impl ReturnPaths {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ParameterWrite {
     pub object: SummaryPath,
-    // None representa uma aresta lateral, sem posição no corpo do objeto.
+    // None represents a side edge, with no position in the body of the object.
     pub index: Option<usize>,
     pub value: SummaryPath,
 }
@@ -100,10 +100,10 @@ pub(super) struct ParameterWrite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum WriteInclusions {
     Known(BTreeSet<ParameterWrite>),
-    // Inclusões positivas não certificam ausência de outros escritores.
+    // Positive inclusions do not certify the absence of other writers.
     Partial(BTreeSet<ParameterWrite>),
     UnknownValues,
-    // Orçamento esgotado não volta a acumular fatos dentro do ponto fixo.
+    // An exhausted budget does not resume accumulating facts inside the fixpoint.
     Exceeded,
 }
 
@@ -123,8 +123,8 @@ impl WriteInclusions {
         self.join_set(&Self::UnknownValues, usize::MAX);
     }
 
-    // Opacidade é monotônica, mas não apaga inclusões testemunhadas.
-    // Só o orçamento esgotado é absorvente também para essas inclusões.
+    // Opacity is monotonic, but does not erase witnessed inclusions.
+    // Only the exhausted budget is absorbing for these inclusions too.
     pub(super) fn join_set(&mut self, other: &Self, limit: usize) -> bool {
         let before = self.clone();
         if matches!(self, Self::Exceeded) || matches!(other, Self::Exceeded) {
@@ -153,14 +153,14 @@ impl WriteInclusions {
     }
 }
 
-// Caminhos representam leituras no superestado fraco do chamador: sua
-// instanciação deve incluir todos os stores, sem apagar valores anteriores.
-// O comprimento e a quantidade de aliases são limitados; crescer além do
-// orçamento produz topo, inclusive em Phis ou chamadas recursivas.
+// Paths represent reads in the caller's weak superstate: their
+// instantiation must include every store, without erasing previous values.
+// The length and the number of aliases are bounded; growing beyond the
+// budget produces top, including in Phis or recursive calls.
 type AliasPaths = Option<BTreeSet<SummaryPath>>;
 
-// Apenas inclusões explícitas: mapa vazio não certifica ausência de
-// publicação por SDK, callback, finalizador ou emissão implícita.
+// Only explicit inclusions: an empty map does not certify the absence of
+// publication by the SDK, a callback, a finalizer or an implicit emission.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PublicationInclusions {
     Known(BTreeMap<EscapeCause, AliasPaths>),
@@ -184,7 +184,7 @@ impl PublicationInclusions {
                         limit,
                     );
                 }
-                // Destinos também consomem orçamento, inclusive publicação de null.
+                // Destinations also consume budget, including the publication of null.
                 let size = a.values().try_fold(a.len(), |n, c| {
                     n.checked_add(c.as_ref().map_or(0, BTreeSet::len))
                 });
@@ -326,8 +326,8 @@ pub(super) fn extract_with_origins<'a>(
         Operand::Constant(Constant::Null) => true,
         _ => false,
     };
-    // Bottom fica interno até a convergência. Stores só são extraídos após
-    // estabilizar cópias, caminhos e aliases de resultados normais locais.
+    // Bottom stays internal until convergence. Stores are only extracted after
+    // stabilizing copies, paths and aliases of local normal results.
     let instructions: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).collect();
     let mut dependents = vec![Vec::new(); ids.len()];
     for (idx_value, (_, i, _)) in instructions.iter().enumerate() {
@@ -345,8 +345,8 @@ pub(super) fn extract_with_origins<'a>(
         let mut new_null = false;
         let new = match i {
             _ if *t == Type::Ref && origins.contains_key(v) => {
-                // Saber a identidade do resultado normal não cobre os
-                // efeitos da alocação, construção ou dos seus campos.
+                // Knowing the identity of the normal result does not cover the
+                // effects of the allocation, the construction or its fields.
                 opaque_writes = true;
                 if limit == 0 {
                     None
@@ -402,8 +402,8 @@ pub(super) fn extract_with_origins<'a>(
             {
                 let (object, index) = super::hir::field_read(i).unwrap();
                 let a = extend(operand(object, &aliases), &[index], limit);
-                // Campo pode ser null, mas bottom sem receiver não é uma
-                // evidência de execução normal em recursão sem base.
+                // A field may be null, but bottom without a receiver is not
+                // evidence of normal execution in baseless recursion.
                 new_null = a.as_ref().is_none_or(|c| !c.is_empty()) || null(object, &nulls);
                 a
             }
@@ -575,8 +575,8 @@ pub(super) fn extract_with_origins<'a>(
             }
         }
     }
-    // Incluir todos os throws é conservador mesmo quando uma tabela pode
-    // capturá-los no próprio corpo. Isso não resume wrappers/erros do SDK.
+    // Including every throw is conservative even when a table could
+    // catch them in the body itself. This does not summarize SDK wrappers/errors.
     for b in &f.blocks {
         if let Terminator::Throw(val_ref) = &b.terminator {
             publications.join_set(
@@ -623,8 +623,8 @@ pub(super) fn extract_with_origins<'a>(
             Instruction::AllocObject { fields, .. }
                 if *t == Type::Ref && origins.contains_key(v) =>
             {
-                // A origem/layout foi validada pelo módulo. Registrar cada
-                // inicializador possível sem fechar a fronteira da alocação.
+                // The origin/layout was validated by the module. Record each
+                // possible initializer without closing the allocation boundary.
                 for (idx_value, value) in fields.iter().enumerate() {
                     if exact_argument(value, Type::Ref, &types) {
                         include_write(
@@ -1136,7 +1136,7 @@ mod tests {
                 assert_eq!(resumo.fields(), ArcHeapFields::UnknownSet);
                 assert_eq!(resumo.publications(), ArcHeapPublications::UnknownValues);
             }
-            // A API sem estado de campos continua conservadora.
+            // The stateless field API stays conservative.
             assert_eq!(r["wrapper"].1.ret(), &ArcHeapReturn::UnknownValue);
         }
     }
@@ -1164,7 +1164,7 @@ mod tests {
             },
             Type::Ref,
         ));
-        // As duas saídas alimentam o Phi com predecessores SSA reais.
+        // Both exits feed the Phi with real SSA predecessors.
         let mut body = f.blocks.remove(0);
         let phi = body.instructions.pop().unwrap();
         body.terminator = Terminator::CondBranch {
@@ -1517,8 +1517,8 @@ mod tests {
         let roots = HashSet::from(["ligar"]);
         let r = super::super::calls::solve(&m, &roots, 8).unwrap();
         assert_eq!(r["ligar"].1.write_inclusions, expected_set(&[(0, 1)]));
-        // Representação igual em bits não autoriza converter um argumento
-        // I64 em Ref para sustentar o resumo de stores.
+        // A representation equal in bits does not authorize converting an I64
+        // argument into a Ref to sustain the store summary.
         m.functions[0].params[1].2 = Type::I64;
         assert!(super::super::calls::solve(&m, &roots, 8).is_err());
         m.functions[0].params[1].2 = Type::Ref;
@@ -1600,7 +1600,7 @@ mod tests {
             extract(&f, 3, |_| None).unwrap(),
             WriteInclusions::Exceeded
         );
-        // Um caminho null não se torna uma alocação ou argumento fresco.
+        // A null path does not become an allocation or a fresh argument.
         let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else {
             unreachable!()
         };

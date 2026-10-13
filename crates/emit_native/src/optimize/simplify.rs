@@ -1,6 +1,6 @@
-//! Limpezas do CFG depois dos outros passes: a conferência de exceção
-//! depois de uma chamada que não lança, comparações e desvios constantes,
-//! blocos inalcançáveis, blocos encadeados e valores puros sem uso.
+//! CFG cleanups after the other passes: the exception check after a call
+//! that does not throw, constant comparisons and branches,
+//! unreachable blocks, chained blocks and unused pure values.
 
 use super::cfg::{Cfg, successors};
 use super::effects::{checks_all, is_check};
@@ -8,8 +8,8 @@ use super::operands::*;
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
-/// Troca por 0 a conferência de exceção logo depois de uma chamada a uma
-/// função que não lança.
+/// Replaces with 0 the exception check right after a call to a
+/// function that does not throw.
 pub fn dead_checks(func: &mut Function, do_not_throw: &HashSet<String>) -> bool {
     if !checks_all(func, do_not_throw) {
         return false;
@@ -43,8 +43,8 @@ fn integer(o: &Operand) -> Option<i64> {
     }
 }
 
-/// Dobra comparações inteiras e extensões de constantes, e desvios por
-/// condição constante.
+/// Folds integer comparisons and constant extensions, and branches on a
+/// constant condition.
 pub fn fold_constants(func: &mut Function) -> bool {
     let mut changed = false;
     loop {
@@ -58,8 +58,8 @@ pub fn fold_constants(func: &mut Function) -> bool {
                 }
             }
         }
-        // A classe do cabeçalho é imutável. Só alocações explícitas com
-        // resultado Ref provam este fato; bits, parâmetros e calls opacas não.
+        // The header class is immutable. Only explicit allocations with a
+        // Ref result prove this fact; bits, parameters and opaque calls do not.
         let classes: HashMap<_, _> = func.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, inst, ty)| {
             if *ty != Type::Ref { return None; }
             let cid = match inst {
@@ -82,7 +82,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
                             [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
                             _ => None,
                         },
-                    // `x == null` com `x` também constante: o handle de null é 0.
+                    // `x == null` with `x` also constant: the null handle is 0.
                     Instruction::ICmp(op @ (ICmpOp::Eq | ICmpOp::Ne), a, c)
                         if matches!((a, c), (Operand::Constant(Constant::Null), _) | (_, Operand::Constant(Constant::Null)))
                             && [a, c].iter().all(|o| matches!(o, Operand::Constant(Constant::Null)) || integer(o).is_some()) =>
@@ -107,8 +107,8 @@ pub fn fold_constants(func: &mut Function) -> bool {
                     Instruction::ZExt { op, from: Type::I1 | Type::I8, .. } => {
                         integer(op).map(|n| Operand::Constant(Constant::Int(n & 0xFF)))
                     }
-                    // A caixa desfeita: `Unbox(Box(x))` é `x` (o `int`, o
-                    // `double` e o `bool` voltam exatos; nada lança).
+                    // The undone box: `Unbox(Box(x))` is `x` (the `int`, the
+                    // `double` and the `bool` come back exact; nothing throws).
                     Instruction::Unbox { op: Operand::Val(b), to } => match boxes.get(b) {
                         Some((x, de)) if de == to || (matches!(de, Type::I1 | Type::I8) && matches!(to, Type::I1)) => {
                             Some(x.clone())
@@ -122,13 +122,13 @@ pub fn fold_constants(func: &mut Function) -> bool {
                 }
             }
         }
-        // As trocas em cadeia: `v178 = Unbox(Box(v49))` vira `v49`, mas o
-        // próprio `v49 = Unbox(Box(v46))` também sai nesta volta — sem seguir
-        // a cadeia, quem usava `v178` ficava com o `v49` já removido ("use
-        // of undefined value" no LLVM: `a = aa = x` com `int?`, o
-        // `RIPEMD128Digest` do pointycastle no new_sali/backend;
-        // docs/NATIVO-PROJETOS-REAIS.md, C10). A cadeia é acíclica: cada
-        // troca aponta para um valor definido antes.
+        // Chained replacements: `v178 = Unbox(Box(v49))` becomes `v49`, but
+        // `v49 = Unbox(Box(v46))` itself also goes away in this round — without following
+        // the chain, users of `v178` were left with the already removed `v49` ("use
+        // of undefined value" in LLVM: `a = aa = x` with `int?`, pointycastle's
+        // `RIPEMD128Digest` in new_sali/backend;
+        // docs/NATIVO-PROJETOS-REAIS.md, C10). The chain is acyclic: each
+        // replacement points to a value defined earlier.
         let keys: Vec<ValueId> = values.keys().copied().collect();
         for k in keys {
             let mut alvo = values[&k].clone();
@@ -194,7 +194,7 @@ fn remove_entries(b: &mut BasicBlock, origin: BlockId) {
     }
 }
 
-/// Tira os blocos inalcançáveis (e as entradas de `phi` vindas deles).
+/// Removes unreachable blocks (and the `phi` entries coming from them).
 pub fn remove_unreachable(func: &mut Function) -> bool {
     let cfg = Cfg::new(func);
     let dead_set: HashSet<BlockId> =
@@ -213,8 +213,8 @@ pub fn remove_unreachable(func: &mut Function) -> bool {
     true
 }
 
-/// Junta `a -> b` quando `b` só tem `a` como predecessor e `a` só vai a
-/// `b` (sem `phi` em `b`, ou com os `phi` de uma entrada resolvidos).
+/// Merges `a -> b` when `b` has only `a` as predecessor and `a` only goes to
+/// `b` (with no `phi` in `b`, or with single-entry `phi`s resolved).
 pub fn join_blocks(func: &mut Function) -> bool {
     let mut changed = false;
     loop {
@@ -233,7 +233,7 @@ pub fn join_blocks(func: &mut Function) -> bool {
         let mut child = func.blocks.remove(j);
         let i = if j < i { i - 1 } else { i };
         let parent = func.blocks[i].id;
-        // Os `phi` de uma só entrada viram o valor dela.
+        // Single-entry `phi`s become their value.
         let mut swap: HashMap<ValueId, Operand> = HashMap::new();
         child.instructions.retain(|(v, inst, _)| match inst {
             Instruction::Phi { incoming, .. } => {
@@ -245,7 +245,7 @@ pub fn join_blocks(func: &mut Function) -> bool {
         });
         func.blocks[i].instructions.extend(child.instructions);
         func.blocks[i].terminator = child.terminator;
-        // Os sucessores do filho agora vêm do pai.
+        // The successors of the child now come from the parent.
         for b in &mut func.blocks {
             for (_, inst, _) in &mut b.instructions {
                 if let Instruction::Phi { incoming, .. } = inst {
@@ -264,7 +264,7 @@ pub fn join_blocks(func: &mut Function) -> bool {
     }
 }
 
-/// A instrução sem efeito além do resultado (tirável se ninguém o usa)?
+/// Does the instruction have no effect beyond its result (removable if nobody uses it)?
 fn pure(inst: &Instruction) -> bool {
     match inst {
         Instruction::Const(_)
@@ -308,13 +308,13 @@ fn pure(inst: &Instruction) -> bool {
     }
 }
 
-/// Um ajudante `@df.*` do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
-/// §3.5) sem efeito além do resultado: está numa das quatro tabelas de
-/// efeitos (`llvm/ir_strings.rs`, `ir_boxes.rs`, `ir_lists.rs`,
-/// `ir_typed.rs`, lidas por `externs::effects_of`), não lança e não grava
-/// no heap (os `*_gravar*` gravam, mesmo os que devolvem valor). Os que
-/// alocam (caixas, strings, SIMD) são tiráveis como a alocação de objeto; o
-/// `@df.texto_hash` só preenche o cache do hash.
+/// A `@df.*` helper of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §3.5) with no effect beyond its result: it is in one of the four effect
+/// tables (`llvm/ir_strings.rs`, `ir_boxes.rs`, `ir_lists.rs`,
+/// `ir_typed.rs`, read by `externs::effects_of`), does not throw and does not write
+/// to the heap (the `*_gravar*` ones write, even those that return a value). Those that
+/// allocate (boxes, strings, SIMD) are removable like an object allocation;
+/// `@df.texto_hash` only fills the hash cache.
 fn pure_helper(name: &str) -> bool {
     use crate::llvm::externs::{CONSERVATIVE, effects_of};
     if !name.starts_with("df.") || name.contains("gravar") {
@@ -324,7 +324,7 @@ fn pure_helper(name: &str) -> bool {
     e != CONSERVATIVE && !e.throws
 }
 
-/// Tira os valores puros que ninguém usa.
+/// Removes the pure values that nobody uses.
 pub fn remove_dead(func: &mut Function) -> bool {
     let mut changed = false;
     loop {

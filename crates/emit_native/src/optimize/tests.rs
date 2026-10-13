@@ -78,8 +78,8 @@ fn typed_fields_reinitialize_at_allocation_point_and_reject_mixed_bits() {
     }
 }
 
-/// `p = Ponto(a, b); return p.x + p.y` na forma que o lowering produz: o
-/// objeto some, e sobra a soma dos argumentos.
+/// `p = Point(a, b); return p.x + p.y` in the shape the lowering produces: the
+/// object vanishes, and the sum of the arguments remains.
 #[test]
 fn temporary_object_vanishes() {
     let v = ValueId;
@@ -183,7 +183,7 @@ fn temporary_object_vanishes() {
     assert!(text.contains("FAdd"), "{text}");
 }
 
-/// Um objeto que escapa (retornado) continua alocado.
+/// An object that escapes (is returned) stays allocated.
 #[test]
 fn escaping_object_stays() {
     let v = ValueId;
@@ -208,7 +208,7 @@ fn escaping_object_stays() {
     assert!(format!("{:?}", m.functions[0].blocks).contains("object_new"));
 }
 
-/// Um local gravado nos dois lados de um `if` vira um `phi`.
+/// A local written on both sides of an `if` becomes a `phi`.
 #[test]
 fn local_becomes_phi() {
     let v = ValueId;
@@ -290,9 +290,9 @@ fn constant_switch_removes_only_eliminated_edge_phi_entry() {
     }
 }
 
-/// O local que uma função pequena recebia por endereço (a captura de uma
-/// função local direta) fica só com `Load`/`Store` depois do inlining e é
-/// promovido.
+/// The local that a small function received by address (the capture of a
+/// direct local function) is left with only `Load`/`Store` after inlining and is
+/// promoted.
 #[test]
 fn by_address_local_vanishes_after_inlining() {
     let v = ValueId;
@@ -335,7 +335,7 @@ fn by_address_local_vanishes_after_inlining() {
     assert!(!text.contains("Alloca") && !text.contains("Load") && !text.contains("CallStatic"), "{text}");
 }
 
-/// `null == 0` (o handle de null) é constante: o ramo morto sai.
+/// `null == 0` (the null handle) is constant: the dead branch goes away.
 #[test]
 fn constant_null_comparison_folds() {
     let v = ValueId;

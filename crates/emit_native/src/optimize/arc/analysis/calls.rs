@@ -1,14 +1,14 @@
-//! Solução local monotônica de aliases normais por SCC de chamadas (§28.3).
-//! Compõe preservação/publicação de corpos positivos por chamadas diretas.
-//! Demais efeitos permanecem opacos; não certifica políticas ARC.
+//! Monotonic local solution of normal aliases per call SCC (§28.3).
+//! Composes preservation/publication of positive bodies through direct calls.
+//! Other effects stay opaque; does not certify ARC policies.
 
 use super::summaries::{ArcHeapSummary, ArcHeapReturn, extract_with_calls};
 use crate::hir::*;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-/// Resume corpos alcançáveis pelas chamadas diretas das raízes fornecidas.
-/// Alvos externos não são inventados. Bottom é interno: ciclos sem evidência
-/// de retorno normal são elevados a topo antes de disponibilizar a SCC.
+/// Summarizes the bodies reachable through the direct calls of the given roots.
+/// External targets are not invented. Bottom is internal: cycles without evidence
+/// of a normal return are raised to top before the SCC is made available.
 pub(super) fn solve<'a>(
     m: &'a Module,
     roots: &HashSet<&str>,
@@ -33,9 +33,9 @@ pub(super) fn solve<'a>(
         bodies.push(f);
         queue.extend(targets(f));
     }
-    // Ordem nominal torna solução e diagnósticos independentes do HashSet.
+    // A nominal order makes the solution and the diagnostics independent of the HashSet.
     bodies.sort_by(|a, b| a.symbol.cmp(&b.symbol));
-    // Declaração é premissa de ABI, independente do orçamento de precisão.
+    // A declaration is an ABI premise, independent of the precision budget.
     for f in &bodies {
         check_globals(m, f)?;
     }
@@ -95,7 +95,7 @@ pub(super) fn solve<'a>(
                     }
                 }
             }
-            // Não expor bottom como ausência provada de aliases/null.
+            // Do not expose bottom as a proven absence of aliases/null.
             let without_evidence: Vec<_> = component
                 .iter()
                 .copied()
@@ -114,8 +114,8 @@ pub(super) fn solve<'a>(
             }
         }
     }
-    // Reextração com dependências estabilizadas constrói o resumo guardado
-    // pela assinatura do próprio corpo, sem publicar aproximações da worklist.
+    // Re-extraction with stabilized dependencies builds the summary guarded
+    // by the signature of the body itself, without publishing worklist approximations.
     let mut opaque_context = vec![false; bodies.len()];
     let mut summaries: Vec<_> = bodies
         .iter()
@@ -147,9 +147,9 @@ pub(super) fn solve<'a>(
             Ok(resumo)
         })
         .collect::<Result<_, String>>()?;
-    // O estado inicial é desconhecido nas chamadas. Só promover quando
-    // todas as dependências já têm cobertura positiva; nunca supor uma
-    // SCC recursiva pura apenas porque nenhum store foi encontrado nela.
+    // The initial state is unknown at the calls. Only promote when
+    // all dependencies already have positive coverage; never assume a
+    // pure recursive SCC just because no store was found in it.
     let mut queue: VecDeque<_> = (0..bodies.len()).collect();
     let mut queued: HashSet<_> = (0..bodies.len()).collect();
     while let Some(v) = queue.pop_front() {
@@ -171,10 +171,10 @@ pub(super) fn solve<'a>(
             }
         }
     }
-    // Inclusões de stores têm ponto fixo próprio, sem promover a cobertura
-    // de campos/publicações nem ignorar prólogos/saídas opacos. Recursão
-    // propaga inclusões positivas mesmo com opacidade; orçamento excedido
-    // é absorvente e não autoriza reconstruir um conjunto truncado.
+    // Store inclusions have their own fixpoint, without promoting the coverage
+    // of fields/publications nor ignoring opaque prologues/exits. Recursion
+    // propagates positive inclusions even with opacity; an exceeded budget
+    // is absorbing and does not allow rebuilding a truncated set.
     let mut writes = vec![super::writes::WriteInclusions::empty(); bodies.len()];
     let mut globals = vec![super::writes::PublicationInclusions::empty(); bodies.len()];
     let mut paths: Vec<_> = bodies
@@ -442,7 +442,7 @@ mod tests {
         m.tables = vec![FunctionTables::default(); 2];
         let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
         assert_eq!(r["f"].1.fields(), ArcHeapFields::Preserved);
-        // Alterar o próprio prólogo impede a propagação mesmo com g coberto.
+        // Changing the prologue itself prevents propagation even with g covered.
         m.tables[0].checks_stack = true;
         let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
         assert_eq!(r["f"].1.fields(), ArcHeapFields::UnknownSet);
@@ -468,8 +468,8 @@ mod tests {
                 .keys()
                 .any(|c| matches!(c, EscapeCause::OpaqueOperation(_)))
         );
-        // Efeito implícito de materialização em h, apesar do retorno escalar:
-        // invalida a solução antiga de f e torna a nova chamada opaca.
+        // Implicit materialization effect in h, despite the scalar return:
+        // invalidates the old solution of f and makes the new call opaque.
         m.functions[2].blocks[0].instructions.push((
             ValueId(2),
             Instruction::Const(Constant::String("novo efeito".into())),
@@ -564,7 +564,7 @@ mod tests {
             assert_eq!(a.value(ValueId(0)), a.value(ValueId(3)));
             assert_eq!(a.value(ValueId(3)).unwrap().nodes().unwrap().len(), 1);
             assert!(a.unknown_set().is_empty());
-            // Resultado I64 não recebe prova de representação trivial/frescor.
+            // An I64 result gets no proof of trivial representation/freshness.
             assert!(a.value(ValueId(2)).unwrap().nodes().is_none());
             assert!(
                 !compute_in_module(&m, "caller", &a)
@@ -704,7 +704,7 @@ mod tests {
                     &targets,
                 ));
             }
-            // Floyd-Warshall sobre o grafo original, sem usar a SCC/worklist.
+            // Floyd-Warshall over the original graph, without using the SCC/worklist.
             for k in 0..3 {
                 for v in 0..3 {
                     for w in 0..3 {

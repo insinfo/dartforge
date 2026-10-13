@@ -1,11 +1,11 @@
-//! Os operandos de uma instrução e de um terminador, para ler e para
-//! trocar (inclusive as entradas dos `phi`).
+//! The operands of an instruction and of a terminator, for reading and for
+//! replacing (including the `phi` entries).
 
 use crate::hir::*;
 
 macro_rules! visit {
     ($name:ident, $name_t:ident, $($m:tt)*) => {
-        /// Visita cada operando da instrução, na ordem de avaliação.
+        /// Visits each operand of the instruction, in evaluation order.
         pub fn $name(inst: & $($m)* Instruction, f: &mut dyn FnMut(& $($m)* Operand)) {
             match inst {
                 Instruction::Const(_)
@@ -153,7 +153,7 @@ macro_rules! visit {
 visit!(operands, iter,);
 visit!(operands_mut, iter_mut, mut);
 
-/// Visita os operandos do terminador.
+/// Visits the operands of the terminator.
 pub fn terminator_operands_mut(t: &mut Terminator, f: &mut dyn FnMut(&mut Operand)) {
     match t {
         Terminator::Return(Some(o)) | Terminator::Throw(o) => f(o),
@@ -163,7 +163,7 @@ pub fn terminator_operands_mut(t: &mut Terminator, f: &mut dyn FnMut(&mut Operan
     }
 }
 
-/// Visita os operandos do terminador (leitura).
+/// Visits the operands of the terminator (read-only).
 pub fn terminator_operands(t: &Terminator, f: &mut dyn FnMut(&Operand)) {
     match t {
         Terminator::Return(Some(o)) | Terminator::Throw(o) => f(o),
@@ -173,7 +173,7 @@ pub fn terminator_operands(t: &Terminator, f: &mut dyn FnMut(&Operand)) {
     }
 }
 
-/// Os sucessores do terminador, trocáveis.
+/// The successors of the terminator, replaceable.
 pub fn successors_mut(t: &mut Terminator, f: &mut dyn FnMut(&mut BlockId)) {
     match t {
         Terminator::Branch(b) => f(b),
@@ -189,8 +189,8 @@ pub fn successors_mut(t: &mut Terminator, f: &mut dyn FnMut(&mut BlockId)) {
     }
 }
 
-/// Troca, na função inteira, cada uso de um valor pelo operando que
-/// `swap` der.
+/// Replaces, in the whole function, each use of a value with the operand that
+/// `swap` returns.
 pub fn replace(func: &mut Function, swap: &dyn Fn(ValueId) -> Option<Operand>) {
     let mut t = |o: &mut Operand| {
         if let Operand::Val(v) = o
@@ -207,7 +207,7 @@ pub fn replace(func: &mut Function, swap: &dyn Fn(ValueId) -> Option<Operand>) {
     }
 }
 
-/// O maior id de valor e de bloco da função (para numerar os novos).
+/// The largest value id and block id of the function (to number new ones).
 pub fn largest_ids(func: &Function) -> (u32, u32) {
     let mut v = func.params.iter().map(|(p, _, _)| p.0).max().unwrap_or(0);
     let mut b = 0;
@@ -220,7 +220,7 @@ pub fn largest_ids(func: &Function) -> (u32, u32) {
     (v, b)
 }
 
-/// O tipo de um operando: o registrado do valor, ou o natural da constante.
+/// The type of an operand: the recorded one of the value, or the natural one of the constant.
 pub fn operand_type(o: &Operand, types: &std::collections::HashMap<ValueId, Type>) -> Option<Type> {
     match o {
         Operand::Val(v) => types.get(v).copied(),
@@ -234,7 +234,7 @@ pub fn operand_type(o: &Operand, types: &std::collections::HashMap<ValueId, Type
     }
 }
 
-/// Os tipos de todos os valores da função (parâmetros e instruções).
+/// The types of all the values of the function (parameters and instructions).
 pub fn function_types(func: &Function) -> std::collections::HashMap<ValueId, Type> {
     let mut t: std::collections::HashMap<ValueId, Type> = func.params.iter().map(|(v, _, ty)| (*v, *ty)).collect();
     for b in &func.blocks {
@@ -245,8 +245,8 @@ pub fn function_types(func: &Function) -> std::collections::HashMap<ValueId, Typ
     t
 }
 
-/// A constante neutra de um tipo (o valor de um local lido antes de
-/// gravado, que o Dart só permite para `null`).
+/// The neutral constant of a type (the value of a local read before it is
+/// written, which Dart only allows for `null`).
 pub fn default_constant(ty: Type) -> Operand {
     Operand::Constant(match ty {
         Type::I64 | Type::I8 => Constant::Int(0),

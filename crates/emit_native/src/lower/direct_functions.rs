@@ -1,49 +1,49 @@
-//! Funções locais que não escapam, chamadas diretamente (N17,
+//! Local functions that do not escape, called directly (N17,
 //! docs/NATIVO-PLANO.md §9).
 //!
-//! **O problema.** Uma função local (`void skipWS() { … }` dentro de um
-//! método) era sempre um valor: a cada execução da declaração, um ambiente
-//! com as capturas, a closure e — porque o nome conta como atribuído —
-//! uma célula para o nome; cada chamada ia pela entrada uniforme da
-//! closure. O `_HeaderValue._parse` do `dart:_http` declara seis (oito com
-//! as de dentro de `parseParameters`) por chamada, e o servidor HTTP fazia
-//! 103 closures e 103 ambientes por requisição.
+//! **The problem.** A local function (`void skipWS() { … }` inside a
+//! method) was always a value: on each execution of the declaration, an environment
+//! with the captures, the closure and — because the name counts as assigned —
+//! a cell for the name; each call went through the uniform entry of the
+//! closure. `_HeaderValue._parse` of `dart:_http` declares six (eight with
+//! those inside `parseParameters`) per call, and the HTTP server made
+//! 103 closures and 103 environments per request.
 //!
-//! **A regra.** O que a VM faz no grafo de fluxo (as closures que não
-//! escapam são chamadas estaticamente e, quando dá, embutidas) e o que o
-//! CFE garante: uma função local cujo nome só aparece como alvo de chamada
-//! `f(…)` — nunca lida como valor, passada, guardada ou devolvida — e só de
-//! dentro da função que a declara ou de outras funções diretas não pode ser
-//! chamada depois de a função de fora retornar. A análise está em
-//! `capture.rs` (`analyze_with`): as referências, a forma (sem parâmetros
-//! de tipo próprios, síncrona, só posicionais obrigatórios, sem ler um
-//! `late` de fora) e o ponto fixo, porque uma função que deixa de ser
-//! direta vira closure e o que ela chama também passa a escapar por ela.
-//! A função local genérica fica closure: a tupla dos argumentos de tipo
-//! dela (`$types`) vem da entrada uniforme.
+//! **The rule.** What the VM does in the flow graph (closures that do not
+//! escape are called statically and, when possible, inlined) and what the
+//! CFE guarantees: a local function whose name only appears as a call target
+//! `f(…)` — never read as a value, passed, stored or returned — and only from
+//! inside the function that declares it or from other direct functions cannot be
+//! called after the outer function returns. The analysis is in
+//! `capture.rs` (`analyze_with`): the references, the shape (no type
+//! parameters of its own, synchronous, only required positionals, not reading an
+//! outer `late`) and the fixpoint, because a function that stops being
+//! direct becomes a closure and what it calls also starts escaping through it.
+//! A generic local function stays a closure: the tuple of its type arguments
+//! (`$types`) comes from the uniform entry.
 //!
-//! **O código.** A função direta vira uma função do módulo,
-//! `<de outside>$<name>$d<impressão>`, com os parâmetros
-//! `[this] captures… [tuple de types de outside] parâmetros…`, e a chamada é um
-//! `call` estático — sem closure, ambiente nem célula do nome. Cada
-//! captura vai de um de três jeitos, decididos na declaração:
+//! **The code.** The direct function becomes a module function,
+//! `<outer>$<name>$d<fingerprint>`, with the parameters
+//! `[this] captures… [type tuple of the outer function] parameters…`, and the call is a
+//! static `call` — no closure, environment nor cell for the name. Each
+//! capture goes in one of three ways, decided at the declaration:
 //!
-//! * **valor** — a variável nunca é atribuída (o parâmetro, o `final`, a
-//!   `var` só inicializada): o valor lido na hora da chamada;
-//! * **endereço** — atribuída, e nenhuma função que escapa a captura: o
-//!   endereço do `alloca` de quem declara, e a função lê e grava por ele (o
-//!   `index` do `_parse`). A função direta só roda enquanto o quadro de quem
-//!   a declara existe. O `alloca` de um `Ref` cujo endereço sai assim mora
-//!   no próprio slot do quadro de raízes (`llvm/mod.rs`,
-//!   `frame_allocas`): o que a função direta grava fica enraizado, sem
-//!   célula (o `listenerValueOrError` e o `source` do
+//! * **value** — the variable is never assigned (the parameter, the `final`, the
+//!   `var` only initialized): the value read at the time of the call;
+//! * **address** — assigned, and no escaping function captures it: the
+//!   address of the declarer's `alloca`, and the function reads and writes through it (the
+//!   `index` of `_parse`). The direct function only runs while the frame of its
+//!   declarer exists. The `alloca` of a `Ref` whose address leaves this way lives
+//!   in its own slot of the roots frame (`llvm/mod.rs`,
+//!   `frame_allocas`): what the direct function writes stays rooted, without a
+//!   cell (the `listenerValueOrError` and the `source` of
 //!   `_Future._propagateToListeners`);
-//! * **célula** — também capturada por uma closure que escapa: o handle da
-//!   célula de sempre.
+//! * **cell** — also captured by an escaping closure: the handle of the
+//!   usual cell.
 //!
-//! Uma função direta que chama outra declarada fora dela recebe também as
-//! capturas dela (e as repassa): a chamada nunca procura uma captura pelo
-//! nome, que um bloco de dentro pode ter sombreado.
+//! A direct function that calls another one declared outside it also receives its
+//! captures (and forwards them): the call never looks a capture up by
+//! name, which an inner block may have shadowed.
 
 use super::fn_builder::FnBuilder;
 use super::locals::{Local, Mode};
@@ -52,7 +52,7 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, FunctionBody, FunctionId};
 use dartforge_intern::SymbolId;
 
-/// Como uma captura chega à função direta.
+/// How a capture reaches the direct function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Passing {
     Value,
@@ -60,8 +60,8 @@ pub enum Passing {
     Cell,
 }
 
-/// Uma captura de uma função direta: o nome, como passa, a representação
-/// da variável e onde ela mora no construtor que registrou a função.
+/// A capture of a direct function: the name, how it is passed, the representation
+/// of the variable and where it lives in the builder that registered the function.
 #[derive(Clone, Debug)]
 pub struct Capture {
     pub sym: SymbolId,
@@ -70,7 +70,7 @@ pub struct Capture {
     pub local: Local,
 }
 
-/// Uma função direta visível no construtor corrente.
+/// A direct function visible in the current builder.
 #[derive(Clone, Debug)]
 pub struct Direct {
     pub symbol: String,
@@ -81,19 +81,19 @@ pub struct Direct {
     pub ret: Type,
 }
 
-/// A identidade de onde uma variável mora (para juntar as capturas de
-/// funções diferentes que são a mesma variável).
+/// The identity of where a variable lives (to join the captures of
+/// different functions that are the same variable).
 fn identity(l: &Local) -> String {
     format!("{:?}", l.mode)
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// A declaração `f` é de uma função local direta (`capture.rs`).
+    /// Declaration `f` is a direct local function (`capture.rs`).
     pub fn direct_local_function(&self, fid: FunctionId) -> bool {
         self.allowed_directs.contains(&fid)
     }
 
-    /// Como a variável `l` passa para uma função direta declarada aqui.
+    /// How variable `l` is passed to a direct function declared here.
     fn passing_of(&self, l: &Local) -> Passing {
         match &l.mode {
             Mode::Cell(_) | Mode::Environment { cell: true, .. } => Passing::Cell,
@@ -106,17 +106,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `R f(params) { … }` local e direta: baixa o corpo como função do
-    /// módulo e registra o nome (sem valor: nunca é lido).
+    /// A local, direct `R f(params) { … }`: lowers the body as a module function
+    /// and registers the name (without a value: it is never read).
     pub fn declare_direct_function(&mut self, ast: &ast::Ast, fid: FunctionId, span: Span) {
         let f = ast.function(fid);
         let Some(name) = f.name else { return };
-        // O nome, visível no escopo (a chamada o acha pelo offset); o valor
-        // nunca é lido.
+        // The name, visible in the scope (the call finds it by offset); the value
+        // is never read.
         self.declare_variable(name.sym, name.span.start as usize, Type::Ref, Operand::Constant(Constant::Null));
 
-        // As capturas: as variáveis livres visíveis aqui, e as das funções
-        // diretas que o corpo chama (repassadas).
+        // The captures: the free variables visible here, and those of the direct
+        // functions the body calls (forwarded).
         let (free_set, _) = super::capture::free_set(self.ctx, self.unit_id, ast, fid);
         let mut captures: Vec<Capture> = Vec::new();
         let mut calls: Vec<(SymbolId, usize)> = Vec::new();
@@ -150,9 +150,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some((ps, r, _)) if ps.len() == params.len() => (ps, r),
             _ => (vec![Type::Ref; params.len()], Type::Ref),
         };
-        // O nome leva a impressão digital da assinatura (como o corpo de
-        // uma closure, `closures.rs`): numa recarga do JIT, quem chama
-        // uma versão com outras capturas chama outro símbolo.
+        // The name carries the fingerprint of the signature (like the body of
+        // a closure, `closures.rs`): on a JIT reload, a caller of
+        // a version with other captures calls another symbol.
         let mut shape = format!("{with_this}|{with_tuple}|");
         for c in &captures {
             shape.push_str(&format!("{}:{:?}:{:?};", self.ctx.symbol_name(c.sym), c.passing, c.ty));
@@ -179,8 +179,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.finalizable_this = self.finalizable_this;
             b.enclosing_class = self.enclosing_class;
         }
-        // Cada captura, ligada no corpo; a função repassa o mesmo lugar às
-        // diretas que ela chama.
+        // Each capture, bound in the body; the function forwards the same place to the
+        // direct functions it calls.
         let mut linked_set: Vec<(String, Local)> = Vec::new();
         for c in &direct.captures {
             let name_p = self.ctx.symbol_name(c.sym).to_string();
@@ -219,8 +219,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.class_by_tuple {
             b.enclosing_class = self.enclosing_class;
         }
-        // As diretas que o corpo chama (a própria, na recursão), com as
-        // capturas trocadas pelas ligações de lá.
+        // The direct functions the body calls (itself, in recursion), with the
+        // captures replaced by the bindings from there.
         for (s, o) in &calls {
             let Some(d) = self.direct_functions.get(o) else { continue };
             let mut d = d.clone();
@@ -259,7 +259,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         if self.ctx.arc_memory {
             self.arc_direct_local_functions.insert(b.func.symbol.clone());
-            // Corpo Dart: o retorno Ref é Owned, como o de uma função.
+            // Dart body: the Ref return is Owned, like that of a function.
             if b.func.return_ty == Type::Ref {
                 b.dart_ref_returns.insert(b.func.symbol.clone());
             }
@@ -267,14 +267,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.absorb(b);
     }
 
-    /// A função direta registrada no local `l` (o nome de uma função
-    /// local direta), se é uma.
+    /// The direct function registered in local `l` (the name of a direct local
+    /// function), if it is one.
     pub fn local_direct(&self, l: &Local) -> Option<Direct> {
         self.direct_functions.get(&l.offset?).cloned()
     }
 
-    /// `f(evaluated)` de uma função direta: `call` estático com as
-    /// capturas lidas agora (o valor, o endereço ou a célula).
+    /// `f(evaluated)` of a direct function: a static `call` with the
+    /// captures read now (the value, the address or the cell).
     pub fn call_direct_fn(&mut self, d: &Direct, evaluated: &[super::members::Evaluated]) -> Operand {
         let mut args = Vec::with_capacity(d.captures.len() + evaluated.len() + 2);
         if d.with_this {

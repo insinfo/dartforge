@@ -1,7 +1,7 @@
-//! Materializa alocação Owned e inicialização de campos com layout explícito.
-//! Não deduz layout de receivers, guardas late/tipo ou versões do heap.
-//! Só roda na transação privada do módulo ARC. O emissor conserva o registro
-//! de métodos da fábrica; construtores e inicializadores continuam separados.
+//! Materializes Owned allocation and field initialization with an explicit layout.
+//! Does not deduce the layout of receivers, late/type guards or heap versions.
+//! Runs only in the private transaction of the ARC module. The emitter keeps the method
+//! registration of the factory; constructors and initializers stay separate.
 
 use super::{DartFunctionPlan, edges::next_val};
 use crate::hir::*;
@@ -44,8 +44,8 @@ pub(super) fn prepare(
         Operand::Constant(Constant::Double(_)) => Some(Type::F64),
         Operand::Constant(Constant::Bool(_)) => Some(Type::I1),
         Operand::Constant(Constant::Null) => Some(Type::Ref),
-        // Materialização de literais/endereço nativo precisa estar explícita
-        // antes da alocação; não esconder safepoints em argumentos dos setters.
+        // Materialization of literals/native addresses must be explicit
+        // before the allocation; do not hide safepoints in setter arguments.
         _ => None,
     };
     for b in &mut f.blocks {
@@ -78,12 +78,12 @@ pub(super) fn prepare(
                 {
                     return Err(error());
                 }
-                // Instância ainda em construção: apenas a alocação ganha um
-                // token. Guardas, RTI, inicializadores e construtor continuam
-                // nas operações seguintes. Não certifica seus campos zerados.
-                // A fábrica é a mesma alocar_instancia da operação original:
-                // zero não contém referências. Layout ausente não impede o
-                // token; leituras/escritas físicas continuam exigindo prova.
+                // Instance still under construction: only the allocation gets a
+                // token. Guards, RTI, initializers and constructor follow in
+                // the next operations. Does not certify its zeroed fields.
+                // The factory is the same alocar_instancia of the original operation:
+                // zero holds no references. A missing layout does not prevent the
+                // token; physical reads/writes still require proof.
                 instructions.push((
                     *v,
                     Instruction::CallRuntime {
@@ -99,8 +99,8 @@ pub(super) fn prepare(
                 if typ(cell) != Some(Type::Ref) {
                     return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
                 }
-                // O mapa físico deve marcar o slot como Ref antes de emprestar;
-                // não converter a palavra de uma célula escalar em referência.
+                // The physical map must mark the slot as Ref before borrowing;
+                // do not convert the word of a scalar cell into a reference.
                 instructions.push((*v, Instruction::CallRuntime {
                     name: "dartforge_arc_ler_campo_ref_v1".into(),
                     args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
@@ -108,9 +108,9 @@ pub(super) fn prepare(
                 }, Type::Ref));
                 continue;
             }
-            // A leitura escalar da célula: os bits do campo 0 pela entrada
-            // auditada (que recusa um campo Ref) e a volta à representação,
-            // o inverso da escrita abaixo.
+            // The scalar read of the cell: the bits of field 0 through the audited
+            // entry (which rejects a Ref field) and the return to the representation,
+            // the inverse of the write below.
             if let Instruction::CellGet { cell } = inst
                 && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
             {
@@ -130,8 +130,8 @@ pub(super) fn prepare(
                 }
                 continue;
             }
-            // A escrita da célula (campo 0) pelas entradas auditadas de campo,
-            // na representação do valor; o runtime confere a marca do mapa.
+            // The write of the cell (field 0) through the audited field entries,
+            // in the representation of the value; the runtime checks the map mark.
             if let Instruction::CellSet { cell, value } = inst {
                 if typ(cell) != Some(Type::Ref) || *ty != Type::Void {
                     return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
@@ -174,8 +174,8 @@ pub(super) fn prepare(
                 }, Type::Ref));
                 continue;
             }
-            // A captura escalar: os bits pela entrada auditada (que recusa
-            // uma captura Ref) e a volta à representação gravada.
+            // The scalar capture: the bits through the audited entry (which rejects
+            // a Ref capture) and the return to the stored representation.
             if let Instruction::EnvGet { env, index } = inst
                 && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
             {
@@ -225,9 +225,9 @@ pub(super) fn prepare(
                 }, Type::Ref));
                 continue;
             }
-            // Capturas e quadros suspensos têm mapas por instância, não um
-            // layout nominal único por cid. Só a construção inicial é
-            // conferida aqui; leituras, escritas e suspensão têm seus contratos.
+            // Captures and suspended frames have per-instance maps, not a
+            // single nominal layout per cid. Only the initial construction is
+            // checked here; reads, writes and suspension have their own contracts.
             let (class_id, fields, synthetic): (u32, &[Operand], bool) = match inst {
                 Instruction::AllocObject { class_id, fields } => (*class_id, fields,
                     *class_id == crate::lower::async_sm::ID_QUADRO_ASYNC && !layouts.contains_key(class_id)),
@@ -457,7 +457,7 @@ mod tests {
             if case != 6 { m.dart_scalar_parameters.insert("capturar".into(), HashSet::from([ValueId(1)])); }
             let mut plans: HashMap<_, _> = m.functions.iter()
                 .map(|f| (f.symbol.clone(), DartFunctionPlan::default())).collect();
-            // Proveniência explícita dos vetores da ABI uniforme, não da largura.
+            // Explicit provenance of the uniform ABI vectors, not from the width.
             plans.get_mut("entrada").unwrap().classes.extend([
                 (ValueId(1), Ownership::Trivial), (ValueId(2), Ownership::Trivial)]);
             plans.get_mut("capturar").unwrap().classes.insert(ValueId(8), Ownership::Trivial);

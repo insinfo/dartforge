@@ -1,33 +1,33 @@
-//! A colocação das raízes do coletor (G1, docs/NATIVO-PLANO.md §6.5) por
-//! vivacidade: só um valor `Ref` vivo num ponto de coleta precisa estar no
-//! quadro de raízes, e dois valores que nunca estão vivos juntos dividem o
-//! mesmo slot (o passe de colocação de raízes do Julia faz o mesmo).
+//! Placement of the collector roots (G1, docs/NATIVO-PLANO.md §6.5) by
+//! liveness: only a `Ref` value live at a collection point needs to be in the
+//! roots frame, and two values that are never live together share the
+//! same slot (Julia's root placement pass does the same).
 //!
-//! * **Ponto de coleta** é toda instrução que pode alocar (chamada Dart, do
-//!   runtime que aloca, caixa, conversão com caixa, constante de texto…),
-//!   decidido pelo emissor (`may_collect`), mais o `throw` e o fim de um
-//!   bloco que converte a entrada de um `phi` (a conversão pode encaixotar).
-//! * **Enraizado** é o valor vivo na ENTRADA de um ponto de coleta —
-//!   inclusive os operandos dele: o runtime conta com o chamador para manter
-//!   vivos os argumentos durante a chamada (`dartforge_string_concat` aloca
-//!   o resultado lendo os dois textos).
-//! * **Interferem** dois valores enraizados quando um está vivo na
-//!   definição do outro: o `store` da definição sobrescreve o slot, e o
-//!   valor vivo perderia a raiz. Parâmetros interferem entre si e com o que
-//!   está vivo na entrada; `phi` de um bloco, entre si e com o que está vivo
-//!   no começo dele.
-//! * Os `alloca` de tipo `Ref` (locais mutáveis, G2) continuam com slot
-//!   próprio: o slot acompanha cada gravação.
+//! * A **collection point** is every instruction that may allocate (a Dart call, a call to
+//!   an allocating runtime function, a box, a boxing conversion, a string constant…),
+//!   decided by the emitter (`may_collect`), plus the `throw` and the end of a
+//!   block that converts the entry of a `phi` (the conversion may box).
+//! * **Rooted** is a value live at the ENTRY of a collection point —
+//!   its operands included: the runtime relies on the caller to keep
+//!   the arguments alive during the call (`dartforge_string_concat` allocates
+//!   the result while reading both strings).
+//! * Two rooted values **interfere** when one is live at the
+//!   definition of the other: the `store` of the definition overwrites the slot, and the
+//!   live value would lose its root. Parameters interfere with each other and with what
+//!   is live at the entry; the `phi`s of a block, with each other and with what is live
+//!   at its start.
+//! * The `alloca`s of type `Ref` (mutable locals, G2) keep their own
+//!   slot: the slot follows each write.
 //!
-//! Um slot compartilhado guarda, entre usos, um valor já morto — que o
-//! coletor marca (continua um handle válido, porque estava enraizado): só
-//! atrasa a coleta dele até o slot ser reusado ou o quadro fechar.
+//! A shared slot keeps, between uses, an already dead value — which the
+//! collector marks (it is still a valid handle, because it was rooted): it only
+//! delays its collection until the slot is reused or the frame closes.
 
 use crate::hir::*;
 use crate::lower::async_sm::{successors, uses_of, terminator_uses};
 use std::collections::HashMap;
 
-/// Um conjunto de valores `Ref` (índices densos).
+/// A set of `Ref` values (dense indices).
 #[derive(Clone, PartialEq, Eq)]
 struct Set(Vec<u64>);
 
@@ -56,29 +56,29 @@ impl Set {
     }
 }
 
-/// O resultado da análise de raízes de uma função.
+/// The result of the roots analysis of a function.
 #[derive(Default)]
 pub struct Roots {
-    /// Os slots do quadro: `alloca`s `Ref` com slot próprio, depois os
-    /// valores SSA enraizados, com slot compartilhado quando não interferem.
+    /// The slots of the frame: `Ref` `alloca`s with their own slot, then the
+    /// rooted SSA values, with a shared slot when they do not interfere.
     pub slots: HashMap<ValueId, usize>,
-    /// Os valores SSA enraizados (vivos na entrada de algum ponto de
-    /// coleta), na ordem de definição.
+    /// The rooted SSA values (live at the entry of some collection
+    /// point), in definition order.
     pub rooted_set: Vec<ValueId>,
-    /// Para cada instrução que é ponto de coleta, os valores SSA `Ref` vivos
-    /// na entrada dela (os operandos inclusive: o runtime conta com quem
-    /// chama para mantê-los vivos durante a chamada).
+    /// For each instruction that is a collection point, the `Ref` SSA values live
+    /// at its entry (operands included: the runtime relies on the caller
+    /// to keep them alive during the call).
     pub live_at: HashMap<ValueId, Vec<ValueId>>,
-    /// O mesmo para o ponto de coleta do fim de um bloco (o `throw`, as
-    /// conversões das entradas de `phi`).
+    /// The same for the collection point at the end of a block (the `throw`, the
+    /// conversions of `phi` entries).
     pub live_at_end: HashMap<BlockId, Vec<ValueId>>,
-    /// Os valores enraizados vivos na entrada de cada bloco (depois dos
-    /// `phi` dele); só os blocos com algum.
+    /// The rooted values live at the entry of each block (after its
+    /// `phi`s); only the blocks that have any.
     pub live_at_entry_set: HashMap<BlockId, Vec<ValueId>>,
 }
 
-/// A análise completa: os slots (a pilha-sombra) e a vivacidade em cada
-/// ponto de coleta (as raízes por mapas,
+/// The full analysis: the slots (the shadow stack) and the liveness at each
+/// collection point (roots by maps,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
 pub fn analyze(
     func: &Function,
@@ -89,15 +89,15 @@ pub fn analyze(
     analyze_with(func, types, may_collect, phi_converting_blocks, &|_| false)
 }
 
-/// [`analyze`] com a chamada que enraíza os próprios argumentos:
-/// `callee_roots(i)` diz que o ponto de coleta `i` é uma chamada a uma
-/// função Dart com quadro de raízes próprio, sem conversão que aloque entre
-/// os operandos e a chamada. A função chamada põe no quadro dela o
-/// parâmetro que ainda usa depois de um ponto de coleta seu; o que só
-/// vive até a chamada não precisa de raiz em quem chama (o coletor não move
-/// objetos). Ali só fica enraizado o que vive DEPOIS da chamada. O runtime
-/// continua contando com quem chama ([`analyze`]): as funções dele leem os
-/// argumentos depois de alocar.
+/// [`analyze`] with the call rooting its own arguments:
+/// `callee_roots(i)` says that collection point `i` is a call to a
+/// Dart function with its own roots frame, without an allocating conversion between
+/// the operands and the call. The callee puts in its frame the
+/// parameter it still uses after one of its collection points; what only
+/// lives until the call needs no root in the caller (the collector does not move
+/// objects). There only what lives AFTER the call stays rooted. The runtime
+/// still relies on the caller ([`analyze`]): its functions read the
+/// arguments after allocating.
 pub fn analyze_with(
     func: &Function,
     types: &HashMap<ValueId, Type>,
@@ -116,8 +116,8 @@ pub fn analyze_with(
     }
     let base = slots.len();
 
-    // Os valores SSA `Ref` candidatos, na ordem de definição (o IR sai
-    // determinístico): parâmetros, depois as instruções.
+    // The candidate `Ref` SSA values, in definition order (the IR comes out
+    // deterministic): parameters, then the instructions.
     let mut candidates: Vec<ValueId> = Vec::new();
     for (vid, _, ty) in &func.params {
         if *ty == Type::Ref {
@@ -139,7 +139,7 @@ pub fn analyze_with(
     let idx = |v: &ValueId| index.get(v).copied();
 
     let position: HashMap<BlockId, usize> = func.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
-    // O que cada bloco lê de cada predecessor pelos `phi` dele.
+    // What each block reads from each predecessor through its `phi`s.
     let mut phi_uses: HashMap<(BlockId, BlockId), Vec<usize>> = HashMap::new();
     let mut phi_defs: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
     for (bi, block) in func.blocks.iter().enumerate() {
@@ -158,7 +158,7 @@ pub fn analyze_with(
         }
     }
 
-    // Vivacidade por bloco (ponto fixo), de trás para a frente.
+    // Liveness per block (fixpoint), from back to front.
     let live_at_exit_set = |b: usize, entry: &[Set]| -> Set {
         let mut s = Set::empty(n);
         let block = &func.blocks[b];
@@ -177,17 +177,17 @@ pub fn analyze_with(
         }
         s
     };
-    // A passada de um bloco: a partir dos vivos na saída, visita cada
-    // instrução (os vivos depois dela, a definição, os usos) e devolve os
-    // vivos na entrada do bloco (depois dos `phi`, que não são usos).
+    // The pass over a block: starting from what is live at the exit, visits each
+    // instruction (what is live after it, the definition, the uses) and returns what is
+    // live at the entry of the block (after the `phi`s, which are not uses).
     let passar = |b: usize,
                   exit: Set,
                   visit: &mut dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set)|
      -> Set {
         let block = &func.blocks[b];
         let mut live_set = exit;
-        // O terminador: usos; `throw` e as conversões de `phi` no fim do
-        // bloco são pontos de coleta.
+        // The terminator: uses; `throw` and the `phi` conversions at the end of the
+        // block are collection points.
         let mut before = live_set.clone();
         for v in terminator_uses(&block.terminator) {
             if let Some(i) = idx(&v) {
@@ -235,7 +235,7 @@ pub fn analyze_with(
         }
     }
 
-    // Os enraizados e as interferências.
+    // The rooted values and the interferences.
     let mut rooted = Set::empty(n);
     let mut interfere: Vec<Set> = vec![Set::empty(n); n];
     let mark = |a: usize, live_set: &Set, interfere: &mut Vec<Set>| {
@@ -246,8 +246,8 @@ pub fn analyze_with(
             }
         }
     };
-    // Os pontos de coleta, com o que está vivo na entrada de cada um:
-    // (a instrução, ou `None` no fim do bloco; o bloco; os vivos).
+    // The collection points, with what is live at the entry of each one:
+    // (the instruction, or `None` at the end of the block; the block; the live values).
     let mut points: Vec<(Option<ValueId>, usize, Set)> = Vec::new();
     for b in 0..nb {
         let exit = live_at_exit_set(b, &entry);
@@ -271,7 +271,7 @@ pub fn analyze_with(
                 mark(d, after, &mut interfere);
             }
         });
-        // Os `phi` do bloco: definidos juntos no começo dele.
+        // The `phi`s of the block: defined together at its start.
         let mut live_set = e;
         for &d in &phi_defs[b] {
             live_set.by(d);
@@ -280,7 +280,7 @@ pub fn analyze_with(
             mark(d, &live_set, &mut interfere);
         }
     }
-    // Os parâmetros: definidos juntos na entrada.
+    // The parameters: defined together at the entry.
     if let Some(first_one) = func.blocks.first() {
         let _ = first_one;
         let mut live_set = entry[0].clone();
@@ -293,7 +293,7 @@ pub fn analyze_with(
         }
     }
 
-    // Cores: o menor slot livre entre os vizinhos já coloridos.
+    // Colors: the smallest free slot among the already colored neighbors.
     let mut color: Vec<Option<usize>> = vec![None; n];
     for a in 0..n {
         if !rooted.has(a) {

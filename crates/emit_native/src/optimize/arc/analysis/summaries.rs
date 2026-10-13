@@ -1,76 +1,76 @@
-//! Resumos iniciais de aliases de retorno normal (§28.3).
-//! Preservação de campos por cobertura positiva de corpos e chamadas diretas.
-//! Publicação só pelo resultado exige cobertura positiva do corpo inteiro.
-//! Não certificam políticas, vidas ou efeitos completos de callbacks/SDK.
+//! Initial summaries of normal-return aliases (§28.3).
+//! Field preservation by positive coverage of bodies and direct calls.
+//! Publication only through the result requires positive coverage of the whole body.
+//! They do not certify policies, lifetimes or complete effects of callbacks/SDK.
 
 use super::{hir::body_signature, model::*, points_to::*};
 use crate::hir::*;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
-/// Resultado normal paramétrico; parâmetros são substituídos pelos aliases
-/// reais do chamador, nunca por objetos frescos independentes.
+/// Parametric normal result; parameters are replaced by the real aliases
+/// of the caller, never by independent fresh objects.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::resumos::RetornoHeapArc;
-/// assert!(matches!(RetornoHeapArc::Desconhecido, RetornoHeapArc::Desconhecido));
+/// use dartforge_emit_native::optimize::arc::analysis::summaries::ArcHeapReturn;
+/// assert!(matches!(ArcHeapReturn::UnknownValue, ArcHeapReturn::UnknownValue));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArcHeapReturn {
-    /// Retorno normal pode coincidir com qualquer parâmetro listado; `null`
-    /// registra null adicional literal. Parâmetros podem ser null mesmo com
-    /// essa marca falsa: ela não prova não nulabilidade dos argumentos.
+    /// A normal return may coincide with any listed parameter; `null`
+    /// records an additional literal null. Parameters may be null even with
+    /// that mark false: it does not prove the non-nullability of the arguments.
     Aliases {
         parameters: BTreeSet<usize>,
         null: bool,
     },
-    /// Precisão insuficiente, representação opaca ou budget excedido.
+    /// Insufficient precision, opaque representation or exceeded budget.
     UnknownValue,
 }
 
-/// Efeito conservador sobre campos existentes, em todas as saídas do corpo.
-/// Não cobre vida, retenção, publicação ou a convenção Owned/Borrowed.
+/// Conservative effect on existing fields, at every exit of the body.
+/// Does not cover lifetime, retention, publication or the Owned/Borrowed convention.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::resumos::CamposHeapArc;
-/// assert_ne!(CamposHeapArc::Preservados, CamposHeapArc::Desconhecidos);
+/// use dartforge_emit_native::optimize::arc::analysis::summaries::ArcHeapFields;
+/// assert_ne!(ArcHeapFields::Preserved, ArcHeapFields::UnknownSet);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArcHeapFields {
-    /// Corpo coberto preserva campos, incluindo callees com a mesma cobertura.
+    /// A covered body preserves fields, including callees with the same coverage.
     Preserved,
-    /// Escrita possível ou operação/caminho implícito ainda não coberto.
+    /// A possible write or an operation/implicit path not covered yet.
     UnknownSet,
 }
 
-/// Publicações possíveis do corpo, separadas dos aliases do resultado.
-/// Consumo requer conferir corpo, ABI e caminhos implícitos de emissão.
+/// Possible publications of the body, separate from the aliases of the result.
+/// Consumption requires checking the body, the ABI and the implicit emission paths.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::resumos::PublicacoesHeapArc;
-/// assert_ne!(PublicacoesHeapArc::SomenteResultado, PublicacoesHeapArc::Desconhecidas);
+/// use dartforge_emit_native::optimize::arc::analysis::summaries::ArcHeapPublications;
+/// assert_ne!(ArcHeapPublications::ResultOnly, ArcHeapPublications::UnknownValues);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArcHeapPublications {
-    /// Referências só podem sair pelos valores devolvidos ao chamador.
-    /// Não há publicação em global/campo, retenção, callback ou throw no corpo.
+    /// References can only leave through the values returned to the caller.
+    /// There is no publication into a global/field, retention, callback or throw in the body.
     ResultOnly,
-    /// Cobertura insuficiente de qualquer saída/operação, incluindo implícitas.
+    /// Insufficient coverage of any exit/operation, implicit ones included.
     UnknownValues,
 }
 
-/// Resumo de uma versão local do corpo, separado de alcance e efeitos.tsv.
-/// Só o extrator constrói seus campos. Aliases são de retorno normal;
-/// preservação de campos e publicação pelo resultado exigem cobertura própria
-/// do corpo inteiro. Demais corpos conservam efeitos desconhecidos.
+/// Summary of a local version of the body, separate from reach and efeitos.tsv.
+/// Only the extractor builds its fields. Aliases are of the normal return;
+/// field preservation and publication through the result require coverage of the
+/// whole body. Other bodies keep unknown effects.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::analise::resumos::*};
-/// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+/// use dartforge_emit_native::{hir::*, optimize::arc::analysis::summaries::*};
+/// let f = Function { symbol: "id".into(), name: "id".into(), debug_info: None,
 /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
 /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
-/// let resumo = extrair(&f, 8)?;
-/// assert!(matches!(resumo.retorno(), RetornoHeapArc::Aliases { nulo: false, .. }));
+/// let summary = extract(&f, 8)?;
+/// assert!(matches!(summary.ret(), ArcHeapReturn::Aliases { null: false, .. }));
 /// # Ok::<(), String>(())
 /// ```
 #[derive(Debug)]
@@ -85,30 +85,30 @@ pub struct ArcHeapSummary {
 }
 
 impl ArcHeapSummary {
-    /// Consulta publicações sem confundir alias normal com ausência de retenção.
+    /// Queries publications without confusing a normal alias with absence of retention.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::resumos::*};
-    /// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::summaries::*};
+    /// let f = Function { symbol: "id".into(), name: "id".into(), debug_info: None,
     /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
     /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
     /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
-    /// assert_eq!(extrair(&f, 8)?.publicacoes(), PublicacoesHeapArc::SomenteResultado);
+    /// assert_eq!(extract(&f, 8)?.publications(), ArcHeapPublications::ResultOnly);
     /// # Ok::<(), String>(())
     /// ```
     pub fn publications(&self) -> ArcHeapPublications {
         self.publications
     }
 
-    /// Consulta preservação de campos; isso não fornece noescape ou vida.
+    /// Queries field preservation; this provides neither noescape nor lifetime.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::resumos::*};
-    /// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::summaries::*};
+    /// let f = Function { symbol: "id".into(), name: "id".into(), debug_info: None,
     /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
     /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
     /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
-    /// assert_eq!(extrair(&f, 8)?.campos(), CamposHeapArc::Preservados);
+    /// assert_eq!(extract(&f, 8)?.fields(), ArcHeapFields::Preserved);
     /// # Ok::<(), String>(())
     /// ```
     pub fn fields(&self) -> ArcHeapFields {
@@ -125,31 +125,31 @@ impl ArcHeapSummary {
         self.publications = ArcHeapPublications::ResultOnly;
     }
 
-    /// Consulta aliases normais; isso não fornece noescape ou noheapmutation.
+    /// Queries normal aliases; this provides neither noescape nor noheapmutation.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::resumos::*};
-    /// let f = Function { symbol: "n".into(), name: "n".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::summaries::*};
+    /// let f = Function { symbol: "n".into(), name: "n".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Ref, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }] };
-    /// assert!(matches!(extrair(&f, 8)?.retorno(), RetornoHeapArc::Aliases { nulo: true, .. }));
+    /// assert!(matches!(extract(&f, 8)?.ret(), ArcHeapReturn::Aliases { null: true, .. }));
     /// # Ok::<(), String>(())
     /// ```
     pub fn ret(&self) -> &ArcHeapReturn {
         &self.ret
     }
 
-    /// Recusa consumo após alteração do corpo. Guarda local, sem validade SDK/JIT.
+    /// Rejects consumption after a change of the body. A local guard, without SDK/JIT validity.
     ///
-    /// # Erros
-    /// Assinatura local diferente da versão resumida.
+    /// # Errors
+    /// A local signature different from the summarized version.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::resumos::*};
-    /// let f = Function { symbol: "v".into(), name: "v".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::summaries::*};
+    /// let f = Function { symbol: "v".into(), name: "v".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-    /// extrair(&f, 8)?.conferir(&f)?;
+    /// extract(&f, 8)?.check(&f)?;
     /// # Ok::<(), String>(())
     /// ```
     pub fn check(&self, f: &Function) -> Result<(), String> {
@@ -160,22 +160,22 @@ impl ArcHeapSummary {
         }
     }
 
-    /// Substitui placeholders pelos conjuntos reais dos argumentos, sem frescor.
-    /// Null não cria nó; conjunto vazio não certifica ausência de efeitos.
-    /// Budget excedido/argumento desconhecido propaga topo. Continua sendo
-    /// resultado normal, sem eliminar efeitos de heap ou escapes da chamada.
+    /// Replaces placeholders with the real sets of the arguments, without freshness.
+    /// Null creates no node; an empty set does not certify the absence of effects.
+    /// An exceeded budget/unknown argument propagates top. It is still a
+    /// normal result, without eliminating heap effects or escapes of the call.
     ///
-    /// # Erros
-    /// Corpo obsoleto ou quantidade de argumentos diferente da ABI resumida.
+    /// # Errors
+    /// A stale body or a number of arguments different from the summarized ABI.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::{resumos::*, modelo::*}};
-    /// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::{summaries::*, model::*}};
+    /// let f = Function { symbol: "id".into(), name: "id".into(), debug_info: None,
     /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
     /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
     /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
-    /// let mut arg = ConjuntoPontos::vazio(8); arg.incluir(NoAbstrato::Global("raiz".into()));
-    /// assert_eq!(extrair(&f, 8)?.instanciar(&f, &[arg.clone()], 8)?, arg);
+    /// let mut arg = PointSet::empty(8); arg.include(AbstractNode::Global("root".into()));
+    /// assert_eq!(extract(&f, 8)?.instantiate(&f, &[arg.clone()], 8)?, arg);
     /// # Ok::<(), String>(())
     /// ```
     pub fn instantiate(
@@ -199,28 +199,28 @@ impl ArcHeapSummary {
     }
 }
 
-/// Extrai inclusão de aliases de parâmetros/null nas saídas normais Ref.
-/// Copy/Move/Phi e bitcast Ref→Ref propagam aliases; demais produtores viram
-/// desconhecidos. Placeholders servem apenas ao resumo, não são alocações.
-/// Resumo não elimina efeitos ou muda o contrato Owned/Borrowed da ABI.
+/// Extracts the inclusion of parameter/null aliases at the normal Ref exits.
+/// Copy/Move/Phi and a Ref→Ref bitcast propagate aliases; other producers become
+/// unknown. Placeholders serve only the summary, they are not allocations.
+/// The summary does not eliminate effects nor change the Owned/Borrowed contract of the ABI.
 ///
-/// # Erros
-/// SSA inválida ou número de parâmetros fora do domínio de índices.
+/// # Errors
+/// Invalid SSA or a number of parameters outside the index domain.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::analise::resumos::*};
-/// let f = Function { symbol: "v".into(), name: "v".into(), depuracao: None,
+/// use dartforge_emit_native::{hir::*, optimize::arc::analysis::summaries::*};
+/// let f = Function { symbol: "v".into(), name: "v".into(), debug_info: None,
 /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
 /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// assert_eq!(extrair(&f, 8)?.retorno(), &RetornoHeapArc::Desconhecido);
+/// assert_eq!(extract(&f, 8)?.ret(), &ArcHeapReturn::UnknownValue);
 /// # Ok::<(), String>(())
 /// ```
 pub fn extract(f: &Function, limit: usize) -> Result<ArcHeapSummary, String> {
     extract_with_calls(f, limit, false, |_| None)
 }
 
-// Vazio sem null é bottom somente durante a solução interprocedural.
-// O solver o eleva a desconhecido antes de disponibilizar o resultado.
+// Empty without null is bottom only during the interprocedural solution.
+// The solver raises it to unknown before making the result available.
 pub(super) fn extract_with_calls<'a>(
     f: &Function,
     limit: usize,
@@ -318,7 +318,7 @@ pub(super) fn extract_with_calls<'a>(
         rs.push(Constraint::Copy { origin, dest });
     }
     let points = solve(ids.len() + 2, limit, &rs)?;
-    // Nulabilidade tem worklist própria e não cria um nó físico para null.
+    // Nullability has its own worklist and creates no physical node for null.
     let mut dependents = vec![Vec::new(); ids.len() + 2];
     for (origin, dest) in copies {
         dependents[origin].push(dest);
@@ -390,9 +390,9 @@ pub(super) fn extract_with_calls<'a>(
     })
 }
 
-// Lista positiva independente dos aliases normais. Excluir chamadas opacas, throws,
-// stores, alocações, constantes de texto e ARC que possa exigir contexto:
-// conferência implícita de pilha pode construir erro pelo SDK/reentrar.
+// A positive list independent of the normal aliases. Exclude opaque calls, throws,
+// stores, allocations, string constants and ARC that may require a context:
+// the implicit stack check may build an error through the SDK/reenter.
 fn value_coverage<'a>(
     f: &Function,
     types: &HashMap<ValueId, Type>,
@@ -435,8 +435,8 @@ fn value_coverage<'a>(
     covered_body
 }
 
-// Cobertura composta exige todos os callees já cobertos; desconhecimento
-// não é hipótese coindutiva para aprovar uma SCC recursiva sem uma base.
+// Composite coverage requires every callee already covered; lack of knowledge
+// is not a coinductive hypothesis to approve a recursive SCC without a base.
 pub(super) fn coverage_with_calls<'a>(
     f: &Function,
     call: impl Fn(&str) -> Option<(&'a Function, &'a ArcHeapSummary)>,
@@ -455,7 +455,7 @@ pub(super) fn coverage_with_calls<'a>(
     value_coverage(f, &types, call)
 }
 
-// Igualdade física não permite converter I64 em Ref ou materializar texto.
+// Physical equality does not allow converting I64 into Ref or materializing a string.
 pub(super) fn exact_argument(o: &Operand, t: Type, types: &HashMap<ValueId, Type>) -> bool {
     match o {
         Operand::Val(v) => types.get(v) == Some(&t),
@@ -583,14 +583,14 @@ mod tests {
                 ArcHeapPublications::ResultOnly,
                 "{i:?}"
             );
-            // Mesmo um resultado escalar não fornece alias Ref nem frescor.
+            // Even a scalar result provides neither a Ref alias nor freshness.
             assert_eq!(r.ret(), &ArcHeapReturn::UnknownValue);
             let mut m = Module::new();
             m.arc_memory = true;
             m.functions.push(f.clone());
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            // O módulo também contém portas/registro do runtime; a obrigação
-            // de ausência de chamada vale para o corpo resumido, não para elas.
+            // The module also contains runtime ports/registration; the obligation
+            // of absence of calls holds for the summarized body, not for them.
             let body: Vec<_> = ir
                 .lines()
                 .skip_while(|l| !(l.starts_with("define ") && l.contains("@calculo(")))
@@ -674,7 +674,7 @@ mod tests {
         assert!(matches!(resumo.ret(), ArcHeapReturn::Aliases { .. }));
         assert_eq!(resumo.fields(), ArcHeapFields::UnknownSet);
         assert_eq!(resumo.publications(), ArcHeapPublications::UnknownValues);
-        // Uma constante de texto aloca no JIT, mesmo sem chamada HIR explícita.
+        // A string constant allocates in the JIT, even without an explicit HIR call.
         f = identity();
         f.blocks[0].instructions.push((
             ValueId(1),

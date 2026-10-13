@@ -1,89 +1,89 @@
-//! Solver de inclusão por campo, sem atualização forte (§28.2).
-//! Consome restrições explícitas, ainda sem extração HIR/resumos SDK.
-//! Ausência de uma restrição não certifica ausência de efeitos do programa.
+//! Per-field inclusion solver, without strong update (§28.2).
+//! Consumes explicit constraints, still without HIR extraction/SDK summaries.
+//! The absence of a constraint does not certify the absence of program effects.
 
 use super::model::{PointSet, AbstractNode};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
-/// Campo nominal de um layout; índices iguais de layouts distintos não coincidem.
-/// Versão/validação de layout pertence ao produtor das restrições.
+/// Nominal field of a layout; equal indices of distinct layouts do not coincide.
+/// The version/validation of the layout belongs to the producer of the constraints.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::points_to::CampoArc;
-/// let campo = CampoArc { layout: "No:v1".into(), posicao: 0 };
-/// assert_ne!(campo.layout, "Outra:v1");
+/// use dartforge_emit_native::optimize::arc::analysis::points_to::ArcField;
+/// let field = ArcField { layout: "No:v1".into(), position: 0 };
+/// assert_ne!(field.layout, "Other:v1");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArcField {
-    /// Identidade nominal e versão do esquema físico/semântico.
+    /// Nominal identity and version of the physical/semantic schema.
     pub layout: String,
-    /// Posição no esquema, não um índice dinâmico sem prova de limite.
+    /// Position in the schema, not a dynamic index without a bounds proof.
     pub position: u32,
 }
 
-/// Restrição de inclusão de aliases. Variáveis são índices locais do solver,
-/// não identidades persistentes de sítio. O produtor deve registrar valores
-/// iniciais/externos, todas as escritas e desconhecimentos relevantes.
+/// Alias inclusion constraint. Variables are local indices of the solver,
+/// not persistent site identities. The producer must record initial/external
+/// values, every write and the relevant unknowns.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::points_to::Restricao;
-/// let copia = Restricao::Copiar { origem: 0, destino: 1 };
-/// assert!(matches!(copia, Restricao::Copiar { .. }));
+/// use dartforge_emit_native::optimize::arc::analysis::points_to::Constraint;
+/// let copy = Constraint::Copy { origin: 0, dest: 1 };
+/// assert!(matches!(copy, Constraint::Copy { .. }));
 /// ```
 #[derive(Debug, Clone)]
 pub enum Constraint {
-    /// Inclui uma origem nominal possível na variável.
+    /// Includes a possible nominal origin in the variable.
     Seed { dest: usize, node: AbstractNode },
-    /// Valor opaco/informação invalidada, nunca ausência de aliases.
+    /// An opaque value/invalidated information, never the absence of aliases.
     Unknown { dest: usize },
-    /// Copy, movimento, cast de referência ou uma entrada de Phi.
+    /// Copy, move, reference cast or a Phi entry.
     Copy { origin: usize, dest: usize },
-    /// Inclui destinos em todos os receivers possíveis; nunca apaga arestas.
+    /// Includes destinations in every possible receiver; never erases edges.
     Write {
         object: usize,
         field: ArcField,
         value: usize,
     },
-    /// Inclui todos os destinos possíveis do campo em cada receiver.
+    /// Includes every possible destination of the field in each receiver.
     Read {
         object: usize,
         field: ArcField,
         dest: usize,
     },
-    /// Leitura por índice físico, selecionando o campo nominal de cada nó.
-    /// Esquemas são premissas locais do produtor. Receiver sem esquema/índice
-    /// ou vazio ao fim da solução exige topo e invalida os campos conhecidos:
-    /// o caminho de erro/helper ainda não tem resumo de heap.
+    /// Read by physical index, selecting the nominal field of each node.
+    /// Schemas are local premises of the producer. A receiver without a schema/index
+    /// or empty at the end of the solution requires top and invalidates the known fields:
+    /// the error/helper path has no heap summary yet.
     ReadBySchema {
         object: usize,
         schemas: Arc<BTreeMap<AbstractNode, Vec<ArcField>>>,
         index: usize,
         dest: usize,
     },
-    /// Escrita fraca por esquema; nunca remove os destinos anteriores.
-    /// Fronteira não coberta invalida todos os campos fornecidos nos esquemas,
-    /// inclusive objetos descobertos depois, sem supor receiver singleton.
+    /// Weak write by schema; never removes the previous destinations.
+    /// An uncovered boundary invalidates every field supplied in the schemas,
+    /// including objects discovered later, without assuming a singleton receiver.
     WriteBySchema {
         object: usize,
         schemas: Arc<BTreeMap<AbstractNode, Vec<ArcField>>>,
         index: usize,
         value: usize,
     },
-    /// Escritor opaco pode tocar qualquer receiver desse campo/layout.
-    /// Não torna opacos campos de outros layouts; efeitos adicionais exigem
-    /// outras restrições, inclusive quando há reentrada/transitividade.
+    /// An opaque writer may touch any receiver of that field/layout.
+    /// It does not make fields of other layouts opaque; additional effects require
+    /// other constraints, including when there is reentry/transitivity.
     UnknownField { field: ArcField },
 }
 
-/// Ponto fixo das restrições fornecidas, sem certificado de política.
-/// Não representa o heap do programa enquanto o produtor não cobrir todas
-/// as operações e instanciar corretamente placeholders dos resumos.
+/// Fixpoint of the given constraints, without a policy certificate.
+/// It does not represent the program heap while the producer does not cover every
+/// operation and instantiate the summary placeholders correctly.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::points_to::{resolver, Restricao};
-/// let r = resolver(1, 8, &[Restricao::Desconhecer { destino: 0 }])?;
-/// assert!(r.variavel(0).unwrap().nos().is_none());
+/// use dartforge_emit_native::optimize::arc::analysis::points_to::{solve, Constraint};
+/// let r = solve(1, 8, &[Constraint::Unknown { dest: 0 }])?;
+/// assert!(r.variable(0).unwrap().nodes().is_none());
 /// # Ok::<(), String>(())
 /// ```
 #[derive(Debug)]
@@ -94,25 +94,25 @@ pub struct PointsToResult {
 }
 
 impl PointsToResult {
-    /// Consulta uma variável; índice inexistente devolve `None`, sem fato vazio.
+    /// Queries a variable; a nonexistent index returns `None`, without an empty fact.
     ///
     /// ```
-    /// use dartforge_emit_native::optimize::arc::analise::points_to::resolver;
-    /// assert!(resolver(0, 8, &[])?.variavel(0).is_none());
+    /// use dartforge_emit_native::optimize::arc::analysis::points_to::solve;
+    /// assert!(solve(0, 8, &[])?.variable(0).is_none());
     /// # Ok::<(), String>(())
     /// ```
     pub fn variable(&self, id: usize) -> Option<&PointSet> {
         self.variables.get(id)
     }
 
-    /// Consulta o campo materializado, ou `None` para campo ausente/opaco.
-    /// `None` nunca certifica um campo vazio: efeitos/valores iniciais ausentes
-    /// precisam ser fornecidos pelo produtor antes de usar o resultado.
+    /// Queries the materialized field, or `None` for an absent/opaque field.
+    /// `None` never certifies an empty field: missing effects/initial values
+    /// must be supplied by the producer before using the result.
     ///
     /// ```
-    /// use dartforge_emit_native::optimize::arc::analise::{modelo::NoAbstrato, points_to::*};
-    /// let r = resolver(0, 8, &[])?;
-    /// assert!(r.campo(&NoAbstrato::Global("x".into()), &CampoArc { layout: "L".into(), posicao: 0 }).is_none());
+    /// use dartforge_emit_native::optimize::arc::analysis::{model::AbstractNode, points_to::*};
+    /// let r = solve(0, 8, &[])?;
+    /// assert!(r.field(&AbstractNode::Global("x".into()), &ArcField { layout: "L".into(), position: 0 }).is_none());
     /// # Ok::<(), String>(())
     /// ```
     pub fn field(&self, node: &AbstractNode, field: &ArcField) -> Option<&PointSet> {
@@ -124,24 +124,24 @@ impl PointsToResult {
     }
 }
 
-/// Resolve restrições monotônicas por worklist com dependências de variáveis/campos.
-/// Escrita por receiver desconhecido torna o campo opaco para todos os nós,
-/// inclusive nós descobertos depois. Budget é por conjunto; excedê-lo propaga
-/// topo a leitores/cópias. A fila só agenda dependentes de fatos alterados.
-/// Variáveis/campos começam no fundo do sistema de inclusão: o produtor deve
-/// fornecer fatos de inicialização/externs; isso não infere zero inicial do heap.
+/// Solves monotonic constraints with a worklist with variable/field dependencies.
+/// A write through an unknown receiver makes the field opaque for every node,
+/// including nodes discovered later. The budget is per set; exceeding it propagates
+/// top to readers/copies. The queue only schedules dependents of changed facts.
+/// Variables/fields start at the bottom of the inclusion system: the producer must
+/// supply initialization/extern facts; this does not infer an initial zero of the heap.
 ///
-/// # Erros
-/// Índice de variável fora do domínio declarado ou posições incompatíveis
-/// no esquema de um acesso selecionado. Validação precede a solução.
+/// # Errors
+/// A variable index outside the declared domain or incompatible positions
+/// in the schema of a selected access. Validation precedes the solution.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::{modelo::NoAbstrato, points_to::*};
-/// let r = resolver(2, 4, &[
-///     Restricao::Copiar { origem: 0, destino: 1 },
-///     Restricao::Semear { destino: 0, no: NoAbstrato::Global("raiz".into()) },
+/// use dartforge_emit_native::optimize::arc::analysis::{model::AbstractNode, points_to::*};
+/// let r = solve(2, 4, &[
+///     Constraint::Copy { origin: 0, dest: 1 },
+///     Constraint::Seed { dest: 0, node: AbstractNode::Global("root".into()) },
 /// ])?;
-/// assert_eq!(r.variavel(0), r.variavel(1));
+/// assert_eq!(r.variable(0), r.variable(1));
 /// # Ok::<(), String>(())
 /// ```
 pub fn solve(
@@ -352,9 +352,9 @@ pub fn solve(
                 }
             }
         }
-        // Bottom intermediário pode receber aliases tardios. Só depois de
-        // esvaziar a fila, receiver ainda vazio deixa de ser acesso coberto:
-        // null/ausência de objeto não prova ausência de efeitos do helper.
+        // An intermediate bottom may receive late aliases. Only after
+        // emptying the queue does a still empty receiver stop being a covered access:
+        // null/absence of an object does not prove the absence of the helper's effects.
         let mut events: BTreeSet<usize> = BTreeSet::new();
         for r in constraints {
             let (object, schemas, dest) = match r {
@@ -399,22 +399,22 @@ pub fn solve(
     Ok(result)
 }
 
-/// Confere independentemente se a solução cobre todas as restrições fornecidas.
-/// Não executa a worklist nem exige o menor ponto fixo: sobreaproximações são
-/// válidas, incluindo topo. Confere índices, budgets e inclusão de cada aresta.
-/// Não prova que o produtor cobriu a HIR, inicializações, observadores ou SDK;
-/// não é certificado de vida, singleton ou política ARC.
+/// Independently checks whether the solution covers every given constraint.
+/// Does not run the worklist nor require the least fixpoint: over-approximations are
+/// valid, top included. Checks indices, budgets and the inclusion of each edge.
+/// Does not prove that the producer covered the HIR, initializations, observers or the SDK;
+/// it is not a certificate of lifetime, singleton or ARC policy.
 ///
-/// # Erros
-/// Domínio/budget incompatível, índice inválido ou restrição não satisfeita.
+/// # Errors
+/// Incompatible domain/budget, invalid index or an unsatisfied constraint.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::{modelo::*, points_to::*};
-/// let rs = vec![Restricao::Semear { destino: 0, no: NoAbstrato::Global("g".into()) },
-///     Restricao::Copiar { origem: 0, destino: 1 }];
-/// let r = resolver(2, 8, &rs)?;
-/// verificar(2, 8, &rs, &r)?;
-/// assert!(verificar(3, 8, &rs, &r).is_err());
+/// use dartforge_emit_native::optimize::arc::analysis::{model::*, points_to::*};
+/// let rs = vec![Constraint::Seed { dest: 0, node: AbstractNode::Global("g".into()) },
+///     Constraint::Copy { origin: 0, dest: 1 }];
+/// let r = solve(2, 8, &rs)?;
+/// verify(2, 8, &rs, &r)?;
+/// assert!(verify(3, 8, &rs, &r).is_err());
 /// # Ok::<(), String>(())
 /// ```
 pub fn verify(
@@ -478,8 +478,8 @@ pub fn verify(
                     dest.nodes().is_none()
                 } else {
                     receiver.nodes().unwrap().iter().all(|node| {
-                        // Ausente é bottom só no sistema de restrições; não
-                        // prova inicialização vazia de um campo do heap real.
+                        // Absent is bottom only in the constraint system; it does not
+                        // prove an empty initialization of a field of the real heap.
                         r.fields
                             .get(&(node.clone(), field.clone()))
                             .is_none_or(|p| includes(dest, p))
@@ -570,8 +570,8 @@ mod tests {
         );
         let mut checked_set = 0;
         for mask in 0..512usize {
-            // Cada nó tem saída: os testes de fronteira tratam separadamente
-            // receivers null/vazios, sem supor que sejam reads puros.
+            // Each node has an exit: the boundary tests treat null/empty
+            // receivers separately, without assuming they are pure reads.
             if (0..3).any(|v| mask & (7 << (3 * v)) == 0) {
                 continue;
             }
@@ -600,8 +600,8 @@ mod tests {
                     node: node(&format!("n{v}")),
                 });
             }
-            // Oráculo de caminhadas de comprimento exato no grafo original;
-            // não usa restrições, fila, esquema do solver ou seu verificador.
+            // Oracle of walks of exact length in the original graph;
+            // it does not use constraints, the queue, the solver's schema or its verifier.
             let mut current_ones = BTreeSet::from([0]);
             let mut expected_set = Vec::new();
             for _ in 0..7 {
@@ -666,7 +666,7 @@ mod tests {
                 field: field("B"),
                 value: 2,
             },
-            // Mesmo índice, outro layout: esta aresta não é lida em b.B.
+            // Same index, another layout: this edge is not read in b.B.
             Constraint::Write {
                 object: 6,
                 field: field("A"),
@@ -733,7 +733,7 @@ mod tests {
                 dest: 1,
             }];
             match case {
-                0 => {} // Receiver vazio só é fechado após os aliases convergirem.
+                0 => {} // An empty receiver is only closed after the aliases converge.
                 1 => rs.push(Constraint::Unknown { dest: 0 }),
                 2 => rs.push(Constraint::Seed {
                     dest: 0,
@@ -820,7 +820,7 @@ mod tests {
             )
             .is_err()
         );
-        // Aceitar sobreaproximação segura sem depender de igualdade ao solver.
+        // Accept a safe over-approximation without depending on equality with the solver.
         r.variables.fill(PointSet::unknown(8));
         verify(3, 8, &rs, &r).unwrap();
     }

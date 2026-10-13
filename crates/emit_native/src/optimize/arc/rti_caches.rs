@@ -1,4 +1,4 @@
-//! Proveniência dos caches nativos de receitas RTI; não cobre globais Dart.
+//! Provenance of the native caches of RTI recipes; does not cover Dart globals.
 
 use super::*;
 
@@ -32,8 +32,8 @@ pub(super) fn produce(
             .map(|(v, i, t)| (*v, (i, *t)))
             .collect();
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            // A HIR não oferece endereço de global. Recusa também a tentativa
-            // de usar seu símbolo como endereço de função/publicação opaca.
+            // The HIR offers no address of a global. Also rejects the attempt
+            // to use its symbol as a function address/opaque publication.
             let mut address = false;
             super::super::operands::operands(inst, &mut |o| {
                 address |=
@@ -118,8 +118,8 @@ pub(super) fn produce(
     Ok(())
 }
 
-// Corpos atuais e caches já auditados, sem pressupor prefixo de símbolo.
-// A conclusão não cobre recarga nem funções com contexto/saída Dart implícita.
+// Current bodies and already audited caches, without assuming a symbol prefix.
+// The conclusion does not cover reload nor functions with implicit Dart context/exit.
 pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPlan>) -> HashSet<String> {
     let mut globals = HashMap::new();
     for name_str in &m.arc_rti_caches {
@@ -186,12 +186,12 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
     safe_set
 }
 
-// Getters cujo resultado é comprovadamente um ID do universo RTI: corpo
-// fechado de `preserve_fields` e todo retorno vindo de cache RTI auditado,
-// de `dartforge_rti_receita` ou de outro getter comprovado (maior ponto fixo).
-// Constante ou aritmética não bastam: preservar campos não prova a origem do
-// ID. Toda escrita I64 de cache no módulo precisa vir da receita; sem isso,
-// nenhum getter é aceito. Não cobre recarga JIT.
+// Getters whose result is provably an ID of the RTI universe: a closed
+// body of `preserve_fields` and every return coming from an audited RTI cache,
+// from `dartforge_rti_receita` or from another proven getter (greatest fixpoint).
+// A constant or arithmetic is not enough: preserving fields does not prove the
+// origin of the ID. Every I64 cache write in the module must come from the recipe;
+// without that, no getter is accepted. Does not cover JIT reload.
 pub(super) fn getters_rti(m: &Module, plans: &HashMap<String, DartFunctionPlan>) -> HashSet<String> {
     let caches: HashSet<_> = m.arc_rti_caches.iter().collect();
     let native_writes = m.functions.iter().all(|f| {
@@ -229,7 +229,7 @@ pub(super) fn getters_rti(m: &Module, plans: &HashMap<String, DartFunctionPlan>)
     }
 }
 
-// Origem de um I64 retornado por getter RTI; Phi exige todas as entradas.
+// Origin of an I64 returned by an RTI getter; a Phi requires all its entries.
 fn rti_origin(
     v: ValueId,
     definitions: &HashMap<ValueId, (&Instruction, Type)>,
@@ -259,7 +259,7 @@ mod tests {
     fn module() -> Module {
         let mut m = Module::new();
         m.arc_memory = true;
-        // O nome não participa da prova: somente o fato nominal e os escritores.
+        // The name takes no part in the proof: only the nominal fact and the writers.
         m.globals.push((0, Type::I64, "cache_sem_prefixo".into()));
         m.arc_rti_caches.insert("cache_sem_prefixo".into());
         m.functions.push(Function {

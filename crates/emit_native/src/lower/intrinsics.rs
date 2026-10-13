@@ -1,15 +1,15 @@
-//! Membros de `int` e `double` em linha, quando o tipo estático do
-//! receptor é exatamente `int` ou `double` (não anulável) — o `compareTo`
-//! de `int` com argumento `int` inclusive —, e o `add` de
-//! `List<int>`/`List<double>`/`List<bool>` sem caixa.
+//! Members of `int` and `double` inline, when the static type of the
+//! receiver is exactly `int` or `double` (non-nullable) — the `compareTo`
+//! of `int` with an `int` argument included —, and the unboxed `add` of
+//! `List<int>`/`List<double>`/`List<bool>`.
 //!
-//! As duas classes não podem ser estendidas nem implementadas fora do
-//! núcleo: o valor é sempre o número, e o membro é o do SDK. Sem isto, um
-//! `i.toDouble()` ou `x.isEven` encaixotava o número, passava pelo despacho
-//! por seletor e desencaixotava o resultado. Cada forma aqui calcula o
-//! mesmo valor que o `int_patch.dart`/`double_patch.dart` da VM; o que
-//! pode lançar (`toInt()` de NaN ou infinito) sai pelo membro do SDK no
-//! caminho frio.
+//! The two classes cannot be extended nor implemented outside the
+//! core: the value is always the number, and the member is the SDK one. Without this, an
+//! `i.toDouble()` or `x.isEven` boxed the number, went through dispatch
+//! by selector and unboxed the result. Each form here computes the
+//! same value as the VM's `int_patch.dart`/`double_patch.dart`; what
+//! may throw (`toInt()` of NaN or infinity) leaves through the SDK member on the
+//! cold path.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -40,16 +40,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `ClassID.cidX` (`dart:_internal`): na VM, campos `static final` que o
-    /// runtime preenche com o id de classe de `_List`, `_OneByteString`…; o
-    /// SDK compara `ClassID.getID(x)` com eles para tomar os atalhos (o
-    /// `split` de um caractere, os laços de `_List`). Aqui o cid dessas
-    /// classes é fixo (`layout::cid`, docs/NATIVO-ESPACO-UNIFICADO.md §2.4), o
-    /// mesmo no runtime, no emissor e em toda geração: a constante do contrato.
-    /// `numPredefinedCids` é o primeiro cid livre (as classes do runtime ficam
-    /// abaixo, como as predefinidas da VM no hash das constantes,
-    /// `compact_hash.dart`). As classes externas da VM (`cidExternal*`) não
-    /// existem aqui: o campo fica como está (0, que nenhum objeto tem).
+    /// `ClassID.cidX` (`dart:_internal`): in the VM, `static final` fields that the
+    /// runtime fills with the class id of `_List`, `_OneByteString`…; the
+    /// SDK compares `ClassID.getID(x)` with them to take shortcuts (the
+    /// single-character `split`, the `_List` loops). Here the cid of those
+    /// classes is fixed (`layout::cid`, docs/NATIVO-ESPACO-UNIFICADO.md §2.4), the
+    /// same in the runtime, in the emitter and in every generation: the contract constant.
+    /// `numPredefinedCids` is the first free cid (the runtime classes stay
+    /// below, like the VM's predefined ones in the constants hash,
+    /// `compact_hash.dart`). The VM's external classes (`cidExternal*`) do not
+    /// exist here: the field stays as it is (0, which no object has).
     fn runtime_class_id(&self, ast: &ast::Ast, e: ExprId) -> Option<i64> {
         use dartforge_runtime::layout::{cid, PRIMEIRO_CID_LIVRE};
         use dartforge_runtime::tipadas::tipo;
@@ -77,13 +77,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(i64::from(id))
     }
 
-    /// O membro de `int`/`double` em linha, ou `None` (o caminho de sempre).
+    /// The `int`/`double` member inline, or `None` (the usual path).
     pub(super) fn intrinsic_expression(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
         if let Some(id) = self.runtime_class_id(ast, e) {
             return Some(self.emit(Instruction::Const(Constant::Int(id)), Type::I64));
         }
-        // Membro de tipo de extensão: o receptor tem o tipo apagado de um
-        // primitivo ou de uma lista, mas o membro é o do tipo de extensão.
+        // A member of an extension type: the receiver has the erased type of a
+        // primitive or of a list, but the member is that of the extension type.
         let member = match &ast.expr(e).kind {
             ExprKind::Call { target, .. } => *target,
             _ => e,
@@ -129,16 +129,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         })
     }
 
-    /// `a.compareTo(b)` com `a` e `b` exatamente `int` (não anuláveis): o
-    /// `_IntegerImplementation.compareTo` da VM com `other` inteiro é `-1`
-    /// se `a < b`, `1` se `a > b`, senão `0`; aqui, `(a > b) - (a < b)` em
-    /// linha. Sem isto, os dois números iam encaixotados (um `_Mint` novo
-    /// para cada um fora do `Smi`) ao despacho por seletor e à entrada
-    /// uniforme, que conferia o argumento pela RTI, e o `this < other` do
-    /// corpo (`num other`) ia ao despacho dinâmico para todo `_Mint` — o
-    /// comparador `(a, b) => a.compareTo(b)` de `sort` pagava tudo isso a
-    /// cada comparação. O `double` (e o `num`) fica com o membro do SDK:
-    /// NaN e `-0.0` têm regras próprias.
+    /// `a.compareTo(b)` with `a` and `b` exactly `int` (non-nullable): the
+    /// VM's `_IntegerImplementation.compareTo` with an integer `other` is `-1`
+    /// if `a < b`, `1` if `a > b`, otherwise `0`; here, `(a > b) - (a < b)`
+    /// inline. Without this, both numbers went boxed (a new `_Mint`
+    /// for each outside the `Smi` range) to dispatch by selector and to the uniform
+    /// entry, which checked the argument through the RTI, and the `this < other` of the
+    /// body (`num other`) went to dynamic dispatch for every `_Mint` — the
+    /// comparator `(a, b) => a.compareTo(b)` of `sort` paid all of that on
+    /// every comparison. `double` (and `num`) keep the SDK member:
+    /// NaN and `-0.0` have their own rules.
     fn compare_to_int(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
         let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
         if arguments.args.len() != 1 || arguments.args[0].name.is_some() || !arguments.type_args.is_empty() {
@@ -171,17 +171,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.emit(Instruction::Sub(larger, smaller), Type::I64))
     }
 
-    /// `list.add(v)` com a lista de tipo estático `List<int>`,
-    /// `List<double>` ou `List<bool>` e `v` exatamente desse tipo (sem caixa),
-    /// como o `add` da VM em linha: numa `_GrowableList` (cid 10) de
-    /// armazenamento compacto da forma do valor (docs/NATIVO-ESPACO-UNIFICADO.md
-    /// §2.16: a forma compacta só existe quando o `E` reificado é o escalar)
-    /// com lugar, a palavra gravada direto e o comprimento mais um; cheia,
-    /// `dartforge_lista_acrescentar` (cresce para `(capacity * 2) | 3`);
-    /// qualquer outra (uma classe do usuário, tamanho fixo, não modificável,
-    /// armazenamento geral) chama o `add` de sempre. Sem isto, cada `add`
-    /// passava pelo despacho, conferia o `E` duas vezes pela RTI (na entrada
-    /// uniforme e no `[]=` dentro do `add`) e gravava o valor encaixotado.
+    /// `list.add(v)` with a list of static type `List<int>`,
+    /// `List<double>` or `List<bool>` and `v` exactly of that type (unboxed),
+    /// like the VM's inline `add`: in a `_GrowableList` (cid 10) with
+    /// compact storage of the value's shape (docs/NATIVO-ESPACO-UNIFICADO.md
+    /// §2.16: the compact shape only exists when the reified `E` is the scalar)
+    /// with room, the word written directly and the length plus one; when full,
+    /// `dartforge_lista_acrescentar` (grows to `(capacity * 2) | 3`);
+    /// any other (a user class, fixed size, unmodifiable,
+    /// general storage) calls the usual `add`. Without this, each `add`
+    /// went through dispatch, checked `E` twice through the RTI (at the uniform
+    /// entry and in the `[]=` inside `add`) and wrote the boxed value.
     fn list_add_scalar(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
         use dartforge_runtime::layout::{cid, flags};
         let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
@@ -199,8 +199,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         else {
             return None;
         };
-        // O argumento tem de ser do tipo do elemento, não anulável: um
-        // `dynamic` ou `num` precisaria da conversão implícita conferida.
+        // The argument must be of the element type, non-nullable: a
+        // `dynamic` or `num` would need the checked implicit conversion.
         let arg = arguments.args[0].value;
         let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, arg)?) else {
             return None;
@@ -223,8 +223,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Operand::Constant(Constant::Null));
         }
         let v = self.coerce(v, t);
-        // A palavra da forma: o `i64`, o `double` (os bits, pela gravação de
-        // `F64`) ou 0/1.
+        // The word of the shape: the `i64`, the `double` (the bits, through the `F64`
+        // write) or 0/1.
         let (word, ty) = match t {
             Type::I64 => (v.clone(), CType::I64),
             Type::F64 => (v.clone(), CType::F64),
@@ -248,8 +248,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (_done, full) = self.append_scalar_inline(list.clone(), word, ty, shape, slow);
         self.terminate(Terminator::Branch(join));
 
-        // Cheia: o crescimento (e a gravação) no runtime, com o valor numa
-        // caixa (o `Smi`, sem alocação, no caso comum do `int`).
+        // Full: the growth (and the write) in the runtime, with the value in a
+        // box (the `Smi`, without allocation, in the common `int` case).
         self.set_block(full);
         let boxed = self.coerce(v.clone(), Type::Ref);
         self.emit(
@@ -281,14 +281,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             "isNegative" => self.emit(Instruction::ICmp(ICmpOp::Slt, x, c(0)), Type::I1),
             "toDouble" => self.emit(Instruction::IntToDouble(x), Type::F64),
-            // `(x ^ s) - s` com `s = x >> 63`: o `abs` de `int` com o
-            // estouro de 64 bits da VM (`abs(-2^63) == -2^63`).
+            // `(x ^ s) - s` with `s = x >> 63`: the `abs` of `int` with the
+            // VM's 64-bit overflow (`abs(-2^63) == -2^63`).
             "abs" => {
                 let s = self.emit(Instruction::AShr(x.clone(), c(63)), Type::I64);
                 let t = self.emit(Instruction::Xor(x, s.clone()), Type::I64);
                 self.emit(Instruction::Sub(t, s), Type::I64)
             }
-            // `toInt`, `floor`, `ceil`, `round`, `truncate` de `int`: ele mesmo.
+            // `toInt`, `floor`, `ceil`, `round`, `truncate` of `int`: itself.
             _ => x,
         }
     }
@@ -302,20 +302,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let equal = self.emit(Instruction::FCmp(FCmpOp::Eq, x.clone(), x), Type::I1);
                 self.emit(Instruction::LNot(equal), Type::I1)
             }
-            // Expoente todo em 1 e mantissa zero.
+            // Exponent all ones and zero mantissa.
             "isInfinite" => {
                 let b = bits(self, x);
                 let m = self.emit(Instruction::And(b, c(i64::MAX)), Type::I64);
                 self.emit(Instruction::ICmp(ICmpOp::Eq, m, c(0x7FF0_0000_0000_0000)), Type::I1)
             }
-            // Expoente não todo em 1 (nem infinito nem NaN).
+            // Exponent not all ones (neither infinity nor NaN).
             "isFinite" => {
                 let b = bits(self, x);
                 let m = self.emit(Instruction::And(b, c(i64::MAX)), Type::I64);
                 self.emit(Instruction::ICmp(ICmpOp::Slt, m, c(0x7FF0_0000_0000_0000)), Type::I1)
             }
-            // O bit de sinal, fora o NaN (`-0.0.isNegative` é verdade;
-            // `double.nan.isNegative`, falso).
+            // The sign bit, except for NaN (`-0.0.isNegative` is true;
+            // `double.nan.isNegative`, false).
             "isNegative" => {
                 let b = bits(self, x.clone());
                 let sign = self.emit(Instruction::ICmp(ICmpOp::Slt, b, c(0)), Type::I1);
@@ -331,8 +331,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let m = self.emit(Instruction::And(b, c(i64::MAX)), Type::I64);
                 self.emit(Instruction::Bitcast { op: m, to: Type::F64 }, Type::F64)
             }
-            // `toInt`/`truncate`: em [-2^63, 2^63) o `fptosi`; fora (e NaN),
-            // o membro do SDK, que lança o `UnsupportedError`.
+            // `toInt`/`truncate`: in [-2^63, 2^63) the `fptosi`; outside (and NaN),
+            // the SDK member, which throws the `UnsupportedError`.
             _ => {
                 let lo = self.emit(Instruction::FCmp(FCmpOp::Ge, x.clone(), Operand::Constant(Constant::Double(-(2f64.powi(63))))), Type::I1);
                 let hi = self.emit(Instruction::FCmp(FCmpOp::Lt, x.clone(), Operand::Constant(Constant::Double(2f64.powi(63)))), Type::I1);

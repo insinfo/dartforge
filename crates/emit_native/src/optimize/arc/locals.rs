@@ -1,5 +1,5 @@
-//! Contratos de locais escalares privados da ativação, sem aliases ou escape.
-//! Campos, locais Ref e endereços importados exigem outros produtores.
+//! Contracts of scalar locals private to the activation, without aliases or escape.
+//! Fields, Ref locals and imported addresses require other producers.
 
 use super::{TokenEffect, Ownership, DartFunctionPlan, TokenPlan};
 use crate::hir::*;
@@ -25,21 +25,21 @@ pub(super) fn produce(
     Ok(locals)
 }
 
-/// Representações sem handle de um local privado: escalares e vetores SIMD.
+/// Handle-free representations of a private local: scalars and SIMD vectors.
 fn scalar(t: &Type) -> bool {
     matches!(t, Type::I1 | Type::I8 | Type::I64 | Type::F64) || t.is_vector()
 }
 
-/// Captura por endereço das funções locais diretas (`lower/direct_functions.rs`):
-/// o parâmetro `Ptr` da direta aponta o `alloca` escalar de quem a declara,
-/// que existe enquanto ela roda. O tipo de cada parâmetro vem dos usos dele
-/// (leitura, gravação, repasse a outra direta) e dos endereços que os
-/// chamadores cedem, em ponto fixo. Grava nos planos os endereços recebidos
-/// e, por chamada, os cedidos; `analyze` confere cada corpo contra eles.
+/// By-address capture of direct local functions (`lower/direct_functions.rs`):
+/// the `Ptr` parameter of the direct function points to the scalar `alloca` of
+/// its declarer, which exists while it runs. The type of each parameter comes from its
+/// uses (read, write, forwarding to another direct function) and from the addresses
+/// the callers yield, as a fixpoint. Writes into the plans the received addresses
+/// and, per call, the yielded ones; `analyze` checks each body against them.
 ///
-/// # Erros
-/// Tipos divergentes para o mesmo parâmetro, ou chamada que passa a um
-/// parâmetro escalar algo que não é um local escalar do mesmo tipo.
+/// # Errors
+/// Divergent types for the same parameter, or a call that passes to a
+/// scalar parameter something that is not a scalar local of the same type.
 pub(super) fn produce_addresses(
     m: &Module,
     plans: &mut HashMap<String, DartFunctionPlan>,
@@ -50,14 +50,14 @@ pub(super) fn produce_addresses(
     }
     let by_symbol: HashMap<&str, &Function> =
         m.functions.iter().map(|f| (f.symbol.as_str(), f)).collect();
-    // (direta, posição do parâmetro Ptr) → tipo do local apontado.
+    // (direct function, position of the Ptr parameter) → type of the pointed local.
     let mut types: HashMap<(&str, usize), Type> = HashMap::new();
     let ptr_de = |sym_name: &str, i: usize| {
         directs.contains(sym_name)
             && by_symbol.get(sym_name).is_some_and(|g| g.params.get(i).is_some_and(|p| p.2 == Type::Ptr))
     };
-    // Endereços de locais escalares visíveis em `f`: os allocas dele e, numa
-    // direta, os parâmetros já tipados.
+    // Addresses of scalar locals visible in `f`: its allocas and, in a
+    // direct function, the already typed parameters.
     let addresses = |f: &Function, types: &HashMap<(&str, usize), Type>| -> HashMap<ValueId, Type> {
         let mut e: HashMap<ValueId, Type> = f.blocks.first().into_iter()
             .flat_map(|b| &b.instructions)
@@ -112,8 +112,8 @@ pub(super) fn produce_addresses(
                             if !ptr_de(symbol, j) {
                                 continue;
                             }
-                            // O chamador cede um local de tipo conhecido; um
-                            // parâmetro repassado herda o tipo do callee.
+                            // The caller yields a local of known type; a
+                            // forwarded parameter inherits the callee's type.
                             if let Some(t) = visible_set.get(a) {
                                 changed |= define(&mut types, (symbol.as_str(), j), *t)?;
                             } else if let (Some(i), Some(t)) = (parameter(a).filter(|_| directs.contains(&f.symbol)), types.get(&(symbol.as_str(), j)).copied()) {
@@ -158,7 +158,7 @@ pub(super) fn produce_addresses(
     Ok(())
 }
 
-/// Reconstrói o contrato no corpo atual sem completar metadados ausentes.
+/// Rebuilds the contract on the current body without filling in missing metadata.
 pub(super) fn verify(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
@@ -199,8 +199,8 @@ fn analyze(
             }
         }
     }
-    // Endereços recebidos de quem declara a função direta: escalares, já
-    // inicializados, com as mesmas regras de uso de um alloca próprio.
+    // Addresses received from the declarer of the direct function: scalars, already
+    // initialized, with the same usage rules as an own alloca.
     let mut received = HashSet::new();
     for (p, t) in &plan.received_addresses {
         if !f.params.iter().any(|(v, _, ty)| v == p && *ty == Type::Ptr)
@@ -270,9 +270,9 @@ fn analyze(
                         allowed = Some(p);
                         let typ = match val {
                             Operand::Val(v) => types.get(v).copied(),
-                            // Estado de late usa bytes literais (0/1/2). O
-                            // tipo vem do slot, com faixa conferida antes da
-                            // coerção textual; não se aplica a valores SSA.
+                            // The late state uses literal bytes (0/1/2). The
+                            // type comes from the slot, with the range checked before the
+                            // textual coercion; does not apply to SSA values.
                             Operand::Constant(Constant::Int(n))
                                 if locals[&p] == Type::I8 && (0..=255).contains(n) =>
                             {
@@ -291,9 +291,9 @@ fn analyze(
                 }
                 _ => {}
             }
-            // Apenas o operando ptr de Load/Store pode usar o endereço. Uma
-            // segunda ocorrência (p.ex. Store como valor) também é escape.
-            // Uma chamada a função direta pode ceder cada local uma vez.
+            // Only the ptr operand of Load/Store may use the address. A
+            // second occurrence (e.g. Store as the value) is also an escape.
+            // A call to a direct function may yield each local once.
             let mut uses = 0;
             let mut unexpected = false;
             operands(inst, &mut |op| {
@@ -337,8 +337,8 @@ fn analyze(
     }
     let cfg = Cfg::new(f);
     let universe: HashSet<_> = locals.keys().copied().collect();
-    // Análise must: a interseção preserva apenas inicializações presentes
-    // em todos os predecessores. O topo nos laços decresce até o ponto fixo.
+    // Must analysis: the intersection keeps only initializations present
+    // in every predecessor. The top in loops decreases until the fixpoint.
     let mut entries = vec![universe.clone(); f.blocks.len()];
     let mut exits = entries.clone();
     let transfer = |bi: usize, mut state: HashSet<ValueId>| {
@@ -407,7 +407,7 @@ fn analyze(
                         ));
                     }
                 }
-                // A função direta pode ler o local cedido: como uma leitura.
+                // The direct function may read the yielded local: like a read.
                 Instruction::CallStatic { args, .. } if plan.yielded_addresses.contains_key(v) => {
                     for (i, _) in &plan.yielded_addresses[v] {
                         if let Some(p) = args.get(*i).and_then(local)
@@ -927,7 +927,7 @@ mod tests {
                 (ValueId(2), Instruction::CallStatic { symbol: "direta".into(), args: vec![val(0)], ret_ty: Type::Void }, Type::Void),
             ];
             if case == 2 {
-                // Cedido antes da primeira gravação.
+                // Yielded before the first write.
                 outside.swap(1, 2);
             }
             m.functions.push(Function {

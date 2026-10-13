@@ -1,15 +1,15 @@
-//! Consulta dos caminhos de contexto implícitos para análise ARC.
-//! Compartilha a preparação e a análise de raízes com a emissão nativa.
+//! Query of the implicit context paths for ARC analysis.
+//! Shares the preparation and the roots analysis with native emission.
 
 use super::{LlvmEmitter, roots};
 use crate::hir::*;
 
 impl LlvmEmitter<'_> {
-    // Prepara a mesma representação usada nas coerções e pontos de coleta.
+    // Prepares the same representation used in coercions and collection points.
     pub(super) fn prepare_types_and_phis(&mut self, func: &Function) {
-        // Tabela de tipos da funcao: sem ela o emissor nao sabe se %v8 e um
-        // i1 (resultado de icmp) ou um i64, e imprime "ret i64 %v8" para um
-        // valor i1 — modulo inteiro recusado pelo Clang.
+        // Type table of the function: without it the emitter does not know whether %v8 is an
+        // i1 (result of an icmp) or an i64, and prints "ret i64 %v8" for an
+        // i1 value — a whole module rejected by Clang.
         self.types.clear();
         self.pointee.clear();
         for block in &func.blocks {
@@ -29,10 +29,10 @@ impl LlvmEmitter<'_> {
             }
         }
 
-        // Uma entrada de phi nao pode ser convertida onde o phi esta: phi tem de
-        // ser a primeira instrucao do bloco. A conversao pertence ao bloco de
-        // ORIGEM daquela entrada, emitida logo antes do terminador dele. Aqui
-        // so planejamos; a emissao acontece bloco a bloco, mais abaixo.
+        // A phi entry cannot be converted where the phi is: a phi has to
+        // be the first instruction of the block. The conversion belongs to the
+        // ORIGIN block of that entry, emitted right before its terminator. Here
+        // we only plan; the emission happens block by block, further below.
         self.conv_phi.clear();
         let existing_blocks: std::collections::HashSet<u32> =
             func.blocks.iter().map(|b| b.id.0).collect();
@@ -66,13 +66,13 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// Pode exigir quadro de raízes e, portanto, conferência de pilha.
-    /// Usa slots da pilha-sombra antes da redução por mapas: cobre também
-    /// fallback por orçamento e conferência de raízes. Não certifica opções
-    /// de instrumentação, helpers, SDK ou ausência de outros efeitos.
+    /// May require a roots frame and, therefore, a stack check.
+    /// Uses shadow-stack slots before the reduction by maps: also covers the
+    /// fallback by budget and the roots check. Does not certify instrumentation
+    /// options, helpers, the SDK nor the absence of other effects.
     pub(crate) fn may_require_context_for_roots(func: &Function) -> bool {
-        // A classificação de coleta usa tipos/apontados e o catálogo extern;
-        // não consulta funções, layouts ou opções deste módulo vazio.
+        // The collection classification uses types/pointees and the extern catalog;
+        // it does not consult functions, layouts or options of this empty module.
         let module = Module::new();
         let mut emitter = LlvmEmitter::new(&module);
         emitter.prepare_types_and_phis(func);

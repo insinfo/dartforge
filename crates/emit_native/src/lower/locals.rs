@@ -1,20 +1,20 @@
-//! Variáveis locais: escopo léxico e `alloca` na representação do tipo (R6),
-//! e as variáveis capturadas por closures (P1).
+//! Local variables: lexical scope and `alloca` in the representation of the type (R6),
+//! and the variables captured by closures (P1).
 //!
-//! Antes, um local era um `alloca i64` criado onde a declaração aparecia (no
-//! meio de um laço, o `alloca` crescia a pilha a cada volta) e um mapa único
-//! por nome: um bloco que sombreava `current` sobrescrevia o `current` de
-//! fora para sempre, e a variável de um `for (var i = 0; …; i++)` nem tinha
-//! `alloca` — o `i++` trocava o valor SSA no mapa, e a condição do laço,
-//! baixada antes, continuava lendo o `0` da entrada.
+//! Before, a local was an `alloca i64` created where the declaration appeared (in
+//! the middle of a loop, the `alloca` grew the stack on every iteration) and a single map
+//! by name: a block that shadowed `current` overwrote the outer `current`
+//! forever, and the variable of a `for (var i = 0; …; i++)` did not even have an
+//! `alloca` — the `i++` replaced the SSA value in the map, and the loop condition,
+//! lowered before, kept reading the `0` of the entry.
 //!
-//! Uma variável capturada por uma closure e **atribuída** em algum ponto
-//! (`capture.rs` decide, antes de baixar a função) mora numa `Cell` do heap: o
-//! `alloca` guarda o handle da célula, e quem lê ou grava passa por ela — a
-//! closure vê a gravação feita depois da captura, e a gravação dela é vista
-//! de fora. Capturada e nunca atribuída, ela é copiada para o ambiente da
-//! closure na criação. Dentro da closure, a variável de fora é uma posição do
-//! ambiente (`Environment`), com o handle da célula ou a cópia.
+//! A variable captured by a closure and **assigned** at some point
+//! (`capture.rs` decides, before lowering the function) lives in a heap `Cell`: the
+//! `alloca` keeps the handle of the cell, and whoever reads or writes goes through it — the
+//! closure sees the write made after the capture, and its write is seen
+//! from outside. Captured and never assigned, it is copied into the environment of the
+//! closure at creation. Inside the closure, the outer variable is a position of the
+//! environment (`Environment`), with the handle of the cell or the copy.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -23,8 +23,8 @@ use dartforge_frontend::ast::ExprId;
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;
 
-/// Identidade semântica preservada ao retirar/restaurar casos de switch.
-/// Zero é a invocação; os demais IDs não são profundidades reutilizáveis.
+/// Semantic identity preserved when removing/restoring switch cases.
+/// Zero is the invocation; the other IDs are not reusable depths.
 #[derive(Debug, Clone)]
 pub(super) struct LocalScope {
     pub id: u32,
@@ -53,18 +53,18 @@ impl std::ops::DerefMut for LocalScope {
     }
 }
 
-/// Onde um local visível mora.
+/// Where a visible local lives.
 #[derive(Debug, Clone)]
 pub enum Mode {
-    /// `alloca` na representação do local.
+    /// An `alloca` in the representation of the local.
     Memory(Operand),
-    /// Valor imutável já calculado (o parâmetro de uma closure baixada em
-    /// linha pelo código congelado de `sdk_por_nome.rs`).
+    /// An already computed immutable value (the parameter of a closure lowered
+    /// inline by the frozen code of `sdk_por_nome.rs`).
     Value(Operand),
-    /// `alloca` `Ref` com o handle da célula que guarda o valor.
+    /// A `Ref` `alloca` with the handle of the cell that keeps the value.
     Cell(Operand),
-    /// Posição `index` do ambiente da closure corrente (`env`); com
-    /// `cell`, o que está lá é o handle da célula.
+    /// Position `index` of the environment of the current closure (`env`); with
+    /// `cell`, what is there is the handle of the cell.
     Environment {
         env: Operand,
         index: usize,
@@ -72,34 +72,34 @@ pub enum Mode {
     },
 }
 
-/// Um local visível.
+/// A visible local.
 #[derive(Debug, Clone)]
 pub struct Local {
     pub mode: Mode,
     pub ty: Type,
-    /// Tipo Dart antes de apagar a representação, para obrigações léxicas
-    /// como Finalizable. None indica informação ainda não fornecida; não
-    /// prova ausência da obrigação. Capturas preservam o TypeId original.
+    /// Dart type before erasing the representation, for lexical obligations
+    /// like Finalizable. None indicates information not supplied yet; it does not
+    /// prove the absence of the obligation. Captures preserve the original TypeId.
     pub static_type: Option<dartforge_types::TypeId>,
-    /// Classificação da obrigação léxica. None ainda exige prova; não emite
-    /// nem substitui ArcKeepAlive ou uma ocorrência proprietária.
+    /// Classification of the lexical obligation. None still requires proof; it does not emit
+    /// nor replace ArcKeepAlive or an owner occurrence.
     pub finalizable: Option<bool>,
-    /// Escopo desta ligação, atribuído ao inseri-la no corpo corrente.
-    /// Capturas preservam o tipo original, mas não o escopo de outra função.
-    /// Não é uma prova de cleanup nem uma ocorrência proprietária.
+    /// Scope of this binding, assigned when inserting it into the current body.
+    /// Captures preserve the original type, but not the scope of another function.
+    /// It is neither a proof of cleanup nor an owner occurrence.
     pub scope: u32,
-    /// Offset do nome na declaração (a chave de `capture.rs`); `None` para
-    /// os ligados por valor.
+    /// Offset of the name in the declaration (the key of `capture.rs`); `None` for
+    /// those bound by value.
     pub offset: Option<usize>,
-    /// Marca separada do valor, pois zero/null são atribuições legítimas.
+    /// A mark separate from the value, since zero/null are legitimate assignments.
     pub late: Option<LateLocal>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LateLocal {
     pub initialized: Operand,
-    /// `true`: `initialized` é uma `Cell` do heap e usa índice -1 na
-    /// tabela lateral; `false`: é um `alloca i8` desta função.
+    /// `true`: `initialized` is a heap `Cell` and uses index -1 in the
+    /// side table; `false`: it is an `alloca i8` of this function.
     pub cell: bool,
     pub final_: bool,
     pub name: String,
@@ -120,9 +120,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `alloca` no começo do bloco de entrada: executa uma vez por
-    /// ativação e domina todos os usos (o Clang recusava `alloca` criado
-    /// num ramo e usado depois da junção).
+    /// An `alloca` at the start of the entry block: runs once per
+    /// activation and dominates every use (Clang rejected an `alloca` created
+    /// in a branch and used after the join).
     pub fn entry_alloca(&mut self, ty: Type) -> Operand {
         let vid = ValueId(self.next_value);
         self.next_value += 1;
@@ -154,8 +154,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         scope.insert(sym, local);
     }
 
-    /// Declara um local (sem offset: nunca é célula) no escopo corrente,
-    /// guardado na representação `ty`.
+    /// Declares a local (without an offset: never a cell) in the current scope,
+    /// kept in representation `ty`.
     pub fn declare_local(&mut self, sym: SymbolId, ty: Type) -> Operand {
         let ty = Self::local_repr(ty);
         let ptr = self.entry_alloca(ty);
@@ -174,7 +174,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ptr
     }
 
-    /// Declara e inicializa: o valor é coagido para a representação do local.
+    /// Declares and initializes: the value is coerced to the representation of the local.
     pub fn declare_local_with_value(&mut self, sym: SymbolId, ty: Type, value: Operand) {
         let ptr = self.declare_local(sym, ty);
         let ty = self.lookup_local(sym).map_or(ty, |l| l.ty);
@@ -182,17 +182,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Store { ptr, val: v }, Type::Void);
     }
 
-    /// Declara a variável do usuário cujo nome começa em `offset` e a
-    /// inicializa com `value`. Se `capture.rs` a marcou (capturada e
-    /// atribuída), ela mora numa célula nova — cada execução da declaração
-    /// cria uma variável nova (a do corpo de um laço, uma por volta).
+    /// Declares the user variable whose name starts at `offset` and
+    /// initializes it with `value`. If `capture.rs` marked it (captured and
+    /// assigned), it lives in a new cell — each execution of the declaration
+    /// creates a new variable (that of a loop body, one per iteration).
     pub fn declare_variable(&mut self, sym: SymbolId, offset: usize, ty: Type, value: Operand) {
         let static_type = self.ctx.semantic_local_type(self.unit_id, offset);
         let finalizable = static_type.and_then(|t| self.ctx.classify_finalizable(t));
-        // Outra declaração do mesmo nome no mesmo escopo: o programa é
-        // inválido (a de um escopo de fora pode ser sombreada; a mesma
-        // declaração baixada de novo, num `finally`, não conta).
-        // Com curingas (Dart 3.7), `_` pode repetir: não liga nome.
+        // Another declaration of the same name in the same scope: the program is
+        // invalid (one of an outer scope may be shadowed; the same
+        // declaration lowered again, in a `finally`, does not count).
+        // With wildcards (Dart 3.7), `_` may repeat: it binds no name.
         let library = self.ctx.program.unit(self.unit_id).library;
         let wildcard = self.ctx.symbol_name(sym) == "_"
             && self.ctx.program.library(library).features.tem(dartforge_frontend::Feature::WildcardVariables);
@@ -204,10 +204,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.language_error(&format!("'{name}' is already declared in this scope."), dartforge_diagnostics::Span { start: offset, end: end });
         }
         let ty = Self::local_repr(ty);
-        // Capturada só por funções diretas e atribuída: vai pelo endereço do
-        // `alloca` (`direct_functions.rs`); o de um `Ref` mora no slot do
-        // quadro de raízes (`llvm/mod.rs`, `frame_allocas`), onde o
-        // coletor vê o que a função direta grava.
+        // Captured only by direct functions and assigned: goes by the address of the
+        // `alloca` (`direct_functions.rs`); that of a `Ref` lives in the slot of the
+        // roots frame (`llvm/mod.rs`, `frame_allocas`), where the
+        // collector sees what the direct function writes.
         let cell = self.cells.contains(&offset);
         if !cell {
             let ptr = self.entry_alloca(ty);
@@ -233,9 +233,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             return;
         }
-        // A célula guarda uma palavra, na representação do local (a mesma
-        // com que `CellGet`/`CellSet` a leem e gravam); um vetor SIMD vai na
-        // caixa.
+        // The cell keeps a word, in the representation of the local (the same
+        // in which `CellGet`/`CellSet` read and write it); a SIMD vector goes in the
+        // box.
         let ty = if ty.is_vector() { Type::Ref } else { ty };
         let ptr = self.entry_alloca(Type::Ref);
         let v = self.coerce(value, ty);
@@ -261,8 +261,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// Ativa a semântica de `late`. O estado de um local capturado segue o
-    /// handle da sua `Cell`, compartilhado entre função e closures.
+    /// Enables the `late` semantics. The state of a captured local follows the
+    /// handle of its `Cell`, shared between the function and closures.
     pub fn configure_late_local(&mut self, sym: SymbolId, final_: bool, init: Option<ExprId>) -> bool {
         let Some(local) = self.lookup_local(sym) else { return false };
         let (state, cell) = match &local.mode {
@@ -330,7 +330,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Liga um nome a um posição do ambiente da closure corrente.
+    /// Binds a name to a position of the environment of the current closure.
     pub fn bind_env(
         &mut self,
         sym: SymbolId,
@@ -368,13 +368,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// Liga um nome a um local já montado (as capturas de uma função
-    /// direta, `direct_functions.rs`).
+    /// Binds a name to an already built local (the captures of a direct
+    /// function, `direct_functions.rs`).
     pub(super) fn bind_local_as(&mut self, sym: SymbolId, local: Local) {
         self.insert_local(sym, local);
     }
 
-    /// Liga um nome a um valor já calculado (parâmetro de closure em linha).
+    /// Binds a name to an already computed value (an inline closure parameter).
     pub fn bind_local(&mut self, sym: SymbolId, value: Operand) {
         let ty = self.operand_type(&value);
         self.insert_local(
@@ -391,11 +391,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// Completa o tipo de um local já ligado usando a origem semântica.
-    /// None mantém a obrigação indeterminada; não infere pelo tipo HIR.
+    /// Completes the type of an already bound local using the semantic origin.
+    /// None keeps the obligation undetermined; does not infer from the HIR type.
     ///
     /// # Panics
-    /// Se o chamador não ligou o local no escopo visível antes desta atualização.
+    /// If the caller did not bind the local in the visible scope before this update.
     pub(super) fn assign_semantic_type(&mut self, sym: SymbolId, ty: Option<dartforge_types::TypeId>) {
         let finalizable = ty.and_then(|t| self.ctx.classify_finalizable(t));
         let local = self.scopes.iter_mut().rev().find_map(|e| e.get_mut(&sym))
@@ -404,13 +404,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         local.finalizable = finalizable;
     }
 
-    /// O local visível com esse nome, do escopo mais interno para fora.
+    /// The visible local with this name, from the innermost scope outwards.
     pub fn lookup_local(&self, sym: SymbolId) -> Option<Local> {
         self.scopes.iter().rev().find_map(|e| e.get(&sym).cloned())
     }
 
-    /// O handle da célula de um local que mora numa (declarado aqui ou
-    /// vindo do ambiente); `None` se o local não é célula.
+    /// The handle of the cell of a local that lives in one (declared here or
+    /// coming from the environment); `None` if the local is not a cell.
     pub fn local_cell(&mut self, local: &Local) -> Option<Operand> {
         match &local.mode {
             Mode::Cell(ptr) => Some(self.emit(
@@ -435,7 +435,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Lê um local já encontrado, na representação dele.
+    /// Reads an already found local, in its representation.
     pub fn read_local(&mut self, local: &Local) -> Operand {
         if let Some(late) = &local.late {
             if let Some((unit, init)) = late.initializer
@@ -468,8 +468,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Branch(b_verify));
                 self.set_block(b_fail);
                 self.define_late_state(late, 0);
-                // Encaminha a exceção ao `catch`/`finally` externo após
-                // restaurar a célula para permitir nova tentativa de leitura.
+                // Forwards the exception to the outer `catch`/`finally` after
+                // restoring the cell to allow a new read attempt.
                 self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: "dartforge_exception_pending".to_string(),
@@ -516,15 +516,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Lê um local (ou parâmetro) pelo nome, na representação dele.
+    /// Reads a local (or parameter) by name, in its representation.
     pub fn read_local_by_name(&mut self, sym: SymbolId) -> Option<Operand> {
         let local = self.lookup_local(sym)?;
         Some(self.read_local(&local))
     }
 
-    /// Grava num local visível; devolve o valor já na representação dele.
-    /// Um local copiado para o ambiente nunca é gravado (`capture.rs` põe
-    /// numa célula toda variável capturada que é atribuída).
+    /// Writes into a visible local; returns the value already in its representation.
+    /// A local copied into the environment is never written (`capture.rs` puts
+    /// every captured variable that is assigned into a cell).
     pub fn store_local(&mut self, sym: SymbolId, value: Operand) -> Option<Operand> {
         let local = self.lookup_local(sym)?;
         let v = self.coerce(value, local.ty);
@@ -575,7 +575,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
             Mode::Value(_) => {
-                // Valor imutável religado no escopo onde ele mora.
+                // An immutable value rebound in the scope where it lives.
                 for e in self.scopes.iter_mut().rev() {
                     if let Some(l) = e.get_mut(&sym) {
                         l.mode = Mode::Value(v.clone());
@@ -588,10 +588,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(v)
     }
 
-    /// Uma volta nova de um `for` clássico (a especificação, "for loop":
-    /// cada iteração tem a sua variável, iniciada com o valor da anterior).
-    /// Só importa para a variável que mora numa célula — uma closure da
-    /// volta anterior continua com a célula antiga.
+    /// A new iteration of a classic `for` (the specification, "for loop":
+    /// each iteration has its own variable, initialized with the value of the previous one).
+    /// It only matters for a variable that lives in a cell — a closure of the
+    /// previous iteration keeps the old cell.
     pub fn renew_cell(&mut self, sym: SymbolId) {
         let Some(local) = self.lookup_local(sym) else {
             return;
@@ -617,20 +617,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// Tira um nome de todos os escopos (os `this.x` no corpo do construtor).
+    /// Removes a name from every scope (the `this.x` in the body of the constructor).
     pub fn remove_local(&mut self, sym: SymbolId) {
         for e in &mut self.scopes {
             e.remove(&sym);
         }
     }
 
-    /// Representação guardada de um local declarado em `offset` (R6): o
-    /// tipo declarado, ou o inferido do inicializador. Sem informação, `Ref`
-    /// — a caixa é sempre correta, só mais lenta.
+    /// Stored representation of a local declared at `offset` (R6): the
+    /// declared type, or the one inferred from the initializer. Without information, `Ref`
+    /// — the box is always correct, only slower.
     pub fn local_repr_of(&self, offset: usize) -> Type {
         let ty = self.ctx.local_type(self.unit_id, offset);
-        // SIMD sem caixa (`simd.rs`), salvo o local capturado (a célula
-        // guarda 64 bits: a caixa).
+        // Unboxed SIMD (`simd.rs`), except for a captured local (the cell
+        // keeps 64 bits: the box).
         if let Some(k) = self.simd_type(ty)
             && !self.cells.contains(&offset)
         {
@@ -728,8 +728,8 @@ void main() {}
                             );
                         }
                     }
-                    // Mesma profundidade não identifica o mesmo escopo.
-                    // Casos de switch restauram o registro original completo.
+                    // The same depth does not identify the same scope.
+                    // Switch cases restore the full original record.
                     let parameter = outline.functions[fid].parameters[0].name.unwrap();
                     assert_eq!(b.scopes[0].id, 0);
                     let external = b.lookup_local(parameter).unwrap();
@@ -757,8 +757,8 @@ void main() {}
                     b.open_scope();
                     let third = b.scopes.last().unwrap().id;
                     assert!(third > second);
-                    // Copiar a descrição de uma captura não transporta a
-                    // identidade léxica do corpo que a declarou.
+                    // Copying the description of a capture does not carry the
+                    // lexical identity of the body that declared it.
                     let mut capture = external.clone();
                     capture.scope = first_one;
                     b.bind_local_as(parameter, capture);

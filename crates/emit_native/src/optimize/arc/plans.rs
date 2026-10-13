@@ -1,32 +1,32 @@
-//! Transporta o CFG excepcional já preparado pelo compilador aos planos ARC.
-//! Não inventa ownership, limites semânticos ou contratos de módulos externos.
+//! Carries the exceptional CFG already prepared by the compiler into the ARC plans.
+//! Does not invent ownership, semantic limits or contracts of external modules.
 
 use super::*;
 
-/// Prepara ownership usando o CFG de exceções já produzido pelo compilador.
+/// Prepares ownership using the exception CFG already produced by the compiler.
 ///
-/// Importa as tabelas, prepara ARC e publica corpos/planos/tabelas juntos.
-/// A seleção ARC e o modo de exceções devem preceder esta etapa; tracing
-/// devolve (0, 0). Classes, tokens e limites semânticos ainda precisam dos
-/// produtores e contratos descritos em [`prepare_arc_dart_module`].
-/// Não resolve contratos de callees externos, dispatch ou versões do SDK.
+/// Imports the tables, prepares ARC and publishes bodies/plans/tables together.
+/// The ARC selection and the exception mode must precede this step; tracing
+/// returns (0, 0). Classes, tokens and semantic limits still need the
+/// producers and contracts described in [`prepare_arc_dart_module`].
+/// Does not resolve contracts of external callees, dispatch or SDK versions.
 ///
-/// # Erros
-/// Qualquer falha de importação ou preparação. Mesmo se a importação for
-/// válida e ownership falhar depois, o módulo e os planos permanecem intactos.
+/// # Errors
+/// Any import or preparation failure. Even if the import is
+/// valid and ownership fails afterwards, the module and the plans stay intact.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut m = Module::new(); m.memoria_arc = true; m.excecoes_por_tabelas = true;
-/// m.functions.push(Function { symbol: "folha".into(), name: "folha".into(),
-///     depuracao: None, params: vec![], return_ty: Type::Void,
+/// let mut m = Module::new(); m.arc_memory = true; m.excecoes_por_tabelas = true;
+/// m.functions.push(Function { symbol: "leaf".into(), name: "leaf".into(),
+///     debug_info: None, params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(None) }] });
-/// m.tabelas.push(TabelasDaFuncao { confere_pilha: true, ..Default::default() });
-/// let mut planos = HashMap::from([("folha".into(), PlanoFuncaoDart::default())]);
-/// assert_eq!(preparar_arc_modulo_tabelado(&mut m, &mut planos)?, (0, 0));
-/// assert!(planos["folha"].tabelas.confere_pilha);
+/// m.tables.push(FunctionTables { checks_stack: true, ..Default::default() });
+/// let mut plans = HashMap::from([("leaf".into(), DartFunctionPlan::default())]);
+/// assert_eq!(prepare_arc_tabled_module(&mut m, &mut plans)?, (0, 0));
+/// assert!(plans["leaf"].tables.checks_stack);
 /// # Ok::<(), String>(())
 /// ```
 pub fn prepare_arc_tabled_module(
@@ -43,30 +43,30 @@ pub fn prepare_arc_tabled_module(
     Ok(result)
 }
 
-/// Importa as tabelas de exceções do módulo para os planos ARC da mesma HIR.
+/// Imports the exception tables of the module into the ARC plans of the same HIR.
 ///
-/// Roda depois do passe de exceções e antes da preparação de ownership. Planos
-/// conservam classes, tokens e limites; suas tabelas devem estar vazias ou ser
-/// iguais às do módulo. Importar não certifica esses contratos: a preparação
-/// ARC deve verificar todo o conjunto antes da emissão. Tracing não altera
-/// planos. Retorna a quantidade de tabelas alteradas; repetir devolve zero.
+/// Runs after the exception pass and before the ownership preparation. Plans
+/// keep classes, tokens and limits; their tables must be empty or equal
+/// to the module's. Importing does not certify those contracts: the ARC
+/// preparation must verify the whole set before emission. Tracing does not change
+/// plans. Returns the number of changed tables; repeating returns zero.
 ///
-/// # Erros
-/// Modo de tabelas desligado, inventário incompleto, símbolo repetido, plano
-/// ausente/obsoleto, SSA inválida ou tabela conflitante. Nenhum plano é alterado.
+/// # Errors
+/// Tables mode off, incomplete inventory, repeated symbol, missing/stale
+/// plan, invalid SSA or conflicting table. No plan is changed.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut m = Module::new(); m.memoria_arc = true; m.excecoes_por_tabelas = true;
-/// m.functions.push(Function { symbol: "folha".into(), name: "folha".into(),
-///     depuracao: None, params: vec![], return_ty: Type::Void,
+/// let mut m = Module::new(); m.arc_memory = true; m.excecoes_por_tabelas = true;
+/// m.functions.push(Function { symbol: "leaf".into(), name: "leaf".into(),
+///     debug_info: None, params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(None) }] });
-/// m.tabelas.push(TabelasDaFuncao { confere_pilha: true, ..Default::default() });
-/// let mut planos = HashMap::from([("folha".into(), PlanoFuncaoDart::default())]);
-/// assert_eq!(produzir_tabelas_arc_do_modulo(&m, &mut planos)?, 1);
-/// assert!(planos["folha"].tabelas.confere_pilha);
+/// m.tables.push(FunctionTables { checks_stack: true, ..Default::default() });
+/// let mut plans = HashMap::from([("leaf".into(), DartFunctionPlan::default())]);
+/// assert_eq!(produce_module_arc_tables(&m, &mut plans)?, 1);
+/// assert!(plans["leaf"].tables.checks_stack);
 /// # Ok::<(), String>(())
 /// ```
 pub fn produce_module_arc_tables(
@@ -206,7 +206,7 @@ mod tests {
                 }],
             },
         ];
-        // Mesmo passe usado pelo fluxo de emissão da fonte, sem inventar pousos.
+        // The same pass used by the source emission flow, without inventing landing pads.
         super::super::super::tables::apply(&mut m);
         let plans = m
             .functions
@@ -246,7 +246,7 @@ mod tests {
         assert!(ir.contains("invoke i64 @folha("));
         assert!(ir.contains("call void @dartforge_exception_clear()"));
         assert_eq!(produce_module_arc_tables(&m, &mut plans).unwrap(), 0);
-        // Entrada integrada: nenhuma cópia manual de tabela entre as etapas.
+        // Integrated entry: no manual table copy between the steps.
         let (mut m, mut plans) = set();
         prepare_arc_tabled_module(&mut m, &mut plans).unwrap();
         let before = format!("{m:?}/{plans:?}");

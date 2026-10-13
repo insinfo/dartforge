@@ -1,22 +1,22 @@
-//! Os membros externos de `_List`/`_ImmutableList`/`_GrowableList` feitos em linha
-//! (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.8 e §4.5): comprimento, capacidade,
-//! `_setLength` sem barreira, `_setData` e `_setIndexed` com barreira,
-//! `DartForge_lista_get`, pelos ajudantes `@df.lista_*` (`llvm/ir_lists.rs`),
-//! como os intrínsecos de grafo da VM (`graph_intrinsifier.cc:523-626`,
+//! The external members of `_List`/`_ImmutableList`/`_GrowableList` done inline
+//! (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.8 and §4.5): length, capacity,
+//! `_setLength` without a barrier, `_setData` and `_setIndexed` with a barrier,
+//! `DartForge_lista_get`, through the `@df.lista_*` helpers (`llvm/ir_lists.rs`),
+//! like the VM's graph intrinsics (`graph_intrinsifier.cc:523-626`,
 //! `kernel_to_il.cc:1191-1235`).
 //!
-//! O receptor de cada membro é, pela classe que o declara, uma lista do núcleo
-//! (nenhuma delas tem subclasse fora do SDK): `_Array.[]`/`List_getLength` recebem
-//! `_List` ou `_ImmutableList`; os `GrowableList_*`, a `_GrowableList`. Por isso o
-//! código não confere a classe: lê o bloco pelos deslocamentos de
-//! `layout::off` (o comprimento em `h+14` nas três, o armazenamento em `h+22` na
-//! expansível).
+//! The receiver of each member is, by the class that declares it, a core list
+//! (none of them has a subclass outside the SDK): `_Array.[]`/`List_getLength` receive
+//! `_List` or `_ImmutableList`; the `GrowableList_*` ones, a `_GrowableList`. So the
+//! code does not check the class: it reads the block through the offsets of
+//! `layout::off` (the length at `h+14` in all three, the storage at `h+22` in the
+//! growable one).
 //!
-//! Os ajudantes são chamados por `CallRuntime` com os efeitos de
-//! `ir_lists::HELPER_EFFECTS` (nenhum aloca nem lança): não são pontos de
-//! coleta nem pedem conferência de exceção. O que o em linha não cobre (índice
-//! fora da faixa, armazenamento compacto, `_setData` que troca a forma) vai ao
-//! native de sempre, que lança o erro da VM ou converte a forma.
+//! The helpers are called by `CallRuntime` with the effects of
+//! `ir_lists::HELPER_EFFECTS` (none allocates or throws): they are not collection
+//! points nor do they ask for an exception check. What the inline code does not cover (index
+//! out of range, compact storage, a `_setData` that changes the shape) goes to the
+//! usual native, which throws the VM's error or converts the shape.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -91,12 +91,12 @@ mod arc_tests {
     }
 }
 
-/// Os bits `FORMA`/`ELEMENTO` (`@df.lista_forma`) do armazenamento geral.
+/// The `FORMA`/`ELEMENTO` bits (`@df.lista_forma`) of general storage.
 const SHAPE_GENERAL: i64 = flags::REFS as i64;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O membro externo de lista do núcleo feito em linha, ou `None` (a chamada
-    /// de sempre). `member` é `Classe.name`; `native`, o nome do native, se tem.
+    /// The external core-list member done inline, or `None` (the usual
+    /// call). `member` is `Class.name`; `native`, the name of the native, if any.
     pub(super) fn inline_list(
         &mut self,
         member: &str,
@@ -133,7 +133,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Um ajudante `@df.lista_*` (sem coleta nem exceção).
+    /// A `@df.lista_*` helper (no collection nor exception).
     fn list_helper(&mut self, name_str: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
         let name_str = if self.ctx.arc_memory {
             match name_str {
@@ -149,19 +149,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::CallRuntime { name: name_str.to_string(), args, ret_ty: ret }, ret)
     }
 
-    /// O comprimento (`@df.lista_len`): o mesmo deslocamento nas três classes.
+    /// The length (`@df.lista_len`): the same offset in all three classes.
     pub(super) fn list_len_inline(&mut self, l: Operand) -> Operand {
         self.list_helper("df.lista_len", vec![(l, Type::Ref)], Type::I64)
     }
 
-    /// O armazenamento: Ref emprestado em ARC; endereço I64 em tracing,
-    /// mantido vivo pela lista e usado sem coleta entre acesso e uso.
+    /// The storage: a borrowed Ref in ARC; an I64 address in tracing,
+    /// kept alive by the list and used without a collection between access and use.
     pub(super) fn list_storage_inline(&mut self, l: Operand) -> Operand {
         let ty = if self.ctx.arc_memory { Type::Ref } else { Type::I64 };
         self.list_helper("df.lista_armazenamento", vec![(l, Type::Ref)], ty)
     }
 
-    /// Os bits `FORMA`/`ELEMENTO` do armazenamento `a` (`@df.lista_forma`), em `I64`.
+    /// The `FORMA`/`ELEMENTO` bits of storage `a` (`@df.lista_forma`), in `I64`.
     pub(super) fn list_shape_inline(&mut self, a: Operand) -> Operand {
         if self.ctx.arc_memory {
             return self.list_helper("dartforge_arc_lista_forma_v1", vec![(a, Type::Ref)], Type::I64);
@@ -170,10 +170,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::ZExt { op: f, from: Type::I8, to: Type::I64 }, Type::I64)
     }
 
-    /// `this._setData(data)`: a gravação do campo com barreira quando o
-    /// armazenamento novo tem a forma do velho (`@df.lista_gravar_dados`
-    /// devolve 1); senão o native, que devolve a forma compacta ao novo (o
-    /// `_shrink` da VM monta os dados sem tipo).
+    /// `this._setData(data)`: the field write with a barrier when the
+    /// new storage has the shape of the old one (`@df.lista_gravar_dados`
+    /// returns 1); otherwise the native, which gives the compact shape back to the new one (the
+    /// VM's `_shrink` builds the data without a type).
     fn define_inline_data(&mut self, this: Operand, data: Operand) -> Operand {
         let done = self.list_helper(
             "df.lista_gravar_dados",
@@ -200,10 +200,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Operand::Constant(Constant::Null)
     }
 
-    /// `this._setIndexed(i, v)`: dentro da faixa e com o armazenamento geral,
-    /// a gravação com a barreira de elemento (`@df.lista_gravar_ref`); fora da
-    /// faixa (o `RangeError (index)`) ou compacto (o valor sem caixa, ou a
-    /// descompactação), o native.
+    /// `this._setIndexed(i, v)`: within range and with general storage,
+    /// the write with the element barrier (`@df.lista_gravar_ref`); out of
+    /// range (the `RangeError (index)`) or compact (the unboxed value, or the
+    /// decompaction), the native.
     fn store_index_inline(&mut self, native: &str, this: Operand, i: Operand, v: Operand) -> Operand {
         let n = self.list_len_inline(this.clone());
         let inside = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);
@@ -243,9 +243,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Operand::Constant(Constant::Null)
     }
 
-    /// `this[i]` (`DartForge_lista_get`): dentro da faixa e com o armazenamento
-    /// geral, a palavra lida (`@df.lista_ler`, um `Ref`); fora da faixa (o
-    /// `RangeError (length)`) ou compacto (a caixa do elemento), o native.
+    /// `this[i]` (`DartForge_lista_get`): within range and with general
+    /// storage, the word read (`@df.lista_ler`, a `Ref`); out of range (the
+    /// `RangeError (length)`) or compact (the box of the element), the native.
     fn read_index_inline(&mut self, this: Operand, i: Operand) -> Operand {
         let n = self.list_len_inline(this.clone());
         let inside = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);
@@ -284,12 +284,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(fast, r_fast), (slow_end, r_slow)], ty: Type::Ref }, Type::Ref)
     }
 
-    /// O `add` de um escalar numa `_GrowableList` cujo armazenamento é compacto
-    /// da forma `shape` (`flags::ELEMENTO_*` com `BRUTO`) e tem lugar: as
-    /// palavras gravadas direto (`bits`, na representação `ty`) e o
-    /// comprimento mais um. Devolve `(done, full)`: os blocos onde a gravação
-    /// terminou e onde a lista estava cheia (a forma casava). Quem chama já
-    /// conferiu a classe (cid 10); o caminho de cada bloco que sobra é dele.
+    /// The `add` of a scalar into a `_GrowableList` whose storage is compact
+    /// of shape `shape` (`flags::ELEMENTO_*` with `BRUTO`) and has room: the
+    /// words written directly (`bits`, in representation `ty`) and the
+    /// length plus one. Returns `(done, full)`: the blocks where the write
+    /// ended and where the list was full (the shape matched). The caller has already
+    /// checked the class (cid 10); the path of each remaining block is its own.
     pub(super) fn append_scalar_inline(
         &mut self,
         list: Operand,

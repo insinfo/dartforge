@@ -1,7 +1,7 @@
-//! Atribuição a identificador, propriedade e índice.
+//! Assignment to an identifier, a property and an index.
 //!
-//! Antes só o identificador gravava; `a.b = v` e `a[i] = v` avaliavam o valor
-//! e o descartavam — a leitura seguinte via o campo zerado (H4 do plano,
+//! Before, only the identifier wrote; `a.b = v` and `a[i] = v` evaluated the value
+//! and discarded it — the next read saw the zeroed field (H4 of the plan,
 //! `docs/NATIVO-PLANO.md` §6).
 
 use super::fn_builder::FnBuilder;
@@ -11,7 +11,7 @@ use dartforge_elements::model::{Element, FunctionKind};
 use dartforge_frontend::ast::{self, ExprId};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
-/// Lado direito de uma atribuição: uma expressão, ou o `1` de `++`/`--`.
+/// The right-hand side of an assignment: an expression, or the `1` of `++`/`--`.
 #[derive(Clone, Copy)]
 pub enum Rhs {
     Expr(ExprId),
@@ -27,8 +27,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Valor a gravar: `v`, `cur op v`, ou `cur ?? v` (`??=`). O valor
-    /// corrente fica em `old_value` para o `x++` pós-fixo.
+    /// The value to write: `v`, `cur op v`, or `cur ?? v` (`??=`). The current
+    /// value stays in `old_value` for the postfix `x++`.
     fn combine(
         &mut self,
         ast: &ast::Ast,
@@ -68,8 +68,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             (ast::AssignOp::Compound(b), Some(cur)) => {
                 let ty = self.operand_type(&cur);
-                // Basta um lado excluir int para a junção Smi ser impossível.
-                // O destino pode ser getter/índice sem tipo conhecido aqui.
+                // One side excluding int is enough for the Smi join to be impossible.
+                // The destination may be a getter/index without a type known here.
                 let admits_smi = match value {
                     Rhs::Expr(e) => self.type_admits_smi(self.ctx.get_type(self.unit_id, e)),
                     Rhs::One => true,
@@ -81,9 +81,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Atribuição a um par getter/setter de topo explícito. `f` é o elemento
-    /// resolvido (getter ou setter); o setter sai do escopo da biblioteca
-    /// que o declara, e a leitura corrente (composta) do getter.
+    /// Assignment to an explicit top-level getter/setter pair. `f` is the resolved
+    /// element (getter or setter); the setter comes from the scope of the library
+    /// that declares it, and the current (compound) read from the getter.
     fn assign_top_level_accessor(
         &mut self,
         f: dartforge_elements::model::FunctionElementId,
@@ -128,10 +128,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// `r.x op= v` com `x` membro de instância de uma extensão (`member`
-    /// é o setter, ou o getter quando a resolução guardou a leitura): o
-    /// setter `x=` e, na composta, o getter `x` da mesma extensão, os dois
-    /// com o receptor avaliado uma vez.
+    /// `r.x op= v` with `x` an instance member of an extension (`member`
+    /// is the setter, or the getter when the resolution kept the read): the
+    /// setter `x=` and, in the compound case, the getter `x` of the same extension, both
+    /// with the receiver evaluated once.
     #[allow(clippy::too_many_arguments)]
     fn assign_extension(
         &mut self,
@@ -143,8 +143,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         value: Rhs,
         span: Span,
     ) -> Operand {
-        // O setter e o getter do mesmo dono: a extensão, ou o tipo de
-        // extensão (`extension_types.rs`).
+        // The setter and the getter of the same owner: the extension, or the extension
+        // type (`extension_types.rs`).
         let name = self.ctx.symbol_name(sym).to_string();
         let m = member.0 as usize;
         let setter_key = self.ctx.interner.lookup(&format!("{name}_="));
@@ -175,13 +175,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// `a?.b op= v` / `a?[i] op= v` (§17.23): `a` é avaliado uma vez; se é
-    /// null, nada mais é avaliado e o valor é null; senão, a atribuição
-    /// comum sobre o valor de `a`. A cadeia `?.` de `a` (`x?.y?.b = v`)
-    /// desvia para o mesmo null. O `?.` antes do último elo também encurta
-    /// a atribuição inteira (`a?.b.c = v`, `a?.b[i] = v`: com `a` null, nem
-    /// `v` é avaliado); aí só a cadeia do receptor desvia (`last_null`
-    /// falso: o último elo é comum).
+    /// `a?.b op= v` / `a?[i] op= v` (§17.23): `a` is evaluated once; if it is
+    /// null, nothing else is evaluated and the value is null; otherwise, the ordinary
+    /// assignment over the value of `a`. The `?.` chain of `a` (`x?.y?.b = v`)
+    /// branches to the same null. A `?.` before the last link also short-circuits
+    /// the whole assignment (`a?.b.c = v`, `a?.b[i] = v`: with a null `a`, not even
+    /// `v` is evaluated); there only the receiver chain branches (`last_null`
+    /// false: the last link is ordinary).
     #[allow(clippy::too_many_arguments)]
     fn assign_with_null_aware(
         &mut self,
@@ -203,8 +203,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.handled_null_aware = Some(target);
         let mut v = self.lower_assignment(ast, op, target, value, span);
         self.receiver_ready = None;
-        // O valor antigo (`a?.x++`) também passa pela junção: null quando a
-        // cadeia desviou.
+        // The old value (`a?.x++`) also goes through the join: null when the
+        // chain branched.
         let mut old = self.old_value.take();
         let (exit, mut entries) = std::mem::replace(&mut self.null_chain, saved_chain).expect("cadeia aberta");
         let mut old_entries: Vec<(BlockId, Operand)> =
@@ -228,8 +228,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: entries, ty: Type::Ref }, Type::Ref)
     }
 
-    /// `v = e` e `v op= e` num local SIMD sem caixa: o valor e a operação
-    /// como vetores; um operador sem forma vetorial passa pela caixa.
+    /// `v = e` and `v op= e` on an unboxed SIMD local: the value and the operation
+    /// as vectors; an operator without a vector form goes through the box.
     fn assign_simd_local(&mut self, ast: &ast::Ast, sym: dartforge_intern::SymbolId, op: ast::AssignOp, value: Rhs, span: Span) -> Operand {
         let k = self.lookup_local(sym).map(|l| l.ty).expect("local SIMD");
         let v = match (op, value) {
@@ -272,8 +272,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Atribuição. Ordem de avaliação do Dart: receptor, índice, leitura
-    /// corrente (se composta), valor, gravação.
+    /// Assignment. Dart evaluation order: receiver, index, current read
+    /// (if compound), value, write.
     pub fn lower_assignment(
         &mut self,
         ast: &ast::Ast,
@@ -287,13 +287,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ast::ExprKind::Identifier(name) => {
                 let sym = name.sym;
                 let resolved = match self.ctx.get_resolved(self.unit_id, target).cloned() {
-                    // Sem resolução (corpo de closure) e sem local: pelo
-                    // escopo léxico (membro da classe, topo da biblioteca).
+                    // No resolution (closure body) and no local: through the
+                    // lexical scope (class member, library top level).
                     None if self.lookup_local(sym).is_none() => self.resolve_by_name(sym),
                     r => r,
                 };
                 match resolved {
-                    // Setter de tipo de extensão com o `this` implícito.
+                    // Extension type setter with the implicit `this`.
                     r @ Some(Resolved::Member { .. }) if self.resolved_member_te(r.as_ref()).is_some() => {
                         match self.resolved_member_te(r.as_ref()) {
                             Some(MemberRef::Function(f)) if !self.is_representation(MemberRef::Function(f)) => {
@@ -333,14 +333,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let v = self.combine(ast, op, cur, value);
                         self.store_global(vid, v, span)
                     }
-                    // Getter/setter de topo explícitos (`set exitCode(int)`):
-                    // o elemento resolvido pode ser o getter; o setter é o
-                    // outro lado do mesmo nome no escopo.
+                    // Explicit top-level getter/setter (`set exitCode(int)`):
+                    // the resolved element may be the getter; the setter is the
+                    // other side of the same name in the scope.
                     Some(Resolved::Element(Element::Function(f))) => {
                         self.assign_top_level_accessor(f, sym, ast, op, value, span)
                     }
                     _ if self.lookup_local(sym).is_some_and(|l| l.ty.is_vector()) => {
-                        // Local SIMD sem caixa (`simd.rs`): o valor vem como vetor.
+                        // Unboxed SIMD local (`simd.rs`): the value comes as a vector.
                         self.assign_simd_local(ast, sym, op, value, span)
                     }
                     _ => {
@@ -372,7 +372,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.assign_with_null_aware(ast, op, target, *recv, *null_aware, value, span);
                 }
                 self.handled_null_aware = None;
-                // `prefix.x = v`: variável de topo importada com prefixo.
+                // `prefix.x = v`: a top-level variable imported with a prefix.
                 if let Some(el) = self.prefixed_element(ast, *recv, name.sym) {
                     let vid = match el {
                         Element::Variable(v) => Some(v),
@@ -388,8 +388,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let v = self.combine(ast, op, cur, value);
                         return self.store_global(vid, v, span);
                     }
-                    // Getter/setter de topo explícitos da biblioteca do
-                    // prefixo (`intl.defaultLocale = l`).
+                    // Explicit top-level getter/setter of the library of the
+                    // prefix (`intl.defaultLocale = l`).
                     if let Element::Function(f) = el {
                         return self.assign_top_level_accessor(f, name.sym, ast, op, value, span);
                     }
@@ -404,7 +404,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let v = self.combine(ast, op, cur, value);
                     return self.store_super(name.sym, v, span);
                 }
-                // `E.x = v`: campo estático de extensão (ou setter estático).
+                // `E.x = v`: a static extension field (or a static setter).
                 if matches!(
                     self.ctx.get_resolved(self.unit_id, *recv),
                     Some(Resolved::Element(Element::Extension(_)))
@@ -435,7 +435,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                     }
                 }
-                // Setter de tipo de extensão: como o de extensão.
+                // Extension type setter: like the extension one.
                 if let Some(m) = self.member_te(target) {
                     return match m {
                         MemberRef::Function(f) if !self.is_representation(m) => {
@@ -444,14 +444,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => self.unsupported("atribuição à representação de tipo de extensão", span),
                     };
                 }
-                // Setter de extensão (P4): chamada direta com o receptor.
+                // Extension setter (P4): a direct call with the receiver.
                 if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, target).cloned()
                     && !self.ctx.program.functions[member.0 as usize].static_
                     && super::user_function(self.ctx, member.0 as usize)
                 {
                     return self.assign_extension(ast, op, Some(*recv), member, name.sym, value, span);
                 }
-                // `C.x = v` (ou `A.x = v` com `typedef A = C<…>`).
+                // `C.x = v` (or `A.x = v` with `typedef A = C<…>`).
                 let target_is_class = self.static_target_class(*recv).is_some();
                 if target_is_class {
                     let Some(Resolved::Member { class, member, .. }) =
@@ -475,9 +475,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 else {
                     let n = self.ctx.symbol_name(name.sym).to_string();
                     if self.dynamic_receiver(*recv) {
-                        // Até um setter inexistente passa pelo seletor: o
-                        // runtime produz o `NoSuchMethodError`. O RHS é
-                        // avaliado depois do receptor, como em Dart.
+                        // Even a nonexistent setter goes through the selector: the
+                        // runtime produces the `NoSuchMethodError`. The RHS is
+                        // evaluated after the receiver, as in Dart.
                         let recv_op = self.lower_expr(ast, *recv);
                         let cur = composite.then(|| self.call_by_name(
                             recv_op.clone(), super::sdk_source::AccessKind::Read, &n, &[],
@@ -505,7 +505,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.assign_with_null_aware(ast, op, target, *t, *null_aware, value, span);
                 }
                 self.handled_null_aware = None;
-                // `super[i] op= v`: os operadores `[]`/`[]=` da superclasse.
+                // `super[i] op= v`: the `[]`/`[]=` operators of the superclass.
                 if matches!(ast.expr(*t).kind, ast::ExprKind::Super) {
                     let i_op = self.lower_expr(ast, *index);
                     let (Some(get), Some(set)) = (self.ctx.interner.lookup("[]"), self.ctx.interner.lookup("[]=")) else {
@@ -519,8 +519,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
                 self.implicit_operator_cast(*index, &i_op, *t, "[]=", 0);
-                // `[]=` de extensão (a inferência resolve o índice para o
-                // `[]` da extensão; o `[]=` é o da mesma extensão).
+                // Extension `[]=` (inference resolves the index to the
+                // `[]` of the extension; the `[]=` is that of the same extension).
                 if let Some(get) = self.extension_operator(target) {
                     let set = self.ctx.interner.lookup("[]=").and_then(|k| self.accessor_of_same_owner(get, k));
                     let Some(set) = set else {
@@ -535,8 +535,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(l) = self.indexable(self.ctx.get_type(self.unit_id, *t))
                     && self.operand_type(&i_op) == Type::I64
                 {
-                    // Lista tipada numérica ou `List<E>`: leitura e gravação
-                    // diretas (`typed_items.rs`).
+                    // Numeric typed list or `List<E>`: direct read and
+                    // write (`typed_items.rs`).
                     let repr = self.expression_repr(target).unwrap_or(Type::Ref);
                     let fixed = self.fixed_list_of(ast, *t);
                     self.access_fixed = fixed.clone();
@@ -545,10 +545,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let cur = if composite { self.read_indexed(t_op.clone(), i_op.clone(), l, repr) } else { None };
                     self.access_proven = None;
                     self.access_fixed = None;
-                    // Lista SIMD com valor SIMD do mesmo tipo: o valor vai
-                    // como vetor, e só o caminho lento (`[]=` do SDK) o põe
-                    // na caixa — antes, `v4[i] = a + b` alocava uma caixa
-                    // por gravação (docs/SIMD-NATIVO.md).
+                    // SIMD list with a SIMD value of the same type: the value goes
+                    // as a vector, and only the slow path (the SDK `[]=`) puts it
+                    // in the box — before, `v4[i] = a + b` allocated a box
+                    // per write (docs/SIMD-NATIVO.md).
                     let simd = match (l, value) {
                         (super::typed_items::Indexable::Simd { k, .. }, Rhs::Expr(e))
                             if !composite && self.expr_simd(e) == Some(k) =>
@@ -576,8 +576,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.call_by_name_typed(t_op, *t, super::sdk_source::AccessKind::Call, "[]=", &[(None, i_op), (None, v.clone())]);
                     return v;
                 }
-                // `[]=` (e o `[]` do composto) de classe do programa: pelos
-                // membros.
+                // `[]=` (and the `[]` of the compound case) of a program class: through the
+                // members.
                 if let Some(set) = self.program_operator(*t, "[]=") {
                     let cur = if composite {
                         let Some(get) = self.program_operator(*t, "[]") else {
@@ -591,7 +591,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.call_member(t_op, set, &[(None, i_op), (None, v.clone())], span);
                     return v;
                 }
-                // `[]`/`[]=` do SDK pela classe dinâmica.
+                // SDK `[]`/`[]=` through the dynamic class.
                 use super::sdk_source::AccessKind;
                 let cur = composite.then(|| self.call_by_name_typed(t_op.clone(), *t, AccessKind::Call, "[]", &[(None, i_op.clone())]));
                 let v = self.combine(ast, op, cur, value);
@@ -605,8 +605,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Grava num membro: campo (de `recv`, ou de `this` quando `recv` é
-    /// None), global estático, ou setter.
+    /// Writes into a member: a field (of `recv`, or of `this` when `recv` is
+    /// None), a static global, or a setter.
     fn assign_member(
         &mut self,
         recv: Option<Operand>,
@@ -663,9 +663,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let sym = self.ctx.interner.lookup(&name)?;
                     self.ctx.program.classes[cid.0 as usize].static_members.get(&sym).copied()
                 } else {
-                    // O getter pode vir de uma superinterface (`List.last=`
-                    // com o `last` de `Iterable`): a busca é a da interface
-                    // do tipo, não só a da cadeia de superclasses.
+                    // The getter may come from a superinterface (`List.last=`
+                    // with the `last` of `Iterable`): the lookup is that of the interface
+                    // of the type, not only that of the superclass chain.
                     self.member_in_class(cid, &name)
                         .map(|fid| dartforge_elements::model::FunctionElementId(fid as u32))
                         .or_else(|| interface_getter(self.ctx, cid, &name))
@@ -704,10 +704,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
 }
 
-/// O getter `name` da interface da classe `cid`: a própria classe, as
-/// superclasses, os mixins e as superinterfaces, em largura (a primeira
-/// declaração achada; numa interface bem formada as outras têm a mesma
-/// assinatura).
+/// The getter `name` of the interface of class `cid`: the class itself, the
+/// superclasses, the mixins and the superinterfaces, breadth-first (the first
+/// declaration found; in a well-formed interface the others have the same
+/// signature).
 fn interface_getter(
     ctx: &crate::context::Context,
     cid: dartforge_elements::model::ClassId,

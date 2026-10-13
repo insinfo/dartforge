@@ -1,6 +1,6 @@
-//! Barreiras conservadoras para aliases derivados de owners locais.
-//! Protege resultados runtime Ref quando uma barreira exige Owned.
-//! Não prova aliases de slots, produz cleanup de laços ou certifica versões/pins.
+//! Conservative barriers for aliases derived from local owners.
+//! Protects Ref runtime results when a barrier requires Owned.
+//! Does not prove slot aliases, produce loop cleanup nor certify versions/pins.
 
 use super::super::{
     cfg::Cfg,
@@ -21,10 +21,10 @@ fn first_invalid(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
 ) -> Result<Option<(ValueId, String)>, String> {
-    // Um Phi cujas entradas são o próprio parâmetro emprestado do chamador,
-    // outro desses Phis, null ou valores triviais é só um alias do
-    // parâmetro: nada desta função o invalida (o chamador mantém o owner).
-    // Valores derivados do parâmetro (um campo dele) não entram aqui.
+    // A Phi whose entries are the caller's borrowed parameter itself,
+    // another such Phi, null or trivial values is just an alias of the
+    // parameter: nothing in this function invalidates it (the caller keeps the owner).
+    // Values derived from the parameter (one of its fields) do not enter here.
     let mut caller_aliases: HashSet<ValueId> = f.params.iter()
         .filter(|(v, _, _)| matches!(classes.get(v), Some(Ownership::Borrowed { owner: OwnerOrigin::Caller, .. })))
         .map(|(v, _, _)| *v)
@@ -94,7 +94,7 @@ fn first_invalid(
                     }
                     Err(_) => {
                         reentries.insert(*v);
-                        true // Contrato fornecido não prova ausência de invalidação.
+                        true // A supplied contract does not prove the absence of invalidation.
                     }
                 }
             }
@@ -115,7 +115,7 @@ fn first_invalid(
                 true
             }
             Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => true,
-            // As fábricas enraízam elementos/partes antes de alocar e não reentram Dart.
+            // The factories root elements/parts before allocating and do not reenter Dart.
             Instruction::AllocList { .. } | Instruction::ConcatStrings { .. } => true,
             _ => {
                 let invalidates = !super::pure_set::check(*v, inst, ty, &types)?;
@@ -134,8 +134,8 @@ fn first_invalid(
             if barriers.contains(v) {
                 state.extend(&derived_set);
             }
-            // A definição nasce depois do efeito da chamada. Phi só é válido
-            // se cada operando for válido em sua própria aresta, conferida abaixo.
+            // The definition is born after the effect of the call. A Phi is only valid
+            // if each operand is valid on its own edge, checked below.
             state.remove(v);
         }
         state
@@ -203,8 +203,8 @@ fn first_invalid(
                     }
                 }
             } else {
-                // Uma chamada que pode reentrar Dart não pode depender de
-                // uma aresta mutável nem durante sua própria execução.
+                // A call that may reenter Dart cannot depend on
+                // a mutable edge, not even during its own execution.
                 if reentries.contains(v) {
                     state.extend(&derived_set);
                 }
@@ -236,24 +236,24 @@ fn first_invalid(
     Ok(None)
 }
 
-// Opera apenas sobre a cópia transacional do conjunto de funções. O checker
-// continua somente de leitura; este produtor usa suas mesmas necessidades.
+// Operates only on the transactional copy of the function set. The checker
+// stays read-only; this producer uses the same needs.
 pub(super) fn protect(
     f: &mut Function,
     plan: &mut super::DartFunctionPlan,
 ) -> Result<usize, String> {
     let mut copies = 0;
     while let Some((value, message)) = first_invalid(f, &plan.classes)? {
-        // Um Phi fresco pode ser invalidado no próprio bloco de junção.
-        // Protege suas origens emprestadas; a reconstrução abaixo promove o
-        // Phi somente quando todas as entradas transferem tokens Owned.
+        // A fresh Phi may be invalidated in its own join block.
+        // Protects its borrowed origins; the rebuild below promotes the
+        // Phi only when all entries transfer Owned tokens.
         let origins = origins_to_copy(f, &plan.classes, value, &mut HashSet::new())
             .ok_or_else(|| message.clone())?;
         if origins.is_empty() {
             return Err(message);
         }
-        // Confere disponibilidade no corpo original antes da primeira
-        // promoção do lote. Classes intermediárias dos Phis ainda são Borrowed.
+        // Checks availability in the original body before the first
+        // promotion of the batch. The intermediate classes of the Phis are still Borrowed.
         if !plan.tokens.pendings.is_empty() {
             super::classification::liveness_with_exits(
                 f,
@@ -341,8 +341,8 @@ pub(super) fn protect(
                     .checked_add(1)
                     .ok_or("IDs SSA esgotados ao proteger empréstimo")?,
             );
-            // Conserva o ID original como Owned: todos os usos e aliases passam
-            // a depender do token independente, sem remapear operadores/arestas.
+            // Keeps the original ID as Owned: all uses and aliases come to
+            // depend on the independent token, without remapping operators/edges.
             f.blocks[bi].instructions[ii].0 = borrowed;
             let copy_inst = (
                 value,
@@ -374,7 +374,7 @@ pub(super) fn protect(
                     instructions: vec![copy_inst],
                     terminator: Terminator::Branch(normal),
                 });
-                // A cópia sustenta o resultado antes dos limites da antiga aresta.
+                // The copy sustains the result before the limits of the old edge.
                 if let Some(limits) = plan.scopes.edges.remove(&(origin, normal)) {
                     plan.scopes.edges.insert((copy_block, normal), limits);
                 }
@@ -392,15 +392,15 @@ pub(super) fn protect(
             }
             copies += 1;
         }
-        // Os Phis já foram conferidos no corpo original. Reconstrói sua
-        // classificação depois da promoção, inclusive transferência Owned.
+        // The Phis were already checked in the original body. Rebuilds their
+        // classification after the promotion, including the Owned transfer.
         for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if matches!(inst, Instruction::Phi { .. }) {
                 plan.classes.remove(v);
             }
         }
-        // Um Phi que passou a receber owner precisa de cópia das outras
-        // entradas (literais, empréstimos) na aresta.
+        // A Phi that now receives an owner needs a copy of the other
+        // entries (literals, borrows) on the edge.
         let classes = plan.classes.clone();
         copies += super::phis::copy_with_classes(f, plan, &classes)?;
         super::produce_arc_contracts(f, &mut plan.classes, &mut plan.tokens)?;
@@ -478,8 +478,8 @@ mod tests {
             ],
             terminator: Terminator::Return(None),
         }]);
-        // A identidade/proveniência deste alias é premissa explícita. O seu
-        // ancestral perde a aresta antes de o alias ser materializado.
+        // The identity/provenance of this alias is an explicit premise. Its
+        // ancestor loses the edge before the alias is materialized.
         classes.insert(ValueId(1), Ownership::Trivial);
         classes.insert(ValueId(3), Ownership::Owned);
         classes.insert(
@@ -557,7 +557,7 @@ mod tests {
             };
             let before = format!("{f:?}/{plan:?}");
             if fallible {
-                // A leitura do record não falha: a cópia vem logo depois dela.
+                // The read of the record does not fail: the copy comes right after it.
                 assert_eq!(protect(&mut f, &mut plan).unwrap(), 1);
                 assert!(matches!(f.blocks[0].instructions[1].1, Instruction::ArcCopy { .. }));
                 continue;

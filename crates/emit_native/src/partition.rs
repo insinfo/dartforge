@@ -1,46 +1,46 @@
-//! O módulo do programa em partes (docs/NATIVO-PROJETOS-REAIS.md, C9).
+//! The program module in parts (docs/NATIVO-PROJETOS-REAIS.md, C9).
 //!
-//! O IR de um programa grande não cabe num Clang: o `-O0` gasta ~44 bytes
-//! de memória por byte de IR (24,8 MB de IR, 1,08 GB de pico, medido), e o
-//! new_sali/backend tem 1,3 GB de IR — 55 GB para um processo só. Aqui o
-//! texto do módulo é dividido em partes de ~[`DEFAULT_TARGET`] bytes, cada uma
-//! um módulo LLVM completo, compiladas uma a uma (ou poucas por vez) e
-//! ligadas juntas. Cada parte tem a sua chave no cache de objetos, então uma
-//! edição recompila só as partes que mudaram.
+//! The IR of a large program does not fit in one Clang: `-O0` spends ~44 bytes
+//! of memory per byte of IR (24.8 MB of IR, 1.08 GB peak, measured), and
+//! new_sali/backend has 1.3 GB of IR — 55 GB for a single process. Here the
+//! text of the module is split into parts of ~[`DEFAULT_TARGET`] bytes, each one
+//! a complete LLVM module, compiled one by one (or a few at a time) and
+//! linked together. Each part has its own key in the object cache, so an
+//! edit recompiles only the parts that changed.
 //!
-//! O que o emissor escreve (`llvm/mod.rs`) e como cada coisa vai às partes:
+//! What the emitter writes (`llvm/mod.rs`) and how each thing goes to the parts:
 //!
-//! * `define … @f(…) { … }` e `@g = …` com ligação externa ou
-//!   `linkonce_odr`: numa parte só; as outras que os citam recebem a
-//!   declaração (`declare` com os tipos dos parâmetros, ou
+//! * `define … @f(…) { … }` and `@g = …` with external or
+//!   `linkonce_odr` linkage: in a single part; the others that cite them get the
+//!   declaration (`declare` with the parameter types, or
 //!   `@g = external global|constant <ty>`);
-//! * `private`/`internal` constantes e funções (os textos `@.str.N`, os
-//!   vetores, os ajudantes `@df.*` `alwaysinline`): copiados em cada parte
-//!   que os cita, com o que eles citam (fecho transitivo). São imutáveis, e
-//!   duas cópias privadas não se veem;
-//! * `internal global` mutável (o `@df.area_id`, o índice da área de
-//!   globais do módulo, e a variável por thread do contexto,
-//!   `sdk_modulo::with_context_in_tls`): uma cópia por parte quebraria o
-//!   estado — passa a ter ligação externa na parte 0 e é declarada nas
-//!   outras (a por thread, `thread_local`);
-//! * `declare`, o cabeçalho (`target`, `source_filename`), atributos e
-//!   metadados: em toda parte; `$x = comdat any`, na parte do item que o usa;
-//!   os comentários (`; df.class`, `; df.fields`, que a recarga do JIT lê
-//!   do IR inteiro) só na parte 0.
+//! * `private`/`internal` constants and functions (the `@.str.N` strings, the
+//!   vectors, the `@df.*` `alwaysinline` helpers): copied into each part
+//!   that cites them, with what they cite (transitive closure). They are immutable, and
+//!   two private copies do not see each other;
+//! * a mutable `internal global` (the `@df.area_id`, the index of the module's
+//!   global area, and the thread-local variable of the context,
+//!   `sdk_modulo::with_context_in_tls`): one copy per part would break the
+//!   state — it gets external linkage in part 0 and is declared in the
+//!   others (the thread-local one, `thread_local`);
+//! * `declare`, the header (`target`, `source_filename`), attributes and
+//!   metadata: in every part; `$x = comdat any`, in the part of the item that uses it;
+//!   the comments (`; df.class`, `; df.fields`, which the JIT reload reads
+//!   from the whole IR) only in part 0.
 //!
-//! As partes agrupam os itens pela biblioteca do símbolo
-//! (`df.<library>.…`), em ordem, para que o conteúdo de uma parte dependa
-//! das bibliotecas dela.
+//! The parts group the items by the library of the symbol
+//! (`df.<library>.…`), in order, so that the content of a part depends on
+//! its libraries.
 
 use std::collections::{HashMap, HashSet};
 
-/// Tamanho de IR a partir do qual o módulo é dividido.
+/// IR size from which the module is split.
 pub const DEFAULT_THRESHOLD: usize = 48 << 20;
-/// Tamanho de cada parte.
+/// Size of each part.
 pub const DEFAULT_TARGET: usize = 16 << 20;
 
-/// O limiar e o alvo, ajustáveis (`DARTFORGE_PARTE_MB`, em MiB; `0` desliga
-/// a divisão).
+/// The threshold and the target, adjustable (`DARTFORGE_PARTE_MB`, in MiB; `0` turns
+/// splitting off).
 pub fn limits() -> Option<(usize, usize)> {
     match std::env::var("DARTFORGE_PARTE_MB").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
         Some(0) => None,
@@ -55,18 +55,18 @@ enum ItemKind {
     Global,
 }
 
-/// Um item definido no módulo.
+/// An item defined in the module.
 struct Item<'a> {
     name: &'a str,
     ty: ItemKind,
     text: &'a str,
     local: bool,
-    /// `internal global` (não `constant`): estado, não pode ser copiado.
+    /// `internal global` (not `constant`): state, it cannot be copied.
     mutable: bool,
     comdat: Option<&'a str>,
 }
 
-/// O módulo lido.
+/// The module as read.
 struct Module<'a> {
     header: Vec<&'a str>,
     comments: Vec<&'a str>,
@@ -80,10 +80,10 @@ fn is_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'$' | b'-')
 }
 
-/// O nome em `@name…` a partir de `s` (que começa depois do `@`) e quantos
-/// bytes ele ocupa no texto: `@"…"` (o emissor cita assim os nomes com `$`
-/// numa referência, `@"df.ffi.S1$p_$ent"`) vale o nome sem as aspas, para
-/// casar com a definição escrita sem elas.
+/// The name in `@name…` starting at `s` (which starts after the `@`) and how many
+/// bytes it takes in the text: `@"…"` (the emitter quotes names with `$` this way
+/// in a reference, `@"df.ffi.S1$p_$ent"`) counts as the name without the quotes, to
+/// match the definition written without them.
 fn name_and_width(s: &str) -> (&str, usize) {
     let b = s.as_bytes();
     if b.first() == Some(&b'"') {
@@ -97,7 +97,7 @@ fn name_in(s: &str) -> &str {
     name_and_width(s).0
 }
 
-/// Todas as referências `@name` de um texto.
+/// All the `@name` references of a text.
 fn references<'a>(text: &'a str, exit: &mut Vec<&'a str>) {
     let b = text.as_bytes();
     let mut i = 0;
@@ -114,7 +114,7 @@ fn memchr_at(b: &[u8], c: u8, de: usize) -> Option<usize> {
     b.get(de..)?.iter().position(|x| *x == c).map(|p| p + de)
 }
 
-/// A primeira linha de um texto, com a quebra de linha.
+/// The first line of a text, with the line break.
 fn first_line(t: &str) -> &str {
     t.find(char::from(10)).map_or(t, |i| &t[..=i])
 }
@@ -125,8 +125,8 @@ fn comdat_name(s: &str) -> &str {
     s.strip_prefix('"').and_then(|r| r.strip_suffix('"')).unwrap_or(s)
 }
 
-/// O comdat de um `define`/global: `comdat($x)` explícito, ou só `comdat`
-/// (o do mesmo nome do item — os objetos estáticos da produção,
+/// The comdat of a `define`/global: an explicit `comdat($x)`, or just `comdat`
+/// (the one with the same name as the item — the static objects of production,
 /// `@df.img.…`).
 fn line_comdat<'a>(line: &'a str, name: &'a str) -> Option<&'a str> {
     if let Some(c) = line.find("comdat($") {
@@ -153,7 +153,7 @@ fn read(ir: &str) -> Module<'_> {
         let line_end = memchr_at(bytes, b'\n', pos).map_or(bytes.len(), |p| p + 1);
         let line = &ir[pos..line_end];
         if line.starts_with("define ") {
-            // Até a linha que é só `}`.
+            // Up to the line that is just `}`.
             let mut end = line_end;
             loop {
                 if end >= bytes.len() {
@@ -201,8 +201,8 @@ fn read(ir: &str) -> Module<'_> {
     m
 }
 
-/// `global`/`constant`, e o resto depois da palavra, de `<ligação…>
-/// global|constant <tipo> <inicial>`.
+/// `global`/`constant`, and the rest after the word, from `<linkage…>
+/// global|constant <type> <initial>`.
 fn global_head(s: &str) -> (&str, &str) {
     let mut rest = s;
     loop {
@@ -214,7 +214,7 @@ fn global_head(s: &str) -> (&str, &str) {
     }
 }
 
-/// O tipo LLVM no começo de `s` (com colchetes, chaves e `<…>` casados).
+/// The LLVM type at the start of `s` (with brackets, braces and `<…>` matched).
 fn type_at_start(s: &str) -> &str {
     let b = s.as_bytes();
     let mut prof = 0i32;
@@ -234,7 +234,7 @@ fn type_at_start(s: &str) -> &str {
     s
 }
 
-/// A declaração de um item definido em outra parte.
+/// The declaration of an item defined in another part.
 fn declaration(item: &Item) -> String {
     match item.ty {
         ItemKind::Global => {
@@ -242,8 +242,8 @@ fn declaration(item: &Item) -> String {
             let r = r.trim_start().trim_start_matches('=').trim_start();
             let (word, after) = global_head(r);
             let ty = type_at_start(after);
-            // A variável por thread (`@df.ctx.tls`, `sdk_modulo::with_context_in_tls`)
-            // continua por thread na declaração.
+            // The thread-local variable (`@df.ctx.tls`, `sdk_modulo::with_context_in_tls`)
+            // stays thread-local in the declaration.
             let tls = if r[..r.len() - after.len()].split_whitespace().any(|w| w == "thread_local") { "thread_local " } else { "" };
             format!("@{} = external {tls}{word} {ty}\n", item.name)
         }
@@ -261,7 +261,7 @@ fn declaration(item: &Item) -> String {
                 })
                 .collect();
             let opens = a + line[a..].find('(').unwrap_or(0);
-            // Os parâmetros, com vírgulas só no nível de cima.
+            // The parameters, with commas only at the top level.
             let mut prof = 0i32;
             let mut closes = opens;
             for (i, c) in line[opens..].char_indices() {
@@ -309,8 +309,8 @@ fn declaration(item: &Item) -> String {
     }
 }
 
-/// A chave de agrupamento de um símbolo: a biblioteca dele, quando o nome a
-/// tem (`df.<library>.…`, `df.mt.<library>.…`, `df.rti.<h>.<library>`).
+/// The grouping key of a symbol: its library, when the name
+/// has it (`df.<library>.…`, `df.mt.<library>.…`, `df.rti.<h>.<library>`).
 fn group(name: &str) -> &str {
     let parts: Vec<&str> = name.splitn(4, '.').collect();
     match parts.as_slice() {
@@ -321,8 +321,8 @@ fn group(name: &str) -> &str {
     }
 }
 
-/// O módulo dividido: as partes são montadas uma a uma ([`Plan::part`]),
-/// para que só as que estão sendo geradas existam ao mesmo tempo.
+/// The split module: the parts are assembled one by one ([`Plan::part`]),
+/// so that only those being generated exist at the same time.
 pub struct Plan<'a> {
     m: Module<'a>,
     parts: Vec<Vec<usize>>,
@@ -336,19 +336,19 @@ impl<'a> Plan<'a> {
         self.parts.len()
     }
 
-    /// Nenhuma parte (nunca: um módulo tem ao menos uma).
+    /// No part (never: a module has at least one).
     pub fn is_empty(&self) -> bool {
         self.parts.is_empty()
     }
 
-    /// O texto da parte `p`.
+    /// The text of part `p`.
     pub fn part(&self, p: usize) -> String {
         let m = &self.m;
         let alvo = self.alvo;
         let declared_set = &self.declared_set;
         let items = &self.parts[p];
-        // O fecho: os itens da parte, os locais que eles citam (copiados), e
-        // as declarações do que mora fora.
+        // The closure: the items of the part, the locals they cite (copied), and
+        // the declarations of what lives outside.
         let mut included: HashSet<usize> = items.iter().copied().collect();
         let mut queue: Vec<usize> = items.to_vec();
         let mut externals: Vec<usize> = Vec::new();
@@ -407,14 +407,14 @@ impl<'a> Plan<'a> {
                 text.push_str(l);
             }
             if it.mutable {
-                // `@df.area_id = internal global …` → ligação externa.
+                // `@df.area_id = internal global …` → external linkage.
                 text.push_str(&it.text.replacen(" = internal ", " = ", 1).replacen(" = private ", " = ", 1));
             } else if !it.local && first_line(it.text).contains(" linkonce_odr ") {
-                // `linkonce_odr` → `weak_odr`: a definição tem de ficar no
-                // objeto da parte dela. Com o ThinLTO (produção) o
-                // `linkonce_odr` que só outras partes citam era descartado e
-                // a ligação dava "undefined symbol: dfc.….get" (as
-                // constantes canônicas do new_sali/backend).
+                // `linkonce_odr` → `weak_odr`: the definition has to stay in the
+                // object of its part. With ThinLTO (production) a
+                // `linkonce_odr` that only other parts cited was discarded and
+                // the link gave "undefined symbol: dfc.….get" (the
+                // canonical constants of new_sali/backend).
                 let first = first_line(it.text);
                 text.push_str(&first.replacen(" linkonce_odr ", " weak_odr ", 1));
                 text.push_str(&it.text[first.len()..]);
@@ -426,11 +426,11 @@ impl<'a> Plan<'a> {
     }
 }
 
-/// Planeja a divisão do módulo em partes de ~`alvo` bytes.
+/// Plans the split of the module into parts of ~`target` bytes.
 pub fn make_plan(ir: &str, alvo: usize) -> Plan<'_> {
     let m = read(ir);
-    // Os itens com ligação externa, agrupados pela biblioteca na ordem em
-    // que aparecem; os grupos, em partes de ~`alvo` bytes.
+    // The items with external linkage, grouped by library in the order in
+    // which they appear; the groups, in parts of ~`target` bytes.
     let mut group_order: Vec<&str> = Vec::new();
     let mut by_group: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, it) in m.items.iter().enumerate() {
@@ -456,7 +456,7 @@ pub fn make_plan(ir: &str, alvo: usize) -> Plan<'_> {
             size += t;
         }
     }
-    // O estado mutável local vai à parte 0, com ligação externa.
+    // The local mutable state goes to part 0, with external linkage.
     for (i, it) in m.items.iter().enumerate() {
         if it.mutable {
             parts[0].push(i);
@@ -466,8 +466,8 @@ pub fn make_plan(ir: &str, alvo: usize) -> Plan<'_> {
     Plan { m, parts, declared_set, alvo }
 }
 
-/// Divide o módulo em partes de ~`alvo` bytes (todas de uma vez; os testes).
-/// Um módulo menor que `alvo` volta inteiro, como está.
+/// Splits the module into parts of ~`target` bytes (all at once; the tests).
+/// A module smaller than `target` comes back whole, as it is.
 pub fn split(ir: &str, alvo: usize) -> Vec<String> {
     if ir.len() <= alvo {
         return vec![ir.to_string()];
@@ -508,7 +508,7 @@ b0:\n\
     fn splits_with_declarations_and_copies() {
         let p = split(MOD, 120);
         assert_eq!(p.len(), 3, "{p:#?}");
-        // a parte de `df.a.f` copia o ajudante e o texto, declara `df.b.k`.
+        // the part of `df.a.f` copies the helper and the string, declares `df.b.k`.
         let pa = p.iter().find(|t| t.contains("define i64 @df.a.f")).unwrap();
         assert!(pa.contains("define internal i64 @df.ajuda"));
         assert!(pa.contains("@.str.0 = private"));
@@ -518,13 +518,13 @@ b0:\n\
         assert!(pb.contains("$\"df.b.k\" = comdat any"));
         assert!(pb.contains("declare i64 @dartforge_x(i64)"));
         assert!(pb.contains("@df.a.g = external global { i64, [2 x ptr] }"), "{pb}");
-        // O estado mutável: definido uma vez, com ligação externa.
+        // The mutable state: defined once, with external linkage.
         assert_eq!(p.iter().filter(|t| t.contains("@df.area_id = global i64 0")).count(), 1);
         assert!(p[0].contains("; df.classe"));
     }
 
-    /// A variável por thread do contexto (`sdk_modulo::with_context_in_tls`)
-    /// é estado: uma definição, e a declaração nas outras partes continua
+    /// The thread-local variable of the context (`sdk_modulo::with_context_in_tls`)
+    /// is state: one definition, and the declaration in the other parts stays
     /// `thread_local`.
     #[test]
     fn thread_local_variable_stays_thread_local() {

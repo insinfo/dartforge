@@ -1,14 +1,14 @@
-//! Repasse uniforme pelo adaptador que exige destino registrado e readonly.
+//! Uniform forwarding through the adapter that requires a registered, readonly destination.
 
 use super::*;
 
-// O vetor de closure/seletor é construído pelo emissor a partir destas Ref;
-// não aceita words implícitas nem uma tupla RTI sem produtor de proveniência.
-// `getters` são os getters RTI comprovados do módulo (`rti_caches::getters_rti`).
-// Sem módulo (`None`, produção de contratos de um corpo), a tupla vinda de
-// `CallStatic` sem argumentos com retorno I64 é aceita só pela forma: o
-// contrato é o mesmo, e a proveniência é exigida pelos gates com módulo
-// (`check` no início da preparação e a certificação das portas AOT).
+// The closure/selector vector is built by the emitter from these Refs;
+// it accepts neither implicit words nor an RTI tuple without a provenance producer.
+// `getters` are the proven RTI getters of the module (`rti_caches::getters_rti`).
+// Without a module (`None`, contract production for one body), the tuple coming from
+// an argument-less `CallStatic` returning I64 is accepted by shape alone: the
+// contract is the same, and the provenance is required by the gates with a module
+// (`check` at the start of the preparation and the certification of the AOT ports).
 pub(super) fn check_local_vector(
     f: &Function,
     inst: &Instruction,
@@ -26,11 +26,11 @@ pub(super) fn check_local_vector(
         .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t))).collect();
     let reference = |op: &Operand| matches!(op, Operand::Val(v) if types.get(v) == Some(&Type::Ref))
         || matches!(op, Operand::Constant(Constant::Null));
-    // A avaliação auditada produz ID no universo RTI, que vive com a imagem
-    // AOT; não é endereço do heap nem word Dart. Seus argumentos/receita ainda
-    // passam pelos contratos runtime e pelos produtores dos caches/callees.
-    // O getter de receita constante (`df.rti.*`) também produz ID RTI, mas
-    // somente com o corpo e as escritas do cache comprovados, não pelo nome.
+    // The audited evaluation produces an ID in the RTI universe, which lives with
+    // the AOT image; it is neither a heap address nor a Dart word. Its arguments/recipe
+    // still go through the runtime contracts and the producers of the caches/callees.
+    // The constant recipe getter (`df.rti.*`) also produces an RTI ID, but
+    // only with its body and the cache writes proven, not by its name.
     let native_tuple = *tuple_types == Operand::Constant(Constant::Int(0))
         || matches!(tuple_types, Operand::Val(id) if f.blocks.iter().flat_map(|b| &b.instructions).any(|(v, i, t)|
             v == id && *t == Type::I64 && match i {
@@ -109,8 +109,8 @@ pub(super) fn check(m: &Module, getters: &HashSet<String>) -> Result<(), String>
                     ));
                 };
                 if super::classification::check_pending(b, *v, then_block).is_none() {
-                    // A forma bruta tem o mesmo sufixo; conferir uma cópia com a
-                    // convenção nova permite validar antes de publicar a mudança.
+                    // The raw shape has the same suffix; checking a copy with the
+                    // new convention allows validating before publishing the change.
                     let mut copy_inst = b.clone();
                     for (_, i, _) in &mut copy_inst.instructions {
                         if let Instruction::CallSelectorForward { arc_owned, .. }

@@ -1,8 +1,8 @@
-//! Vida dos quadros proprietários locais abertos pela ABI ARC auditada.
-//! Exige IDs SSA diretos e confere limites constantes quando a capacidade é
-//! conhecida. A entrada ordinária recusa importados. A auditoria do conjunto
-//! fechado pode fornecer pares emprestados, sem incluí-los na pilha de cleanup.
-//! Aliases e índices dinâmicos sem esse par continuam fora do repasse.
+//! Lifetime of the local owner frames opened by the audited ARC ABI.
+//! Requires direct SSA IDs and checks constant bounds when the capacity is
+//! known. The ordinary entry rejects imported ones. The audit of the closed set
+//! may supply borrowed pairs, without including them in the cleanup stack.
+//! Aliases and dynamic indices without that pair stay out of the forwarding.
 
 use super::super::cfg::Cfg;
 use crate::hir::*;
@@ -23,8 +23,8 @@ fn analyze(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
     analyze_shared(f, &HashMap::new(), &HashMap::new())
 }
 
-// Os pares importados precisam vir da auditoria do conjunto fechado. A pilha
-// retornada contém somente quadros locais: um empréstimo nunca vira cleanup.
+// The imported pairs must come from the audit of the closed set. The returned
+// stack holds only local frames: a borrow never becomes a cleanup.
 pub(super) fn analyze_shared(
     f: &Function,
     borrowed_set: &HashMap<ValueId, ValueId>,

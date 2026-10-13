@@ -1,10 +1,10 @@
-//! Membros de extensão (P4): o receptor vira o primeiro parâmetro.
+//! Extension members (P4): the receiver becomes the first parameter.
 //!
-//! A especificação (§13 "Extensions") resolve `r.m(…)` estaticamente para o
-//! membro da extensão aplicável; a chamada é direta, sem despacho, com `r`
-//! como `this`. Aqui o membro de instância de uma extensão é uma função
-//! `df.<library>.ext:<E>.<m>(this, …)` com `this` na representação do
-//! tipo `on` (um `int` vai como `i64`).
+//! The specification (§13 "Extensions") resolves `r.m(…)` statically to the
+//! member of the applicable extension; the call is direct, without dispatch, with `r`
+//! as `this`. Here the instance member of an extension is a function
+//! `df.<library>.ext:<E>.<m>(this, …)` with `this` in the representation of the
+//! `on` type (an `int` goes as `i64`).
 
 use super::fn_builder::FnBuilder;
 use super::members::Evaluated;
@@ -15,15 +15,15 @@ use dartforge_frontend::ast::{self, ParameterKind};
 use dartforge_types::table::TypeId;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Representação do receptor (`this`) de uma extensão.
+    /// Representation of the receiver (`this`) of an extension.
     pub fn extension_receiver_repr(&self, e: ExtensionId) -> Type {
         let on = self.ctx.outline.extensions[e.0 as usize].on;
         self.repr(on)
     }
 
-    /// `r.m(args)` resolvido para o membro `fid` de uma extensão. `receiver`
-    /// é o tipo estático de `r` e `call` a expressão com os argumentos
-    /// (os dois armam a tupla de uma extensão ou membro genéricos).
+    /// `r.m(args)` resolved to member `fid` of an extension. `receiver`
+    /// is the static type of `r` and `call` the expression with the arguments
+    /// (the two arm the tuple of a generic extension or member).
     pub fn call_extension(
         &mut self,
         recv: Operand,
@@ -33,8 +33,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         call: Option<(ast::ExprId, &ast::Arguments)>,
         span: Span,
     ) -> Operand {
-        // A tupla desta chamada não vaza para a de fora (um getter de
-        // extensão pode ser argumento de uma chamada genérica já armada).
+        // The tuple of this call does not leak into the outer one (an extension
+        // getter may be an argument of an already armed generic call).
         let saved = self.armed_tuple.take();
         let is_call = call.is_some();
         self.arm_tuple_with_receiver(fid, receiver, call);
@@ -43,8 +43,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         r
     }
 
-    /// `is_call`: a expressão é uma chamada (`x.g()`); num getter, o valor
-    /// que ele devolve é chamado com os argumentos (mesmo sem nenhum).
+    /// `is_call`: the expression is a call (`x.g()`); for a getter, the value
+    /// it returns is called with the arguments (even with none).
     fn call_armed_extension(&mut self, recv: Operand, fid: usize, evaluated: &[Evaluated], is_call: bool, span: Span) -> Operand {
         let f = &self.ctx.program.functions[fid];
         if !super::user_function(self.ctx, fid) || !super::members::has_body(self.ctx, fid) {
@@ -54,8 +54,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let args = self.match_args(fid, evaluated);
             return self.call_direct(fid, None, args);
         }
-        // O receptor na representação do `on` (extensão) ou da
-        // representação (tipo de extensão, `extension_types.rs`).
+        // The receiver in the representation of the `on` (extension) or of the
+        // representation (extension type, `extension_types.rs`).
         let Some(r) = self.static_this_repr(fid) else {
             return self.unsupported("membro de extensão sem extensão", span);
         };
@@ -68,10 +68,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_direct(fid, Some(recv), args)
     }
 
-    /// O operador de instância de extensão que a inferência resolveu para a
-    /// expressão (`p + 1`, `p[i]`), se é um.
+    /// The extension instance operator that inference resolved for the
+    /// expression (`p + 1`, `p[i]`), if it is one.
     pub fn extension_operator(&self, expr: ast::ExprId) -> Option<usize> {
-        // O de um tipo de extensão também é chamado assim.
+        // That of an extension type is also called this way.
         if let Some(f) = self.function_te(expr) {
             return Some(f);
         }
@@ -86,12 +86,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `r.x` resolvido para um getter (ou tear-off de método) de extensão.
+    /// `r.x` resolved to an extension getter (or method tear-off).
     pub fn read_extension(&mut self, recv: Operand, fid: usize, receiver: Option<TypeId>, span: Span) -> Operand {
         let f = &self.ctx.program.functions[fid];
-        // Um método ESTÁTICO da extensão citado sem qualificação no corpo
-        // dela (`codeUnits.any(_maiuscula)`) é um tear-off estático, como
-        // `Ext._maiuscula`; getters e campos estáticos são lidos.
+        // A STATIC method of the extension cited without qualification in its
+        // body (`codeUnits.any(_maiuscula)`) is a static tear-off, like
+        // `Ext._maiuscula`; static getters and fields are read.
         if f.static_ && f.kind == FunctionKind::Function && f.variable.is_none() {
             let el = dartforge_elements::model::Element::Function(dartforge_elements::model::FunctionElementId(fid as u32));
             return self.read_element(el, span);
@@ -102,11 +102,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.extension_tearoff(recv, fid, receiver, span)
     }
 
-    /// Tear-off de um método de instância de extensão (`21.double_of`,
-    /// `completer.completeErrorIfPending`): uma closure com o receptor no
-    /// ambiente, cuja entrada chama o membro como `call_extension`. Os
-    /// argumentos de tipo de uma extensão genérica vêm do tipo estático do
-    /// receptor, então a entrada é uma por (membro, tipo do receptor).
+    /// Tear-off of an extension instance method (`21.double_of`,
+    /// `completer.completeErrorIfPending`): a closure with the receiver in the
+    /// environment, whose entry calls the member like `call_extension`. The
+    /// type arguments of a generic extension come from the static type of the
+    /// receiver, so there is one entry per (member, receiver type).
     fn extension_tearoff(&mut self, recv: Operand, fid: usize, receiver: Option<TypeId>, span: Span) -> Operand {
         let alvo = super::symbol_of(self.ctx, fid);
         let symbol_ent = match receiver {
@@ -144,8 +144,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let recv = self.coerce(recv, Type::Ref);
         let env = self.emit(Instruction::AllocEnv { values: vec![recv.clone()] }, Type::Ref);
         let c = self.emit(Instruction::AllocClosure { code_symbol: symbol_ent, env }, Type::Ref);
-        // A assinatura com os argumentos de tipo do dono tirados do tipo
-        // estático do receptor (a tupla da chamada que a entrada faria).
+        // The signature with the owner's type arguments taken from the static
+        // type of the receiver (the tuple of the call the entry would make).
         let tuple = if self.generic_extension(fid) {
             let saved = self.armed_tuple.take();
             self.arm_tuple_with_receiver(fid, receiver, None);
@@ -157,8 +157,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         c
     }
 
-    /// O membro é de uma extensão (ou tipo de extensão) com parâmetros de
-    /// tipo.
+    /// The member belongs to an extension (or extension type) with type
+    /// parameters.
     fn generic_extension(&self, fid: usize) -> bool {
         self.receiver_pattern(fid).is_some_and(|(n, _)| n > 0)
     }

@@ -1,92 +1,92 @@
-//! O rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-//! §13.14): a tabela endereço → (função, linha, coluna) que o runtime usa
-//! para escrever `#0      f (url:line:column)`.
+//! The stack trace in the VM format (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+//! §13.14): the address → (function, line, column) table the runtime uses
+//! to write `#0      f (url:line:column)`.
 //!
-//! Antes de cada chamada que pode aparecer num rastro, o emissor põe um
-//! `asm sideeffect` que não gera instrução: define um rótulo no código e
-//! acrescenta à seção do rastro uma entrada de 12 bytes,
+//! Before each call that may appear in a stack trace, the emitter puts an
+//! `asm sideeffect` that generates no instruction: it defines a label in the code and
+//! appends to the stack trace section a 12-byte entry,
 //!
 //! ```text
-//! i32  rótulo − endereço do campo
-//! i32  registro da função − endereço do campo
-//! u32  linha << 12 | coluna        (0: desconhecida)
+//! i32  label − address of the field
+//! i32  function record − address of the field
+//! u32  line << 12 | column        (0: unknown)
 //! ```
 //!
-//! O endereço de retorno de uma chamada fica depois do rótulo dela, e
-//! nenhum outro rótulo cabe entre os dois (o rótulo vem logo antes da
-//! chamada, depois dos argumentos); o runtime acha a entrada pelo maior
-//! rótulo abaixo do endereço de retorno, dentro da função dele. O rótulo
-//! segue a instrução onde o otimizador a puser: num corpo copiado pelo
-//! inlining ele vai junto (a entrada continua dizendo a função de origem);
-//! numa chamada apagada, sobra uma entrada que nenhum retorno acha.
+//! The return address of a call comes after its label, and
+//! no other label fits between the two (the label comes right before the
+//! call, after the arguments); the runtime finds the entry by the largest
+//! label below the return address, within its function. The label
+//! follows the instruction wherever the optimizer puts it: in a body copied by
+//! inlining it goes along (the entry still names the origin function);
+//! in a deleted call, an entry is left that no return finds.
 //!
-//! O registro da função é uma constante do módulo: o deslocamento até a url
-//! (um texto terminado em zero, compartilhado pelas funções da mesma
-//! unidade), um byte de marcas (`hir::stack_trace_marks`) e o nome
-//! qualificado, terminado em zero.
+//! The function record is a module constant: the offset to the url
+//! (a zero-terminated string, shared by the functions of the same
+//! unit), a byte of marks (`hir::stack_trace_marks`) and the qualified
+//! name, zero-terminated.
 //!
-//! **Quadros embutidos.** A chamada dentro de um corpo copiado pelo inlining
-//! da HIR tem uma entrada por quadro, todas com o mesmo rótulo, da função de
-//! dentro para a de fora: a copiada na posição da chamada, e cada função de
-//! fora na posição da chamada que a copiou (a VM os mostra pela tabela de
-//! inlining). O inlining do LLVM não deixa esse rastro: com o rastro ligado,
-//! a chamada direta a uma função Dart sai `noinline`.
+//! **Inlined frames.** A call inside a body copied by HIR inlining
+//! has one entry per frame, all with the same label, from the inner
+//! function to the outer one: the copied one at the position of the call, and each outer
+//! function at the position of the call that copied it (the VM shows them through the
+//! inlining table). LLVM inlining does not leave that trace: with the stack trace on,
+//! a direct call to a Dart function is emitted `noinline`.
 //!
-//! **O grupo da função.** Os dois bits baixos do campo do registro (o
-//! registro é alinhado em 4) dizem a espécie da entrada: 0, um ponto de
-//! chamada; 1, a identidade de uma função pela entrada uniforme das closures
-//! dela (o rótulo é o endereço da entrada, a palavra é o token); 2, o `await`
-//! de cada estado de um corpo `async`, na ordem (a palavra é a posição); 3, o
-//! elo de uma closure com quem espera (o campo do registro é só a espécie, a
-//! palavra é `posição << 2 | direct << 1 | célula` no ambiente). O runtime
-//! os usa para seguir a cadeia de quem espera e escrever
+//! **The function group.** The two low bits of the record field (the
+//! record is 4-aligned) give the kind of the entry: 0, a call
+//! point; 1, the identity of a function through the uniform entry of its
+//! closures (the label is the address of the entry, the word is the token); 2, the `await`
+//! of each state of an `async` body, in order (the word is the position); 3, the
+//! link of a closure with whoever awaits (the record field is only the kind, the
+//! word is `position << 2 | direct << 1 | cell` in the environment). The runtime
+//! uses them to follow the chain of awaiters and write
 //! `<asynchronous suspension>` (`RT/stack_trace.rs`).
 //!
-//! A seção, por formato: `.dfpcl$m` no COFF (o ligador junta `$a`, `$m` e
-//! `$z` em `.dfpcl`, e as sentinelas `$a`/`$z` dão o começo e o fim); `dfpcl`
-//! no ELF, com `SHF_GNU_RETAIN` (`R`) e no grupo da função (`?`), para que a
-//! entrada de uma função `comdat` descartada saia com ela; e
-//! `__DATA,__dfpcl` no Mach-O, `no_dead_strip`, com um símbolo
-//! `l…` por entrada (`${:uid}`, único no objeto): o escritor Mach-O do
-//! aarch64 só reloca a subtração cujos dois lados têm um símbolo não
-//! temporário antes deles na seção, e o ligador não leva os `l…` ao
-//! executável. Uma âncora em `module asm` faria o mesmo com um símbolo só,
-//! mas um símbolo local em `module asm` tira da importação do ThinLTO toda
-//! função do módulo que tem `asm`.
+//! The section, per format: `.dfpcl$m` in COFF (the linker merges `$a`, `$m` and
+//! `$z` into `.dfpcl`, and the `$a`/`$z` sentinels give the start and the end); `dfpcl`
+//! in ELF, with `SHF_GNU_RETAIN` (`R`) and in the group of the function (`?`), so that the
+//! entry of a discarded `comdat` function goes away with it; and
+//! `__DATA,__dfpcl` in Mach-O, `no_dead_strip`, with an `l…` symbol
+//! per entry (`${:uid}`, unique in the object): the Mach-O writer of
+//! aarch64 only relocates a subtraction whose both sides have a non-temporary
+//! symbol before them in the section, and the linker does not carry the `l…` ones into the
+//! executable. An anchor in `module asm` would do the same with a single symbol,
+//! but a local symbol in `module asm` removes from ThinLTO importing every
+//! function of the module that has `asm`.
 //!
-//! O texto da função é anotado depois de emitido, como as tabelas de linha
-//! do J05 (`llvm/debug_info.rs`): as posições vêm dos marcadores
-//! `  ; df.pos <line> <column>`.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The text of the function is annotated after it is emitted, like the line tables
+//! of J05 (`llvm/debug_info.rs`): the positions come from the
+//! `  ; df.pos <line> <column>` markers.
+//! Written without compiling or running (2026-10-05).
 
 use crate::alvo::Sistema;
 use crate::hir::{FunctionDebugInfo, Function, stack_trace_marks};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-/// A tabela do rastro de um módulo em emissão.
+/// The stack trace table of a module being emitted.
 pub(super) struct StackTrace {
-    /// As urls e os registros das funções, no fim do módulo.
+    /// The urls and the records of the functions, at the end of the module.
     definitions: String,
     urls: HashMap<String, usize>,
-    /// Os registros já definidos, por `(name, url, marks)`.
+    /// The records already defined, by `(name, url, marks)`.
     records: HashMap<(String, String, u8), usize>,
 }
 
-/// Uma entrada de 12 bytes da seção (veja o começo do arquivo).
+/// A 12-byte entry of the section (see the start of the file).
 struct Entry {
-    /// A expressão do rótulo: `42b` (o ponto de chamada) ou `${n:c}` (o
-    /// operando `n`, uma função).
+    /// The label expression: `42b` (the call point) or `${n:c}` (the
+    /// operand `n`, a function).
     label: String,
-    /// O operando do registro, ou nenhum (o campo é só a espécie).
+    /// The operand of the record, or none (the field is only the kind).
     record: Option<usize>,
-    /// A espécie, nos dois bits baixos do campo do registro.
+    /// The kind, in the two low bits of the record field.
     kind: u32,
     word: u32,
 }
 
-/// `line << 12 | column`: linha até 2²⁰ − 1 e coluna até 4095; fora disso,
-/// 0 (a linha desconhecida, ou só a linha).
+/// `line << 12 | column`: line up to 2²⁰ − 1 and column up to 4095; otherwise,
+/// 0 (the unknown line, or only the line).
 pub(super) fn line_and_column((line, column): (u32, u32)) -> u32 {
     if line == 0 || line >= 1 << 20 {
         return 0;
@@ -95,8 +95,8 @@ pub(super) fn line_and_column((line, column): (u32, u32)) -> u32 {
     line << 12 | column
 }
 
-/// O alvo da chamada da linha de IR, se ela é uma chamada: `Some(Some(name))`
-/// para a direta e `Some(None)` para a indireta. O `asm` não é alvo.
+/// The target of the call on the IR line, if it is a call: `Some(Some(name))`
+/// for a direct one and `Some(None)` for an indirect one. The `asm` is not a target.
 pub(super) fn call_target(line: &str) -> Option<Option<&str>> {
     let mut l = line.trim_start();
     if l.starts_with('%') {
@@ -108,9 +108,9 @@ pub(super) fn call_target(line: &str) -> Option<Option<&str>> {
         }
     }
     let rest = l.strip_prefix("call ").or_else(|| l.strip_prefix("invoke "))?;
-    // O tipo vem antes do alvo e não tem `@` nem `asm`; o alvo é o primeiro
-    // `@` ou `%` (um tipo de struct nomeado, `%T`, conta como indireta: a
-    // entrada a mais não muda nada).
+    // The type comes before the target and has no `@` nor `asm`; the target is the first
+    // `@` or `%` (a named struct type, `%T`, counts as indirect: the
+    // extra entry changes nothing).
     let ini = rest.find(['@', '%'])?;
     if rest[..ini].split_whitespace().any(|t| t == "asm") {
         return None;
@@ -125,9 +125,9 @@ pub(super) fn call_target(line: &str) -> Option<Option<&str>> {
     Some(Some(&name[..name.find('(')?]))
 }
 
-/// Se a chamada a `alvo` ganha rótulo: a indireta e a direta que pode lançar
-/// ou chamar código Dart (a função Dart, a extern que a tabela de efeitos
-/// marca); nunca um intrínseco.
+/// Whether the call to `target` gets a label: the indirect one and the direct one that may throw
+/// or call Dart code (the Dart function, the extern the effects table
+/// marks); never an intrinsic.
 fn labelable(alvo: Option<&str>) -> bool {
     match alvo {
         None => true,
@@ -139,9 +139,9 @@ fn labelable(alvo: Option<&str>) -> bool {
     }
 }
 
-/// O texto do `asm` de um grupo de entradas (no texto de IR: `\0A` é a
-/// quebra de linha, `\22` a aspa e `$$` o cifrão), com o rótulo `42:` antes
-/// quando `with_label`. No Mach-O, cada entrada tem o símbolo `l…` dela.
+/// The text of the `asm` of a group of entries (in IR text: `\0A` is the
+/// line break, `\22` the quote and `$$` the dollar sign), with the `42:` label before it
+/// when `with_label`. In Mach-O, each entry has its `l…` symbol.
 fn model(entries: &[Entry], with_label: bool) -> String {
     let (section, macho) = match crate::alvo::sistema() {
         Sistema::Windows => (".pushsection \\22.dfpcl$$m\\22,\\22dr\\22", false),
@@ -170,7 +170,7 @@ fn model(entries: &[Entry], with_label: bool) -> String {
     s
 }
 
-/// A chamada do `asm` de um grupo, com os operandos (`"s"`).
+/// The call of the `asm` of a group, with the operands (`"s"`).
 fn group_asm(entries: &[Entry], operands: &[String], with_label: bool) -> String {
     format!(
         "  call void asm sideeffect \"{}\", \"{}\"({}) nounwind memory(inaccessiblemem: readwrite) \"gc-leaf-function\"",
@@ -180,19 +180,19 @@ fn group_asm(entries: &[Entry], operands: &[String], with_label: bool) -> String
     )
 }
 
-/// A chamada com `noinline` (antes de metadados e do `to label` de um
+/// The call with `noinline` (before the metadata and the `to label` of an
 /// `invoke`).
 fn with_noinline(line: &str) -> String {
-    // O atributo vai antes do operando `"deopt"` (raízes por mapas), do
-    // rótulo de um `invoke` e dos metadados.
+    // The attribute goes before the `"deopt"` operand (roots by maps), the
+    // label of an `invoke` and the metadata.
     match [line.find(" [ \"deopt\""), line.find(" to label "), line.find(", !")].into_iter().flatten().min() {
         Some(i) => format!("{} noinline{}", &line[..i], &line[i..]),
         None => format!("{line} noinline"),
     }
 }
 
-/// A ligação das constantes do rastro: no Mach-O, símbolos locais (o
-/// escritor do aarch64 não reloca subtração com símbolo temporário).
+/// The linkage of the stack trace constants: in Mach-O, local symbols (the
+/// aarch64 writer does not relocate a subtraction with a temporary symbol).
 fn linkage() -> &'static str {
     if crate::alvo::sistema() == Sistema::MacOs { "internal" } else { "private" }
 }
@@ -219,8 +219,8 @@ impl StackTrace {
         n
     }
 
-    /// O registro de `(name, url, marks)`: o deslocamento até a url, o byte
-    /// das marcas e o nome. Um por módulo para cada trio.
+    /// The record of `(name, url, marks)`: the offset to the url, the byte
+    /// of the marks and the name. One per module for each triple.
     fn record(&mut self, name: &str, url: &str, marks: u8) -> usize {
         if let Some(&k) = self.records.get(&(name.to_string(), url.to_string(), marks)) {
             return k;
@@ -239,8 +239,8 @@ impl StackTrace {
         k
     }
 
-    /// Os registros e as posições de um ponto de chamada, do quadro de
-    /// dentro (a função copiada mais funda) ao da própria função.
+    /// The records and the positions of a call point, from the inner
+    /// frame (the deepest copied function) to that of the function itself.
     fn chain(&mut self, func: &Function, d: &FunctionDebugInfo, current: (u32, u32), context: Option<u32>) -> Vec<(usize, u32)> {
         let mut v = Vec::new();
         let (mut position, mut ctx) = (current, context);
@@ -259,10 +259,10 @@ impl StackTrace {
         v
     }
 
-    /// O grupo da função (as espécies 1 a 3), pela entrada uniforme das
-    /// closures dela: `None` se ela não é corpo de closure nem corpo `async`.
-    /// A identidade não leva a marca de oculta (um stub `async` que escuta um
-    /// `Future` aparece, como a closure na VM).
+    /// The group of the function (kinds 1 to 3), through the uniform entry of its
+    /// closures: `None` if it is neither a closure body nor an `async` body.
+    /// The identity does not carry the hidden mark (an `async` stub that listens to a
+    /// `Future` shows up, like the closure in the VM).
     fn function_group(&mut self, func: &Function, d: &FunctionDebugInfo) -> Option<String> {
         let entry = d.async_body.as_ref().map(|c| c.entry.clone()).or_else(|| d.closure_entry.clone())?;
         let k = self.record(&func.stack_trace_name(), &d.url, d.marks & !stack_trace_marks::HIDDEN);
@@ -285,13 +285,13 @@ impl StackTrace {
         Some(group_asm(&entries, &operands, false))
     }
 
-    /// Anota o texto de `func` (de `define` ao `}`): o `asm` da entrada antes
-    /// de cada chamada rotulável, com a posição do último marcador. Sem
-    /// `keep_markers` (sem o DWARF), os marcadores saem. Numa função
-    /// `shared` (`linkonce_odr`, uma cópia por imagem) nada é
-    /// rotulado e as chamadas saem `noinline`: o corpo de outra função
-    /// copiado nela levaria entradas para a seção de uma cópia que o ligador
-    /// descarta.
+    /// Annotates the text of `func` (from `define` to `}`): the `asm` of the entry before
+    /// each labelable call, with the position of the last marker. Without
+    /// `keep_markers` (without DWARF), the markers go away. In a
+    /// `shared` function (`linkonce_odr`, one copy per image) nothing is
+    /// labeled and the calls are emitted `noinline`: the body of another function
+    /// copied into it would carry entries into the section of a copy that the linker
+    /// discards.
     pub(super) fn label(
         &mut self,
         text: &str,
@@ -300,8 +300,8 @@ impl StackTrace {
         keep_markers: bool,
         shared: bool,
     ) -> String {
-        // Sem posições, a função não tem rótulo (os quadros dela saem do
-        // rastro); a compartilhada recebe o `noinline` mesmo assim.
+        // Without positions, the function has no label (its frames leave the
+        // stack trace); the shared one gets the `noinline` anyway.
         let empty;
         let d = match d {
             Some(d) => d,
@@ -313,9 +313,9 @@ impl StackTrace {
         };
         let mut exit = String::with_capacity(text.len() + text.len() / 2);
         let mut current = (d.line, 0);
-        // O contexto de inlining da posição corrente (`df.emb`).
+        // The inlining context of the current position (`df.emb`).
         let mut context: Option<u32> = None;
-        // O grupo da função vai antes da primeira instrução.
+        // The function group goes before the first instruction.
         let mut pending_group = !shared;
         for line in text.lines() {
             if let Some(pos) = line.strip_prefix(super::debug_info::MARKER) {
@@ -348,8 +348,8 @@ impl StackTrace {
             }
             let alvo = call_target(line);
             if shared {
-                // `noinline` no fim da chamada (antes de qualquer metadado
-                // ou rótulo de `invoke`, que estas funções não têm).
+                // `noinline` at the end of the call (before any metadata
+                // or `invoke` label, which these functions do not have).
                 if alvo.is_some_and(|a| a.is_none_or(|n| !n.starts_with("llvm."))) && !line.contains(", !") && !line.contains(" to label ") {
                     writeln!(exit, "{}", with_noinline(line)).unwrap();
                 } else {
@@ -368,7 +368,7 @@ impl StackTrace {
                     .map(|(i, &(_, lc))| Entry { label: "42b".to_string(), record: Some(i), kind: 0, word: lc })
                     .collect();
                 writeln!(exit, "{}", group_asm(&entries, &operands, true)).unwrap();
-                // O inlining do LLVM apagaria o quadro da função Dart chamada.
+                // LLVM inlining would erase the frame of the called Dart function.
                 if alvo.is_some_and(|n| n.starts_with("df.")) && !line.contains(" noinline") {
                     writeln!(exit, "{}", with_noinline(line)).unwrap();
                     continue;
@@ -379,7 +379,7 @@ impl StackTrace {
         exit
     }
 
-    /// As constantes do módulo (as urls e os registros das funções).
+    /// The module constants (the urls and the records of the functions).
     pub(super) fn finish(self, out: &mut String) {
         if self.records.is_empty() {
             return;
@@ -389,10 +389,10 @@ impl StackTrace {
     }
 }
 
-/// As declarações do registro da tabela da imagem e os dois operandos (o
-/// começo e o fim da seção): as sentinelas `$a`/`$z` no COFF (em `comdat`,
-/// uma cópia por imagem); no ELF, os símbolos do ligador, com uma âncora que
-/// garante a seção; no Mach-O, os do ligador.
+/// The declarations of the registration of the image table and the two operands (the
+/// start and the end of the section): the `$a`/`$z` sentinels in COFF (in a `comdat`,
+/// one copy per image); in ELF, the linker symbols, with an anchor that
+/// guarantees the section; in Mach-O, the linker ones.
 pub(super) fn markers() -> (&'static str, &'static str, &'static str) {
     match crate::alvo::sistema() {
         Sistema::Windows => (
@@ -472,7 +472,7 @@ mod tests {
         r.finish(&mut out);
         assert!(out.contains("@df.pcu.0 ") && out.contains("c\"file:\\2F\\2F\\2Fx\\2Fa.dart\\00\""), "{out}");
         assert!(out.contains("@df.pcf.0 ") && out.contains("i8 0, [2 x i8] c\"f\\00\""), "{out}");
-        // A chamada direta a uma função Dart não recebe o inlining do LLVM.
+        // A direct call to a Dart function does not get LLVM inlining.
         assert!(exit.contains("@df.lib.g() noinline"), "{exit}");
     }
 

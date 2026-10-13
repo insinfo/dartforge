@@ -1,30 +1,30 @@
-//! Proveniência de slots Ref emprestados a funções diretas fechadas.
-//! O endereço não é um owner: estes fatos não autorizam Load Ref bruto nem
-//! substituem retenção, inicialização ou cleanup do quadro proprietário.
+//! Provenance of Ref slots borrowed by closed direct functions.
+//! The address is not an owner: these facts do not authorize a raw Ref Load nor
+//! replace retention, initialization or cleanup of the owner frame.
 
 use super::super::operands::{operands, terminator_operands};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Reconstrói os slots Ref locais e parâmetros que somente os repassam.
+/// Rebuilds the local Ref slots and the parameters that only forward them.
 ///
-/// Parte de Alloca Ref na entrada e segue argumentos de chamadas diretas,
-/// inclusive recursivas. Exige o conjunto fechado no mesmo módulo e confere
-/// todos os chamadores desse conjunto para cada parâmetro,
-/// tipos reais SSA, leituras, escritas e ausência de escape do endereço.
-/// Entradas materializadas como função/closure ou publicadas em tabelas
-/// não são fechadas. Não produz contratos de ownership, nem prova que um
-/// slot está inicializado ou que seu conteúdo continua vivo.
-/// Tracing devolve um inventário vazio. Não altera corpos ou metadados.
+/// Starts from a Ref Alloca at the entry and follows arguments of direct calls,
+/// recursive ones included. Requires the closed set in the same module and checks
+/// every caller of that set for each parameter,
+/// real SSA types, reads, writes and absence of escape of the address.
+/// Entries materialized as a function/closure or published in tables
+/// are not closed. Produces no ownership contracts, nor proves that a
+/// slot is initialized or that its content is still alive.
+/// Tracing returns an empty inventory. Changes no bodies or metadata.
 ///
-/// # Erros
-/// Símbolos repetidos, SSA inválido, tipo incompatível, chamador sem origem
-/// local ou endereço exposto a uma operação não coberta.
+/// # Errors
+/// Repeated symbols, invalid SSA, incompatible type, a caller without a local
+/// origin or an address exposed to an uncovered operation.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::Module, optimize::arc::*};
-/// let mut m = Module::new(); m.memoria_arc = true;
-/// assert!(auditar_slots_ref_compartilhados(&m)?.is_empty());
+/// let mut m = Module::new(); m.arc_memory = true;
+/// assert!(audit_shared_ref_slots(&m)?.is_empty());
 /// # Ok::<(), String>(())
 /// ```
 pub fn audit_shared_ref_slots(
@@ -84,7 +84,7 @@ pub fn audit_shared_ref_slots(
             }
         }
     }
-    // Inclui constantes de função em qualquer posição, inclusive retornos.
+    // Includes function constants in any position, returns included.
     let mut operand_symbols = HashSet::new();
     for f in &m.functions {
         let mut constant = |o: &Operand| {
@@ -246,8 +246,8 @@ pub fn audit_shared_ref_slots(
             }
         }
     }
-    // A origem deve valer em todos os chamadores, não apenas na aresta que
-    // descobriu o parâmetro. Uma aresta externa invalida o empréstimo inteiro.
+    // The origin must hold in every caller, not only on the edge that
+    // discovered the parameter. An external edge invalidates the whole borrow.
     for (fi, f) in m.functions.iter().enumerate() {
         for (_, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::CallStatic {
@@ -285,60 +285,60 @@ pub fn audit_shared_ref_slots(
     Ok(result)
 }
 
-/// Corpos intermediários com slots fortes e capturas por quadro/índice.
+/// Intermediate bodies with strong slots and captures by frame/index.
 ///
-/// O produtor verifica a origem e vida explícita dos pares importados.
-/// Mudanças posteriores exigem repetir essa verificação. Ainda precisa de
-/// tokens e preparação excepcional antes da emissão; não é um certificado
-/// ARC. Os quadros locais aparecem separados dos emprestados, pois somente
-/// a função que abre um quadro pode fechá-lo.
+/// The producer verifies the origin and the explicit lifetime of the imported pairs.
+/// Later changes require repeating that verification. It still needs
+/// tokens and exceptional preparation before emission; it is not an ARC
+/// certificate. Local frames appear separately from borrowed ones, because only
+/// the function that opens a frame may close it.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::Module, optimize::arc::*};
-/// let mut m = Module::new(); m.memoria_arc = true;
-/// let r: RascunhoSlotsRefArc = baixar_slots_ref_compartilhados(&m)?;
-/// assert!(r.locais.is_empty() && r.emprestados.is_empty());
+/// let mut m = Module::new(); m.arc_memory = true;
+/// let r: ArcRefSlotsDraft = lower_shared_ref_slots(&m)?;
+/// assert!(r.locals.is_empty() && r.borrowed_set.is_empty());
 /// # Ok::<(), String>(())
 /// ```
 #[derive(Debug)]
 pub struct ArcRefSlotsDraft {
-    /// Corpos novos; o módulo de entrada continua intacto.
+    /// New bodies; the input module stays intact.
     pub functions: Vec<Function>,
-    /// Por função, parâmetro do quadro → parâmetro de seu índice.
+    /// Per function, the frame parameter → the parameter of its index.
     pub borrowed_set: HashMap<String, HashMap<ValueId, ValueId>>,
-    /// Por função, quadro proprietário aberto na entrada e sua capacidade.
+    /// Per function, the owner frame opened at the entry and its capacity.
     pub locals: HashMap<String, (ValueId, usize)>,
-    /// Símbolos cuja assinatura de captura mudou; todos os calls são refeitos.
+    /// Symbols whose capture signature changed; all calls are redone.
     pub symbols: HashMap<String, String>,
 }
 
-/// Baixa os slots auditados para a ABI de quadros proprietários ARC.
+/// Lowers the audited slots to the ABI of ARC owner frames.
 ///
-/// Abre um quadro por ativação que declara slots, inicializado com null pelo
-/// runtime. Load produz uma referência Owned independente do slot; Store
-/// copia para ele antes de liberar o conteúdo anterior. Capturas recebem
-/// dois i64 nativos, quadro e índice, em lugar do endereço da pilha. O novo
-/// símbolo impede reutilizar a assinatura antiga na ligação ou recarga.
-/// Repassar a mesma captura preserva o mesmo par, inclusive em recursão.
-/// Fecha o quadro local nas saídas explícitas do CFG, sem fechar importados.
+/// Opens one frame per activation that declares slots, initialized with null by the
+/// runtime. Load produces an Owned reference independent of the slot; Store
+/// copies into it before releasing the previous content. Captures receive
+/// two native i64s, frame and index, instead of the stack address. The new
+/// symbol prevents reusing the old signature at link or reload time.
+/// Forwarding the same capture keeps the same pair, including in recursion.
+/// Closes the local frame at the explicit CFG exits, without closing imported ones.
 ///
-/// O resultado é intermediário: não publica módulo/planos, não classifica
-/// os parâmetros nativos como escalares Dart e não certifica unwind implícito,
-/// tokens ou chamada entre módulos. Confere a vida dos pares nas arestas
-/// explícitas do CFG. Os demais protocolos precisam ser concluídos antes
-/// de emitir os corpos retornados.
-/// Tracing copia os corpos sem mudar instruções ou assinaturas.
+/// The result is intermediate: it does not publish the module/plans, does not classify
+/// the native parameters as Dart scalars and does not certify implicit unwinding,
+/// tokens or cross-module calls. Checks the lifetime of the pairs on the explicit
+/// edges of the CFG. The other protocols must be completed before
+/// the returned bodies are emitted.
+/// Tracing copies the bodies without changing instructions or signatures.
 ///
-/// # Erros
-/// Falha da auditoria de origem, entrada com predecessores, IDs esgotados,
-/// tipos reais de chamada incompatíveis ou colisão do símbolo da nova ABI.
-/// O módulo fornecido permanece intacto.
+/// # Errors
+/// Failure of the origin audit, an entry with predecessors, exhausted IDs,
+/// incompatible real call types or a collision of the symbol of the new ABI.
+/// The given module stays intact.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::Module, optimize::arc::*};
-/// let mut m = Module::new(); m.memoria_arc = true;
-/// let r = baixar_slots_ref_compartilhados(&m)?;
-/// assert!(r.funcoes.is_empty() && r.emprestados.is_empty());
+/// let mut m = Module::new(); m.arc_memory = true;
+/// let r = lower_shared_ref_slots(&m)?;
+/// assert!(r.functions.is_empty() && r.borrowed_set.is_empty());
 /// # Ok::<(), String>(())
 /// ```
 pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
@@ -469,8 +469,8 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
         for (v, i, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
             match i {
                 Instruction::Alloca(Type::Ref) if pairs.is_some_and(|p| p.contains_key(v)) => {
-                    // O antigo ID não continua sendo um endereço. Mantê-lo
-                    // como constante também evita reciclar IDs de metadados.
+                    // The old ID no longer is an address. Keeping it
+                    // as a constant also avoids recycling metadata IDs.
                     let index = pairs.unwrap()[v].1.clone();
                     let Operand::Constant(c) = index else {
                         unreachable!()
@@ -703,8 +703,8 @@ mod tests {
         assert_eq!(format!("{m:?}"), before);
         m.functions.reverse();
         assert_eq!(audit_shared_ref_slots(&m).unwrap(), expected);
-        // Mesmo um ciclo fechado de Ptr com Load Ref não cria uma origem:
-        // somente a ativação que aloca o slot ancora este inventário.
+        // Even a closed cycle of Ptr with a Ref Load does not create an origin:
+        // only the activation that allocates the slot anchors this inventory.
         m.functions.retain(|f| f.symbol != "raiz");
         assert!(audit_shared_ref_slots(&m).unwrap().is_empty());
     }
@@ -1027,8 +1027,8 @@ mod tests {
                         unreachable!()
                     };
                     args.push(Operand::Constant(Constant::Int(0)));
-                    // O endereço está fechado, mas isso não autoriza passar
-                    // uma palavra escalar como outro argumento Ref.
+                    // The address is closed, but that does not authorize passing
+                    // a scalar word as another Ref argument.
                     assert!(audit_shared_ref_slots(&m).is_ok());
                 }
             }

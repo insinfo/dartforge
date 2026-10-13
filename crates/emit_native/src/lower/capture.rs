@@ -1,30 +1,30 @@
-//! Análise de captura (P1): quais variáveis locais uma closure ou função
-//! local enxerga de fora, e quais delas moram numa célula.
+//! Capture analysis (P1): which local variables a closure or local
+//! function sees from outside, and which of them live in a cell.
 //!
-//! A especificação (§17.11 "Function Expressions", §10 "Variables") diz que a
-//! closure captura a **variável**, não o valor: uma gravação feita depois da
-//! criação é vista por ela, e uma gravação dela é vista de fora. O `dartdevc`
-//! e o `dart2js` rebaixam isso em duas classes, como aqui:
+//! The specification (§17.11 "Function Expressions", §10 "Variables") says that the
+//! closure captures the **variable**, not the value: a write made after the
+//! creation is seen by it, and a write of its own is seen from outside. `dartdevc`
+//! and `dart2js` lower this into two classes, as here:
 //!
-//! * capturada e **nunca atribuída** depois da declaração (o caso comum:
-//!   parâmetro, `final`, `var` só inicializada): o valor é copiado para o
-//!   ambiente na criação da closure — não há o que observar;
-//! * capturada e atribuída em qualquer ponto (fora ou dentro de alguma
-//!   closure, antes ou depois da captura): a variável mora numa `Cell` do heap
-//!   desde a declaração, e tanto a função quanto as closures passam por ela.
-//!   Uma função local conta como atribuída (o nome é ligado depois de a
-//!   closure existir — é assim que ela chama a si mesma).
+//! * captured and **never assigned** after the declaration (the common case:
+//!   a parameter, a `final`, a `var` only initialized): the value is copied into the
+//!   environment when the closure is created — there is nothing to observe;
+//! * captured and assigned at any point (outside or inside some
+//!   closure, before or after the capture): the variable lives in a heap `Cell`
+//!   from its declaration on, and both the function and the closures go through it.
+//!   A local function counts as assigned (the name is bound after the
+//!   closure exists — that is how it calls itself).
 //!
-//! A análise é por **função baixada** (a de topo e cada closure, na hora de
-//! baixá-la): ela olha o corpo inteiro, com as closures aninhadas, e decide as
-//! células das variáveis declaradas **naquela** função. As variáveis livres de
-//! uma closure são calculadas na criação, contra os locais visíveis.
+//! The analysis is per **lowered function** (the top-level one and each closure, when
+//! it is lowered): it looks at the whole body, with the nested closures, and decides the
+//! cells of the variables declared in **that** function. The free variables of
+//! a closure are computed at its creation, against the visible locals.
 //!
-//! Uma referência é local quando a resolução diz `Local`/`Parameter` ou não
-//! diz nada (os corpos de closure ainda não são inferidos: tudo neles é
-//! `dynamic` e sem resolução); um identificador que resolve para membro ou
-//! elemento de topo nunca é captura. Os escopos seguem os da especificação:
-//! bloco, `for` (a variável do laço), `catch`, `case`, parâmetros.
+//! A reference is local when the resolution says `Local`/`Parameter` or says
+//! nothing (closure bodies are not inferred yet: everything in them is
+//! `dynamic` and without a resolution); an identifier that resolves to a member or
+//! a top-level element is never a capture. The scopes follow those of the specification:
+//! block, `for` (the loop variable), `catch`, `case`, parameters.
 
 use crate::context::Context;
 use dartforge_elements::model::UnitId;
@@ -36,56 +36,56 @@ use dartforge_intern::SymbolId;
 use dartforge_types::resolved::Resolved;
 use std::collections::{HashMap, HashSet};
 
-/// Uma declaração vista pelo percurso: o offset do nome e a profundidade de
-/// função (0 = a função analisada).
+/// A declaration seen by the walk: the offset of the name and the function
+/// depth (0 = the analyzed function).
 #[derive(Clone, Copy)]
 struct Decl {
     offset: usize,
     prof: u32,
 }
 
-/// Percurso único do corpo de uma função, com a pilha de escopos.
+/// A single walk over the body of a function, with the scope stack.
 struct Walk<'x, 'a> {
     ctx: &'x Context<'a>,
     unit: UnitId,
     ast: &'x ast::Ast,
     scopes: Vec<HashMap<SymbolId, Decl>>,
     prof: u32,
-    /// Declarações da profundidade 0 lidas ou gravadas de dentro de uma
-    /// função aninhada.
+    /// Declarations of depth 0 read or written from inside a
+    /// nested function.
     captured: HashSet<usize>,
-    /// Declarações da profundidade 0 gravadas em algum ponto (ou funções
-    /// locais).
+    /// Declarations of depth 0 written at some point (or local
+    /// functions).
     assigned: HashSet<usize>,
-    /// Nomes lidos ou gravados sem declaração no percurso (as variáveis
-    /// livres, na ordem da primeira referência).
+    /// Names read or written without a declaration in the walk (the free
+    /// variables, in order of first reference).
     free_set: Vec<SymbolId>,
-    /// Nomes sem declaração no percurso que ele grava.
+    /// Names without a declaration in the walk that it writes.
     stored_free: HashSet<SymbolId>,
     uses_this: bool,
-    // --- funções locais diretas (`direct_functions.rs`) ---
-    /// As funções abertas, da mais externa à corrente: a função local
-    /// nomeada (`Some`) ou a expressão de função (`None`). O tamanho é `prof`.
+    // --- direct local functions (`direct_functions.rs`) ---
+    /// The open functions, from the outermost to the current one: the named local
+    /// function (`Some`) or the function expression (`None`). The length is `prof`.
     stack: Vec<Option<FunctionId>>,
-    /// Nome (offset) de cada função local declarada no percurso → a função.
+    /// Name (offset) of each local function declared in the walk → the function.
     local_functions: HashMap<usize, FunctionId>,
-    /// Cada referência a uma função local: a função, se ela é o alvo de uma
-    /// chamada `f(…)`, e as funções atravessadas entre a declaração e a
-    /// referência.
+    /// Each reference to a local function: the function, whether it is the target of an
+    /// `f(…)` call, and the functions crossed between the declaration and the
+    /// reference.
     refs: Vec<(FunctionId, bool, Vec<Option<FunctionId>>)>,
-    /// Funções locais que não podem ser diretas pela forma (genérica,
-    /// `async`/gerador, parâmetro opcional ou nomeado, lê um `late` de fora).
+    /// Local functions that cannot be direct because of their shape (generic,
+    /// `async`/generator, optional or named parameter, reads an outer `late`).
     discarded_set: HashSet<FunctionId>,
-    /// Offsets das declarações `late`.
+    /// Offsets of the `late` declarations.
     lates: HashSet<usize>,
-    /// Nomes de fora da raiz que são `late`.
+    /// Names from outside the root that are `late`.
     outside_lates: HashSet<SymbolId>,
-    /// O identificador que é o alvo da chamada sendo percorrida.
+    /// The identifier that is the target of the call being walked.
     call_target: Option<ExprId>,
-    /// As funções locais diretas (segunda passada): chamá-las não captura
-    /// nada, o nome delas não é variável, e o que elas leem de fora vai por
-    /// parâmetro — a variável só precisa de célula se alguma função que
-    /// escapa também a captura.
+    /// The direct local functions (second pass): calling them captures
+    /// nothing, their name is not a variable, and what they read from outside goes by
+    /// parameter — the variable only needs a cell if some escaping
+    /// function also captures it.
     directs: Option<HashSet<FunctionId>>,
 }
 
@@ -136,7 +136,7 @@ impl<'x, 'a> Walk<'x, 'a> {
         self.scopes.iter().rev().find_map(|e| e.get(&sym).copied())
     }
 
-    /// Referência a um nome (leitura ou gravação) na expressão `e`.
+    /// A reference to a name (read or write) in expression `e`.
     fn reference(&mut self, e: ExprId, sym: SymbolId, writes: bool) {
         match self.ctx.get_resolved(self.unit, e) {
             None | Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) => {}
@@ -148,7 +148,7 @@ impl<'x, 'a> Walk<'x, 'a> {
                 if let Some(&f) = self.local_functions.get(&d.offset) {
                     let alvo = !writes && self.call_target == Some(e);
                     self.refs.push((f, alvo, crossed.clone()));
-                    // O nome de uma função direta não é variável.
+                    // The name of a direct function is not a variable.
                     if self.directs.as_ref().is_some_and(|s| s.contains(&f)) {
                         return;
                     }
@@ -172,10 +172,10 @@ impl<'x, 'a> Walk<'x, 'a> {
         }
     }
 
-    /// Leitura ou gravação da declaração `d`, vista de dentro das funções
-    /// `crossed`: da profundidade 0, é captura (pelo ambiente) se
-    /// alguma delas escapa, e captura direta (por parâmetro) se todas são
-    /// funções locais diretas.
+    /// A read or write of declaration `d`, seen from inside the functions
+    /// `crossed`: from depth 0, it is a capture (through the environment) if
+    /// some of them escapes, and a direct capture (by parameter) if all are
+    /// direct local functions.
     fn use_declaration(&mut self, d: Decl, writes: bool, crossed: &[Option<FunctionId>]) {
         if d.prof != 0 {
             return;
@@ -185,8 +185,8 @@ impl<'x, 'a> Walk<'x, 'a> {
                 .directs
                 .as_ref()
                 .is_some_and(|s| crossed.iter().all(|f| f.is_some_and(|f| s.contains(&f))));
-            // Só por funções diretas: a variável fica no quadro de quem a
-            // declara e vai pelo endereço (`direct_functions.rs`).
+            // Only by direct functions: the variable stays in the frame of its
+            // declarer and goes by address (`direct_functions.rs`).
             if !only_directs {
                 self.captured.insert(d.offset);
             }
@@ -196,8 +196,8 @@ impl<'x, 'a> Walk<'x, 'a> {
         }
     }
 
-    /// Uma função (closure ou local) aninhada: parâmetros e corpo numa
-    /// profundidade a mais. `local`: é a declaração de função local.
+    /// A nested function (closure or local): parameters and body one
+    /// depth further. `local`: it is the declaration of a local function.
     fn function(&mut self, fid: FunctionId) {
         self.function_of(fid, false);
     }
@@ -244,8 +244,8 @@ impl<'x, 'a> Walk<'x, 'a> {
             if list.late {
                 self.lates.insert(v.name.span.start as usize);
             }
-            // Mesmo sem escrita explícita, a marca de inicialização de um
-            // `late` sem initializer deve ser compartilhada com a closure.
+            // Even without an explicit write, the initialization mark of a
+            // `late` without an initializer must be shared with the closure.
             if list.late && v.initializer.is_none() {
                 self.assigned.insert(v.name.span.start as usize);
             }
@@ -268,9 +268,9 @@ impl<'x, 'a> Walk<'x, 'a> {
                 self.pattern(*pattern, true);
             }
             StmtKind::Function(fid) => {
-                // O nome existe antes do corpo (recursão) e é ligado depois
-                // de a closure existir: conta como atribuído — salvo a
-                // função direta, cujo nome não é variável.
+                // The name exists before the body (recursion) and is bound after
+                // the closure exists: it counts as assigned — except for the
+                // direct function, whose name is not a variable.
                 let f = ast.function(*fid);
                 if let Some(n) = f.name {
                     self.declare(n);
@@ -420,8 +420,8 @@ impl<'x, 'a> Walk<'x, 'a> {
         }
     }
 
-    /// O alvo de uma atribuição: um identificador é gravação; o resto,
-    /// leitura das subexpressões.
+    /// The target of an assignment: an identifier is a write; the rest,
+    /// reads of the subexpressions.
     fn assignment_target(&mut self, e: ExprId) {
         if let ExprKind::Identifier(n) = &self.ast.expr(e).kind {
             self.reference(e, n.sym, true);
@@ -430,8 +430,8 @@ impl<'x, 'a> Walk<'x, 'a> {
         }
     }
 
-    /// Um padrão: `declares` para os de declaração (`var (a, b) = …`, `case`),
-    /// senão os nomes são gravações de variáveis existentes (`(a, b) = …`).
+    /// A pattern: `declares` for declaration ones (`var (a, b) = …`, `case`),
+    /// otherwise the names are writes of existing variables (`(a, b) = …`).
     fn pattern(&mut self, p: PatternId, declares: bool) {
         let ast = self.ast;
         match &ast.pattern(p).kind {
@@ -577,8 +577,8 @@ impl<'x, 'a> Walk<'x, 'a> {
             | ExprKind::Null
             | ExprKind::Symbol(_)
             | ExprKind::CascadeTarget
-            // `.id` (3.10) nomeia um membro estático da declaração do
-            // contexto: não lê local.
+            // `.id` (3.10) names a static member of the declaration of the
+            // context: it does not read a local.
             | ExprKind::DotShorthand { .. }
             | ExprKind::Rethrow => {}
             ExprKind::String(s) => {
@@ -672,42 +672,42 @@ impl<'x, 'a> Walk<'x, 'a> {
     }
 }
 
-/// O que a análise de uma função entrega ao lowering.
+/// What the analysis of a function hands to the lowering.
 pub struct Captures {
-    /// Offsets das declarações desta função que moram numa célula.
+    /// Offsets of the declarations of this function that live in a cell.
     pub cells: HashSet<usize>,
-    /// Offsets das declarações desta função gravadas em algum ponto.
+    /// Offsets of the declarations of this function written at some point.
     pub assigned: HashSet<usize>,
-    /// As funções locais (em qualquer profundidade) chamadas só
-    /// diretamente, de dentro de funções também diretas
+    /// The local functions (at any depth) called only
+    /// directly, from inside functions that are also direct
     /// (`direct_functions.rs`).
     pub directs: HashSet<FunctionId>,
 }
 
-/// Corpo de uma função a analisar: parâmetros e as partes executáveis.
+/// The body of a function to analyze: parameters and the executable parts.
 pub struct Root<'x> {
     pub parameters: &'x [ast::Parameter],
     pub body: Option<&'x FunctionBody>,
-    /// Lista de inicialização de um construtor.
+    /// The initializer list of a constructor.
     pub initializers: &'x [ast::Initializer],
 }
 
-/// As células das variáveis declaradas na função `root` (parâmetros e
-/// locais do corpo, fora das closures aninhadas).
+/// The cells of the variables declared in function `root` (parameters and
+/// locals of the body, outside the nested closures).
 pub fn analyze(ctx: &Context, unit: UnitId, ast: &ast::Ast, root: Root) -> Captures {
     analyze_with(ctx, unit, ast, root, false, &HashSet::new())
 }
 
-/// [`analyze`]; com `with_direct`, as funções locais que não escapam viram
-/// diretas (`direct_functions.rs`): primeiro as referências a cada função
-/// local, e a análise de escape — só é direta a função cujo nome aparece
-/// apenas como alvo de chamada `f(…)`, de dentro da função que a declara
-/// ou de outras funções diretas (uma closure que escapa poderia chamá-la
-/// depois de a função de fora retornar, com os endereços dos locais
-/// dela) —; depois as células com esse conjunto.
+/// [`analyze`]; with `with_direct`, the local functions that do not escape become
+/// direct (`direct_functions.rs`): first the references to each local
+/// function, and the escape analysis — only a function whose name appears
+/// only as the target of an `f(…)` call, from inside the function that declares it
+/// or from other direct functions, is direct (an escaping closure could call it
+/// after the outer function returns, with the addresses of its
+/// locals) —; then the cells with that set.
 ///
-/// `outside_lates`: os nomes de fora da raiz (capturas já ligadas) que são
-/// `late`; uma função que os lê também não pode ser direta.
+/// `outside_lates`: the names from outside the root (already bound captures) that are
+/// `late`; a function that reads them cannot be direct either.
 pub fn analyze_with(
     ctx: &Context,
     unit: UnitId,
@@ -747,8 +747,8 @@ pub fn analyze_with(
 }
 
 impl Walk<'_, '_> {
-    /// Percorre a função `root` inteira: parâmetros, lista de
-    /// inicialização e corpo.
+    /// Walks the whole function `root`: parameters, initializer
+    /// list and body.
     fn walk(&mut self, root: &Root) {
         self.parameters(root.parameters);
         for i in root.initializers {
@@ -773,8 +773,8 @@ impl Walk<'_, '_> {
     }
 }
 
-/// As variáveis livres da função aninhada `fid` (na ordem da primeira
-/// referência) e se ela usa `this` explicitamente.
+/// The free variables of the nested function `fid` (in order of first
+/// reference) and whether it uses `this` explicitly.
 pub fn free_set(ctx: &Context, unit: UnitId, ast: &ast::Ast, fid: FunctionId) -> (Vec<SymbolId>, bool) {
     let mut p = Walk::new(ctx, unit, ast);
     let f = ast.function(fid);
@@ -785,9 +785,9 @@ pub fn free_set(ctx: &Context, unit: UnitId, ast: &ast::Ast, fid: FunctionId) ->
     (p.free_set, p.uses_this)
 }
 
-/// Os nomes declarados fora de `body` e de `exprs` que eles gravam
-/// (atribuição, `++`/`--`, atribuição composta, padrão; também de dentro de
-/// closures aninhadas): o que decide se um laço `for` é contado
+/// The names declared outside `body` and `exprs` that they write
+/// (assignment, `++`/`--`, compound assignment, pattern; also from inside
+/// nested closures): what decides whether a `for` loop is counted
 /// (`statements.rs`).
 pub fn stored_from_outside(ctx: &Context, unit: UnitId, ast: &ast::Ast, body: StmtId, exprs: &[ExprId]) -> HashSet<SymbolId> {
     let mut p = Walk::new(ctx, unit, ast);

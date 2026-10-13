@@ -1,65 +1,65 @@
-//! Publicações locais e seu alcance transitivo (§28.2 e §30.1).
-//! Não calcula regiões/observadores ou efeitos interprocedurais de chamadas.
+//! Local publications and their transitive reach (§28.2 and §30.1).
+//! Does not compute regions/observers or interprocedural effects of calls.
 
 use super::{hir::*, model::*};
 use crate::hir::*;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-/// Destino conservador de publicação; operação opaca pode reter ou reentrar.
-/// Isso não significa que toda publicação possível ocorra numa execução.
+/// Conservative publication destination; an opaque operation may retain or reenter.
+/// This does not mean every possible publication happens in an execution.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::escape::CausaEscape;
-/// assert_ne!(CausaEscape::Retorno, CausaEscape::Excecao);
+/// use dartforge_emit_native::optimize::arc::analysis::escape::EscapeCause;
+/// assert_ne!(EscapeCause::Return, EscapeCause::Exception);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EscapeCause {
-    /// Valor devolvido ao chamador e seus descendentes possíveis.
+    /// A value returned to the caller and its possible descendants.
     Return,
-    /// Valor lançado, incluindo os objetos alcançáveis do payload.
+    /// A thrown value, including the objects reachable from the payload.
     Exception,
-    /// Publicação numa raiz global nominal.
+    /// Publication in a nominal global root.
     Global(String),
-    /// ID local de uma operação sem resumo de heap/retencão válido.
+    /// Local ID of an operation without a valid heap/retention summary.
     OpaqueOperation(u32),
-    /// Prólogo/saída inserido na emissão, sem resumo de heap validado.
+    /// Prologue/exit inserted at emission, without a validated heap summary.
     ImplicitEmission,
 }
 
-/// Alcance possível publicado, agrupado por causa. Topo impede prova negativa.
-/// Ausência de causa aqui não prova confinamento: observadores/externs/SDK,
-/// callbacks, vidas e saídas excepcionais ainda exigem cobertura completa.
+/// Possible published reach, grouped by cause. Top prevents a negative proof.
+/// The absence of a cause here does not prove confinement: observers/externs/SDK,
+/// callbacks, lifetimes and exceptional exits still require full coverage.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::escape::ResultadoEscape;
-/// assert!(ResultadoEscape::default().publicacoes.is_empty());
+/// use dartforge_emit_native::optimize::arc::analysis::escape::EscapeResult;
+/// assert!(EscapeResult::default().publications.is_empty());
 /// ```
 #[derive(Debug, Default)]
 pub struct EscapeResult {
-    /// Conjuntos transitivos, ou topo quando qualquer fronteira é desconhecida.
+    /// Transitive sets, or top when any boundary is unknown.
     pub publications: BTreeMap<EscapeCause, PointSet>,
 }
 
-/// Calcula publicações sobre a solução da mesma versão local da função.
-/// Percorre todos os campos do esquema de cada nó e conserva ciclos/aliases;
-/// esquema/campo ausente, campo opaco e budget excedido propagam topo.
-/// Operação opaca recebe alcance desconhecido, inclusive sem argumentos,
-/// pois pode acessar globais/callbacks não resumidos. Não infere noescape
-/// do contrato Borrowed da ABI. Não transforma HIR nem seleciona política.
+/// Computes publications over the solution of the same local version of the function.
+/// Walks every field of the schema of each node and keeps cycles/aliases;
+/// a missing schema/field, an opaque field and an exceeded budget propagate top.
+/// An opaque operation gets unknown reach, even without arguments,
+/// since it may access unsummarized globals/callbacks. Does not infer noescape
+/// from the Borrowed contract of the ABI. Does not transform the HIR nor select a policy.
 ///
-/// # Erros
-/// O corpo mudou depois da solução points-to, ou há dependências de callees
-/// que precisam ser conferidas por [`compute_in_module`]. Recalcular quando necessário.
-/// O hash é uma guarda local, não dependência versionada SDK/JIT.
+/// # Errors
+/// The body changed after the points-to solution, or there are callee dependencies
+/// that must be checked by [`compute_in_module`]. Recompute when needed.
+/// The hash is a local guard, not a versioned SDK/JIT dependency.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::analise::{hir::*, escape::*}};
-/// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+/// use dartforge_emit_native::{hir::*, optimize::arc::analysis::{hir::*, escape::*}};
+/// let f = Function { symbol: "id".into(), name: "id".into(), debug_info: None,
 /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
 /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
-/// let a = analisar(&f, &FatosHir::default(), 8)?;
-/// assert!(calcular(&f, &a)?.publicacoes[&CausaEscape::Retorno].nos().is_none());
+/// let a = analyze(&f, &HirFacts::default(), 8)?;
+/// assert!(compute(&f, &a)?.publications[&EscapeCause::Return].nos().is_none());
 /// # Ok::<(), String>(())
 /// ```
 pub fn compute(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, String> {
@@ -72,24 +72,24 @@ pub fn compute(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, String> {
     compute_validated(f, a)
 }
 
-/// Confere corpos e tabelas dos callees usados para aliases/campos, antes do escape.
-/// Confere modo de memória, sítios do chamador e layouts locais quando a
-/// solução veio do módulo. Não valida pins, gerações JIT ou resumos SDK.
-/// Caminhos implícitos registrados pelo módulo publicam topo sob
-/// [`EscapeCause::ImplicitEmission`], sem fabricar instrução HIR.
+/// Checks the bodies and tables of the callees used for aliases/fields, before the escape.
+/// Checks the memory mode, the caller's sites and local layouts when the
+/// solution came from the module. Does not validate pins, JIT generations or SDK summaries.
+/// Implicit paths recorded by the module publish top under
+/// [`EscapeCause::ImplicitEmission`], without forging an HIR instruction.
 ///
-/// # Erros
-/// Corpo/callee ausente, duplicado, alterado, tabela de emissão modificada
-/// ou premissas locais de modo/sítios/layouts diferentes.
+/// # Errors
+/// Missing, duplicated or changed body/callee, modified emission table
+/// or different local premises of mode/sites/layouts.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::analise::{hir::*, escape::*}};
-/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// use dartforge_emit_native::{hir::*, optimize::arc::analysis::{hir::*, escape::*}};
+/// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
 /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
 /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// let a = analisar(&f, &FatosHir::default(), 8)?;
+/// let a = analyze(&f, &HirFacts::default(), 8)?;
 /// let mut m = Module::new(); m.functions.push(f);
-/// assert!(calcular_no_modulo(&m, "f", &a)?.publicacoes.is_empty());
+/// assert!(compute_in_module(&m, "f", &a)?.publications.is_empty());
 /// # Ok::<(), String>(())
 /// ```
 pub fn compute_in_module(
@@ -100,7 +100,7 @@ pub fn compute_in_module(
     compute_validated(check_analysis_in_module(m, symbol, a)?, a)
 }
 
-// Guarda comum aos consumidores de escape e de grafo, sem resolver points-to.
+// A guard shared by the escape and graph consumers, without resolving points-to.
 pub(super) fn check_analysis_in_module<'m>(
     m: &'m Module,
     symbol: &str,
@@ -184,7 +184,7 @@ fn compute_validated(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, Stri
             }
         }
     }
-    // Inclusões não dispensam a publicação opaca da chamada nem da emissão.
+    // Inclusions do not waive the opaque publication of the call nor of the emission.
     for (cause, variable) in &a.publication_inclusions {
         let points = a
             .points()
@@ -221,8 +221,8 @@ fn reachability(a: &HirAnalysis, roots: &PointSet) -> PointSet {
         let Some(fields) = a.schemas.get(&node) else {
             return PointSet::unknown(a.limit);
         };
-        // As inclusões podem representar referências laterais (anexos), sem
-        // campo físico. Elas também publicam transitivamente seus destinos.
+        // Inclusions may represent side references (attachments), without a
+        // physical field. They also publish their destinations transitively.
         for &(object, value) in &a.write_inclusions {
             let Some(dests) = a.points().variable(value) else {
                 return PointSet::unknown(a.limit);
@@ -341,7 +341,7 @@ mod tests {
             let (f, facts) = graph(mask);
             let a = analyze(&f, &facts, 3).unwrap();
             let r = compute(&f, &a).unwrap();
-            // Oráculo por expansão de alcance, sem consultar campos do solver.
+            // Oracle by reach expansion, without consulting the solver's fields.
             let mut live_set = BTreeSet::from([0]);
             loop {
                 let before = live_set.clone();
@@ -437,8 +437,8 @@ mod tests {
         ));
         let a = analyze(&f, &facts, 3).unwrap();
         let r = compute(&f, &a).unwrap();
-        // Store global ainda é opaco ao domínio de efeitos de heap: não
-        // fabricar precisão transitiva antes de possuir esse contrato.
+        // A global store is still opaque to the heap effects domain: do not
+        // forge transitive precision before having that contract.
         assert!(
             r.publications[&EscapeCause::Global("g".into())]
                 .nodes()

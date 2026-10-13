@@ -1,35 +1,35 @@
-//! O verificador do IR do modo mapas, antes do `rewrite-statepoints-for-gc`
-//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4, no espírito do
-//! `GCInvariantVerifier` do Julia), sobre a forma do §14.12: o valor `Ref` é
-//! `i64` em todo o código, e as raízes vivas numa chamada que pode coletar
-//! vão no operando `"deopt"` dela.
+//! The IR verifier for maps mode, before `rewrite-statepoints-for-gc`
+//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4, in the spirit of
+//! Julia's `GCInvariantVerifier`), over the shape of §14.12: a `Ref` value is an
+//! `i64` throughout the code, and the live roots at a call that may collect
+//! go in its `"deopt"` operand.
 //!
-//! Confere, no texto do módulo:
+//! Checks, in the module text:
 //!
-//! * nenhum `ptr addrspace(1)`: a forma não tem ponteiro do coletor, e um
-//!   que aparecesse entraria no mapa como raiz relocável que o runtime não
-//!   lê;
-//! * toda chamada que pode coletar (`super::collecting_call`) dentro de
-//!   uma função definida leva o operando `"deopt"` — fora os intermediários
-//!   `@df.vararg.<k>` (`noinline`, a chamada variádica não vira
-//!   statepoint). Sem ele, a chamada não teria raízes no mapa, nem as de
-//!   quem a chama depois do inlining;
-//! * toda extern declarada `"gc-leaf-function"` está na tabela de efeitos
-//!   sem coletar nem chamar Dart (salvo a sabotagem `leaf:<name>`).
+//! * no `ptr addrspace(1)`: the shape has no collector pointer, and one
+//!   that appeared would enter the map as a relocatable root that the runtime does not
+//!   read;
+//! * every call that may collect (`super::collecting_call`) inside a
+//!   defined function carries the `"deopt"` operand — except for the
+//!   `@df.vararg.<k>` intermediates (`noinline`, the variadic call does not become a
+//!   statepoint). Without it, the call would have no roots in the map, nor would
+//!   its callers after inlining;
+//! * every extern declared `"gc-leaf-function"` is in the effects table
+//!   without collecting nor calling Dart (except for the `leaf:<name>` sabotage).
 //!
-//! Uma violação é erro de compilação: o mapa sairia com uma raiz a menos ou
-//! com um valor que não é referência.
+//! A violation is a compile error: the map would come out with one root too few or
+//! with a value that is not a reference.
 
-/// O nome da função de uma linha `declare … @name(…)`.
+/// The function name of a `declare … @name(…)` line.
 fn declared_name(line: &str) -> Option<&str> {
     let after = &line[line.find('@')? + 1..];
     Some(&after[..after.find('(')?])
 }
 
-/// Confere o IR de um módulo em modo mapas.
+/// Checks the IR of a module in maps mode.
 ///
 /// # Errors
-/// A primeira violação, com a linha.
+/// The first violation, with the line.
 pub fn verify(ir: &str) -> Result<(), String> {
     let mut inside = false;
     let mut intermediate = false;
@@ -46,8 +46,8 @@ pub fn verify(ir: &str) -> Result<(), String> {
         if l.contains("addrspace(1)") {
             return error("ponteiro `addrspace(1)`, que a forma das raízes por `\"deopt\"` não tem");
         }
-        // O corpo dos ajudantes sai sem indentação: toda linha entre o
-        // `define` e o `}` conta.
+        // The body of the helpers comes out without indentation: every line between the
+        // `define` and the `}` counts.
         if inside && !definition && !intermediate && super::collecting_call(line) && !line.contains("\"deopt\"(") {
             return error("chamada que pode coletar sem o operando `\"deopt\"`");
         }
@@ -84,7 +84,7 @@ mod tests {
         assert_eq!(verify(ir), Ok(()));
     }
 
-    /// As violações plantadas: cada uma tem de ser achada.
+    /// The planted violations: each one must be found.
     #[test]
     fn finds_the_planted_violations() {
         let planted = [

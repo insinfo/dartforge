@@ -1,5 +1,5 @@
-//! Retira funções locais diretas que perderam todos os caminhos de entrada.
-//! O produtor declara os candidatos; nomes e parâmetros Ptr não provam fechamento.
+//! Removes direct local functions that lost every entry path.
+//! The producer declares the candidates; names and Ptr parameters do not prove closure.
 
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};

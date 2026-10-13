@@ -1,35 +1,35 @@
-//! Chamada tipada e a entrada que só confere o que o chamador estático não
-//! garante (N17, docs/NATIVO-PLANO.md §9).
+//! Typed call and the entry that only checks what the static caller does not
+//! guarantee (N17, docs/NATIVO-PLANO.md §9).
 //!
-//! **A regra do Dart.** Numa chamada cujo receptor tem tipo estático
-//! conhecido, o analisador já garantiu que cada argumento é subtipo do tipo
-//! do parâmetro na interface — menos nos parâmetros *covariantes*: os
-//! declarados `covariant` (ou que herdam a palavra de um membro sobrescrito)
-//! e os que mencionam um parâmetro de tipo da classe (a covariância das
-//! classes genéricas: `List<Object?> l = <int>[]; l.add('x')` passa na
-//! análise e lança `TypeError` na execução). A VM compila por isso duas
-//! entradas por método: a *checked entry*, dos encaminhadores dinâmicos
-//! (`dyn:m`), que confere tudo, e a *unchecked entry*, das chamadas
-//! tipadas, que só confere os covariantes. Um argumento `dynamic` numa
-//! chamada tipada ganha do CFE um cast implícito em volta dele (`as T`, com
-//! o `T` da invocação), avaliado logo depois do próprio argumento.
+//! **The Dart rule.** In a call whose receiver has a known static type,
+//! the analyzer has already guaranteed that each argument is a subtype of the type
+//! of the parameter in the interface — except for *covariant* parameters: those
+//! declared `covariant` (or that inherit the keyword from an overridden member)
+//! and those that mention a type parameter of the class (the covariance of
+//! generic classes: `List<Object?> l = <int>[]; l.add('x')` passes
+//! analysis and throws `TypeError` at run time). That is why the VM compiles two
+//! entries per method: the *checked entry*, for the dynamic forwarders
+//! (`dyn:m`), which checks everything, and the *unchecked entry*, for typed
+//! calls, which only checks the covariant ones. A `dynamic` argument in a
+//! typed call gets from the CFE an implicit cast around it (`as T`, with
+//! the `T` of the invocation), evaluated right after the argument itself.
 //!
-//! **Aqui.** A chamada por seletor de um membro do SDK da fonte com o
-//! receptor tipado usa o seletor `t` + o de sempre (`tc:m`, `ts:x`); a
-//! tabela da classe o liga à entrada `$tc`/`$ts` do método quando ela
-//! existe — só quando a `$c` confere algum parâmetro que a tipada dispensa
-//! ([`needs_typed_entry`]) — e o runtime (`dartforge_seletor`) cai no
-//! seletor sem o `t` quando a classe não tem a tipada (métodos sem o que
-//! dispensar, encaminhadores de `noSuchMethod`, classes do programa). A
-//! entrada tipada também não confere a aridade (`dartforge_args_casam`): a
-//! sobrescrita válida aceita os argumentos da interface.
+//! **Here.** The call by selector of a member of the source SDK with a
+//! typed receiver uses the selector `t` + the usual one (`tc:m`, `ts:x`); the
+//! class table binds it to the `$tc`/`$ts` entry of the method when it
+//! exists — only when the `$c` checks some parameter that the typed one waives
+//! ([`needs_typed_entry`]) — and the runtime (`dartforge_seletor`) falls back to the
+//! selector without the `t` when the class does not have the typed one (methods with nothing to
+//! waive, `noSuchMethod` forwarders, program classes). The
+//! typed entry does not check the arity either (`dartforge_args_casam`): a
+//! valid override accepts the arguments of the interface.
 //!
-//! O cast implícito dos argumentos `dynamic` (e a regra de quando a chamada
-//! pode ser tipada) é o de [`FnBuilder::evaluate_args`] com os tipos
-//! armados por `FnBuilder::arm_arg_types`: o tipo do parâmetro na
-//! invocação, sem variáveis de tipo livres. Só a chamada cujos argumentos
-//! têm todos o tipo garantido (`checked_args`) usa o seletor tipado; a
-//! outra volta ao que confere tudo.
+//! The implicit cast of `dynamic` arguments (and the rule for when the call
+//! can be typed) is that of [`FnBuilder::evaluate_args`] with the types
+//! armed by `FnBuilder::arm_arg_types`: the type of the parameter in the
+//! invocation, without free type variables. Only a call whose arguments
+//! all have a guaranteed type (`checked_args`) uses the typed selector; the
+//! other goes back to the one that checks everything.
 
 use super::fn_builder::FnBuilder;
 use super::members::Evaluated;
@@ -44,17 +44,17 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::{Type as T, TypeParamId, TypeParamOwner};
 use std::collections::HashMap;
 
-/// Os tipos dos parâmetros de uma invocação, já com os argumentos de tipo
-/// do receptor ou da criação substituídos: posicionais em ordem e nomeados
-/// pelo nome externo.
+/// The types of the parameters of an invocation, already with the type arguments
+/// of the receiver or of the creation substituted: positionals in order and named ones
+/// by their external name.
 #[derive(Clone, Debug, Default)]
 pub struct InvocationTypes {
     positionals: Vec<ParameterType>,
     named: Vec<(SymbolId, ParameterType)>,
 }
 
-/// O tipo de um parâmetro na invocação e, quando ele menciona parâmetros de
-/// tipo da classe criada, a substituição que o fecha.
+/// The type of a parameter in the invocation and, when it mentions type
+/// parameters of the created class, the substitution that closes it.
 #[derive(Clone, Debug)]
 struct ParameterType {
     ty: TypeId,
@@ -70,9 +70,9 @@ impl InvocationTypes {
     }
 }
 
-/// `t` não menciona parâmetro de tipo (nem de classe, nem de função, nem os
-/// ligados de um tipo de função genérico): a receita é constante e o cast
-/// pode ser feito no ponto de chamada.
+/// `t` does not mention a type parameter (neither of the class, nor of the function, nor the
+/// bound ones of a generic function type): the recipe is constant and the cast
+/// can be done at the call site.
 fn closed(ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>) -> bool {
     closed_until(ctx, t, subst, 8)
 }
@@ -80,8 +80,8 @@ fn closed(ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>
 fn closed_until(ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>, prof: u32) -> bool {
     let closed = |ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>| closed_until(ctx, t, subst, prof);
     match ctx.table.get(t) {
-        // A troca pode levar a outro parâmetro (o do supertipo ao da classe
-        // do receptor), trocado pelo mesmo mapa.
+        // The substitution may lead to another parameter (that of the supertype to that of the class
+        // of the receiver), replaced by the same map.
         T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
             prof > 0 && subst.and_then(|s| s.get(param)).is_some_and(|&x| closed_until(ctx, x, subst, prof - 1))
         }
@@ -100,13 +100,13 @@ fn closed_until(ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, Ty
     }
 }
 
-/// O topo (`dynamic`, `void`, `Object?`): nada a conferir.
+/// The top (`dynamic`, `void`, `Object?`): nothing to check.
 fn top(ctx: &Context, t: TypeId) -> bool {
     t == ctx.core.dynamic_ || t == ctx.core.object_nullable || matches!(ctx.table.get(t), T::Void)
 }
 
-/// Os parâmetros de `fid` escritos `covariant` (pelo índice na declaração),
-/// inclusive o setter implícito de um campo `covariant`.
+/// The parameters of `fid` written `covariant` (by index in the declaration),
+/// including the implicit setter of a `covariant` field.
 fn declared_covariant(ctx: &Context, fid: usize) -> Vec<(usize, Option<SymbolId>)> {
     let f = &ctx.program.functions[fid];
     let mut exit = Vec::new();
@@ -134,10 +134,10 @@ fn declared_covariant(ctx: &Context, fid: usize) -> Vec<(usize, Option<SymbolId>
     exit
 }
 
-/// `t` menciona um parâmetro de tipo da classe `c` numa posição covariante
-/// (ou invariante): o que torna o parâmetro de tipo `t` *genérico
-/// covariante* (`isGenericCovariantImpl` do kernel). `positive` é a
-/// polaridade corrente: o parâmetro de um tipo de função a inverte.
+/// `t` mentions a type parameter of class `c` in a covariant (or
+/// invariant) position: what makes the parameter of type `t` *generic
+/// covariant* (the kernel's `isGenericCovariantImpl`). `positive` is the
+/// current polarity: the parameter of a function type inverts it.
 fn mentions_covariant(ctx: &Context, t: TypeId, c: ClassId, positive: bool) -> bool {
     match ctx.table.get(t) {
         T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
@@ -158,8 +158,8 @@ fn mentions_covariant(ctx: &Context, t: TypeId, c: ClassId, positive: bool) -> b
     }
 }
 
-/// O parâmetro de `g` que corresponde ao `i`-ésimo de `fid` (mesma posição
-/// entre os posicionais, ou mesmo nome entre os nomeados).
+/// The parameter of `g` that corresponds to the `i`-th one of `fid` (same position
+/// among the positionals, or same name among the named ones).
 fn corresponding(ctx: &Context, fid: usize, i: usize, g: usize) -> Option<usize> {
     let p = ctx.outline.functions.get(fid)?.parameters.get(i)?;
     let gp = &ctx.outline.functions.get(g)?.parameters;
@@ -170,8 +170,8 @@ fn corresponding(ctx: &Context, fid: usize, i: usize, g: usize) -> Option<usize>
     }
 }
 
-/// O `j`-ésimo parâmetro de `g` é covariante no próprio `g`: escrito
-/// `covariant`, ou genérico covariante da classe de `g`.
+/// The `j`-th parameter of `g` is covariant in `g` itself: written
+/// `covariant`, or generic covariant of the class of `g`.
 fn covariant_in(ctx: &Context, g: usize, j: usize) -> bool {
     let Some(q) = ctx.outline.functions.get(g).and_then(|o| o.parameters.get(j)) else { return false };
     let name = (q.kind == ParameterKind::Named).then_some(q.externo).flatten();
@@ -182,10 +182,10 @@ fn covariant_in(ctx: &Context, g: usize, j: usize) -> bool {
     written || ctx.program.functions[g].class.is_some_and(|c| mentions_covariant(ctx, q.ty, c, true))
 }
 
-/// O parâmetro `i` de `fid` é covariante: no próprio membro, ou porque o
-/// correspondente de um membro homônimo de algum supertipo da classe o é
-/// (a covariância se herda pela sobrescrita: `ParameterElement.isCovariant`
-/// e o `isGenericCovariantImpl` que o CFE propaga).
+/// Parameter `i` of `fid` is covariant: in the member itself, or because the
+/// corresponding one of a same-named member of some supertype of the class is
+/// (covariance is inherited through overriding: `ParameterElement.isCovariant`
+/// and the `isGenericCovariantImpl` that the CFE propagates).
 fn inherited_covariant(ctx: &Context, fid: usize, i: usize) -> bool {
     if covariant_in(ctx, fid, i) {
         return true;
@@ -209,12 +209,12 @@ fn inherited_covariant(ctx: &Context, fid: usize, i: usize) -> bool {
     })
 }
 
-/// A entrada `$c` confere o parâmetro `ty` de `fid`
-/// ([`FnBuilder::check_entry_arguments`]): tipo nominal (classe),
-/// ou um tipo que menciona parâmetro de tipo da classe em posição
-/// covariante (`T`, `FutureOr<T>`, `T Function()`), fora do topo. Os
-/// outros tipos de função e os parâmetros de tipo da função ficam com a
-/// conversão de sempre.
+/// The `$c` entry checks parameter `ty` of `fid`
+/// ([`FnBuilder::check_entry_arguments`]): a nominal type (class),
+/// or a type that mentions a type parameter of the class in a covariant
+/// position (`T`, `FutureOr<T>`, `T Function()`), outside the top. The
+/// other function types and the type parameters of the function keep the
+/// usual conversion.
 pub fn checked_at_entry(ctx: &Context, fid: usize, ty: TypeId) -> bool {
     let f = &ctx.program.functions[fid];
     let generic = f.class.is_some_and(|c| mentions_covariant(ctx, ty, c, true));
@@ -222,30 +222,30 @@ pub fn checked_at_entry(ctx: &Context, fid: usize, ty: TypeId) -> bool {
     !top(ctx, ty) && (generic || nominal)
 }
 
-/// O parâmetro `i` de `fid` precisa de conferência mesmo numa chamada
-/// tipada: é covariante (ver `inherited_covariant`).
+/// Parameter `i` of `fid` needs a check even in a typed
+/// call: it is covariant (see `inherited_covariant`).
 pub fn covariant_parameter(ctx: &Context, fid: usize, i: usize) -> bool {
     inherited_covariant(ctx, fid, i)
 }
 
-/// O método `fid` ganha a entrada tipada: a `$c` dele confere algum
-/// parâmetro que a chamada tipada dispensa.
+/// Method `fid` gets the typed entry: its `$c` checks some
+/// parameter that the typed call waives.
 pub fn needs_typed_entry(ctx: &Context, fid: usize) -> bool {
     let Some(o) = ctx.outline.functions.get(fid) else { return false };
     o.parameters.iter().enumerate().any(|(i, p)| checked_at_entry(ctx, fid, p.ty) && !covariant_parameter(ctx, fid, i))
 }
 
-/// O seletor da chamada tipada correspondente a `selector` (`c:m` → `tc:m`).
+/// The selector of the typed call corresponding to `selector` (`c:m` → `tc:m`).
 pub fn typed_selector(selector: &str) -> String {
     format!("t{selector}")
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// Arma os tipos dos parâmetros da invocação `expr_id` (alvo `target`)
-    /// para o [`FnBuilder::evaluate_args`] dos argumentos `args`: o tipo
-    /// estático do alvo, se é um tipo de função (o do membro visto pelo
-    /// receptor, ou o da função), senão o do construtor resolvido.
-    /// Devolve o que estava armado, para quem chama restaurar.
+    /// Arms the types of the parameters of invocation `expr_id` (target `target`)
+    /// for the [`FnBuilder::evaluate_args`] of arguments `args`: the static type
+    /// of the target, if it is a function type (that of the member seen through the
+    /// receiver, or that of the function), otherwise that of the resolved constructor.
+    /// Returns what was armed, for the caller to restore.
     pub(super) fn arm_arg_types(
         &mut self,
         target: ast::ExprId,
@@ -257,9 +257,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         std::mem::replace(&mut self.arg_types, types.map(|t| (key, t)))
     }
 
-    /// Arma os tipos dos parâmetros do construtor `fid` de uma criação cujo
-    /// tipo estático é `ty` (os argumentos de tipo da classe substituem os
-    /// parâmetros dela).
+    /// Arms the types of the parameters of constructor `fid` of a creation whose
+    /// static type is `typ` (the type arguments of the class replace its
+    /// parameters).
     pub(super) fn arm_constructor_types(
         &mut self,
         fid: usize,
@@ -299,8 +299,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.function_types(fid, typ)
     }
 
-    /// Os tipos dos parâmetros de `fid`; num construtor (ou fábrica) de
-    /// classe genérica, com os argumentos de tipo de `created`.
+    /// The types of the parameters of `fid`; in a constructor (or factory) of a
+    /// generic class, with the type arguments of `created`.
     fn function_types(&self, fid: usize, created: Option<TypeId>) -> Option<InvocationTypes> {
         let o = self.ctx.outline.functions.get(fid)?;
         if !o.type_params.is_empty() {
@@ -333,10 +333,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(t)
     }
 
-    /// Depois de avaliar o argumento `value` (expressão `expr`, nome
-    /// `name`, `i_pos`-ésimo posicional): se o tipo estático dele é
-    /// `dynamic`, o cast implícito para o tipo do parâmetro na invocação
-    /// armada; e a marca de conferido quando o tipo fica garantido.
+    /// After evaluating argument `value` (expression `expr`, name
+    /// `name`, `i_pos`-th positional): if its static type is
+    /// `dynamic`, the implicit cast to the type of the parameter in the armed
+    /// invocation; and the checked mark when the type becomes guaranteed.
     pub(super) fn implicit_argument_cast(
         &mut self,
         types: Option<&InvocationTypes>,
@@ -361,40 +361,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O tipo de `value` é garantido pelo estático (ver `checked_args`).
+    /// The type of `value` is guaranteed by the static type (see `checked_args`).
     pub(super) fn mark_checked(&mut self, value: &Operand) {
         if let Operand::Val(id) = value {
             self.checked_args.insert(*id);
         }
     }
 
-    /// `value`, resultado de `expr`, tem o tipo garantido pelo estático
-    /// quando a expressão não é `dynamic` (operandos de operador e de
-    /// índice, que não passam pelo `evaluate_args`).
+    /// `value`, the result of `expr`, has its type guaranteed by the static type
+    /// when the expression is not `dynamic` (operands of operators and of
+    /// indexing, which do not go through `evaluate_args`).
     pub(super) fn mark_if_typed(&mut self, expr: ast::ExprId, value: &Operand) {
         if self.ctx.get_type(self.unit_id, expr).is_some_and(|t| t != self.ctx.core.dynamic_) {
             self.mark_checked(value);
         }
     }
 
-    /// Todos os argumentos têm o tipo garantido (constantes ou marcados):
-    /// a chamada pode usar a entrada tipada.
+    /// All arguments have a guaranteed type (constants or marked):
+    /// the call may use the typed entry.
     pub(super) fn all_checked(&self, evaluated: &[Evaluated]) -> bool {
-        // Um escalar sem caixa (`i64`, `double`, `bool`) já diz o tipo.
+        // An unboxed scalar (`i64`, `double`, `bool`) already tells the type.
         evaluated.iter().all(|(_, v)| match v {
             Operand::Constant(_) => true,
             Operand::Val(id) => self.checked_args.contains(id) || self.operand_type(v) != Type::Ref,
         })
     }
 
-    /// Antes da chamada direta ao membro `alvo` do programa (despacho de
-    /// `call_member`): cada argumento de parâmetro covariante de `alvo`
-    /// conferido contra o tipo declarado nele — avaliado com o receptor
-    /// `recv`, cujos argumentos de tipo valem para os da classe —, com a
-    /// mensagem da VM (" of 'nome'"), antes de converter o argumento à
-    /// representação do parâmetro. É a conferência que a VM faz na entrada
-    /// do método; aqui a chamada é direta, então ela vai no ponto de
-    /// chamada, por implementação.
+    /// Before the direct call to the program member `target` (dispatch of
+    /// `call_member`): each argument of a covariant parameter of `target`
+    /// checked against the type declared on it — evaluated with the receiver
+    /// `recv`, whose type arguments hold for those of the class —, with the
+    /// VM message (" of 'name'"), before converting the argument to the
+    /// representation of the parameter. It is the check the VM does at the entry
+    /// of the method; here the call is direct, so it goes at the call
+    /// site, per implementation.
     pub(super) fn check_target_covariants(&mut self, alvo: usize, recv: &Operand, evaluated: &[Evaluated]) {
         if !super::user_function(self.ctx, alvo) {
             return;
@@ -415,7 +415,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if top(self.ctx, p.ty) || !covariant_parameter(self.ctx, alvo, i) || self.is_terminated() {
                 continue;
             }
-            // Um escalar sem caixa na representação do parâmetro já é dele.
+            // An unboxed scalar in the representation of the parameter already belongs to it.
             let repr = self.repr(p.ty);
             if repr != Type::Ref && self.operand_type(&v) == repr {
                 continue;
@@ -435,8 +435,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O membro `name` na interface da classe `c` (declarado nela ou num
-    /// supertipo).
+    /// Member `name` in the interface of class `c` (declared in it or in a
+    /// supertype).
     fn interface_member(&self, c: ClassId, name: &str) -> Option<usize> {
         let sym = self.ctx.interner.lookup(name)?;
         if let Some(f) = self.ctx.program.classes[c.0 as usize].instance_members.get(&sym) {
@@ -448,12 +448,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         supers.into_iter().find_map(|s| self.ctx.program.classes[s.0 as usize].instance_members.get(&sym).map(|f| f.0 as usize))
     }
 
-    /// O argumento `value` (expressão `arg`) do `i`-ésimo parâmetro do
-    /// operador `name` (`[]`, `[]=`, `+`…) sobre o receptor `receiver`:
-    /// se ele é `dynamic`, o cast implícito para o tipo do parâmetro visto
-    /// pelo tipo estático do receptor (os argumentos de tipo dele trocados
-    /// pelos parâmetros da classe que declara o operador), como o CFE; e a
-    /// marca de conferido quando o tipo fica garantido.
+    /// Argument `value` (expression `arg`) of the `i`-th parameter of
+    /// operator `name` (`[]`, `[]=`, `+`…) on receiver `receiver`:
+    /// if it is `dynamic`, the implicit cast to the type of the parameter seen
+    /// through the static type of the receiver (its type arguments replaced
+    /// by the parameters of the class that declares the operator), like the CFE; and the
+    /// checked mark when the type becomes guaranteed.
     pub(super) fn implicit_operator_cast(
         &mut self,
         arg: ast::ExprId,
@@ -496,9 +496,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.mark_checked(value);
     }
 
-    /// A implementação única do membro de instância `fid` de uma classe
-    /// do SDK cujo membro é fechado (só a biblioteca dela o implementa), com
-    /// os mesmos parâmetros; `None` sem ela.
+    /// The single implementation of instance member `fid` of an SDK class
+    /// whose member is closed (only its library implements it), with
+    /// the same parameters; `None` without it.
     pub(super) fn single_implementation(&self, fid: usize) -> Option<usize> {
         let f = &self.ctx.program.functions[fid];
         let cid = f.class?;

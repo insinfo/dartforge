@@ -1,4 +1,4 @@
-//! Registro das portas certificadas da imagem AOT antes de executar Dart.
+//! Registration of the certified ports of the AOT image before running Dart.
 
 use super::LlvmEmitter;
 use std::fmt::Write;

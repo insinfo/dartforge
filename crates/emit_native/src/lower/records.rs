@@ -1,17 +1,17 @@
-//! Records (P3; espaço unificado, P2).
+//! Records (P3; unified space, P2).
 //!
-//! O record só posicional é o `_Record` do runtime (cid fixo 12, corpo `REFS`:
-//! a palavra 0 é o número de campos e as seguintes os campos, todos `Ref`;
-//! docs/NATIVO-ESPACO-UNIFICADO.md §2.5). O
-//! runtime não tem a forma (os nomes) de um record com campo nomeado, então
-//! cada **forma** do programa — número de posicionais e nomes ordenados,
-//! coletada de todos os literais, padrões e tipos antes do lowering
-//! (`Context::record_shapes`) — é uma "classe" do programa: um objeto com
-//! os campos posicionais e depois os nomeados (em ordem de nome), todos
-//! guardados como referência, com id `SHAPE_BASE_ID + k`. `toString()` e
-//! `==` são gerados (a especificação §20.6 "Records": igualdade estrutural
-//! campo a campo, mesma forma), e o acesso `r.x`/`r.$1` sem tipo estático
-//! testa as formas que têm o campo.
+//! A positional-only record is the runtime's `_Record` (fixed cid 12, `REFS` body:
+//! word 0 is the number of fields and the following ones are the fields, all `Ref`;
+//! docs/NATIVO-ESPACO-UNIFICADO.md §2.5). The
+//! runtime does not have the shape (the names) of a record with a named field, so
+//! each **shape** of the program — number of positionals and sorted names,
+//! collected from every literal, pattern and type before the lowering
+//! (`Context::record_shapes`) — is a "class" of the program: an object with
+//! the positional fields and then the named ones (in name order), all
+//! kept as references, with id `SHAPE_BASE_ID + k`. `toString()` and
+//! `==` are generated (specification §20.6 "Records": structural equality
+//! field by field, same shape), and the access `r.x`/`r.$1` without a static type
+//! tests the shapes that have the field.
 
 use super::fn_builder::FnBuilder;
 use crate::context::SHAPE_BASE_ID;
@@ -19,11 +19,11 @@ use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, ExprId};
 
-/// Símbolo da igualdade estrutural dos records com forma.
+/// Symbol of the structural equality of records with a shape.
 pub const EQUAL_SYMBOL: &str = "df.$registro.igual";
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `(e1, …, name: e)` com algum campo nomeado.
+    /// `(e1, …, name: e)` with some named field.
     pub fn lower_named_record(
         &mut self,
         ast: &ast::Ast,
@@ -31,7 +31,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         named: &[(ast::Name, ExprId)],
         span: Span,
     ) -> Operand {
-        // A ordem de avaliação é a do texto.
+        // The evaluation order is that of the text.
         let mut items: Vec<(u32, Option<String>, ExprId)> = positional
             .iter()
             .map(|&e| (ast.expr(e).span.start as u32, None, e))
@@ -106,9 +106,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         obj
     }
 
-    /// `(e1, …, ek)` só posicional: um `_Record` (`AllocRecord`) com os
-    /// campos encaixotados aqui, em instruções `Box` da HIR (o emissor grava
-    /// as palavras sem alocar no meio).
+    /// `(e1, …, ek)` positional only: a `_Record` (`AllocRecord`) with the
+    /// fields boxed here, in HIR `Box` instructions (the emitter writes
+    /// the words without allocating in between).
     pub fn lower_positional_record(&mut self, ast: &ast::Ast, positional: &[ExprId]) -> Operand {
         let mut ops = Vec::with_capacity(positional.len());
         for &p in positional {
@@ -119,7 +119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::AllocRecord { elements: ops }, Type::Ref)
     }
 
-    /// As formas com o campo `name` (`$k` ou nomeado): (id, índice).
+    /// The shapes with field `name` (`$k` or named): (id, index).
     pub fn shapes_with_field(&self, name: &str) -> Vec<(i64, usize)> {
         let positional = name.strip_prefix('$').and_then(|d| d.parse::<usize>().ok()).filter(|k| *k >= 1);
         let mut exit = Vec::new();
@@ -138,7 +138,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         exit
     }
 
-    /// Lê o campo `i` (referência) de um record com forma.
+    /// Reads field `i` (a reference) of a record with a shape.
     pub fn shape_field(&mut self, obj: Operand, i: usize) -> Operand {
         self.emit(
             Instruction::CallRuntime {
@@ -150,9 +150,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// `r.x`/`r.$k` pela classe dinâmica do receptor (o que não é record vai
-    /// a `pattern`); `None` quando nenhuma forma tem o campo e ele não é
-    /// posicional.
+    /// `r.x`/`r.$k` by the dynamic class of the receiver (what is not a record goes
+    /// to `pattern`); `None` when no shape has the field and it is not
+    /// positional.
     pub fn read_record_field(
         &mut self,
         recv: Operand,
@@ -182,7 +182,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             cases.push((id, b));
             blocks.push((b, i));
         }
-        // O record posicional do runtime é a classe fixa `_Record`.
+        // The runtime's positional record is the fixed class `_Record`.
         let record_id = i64::from(dartforge_runtime::layout::cid::RECORD);
         let b_runtime = self.new_block();
         cases.push((record_id, b_runtime));
@@ -201,8 +201,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(b_runtime);
         match positional {
             Some(k) => {
-                // Em linha: o número de campos na palavra 0 do corpo e o
-                // campo `k` (1-based) na palavra `k`; fora da forma,
+                // Inline: the number of fields in word 0 of the body and
+                // field `k` (1-based) in word `k`; outside the shape,
                 // `NoSuchMethodError`.
                 let n = self.object_word(recv.clone(), 0, Type::I64);
                 let fits = self.emit(Instruction::ICmp(ICmpOp::Sge, n, Operand::Constant(Constant::Int(k))), Type::I1);
@@ -217,13 +217,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.throw_nsm(name);
             }
             None => {
-                // Record posicional do runtime não tem campo nomeado.
+                // A runtime positional record has no named field.
                 self.throw_nsm(name);
             }
         }
         self.set_block(b_default);
-        // O que não é record: o caminho de sempre; se ele não sabe o nome
-        // (o membro só existe em records), `NoSuchMethodError`.
+        // What is not a record: the usual path; if it does not know the name
+        // (the member only exists in records), `NoSuchMethodError`.
         let n_errors = self.errors.len();
         let mut v = pattern(self);
         if self.errors.len() > n_errors {
@@ -253,10 +253,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ))
     }
 
-    /// `toString()` da forma `k`: `(p0, p1, a: x, b: y)`.
+    /// `toString()` of shape `k`: `(p0, p1, a: x, b: y)`.
     pub fn lower_shape_to_string(&mut self, k: usize) {
-        // Corpo chamado como função Dart (pelo despacho de `toString`): o
-        // retorno Ref é Owned.
+        // Body called as a Dart function (by the `toString` dispatch): the
+        // Ref return is Owned.
         if self.ctx.arc_memory {
             self.dart_ref_returns.insert(self.func.symbol.clone());
         }
@@ -296,8 +296,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// `df.$record.equal(a, b)`: mesma forma e campos iguais (`==` de cada
-    /// campo); o que não é record com forma vai ao `==` do runtime.
+    /// `df.$record.equal(a, b)`: same shape and equal fields (`==` of each
+    /// field); what is not a record with a shape goes to the runtime `==`.
     pub fn lower_record_equality(&mut self) {
         let a = Operand::Val(self.add_param("a".to_string(), Type::Ref));
         let b = Operand::Val(self.add_param("b".to_string(), Type::Ref));
@@ -386,9 +386,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Return(Some(r)));
     }
 
-    /// Hash de uma forma de record: valores iguais precisam ter o mesmo hash
-    /// para que `_CompactLinkedHashSet` e `_CompactLinkedHashMap` encontrem o
-    /// segundo record. O valor numérico em si não faz parte da API de Dart.
+    /// Hash of a record shape: equal values must have the same hash
+    /// so that `_CompactLinkedHashSet` and `_CompactLinkedHashMap` find the
+    /// second record. The numeric value itself is not part of the Dart API.
     pub fn lower_shape_hash(&mut self, k: usize) {
         let this = Operand::Val(self.add_param("this".to_string(), Type::Ref));
         let (npos, names) = &self.ctx.record_shapes[k];
@@ -406,8 +406,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Return(Some(hash)));
     }
 
-    /// `r.f(args)` onde `f` é campo de alguma forma de record: nos records
-    /// com o campo, lê e chama o valor; nos demais receptores, `pattern`.
+    /// `r.f(args)` where `f` is a field of some record shape: in the records
+    /// with the field, reads and calls the value; on other receivers, `pattern`.
     pub fn call_record_field(
         &mut self,
         recv: Operand,

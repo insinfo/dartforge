@@ -1,15 +1,15 @@
-//! Liga declarações de portas aos corpos, contratos e dependências verificados.
+//! Binds port declarations to the verified bodies, contracts and dependencies.
 
 use super::*;
 
-/// Inventário de portas de uma imagem AOT fixa, ligado à HIR verificada.
+/// Port inventory of a fixed AOT image, bound to the verified HIR.
 ///
-/// Campos privados impedem declarar Owned/readonly sem verificar os corpos.
-/// Não é certificado de recarga JIT nem de chamadas indiretas legadas.
+/// Private fields prevent declaring Owned/readonly without verifying the bodies.
+/// It is not a certificate for JIT reload nor for legacy indirect calls.
 ///
 /// ```
 /// use dartforge_emit_native::hir::Module;
-/// assert!(Module::new().portas_arc_aot.is_none());
+/// assert!(Module::new().arc_aot_ports.is_none());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArcAotPorts {
@@ -20,8 +20,8 @@ pub struct ArcAotPorts {
 }
 
 fn state(m: &Module) -> String {
-    // Guarda também os callees, layouts e tabelas: modificar só uma dependência
-    // pode invalidar a transferência mesmo que o corpo registrado não mude.
+    // Also keeps the callees, layouts and tables: changing just one dependency
+    // may invalidate the transfer even if the registered body does not change.
     format!(
         "{:?}/{:?}/{:?}/{:?}/{:?}",
         (
@@ -77,11 +77,11 @@ impl ArcAotPorts {
     }
 }
 
-// O construtor preparado conserva o endereço nominal e o descritor original.
-// Não registrar palavras arbitrárias ou deduzir Owned da largura do retorno.
-// As chamadas tipadas acham o corpo pelo registro do runtime, do processo
-// inteiro. `outside_abis` traz ABIs registradas por outras imagens; `None`
-// só coleta os corpos, sem conferir as chamadas.
+// The prepared constructor keeps the nominal address and the original descriptor.
+// Do not register arbitrary words or deduce Owned from the width of the return.
+// Typed calls find the body through the runtime registry, for the whole
+// process. `outside_abis` brings ABIs registered by other images; `None`
+// only collects the bodies, without checking the calls.
 pub(super) fn check_typed(
     m: &Module,
     plans: &HashMap<String, DartFunctionPlan>,
@@ -107,8 +107,8 @@ pub(super) fn check_typed(
                 Operand::Constant(Constant::Int(0)) if *abi == 0 => continue,
                 Operand::Constant(Constant::Function(s)) => {
                     let body = functions.get(s).ok_or_else(error)?;
-                    // ABI zero desativa o caminho tipado, inclusive para corpos
-                    // escalares que ainda usam somente a entrada uniforme.
+                    // ABI zero disables the typed path, including for scalar
+                    // bodies that still use only the uniform entry.
                     if *abi == 0 { continue; }
                     let params: Vec<_> = body.params.iter().map(|(_, _, t)| *t).collect();
                     let ret_val = if body.return_ty == Type::Ref { TokenReturn::Owned } else { TokenReturn::Trivial };
@@ -140,8 +140,8 @@ pub(super) fn check_typed(
     Ok(typed_set)
 }
 
-// Cada endereço de vetor só pode ser lido ou repassado ao mesmo papel de um
-// corpo local. Assim ciclos de chamadas não inventam readonly por declaração.
+// Each vector address may only be read or forwarded to the same role of a
+// local body. That way call cycles do not invent readonly by declaration.
 fn check_vectors(m: &Module) -> Result<(), String> {
     let functions: HashMap<_, _> = m.functions.iter().map(|f| (&f.symbol, f)).collect();
     for (s, roles) in &m.dart_vector_parameters {
@@ -197,7 +197,7 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                             && uses(base)
                             && matches!(index, Operand::Constant(Constant::Int(0 | 1)))
                             && *t == Type::I64)
-                            // O slot da tupla de tipos, pelo descritor.
+                            // The slot of the type tuple, through the descriptor.
                             || (*role == DartEntryVector::Argumentos
                                 && super::vectors::tuple_read(f, i, *t, roles))
                     }
@@ -233,33 +233,33 @@ fn check_vectors(m: &Module) -> Result<(), String> {
     Ok(())
 }
 
-/// Certifica portas Owned de corpos já preparados num módulo AOT fechado.
+/// Certifies Owned ports of already prepared bodies in a closed AOT module.
 ///
-/// Verifica novamente todos os corpos/callees e exige preparação idempotente.
-/// Entradas uniformes também exigem vetores readonly; leituras Ref de
-/// argumentos usam o adaptador que confere índice e produz owner. Extensão
-/// real dos vetores continua sendo precondição da ABI do chamador.
-/// A imagem AOT permanece viva até terminar o processo. Recarga/retirada de
-/// código JIT exige outro protocolo. Tracing não produz registros nem muda HIR.
+/// Verifies all the bodies/callees again and requires an idempotent preparation.
+/// Uniform entries also require readonly vectors; Ref reads of
+/// arguments use the adapter that checks the index and produces an owner. The real
+/// extent of the vectors remains a precondition of the caller's ABI.
+/// The AOT image stays alive until the process ends. Reloading/removing
+/// JIT code requires another protocol. Tracing produces no registrations nor changes the HIR.
 ///
-/// # Erros
-/// Corpo não preparado, ABI incompatível, dependência aberta, vetor publicado,
-/// operação indireta/heap não auditada ou fronteira runtime ainda não escopada.
-/// Nenhum certificado é publicado em caso de falha.
+/// # Errors
+/// Unprepared body, incompatible ABI, open dependency, published vector,
+/// unaudited indirect/heap operation or a runtime boundary not yet scoped.
+/// No certificate is published on failure.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut m = Module::new(); m.memoria_arc = true;
+/// let mut m = Module::new(); m.arc_memory = true;
 /// m.functions.push(Function { symbol: "helper".into(), name: "helper".into(),
-///     depuracao: None, params: vec![], return_ty: Type::Ref,
+///     debug_info: None, params: vec![], return_ty: Type::Ref,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }] });
-/// m.retornos_ref_dart.insert("helper".into());
-/// m.ajudantes.push(("nome_runtime".into(), "helper".into()));
-/// let mut planos = HashMap::from([("helper".into(), PlanoFuncaoDart::default())]);
-/// preparar_arc_modulo_dart(&mut m, &mut planos)?;
-/// assert_eq!(certificar_portas_arc_aot(&mut m, &planos)?, 1);
+/// m.dart_ref_returns.insert("helper".into());
+/// m.helpers.push(("runtime_name".into(), "helper".into()));
+/// let mut plans = HashMap::from([("helper".into(), DartFunctionPlan::default())]);
+/// prepare_arc_dart_module(&mut m, &mut plans)?;
+/// assert_eq!(certify_arc_aot_ports(&mut m, &plans)?, 1);
 /// # Ok::<(), String>(())
 /// ```
 pub fn certify_arc_aot_ports(
@@ -269,17 +269,17 @@ pub fn certify_arc_aot_ports(
     certify(m, plans, None)
 }
 
-/// [`certify_arc_aot_ports`]. Com os layouts de um conjunto, quem chama
-/// já provou que a preparação do conjunto inteiro é idempotente
-/// (`modules::certify_arc_module_ports`), e as gravações conferidas
-/// usam esses layouts.
+/// [`certify_arc_aot_ports`]. With the layouts of a set, the caller
+/// has already proven that the preparation of the whole set is idempotent
+/// (`modules::certify_arc_module_ports`), and the checked writes
+/// use those layouts.
 pub(super) fn certify(
     m: &mut Module,
     plans: &HashMap<String, DartFunctionPlan>,
     set_layouts: Option<&HashMap<u32, Vec<Type>>>,
 ) -> Result<usize, String> {
     let idempotence = set_layouts.is_none();
-    // Programa preparado contra o SDK preparado: os layouts dele também.
+    // A program prepared against the prepared SDK: its layouts too.
     let with_externals;
     let set_layouts = if set_layouts.is_none() && !m.arc_external_layouts.is_empty() {
         let mut l = m.arc_external_layouts.clone();
@@ -354,15 +354,15 @@ pub(super) fn certify(
                 f.symbol
             ));
         }
-        // Gravações nos elementos de listas, pelo endereço que
-        // `derived_set::verify` segura; as de ponteiros FFI não passam.
+        // Writes into list elements, through the address that
+        // `derived_set::verify` holds; those through FFI pointers do not pass.
         super::derived_set::verify(f)?;
         let list_addresses = super::derived_set::addresses(f);
         for (_, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
             super::typed_set::check(f, i, *t)?;
             super::selectors::check_local_vector(f, i, *t, Some(&getters_rti))?;
-            // Identidade (`==`/`!=` de handles, o teste de null) não converte
-            // a referência; ordem sobre handles seria coerção.
+            // Identity (`==`/`!=` of handles, the null test) does not convert
+            // the reference; ordering over handles would be a coercion.
             if matches!(i, Instruction::ICmp(op, a, b)
                 if (reference(a) || reference(b)) && !matches!(op, ICmpOp::Eq | ICmpOp::Ne))
                 || matches!(i, Instruction::StoreGlobal { val, ty, .. } if *ty == Type::Ref || reference(val))
@@ -386,9 +386,9 @@ pub(super) fn certify(
                         arc_owned: false,
                         ..
                     }
-                    // As chamadas C (`NativeCall*`) têm ABI escalar
-                    // conferida pela preparação (`contracts::produce`); a
-                    // reentrada por callback roda no escopo nativo da pilha.
+                    // C calls (`NativeCall*`) have a scalar ABI
+                    // checked by the preparation (`contracts::produce`); the
+                    // reentry through a callback runs in the native scope of the stack.
                     | Instruction::NativeWrite { .. }
                     | Instruction::GetField { .. }
                     | Instruction::SetField { .. }
@@ -415,9 +415,9 @@ pub(super) fn certify(
                         | Instruction::TypedCall { .. }
                         | Instruction::CallClosure { .. }
                         | Instruction::CallSelector { .. }
-                        // As fábricas Owned que a preparação contrata
-                        // (`contracts::produce`): literais, interpolação e
-                        // a caixa SIMD.
+                        // The Owned factories that the preparation contracts
+                        // (`contracts::produce`): literals, interpolation and
+                        // the SIMD box.
                         | Instruction::AllocList { .. }
                         | Instruction::AllocRecord { .. }
                         | Instruction::ConcatStrings { .. }
@@ -431,8 +431,8 @@ pub(super) fn certify(
             }
             if let Instruction::CallRuntime { name, .. } = i
                 && crate::llvm::externs::effects_of(name).calls_dart
-                // As ABIs `dartforge_arc_*` que rodam Dart abrem o escopo
-                // nativo por dentro (`em_escopo_nativo`/`owner_em_escopo_nativo`).
+                // The `dartforge_arc_*` ABIs that run Dart open the native
+                // scope internally (`em_escopo_nativo`/`owner_em_escopo_nativo`).
                 && !name.starts_with("dartforge_arc_")
                 && !name.starts_with(super::NATIVE_SCOPE_PREFIX)
                 && !name.starts_with(super::GENERIC_OWNED_PREFIX)
@@ -464,7 +464,7 @@ pub(super) fn certify(
     }
     let mut uniforms: Vec<_> = m.arc_uniform_returns.iter().cloned().collect();
     uniforms.sort();
-    // Revalida a assinatura nominal contra os corpos, sem confiar só no nome.
+    // Revalidates the nominal signature against the bodies, without trusting the name alone.
     produce_lowering_ref_returns(m, &mut ps)?;
     let by_name: HashMap<_, _> = fs.iter().map(|f| (&f.symbol, f)).collect();
     let mut callbacks = Vec::new();
@@ -487,10 +487,10 @@ pub(super) fn certify(
     }
     callbacks.sort();
     callbacks.dedup();
-    // Num conjunto, ou com callees de outra imagem, o corpo tipado pode vir
-    // de outra imagem (uma closure do programa passada ao SDK, ou o
-    // contrário): o registro do runtime confere o corpo de cada closure
-    // antes da chamada (`dartforge_arc_alvo_tipada_v1`).
+    // In a set, or with callees from another image, the typed body may come
+    // from another image (a program closure passed to the SDK, or the
+    // reverse): the runtime registry checks the body of each closure
+    // before the call (`dartforge_arc_alvo_tipada_v1`).
     let typed_set = check_typed(m, plans, (idempotence && !m.arc_external_callees).then_some(&[][..]))?;
     let total = callbacks.len() + uniforms.len() + typed_set.len();
     m.arc_aot_ports = Some(ArcAotPorts {
@@ -696,7 +696,7 @@ mod tests {
             p.insert("tipada".into(), DartFunctionPlan::default());
             p.insert("capturar".into(), DartFunctionPlan::default());
             prepare_arc_dart_module(&mut m, &mut p).unwrap();
-            // Duplicar a construção não pode duplicar o registro do mesmo PC/ABI.
+            // Duplicating the construction cannot duplicate the registration of the same PC/ABI.
             let inst = m.functions[3].blocks[0].instructions[0].1.clone();
             m.functions[3].blocks[0].instructions.insert(0, (ValueId(5), inst, Type::Ref));
             prepare_arc_dart_module(&mut m, &mut p).unwrap();
@@ -710,8 +710,8 @@ mod tests {
                 m.functions[2].blocks[0].instructions.retain(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. }));
                 m.functions[2].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
             } else if case == 9 {
-                // O produtor nominal não pode substituir uma prova de retorno
-                // Borrowed depois da verificação dos corpos pelo certificado.
+                // The nominal producer cannot replace a proof of a Borrowed
+                // return after the verification of the bodies by the certificate.
                 p.get_mut("tipada").unwrap().tokens.ret = TokenReturn::Borrowed;
             } else if case != 0 {
                 for (_, inst, _) in &mut m.functions[3].blocks[0].instructions {
@@ -864,7 +864,7 @@ mod tests {
                         ret_ty: Type::I64,
                     }
                 } else {
-                    // Ordem sobre handles é coerção; identidade (`==`) não.
+                    // Ordering over handles is a coercion; identity (`==`) is not.
                     Instruction::ICmp(
                         ICmpOp::Slt,
                         Operand::Val(ValueId(0)),

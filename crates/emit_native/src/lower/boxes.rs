@@ -1,26 +1,26 @@
-//! Caixas, closures e records no lowering (P2, docs/NATIVO-ESPACO-UNIFICADO.md
-//! §3.8 e §4.4): os membros externos feitos em linha e a leitura dos campos de
-//! uma `_Closure` (`INSTANCIA`: código, contexto, corpo tipado, ABI — §2.5).
+//! Boxes, closures and records in the lowering (P2, docs/NATIVO-ESPACO-UNIFICADO.md
+//! §3.8 and §4.4): the external members done inline and the read of the fields of
+//! a `_Closure` (`INSTANCIA`: code, context, typed body, ABI — §2.5).
 //!
-//! Os campos da closure são lidos por `dartforge_object_get` com índice
-//! constante, que o emissor expande em linha (a palavra `b+16+8i`; null e
-//! `Smi` leem zeros): sem chamada ao runtime.
+//! The closure fields are read by `dartforge_object_get` with a constant
+//! index, which the emitter expands inline (the word `b+16+8i`; null and
+//! `Smi` read zeros): no runtime call.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 
-/// O campo do contexto (ou do valor do ambiente direto) de uma `_Closure`;
-/// o campo 0 é o código (a entrada uniforme).
+/// The context field (or the value of the direct environment) of a `_Closure`;
+/// field 0 is the code (the uniform entry).
 pub(super) const CLOSURE_CONTEXTO: i64 = 1;
-/// O campo do corpo tipado.
+/// The field of the typed body.
 pub(super) const CLOSURE_TIPADO: i64 = 2;
-/// O campo da ABI do corpo tipado.
+/// The field of the ABI of the typed body.
 pub(super) const CLOSURE_ABI: i64 = 3;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// A palavra `field` do corpo do objeto `obj`, na representação `ty` (a
-    /// leitura em linha de `dartforge_object_get`). Só para quem já sabe a
-    /// classe do objeto (ou que ele tem o campo).
+    /// The word `field` of the body of object `obj`, in representation `ty` (the
+    /// inline read of `dartforge_object_get`). Only for callers that already know the
+    /// class of the object (or that it has the field).
     pub(super) fn object_word(&mut self, obj: Operand, field: i64, ty: Type) -> Operand {
         self.emit(
             Instruction::CallRuntime {
@@ -32,12 +32,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// O contexto da closure `clo` (o `env` que o corpo recebe): o `_Contexto`
-    /// das capturas, o valor do ambiente direto ou null.
+    /// The context of closure `clo` (the `env` the body receives): the `_Contexto`
+    /// of the captures, the value of the direct environment, or null.
     pub(super) fn closure_context(&mut self, clo: Operand) -> Operand {
         if self.ctx.arc_memory {
-            // A ABI verifica classe/mapa e devolve um empréstimo da closure,
-            // inclusive para o null escalar de tear-offs canônicos.
+            // The ABI checks class/map and returns a borrow of the closure,
+            // including for the scalar null of canonical tear-offs.
             self.emit(Instruction::CallRuntime {
                 name: "dartforge_arc_contexto_closure_v1".to_string(),
                 args: vec![(clo, Type::Ref)],
@@ -48,9 +48,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O membro externo de caixa/closure/record feito em linha, ou `None` (a
-    /// chamada de sempre). `member` é `Classe.name`; `native`, o nome do native,
-    /// se tem.
+    /// The external box/closure/record member done inline, or `None` (the
+    /// usual call). `member` is `Class.name`; `native`, the name of the native,
+    /// if any.
     pub(super) fn inline_box(
         &mut self,
         member: &str,
@@ -60,7 +60,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Option<Operand> {
         let _ = member;
         match (native?, this, args) {
-            // `identical(a, b)` (§2.10): `@df.identico`, sem chamada.
+            // `identical(a, b)` (§2.10): `@df.identico`, without a call.
             ("Identical_comparison", None, [a, b]) => {
                 let a = self.coerce(a.clone(), Type::Ref);
                 let b = self.coerce(b.clone(), Type::Ref);
@@ -73,9 +73,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::I1,
                 ))
             }
-            // `_Smi.hashCode`/`_Mint.hashCode`: o `HashIntegerOp` da VM
-            // (`il_x64.cc`): o produto de 96 bits `v · 0x2d51` (v sem sinal),
-            // as três palavras de 32 bits dele combinadas por xor, 30 bits.
+            // `_Smi.hashCode`/`_Mint.hashCode`: the VM's `HashIntegerOp`
+            // (`il_x64.cc`): the 96-bit product `v · 0x2d51` (v unsigned),
+            // its three 32-bit words combined by xor, 30 bits.
             ("DartForge_int_hashCode", Some(t), []) => {
                 let v = self.coerce(t.clone(), Type::I64);
                 let k = |c: i64| Operand::Constant(Constant::Int(c));
@@ -85,13 +85,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let p_hi = self.emit(Instruction::Mul(hi32, k(0x2d51)), Type::I64);
                 let goes = self.emit(Instruction::LShr(p_lo.clone(), k(32)), Type::I64);
                 let p_hi = self.emit(Instruction::Add(p_hi, goes), Type::I64);
-                // c0 ^ c1 ^ c2: p_lo (baixo), p_hi (baixo) e p_hi >> 32.
+                // c0 ^ c1 ^ c2: p_lo (low), p_hi (low) and p_hi >> 32.
                 let c2 = self.emit(Instruction::LShr(p_hi.clone(), k(32)), Type::I64);
                 let x = self.emit(Instruction::Xor(p_lo, p_hi), Type::I64);
                 let x = self.emit(Instruction::Xor(x, c2), Type::I64);
                 Some(self.emit(Instruction::And(x, k(0x3fff_ffff)), Type::I64))
             }
-            // `_Double._bitsDe(d)`: os bits do `double`.
+            // `_Double._bitsDe(d)`: the bits of the `double`.
             ("DartForge_double_bits", None, [d]) | ("DartForge_double_bits", Some(d), []) => {
                 let d = self.coerce(d.clone(), Type::F64);
                 Some(self.emit(Instruction::Bitcast { op: d, to: Type::I64 }, Type::I64))

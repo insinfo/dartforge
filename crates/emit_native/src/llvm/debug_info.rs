@@ -1,53 +1,53 @@
-//! Informação de depuração (J05): as tabelas de linha do DWARF (CodeView no
-//! Windows) a partir das posições que o lowering registrou em cada função
+//! Debug information (J05): the DWARF line tables (CodeView on
+//! Windows) from the positions the lowering recorded in each function
 //! (`hir::FunctionDebugInfo`).
 //!
-//! Cada função com posições ganha um `DISubprogram` (nome Dart e símbolo) e
-//! cada instrução dela um `!dbg` com a `DILocation` do comando que a gerou.
-//! O emissor escreve, antes da instrução cuja posição muda, a linha
-//! `  ; df.pos <line> <column>`; ao fim da função, [`DebugInfo::annotate`]
-//! troca esses marcadores pelos `!dbg` de todas as instruções (a que não tem
-//! posição herda a anterior; o prólogo, a da declaração). Anotar o texto já
-//! emitido cobre também as instruções auxiliares (coerções, quadro de raízes,
-//! conferência de exceção) sem tocar em cada ponto de emissão, e o LLVM exige
-//! o `!dbg` em toda chamada de uma função com `DISubprogram`.
+//! Each function with positions gets a `DISubprogram` (Dart name and symbol) and
+//! each of its instructions a `!dbg` with the `DILocation` of the statement that generated it.
+//! Before the instruction whose position changes, the emitter writes the line
+//! `  ; df.pos <line> <column>`; at the end of the function, [`DebugInfo::annotate`]
+//! replaces those markers with the `!dbg` of every instruction (one without a
+//! position inherits the previous one; the prologue, that of the declaration). Annotating the
+//! already emitted text also covers the auxiliary instructions (coercions, roots frame,
+//! exception check) without touching every emission point, and LLVM requires
+//! `!dbg` on every call of a function with a `DISubprogram`.
 //!
-//! O resultado é o que um depurador nativo precisa: parar em
-//! `file.dart:line` e mostrar a pilha com os nomes e as linhas Dart
-//! (`gdb`, `lldb`, o depurador do Visual Studio). Variáveis e tipos Dart não
-//! são descritos; a unidade é `FullDebug` porque só nela o LLVM emite o
-//! `DW_TAG_subprogram` de cada função (com `LineTablesOnly`, a pilha mostra
-//! o símbolo de ligação).
+//! The result is what a native debugger needs: stop at
+//! `file.dart:line` and show the stack with the Dart names and lines
+//! (`gdb`, `lldb`, the Visual Studio debugger). Dart variables and types are not
+//! described; the unit is `FullDebug` because only there LLVM emits the
+//! `DW_TAG_subprogram` of each function (with `LineTablesOnly`, the stack shows
+//! the link symbol).
 
 use crate::hir::{FunctionDebugInfo, Function};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-/// O prefixo do marcador de posição no texto de uma função.
+/// The prefix of the position marker in the text of a function.
 pub(super) const MARKER: &str = "  ; df.pos ";
-/// O marcador da posição de uma instrução copiada pelo inlining da HIR:
-/// `line column context` (o índice em `FunctionDebugInfo::embedded_set`). Só o
-/// rastro o lê (`llvm/stack_trace.rs`); para as tabelas de linha é comentário.
+/// The position marker of an instruction copied by HIR inlining:
+/// `line column context` (the index into `FunctionDebugInfo::embedded_set`). Only the
+/// stack trace reads it (`llvm/stack_trace.rs`); for the line tables it is a comment.
 pub(super) const EMBEDDED_MARKER: &str = "  ; df.emb ";
 
-/// Os metadados de depuração do módulo, numerados na ordem de criação.
+/// The debug metadata of the module, numbered in creation order.
 pub(super) struct DebugInfo {
-    /// `!N = …`, na ordem dos números.
+    /// `!N = …`, in number order.
     metadata: Vec<String>,
     files: HashMap<String, u32>,
     locals: HashMap<(u32, u32, u32), u32>,
-    /// O arquivo da unidade de compilação: o da primeira função anotada.
+    /// The file of the compilation unit: that of the first annotated function.
     unit_file: Option<u32>,
 }
 
-/// O número da `DICompileUnit` e do tipo de sub-rotina (vazio), reservados.
+/// The number of the `DICompileUnit` and of the (empty) subroutine type, reserved.
 const UNIT: u32 = 0;
 const TYPE: u32 = 1;
 
 impl DebugInfo {
     pub(super) fn new_one() -> DebugInfo {
         DebugInfo {
-            // Os dois primeiros são preenchidos em `finish`.
+            // The first two are filled in by `finalize`.
             metadata: vec![String::new(), "!DISubroutineType(types: !{})".to_string()],
             files: HashMap::new(),
             locals: HashMap::new(),
@@ -82,8 +82,8 @@ impl DebugInfo {
         n
     }
 
-    /// Anota o texto de `func` (de `define` ao `}`): o `DISubprogram` na
-    /// definição e o `!dbg` em cada instrução; os marcadores saem.
+    /// Annotates the text of `func` (from `define` to `}`): the `DISubprogram` on the
+    /// definition and the `!dbg` on each instruction; the markers go away.
     pub(super) fn annotate(&mut self, text: &str, func: &Function, d: &FunctionDebugInfo) -> String {
         let file = self.file(&d.file);
         let sp = self.new(format!(
@@ -115,7 +115,7 @@ impl DebugInfo {
         exit
     }
 
-    /// Os metadados do módulo (nada, se nenhuma função foi anotada).
+    /// The module metadata (nothing, if no function was annotated).
     pub(super) fn finish(mut self, out: &mut String) {
         let Some(file) = self.unit_file else { return };
         self.metadata[UNIT as usize] = format!(
@@ -124,7 +124,7 @@ impl DebugInfo {
         );
         let version = self.new(match crate::alvo::sistema() {
             crate::alvo::Sistema::Windows => "!{i32 2, !\"CodeView\", i32 1}".to_string(),
-            // O `dsymutil` e o `lldb` do Xcode leem o DWARF 4 sem ressalvas.
+            // Xcode's `dsymutil` and `lldb` read DWARF 4 without caveats.
             crate::alvo::Sistema::MacOs => "!{i32 7, !\"Dwarf Version\", i32 4}".to_string(),
             crate::alvo::Sistema::Linux => "!{i32 7, !\"Dwarf Version\", i32 5}".to_string(),
         });
@@ -138,10 +138,10 @@ impl DebugInfo {
     }
 }
 
-/// O nome que o depurador mostra: o qualificado do Dart (`Conta.depositar`,
-/// `double_of`), tirado do símbolo estável `df.<library>.<class>.<member>`
-/// (a biblioteca vem escapada, sem pontos); sem o prefixo, o da HIR. O
-/// símbolo continua na tabela de símbolos do executável.
+/// The name the debugger shows: the qualified Dart one (`Account.deposit`,
+/// `double_of`), taken from the stable symbol `df.<library>.<class>.<member>`
+/// (the library comes escaped, without dots); without the prefix, the HIR one. The
+/// symbol stays in the symbol table of the executable.
 pub(super) fn dart_name(func: &Function) -> String {
     if func.symbol == "dart_main" {
         return "main".to_string();
@@ -154,7 +154,7 @@ pub(super) fn dart_name(func: &Function) -> String {
         .unwrap_or_else(|| func.name.clone())
 }
 
-/// Texto entre aspas no IR: `"` e `\` e o que não é ASCII visível como `\XX`.
+/// Quoted text in the IR: `"`, `\` and anything that is not visible ASCII as `\XX`.
 fn ir_text(s: &str) -> String {
     let mut r = String::with_capacity(s.len());
     for b in s.bytes() {

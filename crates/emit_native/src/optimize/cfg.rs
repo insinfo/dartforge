@@ -1,6 +1,6 @@
-//! O grafo de fluxo de uma função: predecessores, blocos alcançáveis e a
-//! árvore de dominância (Cooper, Harvey e Kennedy, "A Simple, Fast
-//! Dominance Algorithm"), com as fronteiras de dominância.
+//! The flow graph of a function: predecessors, reachable blocks and the
+//! dominator tree (Cooper, Harvey and Kennedy, "A Simple, Fast
+//! Dominance Algorithm"), with the dominance frontiers.
 
 use super::operands::successors_mut;
 use crate::hir::*;
@@ -9,10 +9,10 @@ use std::collections::HashMap;
 pub struct Cfg {
     pub successors: Vec<Vec<usize>>,
     pub predecessors: Vec<Vec<usize>>,
-    /// Ordem reversa pós-ordem a partir da entrada (só os alcançáveis).
+    /// Reverse post-order from the entry (reachable blocks only).
     pub rpo: Vec<usize>,
-    /// O dominador imediato de cada bloco alcançável (a entrada aponta
-    /// para si); `usize::MAX` nos inalcançáveis.
+    /// The immediate dominator of each reachable block (the entry points
+    /// to itself); `usize::MAX` for unreachable ones.
     pub idom: Vec<usize>,
 }
 
@@ -39,7 +39,7 @@ impl Cfg {
                 }
             }
         }
-        // Pós-ordem iterativa a partir da entrada (posição 0).
+        // Iterative post-order from the entry (position 0).
         let mut seen = vec![false; n];
         let mut post_order = Vec::with_capacity(n);
         if n > 0 {
@@ -92,7 +92,7 @@ impl Cfg {
         self.idom[b] != usize::MAX
     }
 
-    /// As fronteiras de dominância de cada bloco alcançável.
+    /// The dominance frontiers of each reachable block.
     pub fn boundaries(&self) -> Vec<Vec<usize>> {
         let n = self.idom.len();
         let mut df = vec![Vec::new(); n];
@@ -120,7 +120,7 @@ impl Cfg {
         df
     }
 
-    /// Os filhos de cada bloco na árvore de dominância.
+    /// The children of each block in the dominator tree.
     pub fn children(&self) -> Vec<Vec<usize>> {
         let mut f = vec![Vec::new(); self.idom.len()];
         for &b in &self.rpo {

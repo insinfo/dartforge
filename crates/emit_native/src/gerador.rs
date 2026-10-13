@@ -1,64 +1,64 @@
-//! Quem transforma o LLVM IR do AOT em objeto nativo (ou em bitcode para a
-//! otimização na ligação).
+//! What turns the AOT LLVM IR into a native object (or into bitcode for
+//! link-time optimization).
 //!
-//! Dois geradores com o mesmo contrato:
+//! Two generators with the same contract:
 //!
-//! * **embutido** (feature `llvm-embedded`, o padrão da distribuição): o LLVM
-//!   ligado ao próprio dartforge (`crates/llvm`), no processo — sem o Clang
-//!   na máquina de quem usa o dartforge, sem processo por módulo e sem
-//!   gravar o IR em disco;
-//! * **Clang** (`DARTFORGE_GERADOR=clang`, ou uma build sem a feature): o
-//!   `clang -x ir -c` de antes.
+//! * **embedded** (feature `llvm-embutido`, the distribution default): the LLVM
+//!   linked into dartforge itself (`crates/llvm`), in process — without Clang
+//!   on the machine of whoever uses dartforge, without a process per module and without
+//!   writing the IR to disk;
+//! * **Clang** (`DARTFORGE_GERADOR=clang`, or a build without the feature): the
+//!   `clang -x ir -c` of before.
 //!
-//! O que se pede de uma geração é uma [`Generation`]; a chave dos caches
-//! (objeto do programa, SDK da fonte) leva a [`Gerador::identity`] e a
-//! [`Generation::description`], então objetos de um gerador nunca servem ao outro.
+//! What a generation is asked for is a [`Generation`]; the key of the caches
+//! (program object, source SDK) carries the [`Gerador::identity`] and the
+//! [`Generation::description`], so objects from one generator never serve the other.
 //!
-//! Sem `-ffunction-sections`: na produção a LTO do `lld` já emite cada
-//! função na sua seção, e a biblioteca compartilhada do SDK (desenvolvimento)
-//! é ligada inteira.
+//! Without `-ffunction-sections`: in production the `lld` LTO already emits each
+//! function in its own section, and the shared library of the SDK (development)
+//! is linked whole.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// O formato da saída.
+/// The output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
-    /// Objeto nativo do hospedeiro.
+    /// A native object of the host.
     Objeto,
-    /// Bitcode, otimizado com o programa inteiro na ligação (produção).
+    /// Bitcode, optimized with the whole program at link time (production).
     Bitcode,
 }
 
-/// O que se pede de uma geração.
+/// What a generation is asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Generation {
-    /// `-O2` em vez de `-O0`.
+    /// `-O2` instead of `-O0`.
     pub optimize: bool,
     pub format: Format,
-    /// O objeto vai para uma biblioteca compartilhada (código independente
-    /// de posição; o gerador embutido já o emite fora do Windows).
+    /// The object goes into a shared library (position-independent
+    /// code; the embedded generator already emits it that way outside Windows).
     pub shared: bool,
-    /// A CPU-alvo (`--cpu`); `None`, a base do alvo.
+    /// The target CPU (`--cpu`); `None`, the baseline of the target.
     pub cpu: Option<Cpu>,
-    /// O nível da otimização do bitcode antes da ligação (0–2; o ThinLTO
-    /// refaz a otimização no módulo de cada parte). Só o do programa muda
-    /// (`DARTFORGE_PRELINK_O`, medida); o SDK fica no 2.
+    /// The optimization level of the bitcode before linking (0–2; ThinLTO
+    /// redoes the optimization in the module of each part). Only the program one changes
+    /// (`DARTFORGE_PRELINK_O`, measurement); the SDK stays at 2.
     pub prelink: u8,
 }
 
 impl Generation {
-    /// O objeto do programa no perfil pedido: `-O0` em desenvolvimento;
-    /// em produção com o SDK da fonte, bitcode (`lto`).
+    /// The program object in the requested profile: `-O0` in development;
+    /// in production with the source SDK, bitcode (`lto`).
     pub fn of_program(optimize: bool, lto: bool) -> Self {
         let prelink = std::env::var("DARTFORGE_PRELINK_O").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 2).unwrap_or(2);
         Generation { optimize, format: if lto { Format::Bitcode } else { Format::Objeto }, shared: false, cpu: None, prelink }
     }
 
-    /// A descrição que entra nas chaves de cache.
+    /// The description that goes into the cache keys.
     pub fn description(&self) -> String {
-        // O pipeline trocado para medida (`dartforge_llvm::gerar`) muda o
-        // objeto: entra na chave.
+        // The pipeline swapped for measurement (`dartforge_llvm::gerar`) changes the
+        // object: it goes into the key.
         let pipeline = match std::env::var("DARTFORGE_PIPELINE_OBJETO") {
             Ok(p) if self.optimize && self.format == Format::Objeto && !p.is_empty() => format!(" {p}"),
             _ => String::new(),
@@ -75,8 +75,8 @@ impl Generation {
         )
     }
 
-    /// O nível da geração: `-O0` sem otimizar; `-O2` com, salvo o bitcode
-    /// com outra [`Generation::prelink`].
+    /// The level of the generation: `-O0` without optimizing; `-O2` with it, except for bitcode
+    /// with another [`Generation::prelink`].
     fn level(&self) -> &'static str {
         &self.clang_level()[1..]
     }
@@ -92,10 +92,10 @@ impl Generation {
         }
     }
 
-    /// As bandeiras do `clang -x ir -c` equivalentes.
+    /// The equivalent `clang -x ir -c` flags.
     pub fn args_clang(&self) -> Vec<&'static str> {
         let mut args = vec!["-x", "ir", "-c", self.clang_level()];
-        // No COFF, zerar o TimeDateStamp: o objeto é função da chave.
+        // In COFF, zero the TimeDateStamp: the object is a function of the key.
         args.extend(crate::alvo::object_flags());
         if self.shared {
             args.extend(crate::alvo::shared_object_flags());
@@ -110,15 +110,15 @@ impl Generation {
     }
 }
 
-/// A CPU-alvo pedida (`--cpu`): sem ela, a base do alvo (no x86-64, a
-/// `x86-64` — SSE2 —, a mesma do Clang sem `-march`). Vale para o objeto do
-/// programa e, na produção, para a geração de código da LTO (programa e
-/// SDK); o runtime (Rust) e a biblioteca do SDK de desenvolvimento
-/// continuam na base. O executável gerado com uma CPU acima da base só roda
-/// em máquinas que a têm.
+/// The requested target CPU (`--cpu`): without it, the baseline of the target (on x86-64,
+/// `x86-64` — SSE2 —, the same as Clang without `-march`). It applies to the
+/// program object and, in production, to the LTO code generation (program and
+/// SDK); the runtime (Rust) and the development SDK library
+/// stay at the baseline. An executable generated with a CPU above the baseline only runs
+/// on machines that have it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cpu {
-    /// `x86-64`: SSE2 (a base).
+    /// `x86-64`: SSE2 (the baseline).
     X86_64,
     /// `x86-64-v2`: + SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT.
     X86_64V2,
@@ -126,12 +126,12 @@ pub enum Cpu {
     X86_64V3,
     /// `x86-64-v4`: + AVX-512 (F, BW, CD, DQ, VL).
     X86_64V4,
-    /// `native`: a CPU desta máquina (a do LLVM, `sys::getHostCPUName`).
+    /// `native`: the CPU of this machine (LLVM's, `sys::getHostCPUName`).
     Nativa,
 }
 
 impl Cpu {
-    /// A CPU de `--cpu <name>`.
+    /// The CPU of `--cpu <name>`.
     pub fn do_nome(name: &str) -> Result<Cpu, String> {
         let x86 = cfg!(target_arch = "x86_64");
         match name {
@@ -145,7 +145,7 @@ impl Cpu {
         }
     }
 
-    /// O nome do LLVM (`-march=`/`-mcpu=`).
+    /// The LLVM name (`-march=`/`-mcpu=`).
     pub fn name(self) -> &'static str {
         match self {
             Cpu::X86_64 => "x86-64",
@@ -156,7 +156,7 @@ impl Cpu {
         }
     }
 
-    /// `-march=<cpu>` do Clang.
+    /// Clang's `-march=<cpu>`.
     pub(crate) fn march(self) -> &'static str {
         match self {
             Cpu::X86_64 => "-march=x86-64",
@@ -167,8 +167,8 @@ impl Cpu {
         }
     }
 
-    /// O que entra nas chaves de cache: `native` leva os recursos da CPU
-    /// desta máquina (o cache pode ser copiado para outra).
+    /// What goes into the cache keys: `native` carries the CPU features
+    /// of this machine (the cache may be copied to another one).
     pub fn description(self) -> String {
         match self {
             Cpu::Nativa => format!("cpu=native({})", machine_resources()),
@@ -177,8 +177,8 @@ impl Cpu {
     }
 }
 
-/// Os recursos de vetor e de bits da CPU desta máquina, para distinguir o
-/// `native` de duas máquinas nas chaves de cache.
+/// The vector and bit features of the CPU of this machine, to tell apart the
+/// `native` of two machines in the cache keys.
 fn machine_resources() -> String {
     #[cfg(target_arch = "x86_64")]
     {
@@ -195,23 +195,23 @@ fn machine_resources() -> String {
     }
 }
 
-/// Se esta build tem o gerador embutido (e não precisa do Clang para gerar
-/// objetos).
+/// Whether this build has the embedded generator (and does not need Clang to generate
+/// objects).
 pub const GERADOR_EMBUTIDO: bool = cfg!(feature = "llvm-embutido");
 
-/// O gerador de uma compilação.
+/// The generator of a compilation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Gerador {
-    /// O LLVM ligado ao dartforge.
+    /// The LLVM linked into dartforge.
     #[cfg(feature = "llvm-embutido")]
     Builtin,
-    /// O `clang` indicado.
+    /// The given `clang`.
     Clang(PathBuf),
 }
 
 impl Gerador {
-    /// O gerador desta build e deste ambiente: o embutido quando a build o
-    /// tem, salvo `DARTFORGE_GERADOR=clang`; senão o `clang`.
+    /// The generator of this build and this environment: the embedded one when the build
+    /// has it, unless `DARTFORGE_GERADOR=clang`; otherwise `clang`.
     pub fn escolher(clang: &Path) -> Gerador {
         #[cfg(feature = "llvm-embutido")]
         if std::env::var("DARTFORGE_GERADOR").map_or(true, |g| g != "clang") {
@@ -220,11 +220,11 @@ impl Gerador {
         Gerador::Clang(clang.to_path_buf())
     }
 
-    /// O Clang, para o bitcode com o resumo do ThinLTO, quando ele existe;
-    /// senão o gerador de sempre ([`Gerador::escolher`]). A distribuição sem
-    /// o toolchain do sistema (`dartforge empacotar`, N15/N16) não traz o
-    /// Clang: a produção usa o gerador embutido, e o `lld` faz a LTO completa
-    /// (mais lenta, o mesmo programa).
+    /// Clang, for bitcode with the ThinLTO summary, when it exists;
+    /// otherwise the usual generator ([`Gerador::escolher`]). The distribution without
+    /// the system toolchain (`dartforge empacotar`, N15/N16) does not ship
+    /// Clang: production uses the embedded generator, and `lld` does the full LTO
+    /// (slower, the same program).
     pub fn clang_if_any(clang: &Path) -> Gerador {
         if crate::object_cache::clang_identity(clang).is_ok() {
             Gerador::Clang(clang.to_path_buf())
@@ -233,15 +233,15 @@ impl Gerador {
         }
     }
 
-    /// Se o bitcode deste gerador leva o resumo do ThinLTO. O embutido emite
-    /// bitcode sem resumo (a API C do LLVM não escreve o índice): o `lld`
-    /// faz a LTO completa, dividida em partições paralelas na geração de
-    /// código.
+    /// Whether the bitcode of this generator carries the ThinLTO summary. The embedded one emits
+    /// bitcode without a summary (the LLVM C API does not write the index): `lld`
+    /// does the full LTO, split into parallel partitions during code
+    /// generation.
     pub fn thin_bitcode(&self) -> bool {
         matches!(self, Gerador::Clang(_))
     }
 
-    /// A identidade para as chaves de cache (versão, alvo).
+    /// The identity for the cache keys (version, target).
     pub fn identity(&self) -> Result<String, String> {
         match self {
             #[cfg(feature = "llvm-embutido")]
@@ -250,11 +250,11 @@ impl Gerador {
         }
     }
 
-    /// Gera `exit` a partir do IR. Com o Clang, o IR é gravado ao lado da
-    /// saída e o Clang roda no diretório dela com nomes relativos, para o
-    /// `source_filename` e o `.file` do objeto não carregarem o caminho de
-    /// quem compilou (com o cache, o nome é o hash, e o mesmo IR dá o mesmo
-    /// objeto byte a byte).
+    /// Generates `exit` from the IR. With Clang, the IR is written next to the
+    /// output and Clang runs in its directory with relative names, so that the
+    /// `source_filename` and the `.file` of the object do not carry the path of
+    /// whoever compiled (with the cache, the name is the hash, and the same IR gives the same
+    /// object byte for byte).
     pub fn gerar(&self, ir: &str, generation: Generation, exit: &Path) -> Result<(), String> {
         match self {
             #[cfg(feature = "llvm-embutido")]
@@ -270,29 +270,29 @@ impl Gerador {
                 };
                 #[allow(unused_mut)]
                 let mut bytes = dartforge_llvm::gerar(&name, ir, &options)?;
-                // Raízes por mapas: o mapa de pilha do objeto, do formato do
-                // LLVM (~98 bytes por registro) para o compacto (`gcmap.rs`).
-                // `DARTFORGE_SEM_MAPA_COMPACTO=1` deixa o do LLVM no COFF
-                // (medida); no ELF a conversão é obrigatória, e o Mach-O fica
-                // no formato do LLVM.
+                // Roots by maps: the stack map of the object, from the LLVM
+                // format (~98 bytes per record) to the compact one (`gcmap.rs`).
+                // `DARTFORGE_SEM_MAPA_COMPACTO=1` leaves the LLVM one in COFF
+                // (measurement); in ELF the conversion is mandatory, and Mach-O stays
+                // in the LLVM format.
                 if generation.format == Format::Objeto && ir.contains(dartforge_llvm::MARCA_DE_GC) && crate::gcmap::convert_here() {
                     crate::gcmap::convert(&mut bytes)?;
                 }
-                // O rastro simbólico: a tabela de 12 bytes por entrada vira o
-                // DFPC (`compact_stack_trace.rs`); `DARTFORGE_RASTRO_CRU=1` a deixa.
+                // The symbolic stack trace: the 12-byte-per-entry table becomes
+                // DFPC (`compact_stack_trace.rs`); `DARTFORGE_RASTRO_CRU=1` leaves it.
                 if generation.format == Format::Objeto && ir.contains("@df.pcf.") && crate::compact_stack_trace::convert_here() {
                     crate::compact_stack_trace::convert(&mut bytes)?;
                 }
                 std::fs::write(exit, bytes).map_err(|e| format!("falha ao gravar {}: {e}", exit.display()))
             }
             Gerador::Clang(clang) => {
-                // Raízes por mapas: o `clang -x ir` não roda o
-                // `rewrite-statepoints-for-gc`, e o objeto sairia sem mapa —
-                // raízes perdidas em silêncio.
-                // Em bitcode pode: é a parte de um programa grande na
-                // produção, e o passe roda no fecho do ThinLTO distribuído
-                // (`distributed_lto.rs`), que é o único caminho que leva
-                // esse bitcode ao ligador.
+                // Roots by maps: `clang -x ir` does not run
+                // `rewrite-statepoints-for-gc`, and the object would come out without a map —
+                // roots silently lost.
+                // In bitcode it can: it is the part of a large program in
+                // production, and the pass runs at the closing of the distributed ThinLTO
+                // (`distributed_lto.rs`), which is the only path that takes
+                // that bitcode to the linker.
                 if ir.contains("gc \"statepoint-example\"") && generation.format != Format::Bitcode {
                     return Err("as raízes por mapas (--raizes=mapas) exigem o gerador embutido do dartforge, não o Clang".to_string());
                 }

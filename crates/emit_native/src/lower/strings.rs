@@ -1,32 +1,32 @@
-//! Os natives de string feitos em linha (P1, docs/NATIVO-ESPACO-UNIFICADO.md
-//! §3.5, §3.8 e §4.3): as leituras e gravações que a VM faz como intrínseco.
+//! The string natives done inline (P1, docs/NATIVO-ESPACO-UNIFICADO.md
+//! §3.5, §3.8 and §4.3): the reads and writes the VM does as intrinsics.
 //!
-//! Toda `String` é um bloco `_OneByteString`/`_TwoByteString` do espaço de
-//! objetos: o comprimento, as unidades e o hash estão em deslocamentos fixos do
-//! handle, e o código gerado os lê pelos ajudantes `@df.texto_*`
-//! (`llvm/ir_strings.rs`, `alwaysinline`), sem chamada ao runtime:
+//! Every `String` is a `_OneByteString`/`_TwoByteString` block of the object
+//! space: the length, the code units and the hash are at fixed offsets from the
+//! handle, and the generated code reads them through the `@df.texto_*` helpers
+//! (`llvm/ir_strings.rs`, `alwaysinline`), without a runtime call:
 //!
 //! * `length` (`String_getLength`) → `@df.texto_len`;
-//! * `codeUnitAt` → `@df.texto_len` e `@df.texto_unidade` com o teste de
-//!   limites; fora da faixa, o native (`DartForge_string_codeUnitAt`), que lança
-//!   o `RangeError` da VM;
+//! * `codeUnitAt` → `@df.texto_len` and `@df.texto_unidade` with the bounds
+//!   test; out of range, the native (`DartForge_string_codeUnitAt`), which throws
+//!   the VM's `RangeError`;
 //! * `allocateOneByteString`/`allocateTwoByteString` → `@df.texto_alocar`;
 //! * `writeIntoOneByteString`/`writeIntoTwoByteString` → `@df.texto_gravar`;
 //! * `hashCode` (`String_getHashCode`) → `@df.texto_hash`;
 //! * `==` (`DartForge_string_igual_a`, `DartForge_string_iguais`) →
 //!   `@df.texto_igual_a`/`@df.texto_igual`.
 //!
-//! O bloco não se move e as unidades de uma string publicada não mudam, então
-//! não há cache por ponto de leitura: o LLVM junta e tira dos laços as cargas
-//! repetidas.
+//! The block does not move and the code units of a published string do not change, so
+//! there is no cache per read point: LLVM merges repeated loads and hoists them
+//! out of loops.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O membro externo de string feito em linha, ou `None` (a chamada de
-    /// sempre). `member` é `Classe.name` (ou só o nome, numa função de topo) e
-    /// `native` o nome do native, se houver.
+    /// The external string member done inline, or `None` (the usual
+    /// call). `member` is `Class.name` (or just the name, in a top-level function) and
+    /// `native` the name of the native, if any.
     pub(super) fn inline_string(
         &mut self,
         member: &str,
@@ -66,21 +66,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O operando é um `Ref` (o receptor de um native de string sempre é; outra
-    /// representação cai na chamada de sempre).
+    /// The operand is a `Ref` (the receiver of a string native always is; another
+    /// representation falls back to the usual call).
     fn is_ref(&self, op: &Operand) -> bool {
         self.operand_type(op) == Type::Ref
     }
 
-    /// A chamada a um ajudante `@df.texto_*`: não lança (os efeitos estão em
-    /// `llvm/ir_strings.rs`, `HELPER_EFFECTS`), então sem conferência de
-    /// exceção.
+    /// The call to a `@df.texto_*` helper: it does not throw (the effects are in
+    /// `llvm/ir_strings.rs`, `HELPER_EFFECTS`), so there is no exception
+    /// check.
     fn helper(&mut self, name: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
         self.emit(Instruction::CallRuntime { name: name.to_string(), args, ret_ty: ret }, ret)
     }
 
-    /// `s.codeUnitAt(i)`: a unidade lida em linha quando `0 <= i < length`; fora
-    /// da faixa, o native, que lança.
+    /// `s.codeUnitAt(i)`: the code unit read inline when `0 <= i < length`; out of
+    /// range, the native, which throws.
     fn inline_unit(&mut self, s: Operand, i: Operand) -> Operand {
         let n = self.helper("df.texto_len", vec![(s.clone(), Type::Ref)], Type::I64);
         let inside = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);

@@ -1,24 +1,24 @@
-//! `external` das bibliotecas compiladas da fonte (P6): o corpo é a chamada
-//! ao native do runtime.
+//! `external`s of the libraries compiled from source (P6): the body is the call
+//! to the runtime native.
 //!
-//! Na VM, um `external` com `@pragma("vm:external-name", "Nome")` é uma
-//! função C++ do runtime (`runtime/lib/*.cc`). Aqui é a função Rust
-//! `dartforge_nativo_<Nome>` (a tabela `crate::natives`, de δ), com a
-//! assinatura na representação da HIR dos tipos declarados (`int` → `i64`,
-//! `double` → `double`, `bool` → `i8` — o `bool` da ABI C —, o resto,
-//! receptor inclusive, → `Ref`). O erro sai pela exceção pendente.
+//! In the VM, an `external` with `@pragma("vm:external-name", "Name")` is a
+//! C++ function of the runtime (`runtime/lib/*.cc`). Here it is the Rust function
+//! `dartforge_nativo_<Name>` (the `crate::natives` table, from δ), with the
+//! signature in the HIR representation of the declared types (`int` → `i64`,
+//! `double` → `double`, `bool` → `i8` — the C ABI `bool` —, the rest,
+//! receiver included, → `Ref`). The error leaves through the pending exception.
 //!
-//! O native que a tabela ainda marca `Pending` é diagnóstico (N1) — só
-//! vale se a poda mantiver a função (`source.rs`).
+//! A native that the table still marks `Pending` is a diagnostic (N1) — it only
+//! counts if the pruning keeps the function (`source.rs`).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O corpo de um `external` com native: os parâmetros (e `this`) vão ao
-    /// `dartforge_nativo_<Nome>` e o resultado volta na representação do
-    /// retorno. Devolve `false` se a função não tem native.
+    /// The body of an `external` with a native: the parameters (and `this`) go to
+    /// `dartforge_nativo_<Name>` and the result comes back in the representation of the
+    /// return. Returns `false` if the function has no native.
     pub fn lower_external(&mut self, fid: usize, span: Span) -> bool {
         let (native, recognized) = crate::source::native_pragma(self.ctx.program, self.ctx.interner, fid);
         if (recognized || native.is_some()) && self.lower_intrinsic(fid) {
@@ -42,8 +42,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             args.push((op, abi));
         }
         let ret = self.func.return_ty;
-        // O native que o SDK declara com mais de um tipo de retorno devolve
-        // sempre a forma mais larga (`Ref`); o tipo declarado vem da coerção.
+        // A native that the SDK declares with more than one return type always
+        // returns the widest shape (`Ref`); the declared type comes from the coercion.
         let ret_abi = if crate::natives::RETURN_REF.contains(&name.as_str()) && ret != Type::Void {
             Type::Ref
         } else if ret == Type::I1 {
@@ -68,9 +68,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// Intrínsecos (`@pragma("vm:recognized")` sem native) que o código da
-    /// fonte usa: na VM o compilador os gera no lugar da chamada; aqui são
-    /// um corpo curto. `unsafeCast<T>(v)` é `v` (o chamador garante o tipo).
+    /// Intrinsics (`@pragma("vm:recognized")` without a native) that the source code
+    /// uses: in the VM the compiler generates them in place of the call; here they are
+    /// a short body. `unsafeCast<T>(v)` is `v` (the caller guarantees the type).
     fn lower_intrinsic(&mut self, fid: usize) -> bool {
         let f = &self.ctx.program.functions[fid];
         let lib = &self.ctx.program.library(f.library).uri;

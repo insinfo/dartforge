@@ -1,33 +1,33 @@
-//! O ThinLTO **distribuído** da produção com raízes por mapas
-//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4 e Etapa 3, E3.1).
+//! The **distributed** ThinLTO of production with roots by maps
+//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4 and Step 3, E3.1).
 //!
-//! O `lld-link` não aceita passes extras na LTO dele (`-lto-newpm-passes`
-//! é "unknown argument"), e o `rewrite-statepoints-for-gc` tem de rodar
-//! **depois** de toda a otimização, inclusive do inlining entre o programa e
-//! o SDK que o ThinLTO faz. Então a LTO sai do ligador:
+//! `lld-link` does not accept extra passes in its LTO (`-lto-newpm-passes`
+//! is an "unknown argument"), and `rewrite-statepoints-for-gc` has to run
+//! **after** all the optimization, including the inlining between the program and
+//! the SDK that ThinLTO does. So the LTO leaves the linker:
 //!
-//! 1. `lld-link /thinlto-index-only` resolve os símbolos do programa inteiro
-//!    e grava, ao lado de cada bitcode de entrada, o índice dele
-//!    (`<entry>.thinlto.bc`): o que importar de quem;
-//! 2. para cada bitcode, `clang -x ir <entrada> -fthinlto-index=<índice>
-//!    -emit-llvm -c` roda o backend do ThinLTO (importação e otimização) e
-//!    devolve o módulo **em bitcode**, já com o que foi importado embutido;
-//! 3. o LLVM embutido aplica o passe dos mapas e o verificador, gera o
-//!    objeto, e o conversor troca o `.llvm_stackmaps` pelo mapa compacto
-//!    (`gcmap.rs`) — o que tira da produção os ~98 bytes por registro do
-//!    mapa cru;
-//! 4. quem chama liga os objetos nativos, sem LTO.
+//! 1. `lld-link /thinlto-index-only` resolves the symbols of the whole program
+//!    and writes, next to each input bitcode, its index
+//!    (`<entry>.thinlto.bc`): what to import from whom;
+//! 2. for each bitcode, `clang -x ir <input> -fthinlto-index=<index>
+//!    -emit-llvm -c` runs the ThinLTO backend (import and optimization) and
+//!    returns the module **as bitcode**, with what was imported already inlined;
+//! 3. the embedded LLVM applies the maps pass and the verifier, generates the
+//!    object, and the converter replaces `.llvm_stackmaps` with the compact map
+//!    (`gcmap.rs`) — which removes from production the ~98 bytes per record of the
+//!    raw map;
+//! 4. the caller links the native objects, without LTO.
 //!
-//! O cache do ThinLTO do ligador (`/lldltocache`) deixa de valer; o cache é
-//! o de objetos, com a chave no bitcode **depois** da importação (o passo
-//! 2): duas ligações em que a parte importou as mesmas coisas reaproveitam
-//! o passo 3. O passo 2 roda sempre — o índice de uma parte resume o que
-//! ela importa, mas não o conteúdo, e uma chave feita só dele entregaria um
-//! objeto velho.
+//! The linker's ThinLTO cache (`/lldltocache`) no longer applies; the cache is
+//! the object one, keyed by the bitcode **after** the import (step
+//! 2): two links in which the part imported the same things reuse
+//! step 3. Step 2 always runs — the index of a part summarizes what
+//! it imports, but not the content, and a key made from it alone would hand back a
+//! stale object.
 //!
-//! Escrito sem compilar nem executar: o experimento que sustenta os passos
-//! 1 e 2 é o de `E:\dftemp\spec-maps\dtlto` (dois arquivos C); a escala
-//! (as dezenas de partes de um programa grande) não foi medida.
+//! Written without compiling or running: the experiment that supports steps
+//! 1 and 2 is the one in `E:\dftemp\spec-maps\dtlto` (two C files); the scale
+//! (the dozens of parts of a large program) was not measured.
 
 use crate::object_cache::{self, ObjectCache};
 use crate::gerador::Cpu;
@@ -35,19 +35,19 @@ use crate::ligador_windows as lw;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// O que a ligação distribuída recebe.
+/// What the distributed link receives.
 pub struct Request<'a> {
     pub clang: &'a Path,
-    /// Todas as entradas da ligação, na ordem do ligador: as partes do
-    /// programa, os módulos do SDK e a biblioteca do runtime.
+    /// All the inputs of the link, in linker order: the parts of the
+    /// program, the SDK modules and the runtime library.
     pub entries: &'a [PathBuf],
     pub cpu: Option<Cpu>,
-    /// Onde ficam os arquivos intermediários.
+    /// Where the intermediate files live.
     pub staging: &'a Path,
     pub cache: Option<&'static ObjectCache>,
 }
 
-/// Se o arquivo começa como bitcode do LLVM (cru ou no envoltório).
+/// Whether the file starts as LLVM bitcode (raw or in the wrapper).
 fn is_bitcode(path: &Path) -> bool {
     use std::io::Read;
     let mut start = [0u8; 4];
@@ -58,7 +58,7 @@ fn is_bitcode(path: &Path) -> bool {
     start == *b"BC\xC0\xDE" || start == [0xDE, 0xC0, 0x17, 0x0B]
 }
 
-/// O índice que o `lld-link /thinlto-index-only` grava para uma entrada.
+/// The index that `lld-link /thinlto-index-only` writes for an input.
 fn index_of(entry: &Path) -> PathBuf {
     let mut name = entry.as_os_str().to_os_string();
     name.push(".thinlto.bc");
@@ -72,24 +72,24 @@ fn failure_of(statement: &str, exit: &std::process::Output) -> String {
     format!("{statement} falhou ({}):\n{}", exit.status, lines.join("\n"))
 }
 
-/// As entradas da ligação final: cada bitcode trocado pelo objeto nativo
-/// dele (com o mapa compacto), as demais como vieram, na mesma ordem.
+/// The inputs of the final link: each bitcode replaced by its native object
+/// (with the compact map), the others as they came, in the same order.
 ///
-/// # Erros
-/// O `lld-link` não gerou os índices, o Clang recusou uma parte, ou o
-/// passe dos mapas, o verificador ou o gerador de código falharam nela.
+/// # Errors
+/// `lld-link` did not generate the indices, Clang rejected a part, or the
+/// maps pass, the verifier or the code generator failed on it.
 pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(p.staging).map_err(|e| format!("{}: {e}", p.staging.display()))?;
     let bitcodes: Vec<bool> = p.entries.iter().map(|e| is_bitcode(e)).collect();
     if !bitcodes.iter().any(|b| *b) {
         return Ok(p.entries.to_vec());
     }
-    // Um diretório só desta ligação. O ligador grava o índice de cada
-    // entrada ao lado dela, e os bitcodes do SDK são de todas as compilações:
-    // duas ligações ao mesmo tempo (o harness com `--jobs`) gravavam o índice
-    // uma da outra, e a ligação falhava ou importava errado. Cada entrada
-    // bitcode entra por uma ligação física (cópia, noutro volume) aqui
-    // dentro, e os intermediários também ficam aqui.
+    // A directory for this link only. The linker writes the index of each
+    // input next to it, and the SDK bitcodes belong to every compilation:
+    // two links at the same time (the harness with `--jobs`) wrote each other's
+    // index, and the link failed or imported wrongly. Each bitcode
+    // input enters through a physical link (a copy, on another volume) in here,
+    // and the intermediates stay here too.
     static SEQUENCE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let private = p.staging.join(format!(
         "lto-{}-{}",
@@ -111,10 +111,10 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         entries.push(dest);
     }
     let p = &Request { clang: p.clang, entries: &entries, cpu: p.cpu, staging: &private, cache: p.cache };
-    // 1. Os índices: a ligação inteira, só até a resolução de símbolos. O
-    // `lld-link` (Windows) e o `ld.lld` (Linux) aceitam o modo; o `ld64.lld`
-    // não (no macOS a produção com mapas usa a LTO do ligador com o passe
-    // dos mapas, `ligador_macos.rs`).
+    // 1. The indices: the whole link, only up to symbol resolution.
+    // `lld-link` (Windows) and `ld.lld` (Linux) accept the mode; `ld64.lld`
+    // does not (on macOS production with maps uses the linker's LTO with the
+    // maps pass, `ligador_macos.rs`).
     let (fictitious_exit, mut statement) = match crate::alvo::sistema() {
         crate::alvo::Sistema::Windows => {
             let sysroot = lw::SysrootWindows::locate(p.clang)?;
@@ -166,7 +166,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
     if !exit.status.success() {
         return Err(failure_of("o ligador (índices do ThinLTO)", &exit));
     }
-    // 2 e 3. O backend do ThinLTO de cada bitcode e o fecho com os mapas.
+    // 2 and 3. The ThinLTO backend of each bitcode and the closing with the maps.
     let identity = format!("{}|{}", dartforge_llvm::identity()?, object_cache::clang_identity(p.clang)?);
     let level = format!("-O{}", crate::driver::lto_level());
     let cpu_description = p.cpu.map_or(String::new(), Cpu::description);
@@ -185,8 +185,8 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         let pos = p.staging.join(format!("parte{i}.pos.bc"));
         let mut statement = Command::new(p.clang);
         statement.arg(&level).args(["-x", "ir"]).arg(entry);
-        // Sem índice, o bitcode não tem resumo do ThinLTO (o do gerador
-        // embutido): é otimizado sozinho, sem importar nada.
+        // Without an index, the bitcode has no ThinLTO summary (the one from the embedded
+        // generator): it is optimized alone, importing nothing.
         if index.is_file() {
             let mut option = std::ffi::OsString::from("-fthinlto-index=");
             option.push(index.as_os_str());
@@ -207,8 +207,8 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             if with_maps && convert_map {
                 crate::gcmap::convert(&mut object)?;
             }
-            // A tabela do rastro, quando o objeto a tem (a seção é achada pelo
-            // nome; sem ela, nada muda).
+            // The stack trace table, when the object has it (the section is found by
+            // name; without it, nothing changes).
             if convert_stack_trace {
                 crate::compact_stack_trace::convert(&mut object)?;
             }
@@ -255,8 +255,8 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         .enumerate()
         .map(|(i, r)| r.unwrap_or_else(|| Err(format!("a parte {i} da LTO distribuída não foi gerada"))))
         .collect();
-    // Com o cache, os objetos moram nele e o diretório desta ligação sai;
-    // sem ele, os objetos são daqui e ficam para a ligação final.
+    // With the cache, the objects live in it and the directory of this link goes away;
+    // without it, the objects are from here and stay for the final link.
     if !keep && p.cache.is_some() {
         let _ = std::fs::remove_dir_all(p.staging);
     }

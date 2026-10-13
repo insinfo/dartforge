@@ -1,24 +1,24 @@
-//! Resumo de exceções por função: quem não pode deixar exceção pendente.
+//! Per-function summary of exceptions: who cannot leave a pending exception.
 //!
-//! No código gerado, uma exceção é um estado pendente do runtime que quem
-//! chama confere logo depois da chamada (`dartforge_exception_pending`,
-//! `FnBuilder::emit_call_with_check`). Em toda chamada o estado está limpo
-//! (cada operação que pode lançar é conferida em seguida), então, depois de
-//! uma chamada a uma função que não pode lançar, a conferência é sempre
-//! falsa. O resumo é o maior ponto fixo: começa com todas as funções do
-//! módulo sem lançar e tira as que têm uma operação que lança. Uma função
-//! num ciclo de chamadas (a recursão, direta ou mútua) lança: o prólogo
-//! confere a pilha e lança `StackOverflowError` (`llvm/mod.rs`,
-//! `emit_stack_check`; docs/NATIVO-PROJETOS-REAIS.md C22) — sem
-//! isso `void f() => f();` não tinha conferência nenhuma, nem o contexto em
-//! que a da pilha mora, e estourava a pilha do sistema.
+//! In the generated code, an exception is a pending state of the runtime that the
+//! caller checks right after the call (`dartforge_exception_pending`,
+//! `FnBuilder::emit_call_with_check`). At every call the state is clear
+//! (each operation that may throw is checked right after), so, after
+//! a call to a function that cannot throw, the check is always
+//! false. The summary is the greatest fixpoint: it starts with every function of the
+//! module not throwing and removes those that have an operation that throws. A function
+//! in a call cycle (recursion, direct or mutual) throws: the prologue
+//! checks the stack and throws `StackOverflowError` (`llvm/mod.rs`,
+//! `emit_stack_check`; docs/NATIVO-PROJETOS-REAIS.md C22) — without
+//! that, `void f() => f();` had no check at all, nor the context in
+//! which the stack check lives, and overflowed the system stack.
 
 use super::cfg::successors;
 use crate::hir::*;
 use crate::llvm::externs::effects_of;
 use std::collections::HashSet;
 
-/// A instrução pode deixar exceção pendente?
+/// May the instruction leave a pending exception?
 pub fn instruction_throws(inst: &Instruction, do_not_throw: &HashSet<String>) -> bool {
     match inst {
         Instruction::CallStatic { symbol, .. } => !do_not_throw.contains(symbol),
@@ -32,29 +32,29 @@ pub fn instruction_throws(inst: &Instruction, do_not_throw: &HashSet<String>) ->
         | Instruction::NativeCall { .. }
         | Instruction::TypedCall { .. }
         | Instruction::CompositeNativeCall { .. } => true,
-        // Caixa de tipo errado ou nula, null, divisão por zero, `toInt` de
-        // NaN ou infinito.
+        // A box of the wrong type or null, null, division by zero, `toInt` of
+        // NaN or infinity.
         Instruction::Unbox { to, .. } => !to.is_vector(),
         Instruction::CheckNotNull(_) | Instruction::SDiv(..) | Instruction::SRem(..) | Instruction::DoubleToInt(_) => true,
         _ => false,
     }
 }
 
-/// A função pode lançar, dado o conjunto corrente das que não lançam?
+/// May the function throw, given the current set of functions that do not throw?
 fn function_throws(func: &Function, do_not_throw: &HashSet<String>) -> bool {
     func.blocks.iter().any(|b| {
         matches!(b.terminator, Terminator::Throw(_)) || b.instructions.iter().any(|(_, i, _)| instruction_throws(i, do_not_throw))
     })
 }
 
-/// As funções do módulo que não lançam.
+/// The functions of the module that do not throw.
 ///
-/// O maior ponto fixo de cima, calculado por lista de trabalho: uma função
-/// lança se tem uma operação que lança por si (com todas as do módulo
-/// supostas sem lançar) ou se chama (`CallStatic`) uma que lança. Parte das
-/// que lançam por si e sobe pelas arestas inversas de chamada. Era uma
-/// varredura do módulo inteiro por rodada, uma rodada por nível da cadeia de
-/// chamadas — quadrática num programa real (o new_sali/backend).
+/// The greatest fixpoint from above, computed with a worklist: a function
+/// throws if it has an operation that throws by itself (with all the module's
+/// functions assumed not to throw) or if it calls (`CallStatic`) one that throws. It starts
+/// from those that throw by themselves and climbs the inverse call edges. It used to be
+/// a scan of the whole module per round, one round per level of the call
+/// chain — quadratic in a real program (new_sali/backend).
 pub fn do_not_throw(module: &Module) -> HashSet<String> {
     use std::collections::HashMap;
     let all: HashSet<String> = module.functions.iter().map(|f| f.symbol.clone()).collect();
@@ -89,9 +89,9 @@ pub fn do_not_throw(module: &Module) -> HashSet<String> {
     all.into_iter().filter(|s| !throws.contains(s.as_str())).collect()
 }
 
-/// As funções do módulo que estão num ciclo de chamadas diretas
-/// (`CallStatic`): os componentes fortemente conexos com mais de uma função,
-/// ou a função que chama a si mesma (Tarjan, iterativo).
+/// The functions of the module that are in a cycle of direct calls
+/// (`CallStatic`): the strongly connected components with more than one function,
+/// or the function that calls itself (Tarjan, iterative).
 fn in_cycle(module: &Module) -> Vec<bool> {
     use std::collections::HashMap;
     let n = module.functions.len();
@@ -121,9 +121,9 @@ fn in_cycle(module: &Module) -> Vec<bool> {
     cycle
 }
 
-/// Toda operação da função que pode lançar é conferida logo em seguida? (As
-/// externas do SDK casadas pelo nome são conferidas no fim do comando; com
-/// elas, uma conferência intermediária pode ser a que pega a exceção.)
+/// Is every operation of the function that may throw checked right after? (The
+/// SDK externals matched by name are checked at the end of the statement; with
+/// them, an intermediate check may be the one that catches the exception.)
 pub fn checks_all(func: &Function, do_not_throw: &HashSet<String>) -> bool {
     func.blocks.iter().all(|b| {
         let n = b.instructions.len();

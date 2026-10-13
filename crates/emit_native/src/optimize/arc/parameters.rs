@@ -1,32 +1,32 @@
-//! Transporta fatos semânticos do lowering aos planos da mesma versão da HIR.
+//! Carries semantic facts from the lowering to the plans of the same HIR version.
 use super::*;
 use std::collections::HashMap;
 
-/// Classifica parâmetros escalares explicitamente registrados pelo lowering.
+/// Classifies scalar parameters explicitly recorded by the lowering.
 ///
-/// Revalida símbolos, IDs e representações antes de publicar classes Trivial.
-/// A origem semântica dos fatos continua sendo responsabilidade do lowering;
-/// i64 sem fato não é classificado. Tracing devolve zero sem alterar planos.
-/// Não prepara tabelas, retornos, instruções, parâmetros ocultos ou borrows.
-/// Retorna o número de novas classificações; repetir fatos válidos devolve zero.
+/// Revalidates symbols, IDs and representations before publishing Trivial classes.
+/// The semantic origin of the facts remains the lowering's responsibility;
+/// an i64 without a fact is not classified. Tracing returns zero without changing plans.
+/// Does not prepare tables, returns, instructions, hidden parameters or borrows.
+/// Returns the number of new classifications; repeating valid facts returns zero.
 ///
-/// # Erros
-/// Símbolo/ID obsoleto, parâmetros repetidos, plano ausente, representação
-/// incompatível ou classe conflitante. Nenhuma classe é publicada em erro.
+/// # Errors
+/// Stale symbol/ID, repeated parameters, missing plan, incompatible
+/// representation or conflicting class. No class is published on error.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::{HashMap, HashSet};
 /// let mut m = Module::new();
-/// m.memoria_arc = true;
+/// m.arc_memory = true;
 /// m.functions.push(Function { symbol: "int_dart".into(), name: "int_dart".into(),
-///     depuracao: None, params: vec![(ValueId(0), "numero".into(), Type::I64)],
+///     debug_info: None, params: vec![(ValueId(0), "number".into(), Type::I64)],
 ///     return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///     terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
-/// m.parametros_escalares_dart.insert("int_dart".into(), HashSet::from([ValueId(0)]));
-/// let mut planos = HashMap::from([("int_dart".into(), PlanoFuncaoDart::default())]);
-/// assert_eq!(produzir_parametros_escalares_do_lowering(&m, &mut planos)?, 1);
-/// assert_eq!(inserir_arc_funcoes_dart(&mut m.functions, &mut planos)?, (0, 0));
+/// m.dart_scalar_parameters.insert("int_dart".into(), HashSet::from([ValueId(0)]));
+/// let mut plans = HashMap::from([("int_dart".into(), DartFunctionPlan::default())]);
+/// assert_eq!(produce_lowering_scalar_parameters(&m, &mut plans)?, 1);
+/// assert_eq!(insert_arc_dart_functions(&mut m.functions, &mut plans)?, (0, 0));
 /// # Ok::<(), String>(())
 /// ```
 pub fn produce_lowering_scalar_parameters(
@@ -36,29 +36,29 @@ pub fn produce_lowering_scalar_parameters(
     produce(module, plans, false)
 }
 
-/// Classifica como Trivial os IDs RTI registrados pelo produtor nativo.
+/// Classifies as Trivial the RTI IDs recorded by the native producer.
 ///
-/// Exige parâmetro I64 e fato RTI explícito, sem marca de escalar Dart no
-/// mesmo ID. Não certifica vida do universo, pins ou recarga de módulos.
-/// Tracing não altera planos; repetir fatos válidos devolve zero.
+/// Requires an I64 parameter and an explicit RTI fact, without a Dart scalar mark on the
+/// same ID. Does not certify the lifetime of the universe, pins or module reload.
+/// Tracing does not change plans; repeating valid facts returns zero.
 ///
-/// # Erros
-/// Fato obsoleto, representação diferente de I64, origens conflitantes,
-/// plano ausente ou ownership incompatível. Publicação é atômica.
+/// # Errors
+/// Stale fact, representation other than I64, conflicting origins,
+/// missing plan or incompatible ownership. Publication is atomic.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::{HashMap, HashSet};
 /// let mut m = Module::new();
-/// m.memoria_arc = true;
-/// m.functions.push(Function { symbol: "generica".into(), name: "generica".into(),
-///     depuracao: None, params: vec![(ValueId(0), "$tipos".into(), Type::I64)],
+/// m.arc_memory = true;
+/// m.functions.push(Function { symbol: "generic".into(), name: "generic".into(),
+///     debug_info: None, params: vec![(ValueId(0), "$types".into(), Type::I64)],
 ///     return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///     terminator: Terminator::Return(None) }] });
-/// m.parametros_rti_dart.insert("generica".into(), HashSet::from([ValueId(0)]));
-/// let mut planos = HashMap::from([("generica".into(), PlanoFuncaoDart::default())]);
-/// assert_eq!(produzir_parametros_rti_do_lowering(&m, &mut planos)?, 1);
-/// assert_eq!(inserir_arc_funcoes_dart(&mut m.functions, &mut planos)?, (0, 0));
+/// m.dart_rti_parameters.insert("generic".into(), HashSet::from([ValueId(0)]));
+/// let mut plans = HashMap::from([("generic".into(), DartFunctionPlan::default())]);
+/// assert_eq!(produce_lowering_rti_parameters(&m, &mut plans)?, 1);
+/// assert_eq!(insert_arc_dart_functions(&mut m.functions, &mut plans)?, (0, 0));
 /// # Ok::<(), String>(())
 /// ```
 pub fn produce_lowering_rti_parameters(

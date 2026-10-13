@@ -70,7 +70,7 @@ fn invoke_result_exists_only_after_success_including_in_phi() {
             .contains("b3: resultado v10")
     );
 
-    // Phi no sucessor imediato usa o resultado na própria aresta que o publica.
+    // A phi in the immediate successor uses the result on the very edge that publishes it.
     f.blocks.truncate(3);
     f.blocks[1].instructions = vec![(
         ValueId(11),

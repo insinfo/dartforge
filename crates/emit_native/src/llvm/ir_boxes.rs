@@ -1,25 +1,25 @@
-//! A emissão das caixas, células, contextos, closures e records (P2,
-//! docs/NATIVO-ESPACO-UNIFICADO.md §2.5, §3.5 e §4.4): `Box`/`Unbox` escalares,
+//! Emission of boxes, cells, contexts, closures and records (P2,
+//! docs/NATIVO-ESPACO-UNIFICADO.md §2.5, §3.5 and §4.4): scalar `Box`/`Unbox`,
 //! `AllocCell`/`CellGet`/`CellSet`, `AllocEnv`/`EnvGet`, `AllocClosure`,
-//! `AllocClosureTyped`, `TearOff`, `AllocRecord` e os ajudantes
-//! `@df.caixa_*`/`@df.desencaixa_*`/`@df.identico` do prelúdio.
+//! `AllocClosureTyped`, `TearOff`, `AllocRecord` and the
+//! `@df.caixa_*`/`@df.desencaixa_*`/`@df.identico` helpers of the prelude.
 //!
-//! Tudo é bloco do espaço de objetos, alocado em linha por `@df.allocate` (P0) e
-//! lido/gravado por deslocamento a partir do handle (`h = block + 2`, então a
-//! palavra `b + k` está em `h + k − 2`):
+//! Everything is a block of the object space, allocated inline by `@df.allocate` (P0) and
+//! read/written by offset from the handle (`h = block + 2`, so the
+//! word `b + k` is at `h + k − 2`):
 //!
-//! * `_Mint`/`_Double` (`BRUTO`, w = 1): o valor em `h+14`;
-//! * `bool`: as estáticas do runtime ativo, lidas do `Context` (deslocamentos
-//!   360 e 368, `layout::context::VERDADEIRO`/`FALSO`; §4.10 item 9);
-//! * `_Celula` (`INSTANCIA`, 1 campo): o valor em `h+14`, o bit do mapa (`h+6`)
-//!   pela representação gravada;
-//! * `_Contexto` (`INSTANCIA`, k campos): capturas em `h+14+8i`, cada uma na
-//!   representação do tipo da variável (a mesma com que o `EnvGet` a lê);
-//! * `_Closure` (`INSTANCIA`, 4 campos): código `h+14`, contexto `h+22` (`Ref`,
-//!   o único bit do mapa), corpo tipado `h+30`, ABI `h+38`;
-//! * `_Record` posicional (`REFS`, w = 1 + k): k em `h+14`, campos em `h+22+8i`.
+//! * `_Mint`/`_Double` (`BRUTO`, w = 1): the value at `h+14`;
+//! * `bool`: the statics of the active runtime, read from the `Context` (offsets
+//!   360 and 368, `layout::context::VERDADEIRO`/`FALSO`; §4.10 item 9);
+//! * `_Celula` (`INSTANCIA`, 1 field): the value at `h+14`, the map bit (`h+6`)
+//!   according to the written representation;
+//! * `_Contexto` (`INSTANCIA`, k fields): captures at `h+14+8i`, each one in the
+//!   representation of the type of the variable (the same one `EnvGet` reads it with);
+//! * `_Closure` (`INSTANCIA`, 4 fields): code `h+14`, context `h+22` (`Ref`,
+//!   the only map bit), typed body `h+30`, ABI `h+38`;
+//! * positional `_Record` (`REFS`, w = 1 + k): k at `h+14`, fields at `h+22+8i`.
 //!
-//! Um objeto recém-alocado é jovem: as gravações da criação não têm barreira.
+//! A freshly allocated object is young: the writes of its creation have no barrier.
 
 use super::LlvmEmitter;
 use crate::hir::*;
@@ -27,32 +27,32 @@ use dartforge_runtime::layout::{self, cid, estado, flags};
 use std::fmt::Write;
 
 #[cfg(test)]
-/// O cabeçalho (palavra 0) de um `_Mint`: `JOVEM | BRUTO << 8 | 1 << 16 | 3 << 32`.
+/// The header (word 0) of a `_Mint`: `JOVEM | BRUTO << 8 | 1 << 16 | 3 << 32`.
 const CAB_MINT: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 1, cid::MINT);
-/// O de um `_Double`.
+/// That of a `_Double`.
 #[cfg(test)]
 const CAB_DOUBLE: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 1, cid::DOUBLE);
-/// O de uma `_Celula` (1 campo).
+/// That of a `_Celula` (1 field).
 const CAB_CELL: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::INSTANCIA, 1, cid::CELULA);
-/// O de uma `_Closure` (4 campos).
+/// That of a `_Closure` (4 fields).
 const CAB_CLOSURE: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::INSTANCIA, 4, cid::CLOSURE);
 
-/// Os ajudantes da P2 (§3.5), impressos no prelúdio de cada módulo por
-/// `emit_runtime_decls`. As constantes dos cabeçalhos estão escritas por
-/// extenso (o texto é `const`); o teste `helpers_with_layout_headers`
-/// confere que são as de [`layout::header_word`].
+/// The P2 helpers (§3.5), printed in the prelude of each module by
+/// `emit_runtime_decls`. The header constants are written out in
+/// full (the text is `const`); the `helpers_with_layout_headers` test
+/// checks that they are those of [`layout::header_word`].
 ///
-/// * `@df.caixa_int`: `Smi` na faixa de 63 bits; senão `_Mint` novo.
-/// * `@df.desencaixa_int`: `Smi` → `ashr 1`; `_Mint` → o valor; senão o
-///   runtime, que lança `TypeError` (exceção pendente).
-/// * `@df.caixa_double`/`@df.desencaixa_double`: idem com `_Double`.
-/// * `@df.num_para_double`: um `num` em `Ref` como `double` (`Smi` e `_Mint`
-///   convertidos; o resto pelo `@df.desencaixa_double`): o operando direito
-///   de `d op= n` com `d` `double` e `n` `num`.
-/// * `@df.caixa_bool`: `select` entre as estáticas; `@df.desencaixa_bool`
-///   compara com elas, e o resto vai ao runtime.
-/// * `@df.identico`: `identical` (§2.10) — o mesmo handle, ou dois `_Mint`/
-///   `_Double` com os mesmos bits.
+/// * `@df.caixa_int`: a `Smi` in the 63-bit range; otherwise a new `_Mint`.
+/// * `@df.desencaixa_int`: `Smi` → `ashr 1`; `_Mint` → the value; otherwise the
+///   runtime, which throws `TypeError` (pending exception).
+/// * `@df.caixa_double`/`@df.desencaixa_double`: likewise with `_Double`.
+/// * `@df.num_para_double`: a `num` in a `Ref` as a `double` (`Smi` and `_Mint`
+///   converted; the rest through `@df.desencaixa_double`): the right operand
+///   of `d op= n` with `d` a `double` and `n` a `num`.
+/// * `@df.caixa_bool`: a `select` between the statics; `@df.desencaixa_bool`
+///   compares with them, and the rest goes to the runtime.
+/// * `@df.identico`: `identical` (§2.10) — the same handle, or two `_Mint`/
+///   `_Double` with the same bits.
 pub const HELPERS: &str = "define internal i64 @df.caixa_int(i64 %v) alwaysinline {\n\
   %a = add i64 %v, 4611686018427387904\n\
   %ok = icmp ult i64 %a, -9223372036854775808\n\
@@ -215,10 +215,10 @@ nao:\n\
   ret i1 false\n\
 }\n";
 
-/// Os efeitos de cada ajudante `@df.*` deste arquivo chamado por
-/// `CallRuntime`: `(name, allocates, lança)`. `externs::effects_of` os consulta
-/// antes da tabela de externs (um ajudante fora daqui é conservador). Os
-/// desencaixes lançam `TypeError` (que aloca) pelo runtime.
+/// The effects of each `@df.*` helper of this file called by
+/// `CallRuntime`: `(name, allocates, throws)`. `externs::effects_of` consults them
+/// before the extern table (a helper outside here is conservative). The
+/// unboxings throw `TypeError` (which allocates) through the runtime.
 pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.caixa_int", true, false),
     ("df.caixa_double", true, false),
@@ -232,10 +232,10 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.valor_smi", false, false),
 ];
 
-/// O estado da emissão de caixas e closures por módulo.
+/// The per-module emission state of boxes and closures.
 #[derive(Default)]
 pub(super) struct BoxState {
-    /// Contador dos nomes locais das instruções sem valor (`CellSet`).
+    /// Counter of the local names of the instructions without a value (`CellSet`).
     next_item: u32,
 }
 
@@ -248,7 +248,7 @@ impl BoxState {
 }
 
 impl LlvmEmitter<'_> {
-    /// `Box` de um escalar (`I64`, `F64`, `I1`/`I8`) em `%v<v>`.
+    /// `Box` of a scalar (`I64`, `F64`, `I1`/`I8`) into `%v<v>`.
     pub(super) fn emit_box(&mut self, v: u32, op: &Operand, from: Type) {
         match from {
             Type::F64 => {
@@ -271,8 +271,8 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// `Unbox` para um escalar (`I64`, `F64`, `I1`); lança `TypeError` pela
-    /// pendência.
+    /// `Unbox` to a scalar (`I64`, `F64`, `I1`); throws `TypeError` through the
+    /// pending state.
     pub(super) fn emit_unbox(&mut self, v: u32, op: &Operand, to: Type) {
         let only = self.coerce(op, Type::Ref);
         match to {
@@ -288,26 +288,26 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// A alocação em linha (`@df.allocate`) de um bloco de `w` palavras com o
-    /// cabeçalho `hdr`, em `%v<v>`, e o ponteiro dele (o handle) em `%bp<v>`.
-    /// Acima de `TLAB_N` palavras, `@df.allocate` vai ao runtime.
+    /// The inline allocation (`@df.allocate`) of a block of `w` words with
+    /// header `hdr`, into `%v<v>`, and its pointer (the handle) into `%bp<v>`.
+    /// Above `TLAB_N` words, `@df.allocate` goes to the runtime.
     fn allocate_block(&mut self, v: u32, hdr: u64, w: usize) {
         writeln!(self.out, "  %v{v} = call i64 @df.alocar(i64 {}, i64 {w})", hdr as i64).unwrap();
         writeln!(self.out, "  %bp{v} = inttoptr i64 %v{v} to ptr").unwrap();
     }
 
-    /// Grava `value` (texto do IR, `i64`) na palavra de deslocamento `off`
-    /// (a partir do bloco) do objeto `%bp<v>`; `suffix` torna o nome único.
+    /// Writes `value` (IR text, `i64`) into the word at offset `off`
+    /// (from the block) of object `%bp<v>`; `suffix` makes the name unique.
     fn store_word(&mut self, v: u32, suffix: &str, off: usize, value: &str) {
         let d = off as i64 - layout::DESLOCAMENTO_DO_HANDLE;
         writeln!(self.out, "  %bg{v}_{suffix} = getelementptr inbounds i8, ptr %bp{v}, i64 {d}").unwrap();
         writeln!(self.out, "  store i64 {value}, ptr %bg{v}_{suffix}, align 8").unwrap();
     }
 
-    /// Grava o `map` (os 32 primeiros bits de referência) do objeto `%bp<v>`.
+    /// Writes the `map` (the first 32 reference bits) of object `%bp<v>`.
     fn store_map(&mut self, v: u32, map: u32) {
         if map == 0 {
-            // A palavra 1 do cabeçalho vem zerada da alocação.
+            // Word 1 of the header comes zeroed from the allocation.
             return;
         }
         let d = layout::desl::MAPA as i64 - layout::DESLOCAMENTO_DO_HANDLE;
@@ -315,15 +315,15 @@ impl LlvmEmitter<'_> {
         writeln!(self.out, "  store i32 {}, ptr %bm{v}, align 4", map as i32).unwrap();
     }
 
-    /// Todos os elementos do record são `Ref` (o lowering encaixota,
-    /// `lower_positional_record`)? Senão, o caminho lento com os pares.
+    /// Are all the elements of the record `Ref`s (the lowering boxes them,
+    /// `lower_positional_record`)? Otherwise, the slow path with the pairs.
     fn refs_only_record(&self, elements: &[(Operand, u8)]) -> bool {
         elements.iter().all(|(op, _)| self.type_of(op) == Type::Ref)
     }
 
-    /// O `alloca` do bloco de entrada de um `AllocRecord`: os pares
-    /// `(bits, tag)` do caminho lento (elemento sem caixa), ou os `Ref` de um
-    /// record grande demais para a TLAB.
+    /// The `alloca` of the entry block of an `AllocRecord`: the
+    /// `(bits, tag)` pairs of the slow path (an unboxed element), or the `Ref`s of a
+    /// record too large for the TLAB.
     pub(super) fn record_buffer(&mut self, v: u32, elements: &[(Operand, u8)]) {
         if self.arc_owned_factories() {
             if !elements.is_empty() {
@@ -336,11 +336,11 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// O record posicional literal (`_Record`, `REFS`).
+    /// The literal positional record (`_Record`, `REFS`).
     pub(super) fn emit_alloc_record(&mut self, v: u32, elements: &[(Operand, u8)]) {
         let n = elements.len();
-        // Sob ARC preparado, a fábrica Owned (os campos já são `Ref`,
-        // conferido pela preparação), que conta as arestas.
+        // Under prepared ARC, the Owned factory (the fields are already `Ref`s,
+        // checked by the preparation), which counts the edges.
         if self.arc_owned_factories() {
             for (i, (elem, _)) in elements.iter().enumerate() {
                 let s = self.coerce(elem, Type::Ref);
@@ -352,8 +352,8 @@ impl LlvmEmitter<'_> {
             return;
         }
         if !self.refs_only_record(elements) {
-            // Caminho lento (um elemento sem caixa, que o lowering ainda não
-            // encaixotou): o runtime encaixota com as raízes certas.
+            // Slow path (an unboxed element, which the lowering has not
+            // boxed yet): the runtime boxes with the right roots.
             let total = n * 2;
             for (i, (elem, _)) in elements.iter().enumerate() {
                 let tag = self.tag_de(elem);
@@ -388,7 +388,7 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// A célula de uma captura mutável: o valor na representação do local.
+    /// The cell of a mutable capture: the value in the representation of the local.
     pub(super) fn emit_alloc_cell(&mut self, v: u32, value: &Operand) {
         let is_ref = self.type_of(value) == Type::Ref;
         let s = self.coerce(value, Type::I64);
@@ -400,16 +400,16 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// No ARC, as referências gravadas em linha no objeto `%v<v>` recém
-    /// alocado passam a contar (`dartforge_arc_inicial`): o código gerado não
-    /// passa pelo runtime nessas gravações.
+    /// Under ARC, the references written inline into the freshly allocated object
+    /// `%v<v>` start counting (`dartforge_arc_inicial`): the generated code does not
+    /// go through the runtime for these writes.
     pub(super) fn count_initial_in_arc(&mut self, v: u32) {
         if self.module.arc_memory {
             writeln!(self.out, "  call void @dartforge_arc_inicial(i64 %v{v})").unwrap();
         }
     }
 
-    /// A leitura de uma célula na representação `ty` (a com que foi gravada).
+    /// The read of a cell in representation `ty` (the one it was written with).
     pub(super) fn emit_cell_get(&mut self, v: u32, cell: &Operand, ty: Type) {
         let c = self.coerce(cell, Type::Ref);
         let d = layout::desl::CORPO as i64 - layout::DESLOCAMENTO_DO_HANDLE;
@@ -419,15 +419,15 @@ impl LlvmEmitter<'_> {
         self.bits_to_repr(v, &format!("%u{v}"), ty);
     }
 
-    /// A gravação numa célula: o valor, o bit do mapa pela representação e,
-    /// para um `Ref`, a barreira (`@df.barrier`).
+    /// The write into a cell: the value, the map bit by representation and,
+    /// for a `Ref`, the barrier (`@df.barrier`).
     pub(super) fn emit_cell_set(&mut self, cell: &Operand, value: &Operand) {
         let k = self.boxes.new_name();
         let is_ref = self.type_of(value) == Type::Ref;
         let c = self.coerce(cell, Type::Ref);
         let s = self.coerce(value, Type::I64);
-        // No ARC a gravação vai ao runtime, que conta a troca (o campo 0 da
-        // célula, `INSTANCIA` de um campo).
+        // Under ARC the write goes to the runtime, which counts the replacement (field 0 of the
+        // cell, a one-field `INSTANCIA`).
         if self.module.arc_memory {
             writeln!(self.out, "  call void @dartforge_object_set(i64 {c}, i64 0, i64 {s}, i8 {})", u8::from(is_ref)).unwrap();
             return;
@@ -445,15 +445,15 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// O `alloca` do bloco de entrada de um `AllocEnv`: nenhum (as capturas
-    /// vão direto ao bloco do contexto).
+    /// The `alloca` of the entry block of an `AllocEnv`: none (the captures
+    /// go directly into the context block).
     pub(super) fn env_buffer(&mut self, v: u32, values: &[Operand]) {
         let _ = (v, values);
     }
 
-    /// O contexto (`_Contexto`) das capturas de uma closure: cada captura na
-    /// representação do seu operando, com o bit do mapa aceso para `Ref`. Sem
-    /// capturas, null (quem não captura nada nunca lê o contexto).
+    /// The context (`_Contexto`) of the captures of a closure: each capture in the
+    /// representation of its operand, with the map bit set for a `Ref`. Without
+    /// captures, null (whoever captures nothing never reads the context).
     pub(super) fn emit_alloc_env(&mut self, v: u32, values: &[Operand]) {
         let n = values.len();
         if n == 0 {
@@ -467,8 +467,8 @@ impl LlvmEmitter<'_> {
             let hdr = layout::palavra_do_cabecalho(estado::JOVEM, flags::INSTANCIA, n, cid::CONTEXTO);
             self.allocate_block(v, hdr, w);
         } else {
-            // Contexto grande: o runtime (o `n` de uma `INSTANCIA` é o número
-            // de campos, não as palavras do corpo).
+            // A large context: the runtime (the `n` of an `INSTANCIA` is the number
+            // of fields, not the words of the body).
             writeln!(self.out, "  %v{v} = call i64 @dartforge_object_new(i64 {}, i64 {n})", cid::CONTEXTO).unwrap();
             writeln!(self.out, "  %bp{v} = inttoptr i64 %v{v} to ptr").unwrap();
         }
@@ -478,7 +478,7 @@ impl LlvmEmitter<'_> {
         let map = refs.iter().take(32).enumerate().fold(0u32, |m, (i, &r)| m | (u32::from(r) << i));
         self.store_map(v, map);
         let has_ref = refs.iter().any(|&r| r);
-        // A extensão do mapa (campos 32..), nas palavras depois dos campos.
+        // The extension of the map (fields 32..), in the words after the fields.
         for j in 0..layout::palavras_do_mapa(n) {
             let word = refs
                 .iter()
@@ -496,8 +496,8 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// A captura `index` do contexto, na representação `ty` — a mesma com que
-    /// foi gravada (o lowering garante; §4.4 e risco 12).
+    /// Capture `index` of the context, in representation `ty` — the same one it
+    /// was written with (the lowering guarantees it; §4.4 and risk 12).
     pub(super) fn emit_env_get(&mut self, v: u32, env: &Operand, index: usize, ty: Type) {
         let e = self.coerce(env, Type::Ref);
         let d = (layout::desl::CORPO + 8 * index) as i64 - layout::DESLOCAMENTO_DO_HANDLE;
@@ -507,7 +507,7 @@ impl LlvmEmitter<'_> {
         self.bits_to_repr(v, &format!("%u{v}"), ty);
     }
 
-    /// Uma `_Closure` em linha: código, contexto (`Ref`), corpo tipado e ABI.
+    /// An inline `_Closure`: code, context (`Ref`), typed body and ABI.
     fn emit_inline_closure(&mut self, v: u32, code: &str, env: &Operand, typed: &str, abi: i64) {
         let e = self.coerce(env, Type::Ref);
         self.allocate_block(v, CAB_CLOSURE, layout::palavras_de_instancia(4));
@@ -515,24 +515,24 @@ impl LlvmEmitter<'_> {
         self.store_word(v, "e", layout::desl::CLOSURE_CONTEXTO, &e);
         self.store_word(v, "t", layout::desl::CLOSURE_TIPADO, typed);
         self.store_word(v, "a", layout::desl::CLOSURE_ABI, &abi.to_string());
-        // Só o contexto é referência.
+        // Only the context is a reference.
         self.store_map(v, 0b10);
         self.count_initial_in_arc(v);
     }
 
-    /// A closure de código `code_symbol` (a entrada uniforme) sobre `env`.
+    /// The closure with code `code_symbol` (the uniform entry) over `env`.
     pub(super) fn emit_alloc_closure(&mut self, v: u32, code_symbol: &str, env: &Operand) {
-        // O código de uma closure é o endereço da entrada uniforme: vale entre
-        // módulos (uma closure criada no SDK da fonte é chamada no programa) e
-        // não depende da ordem de nada.
+        // The code of a closure is the address of the uniform entry: it holds across
+        // modules (a closure created in the source SDK is called in the program) and
+        // does not depend on the order of anything.
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
         let code = format!("ptrtoint (ptr @{code_symbol} to i64)");
         self.emit_inline_closure(v, &code, env, "0", 0);
     }
 
-    /// A closure com corpo tipado (`AllocClosureTyped`). Com `direct`, `env`
-    /// é o próprio valor capturado (ou o `this`) no lugar do contexto: o mesmo
-    /// campo `Ref`.
+    /// The closure with a typed body (`AllocClosureTyped`). With `direct`, `env`
+    /// is the captured value itself (or the `this`) in place of the context: the same
+    /// `Ref` field.
     pub(super) fn emit_alloc_typed_closure(&mut self, v: u32, code_symbol: &str, env: &Operand, typed: &str, abi: i64, direct: bool) {
         let _ = direct;
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
@@ -541,8 +541,8 @@ impl LlvmEmitter<'_> {
         self.emit_inline_closure(v, &code, env, &body, abi);
     }
 
-    /// O tear-off canônico da função de entrada uniforme `code_symbol` (o
-    /// runtime guarda o único handle, `Heap::tearoff`).
+    /// The canonical tear-off of the uniform entry function `code_symbol` (the
+    /// runtime keeps the single handle, `Heap::tearoff`).
     pub(super) fn emit_tearoff(&mut self, v: u32, code_symbol: &str) {
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
         writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))").unwrap();
@@ -557,7 +557,7 @@ mod tests {
     fn helpers_with_layout_headers() {
         assert!(HELPERS.contains(&format!("@df.alocar(i64 {}, i64 1)", CAB_MINT as i64)));
         assert!(HELPERS.contains(&format!("@df.alocar(i64 {}, i64 1)", CAB_DOUBLE as i64)));
-        // A máscara de `e_objeto` (7 | MIN) e os deslocamentos do valor e da classe.
+        // The mask of `e_objeto` (7 | MIN) and the offsets of the value and of the class.
         assert!(HELPERS.contains(&format!("and i64 %r, {}", 7 | i64::MIN)));
         assert_eq!(layout::desl::VALOR as i64 - layout::DESLOCAMENTO_DO_HANDLE, 14);
         assert_eq!(layout::desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE, 2);

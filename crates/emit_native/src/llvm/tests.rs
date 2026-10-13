@@ -1,4 +1,4 @@
-//! Testes do contrato no IR emitido (docs/NATIVO-PLANO.md §6: E1, G1–G3).
+//! Tests of the contract in the emitted IR (docs/NATIVO-PLANO.md §6: E1, G1–G3).
 
 use super::LlvmEmitter;
 use crate::hir::*;
@@ -369,10 +369,10 @@ fn wtf8_literal_preserves_lone_surrogate_in_ir() {
     assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate foi substituído: {ir}");
 }
 
-/// §2.11: no AOT (`static_objects`), o literal é um objeto estático do
-/// módulo — `_TwoByteString` (cid 7) com o surrogate solto como unidade, o
-/// cabeçalho `PERMANENTE | BRUTO | w | cid` e o hash da VM —, sem chamada nem
-/// cache no ponto de uso.
+/// §2.11: in AOT (`static_objects`), the literal is a static object of the
+/// module — a `_TwoByteString` (cid 7) with the lone surrogate as a code unit, the
+/// header `PERMANENTE | BRUTO | w | cid` and the VM hash —, with no call nor
+/// cache at the use site.
 #[test]
 fn static_literal_in_aot() {
     use dartforge_runtime::layout;
@@ -395,7 +395,7 @@ fn static_literal_in_aot() {
     let ir = LlvmEmitter::new(&m).with_static_objects(true).emit_all();
     let body = body_of(&ir, "literal_estatico");
     assert!(!body.contains("@dartforge_string_new("), "{body}");
-    // O nome do global é `@"df.s.<blake3>"` (com aspas: tem pontos).
+    // The name of the global is `@"df.s.<blake3>"` (quoted: it has dots).
     assert!(ir.contains("df.s."), "{ir}");
     assert!(ir.contains("linkonce_odr"), "{ir}");
     let header = layout::palavra_do_cabecalho(
@@ -409,10 +409,10 @@ fn static_literal_in_aot() {
     assert!(ir.contains(&format!("i64 {hash}")), "hash {hash}: {ir}");
 }
 
-/// G1/G3: função com `Ref` vivo num ponto de coleta abre o quadro, enraíza
-/// o parâmetro (argumento da chamada que aloca) e fecha o quadro antes de
-/// TODO `ret` — inclusive o da saída por exceção. O resultado da chamada só
-/// é usado no `ret`, sem coleta no meio: não ganha raiz (`roots.rs`).
+/// G1/G3: a function with a live `Ref` at a collection point opens the frame, roots
+/// the parameter (an argument of the allocating call) and closes the frame before
+/// EVERY `ret` — including the one of the exception exit. The result of the call is only
+/// used in the `ret`, with no collection in between: it gets no root (`roots.rs`).
 #[test]
 fn roots_frame_on_every_ret() {
     let v0 = ValueId(0);
@@ -444,7 +444,7 @@ fn roots_frame_on_every_ret() {
                 instructions: vec![],
                 terminator: Terminator::Return(Some(Operand::Val(v1))),
             },
-            // A saída por exceção devolve o valor padrão pelo mesmo `ret`.
+            // The exception exit returns the default value through the same `ret`.
             BasicBlock {
                 id: BlockId(2),
                 instructions: vec![],
@@ -462,8 +462,8 @@ fn roots_frame_on_every_ret() {
     );
     assert!(body.contains("store i64 %v0, ptr %gcs0"), "{body}");
     assert!(!body.contains("store i64 %v1, ptr"), "{body}");
-    // A saída da conferência da pilha (C22) volta antes de o quadro ser
-    // encadeado: nada a fechar ali.
+    // The exit of the stack check (C22) returns before the frame is
+    // linked: nothing to close there.
     let (prologue, rest) = body.split_once("pilha.ok:").expect("conferência da pilha no prólogo");
     assert!(prologue.contains("pilha.estouro:") && prologue.contains("call void @dartforge_estouro_de_pilha()"), "{body}");
     assert!(!prologue.contains("store ptr %gcq, ptr %ctxtopo"), "o quadro não pode estar encadeado no estouro: {body}");
@@ -474,7 +474,7 @@ fn roots_frame_on_every_ret() {
     assert_eq!(pops, rets, "todo ret fecha o quadro: {body}");
 }
 
-/// Uma chamada que aloca.
+/// A call that allocates.
 fn concat(a: ValueId, b: ValueId) -> Instruction {
     Instruction::CallRuntime {
         name: "dartforge_string_concat".to_string(),
@@ -483,9 +483,9 @@ fn concat(a: ValueId, b: ValueId) -> Instruction {
     }
 }
 
-/// Vivacidade: `v1` atravessa a segunda chamada (é usado depois dela) e
-/// ganha raiz; `v0` morre na primeira e `v1` nasce dela, então os dois
-/// dividem o slot; `v2` só vai ao `ret`.
+/// Liveness: `v1` crosses the second call (it is used after it) and
+/// gets a root; `v0` dies at the first and `v1` is born from it, so the two
+/// share the slot; `v2` only goes to the `ret`.
 #[test]
 fn roots_by_liveness_and_shared_slot() {
     let (v0, v1, v2, v3) = (ValueId(0), ValueId(1), ValueId(2), ValueId(3));
@@ -505,9 +505,9 @@ fn roots_by_liveness_and_shared_slot() {
     );
     let ir = emit(f);
     let body = body_of(&ir, "g");
-    // v0 e v1 no slot 0 (não interferem: v0 morre na definição de v1); v2
-    // é argumento da terceira chamada junto com v1, então interfere e vai
-    // ao slot 1; v3 não passa por coleta.
+    // v0 and v1 in slot 0 (they do not interfere: v0 dies at the definition of v1); v2
+    // is an argument of the third call together with v1, so it interferes and goes
+    // to slot 1; v3 does not go through a collection.
     assert!(body.contains("[2 x i64]"), "{body}");
     assert!(body.contains("store i64 %v0, ptr %gcs0"), "{body}");
     assert!(body.contains("store i64 %v1, ptr %gcs0"), "{body}");
@@ -515,7 +515,7 @@ fn roots_by_liveness_and_shared_slot() {
     assert!(!body.contains("store i64 %v3, ptr"), "{body}");
 }
 
-/// G: função sem valor `Ref` não abre quadro.
+/// G: a function without a `Ref` value opens no frame.
 #[test]
 fn without_ref_without_frame() {
     let v0 = ValueId(0);
@@ -533,7 +533,7 @@ fn without_ref_without_frame() {
     assert!(!body_of(&ir, "g").contains("gc_empilhar"));
 }
 
-/// G2: `store` num local `Ref` atualiza o slot do `alloca`.
+/// G2: a `store` into a `Ref` local updates the slot of the `alloca`.
 #[test]
 fn ref_local_has_own_slot() {
     let (p, v0, v1) = (ValueId(0), ValueId(1), ValueId(2));
@@ -571,8 +571,8 @@ fn ref_local_has_own_slot() {
     );
 }
 
-/// E1: gravar um `Ref` num campo leva `is_ref = 1`; um escalar, 0 — em
-/// linha, no par `(bits, is_ref)` do vetor de campos.
+/// E1: writing a `Ref` into a field carries `is_ref = 1`; a scalar, 0 — inline,
+/// in the `(bits, is_ref)` pair of the field vector.
 #[test]
 fn ref_field_carries_is_ref() {
     let (v0, v1) = (ValueId(0), ValueId(1));
@@ -610,10 +610,10 @@ fn ref_field_carries_is_ref() {
     );
     let ir = emit(f);
     let body = body_of(&ir, "k");
-    // O endereço dos campos vem do próprio objeto (`h + 14`), sem chamada.
+    // The address of the fields comes from the object itself (`h + 14`), without a call.
     assert!(!body.contains("@dartforge_object_campos("), "{body}");
-    // O cabeçalho em `h - 2`; os campos, palavras de 8 bytes depois dele; o
-    // `is_ref` é o bit do campo no mapa do cabeçalho.
+    // The header at `h - 2`; the fields, 8-byte words after it; the
+    // `is_ref` is the bit of the field in the header map.
     assert!(body.contains("%fxa2 = add i64 %v0, -2"), "{body}");
     assert!(body.contains("%fp2 = getelementptr inbounds i8, ptr %fcb2, i64 16"), "{body}");
     assert!(body.contains("ptr %fp2, i64 0\n  store i64 %v1, ptr %fg2"), "{body}");
@@ -623,9 +623,9 @@ fn ref_field_carries_is_ref() {
     assert!(!body.contains("@dartforge_object_set("), "{body}");
 }
 
-/// E3: o verificador recusa constante inteira numa posição `Ref` e tag
-/// incoerente com a representação (a ABI plana `(bits, tag)` do
-/// lançamento).
+/// E3: the verifier rejects an integer constant in a `Ref` position and a tag
+/// inconsistent with the representation (the flat `(bits, tag)` ABI of
+/// throwing).
 #[test]
 fn verifier_rejects_integer_as_ref_and_wrong_tag() {
     let v0 = ValueId(0);
@@ -676,14 +676,14 @@ fn verifier_rejects_integer_as_ref_and_wrong_tag() {
     );
 }
 
-/// Risco 12 (docs/NATIVO-ESPACO-UNIFICADO.md §6): a captura lida na
-/// representação com que foi gravada; o record posicional só com `Ref`; e
-/// as instruções que saíram com o espaço unificado (`AllocMap`, `AllocSet`).
+/// Risk 12 (docs/NATIVO-ESPACO-UNIFICADO.md §6): the capture read in the
+/// representation it was written with; the positional record only with `Ref`; and
+/// the instructions that left with the unified space (`AllocMap`, `AllocSet`).
 #[test]
 fn verifier_checks_captures_records_and_removed_instructions() {
     let (x, env, clo) = (ValueId(0), ValueId(1), ValueId(2));
-    // `f(x)` cria a closure `g` com o ambiente `[x: I64, célula de I64]` e um
-    // record com um `I64`.
+    // `f(x)` creates the closure `g` with the environment `[x: I64, I64 cell]` and a
+    // record with an `I64`.
     let cel = ValueId(3);
     let creator = function(
         "f",
@@ -700,7 +700,7 @@ fn verifier_checks_captures_records_and_removed_instructions() {
             terminator: Terminator::Return(None),
         }],
     );
-    // `g` lê a captura 0 como `Ref` (gravada `I64`) e a célula como `F64`.
+    // `g` reads capture 0 as `Ref` (written as `I64`) and the cell as `F64`.
     let (e, c0, c1, c2) = (ValueId(0), ValueId(1), ValueId(2), ValueId(3));
     let body = function(
         "g",
@@ -724,11 +724,11 @@ fn verifier_checks_captures_records_and_removed_instructions() {
     assert!(has("captura 0 do ambiente: lida como Ref, gravada como I64"), "{errors:?}");
     assert!(has("célula: lida como F64, gravada como I64"), "{errors:?}");
     assert!(has("record posicional: campo I64"), "{errors:?}");
-    // A captura 1 (a célula, `Ref`) lida como `Ref`: sem erro.
+    // Capture 1 (the cell, `Ref`) read as `Ref`: no error.
     assert!(!has("captura 1"), "{errors:?}");
 }
 
-// Testa o emissor do corpo também no host Windows, sem fingir suporte AOT Unix.
+// Tests the body emitter on a Windows host too, without pretending Unix AOT support.
 #[test]
 fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
     let f = function("retoma", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void, vec![
@@ -790,8 +790,8 @@ fn resume_does_not_promise_seh_support_in_public_emitter() {
 
 #[cfg(feature = "llvm-embutido")]
 fn check_cleanup_objects(ir: &str) {
-    // O corpo emitido é verificado e gera código Itanium, sem usar o
-    // cabeçalho Windows nem prometer cross-compilation de módulos Dart.
+    // The emitted body is verified and generates Itanium code, without using the
+    // Windows header nor promising cross-compilation of Dart modules.
     let triple = if cfg!(target_arch = "aarch64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" };
     let complete = format!(r#"target triple = "{triple}"
         declare i32 @dartforge_personalidade_cleanup_itanium(...)

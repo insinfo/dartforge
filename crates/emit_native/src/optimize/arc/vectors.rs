@@ -1,14 +1,14 @@
-//! Fatos da ABI uniforme: endereço nativo e contagens do descritor imutável.
-//! Leituras Ref ganham owner e conferem limites pelo descritor. Não prova
-//! extensão de ponteiros externos, palavras RTI nem pins da imagem JIT.
+//! Facts of the uniform ABI: native address and counts of the immutable descriptor.
+//! Ref reads get an owner and check bounds through the descriptor. Does not prove
+//! the extent of external pointers, RTI words nor pins of the JIT image.
 
 use super::*;
 
 pub(super) const READ_ARGUMENT: &str = "dartforge_arc_argumento_owned_v1";
 
-/// A palavra da tupla de tipos da chamada uniforme genérica: o slot logo
-/// depois dos posicionais e nomeados, `args[desc[0] + desc[1]]`
-/// (`slot_tuple`), um ID do universo RTI lido como `I64`.
+/// The word of the type tuple of the generic uniform call: the slot right
+/// after the positional and named arguments, `args[desc[0] + desc[1]]`
+/// (`slot_tuple`), an ID of the RTI universe read as `I64`.
 pub(super) fn tuple_read(
     f: &Function,
     inst: &Instruction,
@@ -22,7 +22,7 @@ pub(super) fn tuple_read(
         return false;
     }
     let def = |x: &ValueId| f.blocks.iter().flat_map(|b| &b.instructions).find(|(v, _, _)| v == x).map(|(_, i, _)| i);
-    // `desc[k]` lido do descritor declarado.
+    // `desc[k]` read from the declared descriptor.
     let descriptor_read = |o: &Operand, k: i64| matches!(o, Operand::Val(x)
         if matches!(def(x), Some(Instruction::LoadIndexed { base: Operand::Val(d), index: Operand::Constant(Constant::Int(n)) })
             if *n == k && roles.get(d) == Some(&DartEntryVector::Descriptor)));
@@ -152,9 +152,9 @@ pub(super) fn produce(
                 continue;
             }
             match inst {
-                // Encaminhamento somente ao descritor declarado de um corpo
-                // local. Todos esses corpos são validados nesta transação;
-                // inclusive ciclos só podem ler/encaminhar, nunca publicar.
+                // Forwarding only to the declared descriptor of a local
+                // body. All those bodies are validated in this transaction;
+                // even cycles may only read/forward, never publish.
                 Instruction::CallStatic { symbol, args, .. }
                     if functions.get(symbol).is_some_and(|callee| {
                         args.len() == callee.params.len()
@@ -183,12 +183,12 @@ pub(super) fn produce(
                     }
                     plan.tokens.instructions.insert(*v, effect);
                 }
-                // O adaptador recusa destinos sem contrato uniforme readonly.
+                // The adapter rejects destinations without a readonly uniform contract.
                 Instruction::CallSelectorForward { recv, args, desc, .. }
                 | Instruction::CallClosureForward { closure: recv, args, desc, .. }
                     if descriptor(desc) && !descriptor(recv) && !descriptor(args) => {}
-                // Consultas nativas somente de leitura da ABI; seus contratos
-                // de chamada/representações ainda são conferidos pelo catálogo.
+                // Read-only native queries of the ABI; their call/representation
+                // contracts are still checked by the catalog.
                 Instruction::CallRuntime { name, args, .. }
                     if matches!(
                         name.as_str(),

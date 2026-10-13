@@ -1,29 +1,29 @@
-//! Resumos de convenção Dart vinculados à verificação do corpo do callee.
-//! Contratos de externs e escopos fornecidos continuam sendo premissas.
+//! Summaries of the Dart convention bound to the verification of the callee body.
+//! Extern contracts and supplied scopes remain premises.
 
 use super::*;
 use std::collections::{HashMap, HashSet};
 
-/// Convenção de uma versão verificada de uma função Dart.
+/// Convention of a verified version of a Dart function.
 ///
-/// Campos privados impedem fabricar um resumo sem verificar o corpo.
-/// Refaça o resumo após mudar a função ou seus contratos. Não certifica
-/// proveniência, aliases de slots/keepalive nem os contratos externos fornecidos.
-/// Barreiras conservadoras de borrows derivados são conferidas no corpo.
-/// Chamadas diretas no corpo são conservadoramente consideradas falíveis,
-/// assim como a conferência de pilha exigida pelo contexto explícito do
-/// corpo/tabelas. Quadros calculados por vivacidade ainda exigem metadados.
+/// Private fields prevent forging a summary without verifying the body.
+/// Redo the summary after changing the function or its contracts. Does not certify
+/// provenance, slot/keepalive aliases nor the supplied external contracts.
+/// Conservative barriers of derived borrows are checked in the body.
+/// Direct calls in the body are conservatively considered fallible,
+/// as is the stack check required by the explicit context of the
+/// body/tables. Frames computed by liveness still require metadata.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let f = Function { symbol: "vazia".into(), name: "vazia".into(), depuracao: None,
+/// let f = Function { symbol: "empty".into(), name: "empty".into(), debug_info: None,
 ///     params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(None) }] };
-/// let resumo = verificar_contrato_funcao_dart(&f, &HashMap::new(), &PlanoTokens::default(),
-///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?;
-/// # let _ = resumo;
+/// let summary = verify_dart_function_contract(&f, &HashMap::new(), &TokenPlan::default(),
+///     &FunctionTables::default(), &ScopePlan::default())?;
+/// # let _ = summary;
 /// # Ok::<(), String>(())
 /// ```
 #[derive(Debug, Clone)]
@@ -34,8 +34,8 @@ pub struct DartFunctionContract {
     may_fail: bool,
 }
 
-// Somente a preparação atômica do conjunto pode usar este resumo temporário.
-// Nenhum corpo/contrato é publicado antes de verificar todas as convenções.
+// Only the atomic preparation of the set may use this temporary summary.
+// No body/contract is published before verifying every convention.
 pub(super) fn provisional_summary(f: &Function, may_fail: bool) -> DartFunctionContract {
     DartFunctionContract {
         symbol: f.symbol.clone(),
@@ -45,9 +45,9 @@ pub(super) fn provisional_summary(f: &Function, may_fail: bool) -> DartFunctionC
     }
 }
 
-/// O resumo de uma função Dart de outra imagem preparada, pela chamada
-/// `CallStatic` de `f`: a representação de cada operando (como o emissor a
-/// declara), o retorno da chamada e falha possível.
+/// The summary of a Dart function of another prepared image, from the
+/// `CallStatic` call of `f`: the representation of each operand (as the emitter
+/// declares it), the return of the call and possible failure.
 pub(super) fn external_summary(f: &Function, symbol: &str, args: &[Operand], ret: Type) -> DartFunctionContract {
     let types: HashMap<ValueId, Type> = f.params.iter().map(|(v, _, t)| (*v, *t))
         .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)))
@@ -67,9 +67,9 @@ pub(super) fn external_summary(f: &Function, symbol: &str, args: &[Operand], ret
     }
 }
 
-/// Os resumos externos ([`external_summary`]) das chamadas diretas de
-/// `functions` a símbolos fora de `locals`; chamadas do mesmo símbolo com
-/// assinaturas diferentes são erro.
+/// The external summaries ([`external_summary`]) of the direct calls of
+/// `functions` to symbols outside `locals`; calls of the same symbol with
+/// different signatures are an error.
 pub(super) fn external_summaries(functions: &[Function], locals: &HashSet<String>) -> Result<Vec<DartFunctionContract>, String> {
     let mut by_symbol: HashMap<String, DartFunctionContract> = HashMap::new();
     for f in functions {
@@ -95,8 +95,8 @@ pub(super) fn external_summaries(functions: &[Function], locals: &HashSet<String
     Ok(summaries)
 }
 
-// O conjunto reutiliza este índice em todos os corpos. Reconstruí-lo por
-// função tornaria a preparação quadrática no número de funções do SDK.
+// The set reuses this index in every body. Rebuilding it per
+// function would make the preparation quadratic in the number of SDK functions.
 pub(super) struct DartFunctionIndex<'a> {
     by_symbol: HashMap<&'a String, &'a DartFunctionContract>,
 }
@@ -113,24 +113,24 @@ impl<'a> DartFunctionIndex<'a> {
     }
 }
 
-/// Verifica a convenção Dart do corpo e extrai um resumo para chamadas diretas.
+/// Verifies the Dart convention of the body and extracts a summary for direct calls.
 ///
-/// Os mapas fornecidos não são alterados. Parâmetros não Ref precisam de
-/// classificação Trivial explícita/produzida; não são escalares pela largura.
-/// O chamador deve usar o resumo apenas com esta versão do corpo e ABI.
+/// The given maps are not changed. Non-Ref parameters need an explicit/produced
+/// Trivial classification; they are not scalars by width.
+/// The caller must use the summary only with this version of the body and ABI.
 ///
-/// # Erros
-/// Falha do verificador Dart completo ou parâmetro não Ref não Trivial.
+/// # Errors
+/// Failure of the full Dart verifier or a non-Ref parameter that is not Trivial.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let f = Function { symbol: "vazia".into(), name: "vazia".into(), depuracao: None,
+/// let f = Function { symbol: "empty".into(), name: "empty".into(), debug_info: None,
 ///     params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(None) }] };
-/// verificar_contrato_funcao_dart(&f, &HashMap::new(), &PlanoTokens::default(),
-///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?;
+/// verify_dart_function_contract(&f, &HashMap::new(), &TokenPlan::default(),
+///     &FunctionTables::default(), &ScopePlan::default())?;
 /// # Ok::<(), String>(())
 /// ```
 pub fn verify_dart_function_contract(
@@ -209,32 +209,32 @@ fn operand_has_type(op: &Operand, expected: Type, types: &HashMap<ValueId, Type>
     }
 }
 
-/// Produz contratos de CallStatic usando resumos de corpos Dart verificados.
+/// Produces CallStatic contracts using summaries of verified Dart bodies.
 ///
-/// Argumentos Ref são emprestados durante a chamada; resultado Ref é Owned.
-/// Demais argumentos SSA exigem classe Trivial, além do tipo exato da ABI.
-/// Resultado não Ref é Trivial pela convenção verificada, não pela largura.
-/// Falha conservadora exige CFG excepcional no verificador posterior.
-/// Não cobre dispatch dinâmico, stubs importados ou retenções ocultas externas.
+/// Ref arguments are borrowed during the call; a Ref result is Owned.
+/// Other SSA arguments require a Trivial class, besides the exact ABI type.
+/// A non-Ref result is Trivial by the verified convention, not by width.
+/// A conservative failure requires an exceptional CFG in the later verifier.
+/// Does not cover dynamic dispatch, imported stubs or hidden external retentions.
 ///
-/// # Erros
-/// Símbolo ausente/repetido, assinatura incompatível ou conflito nos mapas.
-/// Nenhuma entrada é publicada em caso de erro. Não verifica o fluxo do caller.
+/// # Errors
+/// Missing/repeated symbol, incompatible signature or a conflict in the maps.
+/// No entry is published on error. Does not verify the caller's flow.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let callee = Function { symbol: "vazia".into(), name: "vazia".into(), depuracao: None,
+/// let callee = Function { symbol: "empty".into(), name: "empty".into(), debug_info: None,
 ///     params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 ///         terminator: Terminator::Return(None) }] };
-/// let resumo = verificar_contrato_funcao_dart(&callee, &HashMap::new(), &PlanoTokens::default(),
-///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?;
+/// let summary = verify_dart_function_contract(&callee, &HashMap::new(), &TokenPlan::default(),
+///     &FunctionTables::default(), &ScopePlan::default())?;
 /// let mut caller = callee.clone();
 /// caller.symbol = "caller".into();
 /// caller.blocks[0].instructions.push((ValueId(0), Instruction::CallStatic {
-///     symbol: "vazia".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
-/// produzir_chamadas_dart(&caller, &[resumo], &mut HashMap::new(), &mut PlanoTokens::default())?;
+///     symbol: "empty".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+/// produce_dart_calls(&caller, &[summary], &mut HashMap::new(), &mut TokenPlan::default())?;
 /// # Ok::<(), String>(())
 /// ```
 pub fn produce_dart_calls(
@@ -247,8 +247,8 @@ pub fn produce_dart_calls(
     produce_calls(f, &index, classes, plan, false)
 }
 
-// Usado somente dentro da transação do conjunto: os resultados provisórios
-// alimentam a classificação das demais instruções antes de conferir usos.
+// Used only inside the transaction of the set: the provisional results
+// feed the classification of the other instructions before checking uses.
 pub(super) fn produce_dart_calls_and_instructions(
     f: &Function,
     index: &DartFunctionIndex<'_>,
@@ -258,9 +258,9 @@ pub(super) fn produce_dart_calls_and_instructions(
     produce_calls(f, index, classes, plan, true)
 }
 
-/// Classifica parâmetros, chamadas Dart diretas e instruções com contrato,
-/// sem resolver Phis nem conferir argumentos: a base para decidir que
-/// entradas de Phi precisam de cópia (`phis.rs`). Não publica nada em erro.
+/// Classifies parameters, direct Dart calls and instructions with a contract,
+/// without resolving Phis nor checking arguments: the basis for deciding which
+/// Phi entries need a copy (`phis.rs`). Publishes nothing on error.
 pub(super) fn classify_without_phis(
     f: &Function,
     index: &DartFunctionIndex<'_>,
@@ -277,8 +277,8 @@ pub(super) fn classify_without_phis(
     Ok(())
 }
 
-/// O resultado de cada chamada Dart direta pelo resumo do callee (Owned se
-/// Ref, senão Trivial) e o efeito de falha; devolve os argumentos a conferir.
+/// The result of each direct Dart call through the callee summary (Owned if
+/// Ref, otherwise Trivial) and the failure effect; returns the arguments to check.
 fn classify_statics<'f, 'a>(
     f: &'f Function,
     index: &DartFunctionIndex<'a>,
@@ -346,11 +346,11 @@ fn produce_calls(
         .collect();
     let mut new_classes = classes.clone();
     let mut new_plan = plan.clone();
-    // A convenção dos parâmetros Ref não depende dos contratos das chamadas.
+    // The convention of Ref parameters does not depend on the contracts of the calls.
     produce_dart_ref_parameters(f, &mut new_classes)?;
     let calls = classify_statics(f, index, &mut new_classes, &mut new_plan)?;
-    // Os resultados têm contratos semânticos dos callees, independentemente
-    // da ordem física dos blocos. SSA já conferiu sua dominância nos usos.
+    // The results have semantic contracts from the callees, regardless of
+    // the physical order of the blocks. SSA already checked their dominance at the uses.
     if classify_instructions {
         produce_arc_contracts(f, &mut new_classes, &mut new_plan)?;
     }
@@ -381,8 +381,8 @@ mod tests {
     #[test]
     fn fallible_call_cleans_temporary_without_producing_result_on_error() {
         let (mut callee, callee_plan) = identity();
-        // O contrato da externa é premissa explícita; o resumo conservador
-        // marca o callee como falível por conter uma chamada direta.
+        // The contract of the external is an explicit premise; the conservative summary
+        // marks the callee as fallible because it contains a direct call.
         callee.blocks[0].instructions[0].1 = Instruction::CallStatic {
             symbol: "externa".into(),
             args: vec![Operand::Val(ValueId(0))],
@@ -487,7 +487,7 @@ mod tests {
             &ScopePlan::default(),
         )
         .unwrap();
-        // O resultado não existe no erro, mesmo tendo tipo Ref e classe Owned.
+        // The result does not exist on error, even with a Ref type and an Owned class.
         caller = original;
         caller.blocks[1].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
         classes.retain(|v, _| v.0 <= 2);
@@ -602,7 +602,7 @@ mod tests {
             &ScopePlan::default(),
         )
         .unwrap();
-        // Mesma largura sem contrato semântico continua sendo insuficiente.
+        // The same width without a semantic contract is still insufficient.
         caller
             .params
             .push((ValueId(3), "sem_contrato".into(), Type::I64));
@@ -752,7 +752,7 @@ mod tests {
             .unwrap(),
             (0, 0)
         );
-        // Uma chamada desconhecida posterior não publica nem a primeira chamada.
+        // A later unknown call does not publish even the first call.
         caller.blocks[0].instructions.push((
             ValueId(2),
             Instruction::CallStatic {

@@ -1,5 +1,5 @@
-//! Regras comuns de constantes e operações escalares cobertas pelo ARC.
-//! Não certificam domínio/estouro, layout de campos ou operações não cobertas.
+//! Common rules for constants and scalar operations covered by ARC.
+//! They do not certify domain/overflow, field layout or uncovered operations.
 
 use super::{TokenEffect, Ownership, TokenPlan};
 use crate::hir::*;
@@ -11,10 +11,10 @@ pub(super) fn check(
     ty: &Type,
     types: &HashMap<ValueId, Type>,
 ) -> Result<bool, String> {
-    // Constantes escalares/null e literais permanentes não produzem
-    // token. A variante da constante determina seu tipo semântico.
+    // Scalar/null constants and permanent literals produce no
+    // token. The variant of the constant determines its semantic type.
     let pure = match inst {
-        // Dados constantes do módulo: palavras ou endereços de funções.
+        // Constant data of the module: words or function addresses.
         Instruction::ConstArray(_) | Instruction::FunctionTable(_) => Some(Type::Ptr),
         Instruction::Const(Constant::Int(_)) => Some(Type::I64),
         Instruction::Const(Constant::Double(_)) => Some(Type::F64),
@@ -27,8 +27,8 @@ pub(super) fn check(
             ..
         } => Some(Type::Ref),
         Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_) => Some(Type::I1),
-        // A lógica bit a bit é emitida em i64 com os operandos estendidos
-        // (`llvm/mod.rs`); o lowering a declara I1 quando a usa como `bool`.
+        // Bitwise logic is emitted in i64 with the operands extended
+        // (`llvm/mod.rs`); the lowering declares it I1 when it uses it as a `bool`.
         Instruction::And(..) | Instruction::Or(..) | Instruction::Xor(..) if *ty == Type::I1 => Some(Type::I1),
         Instruction::Add(..)
         | Instruction::Sub(..)
@@ -51,19 +51,19 @@ pub(super) fn check(
         | Instruction::FNeg(_)
         | Instruction::IntToDouble(_) => Some(Type::F64),
         Instruction::Bitcast { to, .. } => Some(*to),
-        // Uma global de 1 ou 8 bits, ou `double`, não guarda handle; I64 pode
-        // guardar e exige prova própria (`rti_caches`).
+        // A 1- or 8-bit global, or a `double` one, holds no handle; I64 may
+        // hold one and requires its own proof (`rti_caches`).
         Instruction::LoadGlobal { ty: t @ (Type::I1 | Type::I8 | Type::F64), .. } => Some(*t),
-        // Gravar um escalar comprovado (`check_origins`) numa global não-Ref.
+        // Storing a proven scalar (`check_origins`) in a non-Ref global.
         Instruction::StoreGlobal { ty: Type::I1 | Type::I8 | Type::I64 | Type::F64, root: None, .. } => Some(Type::Void),
         Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => Some(*to),
-        // A leitura das pistas de uma caixa SIMD viva (classes finais do SDK,
-        // só a caixa do runtime as implementa): o empréstimo da caixa é usado
-        // na instrução e o vetor não guarda handle.
+        // Reading the lanes of a live SIMD box (final SDK classes,
+        // only the runtime box implements them): the borrow of the box is used
+        // in the instruction and the vector holds no handle.
         Instruction::Unbox { to, .. } if to.is_vector() => Some(*to),
-        // A aritmética e as conversões SIMD sobre vetores e escalares sem
-        // caixa. Ler e gravar por endereço exigem prova de proveniência: o
-        // endereço derivado de uma lista que `derived_set::verify` segura.
+        // SIMD arithmetic and conversions over unboxed vectors and
+        // scalars. Reading and writing by address require a provenance proof: the
+        // address derived from a list that `derived_set::verify` holds.
         Instruction::Simd { .. } => Some(*ty),
         Instruction::NativeLoad { .. } => Some(*ty),
         Instruction::NativeWrite { .. } => Some(Type::Void),
@@ -195,8 +195,8 @@ pub(super) fn check_origins(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
 ) -> Result<(), String> {
-    // Confere após resolver todos os produtores e Phis, independentemente
-    // da ordem física dos blocos. Um i64 gerenciado não vira escalar por cast.
+    // Checks after resolving every producer and Phi, regardless of the
+    // physical block order. A managed i64 does not become a scalar by a cast.
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if let Instruction::Box { op: Operand::Val(origin), from } = inst
             && from.is_vector() && classes.get(origin) != Some(&Ownership::Trivial) {
@@ -307,13 +307,13 @@ mod tests {
         assert!(check(ValueId(9), &Instruction::And(v(1), Operand::Constant(Constant::Bool(true))), &Type::I1, &types).unwrap());
         assert!(check(ValueId(9), &or(v(3), Operand::Constant(Constant::Int(1))), &Type::I64, &types).unwrap());
         assert!(check(ValueId(9), &or(v(1), v(3)), &Type::I64, &types).unwrap());
-        // Referência, double ou resultado de outra representação.
+        // A reference, a double or a result of another representation.
         assert!(check(ValueId(9), &Instruction::Xor(v(4), v(3)), &Type::I64, &types).is_err());
         assert!(check(ValueId(9), &Instruction::And(v(5), v(3)), &Type::I64, &types).is_err());
         assert!(check(ValueId(9), &or(v(1), v(2)), &Type::F64, &types).is_err());
-        // Os deslocamentos seguem exigindo inteiros.
+        // Shifts still require integers.
         assert!(check(ValueId(9), &Instruction::Shl(v(1), v(3)), &Type::I64, &types).is_err());
-        // Globais estreitas ou `double` são escalares; I64 não é por largura.
+        // Narrow or `double` globals are scalars; I64 is not, by width alone.
         let global = |ty| Instruction::LoadGlobal { symbol: "g".into(), ty };
         assert!(check(ValueId(9), &global(Type::I8), &Type::I8, &types).unwrap());
         assert!(check(ValueId(9), &global(Type::F64), &Type::F64, &types).unwrap());

@@ -1,67 +1,67 @@
-//! Inlining de funções pequenas do módulo.
+//! Inlining of small functions of the module.
 //!
-//! Uma exceção é um estado pendente do runtime que quem chama confere logo
-//! depois da chamada (`FnBuilder::emit_call_with_check`): quem lança deixa a
-//! exceção pendente e **retorna**. Por isso o corpo copiado não precisa ser
-//! religado aos `catch`/`finally` de quem chama: a saída excepcional da
-//! cópia é um `return` como os outros, que vira desvio para a continuação,
-//! e a conferência que seguia a chamada — que fica na continuação — leva a
-//! exceção ao tratador de quem chama, como antes. O corpo roda igual, com o
-//! mesmo estado do runtime; só a fronteira da chamada some.
+//! An exception is a pending state of the runtime that the caller checks right
+//! after the call (`FnBuilder::emit_call_with_check`): whoever throws leaves the
+//! exception pending and **returns**. That is why the copied body need not be
+//! rewired to the caller's `catch`/`finally`: the exceptional exit of the
+//! copy is a `return` like the others, which becomes a branch to the continuation,
+//! and the check that followed the call — which stays in the continuation — takes the
+//! exception to the caller's handler, as before. The body runs the same, with the
+//! same runtime state; only the call boundary goes away.
 //!
-//! Os argumentos entram no lugar dos parâmetros; cada `return` vira um
-//! desvio para a continuação, com um `phi` se houver mais de um. O
-//! `dartforge_exception_clear` do `return` (que descarta uma exceção
-//! pendente ao sair de um `finally`) fica na cópia de quem pode lançar; na
-//! de quem não lança some (não há o que descartar), e a conferência depois
-//! da chamada já foi dobrada (`simplify::dead_checks`). O
-//! terminador `Throw` (lança e não volta) não é copiado.
+//! The arguments take the place of the parameters; each `return` becomes a
+//! branch to the continuation, with a `phi` if there is more than one. The
+//! `dartforge_exception_clear` of the `return` (which discards a pending exception
+//! when leaving a `finally`) stays in the copy of a function that may throw; in the
+//! copy of one that does not throw it goes away (there is nothing to discard), and the check after
+//! the call has already been folded (`simplify::dead_checks`). The
+//! `Throw` terminator (throws and does not come back) is not copied.
 
 use super::mem2reg::compatible;
 use super::operands::*;
 use crate::hir::*;
 use std::collections::HashMap;
 
-/// Instruções de uma função que se copia.
+/// Instructions of a function that gets copied.
 pub const BODY_LIMIT: usize = 40;
-/// Tamanho máximo de quem recebe as cópias.
+/// Maximum size of the function receiving the copies.
 pub const CALLER_LIMIT: usize = 4000;
 
 fn size(f: &Function) -> usize {
     f.blocks.iter().map(|b| b.instructions.len() + 1).sum()
 }
 
-/// A função pode ser copiada no lugar da chamada?
+/// Can the function be copied in place of the call?
 pub fn copyable(f: &Function) -> bool {
     size(f) <= BODY_LIMIT
         && f.blocks.first().is_some_and(|b| b.id.0 == 0)
         && f.blocks.iter().all(|b| {
             !matches!(b.terminator, Terminator::Throw(_))
                 && b.instructions.iter().all(|(_, i, _)| match i {
-                    // Um local ficaria num bloco que pode estar num laço.
+                    // A local would end up in a block that may be in a loop.
                     Instruction::Alloca(_) => false,
-                    // A própria função (recursão).
+                    // The function itself (recursion).
                     Instruction::CallStatic { symbol, .. } => *symbol != f.symbol,
-                    // Os adaptadores da convenção uniforme leem os
-                    // parâmetros da própria entrada.
+                    // The adapters of the uniform convention read the
+                    // parameters of their own entry.
                     Instruction::LoadIndexed { .. } => false,
-                    // O getter preguiçoso de um global ou de um valor de
-                    // enum (grava o valor na primeira leitura): copiá-lo
-                    // duplica a inicialização inteira, que roda uma vez, em
-                    // cada leitura. Numa tabela de 16 mil `Cat.lu` (o `bidi`
-                    // do `pdf_plus` no new_sali/backend) eram ~135 linhas de
-                    // IR por elemento — 97 MB num getter de constante
-                    // (docs/NATIVO-PROJETOS-REAIS.md, C8). A VM também lê o
-                    // campo estático e só chama o inicializador na primeira
-                    // vez (`LoadStaticField` + `InitStaticField`).
+                    // The lazy getter of a global or of an enum
+                    // value (writes the value on the first read): copying it
+                    // duplicates the whole initialization, which runs once, into
+                    // every read. In a table of 16 thousand `Cat.lu` (the `bidi`
+                    // of `pdf_plus` in new_sali/backend) it was ~135 lines of
+                    // IR per element — 97 MB in a constant getter
+                    // (docs/NATIVO-PROJETOS-REAIS.md, C8). The VM also reads the
+                    // static field and only calls the initializer the first
+                    // time (`LoadStaticField` + `InitStaticField`).
                     Instruction::StoreGlobal { .. } => false,
                     _ => true,
                 })
         })
 }
 
-/// Copia, em `func`, as chamadas a funções de `copies` (com se a função
-/// pode lançar). Devolve se mudou.
+/// Copies, in `func`, the calls to functions of `copies` (with whether the function
+/// may throw). Returns whether anything changed.
 pub fn inlining(func: &mut Function, copies: &HashMap<String, (Function, bool)>) -> bool {
     inlining_with_origins(func, copies, &HashMap::new(), &mut HashMap::new())
 }
@@ -117,7 +117,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
     let (alvo, throws) = &copies[&sym_name];
     let throws = *throws;
 
-    // Novos ids para os valores e blocos da cópia.
+    // New ids for the values and blocks of the copy.
     let mut values: HashMap<ValueId, Operand> = HashMap::new();
     for ((p, _, _), a) in alvo.params.iter().zip(&args) {
         values.insert(*p, a.clone());
@@ -128,8 +128,8 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
             values.insert(*v, Operand::Val(ValueId(next_v)));
         }
     }
-    // A identidade pertence à origem; somente o índice SSA da cópia muda.
-    // Contextos são unidos conservadoramente, sem inferir singleton por clone.
+    // The identity belongs to the origin; only the SSA index of the copy changes.
+    // Contexts are joined conservatively, without inferring a singleton per clone.
     if let Some(origins) = sources.get(&sym_name) {
         for (v, site) in origins {
             if let Some(Operand::Val(new)) = values.get(v) {
@@ -147,11 +147,11 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
     let continuation = BlockId(next_b);
     let origin = func.blocks[bi].id;
 
-    // Divide o bloco da chamada.
+    // Splits the block of the call.
     let after: Vec<(ValueId, Instruction, Type)> = func.blocks[bi].instructions.split_off(ii + 1);
     func.blocks[bi].instructions.pop();
     let terminator = std::mem::replace(&mut func.blocks[bi].terminator, Terminator::Branch(blocks[&alvo.blocks[0].id]));
-    // Os sucessores do bloco original agora vêm da continuação.
+    // The successors of the original block now come from the continuation.
     for s in super::cfg::successors(&terminator) {
         if let Some(b) = func.blocks.iter_mut().find(|b| b.id == s) {
             for (_, inst, _) in &mut b.instructions {
@@ -207,13 +207,13 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
         new_set.push(BasicBlock { id, instructions: instructions, terminator: term });
     }
 
-    // O rastro simbólico (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14):
-    // as instruções copiadas guardam a posição na função copiada e o
-    // contexto de inlining, para o quadro dela aparecer como a VM mostra os
-    // quadros embutidos. Fica fora das posições das tabelas de linha (o
-    // arquivo delas é o desta função). Quem chama sem posições (a entrada
-    // uniforme de uma closure) ganha uma depuração oculta: só os quadros
-    // copiados aparecem.
+    // The symbolic stack trace (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14):
+    // the copied instructions keep the position in the copied function and the
+    // inlining context, so that its frame appears the way the VM shows
+    // inlined frames. It stays out of the line-table positions (their
+    // file is that of this function). A caller without positions (the uniform
+    // entry of a closure) gets a hidden debug info: only the copied
+    // frames appear.
     if let Some(da) = alvo.debug_info.as_deref()
         && (func.debug_info.is_some() || crate::alvo::symbolic_stack_trace().unwrap_or(false))
     {
@@ -248,7 +248,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
         }
     }
 
-    // O resultado: o único retorno, ou um `phi` na continuação.
+    // The result: the single return, or a `phi` in the continuation.
     let mut start = Vec::new();
     let result = match returns.len() {
         0 => None,

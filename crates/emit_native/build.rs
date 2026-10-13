@@ -1,15 +1,15 @@
-//! A impressão digital do compilador que entra na chave do cache do SDK da
-//! fonte (P5c, `src/sdk_modulo.rs`): o blake3 das fontes de quem decide o
-//! código de uma biblioteca do SDK — o lowering e o emissor (esta crate), a
-//! inferência (`types`), o modelo de elementos (`elements`) e o front-end.
-//! Uma mudança em qualquer um deles invalida os objetos do SDK em cache; a
-//! versão do pacote sozinha não bastaria (ela não muda a cada commit).
+//! The compiler fingerprint that goes into the cache key of the source SDK
+//! (P5c, `src/sdk_modulo.rs`): the blake3 of the sources of whatever decides the
+//! code of an SDK library — the lowering and the emitter (this crate), the
+//! inference (`types`), the element model (`elements`) and the front end.
+//! A change in any of them invalidates the cached SDK objects; the
+//! package version alone would not be enough (it does not change on every commit).
 //!
-//! E o runtime do AOT **pré-compilado** (`precompile_runtime`): as duas
-//! variantes da `staticlib` (com o `main` C e a da DLL do SDK da fonte) são
-//! compiladas aqui, pelo `cargo` do próprio build e para o alvo do build, e
-//! vão para a distribuição ao lado do executável. Quem usa o dartforge não
-//! precisa de Rust instalado.
+//! And the **precompiled** AOT runtime (`precompile_runtime`): the two
+//! variants of the `staticlib` (with the C `main` and the one for the DLL of the source SDK) are
+//! compiled here, by the build's own `cargo` and for the build target, and
+//! go into the distribution next to the executable. Users of dartforge do not
+//! need Rust installed.
 
 use std::path::{Path, PathBuf};
 
@@ -33,10 +33,10 @@ fn main() {
         println!("cargo::rerun-if-changed={}", dir.display());
         join(&dir, &mut files);
     }
-    // A tabela de efeitos das externs decide onde a exceção pendente é
-    // conferida: muda o código do SDK como uma fonte.
-    // Ownership também decide retenções, limpeza e ABI dos corpos ARC.
-    // Uma alteração isolada do catálogo deve invalidar o SDK em cache.
+    // The effects table of the externs decides where the pending exception is
+    // checked: it changes the SDK code like a source does.
+    // Ownership also decides retains, cleanup and the ABI of ARC bodies.
+    // An isolated change of the catalog must invalidate the cached SDK.
     for table in ["../runtime/efeitos.tsv", "../runtime/ownership.tsv"] {
         let path = root.join(table);
         println!("cargo::rerun-if-changed={}", path.display());
@@ -48,8 +48,8 @@ fn main() {
         let rel = a.strip_prefix(root).unwrap_or(a).to_string_lossy().replace('\\', "/");
         h.update(rel.as_bytes());
         h.update(&[0]);
-        // Fim de linha normalizado: o mesmo compilador em checkouts com
-        // `core.autocrlf` diferentes tem a mesma impressão.
+        // Normalized line endings: the same compiler in checkouts with
+        // different `core.autocrlf` has the same fingerprint.
         let text = std::fs::read(a).unwrap_or_default();
         let text: Vec<u8> = text.into_iter().filter(|&b| b != b'\r').collect();
         h.update(&text);
@@ -59,32 +59,32 @@ fn main() {
     precompile_runtime();
 }
 
-/// O perfil de uma variante da `staticlib` do runtime, por cima do `release`
-/// do workspace (entra no nome dela). `panic=abort`, nas variantes que só o
-/// AOT liga (a do executável com o `main` C e a de produção): sem as tabelas
-/// de desenrolamento e os caminhos de limpeza do Rust (~0,6 MB a menos por
-/// executável). Quase nada muda: um pânico no código que o Dart chama já
-/// encerrava o processo, porque chega a uma fronteira `extern "C"` (as
-/// entradas do runtime, o `main` C, o código Dart que a thread de um isolado
-/// roda) e o Rust aborta ali. O que muda é o pânico no Rust puro de uma
-/// thread auxiliar (a preparação de um isolado, as threads do `dart:io`):
-/// antes matava só a thread, agora encerra o processo. Nenhum `catch_unwind`
-/// nem `join` do runtime conta com o desenrolamento (docs/NATIVO.md). A
-/// variante da DLL de desenvolvimento, que o JIT também carrega, fica como
-/// era.
+/// The profile of a variant of the runtime `staticlib`, on top of the workspace
+/// `release` (it goes into its name). `panic=abort`, in the variants that only
+/// AOT links (the executable one with the C `main` and the production one): without the
+/// unwind tables and the Rust cleanup paths (~0.6 MB less per
+/// executable). Almost nothing changes: a panic in code that Dart calls already
+/// terminated the process, because it reaches an `extern "C"` boundary (the
+/// runtime entries, the C `main`, the Dart code that an isolate thread
+/// runs) and Rust aborts there. What changes is a panic in pure Rust of an
+/// auxiliary thread (the preparation of an isolate, the `dart:io` threads):
+/// before it killed only the thread, now it terminates the process. No `catch_unwind`
+/// nor `join` of the runtime relies on unwinding (docs/NATIVO.md). The
+/// variant of the development DLL, which the JIT also loads, stays as it
+/// was.
 const ABORT: &[&str] = &["--config", "profile.release.panic=\"abort\""];
 
-/// Compila as três variantes da `staticlib` do runtime
-/// (`crates/runtime_static`): a do executável sem o SDK da fonte (feature
-/// `aot`, com o `main` C), a da DLL do SDK da fonte (feature `dll`; o perfil
-/// de desenvolvimento e o JIT) e a de produção (feature `dll` com
-/// [`ABORT`], ligada estaticamente no executável), para o alvo do build,
-/// com um `cargo build` próprio (outro diretório de alvo: nada disputa a
-/// trava do build de fora), e publica, para o binário, o diretório e os
-/// nomes delas. O nome leva o blake3 do fonte do runtime, do `Cargo.lock`,
-/// do alvo e da variante: um runtime de outra versão nunca é confundido com
-/// o deste compilador. `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` pula a
-/// compilação (para `cargo check`/`clippy`, que não geram executáveis).
+/// Compiles the three variants of the runtime `staticlib`
+/// (`crates/runtime_static`): the executable one without the source SDK (feature
+/// `aot`, with the C `main`), the one for the DLL of the source SDK (feature `dll`; the
+/// development profile and the JIT) and the production one (feature `dll` with
+/// [`ABORT`], linked statically into the executable), for the build target,
+/// with its own `cargo build` (another target directory: nothing contends for the
+/// lock of the outer build), and publishes, for the binary, the directory and their
+/// names. The name carries the blake3 of the runtime source, of `Cargo.lock`,
+/// of the target and of the variant: a runtime of another version is never confused with
+/// this compiler's. `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` skips the
+/// compilation (for `cargo check`/`clippy`, which do not produce executables).
 fn precompile_runtime() {
     println!("cargo::rerun-if-env-changed=DARTFORGE_RUNTIME_SEM_PRECOMPILAR");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -93,10 +93,10 @@ fn precompile_runtime() {
     let alvo = std::env::var("TARGET").expect("TARGET");
     let windows = alvo.contains("windows");
     let skip = std::env::var("DARTFORGE_RUNTIME_SEM_PRECOMPILAR").is_ok_and(|v| v == "1");
-    // macOS: o C das dependências (zlib, `ring`) sai para o mesmo mínimo que
-    // o `ld64.lld` declara no executável (`ligador_macos.rs`); sem isto o
-    // `cc` usa o do SDK da máquina (26.x), e o programa poderia chamar o que
-    // um macOS mais antigo não tem.
+    // macOS: the C code of the dependencies (zlib, `ring`) targets the same minimum that
+    // `ld64.lld` declares in the executable (`ligador_macos.rs`); without this,
+    // `cc` uses the one from the machine's SDK (26.x), and the program could call what
+    // an older macOS does not have.
     println!("cargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     let macos_minimum = alvo.contains("apple-darwin").then(|| {
         std::env::var("MACOSX_DEPLOYMENT_TARGET")
@@ -153,8 +153,8 @@ fn precompile_runtime() {
         if skip || lib.is_file() {
             continue;
         }
-        // Um diretório de alvo por perfil: as dependências de um não
-        // invalidam as do outro.
+        // One target directory per profile: the dependencies of one do not
+        // invalidate those of the other.
         let target_dir = exit.join(if profile.is_empty() { "cargo-runtime" } else { "cargo-runtime-abort" });
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let mut cmd = std::process::Command::new(cargo);
@@ -170,24 +170,24 @@ fn precompile_runtime() {
         if std::env::var_os("CARGO_NET_OFFLINE").is_some() {
             cmd.arg("--offline");
         }
-        // O `clippy-driver` (e qualquer invólucro do workspace) é do build
-        // de fora; o diretório de alvo é o daqui.
+        // `clippy-driver` (and any workspace wrapper) belongs to the outer
+        // build; the target directory is the one here.
         for v in ["RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR", "CARGO_BUILD_TARGET"] {
             cmd.env_remove(v);
         }
-        // Sem o caminho da máquina que compilou nas mensagens de pânico (e o
-        // mesmo runtime em qualquer checkout).
+        // Without the path of the compiling machine in panic messages (and the
+        // same runtime in any checkout).
         let mut flags = std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
         if !flags.is_empty() {
             flags.push('\x1f');
         }
         let ws = workspace.canonicalize().unwrap_or_else(|_| workspace.clone());
         flags.push_str(&format!("--remap-path-prefix={}=dartforge", ws.display()));
-        // Tabelas de desenrolamento em todo quadro do runtime nos alvos do
-        // desenrolador Itanium, também com `panic=abort`: o percurso das
-        // raízes por mapas (`_Unwind_Backtrace`, `runtime/src/heap.rs`) e o
-        // desenrolamento das exceções por tabelas atravessam os quadros do
-        // runtime; sem a tabela, o desenrolador para no primeiro deles
+        // Unwind tables in every runtime frame on the Itanium
+        // unwinder targets, also with `panic=abort`: the walk of
+        // roots by maps (`_Unwind_Backtrace`, `runtime/src/heap.rs`) and
+        // the unwinding of exceptions by tables cross the runtime
+        // frames; without the table, the unwinder stops at the first of them
         // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.6).
         if alvo.contains("linux") || alvo.contains("apple") {
             flags.push_str("\x1f-Cforce-unwind-tables=yes");

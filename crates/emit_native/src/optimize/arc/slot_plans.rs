@@ -1,5 +1,5 @@
-//! Papéis nativos dos quadros compartilhados, derivados de um grupo verificado.
-//! O contrato sela a assinatura e os repasses; mutações Ref exigem revalidar CFG.
+//! Native roles of the shared frames, derived from a verified group.
+//! The contract seals the signature and the forwardings; Ref mutations require revalidating the CFG.
 
 use super::*;
 use std::sync::Arc;
@@ -14,17 +14,17 @@ struct Group {
     identity: String,
 }
 
-/// Contrato dos papéis nativos de uma família fechada de capturas Ref.
+/// Contract of the native roles of a closed family of Ref captures.
 ///
-/// Criado somente após conferir origens, todos os chamadores e vida explícita
-/// dos quadros. Não é um owner Ref nem certificado de unwind. Campos privados
-/// impedem fabricar empréstimos a partir de parâmetros i64 arbitrários.
-/// A assinatura e os repasses precisam permanecer iguais; demais alterações
-/// ainda passam pela conferência atual de tipos, escape, CFG e cleanup.
+/// Created only after checking origins, every caller and the explicit lifetime
+/// of the frames. It is neither a Ref owner nor an unwind certificate. Private fields
+/// prevent forging borrows from arbitrary i64 parameters.
+/// The signature and the forwardings must stay the same; other changes
+/// still go through the current check of types, escape, CFG and cleanup.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::PlanoTokens;
-/// assert!(PlanoTokens::default().quadros_compartilhados.is_none());
+/// use dartforge_emit_native::optimize::arc::TokenPlan;
+/// assert!(TokenPlan::default().shared_frames.is_none());
 /// ```
 #[derive(Debug, Clone)]
 pub struct SharedFramesCfgContract {
@@ -220,25 +220,25 @@ impl SharedFramesCfgContract {
     }
 }
 
-/// Produz atomicamente papéis nativos e contratos de quadros nos planos.
+/// Atomically produces native roles and frame contracts in the plans.
 ///
-/// Exige os corpos intermediários e seus planos por símbolo novo. Classifica
-/// apenas quadro/índice importados como Trivial, sem registrá-los como escalares
-/// Dart. Os quadros locais continuam sendo produzidos pela ABI auditada.
-/// O contrato permite revalidar o CFG atual após inserir operações Ref;
-/// não permite mudar assinatura, repasses ou publicar um endereço da família.
-/// Não publica corpos, tabelas do módulo ou certificado de unwind estrangeiro.
+/// Requires the intermediate bodies and their plans by new symbol. Classifies
+/// only the imported frame/index as Trivial, without recording them as Dart
+/// scalars. Local frames are still produced by the audited ABI.
+/// The contract allows revalidating the current CFG after inserting Ref operations;
+/// it does not allow changing the signature, the forwardings or publishing an address of the family.
+/// Publishes no bodies, module tables nor a foreign-unwind certificate.
 ///
-/// # Erros
-/// Falha do grupo, plano ausente/obsoleto ou classe conflitante. Nenhuma
-/// classificação ou contrato é publicado em erro.
+/// # Errors
+/// Group failure, missing/stale plan or conflicting class. No
+/// classification or contract is published on error.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::Module, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut m = Module::new(); m.memoria_arc = true;
-/// let r = baixar_slots_ref_compartilhados(&m)?;
-/// assert_eq!(produzir_planos_slots_ref_cfg(&m, &r, &mut HashMap::new())?, 0);
+/// let mut m = Module::new(); m.arc_memory = true;
+/// let r = lower_shared_ref_slots(&m)?;
+/// assert_eq!(produce_cfg_ref_slot_plans(&m, &r, &mut HashMap::new())?, 0);
 /// # Ok::<(), String>(())
 /// ```
 pub fn produce_cfg_ref_slot_plans(
@@ -521,8 +521,8 @@ mod tests {
         produce_cfg_ref_slot_plans(&m, &r, &mut ps).unwrap();
         let f = &r.functions[1];
         let p = ps.get_mut(&f.symbol).unwrap();
-        // A instrução ordinária CallStatic precisa do produtor de chamadas
-        // do conjunto. Aqui conferimos a folha que só lê/copía o slot.
+        // The ordinary CallStatic instruction needs the call producer of
+        // the set. Here we check the leaf that only reads/copies the slot.
         let mut leaf = f.clone();
         leaf.blocks[0]
             .instructions

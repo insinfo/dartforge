@@ -1,24 +1,24 @@
-//! Substituição escalar dos objetos que não escapam.
+//! Scalar replacement of objects that do not escape.
 //!
-//! Um objeto criado na função (`dartforge_object_new`) cujo único uso é
-//! ler e gravar os próprios campos por índice constante
+//! An object created in the function (`dartforge_object_new`) whose only use is
+//! reading and writing its own fields by constant index
 //! (`dartforge_object_get`/`dartforge_object_set`, `GetField`/`SetField`)
-//! não precisa existir: ninguém observa a identidade dele (nem `==`, nem
-//! `is`, nem o coletor), e cada campo vira um local — que o `mem2reg`
-//! promove a valor SSA em seguida. Um uso qualquer além desses (argumento,
-//! retorno, `phi`, gravação em outro objeto, tipo, RTI) conta como fuga, e
-//! o objeto fica como está. Depois do inlining do construtor e dos
-//! métodos, os temporários do tipo `Ponto(a, b).x` somem.
+//! need not exist: nobody observes its identity (not `==`, not
+//! `is`, not the collector), and each field becomes a local — which `mem2reg`
+//! then promotes to an SSA value. Any use beyond those (argument,
+//! return, `phi`, a write into another object, a type, RTI) counts as an escape, and
+//! the object stays as it is. After inlining the constructor and the
+//! methods, the temporaries of the `Point(a, b).x` kind vanish.
 
 use super::operands::*;
 use crate::hir::*;
 use std::collections::HashMap;
 
-/// Um acesso ao campo `index` de um objeto candidato.
+/// An access to field `idx_value` of a candidate object.
 enum Access {
-    /// Leitura: representação lógica tipada ou bits legados em `I64`.
+    /// Read: typed logical representation or legacy bits in `I64`.
     Le(Type),
-    /// Gravação: o valor e se é referência.
+    /// Write: the value and whether it is a reference.
     Writes(Type, bool),
 }
 
@@ -37,14 +37,14 @@ fn flag(o: &Operand) -> Option<bool> {
     }
 }
 
-/// Substitui os objetos que não escapam de `func`. Devolve se mudou.
+/// Replaces the objects of `func` that do not escape. Returns whether anything changed.
 pub fn replace_objects(func: &mut Function) -> bool {
     let types = function_types(func);
     let mut candidates: HashMap<ValueId, Vec<(usize, Access)>> = HashMap::new();
     for b in &func.blocks {
         for (v, inst, _) in &b.instructions {
-            // Só objetos do programa (cid ≥ 128): as classes do runtime têm
-            // layout e identidade que o runtime conhece (§2.4).
+            // Only program objects (cid ≥ 128): runtime classes have a
+            // layout and identity known to the runtime (§2.4).
             if let Instruction::CallRuntime { name, args, .. } = inst
                 && name == "dartforge_object_new"
                 && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
@@ -60,7 +60,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
     let mut escaped: std::collections::HashSet<ValueId> = std::collections::HashSet::new();
     for b in &func.blocks {
         for (_, inst, ty) in &b.instructions {
-            // O acesso reconhecido: o objeto e o campo, fora de outra posição.
+            // The recognized access: the object and the field, not in another position.
             let recognized = match inst {
                 Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
                     match (&args[0].0, const_index(&args[1].0)) {
@@ -88,7 +88,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
             };
             match recognized {
                 Some((o, i, access, val_ref)) => {
-                    // O próprio objeto gravado num campo (dele ou de outro).
+                    // The object itself written into a field (its own or another's).
                     if let Some(Operand::Val(x)) = val_ref
                         && candidates.contains_key(x)
                     {
@@ -115,8 +115,8 @@ pub fn replace_objects(func: &mut Function) -> bool {
         });
     }
 
-    // Todos os acessos devem concordar na representação do campo;
-    // leituras tipadas não podem carregar uma gravação legada em bits.
+    // All accesses must agree on the representation of the field;
+    // typed reads cannot load a legacy write in bits.
     let mut locals: HashMap<(ValueId, usize), Type> = HashMap::new();
     let mut order: Vec<ValueId> = candidates.keys().copied().filter(|v| !escaped.contains(v)).collect();
     order.sort_by_key(|v| v.0);
@@ -143,7 +143,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
         return false;
     }
 
-    // Um local por campo, na entrada.
+    // One local per field, at the entry.
     let (mut next, _) = largest_ids(func);
     let mut keys: Vec<(ValueId, usize)> = locals.keys().copied().collect();
     keys.sort_by_key(|(v, i)| (v.0, *i));
@@ -155,8 +155,8 @@ pub fn replace_objects(func: &mut Function) -> bool {
         addresses.insert(k, ValueId(next));
         allocas.push((ValueId(next), Instruction::Alloca(locals[&k]), Type::Ptr));
         if matches!(locals[&k], Type::F64 | Type::I1 | Type::I8) {
-            // Reinicializa no ponto da alocação, não na entrada: uma alocação
-            // dentro de um laço começa zerada em cada iteração.
+            // Reinitializes at the allocation point, not at the entry: an allocation
+            // inside a loop starts zeroed in each iteration.
             let val = match locals[&k] {
                 Type::F64 => Operand::Constant(Constant::Double(0.0)),
                 Type::I1 => Operand::Constant(Constant::Bool(false)),

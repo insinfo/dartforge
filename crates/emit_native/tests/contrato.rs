@@ -1,13 +1,13 @@
-//! Os três defeitos que o diferencial JIT × AOT (`crates/jit/tests/execution.rs`)
-//! achou no emissor nativo, cada um preso pelo IR que o contrato de
-//! representação produz (docs/NATIVO-PLANO.md §6). Sem Clang: só a emissão.
+//! The three defects that the JIT × AOT differential (`crates/jit/tests/execution.rs`)
+//! found in the native emitter, each one pinned by the IR that the representation
+//! contract produces (docs/NATIVO-PLANO.md §6). Without Clang: emission only.
 
 use dartforge_emit_native::{CompileOptions, emit_ir_with};
 use std::path::Path;
 
 const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
-/// O IR completo do programa, ou `None` sem o SDK na máquina.
+/// The complete IR of the program, or `None` without the SDK on the machine.
 fn ir_of(source: &str) -> Option<String> {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
     if !Path::new(&sdk).join("libraries.json").is_file() {
@@ -31,7 +31,7 @@ fn ir_of(source: &str) -> Option<String> {
                 gerador: None,
                 cpu: None,
             };
-            // Com o SDK da fonte (o único modo desde o espaço unificado,
+            // With the source SDK (the only mode since the unified space,
             // docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
             emit_ir_with(&entry, &options)
                 .unwrap_or_else(|e| panic!("não compilou:\n{e}"))
@@ -43,7 +43,7 @@ fn ir_of(source: &str) -> Option<String> {
     Some(ir)
 }
 
-/// O IR de `dart_main` do programa, ou `None` sem o SDK na máquina.
+/// The IR of the program's `dart_main`, or `None` without the SDK on the machine.
 fn main_of(source: &str) -> Option<String> {
     let ir = ir_of(source)?;
     let ini = ir.find("define void @dart_main(").expect("dart_main");
@@ -68,9 +68,9 @@ fn symbol_literal_uses_sdk_class_and_canonical_constant() {
     let Some(ir) = source_ir("void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n") else { return };
     let main = ir.split("define void @dart_main(").nth(1).expect("main");
     let main = main.split("\n}\n").next().expect("fim de main");
-    // As duas ocorrências de `#foo` passam pelo mesmo getter da constante
-    // canônica `@dfc.<hash>.get`: chamado, ou copiado em `main` pelo inliner
-    // (a cópia guarda o objeto com `dartforge_marcar_constante` e a chave do
+    // Both occurrences of `#foo` go through the same getter of the canonical
+    // constant `@dfc.<hash>.get`: called, or copied into `main` by the inliner
+    // (the copy keeps the object with `dartforge_marcar_constante` and the key of the
     // getter).
     let getters: Vec<&str> = main
         .match_indices("@dfc.")
@@ -84,9 +84,9 @@ fn symbol_literal_uses_sdk_class_and_canonical_constant() {
     assert!(ir.contains("@dartforge_object_new"), "Symbol não alocado como objeto do SDK");
 }
 
-/// O erro de aridade de uma closure deve ser a classe real do SDK e ter um
-/// `toString` utilizável pelo programa; o texto detalhado da VM ainda varia
-/// conforme o nome e a assinatura da função.
+/// The arity error of a closure must be the real SDK class and have a
+/// `toString` usable by the program; the detailed text of the VM still varies
+/// with the name and the signature of the function.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn aridade_closure_lanca_no_such_method_error_da_fonte() {
@@ -113,8 +113,8 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
     assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"), "true\ntrue\n");
 }
 
-/// `C.getter(args)` avalia o getter antes dos argumentos, depois chama a
-/// closure devolvida. Métodos estáticos comuns continuam com chamada direta.
+/// `C.getter(args)` evaluates the getter before the arguments, then calls the
+/// returned closure. Ordinary static methods keep the direct call.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
@@ -142,8 +142,8 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
                "getter\narg\n42\n6\ngetter\n8\n");
 }
 
-/// A factory redirecionadora passa os tipos da anotação do destino, inclusive
-/// quando muda de classe e permuta os parâmetros de tipo.
+/// A redirecting factory passes the types of the destination's annotation, even
+/// when it changes class and permutes the type parameters.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn factory_redirecionadora_preserva_rti_do_destino() {
@@ -171,8 +171,8 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
                "true\nMemory<String>\ntrue\nPairImpl<String, int>\n");
 }
 
-/// O getter abstrato de uma interface pode ser implementado por um campo ou
-/// por um getter explícito; cada objeto escolhe sua própria implementação.
+/// The abstract getter of an interface may be implemented by a field or
+/// by an explicit getter; each object chooses its own implementation.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn getter_de_interface_despacha_campo_e_getter() {
@@ -200,8 +200,8 @@ fn getter_de_interface_despacha_campo_e_getter() {
                "r2: bip r2\nloro: currupaco\n");
 }
 
-/// O argumento reificado da coleção, e não o tipo da referência covariante,
-/// protege a mutação antes de alterar List, Map ou Set.
+/// The reified argument of the collection, and not the type of the covariant reference,
+/// protects the mutation before changing a List, Map or Set.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
@@ -229,8 +229,8 @@ fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
                "true\n[1]\ntrue\n{a: 1}\ntrue\n{1}\n");
 }
 
-/// A chamada dinâmica deve conferir o tipo nominal do parâmetro do SDK antes
-/// de passar um `int` como handle ao native `String_concat`.
+/// The dynamic call must check the nominal type of the SDK parameter before
+/// passing an `int` as a handle to the `String_concat` native.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
@@ -257,8 +257,8 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
     assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"), "foobar\ntrue\nfoo\n");
 }
 
-/// `Iterable.generate<E>` usa `id is E Function(int)` para decidir se o
-/// gerador implícito de inteiros pode atender a `E`.
+/// `Iterable.generate<E>` uses `id is E Function(int)` to decide whether the
+/// implicit integer generator can serve `E`.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn iterable_generate_testa_assinatura_generica_no_sdk() {
@@ -286,19 +286,19 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
                "[0, 1, 2]\ntrue\n[v0, v1]\n");
 }
 
-/// `name`/`index` implícitos (`$name`, `index`, `this.name`) no corpo de um
-/// membro de enum do programa (especificação §13 "Enums"): o elemento
-/// resolvido é o getter implícito, sem corpo — o valor mora nos dois campos
-/// implícitos do objeto (posições 1 e 0), os mesmos que o acesso explícito
-/// (`E.a.name`, `enum_member`) lê. Sem Clang: só a emissão.
+/// Implicit `name`/`index` (`$name`, `index`, `this.name`) in the body of a
+/// member of a program enum (specification §13 "Enums"): the resolved
+/// element is the implicit getter, without a body — the value lives in the two implicit
+/// fields of the object (positions 1 and 0), the same ones that the explicit access
+/// (`E.a.name`, `enum_member`) reads. Without Clang: emission only.
 #[test]
 fn implicit_enum_name_index_reads_value_fields() {
     let source = "enum E { a, b; String d() => 'v=$name'; int i() => index + 1; }\n\
         void main() { print(E.a.d()); print(E.b.i()); }\n";
     let Some(ir) = source_ir(source) else { return };
-    // O campo é lido em linha, do corpo do objeto (o cabeçalho em `h - 2`,
-    // os campos 16 bytes depois, no espaço de objetos do runtime): a
-    // palavra de índice 1 ou 0.
+    // The field is read inline, from the body of the object (the header at `h - 2`,
+    // the fields 16 bytes after, in the object space of the runtime): the
+    // word at index 1 or 0.
     assert!(
         ir.contains(", i64 16\n") && ir.contains("getelementptr inbounds i64, ptr %fp") && ir.contains(", i64 1\n"),
         "o $name implícito lê o campo 1:\n{ir}"
@@ -306,8 +306,8 @@ fn implicit_enum_name_index_reads_value_fields() {
     assert!(ir.contains(", i64 0\n"), "o index implícito lê o campo 0:\n{ir}");
 }
 
-/// O programa acima executado (AOT com SDK da fonte): implícito e explícito
-/// dão o mesmo texto da VM.
+/// The program above executed (AOT with the source SDK): implicit and explicit
+/// give the same text as the VM.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn enum_name_index_implicito_no_sdk() {
@@ -335,10 +335,10 @@ fn enum_name_index_implicito_no_sdk() {
                "terra:1\nmercurio:0\nterra\n0\nterra\n0\n");
 }
 
-/// `values` implícito (sem o prefixo `E.`) no corpo de um membro de enum:
-/// a lista dos valores, como o caminho explícito. O getter implícito não
-/// tem corpo — antes saía uma chamada a um símbolo nunca definido, e a
-/// ligação falhava. Sem Clang: a emissão não deixa chamada a `.values()`.
+/// Implicit `values` (without the `E.` prefix) in the body of an enum member:
+/// the list of the values, like the explicit path. The implicit getter has no
+/// body — before, a call to a never-defined symbol came out, and the
+/// link failed. Without Clang: the emission leaves no call to `.values()`.
 #[test]
 fn implicit_enum_values_becomes_value_list() {
     let source = "enum E { a, b; E get proximo => values[(index + 1) % 2]; static E primeiro() => values.first; }\n\
@@ -351,7 +351,7 @@ fn implicit_enum_values_becomes_value_list() {
     assert!(calls.is_empty(), "chamada a values sem define:\n{calls:?}\n{ir}");
 }
 
-/// O programa acima executado (AOT com SDK da fonte).
+/// The program above executed (AOT with the source SDK).
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
@@ -378,9 +378,9 @@ fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_S
                "E.b\nE.a\nE.a\n2\n");
 }
 
-/// `toString()` padrão de instância de classe genérica inclui os argumentos
-/// (`Instance of 'Caixa<int>'`, como a VM); sem argumentos, o nome
-/// registrado, como antes. Só execução prova (o runtime monta o texto).
+/// The default `toString()` of an instance of a generic class includes the arguments
+/// (`Instance of 'Caixa<int>'`, like the VM); without arguments, the registered
+/// name, as before. Only execution proves it (the runtime builds the text).
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn classe_generica_tostring_padrao_no_sdk() {
@@ -408,11 +408,11 @@ fn classe_generica_tostring_padrao_no_sdk() {
                "true\nInstance of 'Caixa<String>'\nInstance of 'Caixa<Caixa<int>>'\ntrue\n");
 }
 
-/// Encaminhador `noSuchMethod` estático de método só com posicionais
-/// (casos 57/216/223, primeira fatia): `p.saudacao('world')` com
-/// `Servico.saudacao` abstrato e `Proxy.noSuchMethod` monta
-/// `Invocation.method(#saudacao, ['world'])` e chama o nsm — antes era
-/// "chamada de membro sem implementação compilada". Sem Clang: só a emissão.
+/// A static `noSuchMethod` forwarder of a method with positionals only
+/// (cases 57/216/223, first slice): `p.saudacao('world')` with an abstract
+/// `Servico.saudacao` and `Proxy.noSuchMethod` builds
+/// `Invocation.method(#saudacao, ['world'])` and calls the nsm — before it was
+/// "chamada de membro sem implementação compilada". Without Clang: emission only.
 #[test]
 fn nsm_forwarder_positional_method_emits_nsm() {
     let source = "abstract class Servico { String saudacao(String quem); }\n\
@@ -424,7 +424,7 @@ fn nsm_forwarder_positional_method_emits_nsm() {
     assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
 }
 
-/// O programa acima executado (AOT com SDK da fonte): a saída bate com a VM 3.6.2.
+/// The program above executed (AOT with the source SDK): the output matches VM 3.6.2.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn nsm_encaminhador_metodo_no_sdk() {
@@ -452,10 +452,10 @@ fn nsm_encaminhador_metodo_no_sdk() {
                "nsm(mundo)\nSymbol(\"saudacao\")\n");
 }
 
-/// Encaminhador `noSuchMethod` estático de getter (caso 216, `p.version`):
-/// o getter abstrato sem implementação concreta monta
-/// `Invocation.getter(#version)` e chama o nsm — antes era "chamada de
-/// membro sem implementação compilada". Sem Clang: só a emissão.
+/// A static `noSuchMethod` forwarder of a getter (case 216, `p.version`):
+/// the abstract getter without a concrete implementation builds
+/// `Invocation.getter(#version)` and calls the nsm — before it was "chamada de
+/// membro sem implementação compilada". Without Clang: emission only.
 #[test]
 fn nsm_forwarder_getter_emits_nsm() {
     let source = "abstract class Servico { int get versao; }\n\
@@ -467,7 +467,7 @@ fn nsm_forwarder_getter_emits_nsm() {
     assert!(ir.contains("noSuchMethod"), "sem chamada ao nsm:\n{ir}");
 }
 
-/// O programa acima executado (AOT com SDK da fonte): a saída bate com a VM 3.6.2.
+/// The program above executed (AOT with the source SDK): the output matches VM 3.6.2.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn nsm_forwarder_getter_in_sdk() {
@@ -495,8 +495,8 @@ fn nsm_forwarder_getter_in_sdk() {
                "42\n");
 }
 
-/// Enum do programa é subtipo do `Enum` do SDK (especificação §13): a
-/// aresta vai no registro do módulo do programa, e `is`/`as` a enxergam.
+/// A program enum is a subtype of the SDK `Enum` (specification §13): the
+/// edge goes into the registration of the program module, and `is`/`as` see it.
 #[test]
 #[ignore = "fixture AOT com SDK da fonte e LLVM; rodada no Pesado"]
 fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
@@ -523,8 +523,8 @@ fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_
                "true\nfalse\ntrue\nfalse\n");
 }
 
-/// O getter separado impede que `late String x = x` expanda a própria AST
-/// indefinidamente; o teste também fixa a checagem de reentrância por objeto.
+/// The separate getter prevents `late String x = x` from expanding its own AST
+/// indefinitely; the test also pins the per-object reentrancy check.
 #[test]
 fn self_referential_late_field_emits_guarded_getter() {
     let Some(ir) = ir_of("class C { late String x = x; }\nvoid main() { print(C().x); }\n") else { return };
@@ -533,11 +533,11 @@ fn self_referential_late_field_emits_guarded_getter() {
     assert!(ir.contains("@dartforge_late_field_mark_initialized"), "{ir}");
 }
 
-/// (1) `for` cuja variável é reatribuída no corpo: a condição relê o valor
-/// dela a cada volta — antes ela era um valor SSA no mapa por nome, e a
-/// condição via para sempre o inicial. O local mora num `alloca` (R6), que o
-/// `mem2reg` do otimizador da HIR promove: a leitura é um `phi` que junta o
-/// valor de antes do `if` e o `i = 7`, e é ele que o `print` e o `i++` usam.
+/// (1) `for` whose variable is reassigned in the body: the condition rereads its
+/// value on every iteration — before it was an SSA value in the by-name map, and the
+/// condition always saw the initial one. The local lives in an `alloca` (R6), which
+/// the `mem2reg` of the HIR optimizer promotes: the read is a `phi` that joins the
+/// value from before the `if` and the `i = 7`, and it is what `print` and `i++` use.
 #[test]
 fn for_with_reassigned_variable_reads_local() {
     let Some(main) = main_of(
@@ -549,8 +549,8 @@ fn for_with_reassigned_variable_reads_local() {
     assert!(main.contains("add i64 0, 7"), "o `i = 7` chega ao `phi`:\n{main}");
 }
 
-/// (2) `c.double_of()`: chamada do método pelo elemento resolvido (N1) — antes
-/// caía no `Const(Int(0))` de "chamada não reconhecida" e virava `print(0)`.
+/// (2) `c.double_of()`: the call of the method through the resolved element (N1) — before it
+/// fell into the `Const(Int(0))` of "unrecognized call" and became `print(0)`.
 #[test]
 fn method_call_with_return() {
     let Some(main) = main_of(
@@ -558,14 +558,14 @@ fn method_call_with_return() {
     ) else {
         return;
     };
-    // O método (e o objeto, que não escapa) some pelo otimizador da HIR:
-    // sobra `v * 2` com o `v` do construtor.
+    // The method (and the object, which does not escape) vanishes in the HIR optimizer:
+    // `v * 2` remains, with the `v` of the constructor.
     assert!(main.contains(".dobro(i64") || main.contains("mul i64"), "{main}");
 }
 
-/// (3) `print(sum(40, 2))` com retorno `int`: o resultado é `I64` (R1), e o
-/// `print` do SDK o recebe numa posição `Ref` — antes ia a `print_handle`
-/// como se fosse handle.
+/// (3) `print(sum(40, 2))` with an `int` return: the result is an `I64` (R1), and the
+/// SDK `print` receives it in a `Ref` position — before it went to `print_handle`
+/// as if it were a handle.
 #[test]
 fn top_level_function_with_int_return_prints_scalar() {
     let Some(main) =
@@ -573,7 +573,7 @@ fn top_level_function_with_int_return_prints_scalar() {
     else {
         return;
     };
-    // A chamada, ou o corpo dela embutido pelo otimizador da HIR.
+    // The call, or its body inlined by the HIR optimizer.
     assert!(main.contains("= call i64 @df.") || main.contains("add i64 %v"), "{main}");
     assert!(!main.contains("@dartforge_print_handle"), "{main}");
 }

@@ -1,4 +1,4 @@
-//! Proveniência do PC tipado e contexto da mesma closure, sem coerção de words.
+//! Provenance of the typed PC and context of the same closure, without word coercion.
 
 use super::*;
 
@@ -60,9 +60,9 @@ pub(super) fn check(f: &Function, inst: &Instruction, ty: Type) -> Result<bool, 
     Ok(true)
 }
 
-// O registro runtime confere classe, mapa físico, ABI e PC antes da chamada.
-// A leitura do descritor permanece escalar e ganha bounds/mapa conferidos.
-// Opera apenas na cópia privada da preparação ARC, antes dos campos/contratos.
+// The runtime registration checks class, physical map, ABI and PC before the call.
+// The descriptor read stays scalar and gets checked bounds/map.
+// Operates only on the private copy of the ARC preparation, before fields/contracts.
 pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
     let mut targets = HashMap::new();
     let mut closures = Vec::new();
@@ -257,8 +257,8 @@ mod tests {
                     without_registration.functions[3].blocks[0].terminator = Terminator::Return(Some(Operand::Constant(Constant::Null)));
                     without_registration.arc_aot_ports = None;
                     let mut new_set = HashMap::from_iter(without_registration.functions.iter().map(|f| (f.symbol.clone(), DartFunctionPlan::default())));
-                    // Os corpos preparados mantêm efeitos próprios; reutiliza
-                    // seus planos, exceto a fábrica que agora retorna null.
+                    // The prepared bodies keep their own effects; reuse
+                    // their plans, except for the factory that now returns null.
                     for s in ["invocar", "corpo", "entrada"] { new_set.insert(s.into(), p[s].clone()); }
                     prepare_arc_dart_module(&mut without_registration, &mut new_set).unwrap();
                     assert!(certify_arc_aot_ports(&mut without_registration, &new_set).unwrap_err().contains("sem corpo registrado"));

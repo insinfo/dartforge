@@ -1,7 +1,7 @@
-//! Chamadas: funções de topo, locais e estáticas do usuário, construtores
-//! (`C(…)`, `C.name(…)`) e métodos de instância pelo elemento resolvido.
-//! O membro do SDK sem elemento útil vai pela classe dinâmica do receptor
-//! (`FnBuilder::method_by_selector`; o SDK vem sempre da fonte).
+//! Calls: top-level, local and static user functions, constructors
+//! (`C(…)`, `C.name(…)`) and instance methods through the resolved element.
+//! An SDK member without a useful element goes through the dynamic class of the receiver
+//! (`FnBuilder::method_by_selector`; the SDK always comes from source).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -11,9 +11,9 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `f(…)`, `o.m(…)`, `o?.m(…)`, `C(…)`, `C.m(…)`.
     ///
-    /// RTI: a tupla de argumentos de tipo de uma chamada genérica
-    /// (`armed_tuple`) vale só para a chamada desta expressão; a de fora
-    /// volta ao fim (uma chamada nos argumentos arma a sua).
+    /// RTI: the type argument tuple of a generic call
+    /// (`armed_tuple`) holds only for the call of this expression; the outer one
+    /// comes back at the end (a call in the arguments arms its own).
     pub(super) fn lower_call(
         &mut self,
         ast: &ast::Ast,
@@ -23,8 +23,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         arguments: &ast::Arguments,
     ) -> Operand {
         let saved = self.armed_tuple.take();
-        // O tipo do valor chamado, para a chamada tipada de closure; salvo e
-        // restaurado como a tupla (chamadas aninhadas nos argumentos).
+        // The type of the called value, for the typed closure call; saved and
+        // restored like the tuple (calls nested in the arguments).
         let saved_type = std::mem::replace(&mut self.callee_type, self.ctx.get_type(self.unit_id, *target));
         let saved_call = self.current_call.replace(expr_id);
         let armed = self.arm_arg_types(*target, expr_id, &arguments.args);
@@ -44,12 +44,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         target: &ExprId,
         arguments: &ast::Arguments,
     ) -> Operand {
-        // `E(…)`, `E.name(…)` de tipo de extensão (`extension_types.rs`).
+        // `E(…)`, `E.name(…)` of an extension type (`extension_types.rs`).
         if let Some((c, name)) = self.creation_te(ast, *target) {
             return self.build_te(ast, expr_id, c, name, &arguments.args, expr.span);
         }
-        // `Native.addressOf<T>(f)`: o front-end da VM a reescreve para o
-        // endereço do símbolo; o argumento é o elemento, não um valor.
+        // `Native.addressOf<T>(f)`: the VM front end rewrites it into the
+        // address of the symbol; the argument is the element, not a value.
         if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = self.ctx.get_resolved(self.unit_id, *target).cloned() {
             let fe = &self.ctx.program.functions[f.0 as usize];
             if self.ctx.symbol_name(fe.name) == "addressOf"
@@ -61,8 +61,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
 
-        // `value(args)` resolvido para o `call` de uma extensão
-        // (`calloc<Int32>(4)`, o `AllocatorAlloc.call`): o valor é o receptor.
+        // `value(args)` resolved to the `call` of an extension
+        // (`calloc<Int32>(4)`, the `AllocatorAlloc.call`): the value is the receiver.
         if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, expr_id).cloned()
             && self.ctx.symbol_name(self.ctx.program.functions[member.0 as usize].name) == "call"
         {
@@ -75,14 +75,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
             let resolved = self.ctx.get_resolved(self.unit_id, *target).cloned();
-            // Local ou parâmetro que guarda um valor função (função local,
-            // closure, tear-off): chamada pela convenção uniforme (P1).
+            // A local or parameter that keeps a function value (local function,
+            // closure, tear-off): called through the uniform convention (P1).
             if matches!(
                 resolved,
                 None | Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. })
             ) && let Some(local) = self.lookup_local(id.sym)
             {
-                // Função local direta (`direct_functions.rs`): `call` estático.
+                // Direct local function (`direct_functions.rs`): a static `call`.
                 if let Some(d) = self.local_direct(&local) {
                     let evaluated = self.evaluate_args(ast, &arguments.args);
                     return self.call_direct_fn(&d, &evaluated);
@@ -91,28 +91,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let evaluated = self.evaluate_args(ast, &arguments.args);
                 return self.call_function_value(f, &evaluated);
             }
-            // Sem resolução (corpo de closure): pelo escopo léxico.
+            // No resolution (closure body): through the lexical scope.
             let resolved = match resolved {
                 None => self.resolve_by_name(id.sym),
                 r => r,
             };
-            // `E(x)`: aplicação explícita de extensão (sobreposição,
-            // §13.3). Só aparece como receptor de um membro de `E`, que a
-            // inferência já resolveu; o valor é o próprio `x`.
+            // `E(x)`: explicit extension application (override,
+            // §13.3). It only appears as the receiver of a member of `E`, which
+            // inference already resolved; the value is `x` itself.
             if let Some(Resolved::Element(dartforge_elements::model::Element::Extension(_))) = resolved {
                 let Some(a) = arguments.args.first() else {
                     return self.unsupported("aplicação de extensão sem receptor", expr.span);
                 };
                 return self.lower_expr(ast, a.value);
             }
-            // Membro de tipo de extensão com o `this` implícito.
+            // Extension type member with the implicit `this`.
             if let Some(m) = self.resolved_member_te(resolved.as_ref()) {
                 let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
                 let receiver = self.implicit_receiver();
                 return self.call_member_te(ast, this, m, receiver, expr_id, arguments, expr.span);
             }
-            // Função de topo, membro implícito (`m()` = `this.m()`) ou
-            // estático: pelo elemento resolvido do alvo.
+            // Top-level function, implicit member (`m()` = `this.m()`) or
+            // static: through the resolved element of the target.
             if let Some(Resolved::ExtensionMember { member, .. }) = resolved {
                 let evaluated = self.evaluate_args(ast, &arguments.args);
                 let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
@@ -126,8 +126,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     expr.span,
                 );
             }
-            // Método do SDK chamado sem receptor (no corpo de uma extensão
-            // sobre um tipo do SDK): pelo seletor, com `this`.
+            // An SDK method called without a receiver (in the body of an extension
+            // on an SDK type): through the selector, with `this`.
             if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = resolved
                 && !crate::lower::user_function(self.ctx, f.0 as usize)
                 && let Some(this) = self.this_param.clone()
@@ -155,7 +155,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(Resolved::Element(dartforge_elements::model::Element::Function(f)))
                     if crate::lower::user_function(self.ctx, f.0 as usize) =>
                 {
-                    // Variável de topo de tipo função.
+                    // A top-level variable of function type.
                     let vid = self.ctx.program.functions[f.0 as usize]
                         .variable
                         .expect("acessor");
@@ -197,8 +197,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(Resolved::Element(dartforge_elements::model::Element::Class(c)))
                     if self.ctx.get_resolved(self.unit_id, expr_id).is_none() =>
                 {
-                    // `C(…)` sem resolução (operando de `throw`, corpo de
-                    // closure): o construtor sem nome da classe.
+                    // `C(…)` without resolution (operand of `throw`, body of a
+                    // closure): the unnamed constructor of the class.
                     let empty = self.ctx.interner.lookup("");
                     let ctor = empty.and_then(|v| self.constructor_of(c, v));
                     if let Some(f) = ctor {
@@ -209,7 +209,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(Resolved::Member { member, class, .. })
                     if self.ctx.compiled_library(self.ctx.program.classes[class.0 as usize].library) =>
                 {
-                    // Campo ou getter de tipo função: lê e chama o valor.
+                    // A field or getter of function type: reads and calls the value.
                     let v = self.read_implicit_member(member, expr.span);
                     let evaluated = self.evaluate_args(ast, &arguments.args);
                     return self.call_function_value(v, &evaluated);
@@ -217,7 +217,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 _ => {}
             }
         }
-        // Instanciação sem `new`: `C(…)`, `C.name(…)`.
+        // Instantiation without `new`: `C(…)`, `C.name(…)`.
         if let Some(Resolved::Constructor(fid)) =
             self.ctx.get_resolved(self.unit_id, expr_id).cloned()
         {
@@ -225,7 +225,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.instantiate(ast, fid, &arguments.args, expr.span);
         }
 
-        // Chamadas de método sobre objeto / coleção
+        // Method calls on an object / collection
         if let ExprKind::Property {
             target: inner_target,
             name: method_name,
@@ -235,9 +235,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let m_name = self.ctx.symbol_name(method_name.sym);
             let resolved_target = self.ctx.get_resolved(self.unit_id, *target).cloned();
 
-            // `p.loadLibrary()` de um `import … deferred as p`: o programa
-            // compilado já tem a biblioteca (a VM também a carrega na hora);
-            // o `Future` completa sem valor.
+            // `p.loadLibrary()` of an `import … deferred as p`: the compiled
+            // program already has the library (the VM also loads it on the spot);
+            // the `Future` completes without a value.
             if m_name == "loadLibrary"
                 && arguments.args.is_empty()
                 && self.deferred_prefix(ast, *inner_target)
@@ -245,7 +245,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return self.call_support("_dartforgeCarregarBiblioteca", Vec::new(), expr.span);
             }
 
-            // `prefix.f(…)`: o elemento importado com prefixo.
+            // `prefix.f(…)`: the element imported with a prefix.
             if let Some(el) = self.prefixed_element(ast, *inner_target, method_name.sym) {
                 use dartforge_elements::model::Element;
                 match el {
@@ -267,8 +267,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             return self.instantiate(ast, f, &arguments.args, expr.span);
                         }
                     }
-                    // `p.E(x)`: aplicação explícita de extensão importada
-                    // com prefixo (§13.3), como `E(x)` acima: o valor é `x`.
+                    // `p.E(x)`: explicit application of an extension imported
+                    // with a prefix (§13.3), like `E(x)` above: the value is `x`.
                     Element::Extension(_) => {
                         let Some(a) = arguments.args.first() else {
                             return self.unsupported("aplicação de extensão sem receptor", expr.span);
@@ -283,8 +283,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
 
-            // `E.m(…)`: membro estático de extensão (método, ou getter/campo
-            // de tipo função chamado).
+            // `E.m(…)`: a static extension member (a method, or a getter/field
+            // of function type that gets called).
             if matches!(
                 self.ctx.get_resolved(self.unit_id, *inner_target),
                 Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))
@@ -315,9 +315,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
 
-            // `A<T>.name(…)` de uma aplicação de mixin nomeada (`class A = B
-            // with M;`): o construtor encaminhado da superclasse, com o
-            // objeto `A<T>`.
+            // `A<T>.name(…)` of a named mixin application (`class A = B
+            // with M;`): the forwarded constructor of the superclass, with the
+            // `A<T>` object.
             if let ExprKind::TypeArguments { target: t, type_args } = &ast.expr(*inner_target).kind
                 && !matches!(self.ctx.get_resolved(self.unit_id, expr_id), Some(Resolved::Constructor(_)))
                 && let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
@@ -341,8 +341,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return self.instantiate_evaluated_with_rti(f, &evaluated, expr.span, Some(object), Some(tuple));
             }
 
-            // `C.m(…)`: método estático do usuário.
-            // `C.m(…)` (e `Alias.m(…)`, com `typedef Alias = C`).
+            // `C.m(…)`: a static user method.
+            // `C.m(…)` (and `Alias.m(…)`, with `typedef Alias = C`).
             let target_is_class = matches!(
                 self.ctx.get_resolved(self.unit_id, *inner_target),
                 Some(Resolved::Element(
@@ -350,8 +350,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ))
             );
             if target_is_class {
-                // `C.name(…)` que é construtor nomeado (a resolução ficou no
-                // alvo, não na chamada).
+                // `C.name(…)` that is a named constructor (the resolution stayed on the
+                // target, not on the call).
                 if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
                     && !matches!(resolved_target, Some(Resolved::Member { .. }))
@@ -360,8 +360,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
                     return self.instantiate(ast, f, &arguments.args, expr.span);
                 }
-                // Sem resolução do membro (a inferência não resolveu o
-                // acesso): o estático da classe pelo nome.
+                // No resolution of the member (inference did not resolve the
+                // access): the static of the class by name.
                 let resolved_target = resolved_target.or_else(|| {
                     let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                         self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
@@ -383,8 +383,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if self.ctx.program.functions[fid].kind
                             == dartforge_elements::model::FunctionKind::Getter
                         {
-                            // `C.g(args)` lê `g` primeiro e chama a função
-                            // devolvida. Os argumentos não pertencem ao getter.
+                            // `C.g(args)` reads `g` first and calls the returned
+                            // function. The arguments do not belong to the getter.
                             let callee = self.call_direct(fid, None, Vec::new());
                             let evaluated = self.evaluate_args(ast, &arguments.args);
                             return self.call_function_value(callee, &evaluated);
@@ -396,8 +396,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
                 // `Error.throwWithStackTrace`, `ArgumentError.checkNotNull`…
-                // das classes de erro do runtime (`runtime_errors.rs`),
-                // pelo membro estático da classe com esse nome.
+                // of the runtime error classes (`runtime_errors.rs`),
+                // through the static member of the class with that name.
                 if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
                     && let Some(&f) = self.ctx.program.classes[c.0 as usize].static_members.get(&method_name.sym)
@@ -409,8 +409,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 return self.unsupported(&format!("chamada estática `{m_name}`"), expr.span);
             }
-            // `C.name(…)` sem resolução (corpo de closure, operando de
-            // `throw`): construtor nomeado ou método estático pelo nome.
+            // `C.name(…)` without resolution (closure body, operand of
+            // `throw`): a named constructor or a static method by name.
             if let ExprKind::Identifier(cn) = &ast.expr(*inner_target).kind
                 && self.ctx.get_resolved(self.unit_id, *inner_target).is_none()
                 && self.lookup_local(cn.sym).is_none()
@@ -438,7 +438,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
 
-            // `super.m(…)`: chamada direta ao membro da superclasse (P4).
+            // `super.m(…)`: a direct call to the superclass member (P4).
             if matches!(ast.expr(*inner_target).kind, ExprKind::Super) {
                 let evaluated = self.evaluate_args(ast, &arguments.args);
                 return self.call_super_method(method_name.sym, &evaluated, expr.span);
@@ -449,7 +449,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.branch_if_null(&recv_op);
             }
 
-            // Membro de extensão (P4): chamada direta com o receptor.
+            // Extension member (P4): a direct call with the receiver.
             if let Some(Resolved::ExtensionMember { member, .. }) = resolved_target
                 && crate::lower::user_function(self.ctx, member.0 as usize)
             {
@@ -465,14 +465,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
 
-            // Membro de tipo de extensão: estático, pelo tipo não apagado
-            // do receptor.
+            // Extension type member: static, through the non-erased type
+            // of the receiver.
             if let Some(m) = self.resolved_member_te(resolved_target.as_ref()) {
                 let receiver = self.ctx.get_type_raw(self.unit_id, *inner_target);
                 return self.call_member_te(ast, recv_op, m, receiver, expr_id, arguments, expr.span);
             }
-            // Método de classe do usuário: pelo elemento resolvido, com
-            // despacho pela classe dinâmica (R7).
+            // User class method: through the resolved element, with
+            // dispatch on the dynamic class (R7).
             if let Some((_, member)) =
                 self.user_member(*target, *inner_target, method_name.sym, false)
             {
@@ -485,7 +485,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if self.ctx.program.functions[f.0 as usize].kind
                             == dartforge_elements::model::FunctionKind::Getter);
                     if let Some(vid) = field {
-                        // Campo de tipo função: lê e chama o valor (P1).
+                        // A field of function type: reads and calls the value (P1).
                         let v = if crate::lower::is_global(self.ctx, vid) {
                             self.read_global(vid, expr.span)
                         } else {
@@ -508,7 +508,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
 
-            // Campo de record (com forma) de tipo função: `r.f(args)`.
+            // A record field (with a shape) of function type: `r.f(args)`.
             if !self.shapes_with_field(m_name).is_empty() {
                 let name = m_name.to_string();
                 let r2 = recv_op.clone();
@@ -524,8 +524,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.call_without_member(ast, expr, target, inner_target, m_name, recv_op, arguments);
         }
 
-        // Qualquer outra expressão como alvo (`f()()`, m['k']!(x),
-        // (closure)(x)): o valor dela é chamado (P1).
+        // Any other expression as the target (`f()()`, m['k']!(x),
+        // (closure)(x)): its value is called (P1).
         if !matches!(ast.expr(*target).kind, ExprKind::Identifier(_)) {
             let f = self.lower_expr(ast, *target);
             let evaluated = self.evaluate_args(ast, &arguments.args);
@@ -534,7 +534,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.unsupported_call(ast, target, expr)
     }
 
-    /// A expressão tem tipo função (ou Function), ou é um tear-off.
+    /// The expression has a function type (or Function), or is a tear-off.
     fn is_function_value(&self, e: ExprId) -> bool {
         let Some(t) = self.ctx.get_type(self.unit_id, e) else {
             return false;
@@ -548,7 +548,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Diagnóstico de chamada que nenhum caminho baixou.
+    /// Diagnostic of a call that no path lowered.
     pub(super) fn unsupported_call(
         &mut self,
         ast: &ast::Ast,
@@ -564,11 +564,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.unsupported(&what, expr.span)
     }
 
-    /// Método do SDK sobre um receptor que não é classe do usuário (ou sem
-    /// elemento útil): o membro pela classe dinâmica do receptor, por
-    /// seletor. Argumentos de tipo escritos (`d.m<int>(…)`) vão na tupla da
-    /// chamada por seletor (o método genérico, ou o `Invocation.typeArguments`
-    /// de um `noSuchMethod`).
+    /// An SDK method on a receiver that is not a user class (or without a
+    /// useful element): the member through the dynamic class of the receiver, by
+    /// selector. Written type arguments (`d.m<int>(…)`) go into the tuple of the
+    /// call by selector (the generic method, or the `Invocation.typeArguments`
+    /// of a `noSuchMethod`).
     pub(super) fn method_by_selector(
         &mut self,
         ast: &ast::Ast,
@@ -590,9 +590,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_by_name(recv_op, super::sdk_source::AccessKind::Call, m_name, &ev)
     }
 
-    /// `alvo.m(args)` quando `m` não é membro estático do tipo do alvo: o
-    /// membro pela classe dinâmica (receptor sem tipo útil), `f.call(…)`, ou
-    /// o membro do SDK pelo seletor.
+    /// `target.m(args)` when `m` is not a static member of the type of the target: the
+    /// member through the dynamic class (a receiver without a useful type), `f.call(…)`, or
+    /// the SDK member through the selector.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn call_without_member(
         &mut self,
@@ -604,7 +604,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         recv_op: Operand,
         arguments: &ast::Arguments,
     ) -> Operand {
-        // `f.call(…)` sobre um valor função.
+        // `f.call(…)` on a function value.
         if m_name == "call" && self.is_function_value(*inner_target) {
             let evaluated = self.evaluate_args(ast, &arguments.args);
             return self.call_function_value(recv_op, &evaluated);
@@ -614,8 +614,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.method_by_selector(ast, m_name, recv_op, arguments)
     }
 
-    /// `prefix.name` com `prefix` de um `import … as prefix`: o elemento.
-    /// `alvo` é o prefixo de um `import … deferred as`.
+    /// `prefix.name` with `prefix` from an `import … as prefix`: the element.
+    /// `target` is the prefix of an `import … deferred as`.
     fn deferred_prefix(&self, ast: &ast::Ast, alvo: ExprId) -> bool {
         let ExprKind::Identifier(p) = &ast.expr(alvo).kind else { return false };
         if !matches!(self.ctx.get_resolved(self.unit_id, alvo), Some(Resolved::Prefix(_)) | None)
@@ -627,10 +627,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.ctx.program.library(lib).imports.iter().any(|i| i.deferred && i.prefix == Some(p.sym))
     }
 
-    /// A classe cujos membros estáticos `alvo.x` alcança: o literal de
-    /// classe `C` (ou `p.C`), ou um alias `typedef A = C<…>` (especificação
-    /// §15 "Type Aliases": `A.x` é o membro estático `x` de `C`; os
-    /// argumentos de tipo do alias não contam para membros estáticos).
+    /// The class whose static members `target.x` reaches: the class
+    /// literal `C` (or `p.C`), or an alias `typedef A = C<…>` (specification
+    /// §15 "Type Aliases": `A.x` is the static member `x` of `C`; the type
+    /// arguments of the alias do not count for static members).
     pub fn static_target_class(&self, alvo: ExprId) -> Option<dartforge_elements::model::ClassId> {
         use dartforge_elements::model::Element;
         match self.ctx.get_resolved(self.unit_id, alvo)? {

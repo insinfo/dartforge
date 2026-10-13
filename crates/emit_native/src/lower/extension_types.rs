@@ -1,22 +1,22 @@
-//! Tipos de extensão (Dart 3.3) apagados.
+//! Erased extension types (Dart 3.3).
 //!
-//! Em tempo de execução um valor de tipo de extensão **é** o valor da
-//! representação (`erasure.rs` apaga os tipos; nenhum tipo de extensão tem
-//! classe no heap). Os membros são resolvidos estaticamente, como os de uma
-//! extensão, e por isso o lowering não pode procurá-los no tipo (apagado) do
-//! receptor: a inferência diz, em cada acesso, que o membro é de um tipo de
-//! extensão (`Resolved::Member { class }`), e é ela que decide a rota.
+//! At run time a value of an extension type **is** the value of the
+//! representation (`erasure.rs` erases the types; no extension type has a
+//! class in the heap). The members are resolved statically, like those of an
+//! extension, and so the lowering cannot look them up in the (erased) type of the
+//! receiver: inference says, at each access, that the member belongs to an extension
+//! type (`Resolved::Member { class }`), and it is inference that decides the route.
 //!
-//! * membro de instância (método, getter, setter, operador) → a função
-//!   `df.<library>.<E>.<m>(this, …)` com `this` na representação, como o
-//!   membro de uma extensão (`extensions.rs`); os argumentos de tipo de `E`
-//!   vão na tupla, antes dos do membro, tirados do tipo estático (não
-//!   apagado) do receptor;
-//! * a representação (`e.v`) → o próprio receptor;
-//! * construtor primário → o valor do argumento;
-//! * outro construtor (generativo ou fábrica) → uma função que devolve a
-//!   representação, chamada como uma fábrica (a tupla da criação no fim);
-//! * estáticos → como os de uma classe.
+//! * instance member (method, getter, setter, operator) → the function
+//!   `df.<library>.<E>.<m>(this, …)` with `this` in the representation, like the
+//!   member of an extension (`extensions.rs`); the type arguments of `E`
+//!   go in the tuple, before those of the member, taken from the static (not
+//!   erased) type of the receiver;
+//! * the representation (`e.v`) → the receiver itself;
+//! * primary constructor → the value of the argument;
+//! * another constructor (generative or factory) → a function that returns the
+//!   representation, called like a factory (the creation tuple at the end);
+//! * statics → like those of a class.
 
 use super::closures::{DefaultValue, EntryParam};
 use super::fn_builder::FnBuilder;
@@ -29,9 +29,9 @@ use dartforge_intern::SymbolId;
 use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::TypeId;
 
-/// O tipo de extensão que declara `fid`, quando é um membro de instância
-/// escrito (método, getter, setter, operador; não o acessor da
-/// representação nem um construtor).
+/// The extension type that declares `fid`, when it is a written instance
+/// member (method, getter, setter, operator; not the accessor of the
+/// representation nor a constructor).
 pub fn instance_owner(ctx: &Context, fid: usize) -> Option<ClassId> {
     let f = &ctx.program.functions[fid];
     let c = f.class?;
@@ -39,7 +39,7 @@ pub fn instance_owner(ctx: &Context, fid: usize) -> Option<ClassId> {
         .then_some(c)
 }
 
-/// O nome do construtor primário de `c` (o símbolo vazio no sem nome).
+/// The name of the primary constructor of `c` (the empty symbol for the unnamed one).
 pub fn primary_name(ctx: &Context, c: ClassId) -> Option<SymbolId> {
     let decl = ctx.program.class(c).decl?;
     match &ctx.program.unit(decl.unit).ast.decl(decl.decl).kind {
@@ -52,10 +52,10 @@ pub fn primary_name(ctx: &Context, c: ClassId) -> Option<SymbolId> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O padrão do receptor de um membro de instância chamado com o
-    /// receptor como primeiro parâmetro: o número de parâmetros de tipo do
-    /// dono e o tipo com que o do receptor é casado (o `on` de uma extensão,
-    /// `E<T…>` de um tipo de extensão).
+    /// The receiver pattern of an instance member called with the
+    /// receiver as the first parameter: the number of type parameters of the
+    /// owner and the type the receiver's type is matched against (the `on` of an extension,
+    /// `E<T…>` of an extension type).
     pub fn receiver_pattern(&self, fid: usize) -> Option<(usize, TypeId)> {
         let f = &self.ctx.program.functions[fid];
         if let Some(e) = f.extension.filter(|_| !f.static_) {
@@ -67,26 +67,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some((n, *self.ctx.te.this.get(&c)?))
     }
 
-    /// A representação de `this` num membro de instância de extensão ou de
-    /// tipo de extensão.
+    /// The representation of `this` in an instance member of an extension or of an
+    /// extension type.
     pub fn static_this_repr(&self, fid: usize) -> Option<Type> {
         self.receiver_pattern(fid).map(|(_, t)| self.repr(t))
     }
 
-    /// O tipo estático do receptor implícito (`this`) num membro de extensão
-    /// ou de tipo de extensão.
+    /// The static type of the implicit receiver (`this`) in a member of an extension
+    /// or of an extension type.
     pub fn implicit_receiver(&self) -> Option<TypeId> {
         self.this_extension.map(|(_, on)| on).or(self.this_ext_type.map(|(_, t)| t))
     }
 
-    /// O membro de instância de tipo de extensão que a inferência resolveu
-    /// para `e` (leitura, chamada, escrita ou operador).
+    /// The extension type instance member that inference resolved
+    /// for `e` (read, call, write or operator).
     pub fn member_te(&self, e: ExprId) -> Option<MemberRef> {
         let r = self.ctx.get_resolved(self.unit_id, e).cloned();
         self.resolved_member_te(r.as_ref())
     }
 
-    /// [`Self::member_te`] de uma resolução já lida.
+    /// [`Self::member_te`] of an already read resolution.
     pub fn resolved_member_te(&self, r: Option<&Resolved>) -> Option<MemberRef> {
         let Some(Resolved::Member { class, member, via_super: false }) = r else { return None };
         if !self.ctx.is_extension_type(*class) {
@@ -99,7 +99,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         (!static_ty).then_some(*member)
     }
 
-    /// O membro é a representação (o campo, ou o getter dele).
+    /// The member is the representation (the field, or its getter).
     pub fn is_representation(&self, m: MemberRef) -> bool {
         let v = match m {
             MemberRef::Variable(v) => v,
@@ -112,8 +112,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         var.class.is_some_and(|c| self.ctx.program.classes[c.0 as usize].representation == Some(v))
     }
 
-    /// A função do membro de tipo de extensão resolvido para `e` (a
-    /// representação fica de fora: não é chamada).
+    /// The function of the extension type member resolved for `e` (the
+    /// representation is left out: it is not called).
     pub fn function_te(&self, e: ExprId) -> Option<usize> {
         match self.member_te(e)? {
             MemberRef::Function(f) if !self.is_representation(MemberRef::Function(f)) => Some(f.0 as usize),
@@ -121,8 +121,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `recv.m`: a representação é o próprio receptor; o getter é chamado; o
-    /// método vira tear-off.
+    /// `recv.m`: the representation is the receiver itself; the getter is called; the
+    /// method becomes a tear-off.
     pub fn read_member_te(&mut self, recv: Operand, m: MemberRef, receiver: Option<TypeId>, span: Span) -> Operand {
         if self.is_representation(m) {
             return recv;
@@ -133,7 +133,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O tipo de extensão que a expressão nomeia (`E`, `p.E`), se é um.
+    /// The extension type that the expression names (`E`, `p.E`), if it is one.
     pub fn named_extension_type(&self, ast: &ast::Ast, e: ExprId) -> Option<ClassId> {
         let c = match &ast.expr(e).kind {
             ExprKind::Identifier(n) => match self.ctx.get_resolved(self.unit_id, e).cloned() {
@@ -153,8 +153,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.ctx.is_extension_type(c).then_some(c)
     }
 
-    /// A criação de tipo de extensão que a chamada `alvo(…)` faz: `E(…)`,
-    /// `E.name(…)` (também com prefixo); o tipo e o nome do construtor.
+    /// The extension type creation that the call `target(…)` performs: `E(…)`,
+    /// `E.name(…)` (also with a prefix); the type and the name of the constructor.
     pub fn creation_te(&self, ast: &ast::Ast, alvo: ExprId) -> Option<(ClassId, SymbolId)> {
         if let Some(c) = self.named_extension_type(ast, alvo) {
             return Some((c, self.ctx.interner.lookup("")?));
@@ -166,9 +166,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         is_constructor.then_some((c, name.sym))
     }
 
-    /// `E.name(args)` (`expr` é a criação, cujo tipo estático dá os
-    /// argumentos de tipo): o primário é o valor do argumento; os demais, a
-    /// função do construtor.
+    /// `E.name(args)` (`expr` is the creation, whose static type gives the
+    /// type arguments): the primary one is the value of the argument; the others, the
+    /// function of the constructor.
     pub fn build_te(
         &mut self,
         ast: &ast::Ast,
@@ -198,8 +198,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.instantiate(ast, f, args, span)
     }
 
-    /// Tear-off de construtor de tipo de extensão (`E.new`, `E.name`): o do
-    /// primário devolve o argumento; os demais são os de construtor comum.
+    /// Tear-off of an extension type constructor (`E.new`, `E.name`): the
+    /// primary one returns the argument; the others are those of an ordinary constructor.
     pub fn constructor_tearoff_te(&mut self, expr: ExprId, c: ClassId, name_str: SymbolId, span: Span) -> Operand {
         if primary_name(self.ctx, c) != Some(name_str) {
             let Some(&f) = self.ctx.program.classes[c.0 as usize].constructors.get(&name_str) else {
@@ -231,8 +231,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.absorb(e);
         }
         let t = self.emit(Instruction::TearOff { code_symbol: symbol_ent }, Type::Ref);
-        // A assinatura é o tipo estático do tear-off (`E Function(R)`),
-        // apagado.
+        // The signature is the static type of the tear-off (`E Function(R)`),
+        // erased.
         if let Some(sig) = self.ctx.get_type_raw(self.unit_id, expr) {
             let r = self.type_recipe(sig);
             let ty = self.recipe_rti(&r);
@@ -243,10 +243,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O corpo de um construtor generativo de tipo de extensão `c`: os
-    /// inicializadores dão a representação (`this.v`, `v = e` ou `this(…)`),
-    /// que é `this` no corpo e o valor devolvido. Os parâmetros já estão
-    /// declarados; na classe genérica, a tupla vem no fim, como numa fábrica.
+    /// The body of a generative constructor of extension type `c`: the
+    /// initializers give the representation (`this.v`, `v = e` or `this(…)`),
+    /// which is `this` in the body and the returned value. The parameters are already
+    /// declared; in a generic class, the tuple comes at the end, as in a factory.
     pub fn lower_constructor_te(&mut self, ast: &ast::Ast, c: ClassId, ctor: &ast::Constructor, span: Span) {
         self.enclosing_class = Some(c);
         self.member_class = Some(c);
@@ -328,9 +328,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `recv.m(args)` (ou `m(args)` com `this`) para o membro de tipo de
-    /// extensão `m`: o método é chamado direto; a representação e o getter
-    /// são lidos e o valor chamado.
+    /// `recv.m(args)` (or `m(args)` with `this`) for the extension type member
+    /// `m`: the method is called directly; the representation and the getter
+    /// are read and the value called.
     #[allow(clippy::too_many_arguments)]
     pub fn call_member_te(
         &mut self,
@@ -358,17 +358,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_extension(recv, f.0 as usize, &evaluated, receiver, Some((expr, arguments)), span)
     }
 
-    /// O membro `sym` visto sem receptor no corpo de um membro do tipo de
-    /// extensão corrente: o do próprio tipo, senão o de um tipo de extensão
-    /// que ele implementa (em largura); `None` para o resto (os membros da
-    /// representação que ele implementa ficam com a resolução comum).
+    /// Member `sym` seen without a receiver in the body of a member of the current
+    /// extension type: that of the type itself, otherwise that of an extension type
+    /// it implements (breadth-first); `None` for the rest (the members of the
+    /// representation it implements keep the ordinary resolution).
     pub fn member_te_by_name(&self, sym: SymbolId) -> Option<Resolved> {
         let (c0, _) = self.this_ext_type?;
         self.member_te_in_class(c0, sym)
     }
 
-    /// O membro `sym` do tipo de extensão `c0` (ou de um tipo de extensão
-    /// que ele implementa), como a inferência o resolveria.
+    /// Member `sym` of extension type `c0` (or of an extension type
+    /// it implements), as inference would resolve it.
     pub fn member_te_in_class(&self, c0: ClassId, sym: SymbolId) -> Option<Resolved> {
         let mut queue = std::collections::VecDeque::from([c0]);
         let mut seen_set = std::collections::HashSet::new();
@@ -390,9 +390,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O membro de instância `sym` do dono de `fid` (a mesma extensão; o
-    /// mesmo tipo de extensão ou um tipo de extensão que ele implementa):
-    /// o par do getter/setter e o `[]=` do `[]` numa escrita composta.
+    /// The instance member `sym` of the owner of `fid` (the same extension; the
+    /// same extension type or an extension type it implements):
+    /// the getter/setter pair and the `[]=` of the `[]` in a compound write.
     pub fn accessor_of_same_owner(&self, fid: usize, sym: SymbolId) -> Option<dartforge_elements::model::FunctionElementId> {
         let f = &self.ctx.program.functions[fid];
         if let Some(e) = f.extension {

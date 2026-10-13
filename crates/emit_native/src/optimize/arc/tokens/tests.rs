@@ -1,4 +1,4 @@
-//! Casos de consumo linear, junções, backedges e resultados excepcionais.
+//! Cases of linear consumption, joins, backedges and exceptional results.
 use super::*;
 
 fn value(v: u32) -> Operand {
@@ -169,7 +169,7 @@ fn borrowed_phi_does_not_lose_scope_inherited_from_alias() {
             .unwrap_err()
             .contains("owner ou escopo incompatível")
     );
-    // A cadeia do resultado conserva o limite, mesmo com escopo direto zero.
+    // The result chain keeps the limit, even with a zero direct scope.
     c.insert(
         ValueId(2),
         Ownership::Borrowed {
@@ -178,7 +178,7 @@ fn borrowed_phi_does_not_lose_scope_inherited_from_alias() {
         },
     );
     verify(&f, &c).unwrap();
-    // Também pode representar o mesmo limite diretamente, sem perder a raiz.
+    // It may also represent the same limit directly, without losing the root.
     c.insert(
         ValueId(2),
         Ownership::Borrowed {
@@ -249,7 +249,7 @@ fn borrowed_phi_checks_lexical_limit_in_full_wrapper() {
             scope: 0,
         },
     );
-    // Proveniência dos getters é premissa; a leitura não executa Dart.
+    // The provenance of getters is a premise; the read does not run Dart.
     let mut p = TokenPlan::default();
     p.instructions.insert(ValueId(6), TokenEffect::default());
     p.instructions.insert(ValueId(7), TokenEffect::default());
@@ -751,8 +751,8 @@ fn verified_production_does_not_publish_function_metadata_with_leaked_token() {
     super::super::produce_and_verify_tokens(&f, &mut c, &mut p, &t, &s).unwrap();
     assert_eq!(c[&ValueId(1)], Ownership::Owned);
     assert_eq!(c[&ValueId(2)], Ownership::Trivial);
-    // A classificação do parâmetro vem do produtor semântico; escopo
-    // inexistente não pode ser escondido pela geração das primitivas.
+    // The parameter classification comes from the semantic producer; a
+    // nonexistent scope cannot be hidden by the generation of the primitives.
     let mut c = initial.clone();
     c.insert(
         ValueId(0),
@@ -810,7 +810,7 @@ fn audited_borrowed_result_depends_on_argument_owner() {
         }
     );
     assert!(!p.pendings.contains_key(&ValueId(2)));
-    // Soltar o owner antes do último uso do empréstimo é recusado.
+    // Releasing the owner before the last use of the borrow is rejected.
     f.blocks[1].instructions.rotate_right(1);
     let error = verify_tokens(&f, &c, &t, &p).unwrap_err();
     assert!(error.contains("indisponível v1"), "{error}");
@@ -918,7 +918,7 @@ fn invoke_consumes_argument_on_both_exits_and_produces_only_on_success() {
         tokens_at_landing_pad_entry(&f, &c, &t, &p).unwrap()[&BlockId(1)],
         vec![]
     );
-    // Owner independente deve permanecer no erro; resultado da chamada não existe.
+    // An independent owner must remain on error; the call result does not exist.
     f.blocks[0].instructions.insert(1, copy_inst(6, 0));
     f.blocks[1].instructions.push(drop(7, 6));
     f.blocks[2].instructions.push(drop(8, 6));
@@ -936,8 +936,8 @@ fn invoke_consumes_argument_on_both_exits_and_produces_only_on_success() {
             .unwrap_err()
             .contains("não consumidos")
     );
-    // Invoke de callee que não falha: o pouso fica morto e a saída
-    // excepcional é aceita; o que falta continua sendo o consumo.
+    // Invoke of a callee that does not fail: the landing pad is dead and the
+    // exceptional exit is accepted; what is missing is still the consumption.
     p.instructions.get_mut(&ValueId(2)).unwrap().may_fail = false;
     let error = verify_tokens(&f, &c, &t, &p).unwrap_err();
     assert!(!error.contains("saídas excepcionais") && error.contains("não consumidos"), "{error}");

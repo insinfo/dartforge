@@ -1,34 +1,34 @@
-//! Poda do código do programa pelo mundo fechado, antes do lowering
-//! (docs/NATIVO-PROJETOS-REAIS.md, causa C7).
+//! Pruning of the program code by the closed world, before the lowering
+//! (docs/NATIVO-PROJETOS-REAIS.md, cause C7).
 //!
-//! O módulo do programa baixava TODA função de toda biblioteca que o
-//! programa carrega: no new_sali/backend, 311 mil funções e 2,8 GB de LLVM IR
-//! (as tabelas Unicode do `unorm_dart`, os 180 MB das ligações FFI geradas do
-//! `openssl_bindings`, as gramáticas do `highlight`…), quase tudo
-//! inalcançável a partir do `main`. O Dart AOT só compila o que a análise de
-//! fluxo de tipos retém (`VM/pkg/vm/lib/transformations/type_flow/`,
+//! The program module used to lower EVERY function of every library the
+//! program loads: in new_sali/backend, 311 thousand functions and 2.8 GB of LLVM IR
+//! (the Unicode tables of `unorm_dart`, the 180 MB of generated FFI bindings of
+//! `openssl_bindings`, the grammars of `highlight`…), almost all of it
+//! unreachable from `main`. Dart AOT only compiles what the type flow
+//! analysis retains (`VM/pkg/vm/lib/transformations/type_flow/`,
 //! `VM/runtime/vm/compiler/aot/precompiler.cc` `DropFunctions`).
 //!
-//! Aqui a alcançabilidade é a do `crates/world` — o RTA do JS de produção:
-//! classes instanciadas × seletores invocados, com o SDK como fronteira
-//! (os membros que implementam um supertipo do SDK, os de `Object` e `call`
-//! vivem em toda classe instanciada). O que o SDK compilado (fora do mundo)
-//! pode chamar num objeto do programa entra como seletor externo: TODO nome
-//! de membro escrito nas bibliotecas do SDK (com a sobreposição
-//! `native_sdk/`) — `x.name`, `name` solto (o `this.name()` implícito de uma
-//! classe do SDK estendida pelo programa), símbolos `#name` e campos de
-//! padrão de objeto. É um superconjunto sintático: o SDK só chama um membro
-//! escrevendo o nome dele (sem espelhos), ou pelo `noSuchMethod`/`call`, que
-//! vivem sempre. Mais os nomes que o próprio lowering chama por seletor
+//! Here reachability is that of `crates/world` — the RTA of production JS:
+//! instantiated classes × invoked selectors, with the SDK as the boundary
+//! (members that implement an SDK supertype, those of `Object` and `call`
+//! live in every instantiated class). What the compiled SDK (outside the world)
+//! may call on a program object enters as an external selector: EVERY member
+//! name written in the SDK libraries (with the `native_sdk/`
+//! overlay) — `x.name`, a bare `name` (the implicit `this.name()` of an
+//! SDK class extended by the program), `#name` symbols and object-pattern
+//! fields. It is a syntactic superset: the SDK only calls a member by
+//! writing its name (no mirrors), or through `noSuchMethod`/`call`, which
+//! are always live. Plus the names the lowering itself calls by selector
 //! (`iterator`, `moveNext`, `current`, `[]=`…).
 //!
-//! A função de instância, de topo ou estática que o mundo não alcança vira um
-//! corpo que lança (`podada`); a variável global, um getter que lança. Os
-//! símbolos continuam definidos (as tabelas de métodos, as entradas
-//! uniformes e o registro da classe os citam), mas o corpo — e o que ele
-//! carregaria consigo — some. Se o mundo errar, o erro é alto, com o nome:
+//! An instance, top-level or static function that the world does not reach becomes a
+//! body that throws (`pruned`); a global variable, a getter that throws. The
+//! symbols stay defined (the method tables, the uniform entries
+//! and the class registration cite them), but the body — and what it would
+//! carry along — goes away. If the world is wrong, the error is loud, with the name:
 //! `UnsupportedError` "código podado como inalcançável foi chamado: <símbolo>".
-//! `DARTFORGE_SEM_PODA_DO_PROGRAMA=1` desliga (medida).
+//! `DARTFORGE_SEM_PODA_DO_PROGRAMA=1` turns it off (measurement).
 
 use dartforge_elements::model::{Element, FunctionElementId, Program};
 use dartforge_frontend::ast;
@@ -37,15 +37,15 @@ use dartforge_types::resolve::OutlineTypes;
 use dartforge_types::resolved::BodyTypes;
 use dartforge_types::table::TypeTable;
 
-/// Os nomes que o lowering chama por seletor em valores do programa, além
-/// dos que o SDK escreve (`lower/*.rs`: `call_by_name`,
+/// The names the lowering calls by selector on program values, besides
+/// those the SDK writes (`lower/*.rs`: `call_by_name`,
 /// `method_by_selector`, `property_by_selector`).
 const LOWERING_NAMES: &[&str] = &[
     "iterator", "moveNext", "current", "[]", "[]=", "==", "add", "addAll", "length", "hashCode",
     "toString", "fillRange", "containsKey", "cancel", "*", "call", "noSuchMethod", "then",
 ];
 
-/// Calcula o mundo do programa. `None` quando a poda está desligada.
+/// Computes the program world. `None` when the pruning is off.
 pub fn compute(
     program: &Program,
     interner: &Interner,
@@ -74,9 +74,9 @@ pub fn compute(
     Some(dartforge_world::calcular(e, &r))
 }
 
-/// `@pragma('vm:entry-point')` no programa: a VM retém o que a anotação
-/// marca (o embutidor chama por nome); aqui vira raiz — a função (de topo
-/// ou método) e a classe.
+/// `@pragma('vm:entry-point')` in the program: the VM retains what the annotation
+/// marks (the embedder calls by name); here it becomes a root — the function (top-level
+/// or method) and the class.
 fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_world::Raizes) {
     use dartforge_elements::model::{ClassId, FunctionRef};
     let marked = |a: &ast::Ast, meta: &[ast::Annotation]| {
@@ -132,7 +132,7 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
     }
 }
 
-/// Todo nome de membro escrito nas bibliotecas do SDK.
+/// Every member name written in the SDK libraries.
 fn names_written_in_sdk(program: &Program, interner: &Interner, names: &mut std::collections::BTreeSet<String>) {
     for lib in &program.libraries {
         if !lib.is_sdk {

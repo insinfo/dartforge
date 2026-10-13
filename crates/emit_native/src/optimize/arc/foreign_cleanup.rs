@@ -1,18 +1,18 @@
-//! Certificado do inventário usado pelo cleanup estrangeiro dos pousos.
+//! Certificate of the inventory used by the foreign cleanup of landing pads.
 use super::*;
 use std::collections::{HashMap, HashSet};
 
-/// Inventário de cleanup ligado ao corpo e às tabelas que foram verificados.
+/// Cleanup inventory bound to the body and the tables that were verified.
 ///
-/// Criado pela preparação ARC do conjunto de funções; campos privados evitam
-/// inventar owners no emissor. Mudanças posteriores exigem nova preparação.
-/// Quadros locais acompanham a pilha LIFO validada; aliases e quadros
-/// importados continuam fora do protocolo verificado.
+/// Created by the ARC preparation of the function set; private fields avoid
+/// inventing owners in the emitter. Later changes require a new preparation.
+/// Local frames follow the validated LIFO stack; aliases and imported frames
+/// stay outside the verified protocol.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::PlanoFuncaoDart;
-/// let plano = PlanoFuncaoDart::default();
-/// assert!(plano.tabelas.cleanup_estrangeiro.is_none());
+/// use dartforge_emit_native::optimize::arc::DartFunctionPlan;
+/// let plan = DartFunctionPlan::default();
+/// assert!(plan.tables.foreign_cleanup.is_none());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForeignCleanup {

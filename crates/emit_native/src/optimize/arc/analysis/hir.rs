@@ -1,48 +1,48 @@
-//! Extração conservadora de restrições da HIR após SSA (§28.2).
-//! Fatos nominais de alocação/layout são premissas explícitas do produtor.
-//! Não exporta certificados, resumos SDK ou política de memória.
+//! Conservative extraction of constraints from the HIR after SSA (§28.2).
+//! Nominal allocation/layout facts are explicit premises of the producer.
+//! Exports no certificates, SDK summaries or memory policy.
 
 use super::{model::*, points_to::*};
 use crate::hir::*;
 use std::collections::{BTreeSet, HashMap};
 
-/// Origem/esquema dos campos de AllocObject ou da fábrica reservada zerada.
-/// O produtor deve preservar origem/contexto nos clones e conferir layouts.
-/// Índices SSA não são usados como identidade persistente do nó abstrato.
+/// Origin/schema of the fields of AllocObject or of the reserved zeroed factory.
+/// The producer must preserve origin/context in the clones and check layouts.
+/// SSA indices are not used as the persistent identity of the abstract node.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::{hir::OrigemObjeto, modelo::*, points_to::*};
-/// let origem = OrigemObjeto {
-///     no: NoAbstrato::Alocacao { sitio: SitioArc { funcao: "f".into(), origem: 1, especializacao: "".into() }, contexto: "".into() },
-///     campos: vec![CampoArc { layout: "No:v1".into(), posicao: 0 }],
+/// use dartforge_emit_native::optimize::arc::analysis::{hir::ObjectOrigin, model::*, points_to::*};
+/// let origin = ObjectOrigin {
+///     node: AbstractNode::Allocation { site: ArcSite { function: "f".into(), origin: 1, specialization: "".into() }, context: "".into() },
+///     fields: vec![ArcField { layout: "No:v1".into(), position: 0 }],
 /// };
-/// assert_eq!(origem.campos.len(), 1);
+/// assert_eq!(origin.fields.len(), 1);
 /// ```
 #[derive(Debug, Clone)]
 pub struct ObjectOrigin {
-    /// Nó nominal produzido para a alocação, nunca placeholder de parâmetro.
+    /// Nominal node produced for the allocation, never a parameter placeholder.
     pub node: AbstractNode,
-    /// Campos nas posições físicas do inicializador, incluindo campos triviais.
+    /// Fields in the physical positions of the initializer, trivial fields included.
     pub fields: Vec<ArcField>,
 }
 
-/// Fatos nominais da mesma versão da função/layout, ainda fornecidos explicitamente.
-/// Fatos ausentes causam desconhecimento; fatos obsoletos/incompatíveis são erros.
+/// Nominal facts of the same version of the function/layout, still supplied explicitly.
+/// Missing facts cause lack of knowledge; stale/incompatible facts are errors.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::hir::FatosHir;
-/// assert!(FatosHir::default().objetos.is_empty());
+/// use dartforge_emit_native::optimize::arc::analysis::hir::HirFacts;
+/// assert!(HirFacts::default().objects.is_empty());
 /// ```
 #[derive(Debug, Default)]
 pub struct HirFacts {
-    /// Origem/esquema de cada alocação de objeto identificada pelo produtor.
+    /// Origin/schema of each object allocation identified by the producer.
     pub objects: HashMap<ValueId, ObjectOrigin>,
-    /// Campo nominal de cada GetField/SetField, identificado pelo resultado SSA.
+    /// Nominal field of each GetField/SetField, identified by the SSA result.
     pub accesses: HashMap<ValueId, ArcField>,
 }
 
-// Espelha somente os slots físicos de referência das unidades sintéticas.
-// None é um slot escalar/endereço, não uma referência null comprovada.
+// Mirrors only the physical reference slots of the synthetic units.
+// None is a scalar/address slot, not a proven null reference.
 pub(super) fn synthetic_captures(
     i: &Instruction,
     types: &HashMap<ValueId, Type>,
@@ -84,8 +84,8 @@ pub(super) fn field_write(i: &Instruction) -> Option<(&Operand, usize, &Operand)
     }
 }
 
-// O anexo Dart guarda a ação como aresta forte do dono, fora dos campos.
-// Reconhecer essa inclusão não cobre weak targets, reentrada ou safepoints.
+// The Dart attachment keeps the action as a strong edge of the owner, outside the fields.
+// Recognizing this inclusion does not cover weak targets, reentry or safepoints.
 pub(super) fn dart_attachment<'a>(
     i: &'a Instruction,
     ty: Type,
@@ -107,85 +107,85 @@ pub(super) fn dart_attachment<'a>(
     Some((&args[0].0, &args[2].0))
 }
 
-/// Resultado local imutável; IDs desconhecidos identificam operações sem transferência precisa.
-/// Não certifica cobertura completa do programa, escape, observadores ou singleton.
+/// Immutable local result; unknown IDs identify operations without a precise transfer.
+/// Does not certify full program coverage, escape, observers or singleton.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::analise::hir::*};
-/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// use dartforge_emit_native::{hir::*, optimize::arc::analysis::hir::*};
+/// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
 /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
 /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// assert!(analisar(&f, &FatosHir::default(), 8)?.desconhecidos().is_empty());
+/// assert!(analyze(&f, &HirFacts::default(), 8)?.unknown_set().is_empty());
 /// # Ok::<(), String>(())
 /// ```
 #[derive(Debug)]
 pub struct HirAnalysis {
-    /// Solução do sistema extraído, com desconhecimento explícito.
+    /// Solution of the extracted system, with explicit lack of knowledge.
     points: PointsToResult,
-    /// Operações sem contrato de heap preciso; não confundir com ausência de efeito.
+    /// Operations without a precise heap contract; do not confuse with absence of effect.
     unknown_set: Vec<ValueId>,
     ids: HashMap<ValueId, usize>,
     pub(crate) body: blake3::Hash,
     pub(crate) body_dependencies: HashMap<String, blake3::Hash>,
     pub(crate) table_dependencies: HashMap<String, ArcTableState>,
     pub(crate) module_premises: Option<blake3::Hash>,
-    // Caminhos inseridos pelo emissor que ainda não têm resumo de heap.
+    // Paths inserted by the emitter that have no heap summary yet.
     pub(crate) opaque_implicit_emission: bool,
     pub(crate) limit: usize,
     pub(crate) schemas: HashMap<AbstractNode, BTreeSet<ArcField>>,
-    // Inclusões por argumentos reais de calls; não refinam campos topo nem
-    // substituem cobertura de mutações/vidas/caminhos de emissão.
+    // Inclusions through real call arguments; they do not refine top fields nor
+    // replace the coverage of mutations/lifetimes/emission paths.
     pub(crate) write_inclusions: Vec<(usize, usize)>,
     pub(crate) publication_inclusions: Vec<(super::escape::EscapeCause, usize)>,
 }
 
 impl HirAnalysis {
-    /// Consulta a solução sem permitir substituir ou refinar conjuntos.
+    /// Queries the solution without allowing sets to be replaced or refined.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::hir::*};
-    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-    /// let a = analisar(&f, &FatosHir::default(), 8)?;
-    /// assert!(a.pontos().variavel(0).unwrap().nos().unwrap().is_empty());
+    /// let a = analyze(&f, &HirFacts::default(), 8)?;
+    /// assert!(a.points().variable(0).unwrap().nodes().unwrap().is_empty());
     /// # Ok::<(), String>(())
     /// ```
     pub fn points(&self) -> &PointsToResult {
         &self.points
     }
 
-    /// Consulta operações opacas sem permitir apagar evidência de efeitos.
+    /// Queries opaque operations without allowing evidence of effects to be erased.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::hir::*};
-    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-    /// assert!(analisar(&f, &FatosHir::default(), 8)?.desconhecidos().is_empty());
+    /// assert!(analyze(&f, &HirFacts::default(), 8)?.unknown_set().is_empty());
     /// # Ok::<(), String>(())
     /// ```
     ///
     /// ```compile_fail
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::hir::*};
-    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-    /// let mut a = analisar(&f, &FatosHir::default(), 8).unwrap();
-    /// a.desconhecidos().clear();
+    /// let mut a = analyze(&f, &HirFacts::default(), 8).unwrap();
+    /// a.unknown_set().clear();
     /// ```
     pub fn unknown_set(&self) -> &[ValueId] {
         &self.unknown_set
     }
 
-    /// Consulta aliases de um valor SSA, ou None se o ID não existe.
+    /// Queries the aliases of an SSA value, or None if the ID does not exist.
     ///
     /// ```
-    /// use dartforge_emit_native::{hir::*, optimize::arc::analise::hir::*};
-    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// use dartforge_emit_native::{hir::*, optimize::arc::analysis::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), debug_info: None,
     /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
     /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-    /// assert!(analisar(&f, &FatosHir::default(), 8)?.valor(ValueId(0)).is_none());
+    /// assert!(analyze(&f, &HirFacts::default(), 8)?.value(ValueId(0)).is_none());
     /// # Ok::<(), String>(())
     /// ```
     pub fn value(&self, id: ValueId) -> Option<&PointSet> {
@@ -193,25 +193,25 @@ impl HirAnalysis {
     }
 }
 
-/// Extrai e resolve inclusão de aliases da HIR verificada estruturalmente.
-/// Parâmetros Ref/I64/Ptr são desconhecidos sem resumo do chamador; largura
-/// I64 não prova valor trivial. Null e constantes F64/I1/I8 não geram nós;
-/// constantes inteiras usadas como handles/endereços permanecem desconhecidas.
-/// Calls/operações não cobertas invalidam todos os campos nominais fornecidos;
-/// resultados opacos são topo. Stores conhecidos são sempre inclusivos.
-/// Bitcast só conserva aliases se origem e resultado forem Ref.
+/// Extracts and solves alias inclusion from the structurally verified HIR.
+/// Ref/I64/Ptr parameters are unknown without a caller summary; an I64
+/// width does not prove a trivial value. Null and F64/I1/I8 constants generate no nodes;
+/// integer constants used as handles/addresses stay unknown.
+/// Uncovered calls/operations invalidate every supplied nominal field;
+/// opaque results are top. Known stores are always inclusive.
+/// Bitcast only keeps aliases if origin and result are Ref.
 ///
-/// # Erros
-/// SSA inválida ou fato obsoleto/esquema incompatível com o inicializador/acesso.
-/// A função e os fatos não são modificados.
+/// # Errors
+/// Invalid SSA or a stale fact/schema incompatible with the initializer/access.
+/// The function and the facts are not modified.
 ///
 /// ```
-/// use dartforge_emit_native::{hir::*, optimize::arc::analise::hir::*};
-/// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+/// use dartforge_emit_native::{hir::*, optimize::arc::analysis::hir::*};
+/// let f = Function { symbol: "id".into(), name: "id".into(), debug_info: None,
 /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
 /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
 /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
-/// assert!(analisar(&f, &FatosHir::default(), 8)?.valor(ValueId(0)).unwrap().nos().is_none());
+/// assert!(analyze(&f, &HirFacts::default(), 8)?.value(ValueId(0)).unwrap().nodes().is_none());
 /// # Ok::<(), String>(())
 /// ```
 pub fn analyze(f: &Function, facts: &HirFacts, limit: usize) -> Result<HirAnalysis, String> {
@@ -340,8 +340,8 @@ pub(crate) fn analyze_with_summaries(
                 {
                     return Err("points-to HIR: esquema de alocação importada conflitante".into());
                 }
-                // Identidade do resultado não resume o estado dos campos
-                // do callee. Não deixar inicialização ausente parecer null.
+                // The identity of the result does not summarize the state of the fields
+                // of the callee. Do not let a missing initialization look like null.
                 rs.extend(
                     field_list
                         .iter()
@@ -435,8 +435,8 @@ pub(crate) fn analyze_with_summaries(
                         value: operand(o),
                     });
                     if *ty == Type::Ref && super::summaries::exact_argument(o, Type::Ref, &types) {
-                        // A inclusão testemunhada sobrevive a escritores opacos;
-                        // não refina o estado completo do campo nem sua vida.
+                        // A witnessed inclusion survives opaque writers;
+                        // it does not refine the complete state of the field nor its lifetime.
                         write_inclusions.push((dest, operand(o)));
                     }
                 }
@@ -531,8 +531,8 @@ pub(crate) fn analyze_with_summaries(
                         write_inclusions.push((obj_ref, val_ref));
                     }
                 }
-                // Cobertura de campos é separada do alias normal. Conversões
-                // de argumentos podem alocar/reentrar antes do corpo coberto.
+                // Field coverage is separate from the normal alias. Conversions
+                // of arguments may allocate/reenter before the covered body.
                 if !exact_abi
                     || resumo.publications() != super::summaries::ArcHeapPublications::ResultOnly
                 {
@@ -682,9 +682,9 @@ fn materialize_summary(
     materialize_path(origin, &path.fields, schemas, variable_count, rs)
 }
 
-// Caminhos usam o mesmo ponto fixo fraco dos stores e layouts nominais,
-// inclusive efeitos de outras chamadas. Não congelar uma leitura antes da
-// convergência nem inventar identidade de sítio para uma variável auxiliar.
+// Paths use the same weak fixpoint as nominal stores and layouts,
+// including effects of other calls. Do not freeze a read before
+// convergence nor invent a site identity for an auxiliary variable.
 fn materialize_path(
     origin: usize,
     field_list: &[usize],
@@ -724,8 +724,8 @@ fn invalidate_fields(
     );
 }
 
-// Lista positiva por operação e representações de entrada/saída. Não supor
-// ausência de materialização/conversão só porque o resultado ocupa I64/F64.
+// A positive list per operation and input/output representations. Do not assume
+// the absence of materialization/conversion just because the result occupies I64/F64.
 pub(super) fn pure_scalar(i: &Instruction, t: Type, types: &HashMap<ValueId, Type>) -> bool {
     let exact = |o: &Operand, expected| super::summaries::exact_argument(o, expected, types);
     match i {
@@ -754,20 +754,20 @@ pub(super) fn pure_scalar(i: &Instruction, t: Type, types: &HashMap<ValueId, Typ
                 && matches!(to, Type::I64 | Type::I1 | Type::I8)
                 && exact(op, *from)
         }
-        // Divisão/resto, toInt e demais operações falíveis exigem cobertura
-        // própria dos caminhos de erro antes de dispensar efeitos opacos.
+        // Division/remainder, toInt and other fallible operations require their own
+        // coverage of the error paths before waiving opaque effects.
         _ => false,
     }
 }
 
-// Identidade local para rejeitar consumo de uma solução de outra versão.
-// Não é formato canônico de resumo SDK nem certificado de recarga.
+// A local identity to reject consuming a solution of another version.
+// It is neither a canonical SDK summary format nor a reload certificate.
 pub(crate) fn body_signature(f: &Function) -> blake3::Hash {
     blake3::hash(format!("{f:?}").as_bytes())
 }
 
-// Só metadados de emissão usados para a cobertura local de campos.
-// Não substitui versões de layouts, runtime ou geração JIT.
+// Only emission metadata used for the local field coverage.
+// It does not replace versions of layouts, the runtime or JIT generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArcTableState {
     tables_mode: bool,
@@ -802,8 +802,8 @@ pub(super) fn integer_constants(f: &Function) -> HashMap<ValueId, i64> {
         .collect()
 }
 
-// Somente a fábrica reservada de instância zerada, sem callback ou construtor.
-// Classe/contagem dinâmicas não são inferidas por largura ou nome de usuário.
+// Only the reserved factory of a zeroed instance, without a callback or constructor.
+// Dynamic class/count is not inferred from width or user name.
 pub(super) fn zeroed_factory(
     i: &Instruction,
     constants: &HashMap<ValueId, i64>,
@@ -871,8 +871,8 @@ mod tests {
                 value: val_ref,
             });
         }
-        // a.filho pode ser b ou c; a.filho.filho pode ser c ou a. Uma
-        // leitura congelada antes do store tardio a.filho=c perderia a.
+        // a.child may be b or c; a.child.child may be c or a. A
+        // read frozen before the late store a.child=c would lose a.
         let expected = BTreeSet::from([nodes[0].clone(), nodes[2].clone()]);
         for order in [false, true] {
             if order {

@@ -1,4 +1,4 @@
-//! Fatos declarados de layout; não certificam receivers nem versões do heap.
+//! Declared layout facts; they do not certify receivers nor heap versions.
 
 use crate::{context::Context, hir::*};
 use dartforge_elements::model::{VariableId, VariableRef};
@@ -49,7 +49,7 @@ pub(super) fn register(
     if !ctx.arc_memory {
         return;
     }
-    // Enum guarda index int e name Ref antes dos campos declarados.
+    // An enum keeps the int index and the Ref name before the declared fields.
     let mut types = if base == 2 {
         vec![Type::I64, Type::Ref]
     } else {
@@ -212,8 +212,8 @@ void main() { Base().exercitar(Object()); }
                             "gravação {idx_value}"
                         );
                     }
-                    // Leituras late ainda conservam a inspeção do estado vazio.
-                    // Escritas tipadas mantêm a marca posterior de inicialização.
+                    // Late reads still keep the inspection of the empty state.
+                    // Typed writes keep the later initialization mark.
                     assert!(!accesses.iter().any(|(_, i, _)| matches!(
                         i,
                         Instruction::GetField { index: 4 | 5, .. }
@@ -263,8 +263,8 @@ void main() { Base().exercitar(Object()); }
                             .filter(|f| f.name == "exercitar")
                             .all(|f| !module.dart_ref_returns.contains(&f.symbol))
                     );
-                    // Corpo realmente baixado da fonte: apenas o fato nominal
-                    // de retorno, sem plano de ownership escrito para o método.
+                    // A body really lowered from source: only the nominal return
+                    // fact, with no ownership plan written for the method.
                     let mut proof = Module::new();
                     proof.functions.push(identity.clone());
                     proof.dart_ref_returns.insert(identity.symbol.clone());
@@ -285,9 +285,9 @@ void main() { Base().exercitar(Object()); }
                     let ir = crate::llvm::LlvmEmitter::new(&proof).emit_all();
                     assert!(ir.contains("call void @dartforge_arc_retain("));
                 }
-                // Usa a mesma etapa de registro da produção para auditar os
-                // layouts declarados do SDK, sem confundir isso com seus corpos
-                // ou com a representação física das instâncias no runtime.
+                // Uses the same registration step as production to audit the
+                // declared layouts of the SDK, without confusing that with their bodies
+                // or with the physical representation of the instances in the runtime.
                 let mut audited = 0;
                 for (i, lib) in program.libraries.iter().enumerate() {
                     let Some(name_str) = lib.uri.strip_prefix("dart:") else {

@@ -1,25 +1,25 @@
-//! Literais de coleção com elementos de controle (P3): `...e`, `...?e`,
-//! `?e`, `if (c) e else f`, `for (…) e`, e o literal de conjunto.
+//! Collection literals with control elements (P3): `...e`, `...?e`,
+//! `?e`, `if (c) e else f`, `for (…) e`, and the set literal.
 //!
-//! A especificação (§17.9 "Collection literals") avalia os elementos em
-//! ordem e acrescenta cada valor produzido; `...e` acrescenta os elementos de
-//! `e` (`...?e` ignora null); `if` e `for` produzem zero ou mais valores. O
-//! literal de lista só de expressões continua na alocação direta
-//! (`AllocList`, `llvm/ir_lists.rs`); os outros começam vazios (a
-//! `_GrowableList` do literal, o `_Map`/`_Set` da fonte) e acrescentam.
+//! The specification (§17.9 "Collection literals") evaluates the elements in
+//! order and appends each produced value; `...e` appends the elements of
+//! `e` (`...?e` ignores null); `if` and `for` produce zero or more values. The
+//! list literal with only expressions stays on the direct allocation
+//! (`AllocList`, `llvm/ir_lists.rs`); the others start empty (the
+//! `_GrowableList` of the literal, the source `_Map`/`_Set`) and append.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ForInit};
 
-/// A partir de quantos elementos um literal constante vai em pedaços
+/// From how many elements a constant literal goes in chunks
 /// (`FnBuilder::fill_in_chunks`).
 const CHUNK_THRESHOLD: usize = 256;
-/// Quantos elementos cada função auxiliar de um literal em pedaços avalia.
+/// How many elements each auxiliary function of a chunked literal evaluates.
 const LITERAL_CHUNK: usize = 128;
 
-/// Que coleção o literal constrói.
+/// Which collection the literal builds.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Collection {
     Lista,
@@ -28,8 +28,8 @@ pub enum Collection {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O literal `{…}` é um conjunto (e não um mapa)? Pelo tipo estático, ou
-    /// pela forma dos elementos (`{}` vazio é mapa).
+    /// Is the `{…}` literal a set (and not a map)? By the static type, or
+    /// by the shape of the elements (an empty `{}` is a map).
     pub fn literal_is_set(&self, expr_id: ExprId, elements: &[CollectionElement]) -> bool {
         if let Some(t) = self.ctx.get_type(self.unit_id, expr_id)
             && let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(t)
@@ -52,8 +52,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         elements.iter().find_map(leaf).unwrap_or(false)
     }
 
-    /// Coleção vazia do tipo pedido: a `_GrowableList` do literal (`AllocList`
-    /// sem elementos) ou o `_Map`/`_Set` da fonte.
+    /// An empty collection of the requested type: the `_GrowableList` of the literal (`AllocList`
+    /// without elements) or the source `_Map`/`_Set`.
     fn empty_collection(&mut self, typ: Collection) -> Operand {
         match typ {
             Collection::Lista => self.emit(Instruction::AllocList { elements: Vec::new() }, Type::Ref),
@@ -61,12 +61,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Acrescenta um valor à lista ou ao conjunto. A lista é a `_GrowableList`
-    /// que o literal acabou de criar (ainda sem o `E` reificado, gravado no fim
-    /// por quem baixa o literal): o `add` direto do runtime
-    /// (`dartforge_lista_acrescentar`, o valor numa posição `Ref`), sem o
-    /// despacho nem a conferência de covariância, que o tipo estático do
-    /// elemento já garante. O conjunto usa o `add` do `_Set`.
+    /// Appends a value to the list or to the set. The list is the `_GrowableList`
+    /// that the literal just created (still without the reified `E`, written at the end
+    /// by whoever lowers the literal): the runtime's direct `add`
+    /// (`dartforge_lista_acrescentar`, the value in a `Ref` position), without the
+    /// dispatch nor the covariance check, which the static type of the
+    /// element already guarantees. The set uses the `add` of `_Set`.
     fn append(&mut self, alvo: Operand, typ: Collection, v: Operand) {
         if typ == Collection::Set {
             self.call_by_name(alvo, super::sdk_source::AccessKind::Call, "add", &[(None, v)]);
@@ -83,12 +83,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
-    /// Acrescenta uma entrada ao mapa (o `[]=` do `_Map`).
+    /// Appends an entry to the map (the `[]=` of `_Map`).
     fn append_entry(&mut self, alvo: Operand, k: Operand, v: Operand) {
         self.call_by_name(alvo, super::sdk_source::AccessKind::Call, "[]=", &[(None, k), (None, v)]);
     }
 
-    /// Literal de coleção com elementos de controle (ou de conjunto).
+    /// A collection literal with control elements (or a set literal).
     pub fn lower_collection_literal(
         &mut self,
         ast: &ast::Ast,
@@ -112,24 +112,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         alvo
     }
 
-    /// Um literal grande só de strings, bools e null (as tabelas de nomes e
-    /// de entidades dos pacotes reais) vira DADOS: os elementos numa tabela
-    /// de bytes que o runtime converte numa lista
-    /// (`dartforge_lista_de_tabela`), e um apoio Dart que a copia para a
-    /// coleção — em vez de uma chamada de `add`/`[]=` por elemento, que
-    /// fazia do getter de uma constante de 2 mil entradas uma função de 50
-    /// mil instruções. Os números entram pelo tipo estático do literal
-    /// (`int` como `i`, `double` como `d`); um número de outro tipo estático
-    /// (`num`, `Object`: o valor é o `int`, mas sem garantia aqui) deixa o
-    /// literal fora da tabela.
+    /// A large literal of only strings, bools and null (the name and entity
+    /// tables of real packages) becomes DATA: the elements in a byte
+    /// table that the runtime converts into a list
+    /// (`dartforge_lista_de_tabela`), and a Dart support function that copies it into the
+    /// collection — instead of one `add`/`[]=` call per element, which
+    /// made the getter of a 2-thousand-entry constant a function of 50
+    /// thousand instructions. Numbers come in through the static type of the literal
+    /// (`int` as `i`, `double` as `d`); a number of another static type
+    /// (`num`, `Object`: the value is the `int`, but with no guarantee here) keeps the
+    /// literal out of the table.
     ///
-    /// Num contexto constante (o getter de uma constante), um elemento que é
-    /// outra constante (`C(…)`, outro literal, `E.value`) entra como `g` e o
-    /// índice do getter canônico dele (`dfc.<hash>.get`) num vetor de
-    /// endereços (`FunctionTable`), que o runtime chama
-    /// (`dartforge_lista_de_tabela_g`): os mapas constantes grandes de
-    /// valores constantes (`{'a': C(1), …}`) faziam um `[]=` por seletor por
-    /// entrada — 30 MB de IR em 234 getters no new_sali/backend
+    /// In a constant context (the getter of a constant), an element that is
+    /// another constant (`C(…)`, another literal, `E.value`) comes in as `g` and the
+    /// index of its canonical getter (`dfc.<hash>.get`) in a vector of
+    /// addresses (`FunctionTable`), which the runtime calls
+    /// (`dartforge_lista_de_tabela_g`): large constant maps of
+    /// constant values (`{'a': C(1), …}`) did one `[]=` by selector per
+    /// entry — 30 MB of IR in 234 getters in new_sali/backend
     /// (docs/NATIVO-PRODUCAO-GRANDE.md §6.5).
     fn fill_from_table(&mut self, ast: &ast::Ast, alvo: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
         const MINIMUM: usize = 8;
@@ -140,10 +140,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut by_getter: Vec<ast::ExprId> = Vec::new();
         let in_const = self.in_const_context;
         let scalar = |e: ast::ExprId, table: &mut Vec<u8>, by_getter: &mut Vec<ast::ExprId>| -> bool {
-            // Número literal (ou `-literal`): pelo TIPO ESTÁTICO da expressão,
-            // que já diz se o contexto fez de um literal inteiro um `double`
-            // (as tabelas `Map<int, int>` do `enough_convert`, 30 mil
-            // entradas).
+            // Number literal (or `-literal`): by the STATIC TYPE of the expression,
+            // which already says whether the context made an integer literal a `double`
+            // (the `Map<int, int>` tables of `enough_convert`, 30 thousand
+            // entries).
             let number = matches!(ast.expr(e).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_))
                 || matches!(&ast.expr(e).kind, ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand }
                     if matches!(ast.expr(*operand).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_)));
@@ -258,20 +258,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// O literal de mapa só de entradas (`{k: v, …}`, sem elementos de
-    /// controle nem `?`), como a VM o monta: avalia as chaves e os valores na
-    /// ordem, guarda-os numa lista `[k0, v0, k1, v1, …]` (`AllocList`, uma
-    /// alocação só) e insere tudo no fim (`_dartforgePreencherMapa`). A VM
-    /// faz o mesmo (`Map._fromLiteral`,
-    /// runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc): o `hashCode`
-    /// e o `==` das chaves só rodam depois de todos os valores avaliados.
-    /// Antes era um `[]=` por seletor por entrada — o vetor de argumentos, a
-    /// busca do seletor, a chamada indireta e a conferência da exceção a cada
-    /// uma: os `toMap`/`toJson` de um backend real são feitos disso. Fora do
-    /// ARC, que monta a lista pela fábrica Owned (`ir_lists.rs`).
+    /// The map literal with only entries (`{k: v, …}`, without control
+    /// elements nor `?`), as the VM builds it: evaluates the keys and the values in
+    /// order, keeps them in a list `[k0, v0, k1, v1, …]` (`AllocList`, a single
+    /// allocation) and inserts everything at the end (`_dartforgePreencherMapa`). The VM
+    /// does the same (`Map._fromLiteral`,
+    /// runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc): the `hashCode`
+    /// and the `==` of the keys only run after all values are evaluated.
+    /// Before it was one `[]=` by selector per entry — the argument vector, the
+    /// selector lookup, the indirect call and the exception check for each
+    /// one: the `toMap`/`toJson` of a real backend are made of that. Outside
+    /// ARC, which builds the list through the Owned factory (`ir_lists.rs`).
     fn fill_map_at_once(&mut self, ast: &ast::Ast, alvo: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
-        // Até `LITERAL_CHUNK` entradas: os valores ficam vivos (e
-        // enraizados) até a lista, no quadro.
+        // Up to `LITERAL_CHUNK` entries: the values stay alive (and
+        // rooted) until the list, in the frame.
         if typ != Collection::Mapa || elements.len() < 2 || elements.len() > LITERAL_CHUNK || self.ctx.arc_memory {
             return false;
         }
@@ -301,29 +301,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// O literal grande de elementos constantes que a tabela não cobre
-    /// (inteiros, valores de enum, `const` de outras declarações — as
-    /// tabelas Unicode do `bidi`, 16 mil entradas `65: CharacterCategory.lu`).
+    /// A large literal of constant elements that the table does not cover
+    /// (integers, enum values, `const`s of other declarations — the
+    /// Unicode tables of `bidi`, 16 thousand entries `65: CharacterCategory.lu`).
     ///
-    /// Numa função só, cada elemento deixava no quadro o seu buffer de
-    /// argumentos (`[]=` por seletor) e, no `-O0`, uma palavra de
-    /// derramamento por valor que atravessa a conferência de exceção: o
-    /// quadro do getter passava de 1 MiB e estourava a pilha do isolado
-    /// principal (a thread principal do processo, 1 MiB no Windows — a
-    /// mesma reserva da VM, `OSThread::GetMaxStackSize`,
-    /// runtime/vm/os_thread_win.cc:101-104). A VM não tem o problema porque
-    /// o literal é um vetor preenchido por `StoreIndexed` e um só
+    /// In a single function, each element left its argument buffer in the frame
+    /// (`[]=` by selector) and, at `-O0`, a spill word per value that crosses
+    /// the exception check: the
+    /// frame of the getter went past 1 MiB and overflowed the stack of the main
+    /// isolate (the main thread of the process, 1 MiB on Windows — the
+    /// same reservation as the VM, `OSThread::GetMaxStackSize`,
+    /// runtime/vm/os_thread_win.cc:101-104). The VM does not have the problem because
+    /// the literal is a vector filled by `StoreIndexed` and a single
     /// `Map._fromLiteral`/`_GrowableList._literal`
     /// (runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc:4051-4140).
     ///
-    /// Aqui os elementos vão, em ordem, por funções auxiliares de
-    /// [`LITERAL_CHUNK`] elementos cada (`<função>$lit<pos>_<i>(alvo)`), que
-    /// acrescentam ao `alvo` como o caminho comum. Só com elementos
-    /// constantes (a chave canônica existe): uma constante não lê locais,
-    /// `this` nem parâmetros de tipo, então a avaliação fora da função que
-    /// contém o literal é a mesma, na mesma ordem — e as `const` locais vão
-    /// junto (`local_const_keys`), reavaliadas pelo inicializador
-    /// como no getter de constante.
+    /// Here the elements go, in order, through auxiliary functions of
+    /// [`LITERAL_CHUNK`] elements each (`<function>$lit<pos>_<i>(target)`), which
+    /// append to `target` like the common path. Only with constant
+    /// elements (the canonical key exists): a constant does not read locals,
+    /// `this` nor type parameters, so the evaluation outside the function that
+    /// contains the literal is the same, in the same order — and the local `const`s go
+    /// along (`local_const_keys`), reevaluated by the initializer
+    /// as in the constant getter.
     fn fill_in_chunks(
         &mut self,
         ast: &ast::Ast,
@@ -364,7 +364,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if !g.is_terminated() {
                 g.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
             }
-            // Chamado como função Dart (`CallStatic`): o retorno Ref é Owned.
+            // Called as a Dart function (`CallStatic`): the Ref return is Owned.
             if self.ctx.arc_memory {
                 g.dart_ref_returns.insert(symbol.clone());
             }
@@ -377,8 +377,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// O literal de lista só de expressões vai pelo caminho em pedaços?
-    /// (grande, e todo elemento constante: `fill_in_chunks`).
+    /// Does the list literal with only expressions go through the chunked path?
+    /// (large, and every element constant: `fill_in_chunks`).
     pub fn large_literal_is_constant(&self, ast: &ast::Ast, elements: &[CollectionElement]) -> bool {
         elements.len() >= CHUNK_THRESHOLD
             && elements.iter().all(|el| match el {
@@ -387,9 +387,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             })
     }
 
-    /// `e` nomeia uma `const` (de topo ou estática, desta ou de outra
-    /// unidade) cujo inicializador é um literal de lista, conjunto ou mapa:
-    /// a unidade e o literal.
+    /// `e` names a `const` (top-level or static, of this or of another
+    /// unit) whose initializer is a list, set or map literal:
+    /// the unit and the literal.
     fn constant_literal(&self, ast: &ast::Ast, e: ExprId) -> Option<(dartforge_elements::model::UnitId, ExprId)> {
         use dartforge_elements::model::{Element, VariableRef};
         use dartforge_types::resolved::{MemberRef, Resolved};
@@ -419,7 +419,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         matches!(ast_c.expr(init).kind, ast::ExprKind::List { .. } | ast::ExprKind::SetOrMap { .. }).then_some((unit_ref, init))
     }
 
-    /// A função de topo `name` da biblioteca `uri`.
+    /// The top-level function `name` of library `uri`.
     pub fn top_level_function(&self, uri: &str, name: &str) -> Option<usize> {
         let lib = self.ctx.program.libraries.iter().position(|l| l.uri == uri)?;
         let sym = self.ctx.interner.lookup(name)?;
@@ -466,15 +466,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.append_entry(alvo, k, v);
             }
             CollectionElement::Spread { value, null_aware } => {
-                // Num contexto constante, `...c` de uma `const` cujo
-                // inicializador é um literal acrescenta os elementos DO
-                // LITERAL (§17.9.1: o resultado é o mesmo), em vez de ler o
-                // global `c`. Ler o global criava um ciclo quando a
-                // constante que se monta tem a mesma chave canônica que a
-                // de `c` (`const [...c]` com `const c = [1, 2]`): o getter
-                // canônico avaliava `c`, cujo inicializador chamava o mesmo
-                // getter ainda em curso — o `StackOverflowError` do global
-                // reentrante (corpus/native/120).
+                // In a constant context, `...c` of a `const` whose
+                // initializer is a literal appends the elements OF THE
+                // LITERAL (§17.9.1: the result is the same), instead of reading the
+                // global `c`. Reading the global created a cycle when the
+                // constant being built has the same canonical key as that
+                // of `c` (`const [...c]` with `const c = [1, 2]`): the canonical
+                // getter evaluated `c`, whose initializer called the same
+                // getter still in progress — the `StackOverflowError` of the reentrant
+                // global (corpus/native/120).
                 if self.in_const_context
                     && let Some((unit_ref, init)) = self.constant_literal(ast, *value)
                 {
@@ -493,7 +493,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let source = self.lower_expr(ast, *value);
                 let source = self.coerce(source, Type::Ref);
-                // `...e` é o `addAll` da coleção (§17.9.1).
+                // `...e` is the `addAll` of the collection (§17.9.1).
                 let spread = |s: &mut Self, f: Operand| {
                     s.call_by_name(alvo.clone(), super::sdk_source::AccessKind::Call, "addAll", &[(None, f)]);
                 };
@@ -652,7 +652,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(end);
     }
 
-    /// `for (i = 0; i < n; i++) f(i)` com o índice num `alloca` (R6).
+    /// `for (i = 0; i < n; i++) f(i)` with the index in an `alloca` (R6).
     pub fn loop_index(&mut self, n: Operand, f: impl FnOnce(&mut Self, Operand)) {
         let p = self.entry_alloca(Type::I64);
         self.emit(
@@ -688,8 +688,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(end);
     }
 
-    /// O elemento `i` de uma lista ou conjunto (`for-in`, espalhamento) na
-    /// representação `repr` (R5).
+    /// Element `i` of a list or set (`for-in`, spread) in
+    /// representation `repr` (R5).
     pub fn read_iterable_element(&mut self, source: Operand, i: Operand, repr: Type) -> Operand {
         if repr == Type::Ref {
             return self.emit_call_with_check(

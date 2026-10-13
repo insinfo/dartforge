@@ -1,18 +1,18 @@
-//! Acessos físicos a campos por origem estática ou guarda de layout da imagem.
-//! Alocações HIR completas são as âncoras; cópias/moves/Phis transportam
-//! conjuntos de sítios, sem forte atualização por instância. Publicação,
-//! uso opaco ou contenção invalidam o sítio inteiro na prova global. IDs
-//! recém-produzidos no mesmo bloco mantêm a prova até a primeira exposição.
-//! Leituras Ref sem origem estática usam a conferência do mapa real do heap;
-//! o plano de tokens protege o empréstimo antes de invalidar a aresta.
-//! Não substitui guardas Dart late/tipo, resumos de heap ou versões/pins.
+//! Physical field accesses by static origin or by a layout guard of the image.
+//! Complete HIR allocations are the anchors; copies/moves/Phis carry
+//! sets of sites, without strong update per instance. Publication,
+//! opaque use or containment invalidate the whole site in the global proof. IDs
+//! freshly produced in the same block keep the proof until the first exposure.
+//! Ref reads without a static origin use the check of the real heap map;
+//! the token plan protects the borrow before invalidating the edge.
+//! Does not replace Dart late/type guards, heap summaries or versions/pins.
 
 use super::{DartFunctionPlan, edges::next_val};
 use crate::{hir::*, optimize::operands::operands};
 use std::collections::{HashMap, HashSet};
 
-// Transporta elegibilidade para a guarda física, sem provar ownership/layout.
-// Cada SCC exige âncora Ref/Null e todas as dependências externas conferidas.
+// Carries eligibility for the physical guard, without proving ownership/layout.
+// Each SCC requires a Ref/Null anchor and every external dependency checked.
 fn propagate_ref_entries(f: &Function, entries: &mut HashSet<ValueId>) {
     let nodes: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, i, t)| {
         if *t != Type::Ref { return None; }
@@ -103,8 +103,8 @@ fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&H
             Instruction::CallRuntime { name, args, ret_ty }
                 if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
                     && *ret_ty == Type::Ref => {
-                // A fábrica zerada também fixa a classe física. Não inferir
-                // tamanho/layout pela largura nem por parâmetros não constantes.
+                // The zeroed factory also fixes the physical class. Do not infer
+                // size/layout from the width nor from non-constant parameters.
                 let class = match args.as_slice() {
                     [(Operand::Constant(Constant::Int(cid)), Type::I64),
                      (Operand::Constant(Constant::Int(n)), Type::I64)] => {
@@ -172,8 +172,8 @@ fn representation(
     known_representation(&o, index, classes, layouts)
 }
 
-// A parte desconhecida da junção exige guarda física. A parte nominal
-// continua obrigatória: não esconder um layout contraditório atrás da guarda.
+// The unknown part of the join requires a physical guard. The nominal part
+// stays mandatory: do not hide a contradictory layout behind the guard.
 fn known_representation(
     o: &Origin, index: usize, classes: &HashMap<ValueId, u32>,
     layouts: &HashMap<u32, Vec<Type>>,
@@ -209,8 +209,8 @@ fn scalar_code(repr: Type) -> i64 {
         _ => unreachable!("representação escalar não conferida") }
 }
 
-// Um Ptr importado, alias ou tamanho calculado não prova extensão/imutabilidade.
-// A imagem certificada também reconfere o vetor contra os layouts atuais.
+// An imported Ptr, an alias or a computed size does not prove extent/immutability.
+// The certified image also rechecks the vector against the current layouts.
 pub(super) fn check_call(
     f: &Function, inst: &Instruction, layouts: Option<&HashMap<u32, Vec<Type>>>,
 ) -> Result<(), String> {
@@ -253,9 +253,9 @@ pub(super) fn prepare(
     receivers: Option<&HashMap<ValueId, u32>>,
     preserve_fields: &HashSet<String>,
 ) -> Result<(), String> {
-    // Const Null em SSA não tem token. Na entrada de Phi, usa a forma
-    // literal para o protocolo nullable, sem confundir Const Int(0) ou
-    // Bool(false). A definição permanece e seu contrato ainda é conferido.
+    // Const Null in SSA has no token. At a Phi entry, use the literal
+    // shape for the nullable protocol, without confusing Const Int(0) or
+    // Bool(false). The definition stays and its contract is still checked.
     let nulls: HashSet<_> = f.blocks.iter().flat_map(|b| &b.instructions)
         .filter_map(|(v, i, t)| (*t == Type::Ref && matches!(i, Instruction::Const(Constant::Null))).then_some(*v)).collect();
     for (_, i, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
@@ -282,29 +282,29 @@ pub(super) fn prepare(
         return Ok(());
     }
     let (origins, classes) = origins(f, layouts, receivers);
-    // Entradas emprestadas já devem ser instâncias válidas pela semântica
-    // Dart. Uma fábrica local sem layout pode ainda conter campos zerados
-    // sem marca Ref; não a confundir com um receiver de entrada aberto.
-    // Estes valores podem ser receivers conferidos, sem alegar classe ou
-    // frescor. Cada leitura e chamada ainda precisa passar pela preparação
-    // e pelo contrato de ownership; uma falha descarta o módulo inteiro.
+    // Borrowed entries must already be valid instances by Dart
+    // semantics. A local factory without a layout may still contain zeroed fields
+    // without a Ref mark; do not confuse it with an open entry receiver.
+    // These values may be checked receivers, without claiming a class or
+    // freshness. Each read and call still has to go through the preparation
+    // and the ownership contract; a failure discards the whole module.
     let mut ref_entries: HashSet<_> = f.params.iter()
         .filter(|(_, _, ty)| *ty == Type::Ref).map(|(v, _, _)| *v).collect();
     for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if *ty != Type::Ref { continue; }
-        // Null pode acompanhar uma Ref válida na junção, inclusive no
-        // caminho pending. A guarda de acesso continua recusando null;
-        // isto não atribui classe nem transforma bits escalares em Ref.
+        // Null may accompany a valid Ref at a join, including on the
+        // pending path. The access guard still rejects null;
+        // this assigns no class nor turns scalar bits into a Ref.
         let derived = match inst {
             Instruction::ArcLoadStrong { .. } => true,
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if matches!(name.as_str(), super::vectors::READ_ARGUMENT | "dartforge_arc_lista_ref_owned_v1") => true,
             Instruction::AllocObject { .. } => true,
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
                 if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1") => classes.contains_key(v),
-            // O catálogo confere resultado Ref, aridade e tipos declarados.
-            // Isto só autoriza a guarda física; a transação ainda reconfere
-            // tipos SSA, proveniência nativa, tokens e fronteiras Dart. Uma
-            // extern opaca ou um resultado escalar não se tornam referências.
+            // The catalog checks the Ref result, the arity and the declared types.
+            // This only authorizes the physical guard; the transaction still rechecks
+            // SSA types, native provenance, tokens and Dart boundaries. An
+            // opaque extern or a scalar result does not become a reference.
             Instruction::CallRuntime { ret_ty: Type::Ref, .. } =>
                 super::contracts::runtime_call_contract(inst).is_ok(),
             Instruction::Box { from: Type::I64 | Type::F64 | Type::I1 | Type::I8, .. }
@@ -372,8 +372,8 @@ pub(super) fn prepare(
                 {
                     safe_field = (repr == Type::Ref) == refs;
                 }
-                // Definir RTI pode compactar listas. Só a origem física de
-                // instâncias não-lista fecha a obrigação de layout aqui.
+                // Defining RTI may compact lists. Only the physical origin of
+                // non-list instances closes the layout obligation here.
                 let define_instance = name == "dartforge_rti_definir" && args.len() == 2 && {
                     let o = origin(&args[0].0, &origins);
                     !o.unknown && !o.sites.is_empty() && o.sites.iter().all(|s|
@@ -381,12 +381,12 @@ pub(super) fn prepare(
                             !dartforge_runtime::layout::cid::e_lista(cid)))
                 };
                 if !safe && !safe_field && !define_instance {
-                    // Setter de bits nativo não certifica a representação
-                    // lógica (bool/byte). Só SetField tipado mantém a prova.
+                    // A native bits setter does not certify the logical
+                    // representation (bool/byte). Only a typed SetField keeps the proof.
                     args.iter().for_each(|(o, _)| expose(o));
-                    // Ausência de Dart no catálogo de ownership não prova
-                    // ausência de mutação do layout, por exemplo na recarga.
-                    // Só operações enumeradas acima têm contrato fechado aqui.
+                    // The absence of Dart in the ownership catalog does not prove
+                    // the absence of layout mutation, for instance on reload.
+                    // Only the operations enumerated above have a closed contract here.
                     exposed.extend(classes.keys().copied());
                 }
             }
@@ -424,17 +424,17 @@ pub(super) fn prepare(
     let entry_without_return = !f.blocks.iter().any(|b| {
         super::super::cfg::successors(&b.terminator).into_iter().any(|dest| Some(dest) == entry)
     });
-    // Para parâmetros certificados, usa somente o prefixo de entrada que
-    // domina a primeira chamada/publicação. Não atribui frescor ao parâmetro,
-    // nem reutiliza essa prova em blocos posteriores ou numa volta de laço.
+    // For certified parameters, use only the entry prefix that
+    // dominates the first call/publication. Does not assign freshness to the parameter,
+    // nor reuse that proof in later blocks or in a loop iteration.
     let local_globals: HashSet<_> = escape.difference(&parameters).copied().collect();
     let mut next_item = next_val(f, plan);
     for b in &mut f.blocks {
         let mut invalid_set = if Some(b.id) == entry && entry_without_return {
             HashSet::new()
         } else { parameters.clone() };
-        // IDs efetivamente produzidos neste bloco, não sítios abstratos de
-        // Phis que podem representar objetos de uma iteração anterior.
+        // IDs actually produced in this block, not abstract sites of
+        // Phis that may represent objects of a previous iteration.
         let mut fresh_set: HashSet<ValueId> = HashSet::new();
         let mut instructions = Vec::new();
         for (v, inst, ty) in &b.instructions {
@@ -459,20 +459,20 @@ pub(super) fn prepare(
                 }
             };
             let current_ones: HashSet<_> = if matches!(object, Operand::Val(id) if fresh_set.contains(id)) {
-                // Uma publicação futura não pode afetar a escrita anterior.
-                // Não reviver a prova após uma exposição já executada.
+                // A future publication cannot affect the earlier write.
+                // Do not revive the proof after an exposure that already ran.
                 HashSet::new()
             } else { local_globals.union(&invalid_set).copied().collect() };
             let o = origin(object, &origins);
-            // Sem âncora nominal, o accessor Ref confere receiver, índice e
-            // bitmap antes de emprestar. Não reinterpretar bits escalares,
-            // ou ignorar contradições de uma origem conhecida. Escritas abertas
-            // exigem a conferência adicional dos layouts declarados da imagem.
+            // Without a nominal anchor, the Ref accessor checks the receiver, the index and the
+            // bitmap before borrowing. Do not reinterpret scalar bits,
+            // nor ignore contradictions of a known origin. Open writes
+            // require the additional check of the declared layouts of the image.
             let open_entry = o.unknown && o.sites.is_empty()
                 && matches!(object, Operand::Val(v) if ref_entries.contains(v));
-            // A exposição perde a prova estática, não o owner. Conferir a
-            // representação nominal antes de optar pela guarda física evita
-            // aceitar contradições de classe, tamanho ou tipo na própria HIR.
+            // The exposure loses the static proof, not the owner. Checking the
+            // nominal representation before opting for the physical guard avoids
+            // accepting contradictions of class, size or type in the HIR itself.
             let exposed_nominal = !o.unknown && !o.sites.is_empty()
                 && !o.sites.is_disjoint(&current_ones);
             let mixed_nominal = o.unknown && !o.sites.is_empty()
@@ -694,7 +694,7 @@ mod tests {
                     (ValueId(10), Instruction::GetField { object: Operand::Val(ValueId(9)), index: 0 }, Type::I1),
                 ], terminator: Terminator::Return(Some(Operand::Val(ValueId(10)))) },
             ];
-            // A forma SSA também aparece no lowering de operadores e casts.
+            // The SSA shape also appears in the lowering of operators and casts.
             f.blocks[2].instructions.push((ValueId(11), Instruction::Const(constant.clone()),
                 if valid { Type::Ref } else { Type::I64 }));
             if let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 {
@@ -851,9 +851,9 @@ mod tests {
                 m.functions[0].blocks.push(BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(None) });
             }
             if case == 4 {
-                // O objeto da volta anterior morre na aresta de volta, antes
-                // de o Phi receber o novo: a preparação solta o token ali, e
-                // a leitura do campo continua conferida.
+                // The object of the previous iteration dies on the back edge, before
+                // the Phi receives the new one: the preparation releases the token there, and
+                // the read of the field stays checked.
                 prepare_arc_dart_module(&mut m, &mut plans).unwrap();
                 let insts: Vec<_> = m.functions[0].blocks.iter().flat_map(|b| &b.instructions).collect();
                 assert!(insts.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. } if name == super::READ_SCALAR)));
@@ -1352,8 +1352,8 @@ mod tests {
             ],
             terminator: Terminator::Return(None),
         });
-        // Sem consumidor falível no meio: o empréstimo do parâmetro ganha a
-        // cópia na aresta, e a guarda de layout continua em `v11`.
+        // No fallible consumer in between: the borrow of the parameter gets the
+        // copy on the edge, and the layout guard stays on `v11`.
         m.functions[0].blocks.last_mut().unwrap().instructions.remove(1);
         prepare_arc_dart_module(&mut m, &mut plans).unwrap();
         assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
@@ -1469,8 +1469,8 @@ mod tests {
                 if case == 0 {
                     assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %v4, i64 0)"));
                 } else {
-                    // O caminho null é recusado pela guarda física, sem
-                    // invalidar a representação conhecida do outro caminho.
+                    // The null path is rejected by the physical guard, without
+                    // invalidating the known representation of the other path.
                     assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1(i64 %v4, i64 0,"));
                 }
             }
@@ -1511,8 +1511,8 @@ mod tests {
             ];
             let before = format!("{m:?}/{plans:?}");
             let result = prepare_arc_dart_module(&mut m, &mut plans);
-            // Caso 3: o parâmetro emprestado entra no Phi com owner; a
-            // preparação copia na aresta (`phis.rs`), como o caso 0 explícito.
+            // Case 3: the borrowed parameter enters the Phi with an owner; the
+            // preparation copies on the edge (`phis.rs`), like the explicit case 0.
             if case == 3 {
                 result.unwrap();
                 assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|

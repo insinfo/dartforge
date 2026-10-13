@@ -1,34 +1,34 @@
-//! A emissão das listas tipadas e dos valores SIMD (P4,
-//! docs/NATIVO-ESPACO-UNIFICADO.md §3.5 e §4.6): a caixa e a descaixa de um vetor
-//! SIMD e os ajudantes `@df.tipada_*`, `@df.nucleo_*` e `@df.simd_caixa` do
-//! prelúdio.
+//! Emission of typed lists and SIMD values (P4,
+//! docs/NATIVO-ESPACO-UNIFICADO.md §3.5 and §4.6): boxing and unboxing of a SIMD
+//! vector and the `@df.tipada_*`, `@df.nucleo_*` and `@df.simd_caixa` helpers of the
+//! prelude.
 //!
-//! Os ajudantes leem o bloco pelos deslocamentos do contrato
-//! (`dartforge_runtime::layout`; a palavra em `b + k` está em `h + k − 2`), sem
-//! chamar o runtime:
+//! The helpers read the block through the offsets of the contract
+//! (`dartforge_runtime::layout`; the word at `b + k` is at `h + k − 2`), without
+//! calling the runtime:
 //!
-//! * lista tipada (interna, externa ou visão): o comprimento em `h+14` e o
-//!   endereço dos bytes em `h+22`, nos três formatos; nenhum dos dois muda
-//!   enquanto a lista vive (a lista tipada não muda de tamanho e o coletor não
-//!   move), então as cargas levam `!invariant.load` e o LLVM as tira dos laços
-//!   como tirava as funções puras `dartforge_typed_len`/`_ptr` de antes; o cid
-//!   (`h+2`) também é invariante (§2.1, princípio 4);
-//! * lista do núcleo (`_List`, `_ImmutableList`, `_GrowableList`): o comprimento
-//!   em `h+14`, o armazenamento da expansível em `h+22`, a forma no `flags` do
-//!   armazenamento (`a−1`) e os elementos em `a+22`. Mutáveis: cargas comuns;
-//! * SIMD: as pistas em `h+14`.
+//! * typed list (internal, external or view): the length at `h+14` and the
+//!   address of the bytes at `h+22`, in all three formats; neither changes
+//!   while the list lives (a typed list does not change size and the collector does not
+//!   move), so the loads carry `!invariant.load` and LLVM hoists them out of loops
+//!   as it did with the former pure functions `dartforge_typed_len`/`_ptr`; the cid
+//!   (`h+2`) is invariant too (§2.1, principle 4);
+//! * core list (`_List`, `_ImmutableList`, `_GrowableList`): the length
+//!   at `h+14`, the storage of the growable one at `h+22`, the shape in the `flags` of the
+//!   storage (`a−1`) and the elements at `a+22`. Mutable: ordinary loads;
+//! * SIMD: the lanes at `h+14`.
 //!
-//! O lowering (`lower/typed_items.rs`) os chama como `CallRuntime` com o nome sem o
-//! `@`; os efeitos estão em [`HELPER_EFFECTS`], que `externs::effects_of`
-//! consulta (P0).
+//! The lowering (`lower/typed_items.rs`) calls them as `CallRuntime` with the name without the
+//! `@`; the effects are in [`HELPER_EFFECTS`], which `externs::effects_of`
+//! consults (P0).
 
 use super::LlvmEmitter;
 use crate::hir::*;
 use std::fmt::Write;
 
-/// Os ajudantes de listas tipadas, listas do núcleo e SIMD (§3.5), impressos no
-/// prelúdio de cada módulo por `emit_runtime_decls`. As constantes numéricas são
-/// as de `layout` (conferidas no teste `contract_offsets`).
+/// The helpers for typed lists, core lists and SIMD (§3.5), printed in the
+/// prelude of each module by `emit_runtime_decls`. The numeric constants are
+/// those of `layout` (checked in the `contract_offsets` test).
 pub const HELPERS: &str = "\
 define internal i64 @df.tipada_len(i64 %t) alwaysinline {
   %a = add i64 %t, 14
@@ -162,9 +162,9 @@ define internal i64 @df.simd_caixa(<2 x i64> %v, i64 %cid) alwaysinline {
 }
 ";
 
-/// Os efeitos dos ajudantes chamados pelo lowering como `CallRuntime` (o nome sem
-/// `@`): `(name, allocates, lança)`. `externs::effects_of` (P0) os consulta em vez de
-/// tratá-los como externs desconhecidas (conservadoras). Nenhum chama o Dart.
+/// The effects of the helpers called by the lowering as `CallRuntime` (the name without
+/// `@`): `(name, allocates, throws)`. `externs::effects_of` (P0) consults them instead of
+/// treating them as unknown (conservative) externs. None calls Dart.
 pub const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.tipada_len", false, false),
     ("df.tipada_dados", false, false),
@@ -182,13 +182,13 @@ pub const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.simd_caixa", true, false),
 ];
 
-/// O estado da emissão de listas tipadas por módulo.
+/// The per-module emission state of typed lists.
 #[derive(Default)]
 pub(super) struct TypedState {}
 
 impl LlvmEmitter<'_> {
-    /// O vetor SIMD `op` (do tipo `from`) em caixa: `@df.simd_caixa`, alocação em
-    /// linha com as pistas em `h+14` (cid 19 `_Float32x4`, 20 `_Int32x4`, 21
+    /// The SIMD vector `op` (of type `from`) boxed: `@df.simd_caixa`, an inline
+    /// allocation with the lanes at `h+14` (cid 19 `_Float32x4`, 20 `_Int32x4`, 21
     /// `_Float64x2`).
     pub(super) fn emit_simd_box(&mut self, v: u32, op: &Operand, from: Type) {
         let only = self.coerce(op, from);
@@ -209,9 +209,9 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// O vetor SIMD (do tipo `to`) de uma caixa: as pistas em `h+14`. Sem
-    /// `!invariant.load`: a caixa pode ter sido gravada na mesma função
-    /// (`@df.simd_caixa`), e a carga não pode subir acima da gravação.
+    /// The SIMD vector (of type `to`) of a box: the lanes at `h+14`. Without
+    /// `!invariant.load`: the box may have been written in the same function
+    /// (`@df.simd_caixa`), and the load cannot be hoisted above the write.
     pub(super) fn emit_simd_unbox(&mut self, v: u32, op: &Operand, to: Type) {
         let only = self.coerce(op, Type::Ref);
         writeln!(self.out, "  %ux{v} = add i64 {only}, 14").unwrap();
@@ -224,7 +224,7 @@ impl LlvmEmitter<'_> {
 mod tests {
     use dartforge_runtime::layout::{self, desl, flags};
 
-    /// As constantes escritas à mão em [`super::HELPERS`] são as do contrato.
+    /// The constants written by hand in [`super::HELPERS`] are those of the contract.
     #[test]
     fn contract_offsets() {
         let h = |b: usize| b as i64 - layout::DESLOCAMENTO_DO_HANDLE;
@@ -243,9 +243,9 @@ mod tests {
         assert_eq!(layout::cid::BYTE_DATA_VIEW, 64);
         assert_eq!(layout::cid::GROWABLE_LIST, 10);
         assert_eq!(layout::cid::LIST, 8);
-        // A palavra 0 do cabeçalho de um SIMD, sem o cid.
+        // Word 0 of the header of a SIMD value, without the cid.
         assert_eq!(layout::palavra_do_cabecalho(layout::estado::JOVEM, flags::BRUTO, 2, 0), 131_585);
-        // A tabela de `log2` do tamanho do elemento por tipo (4 bits por tipo).
+        // The `log2` table of the element size per type (4 bits per type).
         let mut table = 0u64;
         for t in 0..=14u8 {
             let lg = dartforge_runtime::tipadas::tamanho_do_elemento(t).trailing_zeros() as u64;

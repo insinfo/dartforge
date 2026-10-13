@@ -1,47 +1,47 @@
-//! Tipos de extensão (Dart 3.3) apagados: o que o lowering precisa saber
-//! deles, calculado antes, enquanto a tabela de tipos ainda aceita tipos
-//! novos (o `Context` a vê só para leitura).
+//! Erased extension types (Dart 3.3): what the lowering needs to know
+//! about them, computed beforehand, while the type table still accepts new
+//! types (the `Context` sees it read-only).
 //!
-//! Em tempo de execução um valor de tipo de extensão **é** o valor da
-//! representação: `Id(3)` é o `int` 3, `is Id` é `is int`, e o `runtimeType`
-//! de `<Id>[]` é `List<int>`. O tipo estático só decide a rota dos membros,
-//! que é estática (`lower/extension_types.rs`). Daqui saem:
+//! At run time a value of an extension type **is** the value of the
+//! representation: `Id(3)` is the `int` 3, `is Id` is `is int`, and the `runtimeType`
+//! of `<Id>[]` is `List<int>`. The static type only decides the route of the members,
+//! which is static (`lower/extension_types.rs`). From here come:
 //!
-//! * o apagamento de cada tipo da tabela (`E<A>` → a representação de `E`
-//!   com `A`, recursivamente, dentro de listas, funções e records);
-//! * o tipo de `this` de cada tipo de extensão (`E<T>`, com os próprios
-//!   parâmetros): é o padrão com que os argumentos de tipo de um membro são
-//!   tirados do tipo estático do receptor;
-//! * a instância de cada supertipo de extensão de cada tipo de extensão da
-//!   tabela (`Filho<int>` implementa `Base<List<int>>`), para achar esses
-//!   argumentos quando o membro é herdado.
+//! * the erasure of each type of the table (`E<A>` → the representation of `E`
+//!   with `A`, recursively, inside lists, functions and records);
+//! * the type of `this` of each extension type (`E<T>`, with its own
+//!   parameters): it is the pattern by which the type arguments of a member are
+//!   taken from the static type of the receiver;
+//! * the instance of each extension supertype of each extension type of the
+//!   table (`Child<int>` implements `Base<List<int>>`), to find those
+//!   arguments when the member is inherited.
 
 use dartforge_elements::model::{ClassId, ClassKind, Program};
 use dartforge_types::resolve::OutlineTypes;
 use dartforge_types::table::{Type, TypeId, TypeParamId, TypeTable};
 use std::collections::HashMap;
 
-/// O apagamento e os tipos auxiliares dos tipos de extensão do programa.
+/// The erasure and the auxiliary types of the program's extension types.
 #[derive(Debug, Default)]
 pub struct ExtensionTypes {
-    /// O tipo apagado de cada tipo da tabela (pelo índice); vazio quando o
-    /// programa não tem tipo de extensão.
+    /// The erased type of each type of the table (by index); empty when the
+    /// program has no extension type.
     erased_ones: Vec<TypeId>,
-    /// `E<T…>` de cada tipo de extensão, com os próprios parâmetros.
+    /// `E<T…>` of each extension type, with its own parameters.
     pub this: HashMap<ClassId, TypeId>,
-    /// `(E<A…>, S) → S<B…>`: a instância do supertipo de extensão `S` de
+    /// `(E<A…>, S) → S<B…>`: the instance of the extension supertype `S` of
     /// `E<A…>`.
     pub supertypes: HashMap<(TypeId, ClassId), TypeId>,
 }
 
 impl ExtensionTypes {
-    /// O tipo apagado de `t` (o próprio, sem tipo de extensão dentro).
+    /// The erased type of `t` (itself, with no extension type inside).
     pub fn erase(&self, t: TypeId) -> TypeId {
         self.erased_ones.get(t.0 as usize).copied().unwrap_or(t)
     }
 }
 
-/// Os parâmetros de tipo de `c` e o tipo da representação, escrito com eles.
+/// The type parameters of `c` and the representation type, written with them.
 fn representation(program: &Program, outline: &OutlineTypes, c: ClassId) -> Option<(Vec<TypeParamId>, TypeId)> {
     let v = program.class(c).representation?;
     let t = outline.variables.get(v.0 as usize)?.declared_type?;
@@ -49,7 +49,7 @@ fn representation(program: &Program, outline: &OutlineTypes, c: ClassId) -> Opti
     Some((params, t))
 }
 
-/// Calcula o apagamento de toda a tabela (ver o topo do módulo).
+/// Computes the erasure of the whole table (see the top of the module).
 pub fn compute(program: &Program, outline: &OutlineTypes, table: &mut TypeTable) -> ExtensionTypes {
     let types: Vec<ClassId> = (0..program.classes.len() as u32)
         .map(ClassId)
@@ -66,8 +66,8 @@ pub fn compute(program: &Program, outline: &OutlineTypes, table: &mut TypeTable)
         let t = table.intern(Type::ExtensionType { decl: c, args: args.into_boxed_slice(), nullable: false });
         r.this.insert(c, t);
     }
-    // Os supertipos de extensão de cada tipo de extensão da tabela, pelo
-    // `implements` (com a substituição dos argumentos), até o fecho.
+    // The extension supertypes of each extension type of the table, through
+    // `implements` (with the substitution of the arguments), up to the closure.
     let mut i = 0;
     while i < table.len() {
         let t = TypeId(i as u32);
@@ -93,8 +93,8 @@ pub fn compute(program: &Program, outline: &OutlineTypes, table: &mut TypeTable)
         let map: HashMap<TypeParamId, TypeId> = params.into_iter().zip(args.iter().copied()).collect();
         Some(dartforge_types::substitute(t, &map, table))
     };
-    // Os tipos que o apagamento cria já saem apagados: basta a tabela de
-    // antes dele.
+    // The types the erasure creates come out already erased: the table from
+    // before it is enough.
     let n = table.len();
     r.erased_ones = (0..n as u32).map(TypeId).collect();
     for i in 0..n {

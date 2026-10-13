@@ -1,5 +1,5 @@
-//! Poda ramos de classe impossíveis usando todos os chamadores do grupo fechado.
-//! Preserva IDs de consultas vivas e alcançabilidade das arestas excepcionais.
+//! Prunes impossible class branches using every caller of the closed group.
+//! Preserves the IDs of live queries and the reachability of exceptional edges.
 
 use super::*;
 
@@ -127,8 +127,8 @@ pub(super) fn prepare(
         p.scopes
             .edges
             .retain(|e, _| !edges_before.contains(e) || edges.contains(e));
-        // O certificado antigo pertence ao corpo anterior. A transação
-        // completa recalcula owners/quadros e sela o cleanup após inserir ARC.
+        // The old certificate belongs to the previous body. The full
+        // transaction recomputes owners/frames and seals the cleanup after inserting ARC.
         p.tables.foreign_cleanup = None;
         if let Some(sites) = m.arc_sites.get_mut(&f.symbol) {
             sites.retain(|v, _| !dead_ids.contains(v));

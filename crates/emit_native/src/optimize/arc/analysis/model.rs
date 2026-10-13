@@ -1,65 +1,65 @@
-//! Identidade nominal e domínio finito de inclusão (§28.1).
-//! A integração com produtores/clones da HIR e resumos SDK ainda é necessária.
+//! Nominal identity and finite inclusion domain (§28.1).
+//! Integration with the HIR producers/clones and SDK summaries is still needed.
 
 use std::collections::BTreeSet;
 
-/// Identidade de origem de uma alocação, independente do ID SSA de sua cópia.
-/// O produtor deve preservar `origin` e remapear especialização/contexto nos
-/// clones. Construir esta chave não prova estabilidade do produtor nem singleton.
+/// Origin identity of an allocation, independent of the SSA ID of its copy.
+/// The producer must preserve `origin` and remap specialization/context in the
+/// clones. Building this key proves neither producer stability nor singleton.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::modelo::SitioArc;
-/// let sitio = SitioArc { funcao: "criar".into(), origem: 7, especializacao: "int".into() };
-/// assert_eq!(sitio.clone(), sitio);
+/// use dartforge_emit_native::optimize::arc::analysis::model::ArcSite;
+/// let site = ArcSite { function: "create".into(), origin: 7, specialization: "int".into() };
+/// assert_eq!(site.clone(), site);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArcSite {
-    /// Símbolo nominal do corpo de origem, não o endereço da função ligada.
+    /// Nominal symbol of the origin body, not the address of the linked function.
     pub function: String,
-    /// Identificador persistente atribuído pelo produtor antes de clonar SSA.
+    /// Persistent identifier assigned by the producer before cloning SSA.
     pub origin: u64,
-    /// Instância genérica/especialização nominal da origem.
+    /// Generic instance/nominal specialization of the origin.
     pub specialization: String,
 }
 
-/// Nó possível do heap ou placeholder parametrizado de um resumo.
-/// Parâmetros/globais não são objetos frescos: a instanciação de resumos deve
-/// substituí-los pelos aliases reais. Contextos são chaves limitadas pelo
-/// produtor; este domínio não explora uma pilha de chamadas ilimitada.
+/// A possible heap node or a parameterized placeholder of a summary.
+/// Parameters/globals are not fresh objects: the instantiation of summaries must
+/// replace them with the real aliases. Contexts are keys bounded by the
+/// producer; this domain does not explore an unbounded call stack.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::modelo::NoAbstrato;
-/// let arg = NoAbstrato::Parametro { funcao: "ligar".into(), indice: 0 };
-/// assert_ne!(arg, NoAbstrato::Global("raiz".into()));
+/// use dartforge_emit_native::optimize::arc::analysis::model::AbstractNode;
+/// let arg = AbstractNode::Parameter { function: "link".into(), index: 0 };
+/// assert_ne!(arg, AbstractNode::Global("root".into()));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AbstractNode {
-    /// Sítio/contexto pode representar muitas instâncias; não permite sozinho
-    /// apagar arestas antigas de campo por atualização forte.
+    /// A site/context may represent many instances; it does not by itself allow
+    /// erasing old field edges by strong update.
     Allocation {
-        /// Origem persistente e instância genérica.
+        /// Persistent origin and generic instance.
         site: ArcSite,
-        /// Contexto abstrato limitado e versionado pelo produtor.
+        /// Abstract context bounded and versioned by the producer.
         context: String,
     },
-    /// Placeholder do argumento, incluindo o receptor quando aplicável.
+    /// Placeholder of the argument, including the receiver when applicable.
     Parameter {
-        /// Símbolo do resumo que define o argumento.
+        /// Symbol of the summary that defines the argument.
         function: String,
-        /// Posição na ABI semântica do resumo.
+        /// Position in the semantic ABI of the summary.
         index: u32,
     },
-    /// Placeholder de resultado externo, sem hipótese de frescor ou separação.
+    /// Placeholder of an external result, without a freshness or separation hypothesis.
     ExternalResult(String),
-    /// Placeholder de raiz global, a substituir pelo seu alcance possível.
+    /// Placeholder of a global root, to be replaced by its possible reach.
     Global(String),
-    /// Origem explícita de ambiente, célula, frame ou outra unidade sintética.
+    /// Explicit origin of an environment, cell, frame or another synthetic unit.
     SyntheticUnit {
-        /// Origem produzida para a unidade sintética.
+        /// Origin produced for the synthetic unit.
         site: ArcSite,
-        /// Contexto abstrato da unidade.
+        /// Abstract context of the unit.
         context: String,
-        /// Papel nominal: não confundir célula, closure e ambiente.
+        /// Nominal role: do not confuse cell, closure and environment.
         role: String,
     },
 }
@@ -70,19 +70,19 @@ enum Points {
     Top,
 }
 
-/// Conjunto points-to limitado, com topo distinto do conjunto vazio.
-/// Null/valores triviais podem ter conjunto vazio. Fatos ausentes, operações
-/// opacas e budget excedido exigem topo, que não pode ser reduzido pela união.
-/// O limite é imutável por conjunto; opções/versionamento pertencem ao plano.
-/// Este domínio não certifica cardinalidade, vida, escape ou políticas ARC.
+/// Bounded points-to set, with a top distinct from the empty set.
+/// Null/trivial values may have an empty set. Missing facts, opaque
+/// operations and an exceeded budget require top, which cannot be reduced by union.
+/// The bound is immutable per set; options/versioning belong to the plan.
+/// This domain does not certify cardinality, liveness, escape or ARC policies.
 ///
 /// ```
-/// use dartforge_emit_native::optimize::arc::analise::modelo::{ConjuntoPontos, NoAbstrato};
-/// let mut pt = ConjuntoPontos::vazio(1);
-/// assert!(pt.incluir(NoAbstrato::Global("a".into())));
-/// assert!(pt.incluir(NoAbstrato::Global("b".into())));
-/// assert!(pt.nos().is_none()); // budget excedido não significa ausência de alias
-/// assert!(!pt.unir(&ConjuntoPontos::vazio(1)));
+/// use dartforge_emit_native::optimize::arc::analysis::model::{PointSet, AbstractNode};
+/// let mut pt = PointSet::empty(1);
+/// assert!(pt.include(AbstractNode::Global("a".into())));
+/// assert!(pt.include(AbstractNode::Global("b".into())));
+/// assert!(pt.nodes().is_none()); // an exceeded budget does not mean absence of aliases
+/// assert!(!pt.join_set(&PointSet::empty(1)));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PointSet {
@@ -95,11 +95,11 @@ impl PointSet {
         self.limit
     }
 
-    /// Cria o conjunto vazio; só usar quando ausência de nós for um fato.
+    /// Creates the empty set; only use it when the absence of nodes is a fact.
     ///
     /// ```
-    /// use dartforge_emit_native::optimize::arc::analise::modelo::ConjuntoPontos;
-    /// assert!(ConjuntoPontos::vazio(0).nos().unwrap().is_empty());
+    /// use dartforge_emit_native::optimize::arc::analysis::model::PointSet;
+    /// assert!(PointSet::empty(0).nodes().unwrap().is_empty());
     /// ```
     pub fn empty(limit: usize) -> Self {
         Self {
@@ -108,11 +108,11 @@ impl PointSet {
         }
     }
 
-    /// Cria topo para informação ausente ou invalidada; nunca equivale a vazio.
+    /// Creates top for missing or invalidated information; never equivalent to empty.
     ///
     /// ```
-    /// use dartforge_emit_native::optimize::arc::analise::modelo::ConjuntoPontos;
-    /// assert!(ConjuntoPontos::desconhecido(8).nos().is_none());
+    /// use dartforge_emit_native::optimize::arc::analysis::model::PointSet;
+    /// assert!(PointSet::unknown(8).nodes().is_none());
     /// ```
     pub fn unknown(limit: usize) -> Self {
         Self {
@@ -121,12 +121,12 @@ impl PointSet {
         }
     }
 
-    /// Consulta todos os nós conhecidos, ou `None` quando há destinos desconhecidos.
-    /// O acesso imutável impede truncar ou refinar topo fora do solver.
+    /// Queries all the known nodes, or `None` when there are unknown destinations.
+    /// Immutable access prevents truncating or refining top outside the solver.
     ///
     /// ```
-    /// use dartforge_emit_native::optimize::arc::analise::modelo::ConjuntoPontos;
-    /// assert_eq!(ConjuntoPontos::vazio(8).nos().unwrap().len(), 0);
+    /// use dartforge_emit_native::optimize::arc::analysis::model::PointSet;
+    /// assert_eq!(PointSet::empty(8).nodes().unwrap().len(), 0);
     /// ```
     pub fn nodes(&self) -> Option<&BTreeSet<AbstractNode>> {
         match &self.points {
@@ -135,14 +135,14 @@ impl PointSet {
         }
     }
 
-    /// Inclui um nó; ao exceder o limite, eleva todo o conjunto ao topo.
-    /// Retorna se o estado mudou, para alimentar uma worklist monotônica.
+    /// Includes a node; when exceeding the bound, raises the whole set to top.
+    /// Returns whether the state changed, to feed a monotonic worklist.
     ///
     /// ```
-    /// use dartforge_emit_native::optimize::arc::analise::modelo::{ConjuntoPontos, NoAbstrato};
-    /// let mut pt = ConjuntoPontos::vazio(0);
-    /// assert!(pt.incluir(NoAbstrato::Global("raiz".into())));
-    /// assert!(!pt.incluir(NoAbstrato::Global("outra".into())));
+    /// use dartforge_emit_native::optimize::arc::analysis::model::{PointSet, AbstractNode};
+    /// let mut pt = PointSet::empty(0);
+    /// assert!(pt.include(AbstractNode::Global("root".into())));
+    /// assert!(!pt.include(AbstractNode::Global("other".into())));
     /// ```
     pub fn include(&mut self, node: AbstractNode) -> bool {
         let Points::KnownSet(nodes) = &mut self.points else {
@@ -159,15 +159,15 @@ impl PointSet {
         true
     }
 
-    /// Une informação possível usando o budget do destino, sem truncamento.
-    /// Topo é absorvente mesmo quando a origem tem outro limite. O booleano
-    /// indica mudança sem atribuir motivo ou prova ao conjunto resultante.
+    /// Joins possible information using the destination's budget, without truncation.
+    /// Top is absorbing even when the origin has another bound. The boolean
+    /// indicates a change without assigning a reason or proof to the resulting set.
     ///
     /// ```
-    /// use dartforge_emit_native::optimize::arc::analise::modelo::ConjuntoPontos;
-    /// let mut pt = ConjuntoPontos::vazio(8);
-    /// assert!(pt.unir(&ConjuntoPontos::desconhecido(0)));
-    /// assert!(!pt.unir(&ConjuntoPontos::vazio(100)));
+    /// use dartforge_emit_native::optimize::arc::analysis::model::PointSet;
+    /// let mut pt = PointSet::empty(8);
+    /// assert!(pt.join_set(&PointSet::unknown(0)));
+    /// assert!(!pt.join_set(&PointSet::empty(100)));
     /// ```
     pub fn join_set(&mut self, other: &Self) -> bool {
         if matches!(self.points, Points::Top) {

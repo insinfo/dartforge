@@ -1,5 +1,5 @@
-//! Explicita owners em globais Ref após conferir declaração e todas as escritas.
-//! O endereço permanece privado ao armazenamento; o conteúdo não é token do código.
+//! Makes owners explicit in Ref globals after checking the declaration and every write.
+//! The address stays private to the storage; the content is not a token of the code.
 
 use super::*;
 
@@ -324,11 +324,11 @@ mod tests {
     }
 }
 
-/// Classifica como Trivial as leituras I64 das globais Dart de tipo escalar
-/// (`Module::dart_scalar_globals`): o tipo Dart garante que o conteúdo é
-/// um `int` sem caixa. As escritas delas já exigem valor Trivial
-/// (`pure_set::check_origins`). Recusa declaração Ref, leitura de outra
-/// largura e classe conflitante; não publica nada em erro.
+/// Classifies as Trivial the I64 reads of Dart globals of scalar type
+/// (`Module::dart_scalar_globals`): the Dart type guarantees that the content is
+/// an unboxed `int`. Their writes already require a Trivial value
+/// (`pure_set::check_origins`). Rejects a Ref declaration, a read of another
+/// width and a conflicting class; publishes nothing on error.
 pub(super) fn produce_scalars(
     m: &Module,
     plans: &mut HashMap<String, DartFunctionPlan>,

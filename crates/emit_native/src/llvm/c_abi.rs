@@ -1,27 +1,27 @@
-//! A passagem de structs e unions por valor na ABI C do alvo — o que o
-//! Clang faz na lowering de chamadas (`clang/lib/CodeGen/Targets/*.cpp`) e
-//! o que o `dart:ffi` da VM reproduz (`runtime/vm/compiler/ffi/`):
+//! Passing structs and unions by value in the target's C ABI — what
+//! Clang does when lowering calls (`clang/lib/CodeGen/Targets/*.cpp`) and
+//! what the VM's `dart:ffi` reproduces (`runtime/vm/compiler/ffi/`):
 //!
-//! * **System V x86-64** (Linux, macOS x64): até 16 bytes, o composto é
-//!   dividido em palavras de 8 bytes; uma palavra com algum inteiro é
-//!   INTEGER (`iN`), só com ponto flutuante é SSE (`double`, `float` ou
-//!   `<2 x float>`). Maior que 16 bytes, com campo desalinhado (`@Packed`)
-//!   ou sem registradores livres para todas as palavras: MEMORY (`byval` no
-//!   argumento, `sret` no retorno).
-//! * **AArch64** (Linux, macOS, Windows): HFA (1 a 4 membros do mesmo tipo
-//!   de ponto flutuante) vai em registradores de vetor como `[N x T]`; os
-//!   outros até 16 bytes como `i64` ou `[2 x i64]`; maiores, por ponteiro
-//!   para uma cópia do chamador e `sret` no retorno.
-//! * **Windows x64**: tamanho 1, 2, 4 ou 8 bytes vai como inteiro desse
-//!   tamanho; qualquer outro, por ponteiro para uma cópia e `sret`.
+//! * **System V x86-64** (Linux, macOS x64): up to 16 bytes, the composite is
+//!   split into 8-byte words; a word with some integer is
+//!   INTEGER (`iN`), one with only floating point is SSE (`double`, `float` or
+//!   `<2 x float>`). Larger than 16 bytes, with a misaligned field (`@Packed`)
+//!   or without free registers for all the words: MEMORY (`byval` for the
+//!   argument, `sret` for the return).
+//! * **AArch64** (Linux, macOS, Windows): an HFA (1 to 4 members of the same
+//!   floating-point type) goes in vector registers as `[N x T]`; the
+//!   others up to 16 bytes as `i64` or `[2 x i64]`; larger ones, through a pointer
+//!   to a caller copy and `sret` for the return.
+//! * **Windows x64**: a size of 1, 2, 4 or 8 bytes goes as an integer of that
+//!   size; any other, through a pointer to a copy and `sret`.
 //!
-//! As peças de uma passagem direta são lidas de uma cópia do composto
-//! alinhada e zerada (nunca além da memória do chamador), e o retorno direto
-//! é gravado numa temporária antes de ir para o destino.
+//! The pieces of a direct passing are read from an aligned, zeroed copy of the
+//! composite (never beyond the caller's memory), and the direct return
+//! is written into a temporary before going to the destination.
 
 use crate::hir::{LayoutC, CType};
 
-/// A convenção C do alvo.
+/// The C convention of the target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Convention {
     SysV,
@@ -30,7 +30,7 @@ pub enum Convention {
 }
 
 impl Convention {
-    /// A convenção do alvo desta compilação.
+    /// The target convention of this compilation.
     pub fn of_target() -> Convention {
         let arm = cfg!(target_arch = "aarch64");
         match crate::alvo::sistema() {
@@ -42,37 +42,37 @@ impl Convention {
     }
 }
 
-/// Uma peça de uma passagem direta: o deslocamento no composto e o tipo LLVM
-/// lido dali.
+/// A piece of a direct passing: the offset into the composite and the LLVM type
+/// read from there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Piece {
     pub offset: usize,
     pub ty: String,
-    /// Atributos do parâmetro (`alignstack(8) ` numa HFA do AArch64 Linux).
+    /// Parameter attributes (`alignstack(8) ` for an HFA on AArch64 Linux).
     pub attributes: &'static str,
 }
 
-/// Como um argumento composto é passado.
+/// How a composite argument is passed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgPassing {
-    /// Em registradores: cada peça é um argumento LLVM.
+    /// In registers: each piece is an LLVM argument.
     Direct(Vec<Piece>),
-    /// `ptr byval([N x i8]) align A` para uma cópia (System V MEMORY).
+    /// `ptr byval([N x i8]) align A` to a copy (System V MEMORY).
     Byval { alignment: usize },
-    /// `ptr` para uma cópia do chamador.
+    /// `ptr` to a caller copy.
     Indirect,
 }
 
-/// Como um retorno composto volta.
+/// How a composite return comes back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetPassing {
-    /// O tipo de retorno LLVM é a peça, ou a struct literal das peças.
+    /// The LLVM return type is the piece, or the literal struct of the pieces.
     Direct(Vec<Piece>),
-    /// `ptr sret([N x i8]) align A` como primeiro argumento.
+    /// `ptr sret([N x i8]) align A` as the first argument.
     Sret { alignment: usize },
 }
 
-/// Registradores de argumento ainda livres (System V: 6 inteiros, 8 SSE).
+/// Argument registers still free (System V: 6 integer, 8 SSE).
 #[derive(Debug, Clone, Copy)]
 pub struct Registers {
     pub integers: usize,
@@ -84,7 +84,7 @@ impl Registers {
         Registers { integers: 6, sse: 8 }
     }
 
-    /// Consome o registrador de um argumento primitivo.
+    /// Consumes the register of a primitive argument.
     pub fn consume_primitive(&mut self, t: CType) {
         match t {
             CType::F32 | CType::F64 => self.sse = self.sse.saturating_sub(1),
@@ -98,15 +98,15 @@ fn integer_of(bytes: usize) -> String {
     format!("i{}", bytes * 8)
 }
 
-/// A HFA de um composto no AArch64: o tipo do membro e quantos.
+/// The HFA of a composite on AArch64: the member type and how many.
 fn hfa(l: &LayoutC) -> Option<(CType, usize)> {
     let first_one = l.leaves.first()?.1;
     if !matches!(first_one, CType::F32 | CType::F64) || l.leaves.iter().any(|(_, t)| *t != first_one) {
         return None;
     }
     let n = l.size / first_one.c_size();
-    // Uma union de floats sobrepostos também é HFA pelo número de membros
-    // que cabem no tamanho; exige que tudo seja membro, sem enchimento.
+    // A union of overlapping floats is also an HFA by the number of members
+    // that fit in its size; requires everything to be a member, without padding.
     ((1..=4).contains(&n) && n * first_one.c_size() == l.size).then_some((first_one, n))
 }
 
@@ -114,7 +114,7 @@ fn float_name(t: CType) -> &'static str {
     if t == CType::F32 { "float" } else { "double" }
 }
 
-/// As palavras de 8 bytes de um composto de até 16 bytes no System V
+/// The 8-byte words of a composite of up to 16 bytes on System V
 /// (`None` = MEMORY).
 fn sysv_words(l: &LayoutC) -> Option<Vec<Piece>> {
     if l.size > 16 || l.misaligned() {
@@ -127,8 +127,8 @@ fn sysv_words(l: &LayoutC) -> Option<Vec<Piece>> {
         let bytes = (l.size - ini).min(8);
         let leaves: Vec<&(usize, CType)> = l.leaves.iter().filter(|(o, _)| *o >= ini && *o < ini + 8).collect();
         let sse = !leaves.is_empty() && leaves.iter().all(|(_, t)| matches!(t, CType::F32 | CType::F64));
-        // Uma palavra cheia com uma única folha no início e o resto
-        // enchimento: o Clang lê só a folha (`{int32, double}` → `i32,
+        // A full word with a single leaf at the start and the rest
+        // padding: Clang reads only the leaf (`{int32, double}` → `i32,
         // double`; `{int8, int8, double}` → `i64, double`).
         let ty = if !sse {
             match leaves.as_slice() {
@@ -147,7 +147,7 @@ fn sysv_words(l: &LayoutC) -> Option<Vec<Piece>> {
     Some(pieces)
 }
 
-/// Como passar um argumento composto (consome os registradores dele).
+/// How to pass a composite argument (consumes its registers).
 pub fn argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassing {
     match conv {
         Convention::SysV => {
@@ -156,8 +156,8 @@ pub fn argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassi
             };
             let sse = pieces.iter().filter(|p| !p.ty.starts_with('i')).count();
             let integers = pieces.len() - sse;
-            // Todas as palavras em registradores, ou o composto inteiro vai
-            // para a pilha (nunca dividido).
+            // All the words in registers, or the whole composite goes
+            // to the stack (never split).
             if integers > regs.integers || sse > regs.sse {
                 return ArgPassing::Byval { alignment: l.alignment.max(8) };
             }
@@ -184,10 +184,10 @@ pub fn argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassi
     }
 }
 
-/// Como vai um composto na parte variádica de uma chamada: como um fixo,
-/// exceto no arm64 da Apple, onde tudo o que é variádico vai na pilha e a
-/// HFA não tem tratamento próprio (o clang a passa como os inteiros do
-/// tamanho dela; `AArch64ABIInfo::classifyArgumentType` com `IsVariadic`).
+/// How a composite goes in the variadic part of a call: like a fixed one,
+/// except on Apple's arm64, where everything variadic goes on the stack and an
+/// HFA has no special treatment (clang passes it as the integers of its
+/// size; `AArch64ABIInfo::classifyArgumentType` with `IsVariadic`).
 pub fn variadic_argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassing {
     match conv {
         Convention::AArch64 { apple: true } => match l.size {
@@ -200,8 +200,8 @@ pub fn variadic_argument(conv: Convention, l: &LayoutC, regs: &mut Registers) ->
     }
 }
 
-/// Como volta um retorno composto (um `sret` consome um registrador
-/// inteiro no System V).
+/// How a composite return comes back (an `sret` consumes an integer
+/// register on System V).
 pub fn ret(conv: Convention, l: &LayoutC, regs: &mut Registers) -> RetPassing {
     let sret = |regs: &mut Registers| {
         regs.integers = regs.integers.saturating_sub(1);
@@ -230,7 +230,7 @@ pub fn ret(conv: Convention, l: &LayoutC, regs: &mut Registers) -> RetPassing {
     }
 }
 
-/// O tipo LLVM do retorno direto (a peça, ou a struct literal das peças).
+/// The LLVM type of the direct return (the piece, or the literal struct of the pieces).
 pub fn return_ty(pieces: &[Piece]) -> String {
     match pieces {
         [p] => p.ty.clone(),
@@ -261,7 +261,7 @@ mod tests {
         }
     }
 
-    // Os casos de `clang -S -emit-llvm` para cada alvo (a referência).
+    // The `clang -S -emit-llvm` cases for each target (the reference).
     fn cases() -> Vec<(&'static str, LayoutC)> {
         use CType::*;
         vec![

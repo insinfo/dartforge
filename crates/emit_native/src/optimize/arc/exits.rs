@@ -1,11 +1,11 @@
-//! Expõe o sucesso e o unwind dos retornos Guarda antes de inserir tokens.
-//! Este passe altera somente cópias temporárias na transação do conjunto Dart.
+//! Exposes the success and the unwinding of Guard returns before inserting tokens.
+//! This pass changes only temporary copies in the transaction of the Dart set.
 
 use super::*;
 
-// Publica a exceção antes de liberar owners locais. O Throw Ref passa pela
-// ABI auditada e por duas saídas com cleanup; Lanca só desenrola após os drops.
-// O protocolo pending também funciona quando o emissor não usa tabelas.
+// Publishes the exception before releasing local owners. The Ref Throw goes through the
+// audited ABI and through two exits with cleanup; Throws only unwinds after the drops.
+// The pending protocol also works when the emitter does not use tables.
 pub(super) fn prepare_ref_throws(
     f: &mut Function,
     plan: &mut DartFunctionPlan,
@@ -81,13 +81,13 @@ pub(super) fn prepare_ref_throws(
     Ok(())
 }
 
-/// Dá a cada guarda de pendência a própria cópia de um bloco de saída
-/// compartilhado (sem Phi, terminando em retorno ou `Unreachable`, sem ser
-/// pouso, alvo de invoke ou extremo de aresta de escopo; a classe da saída,
-/// os eventos de escopo dela e a saída pending da chamada vão junto): os
-/// owners vivos diferem de caminho para caminho, e
-/// o cleanup de cada saída precisa ver os seus. As definições da cópia ganham
-/// IDs novos; nada fora do bloco as usa. Devolve quantas cópias criou.
+/// Gives each pending guard its own copy of a shared exit block
+/// (without a Phi, ending in a return or `Unreachable`, not being a
+/// landing pad, an invoke target or an endpoint of a scope edge; the exit class,
+/// its scope events and the pending exit of the call go along): the
+/// live owners differ from path to path, and
+/// the cleanup of each exit must see its own. The definitions of the copy get
+/// new IDs; nothing outside the block uses them. Returns how many copies it created.
 pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) -> Result<usize, String> {
     let guard = |b: &BasicBlock| -> Option<BlockId> {
         let Terminator::CondBranch { cond: Operand::Val(c), then_block, .. } = &b.terminator else { return None };
@@ -105,8 +105,8 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
     let reserved = |id: &BlockId| plan.tables.landing_pads.contains(id)
         || plan.tables.invocations.values().any(|b| b == id)
         || plan.scopes.edges.keys().any(|(a, b)| a == id || b == id);
-    // Também o trampolim vazio até um tratador (`Branch`): a aresta normal da
-    // cópia até ele recebe o cleanup do seu caminho.
+    // Also the empty trampoline up to a handler (`Branch`): the normal edge of the
+    // copy up to it receives the cleanup of its path.
     let trampoline = |b: &BasicBlock| b.instructions.is_empty()
         && matches!(b.terminator, Terminator::Branch(d) if !reserved(&d));
     let targets: Vec<BlockId> = f.blocks.iter().filter(|b| {
@@ -115,8 +115,8 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
             && predecessors.get(&b.id).is_some_and(|ps| ps.len() > 1)
             && !reserved(&b.id)
     }).map(|b| b.id).collect();
-    // Um tratador (bloco com instruções, alvo de guardas e de outros
-    // caminhos): cada guarda ganha um trampolim vazio até ele, separado abaixo.
+    // A handler (a block with instructions, target of guards and of other
+    // paths): each guard gets an empty trampoline up to it, split below.
     let guards_of = |alvo: BlockId, f: &Function| -> Vec<BlockId> {
         predecessors.get(&alvo).into_iter().flatten().copied()
             .filter(|p| f.blocks.iter().find(|b| b.id == *p).and_then(guard) == Some(alvo))
@@ -142,7 +142,7 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
     let mut copies = 0;
     for alvo in targets {
         let ps = predecessors[&alvo].clone();
-        // A primeira guarda fica com o original; as outras ganham cópias.
+        // The first guard keeps the original; the others get copies.
         let mut guards: Vec<BlockId> = ps.iter().copied().filter(|p| {
             f.blocks.iter().find(|b| b.id == *p).and_then(guard) == Some(alvo)
         }).collect();
@@ -169,7 +169,7 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
             if let Terminator::Return(Some(Operand::Val(x))) = &mut terminator && let Some(y) = new_set.get(x) {
                 *x = *y;
             }
-            // Os Phis do destino do trampolim recebem a mesma entrada pela cópia.
+            // The Phis of the trampoline destination receive the same entry through the copy.
             if let Terminator::Branch(dest) = terminator {
                 for (_, inst, _) in f.blocks.iter_mut().filter(|b| b.id == dest).flat_map(|b| &mut b.instructions) {
                     if let Instruction::Phi { incoming, .. } = inst
@@ -190,7 +190,7 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
             if let Terminator::CondBranch { then_block, .. } = &mut b.terminator {
                 *then_block = id;
             }
-            // A saída pending registrada da chamada da guarda segue a cópia.
+            // The recorded pending exit of the guard's call follows the copy.
             if let Some((call, _, _)) = b.instructions.len().checked_sub(3).map(|k| &b.instructions[k])
                 && plan.tokens.pendings.get(call) == Some(&alvo)
             {
@@ -255,7 +255,7 @@ pub(super) fn split_guards(f: &mut Function, plan: &mut DartFunctionPlan) -> Res
         .chain(plan.scopes.before.keys().map(|v| v.0))
         .max()
         .map_or(0, |v| u64::from(v) + 1);
-    // Metadados obsoletos não podem coincidir com blocos recém-inseridos.
+    // Stale metadata must not coincide with freshly inserted blocks.
     let mut block = f
         .blocks
         .iter()
@@ -278,8 +278,8 @@ pub(super) fn split_guards(f: &mut Function, plan: &mut DartFunctionPlan) -> Res
         block += 1;
         Ok(BlockId(id))
     };
-    // Só acrescentamos blocos: os índices originais permanecem válidos e
-    // evitam uma busca linear por saída em funções com muitos retornos.
+    // We only append blocks: the original indices stay valid and
+    // avoid a linear search per exit in functions with many returns.
     for (index, origin) in guards {
         let b = &mut f.blocks[index];
         let Terminator::Return(op) = &b.terminator else {
@@ -333,8 +333,8 @@ pub(super) fn split_guards(f: &mut Function, plan: &mut DartFunctionPlan) -> Res
         ]);
         plan.tables.exits.remove(&origin);
         plan.tables.exits.insert(error, ExceptionExit::Throws);
-        // A retenção no retorno normal precisa ocorrer antes de fechar o
-        // escopo do borrow. Cada saída fecha a mesma pilha léxica original.
+        // The retention in the normal return must happen before closing the
+        // scope of the borrow. Each exit closes the same original lexical stack.
         if let Some(events) = plan.scopes.exits.remove(&origin) {
             plan.scopes.exits.insert(error, events.clone());
             plan.scopes.exits.insert(normal, events);
@@ -385,8 +385,8 @@ mod tests {
                 .filter(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
                     if name == "dartforge_arc_lancar_ref_v1")).count();
             assert_eq!(publications, 1);
-            // Um local morto pode ser liberado antes do Throw. O payload
-            // Owned, porém, só pode ser liberado depois de publicar a exceção.
+            // A dead local may be released before the Throw. The Owned
+            // payload, however, may only be released after publishing the exception.
             assert!(f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
                 matches!(i, Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
             if case == 1 {
@@ -554,7 +554,7 @@ mod tests {
                 then_block: BlockId(9),
                 else_block: BlockId(4),
             };
-            // IDs fora da ordem física não devem alterar o bloco escolhido.
+            // IDs out of physical order must not change the chosen block.
             for id in [9, 4] {
                 f.blocks.push(BasicBlock {
                     id: BlockId(id),
@@ -570,13 +570,13 @@ mod tests {
                     .insert(BlockId(id), ExceptionExit::Guard);
             }
             if failure == 1 {
-                // A primeira saída já terá sido separada na cópia temporária.
+                // The first exit will already have been split in the temporary copy.
                 p.scopes
                     .exits
                     .insert(BlockId(4), vec![ScopeChange::Close(7)]);
             } else if failure == 2 {
-                // O primeiro Guarda usa os dois IDs restantes; o segundo
-                // deve falhar sem publicar sequer a transformação inicial.
+                // The first Guard uses the two remaining IDs; the second
+                // must fail without publishing even the initial transformation.
                 functions[0].blocks[0].instructions.push((
                     ValueId(u32::MAX - 2),
                     Instruction::Const(Constant::Int(0)),
@@ -712,7 +712,7 @@ mod shared_exit_tests {
         assert_ne!(copy_inst.instructions[0].0, ValueId(20));
         assert!(matches!(&copy_inst.instructions[0].1, Instruction::StoreGlobal { symbol, .. } if symbol == "ok"));
         super::super::ssa::verify(&f).unwrap();
-        // Uma saída de pouso fica como está.
+        // A landing-pad exit stays as it is.
         let mut g = f.clone();
         if let Terminator::CondBranch { then_block, .. } = &mut g.blocks[1].terminator { *then_block = BlockId(9); }
         g.blocks.retain(|x| x.id != b);
@@ -738,7 +738,7 @@ mod shared_exit_tests {
                 guard(0, 1, 1),
                 guard(1, 4, 2),
                 BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(val(4))) },
-                // O tratador: um Phi pelas guardas e o `clear` da pendência.
+                // The handler: a Phi over the guards and the `clear` of the pending state.
                 BasicBlock { id: BlockId(9), instructions: vec![
                     (ValueId(20), Instruction::Phi { incoming: vec![
                         (BlockId(0), Operand::Constant(Constant::Int(1))),
@@ -760,7 +760,7 @@ mod shared_exit_tests {
             assert!(incoming.contains(&(t, Operand::Constant(Constant::Int(constant)))));
         }
         super::super::ssa::verify(&f).unwrap();
-        // Idempotente: o tratador agora só tem trampolins como predecessores.
+        // Idempotent: the handler now has only trampolines as predecessors.
         assert_eq!(split_shared_exits(&mut f, &mut plan).unwrap(), 0);
     }
 }

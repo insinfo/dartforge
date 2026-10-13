@@ -1,34 +1,34 @@
-//! Bibliotecas do SDK compiladas **da fonte** junto com o programa (P6,
+//! SDK libraries compiled **from source** together with the program (P6,
 //! docs/NATIVO-PLANO.md §7.7).
 //!
-//! A decisão 1 da rodada 2 (NATIVO-PLANO §7.1) é que o SDK do nativo vem da
-//! fonte da seção `vm` com a sobreposição `native_sdk/`. O `dart:async` é a
-//! primeira biblioteca a entrar assim, porque o `async`/`await` precisa dele
-//! inteiro (`_Future`, `Zone`, microtarefas, `Timer`) e nenhuma classe dele
-//! tem representação própria no runtime em Rust: todas são objetos comuns do
-//! heap, como as classes do programa.
+//! Decision 1 of round 2 (NATIVO-PLANO §7.1) is that the native SDK comes from the
+//! source of the `vm` section with the `native_sdk/` overlay. `dart:async` is the
+//! first library to come in this way, because `async`/`await` needs it
+//! whole (`_Future`, `Zone`, microtasks, `Timer`) and none of its classes
+//! has its own representation in the Rust runtime: they are all ordinary heap
+//! objects, like the program's classes.
 //!
-//! **Como entra.** Uma biblioteca da fonte é tratada pelo lowering como uma
-//! biblioteca do programa: as classes ganham id e layout, as funções viram
-//! símbolos estáveis (`df.dart$3aasync.…`), os corpos são inferidos. O que
-//! faz isso acontecer é desligar `is_sdk` dessa biblioteca na **cópia do
-//! `Program` deste compilador**, antes da inferência — o único efeito de
-//! `is_sdk` no `crates/types` é pular a inferência dos corpos, e é
-//! exatamente o que precisa deixar de acontecer (o pedido de δ ao dono da
-//! inferência, docs/NATIVO-PEDIDOS.md, pede a mesma coisa por parâmetro;
-//! quando ele existir, a troca é uma linha aqui).
+//! **How it comes in.** A source library is treated by the lowering as a
+//! program library: the classes get an id and a layout, the functions become
+//! stable symbols (`df.dart$3aasync.…`), the bodies are inferred. What
+//! makes that happen is turning `is_sdk` off for that library in **this compiler's
+//! copy of the `Program`**, before inference — the only effect of
+//! `is_sdk` in `crates/types` is skipping body inference, and that is
+//! exactly what must stop happening (δ's request to the owner of
+//! inference, docs/NATIVO-PEDIDOS.md, asks for the same thing through a parameter;
+//! when it exists, the change is one line here).
 //!
-//! **Custo zero para quem não usa** (PLANO.md, regra governante): só o
-//! programa que usa `dart:async` (função `async`/gerador, `await`, o nome
-//! `Future`/`Stream`/`FutureOr` ou `import 'dart:async'`) a compila; os
-//! demais emitem o mesmo IR de antes.
+//! **Zero cost for those who do not use it** (PLANO.md, governing rule): only the
+//! program that uses `dart:async` (an `async` function/generator, `await`, the name
+//! `Future`/`Stream`/`FutureOr` or `import 'dart:async'`) compiles it; the
+//! others emit the same IR as before.
 //!
-//! **Poda.** A biblioteca inteira é baixada (é o mundo aberto de uma
-//! biblioteca do SDK, como no módulo por biblioteca de P5c), e depois o
-//! módulo é podado a partir do programa: só fica a função da fonte que o
-//! programa alcança (chamada, closure, tear-off, `toString` de classe). O
-//! diagnóstico de construto não suportado numa função da fonte só vale se
-//! ela ficar — o que o programa não alcança não pode impedi-lo de compilar.
+//! **Pruning.** The whole library is lowered (it is the open world of an
+//! SDK library, as in the per-library module of P5c), and then the
+//! module is pruned starting from the program: only the source functions the
+//! program reaches stay (call, closure, tear-off, a class's `toString`). The
+//! diagnostic of an unsupported construct in a source function only counts if
+//! it stays — what the program does not reach cannot prevent it from compiling.
 
 use crate::hir::{Instruction, Module};
 use dartforge_elements::model::{LibraryId, Program};
@@ -36,7 +36,7 @@ use dartforge_frontend::ast::{AsyncModifier, ExprKind, TypeKind};
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 
-/// As bibliotecas do SDK que o programa compila da fonte.
+/// The SDK libraries the program compiles from source.
 pub fn source_libraries(program: &Program, interner: &Interner) -> Vec<LibraryId> {
     let achar = |uri: &str| program.libraries.iter().position(|l| l.uri == uri).map(|i| LibraryId(i as u32));
     let Some(async_lib) = achar("dart:async") else {
@@ -45,26 +45,26 @@ pub fn source_libraries(program: &Program, interner: &Interner) -> Vec<LibraryId
     if !uses_dart_async(program, interner, async_lib) {
         return Vec::new();
     }
-    // O `dart:_internal` vem junto: o `dart:async` usa dele `unsafeCast`,
-    // `IterableElementError`, `checkNotNullable`… (código Dart puro, fora os
-    // intrínsecos, `lower/externals.rs`).
+    // `dart:_internal` comes along: `dart:async` uses its `unsafeCast`,
+    // `IterableElementError`, `checkNotNullable`… (pure Dart code, except for the
+    // intrinsics, `lower/externals.rs`).
     let mut v = vec![async_lib];
     v.extend(achar("dart:_internal"));
     v
 }
 
-/// Os `part` do `dart:core` que o `dart:async` da fonte precisa e que o
-/// runtime não representa: código Dart puro, sem `external`. O `Timer` recebe
-/// uma `Duration` (`Future()`, `Future.delayed`, `Timer.run` usam
-/// `Duration.zero`); o runtime em Rust nunca teve `Duration`.
+/// The `part`s of `dart:core` that the source `dart:async` needs and that the
+/// runtime does not represent: pure Dart code, without `external`. `Timer` receives
+/// a `Duration` (`Future()`, `Future.delayed`, `Timer.run` use
+/// `Duration.zero`); the Rust runtime never had `Duration`.
 const CORE_PARTS: &[&str] = &["core/duration.dart"];
 
-/// Tira do `dart:core` as unidades de `CORE_PARTS` para uma biblioteca
-/// nova, de mesmo URI e mesmo escopo, que não é do SDK — as classes delas
-/// passam a ser compiladas da fonte como as do `dart:async`, e o resto do
-/// `dart:core` continua sendo o do runtime. Os elementos não mudam de id
-/// (quem os referencia continua referenciando); só a biblioteca dona muda.
-/// Devolve a biblioteca nova.
+/// Takes the units of `CORE_PARTS` out of `dart:core` into a new
+/// library, with the same URI and the same scope, that is not an SDK one — their classes
+/// become compiled from source like those of `dart:async`, and the rest of
+/// `dart:core` remains the runtime's. The elements keep their ids
+/// (whoever references them still references them); only the owning library changes.
+/// Returns the new library.
 pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
     use dartforge_elements::model::{FunctionRef, Library, VariableRef};
     let core = program.core?;
@@ -94,10 +94,10 @@ pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
         scope: origin.scope.clone(),
         prefixes: origin.prefixes.clone(),
         is_sdk: false,
-        // A versão de linguagem e os recursos por biblioteca (Dart moderno, P2).
+        // The language version and the features per library (modern Dart, P2).
         features: origin.features,
-        // O escopo de cada unidade (A04) e a parte que a incluiu seguem as
-        // unidades que vêm para a biblioteca nova.
+        // The scope of each unit (A04) and the part that included it follow the
+        // units that come into the new library.
         pais: origin.pais.iter().filter(|(u, _)| units.contains(u)).map(|(u, p)| (*u, *p)).collect(),
         representante: Default::default(),
         dono_do_grupo: Default::default(),
@@ -124,7 +124,7 @@ pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
             FunctionRef::None => None,
         };
-        // Construtor sintético: a unidade é a da classe.
+        // Synthetic constructor: the unit is that of the class.
         let unit = unit.or_else(|| f.class.and_then(|c| program.classes[c.0 as usize].decl.map(|d| d.unit)));
         if unit.is_some_and(|u| units.contains(&u)) {
             f.library = id;
@@ -144,11 +144,11 @@ pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
     Some(id)
 }
 
-/// O programa (as bibliotecas que não são do SDK) usa `dart:async`?
+/// Does the program (the libraries that are not SDK ones) use `dart:async`?
 fn uses_dart_async(program: &Program, interner: &Interner, async_lib: LibraryId) -> bool {
     let names: HashSet<&str> = ["Future", "Stream", "FutureOr"].into_iter().collect();
-    // `dart:isolate` e `dart:io` entregam resultados pela fila do isolado
-    // (portas, IOService): quem os importa precisa do laço de eventos.
+    // `dart:isolate` and `dart:io` deliver results through the isolate queue
+    // (ports, IOService): whoever imports them needs the event loop.
     let with_loop: Vec<LibraryId> = program
         .libraries
         .iter()
@@ -184,7 +184,7 @@ fn uses_dart_async(program: &Program, interner: &Interner, async_lib: LibraryId)
     false
 }
 
-/// A função `fid` tem `@pragma("<text>")` no `Member`/`Decl` que a declara.
+/// Function `fid` has `@pragma("<text>")` on the `Member`/`Decl` that declares it.
 pub fn has_pragma(program: &Program, interner: &Interner, fid: usize, text: &str) -> bool {
     use dartforge_elements::model::FunctionRef;
     use dartforge_frontend::ast;
@@ -201,7 +201,7 @@ pub fn has_pragma(program: &Program, interner: &Interner, fid: usize, text: &str
     metadata.iter().any(|an| pragma_with_string(interner, a, an, text))
 }
 
-/// A anotação é `@pragma("<text>", …)`.
+/// The annotation is `@pragma("<text>", …)`.
 pub fn pragma_with_string(interner: &Interner, ast: &dartforge_frontend::ast::Ast, an: &dartforge_frontend::ast::Annotation, text: &str) -> bool {
     if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
         return false;
@@ -213,9 +213,9 @@ pub fn pragma_with_string(interner: &Interner, ast: &dartforge_frontend::ast::As
     })
 }
 
-/// Os pragmas `vm:external-name`/`vm:recognized` de uma função: o nome do
-/// native, se há um, e se ela é intrínseco. O pragma mora no `Member`/`Decl`
-/// que declara a função (o mesmo que `natives::inventory` lê).
+/// The `vm:external-name`/`vm:recognized` pragmas of a function: the name of the
+/// native, if there is one, and whether it is an intrinsic. The pragma lives on the `Member`/`Decl`
+/// that declares the function (the same one `natives::inventory` reads).
 pub fn native_pragma(
     program: &Program,
     interner: &Interner,
@@ -270,17 +270,17 @@ pub fn native_pragma(
     (native, recognized)
 }
 
-/// O símbolo é de uma função de biblioteca do SDK (`df.dart$3a…`, o prefixo
-/// que o caminho estável dá a toda função `dart:` e às closures e entradas
-/// dela).
+/// The symbol belongs to a function of an SDK library (`df.dart$3a…`, the prefix
+/// the stable path gives every `dart:` function and its closures and
+/// entries).
 pub fn sdk_symbol(sym_name: &str) -> bool {
     sym_name.starts_with("df.dart$3a")
 }
 
-/// Poda o módulo a partir do que é do programa: toda função que não é do SDK
-/// fica, e toda função do SDK que ela alcança (transitivamente) também. Os
-/// diagnósticos de uma função da fonte (`source_errors`, pelo símbolo da
-/// função de topo que os produziu) só passam a `errors` se ela ficar.
+/// Prunes the module starting from what belongs to the program: every non-SDK function
+/// stays, and every SDK function it reaches (transitively) too. The
+/// diagnostics of a source function (`source_errors`, by the symbol of the
+/// top-level function that produced them) only go into `errors` if it stays.
 pub fn prune(module: &mut Module) {
     let index: HashMap<&str, usize> =
         module.functions.iter().enumerate().map(|(i, f)| (f.symbol.as_str(), i)).collect();
@@ -294,8 +294,8 @@ pub fn prune(module: &mut Module) {
             stack.push(i);
         }
     };
-    // Raízes: as funções do programa; os getters de receita de RTI
-    // (`df.rti.*`) só ficam se alguém os chama.
+    // Roots: the program functions; the RTI recipe getters
+    // (`df.rti.*`) only stay if someone calls them.
     for f in &module.functions {
         if !sdk_symbol(&f.symbol) && !f.symbol.starts_with("df.rti.") {
             mark(&f.symbol, &mut live, &mut stack);
