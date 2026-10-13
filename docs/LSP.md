@@ -587,7 +587,7 @@ oráculo; onde o servidor atual (pós-3.6) mudou o comportamento e a mudança
 
 ### Oráculo de paridade
 
-`crates/lsp/oraculo/oraculo.py` abre os mesmos arquivos nos dois servidores
+`crates/lsp/oracle/oracle.py` abre os mesmos arquivos nos dois servidores
 por stdio (capacidades de cliente como as do VS Code: Markdown, snippets,
 `documentChanges`, `prepareSupport`, `lineFoldingOnly`,
 `hierarchicalDocumentSymbolSupport`), espera a análise inicial do Dart e pede,
@@ -601,20 +601,21 @@ membro); `signatureHelp` logo depois do `(` de chamadas (disparo automático)
 e depois da primeira vírgula (invocado); por arquivo, `documentSymbol`,
 `foldingRange`, `semanticTokens/full`, `inlayHint`, `documentLink` e
 `formatting`; e `codeAction` no intervalo de cada diagnóstico que o Dart
-publica. `crates/lsp/oraculo/resumo.py` normaliza (URIs sem
+publica. `crates/lsp/oracle/summary.py` normaliza (URIs sem
 percent-encoding nem caixa, intervalos, conjuntos) e imprime a tabela.
 
 Uso (o binário do DartForge com `DARTFORGE_SDK_LIB` apontando o SDK 3.6.2):
 
 ```text
-python crates/lsp/oraculo/oraculo.py saida.jsonl target/release/dartforge-lsp.exe <projeto> …
-python crates/lsp/oraculo/resumo.py saida.jsonl
+python crates/lsp/oracle/oracle.py saida.jsonl target/release/dartforge-lsp <projeto> …
+python crates/lsp/oracle/summary.py saida.jsonl [--examples N] [--method M]
 ```
 
-O SDK do Dart 3.6.2 vem de `ORACULO_DART` (o executável) e `ORACULO_SDK_LIB` (a pasta `lib`); sem elas,
-os caminhos do Windows (`C:\tools\dartsdk-3.6.2`). `ORACULO_SNIPPETS=0` tira do cliente o
-`experimental.snippetTextEdit` (ligado por padrão, como no Dart-Code) e `ORACULO_METODOS=codeAction,references`
-pede só esses métodos. Num sistema de arquivos que não distingue caixa, passe os projetos com a caixa do disco.
+O SDK do Dart 3.6.2 vem de `ORACLE_DART` (o executável) e `ORACLE_SDK_LIB` (a pasta `lib`); sem elas,
+os caminhos do Windows (`C:\tools\dartsdk-3.6.2`). `ORACLE_SNIPPETS=0` tira do cliente o
+`experimental.snippetTextEdit` (ligado por padrão, como no Dart-Code) e `ORACLE_METHODS=codeAction,references`
+pede só esses métodos (atenção: o estado do servidor do Dart depende dos pedidos anteriores — o conjunto
+de arquivos que ele conhece cresce com eles —, então uma rodada parcial pode divergir da completa). Num sistema de arquivos que não distingue caixa, passe os projetos com a caixa do disco.
 O `resumo.py` compara também a edição de cada ação de título comum (`TextEdit`/`SnippetTextEdit`).
 
 Projetos medidos: cópias de `args-2.7.0`, `path-1.9.1` e
@@ -666,6 +667,67 @@ documentHighlight 3,2–4,1 ms, foldingRange 0,5–1,6 ms, hover logo após
 edição 63–73 ms, completion logo após edição 74–88 ms. O hover e o
 completar não pioraram; o completar continua dominado pela reinferência da
 biblioteca a cada pedido.
+
+#### Reprise de 2026-10-13 (macOS arm64)
+
+Mesmos quatro projetos e mesmo cliente (com `experimental.snippetTextEdit`), Dart 3.6.2. Posições
+divergentes (as que o `summary.py --examples 50` lista) antes → depois dos commits `fc496a7e` … `7c146b44`:
+
+| recurso | antes | depois | posições |
+|---|---:|---:|---|
+| references | 96% | 100% | 16 → 0 |
+| implementation | 96% | 100% | 18 → 1 (`int`: o Dart ainda não conhece `js_number.dart` naquele momento) |
+| completion: alvo presente / top-1 / top-5 | 100 / 98 / 97% | 100 / 99 / 100% | 1/10/13 → 0/3/1 |
+| definition | 98% | 100% | 10 → 0 |
+| hover (texto inteiro) / typeDefinition | 99 / 100% | 100 / 100% | 3/1 → 1/0 |
+| prepareCallHierarchy | 99% | 100% | 5 → 0 |
+| demais | iguais | iguais | — |
+
+Medianas (ms, Dart / DartForge, rodada final): references 2,6 / 2,1 (era 2,5), implementation 1,0 / 1,6
+(era 2,1), completion 4,5 / 7,2 (era 8,4), workspace/symbol 8,1 / 11,6 (era 16,7), hover 1,0 / 1,1.
+
+O que mudou, pela regra do Dart que faltava:
+
+* **Busca pelo índice** (`SearchEngineImpl.appendAllSubtypes`, `Search.subTypes`): os subtipos vêm das
+  relações que o índice grava, não do modelo de elementos. Um supertipo escrito por `typedef` (`with
+  MapMixin<K, V>`, `ListMixin`, `SetMixin`) fica gravado no alias e não faz subtipo; um *class alias*
+  (`class A = B with M;`) é subtipo. `implementation` e a família de `references` usam o mesmo mapa
+  (`Project::written_subtypes`, guardado até uma unidade mudar).
+* **Referências de documentação** contam só quando o `[x]` resolve para um dos elementos procurados
+  (`_getRefElements`), não quando a família dele alcança o alvo; um `[x]` na documentação de um construtor
+  com `this.x` cita o parâmetro (`ConstructorInitializerScope`).
+* **Parâmetros `this.x`** (e os `super.x` que apontam para eles): só os do campo pivô
+  (`includeParametersForFields` compara `parameter.field == member`); o *rename* continua renomeando os de
+  toda a família (`RenameClassMemberRefactoringImpl.fillChange`).
+* **Membros de `Object` num receptor `dynamic`** (`_resolveReceiverDynamicBounded`): `d.toString()`,
+  `d.noSuchMethod(i)` (argumentos que casam), `d.hashCode` resolvem para `Object`.
+* **Completar**: alvo classe de uma chamada sem tipo estático (sem membros de `Type`); `A.n(…)` com
+  construtor `n` é criação (`AstRewriter`), e o nome lista só construtores; o passo dos não importados roda
+  quando o *matcher* tem prefixo (nome no meio de uma declaração); variáveis de bibliotecas não inferidas
+  ganham tipo sob demanda (`Query::ensure_variable_type`); um par getter/setter explícito são dois membros
+  (a chave do mapa distingue o setter; os elementos dão o nome nu aos dois); membros herdados privados de
+  outra biblioteca entram (`_addInheritedMembers` não filtra).
+* **Definição** (`DartNavigationComputer` só sobre o nó do cursor): o nome de classe de uma declaração de
+  construtor e o nome de uma anotação vão para a classe; `super.x` vai para o parâmetro do construtor
+  super; a variável de um `for-in` não tem destino.
+* **Hover/typeDefinition**: setter escrito mostra o `writeType`; rótulo de argumento nomeado de
+  construtor do SDK usa o tipo do esboço; nome indefinido mostra só ``Type: `InvalidType` ``.
+* **Hierarquia de chamadas**: o `==` é o da interface do receptor (`num.==`, `String.==`); anotação
+  prepara o construtor.
+* **`Create function/method`** escreve os nomes declarados dos parâmetros do tipo função (anotação
+  `Function`, parâmetro antigo `void f(int x)` ou `typedef`); só os sem nome viram `p1`…; argumento nomeado
+  (`k: onE`) também é atendido.
+
+* **Pastas do workspace**: a enumeração dos pacotes das raízes (I7) saiu do laço principal para o
+  trabalhador tipado, sem a trava: com uma raiz grande (`/tmp`), um pedido de 1,5 s levava 16 s; agora
+  2 s. Os testes de protocolo abrem sem pasta de workspace (de ~10–20 s para 3 s; o `cancellation` não
+  encosta mais no limite de 20 s).
+
+Restam: 1 hover (o Dart reescreve a cerca ```` ```dart template:expression ```` como ```` ```dart:expression ````),
+1 implementation (estado do Dart), 3 top-1 do completar (relevância: tipo de contexto de `match = …`
+quando a variável é parâmetro, `commands` antes de `command`, `SourceFile` × construtor), 1 top-5
+(construtores de classe não importada no lugar da classe), 1 documentHighlight, 1 selectionRange, 1
+inlayHint e as 7 assistências/ações de fonte em imports com prefixo (`-32001` do próprio Dart).
 
 ### Regras por recurso
 
@@ -745,7 +807,8 @@ declara (ou o recebe de um mixin; não os intermediários sem declaração);
 local, topo que não é classe e membro de extension type não têm
 implementação (lista vazia). Os locais são o nome de cada declaração. A
 busca cobre o projeto carregado (as bibliotecas do projeto e o que elas
-importam).
+importam) e segue as relações do índice: supertipo escrito por `typedef` não
+conta, *class alias* conta, `Object` implícito só nos arquivos que citam o nome.
 
 **Definição do tipo** (`lsp/handlers/handler_type_definition.dart`): o nó
 sob o cursor dá o tipo — nome de tipo, a própria classe; declaração de
