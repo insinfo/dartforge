@@ -322,9 +322,10 @@ Esta seção substitui as notas "fica" das seções anteriores sobre
 linha `média … ms/edição`. Ficam para a fase 4: as APIs públicas dos pacotes
 Dart (`packages/`, `native_sdk/`) e o esquema do modelo, do resultado e da
 codificação de argumentos das macros (`macro.*` só traduziu o envelope), os
-nomes de programas e pastas do corpus, o conteúdo dos fixtures, os scripts
-que não têm opções em português e os nomes internos (variáveis, comentários)
-dos scripts, e a pasta `tools/` (inclusive as opções de `tools/tamanho/*.py`).
+nomes de programas e pastas do corpus, o conteúdo dos fixtures, os nomes
+internos (variáveis, comentários, mensagens) dos scripts e os nomes das pastas
+e arquivos de `tools/` (as opções de `tools/tamanho/por-que.py` e `quebra.py`
+já são `--all --summary --map` e `--section --groups --symbols`).
 
 ### Features do Cargo
 

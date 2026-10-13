@@ -2,10 +2,10 @@
 """Por que isto ficou no executável? Lê o relatório da poda das tabelas.
 
 Uso:
-    python tools/tamanho/por-que.py <relatorio.tsv> <regex> [--todos]
+    python tools/tamanho/por-que.py <relatorio.tsv> <regex> [--all]
         a cadeia de causas, até a raiz, de cada símbolo vivo cujo nome casa
-        com a regex (o primeiro, ou todos com --todos);
-    python tools/tamanho/por-que.py <relatorio.tsv> --resumo [--mapa MAPA] [-n N]
+        com a regex (o primeiro, ou todos com --all);
+    python tools/tamanho/por-que.py <relatorio.tsv> --summary [--map MAPA] [-n N]
         os seletores que mais mantêm pares de tabela vivos e, com o mapa da
         ligação, quantos bytes do `.text` cada biblioteca e cada seletor
         mantêm vivos (o fecho do que o par puxou).
@@ -122,9 +122,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('relatorio')
     ap.add_argument('regex', nargs='?')
-    ap.add_argument('--todos', action='store_true')
-    ap.add_argument('--resumo', action='store_true')
-    ap.add_argument('--mapa')
+    ap.add_argument('--all', dest='todos', action='store_true')
+    ap.add_argument('--summary', dest='resumo', action='store_true')
+    ap.add_argument('--map', dest='mapa')
     ap.add_argument('-n', type=int, default=30)
     a = ap.parse_args()
     causas = ler_relatorio(a.relatorio)
@@ -132,7 +132,7 @@ def main():
         resumo(causas, a.mapa, a.n)
         return
     if not a.regex:
-        sys.exit('diga a regex do símbolo, ou --resumo')
+        sys.exit('give the symbol regex, or --summary')
     rx = re.compile(a.regex)
     achados = sorted(s for s in causas if rx.search(s))
     if not achados:
@@ -141,7 +141,7 @@ def main():
         print(s)
         cadeia(causas, s)
     if not a.todos and len(achados) > 1:
-        print(f'(mais {len(achados) - 1} símbolos casam; --todos lista todos)')
+        print(f'({len(achados) - 1} more symbols match; --all lists them all)')
 
 
 if __name__ == '__main__':

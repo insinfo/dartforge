@@ -68,9 +68,9 @@ def main():
         sys.stdout.reconfigure(encoding='utf-8')
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('mapa')
-    ap.add_argument('--secao', default='0001')
-    ap.add_argument('--grupos', type=int, default=40, help='quantas origens listar')
-    ap.add_argument('--simbolos', type=int, default=0, help='quantos maiores símbolos listar')
+    ap.add_argument('--section', dest='secao', default='0001')
+    ap.add_argument('--groups', dest='grupos', type=int, default=40, help='how many origins to list')
+    ap.add_argument('--symbols', dest='simbolos', type=int, default=0, help='how many of the largest symbols to list')
     a = ap.parse_args()
     simbolos, fim = ler(a.mapa, a.secao)
     if not simbolos:

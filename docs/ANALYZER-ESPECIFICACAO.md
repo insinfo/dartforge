@@ -15882,7 +15882,7 @@ executor nativo de builders).
 - **Supressões:** em arquivo de oráculo 3.6.2 que usa sintaxe nova (os 8 FP de
   `dot_shorthands/equality/equality_extension_override_error_test.dart`, que o 3.6.2 lê como
   `missing_identifier` no `.`), o 3.6.2 nem conhece o recurso — não é possível acertar pelo parser
-  sem saber que o arquivo está fora de sintaxe-nova.json (ficam como FP aceito/documentado).
+  sem saber que o arquivo está fora de new-syntax.json (ficam como FP aceito/documentado).
 - **No DartForge:** `parser/mod.rs exigir`, `exigir_no_ast`, `exigir_versao` (novo); feito nesta
   rodada (código já escrito, compilação pendente na fila): dupla em `const .x`
   (`expressions.rs parse_dot_shorthand`), `var` declarante (`declarations.rs parse_cabecalho_primario_opt`),
@@ -15935,7 +15935,7 @@ executor nativo de builders).
   (`fe:scanner/errors.dart:88`).
 - **Casos restantes:** `E(0) == .member` em oráculo 3.6.2 (FN no `.`, 8): o 3.6.2 não conhece `.x`
   → `MISSING_IDENTIFIER` no `.`; só dá para acertar sabendo que o arquivo é 3.6.2 sem sintaxe nova
-  (o arquivo NÃO está em sintaxe-nova.json — inconsistência do corpus; FN aceito);
+  (o arquivo NÃO está em new-syntax.json — inconsistência do corpus; FN aceito);
   `super.const()` no inicializador (`invalid_super_in_initializer`); `print(is String)` (T4: `is` →
   MISSING_IDENTIFIER e identificador sintético; hoje EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD);
   `typedef L = Function({x})` (nomeado sem nome em tipo de função: `{x}` é tipo `x` + nome que
@@ -15973,7 +15973,7 @@ executor nativo de builders).
   parâmetro com `keyword` ≠ `const` → no keyword.
 - **Mensagem:** 3.6.2: `Representation fields can't have modifiers.`; 3.13.4: `Representation fields
   can't have the modifier '{0}'.` (arg = lexema). Escolha por T1 (os 11 msg≠ estão em
-  `linguagem-3.13` ou em sintaxe-nova.json).
+  `linguagem-3.13` ou em new-syntax.json).
 - **FP:** `extension type ET3(final i, final x)` no 3.13.4 com 2 parâmetros: só
   `MULTIPLE_REPRESENTATION_FIELDS` (corrigido: sem o modificador quando >1 e versão > 3.6).
 - **O `experiment_not_enabled` do `var` (2026-10-08):** no 3.13.4 com o recurso desligado,
@@ -18351,7 +18351,7 @@ Fonte: parser fasta e AstBuilder do **3.6.2**, lidos nesta sessão. Abreviaçõe
 `ab:` = `analyzer/lib/src/fasta/ast_builder.dart`, `an:` = `analyzer/lib/src/`, `fm:` =
 `pkg/front_end/messages.yaml`, `am:` = `pkg/analyzer/messages.yaml`. O que vem do checkout
 main/3.14 (`E:\references\dart-sdk`) está marcado **[main]** e serve só para os arquivos julgados
-pelo 3.13.4; quando há, cito o **oráculo gravado** (`corpus/diagnosticos/<grupo>/oraculo.jsonl`,
+pelo 3.13.4; quando há, cito o **oráculo gravado** (`corpus/diagnosticos/<grupo>/oracle.jsonl`,
 saída do 3.13.4) porque não há binário 3.13.4 nesta máquina. Todo exemplo "entrada → diagnósticos"
 foi rodado no oráculo vivo 3.6.2 (`C:\tools\dartsdk-3.6.2`, casos em
 `corpus\especificacao\e3\{a,b,c}\`); formato das saídas: `código · offset+length ·
@@ -27400,7 +27400,7 @@ do nosso próprio parser. (d) `ambiguous_import` mudou no main (3.14), **não** 
 oraculo(arquivo, grupo):
   se grupo ∈ {analyzer-3.13, linguagem-3.13}            -> 3.13.4, linguagem do pacote 3.13
      # corpus.rs:224/279: o arquivo declara `// @dart = 3.7` ou mais (declara_3_7_ou_mais)
-  senão se arquivo ∈ sintaxe-nova.json[grupo]             -> 3.13.4, linguagem do pacote 3.6
+  senão se arquivo ∈ new-syntax.json[grupo]             -> 3.13.4, linguagem do pacote 3.6
      # main.rs:434 classificar_sintaxe_nova: roda o 3.13.4 no grupo 3.6 inteiro e escolhe os
      # arquivos em que ELE relata experiment_not_enabled com '{dot-shorthands|primary-constructors|
      # private-named-parameters}' na problemMessage (oraculo.rs:259 usa_sintaxe_nova)
@@ -27662,7 +27662,7 @@ Não entram (texto do main que o 3.13.4 **não** tem ou não foi conferido): `am
    (`[classe, superclasse]`), §C `super_invocation_not_last`, `recursive_interface_inheritance`
    (dois caminhos), §A `wrong_number_of_type_arguments_method`, `ambiguous_extension_member_access`.
 9. `crates/parity/src/main.rs:189-231` (placar): nova linha de conferência — para cada grupo 3.6.2,
-   `nosso_313 = {arquivos com Unit::referencia == V3_13}` contra `sintaxe-nova.json[grupo]`; imprimir
+   `nosso_313 = {arquivos com Unit::referencia == V3_13}` contra `new-syntax.json[grupo]`; imprimir
    `só nosso` e `só oráculo`. É o critério de pronto (item 7).
 
 Dependências: 1 → 2 → 3 → 4 e 5 → 6 → 7; 8 em paralelo com as famílias; 9 depois de 5.
