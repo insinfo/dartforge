@@ -14,7 +14,7 @@
 //!   superset with `experiment_not_enabled`, and **not** fasta 3.6.2's
 //!   cascade: the tool is 3.13 (D2), and the 3.13.4 analyzer reports the
 //!   same in the same library and keeps analyzing (probed on 2026-09-25; the
-//!   oracle for those files is 3.13.4, `corpus/diags/sintaxe-new_.json`).
+//!   oracle for those files is 3.13.4, `corpus/diagnosticos/sintaxe-nova.json`).
 //!   The exception is `augment` without the experiment: fasta's scanner
 //!   makes it a plain identifier, and the cascade applies in both SDKs. The
 //!   declaration lookahead still rejects `]`/`}` as a continuation

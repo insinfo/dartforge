@@ -1,5 +1,5 @@
 //! Records the expected types of the inference conformance corpus
-//! (`corpus/inferencia/`) with the oracle (`tools/oraculo_tipos/oracle.dart`,
+//! (`corpus/inferencia/`) with the oracle (`tools/oraculo_tipos/oraculo.dart`,
 //! package:analyzer). It only orchestrates: it runs ONE `dart` process for the
 //! whole corpus and splits the output per program.
 //!

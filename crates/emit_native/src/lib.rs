@@ -491,7 +491,7 @@ fn emit_ir_internal(
     // falls from 94.6 to ~71 MB and generation from 707 to ~460 s
     // (docs/NATIVO-PRODUCAO-GRANDE.md §5). The price is the performance of code
     // that calls dynamic dispatch a lot or reads many fields
-    // (`bench/performance/calls.dart`: 1.4–2.5× slower); with
+    // (`bench/performance/chamadas.dart`: 1.4–2.5× slower); with
     // `DARTFORGE_AJUDANTES_FORA=` (empty) and `DARTFORGE_CAMPOS_POR_CHAMADA=0`
     // the large program goes back fully inline. A small program stays
     // inline (LTO removes what is left).

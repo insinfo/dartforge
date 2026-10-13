@@ -1,5 +1,5 @@
 //! Type dump and comparison with the oracle (`package:analyzer`,
-//! `tools/oraculo_tipos/oracle.dart`). An inference conformance tool, not a
+//! `tools/oraculo_tipos/oraculo.dart`). An inference conformance tool, not a
 //! product: used by the examples `dump_types`, `compare_types` and
 //! `record_corpus` and by the corpus test `corpus/inferencia`
 //! (`tests/corpus_inference.rs`).

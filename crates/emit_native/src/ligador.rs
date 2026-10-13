@@ -252,7 +252,7 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
 
 /// `DARTFORGE_MAPA_DA_LIGACAO=1`: the link map of a production executable
 /// next to it (`<output>.map`), with the address and the size of each
-/// symbol after LTO — what `tools/size/quebra.py` reads and the code
+/// symbol after LTO — what `tools/tamanho/quebra.py` reads and the code
 /// absence test checks (docs/NATIVO-PODA-DE-TABELAS.md §3.10).
 /// [`request_link_maps`] also turns it on.
 pub fn link_map(exit: &Path) -> Option<PathBuf> {

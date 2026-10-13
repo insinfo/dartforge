@@ -1,5 +1,5 @@
 //! Streaming comparator of our type dump against the oracle's
-//! (`tools/oraculo_tipos/oracle.dart`): both files come sorted by
+//! (`tools/oraculo_tipos/oraculo.dart`): both files come sorted by
 //! (file, offset, length), and the comparator does a file-by-file merge,
 //! keeping in memory only the current file and the per-group counters.
 //!
