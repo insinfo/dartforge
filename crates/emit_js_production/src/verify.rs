@@ -343,7 +343,11 @@ fn access_after(b: &[u8], f: usize) -> Access {
 /// Names used as members in the text, by kind: `.name`, `[$name]` and the
 /// strings of `dsend`/`dload`/`dput`/`bind` (`dput` is a write, the rest are
 /// reads).
-fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<String>) {
+///
+/// `private` gets the private names used through a symbol of the prelude
+/// (`x[_bind]` with `var _bind = dart.privateName(dart_rti, "_bind")`), with
+/// the library's JS name: such a use can only reach that library's members.
+fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<String>, private: &mut HashSet<(String, String)>) {
     let b = text.as_bytes();
     let mut i = 0usize;
     let record = |name: &str, e: Access, reads: &mut HashSet<String>, writes: &mut HashSet<String>| {
@@ -363,14 +367,15 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
     // Private symbol variables of the prelude (`var _eval =
     // dart.privateName(dart_rti, "_eval");`): `x[_eval]` uses the member
     // `_eval`.
-    let mut privates: HashMap<&str, &str> = HashMap::new();
+    let mut privates: HashMap<&str, (&str, &str)> = HashMap::new();
     for line in text.lines() {
         let Some(r) = line.strip_prefix("var ") else { continue };
         let Some((var, rest)) = r.split_once(" = dart.privateName(") else { continue };
+        let lib = rest.split_once(',').map_or("", |(l, _)| l.trim());
         let Some(q) = rest.find('"') else { continue };
         let rest = &rest[q + 1..];
         let Some(end) = rest.find('"') else { continue };
-        privates.insert(var, &rest[..end]);
+        privates.insert(var, (lib, &rest[..end]));
     }
     while i < b.len() {
         match b[i] {
@@ -387,6 +392,20 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                     i += 1;
                 }
                 i += 1;
+            }
+            // Comments of the `JS()` templates (`// there's no guarantee…`):
+            // an apostrophe in them would open a string up to the next one.
+            b'/' if b.get(i + 1) == Some(&b'/') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
             }
             b'.' if i + 1 < b.len() && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_' || b[i + 1] == b'$') => {
                 let f = ident_end(b, i + 1);
@@ -419,8 +438,9 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                 if b.get(f) == Some(&b']') {
                     let var = &text[i + 1..f];
                     let e = access_after(b, f + 1);
-                    if let Some(n) = privates.get(var) {
+                    if let Some(&(lib, n)) = privates.get(var) {
                         record(n, e, reads, writes);
+                        private.insert((lib.to_string(), n.to_string()));
                     } else if let Some(n) = var.strip_prefix('$') {
                         record(n, e, reads, writes);
                     }
@@ -516,8 +536,9 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
     // unrestricted root.
     let mut sel_r: HashSet<String> = HashSet::new();
     let mut sel_w: HashSet<String> = HashSet::new();
+    let mut private: HashSet<(String, String)> = HashSet::new();
     for (_, t) in modules {
-        text_selectors(t, &mut sel_r, &mut sel_w);
+        text_selectors(t, &mut sel_r, &mut sel_w, &mut private);
     }
     let mut new: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
@@ -551,7 +572,12 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
             // did not see) — a gap, it comes back as an unrestricted root. A
             // name only restricted to the cones of other classes is pruning
             // by design, not a fix.
-            if world.selector_live_for(program, &name, ClassId(i as u32)) || !world.has_restriction(&name) {
+            // A private name used through the prelude symbol of this class's
+            // library is this member: a restriction of the same name comes
+            // from another library's private (or from code the emitter writes
+            // on its own, like `instanceType(this)[_bind](T)`).
+            let own_private = base.starts_with('_') && lib_var.get(&c.library).is_some_and(|v| private.contains(&(v.to_string(), base.to_string())));
+            if own_private || world.selector_live_for(program, &name, ClassId(i as u32)) || !world.has_restriction(&name) {
                 new.insert(name);
             }
         }
@@ -693,7 +719,7 @@ mod tests {
     fn selectors_from_text() {
         let mut r = HashSet::new();
         let mut w = HashSet::new();
-        text_selectors("a.foo(); b[$bar]; dart.dsend(o, \"baz\", []); q.qux = 1; r.cor += 2; s.ok == 3;", &mut r, &mut w);
+        text_selectors("a.foo(); // it's\nb[$bar]; dart.dsend(o, \"baz\", []); q.qux = 1; r.cor += 2; s.ok == 3;", &mut r, &mut w, &mut HashSet::new());
         assert!(r.contains("foo") && r.contains("bar") && r.contains("baz"), "{r:?} {w:?}");
         assert!(!r.contains("qux") && w.contains("qux"), "{r:?} {w:?}");
         assert!(r.contains("cor") && w.contains("cor"), "{r:?} {w:?}");
