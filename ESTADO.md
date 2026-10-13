@@ -45,12 +45,31 @@ principal (pedido de 1,5 s: 16 s → 2 s), o que resolveu o teste flaky
 `cancellation`. Medianas (ms, Dart/DF): references 2,6/2,1, implementation
 1,0/1,6, completion 4,5/7,2.
 
-**Regressão a tratar:** com a raiz do workspace aberta no `new_sali` (858
-arquivos), a análise tipada do workspace (I7) leva o pico a 430–820 MiB e o RSS
-em repouso a 99–640 MiB, muito variável entre execuções (os ~20 MiB de platô
-registrados abaixo são de antes do I7). Em investigação: retenção ou alocador.
-Pendentes: I5–I6 (motor), 22 avisos de código morto e ~170 de clippy em
-`crates/lsp`.
+**Memória com a pasta do workspace aberta (rodada seguinte, mesmo dia).** A
+regressão do I7 (pico ~430–920 MiB e RSS em repouso de 99–640 MiB no
+`new_sali`) era fragmentação do alocador do sistema, não retenção: em repouso
+só 17–27 MiB estavam em uso, contra 97% de páginas fragmentadas no `vmmap`.
+Cada análise tipada passou a rodar num processo filho do próprio binário
+(`--typed-analysis`, JSON por stdin e stdout; `DARTFORGE_LSP_TYPED_IN_PROCESS=1`
+volta à thread). O índice de faixas do motor (`crates/parity`) ficou compacto
+e é montado só quando um diagnóstico precisa dele. Physical footprint no
+`new_sali` (macOS arm64):
+
+| | antes | depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| servidor: pico / platô | 602–640 / 240–477 MiB | **27–31 / 27–31 MiB** | — |
+| filho da análise (só enquanto roda) | — | 639 MiB (`frontend`), 310 MiB (`core`) | — |
+| pico total | 602–640 MiB | **664 MiB** | 737–1.402 MiB |
+| em repouso | 240–477 MiB | **27 MiB** | 736–1.286 MiB |
+
+O RSS não serve de régua no macOS (cai a poucos MiB sob pressão com o
+footprint intacto). O teste `plateau_workspace` cobre a regressão. Oráculo
+idêntico em todas as categorias; razões de latência DartForge/Dart iguais ou
+menores. Saíram 22 avisos de código morto (o `SdkIndex` era montado e nunca
+lido), a completion marca itens deprecated como o Dart, e o clippy do crate
+caiu de 147 para 17 avisos. Para baixar o pico do filho: escopos materializados
+(~45 MiB, 672 mil entradas) e tamanho dos nós de expressão (141 MiB), em
+`crates/elements` e `crates/frontend`. Pendentes: I5–I6 (motor).
 
 ## JS: `limitless_ui` corrigido e nova rodada de tamanho (2026-10-13, tarde, macOS)
 
