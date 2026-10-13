@@ -1,10 +1,10 @@
-/// A API pública de macros, dividida por assunto:
+/// The public macro API, split by subject:
 ///
-/// * `macros.dart` — as interfaces de macro, uma por (alvo, fase);
-/// * `builders.dart` — o que cada fase pode consultar e produzir;
-/// * `code.dart` — os pedaços de código que uma macro monta;
-/// * `introspection.dart` — o que uma macro vê do programa;
-/// * `diagnostic.dart` e `exceptions.dart` — o que ela reporta ou recebe.
+/// * `macros.dart` — the macro interfaces, one per (target, phase);
+/// * `builders.dart` — what each phase can query and produce;
+/// * `code.dart` — the pieces of code a macro assembles;
+/// * `introspection.dart` — what a macro sees of the program;
+/// * `diagnostic.dart` and `exceptions.dart` — what it reports or receives.
 library;
 
 import 'dart:async';

@@ -665,7 +665,7 @@ fn target_and_model(v: &View<'_>, t: &mut Table, target: &Target) -> Result<(Val
         Target::Library(uri) => {
             let lib = v.library_by_uri(uri).ok_or_else(|| format!("library {uri} not found"))?;
             let b = v.library_json(t, lib);
-            Ok((b.clone(), json!({"bibliotecas": [b]})))
+            Ok((b.clone(), json!({"libraries": [b]})))
         }
         Target::Declaration(c) => {
             let d = v.declaration_json(t, c).ok_or_else(|| format!("target {} not supported or not found", c.name()))?;
@@ -690,14 +690,14 @@ fn target_and_model(v: &View<'_>, t: &mut Table, target: &Target) -> Result<(Val
                     members.insert(
                         id.to_string(),
                         json!({
-                            "campos": v.members_json(t, cid, "campos"),
-                            "metodos": v.members_json(t, cid, "metodos"),
-                            "construtores": v.members_json(t, cid, "construtores"),
+                            "fields": v.members_json(t, cid, "fields"),
+                            "methods": v.members_json(t, cid, "methods"),
+                            "constructors": v.members_json(t, cid, "constructors"),
                         }),
                     );
                 }
             }
-            Ok((d, json!({"bibliotecas": libraries, "membros": members})))
+            Ok((d, json!({"libraries": libraries, "members": members})))
         }
     }
 }
@@ -705,22 +705,22 @@ fn target_and_model(v: &View<'_>, t: &mut Table, target: &Target) -> Result<(Val
 /// Diagnostics and exception of a result, pointing at the annotation.
 fn report(app: &Application, r: &ExecutionResult, errors: &mut Vec<Diagnostic>, warnings: &mut Vec<Diagnostic>) {
     for d in &r.diagnostics {
-        let text = d["mensagem"]["texto"].as_str().unwrap_or("");
-        let correction = d["correcao"].as_str().map(|c| format!(" ({c})")).unwrap_or_default();
-        let context: Vec<&str> = d["contexto"].as_array().map(|l| l.iter().filter_map(|m| m["texto"].as_str()).collect()).unwrap_or_default();
+        let text = d["message"]["text"].as_str().unwrap_or("");
+        let correction = d["correction"].as_str().map(|c| format!(" ({c})")).unwrap_or_default();
+        let context: Vec<&str> = d["context"].as_array().map(|l| l.iter().filter_map(|m| m["text"].as_str()).collect()).unwrap_or_default();
         let mut msg = format!("{text}{correction}");
         for c in context {
             msg.push_str("\n  ");
             msg.push_str(c);
         }
-        match d["severidade"].as_str() {
+        match d["severity"].as_str() {
             Some("error") => errors.push(diagnostic(app, &msg)),
             _ => warnings.push(diagnostic(app, &msg)),
         }
     }
     if let Some(e) = &r.exception {
-        let kind = e["tipo"].as_str().unwrap_or("");
-        let msg = e["mensagem"].as_str().unwrap_or("");
+        let kind = e["kind"].as_str().unwrap_or("");
+        let msg = e["message"].as_str().unwrap_or("");
         errors.push(diagnostic(app, &format!("exception ({kind}): {msg}")));
     }
 }

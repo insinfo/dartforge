@@ -1,17 +1,17 @@
 part of '../api.dart';
 
-// As interfaces de macro (spec, "Macro phases" e "Ordering"): uma por par
-// (alvo, fase). Uma `macro class` implementa as que lhe servem; o hospedeiro
-// chama o método da fase corrente para cada aplicação cujo alvo casa.
+// The macro interfaces (spec, "Macro phases" and "Ordering"): one per pair
+// (target, phase). A `macro class` implements the ones it needs; the host
+// calls the current phase's method for each application whose target matches.
 //
-// Fases: *types* (só nomes; declara tipos novos e acrescenta supertipos),
-// *declarations* (introspecção de membros; declara membros e declarações de
-// topo) e *definitions* (completa corpos com `augment`).
+// Phases: *types* (names only; declares new types and adds supertypes),
+// *declarations* (member introspection; declares members and top-level
+// declarations) and *definitions* (completes bodies with `augment`).
 
-/// Interface-marca de toda macro.
+/// Marker interface of every macro.
 abstract interface class Macro {}
 
-// -- Biblioteca (aplicada à diretiva `library`) ------------------------------
+// -- Library (applied to the `library` directive) -----------------------------
 
 abstract interface class LibraryTypesMacro implements Macro {
   FutureOr<void> buildTypesForLibrary(Library library, TypeBuilder builder);
@@ -27,7 +27,7 @@ abstract interface class LibraryDefinitionMacro implements Macro {
       Library library, LibraryDefinitionBuilder builder);
 }
 
-// -- Funções de topo, métodos de instância e estáticos ------------------------
+// -- Top-level functions, instance and static methods ------------------------
 
 abstract interface class FunctionTypesMacro implements Macro {
   FutureOr<void> buildTypesForFunction(
@@ -44,7 +44,7 @@ abstract interface class FunctionDefinitionMacro implements Macro {
       FunctionDeclaration function, FunctionDefinitionBuilder builder);
 }
 
-// -- Variáveis de topo e campos -----------------------------------------------
+// -- Top-level variables and fields -------------------------------------------
 
 abstract interface class VariableTypesMacro implements Macro {
   FutureOr<void> buildTypesForVariable(
@@ -78,7 +78,7 @@ abstract interface class ClassDefinitionMacro implements Macro {
       ClassDeclaration clazz, TypeDefinitionBuilder builder);
 }
 
-// -- Enums e valores de enum ----------------------------------------------------
+// -- Enums and enum values -----------------------------------------------------
 
 abstract interface class EnumTypesMacro implements Macro {
   FutureOr<void> buildTypesForEnum(
@@ -110,7 +110,7 @@ abstract interface class EnumValueDefinitionMacro implements Macro {
       EnumValueDeclaration entry, EnumValueDefinitionBuilder builder);
 }
 
-// -- Campos, métodos e construtores (membros) ---------------------------------
+// -- Fields, methods and constructors (members) -------------------------------
 
 abstract interface class FieldTypesMacro implements Macro {
   FutureOr<void> buildTypesForField(
@@ -174,7 +174,7 @@ abstract interface class MixinDefinitionMacro implements Macro {
       MixinDeclaration mixin, TypeDefinitionBuilder builder);
 }
 
-// -- Extensions e extension types -------------------------------------------------
+// -- Extensions and extension types ------------------------------------------------
 
 abstract interface class ExtensionTypesMacro implements Macro {
   FutureOr<void> buildTypesForExtension(

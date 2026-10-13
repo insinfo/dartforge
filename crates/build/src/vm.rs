@@ -40,12 +40,12 @@ const SOURCES: &[(&str, &str)] = &[
         include_str!("../../../packages/build_executor/lib/executor.dart"),
     ),
     (
-        "src/canal.dart",
-        include_str!("../../../packages/build_executor/lib/src/canal.dart"),
+        "src/channel.dart",
+        include_str!("../../../packages/build_executor/lib/src/channel.dart"),
     ),
     (
-        "src/servico.dart",
-        include_str!("../../../packages/build_executor/lib/src/servico.dart"),
+        "src/service.dart",
+        include_str!("../../../packages/build_executor/lib/src/service.dart"),
     ),
 ];
 
@@ -168,7 +168,7 @@ pub fn bootstrap(script: &BuilderScript, package_config: &Path) -> String {
     for (i, imp) in imports.iter().enumerate() {
         s.push_str(&format!("import {} as _i{i};\n", literal(imp)));
     }
-    s.push_str("\nFuture<void> main() => _df.servir({\n");
+    s.push_str("\nFuture<void> main() => _df.serve({\n");
     for (key, import, factories) in &script.applications {
         let i = imports.iter().position(|x| x == import).unwrap_or(0);
         let map: Vec<String> = factories

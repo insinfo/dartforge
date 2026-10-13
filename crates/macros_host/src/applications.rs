@@ -60,7 +60,7 @@ pub struct Application {
     pub macro_: String,
     /// Constructor name (`""` for the unnamed one).
     pub constructor: String,
-    /// `{posicionais, nomeados}` in the protocol's argument format.
+    /// `{positional, named}` in the protocol's argument format.
     pub arguments: Value,
     /// Unit (URI) and range of the annotation, for diagnostics.
     pub unit: String,
@@ -122,7 +122,7 @@ fn argument(u: &Unit, e: ast::ExprId) -> Value {
         }
         ExprKind::Parenthesized(x) => argument(u, *x),
         ExprKind::List { elements: els, .. } => match elements(els) {
-            Some(l) => json!({"t": "lista", "v": l}),
+            Some(l) => json!({"t": "list", "v": l}),
             None => code_argument(text(ex.span)),
         },
         ExprKind::SetOrMap { elements: els, .. } => {
@@ -136,7 +136,7 @@ fn argument(u: &Unit, e: ast::ExprId) -> Value {
                 })
                 .collect();
             match pairs {
-                Some(p) if !p.is_empty() || els.is_empty() => json!({"t": "mapa", "v": p}),
+                Some(p) if !p.is_empty() || els.is_empty() => json!({"t": "map", "v": p}),
                 _ => match elements(els) {
                     Some(l) => json!({"t": "set", "v": l}),
                     None => code_argument(text(ex.span)),
@@ -148,7 +148,7 @@ fn argument(u: &Unit, e: ast::ExprId) -> Value {
 }
 
 fn code_argument(text: String) -> Value {
-    json!({"t": "codigo", "v": {"k": "expression", "p": [text]}})
+    json!({"t": "code", "v": {"k": "expression", "p": [text]}})
 }
 
 fn arguments(u: &Unit, a: &ast::Annotation) -> Value {
@@ -163,7 +163,7 @@ fn arguments(u: &Unit, a: &ast::Annotation) -> Value {
             None => positional.push(argument(u, arg.value)),
         }
     }
-    json!({"posicionais": positional, "nomeados": named})
+    json!({"positional": positional, "named": named})
 }
 
 /// The program's applications, in source order (the phase order comes from

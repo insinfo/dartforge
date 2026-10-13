@@ -133,7 +133,7 @@ fn update(m: &mut Engine, changed: &[PathBuf]) -> (EngineReport, f64) {
 /// The scoreboard of all cases through the native executor: zero different
 /// and incremental = from scratch on every edit.
 #[test]
-#[ignore = "requires dartforge with the nativo feature and `dart pub get` in each case of corpus/builders"]
+#[ignore = "requires dartforge with the native feature and `dart pub get` in each case of corpus/builders"]
 fn corpus_builders_through_the_native_executor() {
     assert!(compiler().is_file(), "compiler {} does not exist", compiler().display());
     let filter: Option<Vec<String>> = std::env::var("DARTFORGE_CASES")

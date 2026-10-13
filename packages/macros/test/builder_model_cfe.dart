@@ -2,73 +2,60 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:json/json.dart';
-import 'package:macros/src/executor/executar.dart';
-import 'package:macros/src/executor/modelo.dart';
-import 'package:macros/src/executor/resultado.dart';
+import 'package:macros/src/executor/execute.dart';
+import 'package:macros/src/executor/model.dart';
+import 'package:macros/src/executor/result.dart';
 
-bool igual(Object? a, Object? b) {
+bool equal(Object? a, Object? b) {
   if (a is Map && b is Map) {
-    return a.length == b.length &&
-        a.keys.every(
-            (chave) => b.containsKey(chave) && igual(a[chave], b[chave]));
+    return a.length == b.length && a.keys.every((key) => b.containsKey(key) && equal(a[key], b[key]));
   }
   if (a is List && b is List) {
-    return a.length == b.length &&
-        List.generate(a.length, (i) => i).every((i) => igual(a[i], b[i]));
+    return a.length == b.length && List.generate(a.length, (i) => i).every((i) => equal(a[i], b[i]));
   }
   return a == b;
 }
 
-final class _HospedeiroDaSessao implements Hospedeiro {
-  final List<(Map<String, Object?>, Object?)> pendentes;
-  _HospedeiroDaSessao(this.pendentes);
+final class _SessionHost implements Host {
+  final List<(Map<String, Object?>, Object?)> pending;
+  _SessionHost(this.pending);
 
   @override
-  Future<Object?> consultar(String tipo, Map<String, Object?> args) async {
-    if (tipo != 'resolverIdentificador')
-      throw StateError('consulta não coberta: $tipo');
-    final indice = pendentes.indexWhere((par) => igual(par.$1, args));
-    if (indice < 0) throw StateError('resposta CFE ausente: $args');
-    return pendentes.removeAt(indice).$2;
+  Future<Object?> query(String kind, Map<String, Object?> args) async {
+    if (kind != 'resolveIdentifier') throw StateError('query not covered: $kind');
+    final index = pending.indexWhere((pair) => equal(pair.$1, args));
+    if (index < 0) throw StateError('CFE answer missing: $args');
+    return pending.removeAt(index).$2;
   }
 }
 
 Future<void> main() async {
-  final manifesto = jsonDecode(
-      File('../../corpus/builders/macros_discovery/lib/modelos.macro_uses.json')
-          .readAsStringSync()) as Map;
-  final aplicacao = (manifesto['aplicacoes'] as List)
-      .singleWhere((a) => a['alvo'] == 'Endereco') as Map;
-  final execucao = Map<String, Object?>.from(aplicacao['execucao'] as Map);
-  final linhas =
-      File('../../corpus/macros/410_json_codable/esperado/sessao.dfexec')
-          .readAsLinesSync();
-  final consultas = <int, Map<String, Object?>>{};
-  final respostas = <(Map<String, Object?>, Object?)>[];
-  Map<String, Object?>? esperado;
-  for (final linha in linhas) {
-    final m = Map<String, Object?>.from(jsonDecode(linha.substring(2)) as Map);
+  final manifest = jsonDecode(
+      File('../../corpus/builders/macros_discovery/lib/modelos.macro_uses.json').readAsStringSync()) as Map;
+  final application = (manifest['applications'] as List).singleWhere((a) => a['target'] == 'Endereco') as Map;
+  final execution = Map<String, Object?>.from(application['execution'] as Map);
+  final lines = File('../../corpus/macros/410_json_codable/esperado/session.dfexec').readAsLinesSync();
+  final queries = <int, Map<String, Object?>>{};
+  final answers = <(Map<String, Object?>, Object?)>[];
+  Map<String, Object?>? expected;
+  for (final line in lines) {
+    final m = Map<String, Object?>.from(jsonDecode(line.substring(2)) as Map);
     if (m['t'] == 'macro.query' && m['execution'] == 4) {
-      consultas[m['id'] as int] = Map<String, Object?>.from(m['args'] as Map);
-    } else if (m['t'] == 'macro.response' && consultas.containsKey(m['id'])) {
-      respostas.add((consultas.remove(m['id'])!, m['value']));
+      queries[m['id'] as int] = Map<String, Object?>.from(m['args'] as Map);
+    } else if (m['t'] == 'macro.response' && queries.containsKey(m['id'])) {
+      answers.add((queries.remove(m['id'])!, m['value']));
     } else if (m['t'] == 'macro.result' && m['id'] == 4) {
-      esperado = Map<String, Object?>.from(m['result'] as Map);
+      expected = Map<String, Object?>.from(m['result'] as Map);
     }
   }
-  final hospedeiro = _HospedeiroDaSessao(respostas);
-  final modelo = Modelo(hospedeiro)
-    ..receber(Map<String, Object?>.from(execucao['modelo'] as Map));
-  final alvo =
-      modelo.declaracao(Map<String, Object?>.from(execucao['alvo'] as Map));
-  final obtido = (await executarFase(
-          const JsonCodable(), Fase.declaracoes, alvo, Introspector(modelo)))
-      .paraJson();
-  if (!igual(obtido, esperado) || hospedeiro.pendentes.isNotEmpty) {
-    throw StateError(
-        'JsonCodable com modelo do analyzer difere da fase 2 do CFE: '
-        '${jsonEncode(obtido)}');
+  final host = _SessionHost(answers);
+  final model = Model(host)..receive(Map<String, Object?>.from(execution['model'] as Map));
+  final target = model.declaration(Map<String, Object?>.from(execution['target'] as Map));
+  final actual =
+      (await executePhase(const JsonCodable(), Phase.declarations, target, Introspector(model))).toJson();
+  if (!equal(actual, expected) || host.pending.isNotEmpty) {
+    throw StateError('JsonCodable with the analyzer model differs from the CFE phase 2: '
+        '${jsonEncode(actual)}');
   }
-  print(
-      'fase de declarações JsonCodable igual ao CFE com modelo do analyzer (3 consultas)');
+  print('JsonCodable declarations phase equal to the CFE with the analyzer model (3 queries)');
 }

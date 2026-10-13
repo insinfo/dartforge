@@ -452,24 +452,24 @@ pub fn result_from_json(v: &Value) -> Result<ExecutionResult, String> {
             .collect::<Result<_, String>>()?,
     };
     Ok(ExecutionResult {
-        diagnostics: v.get("diagnosticos").and_then(Value::as_array).cloned().unwrap_or_default(),
-        exception: v.get("excecao").filter(|e| !e.is_null()).cloned(),
-        enum_values: list_pairs(v, "valoresDeEnum")?,
+        diagnostics: v.get("diagnostics").and_then(Value::as_array).cloned().unwrap_or_default(),
+        exception: v.get("exception").filter(|e| !e.is_null()).cloned(),
+        enum_values: list_pairs(v, "enumValues")?,
         extends,
         interfaces: list_pairs(v, "interfaces")?,
         library: v
-            .get("biblioteca")
+            .get("library")
             .and_then(Value::as_array)
             .map(|l| l.iter().map(code_from_json).collect::<Result<_, _>>())
             .transpose()?
             .unwrap_or_default(),
         mixins: list_pairs(v, "mixins")?,
         new_types: v
-            .get("tiposNovos")
+            .get("newTypes")
             .and_then(Value::as_array)
             .map(|l| l.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
             .unwrap_or_default(),
-        types: list_pairs(v, "tipos")?,
+        types: list_pairs(v, "types")?,
     })
 }
 

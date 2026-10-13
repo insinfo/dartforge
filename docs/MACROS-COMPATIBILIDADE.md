@@ -92,8 +92,8 @@ O pacote `dartforge_macros_builder` já oferece uma primeira etapa opt-in:
 o `build_runner` resolve as anotações pelo element model do analyzer e grava
 `x.macro_uses.json`. Um caso derivado de `410_json_codable` identifica 4 aplicações.
 A montagem dos resultados estruturados também existe em Dart
-(`packages/macros/lib/src/executor/montagem.dart`): a reprodução dos 8
-`macro.result` de `sessao.dfexec` produz os mesmos 3266 caracteres da
+(`packages/macros/lib/src/executor/assembly.dart`): a reprodução dos 8
+`macro.result` de `session.dfexec` produz os mesmos 3266 caracteres da
 augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
 execução da macro pelo builder.
 Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
@@ -107,7 +107,7 @@ Com esse modelo, `@JsonCodable` executa a fase de declarações no mesmo isolate
 e devolve o resultado estruturado idêntico ao da sessão CFE (3 consultas ao
 hospedeiro). As respostas dessas consultas ainda vêm da sessão gravada no
 primeiro teste. O caso de integração resolve as 3 consultas
-`resolverIdentificador` pela sessão do analyzer e reproduz a mesma fase sem
+`resolveIdentifier` pela sessão do analyzer e reproduz a mesma fase sem
 respostas gravadas. As demais consultas da fase de definições ainda precisam
 de implementação antes de gerar o arquivo.
 
@@ -136,8 +136,8 @@ construtores gerados para `modelos.macro_definitions_model.json`. O modelo
 completo de membros de `Endereco` corresponde ao pedido da fase de definições
 do CFE depois de desconsiderar os IDs locais da sessão e trocar a URI do
 fixture.
-O hospedeiro Dart já atende `resolverIdentificador`, `resolver`,
-`ehExatamente` e `declaracao`: as 14 consultas da fase de definições de
+O hospedeiro Dart já atende `resolveIdentifier`, `resolve`,
+`isExactly` e `declarationOf`: as 14 consultas da fase de definições de
 `Endereco` correspondem ao CFE depois de desconsiderar IDs de sessão.
 O `build_runner` também executa a fase de definições de `Endereco` no mesmo
 isolate; seu `macro.result` corresponde ao CFE depois da mesma

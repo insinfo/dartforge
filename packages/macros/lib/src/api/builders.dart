@@ -1,48 +1,48 @@
 part of '../api.dart';
 
-// O que cada fase pode consultar (introspectores) e produzir (builders).
-// Cada fase vê tudo o que a anterior via; o que uma macro produz volta ao
-// hospedeiro como resultado estruturado e vira texto de augmentation lá
+// What each phase can query (introspectors) and produce (builders). Each
+// phase sees everything the previous one saw; what a macro produces goes back
+// to the host as a structured result and becomes augmentation text there
 // (docs/MACROS-PROTOCOLO.md §4).
 
-/// Base de todo builder: acumula diagnósticos para o fim da fase.
+/// Base of every builder: accumulates diagnostics for the end of the phase.
 abstract interface class Builder {
-  /// Anexa [diagnostic] ao resultado desta aplicação nesta fase (entregue
-  /// junto com o resto, quando a macro termina).
+  /// Attaches [diagnostic] to the result of this application in this phase
+  /// (delivered with the rest, when the macro finishes).
   void report(Diagnostic diagnostic);
 }
 
-/// Introspecção da fase de tipos (e das seguintes).
+/// Introspection of the types phase (and the following ones).
 abstract interface class TypePhaseIntrospector {
-  /// Um [Identifier] para o nome de topo [name] da biblioteca [library].
+  /// An [Identifier] for the top-level name [name] of the library [library].
   ///
-  /// [library] deve estar no fecho de imports da biblioteca que recebe o
-  /// código (o jeito seguro é a biblioteca da macro importá-la). Nome que não
-  /// existe lança exceção. Para um campo, devolve o identificador da
-  /// declaração (não o do getter sintético).
+  /// [library] must be in the import closure of the library that receives the
+  /// code (the safe way is for the macro's library to import it). A name that
+  /// does not exist throws. For a field, returns the identifier of the
+  /// declaration (not that of the synthetic getter).
   @Deprecated(
       'This API should eventually be replaced with a different, safer API.')
   Future<Identifier> resolveIdentifier(Uri library, String name);
 }
 
-/// Contribui tipos novos à biblioteca corrente.
+/// Contributes new types to the current library.
 abstract interface class TypeBuilder implements Builder, TypePhaseIntrospector {
-  /// Acrescenta a declaração de tipo [typeDeclaration] (cujo nome, sem
-  /// parâmetros de tipo, é [name]) à biblioteca.
+  /// Adds the type declaration [typeDeclaration] (whose name, without type
+  /// parameters, is [name]) to the library.
   void declareType(String name, DeclarationCode typeDeclaration);
 }
 
-/// Acrescenta interfaces a um tipo existente (fase de tipos).
+/// Adds interfaces to an existing type (types phase).
 abstract interface class InterfaceTypesBuilder implements TypeBuilder {
   void appendInterfaces(Iterable<TypeAnnotationCode> interfaces);
 }
 
-/// Acrescenta mixins a um tipo existente (fase de tipos).
+/// Adds mixins to an existing type (types phase).
 abstract interface class MixinTypesBuilder implements TypeBuilder {
   void appendMixins(Iterable<TypeAnnotationCode> mixins);
 }
 
-/// Dá uma cláusula `extends` a um tipo que não tem (fase de tipos).
+/// Gives an `extends` clause to a type that has none (types phase).
 abstract interface class ExtendsTypeBuilder implements TypeBuilder {
   void extendsType(NamedTypeAnnotationCode superclass);
 }
@@ -57,23 +57,23 @@ abstract interface class ClassTypeBuilder
 abstract interface class EnumTypeBuilder
     implements TypeBuilder, InterfaceTypesBuilder, MixinTypesBuilder {}
 
-/// Mixins não têm mixins, só interfaces.
+/// Mixins have no mixins, only interfaces.
 abstract interface class MixinTypeBuilder
     implements TypeBuilder, InterfaceTypesBuilder {}
 
-/// Introspecção da fase de declarações (e da seguinte).
+/// Introspection of the declarations phase (and the next one).
 ///
-/// As listas vêm em **ordem lexicográfica de nome** (spec, "Introspection
-/// API ordering"): reordenar membros no fonte não muda o que a macro vê.
+/// Lists come in **lexicographic name order** (spec, "Introspection
+/// API ordering"): reordering members in the source does not change what the macro sees.
 abstract interface class DeclarationPhaseIntrospector
     implements TypePhaseIntrospector {
-  /// O [StaticType] de uma anotação de tipo. [RawTypeAnnotationCode] não é
-  /// aceito (identificadores crus não são resolvíveis); identificador que
-  /// não resolve lança exceção.
+  /// The [StaticType] of a type annotation. [RawTypeAnnotationCode] is not
+  /// accepted (raw identifiers are not resolvable); an identifier that does
+  /// not resolve throws.
   Future<StaticType> resolve(TypeAnnotationCode type);
 
-  /// Os valores de [enuum] (podem estar incompletos se outras macros de
-  /// declaração ainda vão rodar nele).
+  /// The values of [enuum] (may be incomplete if other declaration macros
+  /// will still run on it).
   Future<List<EnumValueDeclaration>> valuesOf(covariant EnumDeclaration enuum);
 
   Future<List<FieldDeclaration>> fieldsOf(covariant TypeDeclaration type);
@@ -83,33 +83,33 @@ abstract interface class DeclarationPhaseIntrospector
   Future<List<ConstructorDeclaration>> constructorsOf(
       covariant TypeDeclaration type);
 
-  /// Os tipos declarados em [library], extensions incluídas.
+  /// The types declared in [library], extensions included.
   Future<List<TypeDeclaration>> typesOf(covariant Library library);
 
-  /// A declaração de tipo de [identifier]; se não for tipo, lança
+  /// The type declaration of [identifier]; if it is not a type, throws
   /// [MacroImplementationException].
   Future<TypeDeclaration> typeDeclarationOf(covariant Identifier identifier);
 }
 
-/// Contribui declarações (não tipos) à biblioteca corrente.
+/// Contributes declarations (not types) to the current library.
 abstract interface class DeclarationBuilder
     implements Builder, DeclarationPhaseIntrospector {
   void declareInLibrary(DeclarationCode declaration);
 }
 
-/// Contribui membros ao tipo alvo.
+/// Contributes members to the target type.
 abstract interface class MemberDeclarationBuilder
     implements DeclarationBuilder {
   void declareInType(DeclarationCode declaration);
 }
 
-/// Contribui membros ou valores ao enum alvo.
+/// Contributes members or values to the target enum.
 abstract interface class EnumDeclarationBuilder
     implements MemberDeclarationBuilder {
   void declareEnumValue(DeclarationCode declaration);
 }
 
-/// Introspecção da fase de definições.
+/// Introspection of the definitions phase.
 abstract interface class DefinitionPhaseIntrospector
     implements DeclarationPhaseIntrospector {
   Future<Declaration> declarationOf(covariant Identifier identifier);
@@ -117,8 +117,8 @@ abstract interface class DefinitionPhaseIntrospector
   @override
   Future<TypeDeclaration> typeDeclarationOf(covariant Identifier identifier);
 
-  /// O tipo inferido de uma anotação omitida (`dynamic` se nada foi
-  /// inferido). Só existe nesta fase (spec, "Omitted type annotations").
+  /// The inferred type of an omitted annotation (`dynamic` if nothing was
+  /// inferred). Only exists in this phase (spec, "Omitted type annotations").
   Future<TypeAnnotation> inferType(covariant OmittedTypeAnnotation omittedType);
 
   Future<List<Declaration>> topLevelDeclarationsOf(covariant Library library);
@@ -127,7 +127,7 @@ abstract interface class DefinitionPhaseIntrospector
 abstract interface class DefinitionBuilder
     implements Builder, DefinitionPhaseIntrospector {}
 
-/// Macro de biblioteca na fase de definições: builders das declarações dela.
+/// Library macro in the definitions phase: builders of its declarations.
 abstract interface class LibraryDefinitionBuilder implements DefinitionBuilder {
   Future<TypeDefinitionBuilder> buildType(Identifier identifier);
 
@@ -136,7 +136,7 @@ abstract interface class LibraryDefinitionBuilder implements DefinitionBuilder {
   Future<VariableDefinitionBuilder> buildVariable(Identifier identifier);
 }
 
-/// Macro de tipo na fase de definições: builders dos membros dele.
+/// Type macro in the definitions phase: builders of its members.
 abstract interface class TypeDefinitionBuilder implements DefinitionBuilder {
   Future<VariableDefinitionBuilder> buildField(Identifier identifier);
 
@@ -150,11 +150,11 @@ abstract interface class EnumDefinitionBuilder
   Future<EnumValueDefinitionBuilder> buildEnumValue(Identifier identifier);
 }
 
-/// Completa um construtor: corpo e/ou lista de inicialização.
+/// Completes a constructor: body and/or initializer list.
 abstract interface class ConstructorDefinitionBuilder
     implements DefinitionBuilder {
-  /// [initializers] sem vírgulas nas pontas; [docComments] vão acima da
-  /// declaração `augment`.
+  /// [initializers] without commas at the ends; [docComments] go above the
+  /// `augment` declaration.
   void augment({
     FunctionBodyCode? body,
     List<Code>? initializers,
@@ -162,7 +162,7 @@ abstract interface class ConstructorDefinitionBuilder
   });
 }
 
-/// Completa uma função ou um método com um corpo.
+/// Completes a function or a method with a body.
 abstract interface class FunctionDefinitionBuilder
     implements DefinitionBuilder {
   void augment(
@@ -171,11 +171,11 @@ abstract interface class FunctionDefinitionBuilder
   });
 }
 
-/// Completa uma variável de topo ou um campo.
+/// Completes a top-level variable or a field.
 abstract interface class VariableDefinitionBuilder
     implements DefinitionBuilder {
-  /// [getter] e [setter] são declarações completas sem o `augment` (que é
-  /// acrescentado); [initializerDocComments] exige [initializer].
+  /// [getter] and [setter] are complete declarations without the `augment`
+  /// (which is added); [initializerDocComments] requires [initializer].
   void augment({
     DeclarationCode? getter,
     DeclarationCode? setter,
@@ -184,7 +184,7 @@ abstract interface class VariableDefinitionBuilder
   });
 }
 
-/// Troca um valor de enum por outro de mesmo nome.
+/// Replaces an enum value with another of the same name.
 abstract interface class EnumValueDefinitionBuilder
     implements DefinitionBuilder {
   void augment(DeclarationCode entry);

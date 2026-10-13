@@ -1,29 +1,29 @@
 part of '../api.dart';
 
-/// Lançada pela macro para parar a execução e reportar [diagnostic].
+/// Thrown by the macro to stop the execution and report [diagnostic].
 class DiagnosticException implements Exception {
   final Diagnostic diagnostic;
   DiagnosticException(this.diagnostic);
 }
 
-/// Base das exceções que o hospedeiro lança durante a execução. A macro pode
-/// capturá-las para explicar melhor ao usuário; não capturadas, viram
-/// diagnóstico na aplicação.
+/// Base of the exceptions the host throws during the execution. The macro may
+/// catch them to explain better to the user; uncaught, they become a
+/// diagnostic on the application.
 abstract interface class MacroException implements Exception {
   String get message;
   String? get stackTrace;
 }
 
-/// Algo inesperado (defeito do hospedeiro).
+/// Something unexpected (a host bug).
 abstract interface class UnexpectedMacroException implements MacroException {}
 
-/// Uso errado da API pela macro (defeito da macro). É `Exception`, não
-/// `Error`, para que a macro possa capturá-la e orientar o usuário.
+/// Wrong use of the API by the macro (a macro bug). It is an `Exception`, not
+/// an `Error`, so that the macro can catch it and guide the user.
 abstract interface class MacroImplementationException
     implements MacroException {}
 
-/// Ciclo de introspecção entre aplicações da fase de declarações: a ordem
-/// não é definida, então toda consulta do ciclo falha com esta exceção
+/// Introspection cycle between applications of the declarations phase: the
+/// order is undefined, so every query of the cycle fails with this exception
 /// (spec, "Declarations phase").
 abstract interface class MacroIntrospectionCycleException
     implements MacroException {}

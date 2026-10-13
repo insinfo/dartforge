@@ -1,6 +1,6 @@
-# A descoberta e uma etapa intermediaria: so projetos que a habilitam
-# explicitamente recebem o manifesto. A emissao .macro.dart sera ativada
-# depois da paridade byte a byte com o CFE.
+# Discovery is an intermediate step: only projects that explicitly enable it
+# get the manifest. Emitting .macro.dart will be enabled after byte-for-byte
+# parity with the CFE.
 builders:
   macroDiscovery:
     import: "package:dartforge_macros_builder/macros_builder.dart"

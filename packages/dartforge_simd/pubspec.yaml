@@ -1,8 +1,8 @@
 name: dartforge_simd
 description: >-
-  A API de Int32x4 do Dart 3.14 (comparações com máscara, andNot, deslocamentos,
-  abs, min/max, anyTrue/allTrue e o * em revisão) como extensão para o SDK
-  3.6.2; o backend nativo do DartForge a compila em instruções vetoriais.
+  Dart 3.14's Int32x4 API (masked comparisons, andNot, shifts, abs, min/max,
+  anyTrue/allTrue and the * under review) as an extension for the 3.6.2 SDK;
+  DartForge's native backend compiles it to vector instructions.
 publish_to: none
 
 environment:

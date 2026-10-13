@@ -175,7 +175,7 @@ stderr ao diagnóstico da ação ainda não foram feitos.
 
 Definido em [`MACROS-PROTOCOLO.md`](MACROS-PROTOCOLO.md) §5 e implementado
 dos dois lados (`crates/macros_host/src/{protocol,executor}.rs` e
-`packages/macros/lib/src/executor/servico.dart`): o mesmo enquadramento e o
+`packages/macros/lib/src/executor/service.dart`): o mesmo enquadramento e o
 mesmo handshake daqui, com `"services": ["macro"]` e as mensagens
 `macro.instantiate`/`macro.execute`/`macro.query`/`macro.response` no
 lugar do `build.*`. Um executor que ofereça os dois serviços atende ao motor

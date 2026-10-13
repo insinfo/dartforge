@@ -31,9 +31,9 @@ pub enum StaticType {
 }
 
 /// The `StaticType`s handed to the executor, by the key it sends back in
-/// `ehExatamente`/`ehSubtipo` (isExactly/isSubtype). Equal types get **the
+/// `isExactly`/`isSubtypeOf`. Equal types get **the
 /// same** key (the comparison is structural, so the key is just an alias of
-/// the type): that way the answer to `resolver` does not depend on how many
+/// the type): that way the answer to `resolve` does not depend on how many
 /// `resolve` calls came before, and the expansion cache ([`crate::cache`])
 /// can revalidate it.
 #[derive(Debug, Default)]
@@ -77,7 +77,7 @@ impl QueryHandler<'_, '_> {
 
     fn resolve_identifier(&mut self, args: &Value) -> Result<Value, QueryError> {
         let uri = args.get("uri").and_then(Value::as_str).unwrap_or("");
-        let name = args.get("nome").and_then(Value::as_str).unwrap_or("");
+        let name = args.get("name").and_then(Value::as_str).unwrap_or("");
         let v = self.view;
         let lib = v
             .library_by_uri(uri)
@@ -99,14 +99,14 @@ impl QueryHandler<'_, '_> {
             Element::Variable(_) => Key::TopLevelVariable { lib: lib_uri, name: member.into() },
             Element::Prefix(..) => return Err(not_found()),
         };
-        Ok(json!({"id": self.table.id(key), "nome": name}))
+        Ok(json!({"id": self.table.id(key), "name": name}))
     }
 
     /// The `StaticType` of a type annotation (the model's JSON).
     fn static_type(&self, t: &Value) -> Result<StaticType, QueryError> {
-        let nullable = t.get("anulavel").and_then(Value::as_bool).unwrap_or(false);
+        let nullable = t.get("nullable").and_then(Value::as_bool).unwrap_or(false);
         match t.get("t").and_then(Value::as_str) {
-            Some("nomeado") => {
+            Some("named") => {
                 let id = t.get("ident").and_then(|i| i.get("id")).and_then(Value::as_u64).unwrap_or(0);
                 let key = self.key(id)?;
                 let args = t
@@ -117,12 +117,12 @@ impl QueryHandler<'_, '_> {
                     .unwrap_or_default();
                 Ok(StaticType::Named { key, args, nullable })
             }
-            Some("funcao" | "record") => {
+            Some("function" | "record") => {
                 let mut v = t.clone();
-                v.as_object_mut().map(|o| o.remove("anulavel"));
+                v.as_object_mut().map(|o| o.remove("nullable"));
                 Ok(StaticType::Structural { text: v.to_string(), nullable })
             }
-            Some("omitido") => Err(QueryError::implementation("resolve of an omitted type: use inferType")),
+            Some("omitted") => Err(QueryError::implementation("resolve of an omitted type: use inferType")),
             _ => Err(QueryError::implementation(
                 "resolve only accepts NamedTypeAnnotationCode, FunctionTypeAnnotationCode and RecordTypeAnnotationCode",
             )),
@@ -139,7 +139,7 @@ impl QueryHandler<'_, '_> {
             _ => (None, Vec::new()),
         };
         let key = self.statics.key(e);
-        json!({"chave": key, "declaracao": declaration, "args": args})
+        json!({"key": key, "declaration": declaration, "args": args})
     }
 
     fn static_type_by_key(&self, args: &Value, k: &str) -> Result<StaticType, QueryError> {
@@ -190,17 +190,17 @@ impl QueryHandler<'_, '_> {
 impl QueryService for QueryHandler<'_, '_> {
     fn query(&mut self, kind: &str, args: &Value) -> Result<Value, QueryError> {
         match kind {
-            "resolverIdentificador" => self.resolve_identifier(args),
-            "declaracao" => {
+            "resolveIdentifier" => self.resolve_identifier(args),
+            "declarationOf" => {
                 let c = self.key(arg_u64(args, "ident")?)?;
                 self.view
                     .declaration_json(self.table, &c)
                     .ok_or_else(|| QueryError::implementation(format!("Unable to resolve identifier {}", c.name())))
             }
-            "membros" => {
-                let c = self.key(arg_u64(args, "dono")?)?;
-                let member_kind = args.get("tipo").and_then(Value::as_str).unwrap_or("");
-                if member_kind == "valores" {
+            "members" => {
+                let c = self.key(arg_u64(args, "owner")?)?;
+                let member_kind = args.get("kind").and_then(Value::as_str).unwrap_or("");
+                if member_kind == "values" {
                     return Err(QueryError::implementation("valuesOf does not exist in CFE 3.6.2"));
                 }
                 let cid = self
@@ -209,8 +209,8 @@ impl QueryService for QueryHandler<'_, '_> {
                     .ok_or_else(|| QueryError::implementation("Only introspection on classes is supported"))?;
                 Ok(Value::Array(self.view.members_json(self.table, cid, member_kind)))
             }
-            "tiposDe" => {
-                let id = arg_u64(args, "biblioteca")?;
+            "typesOf" => {
+                let id = arg_u64(args, "library")?;
                 let uri = self.table.library_uri(id).map(str::to_string).unwrap_or_default();
                 let lib = self
                     .view
@@ -218,22 +218,22 @@ impl QueryService for QueryHandler<'_, '_> {
                     .ok_or_else(|| QueryError::implementation(format!("Library at uri {uri} could not be resolved.")))?;
                 Ok(Value::Array(self.view.library_types(self.table, lib)))
             }
-            "declaracoesDe" => Err(QueryError::implementation("topLevelDeclarationsOf does not exist in CFE 3.6.2")),
-            "resolver" => {
-                let t = args.get("tipo").ok_or_else(|| QueryError::unexpected("missing argument 'tipo'"))?;
+            "topLevelDeclarationsOf" => Err(QueryError::implementation("topLevelDeclarationsOf does not exist in CFE 3.6.2")),
+            "resolve" => {
+                let t = args.get("type").ok_or_else(|| QueryError::unexpected("missing argument 'type'"))?;
                 let e = self.static_type(t)?;
                 Ok(self.static_type_json(e))
             }
-            "ehExatamente" => {
+            "isExactly" => {
                 let (a, b) = (self.static_type_by_key(args, "a")?, self.static_type_by_key(args, "b")?);
                 Ok(json!(a == b))
             }
-            "ehSubtipo" => {
+            "isSubtypeOf" => {
                 let (a, b) = (self.static_type_by_key(args, "a")?, self.static_type_by_key(args, "b")?);
                 self.is_subtype(&a, &b).map(|x| json!(x))
             }
-            "comoInstanciaDe" => Err(QueryError::unexpected("asInstanceOf requires crates/types")),
-            "inferirTipo" => Err(QueryError::unexpected("inferType requires the inference of crates/types")),
+            "asInstanceOf" => Err(QueryError::unexpected("asInstanceOf requires crates/types")),
+            "inferType" => Err(QueryError::unexpected("inferType requires the inference of crates/types")),
             _ => Err(QueryError::unexpected(format!("unknown query: {kind}"))),
         }
     }
@@ -251,7 +251,7 @@ pub struct ProgramResolver<'a, 'p> {
 pub fn type_code(t: &Value) -> Code {
     let mut parts = Vec::new();
     match t.get("t").and_then(Value::as_str) {
-        Some("nomeado") => {
+        Some("named") => {
             parts.push(Part::Ident(t["ident"]["id"].as_u64().unwrap_or(0)));
             let args = t.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
             if !args.is_empty() {
@@ -265,10 +265,10 @@ pub fn type_code(t: &Value) -> Code {
                 parts.push(Part::Text(">".into()));
             }
         }
-        Some("omitido") => parts.push(Part::Omitted(t["chave"].as_u64().unwrap_or(0))),
+        Some("omitted") => parts.push(Part::Omitted(t["key"].as_u64().unwrap_or(0))),
         _ => parts.push(Part::Text("dynamic".into())),
     }
-    if t.get("anulavel").and_then(Value::as_bool) == Some(true) {
+    if t.get("nullable").and_then(Value::as_bool) == Some(true) {
         parts.push(Part::Text("?".into()));
     }
     Code { kind: "namedTypeAnnotation".into(), parts }
@@ -338,10 +338,10 @@ impl Resolver for ProgramResolver<'_, '_> {
             .map(|l| {
                 l.iter()
                     .map(|p| {
-                        let mut parts = vec![Part::Text(p["ident"]["nome"].as_str().unwrap_or("").to_string())];
-                        if !p["limite"].is_null() {
+                        let mut parts = vec![Part::Text(p["ident"]["name"].as_str().unwrap_or("").to_string())];
+                        if !p["bound"].is_null() {
                             parts.push(Part::Text(" extends ".into()));
-                            parts.push(Part::Code(type_code(&p["limite"])));
+                            parts.push(Part::Code(type_code(&p["bound"])));
                         }
                         Code { kind: "typeParameter".into(), parts }
                     })

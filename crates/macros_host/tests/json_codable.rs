@@ -10,7 +10,7 @@
 //!
 //! * [`recorded_session_reproduces_the_cfe_text`] — with no executor at all:
 //!   the fake executor replays the recorded session
-//!   (`esperado/sessao.dfexec`) and checks that every host message —
+//!   (`esperado/session.dfexec`) and checks that every host message —
 //!   requests, model, answers to the queries — is the recorded one. It needs
 //!   no VM: only the SDK (the libraries) and the case's `pub get` (the
 //!   `package:json`), which CI runs before the `#[ignore]` tests.
@@ -96,7 +96,7 @@ fn recorded_session_reproduces_the_cfe_text() {
         eprintln!("no SDK or no pub get of corpus/macros/410_json_codable: skipped");
         return;
     };
-    let recorded = std::fs::read_to_string(c.dir.join("esperado/sessao.dfexec")).expect("recorded session");
+    let recorded = std::fs::read_to_string(c.dir.join("esperado/session.dfexec")).expect("recorded session");
     let mut executor = DfexecExecutor::new(RecordedChannel::from_text(&recorded).unwrap());
     let texts = apply(&c, &sdk, &mut executor);
     assert_eq!(executor.channel().remaining(), 0, "part of the recorded session was left unconsumed");
@@ -148,7 +148,7 @@ fn cache_reuses_json_codable_without_executor() {
         eprintln!("no SDK or no pub get of corpus/macros/410_json_codable: skipped");
         return;
     };
-    let recorded = std::fs::read_to_string(c.dir.join("esperado/sessao.dfexec")).expect("recorded session");
+    let recorded = std::fs::read_to_string(c.dir.join("esperado/session.dfexec")).expect("recorded session");
     let mut executor = DfexecExecutor::new(RecordedChannel::from_text(&recorded).unwrap());
     let mut cache = MacroCache::new("recorded session");
     let first = apply_with_cache(&c, &sdk, &mut executor, &mut cache);
@@ -194,7 +194,7 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
     let texts = apply(&c, &sdk, &mut executor);
     if std::env::var_os("DARTFORGE_RECORD_SESSION").is_some() {
         let s = session_to_text(&executor.channel().session);
-        std::fs::write(c.dir.join("esperado/sessao.dfexec"), s).unwrap();
+        std::fs::write(c.dir.join("esperado/session.dfexec"), s).unwrap();
     }
     check(&c, &texts);
 }

@@ -68,9 +68,9 @@ fn member(parts: Vec<Part>) -> Code {
     Code { kind: "declaration".into(), parts }
 }
 
-/// `resolverIdentificador` of `dart:core`.
+/// `resolveIdentifier` of `dart:core`.
 fn core(queries: &mut dyn QueryService, name: &str) -> u64 {
-    let r = queries.query("resolverIdentificador", &json!({"uri": "dart:core", "nome": name})).expect(name);
+    let r = queries.query("resolveIdentifier", &json!({"uri": "dart:core", "name": name})).expect(name);
     r["id"].as_u64().unwrap()
 }
 
@@ -97,7 +97,7 @@ impl MacroExecutor for Fake {
         self.touch();
         let macro_ = self.instances[(p.instance - 1) as usize].rsplit('#').next().unwrap().to_string();
         let class = p.target["ident"]["id"].as_u64().unwrap();
-        let name = p.target["ident"]["nome"].as_str().unwrap().to_string();
+        let name = p.target["ident"]["name"].as_str().unwrap().to_string();
         let uri = p.target["lib"]["uri"].as_str().unwrap().to_string();
         self.executions.push((macro_.clone(), p.phase, name.clone()));
         if self.fail == Some(macro_.as_str()) {
@@ -116,24 +116,24 @@ impl MacroExecutor for Fake {
             }
             ("Fields", Phase::Declarations) => {
                 let int = core(queries, "int");
-                let fields = p.model["membros"][class.to_string()]["campos"].as_array().cloned().unwrap_or_default();
+                let fields = p.model["members"][class.to_string()]["fields"].as_array().cloned().unwrap_or_default();
                 let mut members = Vec::new();
                 for c in &fields {
-                    let n = c["ident"]["nome"].as_str().unwrap();
+                    let n = c["ident"]["name"].as_str().unwrap();
                     members.push(member(vec![text("  external "), Part::Ident(int), text(&format!(" get field_{n};"))]));
                 }
                 // The negative answer ("does not exist") is a dependency too.
-                let helper = queries.query("resolverIdentificador", &json!({"uri": uri, "nome": "helper"}));
+                let helper = queries.query("resolveIdentifier", &json!({"uri": uri, "name": "helper"}));
                 let mark = if helper.is_ok() { "withHelper" } else { "withoutHelper" };
                 members.push(member(vec![text(&format!("  external void {mark}();"))]));
                 r.types = vec![(class, members)];
                 r.diagnostics =
-                    vec![json!({"severidade": "warning", "mensagem": {"texto": format!("{name}: {} fields", fields.len())}})];
+                    vec![json!({"severity": "warning", "message": {"text": format!("{name}: {} fields", fields.len())}})];
             }
             ("Consumer", Phase::Declarations) => {
-                let a = queries.query("resolverIdentificador", &json!({"uri": uri, "nome": "A"})).unwrap();
-                let methods = queries.query("membros", &json!({"dono": a["id"], "tipo": "metodos"})).unwrap();
-                let has = methods.as_array().unwrap().iter().any(|m| m["ident"]["nome"] == "toJson");
+                let a = queries.query("resolveIdentifier", &json!({"uri": uri, "name": "A"})).unwrap();
+                let methods = queries.query("members", &json!({"owner": a["id"], "kind": "methods"})).unwrap();
+                let has = methods.as_array().unwrap().iter().any(|m| m["ident"]["name"] == "toJson");
                 let int = core(queries, "int");
                 let name = if has { " withToJson();" } else { " withoutToJson();" };
                 r.types = vec![(class, vec![member(vec![text("  external "), Part::Ident(int), text(name)])])];

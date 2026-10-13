@@ -1,12 +1,12 @@
 part of '../api.dart';
 
-/// Um diagnóstico reportado por uma macro. O hospedeiro o liga ao alvo da
-/// mensagem ou, sem alvo, à anotação da aplicação.
+/// A diagnostic reported by a macro. The host attaches it to the message's
+/// target or, without a target, to the application's annotation.
 class Diagnostic {
-  /// Mensagens de contexto.
+  /// Context messages.
   final Iterable<DiagnosticMessage> contextMessages;
 
-  /// Como corrigir, se a macro souber.
+  /// How to fix it, if the macro knows.
   final String? correctionMessage;
 
   final DiagnosticMessage message;
@@ -19,17 +19,17 @@ class Diagnostic {
       : contextMessages = UnmodifiableListView(contextMessages);
 }
 
-/// Texto e alvo opcional de um [Diagnostic].
+/// Text and optional target of a [Diagnostic].
 class DiagnosticMessage {
   final String message;
 
-  /// Sem alvo, vale a aplicação da macro.
+  /// Without a target, the macro application applies.
   final DiagnosticTarget? target;
 
   DiagnosticMessage(this.message, {this.target});
 }
 
-/// União dos alvos possíveis.
+/// Union of the possible targets.
 sealed class DiagnosticTarget {}
 
 final class DeclarationDiagnosticTarget extends DiagnosticTarget {
@@ -66,12 +66,12 @@ extension MetadataAnnotationAsTarget on MetadataAnnotation {
 }
 
 enum Severity {
-  /// Informação (pode não ser mostrada).
+  /// Information (may not be shown).
   info,
 
-  /// Provável problema; mostrado por padrão.
+  /// Likely problem; shown by default.
   warning,
 
-  /// A macro não pôde seguir; impede a compilação.
+  /// The macro could not continue; prevents compilation.
   error,
 }

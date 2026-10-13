@@ -30,9 +30,9 @@ impl Phase {
     /// The name used in the protocol.
     pub fn name(self) -> &'static str {
         match self {
-            Phase::Types => "tipos",
-            Phase::Declarations => "declaracoes",
-            Phase::Definitions => "definicoes",
+            Phase::Types => "types",
+            Phase::Declarations => "declarations",
+            Phase::Definitions => "definitions",
         }
     }
 }
@@ -54,10 +54,10 @@ pub struct QueryError {
 
 impl QueryError {
     pub fn implementation(m: impl Into<String>) -> Self {
-        QueryError { kind: "implementacao", message: m.into() }
+        QueryError { kind: "implementation", message: m.into() }
     }
     pub fn unexpected(m: impl Into<String>) -> Self {
-        QueryError { kind: "inesperado", message: m.into() }
+        QueryError { kind: "unexpected", message: m.into() }
     }
 }
 
@@ -84,7 +84,7 @@ pub trait MacroExecutor: Send {
     fn availability(&self) -> Availability;
     /// Handshake; returns the macros of the bootstrap.
     fn start(&mut self) -> Result<Handshake, String>;
-    /// `macro_` is `uri#Class`; `arguments` is `{posicionais, nomeados}`.
+    /// `macro_` is `uri#Class`; `arguments` is `{positional, named}`.
     /// Returns the instance and the names of the macro interfaces it
     /// implements (`ClassDeclarationsMacro`…), which decide the phases.
     fn instantiate(&mut self, macro_: &str, constructor: &str, arguments: &Value) -> Result<(u64, Vec<String>), String>;

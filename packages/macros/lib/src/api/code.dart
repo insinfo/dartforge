@@ -1,20 +1,20 @@
 part of '../api.dart';
 
-// Código que uma macro monta (spec, "Code objects"). Um [Code] é uma lista
-// de partes — `String`, [Identifier], [Code] aninhado e, dentro de um
-// [OmittedTypeAnnotationCode], [OmittedTypeAnnotation] — que o hospedeiro
-// transforma em texto: um [Identifier] vira o nome com o prefixo de import
-// certo, e o tipo omitido vira o tipo inferido. A ordem e o texto exato das
-// partes de cada subtipo fazem parte do contrato: o texto da biblioteca de
-// augmentation é conferido byte a byte com o do CFE 3.6.2.
+// Code a macro assembles (spec, "Code objects"). A [Code] is a list of
+// parts — `String`, [Identifier], nested [Code] and, inside an
+// [OmittedTypeAnnotationCode], [OmittedTypeAnnotation] — that the host
+// turns into text: an [Identifier] becomes the name with the right import
+// prefix, and the omitted type becomes the inferred type. The order and exact
+// text of each subtype's parts are part of the contract: the text of the
+// augmentation library is checked byte for byte against CFE 3.6.2's.
 
-/// Um pedaço de código Dart, válido ou não.
+/// A piece of Dart code, valid or not.
 sealed class Code {
-  /// As partes: `String`, [Identifier], [Code] (e [OmittedTypeAnnotation]
-  /// dentro de [OmittedTypeAnnotationCode]).
+  /// The parts: `String`, [Identifier], [Code] (and [OmittedTypeAnnotation]
+  /// inside [OmittedTypeAnnotationCode]).
   final List<Object> parts;
 
-  /// O tipo do código, para `switch` sem testes de tipo.
+  /// The kind of code, for a `switch` without type tests.
   CodeKind get kind;
 
   Code.fromString(String code) : parts = [code];
@@ -28,7 +28,7 @@ sealed class Code {
   }
 }
 
-/// Código arbitrário, sem exigência sintática; serve para compor outros.
+/// Arbitrary code, with no syntactic requirement; used to compose others.
 final class RawCode extends Code {
   @override
   CodeKind get kind => CodeKind.raw;
@@ -38,7 +38,7 @@ final class RawCode extends Code {
   RawCode.fromParts(super.parts) : super.fromParts();
 }
 
-/// Uma declaração sintaticamente válida.
+/// A syntactically valid declaration.
 final class DeclarationCode extends Code {
   @override
   CodeKind get kind => CodeKind.declaration;
@@ -48,7 +48,7 @@ final class DeclarationCode extends Code {
   DeclarationCode.fromParts(super.parts) : super.fromParts();
 }
 
-/// Um comentário (de documentação, com referências entre `[]`).
+/// A comment (a doc comment, with references between `[]`).
 final class CommentCode extends Code {
   @override
   CodeKind get kind => CodeKind.comment;
@@ -58,7 +58,7 @@ final class CommentCode extends Code {
   CommentCode.fromParts(super.parts) : super.fromParts();
 }
 
-/// Uma expressão sintaticamente válida.
+/// A syntactically valid expression.
 final class ExpressionCode extends Code {
   @override
   CodeKind get kind => CodeKind.expression;
@@ -68,8 +68,8 @@ final class ExpressionCode extends Code {
   ExpressionCode.fromParts(super.parts) : super.fromParts();
 }
 
-/// Um corpo de função: tudo depois da lista de parâmetros, modificadores
-/// (`async`…) incluídos; bloco ou `=>`.
+/// A function body: everything after the parameter list, modifiers
+/// (`async`…) included; a block or `=>`.
 final class FunctionBodyCode extends Code {
   @override
   CodeKind get kind => CodeKind.functionBody;
@@ -79,16 +79,16 @@ final class FunctionBodyCode extends Code {
   FunctionBodyCode.fromParts(super.parts) : super.fromParts();
 }
 
-/// Um parâmetro de função ou de tipo de função (posicional ou nomeado: quem
-/// monta a lista decide).
+/// A parameter of a function or of a function type (positional or named:
+/// whoever assembles the list decides).
 final class ParameterCode implements Code {
-  /// Valor padrão, sem o ` = `.
+  /// Default value, without the ` = `.
   final Code? defaultValue;
 
-  /// Palavras antes do tipo (`required`, `final`…).
+  /// Words before the type (`required`, `final`…).
   final List<String> keywords;
 
-  /// Pode faltar só em tipo de função.
+  /// May be missing only in a function type.
   final String? name;
 
   final TypeAnnotationCode? type;
@@ -117,15 +117,15 @@ final class ParameterCode implements Code {
   });
 }
 
-/// Uma anotação de tipo.
+/// A type annotation.
 sealed class TypeAnnotationCode implements Code, TypeAnnotation {
   @override
   TypeAnnotationCode get code => this;
 
-  /// A versão não anulável (o próprio objeto, se já é).
+  /// The non-nullable version (the object itself, if it already is).
   TypeAnnotationCode get asNonNullable => this;
 
-  /// A versão anulável.
+  /// The nullable version.
   NullableTypeAnnotationCode get asNullable => NullableTypeAnnotationCode(this);
 
   @override
@@ -134,7 +134,7 @@ sealed class TypeAnnotationCode implements Code, TypeAnnotation {
 
 /// `T?`.
 final class NullableTypeAnnotationCode implements TypeAnnotationCode {
-  /// O tipo que fica anulável.
+  /// The type that becomes nullable.
   TypeAnnotationCode underlyingType;
 
   @override
@@ -158,7 +158,7 @@ final class NullableTypeAnnotationCode implements TypeAnnotationCode {
   bool get isNullable => true;
 }
 
-/// Um tipo nomeado com argumentos: `Nome<A, B>`.
+/// A named type with arguments: `Name<A, B>`.
 final class NamedTypeAnnotationCode extends TypeAnnotationCode {
   final Identifier name;
 
@@ -176,7 +176,7 @@ final class NamedTypeAnnotationCode extends TypeAnnotationCode {
   NamedTypeAnnotationCode({required this.name, this.typeArguments = const []});
 }
 
-/// Um tipo de função: `R Function<T>(A, [B], {C c})`.
+/// A function type: `R Function<T>(A, [B], {C c})`.
 final class FunctionTypeAnnotationCode extends TypeAnnotationCode {
   final List<ParameterCode> namedParameters;
 
@@ -220,9 +220,9 @@ final class FunctionTypeAnnotationCode extends TypeAnnotationCode {
   });
 }
 
-/// Um campo de tipo record (só dentro de [RecordTypeAnnotationCode]).
+/// A field of a record type (only inside [RecordTypeAnnotationCode]).
 final class RecordFieldCode implements Code {
-  /// Posicionais podem não ter nome.
+  /// Positional ones may have no name.
   final String? name;
 
   final TypeAnnotationCode type;
@@ -236,7 +236,7 @@ final class RecordFieldCode implements Code {
   RecordFieldCode({this.name, required this.type});
 }
 
-/// Um tipo record: `(A, B a, {C c})`.
+/// A record type: `(A, B a, {C c})`.
 final class RecordTypeAnnotationCode extends TypeAnnotationCode {
   final List<RecordFieldCode> namedFields;
 
@@ -270,7 +270,7 @@ final class RecordTypeAnnotationCode extends TypeAnnotationCode {
   });
 }
 
-/// Um tipo omitido: vira o tipo inferido quando o texto é montado.
+/// An omitted type: becomes the inferred type when the text is assembled.
 final class OmittedTypeAnnotationCode extends TypeAnnotationCode {
   final OmittedTypeAnnotation typeAnnotation;
 
@@ -283,8 +283,8 @@ final class OmittedTypeAnnotationCode extends TypeAnnotationCode {
   List<Object> get parts => [typeAnnotation];
 }
 
-/// Tipo escrito cru (para um tipo local sem [Identifier], como um recém
-/// declarado). Prefira os subtipos específicos.
+/// A type written raw (for a local type without an [Identifier], like one just
+/// declared). Prefer the specific subtypes.
 final class RawTypeAnnotationCode extends RawCode
     implements TypeAnnotationCode {
   @override
@@ -298,11 +298,11 @@ final class RawTypeAnnotationCode extends RawCode
 
   RawTypeAnnotationCode._(super.parts) : super.fromParts();
 
-  /// De um texto sem espaço no fim.
+  /// From a text with no trailing space.
   static TypeAnnotationCode fromString(String code) => fromParts([code]);
 
-  /// De partes sem espaço no fim. Um `?` final vira
-  /// [NullableTypeAnnotationCode] em volta do resto.
+  /// From parts with no trailing space. A final `?` becomes
+  /// [NullableTypeAnnotationCode] around the rest.
   static TypeAnnotationCode fromParts(List<Object> parts) {
     final (anulavel, resto) = _semInterrogacao(parts);
     final TypeAnnotationCode codigo = RawTypeAnnotationCode._(resto);
@@ -315,8 +315,8 @@ final class RawTypeAnnotationCode extends RawCode
   @override
   bool get isNullable => false;
 
-  /// Tira o `?` da última parte de texto não vazia, se houver. Espaço no fim
-  /// é erro; um [Identifier] no fim encerra a busca (nunca tem `?`).
+  /// Strips the `?` from the last non-empty text part, if any. Trailing space
+  /// is an error; an [Identifier] at the end stops the search (it never has `?`).
   static (bool, List<Object>) _semInterrogacao(List<Object> parts) {
     for (var i = parts.length - 1; i >= 0; i--) {
       final parte = parts[i];
@@ -338,7 +338,7 @@ final class RawTypeAnnotationCode extends RawCode
   }
 }
 
-/// Um parâmetro de tipo: `T extends B`.
+/// A type parameter: `T extends B`.
 final class TypeParameterCode implements Code {
   final TypeAnnotationCode? bound;
   final String name;
@@ -353,7 +353,7 @@ final class TypeParameterCode implements Code {
 }
 
 extension Join<T extends Object> on List<T> {
-  /// Os itens intercalados com [separator], sem converter os itens em texto.
+  /// The items interleaved with [separator], without converting the items to text.
   List<Object> joinAsCode(String separator) => [
         for (var i = 0; i < length; i++) ...[
           if (i > 0) separator,

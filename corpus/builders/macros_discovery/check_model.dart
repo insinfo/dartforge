@@ -6,352 +6,297 @@ import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/element/element.dart';
-import 'package:dartforge_macros_builder/src/resolver_identificadores.dart';
-import 'package:dartforge_macros_builder/src/consultas_definicoes.dart';
-import 'package:dartforge_macros_builder/src/modelo_analyzer.dart';
-import 'package:dartforge_macros_builder/src/tabela_identificadores.dart';
+import 'package:dartforge_macros_builder/src/analyzer_model.dart';
+import 'package:dartforge_macros_builder/src/definition_queries.dart';
+import 'package:dartforge_macros_builder/src/identifier_resolver.dart';
+import 'package:dartforge_macros_builder/src/identifier_table.dart';
 import 'package:json/json.dart';
-import 'package:macros/src/executor/executar.dart';
-import 'package:macros/src/executor/modelo.dart';
-import 'package:macros/src/executor/resultado.dart';
+import 'package:macros/src/executor/execute.dart';
+import 'package:macros/src/executor/model.dart';
+import 'package:macros/src/executor/result.dart';
 
-final class HospedeiroAnalyzer implements Hospedeiro {
-  final ResolvedorIdentificadores resolvedor;
-  HospedeiroAnalyzer(this.resolvedor);
+final class AnalyzerHost implements Host {
+  final IdentifierResolver resolver;
+  AnalyzerHost(this.resolver);
 
   @override
-  Future<Object?> consultar(String tipo, Map<String, Object?> args) {
-    if (tipo != 'resolverIdentificador')
-      throw UnsupportedError('consulta $tipo ainda não implementada');
-    return resolvedor.resolver(args['uri'] as String, args['nome'] as String);
+  Future<Object?> query(String kind, Map<String, Object?> args) {
+    if (kind != 'resolveIdentifier') throw UnsupportedError('query $kind not implemented yet');
+    return resolver.resolve(args['uri'] as String, args['name'] as String);
   }
 }
 
-Object? trocarUri(Object? valor) {
-  if (valor == 'package:caso_json/modelos.dart') {
+Object? replaceUri(Object? value) {
+  if (value == 'package:caso_json/modelos.dart') {
     return 'package:corpus_macros_discovery/modelos.dart';
   }
-  if (valor is List) return [for (final item in valor) trocarUri(item)];
-  if (valor is Map) {
-    return {
-      for (final entrada in valor.entries) entrada.key: trocarUri(entrada.value)
-    };
+  if (value is List) return [for (final item in value) replaceUri(item)];
+  if (value is Map) {
+    return {for (final entry in value.entries) entry.key: replaceUri(entry.value)};
   }
-  return valor;
+  return value;
 }
 
-Object? semIds(Object? valor) {
-  if (valor is List) return [for (final item in valor) semIds(item)];
-  if (valor is Map) {
+Object? withoutIds(Object? value) {
+  if (value is List) return [for (final item in value) withoutIds(item)];
+  if (value is Map) {
     return {
-      for (final entrada in valor.entries)
-        if (entrada.key != 'id' && entrada.key != 'chave' && entrada.key != 'i')
-          entrada.key: semIds(entrada.value),
+      for (final entry in value.entries)
+        if (entry.key != 'id' && entry.key != 'key' && entry.key != 'i') entry.key: withoutIds(entry.value),
     };
   }
-  return valor;
+  return value;
 }
 
-Object? semIdDoAlvo(Object? resultado) {
-  final mapa = Map<String, Object?>.from(resultado as Map);
-  mapa['tipos'] = [
-    for (final par in mapa['tipos'] as List) [0, (par as List)[1]],
+Object? withoutTargetId(Object? result) {
+  final map = Map<String, Object?>.from(result as Map);
+  map['types'] = [
+    for (final pair in map['types'] as List) [0, (pair as List)[1]],
   ];
-  return semIds(mapa);
+  return withoutIds(map);
 }
 
-bool igual(Object? a, Object? b) {
+bool equal(Object? a, Object? b) {
   if (a is List && b is List) {
-    return a.length == b.length &&
-        List.generate(a.length, (i) => i).every((i) => igual(a[i], b[i]));
+    return a.length == b.length && List.generate(a.length, (i) => i).every((i) => equal(a[i], b[i]));
   }
   if (a is Map && b is Map) {
-    return a.length == b.length &&
-        a.keys.every(
-            (chave) => b.containsKey(chave) && igual(a[chave], b[chave]));
+    return a.length == b.length && a.keys.every((key) => b.containsKey(key) && equal(a[key], b[key]));
   }
   return a == b;
 }
 
 Future<void> main() async {
-  final manifesto =
-      jsonDecode(File('lib/modelos.macro_uses.json').readAsStringSync()) as Map;
-  final aplicacoes = manifesto['aplicacoes'] as List;
-  final endereco =
-      aplicacoes.singleWhere((a) => a['alvo'] == 'Endereco') as Map;
-  final sessao = File('../../macros/410_json_codable/esperado/sessao.dfexec')
-      .readAsLinesSync();
-  final pedido = sessao
-      .map((linha) => jsonDecode(linha.substring(2)) as Map)
+  final manifest = jsonDecode(File('lib/modelos.macro_uses.json').readAsStringSync()) as Map;
+  final applications = manifest['applications'] as List;
+  final endereco = applications.singleWhere((a) => a['target'] == 'Endereco') as Map;
+  final session = File('../../macros/410_json_codable/esperado/session.dfexec').readAsLinesSync();
+  final request = session
+      .map((line) => jsonDecode(line.substring(2)) as Map)
       .singleWhere((m) => m['t'] == 'macro.execute' && m['id'] == 4);
-  final esperado =
-      trocarUri({'alvo': pedido['target'], 'modelo': pedido['model']});
-  if (!igual(endereco['execucao'], esperado)) {
-    throw StateError(
-        'modelo do Endereco difere do pedido macro.execute do CFE');
+  final expected = replaceUri({'target': request['target'], 'model': request['model']});
+  if (!equal(endereco['execution'], expected)) {
+    throw StateError('the Endereco model differs from the CFE macro.execute request');
   }
-  final caminho = File(
-          '${Directory.current.path}${Platform.pathSeparator}lib${Platform.pathSeparator}modelos.dart')
-      .absolute
-      .path;
-  final contextos = AnalysisContextCollection(
-      includedPaths: [Directory.current.absolute.path]);
+  final path =
+      File('${Directory.current.path}${Platform.pathSeparator}lib${Platform.pathSeparator}modelos.dart').absolute.path;
+  final contexts = AnalysisContextCollection(includedPaths: [Directory.current.absolute.path]);
   try {
-    final biblioteca = await contextos
-        .contextFor(caminho)
+    final library = await contexts
+        .contextFor(path)
         .currentSession
         .getLibraryByUri('package:corpus_macros_discovery/modelos.dart');
-    if (biblioteca is! LibraryElementResult)
-      throw StateError('biblioteca do fixture não resolvida');
-    final classe = biblioteca.element.topLevelElements
-        .whereType<ClassElement>()
-        .singleWhere((c) => c.name == 'Endereco');
-    final resolvedor = ResolvedorIdentificadores(
-        classe, Map<String, Object?>.from(endereco['execucao'] as Map));
-    final consultas = <int, Map<String, Object?>>{};
-    var resolvidas = 0;
-    for (final linha in sessao) {
-      final m = jsonDecode(linha.substring(2)) as Map;
+    if (library is! LibraryElementResult) throw StateError('fixture library not resolved');
+    final classElement =
+        library.element.topLevelElements.whereType<ClassElement>().singleWhere((c) => c.name == 'Endereco');
+    final resolver = IdentifierResolver(classElement, Map<String, Object?>.from(endereco['execution'] as Map));
+    final queries = <int, Map<String, Object?>>{};
+    var resolved = 0;
+    for (final line in session) {
+      final m = jsonDecode(line.substring(2)) as Map;
       if (m['t'] == 'macro.query' && m['execution'] == 4) {
-        consultas[m['id'] as int] = Map<String, Object?>.from(m['args'] as Map);
-      } else if (m['t'] == 'macro.response' && consultas.containsKey(m['id'])) {
-        final args = consultas.remove(m['id'])!;
-        final obtido = await resolvedor.resolver(
-            args['uri'] as String, args['nome'] as String);
-        if (!igual(obtido, m['value']))
-          throw StateError('resolverIdentificador divergiu do CFE: $args');
-        resolvidas++;
+        queries[m['id'] as int] = Map<String, Object?>.from(m['args'] as Map);
+      } else if (m['t'] == 'macro.response' && queries.containsKey(m['id'])) {
+        final args = queries.remove(m['id'])!;
+        final actual = await resolver.resolve(args['uri'] as String, args['name'] as String);
+        if (!equal(actual, m['value'])) throw StateError('resolveIdentifier diverged from the CFE: $args');
+        resolved++;
       }
     }
-    if (resolvidas != 3)
-      throw StateError('$resolvidas consultas resolvidas; esperadas 3');
-    final execucao = Map<String, Object?>.from(endereco['execucao'] as Map);
-    final modelo = Modelo(HospedeiroAnalyzer(resolvedor))
-      ..receber(Map<String, Object?>.from(execucao['modelo'] as Map));
-    final alvo =
-        modelo.declaracao(Map<String, Object?>.from(execucao['alvo'] as Map));
-    final resultado = (await executarFase(
-            const JsonCodable(), Fase.declaracoes, alvo, Introspector(modelo)))
-        .paraJson();
-    final esperadoResultado = sessao
-        .map((linha) => jsonDecode(linha.substring(2)) as Map)
-        .singleWhere(
-            (m) => m['t'] == 'macro.result' && m['id'] == 4)['result'];
-    if (!igual(resultado, esperadoResultado))
-      throw StateError('fase de declarações divergiu do CFE');
-    final declaracoes = jsonDecode(
-        File('lib/modelos.macro_declarations.json').readAsStringSync()) as Map;
-    final geradas = declaracoes['resultados'] as List;
-    if (declaracoes['versao'] != 1 || geradas.length != 4)
-      throw StateError('builder não executou as quatro aplicações registradas');
-    final geradosPorAlvo = {
-      for (final item in geradas) (item as Map)['alvo']: item,
+    if (resolved != 3) throw StateError('$resolved queries resolved; expected 3');
+    final execution = Map<String, Object?>.from(endereco['execution'] as Map);
+    final model = Model(AnalyzerHost(resolver))..receive(Map<String, Object?>.from(execution['model'] as Map));
+    final target = model.declaration(Map<String, Object?>.from(execution['target'] as Map));
+    final result =
+        (await executePhase(const JsonCodable(), Phase.declarations, target, Introspector(model))).toJson();
+    final expectedResult = session
+        .map((line) => jsonDecode(line.substring(2)) as Map)
+        .singleWhere((m) => m['t'] == 'macro.result' && m['id'] == 4)['result'];
+    if (!equal(result, expectedResult)) throw StateError('declarations phase diverged from the CFE');
+    final declarations = jsonDecode(File('lib/modelos.macro_declarations.json').readAsStringSync()) as Map;
+    final generated = declarations['results'] as List;
+    if (declarations['version'] != 1 || generated.length != 4) {
+      throw StateError('the builder did not run the four registered applications');
+    }
+    final generatedByTarget = {
+      for (final item in generated) (item as Map)['target']: item,
     };
-    final idsDosAlvos = <int>{};
-    final idsDoCore = <String, int>{};
-    void conferirIds(Object? valor) {
-      if (valor is List) {
-        for (final item in valor) conferirIds(item);
-      } else if (valor is Map) {
-        if (valor['i'] is int && valor['n'] is String) {
-          final nome = valor['n'] as String;
-          if (const {'Map', 'String', 'Object'}.contains(nome)) {
-            final anterior =
-                idsDoCore.putIfAbsent(nome, () => valor['i'] as int);
-            if (anterior != valor['i'])
-              throw StateError('id de dart:core mudou entre aplicações: $nome');
+    final targetIds = <int>{};
+    final coreIds = <String, int>{};
+    void checkIds(Object? value) {
+      if (value is List) {
+        for (final item in value) checkIds(item);
+      } else if (value is Map) {
+        if (value['i'] is int && value['n'] is String) {
+          final name = value['n'] as String;
+          if (const {'Map', 'String', 'Object'}.contains(name)) {
+            final previous = coreIds.putIfAbsent(name, () => value['i'] as int);
+            if (previous != value['i']) throw StateError('dart:core id changed between applications: $name');
           }
         }
-        for (final item in valor.values) conferirIds(item);
+        for (final item in value.values) checkIds(item);
       }
     }
 
-    for (final alvo in ['Endereco', 'Usuario', 'SoSaida', 'SoEntrada']) {
-      final item = geradosPorAlvo[alvo];
-      if (item == null) throw StateError('resultado ausente para $alvo');
-      final resultadoDaMacro = item['resultado'] as Map;
-      if (resultadoDaMacro['excecao'] != null ||
-          (resultadoDaMacro['diagnosticos'] as List).isNotEmpty ||
-          (resultadoDaMacro['tipos'] as List).isEmpty) {
-        throw StateError('macro de $alvo não gerou declarações válidas');
+    for (final target in ['Endereco', 'Usuario', 'SoSaida', 'SoEntrada']) {
+      final item = generatedByTarget[target];
+      if (item == null) throw StateError('result missing for $target');
+      final macroResult = item['result'] as Map;
+      if (macroResult['exception'] != null ||
+          (macroResult['diagnostics'] as List).isNotEmpty ||
+          (macroResult['types'] as List).isEmpty) {
+        throw StateError('the macro of $target did not generate valid declarations');
       }
-      final tipos = resultadoDaMacro['tipos'] as List;
-      final id = (tipos.single as List).first as int;
-      if (!idsDosAlvos.add(id))
-        throw StateError('duas classes compartilham o identificador $id');
-      conferirIds(resultadoDaMacro);
+      final types = macroResult['types'] as List;
+      final id = (types.single as List).first as int;
+      if (!targetIds.add(id)) throw StateError('two classes share the identifier $id');
+      checkIds(macroResult);
     }
-    if (idsDoCore.length != 3 ||
-        (geradosPorAlvo['Endereco'] as Map)['resultado']['tipos'][0][0] != 1 ||
-        (geradosPorAlvo['Usuario'] as Map)['resultado']['tipos'][0][0] != 8) {
-      throw StateError(
-          'tabela de ids divergiu das duas primeiras aplicações do CFE');
+    if (coreIds.length != 3 ||
+        (generatedByTarget['Endereco'] as Map)['result']['types'][0][0] != 1 ||
+        (generatedByTarget['Usuario'] as Map)['result']['types'][0][0] != 8) {
+      throw StateError('the id table diverged from the first two CFE applications');
     }
-    final parcial = File('lib/modelos.macro_declarations.txt')
+    final partial = File('lib/modelos.macro_declarations.txt').readAsStringSync().replaceAll('\r\n', '\n');
+    final cfeAugmentation = File('../../macros/410_json_codable/esperado/modelos.augmentation.dart')
         .readAsStringSync()
         .replaceAll('\r\n', '\n');
-    final augmentationCfe =
-        File('../../macros/410_json_codable/esperado/modelos.augmentation.dart')
-            .readAsStringSync()
-            .replaceAll('\r\n', '\n');
-    String declaracoesDe(String texto, String nome) {
-      final inicio = texto.indexOf('augment class $nome {\n');
-      if (inicio < 0) throw StateError('classe $nome ausente da augmentation');
-      final proximaDefinicao = texto.indexOf('\n  augment ', inicio);
-      final fimDaClasse = texto.indexOf('\n}', inicio);
-      if (fimDaClasse < 0) throw StateError('classe $nome sem fechamento');
-      final fim = proximaDefinicao >= 0 && proximaDefinicao < fimDaClasse
-          ? proximaDefinicao
-          : fimDaClasse;
-      return texto.substring(inicio, fim);
+    String declarationsOf(String text, String name) {
+      final start = text.indexOf('augment class $name {\n');
+      if (start < 0) throw StateError('class $name missing from the augmentation');
+      final nextDefinition = text.indexOf('\n  augment ', start);
+      final classEnd = text.indexOf('\n}', start);
+      if (classEnd < 0) throw StateError('class $name is not closed');
+      final end = nextDefinition >= 0 && nextDefinition < classEnd ? nextDefinition : classEnd;
+      return text.substring(start, end);
     }
 
-    for (final alvo in ['Endereco', 'Usuario', 'SoSaida', 'SoEntrada']) {
-      if (declaracoesDe(parcial, alvo) !=
-          declaracoesDe(augmentationCfe, alvo)) {
-        throw StateError('declarações montadas de $alvo diferem do CFE');
+    for (final target in ['Endereco', 'Usuario', 'SoSaida', 'SoEntrada']) {
+      if (declarationsOf(partial, target) != declarationsOf(cfeAugmentation, target)) {
+        throw StateError('the assembled declarations of $target differ from the CFE');
       }
     }
-    final completo = File('lib/modelos.macro_complete.txt')
-        .readAsStringSync()
-        .replaceAll('\r\n', '\n');
-    String blocoCompleto(String texto, String nome) {
-      final inicio = texto.indexOf('augment class $nome {\n');
-      if (inicio < 0) throw StateError('classe $nome ausente da montagem');
-      final fim = texto.indexOf('\n}', inicio);
-      if (fim < 0) throw StateError('classe $nome sem fechamento na montagem');
-      return texto.substring(inicio, fim + 2);
+    final complete = File('lib/modelos.macro_complete.txt').readAsStringSync().replaceAll('\r\n', '\n');
+    String completeBlock(String text, String name) {
+      final start = text.indexOf('augment class $name {\n');
+      if (start < 0) throw StateError('class $name missing from the assembly');
+      final end = text.indexOf('\n}', start);
+      if (end < 0) throw StateError('class $name is not closed in the assembly');
+      return text.substring(start, end + 2);
     }
-    for (final alvo in ['Endereco', 'SoSaida', 'SoEntrada']) {
-      if (blocoCompleto(completo, alvo) !=
-          blocoCompleto(augmentationCfe, alvo)) {
-        throw StateError('montagem completa de $alvo difere do CFE');
+
+    for (final target in ['Endereco', 'SoSaida', 'SoEntrada']) {
+      if (completeBlock(complete, target) != completeBlock(cfeAugmentation, target)) {
+        throw StateError('the complete assembly of $target differs from the CFE');
       }
     }
-    if (completo.replaceAll('package:corpus_macros_discovery/modelos.dart',
-            'package:caso_json/modelos.dart') !=
-        augmentationCfe) {
-      throw StateError('augmentation completa difere byte a byte do CFE');
+    if (complete.replaceAll('package:corpus_macros_discovery/modelos.dart', 'package:caso_json/modelos.dart') !=
+        cfeAugmentation) {
+      throw StateError('the complete augmentation differs byte for byte from the CFE');
     }
-    final materializado = File('lib/modelos.macro.dart')
-        .readAsStringSync()
-        .replaceAll('\r\n', '\n');
-    if (materializado != completo.replaceFirst(
-            "augment library 'package:corpus_macros_discovery/modelos.dart';",
+    final materialized = File('lib/modelos.macro.dart').readAsStringSync().replaceAll('\r\n', '\n');
+    if (materialized !=
+        complete.replaceFirst("augment library 'package:corpus_macros_discovery/modelos.dart';",
             "augment library 'modelos.dart';")) {
-      throw StateError('arquivo .macro.dart divergiu da montagem');
+      throw StateError('the .macro.dart file diverged from the assembly');
     }
-    final parseado = parseString(
-      content: materializado,
+    final parsed = parseString(
+      content: materialized,
       featureSet: FeatureSet.latestLanguageVersion(flags: ['macros']),
       throwIfDiagnostics: false,
     );
-    if (parseado.errors.isNotEmpty) {
-      throw StateError('arquivo .macro.dart inválido: ${parseado.errors}');
+    if (parsed.errors.isNotEmpty) {
+      throw StateError('invalid .macro.dart file: ${parsed.errors}');
     }
-    final modelosDeDefinicao = jsonDecode(
-            File('lib/modelos.macro_definitions_model.json').readAsStringSync())
-        as Map;
-    final pedidosDeDefinicao = modelosDeDefinicao['aplicacoes'] as List;
-    if (modelosDeDefinicao['versao'] != 1 || pedidosDeDefinicao.length != 4) {
-      throw StateError('modelos de definições incompletos');
+    final definitionModels = jsonDecode(File('lib/modelos.macro_definitions_model.json').readAsStringSync()) as Map;
+    final definitionRequests = definitionModels['applications'] as List;
+    if (definitionModels['version'] != 1 || definitionRequests.length != 4) {
+      throw StateError('incomplete definition models');
     }
-    final pedidoCfeDef = sessao
-        .map((linha) => jsonDecode(linha.substring(2)) as Map)
+    final cfeDefinitionRequest = session
+        .map((line) => jsonDecode(line.substring(2)) as Map)
         .singleWhere((m) => m['t'] == 'macro.execute' && m['id'] == 8);
-    final membrosCfe =
-        trocarUri((pedidoCfeDef['model'] as Map)['membros']['1']);
-    final geradoEndereco =
-        pedidosDeDefinicao.singleWhere((a) => a['alvo'] == 'Endereco') as Map;
-    final membrosBuilder =
-        ((geradoEndereco['execucao'] as Map)['modelo'] as Map)['membros']['1'];
-    if (!igual(semIds(membrosBuilder), semIds(membrosCfe))) {
-      throw StateError('modelo pós-declarações de Endereco difere do CFE');
+    final cfeMembers = replaceUri((cfeDefinitionRequest['model'] as Map)['members']['1']);
+    final generatedEndereco = definitionRequests.singleWhere((a) => a['target'] == 'Endereco') as Map;
+    final builderMembers = ((generatedEndereco['execution'] as Map)['model'] as Map)['members']['1'];
+    if (!equal(withoutIds(builderMembers), withoutIds(cfeMembers))) {
+      throw StateError('the post-declarations model of Endereco differs from the CFE');
     }
-    final tabelaDef = TabelaIdentificadores();
-    final inicialDef = modeloDaClasse(classe, tabelaDef);
-    final resolvedorDef =
-        ResolvedorIdentificadores(classe, inicialDef, tabelaDef);
-    for (final nome in ['Map', 'String', 'Object']) {
-      await resolvedorDef.resolver('dart:core', nome);
+    final definitionTable = IdentifierTable();
+    final definitionInitial = classModel(classElement, definitionTable);
+    final definitionResolver = IdentifierResolver(classElement, definitionInitial, definitionTable);
+    for (final name in ['Map', 'String', 'Object']) {
+      await definitionResolver.resolve('dart:core', name);
     }
-    final consultasDef = ConsultasDefinicoes(resolvedorDef);
-    final pendentesDef = <int, Map<String, Object?>>{};
-    var respostasDef = 0;
-    for (final linha in sessao) {
-      final m = jsonDecode(linha.substring(2)) as Map;
+    final definitionQueries = DefinitionQueries(definitionResolver);
+    final pendingDefinitions = <int, Map<String, Object?>>{};
+    var definitionAnswers = 0;
+    for (final line in session) {
+      final m = jsonDecode(line.substring(2)) as Map;
       if (m['t'] == 'macro.query' && m['execution'] == 8) {
-        pendentesDef[m['id'] as int] = Map<String, Object?>.from(m);
-      } else if (m['t'] == 'macro.response' &&
-          pendentesDef.containsKey(m['id'])) {
-        final pedido = pendentesDef.remove(m['id'])!;
-        final tipo = pedido['kind'] as String;
-        final valor = await consultasDef.consultar(
-            tipo, Map<String, Object?>.from(pedido['args'] as Map));
-        if (!igual(semIds(valor), semIds(m['value']))) {
-          throw StateError('consulta de definição $tipo divergiu do CFE');
+        pendingDefinitions[m['id'] as int] = Map<String, Object?>.from(m);
+      } else if (m['t'] == 'macro.response' && pendingDefinitions.containsKey(m['id'])) {
+        final request = pendingDefinitions.remove(m['id'])!;
+        final kind = request['kind'] as String;
+        final value = await definitionQueries.query(kind, Map<String, Object?>.from(request['args'] as Map));
+        if (!equal(withoutIds(value), withoutIds(m['value']))) {
+          throw StateError('definition query $kind diverged from the CFE');
         }
-        respostasDef++;
+        definitionAnswers++;
       }
     }
-    if (respostasDef != 14) {
-      throw StateError('$respostasDef consultas de definições; esperadas 14');
+    if (definitionAnswers != 14) {
+      throw StateError('$definitionAnswers definition queries; expected 14');
     }
-    final definicoes = jsonDecode(
-        File('lib/modelos.macro_definitions.json').readAsStringSync()) as Map;
-    final resultadosDef = definicoes['resultados'] as List;
-    if (definicoes['versao'] != 1 || resultadosDef.length != 4) {
-      throw StateError('fase de definições não executou as quatro aplicações');
+    final definitions = jsonDecode(File('lib/modelos.macro_definitions.json').readAsStringSync()) as Map;
+    final definitionResults = definitions['results'] as List;
+    if (definitions['version'] != 1 || definitionResults.length != 4) {
+      throw StateError('the definitions phase did not run the four applications');
     }
-    for (final item in resultadosDef) {
-      final resultado = (item as Map)['resultado'] as Map;
-      if (resultado['excecao'] != null ||
-          (resultado['diagnosticos'] as List).isNotEmpty ||
-          (resultado['tipos'] as List).isEmpty) {
-        throw StateError('fase de definições de ${item['alvo']} incompleta');
+    for (final item in definitionResults) {
+      final result = (item as Map)['result'] as Map;
+      if (result['exception'] != null ||
+          (result['diagnostics'] as List).isNotEmpty ||
+          (result['types'] as List).isEmpty) {
+        throw StateError('definitions phase of ${item['target']} incomplete');
       }
     }
-    for (final caso in <(String, int)>[
+    for (final entry in <(String, int)>[
       ('Endereco', 8),
       ('Usuario', 9),
       ('SoSaida', 10),
       ('SoEntrada', 11),
     ]) {
-      final (alvo, idCfe) = caso;
-      final resultadoDef =
-          resultadosDef.singleWhere((r) => r['alvo'] == alvo) as Map;
-      final resultadoCfeDef = sessao
-          .map((linha) => jsonDecode(linha.substring(2)) as Map)
-          .singleWhere((m) => m['t'] == 'macro.result' && m['id'] == idCfe);
-      if (!igual(semIdDoAlvo(resultadoDef['resultado']),
-          semIdDoAlvo(resultadoCfeDef['result']))) {
-        throw StateError('fase de definições de $alvo divergiu do CFE');
+      final (target, cfeId) = entry;
+      final definitionResult = definitionResults.singleWhere((r) => r['target'] == target) as Map;
+      final cfeDefinitionResult = session
+          .map((line) => jsonDecode(line.substring(2)) as Map)
+          .singleWhere((m) => m['t'] == 'macro.result' && m['id'] == cfeId);
+      if (!equal(withoutTargetId(definitionResult['result']), withoutTargetId(cfeDefinitionResult['result']))) {
+        throw StateError('definitions phase of $target diverged from the CFE');
       }
     }
-    final peloBuilder =
-        geradas.singleWhere((r) => r['alvo'] == 'Endereco') as Map;
-    if (peloBuilder['macro'] != 'package:json/json.dart#JsonCodable' ||
-        !igual(peloBuilder['resultado'], esperadoResultado)) {
-      throw StateError('resultado do build_runner divergiu do CFE');
+    final byBuilder = generated.singleWhere((r) => r['target'] == 'Endereco') as Map;
+    if (byBuilder['macro'] != 'package:json/json.dart#JsonCodable' || !equal(byBuilder['result'], expectedResult)) {
+      throw StateError('the build_runner result diverged from the CFE');
     }
-    const uriReexportada = 'package:corpus_macros_discovery/reexportado.dart';
-    final bibliotecaReexportada =
-        await classe.library.session.getLibraryByUri(uriReexportada);
-    if (bibliotecaReexportada is! LibraryElementResult ||
-        bibliotecaReexportada.element.exportNamespace.get('Random') == null) {
-      throw StateError('fixture de reexportação não expõe Random');
+    const reexportedUri = 'package:corpus_macros_discovery/reexportado.dart';
+    final reexportedLibrary = await classElement.library.session.getLibraryByUri(reexportedUri);
+    if (reexportedLibrary is! LibraryElementResult ||
+        reexportedLibrary.element.exportNamespace.get('Random') == null) {
+      throw StateError('the re-export fixture does not expose Random');
     }
-    var rejeitouReexportacao = false;
+    var rejectedReexport = false;
     try {
-      await resolvedor.resolver(uriReexportada, 'Random');
+      await resolver.resolve(reexportedUri, 'Random');
     } on StateError {
-      rejeitouReexportacao = true;
+      rejectedReexport = true;
     }
-    if (!rejeitouReexportacao)
-      throw StateError('reexportação aceita como declaração local');
-    print(
-        'modelo, $resolvidas consultas e fase de declarações iguais ao CFE; build_runner executou e montou 4 aplicações; augmentation inteira byte a byte e 4 resultados de definições iguais ao CFE; $respostasDef consultas de Endereco; reexportação rejeitada');
+    if (!rejectedReexport) throw StateError('re-export accepted as a local declaration');
+    print('model, $resolved queries and declarations phase equal to the CFE; build_runner ran and assembled '
+        '4 applications; whole augmentation byte for byte and 4 definition results equal to the CFE; '
+        '$definitionAnswers queries of Endereco; re-export rejected');
   } finally {
-    await contextos.dispose();
+    await contexts.dispose();
   }
 }

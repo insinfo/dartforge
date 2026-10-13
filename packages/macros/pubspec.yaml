@@ -1,13 +1,13 @@
 name: macros
-# A superfície é a do package:macros 0.1.3-main.0 (que reexporta o
-# `_macros` 0.3.3 do SDK 3.6.2): código de macro escrito para ele, como o
-# `@JsonCodable` do package:json 0.20.4, compila sem mudança contra esta.
+# The surface is that of package:macros 0.1.3-main.0 (which re-exports the
+# 3.6.2 SDK's `_macros` 0.3.3): macro code written for it, like
+# package:json 0.20.4's `@JsonCodable`, compiles unchanged against this one.
 version: 0.1.3-main.0
 description: >-
-  API de macros do DartForge, reescrita a partir da especificação
-  (dart-language/working/macros) com a mesma superfície do package:macros
-  0.1.3-main.0, e o lado do executor (introspecção sobre o modelo que o
-  hospedeiro envia, construtores de resultado e o serviço macro.* do dfexec/1).
+  DartForge's macro API, rewritten from the specification
+  (dart-language/working/macros) with the same surface as package:macros
+  0.1.3-main.0, and the executor side (introspection over the model the host
+  sends, result builders and the macro.* service of dfexec/1).
 publish_to: none
 
 environment:

@@ -1,8 +1,8 @@
-/// Executor de builders do DartForge (serviço `build.*` do `dfexec/1`).
+/// DartForge's builder executor (the `build.*` service of `dfexec/1`).
 ///
-/// O motor de build gera um *bootstrap* que importa as fábricas do plano e
-/// chama [servir]; ver `crates/build/src/vm.rs` e docs/BUILD-PROTOCOLO.md.
+/// The build engine generates a *bootstrap* that imports the plan's factories
+/// and calls [serve]; see `crates/build/src/vm.rs` and docs/BUILD-PROTOCOLO.md.
 library;
 
-export 'src/canal.dart' show Canal, CanalStdio;
-export 'src/servico.dart' show FabricaDeBuilder, protocolo, servir, versaoDoExecutor;
+export 'src/channel.dart' show Channel, StdioChannel;
+export 'src/service.dart' show BuilderFactory, protocol, serve, executorVersion;

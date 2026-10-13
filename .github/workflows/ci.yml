@@ -278,9 +278,9 @@ jobs:
           try {
             dart pub get
             if ($LASTEXITCODE -ne 0) { throw 'pub get of the macro API failed' }
-            dart run test/montagem.dart
+            dart run test/assembly.dart
             if ($LASTEXITCODE -ne 0) { throw 'Dart assembly of the augmentations failed' }
-            dart run test/montagem_cfe.dart
+            dart run test/assembly_cfe.dart
             if ($LASTEXITCODE -ne 0) { throw 'Dart assembly diverged from the CFE' }
             dart --enable-experiment=macros run test/executor_cfe.dart
             if ($LASTEXITCODE -ne 0) { throw 'Dart executor in the same isolate diverged from the CFE' }

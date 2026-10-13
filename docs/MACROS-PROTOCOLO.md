@@ -89,7 +89,7 @@ JS embutido nem runtime de terceiros. `int` tem a semântica da VM (64 bits).
 | `nativo::iniciar` | **o executor nativo (D4)**: o mesmo bootstrap e o mesmo `package_config.json`, compilados pelo `dartforge compile-native` (o `emit_native`, com `--language-version 3.6 --enable-experiment=macros`) num executável em cache em `.dart_tool/dartforge/macros/nativo`; `dartforge macros --native`, e `DARTFORGE_MACROS_NATIVE=<dartforge com a feature nativo>` no `compile-js`/`jsprod` |
 
 **Executor nativo (B06, 2026-09-27)**: `macros_host::nativo` compila
-`packages/macros` (a API, o `executor/servico.dart` e o `canal_stdio.dart`) e
+`packages/macros` (a API, o `executor/service.dart` e o `stdio_channel.dart`) e
 as bibliotecas das macros com o *bootstrap* do `vm::bootstrap` pelo backend
 nativo do DartForge, e roda o executável num `ExecutorDfexec<CanalDeProcesso>`.
 A chave do cache é o compilador (caminho, tamanho, data), o SDK e o conteúdo
@@ -174,41 +174,45 @@ Hospedeiro → executor (numerados pelo hospedeiro):
 * `macro.execute {id, instance, phase: tipos|declaracoes|definicoes, target,
   model}` → `macro.result {id, result}`; o `model` traz as
   bibliotecas e, para classe, a **pré-busca** dos membros
-  (`membros: {"<id>": {campos, metodos, construtores}}`): o `@JsonCodable` não
+  (`members: {"<id>": {fields, methods, constructors}}`): o `@JsonCodable` não
   faz ida e volta para eles;
 * `macro.discard {instance}`; `end`.
 
 Executor → hospedeiro, durante uma execução: `macro.query {id, execution,
 kind, args}` → `macro.response {id, value}` ou `{id, error: {kind:
-implementacao|ciclo|inesperado, message}}` (vira a `MacroException`
-correspondente na macro). Consultas: `resolverIdentificador {uri, nome}`,
-`declaracao {ident}`, `membros {dono, tipo}`, `tiposDe {biblioteca}`,
-`declaracoesDe`, `resolver {tipo}` → `{chave, declaracao, args}`,
-`ehExatamente {a, b}`, `ehSubtipo {a, b}`, `comoInstanciaDe`, `inferirTipo
-{chave}`. A `chave` de um `StaticType` é um apelido do tipo: tipos iguais
+implementation|cycle|unexpected, message}}` (vira a `MacroException`
+correspondente na macro). Consultas: `resolveIdentifier {uri, name}`,
+`declarationOf {ident}`, `members {owner, kind}`, `typesOf {library}`,
+`topLevelDeclarationsOf`, `resolve {type}` → `{key, declaration, args}`,
+`isExactly {a, b}`, `isSubtypeOf {a, b}`, `asInstanceOf`, `inferType
+{key}`. A `key` de um `StaticType` é um apelido do tipo: tipos iguais
 têm a mesma chave (a comparação é estrutural), para que a resposta de
-`resolver` não dependa de quantos `resolve` vieram antes (§6). `inferType`, `asInstanceOf` e subtipo com argumentos de tipo
+`resolve` não dependa de quantos `resolve` vieram antes (§6). `inferType`, `asInstanceOf` e subtipo com argumentos de tipo
 respondem erro claro: dependem do `crates/types` (pedido ao dono).
 Reservados: `avaliar {codigo}` (`evaluate`) e `recurso {uri}` (`Resource`).
 
-**Modelo** (JSON): identificador `{id, nome}`; tipo `{t: nomeado, ident,
-args, anulavel}` | `{t: funcao, …}` | `{t: record, …}` | `{t: omitido,
-chave}`; declaração `{k: classe|mixin|enum|extensionType|typedef|tparam|
-metodo|construtor|campo|funcao|variavel|parametro|valorEnum, ident, lib, …}`
-com os campos da API (`abstract`, `final`, `superclasse`, `interfaces`,
-`posicionais`, `nomeados`, `retorno`, `estilo`…); biblioteca `{k:
-biblioteca, id, uri, versao}`.
+**Modelo** (JSON): identificador `{id, name}`; tipo `{t: named, ident,
+args, nullable}` | `{t: function, …}` | `{t: record, …}` | `{t: omitted,
+key}`; declaração `{k: class|mixin|enum|extensionType|typedef|tparam|
+method|constructor|field|function|variable|parameter|enumValue, ident, lib, …}`
+com os campos da API (`abstract`, `final`, `superclass`, `interfaces`,
+`positional`, `named`, `return`, `style`…); biblioteca `{k:
+library, id, uri, version}`; argumentos de aplicação `{positional, named}`,
+cada um `{t: null|bool|int|double|string|list|set|map|code|type, v}`; fases
+`types`, `declarations`, `definitions`.
 
-**Resultado**: `{diagnosticos, excecao, valoresDeEnum, extends, interfaces,
-biblioteca, mixins, tiposNovos, tipos}`, com os mapas do
+**Resultado**: `{diagnostics, exception, enumValues, extends, interfaces,
+library, mixins, newTypes, types}` (diagnóstico `{severity, message,
+context, correction}`, mensagem `{text, target}`, exceção `{kind, message,
+stackTrace}`), com os mapas do
 `MacroExecutionResult` como **listas de pares** `[id do tipo, [código…]]`
 (a ordem de inserção é a da montagem). Código: `{k: CodeKind, p: [partes]}`,
 parte = texto, `{i, n}` (identificador), `{o}` (tipo omitido) ou código.
 O executor devolve o código **estruturado**; o texto é montado no hospedeiro
 (§4), que precisa dele para a recarga de qualquer jeito, e onde a resolução
 dos identificadores é local. As declarações `augment` que os builders da fase
-3 formam (`augmentacaoDeFuncao`, `augmentacoesDeVariavel` em
-`executor/resultado.dart`) têm o texto do CFE 3.6.2.
+3 formam (`functionAugmentation`, `variableAugmentations` em
+`executor/result.dart`) têm o texto do CFE 3.6.2.
 
 ## 6. Cache de expansões (`crates/macros_host/src/cache.rs`)
 
@@ -278,7 +282,7 @@ revalidação só delas, corte pela saída.
 * `410_json_codable` — pacote com `@JsonCodable`, `@JsonEncodable` e
   `@JsonDecodable` (aninhado, anulável, `List`/`Set`/`Map`, `DateTime`,
   `bool`, `num`); `esperado/modelos.augmentation.dart` é o texto do CFE 3.6.2
-  e `esperado/sessao.dfexec` a sessão gravada do protocolo. O job de macros
+  e `esperado/session.dfexec` a sessão gravada do protocolo. O job de macros
   executa a fonte original nos oráculos e uma cópia com `.macro.dart`
   materializado pelo `build_runner` nos backends DartForge.
 * `411_pedido_independente` — `@JsonCodable` em uma biblioteca nova, fonte

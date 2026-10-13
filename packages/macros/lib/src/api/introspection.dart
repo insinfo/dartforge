@@ -1,31 +1,31 @@
 part of '../api.dart';
 
-// O que uma macro vê do programa (spec, "Introspection"). Só declarações:
-// corpos não são visíveis. Os objetos vêm do modelo que o hospedeiro serve
-// (docs/MACROS-PROTOCOLO.md §5).
+// What a macro sees of the program (spec, "Introspection"). Declarations
+// only: bodies are not visible. The objects come from the model the host
+// serves (docs/MACROS-PROTOCOLO.md §5).
 
-/// Algo a que uma macro pode ser aplicada: uma [Declaration] ou [Library].
+/// Something a macro can be applied to: a [Declaration] or a [Library].
 abstract interface class MacroTarget {}
 
-/// Algo que pode ter anotações.
+/// Something that can have annotations.
 abstract interface class Annotatable {
   Iterable<MetadataAnnotation> get metadata;
 }
 
-/// Referência a uma declaração nomeada. Um [Code] pode contê-la: o
-/// hospedeiro escreve o nome com o prefixo de import certo. Igualdade de
-/// identificadores não é especificada; para comparar tipos, use
+/// Reference to a named declaration. A [Code] can contain it: the host
+/// writes the name with the right import prefix. Identifier equality is
+/// not specified; to compare types, use
 /// [StaticType].
 abstract interface class Identifier {
   String get name;
 }
 
-/// Uma anotação de tipo, ainda não resolvida.
+/// A type annotation, not yet resolved.
 abstract interface class TypeAnnotation {
-  /// Tem `?` no fim?
+  /// Does it end in `?`?
   bool get isNullable;
 
-  /// O [Code] equivalente.
+  /// The equivalent [Code].
   TypeAnnotationCode get code;
 }
 
@@ -39,7 +39,7 @@ abstract interface class FunctionTypeAnnotation implements TypeAnnotation {
   Iterable<TypeParameter> get typeParameters;
 }
 
-/// Um tipo nomeado, resolvível a [TypeDeclaration] pelos builders.
+/// A named type, resolvable to a [TypeDeclaration] through the builders.
 abstract interface class NamedTypeAnnotation implements TypeAnnotation {
   Identifier get identifier;
 
@@ -52,18 +52,18 @@ abstract interface class RecordTypeAnnotation implements TypeAnnotation {
   Iterable<RecordField> get namedFields;
 }
 
-/// Tipo não escrito. Vira o tipo inferido (ou `dynamic`) no texto gerado; na
-/// fase de definições, `inferType` o lê.
+/// An unwritten type. It becomes the inferred type (or `dynamic`) in the generated text; in
+/// the definitions phase, `inferType` reads it.
 abstract interface class OmittedTypeAnnotation implements TypeAnnotation {}
 
-/// Um tipo resolvido, comparável.
+/// A resolved, comparable type.
 abstract interface class StaticType {
   Future<bool> isSubtypeOf(covariant StaticType other);
 
   Future<bool> isExactly(covariant StaticType other);
 
-  /// O supertipo deste tipo cuja declaração é [declaration] (com os
-  /// argumentos de tipo), ou `null` se não houver.
+  /// The supertype of this type whose declaration is [declaration] (with the
+  /// type arguments), or `null` if there is none.
   Future<NamedStaticType?> asInstanceOf(TypeDeclaration declaration);
 }
 
@@ -73,21 +73,21 @@ abstract interface class NamedStaticType implements StaticType {
   List<StaticType> get typeArguments;
 }
 
-/// Toda declaração.
+/// Every declaration.
 abstract interface class Declaration implements Annotatable, MacroTarget {
   Library get library;
 
   Identifier get identifier;
 }
 
-/// Membro de um tipo.
+/// A member of a type.
 abstract interface class MemberDeclaration implements Declaration {
   Identifier get definingType;
 
   bool get hasStatic;
 }
 
-/// Declaração que introduz um tipo.
+/// A declaration that introduces a type.
 abstract interface class TypeDeclaration implements Declaration {}
 
 abstract interface class ParameterizedTypeDeclaration
@@ -95,7 +95,7 @@ abstract interface class ParameterizedTypeDeclaration
   Iterable<TypeParameterDeclaration> get typeParameters;
 }
 
-/// Uma classe. Membros vêm dos builders (`fieldsOf`…).
+/// A class. Members come from the builders (`fieldsOf`…).
 abstract interface class ClassDeclaration
     implements ParameterizedTypeDeclaration {
   bool get hasAbstract;
@@ -126,13 +126,13 @@ abstract interface class EnumDeclaration
   Iterable<NamedTypeAnnotation> get mixins;
 }
 
-/// Um valor de enum (não introspectável além disso).
+/// An enum value (not introspectable beyond this).
 abstract interface class EnumValueDeclaration implements Declaration {
   Identifier get definingEnum;
 }
 
-/// Uma extension (modelada como declaração de tipo, embora não introduza
-/// tipo).
+/// An extension (modeled as a type declaration, although it does not
+/// introduce a type).
 abstract interface class ExtensionDeclaration
     implements ParameterizedTypeDeclaration, Declaration {
   TypeAnnotation get onType;
@@ -157,9 +157,9 @@ abstract interface class TypeAliasDeclaration
   TypeAnnotation get aliasedType;
 }
 
-/// Uma função, um método ou um construtor.
+/// A function, a method or a constructor.
 abstract interface class FunctionDeclaration implements Declaration {
-  /// Tem corpo? (`external` pode dizer `false` e ganhar corpo depois.)
+  /// Does it have a body? (`external` may say `false` and get a body later.)
   bool get hasBody;
 
   bool get hasExternal;
@@ -207,26 +207,26 @@ abstract interface class FieldDeclaration
   bool get hasAbstract;
 }
 
-/// Parâmetro, de função comum ou de tipo de função.
+/// A parameter, of a regular function or of a function type.
 abstract interface class FormalParameter implements Annotatable {
   TypeAnnotation get type;
 
   bool get isNamed;
 
-  /// Posicional obrigatório, ou nomeado com `required`.
+  /// Required positional, or named with `required`.
   bool get isRequired;
 
-  /// Parâmetro de tipo de função pode não ter nome.
+  /// A function-type parameter may have no name.
   String? get name;
 
   ParameterStyle get style;
 
-  /// O [ParameterCode] equivalente (sem o valor padrão).
+  /// The equivalent [ParameterCode] (without the default value).
   ParameterCode get code;
 }
 
 enum ParameterStyle {
-  /// Parâmetro comum.
+  /// A regular parameter.
   normal,
 
   /// `this.x`.
@@ -236,7 +236,7 @@ enum ParameterStyle {
   superFormal,
 }
 
-/// Parâmetro de função comum: sempre tem nome e declara variável.
+/// A regular function parameter: always has a name and declares a variable.
 abstract interface class FormalParameterDeclaration
     implements FormalParameter, Declaration {
   @override
@@ -251,12 +251,12 @@ abstract interface class TypeParameter implements Annotatable {
   TypeParameterCode get code;
 }
 
-/// Parâmetro de tipo que declara um tipo referenciável (não os de tipos de
-/// função).
+/// A type parameter that declares a referenceable type (not those of function
+/// types).
 abstract interface class TypeParameterDeclaration
     implements TypeDeclaration, TypeParameter {}
 
-/// Campo de um tipo record (`$1`… nos posicionais).
+/// A field of a record type (`$1`… for positional ones).
 abstract interface class RecordField {
   RecordFieldCode get code;
 
@@ -277,21 +277,21 @@ abstract interface class LanguageVersion {
   int get minor;
 }
 
-/// Uma anotação.
+/// An annotation.
 abstract interface class MetadataAnnotation {}
 
-/// `@constante`.
+/// `@constant`.
 abstract interface class IdentifierMetadataAnnotation
     implements MetadataAnnotation {
   Identifier get identifier;
 }
 
-/// `@Tipo.construtor(args)`.
+/// `@Type.constructor(args)`.
 abstract interface class ConstructorMetadataAnnotation
     implements MetadataAnnotation {
   NamedTypeAnnotation get type;
 
-  /// Nome vazio para o construtor sem nome.
+  /// Empty name for the unnamed constructor.
   Identifier get constructor;
 
   Iterable<ExpressionCode> get positionalArguments;
