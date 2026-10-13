@@ -27,12 +27,12 @@ impl Defines {
     /// `x:x`).
     ///
     /// ```
-    /// use dartforge_build::linha_de_comando::Definicoes;
-    /// let d = Definicoes::parse(&[":b=n=1", "p:b=t=a=b", "p:b=l=[1, 2.0]"], "p").unwrap();
+    /// use dartforge_build::command_line::Defines;
+    /// let d = Defines::parse(&[":b=n=1", "p:b=t=a=b", "p:b=l=[1, 2.0]"], "p").unwrap();
     /// assert_eq!(d.0[0].0, "p:b");
-    /// assert_eq!(d.0[0].1.texto_canonico(), r#"{"n": 1, "t": "a=b", "l": [1, 2.0]}"#);
-    /// assert!(Definicoes::parse(&["b=n"], "p").is_err());
-    /// assert!(Definicoes::parse(&["b=n=1", "b=n=2"], "p").is_err());
+    /// assert_eq!(d.0[0].1.canonical_text(), r#"{"n": 1, "t": "a=b", "l": [1, 2.0]}"#);
+    /// assert!(Defines::parse(&["b=n"], "p").is_err());
+    /// assert!(Defines::parse(&["b=n=1", "b=n=2"], "p").is_err());
     /// ```
     ///
     /// # Errors
@@ -81,11 +81,11 @@ impl Defines {
 /// fit in 64 bits); objects keep the key order (the last duplicate wins).
 ///
 /// ```
-/// use dartforge_build::linha_de_comando::json;
-/// use dartforge_build::valor::Valor;
-/// assert_eq!(json("1"), Some(Valor::Int(1)));
-/// assert_eq!(json("1e3"), Some(Valor::Real("1000.0".into())));
-/// assert_eq!(json(" \"a\\u00e9\" "), Some(Valor::Texto("aé".into())));
+/// use dartforge_build::command_line::json;
+/// use dartforge_build::value::Value;
+/// assert_eq!(json("1"), Some(Value::Int(1)));
+/// assert_eq!(json("1e3"), Some(Value::Real("1000.0".into())));
+/// assert_eq!(json(" \"a\\u00e9\" "), Some(Value::Text("aé".into())));
 /// assert_eq!(json("{a: 1}"), None);
 /// assert_eq!(json("~"), None);
 /// ```
@@ -342,14 +342,14 @@ impl BuildFilter {
     /// `asset:` (the whole package).
     ///
     /// ```
-    /// use dartforge_build::grafo::AssetId;
-    /// use dartforge_build::linha_de_comando::FiltroBuild;
-    /// let f = FiltroBuild::from_arg("package:a/*.dart", "root", false).unwrap();
-    /// assert!(f.casa(&AssetId::novo("a", "lib/x.dart")));
-    /// let r = FiltroBuild::from_arg("web/**", "root", false).unwrap();
-    /// assert!(r.casa(&AssetId::novo("root", "web/a/b.js")));
-    /// assert!(FiltroBuild::from_arg("asset:a/web/x", "root", false).is_err());
-    /// assert!(FiltroBuild::from_arg("asset:a/web/x", "root", true).is_ok());
+    /// use dartforge_build::graph::AssetId;
+    /// use dartforge_build::command_line::BuildFilter;
+    /// let f = BuildFilter::from_arg("package:a/*.dart", "root", false).unwrap();
+    /// assert!(f.matches(&AssetId::new("a", "lib/x.dart")));
+    /// let r = BuildFilter::from_arg("web/**", "root", false).unwrap();
+    /// assert!(r.matches(&AssetId::new("root", "web/a/b.js")));
+    /// assert!(BuildFilter::from_arg("asset:a/web/x", "root", false).is_err());
+    /// assert!(BuildFilter::from_arg("asset:a/web/x", "root", true).is_ok());
     /// ```
     ///
     /// # Errors

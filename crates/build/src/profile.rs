@@ -29,10 +29,10 @@ impl Version {
     /// Reads `1.2.3`, `1.2.3-dev.1` or `1.2.3+4`.
     ///
     /// ```
-    /// use dartforge_build::perfil::Versao;
-    /// assert_eq!(Versao::ler("2.16.1"), Some(Versao(2, 16, 1)));
-    /// assert_eq!(Versao::ler("2.6.0-dev.2"), Some(Versao(2, 6, 0)));
-    /// assert_eq!(Versao::ler("x"), None);
+    /// use dartforge_build::profile::Version;
+    /// assert_eq!(Version::read("2.16.1"), Some(Version(2, 16, 1)));
+    /// assert_eq!(Version::read("2.6.0-dev.2"), Some(Version(2, 6, 0)));
+    /// assert_eq!(Version::read("x"), None);
     /// ```
     pub fn read(text: &str) -> Option<Version> {
         let core = text.split(['-', '+']).next()?;
@@ -75,11 +75,11 @@ impl Profile {
     /// The profile for the versions in the lock.
     ///
     /// ```
-    /// use dartforge_build::perfil::Perfil;
-    /// let p = Perfil::das_versoes(Some("1.3.3"), Some("2.16.1"));
-    /// assert!(p.aceita_triggers() && p.dispara() && p.filtro_asset());
-    /// let old = Perfil::das_versoes(Some("1.1.2"), Some("2.4.15"));
-    /// assert!(!old.aceita_triggers() && !old.dispara());
+    /// use dartforge_build::profile::Profile;
+    /// let p = Profile::from_versions(Some("1.3.3"), Some("2.16.1"));
+    /// assert!(p.accepts_triggers() && p.uses_triggers() && p.asset_filter());
+    /// let old = Profile::from_versions(Some("1.1.2"), Some("2.4.15"));
+    /// assert!(!old.accepts_triggers() && !old.uses_triggers());
     /// ```
     pub fn from_versions(build_config: Option<&str>, build_runner: Option<&str>) -> Profile {
         Profile {

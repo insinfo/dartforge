@@ -62,7 +62,7 @@ impl NativeConfig {
     /// as the official `.dart_tool/build/entrypoint`, like the VM).
     ///
     /// ```
-    /// use dartforge_build::executor_nativo::NativeConfig;
+    /// use dartforge_build::native_executor::NativeConfig;
     /// use std::path::Path;
     /// let c = NativeConfig::for_project("dartforge".into(), None, Path::new("/p"));
     /// assert!(c.work_dir.ends_with(".dart_tool/dartforge/build"));

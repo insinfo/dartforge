@@ -104,9 +104,9 @@ impl VmConfig {
     /// official `.dart_tool/build/entrypoint`).
     ///
     /// ```
-    /// use dartforge_build::vm::ConfigDaVm;
+    /// use dartforge_build::vm::VmConfig;
     /// use std::path::Path;
-    /// let c = ConfigDaVm::do_projeto("dart".into(), Path::new("/p"));
+    /// let c = VmConfig::for_project("dart".into(), Path::new("/p"));
     /// assert!(c.work_dir.ends_with(".dart_tool/dartforge/build"));
     /// ```
     pub fn for_project(dart: PathBuf, root: &Path) -> VmConfig {
@@ -141,11 +141,11 @@ fn literal(s: &str) -> String {
 /// writes them) and the key → factory map.
 ///
 /// ```
-/// use dartforge_build::executor::ScriptDeBuilders;
+/// use dartforge_build::executor::BuilderScript;
 /// use std::path::Path;
-/// let s = ScriptDeBuilders {
-///     aplicacoes: vec![("p:b".into(), "package:p/builder.dart".into(), vec!["b".into()])],
-///     chave_de_cache: "x".into(),
+/// let s = BuilderScript {
+///     applications: vec![("p:b".into(), "package:p/builder.dart".into(), vec!["b".into()])],
+///     cache_key: "x".into(),
 /// };
 /// let text = dartforge_build::vm::bootstrap(&s, Path::new("/p/.dart_tool/package_config.json"));
 /// assert!(text.contains("import 'package:p/builder.dart' as _i0;"));

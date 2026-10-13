@@ -96,10 +96,10 @@ pub const ID_NEXT: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXY
 /// `a` is 0, `$` is 53, `aa` is 54.
 ///
 /// ```
-/// assert_eq!(dartforge_emit_js::numero_de_id("a"), Some(0));
-/// assert_eq!(dartforge_emit_js::numero_de_id("aa"), Some(54));
-/// assert_eq!(dartforge_emit_js::numero_de_id("ba"), Some(55));
-/// assert_eq!(dartforge_emit_js::numero_de_id("ab"), Some(54 + 54));
+/// assert_eq!(dartforge_emit_js::id_number("a"), Some(0));
+/// assert_eq!(dartforge_emit_js::id_number("aa"), Some(54));
+/// assert_eq!(dartforge_emit_js::id_number("ba"), Some(55));
+/// assert_eq!(dartforge_emit_js::id_number("ab"), Some(54 + 54));
 /// ```
 pub fn id_number(id: &str) -> Option<usize> {
     let b = id.as_bytes();

@@ -379,10 +379,10 @@ impl BuildConfig {
     ///
     /// ```
     /// use dartforge_build::config::BuildConfig;
-    /// let c = BuildConfig::de_texto("p", &[], "targets:\n  $default: {}\n", "build.yaml").unwrap();
-    /// assert_eq!(c.alvos[0].chave, "p:p");
+    /// let c = BuildConfig::from_text("p", &[], "targets:\n  $default: {}\n", "build.yaml").unwrap();
+    /// assert_eq!(c.targets[0].key, "p:p");
     /// // `triggers` only exists from build_config 1.2.0 on.
-    /// assert!(BuildConfig::de_texto("p", &[], "triggers: {}\n", "build.yaml").is_err());
+    /// assert!(BuildConfig::from_text("p", &[], "triggers: {}\n", "build.yaml").is_err());
     /// ```
     ///
     /// # Errors
@@ -401,11 +401,11 @@ impl BuildConfig {
     ///
     /// ```
     /// use dartforge_build::config::BuildConfig;
-    /// use dartforge_build::perfil::Perfil;
-    /// let newer = Perfil::das_versoes(Some("1.2.0"), Some("2.7.0"));
+    /// use dartforge_build::profile::Profile;
+    /// let newer = Profile::from_versions(Some("1.2.0"), Some("2.7.0"));
     /// let t = "triggers:\n  p:b:\n    - annotation A\n";
-    /// let c = BuildConfig::de_texto_no_perfil("p", &[], t, "build.yaml", newer).unwrap();
-    /// assert_eq!(c.gatilhos[0].0, "p:b");
+    /// let c = BuildConfig::from_text_with_profile("p", &[], t, "build.yaml", newer).unwrap();
+    /// assert_eq!(c.triggers[0].0, "p:b");
     /// ```
     ///
     /// # Errors

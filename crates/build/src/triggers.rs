@@ -125,13 +125,13 @@ impl Triggers {
     ///
     /// ```
     /// use dartforge_build::config::BuildConfig;
-    /// use dartforge_build::gatilhos::{Gatilhos, Trigger};
-    /// use dartforge_build::perfil::Perfil;
-    /// let profile = Perfil::das_versoes(Some("1.3.3"), Some("2.16.1"));
+    /// use dartforge_build::triggers::{Trigger, Triggers};
+    /// use dartforge_build::profile::Profile;
+    /// let profile = Profile::from_versions(Some("1.3.3"), Some("2.16.1"));
     /// let t = "triggers:\n  p:b:\n    - annotation A\n    - import p/a.dart\n    - other\n";
-    /// let c = BuildConfig::de_texto_no_perfil("p", &[], t, "build.yaml", profile).unwrap();
-    /// let g = Gatilhos::das_configs([&c]);
-    /// assert_eq!(g.por_builder["p:b"], [Trigger::Anotacao("A".into()), Trigger::Import("p/a.dart".into())]);
+    /// let c = BuildConfig::from_text_with_profile("p", &[], t, "build.yaml", profile).unwrap();
+    /// let g = Triggers::from_configs([&c]);
+    /// assert_eq!(g.by_builder["p:b"], [Trigger::Annotation("A".into()), Trigger::Import("p/a.dart".into())]);
     /// assert_eq!(g.warnings[0].1, ["Invalid trigger: `other`"]);
     /// ```
     pub fn from_configs<'a>(configs: impl IntoIterator<Item = &'a BuildConfig>) -> Triggers {
@@ -217,7 +217,7 @@ pub struct Unit {
 /// the lexer rejects the source.
 ///
 /// ```
-/// use dartforge_build::gatilhos::parse;
+/// use dartforge_build::triggers::parse;
 /// let u = parse("import 'package:a/b.dart' as b;\npart 'x.g.dart';\n@b.Generate()\nclass A { @Other() void f() {} }\n").unwrap();
 /// assert_eq!(u.imports, ["package:a/b.dart"]);
 /// assert_eq!(u.parts, ["x.g.dart"]);

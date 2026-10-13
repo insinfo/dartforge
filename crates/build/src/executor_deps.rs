@@ -40,7 +40,7 @@ impl Version {
     /// Parses `1.2.3`, `1.2.3-dev.1`, `1.2.3+4`.
     ///
     /// ```
-    /// use dartforge_build::dependencias_executor::Version;
+    /// use dartforge_build::executor_deps::Version;
     /// assert!(Version::parse("2.4.2").unwrap() < Version::parse("2.10.0").unwrap());
     /// assert!(Version::parse("3.0.0-dev.1").unwrap() < Version::parse("3.0.0").unwrap());
     /// ```
@@ -86,7 +86,7 @@ impl Ord for Version {
 /// `>`, `<=`, `<` separated by spaces.
 ///
 /// ```
-/// use dartforge_build::dependencias_executor::{Version, satisfies};
+/// use dartforge_build::executor_deps::{Version, satisfies};
 /// let v = |t| Version::parse(t).unwrap();
 /// assert!(satisfies("^2.4.2", &v("2.9.0")) && !satisfies("^2.4.2", &v("3.0.0")));
 /// assert!(satisfies("^0.2.1", &v("0.2.9")) && !satisfies("^0.2.1", &v("0.3.0")));
