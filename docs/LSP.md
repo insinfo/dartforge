@@ -123,9 +123,14 @@ Regras do fluxo:
   antes de cada biblioteca na inferência de corpos), se o pacote foi marcado
   de novo; se foi, para e recomeça com o texto novo.
 * **Memória.** O trabalhador retém o `Motor` (layout do SDK e nomes das
-  bibliotecas) e uma cópia do texto vigente de cada documento aberto (a
-  cópia sai no `didClose`). Programa, árvores e tabela de tipos vivem uma
-  análise. O motor usa o cache do SDK em disco (`SdkCache`, o mesmo do
+  bibliotecas) e o texto vigente de cada documento aberto (compartilhado com
+  as tarefas por `Arc<str>`, sem cópia; sai no `didClose`). Programa, árvores e
+  tabela de tipos vivem uma análise — e, no binário, **num processo filho**
+  (`dartforge-lsp --typed-analysis`, ver "Memória com a pasta do workspace
+  aberta"): o alocador do processo longo guardaria as páginas da análise e o
+  servidor ficaria no pico do maior pacote. `DARTFORGE_LSP_TYPED_IN_PROCESS=1`
+  volta à análise na thread (o padrão de testes e de quem embute o
+  `Server`). O motor usa o cache do SDK em disco (`SdkCache`, o mesmo do
   `analyze`, em `DARTFORGE_CACHE_DIR` ou `target/dartforge`).
 * **Sem SDK** (`AnalisadorSemantico::novo(None)`, ou SDK não descoberto) ou
   com `DARTFORGE_LSP_TYPED=0`, só a publicação imediata existe. Pânico na
@@ -1006,3 +1011,102 @@ com a mensagem no hover e no painel Problemas; o canal *Output ›
 DartForge* mostra o ciclo de vida. (Janela de desenvolvimento via F5 com a
 extensão compilada — passos em `editors/vscode/README.md`; sem captura de
 tela neste ambiente.)
+
+## Memória com a pasta do workspace aberta (2026-10-13)
+
+Regressão achada na reprise do oráculo: com a raiz do workspace aberta (I7),
+o trabalhador tipado analisa **todos** os arquivos de cada pacote, e o
+`new_sali` (858 arquivos: `core` e `frontend`) deixava o servidor com pico de
+~430–920 MiB e RSS em repouso de 99–640 MiB, variando entre rodadas — contra
+21,3 / 19,0 MiB medidos antes do I7.
+
+### Diagnóstico: alocador, não retenção
+
+Instrumentação (macOS arm64, release, SDK 3.6.2; cópia do `new_sali` no
+scratchpad com `package_config.json` regravado):
+
+* `DARTFORGE_LSP_MEMORY=1` registra no `stderr` o heap em uso
+  (`malloc_zone_statistics`) antes e depois de cada análise e nos pontos de
+  cancelamento do motor (`crates/lsp/src/memory.rs`).
+* `vmmap --summary` e `heap -s` no processo em repouso.
+* `cargo run --release -p dartforge-lsp --example workspace_memory --
+  <pacote>`: alocador contador sobre a mesma carga do trabalhador, com o
+  quanto cada estrutura libera ao cair.
+
+| | antes |
+|---|---|
+| heap em uso em repouso (858 abertos, 200 edições) | 17–27 MiB |
+| `vmmap`: alocado / fragmentado nas zonas `malloc` | 17,1 MiB / 494–618 MiB (97–98%) |
+| RSS em repouso | 472–917 MiB (cai a 4–60 MiB quando o sistema comprime as páginas) |
+| *physical footprint* em repouso | 240–477 MiB |
+| pico vivo da análise do `frontend` (dentro do processo) | 590–658 MiB |
+
+O que fica vivo depois de uma análise é pouco (documentos e diagnósticos
+publicados); o resto do RSS são páginas que o alocador do sistema guardou da
+análise que acabou. `malloc_zone_pressure_relief` e uma zona `malloc` própria
+para a análise não as devolveram (num teste sintético no macOS 27, liberar
+tudo leva o *footprint* de 2.080 a 673 MiB, e nem `pressure_relief` nem
+`malloc_destroy_zone` descem disso); o
+RSS também não serve de régua no macOS — páginas marcadas como reutilizáveis
+contam no RSS até o kernel pegá-las, e sob pressão o RSS cai a poucos MiB
+com o *footprint* intacto. As medidas abaixo usam o *physical footprint*
+(`proc_pid_rusage`), que é o que o Monitor de Atividade e o *jetsam* usam.
+
+Para onde vai o pico da análise do `frontend` (3.316 bibliotecas, 37 MiB de
+fonte; 326 arquivos do pacote, o resto dependências): carga 383 MiB —
+expressões 141, comandos 41, membros 32, tipos 22, funções 18 dos nós; escopos
+das bibliotecas 56 (672 mil entradas de `scope` materializadas, 312 mil de
+prefixos); fontes 37; elementos 31; *interner* 7 —, *outline* +24, a passada
+dos inicializadores +36 (temporária) e o índice de faixas do motor ~100 MiB.
+
+### Correção
+
+1. **Cada análise tipada num processo filho** (`crates/lsp/src/typed.rs`,
+   `run_in_child`): o binário chama a si mesmo com `--typed-analysis`, manda
+   a tarefa (pacote, textos abertos, configuração) em JSON pelo `stdin`, lê os
+   resultados pelo `stdout` e o filho termina — o programa nunca entra no
+   servidor. Cancelar mata o filho; pânico ou estouro de pilha na análise
+   derruba só o filho. Publicação idêntica nos dois modos
+   (`typed::child_process_publishes_like_the_thread`).
+2. **Índice de faixas compacto no motor** (`crates/parity/src/analysis.rs`,
+   `Index`): as unidades fora das bibliotecas do lote (as dependências) iam
+   num `HashMap` com um `Vec` por nó; agora num vetor ordenado de
+   `(início, fim, unidade)`, 12 bytes por nó. Os textos analisados também não
+   ficam mais em três cópias. Pico vivo do `frontend` 590,6 → 515,2 MiB;
+   diagnósticos publicados idênticos em nove projetos (`limitless_ui`,
+   `especificacao`, `new_sali/core`, `args`…).
+3. Textos abertos compartilhados com as tarefas (sem duas cópias por
+   análise); arquivo fechado sem diagnóstico volta sem o texto; o trabalhador
+   não parece ocioso enquanto percorre as pastas (o `wait_idle` voltava antes
+   da primeira análise — corrida que o teste novo pegou).
+
+### Resultado (`new_sali`, 858 `didOpen` + 200 edições + 20 s, macOS arm64)
+
+| | antes (análise na thread) | depois | Dart 3.6.2 |
+|---|---|---|---|
+| servidor: pico de *footprint* | 602–640 MiB | 30,1–30,6 MiB | — |
+| servidor: platô de *footprint* | 240–477 MiB | 30,1–30,6 MiB (igual nas duas rodadas) | — |
+| filho da análise (só durante ela) | — | 658 MiB (`frontend`), 327 MiB (`core`) | — |
+| pico total (servidor + filho) | 602–640 MiB | 686 MiB | 737–1.402 MiB |
+| em repouso | 240–477 MiB | 30 MiB | 736–1.286 MiB |
+
+O Dart, aqui com `package_config.json` válido, analisa de fato (na medição
+D.2 no Windows ele não tinha `package_config` e ficou em 640 MiB sem
+publicar); o *footprint* dele variou de 737 a 1.402 MiB entre rodadas. O
+pico do DartForge é o do filho que analisa o maior pacote, e volta inteiro ao
+sistema quando ele termina; o que segue para baixar o pico está na lista
+acima (escopos materializados, tamanho dos nós de expressão).
+
+`scripts/measure-lsp.ps1` soma o RSS dos processos filhos.
+Teste: `tests/plateau_workspace.rs` — o mesmo pacote de workspace analisado
+na thread e em processos filhos (o pico do servidor com filhos é uma fração
+do da thread: 0,05 contra 0,99 MiB) e rodadas de abrir, editar e fechar
+terminando no mesmo nível vivo.
+
+Oráculo depois (mesmos quatro projetos e cliente da reprise): todas as
+categorias idênticas à rodada final da reprise. Medianas (ms, Dart /
+DartForge) com a máquina sob carga (média de carga ~45): references 3,1 /
+2,5, implementation 1,4 / 2,2, completion 6,0 / 8,8, hover 1,1 / 1,2 — as
+razões DartForge/Dart ficaram iguais ou menores que na reprise (references
+0,81, implementation 1,6 → 1,57, completion 1,6 → 1,47).
+

@@ -199,6 +199,17 @@ fn main() {
         let before = dartforge_instrument::live_bytes();
         program.classes = Vec::new();
         println!("  class elements {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
+        let entries = |f: &dyn Fn(&dartforge_elements::model::Library) -> usize| program.libraries.iter().map(f).sum::<usize>();
+        println!(
+            "  namespace entries: declared {} exported {} scope {} (capacity {}) prefixes {} unit scopes {} imports {}",
+            entries(&|l| l.declared.len()),
+            entries(&|l| l.exported.len()),
+            entries(&|l| l.scope.len()),
+            entries(&|l| l.scope.capacity()),
+            entries(&|l| l.prefixes.values().map(|p| p.len()).sum()),
+            entries(&|l| l.unit_scopes.values().map(|u| u.scope.len()).sum()),
+            entries(&|l| l.imports.len()),
+        );
         let before = dartforge_instrument::live_bytes();
         program.libraries = Vec::new();
         println!("  libraries (scopes, imports) {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
