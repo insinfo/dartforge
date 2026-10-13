@@ -48,7 +48,7 @@ impl Count {
     /// Everything we emit matches the oracle (position, severity and
     /// message), with at least one hit: no false positive, no wrong position,
     /// no wrong message. False negatives are allowed — this is the publication
-    /// criterion (`verificados.txt`): what the user sees is right, even if
+    /// criterion (`verified.txt`): what the user sees is right, even if
     /// some diagnostic is missing.
     pub fn no_emitted_error(&self) -> bool {
         self.hits > 0 && self.false_positives == 0 && self.wrong_position == 0 && self.wrong_message == 0

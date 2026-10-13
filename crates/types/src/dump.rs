@@ -351,7 +351,7 @@ pub fn line_block(lines: &[Line]) -> Block {
     b
 }
 
-/// Block from a corpus `.esperado.tsv` (columns `linha coluna offset
+/// Block from a corpus `.expected.tsv` (columns `linha coluna offset
 /// comprimento nó tipo elemento marca trecho`: line, column, offset, length,
 /// node, type, element, mark, snippet).
 pub fn expected_block(text: &str) -> Block {

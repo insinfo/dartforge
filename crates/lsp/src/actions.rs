@@ -11,7 +11,7 @@
 //!   `quickfix.import.libraryProject1`.
 //!
 //! * **Fixes for the published semantic codes** (those in
-//!   `crates/analysis/verificados.txt` that the Dart 3.6.2 server fixes),
+//!   `crates/analysis/verified.txt` that the Dart 3.6.2 server fixes),
 //!   over the immediate diagnostics and the typed ones of the current
 //!   version, with Dart's titles and kinds ([`fix_published`]).
 //! * **Assist** `Add type annotation` (`crate::assists`).

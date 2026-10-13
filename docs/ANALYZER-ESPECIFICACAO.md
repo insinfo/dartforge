@@ -249,7 +249,7 @@ emissor nesta data, cada um com os testes de unidade do próprio arquivo (não r
 | `mixin_instantiate` (só a criação escrita com `new`/`const`), `invocation_of_non_function` (só o parâmetro de tipo invocado) | `crates/types/src/inferencia/chamadas.rs` |
 | `no_annotation_constructor_arguments` | `crates/types/src/inferencia/funcoes.rs` (`validar_anotacao`) |
 
-Todos estão ligados em `crates/parity/src/analise.rs`. Nenhum entrou em `verificados.txt`. Pontos
+Todos estão ligados em `crates/parity/src/analise.rs`. Nenhum entrou em `verified.txt`. Pontos
 frágeis: o `await for` supõe que o intervalo do comando começa no `await`; o `super` de um
 `UNDEFINED_SUPER_*` no mesmo contexto inválido ainda sai junto (a supressão é da inferência);
 `for_in_with_const_variable` não foi feito porque a árvore não guarda o `const` da variável do laço.
@@ -1206,7 +1206,7 @@ Forma da invocação no analyzer (decide nome citado e entidade):
 - **Condição exata:** criação (explícita `new C()` ou implícita `C()`) cujo construtor não resolveu; o tipo não é enum nem mixin (já relatado); sem nome de construtor → este código.
 - **Posição:** o `constructorName` (para `new C()`/`C()`: o tipo nomeado com prefixo e argumentos de tipo; `C.new()` implícito: o `new`). **Mensagem:** `The class '{0}' doesn't have an unnamed constructor.` — `{0}` = `namedType.qualifiedName` (`'p.C'` com prefixo; o nome do **alias** quando via typedef: `'T'`); no caminho `C.new`, `receiver.displayName`.
 - **No DartForge:** só `C.new` (`expr.rs:1681-1683`). FN: `new A()`/`A()` sem construtor sem nome (`call/nonexistent_constructor_error_test`, `constructor/unresolved_default_constructor_test`), **aplicação de mixin** sem construtor encaminhado (`mixin_constructor_forwarding/*`, 8: só construtores geradores da superclasse são encaminhados, e com parâmetros opcionais não… regra de encaminhamento), **alias de `FutureOr`/`Null`** (`T()` com `typedef T = FutureOr<…>`/`Null`, 16: o elemento aliasado não tem construtor).
-  **Mudança:** em `chamadas.rs::instanciacao`, no `let Some(f) = f else` (construtor não achado e classe com construtores declarados ou alias de classe sem construtor), relatar; em `chamada` (criação implícita via `referencia_a_tipo`) idem. **Código publicado** (`verificados.txt`): cuidado com FP.
+  **Mudança:** em `chamadas.rs::instanciacao`, no `let Some(f) = f else` (construtor não achado e classe com construtores declarados ou alias de classe sem construtor), relatar; em `chamada` (criação implícita via `referencia_a_tipo`) idem. **Código publicado** (`verified.txt`): cuidado com FP.
 - **Estado (2026-10-06):** 28 de 28. Pontos que faltavam: (1) a criação sem `new` (`C()`, `T<X>()` por alias, também
   de `Null`/`FutureOr`) sem construtor sem nome — no tipo nomeado da reescrita, com o nome escrito; (2) aplicação de
   mixin: os construtores são só os **geradores** encaminhados da superclasse (`Base()` factory não conta), e o sem
@@ -1579,7 +1579,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   relatam igual (`:2958-2970`, os dois ramos são idênticos).
 - **Confere com §A:** certo. Posição = o `NamedType` (com prefixo e argumentos de tipo, se houver).
 - **No DartForge:** `crates/types/src/inferencia/chamadas.rs:680`, `:1545`, `:1620`; código publicado
-  (`crates/analysis/verificados.txt`). Os 4 FN são `dot_shorthands/constructor/*` (`.new()` com contexto
+  (`crates/analysis/verified.txt`). Os 4 FN são `dot_shorthands/constructor/*` (`.new()` com contexto
   de classe abstrata — sintaxe 3.10, oráculo 3.13).
 - **Exemplo (oráculo vivo 3.6.2):**
   ```dart
@@ -7773,7 +7773,7 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   diretiva, dentro de classe), e os de formato (`// dart = 2.0`, `// @dart 2.0`, `// @dart >= 2.0`,
   `// @Dart = 2.0`, `/// @dart = 2.0`, `// dart @ 2.0`). Implementação puramente léxica: precisa dos
   comentários com offset (o lexer do frontend) — um verificador novo em `crates/analysis` (o código já
-  está em `verificados.txt`; nada de FP).
+  está em `verified.txt`; nada de FP).
 - **Estado em 2026-10-05 (escrito, não compilado):** `crates/analysis/src/versao_de_linguagem.rs` porta o
   verificador inteiro (os oito códigos de formato e o `_LOCATION`), ligado por unidade na paridade.
 ##### `wrong_explicit_type_parameter_variance_in_superinterface` (perda 14: msg 14) e `wrong_type_parameter_variance_in_superinterface` (perda 13: msg 13)
@@ -26779,7 +26779,7 @@ Cada caso vira um teste em `crates/parity/tests/` no molde da sonda
   esperado é nulo, e é isso que se confere (nenhum diagnóstico novo nos pacotes do pub-cache).
 * **Risco 2: a ordem de consulta de (d).** É o ponto frágil: depende de reproduzir a ordem de visita do
   oficial. Se um caso do corpus divergir só por isso, a regra de publicação decide: o código fica fora
-  de `verificados.txt` para arquivos com homônimos (o filtro pode ser "biblioteca com `representante`
+  de `verified.txt` para arquivos com homônimos (o filtro pode ser "biblioteca com `representante`
   não vazio").
 * **Risco 3: o emissor JS e o nativo** usam `declared`. A mudança do passo 1 altera qual declaração um
   nome designa quando há homônimos — programas inválidos, que os compiladores já recusam. Conferir que
@@ -27372,7 +27372,7 @@ nós para todo elemento com `declaracao_publica`), hover/definição no LSP.
 - Pronto quando: (1) os casos 1–5 dão exatamente os diagnósticos listados; (2) as 5 FP de
   `const_with_non_const` e a FP de `const_initialized_with_non_constant_value` somem e os 3 FN de
   `const_eval_throws_exception` viram acerto; (3) nenhum FP novo nos códigos de
-  `crates/analysis/verificados.txt`; (4) os testes de emissão JS/nativo passam sem mudança de saída.
+  `crates/analysis/verified.txt`; (4) os testes de emissão JS/nativo passam sem mudança de saída.
 
 #### T2 — Plano de implementação detalhado
 
@@ -28124,7 +28124,7 @@ Outros pontos gerais: `vistos` (`:551`, `:581`) deduplica os diagnósticos de ti
 `undefined_class`/`not_a_type` nos tipos de `extends`/`implements`/`with`; os códigos de constantes
 sem `code` vindos da inferência são descartados (`:561-566`). Publicação
 (`crates/analysis/src/publicacao.rs:24-32`): sintático sempre, semântico só se o nome está em
-`crates/analysis/verificados.txt` (194 linhas). `// ignore` e `analysis_options`:
+`crates/analysis/verified.txt` (194 linhas). `// ignore` e `analysis_options`:
 `crates/parity/src/filtros.rs` (`Ignorados::de_texto` :168-195 — linha seguinte ou a própria;
 `ignora` :204-210 por nome ou `type=`; `Opcoes::processar` :122-132). Ordenação da saída:
 `crates/parity/src/json.rs:157-166` (severidade, arquivo, linha, coluna, mensagem) — igual à do
@@ -28466,7 +28466,7 @@ naquele arquivo não citar o nome — não verificado arquivo a arquivo (exige r
   lido; um ponto de recuperação esquecido vira FP de `unused_*`/`undefined_*`. Mitigação: invariante
   testável no parser — todo token do arquivo ou pertence ao intervalo de algum nó da árvore, ou é
   trivial (pontuação entre nós), ou está num `TrechoPulado`.
-- **`verificados.txt`**: `unused_local_variable`, `unused_element`, `unused_field` e os
+- **`verified.txt`**: `unused_local_variable`, `unused_element`, `unused_field` e os
   `undefined_*` só são publicados se estiverem na lista (`publicacao.rs:24-32`); abrir a porta pode
   tirar um código da lista se aparecer FP. Rodar o placar e os 209 pacotes antes de mexer na lista.
 - **Chave por `Codigo`** (passo 1): variantes de mesmo nome passam a sair em dobro onde o oficial
@@ -29417,7 +29417,7 @@ emitido dentro de um ramo de `switch`/`if-case` cujo tipo depende da promoção 
   corpus diferencial depois do passo 4.
 * **Pronto quando:** os 22 casos dão a saída de `oraculo-out.txt`; o placar não perde acerto em código
   publicado; as divergências do oráculo de tipos não sobem; os cinco emissores novos entram em
-  `verificados.txt` pela regra de publicação.
+  `verified.txt` pela regra de publicação.
 
 **Estado em 2026-10-04 (escrito, não compilado).** O estado do casamento está em
 `crates/types/src/inferencia/padroes/casamento.rs`: o valor casado é um local sintético do corpo (a
@@ -29567,7 +29567,7 @@ Gerado por `E:\dftemp\analise\spec-r4\indice.py` sobre este arquivo. Colunas:
 
 - **seções**: linhas deste documento cujo título cita o código (a 1ª é a seção da rodada 3; as seguintes, os complementos e aprofundamentos da rodada 4). `—` = o código só é tratado dentro de uma seção de grupo, sem título próprio.
 - **verificador oficial (3.6.2)**: constante(s) do código e o primeiro ponto de relato achado por script nos fontes do 3.6.2 (`error/…`, `generated/…`, `dart/…` são relativos a `analyzer/lib/src/`; `fe:` = `_fe_analyzer_shared/lib/src/`; `+n` = outros pontos de relato). Para códigos do parser, o ponto é o uso da mensagem do fasta (`messageX`/`templateX`) que o `error_converter.dart` traduz. A seção do código diz qual ponto vale para cada caso.
-- **DartForge (placar r7)**: `oráculo/nosso/acerto`, depois as perdas (`FN`, `FP`, `msg`, `pos`); `pub` = código publicado em `crates/analysis/verificados.txt`; `sem emissão` = o DartForge não emite o código no corpus (nosso = 0).
+- **DartForge (placar r7)**: `oráculo/nosso/acerto`, depois as perdas (`FN`, `FP`, `msg`, `pos`); `pub` = código publicado em `crates/analysis/verified.txt`; `sem emissão` = o DartForge não emite o código no corpus (nosso = 0).
 
 | código | fam. | seções (linha) | verificador oficial (3.6.2) | DartForge (placar r7) |
 |---|---|---|---|---|

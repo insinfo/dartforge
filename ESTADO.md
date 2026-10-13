@@ -9,7 +9,7 @@
 | Pub-cache (209 pacotes): FP / mensagem errada / FN | 35 / 2 / 40 | **0 / 0 / 29** |
 | Projetos reais (10): FP | 0 | **0** |
 | Mutações (567): FP | 7 | **4** (só lints não publicados) |
-| Códigos em `verificados.txt` | 477 | **485** |
+| Códigos em `verified.txt` | 477 | **485** |
 
 Códigos novos publicados: `argument_type_not_assignable`,
 `const_eval_throws_exception`, `deprecated_new_in_comment_reference`,
@@ -779,7 +779,7 @@ Regressões cobrem handles esparsos com arestas repetidas e inventário
 adulterado, sem alterar RC, romper arestas ou publicar mortos no erro.
 Passaram 190 testes unitários release do runtime (incluindo ignorados),
 16 integrações e 42 exemplos públicos. Rodada ampliada com
-DF_ARC_SEMENTES=1000 passou nos três oráculos de grafos aleatórios.
+DF_ARC_SEEDS=1000 passou nos três oráculos de grafos aleatórios.
 Logs target/arc-trial-denso-{suite,oraculo}.log. Sem medição de desempenho
 dessa mudança; o agregado ARC/A0=2,000274 anterior continua reprovado.
 ARC somente com --memory=arc; tracing permanece padrão. Integrar passes
@@ -2955,7 +2955,7 @@ zero; medidas, hashes e alteração de produção preservados em
 anterior, mantendo a correção do overflow de geração.
 O runtime restaurado foi recompilado e conferido em release: 102 testes
 passaram, zero falhas, três microbenchmarks ignorados, com
-`DF_ARC_SEMENTES=3000` nos três modos de grafos. A CLI também foi reconstruída
+`DF_ARC_SEEDS=3000` nos três modos de grafos. A CLI também foi reconstruída
 com o código restaurado; SHA-256:
 `33619EB5424E767C463DBBA4AD948F281CC369BA1BCAC31EE46D45CE43ECA3D7`.
 
@@ -4569,7 +4569,7 @@ microbenchmark só valem presos a um núcleo P).
 | **ARC** (`--memory=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,000274 em 55beeb34 (árvores 12,82×, lista ligada 5,28×); gate reprovado. Metadados por página já disponíveis; análise, provas, políticas e integração dos §§27–34 continuam incompletas. Evidência: `bench/results/2026-10-10-modos-55beeb34-windows` |
 | **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
 | **JS produção** (`crates/emit_js_production`) | corpus `--production` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
-| **Analisador** (`crates/analysis`, `types`) | placar **22.965/23.012** (99,8%, posição exata), FP 0, posição errada 0, mensagem errada 10, FN 47 (2026-10-12, macOS); projetos reais sem diagnóstico a mais (10 projetos, 567 mutações; 209 pacotes do pub-cache sem FP de código publicado); CLI e LSP publicam **477** códigos de `verificados.txt` | os 47 FN e as 10 mensagens (variância, limites F, `Null?`); os 13 códigos com FP nos pacotes do pub-cache (`unchecked_use_of_nullable_value`, `unused_import`, `argument_type_not_assignable`…) fora de `verificados.txt`; caixa do caminho no macOS (o mesmo arquivo por dois caminhos de caixa diferente vira duas bibliotecas) |
+| **Analisador** (`crates/analysis`, `types`) | placar **22.965/23.012** (99,8%, posição exata), FP 0, posição errada 0, mensagem errada 10, FN 47 (2026-10-12, macOS); projetos reais sem diagnóstico a mais (10 projetos, 567 mutações; 209 pacotes do pub-cache sem FP de código publicado); CLI e LSP publicam **477** códigos de `verified.txt` | os 47 FN e as 10 mensagens (variância, limites F, `Null?`); os 13 códigos com FP nos pacotes do pub-cache (`unchecked_use_of_nullable_value`, `unused_import`, `argument_type_not_assignable`…) fora de `verified.txt`; caixa do caminho no macOS (o mesmo arquivo por dois caminhos de caixa diferente vira duas bibliotecas) |
 | **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; formatação (`formatting`, `rangeFormatting`, `onTypeFormatting`) pelo porte do `dart_style`, edições idênticas às do Dart; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% (títulos; o resto são erros -32001 do próprio Dart) e 100% (edição, com `SnippetTextEdit`; reprise macOS 2026-10-12); latência mediana de references/implementation 1,5/1,1 ms (Dart 1,2/0,6; eram 269/221 ms) | nomes declarados dos parâmetros de tipo de função nos `Create …` (`p1`); incremental I5–I6 (dependem do motor em `crates/types`/`parity`) |
 | **Geração de código e ngdart** (`crates/build`, `dartforge serve`) | builders pelo executor nativo; `limitless_ui` e `new_sali/frontend` pela nossa trilha | compilador de visões do ngdart (§2.0) |
 
@@ -4582,7 +4582,7 @@ microbenchmark só valem presos a um núcleo P).
 | Projetos do proprietário e de 2024 (10, `projetos`): FP | 429 (cópias com `pub get`) | **0** |
 | Mutações desses projetos (567): FP | 122 | **7** (nenhum de código publicado) |
 | Pacotes do pub-cache (209): FP / mensagem errada | 46 / 33 | **35 / 2** (nenhum de código publicado) |
-| Códigos em `verificados.txt` | 167 | **477** |
+| Códigos em `verified.txt` | 167 | **477** |
 
 Como medir nesta máquina: `DARTFORGE_PARITY_SAMPLES=100000 dartforge-parity scoreboard --details
 --workers 8` (o corpus e o oráculo gravado estão no repositório); para os projetos reais, copiar
@@ -4595,7 +4595,7 @@ o SDK 3.6.2. Achados: FP nos projetos reais por anotação de FFI por alias de `
 privada usada só em `case`, anotação de diretiva, falso `top_level_cycle` de campos `late`; FP de
 arquivo único (partes sem a biblioteca no lote, padrão de `super.x` sem corpos da superclasse); `/x.dart`
 numa biblioteca de `lib/`; promoção por condição guardada antes da 2.15; captura de escrita em função
-local. Os 310 códigos novos de `verificados.txt` são os sem erro emitido no corpus (no placar de 22.954) e nesses projetos.
+local. Os 310 códigos novos de `verified.txt` são os sem erro emitido no corpus (no placar de 22.954) e nesses projetos.
 
 ### Formatador (`dart format`)
 
@@ -4672,7 +4672,7 @@ no commit do ARC, atualizada com a implementação.
    inteiro com os cinco modos; commit e CI (Linux/macOS com a forma nova).
 2. ARC: metadados por bloco (§19.1), retain/release em linha, drenagens sem `HashSet` por objeto; medir
    até ficar perto de A0; atualizar e commitar a `ARC-CICLOS-ESPECIFICACAO.md`.
-3. Analisador: os 17 FP e os FN; ampliar `verificados.txt`.
+3. Analisador: os 17 FP e os FN; ampliar `verified.txt`.
 4. LSP: incremental I5–I6 (snippets das ações de código e latência de references/implementation feitos em 2026-10-12).
 
 ## Rodada de 2026-10-08, manhã: nativo (ARC, Linux e macOS) e analisador
@@ -4719,7 +4719,7 @@ Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE
 * `DEPRECATED_OPTIONAL` do 3.13.4; modificadores antes do `this` e o `const` sem construtor primário
   (3.13.4); o `dart:core` implícito decidido só pela unidade definidora (o `String` do macro 411 voltou a
   resolver).
-* A CLI e o LSP publicam só os códigos de `crates/analysis/verificados.txt` (167); 391 códigos já têm zero
+* A CLI e o LSP publicam só os códigos de `crates/analysis/verified.txt` (167); 391 códigos já têm zero
   FP, posição e mensagem certas no corpus e esperam a conferência nos projetos reais para entrar.
 
 ## Fechamento de 2026-10-06
@@ -5152,7 +5152,7 @@ FP que caíram sem perder acertos relevantes: `non_bool_condition` 157 → 0,
 **Publicação.** A regra passou de "100% no corpus" para **"nada emitido
 errado"**: zero FP, zero posição errada e zero mensagem errada no corpus e
 nos projetos reais; FN é permitido. O placar reprova um código listado que
-emita algo errado e lista os candidatos. `crates/analysis/verificados.txt`
+emita algo errado e lista os candidatos. `crates/analysis/verified.txt`
 foi de 3 para **50 códigos** (3.711 acertos publicados, antes 17). Os
 projetos reais desta máquina são 60 pacotes do pub-cache (2.150 arquivos):
 nenhum FP de código publicado, 21 FP no total (antes 328). Os três projetos
@@ -5677,7 +5677,7 @@ em teste dirigido. A rodada intermediária
 acusou 3 FP em `const E.foo()` sem alvo (outro código), corrigidos antes do
 verde. Placar geral: **5.959/26.133 (22,8%)** na posição exata, 5.670 mensagens
 iguais, 4.393 falsos positivos, 19.706 falsos negativos, 468 posições erradas,
-determinismo em 1/4/8. O código segue fora de `verificados.txt` (falta 100%).
+determinismo em 1/4/8. O código segue fora de `verified.txt` (falta 100%).
 
 ## Fechamento do dia 2026-09-23
 
@@ -6057,7 +6057,7 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
   inteiros, a parte local do `UnusedLocalElementsVerifier` e o
   `ImportsVerifier` (`unused_import` e `unused_shown_name`, pelo lado seguro:
   112/153 no corpus, 0 FP nos projetos).
-* **Regra de publicação** (`crates/analysis/verificados.txt`, a mesma no CLI
+* **Regra de publicação** (`crates/analysis/verified.txt`, a mesma no CLI
   e no LSP): sintaxe sempre; semântica só com 100% no corpus e 0 FP nos
   três projetos reais. Publicados hoje: `enum_constant_same_name_as_enclosing`,
   `enum_with_name_values` e `values_declaration_in_enum`.

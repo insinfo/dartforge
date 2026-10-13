@@ -1,11 +1,11 @@
 //! Conformance of inference with the oracle (`package:analyzer`): dumps each
-//! program of `corpus/inferencia/` and compares it with the `.esperado.tsv`
+//! program of `corpus/inferencia/` and compares it with the `.expected.tsv`
 //! recorded by the oracle (docs/INFERENCIA-ESPECIFICACAO.md, §0).
 //!
 //! The known divergences and warnings are kept in
-//! `corpus/inferencia/divergencias.txt` (a ratchet): the test fails on a new
+//! `corpus/inferencia/divergences.txt` (a ratchet): the test fails on a new
 //! divergence or warning, and also on a list item that stopped happening
-//! (the list only shrinks). `ATUALIZAR_DIVERGENCIAS=1` rewrites the list,
+//! (the list only shrinks). `UPDATE_DIVERGENCES=1` rewrites the list,
 //! preserving the header notes (`#> ` lines), which explain the divergences
 //! kept on purpose.
 
@@ -44,7 +44,7 @@ fn inference_corpus_against_oracle() {
     let mut progs = Vec::new();
     programs(&root, &mut progs);
     assert!(!progs.is_empty(), "empty corpus in {}", root.display());
-    let list_path = root.join("divergencias.txt");
+    let list_path = root.join("divergences.txt");
 
     let (current, summary) = std::thread::Builder::new()
         .stack_size(1 << 28)
@@ -53,7 +53,7 @@ fn inference_corpus_against_oracle() {
             let (mut compared, mut divergent, mut warnings, mut equal) = (0usize, 0usize, 0usize, 0usize);
             for prog in &progs {
                 let rel = prog.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
-                let expected = prog.with_extension("esperado.tsv");
+                let expected = prog.with_extension("expected.tsv");
                 let Ok(text) = std::fs::read_to_string(&expected) else {
                     panic!("{rel}: falta {}", expected.display());
                 };
@@ -89,7 +89,7 @@ fn inference_corpus_against_oracle() {
         .unwrap();
     eprintln!("{summary}");
 
-    if std::env::var_os("ATUALIZAR_DIVERGENCIAS").is_some() {
+    if std::env::var_os("UPDATE_DIVERGENCES").is_some() {
         let mut s = String::from(
             "# Known divergences and warnings of corpus/inferencia against the oracle\n\
              # (ratchet of crates/types/tests/corpus_inference.rs; it only shrinks).\n",
@@ -118,7 +118,7 @@ fn inference_corpus_against_oracle() {
     assert!(
         new_.is_empty() && resolved.is_empty(),
         "corpus/inferencia changed ({summary}).\nnew ({}):\n{}\nresolved, remove from the list ({}):\n{}\n\
-         (ATUALIZAR_DIVERGENCIAS=1 rewrites corpus/inferencia/divergencias.txt)",
+         (UPDATE_DIVERGENCES=1 rewrites corpus/inferencia/divergences.txt)",
         new_.len(),
         new_.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n"),
         resolved.len(),

@@ -94,7 +94,7 @@ Cada `didOpen`/`didChange` produz **duas** publicações para o documento:
    (carga, outline, inferência de `crates/types`, todos os verificadores de
    `crates/analysis`, imports não usados, diretivas sem alvo) seguida de
    `dartforge_parity::publicaveis` (sintaxe sempre; semântica só com
-   código em `crates/analysis/verificados.txt`; `analysis_options.yaml` e
+   código em `crates/analysis/verified.txt`; `analysis_options.yaml` e
    `// ignore:`). Nenhuma regra é reescrita no LSP: a publicação tipada é a
    sintaxe do parser mais a semântica publicada do motor. Conferido com o
    exemplo de medição abaixo: nos arquivos medidos, a lista publicada é
@@ -518,7 +518,7 @@ correção leva o diagnóstico que corrige.
   algum nome do tipo não é visível na biblioteca (a anotação não
   compilaria).
 
-Dos códigos semânticos publicados (`crates/analysis/verificados.txt`), os
+Dos códigos semânticos publicados (`crates/analysis/verified.txt`), os
 três de enum (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
 `values_declaration_in_enum`) não têm correção rápida no `dart
 language-server` 3.6.2 (conferido), e este servidor também não. Teste:
@@ -572,7 +572,7 @@ formatador que não seja byte a byte o do SDK reescreveria arquivos de forma
 diferente do `dart format` do projeto e do CI dele. A capacidade só entra com
 um porte do `dart_style` conferido contra ele num oráculo (como os demais
 componentes); até lá, a formatação fica com o `dart format`. Os
-diagnósticos semânticos publicados (os códigos de `verificados.txt`,
+diagnósticos semânticos publicados (os códigos de `verified.txt`,
 inclusive os que dependem de tipos) chegam pelo fluxo tipado descrito em
 "Diagnósticos tipados"; os não verificados continuam fora do editor.
 

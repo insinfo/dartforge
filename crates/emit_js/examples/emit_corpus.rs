@@ -6,7 +6,7 @@
 //!
 //! With `DARTFORGE_JS_CHECK_TYPES` set, each compilation also checks the
 //! emitter's types against the shared inference (`crates/emit_js/src/type_check.rs`).
-//! With `EMITIR_CORPUS_EXECUTAVEL=1`, each program is also written ready for Node
+//! With `EMIT_CORPUS_EXECUTABLE=1`, each program is also written ready for Node
 //! in `<out_dir>/<name>/` (`node <out_dir>/<name>/main.mjs`), with the
 //! `dart_sdk.js` from `DARTFORGE_DART_SDK_JS`.
 
@@ -27,7 +27,7 @@ fn main() {
             .to_string();
         let text = match dartforge_emit_js::compile(&path, None, None) {
             Ok(e) => {
-                if std::env::var_os("EMITIR_CORPUS_EXECUTAVEL").is_some() {
+                if std::env::var_os("EMIT_CORPUS_EXECUTABLE").is_some() {
                     let dir = out_dir.join(&name);
                     dartforge_emit_js::write(&e, &dir, &dartforge_emit_js::default_dart_sdk_js())
                         .expect("write the runnable program");

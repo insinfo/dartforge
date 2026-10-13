@@ -719,7 +719,7 @@ capacidades estáticas).
 **Estado no DartForge** (`docs/LSP.md`, "Diagnósticos tipados"): publica para
 os documentos **abertos** (o Dart publica para todos os arquivos das raízes) o
 sintático imediatamente e o tipado em seguida, só com os códigos de
-`crates/analysis/verificados.txt` (os de paridade conferida no corpus); no
+`crates/analysis/verified.txt` (os de paridade conferida no corpus); no
 `didClose` publica lista vazia (o Dart mantém). `code`, `severity`,
 `message`/`correction`, `tags` e `codeDescription` seguem o Dart para os
 códigos publicados. **Diverge:** conjunto de arquivos (abertos × raízes), a
@@ -5724,10 +5724,10 @@ lints recebem ainda os três *ignore* (13.7.1 item 6).
 #### 13.7.4 Produtores dos códigos que o DartForge publica
 
 Cobertura: os 61 produtores distintos alcançados pelos códigos de
-`crates/analysis/verificados.txt` (cruzamento feito por `gen.py`/`gen_ver.py`, saída em
+`crates/analysis/verified.txt` (cruzamento feito por `gen.py`/`gen_ver.py`, saída em
 `E:\dftemp\lsp\spec-r2\f13-07\ver.txt`) e mais os produtores dos códigos sintáticos e dos
 "indefinidos" que o LSP já atende ou vai atender (`ImportLibrary`, `Create*`, `InsertSemicolon`,
-`AddMissingRequiredArgument`…). Dos 167 códigos de `verificados.txt`: 62 têm produtor na 3.6.2
+`AddMissingRequiredArgument`…). Dos 167 códigos de `verified.txt`: 62 têm produtor na 3.6.2
 (tabela em 13.7.4.9); 99 existem na 3.6.2 sem quick fix (nem *ignore*, salvo os poucos
 `WarningCode`); 6 não existem na 3.6.2 (`const_primary_constructor_with_body`,
 `dot_shorthand_missing_context`, `multiple_primary_constructor_body_declarations`,
@@ -7264,9 +7264,9 @@ existente; `x.toList()`/`.toSet()` → aplica no alvo); `Map` → `.cast<K, V>()
 
 ##### 13.7.4.9 Códigos publicados × produtores (3.6.2)
 
-Gerada por `gen.py` (`ver.txt`): cada código de `verificados.txt` com produtor na 3.6.2, pelas
+Gerada por `gen.py` (`ver.txt`): cada código de `verified.txt` com produtor na 3.6.2, pelas
 constantes que compartilham o `name` ou o `uniqueName`. `(m)` = multi-produtor. Códigos de
-`verificados.txt` ausentes desta tabela não têm quick fix na 3.6.2. A classe do
+`verified.txt` ausentes desta tabela não têm quick fix na 3.6.2. A classe do
 código é omitida na segunda coluna quando é `CompileTimeErrorCode`.
 
 | código publicado | constante 3.6.2 | produtores (ordem de execução) |
@@ -7365,7 +7365,7 @@ Arquivos: `crates/lsp/src/semantica.rs:294-346` (montagem), `acoes.rs` (1135 lin
 
 | Aspecto | Dart 3.6.2 (13.7.1) | DartForge hoje | Arquivo |
 |---|---|---|---|
-| Diagnósticos considerados | todos os de `unit.errors` (inclui os rebaixados a `ignore` no `analysis_options`) | os imediatos (`diagnosticar`) + os tipados publicados **para a versão vigente**; só códigos de `verificados.txt` e sintaxe | `semantica.rs:297-302`; `servidor.rs:848-853` |
+| Diagnósticos considerados | todos os de `unit.errors` (inclui os rebaixados a `ignore` no `analysis_options`) | os imediatos (`diagnosticar`) + os tipados publicados **para a versão vigente**; só códigos de `verified.txt` e sintaxe | `semantica.rs:297-302`; `servidor.rs:848-853` |
 | Seleção | linhas do erro × linhas do pedido | idem (o intervalo é estendido ao início da linha de `inicio` e ao fim da linha de `fim`; teste `d.span.start <= fim && inicio <= d.span.end`) | `semantica.rs:306-310` |
 | Nomes indefinidos | pelos diagnósticos `undefined_*` (linha) | por varredura da AST no intervalo **exato** do pedido (`inicio..fim`, não a linha), sem diagnóstico (`diagnostico: None`) | `acoes.rs:164-199`; `criar.rs:93-178` |
 | Ordem dos produtores | simples → multi → ignore, por erro | fixa por família: sintaxe, (Organize Imports), publicados, importar, `correcoes`, criar/trocar, assists, ignore | `semantica.rs:311-345` |
@@ -7501,7 +7501,7 @@ fixes ausentes (`Add missing switch cases`, `Add required argument`).
    testemunha única de `args[2]` (cobre o caso do oráculo: um valor de enum faltando), sabendo
    que o Dart emite um `case` por testemunha.
 2. *`Add required argument 'x'`.* O código `missing_required_argument` não está em
-   `verificados.txt`; o fix depende só da chamada resolvida. Caminho: para cada chamada cuja
+   `verified.txt`; o fix depende só da chamada resolvida. Caminho: para cada chamada cuja
    linha toca o pedido, comparar os nomeados `required` do alvo com os argumentos e emitir um
    fix por faltante (título com o nome, prioridade 70, valor por tipo: `[]`, `{}`, `''`, função,
    `null`). Associar o diagnóstico quando o código passar a ser publicado.
@@ -13492,12 +13492,12 @@ Observações sobre a lista:
 
 #### 13.12.10 Código publicado pelo DartForge → produtor(es) em lote
 
-Cruzamento de `crates/analysis/verificados.txt` (167 códigos semânticos publicados) com a
+Cruzamento de `crates/analysis/verified.txt` (167 códigos semânticos publicados) com a
 lista acima, pelo `name` em minúsculas do `ErrorCode` (várias constantes compartilham um
 `name`; a coluna do meio diz qual constante está registrada). **É este o conjunto que o
 `Fix All` do DartForge precisa cobrir para os diagnósticos que ele já publica.**
 
-| Código publicado (`verificados.txt`) | Constante registrada | Produtor(es) em lote |
+| Código publicado (`verified.txt`) | Constante registrada | Produtor(es) em lote |
 |---|---|---|
 | `extension_declares_member_of_object` | `CompileTimeErrorCode.EXTENSION_DECLARES_MEMBER_OF_OBJECT` (`fix_internal.dart:1010`) | `RemoveMethodDeclaration` (automatically) |
 | `extension_type_declares_member_of_object` | `CompileTimeErrorCode.EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT` (`fix_internal.dart:1013`) | `RemoveMethodDeclaration` (automatically) |
@@ -13536,7 +13536,7 @@ Notas:
   `SUBTYPE_OF_FINAL_IS_NOT_BASE_FINAL_OR_SEALED` tem produtor em lote
   (`RemoveTypeAnnotation.other`); as outras duas com o mesmo `name` (`:1143`, `:1146`, `:1257`)
   têm `AddClassModifier` (`acrossSingleFile`).
-* Os demais códigos de `verificados.txt` ou não têm correção registrada ou só têm produtores
+* Os demais códigos de `verified.txt` ou não têm correção registrada ou só têm produtores
   `singleLocation`/`acrossSingleFile` (55 registros conferidos; ex.: `abstract_field_initializer`,
   `assignment_to_final`, `non_bool_condition` → `AddNeNull` é `acrossSingleFile`,
   `unreachable_switch_case`, `uri_does_not_exist`): o `Fix All` do Dart **não** os toca.
@@ -13546,11 +13546,11 @@ Notas:
   `undefined_extension_getter`. Fora do Flutter e do próprio SDK são raros; podem ficar
   para depois.
 * `unused_import`, `duplicate_import`, `unnecessary_import` **não** estão em
-  `verificados.txt`: a fase B não tem o que fazer até serem publicados.
-* Lints: o DartForge não publica lints (nenhum em `verificados.txt`); a coluna de lints de
+  `verified.txt`: a fase B não tem o que fazer até serem publicados.
+* Lints: o DartForge não publica lints (nenhum em `verified.txt`); a coluna de lints de
   13.12.9 fica para quando houver regras.
 
-Códigos **sintáticos** (o DartForge publica sintaxe sempre; `verificados.txt` não os lista).
+Códigos **sintáticos** (o DartForge publica sintaxe sempre; `verified.txt` não os lista).
 Produtores em lote registrados para `ParserErrorCode` (quais desses códigos o parser do
 DartForge de fato emite não foi verificado):
 
@@ -17007,7 +17007,7 @@ F1 e F2 são pré-requisito dos assists e das refatorações (13.8 a 13.11 escol
 | 11 | `workspace/symbol` | 0% | F4 | 5 | as 24 consultas iguais |
 | 12 | `inlayHint` | 50% dos arquivos | M3 | 15.3 | os 36 arquivos iguais |
 | 13 | `typeDefinition`, `documentHighlight`, `definition` | 95–96% | M1 | 10, 11.6 | ≥ 99% |
-| 14 | quick fixes dos códigos publicados | 75% | F1, F2 | 13.7 | todo código de `crates/analysis/verificados.txt` com produtor registrado no Dart tem o mesmo conjunto de títulos |
+| 14 | quick fixes dos códigos publicados | 75% | F1, F2 | 13.7 | todo código de `crates/analysis/verified.txt` com produtor registrado no Dart tem o mesmo conjunto de títulos |
 | 15 | `semanticTokens`, `signatureHelp`, `documentSymbol` | 97–100% | — | 15.2, 15.1, 4 | 100% |
 | 16 | formatação | 0% | porte do `dart_style` | 8.1 | fora deste plano |
 

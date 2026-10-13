@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! bin/dartforge[.exe]            this executable (and the JIT's LLVM-C.dll on Windows)
-//! lib/dartforge-distribuicao.json
+//! lib/dartforge-distribution.json
 //! lib/runtime/                   the two runtime staticlibs (emit_native's build.rs)
 //! lib/native_sdk/                the native backend overlay
 //! lib/dart-sdk/{lib,version}     the Dart SDK libraries

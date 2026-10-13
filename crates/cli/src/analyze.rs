@@ -5,7 +5,7 @@
 //! line per diagnostic.
 //!
 //! Publishes only what the rule of plan §2.3 allows: syntax always, and the
-//! semantic codes in `crates/analysis/verificados.txt`. `--all` also shows
+//! semantic codes in `crates/analysis/verified.txt`. `--all` also shows
 //! the unverified ones (for debugging, never for the editor).
 //!
 //! Rewritten on 2026-10-04 without compiling or running.

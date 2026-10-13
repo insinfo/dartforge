@@ -10,7 +10,7 @@
 //!
 //! `<package_config.json>` is any one that resolves `package:analyzer` 6.11.0
 //! and `package:path` (the one from `new_sali/frontend`, for example). For each
-//! `X.dart` it writes `X.esperado.tsv`, one line per expression:
+//! `X.dart` it writes `X.expected.tsv`, one line per expression:
 //!
 //! ```text
 //! linha  coluna  offset  comprimento  nó  tipo  elemento  marca  trecho
@@ -102,7 +102,7 @@ fn main() {
         }
         lines.sort();
         let rel = prog.strip_prefix(&format!("{root_txt}/")).unwrap_or(prog);
-        let destination = format!("{}.esperado.tsv", prog.trim_end_matches(".dart"));
+        let destination = format!("{}.expected.tsv", prog.trim_end_matches(".dart"));
         let mut f = std::io::BufWriter::new(std::fs::File::create(&destination).unwrap());
         writeln!(f, "# {rel} — gravado pelo oráculo (package:analyzer 6.11.0, Dart 3.6.2)").unwrap();
         writeln!(f, "# linha\tcoluna\toffset\tcomprimento\tnó\ttipo\telemento\tmarca\ttrecho").unwrap();

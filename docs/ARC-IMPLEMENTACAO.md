@@ -99,7 +99,7 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
   completa, nenhum inalcançável continua vivo, e a fraca e o efêmero de alvo
   ou chave inalcançável estão zerados. Três modos: o padrão, a *trial
   deletion* em toda sincronização e o rastreamento (que valida o modelo).
-  `DF_ARC_SEMENTES=N` amplia a busca; 3000 sementes por modo passaram. A
+  `DF_ARC_SEEDS=N` amplia a busca; 3000 sementes por modo passaram. A
   primeira rodada achou dois furos, corrigidos: o zero que volta a subir não
   virava candidato (o autociclo vazava), e o ciclo valor→portador de um
   efêmero ficava vivo pela chave.
@@ -625,7 +625,7 @@ provas de vida/política e cobertura SDK/observadores permanecem pendentes.
   os sobreviventes. Trial negativo identifica o handle e interrompe antes
   de alterar RC, romper arestas ou publicar mortos. Regressões cobrem handles
   esparsos, arestas repetidas e inventário adulterado; os três oráculos de
-  grafos aleatórios passaram com `DF_ARC_SEMENTES=1000`. Comparação local
+  grafos aleatórios passaram com `DF_ARC_SEEDS=1000`. Comparação local
   em sete pares mostrou resultado misto: árvores 1,59% mais lentas e
   lista ligada 4,59% mais rápida nas medianas. Não demonstra ganho geral;
   A0 e os outros 30 kernels não foram reexecutados. Dados brutos em

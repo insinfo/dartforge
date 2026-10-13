@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! <root>/bin/dartforge[.exe]
-//! <root>/lib/dartforge-distribuicao.json   distribution marker and version
+//! <root>/lib/dartforge-distribution.json   distribution marker and version
 //! <root>/lib/dart-sdk/lib/…                the Dart SDK libraries (source)
 //! <root>/lib/native_sdk/…                  the native backend overlay
 //! <root>/lib/runtime/…                     the precompiled runtime (staticlib)
@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 
 /// The name of the file that marks the root of a distribution.
-pub const MARKER: &str = "dartforge-distribuicao.json";
+pub const MARKER: &str = "dartforge-distribution.json";
 
 /// The distribution root of the running executable: `DARTFORGE_HOME`, or
 /// the directory above the executable's `bin/` when `lib/` has the

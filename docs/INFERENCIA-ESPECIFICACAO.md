@@ -52,7 +52,7 @@ imutáveis do pub.
 ### 0.3 Corpus de conformidade (`corpus/inferencia/`)
 
 Cada regra `R-XXX-nn` tem um programa mínimo `corpus/inferencia/<seção>/
-<id>_<nome>.dart` e, ao lado, `<id>_<nome>.esperado.tsv` **gravado pelo
+<id>_<nome>.dart` e, ao lado, `<id>_<nome>.expected.tsv` **gravado pelo
 oráculo** (nunca escrito à mão):
 
     cargo run --release -p dartforge-types --example gravar_corpus -- \
@@ -60,7 +60,7 @@ oráculo** (nunca escrito à mão):
 
 (qualquer `package_config.json` que resolva `analyzer` 6.11.0 e `path`
 serve; um único processo `dart` para o corpus inteiro, ~20 s.) Colunas do
-`.esperado.tsv`: `linha coluna offset comprimento nó tipo elemento marca
+`.expected.tsv`: `linha coluna offset comprimento nó tipo elemento marca
 trecho` — `offset`/`comprimento` em unidades UTF-16 (as do analyzer e as do
 nosso despejo, `dartforge_types::despejo`), `tipo` é o
 `staticType.getDisplayString()` do analyzer, `elemento` o elemento resolvido
@@ -72,10 +72,10 @@ são **erro** no 3.6 estão só no texto, com exemplo.
 
 Uso (dono do `crates/types`): o teste `crates/types/tests/corpus_inferencia.rs`
 despeja cada programa (`dartforge_types::despejo`) e o compara com o
-`.esperado.tsv` — uma divergência num programa mínimo aponta a regra exata.
+`.expected.tsv` — uma divergência num programa mínimo aponta a regra exata.
 As divergências e avisos ainda conhecidos ficam em
-`corpus/inferencia/divergencias.txt` (catraca: o teste falha com item novo e
-com item que deixou de acontecer; `ATUALIZAR_DIVERGENCIAS=1` regrava).
+`corpus/inferencia/divergences.txt` (catraca: o teste falha com item novo e
+com item que deixou de acontecer; `UPDATE_DIVERGENCES=1` regrava).
 
 ### 0.4 Notação
 

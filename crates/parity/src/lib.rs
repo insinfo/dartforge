@@ -10,7 +10,7 @@
 //! * [`scoreboard`]: the per-code comparison.
 //!
 //! Publication rule (plan §2.3): syntax is always published; a semantic code
-//! is only published if it is in `crates/analysis/verificados.txt` (zero
+//! is only published if it is in `crates/analysis/verified.txt` (zero
 //! false positives, wrong positions or wrong messages in the corpus and in the
 //! real projects; false negatives are allowed). The rest exists internally and
 //! only goes to the scoreboard.

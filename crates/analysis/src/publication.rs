@@ -1,6 +1,6 @@
 //! The publication rule (plan §2.3), shared by `dartforge analyze` and the
 //! LSP: a syntactic diagnostic is always published; a semantic code is only
-//! published if it is in `verificados.txt` — nothing it emits is wrong (zero
+//! published if it is in `verified.txt` — nothing it emits is wrong (zero
 //! false positives, zero wrong positions, zero wrong messages) in the parity
 //! corpus and in the real projects. False negatives are allowed: what the
 //! user sees is right, even if something is missing. The rest exists
@@ -9,7 +9,7 @@
 use dartforge_diagnostics::{Diagnostic, ErrorType};
 
 /// The versioned list of verified semantic codes.
-pub const VERIFIED: &str = include_str!("../verificados.txt");
+pub const VERIFIED: &str = include_str!("../verified.txt");
 
 /// The codes of [`VERIFIED`] (without comments).
 pub fn verified() -> Vec<&'static str> {

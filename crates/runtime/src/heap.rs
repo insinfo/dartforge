@@ -7096,9 +7096,9 @@ mod arc_no_heap {
         heap.pop_frame(frame);
     }
 
-    /// How many seeds: `DF_ARC_SEMENTES` widens the search outside CI.
+    /// How many seeds: `DF_ARC_SEEDS` widens the search outside CI.
     fn seeds(pattern: u64) -> u64 {
-        std::env::var("DF_ARC_SEMENTES").ok().and_then(|v| v.parse().ok()).unwrap_or(pattern)
+        std::env::var("DF_ARC_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(pattern)
     }
 
     #[test]

@@ -206,7 +206,7 @@ Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
 sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
 **0/95 → 83/95** (antes do `FutureOr` cru todo programa tinha um aviso);
 35 expressões divergentes e 3 avisos, listados em
-`corpus/inferencia/divergencias.txt`.
+`corpus/inferencia/divergences.txt`.
 
 Avisos restantes no new_sali por causa (frontend 28 / core 15):
 

@@ -1614,7 +1614,7 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
 ### 7.13 A distribuição (`dartforge pack`) e o SDK da fonte por padrão
 
 * **Leiaute** (`crates/elements/src/distribuicao.rs`): `bin/dartforge`,
-  `lib/dartforge-distribuicao.json` (a marca), `lib/runtime/`,
+  `lib/dartforge-distribution.json` (a marca), `lib/runtime/`,
   `lib/native_sdk/`, `lib/dart-sdk/{lib,version}`, `lib/llvm/bin/` (Clang e
   lld). O SDK do Dart, a sobreposição, o Clang e o runtime são procurados
   primeiro ali (depois nas variáveis de ambiente e na árvore de

@@ -1,6 +1,6 @@
 //! Typed diagnostics in the continuous flow (audit L01): the `dartforge
 //! analyze` analysis runs in the background over the open documents and
-//! publishes, for the current version, the codes in `verificados.txt`.
+//! publishes, for the current version, the codes in `verified.txt`.
 mod common;
 
 use common::Project;
@@ -82,7 +82,7 @@ fn published_typed_code_reaches_editor() {
 #[test]
 fn only_published_codes_and_ignore_respected() {
     let mut p = Project::new("tipado-publicados");
-    // `unchecked_use_of_nullable_value` is not in `verificados.txt`: it does not
+    // `unchecked_use_of_nullable_value` is not in `verified.txt`: it does not
     // appear. `// ignore:` works as in `dartforge analyze` (for warnings; an
     // error cannot be ignored), in both flows.
     let text = "void f() {\n  <int?>[].first.isEven;\n  // ignore: unused_local_variable\n  var y = 1;\n  var z = 2;\n  if (1) {}\n}\n";

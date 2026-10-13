@@ -41,7 +41,7 @@ fn main() {
 
     // `sem-motor` (no engine): the same session without a stage (the
     // baseline of the zero-cost rule), with the files of
-    // `MEDIR_COMPONENTE`/`MEDIR_SEM_ANGULAR`.
+    // `MEASURE_COMPONENT`/`MEASURE_NO_ANGULAR`.
     let no_engine = args.get(4).is_some_and(|a| a == "sem-motor");
     let stage = if no_engine {
         None
@@ -62,11 +62,11 @@ fn main() {
 
     // Covered component: native `.template.dart` output with `.html` and `.scss`.
     let root = dartforge_build::package_root(&input).expect("root");
-    let (component, no_angular) = if let Ok(c) = std::env::var("MEDIR_COMPONENTE") {
+    let (component, no_angular) = if let Ok(c) = std::env::var("MEASURE_COMPONENT") {
         let dart = PathBuf::from(c);
-        ((dart.clone(), dart.with_extension("html"), dart.with_extension("scss")), std::env::var("MEDIR_SEM_ANGULAR").ok().map(PathBuf::from))
+        ((dart.clone(), dart.with_extension("html"), dart.with_extension("scss")), std::env::var("MEASURE_NO_ANGULAR").ok().map(PathBuf::from))
     } else {
-        let engine = engine.clone().expect("no engine: set MEDIR_COMPONENTE");
+        let engine = engine.clone().expect("no engine: set MEASURE_COMPONENT");
         let m = engine.lock().unwrap();
         let mut comp = None;
         let mut native = std::collections::BTreeSet::new();
@@ -137,7 +137,7 @@ fn main() {
             session.file_changed(&file);
             let r = session.compile().expect("edit");
             row(&format!("{name} #{i}"), &r);
-            if let (true, Some(engine)) = (std::env::var("MEDIR_DEPURAR").is_ok(), engine.as_ref()) {
+            if let (true, Some(engine)) = (std::env::var("MEASURE_DEBUG").is_ok(), engine.as_ref()) {
                 let m = engine.lock().unwrap();
                 for (a, action) in m.graph.actions.iter().enumerate() {
                     if root.join(action.input.path.as_ref()) == dart || root.join(action.input.path.as_ref()).with_extension("") == dart.with_extension("") {

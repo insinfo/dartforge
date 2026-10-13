@@ -47,10 +47,10 @@ aqui: as referências são `ANALYZER-ESPECIFICACAO.md §X` e `T1`…`T8`.
   deles só existem no 3.13 e não entram na conta da 3.6.2). São **546
   constantes, 512 nomes distintos** (Parte II).
 - **Estado no DartForge** (Parte II), conferido por grep em `crates/`:
-  **publicado** (emitido e, se semântico, listado em `crates/analysis/verificados.txt`;
+  **publicado** (emitido e, se semântico, listado em `crates/analysis/verified.txt`;
   sintaxe é publicada sempre — `crates/analysis/src/publicacao.rs:24-34`),
   **emitido, não publicado** (há emissor em `crates/{analise,types,frontend,elements}`,
-  o nome não está em `verificados.txt`), **não implementado** (nenhum emissor).
+  o nome não está em `verified.txt`), **não implementado** (nenhum emissor).
 - **Sondas no binário**: há um `dart` 3.6.2 nesta máquina
   (`C:\tools\dartsdk-3.6.2`, `Dart SDK version: 3.6.2 (stable)`). Onde o texto
   diz "conferido no binário" ou "sonda sN", o comportamento foi medido com
@@ -463,7 +463,7 @@ aparece na saída. Ela importa em quatro pontos:
   2. *Portas de sintaxe* que o oficial não tem: `libs_com_erro_de_sintaxe`
      (`analise.rs:300`, `:349-352`, `:525`) e `recuperacao_do_parser` (`:725`);
      ver T5 — cada porta é FN potencial.
-  3. *Publicação*: só sintaxe e `verificados.txt` saem
+  3. *Publicação*: só sintaxe e `verified.txt` saem
      (`crates/analysis/src/publicacao.rs:24-34`); o oficial publica tudo.
   4. *Fases ausentes por inteiro*: C4a (Unicode), C4c (`BestPracticesVerifier`
      e sub-verificadores), C4d/C4e (`OverrideVerifier`, `RedeclareVerifier`),
@@ -1628,7 +1628,7 @@ são aceitos.
 | JSON | compacto, mesma ordem de chaves (`json.rs:16-37`, `:168-171`), **sem** `\n` final (`print!`, `analisar.rs:78`) | o oficial termina com `\n`; falta `contextMessages`; o escape de strings do `serde_json` × `json.encode` do Dart é **não verificado** para caracteres de controle e substitutos soltos |
 | TODO | não emite | equivalente por enquanto (o oficial descarta TODO INFO); muda com `errors: todo: …` |
 | código de saída | 3 com erro, 2 com aviso, 0 (`:105-112`) | falta 1 (`--fatal-infos`), `--no-fatal-warnings` e 4 |
-| filtro de publicação | só sintaxe + `verificados.txt` (`--all` desliga) | por definição não é paridade; ver Parte III, etapa 9 |
+| filtro de publicação | só sintaxe + `verified.txt` (`--all` desliga) | por definição não é paridade; ver Parte III, etapa 9 |
 
 ## 6. Versão de linguagem e experimentos
 
@@ -2366,7 +2366,7 @@ Gerada de `linter/lib/src/rules.dart` (ordem do registro) e de cada
 
 São **546 constantes** de diagnóstico da tabela oficial do 3.6.2 que não estão nas listas `familia-*.txt` do documento por código, em dez lotes. Três lotes (II.5 em parte, II.8 e II.10) foram escritos lendo cada método emissor; os demais foram gerados por script a partir do levantamento automático e estão marcados como tal: neles a condição é a mensagem oficial e a posição não foi conferida.
 
-Estado no DartForge, por lote (contagem do script `final/gera2.py`: emissor = referência à constante em `crates/` fora de `diagnostics`, `parity` e `lsp`; publicado = código de sintaxe ou nome em `crates/analysis/verificados.txt`):
+Estado no DartForge, por lote (contagem do script `final/gera2.py`: emissor = referência à constante em `crates/` fora de `diagnostics`, `parity` e `lsp`; publicado = código de sintaxe ou nome em `crates/analysis/verified.txt`):
 
 | lote | conteúdo | constantes | publicadas | emitidas, não publicadas | não implementadas | origem |
 |---|---|---:|---:|---:|---:|---|
@@ -2841,7 +2841,7 @@ um** import e ele é `deferred` (`analyzer/lib/src/dart/ast/ast.dart:12695-12705
 | `wrong_number_of_parameters_for_operator` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR` | `analyzer/lib/src/generated/error_verifier.dart:5810` `ErrorVerifier._checkForWrongNumberOfParametersForOperator` (:5771-5823) | lista de parâmetros presente e contagem diferente do esperado: `[]=` 2; `<` `>` `<=` `>=` `==` `+` `/` `~/` `*` `%` `∣` `^` `&` `<<` `>>` `>>>` `[]` 1; `~` 0 | `atToken(declaration.name)`; `{0}` nome, `{1}` esperado, `{2}` contagem (inteiros) | **publicado** — `crates/analysis/src/operadores.rs:50` |
 | `wrong_number_of_parameters_for_operator` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR_MINUS` | `analyzer/lib/src/generated/error_verifier.dart:5817` `ErrorVerifier._checkForWrongNumberOfParametersForOperator` | operador `-` com mais de 1 parâmetro | `atToken(declaration.name)`; `{0}` = contagem | **publicado** — `crates/analysis/src/operadores.rs:62` |
 | `wrong_number_of_parameters_for_setter` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_SETTER` | `analyzer/lib/src/generated/error_verifier.dart:5843` `ErrorVerifier._checkForWrongNumberOfParametersForSetter` (:5833-5846); chamado em `visitFunctionDeclaration` :959-960 e `visitMethodDeclaration` :1166; o caso de `analyzer/lib/src/fasta/error_converter.dart:492-498` não tem sítio do parser no dump (não verificado) | setter com lista de parâmetros cuja contagem não é 1, ou cujo único parâmetro não é `isRequiredPositional` | `atToken(setterName)` | **publicado** — `crates/analysis/src/membros.rs:171` (`setter`) |
-| `native_clause_in_non_sdk_code` | `ParserErrorCode.NATIVE_CLAUSE_IN_NON_SDK_CODE` | `analyzer/lib/src/generated/error_verifier.dart:1287` `ErrorVerifier.visitNativeClause` (:1281-1291) | `NativeClause` em biblioteca cujo URI não é `dart:` (`!_isInSystemLibrary`) | `atNode(node)` — o `NativeClause` inteiro | **publicado** — `crates/analysis/src/nativos.rs:107` (`fora_do_sdk`); é `SyntacticError` na tabela (`crates/diagnostics/src/codigos_g.rs:976`), publicado por `crates/analysis/src/publicacao.rs:29` sem passar por `verificados.txt` |
+| `native_clause_in_non_sdk_code` | `ParserErrorCode.NATIVE_CLAUSE_IN_NON_SDK_CODE` | `analyzer/lib/src/generated/error_verifier.dart:1287` `ErrorVerifier.visitNativeClause` (:1281-1291) | `NativeClause` em biblioteca cujo URI não é `dart:` (`!_isInSystemLibrary`) | `atNode(node)` — o `NativeClause` inteiro | **publicado** — `crates/analysis/src/nativos.rs:107` (`fora_do_sdk`); é `SyntacticError` na tabela (`crates/diagnostics/src/codigos_g.rs:976`), publicado por `crates/analysis/src/publicacao.rs:29` sem passar por `verified.txt` |
 | `native_function_body_in_non_sdk_code` | `ParserErrorCode.NATIVE_FUNCTION_BODY_IN_NON_SDK_CODE` | `analyzer/lib/src/generated/error_verifier.dart:4583` `ErrorVerifier._checkForNativeFunctionBodyInNonSdkCode` (:4579-4586); chamado em `visitNativeFunctionBody` :1295 | `NativeFunctionBody` fora de biblioteca `dart:` | `atNode(body)` — o `NativeFunctionBody` inteiro | **publicado** — `crates/analysis/src/nativos.rs:117`; `SyntacticError` (`crates/diagnostics/src/codigos_g.rs:978`), mesma regra de publicação |
 
 #### Constantes do lote `S1` ainda sem leitura do emissor (28 de 75)
@@ -3129,7 +3129,7 @@ areSyntacticallyIdenticalExceptUri(n1, n2)               // analyzer/lib/src/dar
 | `duplicate_import` | `WarningCode.DUPLICATE_IMPORT` | `analyzer/lib/src/error/imports_verifier.dart:127-130` `ImportsVerifier.generateDuplicateImportWarnings` | cada diretiva em `_duplicateImports`: import de biblioteca resolvida e não sintética, com mesma URI absoluta, mesmo prefixo e mesmos combinadores de um import anterior do mesmo arquivo | `atNode(directive.uri)`: o literal do URI da diretiva de maior offset | **não implementado** — nenhum emissor em `crates/` |
 | `duplicate_shown_name` | `WarningCode.DUPLICATE_SHOWN_NAME` | `analyzer/lib/src/error/imports_verifier.dart:157-160` `ImportsVerifier.generateDuplicateShownHiddenNameWarnings` (coleta em `:351-362`) | nome de um `show` cujo `staticElement` (não nulo) já apareceu no MESMO combinador | `atNode(identifier)`: a ocorrência repetida | **não implementado** — nenhum emissor em `crates/` |
 | `unnecessary_import` | `HintCode.UNNECESSARY_IMPORT` | `analyzer/lib/src/error/imports_verifier.dart:222-229` `ImportsVerifier.generateUnnecessaryImportHints` | import usado, não `dart:core`, para o qual existe outro import usado do mesmo prefixo cujo conjunto de elementos usados contém o dele e é estritamente maior | `atNode(firstDirective.uri)`; argumentos `[relativeUriString do primeiro, relativeUriString do segundo]` | **não implementado** — nenhum emissor em `crates/` |
-| `unused_shown_name` | `WarningCode.UNUSED_SHOWN_NAME` | `analyzer/lib/src/error/imports_verifier.dart:320-324` `ImportsVerifier.generateUnusedShownNameHints` | import usado (fora de `_unusedImports`), resolvido, não `dart:core`; nome de `show` com elemento não nulo que não está no conjunto de elementos usados do import (para variável/campo: nem o getter nem o setter) | `atNode(identifier)`; argumento `identifier.name` | **emitido, não publicado** — `crates/analysis/src/importacoes.rs:184` (uso aproximado por nome citado; fora de `verificados.txt`) |
+| `unused_shown_name` | `WarningCode.UNUSED_SHOWN_NAME` | `analyzer/lib/src/error/imports_verifier.dart:320-324` `ImportsVerifier.generateUnusedShownNameHints` | import usado (fora de `_unusedImports`), resolvido, não `dart:core`; nome de `show` com elemento não nulo que não está no conjunto de elementos usados do import (para variável/campo: nem o getter nem o setter) | `atNode(identifier)`; argumento `identifier.name` | **emitido, não publicado** — `crates/analysis/src/importacoes.rs:184` (uso aproximado por nome citado; fora de `verified.txt`) |
 
 #### DeprecatedMemberUseVerifier (`analyzer/lib/src/error/deprecated_member_use_verifier.dart`)
 
@@ -4110,7 +4110,7 @@ Só roda com `chromeOsManifestChecks` (Mecanismo 1). `_checkManifestTag`
 
 - Emissão: `grep -rnE "::<CONSTANTE>\b"` das 53 constantes em
   `crates/{analise,types,frontend,elements,cli}` não acha nada; nenhum dos 52
-  nomes emitidos está em `crates/analysis/verificados.txt`; e os nomes nem
+  nomes emitidos está em `crates/analysis/verified.txt`; e os nomes nem
   existem na tabela (`grep -rniE "asset_does_not_exist|undefined_lint|include_file_not_found|unnecessary_dev_dependency|no_touchscreen_feature|unrecognized_error_code" crates --include=*.rs --include=*.txt`
   vazio): `crates/diagnostics/src/codigos_g.rs` só tem os módulos de códigos
   Dart (`:2104` `compile_time_error`, `:2657` `static_warning`, `:2668`
@@ -5122,9 +5122,9 @@ Enquanto a etapa 8.3 não fechar, a paridade de saída só é exigida de projeto
 ## III.9 Etapa 9 — Fim do filtro de publicação
 
 O filtro (`crates/analysis/src/publicacao.rs:24-34`: só sintaxe e
-`verificados.txt`) é, por definição, uma diferença do oficial. Ele sai por
+`verified.txt`) é, por definição, uma diferença do oficial. Ele sai por
 último, código a código, pela regra que já vale: um código entra em
-`verificados.txt` quando não emite nada errado no corpus e nos pacotes do
+`verified.txt` quando não emite nada errado no corpus e nos pacotes do
 pub-cache. O estado de cada constante está nas tabelas da Parte II; o total
 hoje, pelas contagens do script, é o da tabela de abertura da Parte II.
 

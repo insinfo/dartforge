@@ -8,8 +8,8 @@ resultado do **oráculo** (analyzer 6.11, gravado em `corpus/inferencia/`) e
 onde está o nosso código (linhas lidas em `0ac6357`).
 
 Como confirmar/fechar um item: o teste `crates/types/tests/corpus_inferencia.rs`
-despeja cada programa do corpus e o compara com o `.esperado.tsv`; o que ainda
-diverge está em `corpus/inferencia/divergencias.txt` (catraca, só encolhe)
+despeja cada programa do corpus e o compara com o `.expected.tsv`; o que ainda
+diverge está em `corpus/inferencia/divergences.txt` (catraca, só encolhe)
 (docs/INFERENCIA-ESPECIFICACAO.md §0.3).
 
 ## Situação medida (teste do corpus, dono do `crates/types`)

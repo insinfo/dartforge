@@ -81,7 +81,7 @@ acrescenta antes uma linha `#totais`.
 
 `emitir_corpus` grava um arquivo por programa (todos os módulos em ordem):
 `diff -r` entre duas execuções mostra qualquer mudança na emissão. Com
-`EMITIR_CORPUS_EXECUTAVEL=1` também escreve cada programa pronto para o Node
+`EMIT_CORPUS_EXECUTABLE=1` também escreve cada programa pronto para o Node
 (`dart_sdk.js` de `DARTFORGE_DART_SDK_JS`, gerado por
 `scripts/generate-dart-sdk.ps1`).
 

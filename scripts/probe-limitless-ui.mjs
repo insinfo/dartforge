@@ -83,8 +83,8 @@ async function sondar() {
     });
     const state = result.result.value;
     let clickProbe;
-    if (process.env.SONDA_CLICK) {
-      const selector = JSON.stringify(process.env.SONDA_CLICK);
+    if (process.env.PROBE_CLICK) {
+      const selector = JSON.stringify(process.env.PROBE_CLICK);
       const before = await send('Runtime.evaluate', {
         expression: `({trigger:document.querySelector(${selector})?.outerHTML.slice(0,300), paineis:document.querySelectorAll('[data-label^="li_select_item_"]').length})`,
         returnByValue: true,

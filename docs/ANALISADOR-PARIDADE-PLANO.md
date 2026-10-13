@@ -30,7 +30,7 @@ a análise com tipos (auditoria L01, `crates/lsp/src/tipado.rs`, docs/LSP.md
 analyze`, por pacote, com cancelamento e versão. O que falta no LSP é outra
 coisa (§3.12).
 
-`verificados.txt`: 50 códigos publicados; o placar lista **95 códigos sem
+`verified.txt`: 50 códigos publicados; o placar lista **95 códigos sem
 erro emitido no corpus** fora da lista, à espera da conferência nos projetos
 reais (§3.11).
 
@@ -268,7 +268,7 @@ Fica fora desta rodada (docs/PENDENCIAS.md A02), com a especificação acima.
 
 ### 3.11 Publicação
 
-Regra de sempre (`crates/analysis/verificados.txt`): entra o código sem
+Regra de sempre (`crates/analysis/verified.txt`): entra o código sem
 nenhum FP, posição ou mensagem errada no corpus **e** nos projetos reais. Os
 três projetos do proprietário não existem nesta máquina; os projetos reais
 aqui são os 209 pacotes do pub-cache (`scripts/parity-pub-cache.py`). Todo
@@ -370,7 +370,7 @@ fica com a URI principal, `file_state.dart:785-800`) e `super[i]`/`super.x`
 achavam o membro da própria classe ou um abstrato da interface (agora a
 cadeia concreta do super, com encaminhadores de `noSuchMethod`).
 
-**Publicação.** `verificados.txt`: 50 → 159 códigos (109 novos, todos com
+**Publicação.** `verified.txt`: 50 → 159 códigos (109 novos, todos com
 0 erro emitido no corpus e nos 209 pacotes). Ficaram de fora, por FP nos
 pacotes: `equal_elements_in_const_set` (12), `map_value_type_not_assignable`
 (17), `getter_not_subtype_setter_types` (6), `invalid_override` (1). O
@@ -585,7 +585,7 @@ substituição e a anulabilidade preservam a decoração; comparações de
 identidade semântica usam `ops::sem_exibicao` (`unnecessary_cast`). As 161
 mensagens erradas de `type_argument_not_matching_bounds` foram a 0.
 
-**Publicação.** `verificados.txt`: 159 → 167 códigos —
+**Publicação.** `verified.txt`: 159 → 167 códigos —
 `equal_elements_in_const_set`, `getter_not_subtype_setter_types`,
 `invalid_override`, `map_value_type_not_assignable` (os quatro que tinham
 FP nos pacotes), `invalid_use_of_null_value`,
@@ -701,7 +701,7 @@ dos parâmetros de tipo de método pelo receptor (só mensagem).
 | FP / posição errada / mensagem errada / FN | 0 / 0 / 10 / 47 | **0 / 0 / 9 / 37** |
 | Pub-cache (209 pacotes): FP / mensagem errada / FN | 35 / 2 / 40 | **0 / 0 / 29** |
 | Projetos reais (10): FP; mutações (567): FP | 0; 7 | **0; 4** (só lints não publicados) |
-| Códigos em `verificados.txt` | 477 | **485** |
+| Códigos em `verified.txt` | 477 | **485** |
 
 Consertos (cada um com caso conferido no `dart analyze` 3.6.2 em
 `crates/parity/tests/analyzer_rules.rs`):

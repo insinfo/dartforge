@@ -7,7 +7,7 @@
 //! [`dartforge_parity::analysis::Engine`] (load, outline, `crates/types`
 //! inference and the `crates/analysis` checkers) followed by
 //! [`dartforge_parity::publishable`] (the publication rule of
-//! `verificados.txt`, `analysis_options.yaml` and `// ignore:`). No rule is
+//! `verified.txt`, `analysis_options.yaml` and `// ignore:`). No rule is
 //! duplicated here: this only chooses which files to analyze and discards
 //! what became stale.
 //!

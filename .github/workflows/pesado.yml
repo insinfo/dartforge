@@ -832,7 +832,7 @@ jobs:
   # `dartforge-parity oracle` com os SDKs 3.6.2 e 3.13.4) — o runner não
   # roda `dart analyze`. O SDK 3.6.2 do setup-dart só dá o `lib/` que o nosso
   # lado carrega. Critério: placar completo (código 0: oráculo em dia, nenhum
-  # código de `verificados.txt` divergindo) e relatório idêntico com 1, 4 e 8
+  # código de `verified.txt` divergindo) e relatório idêntico com 1, 4 e 8
   # trabalhadores. O placar em si (acertos, FP, FN por código) é trabalho em
   # andamento e não reprova.
   analise:
