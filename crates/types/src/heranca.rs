@@ -1,23 +1,24 @@
-//! O `InheritanceManager3` do analyzer 3.6.2
-//! (`analyzer/lib/src/dart/element/inheritance_manager3.dart`) e o
-//! `NNBD_TOP_MERGE` (`top_merge.dart`) que ele usa: a interface de cada
-//! classe, mixin, enum e tipo de extensão, com os mesmos mapas do original:
+//! The `InheritanceManager3` of analyzer 3.6.2
+//! (`analyzer/lib/src/dart/element/inheritance_manager3.dart`) and the
+//! `NNBD_TOP_MERGE` (`top_merge.dart`) it uses: the interface of each class,
+//! mixin, enum and extension type, with the same maps as the original:
 //!
-//! * `map`: a assinatura de cada nome na interface (as declaradas, e as
-//!   herdadas pela assinatura mais específica, com o `topMerge`);
-//! * `declared`, `implemented` (as implementações concretas, com os
-//!   encaminhadores de `noSuchMethod` e a covariância herdada);
-//! * `overridden` (os candidatos de cada nome nos supertipos diretos, na
-//!   ordem: superclasse, mixins, interfaces), `redeclared` (tipos de
-//!   extensão), `superImplemented` (`[S, S&M1, S&M1&M2]`) e os conflitos.
+//! * `map`: the signature of each name in the interface (the declared ones,
+//!   and the inherited ones by the most specific signature, with
+//!   `topMerge`);
+//! * `declared`, `implemented` (the concrete implementations, with the
+//!   `noSuchMethod` forwarders and inherited covariance);
+//! * `overridden` (the candidates of each name in the direct supertypes, in
+//!   order: superclass, mixins, interfaces), `redeclared` (extension types),
+//!   `superImplemented` (`[S, S&M1, S&M1&M2]`) and the conflicts.
 //!
-//! Os nomes são os `Name` do analyzer: o privado é qualificado pela
-//! biblioteca. A chave do texto é a do modelo de elementos (setter `x_=`).
+//! Names are the analyzer's `Name`: a private one is qualified by the
+//! library. The text key is the element model's (setter `x_=`).
 //!
-//! O tipo de cada membro (`ExecutableElement.type`) e a subtipagem vêm do
-//! [`Provedor`]: a inferência fornece os tipos de campos inferidos sob
-//! demanda; as fases depois dela usam [`ProvedorDoOutline`].
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Each member's type (`ExecutableElement.type`) and subtyping come from the
+//! [`Provedor`]: inference provides the types of inferred fields on demand;
+//! the passes after it use [`ProvedorDoOutline`].
+//! Written without compiling or running (2026-10-05).
 
 use crate::ops;
 use crate::resolve::{ClassTypeData, OutlineTypes};
@@ -29,7 +30,7 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-/// `Name`: a chave do membro e, se privado, a biblioteca.
+/// `Name`: the member key and, if private, the library.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Nome {
     pub chave: SymbolId,
@@ -60,7 +61,7 @@ impl Nome {
     }
 }
 
-/// `ElementKind` de um membro.
+/// `ElementKind` of a member.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Especie {
     Metodo,
@@ -68,29 +69,29 @@ pub enum Especie {
     Setter,
 }
 
-/// `_ParameterDesc`: o parâmetro nomeado pelo nome, o posicional pela
-/// posição.
+/// `_ParameterDesc`: a named parameter by its name, a positional one by its
+/// position.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Param {
     Indice(usize),
     Nome(SymbolId),
 }
 
-/// Um membro da interface (`ExecutableElement`, já com a substituição do
-/// supertipo de onde veio).
+/// A member of the interface (`ExecutableElement`, already with the
+/// substitution of the supertype it came from).
 #[derive(Clone, Debug)]
 pub struct Membro {
-    /// O elemento declarado; no sintético (`topMerge`, covariância herdada),
-    /// o primeiro dos candidatos (o `prototype`).
+    /// The declared element; for a synthetic one (`topMerge`, inherited
+    /// covariance), the first of the candidates (the `prototype`).
     pub funcao: FunctionElementId,
-    /// `enclosingElement3`: a classe que declara; no sintético, a classe da
-    /// interface.
+    /// `enclosingElement3`: the declaring class; for a synthetic one, the class
+    /// of the interface.
     pub classe: ClassId,
-    /// `type`, nos parâmetros de tipo da classe cuja interface o contém.
+    /// `type`, in the type parameters of the class whose interface contains it.
     pub tipo: TypeId,
     pub especie: Especie,
     pub the_abstract_: bool,
-    /// Os parâmetros covariantes (`isCovariant`: escrito ou herdado).
+    /// The covariant parameters (`isCovariant`: written or inherited).
     pub the_covariant: Rc<[Param]>,
     pub sintetico: bool,
 }
@@ -108,8 +109,8 @@ pub enum Conflict {
     NonUniqueExtension { nome: Nome, candidatos: Vec<Membro> },
 }
 
-/// Um mapa na ordem de inserção (o `LinkedHashMap` do Dart: reatribuir
-/// mantém a posição).
+/// A map in insertion order (Dart's `LinkedHashMap`: reassigning keeps the
+/// position).
 #[derive(Clone, Debug)]
 pub struct Mapa<V> {
     entradas: Vec<(Nome, V)>,
@@ -187,23 +188,23 @@ impl Interface {
     }
 }
 
-/// O que a herança precisa do resto do analisador.
+/// What inheritance needs from the rest of the analyzer.
 pub trait Provedor<'p> {
     fn programa(&self) -> &'p Program;
     fn interner(&self) -> &'p Interner;
     fn core(&self) -> &'p CoreTypes;
     fn tabela(&mut self) -> &mut TypeTable;
     fn class_data(&self, c: ClassId) -> ClassTypeData;
-    /// `ExecutableElement.type` do membro `f`, nos parâmetros de tipo da
-    /// classe que o declara.
+    /// `ExecutableElement.type` of member `f`, in the type parameters of the
+    /// class that declares it.
     fn tipo_do_membro(&mut self, f: FunctionElementId) -> TypeId;
     fn sub(&mut self, a: TypeId, b: TypeId) -> bool;
     /// `TypeSystem.normalize`.
     fn normalize_(&mut self, t: TypeId) -> TypeId;
 }
 
-/// O provedor das fases que rodam depois da inferência: os tipos do
-/// outline (com os das variáveis já inferidas).
+/// The provider for the passes that run after inference: the outline types
+/// (including those of already inferred variables).
 pub struct ProvedorDoOutline<'p, 't> {
     pub program: &'p Program,
     pub interner: &'p Interner,
@@ -212,8 +213,8 @@ pub struct ProvedorDoOutline<'p, 't> {
     pub table: &'t mut TypeTable,
 }
 
-/// O tipo de função de um membro (o de um acessor implícito, montado pelo
-/// tipo da variável `tipo_da_variavel`).
+/// The function type of a member (that of an implicit accessor, built from
+/// the variable type `variable_type`).
 pub fn member_function_type(
     program: &Program,
     outline: &OutlineTypes,
@@ -290,7 +291,7 @@ pub struct Heranca {
     the_inherited: HashMap<ClassId, Rc<Mapa<Membro>>>,
 }
 
-/// A espécie de um membro declarado.
+/// The kind of a declared member.
 fn kind_of(program: &Program, f: FunctionElementId) -> Especie {
     let e = program.function(f);
     match e.kind {
@@ -304,7 +305,7 @@ fn kind_of(program: &Program, f: FunctionElementId) -> Especie {
     }
 }
 
-/// A lista de campos da declaração de uma variável (para `abstract` e
+/// The field list of a variable declaration (for `abstract` and
 /// `covariant`).
 fn field_list(program: &Program, v: dartforge_elements::model::VariableId) -> Option<&ast::VariableList> {
     match program.variable(v).node {
@@ -316,9 +317,9 @@ fn field_list(program: &Program, v: dartforge_elements::model::VariableId) -> Op
     }
 }
 
-/// `isAbstract`. O `int get index;` do `Enum` de `dart:core` conta como
-/// concreto (3.6.2 `element_builder.dart:968-974`: a especificação diz que a
-/// superclasse de fato é outra classe que implementa `Enum`).
+/// `isAbstract`. The `int get index;` of `dart:core`'s `Enum` counts as
+/// concrete (3.6.2 `element_builder.dart:968-974`: the specification says the
+/// actual superclass is another class that implements `Enum`).
 fn the_abstract_(program: &Program, interner: &dartforge_intern::Interner, f: FunctionElementId) -> bool {
     let e = program.function(f);
     if e.kind == FunctionKind::Getter
@@ -335,8 +336,8 @@ fn the_abstract_(program: &Program, interner: &dartforge_intern::Interner, f: Fu
     e.abstract_
 }
 
-/// Os parâmetros escritos `covariant` de um membro declarado (o setter
-/// implícito de um campo `covariant`).
+/// The parameters written `covariant` in a declared member (the implicit
+/// setter of a `covariant` field).
 fn written_covariance(program: &Program, f: FunctionElementId) -> Vec<Param> {
     let e = program.function(f);
     if e.kind == FunctionKind::ImplicitAccessor {
@@ -356,7 +357,7 @@ fn written_covariance(program: &Program, f: FunctionElementId) -> Vec<Param> {
         .collect()
 }
 
-/// Os descritores dos parâmetros de um tipo de função, na ordem.
+/// The parameter descriptors of a function type, in order.
 fn parametros_do_tipo(table: &TypeTable, t: TypeId) -> Vec<Param> {
     match table.get(t) {
         Type::Function { positional, optional, named, .. } => {
@@ -371,7 +372,7 @@ fn parametros_do_tipo(table: &TypeTable, t: TypeId) -> Vec<Param> {
 impl Heranca {
     /// `getInterface`.
     pub fn interface<'p>(&mut self, p: &mut dyn Provedor<'p>, c: ClassId) -> Rc<Interface> {
-        // T1.1: os homônimos da mesma espécie são uma chave só.
+        // T1.1: same-named members of the same kind are a single key.
         let c = p.programa().dono_da_classe(c);
         if let Some(i) = self.interfaces.get(&c) {
             return i.clone();
@@ -391,7 +392,8 @@ impl Heranca {
         r
     }
 
-    /// Tira do cache a interface de `c` (os tipos dos membros dela mudaram).
+    /// Drops the interface of `c` from the cache (the types of its members
+    /// changed).
     pub fn forget(&mut self, program: &Program, c: ClassId) {
         let c = program.dono_da_classe(c);
         self.interfaces.remove(&c);
@@ -457,8 +459,8 @@ impl Heranca {
         self.interface(p, c).super_implemented.last().cloned().unwrap_or_default()
     }
 
-    /// A classe e a substituição (`Substitution.fromInterfaceType`) de um
-    /// supertipo.
+    /// The class and the substitution (`Substitution.fromInterfaceType`) of a
+    /// supertype.
     fn substitution<'p>(p: &mut dyn Provedor<'p>, t: TypeId) -> Option<(ClassId, HashMap<TypeParamId, TypeId>)> {
         let (c, args) = match p.tabela().get(t) {
             Type::Interface { class, args, .. } => (*class, args.clone()),
@@ -487,13 +489,13 @@ impl Heranca {
         }
     }
 
-    /// O tipo de `Object`.
+    /// The type of `Object`.
     fn object_type<'p>(p: &mut dyn Provedor<'p>) -> Option<TypeId> {
         let o = p.core().object_class?;
         Some(p.tabela().intern(Type::Interface { class: o, args: Box::new([]), nullable: false }))
     }
 
-    /// `element.supertype`, com o padrão do `setDefaultSupertypes` e do
+    /// `element.supertype`, with the defaults of `setDefaultSupertypes` and
     /// `buildEnumChildren`.
     fn the_supertype<'p>(p: &mut dyn Provedor<'p>, c: ClassId, data: &ClassTypeData) -> Option<TypeId> {
         let prog = p.programa();
@@ -503,8 +505,8 @@ impl Heranca {
                 if Some(c) == p.core().object_class {
                     return None;
                 }
-                // Só um tipo de interface de classe vale como superclasse
-                // (`_isInterfaceTypeClass`); o resto cai em `Object`.
+                // Only a class interface type counts as a superclass
+                // (`_isInterfaceTypeClass`); anything else falls back to `Object`.
                 let written = data.supertype.filter(|&t| match p.tabela().get(t) {
                     Type::Interface { class, .. } => matches!(prog.class(*class).kind, ClassKind::Class | ClassKind::MixinApplication),
                     _ => false,
@@ -529,9 +531,9 @@ impl Heranca {
         }
     }
 
-    /// As classes que `InterfaceElementImpl._implementationsOfGetter` (e os
-    /// de método e setter) percorre: a própria, os mixins de trás para a
-    /// frente e então a superclasse, até `Object`
+    /// The classes that `InterfaceElementImpl._implementationsOfGetter` (and the
+    /// method and setter variants) walks: the class itself, its mixins from back
+    /// to front, and then the superclass, up to `Object`
     /// (an362:src/dart/element/element.dart:5423-5470).
     pub fn implementation_chain<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<ClassId> {
         let mut chain = Vec::new();
@@ -553,19 +555,19 @@ impl Heranca {
         chain
     }
 
-    /// Os membros de instância concretos da declaração de `c` na ordem do
-    /// `_addImplemented` (métodos, depois acessores, cada grupo na ordem dos
-    /// elementos), quando algum deles ficou fora do mapa `instance_members`
-    /// (homônimo); vazio quando não há homônimo.
+    /// The concrete instance members of the declaration of `c` in the order of
+    /// `_addImplemented` (methods, then accessors, each group in element order),
+    /// when one of them was left out of the `instance_members` map (same-named);
+    /// empty when there is no same-named member.
     fn concrete_same_named<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<FunctionElementId> {
         let prog = p.programa();
         let interner = p.interner();
         let k = prog.class(c);
         let ids = k.instance_members.values().chain(k.static_members.values()).chain(k.constructors.values()).map(|f| f.0);
         let (Some(mut min), Some(mut max)) = (ids.clone().min(), ids.max()) else { return Vec::new() };
-        // Os homônimos sobrescritos no mapa podem ficar antes do menor id
-        // que restou (ou depois do maior): a faixa cresce enquanto os
-        // elementos vizinhos forem da classe.
+        // Overridden same-named members in the map may come before the
+        // smallest remaining id (or after the largest): the range grows
+        // while the neighboring elements belong to the class.
         let total = prog.functions.len() as u32;
         while min > 0 && prog.function(FunctionElementId(min - 1)).class == Some(c) {
             min -= 1;
@@ -592,15 +594,16 @@ impl Heranca {
         all
     }
 
-    /// Os membros de instância declarados (`_getTypeMembers`): métodos,
-    /// depois acessores, na ordem da fonte, com a covariância escrita e a
-    /// herdada dos `candidatos` (`_inferParameterCovariance`).
+    /// The declared instance members (`_getTypeMembers`): methods, then
+    /// accessors, in source order, with the written covariance and the one
+    /// inherited from `candidates` (`_inferParameterCovariance`).
     fn declarados<'p>(p: &mut dyn Provedor<'p>, c: ClassId, candidates: &Mapa<Vec<Membro>>) -> Mapa<Membro> {
         let prog = p.programa();
         let interner = p.interner();
         let k = prog.class(c);
-        // O `index` sintético que o outline põe num enum não é membro do
-        // elemento do analyzer: vem de `Enum` (concreto, ver `abstrato`).
+        // The synthetic `index` that the outline puts in an enum is not a member
+        // of the analyzer's element: it comes from `Enum` (concrete, see
+        // `the_abstract_`).
         let e_enum = k.kind == ClassKind::Enum;
         let mut members: Vec<(SymbolId, FunctionElementId)> = k
             .instance_members
@@ -608,9 +611,9 @@ impl Heranca {
             .filter(|&(&s, &f)| !(e_enum && matches!(prog.function(f).node, FunctionRef::None) && interner.resolve(s) == "index"))
             .map(|(&s, &f)| (s, f))
             .collect();
-        // Declaração duplicada: vence o último na ordem do `_getTypeMembers`
-        // (métodos; acessores dos campos; acessores escritos), não o da fonte
-        // (`int get foo` e depois o campo `foo = 1`: o getter escrito).
+        // Duplicate declaration: the last one in `_getTypeMembers` order wins
+        // (methods; field accessors; written accessors), not the source order
+        // (`int get foo` followed by the field `foo = 1`: the written getter).
         if !k.instancia_sobrepostos.is_empty() {
             for &(key, old) in k.instancia_sobrepostos.iter() {
                 if let Some(current) = members.iter_mut().find(|(s, _)| *s == key)
@@ -632,8 +635,8 @@ impl Heranca {
                         continue;
                     }
                     let inherits = overridden.iter().any(|o| {
-                        // `_getCorrespondingParameter`: o nomeado pelo nome, o
-                        // posicional pela posição (se lá for posicional).
+                        // `_getCorrespondingParameter`: a named one by name, a
+                        // positional one by position (if it is positional there).
                         o.the_covariant.contains(&d) && parametros_do_tipo(p.tabela(), o.tipo).contains(&d)
                     });
                     if inherits {
@@ -725,12 +728,12 @@ impl Heranca {
             Self::add_candidates(p, &mut candidates, &s, &ii);
         }
         let declared = Self::declarados(p, c, &candidates);
-        // `_addImplemented` (3.6.2 `inheritance_manager3.dart:455-470`): todo
-        // método e acessor de instância concreto da declaração, na ordem
-        // (métodos, depois acessores), o último vencendo. Com homônimos (o
-        // `augment` que o 3.6.2 lê como outra declaração), o mapa do outline
-        // guarda só o último; os outros elementos estão na faixa de ids dos
-        // membros da classe.
+        // `_addImplemented` (3.6.2 `inheritance_manager3.dart:455-470`): every
+        // concrete instance method and accessor of the declaration, in order
+        // (methods, then accessors), the last one winning. With same-named
+        // members (the `augment` that 3.6.2 reads as another declaration), the
+        // outline map keeps only the last one; the other elements are in the
+        // class's member id range.
         for (n, m) in declared.iter() {
             if !m.the_abstract_ {
                 implemented.insert(*n, m.clone());
@@ -770,7 +773,7 @@ impl Heranca {
         }
         let mut map = declared.clone();
         let mut conflicts = most_specific(p, c, &mut map, &candidates, true);
-        // Os encaminhadores de `noSuchMethod`.
+        // The `noSuchMethod` forwarders.
         let k = prog.class(c);
         let mut forwarded: HashSet<Nome> = HashSet::new();
         let abstract_class =
@@ -871,7 +874,7 @@ impl Heranca {
                 declared.insert(*n, m.clone());
             }
         }
-        // Os nomes excluídos.
+        // The excluded names.
         let mut excluded_names: HashSet<Nome> = HashSet::new();
         let mut excluded_methods: HashSet<Nome> = HashSet::new();
         let mut excluded_setters: HashSet<Nome> = HashSet::new();
@@ -892,8 +895,8 @@ impl Heranca {
             }
         }
         let mut implemented = declared.clone();
-        // Os candidatos, separados entre membros de tipo de extensão e os
-        // outros (`_ExtensionTypeCandidates`: métodos, getters, setters).
+        // The candidates, split between extension type members and the
+        // others (`_ExtensionTypeCandidates`: methods, getters, setters).
         #[derive(Default, Clone)]
         struct Candidates {
             metodos: Vec<Membro>,
@@ -933,11 +936,11 @@ impl Heranca {
             let ii = self.interface(p, ic);
             for (n, m) in ii.map.iter() {
                 let m = Self::substituir(p, m, &s);
-                // `isExtensionTypeMember` é um bit do elemento declarado no
-                // extension type; o membro sintético do `_topMerge` (dono =
-                // o extension type que combinou) nasce sem ele e conta como
-                // não-extensão (`G implements F, D` com o `method` combinado
-                // de `A`/`B` em `F`: sem conflito).
+                // `isExtensionTypeMember` is a bit of the element declared in the
+                // extension type; the synthetic member from `_topMerge` (owner =
+                // the extension type that merged it) is born without it and counts
+                // as non-extension (`G implements F, D` with the merged `method`
+                // from `A`/`B` in `F`: no conflict).
                 let of_ext = !m.sintetico && prog.class(m.classe).kind == ClassKind::ExtensionType;
                 let target = if of_ext { &mut of_extension } else { &mut others };
                 match target.get_mut(n) {
@@ -968,7 +971,7 @@ impl Heranca {
                 }
                 continue;
             }
-            // O herdado tem de ser um só.
+            // The inherited one must be unique.
             let unique = free.iter().all(|m| m.funcao == free[0].funcao);
             if !unique {
                 conflicts.push(Conflict::NonUniqueExtension { nome: *n, candidatos: free });
@@ -990,7 +993,7 @@ impl Heranca {
                 None => conflicts.push(Conflict::Candidates { nome: *n, candidatos: free }),
             }
         }
-        // Os redeclarados sem repetição.
+        // The redeclared ones, without repetition.
         let mut the_unique: Mapa<Vec<Membro>> = Mapa::default();
         for (n, l) in redeclared.iter() {
             if l.len() <= 1 {
@@ -1020,10 +1023,10 @@ impl Heranca {
     }
 }
 
-/// A ordem dos membros de instância de uma declaração no elemento do
-/// analyzer (`_getTypeMembers`, `_addImplemented`): métodos; depois os
-/// acessores, os dos campos antes dos escritos (`_visitPropertyFirst`); em
-/// cada grupo, a ordem da fonte.
+/// The order of the instance members of a declaration in the analyzer's
+/// element (`_getTypeMembers`, `_addImplemented`): methods; then accessors,
+/// field accessors before written ones (`_visitPropertyFirst`); within each
+/// group, source order.
 fn member_order(prog: &Program, f: FunctionElementId) -> (u8, FunctionElementId) {
     let category = match kind_of(prog, f) {
         Especie::Metodo => 0u8,
@@ -1089,8 +1092,8 @@ pub fn combinar<'p>(
     if top_merge { Some(topo(p, target, &valid)) } else { Some(valid[0].clone()) }
 }
 
-/// A igualdade de tipos do Dart (`==`): estrutural, sem o alias, e a menos
-/// do nome dos parâmetros de tipo de uma função genérica.
+/// Dart type equality (`==`): structural, ignoring the alias, and up to the
+/// names of the type parameters of a generic function.
 fn iguais(table: &mut TypeTable, a: TypeId, b: TypeId) -> bool {
     let (ca, cb) = (table.canonico(a), table.canonico(b));
     if ca == cb {
@@ -1103,8 +1106,8 @@ fn iguais(table: &mut TypeTable, a: TypeId, b: TypeId) -> bool {
                 let ty = table.intern(Type::TypeParameter { param: *y, nullable: false });
                 s.insert(*x, ty);
             }
-            // Os parâmetros de `b` renomeados para os de `a`: o resto tem de
-            // coincidir.
+            // The parameters of `b` renamed to those of `a`: the rest must
+            // match.
             let rb = ops::substitute(cb, &s, table);
             let (Type::Function { ret: ra, positional: pa, optional: oa, named: at, nullable: la, .. }, Type::Function { ret: rr, positional: pb, optional: ob, named: nb, nullable: lb, .. }) =
                 (table.get(ca).clone(), table.get(rb).clone())
@@ -1132,8 +1135,8 @@ fn topo<'p>(p: &mut dyn Provedor<'p>, target: ClassId, valid: &[Membro]) -> Memb
     if all_equal {
         return first.clone();
     }
-    // `reduce` do `topMerge` sobre os tipos normalizados; os parâmetros do
-    // resultado guardam a covariância do operando da esquerda.
+    // `reduce` of `topMerge` over the normalized types; the parameters of the
+    // result keep the covariance of the left operand.
     let mut result = p.normalize_(first.tipo);
     let the_covariant = first.the_covariant.clone();
     for m in &valid[1..] {
@@ -1207,14 +1210,14 @@ fn with_nullability(table: &mut TypeTable, t: TypeId, nullable: bool) -> TypeId 
     table.intern(the_new_)
 }
 
-/// `topMerge` de dois tipos quaisquer (os tipos de função aninhados não têm
-/// parâmetros covariantes).
+/// `topMerge` of any two types (nested function types have no covariant
+/// parameters).
 fn top_merge<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId) -> TypeId {
     top_merge_function(p, t, s, &[], &[])
 }
 
-/// `TopMergeHelper.topMerge`, com a covariância dos parâmetros quando `t` e
-/// `s` são os tipos de dois membros.
+/// `TopMergeHelper.topMerge`, with parameter covariance when `t` and `s` are
+/// the types of two members.
 fn top_merge_function<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &[Param], cov_s: &[Param]) -> TypeId {
     let object = p.core().object_class;
     let (tt, st) = (p.tabela().get(t).clone(), p.tabela().get(s).clone());
@@ -1260,8 +1263,8 @@ fn top_merge_function<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t:
         let r = top_merge_function(p, tn, sn, cov_t, cov_s);
         return with_nullability(p.tabela(), r, true);
     } else if tq || sq {
-        // `StateError` no original: não acontece com tipos normalizados que
-        // são subtipos um do outro.
+        // `StateError` in the original: does not happen with normalized types
+        // that are subtypes of each other.
         return t;
     }
     match (tt, st) {
@@ -1319,7 +1322,7 @@ fn funcoes<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &[Param], 
     if tp_t.len() != tp_s.len() {
         return t;
     }
-    // Os parâmetros de tipo novos (`_typeParameters`).
+    // The new type parameters (`_typeParameters`).
     let mut new_: Vec<TypeParamId> = Vec::new();
     let mut sub_t: HashMap<TypeParamId, TypeId> = HashMap::new();
     let mut sub_s: HashMap<TypeParamId, TypeId> = HashMap::new();
@@ -1379,17 +1382,17 @@ fn funcoes<'p>(p: &mut dyn Provedor<'p>, t: TypeId, s: TypeId, cov_t: &[Param], 
     })
 }
 
-/// `mergeTypes` de `_functionTypes`: os dois lados com os parâmetros de tipo
-/// novos.
+/// `mergeTypes` of `_functionTypes`: both sides with the new type
+/// parameters.
 fn juntar<'p>(p: &mut dyn Provedor<'p>, a: TypeId, b: TypeId, sub_t: &HashMap<TypeParamId, TypeId>, sub_s: &HashMap<TypeParamId, TypeId>) -> TypeId {
     let a = ops::substitute(a, sub_t, p.tabela());
     let b = ops::substitute(b, sub_s, p.tabela());
     top_merge(p, a, b)
 }
 
-/// Um parâmetro de `_functionTypes`: o tipo pelo `topMerge`, ou, se um dos
-/// lados é covariante, o maior dos dois (os tipos crus, sem a substituição,
-/// como no original).
+/// A parameter of `_functionTypes`: the type by `topMerge`, or, if one of the
+/// sides is covariant, the greater of the two (the raw types, without the
+/// substitution, as in the original).
 #[allow(clippy::too_many_arguments)]
 fn parametro<'p>(
     p: &mut dyn Provedor<'p>,

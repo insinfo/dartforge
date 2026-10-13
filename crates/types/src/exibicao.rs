@@ -1,13 +1,14 @@
-//! A conversão dos argumentos de um diagnóstico em texto, como o
-//! `ErrorReporter` do analyzer (`analyzer/lib/error/listener.dart:338-426`;
-//! docs/ANALYZER-ESPECIFICACAO.md §G, T7): um argumento que é tipo sai pelo
-//! `getDisplayString(preferTypeAlias: true)`, e dois argumentos-tipo do mesmo
-//! relato com o **mesmo texto** e elementos diferentes de mesmo nome ganham
-//! o sufixo `(where X is defined in <arquivo>)`.
+//! The conversion of a diagnostic's arguments into text, like the analyzer's
+//! `ErrorReporter` (`analyzer/lib/error/listener.dart:338-426`;
+//! docs/ANALYZER-ESPECIFICACAO.md §G, T7): an argument that is a type is
+//! output through `getDisplayString(preferTypeAlias: true)`, and two type
+//! arguments of the same report with the **same text** and different
+//! elements of the same name get the suffix
+//! `(where X is defined in <arquivo>)`.
 //!
-//! O texto de um tipo continua sendo o de [`TypeTable::format`] (com alias)
-//! e [`TypeTable::format_sem_alias`]; este módulo é o ponto único por onde
-//! os argumentos de um relato passam juntos.
+//! The text of a type is still that of [`TypeTable::format`] (with alias)
+//! and [`TypeTable::format_sem_alias`]; this module is the single point
+//! through which the arguments of a report pass together.
 
 use crate::table::{Type, TypeId, TypeTable};
 use dartforge_elements::model::{ClassId, Program};
@@ -15,16 +16,16 @@ use dartforge_intern::{Interner, SymbolId};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-/// Um argumento de molde antes da conversão.
+/// A template argument before conversion.
 #[derive(Debug, Clone)]
 pub enum Arg<'a> {
-    /// Um `DartType`: com alias, e desambiguado contra os outros tipos do
-    /// mesmo relato.
+    /// A `DartType`: with alias, and disambiguated against the other types of
+    /// the same report.
     Tipo(TypeId),
-    /// Um texto que o emissor oficial tirou de `getDisplayString()` antes de
-    /// passar: sem alias e sem desambiguação.
+    /// A text that the official emitter took from `getDisplayString()` before
+    /// passing it: without alias and without disambiguation.
     TypeWithoutAlias(TypeId),
-    /// `String`, `int` ou nome de elemento: como veio.
+    /// `String`, `int` or element name: as it came.
     Texto(Cow<'a, str>),
 }
 
@@ -40,7 +41,7 @@ impl From<String> for Arg<'_> {
     }
 }
 
-/// O formatador dos argumentos de um relato.
+/// The formatter of a report's arguments.
 pub struct Exibidor<'a> {
     pub table: &'a TypeTable,
     pub interner: &'a Interner,
@@ -57,16 +58,16 @@ impl Exibidor<'_> {
         }
     }
 
-    /// `_convertTypeNames`: o texto de cada argumento, na ordem.
+    /// `_convertTypeNames`: the text of each argument, in order.
     pub fn argumentos(&self, args: &[Arg<'_>]) -> Vec<String> {
         self.arguments_and_context(args).0
     }
 
-    /// `_convertTypeNames` inteiro: os textos e as mensagens de contexto
-    /// (`listener.dart:408-413`): uma por elemento de cada tipo dos grupos
-    /// de dois ou mais argumentos com o mesmo texto — mesmo os elementos que
-    /// não colidem —, `<nome> is defined in <caminho>`, no nome do elemento,
-    /// no arquivo dele.
+    /// The whole `_convertTypeNames`: the texts and the context messages
+    /// (`listener.dart:408-413`): one per element of each type of the groups of
+    /// two or more arguments with the same text — even the elements that do not
+    /// collide —, `<name> is defined in <caminho>`, at the element name, in its
+    /// file.
     pub fn arguments_and_context(&self, args: &[Arg<'_>]) -> (Vec<String>, Vec<dartforge_diagnostics::Contexto>) {
         let mut context: Vec<dartforge_diagnostics::Contexto> = Vec::new();
         let mut output: Vec<String> = args
@@ -77,7 +78,7 @@ impl Exibidor<'_> {
                 Arg::Texto(s) => s.to_string(),
             })
             .collect();
-        // Os argumentos-tipo agrupados pelo texto, na ordem em que aparecem.
+        // The type arguments grouped by text, in the order they appear.
         let mut groups: Vec<(String, Vec<(usize, TypeId)>)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let Arg::Tipo(t) = a else { continue };
@@ -91,7 +92,7 @@ impl Exibidor<'_> {
             if members.len() < 2 {
                 continue;
             }
-            // Os elementos de todos os tipos do grupo, pelo nome.
+            // The elements of all types of the group, by name.
             let mut by_name: HashMap<SymbolId, Vec<ClassId>> = HashMap::new();
             let mut elements_of: Vec<Vec<ClassId>> = Vec::with_capacity(members.len());
             for &(_, t) in &members {
@@ -110,8 +111,8 @@ impl Exibidor<'_> {
                 for &c in &elements_of[k] {
                     let element_name = self.program.class(c).name;
                     let snippet = format!("{} is defined in {}", self.interner.resolve(element_name), self.file_of(c));
-                    // A mensagem de contexto sai para todo elemento (fora do
-                    // `if` no analyzer).
+                    // The context message is output for every element (outside the `if` in
+                    // the analyzer).
                     if let Some(span) = self.nome_da_classe(c) {
                         context.push(dartforge_diagnostics::Contexto { arquivo: Some(self.file_of(c).into()), span, mensagem: snippet.clone().into() });
                     }
@@ -131,8 +132,8 @@ impl Exibidor<'_> {
         (output, context)
     }
 
-    /// O intervalo do nome da classe (`nameOffset`/`nameLength`); nenhum na
-    /// sintética.
+    /// The range of the class name (`nameOffset`/`nameLength`); none for a
+    /// synthetic one.
     fn nome_da_classe(&self, c: ClassId) -> Option<dartforge_diagnostics::Span> {
         use dartforge_frontend::ast::DeclKind;
         let d = self.program.class(c).decl?;
@@ -146,11 +147,11 @@ impl Exibidor<'_> {
         Some(n.span)
     }
 
-    /// `_TypeToConvert.allElements`: as classes (enums, mixins, tipos de
-    /// extensão) alcançadas pelo retorno e pelos parâmetros de um tipo de
-    /// função e pelos argumentos de tipo de uma interface, na ordem da
-    /// visita e sem repetir; nunca por dentro de um record. Um elemento já
-    /// visto não é percorrido de novo.
+    /// `_TypeToConvert.allElements`: the classes (enums, mixins, extension
+    /// types) reached through the return type and the parameters of a function
+    /// type and through the type arguments of an interface, in visiting order
+    /// and without repetition; never inside a record. An element already seen
+    /// is not walked again.
     fn elementos(&self, t: TypeId, out: &mut Vec<ClassId>, prof: u32) {
         if prof > 32 {
             return;
@@ -161,7 +162,7 @@ impl Exibidor<'_> {
                 for &p in positional.iter().chain(optional.iter()) {
                     self.elementos(p, out, prof + 1);
                 }
-                // Os nomeados na ordem do analyzer (alfabética).
+                // The named ones in the analyzer's order (alphabetical).
                 let mut order: Vec<&(SymbolId, TypeId, bool)> = named.iter().collect();
                 order.sort_by(|a, b| self.interner.resolve(a.0).cmp(self.interner.resolve(b.0)));
                 for (_, p, _) in order {
@@ -172,21 +173,21 @@ impl Exibidor<'_> {
                 if out.contains(class) {
                     return;
                 }
-                // O elemento sem nome não conta, mas os argumentos dele sim.
+                // An unnamed element does not count, but its arguments do.
                 out.push(*class);
                 for &a in args.iter() {
                     self.elementos(a, out, prof + 1);
                 }
             }
-            // `FutureOr<T>` é uma interface do `dart:async` para o analyzer:
-            // o elemento é sempre o mesmo, só o argumento importa.
+            // `FutureOr<T>` is a `dart:async` interface for the analyzer: the element
+            // is always the same, only the argument matters.
             Type::FutureOr { arg, .. } => self.elementos(*arg, out, prof + 1),
             _ => {}
         }
     }
 
-    /// `element.source.fullName`: o caminho nativo do arquivo que declara a
-    /// classe (a URI, para o que não tem arquivo).
+    /// `element.source.fullName`: the native path of the file that declares the
+    /// class (the URI, for what has no file).
     fn file_of(&self, c: ClassId) -> String {
         let cls = self.program.class(c);
         let unit_id = match cls.decl {

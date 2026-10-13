@@ -1,11 +1,11 @@
-//! O `canBeConst` do linter (`analyzer/lib/src/lint/linter.dart`) das
-//! criações de instância, dos literais tipados e das declarações de
-//! construtor de uma unidade, calculado com o motor de constantes para as
-//! regras `prefer_const_constructors`,
-//! `prefer_const_literals_to_create_immutables` e
-//! `prefer_const_constructors_in_immutables` (que vivem com a árvore em
-//! `dartforge_analysis::lints`, onde está o `approximateContextType`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The linter's `canBeConst` (`analyzer/lib/src/lint/linter.dart`) for the
+//! instance creations, typed literals and constructor declarations of a
+//! unit, computed with the constants engine for the rules
+//! `prefer_const_constructors`,
+//! `prefer_const_literals_to_create_immutables` and
+//! `prefer_const_constructors_in_immutables` (which live with the tree in
+//! `dartforge_analysis::lints`, where `approximateContextType` is).
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::Motor;
 use crate::resolve::OutlineTypes;
@@ -16,19 +16,19 @@ use dartforge_frontend::ast::{self, ExprId, ExprKind, MemberKind};
 use dartforge_intern::Interner;
 use std::collections::HashSet;
 
-/// O que pode ser `const` numa unidade.
+/// What can be `const` in a unit.
 #[derive(Default, Debug, Clone)]
 pub struct PodemSerConst {
-    /// Criações de instância não constantes de construtor `const`.
+    /// Non-constant instance creations of a `const` constructor.
     pub criacoes: HashSet<ExprId>,
-    /// Literais de lista, conjunto e mapa sem `const` (fora de contexto
-    /// constante).
+    /// List, set and map literals without `const` (outside a constant
+    /// context).
     pub literais: HashSet<ExprId>,
-    /// Construtores não `const` de corpo vazio.
+    /// Non-`const` constructors with an empty body.
     pub construtores: HashSet<ast::MemberId>,
 }
 
-/// Calcula o [`PodemSerConst`] da unidade `u`.
+/// Computes the [`PodemSerConst`] of unit `u`.
 #[allow(clippy::too_many_arguments)]
 pub fn podem_ser_const(
     program: &Program,

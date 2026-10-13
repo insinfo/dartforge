@@ -1,17 +1,17 @@
-//! A parte do `RequiredParametersVerifier` do analyzer que trata o
-//! `@required` do `package:meta`
-//! (`analyzer/lib/src/error/required_parameters_verifier.dart`, lido por
-//! inteiro na 6.11.0; docs/ANALYZER-ESPECIFICACAO.md, família A):
-//! `missing_required_param`, com e sem detalhes, na chamada que não passa
-//! um parâmetro nomeado opcional anotado com `@required` ou
-//! `@Required('motivo')`. O `missing_required_argument` (o `required` da
-//! linguagem) já é emitido pela inferência.
+//! The part of the analyzer's `RequiredParametersVerifier` that handles the
+//! `@required` of `package:meta`
+//! (`analyzer/lib/src/error/required_parameters_verifier.dart`, read in full
+//! in 6.11.0; docs/ANALYZER-ESPECIFICACAO.md, family A):
+//! `missing_required_param`, with and without details, on the call that does
+//! not pass an optional named parameter annotated with `@required` or
+//! `@Required('reason')`. `missing_required_argument` (the language's
+//! `required`) is already emitted by the inference.
 //!
-//! Cobre chamadas de função e de método, criações de instância (com e sem
-//! `new`). Fora: anotações, constantes de enum, invocações de expressão de
-//! função e as chamadas `this(...)` e `super(...)` de construtor. A
-//! anotação é reconhecida pelo nome.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Covers function and method calls, instance creations (with and without
+//! `new`). Left out: annotations, enum constants, function expression
+//! invocations and the `this(...)` and `super(...)` constructor calls. The
+//! annotation is recognized by name.
+//! Written without compiling or running (2026-10-05).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_diagnostics::codigos::warning as w;
@@ -20,8 +20,8 @@ use dartforge_elements::model::{Element, FunctionElementId, FunctionRef, Program
 use dartforge_frontend::ast::{self, ExprKind, MemberKind, ParameterKind, TypeKind};
 use dartforge_intern::Interner;
 
-/// Os parâmetros declarados de uma função, método ou construtor, com a
-/// árvore em que estão.
+/// The declared parameters of a function, method or constructor, with the
+/// tree they are in.
 fn parametros(program: &Program, f: FunctionElementId) -> Option<(&[ast::Parameter], &ast::Ast)> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => {
@@ -39,9 +39,9 @@ fn parametros(program: &Program, f: FunctionElementId) -> Option<(&[ast::Paramet
     }
 }
 
-/// `_requiredAnnotation`: `Some(motivo)` se o parâmetro tem `@required` ou
-/// `@Required(...)`; o motivo é o primeiro argumento posicional, se string
-/// não vazia.
+/// `_requiredAnnotation`: `Some(reason)` if the parameter has `@required` or
+/// `@Required(...)`; the reason is the first positional argument, if it is a
+/// non-empty string.
 fn the_required(p: &ast::Parameter, a: &ast::Ast, interner: &Interner) -> Option<Option<String>> {
     for m in p.metadata.iter() {
         let names: Vec<&str> = m.name.iter().map(|n| interner.resolve(n.sym)).collect();
@@ -60,10 +60,10 @@ fn the_required(p: &ast::Parameter, a: &ast::Ast, interner: &Interner) -> Option
     None
 }
 
-/// Os `missing_required_param` da unidade `u`.
+/// The `missing_required_param`s of unit `u`.
 pub fn requeridos_ausentes(program: &Program, interner: &Interner, body: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    // Sem nenhuma das duas anotações internadas, nada a fazer.
+    // Without either of the two interned annotations, nothing to do.
     if interner.lookup("required").is_none() && interner.lookup("Required").is_none() {
         return out;
     }
@@ -76,8 +76,8 @@ pub fn requeridos_ausentes(program: &Program, interner: &Interner, body: &UnitBo
     };
     for (i, e) in a.exprs.iter().enumerate() {
         let id = ast::ExprId(i as u32);
-        // A função chamada, os argumentos e a entidade do relato: o nome do
-        // método, ou o nome do construtor inteiro.
+        // The called function, the arguments and the entity of the report: the
+        // method name, or the whole constructor name.
         let (f, args_list, entity): (FunctionElementId, &ast::Arguments, Span) = match &e.kind {
             ExprKind::Call { target, arguments } => {
                 let Some(r) = resolved(*target).or_else(|| resolved(id)) else { continue };
@@ -92,7 +92,7 @@ pub fn requeridos_ausentes(program: &Program, interner: &Interner, body: &UnitBo
             ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
                 let Some(Resolved::Constructor(f)) = resolved(id) else { continue };
                 let typ = &a.types[ty.0 as usize];
-                // Sem os argumentos de tipo: o nome do tipo e o do construtor.
+                // Without the type arguments: the type name and the constructor name.
                 let type_end = match &typ.kind {
                     TypeKind::Named { name, .. } => name.last().map_or(typ.span.end, |n| n.span.end),
                     _ => typ.span.end,

@@ -1,10 +1,10 @@
-//! Valores de constantes: o `DartObjectImpl` e os `InstanceState` do
-//! analyzer 6.11 (`src/dart/constant/value.dart`), com as mesmas operações e
-//! as mesmas exceções de avaliação (`EvaluationException`).
+//! Constant values: analyzer 6.11's `DartObjectImpl` and `InstanceState`s
+//! (`src/dart/constant/value.dart`), with the same operations and the same
+//! evaluation exceptions (`EvaluationException`).
 //!
-//! Um valor tem o tipo em tempo de execução (com os tipos de extensão
-//! apagados) e o estado. Estados com valor desconhecido (`UNKNOWN_VALUE`)
-//! são válidos: a avaliação segue sem provar erro nenhum sobre eles.
+//! A value has its runtime type (with extension types erased) and its state.
+//! States with an unknown value (`UNKNOWN_VALUE`) are valid: evaluation goes
+//! on without proving any error about them.
 
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
 use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo};
@@ -12,25 +12,25 @@ use dartforge_elements::model::{ClassId, FunctionElementId, VariableId};
 use dartforge_intern::SymbolId;
 use std::rc::Rc;
 
-/// Texto de uma `String` do Dart: unidades UTF-16.
+/// Text of a Dart `String`: UTF-16 code units.
 pub type Texto = Rc<[u16]>;
 
-/// Chave de um campo de um objeto genérico: o nome do campo, ou o
-/// pseudo-campo `(super)` com o objeto da superclasse (`GenericState.SUPERCLASS_FIELD`).
+/// Key of a field of a generic object: the field name, or the pseudo-field
+/// `(super)` with the superclass's object (`GenericState.SUPERCLASS_FIELD`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Campo {
     Nome(SymbolId),
     Super,
-    /// `index` e `_name` de uma constante de enum (`updateEnumConstant`).
+    /// `index` and `_name` of an enum constant (`updateEnumConstant`).
     Indice,
     EnumName,
 }
 
-/// O elemento de um valor de função (`FunctionState`).
+/// The element of a function value (`FunctionState`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Funcao {
     Elemento(FunctionElementId),
-    /// O construtor primário de um tipo de extensão (sem elemento).
+    /// The primary constructor of an extension type (without an element).
     Primary(ClassId),
 }
 
@@ -41,8 +41,8 @@ pub enum Estado {
     Int(Option<i64>),
     Double(Option<f64>),
     Str(Option<Texto>),
-    /// `NullState`; `invalido` é o objeto fictício de uma expressão não
-    /// resolvida (`_unresolvedObject`).
+    /// `NullState`; `invalid` is the fictitious object of an unresolved
+    /// expression (`_unresolvedObject`).
     Null { invalid: bool },
     Simbolo(Option<Rc<str>>),
     Tipo(Option<TypeId>),
@@ -59,7 +59,7 @@ pub enum Estado {
 pub struct Valor {
     pub tipo: TypeId,
     pub estado: Estado,
-    /// A variável constante a que o valor foi associado (`forVariable`).
+    /// The constant variable the value was associated with (`forVariable`).
     pub variavel: Option<VariableId>,
 }
 
@@ -271,7 +271,7 @@ impl Estado {
         self.arithmetic(d, |a, b| Some(Ok(Estado::Int(Some(a.wrapping_mul(b))))), |a, b| Ok(Estado::Double(Some(a * b))), Estado::Double(None))
     }
 
-    /// `divide`: sempre `double` (o `int` desconhecido também).
+    /// `divide`: always `double` (the unknown `int` too).
     pub fn divide(&self, d: &Estado) -> R<Estado> {
         if let Estado::Int(None) = self {
             Self::assert_num_or_null(d)?;
@@ -288,7 +288,7 @@ impl Estado {
         )
     }
 
-    /// `remainder` (`%` do Dart: resto euclidiano, nunca negativo).
+    /// `remainder` (Dart's `%`: Euclidean remainder, never negative).
     pub fn resto(&self, d: &Estado) -> R<Estado> {
         self.arithmetic(
             d,
@@ -404,7 +404,7 @@ impl Estado {
     pub fn bit_xor(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| Some(Estado::Int(Some(a ^ b))))
     }
-    /// `<<`: deslocamento com mais de 31 bits de largura é desconhecido.
+    /// `<<`: a shift wider than 31 bits is unknown.
     pub fn shift_left(&self, d: &Estado) -> R<Estado> {
         self.bits(d, |a, b| {
             if bit_length(b) > 31 {
@@ -493,7 +493,7 @@ impl Estado {
         self.logical(d, |a, b| a ^ b)
     }
 
-    /// `stringLength` (em unidades UTF-16).
+    /// `stringLength` (in UTF-16 code units).
     pub fn comprimento(&self) -> R<Estado> {
         match self {
             Estado::Str(v) => Ok(Estado::Int(v.as_ref().map(|s| s.len() as i64))),
@@ -505,7 +505,7 @@ impl Estado {
     }
 }
 
-/// `bitLength` do Dart: bits sem o sinal (`-1` tem 0).
+/// Dart's `bitLength`: bits without the sign (`-1` has 0).
 fn bit_length(v: i64) -> u32 {
     let x = if v < 0 { !v } else { v };
     64 - x.leading_zeros()
@@ -516,12 +516,12 @@ fn double_remainder(a: f64, b: f64) -> f64 {
     if r < 0.0 { r + b.abs() } else { r }
 }
 
-/// O texto de uma `String` a partir de um `&str`.
+/// The text of a `String` from a `&str`.
 pub fn texto(s: &str) -> Texto {
     s.encode_utf16().collect::<Vec<u16>>().into()
 }
 
-/// `double.toString()` do Dart: `1.0`, `0.1`, `1e+21`, `1e-7`, `NaN`,
+/// Dart's `double.toString()`: `1.0`, `0.1`, `1e+21`, `1e-7`, `NaN`,
 /// `Infinity`.
 pub fn double_as_dart(d: f64) -> String {
     if d.is_nan() {
@@ -547,7 +547,8 @@ pub fn double_as_dart(d: f64) -> String {
 }
 
 impl Valor {
-    /// O tipo já vem apagado (`extensionTypeErasure`, feito pelo motor).
+    /// The type comes already erased (`extensionTypeErasure`, done by the
+    /// engine).
     pub fn novo(ty: TypeId, state: Estado) -> Valor {
         Valor { tipo: ty, estado: state, variavel: None }
     }
@@ -560,15 +561,15 @@ impl Valor {
         Valor { tipo: core.bool_, estado: Estado::Bool(v), variavel: None }
     }
 
-    /// `validWithUnknownValue` (o tipo já apagado).
+    /// `validWithUnknownValue` (the type already erased).
     pub fn desconhecido(table: &TypeTable, core: &CoreTypes, ty: TypeId, list_element: Option<TypeId>) -> Valor {
         let cls = match table.get(ty) {
             Type::Interface { class, nullable: false, .. } => Some(*class),
             _ => None,
         };
-        // O desconhecido de tipo anulável (`bool?`, `int?`) tem o estado do
-        // tipo de base: pelo lado seguro, nenhum erro de tipo é provado sobre
-        // ele (`c ? 1 : 2` com `c` desconhecido de tipo `bool?` não é
+        // An unknown of a nullable type (`bool?`, `int?`) has the state of the
+        // base type: on the safe side, no type error is proven about it
+        // (`c ? 1 : 2` with `c` an unknown of type `bool?` is not
         // `CONST_EVAL_TYPE_BOOL`).
         let base = match table.get(ty) {
             Type::Interface { class, .. } => Some(*class),

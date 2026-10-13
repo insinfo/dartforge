@@ -1,12 +1,12 @@
 //! `conflicting_generic_interfaces`: `ErrorVerifier._checkForConflictingGenerics`
-//! (`analyzer/lib/src/generated/error_verifier.dart:2652-2678`) com os erros
-//! de `ClassHierarchy` (`analyzer/lib/src/dart/element/class_hierarchy.dart:41-213`):
-//! o `InterfacesMerger` recebe o supertipo, as restrições `on`, as
-//! interfaces e os mixins, cada um com as interfaces do seu elemento
-//! substituídas; dois tipos do mesmo elemento que o `NNBD_TOP_MERGE`
-//! (`top_merge.dart`) não junta são o erro (o primeiro por elemento).
+//! (`analyzer/lib/src/generated/error_verifier.dart:2652-2678`) with the errors
+//! of `ClassHierarchy` (`analyzer/lib/src/dart/element/class_hierarchy.dart:41-213`):
+//! the `InterfacesMerger` receives the supertype, the `on` constraints, the
+//! interfaces and the mixins, each with the interfaces of its element
+//! substituted; two types of the same element that `NNBD_TOP_MERGE`
+//! (`top_merge.dart`) does not merge are the error (the first per element).
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::ops;
 use crate::resolve::OutlineTypes;
@@ -25,7 +25,7 @@ struct Contexto<'p, 't> {
     outline: &'p OutlineTypes,
     table: &'t mut TypeTable,
     enum_: Option<ClassId>,
-    /// `_getHierarchy`: as interfaces e os erros de cada elemento.
+    /// `_getHierarchy`: the interfaces and the errors of each element.
     memo: HashMap<ClassId, Rc<(Vec<TypeId>, Vec<(TypeId, TypeId)>)>>,
 }
 
@@ -42,7 +42,7 @@ impl Contexto<'_, '_> {
         self.table.get(t).is_declared_nullable()
     }
 
-    /// `TopMergeHelper.topMerge`; `None` onde o original lança.
+    /// `TopMergeHelper.topMerge`; `None` where the original throws.
     fn top_merge(&mut self, t: TypeId, s: TypeId, _prof: u32) -> Option<TypeId> {
         ops::top_merge(self.table, self.core, t, s)
     }
@@ -60,7 +60,7 @@ impl Contexto<'_, '_> {
         }
         let current = col.atual.expect("atual");
         let nt = ops::normalize(t, self.table, self.core);
-        // `_merge`: `Object` e `Object?` dão o não anulável.
+        // `_merge`: `Object` and `Object?` give the non-nullable one.
         let r = if col.objeto && self.anulavel(current) != self.anulavel(nt) {
             Some(if self.anulavel(current) { nt } else { current })
         } else {
@@ -72,8 +72,7 @@ impl Contexto<'_, '_> {
         }
     }
 
-    /// O elemento de um tipo de interface (classe, mixin, enum ou tipo de
-    /// extensão).
+    /// The element of an interface type (class, mixin, enum or extension type).
     fn elemento(&self, t: TypeId) -> Option<(ClassId, Box<[TypeId]>)> {
         match self.table.get(t) {
             Type::Interface { class, args, .. } => Some((*class, args.clone())),
@@ -105,8 +104,8 @@ impl Contexto<'_, '_> {
         }
     }
 
-    /// Os supertipos diretos na ordem do `_getHierarchy`: supertipo,
-    /// restrições `on`, interfaces, mixins.
+    /// The direct supertypes in `_getHierarchy` order: supertype, `on`
+    /// constraints, interfaces, mixins.
     fn diretos(&mut self, c: ClassId) -> Vec<TypeId> {
         let ce = self.program.class(c);
         let data = self.outline.classes[c.0 as usize].clone();
@@ -188,9 +187,9 @@ impl Contexto<'_, '_> {
     }
 }
 
-/// `conflicting_generic_interfaces` nas declarações de `lib`. `aberta`: a
-/// porta de `_checkClassInheritance`/`_checkMixinInheritance` (para tipos de
-/// extensão não há porta).
+/// `conflicting_generic_interfaces` in the declarations of `lib`. `open`:
+/// the gate of `_checkClassInheritance`/`_checkMixinInheritance` (for
+/// extension types there is no gate).
 pub fn conflitos_genericos(
     program: &Program,
     interner: &Interner,

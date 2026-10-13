@@ -1,20 +1,20 @@
 //! `avoid_redundant_argument_values` (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8),
-//! escrita direto do emissor da 3.6.2, com o motor de constantes.
+//! written directly from the 3.6.2 emitter, with the constants engine.
 //!
-//! As listas de argumentos de `MethodInvocation`, de
-//! `FunctionExpressionInvocation` cujo alvo é o tear-off de uma função
-//! declarada (os parâmetros do tipo dela são os do elemento; o tipo de
-//! função escrito tem parâmetros sintéticos, sem valor), de criação de
-//! instância (a factory redirecionadora segue a cadeia até o último
-//! construtor e casa os argumentos pelos parâmetros dele) e de constante de
-//! enum. Do último argumento para o primeiro: o parâmetro opcional, não
-//! `required` nem `@required`, com valor padrão conhecido (o escrito; sem
-//! ele, `null`, ou o do parâmetro do construtor da superclasse num
-//! `super.x` cujo tipo cabe no do parâmetro) igual ao valor constante do
-//! argumento (pelo `ConstantVisitor`, no contexto constante do nó); o
-//! primeiro posicional opcional encerra a varredura.
+//! The argument lists of `MethodInvocation`, of
+//! `FunctionExpressionInvocation` whose target is the tear-off of a declared
+//! function (the parameters of its type are the element's; a written
+//! function type has synthetic parameters, without values), of instance
+//! creations (a redirecting factory follows the chain to the last
+//! constructor and matches the arguments against its parameters) and of
+//! enum constants. From the last argument to the first: an optional
+//! parameter, neither `required` nor `@required`, with a known default value
+//! (the written one; without it, `null`, or that of the superclass
+//! constructor's parameter for a `super.x` whose type fits the parameter's)
+//! equal to the argument's constant value (through `ConstantVisitor`, in the
+//! node's constant context); the first optional positional ends the scan.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::constantes::valor::Valor;
@@ -28,7 +28,7 @@ use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, Initializer, Mem
 use dartforge_intern::Interner;
 use std::collections::HashSet;
 
-/// Os parâmetros escritos de uma função do modelo, com a unidade.
+/// The written parameters of a model function, with the unit.
 fn parametros_de(program: &Program, f: FunctionElementId) -> Option<(UnitId, &[ast::Parameter])> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => Some((unit, program.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[]))),
@@ -40,7 +40,7 @@ fn parametros_de(program: &Program, f: FunctionElementId) -> Option<(UnitId, &[a
     }
 }
 
-/// O construtor para o qual a factory `f` redireciona (`= C.nome`).
+/// The constructor that factory `f` redirects to (`= C.name`).
 fn redirected(program: &Program, interner: &Interner, f: FunctionElementId) -> Option<FunctionElementId> {
     let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
     let a = &program.unit(unit).ast;
@@ -57,13 +57,13 @@ fn redirected(program: &Program, interner: &Interner, f: FunctionElementId) -> O
     program.class(tgt).constructors.get(&key).copied()
 }
 
-/// Um parâmetro escrito com a função dona (para o `super.x`).
+/// A written parameter with its owner function (for `super.x`).
 #[derive(Clone, Copy)]
 struct Param<'p> {
     dono: Option<FunctionElementId>,
     unidade: UnitId,
     p: &'p ast::Parameter,
-    /// O índice na lista escrita.
+    /// The index in the written list.
     indice: usize,
 }
 
@@ -80,7 +80,7 @@ impl<'p> Cx<'_, 'p> {
         self.program.unit(u).library
     }
 
-    /// `computeConstantValue` do parâmetro opcional.
+    /// `computeConstantValue` of the optional parameter.
     fn padrao(&mut self, q: Param<'p>, prof: u32) -> Option<Valor> {
         if prof > 32 {
             return None;
@@ -104,8 +104,8 @@ impl<'p> Cx<'_, 'p> {
         is_subtype(v.tipo, own, &mut env).then_some(v)
     }
 
-    /// `superConstructorParameter`: o parâmetro de mesmo nome (nomeado) ou
-    /// de mesma posição entre os `super.x` posicionais.
+    /// `superConstructorParameter`: the parameter with the same name (named) or
+    /// at the same position among the positional `super.x`.
     fn parametro_do_super(&self, f: FunctionElementId, q: Param<'p>) -> Option<Param<'p>> {
         let program = self.program;
         let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
@@ -133,9 +133,9 @@ impl<'p> Cx<'_, 'p> {
         Some(Param { dono: Some(g), unidade: gu, p: &gps[tgt], indice: tgt })
     }
 
-    /// `checkArgument`. `relato`: o nó relatado, quando não é o valor (o
-    /// `NamedExpression` inteiro no caminho da fábrica redirecionadora, que
-    /// não o desembrulha).
+    /// `checkArgument`. `report`: the reported node, when it is not the value
+    /// (the whole `NamedExpression` on the redirecting factory path, which does
+    /// not unwrap it).
     #[allow(clippy::too_many_arguments)]
     fn checar(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, value: ExprId, param: Option<Param<'p>>, report: Option<dartforge_diagnostics::Span>, out: &mut Vec<Achado>) {
         let Some(q) = param else { return };
@@ -161,7 +161,7 @@ impl<'p> Cx<'_, 'p> {
         }
     }
 
-    /// `check`: o `staticParameterElement` de cada argumento.
+    /// `check`: the `staticParameterElement` of each argument.
     fn lista(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, args: &ast::Arguments, tgt: Option<(Option<FunctionElementId>, UnitId, &'p [ast::Parameter])>, out: &mut Vec<Achado>) {
         for i in (0..args.args.len()).rev() {
             let x = args.args[i];
@@ -200,7 +200,7 @@ impl<'p> Cx<'_, 'p> {
         let mut current = k;
         while let Some(r) = redirected_to {
             if !seen.insert(r) {
-                // Ciclo: erro de compilação.
+                // Cycle: compile error.
                 return;
             }
             current = r;
@@ -230,7 +230,7 @@ impl<'p> Cx<'_, 'p> {
     }
 }
 
-/// Os achados na unidade `u`.
+/// The findings in unit `u`.
 #[allow(clippy::too_many_arguments)]
 pub fn achados(
     program: &Program,
@@ -250,15 +250,15 @@ pub fn achados(
     let pais = dartforge_frontend::pais::Pais::novo(a, &unit_id.unit, unit_id.source.as_str(), before_3);
     let engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
     let mut cx = Cx { program, interner, core, outline, motor: engine };
-    // A função local declarada em `d` (o offset do nome).
+    // The local function declared at `d` (the name's offset).
     let local = |d: usize| -> Option<&[ast::Parameter]> {
         a.stmts.iter().find_map(|s| match &s.kind {
             StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d) => Some(a.function(*g).parameters.as_deref().unwrap_or(&[])),
             _ => None,
         })
     };
-    // Os parâmetros da função invocada por nome (`MethodInvocation`) ou pelo
-    // tear-off (`FunctionExpressionInvocation`).
+    // The parameters of the function invoked by name (`MethodInvocation`) or
+    // through the tear-off (`FunctionExpressionInvocation`).
     let of_function = |e: ExprId| -> Option<(Option<FunctionElementId>, UnitId, &[ast::Parameter])> {
         let f = match body.get_resolved(e)? {
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => *f,
@@ -294,8 +294,8 @@ pub fn achados(
                     cx.lista(u, &pais, arguments, tgt, &mut out);
                     continue;
                 }
-                // `FunctionExpressionInvocation`: o tear-off de uma função
-                // declarada.
+                // `FunctionExpressionInvocation`: the tear-off of a declared
+                // function.
                 let mut f = *target;
                 while let ExprKind::Parenthesized(x) = &a.expr(f).kind {
                     f = *x;

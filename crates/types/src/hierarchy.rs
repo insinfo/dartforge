@@ -1,55 +1,55 @@
-//! Hierarquia instanciada de classes e resolução de supertipos.
+//! Instantiated class hierarchy and supertype resolution.
 //!
-//! Para cada classe, computa o fechamento transitivo de supertipos instanciados
-//! com argumentos de tipo substituídos (`List<int>` visto como `Iterable` é
-//! `Iterable<int>`), incluindo aplicações de mixin (`S with M`) e cláusulas `on`.
+//! For each class, computes the transitive closure of instantiated supertypes
+//! with type arguments substituted (`List<int>` seen as `Iterable` is
+//! `Iterable<int>`), including mixin applications (`S with M`) and `on` clauses.
 
 use crate::ops::{normalize, nullable, substitute};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
 use dartforge_elements::model::ClassId;
 use std::collections::{HashMap, HashSet};
 
-/// Informações de supertipos instanciados de uma classe (fechamento transitivo).
+/// Instantiated supertype information of a class (transitive closure).
 #[derive(Debug, Clone, Default)]
 pub struct ClassHierarchyData {
-    /// Parâmetros de tipo formais da classe.
+    /// Formal type parameters of the class.
     pub type_params: Box<[TypeParamId]>,
-    /// Mapa de `ClassId` de supertipo → tipo instanciado em função dos
-    /// parâmetros formais desta classe (`Target<args_em_funcao_dos_formais>`).
+    /// Map from a supertype's `ClassId` → type instantiated in terms of this
+    /// class's formal parameters (`Target<args_em_funcao_dos_formais>`).
     pub supertypes: HashMap<ClassId, TypeId>,
-    /// Lista ordenada de todos os supertipos transitivos.
+    /// Ordered list of all transitive supertypes.
     pub all_supertypes: Vec<TypeId>,
-    /// Profundidade máxima na árvore a partir de `Object` (usado no cálculo de LUB).
+    /// Maximum depth in the tree starting from `Object` (used in the LUB computation).
     pub depth: u32,
 }
 
-/// Grafo completo da hierarquia instanciada do programa.
+/// Complete graph of the program's instantiated hierarchy.
 #[derive(Debug, Default, Clone)]
 pub struct ClassHierarchy {
     classes: Vec<Option<ClassHierarchyData>>,
-    /// Os tipos de extensão que não são subtipos de `Object` (nenhuma
-    /// superinterface leva a uma classe): o `Object` que o fechamento põe no
-    /// topo deles é só o de `Object?` (spec de extension types, "Static
-    /// analysis of extension types": sem `implements`, `E <: Object?` apenas).
+    /// The extension types that are not subtypes of `Object` (no superinterface
+    /// leads to a class): the `Object` that the closure puts at their top is
+    /// only that of `Object?` (extension types spec, "Static analysis of
+    /// extension types": without `implements`, only `E <: Object?`).
     pub extensions_without_object: HashSet<ClassId>,
 }
 
 impl ClassHierarchy {
-    /// Cria uma hierarquia com capacidade para `num_classes`.
+    /// Creates a hierarchy with capacity for `num_classes`.
     pub fn new(num_classes: usize) -> Self {
         let mut classes = Vec::with_capacity(num_classes);
         classes.resize_with(num_classes, || None);
         Self { classes, extensions_without_object: HashSet::new() }
     }
 
-    /// Retorna os dados da hierarquia para uma dada classe, se existirem.
+    /// Returns the hierarchy data for a given class, if any.
     pub fn get(&self, class: ClassId) -> Option<&ClassHierarchyData> {
         self.classes
             .get(class.0 as usize)
             .and_then(|opt| opt.as_ref())
     }
 
-    /// Registra ou atualiza os dados da hierarquia de uma classe.
+    /// Registers or updates the hierarchy data of a class.
     pub fn set(&mut self, class: ClassId, data: ClassHierarchyData) {
         let idx = class.0 as usize;
         if idx >= self.classes.len() {
@@ -58,9 +58,9 @@ impl ClassHierarchy {
         self.classes[idx] = Some(data);
     }
 
-    /// Obtém o supertipo instanciado de `ty` para uma classe alvo `target`.
+    /// Gets the instantiated supertype of `ty` for a target class `target`.
     ///
-    /// Exemplo:
+    /// Example:
     /// `supertype_of(List<int>, Iterable) == Some(Iterable<int>)`
     /// `supertype_of(Map<String, int>, Object) == Some(Object)`
     pub fn supertype_of(
@@ -94,7 +94,7 @@ impl ClassHierarchy {
                 let class_data = self.get(class)?;
                 let template_ty = class_data.supertypes.get(&target).copied()?;
 
-                // Substitui os parâmetros formais de `class` pelos argumentos concretos `args`
+                // Substitutes the formal parameters of `class` with the concrete arguments `args`
                 let mut mapping = HashMap::with_capacity(class_data.type_params.len());
                 for (&param, &arg) in class_data.type_params.iter().zip(args.iter()) {
                     mapping.insert(param, arg);
@@ -149,10 +149,10 @@ impl ClassHierarchy {
     }
 }
 
-/// Entrada de supertipos imediatos para uma classe: `(parâmetros_formais, supertipos_diretos)`.
+/// Immediate supertype entry for a class: `(parâmetros_formais, supertipos_diretos)`.
 pub type ImmediateSupertypeInput = (Box<[TypeParamId]>, Vec<TypeId>);
 
-/// Constrói a hierarquia instanciada para todas as classes do programa.
+/// Builds the instantiated hierarchy for all classes of the program.
 pub fn build_class_hierarchy(
     num_classes: usize,
     immediate_supertypes: &[Option<ImmediateSupertypeInput>],
@@ -190,7 +190,7 @@ fn compute_class_hierarchy(
     }
 
     if !visiting.insert(class) {
-        // Ciclo na herança (erro semântico apanhado no diagnostics); interrompe recursão
+        // Inheritance cycle (semantic error caught in diagnostics); stops recursion
         return;
     }
 
@@ -206,8 +206,8 @@ fn compute_class_hierarchy(
     let mut supertypes_map = HashMap::new();
     let mut all_supertypes = Vec::new();
     let mut max_depth = 0;
-    // `_ClassInterfaceType` de cada ancestral: o resultado da junção (os
-    // normalizados pelo `topMerge`) e se já deu erro.
+    // `_ClassInterfaceType` of each ancestor: the result of the join (the
+    // ones normalized by `topMerge`) and whether it already failed.
     let mut joins: HashMap<ClassId, (Option<TypeId>, bool)> = HashMap::new();
     let mut join = |supertypes_map: &mut HashMap<ClassId, TypeId>, all_supertypes: &mut Vec<TypeId>, table: &mut TypeTable, c: ClassId, ty: TypeId| {
         let Some(&previous) = supertypes_map.get(&c) else {
@@ -252,10 +252,10 @@ fn compute_class_hierarchy(
             _ => continue,
         };
 
-        // Garante que o supertipo direto teve sua hierarquia computada
+        // Ensures that the direct supertype has had its hierarchy computed
         compute_class_hierarchy(direct_class, immediate, hierarchy, visiting, table, core);
 
-        // Insere o próprio supertipo direto (junto ao que já houver)
+        // Inserts the direct supertype itself (along with whatever is there)
         join(&mut supertypes_map, &mut all_supertypes, table, direct_class, direct);
 
         if let Some(parent_data) = hierarchy.get(direct_class).cloned() {
@@ -263,21 +263,21 @@ fn compute_class_hierarchy(
                 max_depth = parent_data.depth + 1;
             }
 
-            // Mapeia os parâmetros formais da classe pai para os argumentos fornecidos nesta classe
+            // Maps the formal parameters of the parent class to the arguments supplied in this class
             let mut parent_subst = HashMap::with_capacity(parent_data.type_params.len());
             for (&p, &a) in parent_data.type_params.iter().zip(direct_args.iter()) {
                 parent_subst.insert(p, a);
             }
 
-            // Propaga os supertipos transitivos do pai. A ordem é por
-            // `ClassId`: iterar o mapa direto herdaria a semente do hash
-            // (ordem diferente a cada emissão no mesmo processo) e, com
-            // diamante genérico (duas rotas ao mesmo ancestral com
-            // instanciações diferentes), o `first-wins` abaixo escolheria
-            // outra ligação — o LLVM IR mudava com o número de
-            // trabalhadores (determinismo do nativo). Em conflito o
-            // vencedor é arbitrário mas estável, como o "resto por
-            // `ClassId`" de `supertipos_ordenados` (`scope.rs`).
+            // Propagates the parent's transitive supertypes. The order is by
+            // `ClassId`: iterating the direct map would inherit the hash seed
+            // (a different order on each emission in the same process) and, with
+            // a generic diamond (two routes to the same ancestor with different
+            // instantiations), the `first-wins` below would pick another
+            // binding: the LLVM IR changed with the number of workers
+            // (determinism of the native backend). On conflict the winner is
+            // arbitrary but stable, like the "rest by `ClassId`" of
+            // `ordered_supertypes` (`scope.rs`).
             let mut the_inherited: Vec<(&ClassId, &TypeId)> = parent_data.supertypes.iter().collect();
             the_inherited.sort_by_key(|(c, _)| c.0);
             for (&ancestor_class, &ancestor_ty) in the_inherited {
@@ -287,7 +287,7 @@ fn compute_class_hierarchy(
         }
     }
 
-    // Garante Object no topo de toda classe (exceto o próprio Object)
+    // Ensures Object at the top of every class (except Object itself)
     if let Some(obj_class) = core.object_class
         && class != obj_class
         && !supertypes_map.contains_key(&obj_class)

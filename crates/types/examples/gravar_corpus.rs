@@ -1,26 +1,25 @@
-//! Grava os tipos esperados do corpus de conformidade da inferência
-//! (`corpus/inferencia/`) com o oráculo (`tools/oraculo_tipos/oraculo.dart`,
-//! package:analyzer). Só orquestra: roda UM processo `dart` para o corpus
-//! inteiro e reparte a saída por programa.
+//! Records the expected types of the inference conformance corpus
+//! (`corpus/inference/`) with the oracle (`tools/oraculo_tipos/oracle.dart`,
+//! package:analyzer). It only orchestrates: it runs ONE `dart` process for the
+//! whole corpus and splits the output per program.
 //!
 //! ```text
 //! cargo run --release -p dartforge-types --example gravar_corpus -- \
 //!     --packages <package_config.json> [corpus/inferencia]
 //! ```
 //!
-//! `<package_config.json>` é qualquer um que resolva `package:analyzer`
-//! 6.11.0 e `package:path` (o do `new_sali/frontend`, por exemplo). Para cada
-//! `X.dart` escreve `X.esperado.tsv`, uma linha por expressão:
+//! `<package_config.json>` is any one that resolves `package:analyzer` 6.11.0
+//! and `package:path` (the one from `new_sali/frontend`, for example). For each
+//! `X.dart` it writes `X.esperado.tsv`, one line per expression:
 //!
 //! ```text
 //! linha  coluna  offset  comprimento  nó  tipo  elemento  marca  trecho
 //! ```
 //!
-//! `offset`/`comprimento` são unidades UTF-16 (as do analyzer);
-//! `linha`/`coluna` começam em 1. `marca` é 1 quando a expressão começa logo
-//! depois de um comentário `/*@*/`. Ver docs/INFERENCIA-ESPECIFICACAO.md, §0.
-//! O teste `tests/corpus_inferencia.rs` compara o nosso despejo com esses
-//! arquivos.
+//! `offset`/`comprimento` are UTF-16 units (the analyzer's);
+//! `linha`/`coluna` start at 1. `mark` is 1 when the expression starts right
+//! after a `/*@*/` comment. See docs/INFERENCIA-ESPECIFICACAO.md, §0.
+//! The test `tests/corpus_inferencia.rs` compares our dump with these files.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -72,7 +71,7 @@ fn main() {
         .expect("dart");
     assert!(st.success(), "oráculo falhou: {st}");
 
-    // Linhas do oráculo por programa (caminho em minúsculas).
+    // Oracle lines per program (path in lowercase).
     let mut by: HashMap<String, Vec<Vec<String>>> = HashMap::new();
     for l in BufReader::new(std::fs::File::open(&output).unwrap()).lines() {
         let l = l.unwrap();

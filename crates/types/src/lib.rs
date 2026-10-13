@@ -1,21 +1,21 @@
-//! # dartforge-types — Sistema de tipos do DartForge
+//! # dartforge-types — The DartForge type system
 //!
-//! Implementação da representação estrutural hash-consed de tipos em Dart 3,
-//! resolução de anotações de tipo do outline de programas, fechamento transitivo
-//! da hierarquia de supertipos instanciados, subtipagem algorítmica estrita segundo
-//! as regras normativas (`subtyping.md`) e operações centrais de tipos.
+//! Implementation of the hash-consed structural representation of Dart 3 types,
+//! resolution of type annotations in program outlines, the transitive closure of
+//! the hierarchy of instantiated supertypes, strict algorithmic subtyping following
+//! the normative rules (`subtyping.md`), and the core type operations.
 //!
-//! ## Disciplina de Memória (docs/FRONTEND-ARQUITETURA.md §2)
+//! ## Memory discipline (docs/FRONTEND-ARQUITETURA.md §2)
 //!
-//! - **Hash-consing**: Toda instância estruturalmente igual compartilha o mesmo [`TypeId`].
-//! - **Sem grafos cíclicos de ponteiros**: Proibido uso de `Rc<RefCell<...>>`. Relações
-//!   são mantidas via índices compactos [`TypeId`] e [`TypeParamId`].
-//! - **Tabelas laterais**: Resultados da resolução residem em estruturas externas indexadas
-//!   pelos IDs dos elementos ([`OutlineTypes`]), preservando a imutabilidade da AST.
-//! - **Rastreio de memória**: A [`TypeTable`] computa continuamente seu `payload_bytes`
-//!   para vigilância de platô do LSP e medições do compilador.
+//! - **Hash-consing**: Every structurally equal instance shares the same [`TypeId`].
+//! - **No cyclic pointer graphs**: Using `Rc<RefCell<...>>` is forbidden. Relations
+//!   are kept through compact [`TypeId`] and [`TypeParamId`] indices.
+//! - **Side tables**: Resolution results live in external structures indexed by
+//!   element IDs ([`OutlineTypes`]), preserving the immutability of the AST.
+//! - **Memory tracking**: The [`TypeTable`] continuously computes its `payload_bytes`
+//!   for LSP plateau monitoring and compiler measurements.
 
-/// O `typedef` que chega a si mesmo (`TypeAliasSelfReferenceFinder`).
+/// The `typedef` that reaches itself (`TypeAliasSelfReferenceFinder`).
 pub mod auto_referencia;
 pub mod raw_cycles;
 pub mod a_main;
@@ -91,11 +91,11 @@ use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
 
-/// Ponto de entrada para a resolução de anotações de tipo do outline de um [`Program`].
+/// Entry point for resolving the outline type annotations of a [`Program`].
 ///
-/// Resolve todas as anotações escritas de classes, funções, variáveis e typedefs,
-/// instancia a hierarquia transitiva de classes e retorna as tabelas laterais
-/// ([`OutlineTypes`]) e os diagnósticos acumulados.
+/// Resolves all written annotations of classes, functions, variables and typedefs,
+/// instantiates the transitive class hierarchy, and returns the side tables
+/// ([`OutlineTypes`]) and the accumulated diagnostics.
 pub fn resolve_outline(
     program: &Program,
     interner: &Interner,
@@ -106,9 +106,9 @@ pub fn resolve_outline(
     resolver.resolve_all()
 }
 
-/// Como [`resolve_outline`], com a unidade (arquivo) de cada diagnóstico,
-/// na mesma ordem: quem analisa vários arquivos de uma vez não precisa
-/// adivinhar o arquivo pelo intervalo (dois arquivos podem ter o mesmo).
+/// Like [`resolve_outline`], with the unit (file) of each diagnostic, in the
+/// same order: a caller analyzing several files at once does not need to
+/// guess the file from the range (two files may have the same one).
 pub fn resolve_outline_com_unidades(
     program: &Program,
     interner: &Interner,
@@ -118,10 +118,10 @@ pub fn resolve_outline_com_unidades(
     OutlineResolver::new(program, interner, table, core).resolve_all_with_units()
 }
 
-/// Ponto de entrada para a inferência de tipos e resolução de corpos em um [`Program`].
+/// Entry point for type inference and body resolution in a [`Program`].
 ///
-/// Percorre todos os corpos de funções, métodos e inicializadores, preenchendo as tabelas
-/// laterais [`BodyTypes`] e resolvendo tipos de expressões, membros e escopos léxicos.
+/// Walks all bodies of functions, methods and initializers, filling the side tables
+/// [`BodyTypes`] and resolving the types of expressions, members and lexical scopes.
 pub fn infer_program_bodies(
     program: &Program,
     interner: &Interner,
@@ -133,9 +133,10 @@ pub fn infer_program_bodies(
     inferrer.infer_all()
 }
 
-/// Como [`infer_bodies_das_bibliotecas`], registrando a declaração do local
-/// que cada leitura de local resolve (`UnitBodyTypes::declaracoes_de_locais`),
-/// que a avaliação de constantes locais usa ([`constantes`]).
+/// Like [`infer_bodies_das_bibliotecas`], recording the declaration of the
+/// local that each local read resolves to
+/// (`UnitBodyTypes::declaracoes_de_locais`), which the evaluation of local
+/// constants uses ([`constantes`]).
 pub fn infer_library_bodies_with_locals(
     program: &Program,
     interner: &Interner,
@@ -150,9 +151,9 @@ pub fn infer_library_bodies_with_locals(
     inferrer.infer_all()
 }
 
-/// Como [`infer_bodies_das_bibliotecas`] (com `registrar_locais`, como
-/// [`infer_bodies_das_bibliotecas_com_locais`]), com a unidade de cada
-/// diagnóstico, na mesma ordem (`None` quando não há corpo em inferência).
+/// Like [`infer_bodies_das_bibliotecas`] (with `record_locals`, as in
+/// [`infer_library_bodies_with_locals`]), with the unit of each
+/// diagnostic, in the same order (`None` when no body is being inferred).
 pub fn infer_bodies_das_bibliotecas_com_unidades(
     program: &Program,
     interner: &Interner,
@@ -168,10 +169,11 @@ pub fn infer_bodies_das_bibliotecas_com_unidades(
     inferrer.infer_all_with_units()
 }
 
-/// Como [`infer_program_bodies`], inferindo os corpos **só** das bibliotecas
-/// dadas — inclusive as do SDK, quando pedidas (o backend nativo compila o
-/// SDK da fonte). As variáveis das outras bibliotecas são inferidas sob
-/// demanda, quando alguém lê o tipo, sem os avisos delas.
+/// Like [`infer_program_bodies`], inferring the bodies **only** of the given
+/// libraries, including the SDK ones when requested (the native backend
+/// compiles the SDK from source). Variables of the other libraries are
+/// inferred on demand, when someone reads their type, without their
+/// warnings.
 pub fn infer_bodies_das_bibliotecas(
     program: &Program,
     interner: &Interner,

@@ -1,9 +1,9 @@
-//! O `ConstantVerifier` do analyzer 6.11
-//! (`src/dart/constant/constant_verifier.dart`): percorre as unidades de
-//! uma biblioteca e relata os erros de constantes — variáveis `const`,
-//! campos `final` de classes com construtor `const`, criações e coleções
-//! constantes, registros, valores padrão, padrões constantes e relacionais,
-//! inicializadores de construtores `const`.
+//! Analyzer 6.11's `ConstantVerifier`
+//! (`src/dart/constant/constant_verifier.dart`): walks the units of a
+//! library and reports constant errors: `const` variables, `final` fields of
+//! classes with a `const` constructor, constant creations and collections,
+//! records, default values, constant and relational patterns, initializers
+//! of `const` constructors.
 
 use super::avaliador::{Constante, Ctx, Invalid, Motor};
 use super::exhaustiveness::{Caso, Entrada, Exhaustiveness};
@@ -17,8 +17,8 @@ use dartforge_frontend::ast::{
 };
 use std::collections::HashMap;
 
-/// Os códigos mais específicos que o padrão (`_reportError`): relatados
-/// como estão, no lugar do código padrão do ponto de uso.
+/// The codes more specific than the default (`_reportError`): reported as
+/// they are, instead of the default code at the point of use.
 const SPECIFIC: &[Codigo] = &[
     c::CONST_EVAL_EXTENSION_METHOD,
     c::CONST_EVAL_EXTENSION_TYPE_METHOD,
@@ -60,8 +60,8 @@ const SPECIFIC: &[Codigo] = &[
     c::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION,
 ];
 
-/// Os códigos cuja verificação é deste módulo (o que a inferência emite
-/// deles é descartado por quem mede a paridade).
+/// The codes whose checking belongs to this module (what inference emits for
+/// them is discarded by whoever measures parity).
 pub const CODIGOS: &[&str] = &[
     "const_initialized_with_non_constant_value",
     "const_eval_throws_exception",
@@ -75,25 +75,25 @@ struct Verifier<'m, 'a> {
     lib: LibraryId,
     unidade: UnitId,
     saida: Vec<(UnitId, Diagnostic)>,
-    /// `(unidade, membro, índice)` → variável; `(unidade, decl, índice)` → variável.
+    /// `(unit_id, mem, índice)` → variable; `(unit_id, decl, índice)` → variable.
     campos: HashMap<(UnitId, ast::MemberId, usize), VariableId>,
     topo: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
-    /// A classe (declaração) de cada membro.
+    /// The class (declaration) of each member.
     member_class: HashMap<(UnitId, ast::MemberId), ClassId>,
     patterns_enabled: bool,
-    /// Valores dos padrões constantes e das chaves de padrões de mapa da
-    /// unidade (`_withConstantPatternValues`), para a exaustividade.
+    /// Values of the unit's constant patterns and map pattern keys
+    /// (`_withConstantPatternValues`), for exhaustiveness.
     the_default_values: HashMap<PatternId, Valor>,
     key_values: HashMap<ExprId, Valor>,
-    /// `inConstantExpression`: dentro de um valor padrão de parâmetro ou do
-    /// inicializador de um campo de instância de uma classe com construtor
-    /// gerador `const` (expressão constante sem contexto constante).
+    /// `inConstantExpression`: inside a parameter's default value or the
+    /// initializer of an instance field of a class with a `const` generative
+    /// constructor (a constant expression without a constant context).
     in_constant_expression: bool,
 }
 
-/// Os erros que o `_ConstantAnalysisErrorListener` do linter do analyzer
-/// 3.6.2 conta como "erro de constante" (`analyzer/lib/src/lint/linter.dart`),
-/// pelo nome único.
+/// The errors that the `_ConstantAnalysisErrorListener` of the analyzer
+/// 3.6.2 linter counts as a "constant error"
+/// (`analyzer/lib/src/lint/linter.dart`), by unique name.
 const CONSTANT_ERRORS: &[&str] = &[
     "CompileTimeErrorCode.CONST_CONSTRUCTOR_CONSTANT_FROM_DEFERRED_LIBRARY",
     "CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST",
@@ -131,13 +131,12 @@ const CONSTANT_ERRORS: &[&str] = &[
     "CompileTimeErrorCode.NON_CONSTANT_SET_ELEMENT",
 ];
 
-/// `canBeConst` de uma criação de instância (`_canBeConstInstanceCreation`,
-/// `analyzer/lib/src/lint/linter.dart`): o construtor resolvido é `const`
-/// e o `ConstantVerifier` sobre a criação, como se ela tivesse `const`,
-/// não relata nenhum dos `ERROS_DE_CONSTANTE`. A criação constante aqui
-/// é o mesmo `visitInstanceCreationExpression` da verificação de sempre
-/// (`criacao_constante`), com os argumentos visitados em contexto
-/// constante.
+/// `canBeConst` of an instance creation (`_canBeConstInstanceCreation`,
+/// `analyzer/lib/src/lint/linter.dart`): the resolved constructor is `const`
+/// and the `ConstantVerifier` over the creation, as if it had `const`,
+/// reports none of the `CONSTANT_ERRORS`. The constant creation here is
+/// the same `visitInstanceCreationExpression` as in the regular verification
+/// (`constant_creation`), with the arguments visited in a constant context.
 pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId, e: ExprId) -> bool {
     let program = m.program;
     let a = m.ast(unit_id);
@@ -167,7 +166,7 @@ pub fn creation_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId,
     !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
 }
 
-/// Um verificador sem as tabelas da biblioteca (as consultas de lint).
+/// A verifier without the library's tables (the lint queries).
 fn standalone_verifier<'v, 'm>(m: &'v mut Motor<'m>, lib: LibraryId, unit_id: UnitId) -> Verifier<'v, 'm> {
     let patterns_enabled = m.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
     Verifier {
@@ -185,9 +184,9 @@ fn standalone_verifier<'v, 'm>(m: &'v mut Motor<'m>, lib: LibraryId, unit_id: Un
     }
 }
 
-/// `canBeConst` de um literal tipado (`_canBeConstTypedLiteral`): o
-/// `ConstantVerifier` sobre o literal com `const` não relata nenhum dos
-/// `ERROS_DE_CONSTANTE`.
+/// `canBeConst` of a typed literal (`_canBeConstTypedLiteral`): the
+/// `ConstantVerifier` over the literal with `const` reports none of the
+/// `CONSTANT_ERRORS`.
 pub fn literal_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId, e: ExprId) -> bool {
     let a = m.ast(unit_id);
     let mut v = standalone_verifier(m, lib, unit_id);
@@ -196,11 +195,10 @@ pub fn literal_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId, 
 }
 
 /// `ConstructorDeclaration.canBeConst` (`analyzer/lib/src/lint/linter.dart`):
-/// a classe não tem campo de instância que não é `final`, e o
-/// `ConstantVerifier` sobre o construtor marcado `const` não relata nenhum
-/// dos `ERROS_DE_CONSTANTE`: inicializadores potencialmente constantes,
-/// campos de instância com inicializador constante e valores padrão
-/// constantes.
+/// the class has no instance field that is not `final`, and the
+/// `ConstantVerifier` over the constructor marked `const` reports none of the
+/// `CONSTANT_ERRORS`: potentially constant initializers, instance fields
+/// with a constant initializer and constant default values.
 pub fn constructor_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: UnitId, mid: ast::MemberId) -> bool {
     let a = m.ast(unit_id);
     let MemberKind::Constructor(k) = &a.member(mid).kind else { return false };
@@ -249,9 +247,9 @@ pub fn constructor_can_be_const(m: &mut Motor<'_>, lib: LibraryId, unit_id: Unit
     !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unico)))
 }
 
-/// Os erros de constantes das unidades de `lib`.
+/// The constant errors of the units of `lib`.
 pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
-    // Os ciclos saem do grafo de dependências, antes de qualquer avaliação
+    // The cycles come from the dependency graph, before any evaluation
     // (`computeConstants`).
     super::cycles::compute(m, lib);
     let program = m.program;
@@ -300,8 +298,8 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
         for &d in &program.unit(u).unit.declarations {
             v.declaracao(a, d);
         }
-        // `visitAnnotation`: os argumentos da anotação que cria com um
-        // construtor `const` (`_validateConstantArguments`).
+        // `visitAnnotation`: the arguments of an annotation that creates with a
+        // `const` constructor (`_validateConstantArguments`).
         for m in dartforge_frontend::pais::todas_as_anotacoes(a, &program.unit(u).unit) {
             v.anotacao(m);
         }
@@ -310,21 +308,21 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
 }
 
 impl Verifier<'_, '_> {
-    /// `const C.nome()` com `C` aplicação de mixin (`class C = S with M;`):
-    /// o construtor encaminhado é `const` só se o da superclasse for e
-    /// nenhum mixin declarar campo (`ConstructorElementImpl.isConst` dos
-    /// encaminhados, `analyzer/lib/src/dart/element/element.dart:612-614`);
-    /// não sendo, `CONST_WITH_NON_CONST` na palavra `const`.
+    /// `const C.the_name()` with `C` a mixin application (`class C = S with M;`): the
+    /// forwarded constructor is `const` only if the superclass's is and no
+    /// mixin declares a field (`ConstructorElementImpl.isConst` of forwarded
+    /// constructors, `analyzer/lib/src/dart/element/element.dart:612-614`);
+    /// otherwise, `CONST_WITH_NON_CONST` at the `const` keyword.
     fn non_const_forwarded(&mut self, ty: ast::TypeId, mut the_constructor: Option<ast::Name>, span: Span) {
         let program = self.m.program;
         let u = self.unidade;
         let class = match self.annotation_type(ty).map(|t| self.m.table.get(t).clone()) {
             Some(Type::Interface { class, .. }) => class,
             _ => {
-                // O tipo da criação não fica registrado: o nome escrito.
+                // The creation's type is not recorded: the written name.
                 let ast::TypeKind::Named { name, .. } = &program.unit(u).ast.ty(ty).kind else { return };
-                // `C.nome` sai do parser como nome de duas partes (`p.C` ou
-                // `C.nome`): a primeira parte classe é `C`, com o construtor.
+                // `C.the_name` comes out of the parser as a two-part name (`p.C` or
+                // `C.the_name`): the first part as a class is `C`, with the constructor.
                 let (el, ctor) = match &name[..] {
                     [n] => (program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter), the_constructor),
                     [a1, b1] => match program.lookup_na_unidade(u, a1.sym).and_then(|b| b.getter) {
@@ -357,8 +355,8 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// `isConst` do construtor `chave` visto pela classe `c` (encaminhado nas
-    /// aplicações de mixin); `None` sem construtor.
+    /// `isConst` of constructor `the_key` as seen by class `c` (forwarded in mixin
+    /// applications); `None` without a constructor.
     fn const_forwarded_constructor(&self, c: ClassId, the_key: dartforge_intern::SymbolId, prof: u32) -> Option<bool> {
         if prof > 32 {
             return None;
@@ -379,9 +377,9 @@ impl Verifier<'_, '_> {
         Some(do_super && !mixin_with_field)
     }
 
-    /// `ConstantVerifier.visitAnnotation`: o elemento é um construtor
-    /// `const` com lista de argumentos; cada argumento é avaliado, e o que
-    /// não é constante é `CONST_WITH_NON_CONSTANT_ARGUMENT`.
+    /// `ConstantVerifier.visitAnnotation`: the element is a `const` constructor
+    /// with an argument list; each argument is evaluated, and one that is not
+    /// constant is `CONST_WITH_NON_CONSTANT_ARGUMENT`.
     fn anotacao(&mut self, m: &ast::Annotation) {
         let Some(args) = &m.arguments else { return };
         let program = self.m.program;
@@ -395,8 +393,8 @@ impl Verifier<'_, '_> {
             },
             _ => return,
         };
-        // O construtor: o último nome, se for um construtor da classe; senão
-        // o sem nome.
+        // The constructor: the last name, if it is a constructor of the class;
+        // otherwise the unnamed one.
         let last = m.name.last().map(|n| n.sym);
         let named_one = (m.name.len() >= 2)
             .then_some(last)
@@ -421,8 +419,8 @@ impl Verifier<'_, '_> {
         self.saida.push((self.unidade, Diagnostic::com_codigo(code, span, args)));
     }
 
-    /// O erro com o código dele e as `contextMessages` (no arquivo de cada
-    /// uma, quando não é o desta unidade).
+    /// The error with its code and the `contextMessages` (in each one's file,
+    /// when it is not this unit's).
     fn report_with_context(&mut self, i: &Invalid) {
         let mut d = Diagnostic::com_codigo(i.codigo, i.span, i.args.clone());
         for (u, span, text) in &i.contexto {
@@ -432,8 +430,8 @@ impl Verifier<'_, '_> {
         self.saida.push((self.unidade, d));
     }
 
-    /// `_reportError`: o código específico leva as mensagens de contexto; o
-    /// padrão, não.
+    /// `_reportError`: the specific code carries the context messages; the
+    /// default one does not.
     fn report_invalid(&mut self, i: &Invalid, the_pattern: Option<Codigo>) {
         if i.avoid_report || i.unidade != self.unidade {
             return;
@@ -456,7 +454,7 @@ impl Verifier<'_, '_> {
         r
     }
 
-    // -- Declarações -----------------------------------------------------------
+    // -- Declarations -------------------------------------------------------------
 
     fn declaracao(&mut self, a: &ast::Ast, d: ast::DeclId) {
         let decl = a.decl(d);
@@ -490,9 +488,9 @@ impl Verifier<'_, '_> {
                         }
                     }
                     // `visitEnumConstantDeclaration` (`constant_verifier.dart:204-217`):
-                    // o `evaluationResult` inválido da constante, sem código
-                    // padrão (a exceção de avaliação vira
-                    // `CONST_EVAL_THROWS_EXCEPTION` na constante).
+                    // the constant's invalid `evaluationResult`, without a default
+                    // code (the evaluation exception becomes
+                    // `CONST_EVAL_THROWS_EXCEPTION` at the constant).
                     if let Some(ci) = cls
                         && let Some(&v) = self.m.program.classes[ci].enum_constants.get(i)
                     {
@@ -532,12 +530,12 @@ impl Verifier<'_, '_> {
                         if !(l.const_ || l.final_) {
                             continue;
                         }
-                        // Classe com construtor primário (3.13.4): o campo cujo
-                        // inicializador não é potencialmente constante fica sem
-                        // valor avaliado (o erro dele é o do campo,
+                        // A class with a primary constructor (3.13.4): a field whose
+                        // initializer is not potentially constant has no evaluated
+                        // value (its error is the field's,
                         // `CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST`,
-                        // no `const`); o erro da avaliação sai só do
-                        // potencialmente constante (medido no oráculo 3.13.4,
+                        // at the `const`); the evaluation error only comes from the
+                        // potentially constant one (measured on the 3.13.4 oracle,
                         // `primary_constructors/const/potentially_constant_error_test`).
                         if !l.static_ && Self::class_member_with_primary(a, mid) {
                             let cx = self.cx();
@@ -570,10 +568,10 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// O membro `mid` é de uma classe com construtor primário. O enum fica de
-    /// fora: as constantes dele (`e(1)`) avaliam o construtor, e o erro do
-    /// inicializador do campo sai dessa avaliação (o `CONST_EVAL_METHOD_INVOCATION`
-    /// do `final int x = fn(p)` de `enum const E(int p)` no oráculo 3.13.4).
+    /// Member `mid` belongs to a class with a primary constructor. Enums are left
+    /// out: their constants (`e(1)`) evaluate the constructor, and the field
+    /// initializer's error comes from that evaluation (the `CONST_EVAL_METHOD_INVOCATION`
+    /// of `final int x = fn(p)` in `enum const E(int p)` on the 3.13.4 oracle).
     fn class_member_with_primary(a: &ast::Ast, mid: ast::MemberId) -> bool {
         a.decls.iter().any(|d| match &d.kind {
             DeclKind::Class(x) => x.primary_constructor.is_some() && x.members.contains(&mid),
@@ -591,17 +589,17 @@ impl Verifier<'_, '_> {
     }
 
     /// `visitConstructorDeclaration`.
-    /// As regras do `ErrorVerifier` sobre o cabeçalho de um construtor
+    /// The `ErrorVerifier` rules on a constructor's header
     /// (docs/ANALYZER-ESPECIFICACAO.md §D): `non_const_generative_enum_constructor`
-    /// (`error_verifier.dart:4710-4719`); e, para o construtor gerador
-    /// `const`, nesta ordem e parando no primeiro relato,
+    /// (`error_verifier.dart:4710-4719`); and, for a `const` generative
+    /// constructor, in this order and stopping at the first report,
     /// `const_constructor_with_mixin_with_field` (`:2807-2856`),
-    /// `const_constructor_with_non_const_super` (`:2858-2893`) e
-    /// `const_constructor_with_non_final_field` (`:2898-2916`); mais
-    /// `const_constructor_throws_exception` (`:2936-2943`) em cada `throw` dos
-    /// inicializadores. Escrito sem compilar nem executar (2026-10-04).
-    /// O construtor é o primário (3.13) da classe ou do enum, ou a parte de
-    /// corpo dele.
+    /// `const_constructor_with_non_const_super` (`:2858-2893`) and
+    /// `const_constructor_with_non_final_field` (`:2898-2916`); plus
+    /// `const_constructor_throws_exception` (`:2936-2943`) on each `throw` of the
+    /// initializers. Written without compiling or running (2026-10-04).
+    /// The constructor is the primary one (3.13) of the class or the enum, or
+    /// its body part.
     fn is_primary(&self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) -> bool {
         k.parte_primaria
             || a.decls.iter().any(|d| match &d.kind {
@@ -617,12 +615,12 @@ impl Verifier<'_, '_> {
         let program = self.m.program;
         let interner = self.m.interner;
         let data = program.class(cls);
-        // `atConstructorDeclaration`: do nome da classe ao fim do nome do
-        // construtor, quando há.
+        // `atConstructorDeclaration`: from the class name to the end of the
+        // constructor name, when there is one.
         let header = Span { start: k.class_name.span.start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
-        // Só no `visitConstructorDeclaration`: a parte `this` que sobra (repetida
-        // ou sem cabeçalho primário) é um `PrimaryConstructorBody`, não uma
-        // declaração de construtor (3.13.4).
+        // Only in `visitConstructorDeclaration`: a leftover `this` part (repeated
+        // or without a primary header) is a `PrimaryConstructorBody`, not a
+        // constructor declaration (3.13.4).
         if data.kind == ClassKind::Enum && !k.const_ && !k.factory && !k.parte_primaria {
             self.relatar(c::NON_CONST_GENERATIVE_ENUM_CONSTRUCTOR, header, Vec::new());
         }
@@ -646,8 +644,8 @@ impl Verifier<'_, '_> {
                 self.relatar(c::CONST_CONSTRUCTOR_THROWS_EXCEPTION, s, Vec::new());
             }
         }
-        // Campos de instância dos mixins da cláusula `with`: todo campo que
-        // não é estático nem (`abstract` e `final`).
+        // Instance fields of the mixins in the `with` clause: every field that
+        // is neither static nor (`abstract` and `final`).
         let mut mixin_fields: Vec<String> = Vec::new();
         for &mx in data.mixin_classes.iter() {
             for &v in program.class(mx).fields.iter() {
@@ -667,10 +665,10 @@ impl Verifier<'_, '_> {
                 mixin_fields.push(format!("'{}.{}'", interner.resolve(program.class(mx).name), interner.resolve(var.name)));
             }
         }
-        // `implicitErrorRange`: no construtor primário (3.13) é o `errorRange`
-        // do `PrimaryConstructorDeclaration` (`ast.dart:45420-45424`), do
-        // primeiro token (o `const`, quando escrito) ao nome do construtor, ou
-        // só o primeiro token.
+        // `implicitErrorRange`: for a primary constructor (3.13) it is the
+        // `errorRange` of `PrimaryConstructorDeclaration` (`ast.dart:45420-45424`),
+        // from the first token (the `const`, when written) to the constructor
+        // name, or only the first token.
         let primary = self.is_primary(a, mid, k);
         let range = if primary {
             let source = &program.unit(self.unidade).source;
@@ -697,9 +695,9 @@ impl Verifier<'_, '_> {
             self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS, range, vec![mixin_fields.join(", ")]);
             return;
         }
-        // O construtor da superclasse que este invoca (o escrito, ou o sem
-        // nome implícito) não é `const`. Um enum sempre chama um `const`; o
-        // redirecionador é conferido em outro lugar.
+        // The superclass constructor that this one invokes (the written one, or
+        // the implicit unnamed one) is not `const`. An enum always calls a
+        // `const` one; a redirecting one is checked elsewhere.
         let redirects = k.initializers.iter().any(|i| matches!(i, ast::Initializer::Redirect { .. }));
         if data.kind != ClassKind::Enum && !redirects {
             let written = k.initializers.iter().find_map(|i| match i {
@@ -713,19 +711,19 @@ impl Verifier<'_, '_> {
                     let tgt = the_key.and_then(|ch| program.class(sup).constructors.get(&ch).copied());
                     let non_const = match tgt {
                         Some(g) => !program.function(program.publico(g)).const_,
-                        // Superclasse sem construtor declarado: o padrão
-                        // implícito, que não é `const`.
+                        // A superclass without a declared constructor: the implicit
+                        // default one, which is not `const`.
                         None => program.class(sup).constructors.is_empty() && super_name.is_none(),
                     };
                     if non_const {
-                        // Sem `super(…)` escrito, o `implicitErrorRange`: no
-                        // primário, a faixa do cabeçalho (`class const B()`:
-                        // o `const`).
+                        // Without a written `super(…)`, the `implicitErrorRange`: for
+                        // the primary, the header's range (`class const B()`: the
+                        // `const`).
                         let implicit = if primary { range } else { k.class_name.span };
                         let span = written.map_or(implicit, |(s, _)| s);
-                        // No 3.6.2 o argumento é a classe DO CONSTRUTOR; no
-                        // 3.13.4, a superclasse (o segundo argumento, que só
-                        // a variante 3.13 do código usa: T2, caso c04).
+                        // In 3.6.2 the argument is the CONSTRUCTOR's class; in
+                        // 3.13.4, the superclass (the second argument, which only
+                        // the 3.13 variant of the code uses: T2, case c04).
                         let the_name = interner.resolve(data.name).to_string();
                         let superior = interner.resolve(program.class(sup).name).to_string();
                         self.relatar(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, span, vec![the_name, superior]);
@@ -734,11 +732,11 @@ impl Verifier<'_, '_> {
                 }
             }
         }
-        // `hasNonFinalField`: a classe, os mixins e as superclasses, em
-        // largura — algum campo de instância que não é `final` nem `const`.
-        // No 3.13.4 (`link.dart:284-323`, `_computeHasNonFinalField`) só o
-        // campo com armazenamento conta: o `abstract int x;` não (no 3.6.2,
-        // `element.dart:329-356`, conta).
+        // `hasNonFinalField`: the class, the mixins and the superclasses,
+        // breadth-first: some instance field that is neither `final` nor
+        // `const`. In 3.13.4 (`link.dart:284-323`, `_computeHasNonFinalField`)
+        // only a field with storage counts: `abstract int x;` does not (in
+        // 3.6.2, `element.dart:329-356`, it does).
         let reference_313 = program.referencia(self.unidade) == dartforge_diagnostics::Referencia::V3_13;
         if data.kind == ClassKind::Class {
             let mut queue: Vec<ClassId> = vec![cls];
@@ -762,7 +760,7 @@ impl Verifier<'_, '_> {
                 queue.extend(dx.supertype_class);
             }
             if found {
-                // No primário, o `errorRange` do cabeçalho
+                // For the primary, the header's `errorRange`
                 // (`class const A()`: `const`; `class const A.n()`:
                 // `const A.n`).
                 let span = if primary { range } else { header };
@@ -774,17 +772,17 @@ impl Verifier<'_, '_> {
     fn construtor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
         self.constructor_rules(a, mid, k);
         if k.const_ {
-            // O construtor gerador de um ciclo (os de fábrica são do
-            // `ErrorVerifier`): no nome da classe do cabeçalho.
+            // The generative constructor of a cycle (the factory ones belong to
+            // `ErrorVerifier`): at the name of the header's class.
             let in_cycle = self
                 .m
                 .grafo
                 .construtor_de(self.unidade, mid)
                 .is_some_and(|f| self.m.grafo.constructors_in_cycle.contains(&f));
-            // O construtor primário (3.13) é um `PrimaryConstructorDeclaration`:
-            // o `visitConstructorDeclaration` não passa por ele. No 3.13.4 o
-            // relato vai do nome do tipo (ou do `new`) ao fim do nome
-            // (`errorRange`); no 3.6.2, só o `returnType`.
+            // The primary constructor (3.13) is a `PrimaryConstructorDeclaration`:
+            // `visitConstructorDeclaration` does not go through it. In 3.13.4 the
+            // report goes from the type name (or the `new`) to the end of the name
+            // (`errorRange`); in 3.6.2, only the `returnType`.
             let primary = self.is_primary(a, mid, k);
             if in_cycle && !k.factory && !primary {
                 let span = match k.name {
@@ -838,12 +836,12 @@ impl Verifier<'_, '_> {
         self.corpo(a, &k.body);
     }
 
-    /// `_validateFieldInitializers`: campos de instância com inicializador
-    /// que não é constante, relatados no `const` do construtor. Com o
-    /// construtor primário (3.13.4, `_validatePrimaryFieldInitializers`), o
-    /// inicializador que tem nó não potencialmente constante — os parâmetros
-    /// primários valem —, sem avaliar: `final int i = d.length` não é relatado
-    /// aqui (o erro da avaliação sai do campo), `final int x = fn(p)` é.
+    /// `_validateFieldInitializers`: instance fields with an initializer that is
+    /// not constant, reported at the constructor's `const`. With a primary
+    /// constructor (3.13.4, `_validatePrimaryFieldInitializers`), an initializer
+    /// that has a node that is not potentially constant (the primary parameters
+    /// count), without evaluating: `final int i = d.length` is not reported here
+    /// (the evaluation error comes from the field), `final int x = fn(p)` is.
     fn field_initializers(&mut self, a: &ast::Ast, mid: ast::MemberId, primary: bool) {
         let Some(k) = self.class_of(a, mid) else { return };
         let e_enum = self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Enum;
@@ -875,7 +873,7 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// A classe declarada que contém o membro `mid` (pelos construtores).
+    /// The declared class that contains member `mid` (through the constructors).
     fn class_of(&self, _a: &ast::Ast, mid: ast::MemberId) -> Option<ClassId> {
         for (i, f) in self.m.program.functions.iter().enumerate() {
             let _ = i;
@@ -902,7 +900,7 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// O token `const` do construtor.
+    /// The constructor's `const` token.
     fn const_keyword(&self, a: &ast::Ast, mid: ast::MemberId) -> Option<Span> {
         let s = a.member(mid).span;
         let source = &self.m.program.unit(self.unidade).source;
@@ -934,8 +932,8 @@ impl Verifier<'_, '_> {
             self.expr(a, d, false);
             self.in_constant_expression = before;
             // `defaultValue.typeOrThrow is InvalidType` (3.6.2
-            // `constant_verifier.dart:825-826`): o erro já saiu (o nome
-            // indefinido, por exemplo).
+            // `constant_verifier.dart:825-826`): the error was already reported
+            // (the undefined name, for example).
             if self.m.invalid_type(self.unidade, d) {
                 continue;
             }
@@ -1039,15 +1037,15 @@ impl Verifier<'_, '_> {
                         } else if let PatternKind::Variable { name, .. } = &a.pattern(p).kind
                             && self.m.body.units[self.unidade.0 as usize].non_constant_name_patterns.contains(&p)
                         {
-                            // O `case nome:` antigo (a expressão do `SwitchCase`).
+                            // The old `case the_name:` (the expression of the `SwitchCase`).
                             self.relatar(c::NON_CONSTANT_CASE_EXPRESSION, name.span, Vec::new());
                         } else if let PatternKind::Constant(e) = &a.pattern(p).kind {
                             // `_validateSwitchStatement_nullSafety`.
                             let e = unparenthesize(a, *e);
                             self.expr(a, e, true);
-                            // Sem padrões, o valor precisa de igualdade
-                            // primitiva: `CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS`
-                            // com o tipo do valor (`constant_verifier.dart:1009-1030`).
+                            // Without patterns, the value needs primitive equality:
+                            // `CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS` with the value's type
+                            // (`constant_verifier.dart:1009-1030`).
                             if let Constante::Valor(v) = self.evaluate_and_report(e, true, c::NON_CONSTANT_CASE_EXPRESSION)
                                 && !v.actually_unknown()
                                 && !self.m.primitive_equality(&v, self.lib)
@@ -1093,7 +1091,7 @@ impl Verifier<'_, '_> {
         }
     }
 
-    // -- Padrões ---------------------------------------------------------------
+    // -- Patterns -----------------------------------------------------------------
 
     /// `extensionTypeErasure`.
     fn erase_extension(&mut self, t: TypeId) -> TypeId {
@@ -1113,8 +1111,8 @@ impl Verifier<'_, '_> {
     }
 
     /// `_canBeEqual(constantType, valueType)`
-    /// (an611:src/dart/constant/constant_verifier.dart:517-546). `Null` é
-    /// `InterfaceType` no analyzer (`NullTypeImpl`).
+    /// (an611:src/dart/constant/constant_verifier.dart:517-546). `Null` is an
+    /// `InterfaceType` in the analyzer (`NullTypeImpl`).
     fn can_be_equal(&mut self, c: TypeId, v: TypeId, prof: u32) -> bool {
         if prof > 16 {
             return true;
@@ -1144,8 +1142,8 @@ impl Verifier<'_, '_> {
                 let b = if nullable { crate::ops::nullable(data.bound, self.m.table) } else { data.bound };
                 self.can_be_equal(c, b, prof + 1)
             }
-            // `promotedBound`: o limite promovido (a anulabilidade é a do
-            // parâmetro, sem `?`).
+            // `promotedBound`: the promoted bound (the nullability is the
+            // parameter's, without `?`).
             Type::Intersection { bound, .. } => {
                 if parameter_reference(self.m.table, bound) {
                     return true;
@@ -1163,10 +1161,10 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// `PatternGreatestClosureHelper.eliminateToGreatest`: cada parâmetro de
-    /// tipo vira `Object?` nas posições covariantes e `Never` nas
-    /// contravariantes (com a anulabilidade unida); os formais do próprio
-    /// tipo de função ficam.
+    /// `PatternGreatestClosureHelper.eliminateToGreatest`: each type parameter
+    /// becomes `Object?` in covariant positions and `Never` in contravariant ones
+    /// (with the nullability joined); the formals of the function type itself
+    /// stay.
     fn greatest_closure_of(&mut self, t: TypeId, co: bool, formals: &[crate::table::TypeParamId]) -> TypeId {
         let the_table = &mut *self.m.table;
         match the_table.get(t).clone() {
@@ -1220,11 +1218,11 @@ impl Verifier<'_, '_> {
     fn padrao(&mut self, a: &ast::Ast, p: PatternId) {
         match &a.pattern(p).kind {
             PatternKind::Constant(e) => {
-                // `const (List<T>)`: o literal de tipo logo dentro dos
-                // parênteses do padrão constante
+                // `const (List<T>)`: the type literal right inside the
+                // parentheses of the constant pattern
                 // (`isTypeLiteralInConstantPattern`, 3.6.2
-                // `evaluation.dart:1066-1072`, `:3197-3201`) que menciona
-                // parâmetro de tipo é `CONST_TYPE_PARAMETER` no tipo.
+                // `evaluation.dart:1066-1072`, `:3197-3201`) that mentions a
+                // type parameter is `CONST_TYPE_PARAMETER` at the type.
                 if let ExprKind::Parenthesized(x) = a.expr(*e).kind
                     && let ExprKind::TypeArguments { target, type_args } = &a.expr(x).kind
                     && matches!(
@@ -1246,9 +1244,9 @@ impl Verifier<'_, '_> {
                 if let Constante::Valor(v) = r {
                     // `CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE`
                     // (an611:src/dart/constant/constant_verifier.dart:141-158):
-                    // valor de igualdade primitiva cujo tipo não pode ser
-                    // igual a um valor do tipo casado (sem os tipos de
-                    // extensão).
+                    // a primitive-equality value whose type cannot be equal to
+                    // a value of the matched type (without extension
+                    // types).
                     if self.patterns_enabled
                         && self.m.primitive_equality(&v, self.lib)
                         && let Some(&matched) = self.m.body.units[self.unidade.0 as usize].tipos_casados.get(&p)
@@ -1268,8 +1266,8 @@ impl Verifier<'_, '_> {
                     self.expr(a, e, false);
                 }
             }
-            // `case nome:` (o parser guarda como variável): a constante de
-            // topo com esse nome, para a exaustividade.
+            // `case the_name:` (the parser stores it as a variable): the top-level
+            // constant with that name, for exhaustiveness.
             PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
                 if self.m.body.units[self.unidade.0 as usize].non_constant_name_patterns.contains(&p) {
                     self.relatar(c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION, name.span, Vec::new());
@@ -1303,14 +1301,13 @@ impl Verifier<'_, '_> {
                 }
             }
             PatternKind::Map { entries, .. } => {
-                // `visitMapPattern` (`constant_verifier.dart:311-358`): cada
-                // chave avaliada; uma igual (idêntica, ou `==` com igualdade
-                // primitiva) a uma anterior é `EQUAL_KEYS_IN_MAP_PATTERN`, na
-                // chave repetida, depois de todas. O `isIdentical` do record
-                // nunca é verdadeiro (`RecordState.isIdentical`: falso ou
-                // desconhecido), então dois records só são iguais com a
-                // igualdade primitiva dos dois — um campo com `==` próprio
-                // tira a repetição.
+                // `visitMapPattern` (`constant_verifier.dart:311-358`): each key
+                // evaluated; one equal (identical, or `==` with primitive equality)
+                // to a previous one is `EQUAL_KEYS_IN_MAP_PATTERN`, at the repeated
+                // key, after all of them. A record's `isIdentical` is never true
+                // (`RecordState.isIdentical`: false or unknown), so two records are
+                // only equal with primitive equality on both: a field with its own
+                // `==` removes the repetition.
                 let mut unique: Vec<(Valor, Span)> = Vec::new();
                 let mut the_repeated: Vec<(Span, Span)> = Vec::new();
                 for en in entries.iter() {
@@ -1332,7 +1329,7 @@ impl Verifier<'_, '_> {
                         self.key_values.insert(en.key, v);
                     }
                 }
-                // `equalKeysInMapPattern`: o contexto é a primeira chave.
+                // `equalKeysInMapPattern`: the context is the first key.
                 for (sp, original) in the_repeated {
                     let d = Diagnostic::com_codigo(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::<String>::new()).com_contexto(original, "The first key with this value.");
                     self.saida.push((self.unidade, d));
@@ -1347,20 +1344,20 @@ impl Verifier<'_, '_> {
         }
     }
 
-    // -- Expressões ------------------------------------------------------------
+    // -- Expressions --------------------------------------------------------------
 
     fn expr(&mut self, a: &ast::Ast, e: ExprId, in_const: bool) {
         let u = self.unidade;
         match &a.expr(e).kind {
             ExprKind::InstanceCreation { keyword, arguments, ty, constructor } => {
                 let const_ = matches!(keyword, Some(ast::CreationKeyword::Const));
-                // `_checkForConstWithNonConst` com o construtor encaminhado de
-                // uma aplicação de mixin (a inferência não o resolve).
+                // `_checkForConstWithNonConst` with the forwarded constructor of a
+                // mixin application (inference does not resolve it).
                 if const_ && !matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
                     self.non_const_forwarded(*ty, *constructor, a.expr(e).span);
                 }
-                // `visitInstanceCreationExpression` (`isConst`: `const`, ou
-                // sem palavra num contexto constante).
+                // `visitInstanceCreationExpression` (`isConst`: `const`, or
+                // without a keyword in a constant context).
                 if const_ || (keyword.is_none() && in_const) {
                     self.without_type_parameters(a, *ty, c::CONST_WITH_TYPE_PARAMETERS, &[]);
                 }
@@ -1374,8 +1371,8 @@ impl Verifier<'_, '_> {
             }
             ExprKind::Call { target, arguments } => {
                 if in_const && matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
-                    // O `NamedType` da criação sem `new`: os argumentos de
-                    // tipo da chamada ou os do `C<T>` antes de `.nome`.
+                    // The `NamedType` of the creation without `new`: the call's type
+                    // arguments or those of the `C<T>` before `.the_name`.
                     let mut written_ones: Vec<ast::TypeId> = arguments.type_args.to_vec();
                     if let ExprKind::Property { target: r, .. } = &a.expr(*target).kind
                         && let ExprKind::TypeArguments { type_args, .. } = &a.expr(*r).kind
@@ -1427,7 +1424,7 @@ impl Verifier<'_, '_> {
                         _ => (None, Vec::new()),
                     };
                     // `TypeArgumentsVerifier.checkMapLiteral`/`checkSetLiteral`:
-                    // só com a forma decidida.
+                    // only with the shape decided.
                     let code = if cls.is_some() && cls == self.m.core.map_class {
                         Some(c::INVALID_TYPE_ARGUMENT_IN_CONST_MAP)
                     } else if cls.is_some() && cls == self.m.core.set_class {
@@ -1452,8 +1449,8 @@ impl Verifier<'_, '_> {
                         for el in elements.iter() {
                             self.verify_element(a, &mut lv, el);
                         }
-                        // `equalKeysInConstMap`/`equalElementsInConstSet`: o
-                        // contexto é o primeiro com o mesmo valor.
+                        // `equalKeysInConstMap`/`equalElementsInConstSet`: the context
+                        // is the first one with the same value.
                         let (code, context) = if matches!(lv.tipo, LiteralType::Mapa(..)) {
                             (c::EQUAL_KEYS_IN_CONST_MAP, "The first key with this value.")
                         } else {
@@ -1489,7 +1486,7 @@ impl Verifier<'_, '_> {
             }
             ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(a, *x, in_const),
             ExprKind::Property { target, name, .. } => {
-                // `visitConstructorReference`: `C<T>.nome` de um construtor.
+                // `visitConstructorReference`: `C<T>.the_name` of a constructor.
                 if (in_const || self.in_constant_expression)
                     && let ExprKind::TypeArguments { target: base, type_args } = &a.expr(*target).kind
                     && self.referenced_constructor(a, *base, *name)
@@ -1507,8 +1504,8 @@ impl Verifier<'_, '_> {
                 self.expr(a, *index, in_const);
             }
             ExprKind::TypeArguments { target, type_args } => {
-                // `visitFunctionReference`: a instanciação de uma função (não
-                // o literal de tipo, de tipo `Type`).
+                // `visitFunctionReference`: the instantiation of a function (not
+                // the type literal, of type `Type`).
                 if (in_const || self.in_constant_expression) && self.m.estatico(u, e) != self.m.core.type_ {
                     for &x in type_args.iter() {
                         self.without_type_parameters(a, x, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF, &[]);
@@ -1527,8 +1524,8 @@ impl Verifier<'_, '_> {
                 self.expr(a, *else_, in_const);
             }
             ExprKind::Is { value, ty, .. } | ExprKind::As { value, ty } => {
-                // `visitGenericFunctionType` sob `is`/`as` num contexto
-                // constante.
+                // `visitGenericFunctionType` under `is`/`as` in a constant
+                // context.
                 if in_const && matches!(a.ty(*ty).kind, ast::TypeKind::Function { .. }) {
                     self.without_type_parameters(a, *ty, c::CONST_WITH_TYPE_PARAMETERS, &[]);
                 }
@@ -1568,10 +1565,10 @@ impl Verifier<'_, '_> {
 
     // -- Exaustividade (`_validateSwitchExhaustiveness`, `:883-1000`) ----------
 
-    /// Relata `UNREACHABLE_SWITCH_CASE` (na palavra `case` ou na seta),
-    /// `NON_EXHAUSTIVE_SWITCH_*` (na palavra `switch`) e
-    /// `UNREACHABLE_SWITCH_DEFAULT` (na palavra `default`). `pos` é o
-    /// início do token de cada caso.
+    /// Reports `UNREACHABLE_SWITCH_CASE` (at the `case` keyword or at the
+    /// arrow), `NON_EXHAUSTIVE_SWITCH_*` (at the `switch` keyword) and
+    /// `UNREACHABLE_SWITCH_DEFAULT` (at the `default` keyword). `pos` is the
+    /// start of each case's token.
     fn exhaustiveness(&mut self, a: &ast::Ast, the_value: ExprId, switch_start: usize, the_cases: &[Caso], pos: &[usize], expression: bool) {
         let u = self.unidade;
         let body = self.m.body;
@@ -1615,11 +1612,11 @@ impl Verifier<'_, '_> {
                 if must && default.is_none() {
                     let code = if expression { c::NON_EXHAUSTIVE_SWITCH_EXPRESSION } else { c::NON_EXHAUSTIVE_SWITCH_STATEMENT };
                     let typ = self.m.formatar(t);
-                    // O quarto argumento só existe para a variante "privado"
-                    // do 3.13.4 (`constant_verifier.dart` do main, caso c29
-                    // de `corpus/especificacao/t2/v`): o valor é de um enum
-                    // de outra biblioteca e o que falta é privado. O
-                    // original olha todas as testemunhas; aqui, a primeira.
+                    // The fourth argument only exists for the "private" variant of
+                    // 3.13.4 (`constant_verifier.dart` from main, case c29 of
+                    // `corpus/especificacao/t2/v`): the value is from an enum of
+                    // another library and what is missing is private. The original
+                    // looks at all the witnesses; here, the first one.
                     let private = match self.m.table.get(t) {
                         Type::Interface { class, .. } => {
                             let k = self.m.program.class(*class);
@@ -1650,8 +1647,8 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// O início da palavra `case`/`default` de um caso de `switch` (depois
-    /// dos rótulos).
+    /// The start of the `case`/`default` keyword of a `switch` case (after the
+    /// labels).
     fn case_keyword_start(&self, k: &ast::SwitchCase) -> usize {
         let source = self.m.program.unit(self.unidade).source.as_bytes();
         let mut i = k.span.start;
@@ -1665,7 +1662,7 @@ impl Verifier<'_, '_> {
         i
     }
 
-    /// O início da seta `=>` de um caso de expressão `switch`.
+    /// The start of the `=>` arrow of a `switch` expression case.
     fn case_arrow(&self, a: &ast::Ast, k: &ast::SwitchExprCase) -> usize {
         let source = self.m.program.unit(self.unidade).source.as_bytes();
         let end = match k.guard {
@@ -1718,9 +1715,9 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// `visitInstanceCreationExpression` de uma criação constante: avalia e
-    /// relata (com o relator verdadeiro: os argumentos não resolvidos
-    /// também); com valor, segue nos argumentos.
+    /// `visitInstanceCreationExpression` of a constant creation: evaluates and
+    /// reports (with the real reporter: unresolved arguments too); with a value,
+    /// continues into the arguments.
     fn constant_creation(&mut self, a: &ast::Ast, e: ExprId, arguments: &ast::Arguments) {
         if !matches!(self.m.resolvido(self.unidade, e), Some(Resolved::Constructor(_))) {
             return;
@@ -1748,7 +1745,7 @@ impl Verifier<'_, '_> {
         }
     }
 
-    // -- Literais constantes (`_ConstLiteralVerifier`) -------------------------
+    // -- Constant literals (`_ConstLiteralVerifier`) ----------------------------
 
     fn literal_code(t: &LiteralType) -> Codigo {
         match t {
@@ -1897,13 +1894,12 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// O tipo resolvido de uma anotação de tipo da unidade.
+    /// The resolved type of a type annotation of the unit.
     /// `_checkForConstWithTypeParameters`
-    /// (an611:src/dart/constant/constant_verifier.dart:554-605): um
-    /// `NamedType` que nomeia um parâmetro de tipo de fora (no nó, sem
-    /// descer), e os argumentos dele; num tipo de função, os formais dele
-    /// são permitidos, e os limites, o retorno e os parâmetros simples são
-    /// conferidos.
+    /// (an611:src/dart/constant/constant_verifier.dart:554-605): a `NamedType`
+    /// that names an outer type parameter (at the node, without descending), and
+    /// its arguments; in a function type, its own formals are allowed, and the
+    /// bounds, the return and the simple parameters are checked.
     fn without_type_parameters(&mut self, a: &ast::Ast, x: ast::TypeId, code: Codigo, allowed: &[crate::table::TypeParamId]) {
         let annotation = a.ty(x);
         match &annotation.kind {
@@ -1954,8 +1950,8 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// `base.nome` designa um construtor (`C.new`, `C.nome`, `p.C.nome`,
-    /// pelo alias também).
+    /// `base.the_name` designates a constructor (`C.new`, `C.the_name`, `p.C.the_name`, also
+    /// through an alias).
     fn referenced_constructor(&self, a: &ast::Ast, base: ExprId, the_name: ast::Name) -> bool {
         let program = self.m.program;
         let u = self.unidade;
@@ -1986,11 +1982,12 @@ impl Verifier<'_, '_> {
         self.m.body.units.get(u.0 as usize).and_then(|b| b.tipos_de_anotacoes.get(&x).copied()).or_else(|| self.m.outline.tipos_escritos.get(&(u, x)).copied())
     }
 
-    /// `_checkTypeArgumentConst` (`type_arguments_verifier.dart:501-544`): um
-    /// argumento de tipo de literal constante que é parâmetro de tipo, no nó
-    /// do tipo; no tipo nomeado com o lexema, nos de função e registro com o
-    /// tipo exibido. Desce nos argumentos, nos parâmetros simples e no
-    /// retorno de um tipo de função e nos campos de um registro.
+    /// `_checkTypeArgumentConst` (`type_arguments_verifier.dart:501-544`): a type
+    /// argument of a constant literal that is a type parameter, at the type's
+    /// node; for a named type with the lexeme, for function and record types
+    /// with the displayed type. Descends into the arguments, the simple
+    /// parameters and the return of a function type, and into the fields of a
+    /// record.
     fn const_type_argument(&mut self, a: &ast::Ast, x: ast::TypeId, code: Codigo) {
         let is_parameter = |s: &Self, t: ast::TypeId| s.annotation_type(t).filter(|r| matches!(s.m.table.get(*r), Type::TypeParameter { .. }));
         let annotation = a.ty(x);
@@ -2022,8 +2019,8 @@ impl Verifier<'_, '_> {
         }
     }
 
-    /// Um parâmetro, retorno ou campo de registro: parâmetro de tipo relata
-    /// com o tipo exibido; senão desce.
+    /// A parameter, return or record field: a type parameter reports with the
+    /// displayed type; otherwise it descends.
     fn const_type_field(&mut self, a: &ast::Ast, y: ast::TypeId, code: Codigo) {
         match self.annotation_type(y) {
             Some(r) if matches!(self.m.table.get(r), Type::TypeParameter { .. }) => {
@@ -2035,10 +2032,10 @@ impl Verifier<'_, '_> {
     }
 
     /// `BestPracticesVerifier._checkForDuplications`
-    /// (`best_practices_verifier.dart:851-875`): num literal não constante,
-    /// os elementos (conjunto) ou as chaves (mapa) de primeiro nível que a
-    /// avaliação constante dá sem erro, iguais a um anterior:
-    /// `EQUAL_ELEMENTS_IN_SET`/`EQUAL_KEYS_IN_MAP` no repetido.
+    /// (`best_practices_verifier.dart:851-875`): in a non-constant literal, the
+    /// first-level elements (set) or keys (map) that constant evaluation gives
+    /// without an error, equal to a previous one:
+    /// `EQUAL_ELEMENTS_IN_SET`/`EQUAL_KEYS_IN_MAP` at the repeated one.
     fn duplicates_in_non_constant_literal(&mut self, _a: &ast::Ast, e: ExprId, elements: &[CollectionElement]) {
         let u = self.unidade;
         let typ = self.m.estatico(u, e);
@@ -2094,7 +2091,7 @@ impl Verifier<'_, '_> {
         lv.the_unique.push((v, span));
     }
 
-    /// `_reportNotPotentialConstants` do verificador de literais.
+    /// `_reportNotPotentialConstants` of the literal verifier.
     fn potential_in_literal(&mut self, a: &ast::Ast, lv: &Literal, el: &CollectionElement) -> bool {
         let _ = a;
         let cx = self.cx();
@@ -2152,7 +2149,7 @@ struct Literal {
     duplicados: Vec<(Span, Span)>,
 }
 
-/// Pula espaços e comentários a partir de `i`.
+/// Skips whitespace and comments starting at `i`.
 fn pular_brancos(f: &[u8], mut i: usize) -> usize {
     loop {
         while i < f.len() && f[i].is_ascii_whitespace() {

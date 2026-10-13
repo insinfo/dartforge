@@ -1,27 +1,27 @@
-//! A inferência de sobrescrita do analyzer 3.6.2 (`InstanceMemberInferrer`,
-//! `analyzer/lib/src/task/strong_mode.dart`), que o link roda depois de
-//! criar os nós de inicializador e antes de inferi-los
-//! (`summary2/top_level_inference.dart:100-107`): o tipo omitido de um membro
-//! de instância vem da assinatura combinada (`combineSignatures` com o
-//! `topMerge`) dos membros que ele sobrescreve nas superinterfaces diretas
-//! (`getOverridden2`).
+//! Analyzer 3.6.2's override inference (`InstanceMemberInferrer`,
+//! `analyzer/lib/src/task/strong_mode.dart`), which linking runs after
+//! creating the initializer nodes and before inferring them
+//! (`summary2/top_level_inference.dart:100-107`): the omitted type of an
+//! instance member comes from the combined signature (`combineSignatures`
+//! with `topMerge`) of the members it overrides in the direct
+//! superinterfaces (`getOverridden2`).
 //!
-//! * método (e operador): só quando todos os sobrescritos são métodos
-//!   (`_allSameElementKind`); o tipo combinado com os parâmetros de tipo do
-//!   próprio método (`_toOverriddenFunctionType`, nulo se a contagem
-//!   difere); retorno omitido (fora `[]=`) e cada parâmetro omitido pelo
-//!   correspondente (o nomeado pelo nome, o posicional pela posição), senão
-//!   `dynamic`;
-//! * getter e setter explícitos com tipo omitido: pelos getters e setters
-//!   sobrescritos (`_inferAccessorOrField`);
-//! * campo sem tipo: em [`super::funcoes`], na inferência sob demanda do
-//!   tipo da variável (a mesma regra, antes do inicializador).
+//! * method (and operator): only when all the overridden ones are methods
+//!   (`_allSameElementKind`); the combined type with the method's own type
+//!   parameters (`_toOverriddenFunctionType`, null if the count differs);
+//!   an omitted return (except for `[]=`) and each omitted parameter from
+//!   the corresponding one (a named one by name, a positional one by
+//!   position), otherwise `dynamic`;
+//! * explicit getters and setters with an omitted type: from the overridden
+//!   getters and setters (`_inferAccessorOrField`);
+//! * untyped fields: in [`super::functions`], in the on-demand inference of
+//!   the variable's type (the same rule, before the initializer).
 //!
-//! As classes vão com os supertipos antes (`_inferClass`); um ciclo na
-//! hierarquia encerra a classe e as que dependem dela. A interface de cada
-//! classe é esquecida depois dos membros dela, para que as subclasses vejam
-//! os tipos novos.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Classes go with their supertypes first (`_inferClass`); a cycle in the
+//! hierarchy ends the class and those that depend on it. Each class's
+//! interface is forgotten after its members, so that subclasses see the new
+//! types.
+//! Written without compiling or running (2026-10-05).
 
 use super::BodyInferrer;
 use crate::heranca::{Especie, Membro, Nome};
@@ -30,11 +30,11 @@ use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionK
 use dartforge_frontend::ast;
 use std::collections::{HashMap, HashSet};
 
-/// Um ciclo na hierarquia (`_CycleException`).
+/// A cycle in the hierarchy (`_CycleException`).
 struct Ciclo;
 
 impl<'a> BodyInferrer<'a> {
-    /// `TopLevelInference._performOverrideInference`, uma vez por outline.
+    /// `TopLevelInference._performOverrideInference`, once per outline.
     pub(crate) fn infer_overrides(&mut self) {
         if self.outline.inferred_overrides {
             return;
@@ -42,8 +42,8 @@ impl<'a> BodyInferrer<'a> {
         self.outline.inferred_overrides = true;
         let mut done: HashSet<ClassId> = HashSet::new();
         let mut in_progress: HashSet<ClassId> = HashSet::new();
-        // `inferCompilationUnit`: classes (com os aliases), enums e mixins de
-        // cada unidade, na ordem.
+        // `inferCompilationUnit`: classes (with the aliases), enums and mixins of
+        // each unit, in order.
         let mut classes: Vec<ClassId> = (0..self.program.classes.len() as u32)
             .map(ClassId)
             .filter(|&c| {
@@ -64,7 +64,7 @@ impl<'a> BodyInferrer<'a> {
         for c in classes {
             let _ = self.infer_class(c, &mut done, &mut in_progress);
         }
-        // As interfaces montadas durante a passada têm tipos de antes dela.
+        // The interfaces built during the pass have types from before it.
         self.heranca = crate::heranca::Heranca::default();
     }
 
@@ -89,7 +89,7 @@ impl<'a> BodyInferrer<'a> {
                     self.infer_class(s, done, in_progress)?;
                 }
             }
-            // Os acessores explícitos, depois os métodos.
+            // The explicit accessors, then the methods.
             let mut members: Vec<FunctionElementId> = self.program.class(c).instance_members.values().copied().collect();
             members.sort();
             for &f in &members {
@@ -108,14 +108,14 @@ impl<'a> BodyInferrer<'a> {
         if r.is_ok() {
             done.insert(c);
         }
-        // A interface da classe muda com os tipos novos.
+        // The class's interface changes with the new types.
         self.heranca.forget(self.program, c);
         r
     }
 
-    /// O nó da função na árvore. Um membro `augment` não é nó de
-    /// inferência: os tipos omitidos dele são os da declaração que ele
-    /// aumenta (o fragmento do analyzer), já postos pelo esboço.
+    /// The function's node in the tree. An `augment` member is not an inference
+    /// node: its omitted types are those of the declaration it augments (the
+    /// analyzer's fragment), already set by the sketch.
     fn function_node(&self, f: FunctionElementId) -> Option<&'a ast::Function> {
         match self.program.function(f).node {
             FunctionRef::Function { unit, function } => {
@@ -129,7 +129,7 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// `getOverridden2` pelo `Name` da biblioteca do membro.
+    /// `getOverridden2` by the `Name` of the member's library.
     fn member_overridden(&mut self, c: ClassId, f: FunctionElementId, setter: bool) -> Option<Vec<Membro>> {
         let e = self.program.function(f);
         let lib = e.library;
@@ -173,7 +173,7 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Os sobrescritos de getter e de setter de um nome (`_inferAccessorOrField`).
+    /// The overridden getters and setters of a name (`_inferAccessorOrField`).
     pub(crate) fn overridden_getters_and_setters(&mut self, c: ClassId, lib: dartforge_elements::model::LibraryId, name: dartforge_intern::SymbolId) -> (Vec<Membro>, Vec<Membro>, Nome, Option<Nome>) {
         let n_getter = Nome::novo(self.interner, lib, name);
         let n_setter = self.setter_key(name).map(|k| Nome::novo(self.interner, lib, k));
@@ -187,14 +187,14 @@ impl<'a> BodyInferrer<'a> {
         (getters, setters, n_getter, n_setter)
     }
 
-    /// `_inferAccessorOrField` de um getter ou setter explícito.
+    /// `_inferAccessorOrField` of an explicit getter or setter.
     fn infer_accessor(&mut self, c: ClassId, f: FunctionElementId) {
         let e = self.program.function(f);
         if e.static_ {
             return;
         }
         let Some(no) = self.function_node(f) else { return };
-        // Só um tipo omitido pede a busca.
+        // Only an omitted type asks for the lookup.
         let omitted = match e.kind {
             FunctionKind::Getter => no.return_type.is_none(),
             FunctionKind::Setter => no.parameters.as_ref().and_then(|ps| ps.first()).is_some_and(implicit_parameter),
@@ -239,7 +239,7 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// `_inferExecutable` de um método ou operador.
+    /// `_inferExecutable` of a method or operator.
     fn infer_method(&mut self, c: ClassId, f: FunctionElementId) {
         let e = self.program.function(f);
         if e.static_ {
@@ -249,13 +249,14 @@ impl<'a> BodyInferrer<'a> {
         let parameters: &'a [ast::Parameter] = no.parameters.as_deref().unwrap_or(&[]);
         let implicit_return = no.return_type.is_none();
         let some_implicit = implicit_return || parameters.iter().any(implicit_parameter);
-        // Nada omitido: nada a inferir (a covariância herdada é calculada
-        // pela herança).
+        // Nothing omitted: nothing to infer (the inherited covariance is
+        // computed by the inheritance code).
         if !some_implicit {
             return;
         }
-        // Sem sobrescrito, ou com um que não é método, o omitido fica como o
-        // `TypesBuilder` o deixou: `dynamic` (o retorno de `[]=`, `void`).
+        // Without an overridden member, or with one that is not a method, the
+        // omitted one stays as `TypesBuilder` left it: `dynamic` (the return of
+        // `[]=`, `void`).
         let overridden = match self.member_overridden(c, f, false) {
             Some(s) if s.iter().all(|m| m.especie == Especie::Metodo) => s,
             _ => {
@@ -281,7 +282,7 @@ impl<'a> BodyInferrer<'a> {
             };
             self.define_return(f, t);
         }
-        // Os parâmetros omitidos pelo correspondente do tipo combinado.
+        // The omitted parameters from the corresponding one of the combined type.
         let mut position = 0usize;
         for (i, p) in parameters.iter().enumerate() {
             let positional_one = p.kind != ast::ParameterKind::Named;
@@ -305,8 +306,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// `_toOverriddenFunctionType`: o tipo combinado com os parâmetros de
-    /// tipo do próprio método; nulo se a contagem difere.
+    /// `_toOverriddenFunctionType`: the combined type with the method's own type
+    /// parameters; null if the count differs.
     fn for_overridden_type(&mut self, f: FunctionElementId, t: TypeId) -> Option<TypeId> {
         let own: Vec<TypeParamId> = self.outline.functions.get(f.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
         let Type::Function { type_params, .. } = self.table.get(t).clone() else { return None };
@@ -321,10 +322,10 @@ impl<'a> BodyInferrer<'a> {
             let tp = self.table.intern(Type::TypeParameter { param: *p, nullable: false });
             s.insert(*o, tp);
         }
-        // O corpo do tipo com os parâmetros próprios; a lista de parâmetros
-        // de tipo passa a ser a do método. A substituição vai no tipo **sem**
-        // os formais: no genérico, eles sombreiam o mapeamento e nada muda
-        // (`R bar<R>(R x)` herdado por `bar<Q>(x)` deixava `x: R`).
+        // The type's body with its own parameters; the type parameter list
+        // becomes the method's. The substitution goes on the type **without**
+        // the formals: in the generic one, they shadow the mapping and nothing
+        // changes (`R bar<R>(R x)` inherited by `bar<Q>(x)` left `x: R`).
         let without_formals = match self.table.get(t).clone() {
             Type::Function { ret, positional, optional, named, nullable, .. } => {
                 self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable })
@@ -345,8 +346,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Os omitidos como o `TypesBuilder` os deixa: `dynamic`, e o retorno de
-    /// `[]=` `void`.
+    /// The omitted ones as `TypesBuilder` leaves them: `dynamic`, and the return
+    /// of `[]=` `void`.
     fn omitted_default(&mut self, f: FunctionElementId, parameters: &[ast::Parameter], implicit_return: bool) {
         if implicit_return {
             let t = if self.interner.resolve(self.program.function(f).name) == "[]=" { self.core.void_ } else { self.core.dynamic_ };
@@ -373,7 +374,7 @@ impl<'a> BodyInferrer<'a> {
         self.redo_signature(f);
     }
 
-    /// A assinatura pelo retorno e pelos parâmetros.
+    /// The signature by return and parameters.
     fn redo_signature(&mut self, f: FunctionElementId) {
         let Some(fd) = self.outline.functions.get(f.0 as usize) else { return };
         let (mut pos, mut opt, mut the_named) = (Vec::new(), Vec::new(), Vec::new());
@@ -400,7 +401,7 @@ impl<'a> BodyInferrer<'a> {
     }
 }
 
-/// `parameter.hasImplicitType`: sem tipo escrito, nem forma de função, nem
+/// `parameter.hasImplicitType`: no written type, no function form, no
 /// `this.x`/`super.x`.
 fn implicit_parameter(p: &ast::Parameter) -> bool {
     p.ty.is_none() && p.function_parameters.is_none() && !p.this_ && !p.super_

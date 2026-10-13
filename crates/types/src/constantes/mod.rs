@@ -1,11 +1,10 @@
-//! Avaliação e verificação de constantes como o analyzer 6.11
+//! Constant evaluation and verification like analyzer 6.11
 //! (`src/dart/constant/`): [`valor`] (`value.dart`), [`avaliador`]
-//! (`evaluation.dart`), [`potencial`] (`potentially_constant.dart`) e
-//! [`verificador`] (`constant_verifier.dart`).
+//! (`evaluation.dart`), [`potential`] (`potentially_constant.dart`) and
+//! [`verifier`] (`constant_verifier.dart`).
 //!
-//! Roda depois da inferência de corpos, sobre as tabelas laterais dela
-//! (tipos estáticos e resoluções): [`verificar`] dá os diagnósticos de uma
-//! biblioteca.
+//! Runs after body inference, over its side tables (static types and
+//! resolutions): [`verificar`] gives the diagnostics of a library.
 
 pub mod avaliador;
 pub mod cycles;
@@ -26,10 +25,10 @@ use std::collections::HashSet;
 pub use exhaustiveness::ParteDeTestemunha;
 pub use verifier::CODIGOS;
 
-/// As testemunhas com partes dos `switch` não exaustivos da biblioteca
-/// `lib`, por (unidade, offset do `switch`): o `diagnostic.data` que o
-/// `AddMissingSwitchCases` lê. Roda o verificador de constantes só para
-/// isso (os diagnósticos são descartados).
+/// The witnesses with parts of the non-exhaustive `switch`es of library
+/// `lib`, by (unit, offset of the `switch`): the `diagnostic.data` that
+/// `AddMissingSwitchCases` reads. Runs the constant verifier only for that
+/// (the diagnostics are discarded).
 #[allow(clippy::too_many_arguments)]
 pub fn testemunhas_de_switch(
     program: &Program,
@@ -47,9 +46,9 @@ pub fn testemunhas_de_switch(
     m.witnesses.take().unwrap_or_default()
 }
 
-/// Os erros de constantes das bibliotecas `libs`. `inferidas` são as
-/// bibliotecas cujos corpos `body` tem (as outras são tratadas como
-/// opacas: seus valores constantes são desconhecidos).
+/// The constant errors of the libraries `libs`. `the_inferred` are the
+/// libraries whose bodies `body` has (the others are treated as opaque:
+/// their constant values are unknown).
 #[allow(clippy::too_many_arguments)]
 pub fn verificar(
     program: &Program,
@@ -64,10 +63,10 @@ pub fn verificar(
     verificar_com_quebras(program, interner, table, core, outline, body, the_inferred, libs).0
 }
 
-/// [`verificar`], com as bibliotecas em que o analyzer 3.6.2 lança (a
-/// exaustividade sobre um parâmetro de tipo sem `defaultType`,
-/// `exhaustiveness.dart:771`): o `LibraryAnalyzer` delas falha inteiro e
-/// quem chama descarta os diagnósticos dos arquivos delas.
+/// [`verificar`], with the libraries on which analyzer 3.6.2 throws
+/// (exhaustiveness over a type parameter without a `defaultType`,
+/// `exhaustiveness.dart:771`): their `LibraryAnalyzer` fails entirely and
+/// the caller discards the diagnostics of their files.
 #[allow(clippy::too_many_arguments)]
 pub fn verificar_com_quebras(
     program: &Program,

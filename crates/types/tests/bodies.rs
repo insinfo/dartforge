@@ -1,11 +1,11 @@
-//! Suíte de testes normativos de corpos de funções, inferência de tipos, análise de fluxo e diagnósticos.
+//! Normative test suite for function bodies, type inference, flow analysis and diagnostics.
 //!
-//! Cobre:
-//! 1. `promocao_e_inferencia`: testes unitários rápidos (<100ms) sem SDK.
-//! 2. `negativos_do_analyzer`: >= 40 casos negativos do analyzer oficial.
-//! 3. `corpos_do_sdk_tipam`: todas as 36 bibliotecas do SDK tipam com estatísticas.
-//! 4. `corpus_pub_tipa`: pacotes de `references/pub` tipam.
-//! 5. `new_sali_tipa`: frontend e backend do `new_sali` tipam.
+//! Covers:
+//! 1. `promotion_and_inference`: fast unit tests (<100ms) without the SDK.
+//! 2. `negativos_do_analyzer`: >= 40 negative cases from the official analyzer.
+//! 3. `sdk_bodies_type_check`: all 36 SDK libraries type-check, with statistics.
+//! 4. `pub_corpus_type_checks`: packages from `references/pub` type-check.
+//! 5. `new_sali_type_checks`: the `new_sali` frontend and backend type-check.
 
 use dartforge_elements::load::{load, load_lenient};
 use dartforge_elements::sdk::SdkLayout;
@@ -120,7 +120,7 @@ fn get_real_sdk() -> Option<(PathBuf, SdkLayout)> {
 }
 
 // ===========================================================================
-// 1. Promoção de Fluxo e Inferência (sem SDK)
+// 1. Flow Promotion and Inference (without the SDK)
 // ===========================================================================
 
 #[test]
@@ -189,17 +189,17 @@ fn promotion_and_inference() {
 
     let (body_types, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    // A unidade 0 é `dart:core` (sem inferência de corpos); a do usuário é a da entrada.
+    // Unit 0 is `dart:core` (without body inference); the user's is the entry one.
     let entry_unit = prog.library(prog.entry.unwrap()).units[0];
     let unit = &body_types.units[entry_unit.0 as usize];
     assert!(unit.static_types.len() > 10, "Expressões devem estar tipadas");
 
-    // Verifica que não houve diagnósticos espúrios
+    // Checks that there were no spurious diagnostics
     assert!(diags.is_empty(), "Corpos válidos não devem emitir diagnósticos: {diags:?}");
 }
 
 // ===========================================================================
-// 2. Casos Negativos do Analyzer (>= 40 testes traduzidos da suite oficial)
+// 2. Analyzer Negative Cases (>= 40 tests translated from the official suite)
 // ===========================================================================
 
 fn verify_diagnostic(dart_code: &str, expected_diagnostic: DiagnosticCode) {
@@ -219,8 +219,8 @@ fn verify_diagnostic(dart_code: &str, expected_diagnostic: DiagnosticCode) {
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    // O diagnóstico pode sair com o molde de `types::codes` ou já com o
-    // código do analyzer (mensagem oficial em inglês).
+    // The diagnostic may come out with the `types::codes` template or already
+    // with the analyzer's code (the official English message).
     let found = diags.iter().any(|d| {
         d.message.contains(expected_diagnostic.template)
             || d.code.is_some_and(|c| c.info().nome == expected_diagnostic.name)
@@ -502,8 +502,8 @@ fn static_access_to_class_instance_members_per_oracle() {
         let d = the_found[0];
         assert_eq!(&source[d.span.start as usize..d.span.end as usize], the_name);
         assert_eq!(d.span.start as usize, source.rfind(&format!(".{the_name}")).unwrap() + 1);
-        // A ponte de paridade traduz este template interno para a mensagem
-        // inglesa do oráculo; o teste de types verifica código e argumento.
+        // The parity bridge translates this internal template into the oracle's
+        // English message; the types test checks the code and the argument.
         assert_eq!(d.message, format!("{}: '{the_name}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template));
         assert!(!diags.iter().any(|other| other.span == d.span
             && other.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
@@ -515,8 +515,8 @@ fn static_access_to_class_instance_members_per_oracle() {
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__alias.dart")),
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceMember.dart")),
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_instantiation_access_to_member/ClassInstantiationAccessToMember__instanceSetter.dart")),
-        // Oráculo Dart 3.13.4: construtor nomeado e método de instância
-        // homônimos coexistem; `A.named` é tear-off do construtor.
+        // Dart 3.13.4 oracle: a named constructor and a same-named instance
+        // method coexist; `A.named` is the constructor's tear-off.
         "class A { A.named(); void named() {} } var tearoff = A.named;",
     ] {
         let mut interner = Interner::new();
@@ -528,7 +528,7 @@ fn static_access_to_class_instance_members_per_oracle() {
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
         assert!(!diags.iter().any(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)), "{diags:?}");
     }
-    // Um nome privado de outra biblioteca não é membro acessível da classe.
+    // A private name from another library is not an accessible class member.
     fs::write(tmp.path().join("lib.dart"), "class A { void _m() {} }").unwrap();
     fs::write(&main_dart, "import 'lib.dart'; void f() { A._m(); }").unwrap();
     let mut interner = Interner::new();
@@ -581,8 +581,8 @@ fn missing_new_after_instantiated_type_keeps_constructor_diagnostic() {
         let offset = source.find(expr).unwrap() + expr.find(".new").unwrap() + 1;
         let at_target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
         assert_eq!(at_target.len(), 1, "{expr}: {diags:?}");
-        // Pelo código do analyzer (o relato traz a mensagem dele, não o texto
-        // legado de `codes.rs`); ou, sem código, pelo texto legado.
+        // By the analyzer's code (the report carries its message, not the legacy
+        // text of `codes.rs`); or, without a code, by the legacy text.
         let by_code = at_target[0].code.is_some_and(|c| c.info().nome == code.name);
         assert!(by_code || at_target[0].message.starts_with(code.template), "{expr}: {diags:?}");
         assert_eq!(at_target[0].span.end as usize, offset + 3);
@@ -628,8 +628,8 @@ fn enum_generative_constructor_invocation_with_new_const_and_unnamed() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    // (arquivo do corpus, trecho com o ponto de partida, deslocamento do
-    // nome do construtor no trecho, comprimento do intervalo do oráculo)
+    // (corpus file, snippet with the starting point, offset of the
+    // constructor name in the snippet, length of the oracle's range)
     for (file, snippet, shift, comp) in [
         ("InvalidReferenceToGenerativeEnumConstru_f38943a5.dart", "  E();", 2, 1),
         ("InvalidReferenceToGenerativeEnumConstru_b2744770.dart", "  new E();", 6, 1),
@@ -650,9 +650,9 @@ fn enum_generative_constructor_invocation_with_new_const_and_unnamed() {
         assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{file}: {diags:?}");
         assert_eq!(target[0].span.end as usize, offset + comp, "{file}: {diags:?}");
     }
-    // Negativos: factory com o mesmo nome e redirecionamentos para o
-    // gerador em inicializador (`: this(...)`) continuam sem acusar; nome
-    // explícito sem alvo (`const E.foo()`) é de outro código.
+    // Negatives: a factory with the same name and redirections to the
+    // generative one in an initializer (`: this(...)`) still do not report;
+    // an explicit name without a target (`const E.foo()`) is another code.
     for file in [
         "InvalidReferenceToGenerativeEnumConstru_7e4106b1.dart",
         "InvalidReferenceToGenerativeEnumConstru_4fcf1842.dart",
@@ -679,8 +679,8 @@ fn redirecting_factory_to_enum_generative_reports_at_target() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let main_dart = tmp.path().join("main.dart");
-    // (arquivo do corpus, trecho com o ponto de partida, deslocamento do
-    // alvo no trecho, comprimento do intervalo do oráculo)
+    // (corpus file, snippet with the starting point, offset of the target
+    // in the snippet, length of the oracle's range)
     for (file, snippet, shift, comp) in [
         ("InvalidReferenceToGenerativeEnumConstru_31f7f2b6.dart", " = E.named;", 3, 7),
         ("InvalidReferenceToGenerativeEnumConstru_f6f82211.dart", " = E;", 3, 1),
@@ -700,8 +700,8 @@ fn redirecting_factory_to_enum_generative_reports_at_target() {
         assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{file}: {diags:?}");
         assert_eq!(target[0].span.end as usize, offset + comp, "{file}: {diags:?}");
     }
-    // Negativos: factory para factory, classe não-enum e nome indefinido
-    // seguem sem acusar deste código.
+    // Negatives: factory to factory, a non-enum class and an undefined name
+    // still do not report this code.
     for (the_name, source) in [
         ("fabrica_para_fabrica", "enum E { v(); factory E.named() => v; const factory E.other() = E.named; const E(); }"),
         ("classe_comum", "class C { const C(); const factory C.a() = C; }"),
@@ -1170,242 +1170,242 @@ fn const_local_and_top_level_final_are_not_final_local() {
 
 #[test]
 fn analyzer_negatives_40_cases() {
-    // 1. ARGUMENT_TYPE_NOT_ASSIGNABLE: passa String para int
+    // 1. ARGUMENT_TYPE_NOT_ASSIGNABLE: passes String to int
     verify_diagnostic(
         "void f(int x) {} void main() { f('str'); }",
         ARGUMENT_TYPE_NOT_ASSIGNABLE,
     );
 
-    // 2. ARGUMENT_TYPE_NOT_ASSIGNABLE: passa Object para String
+    // 2. ARGUMENT_TYPE_NOT_ASSIGNABLE: passes Object to String
     verify_diagnostic(
         "void f(String s) {} void main(Object o) { f(o); }",
         ARGUMENT_TYPE_NOT_ASSIGNABLE,
     );
 
-    // 3. ARGUMENT_TYPE_NOT_ASSIGNABLE: operador + de int recebe String
+    // 3. ARGUMENT_TYPE_NOT_ASSIGNABLE: int's + operator receives a String
     verify_diagnostic(
         "void main() { int a = 1; var b = a + 'x'; }",
         ARGUMENT_TYPE_NOT_ASSIGNABLE,
     );
 
-    // 4. RETURN_OF_INVALID_TYPE: retorna String de função int
+    // 4. RETURN_OF_INVALID_TYPE: returns String from an int function
     verify_diagnostic(
         "int f() { return 'not an int'; }",
         RETURN_OF_INVALID_TYPE,
     );
 
-    // 5. RETURN_OF_INVALID_TYPE: retorna int de função String
+    // 5. RETURN_OF_INVALID_TYPE: returns int from a String function
     verify_diagnostic(
         "String f() { return 42; }",
         RETURN_OF_INVALID_TYPE,
     );
 
-    // 6. ASSIGNMENT_TO_FINAL_LOCAL: reatribuição de variável final
+    // 6. ASSIGNMENT_TO_FINAL_LOCAL: reassignment of a final variable
     verify_diagnostic(
         "void main() { final int x = 1; x = 2; }",
         ASSIGNMENT_TO_FINAL_LOCAL,
     );
 
-    // 7. ASSIGNMENT_TO_FINAL_LOCAL: reatribuição de final inferida
+    // 7. ASSIGNMENT_TO_FINAL_LOCAL: reassignment of an inferred final
     verify_diagnostic(
         "void main() { final x = 'a'; x = 'b'; }",
         ASSIGNMENT_TO_FINAL_LOCAL,
     );
 
-    // 8. ASSIGNMENT_TO_FINAL_LOCAL: reatribuição de parâmetro final
+    // 8. ASSIGNMENT_TO_FINAL_LOCAL: reassignment of a final parameter
     verify_diagnostic(
         "void main(final int x) { x = 3; }",
         ASSIGNMENT_TO_FINAL_LOCAL,
     );
 
-    // 9. UNDEFINED_GETTER: acesso a getter inexistente em int
+    // 9. UNDEFINED_GETTER: access to a nonexistent getter on int
     verify_diagnostic(
         "void main() { int x = 1; var y = x.propriedadeInexistente; }",
         UNDEFINED_GETTER,
     );
 
-    // 10. UNDEFINED_GETTER: acesso a getter inexistente em String
+    // 10. UNDEFINED_GETTER: access to a nonexistent getter on String
     verify_diagnostic(
         "void main() { String s = 'a'; var y = s.foo; }",
         UNDEFINED_GETTER,
     );
 
-    // 11. UNDEFINED_METHOD: chamada a método inexistente em int
+    // 11. UNDEFINED_METHOD: call to a nonexistent method on int
     verify_diagnostic(
         "void main() { int x = 1; x.metodoInexistente(); }",
         UNDEFINED_METHOD,
     );
 
-    // 12. UNDEFINED_METHOD: chamada a método inexistente em String
+    // 12. UNDEFINED_METHOD: call to a nonexistent method on String
     verify_diagnostic(
         "void main() { String s = 'hello'; s.bar(); }",
         UNDEFINED_METHOD,
     );
 
-    // 13. UNDEFINED_SETTER: atribuição a setter inexistente em int
+    // 13. UNDEFINED_SETTER: assignment to a nonexistent setter on int
     verify_diagnostic(
         "void main() { int x = 1; x.setterInexistente = 2; }",
         UNDEFINED_SETTER,
     );
 
-    // 14. UNDEFINED_IDENTIFIER: variável não declarada
+    // 14. UNDEFINED_IDENTIFIER: undeclared variable
     verify_diagnostic(
         "void main() { var y = variavelTotalmenteInexistente; }",
         UNDEFINED_IDENTIFIER,
     );
 
-    // 15. NOT_ENOUGH_POSITIONAL_ARGUMENTS: função esperando 2 argumentos recebe 1
+    // 15. NOT_ENOUGH_POSITIONAL_ARGUMENTS: a function expecting 2 arguments gets 1
     verify_diagnostic(
         "void f(int a, int b) {} void main() { f(1); }",
         NOT_ENOUGH_POSITIONAL_ARGUMENTS,
     );
 
-    // 16. NOT_ENOUGH_POSITIONAL_ARGUMENTS: função esperando 1 argumento recebe 0
+    // 16. NOT_ENOUGH_POSITIONAL_ARGUMENTS: a function expecting 1 argument gets 0
     verify_diagnostic(
         "void f(int a) {} void main() { f(); }",
         NOT_ENOUGH_POSITIONAL_ARGUMENTS,
     );
 
-    // 17. EXTRA_POSITIONAL_ARGUMENTS: função sem argumentos recebe 1
+    // 17. EXTRA_POSITIONAL_ARGUMENTS: a function without arguments gets 1
     verify_diagnostic(
         "void f() {} void main() { f(1); }",
         EXTRA_POSITIONAL_ARGUMENTS,
     );
 
-    // 18. EXTRA_POSITIONAL_ARGUMENTS: função de 1 argumento recebe 2
+    // 18. EXTRA_POSITIONAL_ARGUMENTS: a 1-argument function gets 2
     verify_diagnostic(
         "void f(int a) {} void main() { f(1, 2); }",
         EXTRA_POSITIONAL_ARGUMENTS,
     );
 
-    // 19. UNDEFINED_NAMED_PARAMETER: parâmetro nomeado inexistente passado
+    // 19. UNDEFINED_NAMED_PARAMETER: a nonexistent named parameter is passed
     verify_diagnostic(
         "void f({int? x}) {} void main() { f(nomeInexistente: 1); }",
         UNDEFINED_NAMED_PARAMETER,
     );
 
-    // 20. UNDEFINED_NAMED_PARAMETER: função sem nomeados recebe nomeado
+    // 20. UNDEFINED_NAMED_PARAMETER: a function without named ones gets a named one
     verify_diagnostic(
         "void f(int a) {} void main() { f(1, foo: 2); }",
         UNDEFINED_NAMED_PARAMETER,
     );
 
-    // 21. MISSING_REQUIRED_ARGUMENT: parâmetro nomeado required omitido
+    // 21. MISSING_REQUIRED_ARGUMENT: a required named parameter is omitted
     verify_diagnostic(
         "void f({required int x}) {} void main() { f(); }",
         MISSING_REQUIRED_ARGUMENT,
     );
 
-    // 22. DEFINITELY_UNASSIGNED: uso de local não inicializada
+    // 22. DEFINITELY_UNASSIGNED: use of an uninitialized local
     verify_diagnostic(
         "void main() { int x; var y = x + 1; }",
         DEFINITELY_UNASSIGNED_VARIABLE,
     );
 
-    // 23. DEFINITELY_UNASSIGNED: uso em if onde só um ramo atribui
+    // 23. DEFINITELY_UNASSIGNED: use in an if where only one branch assigns
     verify_diagnostic(
         "void main(bool c) { int x; if (c) { x = 1; } var y = x + 1; }",
         DEFINITELY_UNASSIGNED_VARIABLE,
     );
 
-    // 24. REFERENCED_BEFORE_DECLARATION: variável local referenciada antes da linha
+    // 24. REFERENCED_BEFORE_DECLARATION: local variable referenced before its line
     verify_diagnostic(
         "void main() { print(x); int x = 10; } void print(Object o) {}",
         REFERENCED_BEFORE_DECLARATION,
     );
 
-    // 25. NON_BOOL_CONDITION: condição de if é int
+    // 25. NON_BOOL_CONDITION: an if condition is int
     verify_diagnostic(
         "void main() { if (42) {} }",
         NON_BOOL_CONDITION,
     );
 
-    // 26. NON_BOOL_CONDITION: condição de while é String
+    // 26. NON_BOOL_CONDITION: a while condition is String
     verify_diagnostic(
         "void main() { while ('loop') {} }",
         NON_BOOL_CONDITION,
     );
 
-    // 27. NON_BOOL_CONDITION: condição de do-while é int
+    // 27. NON_BOOL_CONDITION: a do-while condition is int
     verify_diagnostic(
         "void main() { do {} while (0); }",
         NON_BOOL_CONDITION,
     );
 
-    // 28. NON_BOOL_CONDITION: operador ternário com condição int
+    // 28. NON_BOOL_CONDITION: ternary operator with an int condition
     verify_diagnostic(
         "void main() { var x = 1 ? 'a' : 'b'; }",
         NON_BOOL_CONDITION,
     );
 
-    // 29. INVALID_ASSIGNMENT: atribuição de String para variável int
+    // 29. INVALID_ASSIGNMENT: assignment of String to an int variable
     verify_diagnostic(
         "void main() { int x = 1; x = 'nao int'; }",
         INVALID_ASSIGNMENT,
     );
 
-    // 30. INVALID_ASSIGNMENT: atribuição de Object para variável int
+    // 30. INVALID_ASSIGNMENT: assignment of Object to an int variable
     verify_diagnostic(
         "void main(Object o) { int x = 1; x = o; }",
         INVALID_ASSIGNMENT,
     );
 
-    // 31. EQUAL_ELEMENTS_IN_CONST_SET: conjunto const com chaves duplicadas
+    // 31. EQUAL_ELEMENTS_IN_CONST_SET: const set with duplicate keys
     verify_diagnostic(
         "void main() { const s = {1, 1}; }",
         EQUAL_ELEMENTS_IN_CONST_SET,
     );
 
-    // 32. EQUAL_KEYS_IN_CONST_MAP: mapa const com chaves repetidas
+    // 32. EQUAL_KEYS_IN_CONST_MAP: const map with repeated keys
     verify_diagnostic(
         "void main() { const m = {'a': 1, 'a': 2}; }",
         EQUAL_KEYS_IN_CONST_MAP,
     );
 
-    // 33. CONST_EVAL_THROWS_EXCEPTION: divisão por zero em const
+    // 33. CONST_EVAL_THROWS_EXCEPTION: division by zero in a const
     verify_diagnostic(
         "void main() { const x = 1 ~/ 0; }",
         CONST_EVAL_THROWS_EXCEPTION,
     );
 
-    // 34. CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE: const com variável não-const
+    // 34. CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE: const with a non-const variable
     verify_diagnostic(
         "void main() { var a = 1; const b = a; }",
         CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE,
     );
 
-    // 35. UNNECESSARY_NON_NULL_ASSERTION: bang (!) em tipo garantidamente não-nulo
-    // (o analyzer não usa `invalid_null_aware_operator` para o `!`).
+    // 35. UNNECESSARY_NON_NULL_ASSERTION: bang (!) on a type guaranteed non-null
+    // (the analyzer does not use `invalid_null_aware_operator` for the `!`).
     verify_diagnostic(
         "void main() { int x = 1; var y = x!; }",
         UNNECESSARY_NON_NULL_ASSERTION,
     );
 
-    // 36. INVALID_NULL_AWARE_OPERATOR: ?. em int não-nulo
+    // 36. INVALID_NULL_AWARE_OPERATOR: ?. on a non-null int
     verify_diagnostic(
         "void main() { int x = 1; var y = x?.toString(); }",
         INVALID_NULL_AWARE_OPERATOR,
     );
 
-    // 37. UNNECESSARY_CAST: cast de int para int
+    // 37. UNNECESSARY_CAST: cast from int to int
     verify_diagnostic(
         "void main() { int x = 1; var y = x as int; }",
         UNNECESSARY_CAST,
     );
 
-    // 38. UNNECESSARY_TYPE_CHECK_TRUE: teste is Object em int
+    // 38. UNNECESSARY_TYPE_CHECK_TRUE: an is Object test on int
     verify_diagnostic(
         "void main() { int x = 1; if (x is Object) {} }",
         UNNECESSARY_TYPE_CHECK_TRUE,
     );
 
-    // 39. DEAD_CODE: código após return incondicional
+    // 39. DEAD_CODE: code after an unconditional return
     verify_diagnostic(
         "void main() { return; int x = 1; }",
         DEAD_CODE,
     );
 
-    // 40. DEAD_CODE: código após throw incondicional
+    // 40. DEAD_CODE: code after an unconditional throw
     verify_diagnostic(
         "void main() { throw 'erro'; int x = 1; }",
         DEAD_CODE,
@@ -1413,7 +1413,7 @@ fn analyzer_negatives_40_cases() {
 }
 
 // ===========================================================================
-// 3. Corpos do SDK Real Tipam (36 bibliotecas)
+// 3. Real SDK Bodies Type-Check (36 libraries)
 // ===========================================================================
 
 #[test]
@@ -1472,8 +1472,8 @@ fn sdk_bodies_type_check() {
     println!("Diagnósticos de Corpos:         {}", body_diags.len());
     println!("============================================================");
 
-    // Desde a emissão DDC os corpos do SDK não são inferidos (só o outline):
-    // as tabelas das unidades do SDK ficam vazias e nenhum aviso vem delas.
+    // Since the DDC emission, SDK bodies are not inferred (only the outline):
+    // the tables of the SDK units stay empty and no warning comes from them.
     assert_eq!(total_exprs, 0, "unidades do SDK não recebem inferência de corpos");
     assert!(body_diags.is_empty(), "nenhum aviso de corpos deve vir do SDK: {}", body_diags.len());
 }
@@ -1527,7 +1527,7 @@ fn pub_corpus_type_checks() {
 }
 
 // ===========================================================================
-// 5. new_sali Tipa (Frontend e Backend)
+// 5. new_sali Type-Checks (Frontend and Backend)
 // ===========================================================================
 
 #[test]
@@ -1572,7 +1572,7 @@ fn new_sali_type_checks() {
     }
 }
 
-/// Diagnósticos de corpo de uma fonte sobre o SDK simulado.
+/// Body diagnostics of a source over the simulated SDK.
 fn diagnostics_of(source: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
@@ -1589,8 +1589,8 @@ fn diagnostics_of(source: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
 #[test]
 fn inherited_member_uses_most_specific_declaration() {
     // `CompilationUnitElement implements UriReferencedElement implements
-    // _ExistingElement implements Element`: o `library` não anulável de
-    // `_ExistingElement` sobrescreve o anulável de `Element`, declarado antes.
+    // _ExistingElement implements Element`: the non-nullable `library` of
+    // `_ExistingElement` overrides `Element`'s nullable one, declared earlier.
     let source = "library test; import 'dart:core';
         class Lib { int get n => 0; }
         abstract class Elem { Lib? get library; }
@@ -1624,8 +1624,8 @@ fn creation_of_non_class_name() {
 
 #[test]
 fn imported_same_name_extensions_remain_applicable() {
-    // `package:collection` e o analyzer declaram, cada um, uma
-    // `IterableExtension`: o nome conflita, os membros continuam acessíveis.
+    // `package:collection` and the analyzer each declare an
+    // `IterableExtension`: the name conflicts, the members stay accessible.
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
@@ -1647,8 +1647,8 @@ fn imported_same_name_extensions_remain_applicable() {
 
 #[test]
 fn cases_sharing_body_and_irrefutable_case_assign() {
-    // Variável de junção de `case`s que dividem o corpo (dart_style), e
-    // `case _:` que torna inalcançável a saída sem casamento.
+    // Join variable of `case`s that share the body (dart_style), and a
+    // `case _:` that makes the no-match exit unreachable.
     let source = "library test; import 'dart:core';
         class A { int? i; int? j; }
         int f(Object o) {
@@ -1690,8 +1690,8 @@ fn static_member_through_instance() {
 
 #[test]
 fn creation_via_alias_infers_nested_argument_from_context() {
-    // O contexto restringe o parâmetro do alias dentro de List<X>, tanto
-    // na criação implícita quanto em new e no construtor nomeado.
+    // The context constrains the alias's parameter inside List<X>, both in
+    // the implicit creation and in new and the named constructor.
     let source = "library test; import 'dart:core';
         class C<X> { C(); C.nome(); }
         typedef D<X> = C<List<X>>;
@@ -1706,8 +1706,8 @@ fn creation_via_alias_infers_nested_argument_from_context() {
 
 #[test]
 fn creation_via_alias_with_written_argument_keeps_incompatible_type() {
-    // Argumentos escritos prevalecem sobre o contexto; inferir dynamic
-    // esconderia a incompatibilidade que este caso precisa conservar.
+    // Written arguments prevail over the context; inferring dynamic would
+    // hide the incompatibility that this case needs to keep.
     let source = "library test; import 'dart:core';
         class C<X> { C(); C.nome(); }
         typedef D<X> = C<List<X>>;
@@ -1722,8 +1722,9 @@ fn creation_via_alias_with_written_argument_keeps_incompatible_type() {
 
 #[test]
 fn constant_in_case_and_promotion_on_rhs_of_if_null() {
-    // `case _k:` lê a constante (não declara `_k` sem valor); `o ??= a!`
-    // não promove `a` depois do comando (o lado direito pode não rodar).
+    // `case _k:` reads the constant (it does not declare `_k` without a
+    // value); `o ??= a!` does not promote `a` after the statement (the right
+    // side may not run).
     let source = "library test; import 'dart:core';
         const _k = 1;
         int g(int t) {
@@ -1744,10 +1745,10 @@ fn constant_in_case_and_promotion_on_rhs_of_if_null() {
 
 #[test]
 fn type_arguments_out_of_bounds() {
-    // `C<Object>` e o alias `F<Object>` violam `X extends num`; `C<dynamic>`
-    // é super-bounded (o invertido `C<Never>` cabe); `C<int>` cabe; o
-    // `extends` não aceita super-bounded. O limite do parâmetro do typedef
-    // precisa estar resolvido no outline.
+    // `C<Object>` and the alias `F<Object>` violate `X extends num`;
+    // `C<dynamic>` is super-bounded (the inverted `C<Never>` fits); `C<int>`
+    // fits; `extends` does not accept super-bounded. The bound of the
+    // typedef's parameter must be resolved in the outline.
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
@@ -1778,10 +1779,10 @@ fn type_arguments_out_of_bounds() {
 
 #[test]
 fn void_result_use() {
-    // Argumento, inicializador e condição com valor `void`: o analyzer relata
-    // `use_of_void_result` (no nome, numa invocação de função), não
-    // `argument_type_not_assignable`/`invalid_assignment`. `void v = f();`
-    // e `f();` como comando são permitidos.
+    // Argument, initializer and condition with a `void` value: the analyzer
+    // reports `use_of_void_result` (at the name, in a function invocation),
+    // not `argument_type_not_assignable`/`invalid_assignment`.
+    // `void v = f();` and `f();` as a statement are allowed.
     let source = "library test; import 'dart:core';
         void f() {}
         void g(Object? o) {}
@@ -1805,12 +1806,12 @@ fn void_result_use() {
 }
 
 // ===========================================================================
-// Regras de inferência medidas contra o oráculo (analyzer 3.6.2), com o SDK
-// real: o tipo exibido de uma expressão, como no despejo do corpus.
+// Inference rules measured against the oracle (analyzer 3.6.2), with the real
+// SDK: the displayed type of an expression, as in the corpus dump.
 // ===========================================================================
 
-/// `(trecho, tipo)` de cada expressão de `fonte`, na ordem do código (com o
-/// SDK real; `None` sem ele). Os tipos saem como no despejo do corpus.
+/// `(snippet, tipo)` of each expression of `source`, in code order (with the
+/// real SDK; `None` without it). The types come out as in the corpus dump.
 fn types_with_sdk(source: &str) -> Option<Vec<(String, String)>> {
     let (_, sdk) = get_real_sdk()?;
     let tmp = tempdir().unwrap();
@@ -1825,11 +1826,11 @@ fn types_with_sdk(source: &str) -> Option<Vec<(String, String)>> {
         .unwrap()
         .join()
         .unwrap();
-    // Fonte ASCII: offsets UTF-16 = offsets em bytes.
+    // ASCII source: UTF-16 offsets = byte offsets.
     Some(lines.into_iter().map(|l| (source[l.offset..l.offset + l.comprimento].to_string(), l.tipo)).collect())
 }
 
-/// Tipo da `n`-ésima (a partir de 0) expressão cujo texto é `trecho`.
+/// Type of the `n`-th (from 0) expression whose text is `snippet`.
 fn tipo_de<'a>(types: &'a [(String, String)], snippet: &str, n: usize) -> &'a str {
     types
         .iter()
@@ -1841,9 +1842,9 @@ fn tipo_de<'a>(types: &'a [(String, String)], snippet: &str, n: usize) -> &'a st
 
 #[test]
 fn override_inherits_inferred_type_of_untyped_field() {
-    // Override inference sobre campo sem tipo escrito: o tipo do campo só
-    // existe depois da inferência do inicializador, e o getter e o setter
-    // sobrescritores o herdam (também como contexto do corpo).
+    // Override inference over a field without a written type: the field's
+    // type only exists after the initializer's inference, and the
+    // overriding getter and setter inherit it (also as the body's context).
     let Some(t) = types_with_sdk(
         "class A { var lista = [1.5]; var n = 1; }
 class B extends A {
@@ -1861,8 +1862,9 @@ void f(B b) { print(b.lista); }",
 
 #[test]
 fn instantiation_to_bounds_follows_dependencies_and_written_bound() {
-    // `A<T extends U, U extends num>` cru é `A<num, num>`; `Object?` escrito
-    // é limite (não o implícito, que vira `dynamic`) e aparece na exibição.
+    // A raw `A<T extends U, U extends num>` is `A<num, num>`; a written
+    // `Object?` is a bound (not the implicit one, which becomes `dynamic`)
+    // and appears in the display.
     let Some(t) = types_with_sdk(
         "class A<T extends U, U extends num> {}
 class O<T extends Object?> {}
@@ -1880,8 +1882,8 @@ void f() { A a = A(); var o = O(); var p = P(); print([a, o, p, g]); }",
 
 #[test]
 fn horizontal_inference_follows_dependencies_between_closures() {
-    // `c` fixa T; `b` depende de T e fixa U; `a` depende de U: a ordem é
-    // c, b, a, não a do texto.
+    // `c` fixes T; `b` depends on T and fixes U; `a` depends on U: the order
+    // is c, b, a, not the text order.
     let Some(t) = types_with_sdk(
         "V h<T, U, V>(V Function(U) a, U Function(T) b, T c) => a(b(c));
 void f() { var r = h((u) => u.isEven, (t) => t * 2, 1); print(r); }",
@@ -1895,8 +1897,9 @@ void f() { var r = h((u) => u.isEven, (t) => t * 2, 1); print(r); }",
 
 #[test]
 fn generator_without_yield_and_empty_return_like_analyzer_3_6_2() {
-    // Gerador sem `yield` nem `return`: elemento `dynamic`; `return;` num
-    // gerador contribui `Null` (regra da 3.6.2, anterior à mudança de 2024-12).
+    // A generator without `yield` or `return`: element `dynamic`; `return;`
+    // in a generator contributes `Null` (the 3.6.2 rule, before the 2024-12
+    // change).
     let Some(t) = types_with_sdk(
         "void f() {
   var c = () sync* {};
@@ -1914,9 +1917,9 @@ fn generator_without_yield_and_empty_return_like_analyzer_3_6_2() {
 
 #[test]
 fn if_null_with_non_completing_rhs_promotes_lhs() {
-    // `y ?? (throw 0)`: no ramo em que `y` não é nulo ele é promovido; o
-    // outro não completa, então `y` segue promovido depois. Com lado direito
-    // que completa, nada se promove.
+    // `y ?? (throw 0)`: on the branch where `y` is not null it is promoted;
+    // the other does not complete, so `y` stays promoted afterwards. With a
+    // right side that completes, nothing is promoted.
     let Some(t) = types_with_sdk(
         "void f(int? y, int? w) {
   var z = y ?? (throw 0);
@@ -1934,8 +1937,8 @@ fn if_null_with_non_completing_rhs_promotes_lhs() {
 
 #[test]
 fn completing_finally_carries_promotions_past_try() {
-    // `attachFinally`: as promoções do `finally` valem depois do `try`, e o
-    // que o `finally` escreve fica com o estado dele.
+    // `attachFinally`: the `finally`'s promotions hold after the `try`, and
+    // what the `finally` writes keeps its state.
     let Some(t) = types_with_sdk(
         "void f(Object o, int? x) {
   try { print(0); } finally { o as int; }
@@ -1952,8 +1955,9 @@ fn completing_finally_carries_promotions_past_try() {
 
 #[test]
 fn member_from_different_interfaces_uses_most_specific_signature() {
-    // Combined member signature: entre `num get v` (I1) e `int get v` (I2),
-    // vale a de tipo subtipo de todas as outras, não a primeira na busca.
+    // Combined member signature: between `num get v` (I1) and `int get v`
+    // (I2), the one whose type is a subtype of all the others wins, not the
+    // first in the lookup.
     let Some(t) = types_with_sdk(
         "abstract class I1 { num get v; }
 abstract class I2 { int get v; }
@@ -1969,9 +1973,10 @@ void f(J j, K k) { print([j.v, k.v]); }",
 
 #[test]
 fn property_access_on_never_receiver() {
-    // analyzer 3.6.2: `id.x` (PrefixedIdentifier) com `id: Never` é `Never`;
-    // `falha().x` (PropertyAccess) busca só em `Object`: membro de `Object`
-    // tem o seu tipo, outro nome fica com o tipo de recuperação `InvalidType`.
+    // analyzer 3.6.2: `id.x` (PrefixedIdentifier) with `id: Never` is
+    // `Never`; `failure().x` (PropertyAccess) only looks in `Object`: an
+    // `Object` member has its type, another name gets the recovery type
+    // `InvalidType`.
     let Some(t) = types_with_sdk(
         "Never falha() => throw 0;
 void f(bool b, Never n) {
@@ -1987,11 +1992,12 @@ void f(bool b, Never n) {
     assert_eq!(tipo_de(&t, "n.x", 0), "Never");
 }
 
-/// Os trechos de `dead_code` como o `NullSafetyDeadCodeVerifier` do analyzer
-/// os relata: do primeiro nó inalcançável ao fim do bloco básico (a última
-/// instrução; num construtor, o fim dele), o ramo inalcançável inteiro
-/// (`if (false) { … }`, corpo de `while (false)`), e as atualizações do
-/// `for` cujo corpo é inalcançável. Conferido com o `dart analyze` 3.6.2.
+/// The `dead_code` fragments as the analyzer's `NullSafetyDeadCodeVerifier`
+/// reports them: from the first unreachable node to the end of the basic
+/// block (the last statement; in a constructor, its end), the whole
+/// unreachable branch (`if (false) { … }`, the body of `while (false)`), and
+/// the updates of a `for` whose body is unreachable. Checked against
+/// `dart analyze` 3.6.2.
 #[test]
 fn dead_code_snippets_like_analyzer() {
     let tmp = tempdir().unwrap();
@@ -2030,11 +2036,12 @@ fn dead_code_snippets_like_analyzer() {
     assert_eq!(snippets, expected, "{diags:?}");
 }
 
-/// Assinatura omitida numa augmentation: os tipos vêm da declaração
-/// aumentada. O analyzer 3.13.4 (`augmentations`, `enhanced-parts`) relata
-/// exatamente estes quatro erros; sem a herança, `f`, `g` e `topo` ficariam
-/// `dynamic` e nada seria relatado. (O CFE 3.13.4 não herda: compila e
-/// falha em execução — divergência registrada em docs/AUGMENTATIONS.md.)
+/// A signature omitted in an augmentation: the types come from the augmented
+/// declaration. Analyzer 3.13.4 (`augmentations`, `enhanced-parts`) reports
+/// exactly these four errors; without the inheritance, `f`, `g` and `topo`
+/// would be `dynamic` and nothing would be reported. (The 3.13.4 CFE does not
+/// inherit: it compiles and fails at runtime, a divergence recorded in
+/// docs/AUGMENTATIONS.md.)
 #[test]
 fn augmentation_inherits_omitted_types() {
     let tmp = tempdir().unwrap();
@@ -2061,8 +2068,8 @@ fn augmentation_inherits_omitted_types() {
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
     let snippet = |d: &dartforge_diagnostics::Diagnostic| principal.get(d.span.start..d.span.end).unwrap_or("").to_string();
-    // O código do analyzer, ou o molde de `types::codes` (a ponte da
-    // paridade converte um no outro).
+    // The analyzer's code, or the `types::codes` template (the parity bridge
+    // converts one into the other).
     let code = |d: &dartforge_diagnostics::Diagnostic| match d.code.map(|c| c.info().nome) {
         Some(n) => n,
         None if d.message.starts_with(INVALID_ASSIGNMENT.template) => "invalid_assignment",
@@ -2087,12 +2094,12 @@ fn augmentation_inherits_omitted_types() {
     );
 }
 
-/// Augmentation de enum: valores novos (depois dos da declaração), membros
-/// de instância e estáticos. O `dart analyze` 3.13.4 (`augmentations`,
-/// `enhanced-parts`) não relata nada neste programa; aqui também não, e os
-/// tipos saem como os dele (`int n = Cor.values.length` sem erro; `String s
-/// = Cor.azul.index` é `invalid_assignment`, como lá). O CFE 3.13.4 recusa
-/// augmentation de enum ("already declared"): sem oráculo de execução.
+/// Enum augmentation: new values (after those of the declaration), instance
+/// and static members. `dart analyze` 3.13.4 (`augmentations`,
+/// `enhanced-parts`) reports nothing on this program; here neither, and the
+/// types come out as its own (`int n = Cor.values.length` without an error;
+/// `String s = Cor.azul.index` is `invalid_assignment`, as there). The 3.13.4
+/// CFE rejects enum augmentation ("already declared"): no runtime oracle.
 #[test]
 fn enum_augmentation_adds_values_and_members() {
     let tmp = tempdir().unwrap();
@@ -2126,15 +2133,15 @@ fn enum_augmentation_adds_values_and_members() {
         .map(|d| format!("{} @ {}", d.message, principal.get(d.span.start..d.span.end).unwrap_or("?")))
         .collect();
     assert_eq!(errors.len(), 1, "{errors:?}");
-    // `invalid_assignment` sai com o código e o texto do analyzer.
+    // `invalid_assignment` comes out with the analyzer's code and text.
     assert!(errors[0].starts_with("A value of type 'int' can't be assigned to a variable of type 'String'.") && errors[0].ends_with("@ Cor.azul.index"), "{errors:?}");
 }
 
 #[test]
 fn switch_on_nullable_sealed_is_exhaustive() {
-    // `isAlwaysExhaustive` ignora o `?`: `case var y?` e `case null` cobrem
-    // `S?` de uma classe `sealed`, e `r` está atribuída depois do `switch`
-    // (o `fieldType` do `ast_builder.dart` do analyzer 7.7.1).
+    // `isAlwaysExhaustive` ignores the `?`: `case var y?` and `case null`
+    // cover the `S?` of a `sealed` class, and `r` is assigned after the
+    // `switch` (the `fieldType` of analyzer 7.7.1's `ast_builder.dart`).
     let source = "library test; import 'dart:core';
         sealed class S {}
         class A extends S {}

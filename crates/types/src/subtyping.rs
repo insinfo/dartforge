@@ -1,16 +1,16 @@
-//! Algoritmo de subtipagem normativa de Dart 3 (`is_subtype`).
+//! Dart 3 normative subtyping algorithm (`is_subtype`).
 //!
-//! Implementa estritamente a ordem das regras de:
+//! Strictly implements the rule order of:
 //! `references/dart-language/resources/type-system/subtyping.md`
 //!
-//! A convenção é que as regras são avaliadas de cima para baixo; a primeira regra
-//! cujo padrão sintático casar define integralmente a resposta da consulta.
+//! The convention is that the rules are evaluated from top to bottom; the first rule
+//! whose syntactic pattern matches fully defines the answer to the query.
 
 use crate::hierarchy::ClassHierarchy;
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
 use std::collections::HashSet;
 
-/// Contexto de execução para consultas de subtipagem.
+/// Execution context for subtyping queries.
 pub struct SubtypeEnv<'a> {
     pub table: &'a mut TypeTable,
     pub hierarchy: &'a ClassHierarchy,
@@ -33,29 +33,30 @@ impl<'a> SubtypeEnv<'a> {
     }
 }
 
-/// Verifica se `t0` é subtipo de `t1` (`t0 <: t1`) de acordo com as regras normativas.
+/// Checks whether `t0` is a subtype of `t1` (`t0 <: t1`) according to the normative rules.
 pub fn is_subtype(t0: TypeId, t1: TypeId, env: &mut SubtypeEnv) -> bool {
     // 1. Reflexivity: if T0 and T1 are the same type then T0 <: T1
     if t0 == t1 {
         return true;
     }
 
-    // `_` é topo e fundo durante a inferência (`subtype.dart:41-45`): só o
-    // `_` inteiro (não aninhado).
+    // `_` is top and bottom during inference (`subtype.dart:41-45`): only a
+    // whole `_` (not nested).
     if env.core.is_unknown(env.table, t0) || env.core.is_unknown(env.table, t1) {
         return true;
     }
 
-    // O `InvalidType` (o tipo de recuperação de um nome que não resolve) é
-    // subtipo e supertipo de tudo (`subtype.dart:46-50`): o erro do nome já
-    // foi relatado, e nada que dependa do tipo é relatado de novo. Só existe
-    // na análise (tipos decorados); nos emissores a tabela não tem nenhum.
+    // `InvalidType` (the recovery type of a name that does not resolve) is a
+    // subtype and supertype of everything (`subtype.dart:46-50`): the name's
+    // error was already reported, and nothing that depends on the type is
+    // reported again. It only exists in analysis (decorated types); in the
+    // emitters the table has none.
     if !env.table.empty_display() && (env.table.e_invalido(t0) || env.table.e_invalido(t1)) {
         return true;
     }
 
     if !env.visiting.insert((t0, t1)) {
-        // Evita recursão infinita em F-bounds cíclicos
+        // Avoids infinite recursion in cyclic F-bounds
         return true;
     }
 
@@ -93,7 +94,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
         return true;
     }
 
-    // Variáveis promovidas `X & S` (subtyping.md, "Right/Left Promoted Variable").
+    // Promoted variables `X & S` (subtyping.md, "Right/Left Promoted Variable").
     if let Type::Intersection { param, bound } = t1 {
         let x1 = env.table.intern(Type::TypeParameter { param, nullable: false });
         return is_subtype(t0_id, x1, env) && is_subtype(t0_id, bound, env);
@@ -215,7 +216,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
         return true;
     }
 
-    // 15. Interface Compositionality e Super-Interface
+    // 15. Interface Compositionality and Super-Interface
     if let (
         Type::Interface {
             class: c0,
@@ -255,8 +256,8 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
         {
             return interface_arguments(*e0, args0, args1, env);
         }
-        // Subinterfaces declaradas no implements do extension type (classes
-        // ou outros extension types, como `JSObject implements JSAny`).
+        // Subinterfaces declared in the extension type's implements (classes
+        // or other extension types, like `JSObject implements JSAny`).
         if let Type::Interface { class: c1, .. } | Type::ExtensionType { decl: c1, .. } = &t1
             && let Some(super_t) = env.hierarchy.supertype_of(t0_id, *c1, env.table, env.core)
             && super_t != t0_id
@@ -285,13 +286,13 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
         },
     ) = (&t0, &t1)
     {
-        // Se ambos têm parâmetros de tipo, o número deve coincidir
+        // If both have type parameters, the counts must match
         if tp0.len() != tp1.len() {
             return false;
         }
-        // Funções genéricas: renomeia os parâmetros de T1 para os de T0
-        // (Z fresco da especificação, "Subtype Rules" 17) e exige limites
-        // mutuamente subtipos.
+        // Generic functions: renames the parameters of T1 to those of T0
+        // (the specification's fresh Z, "Subtype Rules" 17) and requires
+        // mutually subtype bounds.
         if !tp0.is_empty() && tp0 != tp1 {
             let mut m = std::collections::HashMap::new();
             for (&y, &x) in tp1.iter().zip(tp0.iter()) {
@@ -323,7 +324,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             return is_subtype(t0_id, t1r, env);
         }
 
-        // Funções com parâmetros posicionais opcionais
+        // Functions with optional positional parameters
         if !opt0.is_empty() || !opt1.is_empty() || (named0.is_empty() && named1.is_empty()) {
             if !named0.is_empty() || !named1.is_empty() {
                 return false;
@@ -333,12 +334,12 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             let m = n + opt0.len();
             let q = p + opt1.len();
 
-            // p >= n e m >= q
+            // p >= n and m >= q
             if !(p >= n && m >= q) {
                 return false;
             }
 
-            // Parâmetros são contravariantes: S_i <: V_i
+            // Parameters are contravariant: S_i <: V_i
             let get_param0 =
                 |idx: usize| -> TypeId { if idx < n { pos0[idx] } else { opt0[idx - n] } };
             let get_param1 =
@@ -352,11 +353,11 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
                 }
             }
 
-            // Retorno é covariante: U0 <: U1
+            // The return is covariant: U0 <: U1
             return is_subtype(*ret0, *ret1, env);
         }
 
-        // Funções com parâmetros nomeados
+        // Functions with named parameters
         if pos0.len() != pos1.len() {
             return false;
         }
@@ -366,14 +367,14 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             }
         }
 
-        // Todos os nomeados de T1 devem estar presentes em T0 (T1 subset of T0)
+        // All named parameters of T1 must be present in T0 (T1 subset of T0)
         for &(sym1, ty1, req1) in named1.iter() {
             if let Some(&(_, ty0, req0)) = named0.iter().find(|(s, _, _)| *s == sym1) {
-                // Parâmetros nomeados contravariantes
+                // Contravariant named parameters
                 if !is_subtype(ty1, ty0, env) {
                     return false;
                 }
-                // Se era required em T0, deve ser required em T1
+                // If it was required in T0, it must be required in T1
                 if req0 && !req1 {
                     return false;
                 }
@@ -382,7 +383,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             }
         }
 
-        // Se algum parâmetro em T0 é required, ele deve existir em T1 como required
+        // If some parameter in T0 is required, it must exist in T1 as required
         for &(sym0, _, req0) in named0.iter() {
             if req0 {
                 let found_req1 = named1.iter().any(|(s, _, r)| *s == sym0 && *r);
@@ -392,7 +393,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             }
         }
 
-        // Retorno covariante
+        // Covariant return
         return is_subtype(*ret0, *ret1, env);
     }
 
@@ -414,7 +415,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             return false;
         }
 
-        // Covariância campo a campo
+        // Field-by-field covariance
         for (&p0, &p1) in pos0.iter().zip(pos1.iter()) {
             if !is_subtype(p0, p1, env) {
                 return false;
@@ -492,8 +493,8 @@ fn check_right_object(_t0_id: TypeId, t0: &Type, t1_id: TypeId, env: &mut Subtyp
     if matches!(t0, Type::Null | Type::Dynamic | Type::Void) || t0.is_declared_nullable() {
         return false;
     }
-    // - um tipo de extensão sem superinterface que leve a uma classe só é
-    //   subtipo de `Object?`.
+    // - an extension type without a superinterface leading to a class is only
+    //   a subtype of `Object?`.
     if let Type::ExtensionType { decl, .. } = t0
         && env.hierarchy.extensions_without_object.contains(decl)
     {
@@ -508,9 +509,9 @@ fn check_left_null(t1: &Type, env: &mut SubtypeEnv) -> bool {
     if matches!(t1, Type::TypeParameter { nullable: false, .. } | Type::Intersection { .. }) {
         return false;
     }
-    // - if T1 is Null, S? for some S, then the query is true. Vem antes do
-    //   FutureOr: `Null <: FutureOr<int>?` é verdade pelo `?`, mesmo com
-    //   `Null <: int` falso (`Completer<int>.complete(int?)` era erro).
+    // - if T1 is Null, S? for some S, then the query is true. Comes before
+    //   FutureOr: `Null <: FutureOr<int>?` is true through the `?`, even with
+    //   `Null <: int` false (`Completer<int>.complete(int?)` was an error).
     if matches!(t1, Type::Null) || t1.is_declared_nullable() {
         return true;
     }
@@ -568,9 +569,9 @@ fn strip_nullability(ty_id: TypeId, ty: &Type, table: &mut TypeTable) -> TypeId 
     }
 }
 
-/// `_interfaceArguments` (`analyzer/lib/src/dart/element/subtype.dart`): os
-/// argumentos de `C<S…>` contra `C<T…>` pela variância declarada de cada
-/// parâmetro (`in`, `out`, `inout`; sem modificador, covariante).
+/// `_interfaceArguments` (`analyzer/lib/src/dart/element/subtype.dart`): the
+/// arguments of `C<S…>` against `C<T…>` by the declared variance of each
+/// parameter (`in`, `out`, `inout`; without a modifier, covariant).
 fn interface_arguments(c: dartforge_elements::model::ClassId, args0: &[TypeId], args1: &[TypeId], env: &mut SubtypeEnv) -> bool {
     let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(c).map(|d| d.type_params.to_vec()).unwrap_or_default();
     for (i, (&a0, &a1)) in args0.iter().zip(args1.iter()).enumerate() {

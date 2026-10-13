@@ -1,6 +1,6 @@
-//! Estado de um corpo em inferência: locais, escopos léxicos, parâmetros de
-//! tipo visíveis, pilha de funções (para `return`/`yield`), receptores de
-//! cascata e o modelo de fluxo corrente.
+//! State of a body being inferred: locals, lexical scopes, visible type
+//! parameters, function stack (for `return`/`yield`), cascade receivers and
+//! the current flow model.
 
 use super::flow::Fluxo;
 use super::BodyInferrer;
@@ -11,67 +11,68 @@ use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 use std::collections::{HashMap, HashSet};
 
-/// Uma variável local (inclusive parâmetros, variáveis de padrão e funções locais).
+/// A local variable (including parameters, pattern variables and local functions).
 #[derive(Debug, Clone)]
 pub(crate) struct Local {
     pub nome: SymbolId,
-    /// Tipo declarado (escrito ou inferido do inicializador).
+    /// Declared type (written or inferred from the initializer).
     pub tipo: TypeId,
     pub final_: bool,
     pub late: bool,
     pub const_: bool,
-    /// Offset do nome na declaração.
+    /// Offset of the name in the declaration.
     pub offset: usize,
-    /// Tipo ainda não conhecido (`var x;` sem inicializador tem `dynamic`,
-    /// mas uma função local sendo inferida não está disponível).
+    /// Type not yet known (`var x;` without an initializer has `dynamic`, but a
+    /// local function being inferred is not available).
     pub funcao_local: bool,
 }
 
-/// O que um nome resolve num escopo de bloco.
+/// What a name resolves to in a block scope.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Nome {
     Local(LocalId),
     TypeParam(TypeParamId),
-    /// Local declarado mais adiante no mesmo bloco: o escopo do bloco já o
-    /// contém, e usá-lo antes da declaração é erro. O intervalo do nome na
-    /// declaração.
+    /// A local declared further ahead in the same block: the block's scope
+    /// already contains it, and using it before the declaration is an error. The
+    /// range of the name in the declaration.
     Forward(dartforge_diagnostics::Span),
 }
 
-/// Contexto da função (ou expressão de função) que envolve o ponto atual.
+/// Context of the function (or function expression) enclosing the current
+/// point.
 #[derive(Debug, Clone)]
 pub(crate) struct FunctionCtx {
     pub modificador: ast::AsyncModifier,
-    /// O `imposedType` do `BodyInferenceContext` de um literal de função: o
-    /// retorno do tipo de função do contexto (salvo `dynamic`/`_`), contra o
-    /// qual o `yield` é conferido (`function_expression_resolver.dart:37-48`).
+    /// The `imposedType` of a function literal's `BodyInferenceContext`: the
+    /// return of the context's function type (except `dynamic`/`_`), against
+    /// which `yield` is checked (`function_expression_resolver.dart:37-48`).
     pub closure_imposed: Option<TypeId>,
-    /// Tipo de retorno declarado (ou imposto pelo contexto); `None` quando
-    /// o retorno está sendo inferido.
+    /// Declared return type (or imposed by the context); `None` when the return
+    /// is being inferred.
     pub retorno: Option<TypeId>,
-    /// Esquema de contexto para as expressões de `return`/`yield`.
+    /// Context schema for the `return`/`yield` expressions.
     pub return_context: TypeId,
-    /// Tipos das expressões retornadas (ou `yield`adas), para inferência.
+    /// Types of the returned (or yielded) expressions, for inference.
     pub returned: Vec<TypeId>,
-    /// Há `return;` sem valor.
+    /// There is a `return;` without a value.
     pub empty_return: bool,
-    /// As palavras `return` dos `return;` sem valor de uma closure, para o
-    /// `_checkReturnWithoutValue` depois de inferido o tipo de retorno dela.
+    /// The `return` keywords of a closure's valueless `return;`s, for
+    /// `_checkReturnWithoutValue` after its return type is inferred.
     pub valueless_returns: Vec<dartforge_diagnostics::Span>,
-    /// As expressões de `return e;` (e o corpo `=> e`) com os tipos, para a
-    /// conferência de uma closure cujo retorno acaba sendo o do contexto.
+    /// The expressions of `return e;` (and the `=> e` body) with their types,
+    /// for checking a closure whose return ends up being the context's.
     pub returned_expressions: Vec<(ast::ExprId, TypeId)>,
-    /// O executável que declara o retorno, para `return_of_invalid_type`;
-    /// `None` em closures e construtores geradores (outras regras).
+    /// The executable that declares the return, for `return_of_invalid_type`;
+    /// `None` in closures and generative constructors (other rules).
     pub executavel: Option<Executavel>,
-    /// `hasLegalReturnType`: falso depois de `illegal_*_return_type`, que
-    /// cala a conferência das expressões retornadas.
+    /// `hasLegalReturnType`: false after `illegal_*_return_type`, which silences
+    /// the check of the returned expressions.
     pub legal_return: bool,
 }
 
-/// Espécie e nome de exibição do executável (`EnclosingExecutableContext`
-/// do analyzer): o `return_of_invalid_type` diz "function", "method" ou
-/// "constructor" e o nome.
+/// Kind and display name of the executable (the analyzer's
+/// `EnclosingExecutableContext`): `return_of_invalid_type` says "function",
+/// "method" or "constructor" and the name.
 #[derive(Debug, Clone)]
 pub(crate) struct Executavel {
     pub especie: ExecutableKind,
@@ -80,168 +81,171 @@ pub(crate) struct Executavel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutableKind {
-    /// Função de topo ou local com nome, e getters/setters (de topo ou de
-    /// classe): `PropertyAccessorElement` conta como função.
+    /// Named top-level or local function, and getters/setters (top-level or
+    /// class ones): a `PropertyAccessorElement` counts as a function.
     Funcao,
-    /// Método ou operador de classe ou extensão.
+    /// Method or operator of a class or extension.
     Metodo,
-    /// Construtor factory.
+    /// Factory constructor.
     Construtor,
 }
 
-/// Estado de inferência de um corpo.
+/// Inference state of a body.
 pub(crate) struct Body {
     pub unit: UnitId,
     pub lib: LibraryId,
     pub classe: Option<ClassId>,
     pub extensao: Option<ExtensionId>,
-    /// Sem `this` (membro estático, topo, construtor de fábrica...).
+    /// Without `this` (static member, top level, factory constructor...).
     pub estatico: bool,
     pub locais: Vec<Local>,
-    /// Declarações de funções locais (distintas de variáveis finais com tipo de função).
+    /// Declarations of local functions (distinct from final variables with a function type).
     pub funcoes_locais: HashSet<LocalId>,
     pub escopos: Vec<Vec<(SymbolId, Nome)>>,
     pub flow: Fluxo,
     pub funcoes: Vec<FunctionCtx>,
     pub cascades: Vec<TypeId>,
-    /// O alvo de cada cascata aberta (o `realTarget` das seções).
+    /// The target of each open cascade (the sections' `realTarget`).
     pub cascade_targets: Vec<ast::ExprId>,
-    /// A base de promoção de cada alvo de cascata e a versão dela no início
-    /// da cascata: o alvo vive num temporário implícito com o nó SSA da
-    /// expressão (`cascadeExpression_afterTarget`), que uma escrita na
-    /// variável durante as seções não muda.
+    /// The promotion base of each cascade target and its version at the start
+    /// of the cascade: the target lives in an implicit temporary with the
+    /// expression's SSA node (`cascadeExpression_afterTarget`), which a write to
+    /// the variable during the sections does not change.
     pub cascade_bases: Vec<Option<(Base, u32)>>,
-    /// No inicializador de um campo de instância não `late` ou de uma
-    /// variável estática de classe ou extensão (`_isInInstanceNotLateVariableDeclaration`,
-    /// `_isInStaticVariableDeclaration`): o membro de instância sem `this` é
+    /// In the initializer of a non-`late` instance field or of a static variable of a
+    /// class or extension (`_isInInstanceNotLateVariableDeclaration`,
+    /// `_isInStaticVariableDeclaration`): an instance member without `this` is
     /// `IMPLICIT_THIS_REFERENCE_IN_INITIALIZER`.
     pub variable_initializer: bool,
-    /// A versão forçada de uma base enquanto se lê uma propriedade pelo
-    /// alvo de cascata ([`Corpo::versao_da_base`]).
+    /// The forced version of a base while a property is read through the
+    /// cascade target ([`Body::base_version`]).
     pub forced_version: Option<(Base, u32)>,
-    /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
-    /// solto é uma constante (`case _padrao:`), não uma variável nova.
+    /// Typing the pattern of a `case`/`if-case` (refutable): a bare identifier
+    /// is a constant (`case _padrao:`), not a new variable.
     pub padrao_refutavel: bool,
-    /// Um padrão refutável já relatado num contexto irrefutável
-    /// (`refutablePatternInIrrefutableContext`): o que está abaixo dele é
-    /// analisado como refutável (`context.makeRefutable()`), sem relatar de
-    /// novo nem conferir o tipo requerido.
+    /// A refutable pattern already reported in an irrefutable context
+    /// (`refutablePatternInIrrefutableContext`): what is below it is analyzed as
+    /// refutable (`context.makeRefutable()`), without reporting again or
+    /// checking the required type.
     pub forced_refutable: bool,
-    /// O literal inteiro operando de um `-` unário em análise
+    /// The integer literal operand of a unary `-` being analyzed
     /// (`IntegerLiteral.immediatelyNegated`).
     pub negated_literal: Option<ast::ExprId>,
-    /// As variáveis do padrão guardado cuja cláusula `when` está em análise
-    /// (`isVisitingWhenClause`): escrever nelas é
+    /// The variables of the guarded pattern whose `when` clause is being
+    /// analyzed (`isVisitingWhenClause`): writing to them is
     /// `PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD`.
     pub variables_in_guard: Vec<LocalId>,
-    /// As variáveis do padrão guardado em curso (nome e declaração), que
-    /// ficam escondidas durante todo o padrão
-    /// (`HiddenElements.forGuardedPattern`, `error_verifier.dart:6570-6575`):
-    /// lê-las dentro do padrão é `REFERENCED_BEFORE_DECLARATION`.
+    /// The variables of the current guarded pattern (name and declaration), which
+    /// stay hidden during the whole pattern (`HiddenElements.forGuardedPattern`,
+    /// `error_verifier.dart:6570-6575`): reading them inside the pattern is
+    /// `REFERENCED_BEFORE_DECLARATION`.
     pub pattern_hidden: Vec<(SymbolId, dartforge_diagnostics::Span)>,
-    /// Os locais declarados pelo padrão do último `case` (sem os da
-    /// guarda), para as variáveis de junção dos casos que dividem o corpo.
+    /// The locals declared by the pattern of the last `case` (without those of
+    /// the guard), for the join variables of cases that share the body.
     pub last_pattern_locals: std::ops::Range<usize>,
-    /// Variáveis de junção inconsistentes dos casos que dividem um corpo,
-    /// com o código que cada referência relata (`finishJoinedPatternVariable`).
+    /// Inconsistent join variables of cases that share a body, with the code that
+    /// each reference reports (`finishJoinedPatternVariable`).
     pub inconsistent_joins: HashMap<LocalId, dartforge_diagnostics::Codigo>,
-    /// O casamento de padrão em curso (T6: a referência do valor casado e o
-    /// estado "não casou"); `None` fora de padrão.
+    /// The pattern match in progress (T6: the matched value's reference and the
+    /// "did not match" state); `None` outside a pattern.
     pub matching: Option<super::patterns::Matching>,
-    /// Dentro de um `switch` (instrução ou expressão): o escrutínio já
-    /// casado por um caso — a expressão, a chave de promoção do valor e a
-    /// versão de escrita da variável escrutinada —, que os casos seguintes
-    /// reusam. `None` fora de `switch`; `Some(None)` antes do primeiro caso.
+    /// Inside a `switch` (statement or expression): the scrutinee already
+    /// matched by a case (the expression, the value's promotion key and the
+    /// write version of the scrutinized variable), which the following cases
+    /// reuse. `None` outside a `switch`; `Some(None)` before the first case.
     pub switch_scrutinee: Option<Option<(ast::ExprId, LocalId, Option<u32>)>>,
-    /// Corpo de um método ou inicializador de campo estático: os parâmetros
-    /// de tipo da classe não valem ali (`TYPE_PARAMETER_REFERENCED_BY_STATIC`).
+    /// Body of a static method or static field initializer: the class's type
+    /// parameters do not apply there (`TYPE_PARAMETER_REFERENCED_BY_STATIC`).
     pub static_member: bool,
-    /// Pilha de alvos de `break`/`continue` (rótulos e laços): modelos de
-    /// fluxo acumulados nos saltos.
+    /// Stack of `break`/`continue` targets (labels and loops): flow models
+    /// accumulated at the jumps.
     pub saltos: Vec<JumpTarget>,
-    /// Tipo de `this` (classe, mixin, enum, tipo de extensão ou `on` da extensão).
+    /// Type of `this` (class, mixin, enum, extension type or the extension's `on`).
     pub tipo_this: Option<TypeId>,
-    /// Nomes escritos dentro de closures (captura de escrita, que impede promoção).
+    /// Names written inside closures (write capture, which prevents promotion).
     pub written_in_closure: Vec<super::statements::Escrita>,
-    /// Rótulos da instrução rotulada cujo corpo é o próximo laço/`switch`.
+    /// Labels of the labeled statement whose body is the next loop/`switch`.
     pub pending_labels: Vec<SymbolId>,
-    /// O símbolo `_` quando a biblioteca tem curingas (Dart 3.7): declarar
-    /// `_` cria o local (tem `LocalId` e tipo) mas não liga o nome.
+    /// The symbol `_` when the library has wildcards (Dart 3.7): declaring `_`
+    /// creates the local (it has a `LocalId` and a type) but does not bind the
+    /// name.
     pub curinga: Option<SymbolId>,
-    /// Atalhos de ponto (3.10): o contexto da cadeia de seletores, pela
-    /// expressão `DotShorthand` da raiz (ver `atalhos`).
+    /// Dot shorthands (3.10): the context of the selector chain, by the root's
+    /// `DotShorthand` expression (see `atalhos`).
     pub shorthand_context: HashMap<u32, TypeId>,
-    /// Raízes `DotShorthand` de uma invocação cujo erro já foi relatado
-    /// (`atalhos::construcao`): o [`super::atalhos::valor`] do alvo não relata de novo.
+    /// `DotShorthand` roots of an invocation whose error was already reported
+    /// (`shorthands::construction`): the target's [`super::shorthands::valor`] does not report again.
     pub reported_shorthands: std::collections::HashSet<u32>,
-    /// Nomes escritos em qualquer ponto do corpo de topo: dentro de uma
-    /// closure eles não ficam promovidos (`functionExpression_begin` faz a
-    /// junção conservadora com `assignedVariables.anywhere`).
-    /// Calculado na primeira closure (a maioria dos corpos não tem nenhuma).
-    /// `(escritos fora de literais, escritos dentro de literais)` do membro.
+    /// Names written anywhere in the top-level body: inside a closure they do
+    /// not stay promoted (`functionExpression_begin` does the conservative join
+    /// with `assignedVariables.anywhere`).
+    /// Computed at the first closure (most bodies have none).
+    /// `(written_ones outside de literais, written_ones dentro de literais)` of the member.
     pub written_in_body: Option<(Vec<super::statements::Escrita>, Vec<super::statements::Escrita>)>,
-    /// O corpo de topo, para calcular `escritos_no_corpo` sob demanda.
+    /// The top-level body, for computing `written_in_body` on demand.
     pub raiz: Raiz,
-    /// Propriedades promovíveis (Dart 3.2) já referidas: `(base, versão de
-    /// escrita da base, nome) -> local sintético` que carrega o modelo de
-    /// fluxo da propriedade (o `_promotableProperties` do nó SSA da base).
+    /// Promotable properties (Dart 3.2) already referenced:
+    /// `(base, versão de escrita da base, name) -> local sintético` that carries
+    /// the property's flow model (the `_promotableProperties` of the base's SSA
+    /// node).
     pub campos: HashMap<(Base, u32, SymbolId), LocalId>,
-    /// Propriedades não promovíveis: as gerações (uma por leitura que virou
-    /// alvo de promoção), da mais antiga à mais nova (o
-    /// `_nonPromotableProperties` com o `previousSsaNode` de cada nó).
+    /// Non-promotable properties: the generations (one per read that became a
+    /// promotion target), from oldest to newest (the `_nonPromotableProperties`
+    /// with the `previousSsaNode` of each node).
     pub generations: HashMap<(Base, u32, SymbolId), Vec<LocalId>>,
-    /// A geração de cada leitura de propriedade não promovível.
+    /// The generation of each read of a non-promotable property.
     pub read_generation: HashMap<ast::ExprId, LocalId>,
-    /// O local sintético de `this` (a `thisPromotionKey`), que guarda as
-    /// promoções que `this` nunca usa (só o why-not-promoted as vê).
+    /// The synthetic local of `this` (the `thisPromotionKey`), which keeps the
+    /// promotions that `this` never uses (only why-not-promoted sees them).
     pub local_this: Option<LocalId>,
-    /// Fluxos de antes de cada `?.` das cadeias em curso.
+    /// Flows from before each `?.` of the chains in progress.
     pub cadeias: Vec<super::flow::Fluxo>,
-    /// Variáveis de condição (§7.10): `(verdadeiro, falso, versão)` do
-    /// valor escrito na variável, restaurados na leitura como condição.
+    /// Condition variables (§7.10): `(true_, false_, versão)` of the value
+    /// written to the variable, restored when it is read as a condition.
     pub conditions: HashMap<LocalId, (Fluxo, Fluxo, u32)>,
-    /// Sobreposições explícitas de extensão (`E(x)`, R-EXT-02): a chamada
-    /// `E(x)` → a extensão e os argumentos de tipo dela.
+    /// Explicit extension overrides (`E(x)`, R-EXT-02): the call `E(x)` → the
+    /// extension and its type arguments.
     pub overlays: HashMap<ast::ExprId, (ExtensionId, Vec<TypeId>)>,
-    /// Fins dos blocos básicos em curso (o `flowEnd` do
-    /// `NullSafetyDeadCodeVerifier`: corpo de função, ramo de `if`, corpo de
-    /// laço, `try`/`catch`), já aparados na última instrução do bloco.
+    /// Ends of the basic blocks in progress (the `flowEnd` of
+    /// `NullSafetyDeadCodeVerifier`: function body, `if` branch, loop body,
+    /// `try`/`catch`), already trimmed at the block's last statement.
     pub flow_ends: Vec<usize>,
-    /// O fim da última instrução de cada bloco em curso: sem bloco básico
-    /// aberto, é onde o trecho morto de uma expressão termina (o
-    /// `flowEnd` do corpo, aparado na última instrução).
+    /// The end of the last statement of each block in progress: without an open
+    /// basic block, it is where the dead fragment of an expression ends (the
+    /// body's `flowEnd`, trimmed at the last statement).
     pub block_ends: Vec<usize>,
-    /// Os parâmetros do construtor primário vistos nos inicializadores dele
-    /// e nos de campo não `late` (o `_thisContext` `constructorInitializers`
-    /// e `instanceFieldDeclaration` do `ErrorVerifier` 3.13): escrever num
-    /// deles ali é `ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER`.
+    /// The parameters of the primary constructor as seen in its initializers and
+    /// in those of non-`late` fields (the `constructorInitializers` and
+    /// `instanceFieldDeclaration` `_thisContext` of the 3.13 `ErrorVerifier`):
+    /// writing to one of them there is
+    /// `ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER`.
     pub primary_parameters: HashSet<LocalId>,
-    /// O `this` sem o tipo da declaração: o cabeçalho de um construtor
-    /// primário (3.13, fora do corpo da classe) e a lista de inicialização
-    /// (onde a recuperação do parser do analyzer difere da nossa em
+    /// `this` without the declaration's type: the header of a primary
+    /// constructor (3.13, outside the class body) and the initializer list
+    /// (where the analyzer's parser recovery differs from ours in
     /// `this?.x()`).
     pub untyped_this: bool,
-    /// Profundidade em `fins_de_fluxo` onde começou o trecho morto em curso
-    /// (`_firstDeadNode`): enquanto houver um, outro nó inalcançável é parte
-    /// do mesmo trecho.
+    /// Depth in `flow_ends` where the dead fragment in progress started
+    /// (`_firstDeadNode`): while there is one, another unreachable node is part
+    /// of the same fragment.
     pub dead_code: Option<usize>,
-    /// Onde o trecho morto em curso começou: a própria instrução (ramo
-    /// inalcançável) ou o bloco que a contém. O `for` relata as
-    /// atualizações quando é o corpo dele (`_reportForUpdaters`).
+    /// Where the dead fragment in progress started: the statement itself
+    /// (unreachable branch) or the block that contains it. A `for` reports the
+    /// updates when it is its body (`_reportForUpdaters`).
     pub dead_origin: Option<ast::StmtId>,
 }
 
-/// Base de uma referência a campo promovível.
+/// Base of a reference to a promotable field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Base {
     This,
-    /// `super` (o `_superSsaNode`: as propriedades dele são outras que as
-    /// de `this`).
+    /// `super` (the `_superSsaNode`: its properties are different from those of
+    /// `this`).
     Super,
     Local(LocalId),
 }
 
-/// Corpo de topo em inferência.
+/// Top-level body being inferred.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Raiz {
     Nada,
@@ -249,10 +253,10 @@ pub(crate) enum Raiz {
     Construtor(ast::MemberId),
 }
 
-/// Destino de saltos.
+/// Jump destination.
 pub(crate) struct JumpTarget {
     pub rotulos: Vec<SymbolId>,
-    /// É laço ou `switch` (alvo de `break`/`continue` sem rótulo).
+    /// It is a loop or a `switch` (target of an unlabeled `break`/`continue`).
     pub laco: bool,
     pub e_switch: bool,
     pub breaks: Vec<Fluxo>,
@@ -315,8 +319,8 @@ impl Body {
         if inf.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
             cx.curinga = inf.interner.lookup("_");
         }
-        // Parâmetros de tipo da classe/extensão estão sempre em escopo
-        // (mesmo em membros estáticos, onde usá-los é erro).
+        // The class/extension's type parameters are always in scope (even in
+        // static members, where using them is an error).
         if let Some(c) = class {
             let ps = inf.outline.classes[c.0 as usize].type_params.clone();
             for p in ps.iter() {
@@ -340,11 +344,11 @@ impl Body {
         cx
     }
 
-    /// Corpo para o inicializador de uma variável de topo ou campo.
+    /// Body for the initializer of a top-level variable or a field.
     pub fn to_variable(inf: &mut BodyInferrer<'_>, vid: VariableId, unit: UnitId) -> Self {
         let v = inf.program.variable(vid);
         let (class, extension) = (v.class, v.extension);
-        // Inicializadores de campos de instância não veem `this` (só os `late`).
+        // Instance field initializers do not see `this` (only the `late` ones do).
         let static_ = v.static_ || (class.is_none() && extension.is_none()) || !v.late;
         let mut cx = Body::novo(inf, unit, class, extension, static_);
         cx.static_member = v.static_ && (class.is_some() || extension.is_some());
@@ -355,8 +359,8 @@ impl Body {
                 cx.tipo_this = Some(inf.class_this_type(c));
             }
         }
-        // O campo de instância não `late` vê os parâmetros do construtor
-        // primário.
+        // A non-`late` instance field sees the primary constructor's
+        // parameters.
         if !v.static_ && !v.late
             && let Some(c) = class
         {
@@ -365,7 +369,7 @@ impl Body {
         cx
     }
 
-    /// Corpo de uma função declarada (método, função de topo, construtor).
+    /// Body of a declared function (method, top-level function, constructor).
     pub fn to_function(inf: &mut BodyInferrer<'_>, f: FunctionElementId, unit: UnitId) -> Self {
         let fe = inf.program.function(f);
         let (class, extension) = (fe.class, fe.extension);
@@ -390,7 +394,7 @@ impl Body {
         }
     }
 
-    /// Declara um local no escopo mais interno.
+    /// Declares a local in the innermost scope.
     pub fn declarar(&mut self, local: Local) -> LocalId {
         let id = LocalId(self.locais.len() as u32);
         let name = local.nome;
@@ -406,7 +410,7 @@ impl Body {
         id
     }
 
-    /// Registra um nome declarado adiante no bloco corrente.
+    /// Records a name declared further ahead in the current block.
     pub fn declare_forward(&mut self, name: SymbolId, span: dartforge_diagnostics::Span) {
         if self.curinga == Some(name) {
             return;
@@ -416,7 +420,8 @@ impl Body {
         }
     }
 
-    /// Local sintético (sem nome no escopo): alvo de promoção de um campo.
+    /// Synthetic local (without a name in scope): the promotion target of a
+    /// field.
     pub fn declare_synthetic(&mut self, local: Local) -> LocalId {
         let id = LocalId(self.locais.len() as u32);
         self.locais.push(local);
@@ -425,10 +430,10 @@ impl Body {
         id
     }
 
-    /// Esquece os campos promovidos de uma local reatribuída.
+    /// Forgets the promoted fields of a reassigned local.
     pub fn forget_fields_of(&mut self, base: LocalId) {
-        // Numa cascata sobre esta local, o temporário do alvo continua com o
-        // nó SSA antigo: os campos da versão de antes ficam para as seções.
+        // In a cascade on this local, the target's temporary keeps the old SSA
+        // node: the fields of the previous version are kept for the sections.
         if self.cascade_bases.iter().any(|x| matches!(x, Some((Base::Local(b), _)) if *b == base)) {
             let current = self.base_version(Base::Local(base));
             let stored: Vec<u32> = self.cascade_bases.iter().filter_map(|x| match x {
@@ -441,13 +446,13 @@ impl Body {
         self.campos.retain(|(b, _, _), _| *b != Base::Local(base));
     }
 
-    /// O local é o sintético de uma propriedade (estável ou geração).
+    /// The local is the synthetic one of a property (stable or a generation).
     pub fn is_property(&self, id: LocalId) -> bool {
         self.campos.values().any(|&v| v == id) || self.read_generation.values().any(|&v| v == id)
     }
 
-    /// `infoFor`: um sintético cujo modelo se perdeu numa junção (criado num
-    /// só dos ramos) volta como novo.
+    /// `infoFor`: a synthetic local whose model was lost at a join (created in
+    /// only one of the branches) comes back as new.
     pub fn ensure_model(&mut self, id: LocalId) {
         if self.flow.modelo(id).is_none() {
             self.flow.declarar(id);
@@ -455,8 +460,8 @@ impl Body {
         }
     }
 
-    /// A versão de escrita da base de uma propriedade: a da local (o nó SSA
-    /// dela); `this`, `super` e as propriedades estáveis não mudam.
+    /// The write version of a property's base: the local's (its SSA node);
+    /// `this`, `super` and stable properties do not change.
     pub fn base_version(&self, base: Base) -> u32 {
         if let Some((b, v)) = self.forced_version
             && b == base
@@ -475,7 +480,7 @@ impl Body {
         }
     }
 
-    /// Nome nos escopos de bloco (do mais interno para fora).
+    /// A name in the block scopes (from the innermost outwards).
     pub fn buscar(&self, name: SymbolId) -> Option<Nome> {
         for e in self.escopos.iter().rev() {
             for (n, r) in e.iter().rev() {
@@ -491,8 +496,8 @@ impl Body {
         &self.locais[id.0 as usize]
     }
 
-    /// Os locais visíveis (declarados ou adiante no bloco) por nome, com o
-    /// nome da declaração e se ainda não foi declarado (escondido): um tipo escrito que nomeia um deles é
+    /// The visible locals (declared or ahead in the block) by name, with the
+    /// declaration's name and whether it has not been declared yet (hidden): a written type that names one of them is
     /// `REFERENCED_BEFORE_DECLARATION` (`NamedTypeResolver`,
     /// `named_type_resolver.dart:611-621`).
     pub fn visible_locals(&self, interner: &dartforge_intern::Interner) -> HashMap<SymbolId, (dartforge_diagnostics::Span, bool)> {
@@ -517,7 +522,7 @@ impl Body {
         m
     }
 
-    /// Parâmetros de tipo visíveis por nome (para resolver anotações).
+    /// Type parameters visible by name (for resolving annotations).
     pub fn visible_type_parameters(&self) -> HashMap<SymbolId, TypeParamId> {
         let mut m = HashMap::new();
         for e in self.escopos.iter() {
@@ -536,8 +541,8 @@ impl Body {
         m
     }
 
-    /// O escopo léxico deste ponto, para a sonda do LSP: cada nome uma vez,
-    /// pela declaração mais interna (a mesma ordem de [`Corpo::buscar`]).
+    /// The lexical scope at this point, for the LSP probe: each name once, by
+    /// the innermost declaration (the same order as [`Body::buscar`]).
     pub fn visible_scope(&self) -> crate::resolved::EscopoSondado {
         let mut seen: HashSet<SymbolId> = HashSet::new();
         let mut output = crate::resolved::EscopoSondado {
@@ -564,7 +569,7 @@ impl Body {
                         });
                     }
                     Nome::TypeParam(p) => output.parametros_de_tipo.push((*n, *p)),
-                    // Declarado adiante: ainda não pode ser usado aqui.
+                    // Declared ahead: it cannot be used here yet.
                     Nome::Forward(_) => {}
                 }
             }

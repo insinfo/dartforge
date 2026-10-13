@@ -1,44 +1,44 @@
-//! Promoção de campos (Dart 3.2, `inference-update-2`): o
-//! `FieldPromotability` de `_fe_analyzer_shared`
-//! (`src/field_promotability.dart`) com o `_FieldPromotability` do analyzer
+//! Field promotion (Dart 3.2, `inference-update-2`): `_fe_analyzer_shared`'s
+//! `FieldPromotability` (`src/field_promotability.dart`) together with the
+//! analyzer's `_FieldPromotability`
 //! (`src/summary2/library_builder.dart:1466-1581`).
 //!
-//! Por biblioteca: cada classe, enum e mixin registra os campos e getters de
-//! instância não sintéticos de nome privado. Um campo não final ou
-//! `external`, ou um getter concreto, torna o nome não promovível; uma classe
-//! concreta cuja interface tem o nome sem que a implementação o tenha (um
-//! encaminhador de `noSuchMethod`) também. O resultado é o
-//! `fieldNameNonPromotabilityInfo` da biblioteca (que o why-not-promoted
-//! mostra) e os campos promovíveis (`isPromotable`).
+//! Per library: each class, enum and mixin registers its non-synthetic
+//! instance fields and getters with a private name. A non-final or
+//! `external` field, or a concrete getter, makes the name non-promotable; so
+//! does a concrete class whose interface has the name without the
+//! implementation having it (a `noSuchMethod` forwarder). The result is the
+//! library's `fieldNameNonPromotabilityInfo` (which why-not-promoted shows)
+//! and the promotable fields (`isPromotable`).
 
 use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, LibraryId, Program, VariableId, VariableRef};
 use dartforge_frontend::ast;
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
-/// `FieldNameNonPromotabilityInfo`: as declarações que impedem a promoção de
-/// um nome, na ordem em que o analyzer as encontra.
+/// `FieldNameNonPromotabilityInfo`: the declarations that prevent a name from
+/// being promoted, in the order the analyzer finds them.
 #[derive(Debug, Default, Clone)]
 pub struct NonPromotionInfo {
-    /// Campos não finais ou `external` (`conflictingFields`).
+    /// Non-final or `external` fields (`conflictingFields`).
     pub campos: Vec<VariableId>,
     /// Getters concretos (`conflictingGetters`).
     pub getters: Vec<FunctionElementId>,
-    /// Classes concretas com encaminhador de `noSuchMethod`
+    /// Concrete classes with a `noSuchMethod` forwarder
     /// (`conflictingNsmClasses`).
     pub nsm_classes: Vec<ClassId>,
 }
 
-/// O resultado de uma biblioteca.
+/// The result for a library.
 #[derive(Debug, Default, Clone)]
 pub struct LibraryPromotion {
-    /// `fieldNameNonPromotabilityInfo`, pelo nome.
+    /// `fieldNameNonPromotabilityInfo`, by name.
     pub info: HashMap<SymbolId, NonPromotionInfo>,
-    /// Campos com `isPromotable` (os de representação privados de tipos de
-    /// extensão inclusive).
+    /// Fields with `isPromotable` (including private representation fields of
+    /// extension types).
     pub campos: HashSet<VariableId>,
-    /// Getters abstratos privados cujo campo sintético é promovível (o
-    /// `accessor.variable2` do analyzer).
+    /// Private abstract getters whose synthetic field is promotable (the
+    /// analyzer's `accessor.variable2`).
     pub getters: HashSet<FunctionElementId>,
 }
 
@@ -51,14 +51,14 @@ pub enum WhyNotPromoted {
     NonFinal,
 }
 
-/// Se o recurso vale numa biblioteca (versão de linguagem 3.2 ou mais).
+/// Whether the feature applies in a library (language version 3.2 or later).
 pub fn enabled(program: &Program, lib: LibraryId) -> bool {
     program.library(lib).features.versao() >= dartforge_frontend::LanguageVersion::new(3, 2)
 }
 
-/// As classes, enums e mixins de uma unidade na ordem do analyzer: as
-/// classes (e aliases de classe), depois os enums, depois os mixins, cada
-/// grupo na ordem de declaração.
+/// The classes, enums and mixins of a unit in the analyzer's order: the
+/// classes (and class aliases), then the enums, then the mixins, each group
+/// in declaration order.
 fn unit_declarations(program: &Program, u: dartforge_elements::model::UnitId) -> Vec<(ClassId, bool)> {
     let mut classes = Vec::new();
     let mut enums = Vec::new();
@@ -71,7 +71,7 @@ fn unit_declarations(program: &Program, u: dartforge_elements::model::UnitId) ->
         let id = ClassId(i as u32);
         match c.kind {
             ClassKind::Class | ClassKind::MixinApplication => {
-                // `sealed` também é abstrata no elemento do analyzer.
+                // `sealed` is also abstract in the analyzer's element.
                 let abstract_ = c.modifiers.abstract_ || c.modifiers.sealed;
                 classes.push((d.decl.0, id, abstract_));
             }
@@ -86,8 +86,8 @@ fn unit_declarations(program: &Program, u: dartforge_elements::model::UnitId) ->
     classes.into_iter().chain(enums).chain(mixins).map(|(_, id, a)| (id, a)).collect()
 }
 
-/// `getSuperclasses`: o supertipo e os mixins; com `implements` (e o `on`
-/// dos mixins) quando não os ignora.
+/// `getSuperclasses`: the supertype and the mixins; with `implements` (and
+/// the mixins' `on`) when not ignoring them.
 fn superclasses(program: &Program, c: ClassId, ignore_implements: bool) -> Vec<ClassId> {
     let ce = program.class(c);
     let mut r: Vec<ClassId> = ce.supertype_class.into_iter().collect();
@@ -101,8 +101,8 @@ fn superclasses(program: &Program, c: ClassId, ignore_implements: bool) -> Vec<C
     r
 }
 
-/// Os nomes de `_directNames` de cada nó alcançável a partir de `c` (o
-/// `_ClassHierarchyWalker`: a união transitiva).
+/// The `_directNames` names of each node reachable from `c` (the
+/// `_ClassHierarchyWalker`: the transitive union).
 fn transitive_names(program: &Program, c: ClassId, direct: &HashMap<ClassId, HashSet<SymbolId>>, ignore_implements: bool) -> HashSet<SymbolId> {
     let mut seen: HashSet<ClassId> = HashSet::new();
     let mut stack = vec![c];
@@ -119,7 +119,7 @@ fn transitive_names(program: &Program, c: ClassId, direct: &HashMap<ClassId, Has
     names
 }
 
-/// O `abstract` escrito de um campo.
+/// The written `abstract` of a field.
 fn abstract_field(program: &Program, v: VariableId) -> bool {
     match program.variable(v).node {
         VariableRef::Field { unit, member, .. } => match &program.unit(unit).ast.member(member).kind {
@@ -130,7 +130,7 @@ fn abstract_field(program: &Program, v: VariableId) -> bool {
     }
 }
 
-/// `_FieldPromotability.perform` de uma biblioteca.
+/// `_FieldPromotability.perform` for a library.
 pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> LibraryPromotion {
     let the_enabled = enabled(program, lib);
     let mut info: HashMap<SymbolId, NonPromotionInfo> = HashMap::new();
@@ -149,7 +149,7 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Libra
             interface.entry(c).or_default();
             implemented.entry(c).or_default();
             let ce = program.class(c);
-            // Os campos de instância não sintéticos, na ordem de declaração.
+            // The non-synthetic instance fields, in declaration order.
             for &v in &ce.fields {
                 let ve = program.variable(v);
                 if ve.static_ {
@@ -169,7 +169,7 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Libra
                     possible_fields.push(v);
                 }
             }
-            // Os getters de instância não sintéticos, na ordem de declaração.
+            // The non-synthetic instance getters, in declaration order.
             let mut getters: Vec<FunctionElementId> = ce
                 .instance_members
                 .values()
@@ -194,7 +194,7 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Libra
                 }
             }
         }
-        // Representação privada de tipo de extensão: sempre promovível.
+        // Private extension type representation: always promotable.
         for c in program.classes.iter() {
             if c.kind != ClassKind::ExtensionType || c.decl.is_none_or(|d| d.unit != u) {
                 continue;
@@ -206,8 +206,8 @@ pub fn calcular(program: &Program, interner: &Interner, lib: LibraryId) -> Libra
             }
         }
     }
-    // `computeNonPromotabilityInfo`: as classes concretas cuja interface tem
-    // um nome que a implementação não tem.
+    // `computeNonPromotabilityInfo`: the concrete classes whose interface has
+    // a name that the implementation does not have.
     for &c in &concrete {
         let interface_names = transitive_names(program, c, &interface, false);
         let implemented_names = transitive_names(program, c, &implemented, true);

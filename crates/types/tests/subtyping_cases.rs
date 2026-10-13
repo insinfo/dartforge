@@ -1,6 +1,6 @@
-//! Suite de testes exaustiva para as regras normativas de subtipagem (`subtyping.md`).
+//! Exhaustive test suite for the normative subtyping rules (`subtyping.md`).
 //!
-//! Contém mais de 60 casos de teste cobrindo todas as regras e casos de borda.
+//! Contains more than 60 test cases covering all rules and edge cases.
 
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program};
 use dartforge_intern::Interner;
@@ -24,7 +24,7 @@ impl TestHarness {
         let mut table = TypeTable::new();
         let mut program = Program::default();
 
-        // Criar uma biblioteca core sintética
+        // Create a synthetic core library
         let core_lib_id = LibraryId(0);
         let mut core_lib = dartforge_elements::model::Library {
             uri: "dart:core".to_string(),
@@ -44,7 +44,7 @@ impl TestHarness {
             features: dartforge_frontend::LibraryFeatures::piso(),
         };
 
-        // Registrar classes fundamentais no program
+        // Register fundamental classes in the program
         let mut add_class = |name: &str, kind: ClassKind, num_type_params: usize| -> ClassId {
             let cid = ClassId(program.classes.len() as u32);
             let sym = interner.intern(name);
@@ -172,7 +172,7 @@ impl TestHarness {
         );
         program.libraries.push(async_lib);
 
-        // Configurar relações de herança no mock
+        // Configure inheritance relations in the mock
         program.classes[int_cid.0 as usize].supertype_class = Some(num_cid);
         program.classes[num_cid.0 as usize].supertype_class = Some(obj_cid);
         program.classes[str_cid.0 as usize].supertype_class = Some(obj_cid);
@@ -290,7 +290,7 @@ impl TestHarness {
 fn test_table_60_normative_subtyping_cases() {
     let mut h = TestHarness::new();
 
-    // Montar hierarquia instanciada com supertipos diretos conhecidos
+    // Build the instantiated hierarchy with known direct supertypes
     let num_classes = h.program.classes.len();
     let mut immediate_inputs = Vec::with_capacity(num_classes);
 
@@ -383,7 +383,7 @@ fn test_table_60_normative_subtyping_cases() {
     let rec_num_obj = h.record_type(&[num_ty], &[("b", object_ty)], false);
     let rec_int_int = h.record_type(&[int_ty, int_ty], &[], false);
 
-    // Tabela exaustiva de pares (A, B, esperado, descrição)
+    // Exhaustive table of pairs (A, B, expected, description)
     let cases: Vec<(TypeId, TypeId, bool, &str)> = vec![
         // --- 1. Reflexividade ---
         (int_ty, int_ty, true, "int <: int"),
@@ -466,7 +466,7 @@ fn test_table_60_normative_subtyping_cases() {
             false,
             "FutureOr<int?> <: FutureOr<int>",
         ),
-        // --- 8. Tipos de Função ---
+        // --- 8. Function Types ---
         (
             fn_int_to_void,
             fn_num_to_void,
@@ -522,7 +522,7 @@ fn test_table_60_normative_subtyping_cases() {
             "FunctionType <: Function",
         ),
         (int_ty, h.core.function, false, "int <: Function"),
-        // --- 9. Tipos de Record ---
+        // --- 9. Record Types ---
         (
             the_rec_int_str,
             rec_num_obj,
@@ -538,7 +538,7 @@ fn test_table_60_normative_subtyping_cases() {
         (rec_int_int, h.core.record, true, "(int, int) <: Record"),
         (h.core.record, rec_int_int, false, "Record <: (int, int)"),
         (the_rec_int_str, int_ty, false, "RecordType <: int"),
-        // --- 10. Tipos de Interface & Genéricos ---
+        // --- 10. Interface Types & Generics ---
         (int_ty, num_ty, true, "int <: num"),
         (num_ty, int_ty, false, "num <: int"),
         (list_int, list_num, true, "List<int> <: List<num>"),
@@ -547,7 +547,7 @@ fn test_table_60_normative_subtyping_cases() {
         (list_int, iter_int, true, "List<int> <: Iterable<int>"),
         (list_int, iter_num, true, "List<int> <: Iterable<num>"),
         (list_num, iter_int, false, "List<num> <: Iterable<int>"),
-        // --- 11. Variáveis de Tipo e Bounds ---
+        // --- 11. Type Variables and Bounds ---
         (t_extends_num, num_ty, true, "T extends num <: num"),
         (num_ty, t_extends_num, false, "num <: T extends num"),
         (t_extends_int, num_ty, true, "T extends int <: num"),

@@ -1,7 +1,7 @@
-//! Despejo de tipos: grava, por expressão de corpo, o tipo estático que a
-//! nossa inferência deu, no mesmo formato do oráculo do `package:analyzer`
-//! (`tools/oraculo_tipos/oraculo.dart`). É ferramenta de diagnóstico da
-//! inferência, não produto (a lógica fica em `dartforge_types::despejo`).
+//! Type dump: writes, for each body expression, the static type our inference
+//! gave it, in the same format as the `package:analyzer` oracle
+//! (`tools/oraculo_tipos/oraculo.dart`). It is an inference diagnostic tool,
+//! not a product (the logic lives in `dartforge_types::despejo`).
 //!
 //! ```text
 //! cargo run --release -p dartforge-types --example despejo_tipos -- \
@@ -9,10 +9,10 @@
 //!     [--arquivos <lista.txt>] [--avisos <avisos.txt>] [--sdk <lib>]
 //! ```
 //!
-//! Linha: `caminho \t offset \t comprimento \t nó \t tipo \t resolução`.
-//! Expressão que a inferência nunca visitou sai com o tipo `?`.
-//! `--arquivos` recebe a lista de unidades (não-SDK) para o oráculo;
-//! `--avisos` recebe os avisos, um por linha, com o offset.
+//! Line: `caminho \t offset \t comprimento \t nó \t tipo \t resolução`.
+//! An expression the inference never visited is output with the type `?`.
+//! `--files` receives the list of (non-SDK) units for the oracle;
+//! `--warnings` receives the warnings, one per line, with the offset.
 
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_types::despejo::dump;
@@ -44,7 +44,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
     let sdk = SdkLayout::load(&sdk_dir, "dartdevc").expect("SDK");
 
-    // Corpos profundos recursam fundo: pilha própria, como o `compile-js`.
+    // Deep bodies recurse deeply: own stack, like `compile-js`.
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {

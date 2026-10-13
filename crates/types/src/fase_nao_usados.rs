@@ -1,43 +1,43 @@
-//! `UNUSED_ELEMENT` e `UNUSED_FIELD` das declarações de biblioteca: o
-//! `GatherUsedLocalElementsVisitor` e o `UnusedLocalElementsVerifier` da
-//! 3.6.2 (`analyzer/lib/src/error/unused_local_elements_verifier.dart`),
-//! pelo elemento resolvido de cada referência (a parte local, variáveis e
-//! funções locais, e a de parâmetros ficam em `analise::locais` e
+//! `UNUSED_ELEMENT` and `UNUSED_FIELD` of library declarations: the 3.6.2
+//! `GatherUsedLocalElementsVisitor` and `UnusedLocalElementsVerifier`
+//! (`analyzer/lib/src/error/unused_local_elements_verifier.dart`), through
+//! the resolved element of each reference (the local part, local variables
+//! and functions, and the parameter part live in `analise::locais` and
 //! `parametros`).
 //!
-//! Coleta (sobre todas as unidades da biblioteca, sem as referências de
-//! comentário):
-//! * o identificador (e o nome de propriedade) resolvido: a leitura de uma
-//!   variável de topo pelo acessor sintético usa a variável; a de um acessor
-//!   de topo explícito o põe nos membros e nos lidos (o setter lido conta o
-//!   getter correspondente); qualquer outro elemento desta biblioteca é usado
-//!   (`_useIdentifierElement`), salvo a própria classe (só de
-//!   `ClassDeclaration`) e o próprio executável (função declarada ou
-//!   método); o membro de classe ou de extensão vai para os membros e, lido,
-//!   para os lidos; o `values` de um enum lê todas as constantes; o nome não
-//!   resolvido e lido vai para os não resolvidos;
-//! * "lido" é o `_isReadIdentifier`: em contexto de leitura (não o alvo de
-//!   `=`), e, se o pai é o comando de expressão inteiro, nem o operando de um
-//!   prefixo/pós-fixo nem o alvo de uma atribuição que não seja `??=` (o
-//!   nome de propriedade tem a propriedade como pai, e só a primeira regra
-//!   vale);
-//! * o nome de tipo (`visitNamedType`) usa o elemento, salvo a própria classe
-//!   e a interface no tipo de uma lista de variáveis que não é de campo ou de
-//!   um `is`;
-//! * o nome de anotação, o construtor de cada constante de enum, o
-//!   construtor nomeado de uma criação, de um redirecionamento (`= C.n`,
-//!   `this.n(…)`) e de um `super.n(…)`, e os construtores públicos de um
-//!   tipo de interface que um `typedef` público nomeia.
+//! Collection (over all units of the library, without the comment
+//! references):
+//! * the resolved identifier (and property name): reading a top-level
+//!   variable through the synthetic accessor uses the variable; reading an
+//!   explicit top-level accessor puts it in the members and in the read ones
+//!   (a read setter counts the corresponding getter); any other element of
+//!   this library is used (`_useIdentifierElement`), except the class itself
+//!   (only from a `ClassDeclaration`) and the executable itself (declared
+//!   function or method); a class or extension member goes to the members
+//!   and, if read, to the read ones; an enum's `values` reads all the
+//!   constants; an unresolved name that is read goes to the unresolved ones;
+//! * "read" is `_isReadIdentifier`: in a read context (not the target of
+//!   `=`), and, if the parent is the whole expression statement, neither the
+//!   operand of a prefix/postfix nor the target of an assignment other than
+//!   `??=` (a property name has the property as its parent, and only the
+//!   first rule applies);
+//! * a type name (`visitNamedType`) uses the element, except the class itself
+//!   and the interface in the type of a variable list that is not a field
+//!   list or of an `is`;
+//! * the annotation name, the constructor of each enum constant, the named
+//!   constructor of a creation, of a redirection (`= C.n`, `this.n(…)`) and
+//!   of a `super.n(…)`, and the public constructors of an interface type that
+//!   a public `typedef` names.
 //!
-//! Relato: a classe, o mixin, o enum e o tipo de extensão (o `@JS` da
-//! classe a usa), o typedef, a função e a variável de topo privados não
-//! usados (`_isUsedElement`, com o `@pragma('vm:entry-point')`); o método,
-//! o acessor e o construtor nomeado (de classe com mais de um) não
-//! acessíveis de fora sem uso nem sobrescrita de membro usado
-//! (`_isUsedMember`); o campo e a constante de enum não lidos
-//! (`_isReadMember`: o público só conta como não lido quando é estático de
-//! classe ou extensão privada).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Report: the unused private class, mixin, enum and extension type (the
+//! class's `@JS` uses it), typedef, function and top-level variable
+//! (`_isUsedElement`, with `@pragma('vm:entry-point')`); the method, the
+//! accessor and the named constructor (of a class with more than one) not
+//! accessible from outside without a use or an override of a used member
+//! (`_isUsedMember`); the field and the enum constant that are not read
+//! (`_isReadMember`: a public one only counts as not read when it is static
+//! in a private class or extension).
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::resolve::OutlineTypes;
@@ -52,18 +52,18 @@ use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, ForInit, Initial
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
-/// Um elemento do verificador.
+/// An element of the verifier.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum El {
     Classe(ClassId),
     Extensao(ExtensionId),
     Typedef(TypedefId),
     Funcao(FunctionElementId),
-    /// A variável de topo ou o campo.
+    /// The top-level variable or the field.
     Variavel(VariableId),
-    /// O acessor sintético de leitura de uma variável.
+    /// The synthetic read accessor of a variable.
     Getter(VariableId),
-    /// O acessor sintético de escrita de uma variável.
+    /// The synthetic write accessor of a variable.
     Setter(VariableId),
 }
 
@@ -90,8 +90,8 @@ struct Contexto<'a> {
 }
 
 impl Contexto<'_> {
-    /// O elemento de um membro de função (o acessor sintético vale pela
-    /// variável).
+    /// The element of a function member (the synthetic accessor counts through
+    /// the variable).
     fn of_function(&self, f: FunctionElementId) -> El {
         let g = self.program.function(f);
         match g.variable {
@@ -117,7 +117,7 @@ impl Contexto<'_> {
         })
     }
 
-    /// A biblioteca do elemento.
+    /// The library of the element.
     fn biblioteca(&self, e: El) -> LibraryId {
         let p = self.program;
         match e {
@@ -129,7 +129,7 @@ impl Contexto<'_> {
         }
     }
 
-    /// O contêiner (classe ou extensão) e a chave do membro.
+    /// The container (class or extension) and the member key.
     fn member_key(&self, e: El) -> Option<(Option<ClassId>, Option<ExtensionId>, String)> {
         let p = self.program;
         match e {
@@ -153,7 +153,7 @@ impl Contexto<'_> {
         }
     }
 
-    /// O getter correspondente a um setter (`correspondingGetter`).
+    /// The getter corresponding to a setter (`correspondingGetter`).
     fn getter_de(&self, e: El) -> Option<El> {
         match e {
             El::Setter(v) => Some(El::Getter(v)),
@@ -181,7 +181,7 @@ impl Contexto<'_> {
         }
     }
 
-    /// `_isPubliclyAccessible` de um método, acessor ou construtor.
+    /// `_isPubliclyAccessible` of a method, accessor or constructor.
     fn accessible(&self, e: El, the_name: SymbolId) -> bool {
         if privado(self.interner, the_name) {
             return false;
@@ -215,8 +215,8 @@ impl Contexto<'_> {
     }
 }
 
-/// `_overriddenElements`: o `getOverridden2` na classe do membro, pelo `Name`
-/// da biblioteca verificada (`e.declaration` de cada um).
+/// `_overriddenElements`: the `getOverridden2` in the member's class, by the
+/// `Name` of the verified library (`e.declaration` of each one).
 fn sobrescritos(cx: &Contexto<'_>, h: &mut crate::heranca::Heranca, p: &mut crate::heranca::ProvedorDoOutline<'_, '_>, e: El) -> Vec<El> {
     let Some((Some(c), _, text)) = cx.member_key(e) else { return Vec::new() };
     let Some(s) = cx.interner.lookup(&text) else { return Vec::new() };
@@ -244,13 +244,13 @@ fn overrides_used(
     false
 }
 
-/// Os tipos escritos numa lista de variáveis que não é de campo e no `is`,
-/// com toda a subárvore (argumentos de tipo, partes de tipo de função e de
-/// registro): neles o tipo de interface nomeado não conta como uso. O
-/// `visitNamedType` passa o próprio `NamedType` como `parent`, então a regra
-/// vale enquanto `_enclosingVariableDeclaration` (só durante o tipo da
-/// lista, `visitVariableDeclarationList`) ou `_enclosingIsExpression` (só
-/// durante o tipo do `is`) estiver posto (3.6.2,
+/// The types written in a variable list that is not a field list and in an
+/// `is`, with the whole subtree (type arguments, parts of function and
+/// record types): in them, the named interface type does not count as a use.
+/// `visitNamedType` passes the `NamedType` itself as `parent`, so the rule
+/// applies while `_enclosingVariableDeclaration` (only during the list's
+/// type, `visitVariableDeclarationList`) or `_enclosingIsExpression` (only
+/// during the type of the `is`) is set (3.6.2,
 /// `unused_local_elements_verifier.dart:189-198`, `:336-347`, `:386-400`).
 fn types_without_interface_use(a: &ast::Ast) -> HashSet<ast::TypeId> {
     let roots = types_without_interface_use_roots(a);
@@ -308,8 +308,8 @@ fn types_without_interface_use(a: &ast::Ast) -> HashSet<ast::TypeId> {
     v
 }
 
-/// As raízes de [`tipos_sem_uso_de_interface`]: o tipo escrito da lista e o
-/// do `is`.
+/// The roots of [`types_without_interface_use`]: the written type of the list
+/// and that of the `is`.
 fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
     let mut v = HashSet::new();
     fn lista(l: &ast::VariableList, v: &mut HashSet<ast::TypeId>) {
@@ -362,10 +362,10 @@ fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
     v
 }
 
-/// O `@pragma('vm:entry-point')` (`isPragmaVmEntryPoint`: o construtor de
-/// `pragma` do `dart.core` com o campo `name` igual a `vm:entry-point`) ou,
-/// com `js`, o `@JS(…)` (o construtor de `JS` da biblioteca
-/// `_js_annotations`) numa lista de anotações da unidade `u`.
+/// `@pragma('vm:entry-point')` (`isPragmaVmEntryPoint`: the `pragma`
+/// constructor of `dart.core` with the `name` field equal to
+/// `vm:entry-point`) or, with `js`, `@JS(…)` (the `JS` constructor of the
+/// `_js_annotations` library) in a list of annotations of unit `u`.
 fn marked(cx: &Contexto<'_>, engine: &mut Option<Motor<'_>>, u: UnitId, metadata: &[ast::Annotation], js: bool) -> bool {
     let p = cx.program;
     let library_name = |l: LibraryId| {
@@ -380,7 +380,7 @@ fn marked(cx: &Contexto<'_>, engine: &mut Option<Motor<'_>>, u: UnitId, metadata
             return true;
         }
         if the_name == "pragma" && library_name(k.library) == "dart.core" {
-            // O `name` do `pragma` é o primeiro argumento posicional.
+            // The `name` of the `pragma` is the first positional argument.
             let Some(first) = args.args.iter().find(|x| x.name.is_none()) else { continue };
             let a = &p.unit(u).ast;
             let value = match &a.expr(first.value).kind {
@@ -404,7 +404,7 @@ fn marked(cx: &Contexto<'_>, engine: &mut Option<Motor<'_>>, u: UnitId, metadata
     false
 }
 
-/// Os relatos da biblioteca `lib`.
+/// The reports of library `lib`.
 #[allow(clippy::too_many_arguments)]
 pub fn elementos_nao_usados(
     program: &Program,
@@ -441,8 +441,8 @@ pub fn elementos_nao_usados(
         let a = &program.unit(u).ast;
         let Some(the_body) = bodies.units.get(u.0 as usize) else { continue };
         let pais = crate::lints_tipados::pais_da_unidade(program, u);
-        // As classes (`ClassDeclaration`) e os executáveis (funções
-        // declaradas e métodos) que contêm cada lugar.
+        // The classes (`ClassDeclaration`) and the executables (declared functions
+        // and methods) that contain each place.
         let classes: Vec<(Span, ClassId)> = a
             .decls
             .iter()
@@ -495,7 +495,7 @@ pub fn elementos_nao_usados(
                 used.read_values.insert(e);
             }
         };
-        // Os comandos de expressão.
+        // The expression statements.
         let commands: HashSet<ExprId> = a
             .stmts
             .iter()
@@ -509,8 +509,8 @@ pub fn elementos_nao_usados(
             _ => None,
         };
 
-        // O executável de uma resolução de operador ou de `call` (o
-        // `staticElement` do nó).
+        // The executable of an operator or `call` resolution (the node's
+        // `staticElement`).
         let executable = |r: Option<&Resolved>| match r {
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
                 Some(cx.of_function(*f))
@@ -523,14 +523,14 @@ pub fn elementos_nao_usados(
                 ExprKind::Identifier(n) => (*n, false),
                 ExprKind::Property { name, .. } => (*name, true),
                 // `visitBinaryExpression`, `visitPrefixExpression`,
-                // `visitPostfixExpression`, `visitIndexExpression` e
-                // `visitAssignmentExpression`: o operador resolvido é membro
-                // usado (`addMember`).
+                // `visitPostfixExpression`, `visitIndexExpression` and
+                // `visitAssignmentExpression`: the resolved operator is a used member
+                // (`addMember`).
                 ExprKind::Binary { .. } | ExprKind::Unary { .. } | ExprKind::Index { .. } | ExprKind::Assign { .. } => {
-                    // O índice alvo de uma atribuição (`a[i] = v`, `a[i] ??= v`):
-                    // o `writeOrReadElement` (3.6.2
-                    // `unused_local_elements_verifier.dart:176-180`) é o `[]=`; o
-                    // `[]` lido pela composta não conta.
+                    // The index that is the target of an assignment (`a[i] = v`, `a[i] ??= v`):
+                    // the `writeOrReadElement` (3.6.2
+                    // `unused_local_elements_verifier.dart:176-180`) is the `[]=`; the `[]`
+                    // read by the compound assignment does not count.
                     let assignment_target = matches!(ex.kind, ExprKind::Index { .. })
                         && parent_of(id).is_some_and(|p| matches!(&a.expr(p).kind, ExprKind::Assign { target, .. } if *target == id));
                     let write = if assignment_target {
@@ -564,12 +564,13 @@ pub fn elementos_nao_usados(
                     continue;
                 }
                 // `visitDotShorthandConstructorInvocation`,
-                // `visitDotShorthandInvocation` e
-                // `visitDotShorthandPropertyAccess` (3.13, checkout main
-                // `unused_local_elements_verifier.dart:203-238`): a declaração
-                // do contexto é usada (`addElement`, sem a regra da própria
-                // classe); o membro estático pelo nome (`visitSimpleIdentifier`
-                // do `memberName`/`propertyName`). O construtor fica na chamada.
+                // `visitDotShorthandInvocation` and
+                // `visitDotShorthandPropertyAccess` (3.13, main checkout
+                // `unused_local_elements_verifier.dart:203-238`): the context's
+                // declaration is used (`addElement`, without the class-itself
+                // rule); the static member by name (`visitSimpleIdentifier` of
+                // the `memberName`/`propertyName`). The constructor is handled at the
+                // call.
                 ExprKind::DotShorthand { name, .. } => {
                     if let Some(Resolved::Element(Element::Class(d))) = the_body.get_resolved(id) {
                         if cx.biblioteca(El::Classe(*d)) == lib {
@@ -581,8 +582,8 @@ pub fn elementos_nao_usados(
                             used.membros.insert(el);
                             read_member(&mut used, el);
                         } else if let Some(&v) = program.class(*d).enum_constants.iter().find(|&&v| program.variable(v).name == name.sym) {
-                            // A constante de enum (`.v`) não tem getter no
-                            // modelo: lida como a de `_E.v`.
+                            // The enum constant (`.v`) has no getter in the model: read like that of
+                            // `_E.v`.
                             let el = El::Getter(v);
                             use_it(&mut used, el, ex.span);
                             used.membros.insert(el);
@@ -591,12 +592,10 @@ pub fn elementos_nao_usados(
                     }
                     continue;
                 }
-                // A criação: o construtor nomeado (o identificador dele; em
-                // `const C.n()` o parser deixa `C.n` como tipo de duas partes,
-                // sem `constructor`).
+                // The creation: the named constructor (its identifier; in `const C.n()`
+                // the parser leaves `C.n` as a two-part type, without `constructor`).
                 ExprKind::InstanceCreation { .. } | ExprKind::Call { .. } => {
-                    // `visitFunctionExpressionInvocation`: o `call` implícito
-                    // (`addElement`).
+                    // `visitFunctionExpressionInvocation`: the implicit `call` (`addElement`).
                     if matches!(ex.kind, ExprKind::Call { .. })
                         && let Some(el) = executable(the_body.get_resolved(id))
                     {
@@ -619,7 +618,7 @@ pub fn elementos_nao_usados(
                 _ => continue,
             };
             let parent = parent_of(id);
-            // `inGetterContext` e `_isReadIdentifier`.
+            // `inGetterContext` and `_isReadIdentifier`.
             let target_of = |p: ExprId| matches!(&a.expr(p).kind, ExprKind::Assign { target, .. } if *target == id);
             let simple_assignment = parent.is_some_and(|p| matches!(&a.expr(p).kind, ExprKind::Assign { op: ast::AssignOp::Assign, target, .. } if *target == id));
             let mut read_value = !simple_assignment;
@@ -648,9 +647,9 @@ pub fn elementos_nao_usados(
                 Some(Resolved::Element(e)) => {
                     let Some(el) = cx.of_element(*e) else { continue };
                     match el {
-                        // O campo estático de extensão (no modelo, lido pela
-                        // variável): o getter sintético do campo é o membro
-                        // lido (`_A.f1`, `_baz` dentro da extensão).
+                        // The static extension field (in the model, read through the variable):
+                        // the field's synthetic getter is the member read (`_A.f1`, `_baz` inside
+                        // the extension).
                         El::Variavel(v) | El::Getter(v) | El::Setter(v)
                             if program.variable(v).class.is_none() && program.variable(v).extension.is_some() =>
                         {
@@ -662,28 +661,28 @@ pub fn elementos_nao_usados(
                                 use_it(&mut used, El::Setter(v), ex.span);
                             }
                         }
-                        // A variável de topo (acessores sintéticos).
+                        // The top-level variable (synthetic accessors).
                         El::Variavel(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() => {
                             if read_value {
                                 used.elementos.insert(El::Variavel(v));
                             }
                         }
-                        // O acessor de topo explícito.
+                        // The explicit top-level accessor.
                         El::Funcao(f) if matches!(program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter) => {
                             if read_value {
                                 used.membros.insert(el);
                                 read_member(&mut used, el);
                             }
                             if written {
-                                // O `writeElement`: o setter de mesmo nome, ou
-                                // o getter da recuperação (sem setter).
+                                // The `writeElement`: the setter of the same name, or the getter of the
+                                // recovery (without a setter).
                                 let setter = program.library(program.function(f).library).declared.get(&program.function(f).name).and_then(|b| b.setter);
                                 match setter {
                                     Some(Element::Function(g)) => use_it(&mut used, El::Funcao(g), ex.span),
                                     _ => use_it(&mut used, el, ex.span),
                                 }
-                                // O `readElement` da composta e do `++`/`--`:
-                                // o getter (`_useIdentifierElement`, 3.6.2
+                                // The `readElement` of the compound assignment and of `++`/`--`: the getter
+                                // (`_useIdentifierElement`, 3.6.2
                                 // `unused_local_elements_verifier.dart:284`).
                                 if !simple_assignment {
                                     let getter = if program.function(f).kind == FunctionKind::Getter { Some(el) } else { cx.getter_de(el) };
@@ -710,7 +709,7 @@ pub fn elementos_nao_usados(
                             }
                         }
                     };
-                    // `values` de enum: todas as constantes lidas.
+                    // Enum `values`: all constants are read.
                     let k = program.class(*class);
                     if k.kind == ClassKind::Enum && interner.resolve(the_name.sym) == "values" {
                         for &c in k.enum_constants.iter() {
@@ -724,7 +723,7 @@ pub fn elementos_nao_usados(
                     }
                     if written {
                         targets.push(el_write);
-                        // O `readElement` da composta e do `++`/`--`.
+                        // The `readElement` of the compound assignment and of `++`/`--`.
                         if !simple_assignment && !(read_value || !written) {
                             targets.push(cx.getter_de(el_write).unwrap_or(el_read));
                         }
@@ -757,8 +756,8 @@ pub fn elementos_nao_usados(
             }
         }
 
-        // O nome solto de um padrão refutável (`case _limite:`): o
-        // `SimpleIdentifier` do `ConstantPattern`, lido.
+        // The bare name of a refutable pattern (`case _limite:`): the
+        // `SimpleIdentifier` of the `ConstantPattern`, read.
         for (p, r) in the_body.pattern_names.iter() {
             let where_ = a.pattern(*p).span;
             match r {
@@ -801,8 +800,8 @@ pub fn elementos_nao_usados(
             }
         }
 
-        // `visitPatternField`: `addMember` e `addReadMember` do elemento do
-        // campo.
+        // `visitPatternField`: `addMember` and `addReadMember` of the field's
+        // element.
         for p in a.patterns.iter() {
             let ast::PatternKind::Object { fields, .. } = &p.kind else { continue };
             for f in fields.iter() {
@@ -817,7 +816,7 @@ pub fn elementos_nao_usados(
         }
 
         // `visitRelationalPattern` (`unused_local_elements_verifier.dart:247-251`):
-        // `addMember` e `addReadMember` do operador.
+        // `addMember` and `addReadMember` of the operator.
         for el in the_body.relational_operators.values() {
             let el = match el {
                 Resolved::Member { member: MemberRef::Function(g), .. } | Resolved::ExtensionMember { member: g, .. } => cx.of_function(*g),
@@ -847,14 +846,14 @@ pub fn elementos_nao_usados(
             }
             use_it(&mut used, el, t.span);
         }
-        // Os nomes de anotação.
+        // The annotation names.
         for m in dartforge_frontend::pais::todas_as_anotacoes(a, &program.unit(u).unit) {
             if let Some(el) = crate::anotacoes::annotation_element(program, interner, u, m).and_then(|e| cx.of_element(e)) {
                 use_it(&mut used, el, m.span);
             }
         }
-        // Os construtores das constantes de enum, os de redirecionamento e
-        // os de `super.n(…)`.
+        // The constructors of the enum constants, the redirection ones and those
+        // of `super.n(…)`.
         for (di, d) in a.decls.iter().enumerate() {
             let DeclKind::Enum(x) = &d.kind else { continue };
             let Some(c) = decl_class(u, ast::DeclId(di as u32)) else { continue };
@@ -867,12 +866,11 @@ pub fn elementos_nao_usados(
         }
         for (mi, m) in a.members.iter().enumerate() {
             let MemberKind::Constructor(k) = &m.kind else { continue };
-            // O `returnType` do `ConstructorDeclaration` é um
-            // `SimpleIdentifier` com o tipo dono: fora de uma
-            // `ClassDeclaration` (o `_enclosingClass` só é posto nela), ele
-            // usa o enum ou o tipo de extensão (3.6.2,
-            // `unused_local_elements_verifier.dart:255-286`, `:380-382`). O
-            // primário (3.13) não tem esse identificador.
+            // The `returnType` of the `ConstructorDeclaration` is a `SimpleIdentifier`
+            // with the owner type: outside a `ClassDeclaration` (`_enclosingClass` is
+            // only set there), it uses the enum or the extension type (3.6.2,
+            // `unused_local_elements_verifier.dart:255-286`, `:380-382`). The primary
+            // one (3.13) does not have that identifier.
             let primary = a.decls.iter().any(|d| match &d.kind {
                 DeclKind::Class(x) => x.primary_constructor == Some(ast::MemberId(mi as u32)),
                 DeclKind::Enum(x) => x.primary_constructor == Some(ast::MemberId(mi as u32)),
@@ -892,8 +890,8 @@ pub fn elementos_nao_usados(
                     used.membros.insert(El::Funcao(f));
                 }
             };
-            // O redirecionamento é resolvido mesmo num construtor duplicado
-            // (que também tem elemento no analyzer, e não no nosso modelo).
+            // The redirection is resolved even in a duplicate constructor (which also
+            // has an element in the analyzer, but not in our model).
             if let Some(r) = &k.redirect
                 && let Some((c, ctor)) = crate::redirection::class_and_constructor(program, u, r)
             {
@@ -913,8 +911,8 @@ pub fn elementos_nao_usados(
                 }
             }
         }
-        // `visitGenericTypeAlias`: o typedef público de um tipo de interface
-        // usa os construtores públicos dele.
+        // `visitGenericTypeAlias`: a public typedef of an interface type uses its
+        // public constructors.
         for d in a.decls.iter() {
             let DeclKind::Typedef(t) = &d.kind else { continue };
             let ast::TypedefKind::Alias(ty) = &t.kind else { continue };
@@ -932,9 +930,9 @@ pub fn elementos_nao_usados(
         }
     }
 
-    // `_overridesUsedElement` de cada membro de instância e construtor das
-    // classes da biblioteca, pelo `InheritanceManager3`, antes do motor (que
-    // fica com a tabela).
+    // `_overridesUsedElement` of each instance member and constructor of the
+    // library's classes, through `InheritanceManager3`, before the engine
+    // (which takes the table).
     let mut override_used: HashSet<El> = HashSet::new();
     {
         let mut inheritance = crate::heranca::Heranca::default();
@@ -970,8 +968,8 @@ pub fn elementos_nao_usados(
         engine = Some(Motor::novo(program, interner, table, core, outline, bodies, the_inferred));
     }
     let mut output: Vec<(UnitId, Diagnostic)> = Vec::new();
-    // Os campos declarados por parâmetro do construtor primário (3.13), com
-    // dois argumentos: juntados a `saida` no fim.
+    // The fields declared by a primary constructor parameter (3.13), with two
+    // arguments: joined into `output` at the end.
     let mut of_primary: Vec<(UnitId, Diagnostic)> = Vec::new();
     let mut report = |u: UnitId, code, n: ast::Name, displayed: String| {
         output.push((u, Diagnostic::com_codigo(code, n.span, [displayed.as_str()])));
@@ -986,7 +984,7 @@ pub fn elementos_nao_usados(
             || used.elementos.contains(&el)
             || override_used.contains(&el)
     };
-    // `_isReadMember` de um campo ou constante de enum.
+    // `_isReadMember` of a field or enum constant.
     let read_value = |v: VariableId| {
         let x = program.variable(v);
         let static_ = x.static_ || x.const_ && x.class.is_some_and(|c| program.class(c).kind == ClassKind::Enum);
@@ -1030,9 +1028,8 @@ pub fn elementos_nao_usados(
             match &d.kind {
                 DeclKind::Class(x) => {
                     members = &x.members;
-                    // O alias de classe (`class _A = S with M;`) não é
-                    // visitado pelo verificador do 3.6.2 (não há
-                    // `visitClassTypeAlias`): nunca é relatado.
+                    // A class alias (`class _A = S with M;`) is not visited by the 3.6.2
+                    // verifier (there is no `visitClassTypeAlias`): it is never reported.
                     if let Some(c) = decl_class(u, did)
                         && !x.mixin_application
                         && privado(interner, x.name.sym)
@@ -1060,7 +1057,7 @@ pub fn elementos_nao_usados(
                     {
                         report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
                     }
-                    // As constantes.
+                    // The constants.
                     let vs = variables_of(u, Some(did), None);
                     for (i, k) in x.constants.iter().enumerate() {
                         if let Some(&v) = vs.get(&i)
@@ -1114,7 +1111,7 @@ pub fn elementos_nao_usados(
                     }
                 }
             }
-            // Os membros.
+            // The members.
             let type_name = match &d.kind {
                 DeclKind::Class(x) => interner.resolve(x.name.sym).to_string(),
                 DeclKind::Mixin(x) => interner.resolve(x.name.sym).to_string(),
@@ -1124,11 +1121,11 @@ pub fn elementos_nao_usados(
                 _ => String::new(),
             };
             // `visitPrimaryConstructorDeclaration` (3.13,
-            // `unused_local_elements_verifier.dart:1022-1057` do checkout
-            // main): o campo de um parâmetro declarante (`final`/`var`) de
-            // classe ou enum não lido é `UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR`
-            // no nome do parâmetro, com o nome e a palavra; o tipo de extensão
-            // nunca relata. O parser elabora o campo com o nome do parâmetro.
+            // `unused_local_elements_verifier.dart:1022-1057` of the main checkout):
+            // the field of a declaring parameter (`final`/`var`) of a class or enum
+            // that is not read is `UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR` at the
+            // parameter name, with the name and the keyword; an extension type never
+            // reports. The parser elaborates the field with the parameter's name.
             let declaring_names: HashSet<usize> = match primary.map(|m| &a.member(m).kind) {
                 Some(MemberKind::Constructor(k)) if matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_)) => {
                     k.parameters.iter().filter(|p| p.this_).filter_map(|p| p.name).map(|n| n.span.start).collect()
@@ -1152,9 +1149,9 @@ pub fn elementos_nao_usados(
                     MemberKind::Field(l) => {
                         let vs = variables_of(u, None, Some(mid));
                         for (i, v) in l.variables.iter().enumerate() {
-                            // O campo de um parâmetro declarante `_` é curinga:
-                            // não tem getter, e o `_isReadMember` dele é falso
-                            // (`field.getter == null`) mesmo com leituras de `_`.
+                            // The field of a declaring parameter `_` is a wildcard: it has no getter,
+                            // and its `_isReadMember` is false (`field.getter == null`) even with reads
+                            // of `_`.
                             let wildcard = declaring_names.contains(&v.name.span.start) && interner.resolve(v.name.sym) == "_";
                             if let Some(&id) = vs.get(&i)
                                 && (wildcard || !read_value(id))
@@ -1177,8 +1174,8 @@ pub fn elementos_nao_usados(
                             continue;
                         }
                         let Some(c) = program.function(e).class else { continue };
-                        // O construtor da representação de um tipo de
-                        // extensão não está no modelo, mas conta.
+                        // The representation constructor of an extension type is not in the model,
+                        // but it counts.
                         let representation = usize::from(program.class(c).kind == ClassKind::ExtensionType);
                         if program.class(c).constructors.len() + representation > 1 && !used_member(El::Funcao(e), n.sym, &mem.metadata, u, &mut engine) {
                             report(u, w::UNUSED_ELEMENT, n, format!("{type_name}.{}", interner.resolve(n.sym)));

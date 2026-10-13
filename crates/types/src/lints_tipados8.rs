@@ -1,16 +1,16 @@
-//! `avoid_futureor_void` e `unnecessary_lambdas`
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2, com a variância e a subtipagem do motor.
+//! `avoid_futureor_void` and `unnecessary_lambdas`
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters, with the engine's variance and subtyping.
 //!
-//! * `avoid_futureor_void`: o `FutureOr<void>` escrito em posição que não é
-//!   só de entrada (tipos de `as`/`is`/padrões, cláusulas de supertipo,
-//!   tipos de variáveis, retornos, limites), com a variância dos parâmetros
-//!   de tipo do elemento (o legado é covariante).
-//! * `unnecessary_lambdas`: a closure que só repassa os parâmetros a uma
-//!   invocação cujo alvo é final, ou a um construtor (com tear-offs de
-//!   construtor).
+//! * `avoid_futureor_void`: a `FutureOr<void>` written in a position that is
+//!   not input-only (types of `as`/`is`/patterns, supertype clauses,
+//!   variable types, returns, bounds), with the variance of the element's
+//!   type parameters (legacy is covariant).
+//! * `unnecessary_lambdas`: a closure that only forwards its parameters to
+//!   an invocation whose target is final, or to a constructor (with
+//!   constructor tear-offs).
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::lints_tipados::Achado;
 use crate::resolve::OutlineTypes;
@@ -39,7 +39,7 @@ impl Variance_ {
     }
 }
 
-/// Os achados na unidade `u`.
+/// The findings in unit `u`.
 #[allow(clippy::too_many_arguments)]
 pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
     let mut out = Vec::new();
@@ -53,7 +53,7 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
     let a = &program.unit(u).ast;
     let resolved = |t: ast::TypeId| body.tipos_de_anotacoes.get(&t).copied().or_else(|| outline.tipos_escritos.get(&(u, t)).copied());
     let mut findings: HashSet<(usize, usize)> = HashSet::new();
-    // As variâncias dos parâmetros de tipo do elemento de um tipo nomeado.
+    // The variances of the type parameters of a named type's element.
     let variances = |t: TypeId| -> Option<Vec<Option<ast::Variance>>> {
         let (class, _) = match table.get(t) {
             Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (*class, args.len()),
@@ -160,7 +160,7 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
     }
     let output = Variance_::Saida;
     let ch = |v: Variance_, t: ast::TypeId, findings: &mut HashSet<(usize, usize)>| checar(a, table, &resolved, &variances, v, t, findings);
-    // `as`, `is`, padrões de cast e de objeto.
+    // `as`, `is`, cast and object patterns.
     for e in a.exprs.iter() {
         match &e.kind {
             ExprKind::As { ty, .. } | ExprKind::Is { ty, .. } => ch(output, *ty, &mut findings),
@@ -173,11 +173,11 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
             _ => {}
         }
     }
-    // Cláusulas de supertipo, `on`, representação, listas de variáveis.
+    // Supertype clauses, `on`, representation, variable lists.
     for d in a.decls.iter() {
         match &d.kind {
             ast::DeclKind::Class(x) => {
-                // `class C = S with M`: o `S` não está num `ExtendsClause`.
+                // `class C = S with M`: the `S` is not in an `ExtendsClause`.
                 let extends = if x.mixin_application { None } else { x.extends };
                 for t in extends.iter().chain(x.with.iter()).chain(x.implements.iter()) {
                     ch(output, *t, &mut findings);
@@ -225,7 +225,7 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
             _ => {}
         }
     }
-    // Os limites de todos os parâmetros de tipo.
+    // The bounds of all type parameters.
     let mut limites: Vec<ast::TypeId> = Vec::new();
     for d in a.decls.iter() {
         let tps: &[ast::TypeParameter] = match &d.kind {
@@ -242,8 +242,8 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
     for f in a.functions.iter() {
         limites.extend(f.type_params.iter().filter_map(|p| p.bound));
     }
-    // Os parâmetros de tipo de parâmetros-função (`void f(T g<T extends X>())`),
-    // em qualquer lista de parâmetros.
+    // The type parameters of function parameters (`void f(T g<T extends X>())`),
+    // in any parameter list.
     fn de_parametros(ps: &[ast::Parameter], limites: &mut Vec<ast::TypeId>) {
         for p in ps.iter() {
             limites.extend(p.function_type_params.iter().filter_map(|q| q.bound));
@@ -269,7 +269,7 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
     for b in limites {
         ch(Variance_::Both, b, &mut findings);
     }
-    // Funções declaradas e métodos: o retorno e os parâmetros (de entrada).
+    // Declared functions and methods: the return and the (input) parameters.
     let mut the_declared: Vec<ast::FunctionId> = Vec::new();
     for d in a.decls.iter() {
         if let ast::DeclKind::Function(f) = &d.kind {
@@ -302,8 +302,8 @@ fn futureor_void(program: &Program, table: &TypeTable, outline: &OutlineTypes, b
     }
 }
 
-/// O parâmetro `nome` da função ou do construtor mais de dentro que contém
-/// `e` e o declara (o elemento de `Resolved::Parameter`).
+/// The parameter `the_name` of the innermost function or constructor that
+/// contains `e` and declares it (the element of `Resolved::Parameter`).
 fn declared_parameter(a: &ast::Ast, e: Span, the_name: dartforge_intern::SymbolId) -> Option<&ast::Parameter> {
     let mut best: Option<(usize, &ast::Parameter)> = None;
     let mut lists: Vec<(Span, &[ast::Parameter])> = Vec::new();
@@ -331,9 +331,9 @@ fn declared_parameter(a: &ast::Ast, e: Span, the_name: dartforge_intern::SymbolI
     best.map(|(_, p)| p)
 }
 
-/// O `isFinal` do elemento do local declarado em `d` (o offset do nome):
-/// a variável `final` e não `late` (o `const` não é `final` no elemento);
-/// a função local não é variável e conta como final.
+/// The `isFinal` of the element of the local declared at `d` (the name's
+/// offset): a `final` and non-`late` variable (`const` is not `final` in the
+/// element); a local function is not a variable and counts as final.
 fn local_final(a: &ast::Ast, d: usize) -> bool {
     for s in a.stmts.iter() {
         match &s.kind {
@@ -345,7 +345,7 @@ fn local_final(a: &ast::Ast, d: usize) -> bool {
             _ => {}
         }
     }
-    // A variável de padrão: o `final` dela ou o da declaração que a contém.
+    // A pattern variable: its own `final` or that of its enclosing declaration.
     for p in a.patterns.iter() {
         let PatternKind::Variable { final_, name, .. } = &p.kind else { continue };
         if name.span.start != d {
@@ -375,14 +375,14 @@ fn local_final(a: &ast::Ast, d: usize) -> bool {
     false
 }
 
-/// O `isFinal` de uma variável do modelo (pelo getter sintético dela).
+/// The `isFinal` of a model variable (through its synthetic getter).
 fn final_variable(program: &Program, v: dartforge_elements::model::VariableId) -> bool {
     let x = program.variable(v);
     x.final_ && !x.const_ && !x.late
 }
 
-/// O `isFinal` de uma função do modelo: o getter sintético segue a
-/// variável; o getter escrito não é final; o resto não é variável.
+/// The `isFinal` of a model function: a synthetic getter follows the
+/// variable; a written getter is not final; the rest is not a variable.
 fn final_function(program: &Program, f: dartforge_elements::model::FunctionElementId) -> bool {
     let g = program.function(f);
     match g.kind {
@@ -407,7 +407,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
         }
         e
     };
-    // `isFinal` do `staticElement` de um identificador (o nulo conta).
+    // `isFinal` of an identifier's `staticElement` (null counts).
     let final_element = |e: ExprId| -> bool {
         match body.get_resolved(e) {
             Some(Resolved::Local(_)) => body.declaracao_local(e).is_some_and(|d| local_final(a, d)),
@@ -418,7 +418,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             _ => true,
         }
     };
-    // O identificador `p` que nomeia um prefixo de importação adiada.
+    // The identifier `p` that names a deferred import prefix.
     let deferred_prefix = |e: ExprId| -> bool {
         let ExprKind::Identifier(n) = &a.expr(e).kind else { return false };
         if matches!(
@@ -430,7 +430,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
         }
         library.imports.iter().any(|i| i.unit == u && i.prefix == Some(n.sym) && i.deferred)
     };
-    // `mightBeDeferred`: o identificador simples ou o prefixo de `p.x`.
+    // `mightBeDeferred`: the simple identifier or the prefix of `p.x`.
     let can_be_deferred = |e: Option<ExprId>| -> bool {
         let Some(e) = e else { return false };
         match &a.expr(e).kind {
@@ -458,7 +458,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             FunctionBody::Expression(x) => (*x, true),
             _ => continue,
         };
-        // A criação de instância (`C(e)`, `new C(e)`, `p.C.n(e)`).
+        // The instance creation (`C(e)`, `new C(e)`, `p.C.n(e)`).
         let creation: Option<(ExprId, &ast::Arguments, bool)> = match &a.expr(inv).kind {
             ExprKind::InstanceCreation { keyword, ty, arguments, .. } => {
                 let deferred = match &a.ty(*ty).kind {
@@ -469,7 +469,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
                 Some((inv, &**arguments, deferred || constant))
             }
             ExprKind::Call { target, arguments } if matches!(body.get_resolved(inv), Some(Resolved::Constructor(_))) => {
-                // O identificador mais à esquerda do nome do construtor.
+                // The leftmost identifier of the constructor name.
                 let mut x = *target;
                 let mut parts = 0;
                 while let ExprKind::Property { target: t, .. } = &a.expr(x).kind {
@@ -482,14 +482,14 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             _ => None,
         };
         if let Some((created, arguments, skips)) = creation {
-            // Só no corpo de expressão, com tear-offs de construtor.
+            // Only in an expression body, with constructor tear-offs.
             if !expression_body || !tearoffs || skips {
                 continue;
             }
             let (Some(closure_type), Some(Resolved::Constructor(kf))) = (body.get_type(id), body.get_resolved(created)) else { continue };
             let Some(data) = outline.functions.get(kf.0 as usize) else { continue };
             let mut constructor_type = data.signature;
-            // O `ConstructorMember` instanciado pelos argumentos do tipo criado.
+            // The `ConstructorMember` instantiated by the arguments of the created type.
             if let Some(cls) = program.function(*kf).class
                 && let Some(the_created) = body.get_type(created)
                 && let Type::Interface { args, .. } = table.get(the_created).clone()
@@ -518,11 +518,11 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             continue;
         }
         let ExprKind::Call { target, arguments } = &a.expr(inv).kind else { continue };
-        // `argumentsMatchParameters`: o `canonicalElement` de cada argumento
-        // é o parâmetro de mesma posição (ou de mesmo nome) da closure.
-        // O parâmetro da closure a que `x` resolve: os parâmetros de uma
-        // expressão de função ficam no escopo como locais declarados no nome
-        // deles.
+        // `argumentsMatchParameters`: the `canonicalElement` of each argument
+        // is the closure parameter at the same position (or with the same
+        // name). The closure parameter that `x` resolves to: the parameters
+        // of a function expression are in scope as locals declared at their
+        // names.
         let closure_parameter = |x: ExprId| -> Option<dartforge_intern::SymbolId> {
             let ExprKind::Identifier(n) = &a.expr(x).kind else { return None };
             let p = ps.iter().find(|p| p.name.is_some_and(|q| q.sym == n.sym))?;
@@ -558,7 +558,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             continue;
         }
         let params: HashSet<dartforge_intern::SymbolId> = ps.iter().filter_map(|p| p.name.map(|n| n.sym)).collect();
-        // O identificador que referencia um parâmetro da closure.
+        // The identifier that references a closure parameter.
         let is_parameter = |x: ExprId| -> bool {
             matches!(&a.expr(x).kind, ExprKind::Identifier(n) if params.contains(&n.sym))
                 && closure_parameter(x).is_some()
@@ -576,7 +576,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
                     let sp = a.function(*g).span;
                     !a.exprs.iter().enumerate().any(|(k, x)| x.span.start >= sp.start && x.span.end <= sp.end && is_parameter(ExprId(k as u32)))
                 }
-                // `PrefixedIdentifier` e `PropertyAccess`: o alvo e o nome.
+                // `PrefixedIdentifier` and `PropertyAccess`: the target and the name.
                 ExprKind::Property { target, .. } => final_no(a, is_parameter, final_element, Some(*target)) && final_element(e),
                 ExprKind::Identifier(_) => !is_parameter(e) && final_element(e),
                 _ => false,
@@ -601,8 +601,8 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
         if can_be_deferred(tgt) {
             continue;
         }
-        // `staticInvokeType`: o tipo do membro, instanciado pelos argumentos
-        // de tipo da chamada.
+        // `staticInvokeType`: the member's type, instantiated by the call's type
+        // arguments.
         let Some(mut tearoff) = body.get_type(*target) else { continue };
         if let Some(inst) = body.instanciacao(arguments.span.start).map(|x| x.to_vec())
             && let Type::Function { type_params, .. } = table.get(tearoff)
@@ -611,8 +611,8 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
             tearoff = crate::constraints::instantiate_function(tearoff, &inst, &mut env);
         }
-        // O pai da closure: o argumento nomeado (o tipo estático é o da
-        // própria closure) ou a declaração de variável.
+        // The closure's parent: the named argument (the static type is that of
+        // the closure itself) or the variable declaration.
         let named_parent = a.exprs.iter().any(|x| match &x.kind {
             ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => arguments.args.iter().any(|y| y.value == id && y.name.is_some()),
             _ => false,

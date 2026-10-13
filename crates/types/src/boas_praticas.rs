@@ -1,5 +1,5 @@
-//! Verificações do `BestPracticesVerifier` sobre declarações e tipos escritos
-//! (docs/ANALYZER-ESPECIFICACAO.md §6, família B):
+//! `BestPracticesVerifier` checks on declarations and written types
+//! (docs/ANALYZER-ESPECIFICACAO.md §6, family B):
 //!
 //! * `non_nullable_equals_parameter` (`_checkForNullableEqualsParameterType`,
 //!   `an611:src/error/best_practices_verifier.dart:1150-1184`);
@@ -7,7 +7,7 @@
 //!   `:1234-1280`);
 //! * `unnecessary_question_mark` (`visitNamedType`, `:658-676`).
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::BodyTypes;
@@ -32,9 +32,9 @@ fn anulavel(table: &TypeTable, t: TypeId) -> bool {
     }
 }
 
-/// `NON_NULLABLE_EQUALS_PARAMETER`: um `operator ==` com exatamente um
-/// parâmetro (de qualquer espécie) cujo tipo, escrito ou herdado, é
-/// `Object?` ou `dynamic` — no nome do operador.
+/// `NON_NULLABLE_EQUALS_PARAMETER`: an `operator ==` with exactly one
+/// parameter (of any kind) whose type, written or inherited, is `Object?` or
+/// `dynamic` — at the operator name.
 pub fn parametro_de_igualdade_anulavel(
     program: &Program,
     interner: &Interner,
@@ -72,10 +72,9 @@ pub fn parametro_de_igualdade_anulavel(
     output
 }
 
-/// A implementação de `nome` que `super.nome` alcança a partir de `c`
-/// (`getMember(…, forSuper: true)`): os mixins de `c` do último ao primeiro,
-/// depois a superclasse, os mixins dela e assim por diante; só membros
-/// concretos.
+/// The implementation of `the_name` that `super.the_name` reaches from `c`
+/// (`getMember(…, forSuper: true)`): the mixins of `c` from last to first,
+/// then the superclass, its mixins and so on; only concrete members.
 fn super_member(program: &Program, c: ClassId, the_name: SymbolId) -> Option<FunctionElementId> {
     let concrete = |f: FunctionElementId| !program.function(f).abstract_;
     let mut current = c;
@@ -101,10 +100,10 @@ fn super_member(program: &Program, c: ClassId, the_name: SymbolId) -> Option<Fun
     None
 }
 
-/// `UNNECESSARY_NO_SUCH_METHOD`: um método `noSuchMethod` cujo corpo é só
-/// `super.noSuchMethod(x)` (com `=>` ou `{ return …; }`, um argumento) e cujo
-/// `noSuchMethod` chamado é um método de uma classe que não é `Object` — no
-/// nome do método.
+/// `UNNECESSARY_NO_SUCH_METHOD`: a `noSuchMethod` method whose body is only
+/// `super.noSuchMethod(x)` (with `=>` or `{ return …; }`, one argument) and
+/// whose called `noSuchMethod` is a method of a class that is not `Object` —
+/// at the method name.
 pub fn no_such_method_desnecessario(program: &Program, interner: &Interner, core: &CoreTypes, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
     for f in program.functions.iter() {
@@ -150,9 +149,9 @@ pub fn no_such_method_desnecessario(program: &Program, interner: &Interner, core
     output
 }
 
-/// `UNNECESSARY_QUESTION_MARK`: um tipo nomeado com `?` que resolve para o
-/// `Null` do `dart:core`, ou `dynamic` escrito assim, sem alias — no `?`, com
-/// o nome qualificado escrito.
+/// `UNNECESSARY_QUESTION_MARK`: a named type with `?` that resolves to the
+/// `Null` of `dart:core`, or `dynamic` written that way, without an alias — at
+/// the `?`, with the qualified name as written.
 pub fn interrogacoes_desnecessarias(
     program: &Program,
     interner: &Interner,

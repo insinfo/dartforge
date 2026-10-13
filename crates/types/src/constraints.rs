@@ -1,16 +1,17 @@
-//! Inferência de argumentos de tipo: geração de restrições de subtipo e
-//! solução, conforme `inference.md` ("Subtype constraint generation",
-//! "Constraint solving") e a implementação oficial (`GenericInferrer` do
-//! analyzer, `chooseTypes` de `_fe_analyzer_shared`).
+//! Type argument inference: subtype constraint generation and solving, per
+//! `inference.md` ("Subtype constraint generation", "Constraint solving") and
+//! the official implementation (the analyzer's `GenericInferrer`, `chooseTypes`
+//! from `_fe_analyzer_shared`).
 //!
-//! Uso típico (invocação genérica):
+//! Typical use (generic invocation):
 //!
-//! 1. [`GenericInferrer::constrain_return`] com o tipo de retorno e o contexto
-//!    (inferência "para baixo");
-//! 2. [`GenericInferrer::choose_preliminary`] dá os esquemas parciais, com os
-//!    quais se calculam os contextos dos argumentos;
-//! 3. [`GenericInferrer::constrain_argument`] para cada argumento já inferido;
-//! 4. [`GenericInferrer::choose_final`] dá os tipos finais (sem `_`).
+//! 1. [`GenericInferrer::constrain_return`] with the return type and the
+//!    context ("downward" inference);
+//! 2. [`GenericInferrer::choose_preliminary`] gives the partial schemas, from
+//!    which the argument contexts are computed;
+//! 3. [`GenericInferrer::constrain_argument`] for each already inferred
+//!    argument;
+//! 4. [`GenericInferrer::choose_final`] gives the final types (without `_`).
 
 use crate::bounds::{down, has_unknown, least_closure, schema_greatest, schema_least, up};
 use crate::ops::{non_nullable, substitute};
@@ -18,22 +19,22 @@ use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{Type, TypeId, TypeParamId};
 use std::collections::HashMap;
 
-/// Restrição `lower <: X <: upper` (qualquer lado pode ser `_`).
+/// Constraint `lower <: X <: upper` (either side may be `_`).
 #[derive(Debug, Clone, Copy)]
 struct Restricao {
     param: usize,
     lower: TypeId,
     upper: TypeId,
-    /// Índice em `GenericInferrer::origens` (`TypeConstraintOrigin`).
+    /// Index into `GenericInferrer::origens` (`TypeConstraintOrigin`).
     origem: Option<usize>,
 }
 
-/// A origem de uma restrição, para a mensagem de `COULD_NOT_INFER`
+/// The origin of a constraint, for the `COULD_NOT_INFER` message
 /// (`fe76:type_inference/type_constraint.dart:173-330`).
 #[derive(Debug, Clone)]
 pub enum Origem {
     /// `TypeConstraintFromArgument`: `Parameter 'p' declared as '…' but
-    /// argument is '…'.`; `prefixo` substitui `Parameter 'p'` (`List element`,
+    /// argument is '…'.`; `prefixo` replaces `Parameter 'p'` (`List element`,
     /// `Map key`, `Map value`).
     Argumento { parametro: String, declarado: TypeId, argumento: TypeId, prefixo: Option<String> },
     /// `TypeConstraintFromReturnType`.
@@ -42,16 +43,16 @@ pub enum Origem {
     Funcao { declarado: TypeId, contexto: TypeId },
 }
 
-/// Inferidor de argumentos de tipo para um conjunto de parâmetros `L`.
+/// Type argument inferrer for a set of parameters `L`.
 pub struct GenericInferrer {
     pub params: Vec<TypeParamId>,
     restricoes: Vec<Restricao>,
-    /// Escolhas já fixadas (tipos conhecidos) de rodadas anteriores.
+    /// Choices already fixed (known types) from previous rounds.
     the_fixed: Vec<Option<TypeId>>,
     origens: Vec<Origem>,
     current_origin: Option<usize>,
-    /// `genericMetadataIsEnabled` (2.14): sem ele, o candidato que é tipo de
-    /// função genérico é `COULD_NOT_INFER` (`generic_inferrer.dart:302-322`).
+    /// `genericMetadataIsEnabled` (2.14): without it, a candidate that is a
+    /// generic function type is `COULD_NOT_INFER` (`generic_inferrer.dart:302-322`).
     pub generic_metadata: bool,
 }
 
@@ -60,13 +61,13 @@ impl GenericInferrer {
         Self { params: params.to_vec(), restricoes: Vec::new(), the_fixed: vec![None; params.len()], origens: Vec::new(), current_origin: None, generic_metadata: true }
     }
 
-    /// A origem das restrições geradas a seguir.
+    /// The origin of the constraints generated next.
     pub fn with_origin(&mut self, o: Origem) {
         self.origens.push(o);
         self.current_origin = Some(self.origens.len() - 1);
     }
 
-    /// `arg <: param` (os parâmetros de `L` estão em `param`).
+    /// `arg <: param` (the parameters of `L` are in `param`).
     pub fn constrain_argument(&mut self, arg: TypeId, param: TypeId, env: &mut SubtypeEnv) -> bool {
         let mark = self.restricoes.len();
         let ok = self.try_match(arg, param, false, env);
@@ -78,7 +79,7 @@ impl GenericInferrer {
         ok
     }
 
-    /// `declared <: context` (os parâmetros de `L` estão em `declared`).
+    /// `declared <: context` (the parameters of `L` are in `declared`).
     pub fn constrain_return(&mut self, declared: TypeId, context: TypeId, env: &mut SubtypeEnv) -> bool {
         let mark = self.restricoes.len();
         let ok = self.try_match(declared, context, true, env);
@@ -101,8 +102,8 @@ impl GenericInferrer {
         env.core.is_unknown(env.table, t)
     }
 
-    /// `p <# q [L]`: `left` indica que os parâmetros de `L` estão em `p`
-    /// (o lado direito é o esquema), senão estão em `q`.
+    /// `p <# q [L]`: `left` indicates that the parameters of `L` are in `p`
+    /// (the right side is the schema), otherwise they are in `q`.
     fn try_match(&mut self, p: TypeId, q: TypeId, left: bool, env: &mut SubtypeEnv) -> bool {
         if Self::is_unknown(p, env) || Self::is_unknown(q, env) {
             return true;
@@ -121,7 +122,7 @@ impl GenericInferrer {
         }
         let tp = env.table.get(p).clone();
         let tq = env.table.get(q).clone();
-        // Q é FutureOr<Q0>.
+        // Q is FutureOr<Q0>.
         if let Type::FutureOr { arg: q0, nullable: false } = tq {
             if let Type::FutureOr { arg: p0, nullable: false } = tp {
                 if self.sub(p0, q0, left, env) {
@@ -141,7 +142,7 @@ impl GenericInferrer {
             }
             return self.sub(p, q0, left, env);
         }
-        // Q é Q0?.
+        // Q is Q0?.
         if tq.is_declared_nullable() {
             let q0 = non_nullable(q, env.table);
             if tp.is_declared_nullable() {
@@ -167,7 +168,7 @@ impl GenericInferrer {
             }
             return self.sub(p, q0, left, env);
         }
-        // P é FutureOr<P0>.
+        // P is FutureOr<P0>.
         if let Type::FutureOr { arg: p0, nullable: false } = tp {
             let Some(fp0) = future_of(p0, env) else { return false };
             let mark = self.restricoes.len();
@@ -177,7 +178,7 @@ impl GenericInferrer {
             self.restricoes.truncate(mark);
             return false;
         }
-        // P é P0?.
+        // P is P0?.
         if tp.is_declared_nullable() {
             let p0 = non_nullable(p, env.table);
             let mark = self.restricoes.len();
@@ -188,26 +189,26 @@ impl GenericInferrer {
             self.restricoes.truncate(mark);
             return false;
         }
-        // Q topo.
+        // Q top.
         if matches!(tq, Type::Dynamic | Type::Void) || q == env.core.object_nullable {
             return true;
         }
         if matches!(tp, Type::Never) {
             return true;
         }
-        // Q é Object: só se P não é anulável.
+        // Q is Object: only if P is not nullable.
         if q == env.core.object {
             return structurally_non_nullable(p, env);
         }
-        // P é Null: só se Q é anulável.
+        // P is Null: only if Q is nullable.
         if matches!(tp, Type::Null) {
             return matches!(tq, Type::Null) || tq.is_declared_nullable();
         }
-        // P é X & B: pelo limite promovido.
+        // P is X & B: via the promoted bound.
         if let Type::Intersection { bound, .. } = tp {
             return self.try_match(bound, q, left, env);
         }
-        // P é variável de tipo fora de L: pelo limite.
+        // P is a type variable outside L: via the bound.
         if let Type::TypeParameter { param, .. } = tp {
             if param == env.core.unknown_param {
                 return true;
@@ -223,7 +224,7 @@ impl GenericInferrer {
             }
             return self.try_match(b, q, left, env);
         }
-        // Interfaces (e tipos de extensão).
+        // Interfaces (and extension types).
         match (&tp, &tq) {
             (
                 Type::Interface { class: c0, args: a0, .. } | Type::ExtensionType { decl: c0, args: a0, .. },
@@ -231,8 +232,8 @@ impl GenericInferrer {
             ) => {
                 if c0 == c1 && a0.len() == a1.len() {
                     // `_interfaceTypeArguments` (`type_analyzer_operations.dart:1230-1261`):
-                    // pela variância declarada de cada parâmetro (contravariante
-                    // troca os lados e o esquema; invariante, os dois).
+                    // by the declared variance of each parameter (contravariant swaps the sides
+                    // and the schema; invariant, both).
                     let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(*c0).map(|d| d.type_params.to_vec()).unwrap_or_default();
                     let mark = self.restricoes.len();
                     for (i, (x, y)) in a0.iter().zip(a1.iter()).enumerate() {
@@ -259,7 +260,7 @@ impl GenericInferrer {
             }
             _ => {}
         }
-        // Função <: Function.
+        // Function <: Function.
         if matches!(tp, Type::Function { .. }) {
             if let Type::Interface { class, .. } = tq {
                 if Some(class) == env.core.function_class {
@@ -275,7 +276,7 @@ impl GenericInferrer {
             if tp0.len() != tp1.len() {
                 return false;
             }
-            // Genéricos: renomeia os parâmetros de Q para os de P.
+            // Generics: renames the parameters of Q to those of P.
             let map: HashMap<TypeParamId, TypeId> = tp1
                 .iter()
                 .zip(tp0.iter())
@@ -366,7 +367,7 @@ impl GenericInferrer {
         false
     }
 
-    /// Tentativa com desfazimento em caso de falha.
+    /// Attempt with rollback on failure.
     fn sub(&mut self, p: TypeId, q: TypeId, left: bool, env: &mut SubtypeEnv) -> bool {
         let mark = self.restricoes.len();
         if self.try_match(p, q, left, env) {
@@ -377,7 +378,7 @@ impl GenericInferrer {
         }
     }
 
-    /// Restrição fundida de um parâmetro: `UP` dos inferiores, `DOWN` dos superiores.
+    /// Merged constraint of a parameter: `UP` of the lower ones, `DOWN` of the upper ones.
     fn fundir(&self, i: usize, env: &mut SubtypeEnv) -> (TypeId, TypeId) {
         let mut lower = env.core.unknown;
         let mut upper = env.core.unknown;
@@ -404,7 +405,7 @@ impl GenericInferrer {
         lower
     }
 
-    /// Limite declarado do parâmetro `i`, se escrito (não o `Object?` implícito).
+    /// Declared bound of parameter `i`, if written (not the implicit `Object?`).
     fn limite(&self, i: usize, current: &[TypeId], env: &mut SubtypeEnv) -> Option<TypeId> {
         let b = env.table.param(self.params[i]).bound;
         if b == env.core.object_nullable || matches!(env.table.get(b), Type::Dynamic) {
@@ -414,12 +415,12 @@ impl GenericInferrer {
         Some(substitute(b, &map, env.table))
     }
 
-    /// Inferência usando bounds (3.7, `inference-using-bounds`): para cada
-    /// parâmetro cuja restrição inferior fundida `L` (sem `_`) não satisfaz o
-    /// limite declarado `B`, acrescenta as restrições de `L <: B` com os
-    /// parâmetros de `B` como incógnitas. Em `f<X extends A<X>>(C())`, com
-    /// `C <: B <: A<B>`, `C <# A<X>` dá `B <: X`, e a solução passa a ser
-    /// `UP(C, B) = B` (antes da 3.7, `X = C` e o limite era violado).
+    /// Inference using bounds (3.7, `inference-using-bounds`): for each parameter
+    /// whose merged lower constraint `L` (without `_`) does not satisfy the
+    /// declared bound `B`, adds the constraints of `L <: B` with the parameters of
+    /// `B` as unknowns. In `f<X extends A<X>>(C())`, with `C <: B <: A<B>`,
+    /// `C <# A<X>` gives `B <: X`, and the solution becomes `UP(C, B) = B`
+    /// (before 3.7, `X = C` and the bound was violated).
     pub fn restringir_pelos_limites(&mut self, env: &mut SubtypeEnv) {
         for i in 0..self.params.len() {
             if self.the_fixed[i].is_some() {
@@ -447,11 +448,11 @@ impl GenericInferrer {
         }
     }
 
-    /// `_tryMatchSubtypeOf` (3.6.2 `generic_inferrer.dart:880-906`): das
-    /// restrições do casamento bem-sucedido, as de um parâmetro já fixado
-    /// pela inferência preliminar (`_typesInferredSoFar`) não entram
+    /// `_tryMatchSubtypeOf` (3.6.2 `generic_inferrer.dart:880-906`): of the
+    /// constraints of a successful match, those of a parameter already fixed by
+    /// the preliminary inference (`_typesInferredSoFar`) are not added
     /// (`Future<Future<String>> v = Future.value(Future<String>.value(''))`:
-    /// o `String <: T` do argumento é descartado, `T` já é `Future<String>`).
+    /// the argument's `String <: T` is discarded, `T` is already `Future<String>`).
     fn discard_fixed(&mut self, mark: usize) {
         let the_fixed = &self.the_fixed;
         let mut i = mark;
@@ -464,7 +465,7 @@ impl GenericInferrer {
         }
     }
 
-    /// Inferência parcial (para baixo ou horizontal): esquemas que podem conter `_`.
+    /// Partial inference (downward or horizontal): schemas that may contain `_`.
     pub fn choose_preliminary(&mut self, env: &mut SubtypeEnv) -> Vec<TypeId> {
         let n = self.params.len();
         let mut types: Vec<TypeId> = (0..n).map(|i| self.the_fixed[i].unwrap_or(env.core.unknown)).collect();
@@ -496,8 +497,8 @@ impl GenericInferrer {
         types
     }
 
-    /// Inferência final: tipos sem `_`; o que ficou sem restrição vai ao
-    /// limite (instanciação para os limites: `dynamic` se não há limite).
+    /// Final inference: types without `_`; whatever was left unconstrained goes to
+    /// the bound (instantiation to bounds: `dynamic` if there is no bound).
     pub fn choose_final(&mut self, env: &mut SubtypeEnv) -> Vec<TypeId> {
         let n = self.params.len();
         let mut types: Vec<TypeId> = (0..n).map(|i| self.the_fixed[i].unwrap_or(env.core.unknown)).collect();
@@ -516,8 +517,8 @@ impl GenericInferrer {
             types[i] = t;
             known[i] = !has_unknown(t, env);
         }
-        // Instanciar para os limites os que não foram inferidos (na ordem
-        // das dependências entre os limites; limite escrito `Object?` fica).
+        // Instantiate to bounds those that were not inferred (in the order of the
+        // dependencies between the bounds; a written `Object?` bound stays).
         let fixed: Vec<Option<TypeId>> = (0..n).map(|i| known[i].then_some(types[i])).collect();
         let instantiated = crate::ops::instantiate_to_bounds(&self.params, &fixed, env.table, env.core);
         for i in 0..n {
@@ -525,8 +526,8 @@ impl GenericInferrer {
                 continue;
             }
             types[i] = instantiated[i];
-            // Um limite F (`T extends Comparable<T>`) substituído pode ainda
-            // mencionar parâmetros: fecha para cima.
+            // A substituted F-bound (`T extends Comparable<T>`) may still mention
+            // parameters: close upward.
             let params = self.params.clone();
             types[i] = crate::bounds::greatest_closure(types[i], &params, env);
         }
@@ -534,12 +535,12 @@ impl GenericInferrer {
     }
 
     /// `tryChooseFinalTypes(failAtError: false)` (`an611:src/dart/element/
-    /// generic_inferrer.dart:250-386`): os `COULD_NOT_INFER` da inferência,
-    /// `(nome do parâmetro de tipo, sufixo da mensagem)`. Refaz a escolha
-    /// final como o analyzer (`_chooseTypes`, com a cláusula `extends`
-    /// substituída pelos já escolhidos) e confere cada restrição e o limite
-    /// com o tipo escolhido; sem erro, confere os tipos finais contra os
-    /// limites (`_checkArgumentsNotMatchingBounds`, `:388-420`).
+    /// generic_inferrer.dart:250-386`): the inference's `COULD_NOT_INFER`s,
+    /// `(type parameter name, message suffix)`. Redoes the final choice like the
+    /// analyzer (`_chooseTypes`, with the `extends` clause substituted with the
+    /// ones already chosen) and checks each constraint and the bound against the
+    /// chosen type; without an error, checks the final types against the bounds
+    /// (`_checkArgumentsNotMatchingBounds`, `:388-420`).
     pub fn failures(
         &self,
         finals: &[TypeId],
@@ -563,18 +564,18 @@ impl GenericInferrer {
             };
             inferred[i] = t;
         }
-        // `tryChooseFinalTypes` (`generic_inferrer.dart:250-300`): cada
-        // parâmetro é conferido contra as próprias restrições e o `extends`
-        // com a escolha do `_chooseTypes` final (`rec`); só sem erro os tipos
-        // finais (instanciados para os limites) passam pela conferência dos
-        // limites (`_checkArgumentsNotMatchingBounds`).
+        // `tryChooseFinalTypes` (`generic_inferrer.dart:250-300`): each parameter is
+        // checked against its own constraints and the `extends` with the choice of
+        // the final `_chooseTypes` (`rec`); only without an error do the final types
+        // (instantiated to bounds) go through the bounds check
+        // (`_checkArgumentsNotMatchingBounds`).
         let rec = inferred;
         for i in 0..n {
             let name = interner.resolve(env.table.param(self.params[i]).name).to_string();
             if let Some(msg) = self.failure_message(i, &rec, env, interner, program) {
                 output.push((name.clone(), msg));
             }
-            // Candidato tipo de função genérico sem `generic-metadata`
+            // Candidate that is a generic function type without `generic-metadata`
             // (`generic_inferrer.dart:302-322`).
             if !self.generic_metadata
                 && let Type::Function { type_params, .. } = env.table.get(rec[i]).clone()
@@ -627,9 +628,9 @@ impl GenericInferrer {
         output
     }
 
-    /// O sufixo de `COULD_NOT_INFER` do parâmetro `i` com os tipos
-    /// `vetor` (`_formatError`, `an611:src/dart/element/generic_inferrer.dart:587-630`),
-    /// ou `None` se o escolhido satisfaz as restrições e o limite.
+    /// The `COULD_NOT_INFER` suffix of parameter `i` with the types
+    /// `vector` (`_formatError`, `an611:src/dart/element/generic_inferrer.dart:587-630`),
+    /// or `None` if the chosen one satisfies the constraints and the bound.
     fn failure_message(
         &self,
         i: usize,
@@ -657,8 +658,8 @@ impl GenericInferrer {
         if success {
             if let Some(b) = self.written_bound(i, vector, env) {
                 let raw = env.table.param(self.params[i]).bound;
-                // `isSatisfiedBy` (`type_constraint.dart:128-135`): o tipo
-                // contra o fecho maior do esquema (`A<_>` vale `A<Object?>`).
+                // `isSatisfiedBy` (`type_constraint.dart:128-135`): the type against the
+                // greatest closure of the schema (`A<_>` counts as `A<Object?>`).
                 let closure = schema_greatest(b, env);
                 let ok = is_subtype(t, closure, env);
                 extends = Some((fmt(env, raw), fmt(env, b), ok));
@@ -669,7 +670,7 @@ impl GenericInferrer {
             return None;
         }
         let name = interner.resolve(env.table.param(self.params[i]).name).to_string();
-        // Por origem, na ordem de chegada: as não satisfeitas e as satisfeitas.
+        // By origin, in order of arrival: the unsatisfied and the satisfied ones.
         let mut by_origin: Vec<(Option<usize>, bool)> = Vec::new();
         for r in &own {
             let ok = satisfies(r, env);
@@ -732,8 +733,8 @@ Consider passing explicit type argument(s) to the generic.
 "))
     }
 
-    /// O limite escrito do parâmetro `i`, com os parâmetros substituídos
-    /// pelos `atuais` (a cláusula `extends`).
+    /// The written bound of parameter `i`, with the parameters substituted by the
+    /// `current` (the `extends` clause).
     fn written_bound(&self, i: usize, current: &[TypeId], env: &mut SubtypeEnv) -> Option<TypeId> {
         if !env.table.param(self.params[i]).explicito {
             return None;
@@ -743,7 +744,7 @@ Consider passing explicit type argument(s) to the generic.
         Some(substitute(b, &map, env.table))
     }
 
-    /// Se os tipos finais satisfazem as restrições coletadas.
+    /// Whether the final types satisfy the collected constraints.
     pub fn satisfied(&self, types: &[TypeId], env: &mut SubtypeEnv) -> bool {
         for r in &self.restricoes {
             let t = types[r.param];
@@ -765,7 +766,7 @@ Consider passing explicit type argument(s) to the generic.
 }
 
 /// `_formatConstraints` (`an611:src/dart/element/generic_inferrer.dart:914-947`):
-/// uma linha por origem (sem repetir), o prefixo alinhado pelo maior.
+/// one line per origin (without repetition), the prefix aligned to the longest.
 fn format_constraints(parts: &[Vec<String>]) -> String {
     let greater = parts.iter().map(|p| p[0].chars().count()).max().unwrap_or(0);
     let mut lines: Vec<String> = Vec::new();
@@ -786,7 +787,7 @@ fn future_of(t: TypeId, env: &mut SubtypeEnv) -> Option<TypeId> {
     Some(env.table.intern(Type::Interface { class: f, args: Box::new([t]), nullable: false }))
 }
 
-/// Não-anulabilidade estrutural (sem consultar subtipagem com variáveis de `L`).
+/// Structural non-nullability (without consulting subtyping with variables of `L`).
 fn structurally_non_nullable(t: TypeId, env: &mut SubtypeEnv) -> bool {
     match env.table.get(t).clone() {
         Type::Dynamic | Type::Void | Type::Null => false,
@@ -806,8 +807,8 @@ fn structurally_non_nullable(t: TypeId, env: &mut SubtypeEnv) -> bool {
     }
 }
 
-/// Instancia um tipo genérico de função (`<X..>(..) -> R`) com os argumentos
-/// dados, devolvendo a função sem parâmetros de tipo.
+/// Instantiates a generic function type (`<X..>(..) -> R`) with the given
+/// arguments, returning the function without type parameters.
 pub fn instantiate_function(f: TypeId, args: &[TypeId], env: &mut SubtypeEnv) -> TypeId {
     let Type::Function { type_params, ret, positional, optional, named, nullable } = env.table.get(f).clone() else {
         return f;
@@ -827,13 +828,13 @@ pub fn instantiate_function(f: TypeId, args: &[TypeId], env: &mut SubtypeEnv) ->
     })
 }
 
-/// Substitui os parâmetros `params` por `_` (esquema de contexto de argumento).
+/// Replaces the parameters `params` with `_` (argument context schema).
 pub fn schema_with_unknowns(t: TypeId, params: &[TypeParamId], types: &[TypeId], env: &mut SubtypeEnv) -> TypeId {
     let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(types.iter().copied()).collect();
     substitute(t, &map, env.table)
 }
 
-/// Fecho menor em relação a parâmetros (reexportado para os chamadores).
+/// Least closure with respect to parameters (re-exported for callers).
 pub fn least_closure_of(t: TypeId, params: &[TypeParamId], env: &mut SubtypeEnv) -> TypeId {
     least_closure(t, params, env)
 }

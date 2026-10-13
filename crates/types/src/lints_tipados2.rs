@@ -1,31 +1,31 @@
-//! Mais regras de lint que pedem os tipos estáticos e a resolução da
-//! inferência (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos
-//! emissores da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`).
-//! Como em [`crate::lints_tipados`], devolvem achados neutros (a posição, o
-//! nome único do código e os argumentos), que quem chama só emite com a
-//! regra ligada.
+//! More lint rules that need the static types and the resolution from
+//! inference (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from
+//! the 3.6.2 emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`).
+//! As in [`crate::lints_tipados`], they return neutral findings (the
+//! position, the unique name of the code and the arguments), which the
+//! caller only emits when the rule is enabled.
 //!
-//! Aqui: `avoid_bool_literals_in_conditional_expressions`,
+//! Here: `avoid_bool_literals_in_conditional_expressions`,
 //! `no_literal_bool_comparisons`, `unnecessary_string_interpolations`,
-//! `prefer_contains` (os três códigos), `prefer_is_not_empty`,
+//! `prefer_contains` (its three codes), `prefer_is_not_empty`,
 //! `use_is_even_rather_than_modulo`, `unnecessary_to_list_in_spreads`,
-//! `unnecessary_null_aware_assignments` e `await_only_futures`.
+//! `unnecessary_null_aware_assignments` and `await_only_futures`.
 //!
-//! Cada regra lê o mesmo dado do emissor:
-//! - `getIntValue(e, context)` (`prefer_contains`): o literal inteiro ou o
-//!   identificador simples avaliado como constante (o `Motor` de
-//!   constantes, o `computeConstantValue`), com `-` na frente;
-//! - o contexto constante é o `inConstantContext` (`dartforge_frontend::pais`);
-//! - o `implementsAnyInterface` desce pelos limites do parâmetro de tipo;
-//! - `prefer_is_not_empty` pergunta ao elemento que declara o `isEmpty`
-//!   (classe, mixin, enum, tipo de extensão ou extensão) se ele tem um filho
+//! Each rule reads the same data as the emitter:
+//! - `getIntValue(e, context)` (`prefer_contains`): the integer literal or
+//!   the simple identifier evaluated as a constant (the constants `Motor`,
+//!   the `computeConstantValue`), with a leading `-`;
+//! - the constant context is `inConstantContext` (`dartforge_frontend::pais`);
+//! - `implementsAnyInterface` goes down through type parameter bounds;
+//! - `prefer_is_not_empty` asks the element that declares `isEmpty` (class,
+//!   mixin, enum, extension type or extension) whether it has a child
 //!   `isNotEmpty` (`getChildren`);
-//! - `unnecessary_string_interpolations` é o literal único (não adjacente)
-//!   com exatamente uma interpolação e os trechos de antes e de depois
-//!   vazios;
-//! - `unnecessary_null_aware_assignments` só cala quando a escrita vai para
-//!   um setter (o `[]=` não é setter).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! - `unnecessary_string_interpolations` is the single (non-adjacent)
+//!   literal with exactly one interpolation and empty fragments before and
+//!   after;
+//! - `unnecessary_null_aware_assignments` is only silenced when the write
+//!   goes to a setter (`[]=` is not a setter).
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::lints_tipados::Achado;
@@ -45,9 +45,9 @@ fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     e
 }
 
-/// `IntegerLiteral.value`: o literal inteiro (decimal ou `0x`, até 64 bits
-/// no hexadecimal). Um literal que o parser tenha juntado com o `-` vale
-/// negativo.
+/// `IntegerLiteral.value`: the integer literal (decimal or `0x`, up to 64
+/// bits in hexadecimal). A literal that the parser merged with the `-` is
+/// negative.
 fn integer_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     let ExprKind::Int(s) = &a.expr(e).kind else { return None };
     let text: String = source.get(s.start..s.end)?.chars().filter(|c| *c != '_' && !c.is_whitespace()).collect();
@@ -62,7 +62,7 @@ fn integer_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     Some(if negative { v.wrapping_neg() } else { v })
 }
 
-/// O literal escrito sem sinal (`right is IntegerLiteral`).
+/// The literal written without a sign (`right is IntegerLiteral`).
 fn unsigned_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     let ExprKind::Int(s) = &a.expr(e).kind else { return None };
     if source.get(s.start..s.end).is_some_and(|t| t.starts_with('-')) {
@@ -71,8 +71,8 @@ fn unsigned_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     integer_literal(a, source, e)
 }
 
-/// `getIntValue(e, context)`: o literal ou o identificador constante, com
-/// `-` na frente (só o `-`).
+/// `getIntValue(e, context)`: the literal or the constant identifier, with a
+/// leading `-` (only `-`).
 fn integer_value(a: &ast::Ast, source: &str, evaluated: &HashMap<ExprId, i64>, e: ExprId) -> Option<i64> {
     let base = |x: ExprId| match &a.expr(x).kind {
         ExprKind::Int(_) => integer_literal(a, source, x),
@@ -85,7 +85,7 @@ fn integer_value(a: &ast::Ast, source: &str, evaluated: &HashMap<ExprId, i64>, e
     }
 }
 
-/// Os elementos `...x` de uma coleção, por dentro de `if` e `for`.
+/// The `...x` elements of a collection, through `if` and `for`.
 fn spread(el: &CollectionElement, output: &mut Vec<ExprId>) {
     match el {
         CollectionElement::Spread { value, .. } => output.push(*value),
@@ -100,9 +100,9 @@ fn spread(el: &CollectionElement, output: &mut Vec<ExprId>) {
     }
 }
 
-/// Os identificadores simples que o `getIntValue(…, context)` do
-/// `prefer_contains` pode consultar: os operandos das comparações e o
-/// segundo argumento de `indexOf`, também atrás de `-`.
+/// The simple identifiers that `prefer_contains`'s `getIntValue(…, context)`
+/// may query: the operands of comparisons and the second argument of
+/// `indexOf`, also behind `-`.
 fn queried_identifiers(interner: &Interner, a: &ast::Ast) -> Vec<ExprId> {
     let mut v = Vec::new();
     let mut consider = |e: ExprId| {
@@ -133,8 +133,8 @@ fn queried_identifiers(interner: &Interner, a: &ast::Ast) -> Vec<ExprId> {
     v
 }
 
-/// Os filhos do elemento `getChildren(elemento, nome)` (pelo `displayName`:
-/// o setter `nome=` também conta).
+/// The children of the element `getChildren(elemento, the_name)` (by
+/// `displayName`: the setter `the_name=` also counts).
 fn has_child(program: &Program, interner: &Interner, owner: Dono, the_name: &str) -> bool {
     let symbols: Vec<SymbolId> = [interner.lookup(the_name), interner.lookup(&format!("{the_name}_="))].into_iter().flatten().collect();
     let has = |m: &HashMap<SymbolId, dartforge_elements::model::FunctionElementId>| symbols.iter().any(|s| m.contains_key(s));
@@ -158,7 +158,7 @@ enum Dono {
     Extensao(dartforge_elements::model::ExtensionId),
 }
 
-/// O elemento que declara o membro resolvido (`enclosingElement3`).
+/// The element that declares the resolved member (`enclosingElement3`).
 fn member_owner(program: &Program, r: &Resolved) -> Option<Dono> {
     let (cls, extension) = match r {
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
@@ -174,7 +174,7 @@ fn member_owner(program: &Program, r: &Resolved) -> Option<Dono> {
     cls.map(Dono::Classe).or(extension.map(Dono::Extensao))
 }
 
-/// Os achados das regras tipadas deste módulo na unidade `u`.
+/// The findings of this module's typed rules in unit `u`.
 #[allow(clippy::too_many_arguments)]
 pub fn achados(
     program: &Program,
@@ -192,8 +192,8 @@ pub fn achados(
     let source = unit.source.as_str();
     let Some(the_body) = bodies.units.get(u.0 as usize) else { return out };
 
-    // `computeConstantValue` dos identificadores consultados, com o motor de
-    // constantes (só se houver algum).
+    // `computeConstantValue` of the queried identifiers, with the constants
+    // engine (only if there is any).
     let mut evaluated: HashMap<ExprId, i64> = HashMap::new();
     let queried = queried_identifiers(interner, a);
     if !queried.is_empty() {
@@ -210,15 +210,15 @@ pub fn achados(
     let table: &TypeTable = table;
 
     let non_null = |t: TypeId, tgt: Option<ClassId>| matches!(table.get(t), Type::Interface { class, nullable: false, .. } if Some(*class) == tgt);
-    // `implementsInterface`: a interface é `alvo` ou o tem entre os
-    // supertipos.
+    // `implementsInterface`: the interface is `tgt` or has it among its
+    // supertypes.
     let implements = |t: TypeId, tgt: Option<ClassId>| match table.get(t) {
         Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => tgt.is_some_and(|k| {
             *class == k || (program.class(*class).decl.is_some() && outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&k)))
         }),
         _ => false,
     };
-    // `implementsAnyInterface`: pelo `typeForInterfaceCheck`.
+    // `implementsAnyInterface`: through `typeForInterfaceCheck`.
     let implements_any = |t: TypeId, targets: &[Option<ClassId>]| {
         let t = crate::lints_tipados3::to_interface(table, core, t);
         targets.iter().any(|k| implements(t, *k))
@@ -226,7 +226,7 @@ pub fn achados(
     let ty = |e: ExprId| the_body.get_type(e).filter(|t| !core.is_unknown(table, *t));
     let pais = crate::lints_tipados::pais_da_unidade(program, u);
 
-    // Os `assert` da lista de inicializadores de construtor `const`.
+    // The `assert`s in the initializer list of a `const` constructor.
     let mut asserts_const: Vec<Span> = Vec::new();
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind
@@ -239,8 +239,8 @@ pub fn achados(
         }
     }
 
-    // `_isUnassignedIndexOf`: `x.indexOf(v)` ou `x.indexOf(v, 0)` com `x`
-    // um `Iterable` ou uma `String` (por dentro de parênteses e de `as`).
+    // `_isUnassignedIndexOf`: `x.indexOf(v)` or `x.indexOf(v, 0)` with `x`
+    // an `Iterable` or a `String` (through parentheses and `as`).
     let of_index = |e: ExprId| {
         let mut e = sem_parenteses(a, e);
         while let ExprKind::As { value, .. } = &a.expr(e).kind {
@@ -321,8 +321,8 @@ pub fn achados(
                         out.push((e.span, c, Vec::new()));
                     }
                 }
-                // `use_is_even_rather_than_modulo`: `x % 2 == n`, inteiros,
-                // com `n` literal sem sinal.
+                // `use_is_even_rather_than_modulo`: `x % 2 == n`, integers,
+                // with `n` an unsigned literal.
                 if *op == BinaryOp::Eq
                     && !pais.em_contexto_constante(a, id)
                     && let Some(the_value) = unsigned_literal(a, source, *right)
@@ -336,8 +336,8 @@ pub fn achados(
                     out.push((e.span, "use_is_even_rather_than_modulo", vec![(if the_value == 0 { "isEven" } else { "isOdd" }).to_string()]));
                 }
             }
-            // `unnecessary_string_interpolations`: o literal único com uma
-            // interpolação só e os trechos de antes e de depois vazios.
+            // `unnecessary_string_interpolations`: the single literal with only
+            // one interpolation and empty fragments before and after.
             ExprKind::String(lit) => {
                 let interpolations: Vec<ExprId> = lit
                     .parts
@@ -358,8 +358,8 @@ pub fn achados(
                 let unique = if before == "$" {
                     after == quotes
                 } else if let Some(rest) = before.strip_prefix("${") {
-                    // Só brancos e comentários entre `${` e a expressão, e
-                    // entre ela e o `}`; depois do `}`, só a aspa.
+                    // Only whitespace and comments between `${` and the expression, and
+                    // between it and the `}`; after the `}`, only the quote.
                     let b = rest.as_bytes();
                     let d = after.as_bytes();
                     let k = dartforge_frontend::fonte::pular_brancos(d, 0);
@@ -371,8 +371,8 @@ pub fn achados(
                     out.push((e.span, "unnecessary_string_interpolations", Vec::new()));
                 }
             }
-            // `prefer_is_not_empty`: `!x.isEmpty`, com o elemento que declara
-            // o `isEmpty` tendo um filho `isNotEmpty`.
+            // `prefer_is_not_empty`: `!x.isEmpty`, with the element that declares
+            // `isEmpty` having a child `isNotEmpty`.
             ExprKind::Unary { op: UnaryOp::Not, operand } => {
                 let tgt = sem_parenteses(a, *operand);
                 if let ExprKind::Property { target, name, .. } = &a.expr(tgt).kind
@@ -401,9 +401,9 @@ pub fn achados(
                     }
                 }
             }
-            // `unnecessary_null_aware_assignments`: `x ??= null`, salvo
-            // quando a escrita vai para um setter (campo, variável de topo,
-            // setter de extensão; o `[]=` não é setter).
+            // `unnecessary_null_aware_assignments`: `x ??= null`, except
+            // when the write goes to a setter (field, top-level variable,
+            // extension setter; `[]=` is not a setter).
             ExprKind::Assign { op: AssignOp::Compound(BinaryOp::IfNull), target, value } => {
                 let tgt = a.expr(*target);
                 let to_setter = matches!(tgt.kind, ExprKind::Identifier(_) | ExprKind::Property { .. })

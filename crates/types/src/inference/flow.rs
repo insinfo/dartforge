@@ -1,10 +1,9 @@
-//! Modelo de fluxo (`flow-analysis.md`): cadeias de promoção, tipos de
-//! interesse, atribuição definitiva e alcançabilidade.
+//! Flow model (`flow-analysis.md`): promotion chains, types of interest,
+//! definite assignment and reachability.
 //!
-//! Um [`Fluxo`] é o `FlowModel` da especificação; cada variável local tem um
-//! [`ModeloVar`] (`PromotionModel`). As junções seguem `join`/`joinPM`; a
-//! atribuição segue `demote` + `toi_promote`; a promoção por teste segue
-//! `promote`.
+//! A [`Fluxo`] is the specification's `FlowModel`; each local variable has a
+//! [`VarModel`] (`PromotionModel`). Joins follow `join`/`joinPM`; assignment
+//! follows `demote` + `toi_promote`; promotion by a test follows `promote`.
 
 use super::BodyInferrer;
 use crate::field_promotion::WhyNotPromoted;
@@ -16,23 +15,23 @@ use dartforge_intern::SymbolId;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// `NonPromotionReason`: por que um tipo não está (mais) promovido.
+/// `NonPromotionReason`: why a type is not (or no longer) promoted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum NonPromotionReason {
-    /// `DemoteViaExplicitWrite`: o nome da variável e o nó da escrita (a
-    /// atribuição, o `++`/`--`, o identificador do `for-in`, o padrão).
+    /// `DemoteViaExplicitWrite`: the variable's name and the write's node (the
+    /// assignment, the `++`/`--`, the `for-in` identifier, the pattern).
     Escrita { nome: SymbolId, span: Span },
-    /// `PropertyNotPromotedForInherentReason` (com o motivo) ou
-    /// `PropertyNotPromotedForNonInherentReason` (sem): o nome, o membro
-    /// (`propertyMember`) e se a promoção de campos vale na biblioteca do
-    /// corpo (`fieldPromotionEnabled`).
+    /// `PropertyNotPromotedForInherentReason` (with the reason) or
+    /// `PropertyNotPromotedForNonInherentReason` (without): the name, the member
+    /// (`propertyMember`) and whether field promotion applies in the body's
+    /// library (`fieldPromotionEnabled`).
     Propriedade { nome: SymbolId, membro: FunctionElementId, inherent: Option<WhyNotPromoted>, enabled: bool },
     /// `ThisNotPromoted`.
     This,
 }
 
-/// `NonPromotionHistory`: a lista ligada (o mais recente primeiro) dos tipos
-/// que uma escrita desfez.
+/// `NonPromotionHistory`: the linked list (most recent first) of the types
+/// that a write undid.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct History {
     pub tipo: TypeId,
@@ -40,32 +39,32 @@ pub(crate) struct History {
     pub anterior: Option<Rc<History>>,
 }
 
-/// Versões de escrita (o SSA do `flow-analysis.md`): cada escrita e cada
-/// junção de versões diferentes ganha um número novo; só a igualdade importa.
+/// Write versions (the SSA of `flow-analysis.md`): each write and each join
+/// of different versions gets a new number; only equality matters.
 static NEXT_VERSION: AtomicU32 = AtomicU32::new(1);
 
 fn new_version() -> u32 {
     NEXT_VERSION.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Estado de uma variável num ponto do programa (`PromotionModel`).
+/// State of a variable at a program point (`PromotionModel`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VarModel {
-    /// Cadeia de promoção: o último é o tipo atual.
+    /// Promotion chain: the last one is the current type.
     pub cadeia: Vec<TypeId>,
-    /// Tipos de interesse (testados em algum caminho).
+    /// Types of interest (tested on some path).
     pub tested: Vec<TypeId>,
     pub assigned: bool,
     pub unassigned: bool,
-    /// Escrita por uma closure: não promove mais.
+    /// Written by a closure: no longer promotes.
     pub captured: bool,
-    /// Versão da última escrita (0: declarada e nunca escrita).
+    /// Version of the last write (0: declared and never written).
     pub versao: u32,
     /// `nonPromotionHistory`.
     pub history: Option<Rc<History>>,
 }
 
-/// Estado de fluxo num ponto (`FlowModel`).
+/// Flow state at a point (`FlowModel`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Fluxo {
     pub alcancavel: bool,
@@ -103,7 +102,7 @@ impl Fluxo {
         });
     }
 
-    /// Declaração com valor (inicializador, parâmetro, variável de laço).
+    /// Declaration with a value (initializer, parameter, loop variable).
     pub fn inicializar(&mut self, id: LocalId) {
         if let Some(m) = self.slot(id) {
             m.assigned = true;
@@ -112,7 +111,7 @@ impl Fluxo {
         }
     }
 
-    /// Versão de escrita atual de uma variável.
+    /// Current write version of a variable.
     pub fn versao(&self, id: LocalId) -> Option<u32> {
         self.modelo(id).map(|m| m.versao)
     }
@@ -129,18 +128,16 @@ impl Fluxo {
         self.modelo(id).is_some_and(|m| m.unassigned)
     }
 
-    /// Tipo atual (promovido) de uma variável.
+    /// Current (promoted) type of a variable.
     pub fn current_type(&self, id: LocalId, declared: TypeId) -> TypeId {
         self.modelo(id).and_then(|m| m.cadeia.last().copied()).unwrap_or(declared)
     }
 
-    /// Escrita numa closure: sem promoção e, como no `conservativeJoin` do
-    /// `functionExpression_begin`/`_end`, nunca mais definitivamente não
-    /// atribuída.
+    /// A write in a closure: no promotion and, as in the `conservativeJoin` of
+    /// `functionExpression_begin`/`_end`, never definitely unassigned again.
     pub fn capture(&mut self, id: LocalId) {
         if let Some(m) = self.slot(id) {
-            // `writeCapture`: sem promoções, sem tipos testados e sem
-            // histórico.
+            // `writeCapture`: no promotions, no tested types and no history.
             m.captured = true;
             m.cadeia.clear();
             m.tested.clear();
@@ -150,10 +147,11 @@ impl Fluxo {
         }
     }
 
-    /// Esquece promoções das variáveis dadas (junção conservadora de laços).
+    /// Forgets the promotions of the given variables (conservative join of
+    /// loops).
     pub fn conservative_join(&mut self, writes: &[LocalId], captured: &[LocalId]) {
-        // `discardPromotionsAndMarkNotUnassigned` (o modelo novo não leva o
-        // histórico).
+        // `discardPromotionsAndMarkNotUnassigned` (the new model does not carry
+        // the history).
         for &id in captured {
             if let Some(m) = self.slot(id) {
                 m.cadeia.clear();
@@ -197,7 +195,7 @@ impl<'a> BodyInferrer<'a> {
         Fluxo { alcancavel: true, vars }
     }
 
-    /// Junta uma lista de modelos (vazia → inalcançável a partir de `base`).
+    /// Joins a list of models (empty → unreachable starting from `base`).
     pub(crate) fn join_all(&mut self, base: &Fluxo, list: &[Fluxo]) -> Fluxo {
         let mut it = list.iter();
         let Some(p) = it.next() else { return base.unreachable() };
@@ -208,29 +206,29 @@ impl<'a> BodyInferrer<'a> {
         acc
     }
 
-    /// `promote(x, T)`: promoção por teste de tipo (`is`, `as`, `!= null`).
+    /// `promote(x, T)`: promotion by a type test (`is`, `as`, `!= null`).
     pub(crate) fn promover(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, t: TypeId) {
         self.promote_tested(flow, id, declared, t, t);
     }
 
-    /// Promove para `t` registrando `testado` como tipo de interesse (o ramo
-    /// falso de `x is T` testa `T` e promove para `factor(S, T)`;
-    /// `_finishTypeTest` do analisador).
+    /// Promotes to `t` recording `the_tested` as a type of interest (the false
+    /// branch of `x is T` tests `T` and promotes to `factor(S, T)`; the
+    /// analyzer's `_finishTypeTest`).
     pub(crate) fn promote_tested(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, t: TypeId, the_tested: TypeId) {
-        // Também no código inalcançável: o `tryPromoteForTypeCheck` do
-        // modelo não olha a alcançabilidade (`flow_analysis.dart`), e o
-        // código morto continua resolvido com as promoções.
+        // Also in unreachable code: the model's `tryPromoteForTypeCheck` does
+        // not look at reachability (`flow_analysis.dart`), and dead code stays
+        // resolved with the promotions.
         let Some(m) = flow.modelo(id).cloned() else { return };
         if m.captured {
             return;
         }
         let s = m.cadeia.last().copied().unwrap_or(declared);
-        // `tryPromoteForTypeCheck` (3.6.2 `flow_analysis.dart:2534-2542`): o
-        // `tryPromoteToType` dá `T` quando `T <: S`, e só não promove quando o
-        // resultado é o próprio tipo anterior. Subtipos mútuos e diferentes
-        // (`dynamic Function()` e `void Function()`) promovem.
+        // `tryPromoteForTypeCheck` (3.6.2 `flow_analysis.dart:2534-2542`):
+        // `tryPromoteToType` gives `T` when `T <: S`, and only does not promote
+        // when the result is the previous type itself. Mutual and different
+        // subtypes (`dynamic Function()` and `void Function()`) promote.
         if t == s {
-            // O mesmo tipo: não promove, mas registra o tipo de interesse.
+            // The same type: does not promote, but records the type of interest.
             if !m.tested.contains(&the_tested) {
                 if let Some(Some(mm)) = flow.vars.get_mut(id.0 as usize) {
                     mm.tested.push(the_tested);
@@ -241,7 +239,7 @@ impl<'a> BodyInferrer<'a> {
         let t1 = if self.sub(t, s) {
             Some(t)
         } else {
-            // S é X (limite R) ou X & R: promove para X & T se T <: R.
+            // S is X (bound R) or X & R: promotes to X & T if T <: R.
             match self.table.get(s).clone() {
                 Type::TypeParameter { param, nullable: false } if param != self.core.unknown_param => {
                     let b = self.table.param(param).bound;
@@ -276,11 +274,11 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// O ramo falso de `x is T` (`tryPromoteForTypeCheck`, 3.6.2
-    /// `flow_analysis.dart:2544-2557`, com o `_finishTypeTest` de `:2633-2664`):
-    /// o tipo fatorado entra direto na cadeia, sem o `tryPromoteToType` do ramo
-    /// verdadeiro (`FutureOr<void>` menos `Future` é `void`, que é supertipo),
-    /// e `T` fica registrado como testado.
+    /// The false branch of `x is T` (`tryPromoteForTypeCheck`, 3.6.2
+    /// `flow_analysis.dart:2544-2557`, with the `_finishTypeTest` of `:2633-2664`):
+    /// the factored type goes straight into the chain, without the true branch's
+    /// `tryPromoteToType` (`FutureOr<void>` minus `Future` is `void`, which is a
+    /// supertype), and `T` is recorded as tested.
     pub(crate) fn promote_factored(&mut self, flow: &mut Fluxo, id: LocalId, factored: Option<TypeId>, the_tested: TypeId) {
         let Some(m) = flow.modelo(id) else { return };
         if m.captured {
@@ -305,13 +303,13 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// **NonNull**(`T`) para promoção (`T?` de variável de tipo vira `T`).
+    /// **NonNull**(`T`) for promotion (`T?` of a type variable becomes `T`).
     pub(crate) fn non_null_promotion(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Null => self.core.never,
             Type::FutureOr { arg, nullable: true } => self.table.intern(Type::FutureOr { arg, nullable: false }),
-            // NonNull(X) = X & NonNull(B) quando o limite B é anulável
-            // (promoteToNonNull do analyzer): T? vira T & Object.
+            // NonNull(X) = X & NonNull(B) when the bound B is nullable (the
+            // analyzer's promoteToNonNull): T? becomes T & Object.
             Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
                 let b = self.table.param(param).bound;
                 let nb = self.non_null_promotion(b);
@@ -325,9 +323,9 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// `rebaseForward` (§7.10): as promoções guardadas numa variável de
-    /// condição valem de novo sobre o estado atual, para as variáveis que
-    /// não foram escritas desde então (mesma versão).
+    /// `rebaseForward` (§7.10): the promotions stored in a condition variable
+    /// apply again over the current state, for the variables that were not
+    /// written since then (same version).
     pub(crate) fn reapply(&mut self, current: &Fluxo, stored: &Fluxo) -> Fluxo {
         if !stored.alcancavel {
             return current.unreachable();
@@ -351,7 +349,7 @@ impl<'a> BodyInferrer<'a> {
                     c.tested.push(t);
                 }
             }
-            // `_identicalOrNew`: um modelo novo não leva o histórico.
+            // `_identicalOrNew`: a new model does not carry the history.
             if (c.cadeia.len(), c.tested.len()) != before {
                 c.history = None;
             }
@@ -360,15 +358,16 @@ impl<'a> BodyInferrer<'a> {
         r
     }
 
-    /// `assign(x, T)`: demove e aplica a promoção por tipo de interesse.
-    /// `motivo`: o `DemoteViaExplicitWrite` da escrita, que entra no
-    /// histórico de cada tipo desfeito.
+    /// `assign(x, T)`: demotes and applies promotion by type of interest.
+    /// `reason`: the write's `DemoteViaExplicitWrite`, which goes into the
+    /// history of each undone type.
     pub(crate) fn assign_flow(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, written: TypeId, reason: Option<NonPromotionReason>) {
         self.write_flow(flow, id, declared, written, true, reason);
     }
 
-    /// Escrita com ou sem promoção por tipo de interesse (a inicialização de
-    /// uma variável `final` ou sem tipo escrito não promove, `_initialize`).
+    /// A write with or without promotion by type of interest (the
+    /// initialization of a `final` variable or one without a written type does
+    /// not promote, `_initialize`).
     pub(crate) fn write_flow(&mut self, flow: &mut Fluxo, id: LocalId, declared: TypeId, written: TypeId, toi: bool, reason: Option<NonPromotionReason>) {
         let Some(m) = flow.modelo(id).cloned() else { return };
         let mut m = m;
@@ -380,10 +379,10 @@ impl<'a> BodyInferrer<'a> {
             m.history = None;
         } else {
             let chain_before = m.cadeia.clone();
-            // O `InvalidType` escrito é subtipo de tudo (promove ao não
-            // anulável do declarado como um `Never`); a escrita de `dynamic`
-            // num local tipado é cast implícito: o tipo escrito efetivo é o
-            // declarado.
+            // A written `InvalidType` is a subtype of everything (it promotes to the
+            // non-nullable of the declared type like a `Never`); writing `dynamic`
+            // to a typed local is an implicit cast: the effective written type is
+            // the declared one.
             let written = if self.table.e_invalido(written) && !self.e_dynamic(declared) {
                 self.core.never
             } else if self.e_dynamic(written) && !self.e_dynamic(declared) {
@@ -391,9 +390,9 @@ impl<'a> BodyInferrer<'a> {
             } else {
                 written
             };
-            // demote (`_demoteViaAssignment`): a cadeia é decrescente, então
-            // o que fica é um prefixo; cada tipo desfeito entra no histórico,
-            // do último ao primeiro (o primeiro desfeito fica na frente).
+            // demote (`_demoteViaAssignment`): the chain is decreasing, so what
+            // remains is a prefix; each undone type goes into the history, from
+            // the last to the first (the first undone ends up in front).
             let mut chain: Vec<TypeId> = Vec::new();
             for &t in &m.cadeia {
                 if self.sub(written, t) {
@@ -450,9 +449,10 @@ impl<'a> BodyInferrer<'a> {
             } else {
                 chain.clear();
             }
-            // `PromotionModel.write`: sem mudança na cadeia de uma variável já
-            // atribuída, o modelo novo não leva histórico; senão leva o da
-            // demoção. Os tipos testados caem quando a promoção some de vez.
+            // `PromotionModel.write`: with no change in the chain of an already
+            // assigned variable, the new model does not carry history; otherwise it
+            // carries the demotion's. The tested types are dropped when the
+            // promotion goes away entirely.
             if chain == chain_before && assigned_before {
                 m.history = None;
             } else {
@@ -475,9 +475,9 @@ fn flow_slot(f: &mut Fluxo, id: LocalId) -> &mut Option<VarModel> {
     &mut f.vars[i]
 }
 
-/// `joinPM`: cadeias pela maior subsequência comum, testados pela união. O
-/// histórico só fica quando o resultado é um dos dois modelos
-/// (`PromotionModel.join` devolve `first` ou `second` sem mudança).
+/// `joinPM`: chains by the longest common subsequence, tested types by the
+/// union. The history is only kept when the result is one of the two models
+/// (`PromotionModel.join` returns `first` or `second` unchanged).
 fn join_model(a: &VarModel, b: &VarModel) -> VarModel {
     let mut r = join_model_without_history(a, b);
     let equal = |x: &VarModel, r: &VarModel| {

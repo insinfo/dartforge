@@ -1,158 +1,161 @@
-//! Resolução de nós de identificadores e expressões em corpos para suas declarações e alvos semânticos.
+//! Resolution of identifier and expression nodes in bodies to their declarations and semantic targets.
 //!
-//! Toda referência semântica nos corpos de funções ou inicializadores é registrada
-//! na tabela lateral [`UnitBodyTypes`], indexada compactamente por [`ast::ExprId`].
+//! Every semantic reference in the bodies of functions or initializers is recorded
+//! in the side table [`UnitBodyTypes`], compactly indexed by [`ast::ExprId`].
 
 use crate::table::{TypeId, TypeParamId};
 use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId, LibraryId, VariableId};
 use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 
-/// Identificador de uma variável local declarada em um bloco ou expressão.
+/// Identifier of a local variable declared in a block or expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocalId(pub u32);
 
-/// Referência a um membro de classe ou extensão (função/método ou campo/variável).
+/// Reference to a class or extension member (function/method or field/variable).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemberRef {
     Function(FunctionElementId),
     Variable(VariableId),
 }
 
-/// Alvo resolvido de uma referência ou identificador dentro de um corpo.
+/// Resolved target of a reference or identifier inside a body.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Resolved {
-    /// Variável local declarada em escopo de bloco (`var x`, `int x`, `for (var x...)`).
+    /// Local variable declared in block scope (`var x`, `int x`, `for (var x...)`).
     Local(LocalId),
-    /// Parâmetro formal da função, método ou closure envolvente.
+    /// Formal parameter of the enclosing function, method or closure.
     Parameter { index: u32, name: SymbolId },
-    /// Parâmetro de tipo genérico local ou da classe/extensão envolvente.
+    /// Generic type parameter, local or of the enclosing class/extension.
     TypeParameter(TypeParamId),
-    /// Elemento de nível superior (classe, função de topo, variável de topo, typedef, extensão).
+    /// Top-level element (class, top-level function, top-level variable, typedef, extension).
     Element(Element),
-    /// Membro de classe (campo, getter, setter, método) acessado via receptor explícito ou implícito (`this`).
+    /// Class member (field, getter, setter, method) accessed through an explicit or implicit (`this`) receiver.
     Member {
         class: ClassId,
         member: MemberRef,
         via_super: bool,
     },
-    /// Prefixo de importação (`import '...' as p; p.x`).
+    /// Import prefix (`import '...' as p; p.x`).
     Prefix(LibraryId),
-    /// Acesso a membro em receptor cujo tipo estático é `dynamic`.
+    /// Member access on a receiver whose static type is `dynamic`.
     Dynamic,
-    /// Membro de extensão resolvido para chamada de método/getter/setter estático de extensão.
+    /// Extension member resolved for a call to a static extension method/getter/setter.
     ExtensionMember {
         extension: ExtensionId,
         member: FunctionElementId,
     },
-    /// Construtor de classe chamado em instanciação (`new C()`, `C.named()`).
+    /// Class constructor called in an instantiation (`new C()`, `C.named()`).
     Constructor(FunctionElementId),
 }
 
-/// Tabelas laterais de tipos estáticos e resoluções para uma única unidade de compilação.
+/// Side tables of static types and resolutions for a single compilation unit.
 ///
-/// Mantém vetores indexados diretamente por [`ast::ExprId::0 as usize`], sem custos de hash
-/// ou ponteiros no heap.
+/// Keeps vectors indexed directly by [`ast::ExprId::0 as usize`], without hashing
+/// costs or heap pointers.
 #[derive(Debug, Clone, Default)]
 pub struct UnitBodyTypes {
-    /// Tipo estático inferido de cada expressão na arena `ast.exprs`.
+    /// Inferred static type of each expression in the `ast.exprs` arena.
     pub static_types: Vec<TypeId>,
-    /// Alvo resolvido de expressões de identificador, propriedade ou chamada.
+    /// Resolved target of identifier, property or call expressions.
     pub resolved: Vec<Option<Resolved>>,
-    /// Tipo declarado (ou inferido do inicializador) de cada variável local,
-    /// pelo offset do nome na declaração. O backend nativo guarda o local
-    /// na representação desse tipo (`int?` é caixa, `int` é `i64`), que não
-    /// se deduz das leituras: elas têm o tipo promovido pelo fluxo.
+    /// Declared type (or inferred from the initializer) of each local variable,
+    /// by the offset of the name in the declaration. The native backend stores
+    /// the local in that type's representation (`int?` is a box, `int` is an
+    /// `i64`), which cannot be deduced from the reads: they have the type
+    /// promoted by flow analysis.
     pub tipos_de_locais: std::collections::HashMap<usize, TypeId>,
-    /// Declaração (offset do nome) do local que cada expressão resolvida para
-    /// [`Resolved::Local`] lê ou escreve. Só é preenchida quando
-    /// [`crate::BodyInferrer::registrar_locais`] está ligado (o LSP, para
-    /// renomear e achar referências); o compilador não paga por ela.
+    /// Declaration (name offset) of the local that each expression resolved to
+    /// [`Resolved::Local`] reads or writes. Only filled in when
+    /// [`crate::BodyInferrer::registrar_locais`] is on (the LSP, for renaming
+    /// and finding references); the compiler does not pay for it.
     pub declaracoes_de_locais: std::collections::HashMap<ast::ExprId, usize>,
-    /// Expressões cujo tipo é o de recuperação do analyzer (`InvalidType`,
-    /// uma leitura que não resolve): em `static_types` ficam `dynamic`, que
-    /// é como o `InvalidType` se comporta; a marca só distingue na exibição.
+    /// Expressions whose type is the analyzer's recovery type (`InvalidType`, a
+    /// read that does not resolve): in `static_types` they are `dynamic`, which
+    /// is how `InvalidType` behaves; the mark only matters for display.
     pub invalid_types: std::collections::HashSet<ast::ExprId>,
-    /// O tipo de execução (a regra do CFE, que dá o `runtimeType`) de uma
-    /// função literal ou local geradora (`sync*`/`async*`) sem retorno
-    /// escrito, quando difere do tipo estático, que segue o analyzer 3.6.2:
-    /// o analyzer junta o `Null` de um `return;` aos `yield` e dá `dynamic`
-    /// ao gerador sem nenhum; o CFE ignora o `return;` e dá `Null`. Pela
-    /// função (`ast::FunctionId`).
+    /// The runtime type (the CFE rule, which gives `runtimeType`) of a literal
+    /// or local generator function (`sync*`/`async*`) without a written return
+    /// type, when it differs from the static type, which follows analyzer 3.6.2:
+    /// the analyzer joins the `Null` of a `return;` with the `yield`s and gives
+    /// `dynamic` to a generator without any; the CFE ignores the `return;` and
+    /// gives `Null`. By function (`ast::FunctionId`).
     pub function_runtime_types: std::collections::HashMap<ast::FunctionId, TypeId>,
-    /// Argumentos de tipo escolhidos para cada chamada genérica (função,
-    /// método, estático, `call`), explícitos ou inferidos, pelo offset do
-    /// início da lista de argumentos (`ast::Arguments::span`). Fica fora do
-    /// tipo de qualquer nó (`id(5)` tem tipo `Object?`, mas a instanciação
-    /// `<Object?>` só aparece aqui) e é o que o backend reifica.
+    /// Type arguments chosen for each generic call (function, method, static,
+    /// `call`), explicit or inferred, by the offset of the start of the argument
+    /// list (`ast::Arguments::span`). It is outside the type of any node
+    /// (`id(5)` has type `Object?`, but the instantiation `<Object?>` only
+    /// appears here) and is what the backend reifies.
     pub instantiations: std::collections::HashMap<usize, Box<[TypeId]>>,
-    /// Os argumentos de tipo da instanciação implícita de um tear-off de
-    /// função genérica num contexto de função não genérica
-    /// (`int Function(int) f = id;`), pela expressão do tear-off: a closure
-    /// tem o tipo instanciado e leva os argumentos, como na VM.
+    /// The type arguments of the implicit instantiation of a generic function
+    /// tear-off in a non-generic function context (`int Function(int) f = id;`),
+    /// by the tear-off expression: the closure has the instantiated type and
+    /// carries the arguments, as in the VM.
     pub tearoff_instantiations: std::collections::HashMap<ast::ExprId, Box<[TypeId]>>,
-    /// O tipo de cada padrão que a exaustividade lê (`PatternConverter` do
-    /// analyzer, `an611:src/generated/exhaustiveness.dart:520-680`): o
-    /// declarado de uma variável, o escrito de um curinga ou de um cast, o
-    /// requerido de um padrão objeto, lista (`List<E>`) ou mapa (`Map<K, V>`).
+    /// The type of each pattern that exhaustiveness reads (the analyzer's
+    /// `PatternConverter`, `an611:src/generated/exhaustiveness.dart:520-680`):
+    /// the declared type of a variable, the written type of a wildcard or a
+    /// cast, the required type of an object, list (`List<E>`) or map
+    /// (`Map<K, V>`) pattern.
     pub tipos_de_padroes: std::collections::HashMap<ast::PatternId, TypeId>,
-    /// O tipo da propriedade de extensão lida por um campo de padrão objeto
-    /// (`ExtensionKey`), pelo subpadrão do campo.
+    /// The type of the extension property read by an object pattern field
+    /// (`ExtensionKey`), by the field's subpattern.
     pub extension_fields: std::collections::HashMap<ast::PatternId, TypeId>,
-    /// Padrões cujo tipo escrito não resolve (`InvalidType`): o analyzer não
-    /// verifica a exaustividade do `switch` que os contém.
+    /// Patterns whose written type does not resolve (`InvalidType`): the
+    /// analyzer does not check the exhaustiveness of the `switch` that contains
+    /// them.
     pub invalid_patterns: std::collections::HashSet<ast::PatternId>,
-    /// O tipo casado (`matchedValueType`) de cada padrão, já promovido pelo
-    /// fluxo de padrões (casos anteriores do `switch`, `&&`, `?`): o que o
-    /// analyzer guarda em `DartPatternImpl.matchedValueType` e o
-    /// `ConstantVerifier` lê (`constant_pattern_never_matches_value_type`).
+    /// The matched type (`matchedValueType`) of each pattern, already promoted by
+    /// pattern flow (previous `switch` cases, `&&`, `?`): what the analyzer
+    /// stores in `DartPatternImpl.matchedValueType` and `ConstantVerifier` reads
+    /// (`constant_pattern_never_matches_value_type`).
     pub tipos_casados: std::collections::HashMap<ast::PatternId, TypeId>,
-    /// Os padrões de nome solto em contexto refutável (o `ConstantPattern` de um
-    /// `SimpleIdentifier`) cujo nome não é constante: local ou variável sem
-    /// `const`, membro de instância, getter (o `_getConstantValue` do 3.6.2 dá
-    /// o erro genérico). O `ConstantVerifier` relata no nome.
+    /// Bare-name patterns in a refutable context (the `ConstantPattern` of a
+    /// `SimpleIdentifier`) whose name is not a constant: a local or variable without
+    /// `const`, an instance member, a getter (3.6.2's `_getConstantValue` gives the
+    /// generic error). `ConstantVerifier` reports at the name.
     pub non_constant_name_patterns: std::collections::HashSet<ast::PatternId>,
-    /// O elemento do nome solto em contexto refutável (o `SimpleIdentifier`
-    /// do `ConstantPattern`: `case _limite:`), que não tem `ExprId` na nossa
-    /// árvore: o que o `Resolved` de um identificador daria.
+    /// The element of a bare name in a refutable context (the
+    /// `SimpleIdentifier` of the `ConstantPattern`: `case _limite:`), which has
+    /// no `ExprId` in our tree: what the `Resolved` of an identifier would give.
     pub pattern_names: std::collections::HashMap<ast::PatternId, Resolved>,
-    /// As expressões de função cujo tipo de contexto era um tipo de função
-    /// (`FunctionExpressionImpl.wasFunctionTypeSupplied`, o
-    /// `FunctionExpressionResolver` do analyzer: `contextType is
-    /// FunctionType`), pelo id da função.
+    /// The function expressions whose context type was a function type
+    /// (`FunctionExpressionImpl.wasFunctionTypeSupplied`, the analyzer's
+    /// `FunctionExpressionResolver`: `contextType is FunctionType`), by
+    /// function id.
     pub with_function_type: std::collections::HashSet<ast::FunctionId>,
-    /// O tipo resolvido de cada anotação de tipo dos corpos
-    /// (`TypeAnnotation.type` do analyzer): `is`, `as`, `catch`, variável
-    /// local, argumento de tipo.
+    /// The resolved type of each type annotation in the bodies (the analyzer's
+    /// `TypeAnnotation.type`): `is`, `as`, `catch`, local variable, type
+    /// argument.
     pub tipos_de_anotacoes: std::collections::HashMap<ast::TypeId, TypeId>,
-    /// A declaração (o deslocamento do nome) do local que cada variável de
-    /// padrão de atribuição escreve (`AssignedVariablePattern.element`), com
-    /// o registro de locais ligado.
+    /// The declaration (the name offset) of the local that each assignment
+    /// pattern variable writes (`AssignedVariablePattern.element`), with local
+    /// recording on.
     pub declaracoes_de_padroes: std::collections::HashMap<ast::PatternId, usize>,
-    /// As expressões que o resolvedor do analyzer troca por um
+    /// The expressions that the analyzer's resolver replaces with an
     /// `ImplicitCallReference` (`_insertImplicitCallReference`,
-    /// `resolver.dart:4085-4142`): objeto de tipo de interface não anulável
-    /// com método `call`, num contexto que aceita função. A forma (alvo de
-    /// cascata, ramo de `?:`, operando de `??`) fica para quem lê, pela
-    /// árvore.
+    /// `resolver.dart:4085-4142`): an object of a non-nullable interface type
+    /// with a `call` method, in a context that accepts a function. The shape
+    /// (cascade target, branch of `?:`, operand of `??`) is left to the reader,
+    /// through the tree.
     pub chamadas_implicitas: std::collections::HashSet<ast::ExprId>,
-    /// O tipo do parâmetro que recebe cada argumento (o
-    /// `staticParameterElement.type`), pela expressão do argumento (o valor
-    /// de um argumento nomeado): o do tipo invocado já instanciado.
+    /// The type of the parameter that receives each argument (the
+    /// `staticParameterElement.type`), by the argument expression (the value of
+    /// a named argument): that of the already instantiated invoked type.
     pub tipos_de_parametros: std::collections::HashMap<ast::ExprId, TypeId>,
-    /// O `writeType` de cada atribuição (simples e composta), pela
-    /// expressão da atribuição.
+    /// The `writeType` of each assignment (simple and compound), by the
+    /// assignment expression.
     pub tipos_de_escrita: std::collections::HashMap<ast::ExprId, TypeId>,
-    /// O `PatternField.element` de cada campo de padrão objeto que achou um
-    /// membro, pelo subpadrão do campo.
+    /// The `PatternField.element` of each object pattern field that found a
+    /// member, by the field's subpattern.
     pub field_elements: std::collections::HashMap<ast::PatternId, Resolved>,
-    /// O `RelationalPattern.element` (o operador achado no tipo casado),
-    /// pelo padrão relacional.
+    /// The `RelationalPattern.element` (the operator found in the matched type),
+    /// by the relational pattern.
     pub relational_operators: std::collections::HashMap<ast::PatternId, Resolved>,
 }
 
 impl UnitBodyTypes {
-    /// Cria tabelas laterais alocadas com o tamanho exato de expressões da AST da unidade.
+    /// Creates side tables allocated with the exact size of the unit's AST expressions.
     pub fn new(num_exprs: usize, fallback_type: TypeId) -> Self {
         Self {
             static_types: vec![fallback_type; num_exprs],
@@ -180,41 +183,42 @@ impl UnitBodyTypes {
         }
     }
 
-    /// Os argumentos de tipo da instanciação implícita do tear-off `e` (ver
-    /// [`UnitBodyTypes::instanciacoes_de_tearoff`]).
+    /// The type arguments of the implicit instantiation of tear-off `e` (see
+    /// [`UnitBodyTypes::tearoff_instantiations`]).
     pub fn instanciacao_de_tearoff(&self, e: ast::ExprId) -> Option<&[TypeId]> {
         self.tearoff_instantiations.get(&e).map(|a| &**a)
     }
 
-    /// Registra os argumentos de tipo da chamada genérica cuja lista de
-    /// argumentos começa em `offset`.
+    /// Records the type arguments of the generic call whose argument list
+    /// starts at `offset`.
     pub fn set_instantiation(&mut self, offset: usize, args: Box<[TypeId]>) {
         self.instantiations.insert(offset, args);
     }
 
-    /// Argumentos de tipo da chamada genérica cuja lista de argumentos
-    /// começa em `offset` (ver [`UnitBodyTypes::instanciacoes`]).
+    /// Type arguments of the generic call whose argument list starts at
+    /// `offset` (see [`UnitBodyTypes::instantiations`]).
     pub fn instanciacao(&self, offset: usize) -> Option<&[TypeId]> {
         self.instantiations.get(&offset).map(|a| &**a)
     }
 
-    /// Registra o tipo de uma variável local declarada em `offset`.
+    /// Records the type of a local variable declared at `offset`.
     pub fn set_local_type(&mut self, offset: usize, ty: TypeId) {
         self.tipos_de_locais.insert(offset, ty);
     }
 
-    /// O tipo de execução de uma função geradora sem retorno escrito, quando
-    /// difere do estático (ver [`Self::tipos_de_execucao_de_funcoes`]).
+    /// The runtime type of a generator function without a written return type,
+    /// when it differs from the static one (see
+    /// [`Self::function_runtime_types`]).
     pub fn tipo_de_execucao_de_funcao(&self, f: ast::FunctionId) -> Option<TypeId> {
         self.function_runtime_types.get(&f).copied()
     }
 
-    /// Tipo da variável local declarada em `offset` (o do nome).
+    /// Type of the local variable declared at `offset` (the name's).
     pub fn tipo_local(&self, offset: usize) -> Option<TypeId> {
         self.tipos_de_locais.get(&offset).copied()
     }
 
-    /// Define o tipo estático de uma expressão.
+    /// Sets the static type of an expression.
     pub fn set_type(&mut self, expr: ast::ExprId, ty: TypeId) {
         let idx = expr.0 as usize;
         if idx < self.static_types.len() {
@@ -222,12 +226,12 @@ impl UnitBodyTypes {
         }
     }
 
-    /// Obtém o tipo estático associado a uma expressão.
+    /// Gets the static type associated with an expression.
     pub fn get_type(&self, expr: ast::ExprId) -> Option<TypeId> {
         self.static_types.get(expr.0 as usize).copied()
     }
 
-    /// Registra a resolução semântica de uma expressão.
+    /// Records the semantic resolution of an expression.
     pub fn set_resolved(&mut self, expr: ast::ExprId, target: Resolved) {
         let idx = expr.0 as usize;
         if idx < self.resolved.len() {
@@ -235,59 +239,59 @@ impl UnitBodyTypes {
         }
     }
 
-    /// Offset do nome na declaração do local que `expr` referencia, quando
-    /// a inferência registrou locais (ver [`UnitBodyTypes::declaracoes_de_locais`]).
+    /// Offset of the name in the declaration of the local that `expr` references, when
+    /// inference recorded locals (see [`UnitBodyTypes::declaracoes_de_locais`]).
     pub fn declaracao_local(&self, expr: ast::ExprId) -> Option<usize> {
         self.declaracoes_de_locais.get(&expr).copied()
     }
 
-    /// Obtém o alvo semântico resolvido de uma expressão.
+    /// Gets the resolved semantic target of an expression.
     pub fn get_resolved(&self, expr: ast::ExprId) -> Option<&Resolved> {
         self.resolved.get(expr.0 as usize).and_then(|r| r.as_ref())
     }
 }
 
-/// Conjunto de todas as tabelas laterais de corpos de todas as unidades do programa.
+/// Set of all body side tables of all units of the program.
 #[derive(Debug, Clone, Default)]
 pub struct BodyTypes {
-    /// Tabelas indexadas pelo índice da unidade em `Program::units`.
+    /// Tables indexed by the unit's index in `Program::units`.
     pub units: Vec<UnitBodyTypes>,
-    /// As extensões escolhidas na resolução de um membro (o
-    /// `notifyExtensionUsed` do `ImportsTracking`), pela biblioteca em que a
-    /// resolução aconteceu.
+    /// The extensions chosen when resolving a member (the `ImportsTracking`'s
+    /// `notifyExtensionUsed`), by the library in which the resolution happened.
     pub extensoes_usadas: std::collections::HashSet<(dartforge_elements::model::LibraryId, dartforge_elements::model::ExtensionId)>,
 }
 
-/// Um local (variável, parâmetro ou função local) visível num ponto do corpo.
+/// A local (variable, parameter or local function) visible at a point of
+/// the body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleLocal {
     pub nome: SymbolId,
-    /// Tipo declarado (escrito ou inferido do inicializador).
+    /// Declared type (written or inferred from the initializer).
     pub tipo: TypeId,
-    /// Offset do nome na declaração.
+    /// Offset of the name in the declaration.
     pub offset: usize,
-    /// Declarado como função local (`void f() {}` dentro de um corpo).
+    /// Declared as a local function (`void f() {}` inside a body).
     pub funcao: bool,
 }
 
-/// O escopo léxico capturado no identificador sondado (ver
-/// [`crate::BodyInferrer::sonda_escopo`]): o que o LSP oferece ao completar
-/// um nome simples, vindo da mesma pilha de escopos que resolve os nomes.
+/// The lexical scope captured at the probed identifier (see
+/// [`crate::BodyInferrer::sonda_escopo`]): what the LSP offers when
+/// completing a simple name, from the same scope stack that resolves names.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EscopoSondado {
-    /// Locais visíveis, do mais interno para o mais externo; um nome
-    /// sombreado aparece só uma vez (a declaração mais interna).
+    /// Visible locals, from innermost to outermost; a shadowed name appears only
+    /// once (the innermost declaration).
     pub locais: Vec<VisibleLocal>,
-    /// Parâmetros de tipo visíveis pelo nome.
+    /// Type parameters visible by name.
     pub parametros_de_tipo: Vec<(SymbolId, TypeParamId)>,
-    /// Classe (ou mixin, enum, extension type) do membro envolvente.
+    /// Class (or mixin, enum, extension type) of the enclosing member.
     pub classe: Option<ClassId>,
-    /// Extensão do membro envolvente.
+    /// Extension of the enclosing member.
     pub extensao: Option<ExtensionId>,
-    /// Sem `this`: membro estático, topo ou construtor de fábrica.
+    /// Without `this`: static member, top level or factory constructor.
     pub estatico: bool,
-    /// Tipo de `this`, quando há.
+    /// Type of `this`, when there is one.
     pub tipo_this: Option<TypeId>,
-    /// Biblioteca do corpo.
+    /// Library of the body.
     pub biblioteca: Option<LibraryId>,
 }

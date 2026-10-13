@@ -1,20 +1,21 @@
-//! Atalhos de ponto (Dart 3.10, `docs/VERSOES-LINGUAGEM.md` §4.4): `.id`,
-//! `.id(args)`, `.new(args)` e `const .id(args)` resolvidos na declaração
-//! que o **contexto** da cadeia de seletores denota.
+//! Dot shorthands (Dart 3.10, `docs/VERSOES-LINGUAGEM.md` §4.4): `.id`,
+//! `.id(args)`, `.new(args)` and `const .id(args)` resolved in the
+//! declaration that the **context** of the selector chain denotes.
 //!
-//! O contexto é o da cadeia inteira: o nó mais externo de uma cadeia cuja
-//! raiz é `.id` registra o contexto dele para a raiz ([`registrar_cadeia`]);
-//! `e == .x` registra o tipo de `e` antes ([`registrar_igualdade`]). Só o
-//! primeiro registro vale.
+//! The context is that of the whole chain: the outermost node of a chain
+//! whose root is `.id` records its context for the root
+//! ([`record_chain`]); `e == .x` records the type of `e` first
+//! ([`record_equality`]). Only the first record counts.
 //!
-//! Como o analyzer 3.13.4, os atalhos são resolvidos mesmo numa biblioteca
-//! sem o recurso (o parser já relatou `experiment_not_enabled`), e os erros
-//! de resolução são os do `ResolverVisitor`: sem declaração no contexto, um
-//! acesso `.id` (ou uma criação `const .id(…)`) é
-//! `DOT_SHORTHAND_MISSING_CONTEXT` no nó; uma invocação `.id(…)` é
-//! `DOT_SHORTHAND_UNDEFINED_INVOCATION` no nome, com o contexto exibido
-//! (`_` quando não há); com a declaração e sem o membro, os
-//! `DOT_SHORTHAND_UNDEFINED_GETTER`/`_INVOCATION` no nome.
+//! Like analyzer 3.13.4, shorthands are resolved even in a library without
+//! the feature (the parser already reported `experiment_not_enabled`), and
+//! the resolution errors are those of `ResolverVisitor`: without a
+//! declaration in the context, an access `.id` (or a creation
+//! `const .id(…)`) is `DOT_SHORTHAND_MISSING_CONTEXT` at the node; an
+//! invocation `.id(…)` is `DOT_SHORTHAND_UNDEFINED_INVOCATION` at the name,
+//! with the context displayed (`_` when there is none); with the declaration
+//! and without the member, `DOT_SHORTHAND_UNDEFINED_GETTER`/`_INVOCATION` at
+//! the name.
 
 use super::BodyInferrer;
 use super::body::Body;
@@ -25,7 +26,7 @@ use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind};
 use dartforge_frontend::ast::{ExprId, ExprKind};
 use dartforge_intern::SymbolId;
 
-/// Nó externo de uma cadeia `.id…`: registra o contexto dela para a raiz.
+/// Outer node of a `.id…` chain: records its context for the root.
 pub(crate) fn record_chain(inf: &BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: TypeId) {
     let a = &inf.program.unit(cx.unit).ast;
     if !matches!(
@@ -43,7 +44,7 @@ pub(crate) fn record_chain(inf: &BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
     }
 }
 
-/// `e == .x` / `e != .x`: o atalho à direita usa o tipo de `e`.
+/// `e == .x` / `e != .x`: the shorthand on the right uses the type of `e`.
 pub(crate) fn record_equality(
     inf: &BodyInferrer<'_>,
     cx: &mut Body,
@@ -55,7 +56,7 @@ pub(crate) fn record_equality(
     }
 }
 
-/// O contexto sem os `FutureOr` externos (`futureOrBase`), para exibir.
+/// The context without the outer `FutureOr`s (`futureOrBase`), for display.
 fn future_or_base(inf: &BodyInferrer<'_>, mut t: TypeId) -> TypeId {
     while let Type::FutureOr { arg, .. } = inf.table.get(t) {
         t = *arg;
@@ -63,22 +64,24 @@ fn future_or_base(inf: &BodyInferrer<'_>, mut t: TypeId) -> TypeId {
     t
 }
 
-/// O contexto exibido na mensagem: sem `FutureOr` e sem o `?` (o
-/// analyzer 3.13.4 mostra `Object` para o contexto `Object?`).
+/// The context displayed in the message: without `FutureOr` and without the
+/// `?` (analyzer 3.13.4 shows `Object` for the context `Object?`).
 fn exibir(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
     let base = future_or_base(inf, t);
     let base = inf.non_null(base);
-    // O analyzer passa o texto já pronto (`getDisplayString()`, sem alias).
+    // The analyzer passes the text ready-made (`getDisplayString()`, without
+    // the alias).
     inf.table.format_sem_alias(base, inf.interner, inf.program)
 }
 
-/// A declaração `D` que o contexto denota (spec 3.10, "Declaration denoted by
-/// a type scheme"): `C`/`C<…>` de classe, mixin, enum ou extension type; `S?`
-/// e `FutureOr<S>` denotam o que `S` denota. `Future<S>` cai para `S` quando
-/// `Future` não tem o membro (o contexto do `=>` de função `async`).
+/// The declaration `D` that the context denotes (spec 3.10, "Declaration
+/// denoted by a type scheme"): `C`/`C<…>` of a class, mixin, enum or extension
+/// type; `S?` and `FutureOr<S>` denote what `S` denotes. `Future<S>` falls
+/// back to `S` when `Future` does not have the member (the context of the
+/// `=>` of an `async` function).
 ///
-/// Uma declaração privada de outra biblioteca não é denotada (o analyzer
-/// 3.13.4 trata o contexto como ausente).
+/// A private declaration from another library is not denoted (analyzer
+/// 3.13.4 treats the context as absent).
 fn declaracao(inf: &BodyInferrer<'_>, cx: &Body, ctx: TypeId, the_name: SymbolId) -> Option<ClassId> {
     let mut t = ctx;
     let d = loop {
@@ -104,8 +107,9 @@ fn declaracao(inf: &BodyInferrer<'_>, cx: &Body, ctx: TypeId, the_name: SymbolId
     Some(d)
 }
 
-/// `D` tem o construtor da chave `k`: declarado, o primário de um tipo de
-/// extensão, ou o sem nome implícito de uma classe sem construtores.
+/// `D` has the constructor with key `k`: declared, the primary of an
+/// extension type, or the implicit unnamed one of a class without
+/// constructors.
 fn tem_construtor(inf: &BodyInferrer<'_>, d: ClassId, k: SymbolId) -> bool {
     if inf.constructor_or_primary(d, k).is_some() {
         return true;
@@ -116,7 +120,7 @@ fn tem_construtor(inf: &BodyInferrer<'_>, d: ClassId, k: SymbolId) -> bool {
         && matches!(class.kind, ClassKind::Class | ClassKind::MixinApplication)
 }
 
-/// A chave do construtor `nome` (`new` = o sem nome).
+/// The key of constructor `the_name` (`new` = the unnamed one).
 fn constructor_key(inf: &BodyInferrer<'_>, the_name: SymbolId) -> Option<SymbolId> {
     if Some(the_name) == inf.sym.new_ {
         inf.sym.vazio
@@ -125,7 +129,7 @@ fn constructor_key(inf: &BodyInferrer<'_>, the_name: SymbolId) -> Option<SymbolI
     }
 }
 
-/// Membro estático, constante de enum ou construtor `nome` de `d`.
+/// Static member, enum constant or constructor `the_name` of `d`.
 fn has_member(inf: &BodyInferrer<'_>, d: ClassId, the_name: SymbolId) -> bool {
     let class = inf.program.class(d);
     class.static_members.contains_key(&the_name)
@@ -136,8 +140,8 @@ fn has_member(inf: &BodyInferrer<'_>, d: ClassId, the_name: SymbolId) -> bool {
         || constructor_key(inf, the_name).is_some_and(|k| tem_construtor(inf, d, k))
 }
 
-/// O tipo de `D.nome` como valor: getter/campo estático, constante de enum,
-/// método estático (tear-off) ou construtor (tear-off).
+/// The type of `D.the_name` as a value: static getter/field, enum constant,
+/// static method (tear-off) or constructor (tear-off).
 fn tipo_do_membro(inf: &mut BodyInferrer<'_>, d: ClassId, the_name: SymbolId) -> Option<TypeId> {
     let class = inf.program.class(d);
     if let Some(&fid) = class.static_members.get(&the_name) {
@@ -167,7 +171,7 @@ fn tipo_do_membro(inf: &mut BodyInferrer<'_>, d: ClassId, the_name: SymbolId) ->
     }
 }
 
-/// `.nome` sem chamada: getter, campo, constante de enum ou tear-off.
+/// `.the_name` without a call: getter, field, enum constant or tear-off.
 pub(crate) fn valor(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,
@@ -180,10 +184,10 @@ pub(crate) fn valor(
     match declaracao(inf, cx, ctx, the_name) {
         Some(d) => {
             resolver(inf, cx, e, Resolved::Element(Element::Class(d)));
-            // `PropertyElementResolver.resolveDotShorthand` (checkout main,
-            // `property_element_resolver.dart:281-305`): o tear-off de
-            // construtor gerador (declarado, ou o implícito de `.new` sem
-            // construtores) de classe abstrata, no nó.
+            // `PropertyElementResolver.resolveDotShorthand` (main checkout,
+            // `property_element_resolver.dart:281-305`): the tear-off of a
+            // generative constructor (declared, or the implicit one of `.new`
+            // without constructors) of an abstract class, at the node.
             let k = inf.program.class(d);
             if !reported && k.kind == dartforge_elements::model::ClassKind::Class && k.modifiers.abstract_ {
                 let generator = match constructor_key(inf, the_name).and_then(|c| k.constructors.get(&c)) {
@@ -221,15 +225,15 @@ pub(crate) fn valor(
     }
 }
 
-/// Relata pelo nome único do código (os três são do suplemento 3.13.4 da
-/// tabela de `dartforge_diagnostics`).
+/// Reports by the code's unique name (all three are from the 3.13.4
+/// supplement of `dartforge_diagnostics`' table).
 fn relatar(inf: &mut BodyInferrer<'_>, unique: &str, span: dartforge_diagnostics::Span, args: &[&str]) {
     if let Some(code) = dartforge_diagnostics::Codigo::por_unico(unique) {
         inf.warning_with_code(code, span, args);
     }
 }
 
-/// O texto e o intervalo do nome de um `DotShorthand`.
+/// The text and the range of the name of a `DotShorthand`.
 fn name_and_span(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> (String, dartforge_diagnostics::Span) {
     match &inf.program.unit(cx.unit).ast.expr(e).kind {
         ExprKind::DotShorthand { name, .. } => (inf.interner.resolve(name.sym).to_string(), name.span),
@@ -237,10 +241,10 @@ fn name_and_span(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> (String, dartf
     }
 }
 
-/// `.nome(args)` / `const .nome(args)` que é construção: o construtor de `D`,
-/// com os argumentos de tipo do contexto da chamada. `None` quando não é
-/// construção (método estático fica para o caminho comum da chamada, que
-/// tipa o alvo por [`valor`]).
+/// `.the_name(args)` / `const .the_name(args)` that is a construction: the
+/// constructor of `D`, with the type arguments from the call's context.
+/// `None` when it is not a construction (a static method goes through the
+/// call's common path, which types the target through [`valor`]).
 pub(crate) fn construction(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,
@@ -258,8 +262,8 @@ pub(crate) fn construction(
     let (the_name, const_) = (name.sym, *const_);
     let ctx_chain = cx.shorthand_context.get(&tgt.0).copied().unwrap_or(ctx);
     let Some(d) = declaracao(inf, cx, ctx_chain, the_name) else {
-        // Sem declaração no contexto: a criação `const .id(…)` não tem
-        // contexto; a invocação `.id(…)` não acha o membro em `_`.
+        // Without a declaration in the context: the creation `const .id(…)` has
+        // no context; the invocation `.id(…)` does not find the member in `_`.
         if const_ {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
             relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
@@ -275,10 +279,10 @@ pub(crate) fn construction(
     if class.static_members.contains_key(&the_name) {
         return None;
     }
-    // `ConstructorInvocationResolver.resolveDotShorthand` (checkout main,
-    // `constructor_invocation_resolver.dart:60-95`): `const .id(…)` sem
-    // construtor `id` acessível na declaração do contexto é
-    // `CONST_WITH_UNDEFINED_CONSTRUCTOR` no nome, com o nome da classe.
+    // `ConstructorInvocationResolver.resolveDotShorthand` (main checkout,
+    // `constructor_invocation_resolver.dart:60-95`): `const .id(…)` without
+    // an accessible constructor `id` in the context's declaration is
+    // `CONST_WITH_UNDEFINED_CONSTRUCTOR` at the name, with the class name.
     let accessible = |inf: &BodyInferrer<'_>, f: dartforge_elements::model::FunctionElementId| {
         let fe = inf.program.function(f);
         !inf.interner.resolve(fe.name).starts_with('_') || fe.library == cx.lib
@@ -286,8 +290,9 @@ pub(crate) fn construction(
     let finding = constructor_key(inf, the_name).and_then(|k| class.constructors.get(&k)).copied();
     let finding = if const_ { finding.filter(|&f| accessible(inf, f)) } else { finding };
     let Some(fid) = finding else {
-        // `.new()` de classe abstrata sem construtor declarado: o construtor
-        // implícito é gerador (`resolveDotShorthand`, `:107-112`), no nó.
+        // `.new()` of an abstract class without a declared constructor: the
+        // implicit constructor is generative (`resolveDotShorthand`,
+        // `:107-112`), at the node.
         let k = inf.program.class(d);
         if !const_
             && Some(the_name) == inf.sym.new_
@@ -297,7 +302,8 @@ pub(crate) fn construction(
         {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
             inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
-            // O alvo segue pelo caminho comum (`valor`), que não é tear-off.
+            // The target goes through the common path (`valor`), which is not a
+            // tear-off.
             cx.reported_shorthands.insert(tgt.0);
         }
         if const_ {
@@ -313,11 +319,11 @@ pub(crate) fn construction(
         }
         return None;
     };
-    // `resolveDotShorthand` (checkout main,
-    // `constructor_invocation_resolver.dart:96-117`): a classe abstrata com
-    // construtor que não é fábrica é `INSTANTIATE_ABSTRACT_CLASS` no nó
-    // inteiro; senão os argumentos de tipo escritos são
-    // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR` na lista.
+    // `resolveDotShorthand` (main checkout,
+    // `constructor_invocation_resolver.dart:96-117`): an abstract class with
+    // a non-factory constructor is `INSTANTIATE_ABSTRACT_CLASS` at the whole
+    // node; otherwise the written type arguments are
+    // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR` at the list.
     {
         let program = inf.program;
         let ExprKind::Call { arguments, .. } = &program.unit(cx.unit).ast.expr(e).kind else {
@@ -333,16 +339,16 @@ pub(crate) fn construction(
             relatar(inf, "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR", sp, &[&cls, &text]);
         }
     }
-    // A invocação do construtor pelo caminho comum da criação
-    // (`InstanceCreationExpression` com o tipo do contexto): os argumentos
-    // de tipo pelo contexto e a conferência dos argumentos (aridade, tipos).
+    // The constructor invocation through the creation's common path
+    // (`InstanceCreationExpression` with the context type): the type
+    // arguments from the context and the argument check (arity, types).
     cx.shorthand_context.remove(&tgt.0);
     resolver(inf, cx, tgt, Resolved::Element(Element::Class(d)));
     let program = inf.program;
     let ExprKind::Call { arguments, .. } = &program.unit(cx.unit).ast.expr(e).kind else {
         return None;
     };
-    // A entidade e o nome dos erros de aridade: o nome do construtor
+    // The entity and the name for arity errors: the constructor's name
     // (`'new'`, `'named'`).
     let (text, span) = name_and_span(inf, cx, tgt);
     super::calls::define_target(inf, Some(text), span);

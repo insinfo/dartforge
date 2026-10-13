@@ -1,13 +1,13 @@
-//! Conformidade da inferência com o oráculo (`package:analyzer`): despeja
-//! cada programa de `corpus/inferencia/` e compara com o `.esperado.tsv`
-//! gravado pelo oráculo (docs/INFERENCIA-ESPECIFICACAO.md, §0).
+//! Conformance of inference with the oracle (`package:analyzer`): dumps each
+//! program of `corpus/inference/` and compares it with the `.expected.tsv`
+//! recorded by the oracle (docs/INFERENCIA-ESPECIFICACAO.md, §0).
 //!
-//! As divergências e os avisos conhecidos ficam em
-//! `corpus/inferencia/divergencias.txt` (catraca): o teste falha com
-//! divergência ou aviso novo, e também com item da lista que deixou de
-//! acontecer (a lista só encolhe). `ATUALIZAR_DIVERGENCIAS=1` regrava a lista,
-//! preservando as notas do cabeçalho (linhas `#> `), que explicam as
-//! divergências mantidas de propósito.
+//! The known divergences and warnings are kept in
+//! `corpus/inference/divergences.txt` (a ratchet): the test fails on a new
+//! divergence or warning, and also on a list item that stopped happening
+//! (the list only shrinks). `ATUALIZAR_DIVERGENCIAS=1` rewrites the list,
+//! preserving the header notes (`#> ` lines), which explain the divergences
+//! kept on purpose.
 
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_types::despejo::{expected_block, line_block, compare_block, dump};
@@ -95,7 +95,7 @@ fn inference_corpus_against_oracle() {
              # (catraca de crates/types/tests/corpus_inferencia.rs; só encolhe).\n",
         );
         s.push_str(&format!("# {summary}\n"));
-        // Notas (`#> `) sobre divergências mantidas de propósito: preservadas.
+        // Notes (`#> `) about divergences kept on purpose: preserved.
         for l in std::fs::read_to_string(&list_path).unwrap_or_default().lines().filter(|l| l.starts_with("#>")) {
             s.push_str(l);
             s.push('\n');

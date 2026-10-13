@@ -1,9 +1,9 @@
-//! Inferência de expressões: contexto (esquema) para baixo, tipo estático
-//! para cima (`inference.md`, "Expression inference").
+//! Expression inference: context (schema) downwards, static type upwards
+//! (`inference.md`, "Expression inference").
 //!
-//! Cadeias com `?.` fazem *null-shorting*: os nós internos da cadeia recebem
-//! o tipo não anulável e só o nó que termina a cadeia recebe o `?`
-//! ([`inferir_no`] devolve se a cadeia está em curto).
+//! Chains with `?.` do *null-shorting*: the inner nodes of the chain get the
+//! non-nullable type and only the node that ends the chain gets the `?`
+//! ([`infer_at`] returns whether the chain is short-circuiting).
 
 use super::shorthands;
 use super::calls;
@@ -21,10 +21,10 @@ use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId
 use dartforge_frontend::ast::{self, AssignOp, BinaryOp, ExprId, ExprKind, UnaryOp};
 use dartforge_intern::SymbolId;
 
-/// Infere `e` no contexto `ctx` (o desconhecido `_` = sem contexto).
+/// Infers `e` in context `ctx` (the unknown `_` = no context).
 pub(crate) fn inferir(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: TypeId) -> TypeId {
-    // `TypeAnalyzer.analyzeExpression` (`type_analyzer.dart:557-561`): o
-    // esquema `dynamic` vira `_` (o `InvalidType` não).
+    // `TypeAnalyzer.analyzeExpression` (`type_analyzer.dart:557-561`): the
+    // `dynamic` schema becomes `_` (`InvalidType` does not).
     let ctx = if matches!(inf.table.get(ctx), Type::Dynamic) && !inf.table.e_invalido(ctx) { inf.core.unknown } else { ctx };
     let mark = cx.cadeias.len();
     let (t, short_circuit) = infer_at(inf, cx, e, ctx, false);
@@ -40,9 +40,9 @@ pub(crate) fn inferir(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
     t
 }
 
-/// `_insertImplicitCallReference` (`resolver.dart:4085-4142`) nas espécies
-/// de expressão cujo `visit…` o chama: com o `getImplicitCallMethod`
-/// (`error_detection_helpers.dart:312-334`), a expressão vira `.call`.
+/// `_insertImplicitCallReference` (`resolver.dart:4085-4142`) in the
+/// expression kinds whose `visit…` calls it: with `getImplicitCallMethod`
+/// (`error_detection_helpers.dart:312-334`), the expression becomes `.call`.
 fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, ctx: TypeId) {
     let inserting_kind = matches!(
         &ast(inf, cx).expr(e).kind,
@@ -62,8 +62,8 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
     if !inserting_kind || inf.the_is_unknown(ctx) {
         return;
     }
-    // `acceptsFunctionType(context)`: tipo de função, `Function`, ou
-    // `FutureOr` de um deles.
+    // `acceptsFunctionType(context)`: a function type, `Function`, or a
+    // `FutureOr` of one of them.
     let mut context = ctx;
     for _ in 0..8 {
         match inf.table.get(context).clone() {
@@ -75,7 +75,7 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
     if !accepts {
         return;
     }
-    // Parâmetro de tipo não anulável: o limite.
+    // Non-nullable type parameter: the bound.
     let mut typ = t;
     let mut seen = std::collections::HashSet::new();
     loop {
@@ -96,15 +96,15 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
     let Some(call) = inf.sym.call else { return };
     if let Some(m) = inf.interface_member(typ, call, false).filter(|m| m.metodo) {
         inf.body_types.units[cx.unit.0 as usize].chamadas_implicitas.insert(e);
-        // O `call` genérico num contexto de função: a instanciação pelo
-        // contexto, com os `COULD_NOT_INFER` na expressão.
+        // A generic `call` in a function context: the instantiation from the
+        // context, with the `COULD_NOT_INFER`s at the expression.
         let _ = instantiate_in_context_with(inf, cx, e, m.tipo, context, false);
     }
 }
 
-/// Fim de uma cadeia com `?.`: a promoção do receptor valeu só dentro dela;
-/// depois, o fluxo é a junção do "era nulo" (o de antes do primeiro `?.`) com
-/// o de ter percorrido a cadeia.
+/// End of a chain with `?.`: the receiver's promotion only held inside it;
+/// afterwards, the flow is the join of "was null" (the one from before the
+/// first `?.`) with having gone through the chain.
 fn close_chain(inf: &mut BodyInferrer<'_>, cx: &mut Body, mark: usize) {
     if cx.cadeias.len() > mark {
         let before = cx.cadeias[mark].clone();
@@ -114,7 +114,7 @@ fn close_chain(inf: &mut BodyInferrer<'_>, cx: &mut Body, mark: usize) {
     }
 }
 
-/// Infere sem contexto.
+/// Infers without a context.
 pub(crate) fn infer_free(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId) -> TypeId {
     let u = inf.core.unknown;
     inferir(inf, cx, e, u)
@@ -134,7 +134,8 @@ pub(crate) fn resolver(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, r: Reso
     table.set_resolved(e, r);
 }
 
-/// Captura o escopo léxico quando `nome` é o identificador sondado pelo LSP.
+/// Captures the lexical scope when `the_name` is the identifier probed by the
+/// LSP.
 pub(crate) fn probe_scope_at(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: ast::Name) {
     if inf.sonda_escopo == Some((cx.unit, the_name.span.start)) && inf.probed_scope.is_none() {
         inf.probed_scope = Some(cx.visible_scope());
@@ -145,27 +146,27 @@ fn ast<'p>(inf: &BodyInferrer<'p>, cx: &Body) -> &'p ast::Ast {
     &inf.program.unit(cx.unit).ast
 }
 
-/// O que um nome simples denota no ponto atual.
+/// What a simple name denotes at the current point.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum NameRef {
     Local(LocalId),
     TypeParam(crate::table::TypeParamId),
-    /// Pseudotipo embutido (`dynamic`, `Never`), sem elemento no namespace
-    /// da biblioteca: como valor, é um literal de tipo (`Type`).
+    /// Built-in pseudo-type (`dynamic`, `Never`), without an element in the
+    /// library's namespace: as a value, it is a type literal (`Type`).
     BuiltinType,
     Elemento(Element),
-    /// Membro declarado no corpo da classe/extensão envolvente.
+    /// Member declared in the body of the enclosing class/extension.
     LexicalMember(dartforge_elements::model::FunctionElementId, bool),
     ConstantEnum(dartforge_elements::model::VariableId),
     Prefixo,
-    /// Não achado lexicamente, mas há `this`: `this.nome`.
+    /// Not found lexically, but there is a `this`: `this.the_name`.
     ImplicitThis,
-    /// Local do bloco declarado depois deste uso (o nome na declaração).
+    /// A block local declared after this use (the name in the declaration).
     Forward(dartforge_diagnostics::Span),
     Nenhum,
 }
 
-/// Busca léxica de um nome (`setter` = contexto de escrita).
+/// Lexical lookup of a name (`setter` = write context).
 pub(crate) fn resolve_name(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: SymbolId, setter: bool) -> NameRef {
     match cx.buscar(the_name) {
         Some(Nome::Local(id)) => return NameRef::Local(id),
@@ -173,10 +174,10 @@ pub(crate) fn resolve_name(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: Symb
         Some(Nome::Forward(s)) => return NameRef::Forward(s),
         None => {}
     }
-    // Membros declarados no corpo da classe/extensão.
+    // Members declared in the body of the class/extension.
     if cx.classe.is_some() || cx.extensao.is_some() {
-        // O escopo do contêiner guarda getter e setter pelo nome base: a
-        // leitura que só acha o setter para ali (`LexicalLookup.resolveGetter`).
+        // The container's scope keeps getter and setter under the base name: a
+        // read that only finds the setter stops there (`LexicalLookup.resolveGetter`).
         let setter_key = inf.setter_key(the_name);
         let order: Vec<Option<SymbolId>> = if setter { vec![setter_key, Some(the_name)] } else { vec![Some(the_name), setter_key] };
         for the_key in order.into_iter().flatten() {
@@ -216,13 +217,13 @@ pub(crate) fn resolve_name(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: Symb
     NameRef::Nenhum
 }
 
-/// O `thisType` do `ResolverVisitor` (`_setupThisType`,
-/// `an611:src/generated/resolver.dart:4180-4193`): o tipo `this` da classe
-/// ou o tipo estendido da extensão envolvente, em **qualquer** membro —
-/// estático, fábrica, inicializador de campo ou de construtor. A busca por
-/// `this` implícito de um nome que não resolve lexicamente usa esse tipo
-/// mesmo onde `this` não vale (o erro passa a ser o de acesso a membro de
-/// instância, não o de nome indefinido).
+/// The `thisType` of `ResolverVisitor` (`_setupThisType`,
+/// `an611:src/generated/resolver.dart:4180-4193`): the class's `this` type
+/// or the enclosing extension's extended type, in **any** member: static,
+/// factory, field or constructor initializer. The implicit `this` lookup of
+/// a name that does not resolve lexically uses that type even where `this`
+/// is not available (the error then becomes the instance member access
+/// one, not the undefined name one).
 fn analyzer_this_type(inf: &mut BodyInferrer<'_>, cx: &Body) -> Option<TypeId> {
     if cx.tipo_this.is_some() {
         return cx.tipo_this;
@@ -233,19 +234,19 @@ fn analyzer_this_type(inf: &mut BodyInferrer<'_>, cx: &Body) -> Option<TypeId> {
     cx.extensao.map(|x| inf.outline.extensions[x.0 as usize].on)
 }
 
-/// O que a busca léxica do analyzer acha para a **leitura** de um nome
+/// What the analyzer's lexical lookup finds for a **read** of a name
 /// (`LexicalLookup.resolveGetter`, `an611:src/dart/resolver/lexical_lookup.dart:17-33`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lexico {
-    /// Getter, método, variável, tipo, prefixo…: a leitura resolve.
+    /// Getter, method, variable, type, prefix…: the read resolves.
     Getter,
-    /// Só um setter de instância declarado no contêiner: a busca segue
-    /// pelo `this` implícito.
+    /// Only an instance setter declared in the container: the lookup goes on
+    /// through the implicit `this`.
     InstanceSetter,
-    /// Só um setter que não é de instância (de topo, estático, importado):
-    /// recuperação — a leitura não tem elemento, e a busca para aqui.
+    /// Only a setter that is not an instance one (top-level, static, imported):
+    /// recovery: the read has no element, and the lookup stops here.
     StandaloneSetter,
-    /// Nada no escopo léxico.
+    /// Nothing in the lexical scope.
     Nada,
 }
 
@@ -255,8 +256,8 @@ fn lexical_read_lookup(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: SymbolId
         NameRef::LexicalMember(f, static_) => {
             if inf.program.function(f).kind == FunctionKind::Setter {
                 // `noGetterIsPossible` (3.6.2 `method_invocation_resolver.dart:616-628`):
-                // o setter estático ou declarado numa extensão (também o de
-                // instância) é a propriedade acessada; não se procura getter.
+                // a static setter or one declared in an extension (also an instance one)
+                // is the accessed property; no getter is looked for.
                 if static_ || inf.program.function(f).extension.is_some() {
                     Lexico::StandaloneSetter
                 } else {
@@ -267,7 +268,8 @@ fn lexical_read_lookup(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: SymbolId
             }
         }
         NameRef::Elemento(Element::Function(f)) if inf.program.function(f).kind == FunctionKind::Setter => {
-            // Setter de topo (declarado ou importado) sem getter de mesmo nome.
+            // Top-level setter (declared or imported) without a getter of the same
+            // name.
             match inf.program.lookup_na_unidade(cx.unit, the_name) {
                 Some(b) if b.getter.is_none() => Lexico::StandaloneSetter,
                 _ => Lexico::Getter,
@@ -277,20 +279,20 @@ fn lexical_read_lookup(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: SymbolId
     }
 }
 
-/// O que a busca por `this` implícito acha (`ThisLookup`,
-/// `an611:src/dart/resolver/this_lookup.dart:20-83`, que chama
-/// `TypePropertyResolver.resolve` com a recuperação estática de
+/// What the implicit `this` lookup finds (`ThisLookup`,
+/// `an611:src/dart/resolver/this_lookup.dart:20-83`, which calls
+/// `TypePropertyResolver.resolve` with the static recovery of
 /// `_lookupInterfaceType`, `an611:src/dart/resolver/type_property_resolver.dart:251-281`).
 #[derive(Debug, Clone, Copy)]
 enum ThroughThis {
-    /// Membro de instância (da interface ou de extensão aplicável).
+    /// Instance member (of the interface or of an applicable extension).
     Instance,
-    /// Membro estático da classe ou de uma superclasse/mixin (recuperação):
-    /// `(classe que o declara, é método)`.
+    /// Static member of the class or of a superclass/mixin (recovery):
+    /// `(cls que o declares, é método)`.
     Estatico(ClassId, bool),
     Missing,
-    /// Receptor anulável ou que não é de interface: o analyzer segue por
-    /// outros caminhos (erros de nulo); não relatamos nada.
+    /// A nullable receiver or one that is not an interface: the analyzer goes
+    /// other ways (null errors); we report nothing.
     Uncertain,
 }
 
@@ -310,12 +312,12 @@ fn lookup_through_this(inf: &mut BodyInferrer<'_>, cx: &Body, this: TypeId, the_
     }
 }
 
-/// O erro de acessar um membro de instância sem `this`
+/// The error of accessing an instance member without `this`
 /// (`_checkForInvalidInstanceMemberAccess`,
-/// `an611:src/generated/error_verifier.dart:3976-4038`): método estático
-/// (e o que ele aninha), construtor de fábrica, inicializador de construtor
-/// (os de campo ficam de fora: veja o braço `Raiz::Nada`). `None` onde
-/// `this` vale.
+/// `an611:src/generated/error_verifier.dart:3976-4038`): a static method
+/// (and what it nests), a factory constructor, a constructor initializer
+/// (field ones are left out: see the `Raiz::Nada` arm). `None` where `this`
+/// is available.
 fn instance_without_this_error(inf: &BodyInferrer<'_>, cx: &Body) -> Option<dartforge_diagnostics::Codigo> {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     if cx.tipo_this.is_some() && !cx.estatico {
@@ -332,17 +334,16 @@ fn instance_without_this_error(inf: &BodyInferrer<'_>, cx: &Body) -> Option<dart
             ast::MemberKind::Constructor(_) => Some(c::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER),
             _ => None,
         },
-        // Inicializador de campo de instância não `late` ou de variável
-        // estática (3.6.2 `error_verifier.dart:3976-4038`); os argumentos de
-        // constante de enum e as anotações usam o mesmo corpo sem raiz e
-        // ficam de fora.
+        // Initializer of a non-`late` instance field or of a static variable
+        // (3.6.2 `error_verifier.dart:3976-4038`); enum constant arguments and
+        // annotations use the same body without a root and are left out.
         super::body::Raiz::Nada if cx.variable_initializer => Some(c::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER),
         super::body::Raiz::Nada => None,
     }
 }
 
-/// Relata o acesso a membro de instância onde `this` não vale (ver
-/// [`erro_de_instancia_sem_this`]).
+/// Reports an instance member access where `this` is not available (see
+/// [`instance_without_this_error`]).
 fn warn_instance_without_this(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) {
     if let Some(code) = instance_without_this_error(inf, cx) {
         let the_name = inf.interner.resolve(n.sym).to_string();
@@ -354,9 +355,9 @@ fn warn_instance_without_this(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Nam
     }
 }
 
-/// Referência sem qualificação a um membro estático herdado
+/// Unqualified reference to an inherited static member
 /// (`_checkForUnqualifiedReferenceToNonLocalStaticMember`,
-/// `an611:src/generated/error_verifier.dart:5660-5700`, e
+/// `an611:src/generated/error_verifier.dart:5660-5700`, and
 /// `_reportInstanceAccessToStaticMember`,
 /// `an611:src/dart/resolver/method_invocation_resolver.dart:208-227`).
 fn warn_unqualified_static(inf: &mut BodyInferrer<'_>, cx: &Body, owner: ClassId, n: ast::Name) {
@@ -370,9 +371,9 @@ fn warn_unqualified_static(inf: &mut BodyInferrer<'_>, cx: &Body, owner: ClassId
     inf.warning_with_code(code, n.span, &[&the_name]);
 }
 
-/// `p.loadLibrary` de um prefixo de import `deferred` (`PrefixScope.lookup`,
-/// `an611:src/dart/element/scope.dart:576-583`): a função sintética
-/// `Future<dynamic> Function()` da biblioteca adiada.
+/// `p.loadLibrary` of a `deferred` import prefix (`PrefixScope.lookup`,
+/// `an611:src/dart/element/scope.dart:576-583`): the deferred library's
+/// synthetic `Future<dynamic> Function()` function.
 pub(crate) fn load_library(inf: &mut BodyInferrer<'_>, cx: &Body, prefix: SymbolId, the_name: SymbolId) -> Option<TypeId> {
     if inf.interner.resolve(the_name) != "loadLibrary" {
         return None;
@@ -402,10 +403,10 @@ pub(crate) fn load_library(inf: &mut BodyInferrer<'_>, cx: &Body, prefix: Symbol
     }))
 }
 
-/// `p.nome` que o prefixo não tem (`_resolveTargetPrefixElement`,
+/// `p.the_name` that the prefix does not have (`_resolveTargetPrefixElement`,
 /// `an611:src/dart/resolver/property_element_resolver.dart:744-786`):
-/// `UNDEFINED_PREFIXED_NAME`, salvo o nome ignorado de um import que não
-/// existe.
+/// `UNDEFINED_PREFIXED_NAME`, except the ignored name of an import that
+/// does not exist.
 pub(crate) fn warn_undefined_prefixed_name(inf: &mut BodyInferrer<'_>, cx: &Body, prefix: SymbolId, name: ast::Name) {
     if crate::scope::should_ignore_undefined(inf.program, inf.interner, cx.unit, Some(prefix), name.sym) {
         return;
@@ -415,14 +416,15 @@ pub(crate) fn warn_undefined_prefixed_name(inf: &mut BodyInferrer<'_>, cx: &Body
     inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_PREFIXED_NAME, name.span, &[&the_name, &p]);
 }
 
-/// A leitura de um nome simples cuja busca léxica não achou getter
+/// The read of a simple name whose lexical lookup found no getter
 /// (`SimpleIdentifierResolver._resolve1`,
-/// `an611:src/dart/resolver/simple_identifier_resolver.dart:209-224`, com a
-/// busca de `PropertyElementResolver.resolveSimpleIdentifier`,
-/// `an611:src/dart/resolver/property_element_resolver.dart:243-272`): o
-/// `this` implícito ainda pode achar o membro (o erro é então o de acesso
-/// sem `this` ou o de estático não qualificado); senão `await` num corpo de
-/// função, o nome ignorado de um import que não existe, ou nome indefinido.
+/// `an611:src/dart/resolver/simple_identifier_resolver.dart:209-224`, with the
+/// lookup of `PropertyElementResolver.resolveSimpleIdentifier`,
+/// `an611:src/dart/resolver/property_element_resolver.dart:243-272`): the
+/// implicit `this` may still find the member (the error is then the access
+/// without `this` or the unqualified static one); otherwise `await` in a
+/// function body, the ignored name of an import that does not exist, or an
+/// undefined name.
 fn undefined_read_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name, lexical: Lexico) {
     if lexical != Lexico::StandaloneSetter
         && let Some(this) = analyzer_this_type(inf, cx)
@@ -433,7 +435,7 @@ fn undefined_read_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name, lexi
                 return;
             }
             ThroughThis::Estatico(owner, method) => {
-                // Tear-off de método estático: o `ErrorVerifier` não relata.
+                // Static method tear-off: `ErrorVerifier` does not report.
                 if !method {
                     warn_unqualified_static(inf, cx, owner, n);
                 }
@@ -447,14 +449,14 @@ fn undefined_read_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name, lexi
 }
 
 /// `PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD` (`ScopeResolverVisitor.visitSimpleIdentifier`,
-/// `an611:src/generated/resolver.dart:5186-5193`): o identificador em
-/// contexto de escrita (`=`, `op=`, `++`/`--`) é uma variável do padrão
-/// guardado cuja cláusula `when` está em análise (também dentro de closures
-/// e de `if-case` da guarda).
+/// `an611:src/generated/resolver.dart:5186-5193`): the identifier in a write
+/// context (`=`, `op=`, `++`/`--`) is a variable of the guarded pattern whose
+/// `when` clause is being analyzed (also inside closures and the guard's
+/// `if-case`).
 /// `_checkForAssignmentToPrimaryConstructorParameter` (3.13,
-/// `error_verifier.dart:3302-3327` do checkout main): escrita num parâmetro
-/// do construtor primário dentro dos inicializadores dele ou de um campo de
-/// instância (também numa função dentro deles), no nome escrito.
+/// `error_verifier.dart:3302-3327` of the main checkout): a write to a primary
+/// constructor parameter inside its initializers or an instance field's
+/// (also in a function inside them), at the written name.
 pub(crate) fn write_in_primary(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, span: dartforge_diagnostics::Span) {
     if cx.primary_parameters.contains(&id) {
         inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER, span, &[]);
@@ -467,9 +469,9 @@ pub(crate) fn write_in_guard(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId,
     }
 }
 
-/// A referência (leitura ou escrita) a uma variável de junção inconsistente
-/// de casos que dividem o corpo (`ResolverVisitor.finishJoinedPatternVariable`,
-/// `an611:src/generated/resolver.dart:878-915`), com o nome.
+/// The reference (read or write) to an inconsistent join variable of cases
+/// that share the body (`ResolverVisitor.finishJoinedPatternVariable`,
+/// `an611:src/generated/resolver.dart:878-915`), with the name.
 pub(crate) fn join_reference(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, n: ast::Name) {
     if let Some(&code) = cx.inconsistent_joins.get(&id) {
         let the_name = inf.interner.resolve(n.sym).to_string();
@@ -477,8 +479,8 @@ pub(crate) fn join_reference(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId,
     }
 }
 
-/// O fim de [`nome_lido_indefinido`]: `await` num corpo de função, nome
-/// ignorado ou `UNDEFINED_IDENTIFIER`.
+/// The end of [`undefined_read_name`]: `await` in a function body, an
+/// ignored name or `UNDEFINED_IDENTIFIER`.
 pub(crate) fn undefined_name_without_this(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) {
     let text = inf.interner.resolve(n.sym).to_string();
     let in_function = !matches!(cx.raiz, super::body::Raiz::Nada) || !cx.funcoes.is_empty();
@@ -489,9 +491,9 @@ pub(crate) fn undefined_name_without_this(inf: &mut BodyInferrer<'_>, cx: &Body,
     if crate::scope::should_ignore_undefined(inf.program, inf.interner, cx.unit, None, n.sym) {
         return;
     }
-    // O prefixo de um import cujo alvo não existe (`import 'dart:foo' as foo;`):
-    // o `PrefixElement` existe mesmo assim, e `foo.bar` é um nome prefixado
-    // que não resolve, sem relato aqui.
+    // The prefix of an import whose target does not exist (`import 'dart:foo' as foo;`):
+    // the `PrefixElement` exists anyway, and `foo.bar` is a prefixed name that
+    // does not resolve, without a report here.
     let lib = inf.program.unit(cx.unit).library;
     let is_prefix = inf.program.library(lib).units.iter().any(|&u| {
         inf.program.unit(u).unit.directives.iter().any(|d| matches!(&d.kind, ast::DirectiveKind::Import { prefix: Some(p), .. } if p.sym == n.sym))
@@ -503,13 +505,14 @@ pub(crate) fn undefined_name_without_this(inf: &mut BodyInferrer<'_>, cx: &Body,
     inf.aviso(msg, n.span);
 }
 
-/// A invocação `nome(args)` sem alvo (`MethodInvocationResolver._resolveReceiverNull`,
-/// `an611:src/dart/resolver/method_invocation_resolver.dart:559-657`) quando
-/// a busca léxica não acha getter: sem `this`, `UNDEFINED_FUNCTION`; com
-/// `this`, a busca nele (membro de instância achado segue o caminho comum;
-/// estático herdado, estático não qualificado; nada, `UNDEFINED_METHOD` com
-/// o nome da classe). Devolve se tratou a invocação (e relatou o que havia a
-/// relatar): o chamador infere os argumentos sem contexto e dá `dynamic`.
+/// The invocation `the_name(args)` without a target (`MethodInvocationResolver._resolveReceiverNull`,
+/// `an611:src/dart/resolver/method_invocation_resolver.dart:559-657`) when the
+/// lexical lookup finds no getter: without `this`, `UNDEFINED_FUNCTION`; with
+/// `this`, the lookup on it (an instance member found follows the common path;
+/// an inherited static, unqualified static; nothing, `UNDEFINED_METHOD` with the
+/// class name). Returns whether it handled the invocation (and reported what
+/// there was to report): the caller infers the arguments without a context and
+/// gives `dynamic`.
 pub(crate) fn undefined_targetless_invocation(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) -> bool {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     if cx.curinga == Some(n.sym) {
@@ -535,16 +538,16 @@ pub(crate) fn undefined_targetless_invocation(inf: &mut BodyInferrer<'_>, cx: &B
         }
     };
     if lexical == Lexico::StandaloneSetter {
-        // Setter de topo, de extensão ou estático: não há getter possível.
+        // Top-level, extension or static setter: no getter is possible.
         let the_name = inf.interner.resolve(n.sym).to_string();
         let typ = type_name(inf);
         inf.warning_with_code(c::UNDEFINED_METHOD, n.span, &[&the_name, &typ]);
         return true;
     }
-    // `this` potencialmente anulável onde vale (extensão sobre tipo
-    // anulável): o caminho comum resolve pelo `Object`/extensões ou relata
-    // o uso sem checagem (`ThisLookup` → `TypePropertyResolver`).
-    // (O tipo de extensão é anulável só pelo `?`, `type_property_resolver.dart:91-96`.)
+    // A potentially nullable `this` where it is available (an extension on a
+    // nullable type): the common path resolves through `Object`/extensions or
+    // reports the unchecked use (`ThisLookup` → `TypePropertyResolver`).
+    // (An extension type is only nullable through `?`, `type_property_resolver.dart:91-96`.)
     if let Some(t) = cx.tipo_this
         && !cx.estatico
         && !inf.e_dynamic(t)
@@ -555,13 +558,13 @@ pub(crate) fn undefined_targetless_invocation(inf: &mut BodyInferrer<'_>, cx: &B
     }
     inf.extension_ambiguity = None;
     match lookup_through_this(inf, cx, this, n.sym, false) {
-        // Extensões ambíguas (`_resolveReceiverNull` → `TypePropertyResolver`):
-        // só a ambiguidade, no nome.
+        // Ambiguous extensions (`_resolveReceiverNull` → `TypePropertyResolver`):
+        // only the ambiguity, at the name.
         ThroughThis::Uncertain if inf.extension_ambiguity.is_some() => {
             inf.report_extension_ambiguity(n.span);
             true
         }
-        // Membro de instância: onde `this` vale, o caminho comum o resolve.
+        // Instance member: where `this` is available, the common path resolves it.
         ThroughThis::Instance if cx.tipo_this.is_some() && !cx.estatico => false,
         ThroughThis::Instance => {
             warn_instance_without_this(inf, cx, n);
@@ -581,19 +584,19 @@ pub(crate) fn undefined_targetless_invocation(inf: &mut BodyInferrer<'_>, cx: &B
     }
 }
 
-/// Uma referência a tipo usada como receptor (`C.m`, `p.C.m`, `C<T>.m`).
+/// A type reference used as a receiver (`C.m`, `p.C.m`, `C<T>.m`).
 #[derive(Debug, Clone)]
 pub(crate) enum TypeRef {
     Classe(ClassId, Option<Vec<ast::TypeId>>),
-    /// Alias de tipo que nomeia uma classe (`typedef A = B<int>`).
-    /// Typedef para classe: argumentos da classe (`None`: o typedef só
-    /// renomeia os parâmetros, e os argumentos são os explícitos ou
-    /// inferidos como os da classe).
+    /// Type alias that names a class (`typedef A = B<int>`).
+    /// Typedef for a class: the class's arguments (`None`: the typedef only
+    /// renames the parameters, and the arguments are the explicit ones or
+    /// inferred like the class's).
     Alias(ClassId, Option<Vec<TypeId>>, dartforge_elements::model::TypedefId),
     Extensao(ExtensionId),
 }
 
-/// Se `e` nomeia uma classe/extensão/typedef (não um valor), qual.
+/// If `e` names a class/extension/typedef (not a value), which one.
 pub(crate) fn type_reference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> Option<TypeRef> {
     let a = ast(inf, cx);
     let el = match &a.expr(e).kind {
@@ -629,8 +632,8 @@ pub(crate) fn type_reference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -
     }
 }
 
-/// `e` nomeia (sem ou com prefixo) um alias de tipo genérico cujo alvo não
-/// é classe nem tipo de extensão.
+/// `e` names (with or without a prefix) a generic type alias whose target is
+/// neither a class nor an extension type.
 pub(crate) fn alias_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     let a = ast(inf, cx);
     let el = match &a.expr(e).kind {
@@ -655,28 +658,28 @@ pub(crate) fn alias_without_class(inf: &mut BodyInferrer<'_>, cx: &Body, e: Expr
     !d.type_params.is_empty() && !matches!(inf.table.get(d.target_type), Type::Interface { .. } | Type::ExtensionType { .. })
 }
 
-/// `e` (identificador simples) nomeia um alias de tipo cujo alvo não é classe
-/// nem tipo de extensão (genérico ou não): o `nome(…)` dele é
-/// `MethodInvocation` de um elemento que não é função
+/// `e` (a simple identifier) names a type alias whose target is neither a
+/// class nor an extension type (generic or not): its `the_name(…)` is a
+/// `MethodInvocation` of an element that is not a function
 /// (`_resolveReceiverNull`, `method_invocation_resolver.dart:599`).
 pub(crate) fn non_class_type_alias(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     let ExprKind::Identifier(n) = &ast(inf, cx).expr(e).kind else { return false };
     let NameRef::Elemento(Element::Typedef(td)) = resolve_name(inf, cx, n.sym, false) else { return false };
     let d = &inf.outline.typedefs[td.0 as usize];
-    // `Null` e `FutureOr` são `InterfaceType` no analyzer.
+    // `Null` and `FutureOr` are `InterfaceType` in the analyzer.
     !matches!(inf.table.get(d.target_type), Type::Interface { .. } | Type::ExtensionType { .. } | Type::Null | Type::FutureOr { .. })
 }
 
-/// `e` nomeia um alias de tipo de função.
+/// `e` names a function type alias.
 pub(crate) fn function_type_alias(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     named_alias_target(inf, cx, e).is_some_and(|t| matches!(inf.table.get(t), Type::Function { .. }))
 }
 
-/// O acesso `alvo.nome` com `alvo` o literal de tipo instanciado de um alias
-/// de tipo de função (`Fn<int>.foo`, `Fn<int>.foo = 1`): infere o alvo e
-/// relata `UNDEFINED_GETTER_ON_FUNCTION_TYPE` (leitura) ou
-/// `UNDEFINED_SETTER_ON_FUNCTION_TYPE` (escrita) no nome, com o nome do
-/// tipo como escrito. Diz se relatou.
+/// The access `tgt.the_name` with `tgt` the instantiated type literal of a
+/// function type alias (`Fn<int>.foo`, `Fn<int>.foo = 1`): infers the target
+/// and reports `UNDEFINED_GETTER_ON_FUNCTION_TYPE` (read) or
+/// `UNDEFINED_SETTER_ON_FUNCTION_TYPE` (write) at the name, with the type's
+/// name as written. Says whether it reported.
 pub(crate) fn function_type_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, the_name: ast::Name, read: bool) -> bool {
     let ExprKind::TypeArguments { target: base, .. } = &ast(inf, cx).expr(tgt).kind else { return false };
     let base = *base;
@@ -696,12 +699,12 @@ pub(crate) fn function_type_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, t
     true
 }
 
-/// `e` nomeia um alias cujo alvo é um parâmetro de tipo (`typedef T<X> = X`).
+/// `e` names an alias whose target is a type parameter (`typedef T<X> = X`).
 pub(crate) fn type_parameter_alias(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     named_alias_target(inf, cx, e).is_some_and(|t| matches!(inf.table.get(t), Type::TypeParameter { .. }))
 }
 
-/// O alvo do alias que `e` (`T` ou `p.T`) nomeia.
+/// The target of the alias that `e` (`T` or `p.T`) names.
 fn named_alias_target(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> Option<TypeId> {
     let el = match &ast(inf, cx).expr(e).kind {
         ExprKind::Identifier(n) => match resolve_name(inf, cx, n.sym, false) {
@@ -718,8 +721,8 @@ fn named_alias_target(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> Optio
     Some(inf.outline.typedefs[td.0 as usize].target_type)
 }
 
-/// `e` nomeia um alias cujo alvo é `Null` ou `FutureOr<…>` (classes para o
-/// analyzer, que reescreve `T<X>.nome()` como criação).
+/// `e` names an alias whose target is `Null` or `FutureOr<…>` (classes for
+/// the analyzer, which rewrites `T<X>.the_name()` as a creation).
 pub(crate) fn alias_of_null_or_futureor(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     let el = match &ast(inf, cx).expr(e).kind {
         ExprKind::Identifier(n) => match resolve_name(inf, cx, n.sym, false) {
@@ -739,14 +742,14 @@ pub(crate) fn alias_of_null_or_futureor(inf: &mut BodyInferrer<'_>, cx: &Body, e
     matches!(inf.table.get(inf.outline.typedefs[td.0 as usize].target_type), Type::Null | Type::FutureOr { .. })
 }
 
-/// Classe e argumentos de um typedef usado como classe, com os argumentos
-/// explícitos do typedef (ou sem eles).
+/// Class and arguments of a typedef used as a class, with the typedef's
+/// explicit arguments (or without them).
 pub(crate) fn alias_of(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId, explicit: Option<Vec<TypeId>>) -> Option<TypeRef> {
     let tgt = inf.outline.typedefs[td.0 as usize].target_type;
     let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
     let (class, args) = match inf.table.get(tgt).clone() {
         Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (class, args),
-        // `Null` e `FutureOr<T>` são `InterfaceType` no analyzer.
+        // `Null` and `FutureOr<T>` are `InterfaceType` in the analyzer.
         Type::Null => (inf.core.null_class?, Box::new([]) as Box<[TypeId]>),
         Type::FutureOr { arg, .. } => {
             let lib = inf.core.async_library?;
@@ -762,8 +765,8 @@ pub(crate) fn alias_of(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model
     let inst = match explicit {
         Some(ex) if ex.len() == params.len() => ex,
         _ => {
-            // Typedef que só renomeia (`typedef M<K, V> = _M<K, V>`): os
-            // argumentos se inferem como os da classe.
+            // A typedef that only renames (`typedef M<K, V> = _M<K, V>`): the
+            // arguments are inferred like the class's.
             let renames = args.len() == params.len()
                 && args.iter().zip(params.iter()).all(|(&a, &p)| matches!(inf.table.get(a), Type::TypeParameter { param, nullable: false } if *param == p));
             if renames {
@@ -777,7 +780,7 @@ pub(crate) fn alias_of(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model
     Some(TypeRef::Alias(class, Some(args), td))
 }
 
-/// Registra os nós de uma referência a tipo (tipo `Type`, resolução do elemento).
+/// Records the nodes of a type reference (type `Type`, resolution of the element).
 fn record_type_ref(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     let a = ast(inf, cx);
     let tt = inf.core.type_;
@@ -808,13 +811,13 @@ fn record_type_ref(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     }
 }
 
-/// Tipo de uma leitura de variável local (com checagem de atribuição definitiva).
+/// Type of a local variable read (with the definite assignment check).
 fn ler_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, id: LocalId, span: dartforge_diagnostics::Span) -> TypeId {
     let l = cx.local(id).clone();
     // `checkReadOfNotAssignedLocalVariable`
-    // (`an611:src/generated/resolver.dart:643-690`). Também no código
-    // inalcançável, que herda o estado dos caminhos que levam a ele
-    // (`return; use(x);` relata).
+    // (`an611:src/generated/resolver.dart:643-690`). Also in unreachable
+    // code, which inherits the state of the paths leading to it
+    // (`return; use(x);` reports).
     if !l.funcao_local {
         let the_name = inf.interner.resolve(l.nome).to_string();
         if l.late {
@@ -833,9 +836,9 @@ fn ler_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, id: LocalId, span: dartf
                     &[&the_name],
                 );
             } else if !inf.the_is_nullable(l.tipo) && !inf.e_dynamic(l.tipo) {
-                // `isPotentiallyNonNullable`: `Null` não é subtipo do tipo
-                // (o parâmetro de tipo de limite `Object?` e o tipo de
-                // extensão sem `Object` também).
+                // `isPotentiallyNonNullable`: `Null` is not a subtype of the type
+                // (a type parameter bounded by `Object?` and an extension type
+                // without `Object` too).
                 let msg = format!("{}: '{}'", DEFINITELY_UNASSIGNED_VARIABLE.template, the_name);
                 inf.aviso(msg, span);
             }
@@ -845,9 +848,9 @@ fn ler_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, id: LocalId, span: dartf
 }
 
 /// `EXTENSION_AS_EXPRESSION` (`simple_identifier_resolver.dart:315-323`,
-/// `prefixed_identifier_resolver.dart:160-184`): o nome (ou `p.E`) de uma
-/// extensão usado como valor — fora de alvo de método ou de acesso a
-/// propriedade. Com o relato o nó fica `dynamic`.
+/// `prefixed_identifier_resolver.dart:160-184`): the name (or `p.E`) of an
+/// extension used as a value, outside a method or property access target.
+/// With the report the node becomes `dynamic`.
 fn extension_as_expression(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, sp: dartforge_diagnostics::Span) -> bool {
     if let dartforge_frontend::pais::Pai::Expr(p) = inf.parent_of(cx.unit, e) {
         match &ast(inf, cx).expr(p).kind {
@@ -860,9 +863,9 @@ fn extension_as_expression(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, sp:
     true
 }
 
-/// O nome com que `_resolve` relata a contagem de argumentos de tipo de um
-/// tear-off: o de uma função, método ou operador declarado (também a função
-/// local); `None` para variável, getter ou outra expressão.
+/// The name with which `_resolve` reports the type argument count of a
+/// tear-off: that of a declared function, method or operator (also a local
+/// function); `None` for a variable, getter or other expression.
 fn referenced_function_name(inf: &BodyInferrer<'_>, cx: &Body, tgt: ExprId) -> Option<String> {
     use crate::resolved::{MemberRef, Resolved};
     let function = |f: dartforge_elements::model::FunctionElementId| {
@@ -873,8 +876,8 @@ fn referenced_function_name(inf: &BodyInferrer<'_>, cx: &Body, tgt: ExprId) -> O
         Resolved::Element(Element::Function(f)) => function(*f),
         Resolved::Member { member: MemberRef::Function(f), .. } => function(*f),
         Resolved::ExtensionMember { member, .. } => function(*member),
-        // A função local (declarada antes: a marca `funcao_local` some depois
-        // da inferência dela, e fica o conjunto `funcoes_locais`).
+        // The local function (declared before: the `funcao_local` mark goes
+        // away after it is inferred, and the `funcoes_locais` set remains).
         Resolved::Local(id) if cx.local(*id).funcao_local || cx.funcoes_locais.contains(id) => {
             Some(inf.interner.resolve(cx.local(*id).nome).to_string())
         }
@@ -882,7 +885,7 @@ fn referenced_function_name(inf: &BodyInferrer<'_>, cx: &Body, tgt: ExprId) -> O
     }
 }
 
-/// Tipo de uma leitura de elemento de topo.
+/// Type of a read of a top-level element.
 fn ler_elemento(inf: &mut BodyInferrer<'_>, el: Element) -> TypeId {
     match el {
         Element::Class(_) | Element::Typedef(_) | Element::Extension(_) => inf.core.type_,
@@ -917,15 +920,15 @@ pub(crate) fn lexical_member_resolved(inf: &BodyInferrer<'_>, cx: &Body, f: dart
     Resolved::Member { class, member, via_super: false }
 }
 
-/// `referencedBeforeDeclaration` (`diagnostic_factory.dart:342`): o contexto
-/// é a declaração, no nome dela.
+/// `referencedBeforeDeclaration` (`diagnostic_factory.dart:342`): the
+/// context is the declaration, at its name.
 fn warning_before_declaration(inf: &mut BodyInferrer<'_>, n: ast::Name, msg: String, decl: dartforge_diagnostics::Span) {
     let text = format!("The declaration of '{}' is here.", inf.interner.resolve(n.sym));
     inf.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, n.span).com_contexto(decl, text));
     inf.warning_units.push(inf.current_unit);
 }
 
-/// Identificador como valor.
+/// Identifier as a value.
 fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::Name) -> TypeId {
     probe_scope_at(inf, cx, n);
     if let Some(&(_, decl)) = cx.pattern_hidden.iter().find(|(s, _)| *s == n.sym) {
@@ -946,14 +949,14 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
                 warning_before_declaration(inf, n, msg, decl);
             }
             let t = ler_local(inf, cx, id, n.span);
-            // `whyNotPromoted` desta leitura (o histórico de não promoção da
-            // variável neste ponto).
+            // `whyNotPromoted` of this read (the variable's non-promotion history at
+            // this point).
             inf.record_local_non_promotion(cx, e, id);
             t
         }
         NameRef::TypeParam(p) => {
             resolver(inf, cx, e, Resolved::TypeParameter(p));
-            // `_checkForTypeParameterReferencedByStatic` do
+            // `_checkForTypeParameterReferencedByStatic` of
             // `visitSimpleIdentifier` (3.6.2, `error_verifier.dart:5419-5434`).
             if cx.static_member && crate::resolve::class_param(inf.table, p) {
                 inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, n.span, &[]);
@@ -964,7 +967,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
         NameRef::Elemento(_) if ambiguous_import(inf, cx, None, n) => inf.table.invalid(inf.core.dynamic_),
         NameRef::Elemento(el) => {
             resolver(inf, cx, e, Resolved::Element(el));
-            // Só um setter de topo com esse nome: a leitura não tem elemento.
+            // Only a top-level setter with that name: the read has no element.
             if lexical_read_lookup(inf, cx, n.sym) == Lexico::StandaloneSetter {
                 undefined_read_name(inf, cx, n, Lexico::StandaloneSetter);
                 return inf.table.invalid(inf.core.dynamic_);
@@ -980,21 +983,21 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
             let r = lexical_member_resolved(inf, cx, f, static_);
             resolver(inf, cx, e, r);
             let only_setter = inf.program.function(f).kind == FunctionKind::Setter;
-            // `isInstanceMember` (3.6.2 `extensions.dart:109-119`) só vale para
-            // membro de `InterfaceElement`: o de extensão achado no escopo
-            // léxico é o elemento lido (o getter) ou a recuperação (o setter,
-            // sem busca pelo `this` implícito: `undefined_identifier`, não a
-            // ambiguidade com o getter de outra extensão;
+            // `isInstanceMember` (3.6.2 `extensions.dart:109-119`) only applies to a
+            // member of an `InterfaceElement`: an extension member found in the lexical
+            // scope is the element read (the getter) or the recovery (the setter,
+            // without the implicit `this` lookup: `undefined_identifier`, not the
+            // ambiguity with another extension's getter;
             // `static_extension_internal_basename_shadowing_error_test.dart:276`).
             let of_extension = inf.program.function(f).extension.is_some();
             if !static_ && !of_extension {
-                // Membro de instância declarado aqui: pelo tipo `this` (a
-                // substituição é a identidade).
+                // Instance member declared here: through the `this` type (the
+                // substitution is the identity).
                 if let Some(this) = cx.tipo_this {
                     if let Busca::Achado(m) = inf.lookup_member(cx.lib, this, n.sym, false) {
-                        // Achado só o setter aqui, a leitura é `this.nome`: o
-                        // elemento lido é o getter da interface (herdado), não
-                        // o setter (os backends invocam o `Resolved` do nó).
+                        // Only the setter was found here, the read is `this.the_name`: the element
+                        // read is the interface's (inherited) getter, not the setter (the
+                        // backends invoke the node's `Resolved`).
                         if only_setter {
                             resolver(inf, cx, e, m.resolved.clone());
                         }
@@ -1003,8 +1006,8 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
                 }
             }
             if only_setter {
-                // Leitura de um nome que só tem setter no contêiner: a de
-                // instância ainda busca pelo `this` implícito; a estática não.
+                // Read of a name that only has a setter in the container: an instance
+                // one still looks through the implicit `this`; a static one does not.
                 let lexical = if static_ || of_extension { Lexico::StandaloneSetter } else { Lexico::InstanceSetter };
                 undefined_read_name(inf, cx, n, lexical);
                 return inf.table.invalid(inf.core.dynamic_);
@@ -1023,20 +1026,20 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
         }
         NameRef::Prefixo => {
             // `SimpleIdentifierResolver._resolve1` (3.6.2,
-            // `simple_identifier_resolver.dart:199-205`): o prefixo fora de
-            // `p.x` e de `p.f()` (argumento, `p?.x`, `p[0]`, cascata, `p()`).
+            // `simple_identifier_resolver.dart:199-205`): the prefix outside `p.x`
+            // and `p.f()` (argument, `p?.x`, `p[0]`, cascade, `p()`).
             resolver(inf, cx, e, Resolved::Prefix(cx.lib));
             prefix_without_dot(inf, n);
-            // `_resolve2` (`simple_identifier_resolver.dart:269-276`): fora de
-            // `p.x`/`p.f()` o tipo do prefixo é `InvalidType`.
+            // `_resolve2` (`simple_identifier_resolver.dart:269-276`): outside
+            // `p.x`/`p.f()` the prefix's type is `InvalidType`.
             inf.table.invalid(inf.core.dynamic_)
         }
         NameRef::ImplicitThis => {
             let this = cx.tipo_this.unwrap();
-            // `ThisLookup.lookupGetter` com `this` potencialmente anulável
-            // (extensão sobre tipo anulável): o `TypePropertyResolver` relata
-            // o uso sem checagem, com o código pelo pai do nome, e recupera
-            // pela interface do tipo sem `?`.
+            // `ThisLookup.lookupGetter` with a potentially nullable `this` (an
+            // extension on a nullable type): `TypePropertyResolver` reports the
+            // unchecked use, with the code chosen by the name's parent, and recovers
+            // through the interface of the type without `?`.
             if inf.requires_null_check(cx.lib, this, n.sym, false) {
                 let code = nullable_this_code(inf, cx, e);
                 let the_name = inf.interner.resolve(n.sym).to_string();
@@ -1057,9 +1060,9 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
                     resolver(inf, cx, e, m.resolved.clone());
                     field_read(inf, cx, e, Base::This, m.tipo)
                 }
-                // Extensões ambíguas (`ThisLookup.lookupGetter` →
-                // `TypePropertyResolver`): a ambiguidade no nome, e sem
-                // getter o `UNDEFINED_IDENTIFIER` também
+                // Ambiguous extensions (`ThisLookup.lookupGetter` →
+                // `TypePropertyResolver`): the ambiguity at the name, and without a
+                // getter `UNDEFINED_IDENTIFIER` too
                 // (`simple_identifier_resolver.dart:208-221`).
                 Busca::Dinamico if inf.extension_ambiguity.is_some() => {
                     inf.report_extension_ambiguity(n.span);
@@ -1078,8 +1081,8 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
             let msg = format!("{}: '{}'", REFERENCED_BEFORE_DECLARATION.template, inf.interner.resolve(n.sym));
             warning_before_declaration(inf, n, msg, decl);
             // `checkReadOfNotAssignedLocalVariable` (3.6.2 `resolver.dart:643-679`):
-            // o local ainda não atribuído, se `final` (não `late`; o `const`
-            // não), é `READ_POTENTIALLY_UNASSIGNED_FINAL` no nome.
+            // a local not yet assigned, if `final` (not `late`; `const` does not
+            // count), is `READ_POTENTIALLY_UNASSIGNED_FINAL` at the name.
             let forward_final = inf.program.unit(cx.unit).ast.stmts.iter().any(|st| match &st.kind {
                 ast::StmtKind::Variables(vl) => vl.final_ && !vl.const_ && !vl.late && vl.variables.iter().any(|v| v.name.span == decl),
                 _ => false,
@@ -1088,17 +1091,18 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
                 let the_name = inf.interner.resolve(n.sym).to_string();
                 inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::READ_POTENTIALLY_UNASSIGNED_FINAL, n.span, &[&the_name]);
             }
-            // O analyzer resolve o nome para o local declarado adiante (o
-            // escopo do bloco já o tem): o `ReferenceFinder` vê a dependência
-            // (`const x = [x];` é ciclo).
+            // The analyzer resolves the name to the local declared ahead (the
+            // block's scope already has it): `ReferenceFinder` sees the dependency
+            // (`const x = [x];` is a cycle).
             if inf.registrar_locais {
                 inf.body_types.units[cx.unit.0 as usize].declaracoes_de_locais.insert(e, decl.start);
             }
-            // O tipo do elemento neste ponto: o `ResolutionVisitor` já pôs o
-            // tipo escrito, ou `dynamic` sem tipo (`resolution_visitor.dart:1397`);
-            // a inferência do implícito só vem na declaração. `Function f = () { x = f; };`
-            // dá `invalid_assignment` de `Function` (`ref_before_declaration_test.dart:71`).
-            // Os avisos da anotação são os da declaração, relatados lá.
+            // The element's type at this point: `ResolutionVisitor` already set the
+            // written type, or `dynamic` without a type (`resolution_visitor.dart:1397`);
+            // inference of the implicit one only comes at the declaration.
+            // `Function f = () { x = f; };` gives an `invalid_assignment` of `Function`
+            // (`ref_before_declaration_test.dart:71`). The annotation's warnings are the
+            // declaration's, reported there.
             let written = inf.program.unit(cx.unit).ast.stmts.iter().find_map(|st| match &st.kind {
                 ast::StmtKind::Variables(vl) if vl.variables.iter().any(|v| v.name.span == decl) => Some(vl.ty),
                 _ => None,
@@ -1114,8 +1118,8 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
                 None => inf.core.dynamic_,
             }
         }
-        // Só curingas declaram `_` aqui (3.7): usar `_` é erro
-        // (`Undefined name '_'` no CFE).
+        // Only wildcards declare `_` here (3.7): using `_` is an error
+        // (`Undefined name '_'` in the CFE).
         NameRef::Nenhum if cx.curinga == Some(n.sym) => {
             inf.erro_de_linguagem(cx.unit, n.span, WILDCARD_DOES_NOT_BIND.template.to_string());
             inf.core.dynamic_
@@ -1127,10 +1131,10 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::N
     }
 }
 
-/// O código do uso sem checagem pelo `this` implícito
-/// (`type_property_resolver.dart:107-140`): pelo pai do nome — a invocação
-/// de método, o operador binário (o pai de cascata vale pela primeira
-/// seção), senão o acesso a propriedade.
+/// The code of the unchecked use through the implicit `this`
+/// (`type_property_resolver.dart:107-140`): by the name's parent: a method
+/// invocation, a binary operator (a cascade parent counts through its first
+/// section), otherwise a property access.
 fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartforge_diagnostics::Codigo {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let a = ast(inf, cx);
@@ -1138,7 +1142,7 @@ fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartf
         dartforge_frontend::pais::Pai::Expr(p) => p,
         _ => return c::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
     };
-    // Alvo de cascata: vale a primeira seção (`..m()` é invocação).
+    // Cascade target: the first section counts (`..m()` is an invocation).
     if let ExprKind::Cascade { sections, .. } = &a.expr(parent).kind {
         return match sections.first().map(|&s| &a.expr(s).kind) {
             Some(ExprKind::Call { .. }) => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
@@ -1147,16 +1151,16 @@ fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartf
     }
     match &a.expr(parent).kind {
         ExprKind::Binary { .. } => c::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE,
-        // A escrita pelo `this` implícito (`nome += 1`, `nome ??= 1`,
-        // `nome++`): a variante de método, como a do `lookupSetter`
-        // (conferido no oráculo 3.6.2).
+        // A write through the implicit `this` (`the_name += 1`, `the_name ??= 1`,
+        // `the_name++`): the method variant, like that of `lookupSetter`
+        // (checked against the 3.6.2 oracle).
         ExprKind::Assign { target, .. } if *target == e => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
         ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } if *operand == e => {
             c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
         }
-        // `nome()`: o `MethodInvocation` do nome.
+        // `the_name()`: the name's `MethodInvocation`.
         ExprKind::Call { target, .. } if *target == e => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
-        // `nome.m()`: o nome é o alvo do `MethodInvocation`.
+        // `the_name.m()`: the name is the `MethodInvocation`'s target.
         ExprKind::Property { target, .. } if *target == e => match inf.parent_of(cx.unit, parent) {
             dartforge_frontend::pais::Pai::Expr(q) if matches!(&a.expr(q).kind, ExprKind::Call { target, .. } if *target == parent) => {
                 c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
@@ -1167,9 +1171,10 @@ fn nullable_this_code(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> dartf
     }
 }
 
-/// O alvo de promoção que `e` denota, sem parênteses: a variável local, a
-/// propriedade (`_PropertyReference`: o sintético estável da promovível, ou
-/// a geração desta leitura da não promovível) ou `this`.
+/// The promotion target that `e` denotes, without parentheses: the local
+/// variable, the property (`_PropertyReference`: the stable synthetic of a
+/// promotable one, or the generation of this read of a non-promotable one)
+/// or `this`.
 pub(crate) fn promotion_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId) -> Option<LocalId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.expr(e).kind {
@@ -1180,7 +1185,7 @@ pub(crate) fn promotion_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: Exp
         ExprKind::Identifier(n) => match cx.buscar(n.sym) {
             Some(Nome::Local(id)) if !cx.local(id).funcao_local => Some(id),
             Some(_) => None,
-            // `_x` implícito: `this._x`.
+            // Implicit `_x`: `this._x`.
             None => property_target(inf, cx, e, Base::This),
         },
         ExprKind::Property { target, null_aware: false, .. } => {
@@ -1196,9 +1201,9 @@ pub(crate) fn promotion_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: Exp
     }
 }
 
-/// A base de uma propriedade lida de `t` (o `PropertyTarget` com nó SSA):
-/// `this`, `super`, uma local (não `late`, não função local) ou outra
-/// propriedade promovível (estável).
+/// The base of a property read from `t` (the `PropertyTarget` with an SSA
+/// node): `this`, `super`, a local (not `late`, not a local function) or
+/// another (stable) promotable property.
 fn property_base(inf: &mut BodyInferrer<'_>, cx: &mut Body, t: ExprId) -> Option<Base> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.expr(t).kind {
@@ -1208,12 +1213,12 @@ fn property_base(inf: &mut BodyInferrer<'_>, cx: &mut Body, t: ExprId) -> Option
         }
         ExprKind::This => Some(Base::This),
         ExprKind::Super => Some(Base::Super),
-        // A seção de cascata lê do alvo da cascata, cuja referência é a da
-        // expressão alvo (`cascadeExpression_afterTarget` guarda o
-        // `_getExpressionReference(target)`): `c?.._field` vê a promoção de
-        // `c._field`.
+        // A cascade section reads from the cascade target, whose reference is
+        // that of the target expression (`cascadeExpression_afterTarget` keeps
+        // `_getExpressionReference(target)`): `c?.._field` sees the promotion
+        // of `c._field`.
         ExprKind::CascadeTarget => cx.cascade_bases.last().copied().flatten().map(|(b, _)| b),
-        // O valor da cascata é o do alvo (a mesma referência).
+        // The cascade's value is the target's (the same reference).
         ExprKind::Cascade { target, .. } => {
             let tgt = *target;
             property_base(inf, cx, tgt)
@@ -1235,8 +1240,8 @@ fn property_base(inf: &mut BodyInferrer<'_>, cx: &mut Body, t: ExprId) -> Option
     }
 }
 
-/// Com `t` o alvo de cascata, força a versão da base dele à do início da
-/// cascata; devolve a forçada anterior, para restaurar.
+/// With `t` the cascade target, forces its base's version to that of the
+/// start of the cascade; returns the previously forced one, for restoring.
 fn force_cascade_version(inf: &BodyInferrer<'_>, cx: &mut Body, t: ExprId) -> Option<(Base, u32)> {
     let before = cx.forced_version;
     if matches!(ast(inf, cx).expr(t).kind, ExprKind::CascadeTarget)
@@ -1247,9 +1252,9 @@ fn force_cascade_version(inf: &BodyInferrer<'_>, cx: &mut Body, t: ExprId) -> Op
     before
 }
 
-/// O membro de instância (getter, campo ou método, de classe ou de
-/// extensão) que a leitura `e` alcança, com o nome escrito: o
-/// `propertyMember` do `propertyGet`.
+/// The instance member (getter, field or method, of a class or of an
+/// extension) that the read `e` reaches, with the written name: the
+/// `propertyMember` of `propertyGet`.
 fn read_member(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> Option<(FunctionElementId, SymbolId)> {
     let the_name = match &ast(inf, cx).expr(e).kind {
         ExprKind::Identifier(n) => n.sym,
@@ -1267,8 +1272,8 @@ fn read_member(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> Option<(Function
     Some((f, the_name))
 }
 
-/// O sintético estável de uma propriedade promovível lida em `e` (`None`
-/// se não é promovível).
+/// The stable synthetic of a promotable property read in `e` (`None` if it
+/// is not promotable).
 fn stable_property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, base: Base) -> Option<LocalId> {
     let (f, the_name) = read_member(inf, cx, e)?;
     if !inf.promotable_property(cx.lib, f) {
@@ -1279,18 +1284,18 @@ fn stable_property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, base: B
         cx.ensure_model(id);
         return Some(id);
     }
-    // O tipo declarado visto pelo receptor: o da leitura antes de qualquer
-    // promoção (a primeira leitura, que ainda não tinha o sintético).
+    // The declared type as seen by the receiver: that of the read before any
+    // promotion (the first read, which did not have the synthetic yet).
     let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.dynamic_);
     let id = cx.declare_synthetic(Local { nome: the_name, tipo: t, final_: true, late: false, const_: false, offset: 0, funcao_local: false });
     cx.campos.insert(the_key, id);
     Some(id)
 }
 
-/// A propriedade lida em `e` como alvo de promoção: a promovível pelo
-/// sintético estável; a não promovível ganha uma geração nova (o nó SSA
-/// fresco de cada acesso), que só o why-not-promoted das leituras seguintes
-/// consulta.
+/// The property read in `e` as a promotion target: a promotable one through
+/// the stable synthetic; a non-promotable one gets a new generation (the
+/// fresh SSA node of each access), which only the why-not-promoted of the
+/// following reads consults.
 fn property_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, base: Base) -> Option<LocalId> {
     if let Some(id) = stable_property(inf, cx, e, base) {
         return Some(id);
@@ -1308,7 +1313,7 @@ fn property_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, base: B
     Some(id)
 }
 
-/// O sintético de `this` (criado na primeira vez).
+/// The synthetic of `this` (created the first time).
 pub(crate) fn this_local(inf: &mut BodyInferrer<'_>, cx: &mut Body) -> Option<LocalId> {
     let typ = cx.tipo_this?;
     if let Some(id) = cx.local_this {
@@ -1321,10 +1326,10 @@ pub(crate) fn this_local(inf: &mut BodyInferrer<'_>, cx: &mut Body) -> Option<Lo
     Some(id)
 }
 
-/// O tipo lido da propriedade `e` (`alvo.nome`, já resolvida) de tipo
-/// declarado `t`, com a promoção da propriedade quando o alvo é uma base
-/// promovível: a função de `this._f()` (`FunctionExpressionInvocation` do
-/// `PropertyAccess`).
+/// The read type of property `e` (`tgt.the_name`, already resolved) with
+/// declared type `t`, with the property's promotion when the target is a
+/// promotable base: the function of `this._f()` (a
+/// `FunctionExpressionInvocation` of the `PropertyAccess`).
 pub(crate) fn property_read_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, t: TypeId) -> TypeId {
     let ExprKind::Property { target, null_aware: false, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind else { return t };
     let tgt = *target;
@@ -1334,15 +1339,16 @@ pub(crate) fn property_read_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: E
     }
 }
 
-/// Tipo lido de uma propriedade (`propertyGet` + `_handleProperty`): o
-/// promovido, quando a propriedade é promovível e o tipo promovido é
-/// subtipo do não promovido; a leitura da não promovível registra o
-/// why-not-promoted dela.
+/// Read type of a property (`propertyGet` + `_handleProperty`): the
+/// promoted one, when the property is promotable and the promoted type is a
+/// subtype of the unpromoted one; a read of a non-promotable one records its
+/// why-not-promoted.
 pub(crate) fn field_read(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, base: Base, t: TypeId) -> TypeId {
     let Some((f, the_name)) = read_member(inf, cx, e) else { return t };
-    // A seção de cascata lê do temporário do alvo, com o nó SSA do início
-    // da cascata: uma escrita na local durante a cascata não tira a
-    // promoção das seções seguintes (`c?.._f.g([c = C()]).._f`).
+    // A cascade section reads from the target's temporary, with the SSA
+    // node from the start of the cascade: a write to the local during the
+    // cascade does not remove the promotion from the following sections
+    // (`c?.._f.g([c = C()]).._f`).
     let version = match &ast(inf, cx).expr(e).kind {
         ExprKind::Property { target, .. } if matches!(ast(inf, cx).expr(*target).kind, ExprKind::CascadeTarget) => match cx.cascade_bases.last().copied().flatten() {
             Some((b, v)) if b == base => v,
@@ -1368,14 +1374,15 @@ pub(crate) fn field_read(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, base:
     t
 }
 
-/// Coerção de tear-off genérico para um contexto de função não genérico
-/// (instanciação implícita).
+/// Coercion of a generic tear-off to a non-generic function context
+/// (implicit instantiation).
 fn instantiate_in_context(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, ctx: TypeId) -> TypeId {
     instantiate_in_context_with(inf, cx, e, t, ctx, true)
 }
 
-/// [`instanciar_em_contexto`]; `registrar` grava a instanciação do tear-off
-/// (a referência implícita a `call` não é tear-off do nó).
+/// [`instantiate_in_context`]; `registrar` records the tear-off's
+/// instantiation (the implicit reference to `call` is not a tear-off of the
+/// node).
 fn instantiate_in_context_with(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, ctx: TypeId, registrar: bool) -> TypeId {
     let Type::Function { type_params, ret, positional, optional, named, nullable } = inf.table.get(t).clone() else { return t };
     if type_params.is_empty() || inf.the_is_unknown(ctx) {
@@ -1395,10 +1402,10 @@ fn instantiate_in_context_with(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId,
         named: named.clone(),
         nullable,
     });
-    // `inferFunctionTypeInstantiation` (3.6.2 `type_system.dart`): o
-    // `GenericInferrer` com o relator e a expressão como entidade
-    // (`constrainGenericFunctionInContext`, origem "Function type declared
-    // as … used where … is required."); o `chooseFinalTypes` relata
+    // `inferFunctionTypeInstantiation` (3.6.2 `type_system.dart`): the
+    // `GenericInferrer` with the reporter and the expression as entity
+    // (`constrainGenericFunctionInContext`, origin "Function type declared
+    // as … used where … is required."); `chooseFinalTypes` reports
     // `COULD_NOT_INFER`.
     let mut gi = crate::constraints::GenericInferrer::new(&type_params);
     gi.with_origin(crate::constraints::Origem::Funcao { declarado: t, contexto: k });
@@ -1420,16 +1427,17 @@ fn instantiate_in_context_with(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId,
     r
 }
 
-/// Infere um nó; devolve `(tipo, curto)` onde `curto` diz que há `?.` na
-/// cadeia abaixo (o chamador que termina a cadeia torna o tipo anulável).
+/// Infers a node; returns `(typ, short_circuit)` where `short_circuit` says there is a `?.`
+/// in the chain below (the caller that ends the chain makes the type
+/// nullable).
 pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: TypeId, _chain: bool) -> (TypeId, bool) {
     let a = ast(inf, cx);
     let expr = a.expr(e);
     let span = expr.span;
-    // `checkUnreachableNode` (`NullSafetyDeadCodeVerifier.visitNode`): a
-    // primeira expressão visitada num fluxo inalcançável é o primeiro nó
-    // morto; o trecho vai até o fim do bloco básico em curso (ou da última
-    // instrução do bloco).
+    // `checkUnreachableNode` (`NullSafetyDeadCodeVerifier.visitNode`): the
+    // first expression visited in an unreachable flow is the first dead
+    // node; the fragment goes to the end of the current basic block (or of
+    // the block's last statement).
     if !cx.flow.alcancavel && cx.dead_code.is_none() {
         let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(span.end).max(span.end);
         inf.aviso(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: span.start, end: end });
@@ -1463,23 +1471,23 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             inf.core.string
         }
         ExprKind::Symbol(_) => inf.core.symbol,
-        // `$this` numa interpolação chega como identificador.
+        // `$this` in an interpolation arrives as an identifier.
         ExprKind::Identifier(n) if Some(n.sym) == inf.sym.this_ => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Identifier(n) => {
             let t = identificador(inf, cx, e, *n);
             instantiate_in_context(inf, cx, e, t, ctx)
         }
-        // O `_thisType` do `ResolverVisitor` vale no corpo inteiro da
-        // declaração, também nos membros estáticos, nos inicializadores de
-        // campo e nas `factory` (o `this` ali é `INVALID_REFERENCE_TO_THIS`,
-        // mas tem o tipo dela).
+        // `ResolverVisitor`'s `_thisType` applies to the whole body of the
+        // declaration, also in static members, field initializers and
+        // `factory`s (the `this` there is `INVALID_REFERENCE_TO_THIS`, but has
+        // its type).
         ExprKind::This => match cx.tipo_this {
             Some(t) => t,
             None if !cx.untyped_this => analyzer_this_type(inf, cx).unwrap_or(inf.core.dynamic_),
             None => inf.core.dynamic_,
         },
         // `visitSuperExpression` (3.6.2 `static_type_analyzer.dart:240-252`):
-        // sem `this` ou dentro de `extension`, o tipo é inválido.
+        // without `this` or inside an `extension`, the type is invalid.
         ExprKind::Super => match cx.tipo_this {
             Some(t) if cx.extensao.is_none() => t,
             _ => inf.table.invalid(inf.core.dynamic_),
@@ -1503,8 +1511,9 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             let u = inf.core.unknown;
             let positional = positional.to_vec();
             let named: Vec<(ast::Name, ExprId)> = named.to_vec();
-            // `_resolveField` (3.6.2 `record_literal_resolver.dart:134-158`):
-            // o campo `void` relata no campo (o nomeado, do nome ao valor).
+            // `_resolveField` (3.6.2 `record_literal_resolver.dart:134-158`): a
+            // `void` field reports at the field (a named one, from the name to the
+            // value).
             let mut pos = Vec::new();
             for (i, p) in positional.iter().enumerate() {
                 let c = ctx_pos.as_ref().map(|v| v[i]).unwrap_or(u);
@@ -1536,11 +1545,10 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             t
         }
         // `insertGenericFunctionInstantiation` (3.6.2 `resolver.dart:1171`)
-        // depois de `visitFunctionExpression` (`:2833`), das invocações
-        // (`:2855`, `:3244`), do índice (`:3035`), dos operadores
-        // (`:2094`, `:3414`, `:3455`), de `as` (`:1867`), da atribuição
-        // (`:1933`) e de `await` (`:2081`), além dos identificadores e
-        // propriedades.
+        // after `visitFunctionExpression` (`:2833`), the invocations (`:2855`,
+        // `:3244`), the index (`:3035`), the operators (`:2094`, `:3414`,
+        // `:3455`), `as` (`:1867`), the assignment (`:1933`) and `await`
+        // (`:2081`), besides identifiers and properties.
         ExprKind::FunctionExpression(f) => {
             let t = functions::expressao_de_funcao(inf, cx, *f, ctx, e);
             instantiate_in_context(inf, cx, e, t, ctx)
@@ -1568,9 +1576,9 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
         ExprKind::TypeArguments { target, type_args } => {
             if type_reference(inf, cx, e).is_some() {
                 check_literal_arguments(inf, cx, e, false);
-                // O `NamedType.type` de cada argumento (o verificador de
-                // constantes lê o do `const (List<T>)`); os relatos já saíram
-                // na conferência acima.
+                // The `NamedType.type` of each argument (the constant verifier reads
+                // that of `const (List<T>)`); the reports already came out in the check
+                // above.
                 let before = inf.diagnostics.len();
                 for &x in type_args.iter() {
                     inf.type_argument_type(cx, x);
@@ -1580,8 +1588,8 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 record_type_ref(inf, cx, e);
                 inf.core.type_
             } else if alias_without_class(inf, cx, *target) {
-                // `Cb<String>` com `Cb` alias de um tipo que não é classe
-                // (`typedef Cb<T> = void Function()`): também `TypeLiteral`.
+                // `Cb<String>` with `Cb` an alias of a type that is not a class
+                // (`typedef Cb<T> = void Function()`): also a `TypeLiteral`.
                 check_literal_arguments(inf, cx, e, false);
                 for &x in type_args.iter() {
                     inf.type_argument_type(cx, x);
@@ -1589,9 +1597,9 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 record_type_ref(inf, cx, e);
                 inf.core.type_
             } else {
-                // `C.nome<T>` (tear-off de construtor com argumentos):
-                // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR`, e a instanciação
-                // segue sobre o tipo do tear-off.
+                // `C.the_name<T>` (constructor tear-off with arguments):
+                // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR`, and the instantiation
+                // goes on over the tear-off's type.
                 if let ExprKind::Property { target: r, name, .. } = &ast(inf, cx).expr(*target).kind
                     && let Some(rt) = type_reference(inf, cx, *r)
                     && let TypeRef::Classe(c, _) | TypeRef::Alias(c, _, _) = rt
@@ -1600,8 +1608,8 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     if the_key.and_then(|k| inf.constructor_or_primary(c, k)).is_some() {
                         let written = ast(inf, cx).expr(*r).span;
                         super::calls::types_in_constructor(inf, cx.unit, written, *name, type_args);
-                        // O `FunctionReference` de um `ConstructorReference`
-                        // fica `InvalidType` (`function_reference_resolver.dart:250-252`).
+                        // The `FunctionReference` of a `ConstructorReference` becomes
+                        // `InvalidType` (`function_reference_resolver.dart:250-252`).
                         infer_free(inf, cx, *target);
                         for &x in type_args.iter() {
                             inf.type_argument_type(cx, x);
@@ -1609,10 +1617,10 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                         return (inf.table.invalid(inf.core.dynamic_), false);
                     }
                 }
-                // `p.f<T>` com `p` que não resolve no escopo
+                // `p.f<T>` with `p` not resolving in the scope
                 // (`_resolvePrefixedIdentifierFunction`, 3.6.2
-                // `function_reference_resolver.dart:413-426`): no prefixo, com o
-                // nome prefixado inteiro (`unresolved.Class<int>.named()`).
+                // `function_reference_resolver.dart:413-426`): at the prefix, with the
+                // whole prefixed name (`unresolved.Class<int>.named()`).
                 if let ExprKind::Property { target: r, name, null_aware: false } = &ast(inf, cx).expr(*target).kind
                     && let ExprKind::Identifier(p) = &ast(inf, cx).expr(*r).kind
                     && matches!(resolve_name(inf, cx, p.sym, false), NameRef::Nenhum | NameRef::ImplicitThis)
@@ -1626,11 +1634,11 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     }
                     return (inf.table.invalid(inf.core.dynamic_), false);
                 }
-                // `m<T>` com `m` estático herdado (ou do tipo estendido) achado
-                // pelo `this` implícito (`_resolveSimpleIdentifierFunction`,
-                // 3.6.2 `function_reference_resolver.dart:657-694`): o
-                // `FunctionReference` relata o acesso não qualificado, que o
-                // tear-off sem argumentos de tipo não relata.
+                // `m<T>` with `m` an inherited static (or one of the extended type)
+                // found through the implicit `this` (`_resolveSimpleIdentifierFunction`,
+                // 3.6.2 `function_reference_resolver.dart:657-694`): the
+                // `FunctionReference` reports the unqualified access, which the tear-off
+                // without type arguments does not report.
                 if let ExprKind::Identifier(n) = &ast(inf, cx).expr(*target).kind
                     && matches!(resolve_name(inf, cx, n.sym, false), NameRef::Nenhum | NameRef::ImplicitThis)
                     && let Some(this) = analyzer_this_type(inf, cx)
@@ -1641,14 +1649,14 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 }
                 let t = infer_free(inf, cx, *target);
                 let targs: Vec<TypeId> = type_args.iter().map(|&x| inf.type_argument_type(cx, x)).collect();
-                // `_resolve`: o parâmetro de tipo vale pelo limite.
+                // `_resolve`: a type parameter counts through its bound.
                 let raw = match inf.table.get(t).clone() {
                     Type::TypeParameter { param, .. } => inf.table.param(param).bound,
                     _ => t,
                 };
                 match inf.table.get(raw).clone() {
                     Type::Function { type_params, .. } if type_params.len() == targs.len() => {
-                        // `checkFunctionReference` do `ErrorVerifier`.
+                        // `ErrorVerifier`'s `checkFunctionReference`.
                         let nodes = type_args.to_vec();
                         let sp = inf.span_expr(cx.unit, e);
                         let visible: Vec<crate::table::TypeParamId> = cx.visible_type_parameters().into_values().collect();
@@ -1658,10 +1666,9 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     }
                     Type::Function { type_params, .. } => {
                         // `_checkTypeArguments` (`function_reference_resolver.dart:115-150`):
-                        // com o nome de uma função ou método declarado,
-                        // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION`; de uma
-                        // variável, getter ou expressão, a variante anônima.
-                        // Os argumentos viram `dynamic`.
+                        // with the name of a declared function or method,
+                        // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION`; for a variable, getter or
+                        // expression, the anonymous variant. The arguments become `dynamic`.
                         if let Some(sp) = super::calls::type_list_range(inf, cx.unit, type_args) {
                             let (n, d) = (type_params.len().to_string(), targs.len().to_string());
                             match referenced_function_name(inf, cx, *target) {
@@ -1670,8 +1677,8 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                                     sp,
                                     &[&the_name, &n, &d],
                                 ),
-                                // O tipo da função vai depois: só o texto do
-                                // 3.13.4 o usa (`The type of this function is …`).
+                                // The function's type goes after: only the 3.13.4 text uses it
+                                // (`The type of this function is …`).
                                 None => {
                                     let typ = inf.table.format(raw, inf.interner, inf.program);
                                     inf.warning_with_code(
@@ -1687,21 +1694,21 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                         crate::constraints::instantiate_function(raw, &dynamic, &mut env)
                     }
                     _ if inf.table.e_invalido(raw) => raw,
-                    // `p.nome<…>` com `nome` que não resolve no prefixo (o
-                    // import ausente, `shouldIgnoreUndefined`): o resolvedor do
-                    // nome prefixado para sem chegar ao `_resolve` da
-                    // referência, e o tipo é inválido, sem relato.
+                    // `p.the_name<…>` with `the_name` not resolving in the prefix (the missing
+                    // import, `shouldIgnoreUndefined`): the prefixed name's resolver stops
+                    // without reaching the reference's `_resolve`, and the type is invalid,
+                    // without a report.
                     _ if matches!(&ast(inf, cx).expr(*target).kind, ExprKind::Property { target: p, .. }
                         if matches!(inf.body_types.units[cx.unit.0 as usize].get_resolved(*p), Some(Resolved::Prefix(_))))
                         && inf.body_types.units[cx.unit.0 as usize].get_resolved(*target).is_none() =>
                     {
                         inf.table.invalid(inf.core.dynamic_)
                     }
-                    // `node<…>` de um objeto com o método `call`: `node.call<…>`
+                    // `node<…>` of an object with a `call` method: `node.call<…>`
                     // (`_resolveAsImplicitCallReference`, 3.6.2
-                    // `function_reference_resolver.dart:287-306`): a contagem
-                    // confere com os parâmetros de tipo do `call`, com o nome
-                    // `call`, e o tipo é o do método instanciado.
+                    // `function_reference_resolver.dart:287-306`): the count is checked
+                    // against the type parameters of `call`, with the name `call`, and the
+                    // type is the instantiated method's.
                     Type::Interface { .. }
                         if inf.sym.call.is_some_and(|call| matches!(inf.lookup_member(cx.lib, raw, call, false), super::members::Busca::Achado(m) if m.metodo)) =>
                     {
@@ -1733,8 +1740,8 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     }
                     _ => {
                         // `DISALLOWED_TYPE_INSTANTIATION_EXPRESSION`
-                        // (`function_reference_resolver.dart:270-278`), com
-                        // os tear-offs de construtor (2.15).
+                        // (`function_reference_resolver.dart:270-278`), with constructor
+                        // tear-offs (2.15).
                         let version = inf.program.library(cx.lib).features.versao();
                         if version >= dartforge_frontend::features::LanguageVersion::new(2, 15) {
                             let sp = inf.span_expr(cx.unit, *target);
@@ -1786,9 +1793,8 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 inf.warning_with_code(dartforge_diagnostics::codigos::warning::CAST_FROM_NULL_ALWAYS_FAILS, span, &[]);
             }
             // `CAST_FROM_NULLABLE_ALWAYS_FAILS` (`ResolverVisitor.visitAsExpression`,
-            // `resolver.dart:1871-1887`): o operando é o identificador de uma
-            // local ou parâmetro de tipo declarado anulável, definitivamente
-            // não atribuído.
+            // `resolver.dart:1871-1887`): the operand is the identifier of a local
+            // or type parameter declared nullable, definitely unassigned.
             if non_nullable && !e_null_do_core(inf, v)
                 && let ExprKind::Identifier(n) = &ast(inf, cx).expr(*value).kind
                 && let Some(Resolved::Local(id)) = inf.body_types.units[cx.unit.0 as usize].get_resolved(*value).cloned()
@@ -1818,8 +1824,8 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             void_use(inf, cx, *target, t);
             // `EXTENSION_OVERRIDE_WITH_CASCADE`
             // (`method_invocation_resolver.dart:431-437`,
-            // `property_element_resolver.dart:606-612`): no nome da extensão
-            // do `E(x)` alvo da cascata (um relato por cascata).
+            // `property_element_resolver.dart:606-612`): at the extension name of
+            // the `E(x)` that is the cascade target (one report per cascade).
             if cx.overlays.contains_key(target)
                 && let ExprKind::Call { target: f, .. } = &ast(inf, cx).expr(*target).kind
             {
@@ -1837,9 +1843,9 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_WITH_CASCADE, sp, &[]);
                 }
             }
-            // `c?..x` com `c` não anulável: relatado pela primeira seção
-            // (`visitPropertyAccess`/`visitMethodInvocation`/`visitIndexExpression`
-            // do `ErrorVerifier`).
+            // `c?..x` with `c` non-nullable: reported through the first section
+            // (`ErrorVerifier`'s `visitPropertyAccess`/`visitMethodInvocation`/
+            // `visitIndexExpression`).
             if *null_aware {
                 if let Some(&first) = sections.first() {
                     if first_section_without_rewrite(inf, cx, first, t) {
@@ -1847,8 +1853,8 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                     }
                 }
             }
-            // `promoteToNonNull`, como no `?.`: o parâmetro de tipo de limite
-            // anulável vira `T & NonNull(limite)` (`nn?..toRadixString(16)`).
+            // `promoteToNonNull`, as with `?.`: a type parameter with a nullable
+            // bound becomes `T & NonNull(bnd)` (`nn?..toRadixString(16)`).
             let r = if *null_aware {
                 match inf.table.get(t) {
                     Type::TypeParameter { nullable: false, .. } => inf.non_null_promotion(t),
@@ -1859,11 +1865,11 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             };
             cx.cascades.push(r);
             cx.cascade_targets.push(*target);
-            // Alvo que não é referência (`getC()?..`): o temporário da
-            // cascata é um nó SSA novo, cujas propriedades promovem entre as
-            // seções.
-            // A local capturada por escrita não promove, mas o temporário
-            // sim: ganha base própria.
+            // A target that is not a reference (`getC()?..`): the cascade's
+            // temporary is a new SSA node, whose properties promote between the
+            // sections.
+            // A local captured by a write does not promote, but the temporary does:
+            // it gets its own base.
             let captured = |cx: &Body, b: Base| matches!(b, Base::Local(id) if cx.flow.modelo(id).is_some_and(|m| m.captured));
             let bv = match property_base(inf, cx, *target).filter(|&b| !captured(cx, b)) {
                 Some(b) => Some((b, cx.base_version(b))),
@@ -1873,10 +1879,10 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 }),
             };
             cx.cascade_bases.push(bv);
-            // `nullAwareAccess_rightBegin` sobre o temporário do alvo
-            // (`tryMarkNonNullable`): com alvo `Null`, o não nulo é `Never` e
-            // as seções ficam inalcançáveis (a primeira é o nó morto); no fim,
-            // a junção com o caminho do atalho nulo volta a alcançar.
+            // `nullAwareAccess_rightBegin` on the target's temporary
+            // (`tryMarkNonNullable`): with a `Null` target, the non-null is `Never`
+            // and the sections become unreachable (the first is the dead node); at
+            // the end, the join with the null-shortcut path is reachable again.
             let shorthand = if *null_aware && matches!(inf.table.get(r), Type::Never) {
                 let s = cx.flow.clone();
                 cx.flow = s.unreachable();
@@ -1886,8 +1892,9 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             };
             let secs = sections.to_vec();
             for s in secs {
-                // A seção (`MethodInvocation`/`PropertyAccess`/`IndexExpression`
-                // da cascata) começa no operador `..`/`?..`: é dali o nó morto.
+                // The section (the cascade's `MethodInvocation`/`PropertyAccess`/
+                // `IndexExpression`) starts at the `..`/`?..` operator: that is where
+                // the dead node is.
                 if !cx.flow.alcancavel && cx.dead_code.is_none() {
                     let sp = inf.span_expr(cx.unit, s);
                     let source = inf.program.unit(cx.unit).source.as_str();
@@ -1919,7 +1926,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             let k1 = await_context(inf, ctx);
             let t1 = inferir(inf, cx, *i, k1);
             void_use(inf, cx, *i, t1);
-            // `AWAIT_OF_INCOMPATIBLE_TYPE` no `await`
+            // `AWAIT_OF_INCOMPATIBLE_TYPE` at the `await`
             // (an611:src/generated/error_verifier.dart:2214-2223).
             if incompatible_with_await(inf, t1, 0) {
                 let begin = inf.span_expr(cx.unit, e).start;
@@ -1933,7 +1940,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             let t = infer_free(inf, cx, *i);
             void_use(inf, cx, *i, t);
             // `THROW_OF_INVALID_TYPE` (an611:src/generated/error_verifier.dart:5336-5347):
-            // não atribuível a `Object`; `void` relata também.
+            // not assignable to `Object`; `void` reports too.
             let object = inf.core.object;
             if !inf.atribuivel(t, object) {
                 let tt = inf.table.format(t, inf.interner, inf.program);
@@ -1957,7 +1964,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
 }
 
 impl<'a> BodyInferrer<'a> {
-    /// Fecho maior se o contexto não for `_` (senão o próprio `_`).
+    /// Greatest closure if the context is not `_` (otherwise `_` itself).
     pub(crate) fn greatest_closure_if_known(&mut self, ctx: TypeId) -> TypeId {
         if self.the_is_unknown(ctx) {
             ctx
@@ -1967,7 +1974,7 @@ impl<'a> BodyInferrer<'a> {
     }
 }
 
-/// `K1` de `await e` em contexto `K` (`inference.md`, "Await expressions").
+/// `K1` of `await e` in context `K` (`inference.md`, "Await expressions").
 fn await_context(inf: &mut BodyInferrer<'_>, k: TypeId) -> TypeId {
     if inf.the_is_unknown(k) {
         return inf.future_or(k);
@@ -1982,8 +1989,8 @@ fn await_context(inf: &mut BodyInferrer<'_>, k: TypeId) -> TypeId {
     }
 }
 
-/// UP dos ramos com a regra de `inference-update-3`: se UP não cabe no
-/// contexto mas os dois ramos cabem, o tipo é o contexto.
+/// UP of the branches with the `inference-update-3` rule: if UP does not fit
+/// the context but both branches do, the type is the context.
 pub(crate) fn upper_bound_in_context(inf: &mut BodyInferrer<'_>, t1: TypeId, t2: TypeId, ctx: TypeId) -> TypeId {
     let t = inf.up(t1, t2);
     if inf.the_is_unknown(ctx) {
@@ -1999,10 +2006,10 @@ pub(crate) fn upper_bound_in_context(inf: &mut BodyInferrer<'_>, t1: TypeId, t2:
     }
 }
 
-/// `checkForUseOfVoidResult`: uma expressão de tipo `void` usada onde se
-/// espera um valor. O intervalo é o nome do método numa invocação de método
-/// (`f()` com `f` função ou método, `a.m()`); senão, a expressão inteira.
-/// Devolve se relatou.
+/// `checkForUseOfVoidResult`: an expression of type `void` used where a
+/// value is expected. The range is the method name in a method invocation
+/// (`f()` with `f` a function or method, `a.m()`); otherwise, the whole
+/// expression. Returns whether it reported.
 pub(crate) fn void_use(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId) -> bool {
     if !matches!(inf.table.get(t), Type::Void) {
         return false;
@@ -2033,8 +2040,8 @@ pub(crate) fn void_use(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Type
 }
 
 /// `isIncompatibleWithAwait` (an611:src/dart/element/type_system.dart:971-1001):
-/// `S?` com `S` incompatível; extension type que não é subtipo de
-/// `Future<Object?>`; parâmetro de tipo (promovido ou não) pelo limite.
+/// `S?` with `S` incompatible; an extension type that is not a subtype of
+/// `Future<Object?>`; a type parameter (promoted or not) through its bound.
 fn incompatible_with_await(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> bool {
     if prof > 16 {
         return false;
@@ -2061,9 +2068,9 @@ fn incompatible_with_await(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> 
     }
 }
 
-/// `getErrorNode` de `checkForAssignableExpressionAtType`
-/// (an611:src/generated/error_detection_helpers.dart:83-91): desce
-/// parênteses e o alvo de cascata.
+/// `getErrorNode` of `checkForAssignableExpressionAtType`
+/// (an611:src/generated/error_detection_helpers.dart:83-91): goes down
+/// through parentheses and the cascade target.
 pub(crate) fn sem_parenteses(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> ExprId {
     let a = ast(inf, cx);
     let mut x = e;
@@ -2076,15 +2083,15 @@ pub(crate) fn sem_parenteses(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> Ex
     }
 }
 
-/// `checkForAssignableExpressionAtType`: com o alvo não `void`, valor `void`
-/// é `use_of_void_result`; senão, a atribuibilidade.
+/// `checkForAssignableExpressionAtType`: with a non-`void` target, a `void`
+/// value is `use_of_void_result`; otherwise, assignability.
 pub(crate) fn verify_assignable_expr(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, of: TypeId, for_: TypeId, template: &str) {
     verify_assignable_expr_at(inf, cx, e, of, for_, template, true);
 }
 
-/// Como [`verificar_atribuivel_expr`]; `desembrulhar` aplica o
-/// `getErrorNode` (falso no lado direito de atribuição, que o analyzer
-/// relata como escrito: `assignment_expression_resolver.dart:148-154`).
+/// Like [`verify_assignable_expr`]; `unwrap` applies `getErrorNode`
+/// (false on the right side of an assignment, which the analyzer reports as
+/// written: `assignment_expression_resolver.dart:148-154`).
 pub(crate) fn verify_assignable_expr_at(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, of: TypeId, for_: TypeId, template: &str, unwrap: bool) {
     if !matches!(inf.table.get(for_), Type::Void) && void_use(inf, cx, e, of) {
         return;
@@ -2092,8 +2099,9 @@ pub(crate) fn verify_assignable_expr_at(inf: &mut BodyInferrer<'_>, cx: &Body, e
     if inf.atribuivel(of, for_) {
         return;
     }
-    // Record de um campo posicional com `(x)` sem vírgula
-    // (an611:src/generated/error_detection_helpers.dart:93-108): no parêntese.
+    // A record with one positional field written `(x)` without a comma
+    // (an611:src/generated/error_detection_helpers.dart:93-108): at the
+    // parenthesis.
     if let Type::Record { positional, named, .. } = inf.table.get(for_).clone()
         && positional.len() == 1
         && named.is_empty()
@@ -2107,9 +2115,10 @@ pub(crate) fn verify_assignable_expr_at(inf: &mut BodyInferrer<'_>, cx: &Body, e
     }
     let no = if unwrap { sem_parenteses(inf, cx, e) } else { e };
     let sp = inf.span_expr(cx.unit, no);
-    // `_insertImplicitCallReference` (`resolver.dart:4085-4142`): a
-    // expressão virou a referência implícita ao `call`, cujo tipo é o do
-    // método instanciado pelo contexto; é ele que a mensagem mostra.
+    // `_insertImplicitCallReference` (`resolver.dart:4085-4142`): the
+    // expression became the implicit reference to `call`, whose type is the
+    // method's as instantiated by the context; that is what the message
+    // shows.
     let the_implicit = {
         let table = &inf.body_types.units[cx.unit.0 as usize].chamadas_implicitas;
         table.contains(&e) || table.contains(&no)
@@ -2118,12 +2127,13 @@ pub(crate) fn verify_assignable_expr_at(inf: &mut BodyInferrer<'_>, cx: &Body, e
         Some(f) => inf.instantiate_function_from_context(f, for_),
         None => of,
     };
-    // `checkForAssignableExpressionAtType`: o erro leva o why-not-promoted
-    // da expressão (`computeWhyNotPromotedMessages(expression, …)`).
+    // `checkForAssignableExpressionAtType`: the error carries the
+    // expression's why-not-promoted
+    // (`computeWhyNotPromotedMessages(expression, …)`).
     let since = inf.diagnostics.len();
     let entity = inf.span_expr(cx.unit, e);
     if template == ARGUMENT_TYPE_NOT_ASSIGNABLE.template {
-        // `{2}`: só entre records (`error_detection_helpers.dart:109-139`).
+        // `{2}`: only between records (`error_detection_helpers.dart:109-139`).
         let mut info: Vec<String> = Vec::new();
         if let (Type::Record { positional: pa, named: at, .. }, Type::Record { positional: pe, named: ne, .. }) =
             (inf.table.get(of).clone(), inf.table.get(for_).clone())
@@ -2158,12 +2168,12 @@ pub(crate) fn verify_assignable_expr_at(inf: &mut BodyInferrer<'_>, cx: &Body, e
     inf.attach_non_promotion(since, cx, Some(e), entity);
 }
 
-/// Um operando que fecha um bloco básico (o `flowEnd` do
+/// An operand that closes a basic block (the `flowEnd` of
 /// `NullSafetyDeadCodeVerifier`, `an611:src/error/dead_code_verifier.dart:213-330`):
-/// os ramos de `?:` e o lado direito de `&&`/`||`. Se ele começa
-/// inalcançável e não há trecho morto aberto, ele é o primeiro nó morto e o
-/// trecho vai dele (ou do operador, `inicio`, quando o pai é binário) ao fim
-/// dele; os nós de dentro fazem parte do mesmo trecho.
+/// the branches of `?:` and the right side of `&&`/`||`. If it starts
+/// unreachable and no dead fragment is open, it is the first dead node and the
+/// fragment goes from it (or from the operator, `start`, when the parent is a
+/// binary) to its end; the nodes inside are part of the same fragment.
 fn flow_operand<R>(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,
@@ -2173,16 +2183,17 @@ fn flow_operand<R>(
 ) -> R {
     let sp = inf.span_expr(cx.unit, e);
     let open = !cx.flow.alcancavel && cx.dead_code.is_none();
-    // `f()` com `f` local de tipo função: o analyzer troca o nó
-    // (`MethodInvocation` → `FunctionExpressionInvocation`), e o `flowEnd`
-    // deste operando não o encontra mais (`_containsFirstDeadNode`): o
-    // trecho só fecha no fim do bloco básico de fora.
-    // `p.y` com `p` local de tipo record: o `PrefixedIdentifierResolver`
-    // troca o nó por um `PropertyAccess`, com o mesmo efeito.
+    // `f()` with `f` a local of a function type: the analyzer replaces the
+    // node (`MethodInvocation` → `FunctionExpressionInvocation`), and this
+    // operand's `flowEnd` no longer finds it (`_containsFirstDeadNode`): the
+    // fragment only closes at the end of the outer basic block.
+    // `p.y` with `p` a local of a record type: `PrefixedIdentifierResolver`
+    // replaces the node with a `PropertyAccess`, with the same effect.
     let rewritten = open && (local_call(inf, cx, e) || local_record_property(inf, cx, e)) && !cx.flow_ends.is_empty();
     if open {
-        // Com pai binário, o `flowEnd` que fecha o trecho troca o nó pelo
-        // `rightOperand` (o novo): o fim é o do operando de qualquer forma.
+        // With a binary parent, the `flowEnd` that closes the fragment replaces
+        // the node with the (new) `rightOperand`: the end is the operand's
+        // either way.
         let end = if rewritten && start.is_none() { cx.flow_ends.last().copied().unwrap_or(sp.end).max(sp.end) } else { sp.end };
         let span = dartforge_diagnostics::Span { start: start.unwrap_or(sp.start), end: end };
         inf.aviso(DEAD_CODE.template.to_string(), span);
@@ -2199,13 +2210,14 @@ fn flow_operand<R>(
     r
 }
 
-/// A primeira seção de uma cascata `c?..s` é um acesso que o analyzer não
-/// reescreve: propriedade, índice, ou invocação de **método**. `..g()` com
-/// `g` getter (ou campo) vira invocação de expressão, e o `?..` sai sem
-/// relato.
+/// The first section of a cascade `c?..s` is an access that the analyzer
+/// does not rewrite: property, index, or **method** invocation. `..g()` with
+/// `g` a getter (or field) becomes an expression invocation, and the `?..`
+/// comes out without a report.
 fn first_section_without_rewrite(inf: &mut BodyInferrer<'_>, cx: &Body, section: ExprId, t: TypeId) -> bool {
     let a = ast(inf, cx);
-    // Desce até o acesso aplicado ao alvo da cascata, lembrando o pai.
+    // Goes down to the access applied to the cascade target, remembering
+    // the parent.
     let mut parent: Option<ExprId> = None;
     let mut x = section;
     loop {
@@ -2230,8 +2242,8 @@ fn first_section_without_rewrite(inf: &mut BodyInferrer<'_>, cx: &Body, section:
     !matches!(inf.lookup_member(cx.lib, nn, the_name, false), Busca::Achado(m) if !m.metodo)
 }
 
-/// `e` é `p.y` (um `PrefixedIdentifier`) com `p` local cujo tipo, pelo
-/// limite, é um record (`prefixed_identifier_resolver.dart:31-46`).
+/// `e` is `p.y` (a `PrefixedIdentifier`) with `p` a local whose type, through
+/// its bound, is a record (`prefixed_identifier_resolver.dart:31-46`).
 fn local_record_property(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     let a = ast(inf, cx);
     let ExprKind::Property { target, null_aware: false, .. } = &a.expr(e).kind else { return false };
@@ -2242,7 +2254,7 @@ fn local_record_property(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bo
     matches!(inf.table.get(t), Type::Record { .. })
 }
 
-/// `e` é `f(...)` com `f` uma variável local (não função local).
+/// `e` is `f(...)` with `f` a local variable (not a local function).
 fn local_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     let a = ast(inf, cx);
     let ExprKind::Call { target, .. } = &a.expr(e).kind else { return false };
@@ -2255,17 +2267,17 @@ fn local_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
 
 /// `RECEIVER_OF_TYPE_NEVER` (`binary_expression_resolver.dart:422-428`,
 /// `method_invocation_resolver.dart:543`, `property_element_resolver.dart:92`,
-/// `function_expression_invocation_resolver.dart:66`): o receptor de um
-/// operador, índice, método ou invocação tem tipo `Never` (não `Never?`).
-/// Relata no receptor e diz se relatou.
+/// `function_expression_invocation_resolver.dart:66`): the receiver of an
+/// operator, index, method or invocation has type `Never` (not `Never?`).
+/// Reports at the receiver and says whether it reported.
 pub(crate) fn never_receiver(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, t: TypeId) -> bool {
     if !matches!(inf.table.get(t), Type::Never) || matches!(ast(inf, cx).expr(r).kind, ExprKind::Super) {
         return false;
     }
-    // Numa seção de cascata, o receptor é o alvo da cascata (`realTarget`),
-    // com o tipo estático dele: o `?..` não promove aqui (`null?..m()` tem
-    // receptor `Null`, não `Never`; o não nulo fica para o
-    // `TypePropertyResolver`).
+    // In a cascade section, the receiver is the cascade target
+    // (`realTarget`), with its static type: `?..` does not promote here
+    // (`null?..m()` has receiver `Null`, not `Never`; the non-null is left
+    // to `TypePropertyResolver`).
     let r = if matches!(ast(inf, cx).expr(r).kind, ExprKind::CascadeTarget) {
         let tgt = cx.cascade_targets.last().copied().unwrap_or(r);
         let raw = inf.body_types.units[cx.unit.0 as usize].get_type(tgt);
@@ -2282,8 +2294,8 @@ pub(crate) fn never_receiver(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, t
 }
 
 /// `RecordLiteralResolver._resolveField` (3.6.2 `record_literal_resolver.dart:135-148`):
-/// o campo `dynamic` com contexto conhecido vale o fecho maior do contexto,
-/// quando `dynamic` não é subtipo dele (o cast implícito).
+/// a `dynamic` field with a known context takes the context's greatest closure,
+/// when `dynamic` is not a subtype of it (the implicit cast).
 fn dynamic_cast_in_field(inf: &mut BodyInferrer<'_>, t: TypeId, context: TypeId) -> TypeId {
     if context == inf.core.unknown || !matches!(inf.table.get(t), Type::Dynamic) {
         return t;
@@ -2293,8 +2305,8 @@ fn dynamic_cast_in_field(inf: &mut BodyInferrer<'_>, t: TypeId, context: TypeId)
 }
 
 /// `DEAD_NULL_AWARE_EXPRESSION` (`_checkForDeadNullCoalesce`,
-/// `an611:src/generated/error_verifier.dart:3045-3052`): em `a ?? b` e
-/// `a ??= b`, com `a` estritamente não anulável, o lado direito.
+/// `an611:src/generated/error_verifier.dart:3045-3052`): in `a ?? b` and
+/// `a ??= b`, with `a` strictly non-nullable, the right side.
 fn warn_dead_null(inf: &mut BodyInferrer<'_>, cx: &Body, the_left: TypeId, the_right: ExprId) {
     if strictly_non_nullable(inf, the_left) {
         let sp = inf.span_expr(cx.unit, the_right);
@@ -2302,9 +2314,9 @@ fn warn_dead_null(inf: &mut BodyInferrer<'_>, cx: &Body, the_left: TypeId, the_r
     }
 }
 
-/// `t` é estritamente não anulável (`isStrictlyNonNullable`): nem `dynamic`,
-/// `void`, `Null` ou anulável; parâmetro de tipo pelo limite; tipo de
-/// extensão só com `implements` (aqui, nunca: pelo lado seguro).
+/// `t` is strictly non-nullable (`isStrictlyNonNullable`): not `dynamic`,
+/// `void`, `Null` or nullable; a type parameter through its bound; an
+/// extension type only with `implements` (here, never: on the safe side).
 pub(crate) fn strictly_non_nullable(inf: &mut BodyInferrer<'_>, t: TypeId) -> bool {
     // `TypeSystemImpl.isStrictlyNonNullable` (3.6.2 `type_system.dart:1290-1310`).
     let mut t = t;
@@ -2318,9 +2330,9 @@ pub(crate) fn strictly_non_nullable(inf: &mut BodyInferrer<'_>, t: TypeId) -> bo
         }
         match ty {
             Type::FutureOr { arg, .. } => t = arg,
-            // O tipo de extensão só com `implements` (`type.interfaces`).
+            // An extension type only with `implements` (`type.interfaces`).
             Type::ExtensionType { decl, .. } => return !inf.outline.classes[decl.0 as usize].interfaces.is_empty(),
-            // `TypeParameterType.bound`: o promovido, senão o declarado.
+            // `TypeParameterType.bound`: the promoted one, otherwise the declared one.
             Type::TypeParameter { param, .. } => {
                 let b = inf.table.param(param).bound;
                 if b == t {
@@ -2335,9 +2347,10 @@ pub(crate) fn strictly_non_nullable(inf: &mut BodyInferrer<'_>, t: TypeId) -> bo
     true
 }
 
-/// `_checkForUnnecessaryNullAware` para `?.` e `?[`: receptor estritamente
-/// não anulável. O intervalo é o operador (`?.`, ou `?[` inteiro); com um
-/// `?.`/`?[` anterior na mesma cadeia, é o `…_AFTER_SHORT_CIRCUIT`.
+/// `_checkForUnnecessaryNullAware` for `?.` and `?[`: a strictly
+/// non-nullable receiver. The range is the operator (`?.`, or the whole
+/// `?[`); with an earlier `?.`/`?[` in the same chain, it is the
+/// `…_AFTER_SHORT_CIRCUIT`.
 fn unnecessary_null_operator(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, t: TypeId) {
     if matches!(ast(inf, cx).expr(r).kind, ExprKind::Super) || !strictly_non_nullable(inf, t) {
         return;
@@ -2345,9 +2358,9 @@ fn unnecessary_null_operator(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, t
     report_null_operator(inf, cx, r, true);
 }
 
-/// `C?.x`, `E?.m()`, `Alias?.x`: o receptor é um literal de tipo (sem tipo
-/// estático no analyzer, `targetElement` de classe, extensão ou alias,
-/// `error_verifier.dart:5613-5627`): o operador é desnecessário.
+/// `C?.x`, `E?.m()`, `Alias?.x`: the receiver is a type literal (without a
+/// static type in the analyzer, a `targetElement` of a class, extension or
+/// alias, `error_verifier.dart:5613-5627`): the operator is unnecessary.
 pub(crate) fn null_operator_on_type(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId) {
     let simple = match &ast(inf, cx).expr(r).kind {
         ExprKind::Identifier(_) => true,
@@ -2359,9 +2372,9 @@ pub(crate) fn null_operator_on_type(inf: &mut BodyInferrer<'_>, cx: &Body, r: Ex
     }
 }
 
-/// O `INVALID_NULL_AWARE_OPERATOR` no operador que segue `r` (`?.`, `?..`
-/// ou `?[`); `cadeia`: com um `?.` anterior na mesma cadeia, é o
-/// `…_AFTER_SHORT_CIRCUIT`.
+/// The `INVALID_NULL_AWARE_OPERATOR` at the operator that follows `r`
+/// (`?.`, `?..` or `?[`); `chain`: with an earlier `?.` in the same chain,
+/// it is the `…_AFTER_SHORT_CIRCUIT`.
 fn report_null_operator(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, chain: bool) {
     use dartforge_diagnostics::codigos::static_warning as w;
     let end = inf.span_expr(cx.unit, r).end;
@@ -2374,15 +2387,15 @@ fn report_null_operator(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, chain:
     } else if after.starts_with("?.") {
         (2, ["?.", "."])
     } else if after.starts_with('?') {
-        // `?[`: do `?` ao `[` (com o que houver entre eles).
+        // `?[`: from the `?` to the `[` (with whatever is between them).
         let Some(i) = after.find('[') else { return };
         (i + 1, ["?[", "["])
     } else {
         return;
     };
     let sp = dartforge_diagnostics::Span { start: pos, end: pos + size };
-    // `invalidNullAwareAfterShortCircuit`: o contexto é o operador que
-    // encurta.
+    // `invalidNullAwareAfterShortCircuit`: the context is the operator that
+    // short-circuits.
     match (chain && args[0] != "?..").then(|| previous_short_circuit_operator(inf, cx, r)).flatten() {
         Some((previous, lexeme)) => inf.warning_with_context(
             w::INVALID_NULL_AWARE_OPERATOR_AFTER_SHORT_CIRCUIT,
@@ -2394,7 +2407,7 @@ fn report_null_operator(inf: &mut BodyInferrer<'_>, cx: &Body, r: ExprId, chain:
     }
 }
 
-/// `...?e` com `e` estritamente não anulável: no `...?`.
+/// `...?e` with `e` strictly non-nullable: at the `...?`.
 pub(crate) fn unnecessary_null_spread(inf: &mut BodyInferrer<'_>, cx: &Body, the_value: ExprId, t: TypeId) {
     use dartforge_diagnostics::codigos::static_warning as w;
     if !strictly_non_nullable(inf, t) {
@@ -2409,10 +2422,10 @@ pub(crate) fn unnecessary_null_spread(inf: &mut BodyInferrer<'_>, cx: &Body, the
     }
 }
 
-/// `previousShortCircuitingOperator` (`error_verifier.dart:5583-5605`): o
-/// operador `?.`/`?` (do `?[`) de `r` que encurta a cadeia, o mais fundo
-/// primeiro; só pelos acessos que são eles mesmos `?.`/`?[` (um `.` no meio
-/// encerra a busca). O intervalo e o lexema do token.
+/// `previousShortCircuitingOperator` (`error_verifier.dart:5583-5605`): the
+/// `?.`/`?` (of `?[`) operator of `r` that short-circuits the chain, the
+/// deepest first; only through accesses that are themselves `?.`/`?[` (a `.`
+/// in between ends the search). The token's range and lexeme.
 fn previous_short_circuit_operator(inf: &BodyInferrer<'_>, cx: &Body, r: ExprId) -> Option<(dartforge_diagnostics::Span, &'static str)> {
     let source = &inf.program.unit(cx.unit).source;
     let token_after = |tgt: ExprId, lexeme: &'static str| -> Option<(dartforge_diagnostics::Span, &'static str)> {
@@ -2431,14 +2444,16 @@ fn previous_short_circuit_operator(inf: &BodyInferrer<'_>, cx: &Body, r: ExprId)
     }
 }
 
-/// Infere o receptor de um acesso (`r.x`, `r[i]`, `r.m()`), tratando `?.` e
-/// o *null-shorting*. Devolve o tipo do receptor para a busca e se há curto.
+/// Infers the receiver of an access (`r.x`, `r[i]`, `r.m()`), handling `?.`
+/// and *null-shorting*. Returns the receiver's type for the lookup and
+/// whether there is a short circuit.
 pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Body, r: ExprId, null_aware: bool) -> (TypeId, bool) {
     let u = inf.core.unknown;
     let (t, c) = infer_at(inf, cx, r, u, true);
     if null_aware {
         unnecessary_null_operator(inf, cx, r, t);
-        // Promove o receptor dentro da cadeia; `fechar_cadeia` desfaz no fim.
+        // Promotes the receiver inside the chain; `close_chain` undoes it at
+        // the end.
         cx.cadeias.push(cx.flow.clone());
         if let Some(id) = promotion_target(inf, cx, r) {
             let decl = cx.local(id).tipo;
@@ -2446,8 +2461,8 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Body, r: ExprId, nul
             inf.promote_non_null(&mut f, id, decl);
             cx.flow = f;
         }
-        // `promoteToNonNull` do alvo (o parâmetro de tipo de limite anulável
-        // vira `T & NonNull(limite)`: `nn?.toRadixString(16)` com
+        // `promoteToNonNull` of the target (a type parameter with a nullable
+        // bound becomes `T & NonNull(bnd)`: `nn?.toRadixString(16)` with
         // `NN extends int?`).
         let nn = match inf.table.get(t) {
             Type::TypeParameter { nullable: false, .. } => inf.non_null_promotion(t),
@@ -2459,8 +2474,8 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Body, r: ExprId, nul
     }
 }
 
-/// Busca de membro no receptor `target`: sobreposição explícita de
-/// extensão (`E(x).m`) consulta só a extensão; senão a busca normal.
+/// Member lookup on the receiver `target`: an explicit extension override
+/// (`E(x).m`) consults only the extension; otherwise the normal lookup.
 pub(crate) fn lookup_target_member(inf: &mut BodyInferrer<'_>, cx: &Body, target: ExprId, recv: TypeId, the_name: SymbolId, setter: bool) -> Busca {
     if let Some((x, args)) = cx.overlays.get(&target).cloned() {
         return match inf.explicit_extension_member(x, &args, the_name, setter) {
@@ -2471,17 +2486,17 @@ pub(crate) fn lookup_target_member(inf: &mut BodyInferrer<'_>, cx: &Body, target
     inf.lookup_member(cx.lib, recv, the_name, setter)
 }
 
-/// `target.name` (leitura).
+/// `target.name` (read).
 /// `startNullAwarePropertyAccess`/`visitMethodInvocation` (3.6.2,
-/// `resolver.dart:1777-1794`, `:3215-3226`): o `?.` sobre um literal de tipo
-/// só deixa de encurtar quando o alvo é um `SimpleIdentifier` que nomeia um
-/// `InterfaceElement` (`C?.x` é `C.x`); `p.C?.x`, `C<int>?.x`, um alias ou
-/// uma extensão encurtam (o resultado fica anulável).
+/// `resolver.dart:1777-1794`, `:3215-3226`): `?.` on a type literal only
+/// stops short-circuiting when the target is a `SimpleIdentifier` that names
+/// an `InterfaceElement` (`C?.x` is `C.x`); `p.C?.x`, `C<int>?.x`, an alias or
+/// an extension short-circuit (the result becomes nullable).
 pub(crate) fn shortening_waived(inf: &BodyInferrer<'_>, cx: &Body, target: ExprId, rt: &TypeRef) -> bool {
     matches!(ast(inf, cx).expr(target).kind, ExprKind::Identifier(_)) && matches!(rt, TypeRef::Classe(..))
 }
 
-/// `PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT` no nome do prefixo.
+/// `PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT` at the prefix's name.
 pub(crate) fn prefix_without_dot(inf: &mut BodyInferrer<'_>, n: ast::Name) {
     let the_name = inf.interner.resolve(n.sym).to_string();
     inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT, n.span, &[&the_name]);
@@ -2489,11 +2504,11 @@ pub(crate) fn prefix_without_dot(inf: &mut BodyInferrer<'_>, n: ast::Name) {
 
 fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId, name: ast::Name, null_aware: bool) -> (TypeId, bool) {
     let a = ast(inf, cx);
-    // `p.nome` com prefixo de import.
+    // `p.the_name` with an import prefix.
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefixo) {
-            // `p?.x` é `PropertyAccess`, não `PrefixedIdentifier`: o prefixo
-            // não vale ali (`_isValidAsPrefix`).
+            // `p?.x` is a `PropertyAccess`, not a `PrefixedIdentifier`: the prefix
+            // does not count there (`_isValidAsPrefix`).
             if null_aware {
                 prefix_without_dot(inf, *p);
             }
@@ -2522,13 +2537,13 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
             }
         }
     }
-    // `Fn<int>.foo` com `Fn` alias de tipo de função (3.6.2
-    // `property_element_resolver.dart:459-477`): nenhuma resolução possível,
-    // `UNDEFINED_GETTER_ON_FUNCTION_TYPE` no nome.
+    // `Fn<int>.foo` with `Fn` a function type alias (3.6.2
+    // `property_element_resolver.dart:459-477`): no resolution is possible,
+    // `UNDEFINED_GETTER_ON_FUNCTION_TYPE` at the name.
     if function_type_literal(inf, cx, target, name, true) {
         return (inf.table.invalid(inf.core.dynamic_), false);
     }
-    // `C.x`: estático, constante de enum ou tear-off de construtor.
+    // `C.x`: static, enum constant or constructor tear-off.
     if let Some(rt) = type_reference(inf, cx, target) {
         record_type_ref(inf, cx, target);
         if null_aware {
@@ -2537,17 +2552,19 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
         let short_circuit = null_aware && !shortening_waived(inf, cx, target, &rt);
         return (acesso_estatico(inf, cx, e, rt, name), short_circuit);
     }
-    // `super.x`. Com `super?.x` (`INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`
-    // no parser), o acesso continua null-aware: o tipo sai anulável no fim
-    // da cadeia (`int y = super?.x` é `INVALID_ASSIGNMENT` de `int?`).
+    // `super.x`. With `super?.x` (`INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`
+    // in the parser), the access is still null-aware: the type comes out
+    // nullable at the end of the chain (`int y = super?.x` is an
+    // `INVALID_ASSIGNMENT` of `int?`).
     if matches!(a.expr(target).kind, ExprKind::Super) {
         let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
         registrar(inf, cx, target, this);
         return (super_member(inf, cx, e, name, SuperUse::Leitura), null_aware);
     }
     let (recv, short_circuit) = receptor(inf, cx, target, null_aware);
-    // `x.new` com `x` valor: o `TypePropertyResolver` nunca acha `new`
-    // (`type_property_resolver.dart:75-79`), nem em `dynamic` nem no anulável.
+    // `x.new` with `x` a value: `TypePropertyResolver` never finds `new`
+    // (`type_property_resolver.dart:75-79`), neither on `dynamic` nor on a
+    // nullable type.
     if !cx.overlays.contains_key(&target) && inf.interner.resolve(name.sym) == "new" {
         let typ = inf.table.format(recv, inf.interner, inf.program);
         inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER, name.span, &["new", &typ]);
@@ -2562,19 +2579,21 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
         }
     }
     let base = if null_aware { None } else { property_base(inf, cx, target) };
-    // `void`: o valor não pode ser usado (analyzer: `use_of_void_result`, no nome).
-    // O alvo `E(x)` não: o membro vem da extensão, e o `void` do argumento
-    // já saiu no argumento (`extension_member_resolver.dart:227-232`).
+    // `void`: the value cannot be used (analyzer: `use_of_void_result`, at the name).
+    // Not for an `E(x)` target: the member comes from the extension, and the
+    // argument's `void` was already reported at the argument
+    // (`extension_member_resolver.dart:227-232`).
     if !cx.overlays.contains_key(&target) && matches!(inf.table.get(recv), Type::Void) {
-        // Em `x..p`, o relato é no alvo da cascata (feito lá).
+        // In `x..p`, the report is at the cascade target (made there).
         if !matches!(a.expr(target).kind, ExprKind::CascadeTarget) {
             inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
         }
         return (inf.core.dynamic_, short_circuit);
     }
-    // Receptor potencialmente anulável sem o membro em `Object` nem numa
-    // extensão: `unchecked_use_of_nullable_value` no nome, e a leitura segue
-    // pelo tipo não anulável só para recuperar o tipo (sem `undefined_getter`).
+    // A potentially nullable receiver without the member on `Object` nor in
+    // an extension: `unchecked_use_of_nullable_value` at the name, and the
+    // read goes on through the non-nullable type only to recover the type
+    // (without `undefined_getter`).
     let check_null = !cx.overlays.contains_key(&target) && inf.requires_null_check(cx.lib, recv, name.sym, false);
     if check_null {
         let the_name = inf.interner.resolve(name.sym).to_string();
@@ -2588,9 +2607,9 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
         // `computeWhyNotPromotedMessages(nameErrorEntity, whyNotPromoted(receiver))`.
         inf.attach_non_promotion(since, cx, Some(target), name.span);
     }
-    // `f.call` lido com `f` do tipo `Function` de `dart:core`: o
-    // `functionTypeCallType` é o próprio tipo (`property_element_resolver.dart:
-    // 440-445`); só a invocação `f.call()` sai dinâmica.
+    // `f.call` read with `f` of `dart:core`'s `Function` type: the
+    // `functionTypeCallType` is the type itself (`property_element_resolver.dart:
+    // 440-445`); only the invocation `f.call()` comes out dynamic.
     if !check_null
         && Some(name.sym) == inf.sym.call
         && matches!(inf.table.get(recv), Type::Interface { class, nullable: false, .. } if Some(*class) == inf.core.function_class)
@@ -2614,26 +2633,26 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
             }
             None => inf.core.dynamic_,
         },
-        // Receptor `InvalidType`: nenhum membro é procurado, e o resultado
-        // é o próprio inválido (`property_element_resolver`, T4.1 item 2).
+        // An `InvalidType` receiver: no member is looked up, and the result is
+        // the invalid one itself (`property_element_resolver`, T4.1 item 2).
         Busca::Dinamico if inf.table.e_invalido(recv) => {
             resolver(inf, cx, e, Resolved::Dynamic);
             recv
         }
         Busca::Dinamico => {
             resolver(inf, cx, e, Resolved::Dynamic);
-            // `hashCode`, `runtimeType`, `toString`… de `Object` valem também em `dynamic`.
+            // `Object`'s `hashCode`, `runtimeType`, `toString`… also apply on `dynamic`.
             let o = inf.core.object;
             match inf.interface_member(o, name.sym, false) {
                 Some(m) => m.tipo,
                 None => inf.core.dynamic_,
             }
         }
-        // Receptor `Never` (analyzer 3.6.2): na forma `id.x`
-        // (`PrefixedIdentifier`) o resultado é `Never`; nas outras
-        // (`PropertyAccess`, `falha().x`) valem só os membros de `Object`, e
-        // um nome que não é de `Object` fica com o tipo de recuperação
-        // (`InvalidType`, que se comporta como `dynamic`).
+        // A `Never` receiver (analyzer 3.6.2): in the form `id.x`
+        // (`PrefixedIdentifier`) the result is `Never`; in the others
+        // (`PropertyAccess`, `failure().x`) only `Object`'s members apply, and a
+        // name that is not `Object`'s gets the recovery type (`InvalidType`,
+        // which behaves like `dynamic`).
         Busca::NeverType => {
             let prefixed = !null_aware && matches!(a.expr(target).kind, ExprKind::Identifier(_));
             let o = inf.core.object;
@@ -2667,21 +2686,21 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: Exp
                 inf.table.format(recv, inf.interner, inf.program)
             );
             inf.aviso(msg, name.span);
-            // Leitura sem elemento num alvo que não é dinâmico: o tipo de
-            // recuperação (`generated/resolver.dart:1668`).
+            // A read without an element on a target that is not dynamic: the
+            // recovery type (`generated/resolver.dart:1668`).
             inf.table.invalid(inf.core.dynamic_)
         }
     };
     (t, short_circuit)
 }
 
-/// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` de uma classe ou alias instanciado
-/// como expressão (`e` é o `TypeArguments`). Como literal de tipo
+/// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` of a class or alias instantiated as an
+/// expression (`e` is the `TypeArguments`). As a type literal
 /// (`_resolveDirectTypeLiteral`/`_resolveTypeAlias`,
-/// `function_reference_resolver.dart:115-150, 316-327, 821-835`), na lista
-/// de argumentos; com `no_tipo_nomeado` (o `NamedType` de `C<T>.x` e da
-/// criação implícita, `NamedTypeResolver._buildTypeArguments`), do nome ao
-/// `>`. O nome é o escrito (o do alias, se for um).
+/// `function_reference_resolver.dart:115-150, 316-327, 821-835`), at the
+/// argument list; with `in_named_type` (the `NamedType` of `C<T>.x` and of
+/// the implicit creation, `NamedTypeResolver._buildTypeArguments`), from the
+/// name to the `>`. The name is the written one (the alias's, if it is one).
 pub(crate) fn check_literal_arguments(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, in_named_type: bool) {
     let a = ast(inf, cx);
     let ExprKind::TypeArguments { target, type_args } = &a.expr(e).kind else { return };
@@ -2725,7 +2744,7 @@ pub(crate) fn check_literal_arguments(inf: &mut BodyInferrer<'_>, cx: &Body, e: 
     inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS, span, &[&text, &p, &n]);
 }
 
-/// Acesso estático `C.x` / `E.x` / `C.new`.
+/// Static access `C.x` / `E.x` / `C.new`.
 fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, rt: TypeRef, name: ast::Name) -> TypeId {
     let explicit_instance = explicit_instantiation_receiver(inf, cx, e);
     if explicit_instance && let ExprKind::Property { target, .. } = &ast(inf, cx).expr(e).kind {
@@ -2750,8 +2769,8 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, rt: Typ
             }
         },
         TypeRef::Classe(c, targs) => {
-            // O nome privado de outra biblioteca não é achado (`Enum2._A` fora
-            // da biblioteca do enum: `undefined_enum_constant`).
+            // A private name from another library is not found (`Enum2._A` outside
+            // the enum's library: `undefined_enum_constant`).
             let the_visible = !inf.interner.resolve(name.sym).starts_with('_') || inf.program.class(c).library == cx.lib;
             if let Some(m) = inf.static_member(c, name.sym, false).filter(|_| the_visible) {
                 if explicit_instance {
@@ -2777,8 +2796,8 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, rt: Typ
             if !explicit_instance && args.is_some() && !inf.outline.typedefs[td.0 as usize].type_params.is_empty() {
                 return generic_alias_tearoff(inf, cx, e, c, td, name);
             }
-            // `X<T>.m` instanciado explicitamente: o mesmo
-            // `CLASS_INSTANTIATION_ACCESS_TO_MEMBER` da classe.
+            // Explicitly instantiated `X<T>.m`: the same
+            // `CLASS_INSTANTIATION_ACCESS_TO_MEMBER` as the class.
             tearoff_de_construtor(inf, cx, e, c, args, name, explicit_instance, true)
         }
     }
@@ -2789,8 +2808,8 @@ fn explicit_instantiation_receiver(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId)
     matches!(&ast(inf, cx).expr(*target).kind, ExprKind::TypeArguments { .. })
 }
 
-/// Somente membros declarados na própria classe; a busca herdada requer
-/// resolver substituições e precedência antes de diagnosticar.
+/// Only members declared in the class itself; the inherited lookup requires
+/// resolving substitutions and precedence before diagnosing.
 fn visible_direct_instance_member(inf: &BodyInferrer<'_>, cx: &Body, cls: ClassId, name: ast::Name, write: bool) -> bool {
     if inf.interner.resolve(name.sym).starts_with('_') && inf.program.class(cls).library != cx.lib {
         return false;
@@ -2824,7 +2843,7 @@ fn warn_static_instantiation(inf: &mut BodyInferrer<'_>, cx: &Body, expr: ExprId
 }
 
 fn warn_unknown_instantiation(inf: &mut BodyInferrer<'_>, cx: &Body, expr: ExprId, cls: ClassId, name: ast::Name) {
-    // O identificador sintético da recuperação (`A<int>.;`) não é resolvido.
+    // The synthetic recovery identifier (`A<int>.;`) is not resolved.
     if name.span.start == name.span.end {
         return;
     }
@@ -2835,23 +2854,25 @@ fn warn_unknown_instantiation(inf: &mut BodyInferrer<'_>, cx: &Body, expr: ExprI
     inf.aviso(msg, span);
 }
 
-/// `C.nome` / `C.new` como valor: tipo de função do construtor (genérico
-/// sobre os parâmetros da classe se não instanciado).
-/// `de_alias`: o receptor é um alias de tipo; instanciado (`X<T>.new`), o
-/// `AstRewriter` não o reescreve em referência de construtor, e o `new`
-/// ausente é membro desconhecido da instanciação como qualquer outro nome.
+/// `C.the_name` / `C.new` as a value: the constructor's function type (generic
+/// over the class's parameters if not instantiated).
+/// `of_alias`: the receiver is a type alias; instantiated (`X<T>.new`),
+/// `AstRewriter` does not rewrite it into a constructor reference, and the
+/// missing `new` is an unknown member of the instantiation like any other
+/// name.
 #[allow(clippy::too_many_arguments)]
 fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name, diagnose_absence: bool, of_alias: bool) -> TypeId {
     let explicit_instance = explicit_instantiation_receiver(inf, cx, e);
     let the_key = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(the_key) = the_key else { return inf.core.dynamic_ };
-    // O primário de um tipo de extensão (`E.new`, `E.nome`) não é elemento:
-    // `Some(None)`, com a assinatura `(Representação) -> E`.
+    // The primary of an extension type (`E.new`, `E.the_name`) is not an element:
+    // `Some(None)`, with the signature `(Representação) -> E`.
     let primary = inf.constructor_or_primary(c, the_key) == Some(None);
     let constructor = inf.construtor_de(c, the_key);
-    // Construtores geradores de enum só criam as constantes do próprio enum.
-    // O sem nome implícito não aparece na tabela, mas `E.new` também é sua
-    // referência. Factories declaradas no enum podem ser referenciadas.
+    // Generative enum constructors only create the enum's own constants.
+    // The implicit unnamed one does not appear in the table, but `E.new` is
+    // also a reference to it. Factories declared in the enum can be
+    // referenced.
     if inf.program.class(c).kind == dartforge_elements::model::ClassKind::Enum
         && (constructor.is_some_and(|f| !inf.program.function(f).factory)
             || (constructor.is_none() && Some(name.sym) == inf.sym.new_))
@@ -2861,8 +2882,8 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, c
     }
     // `ConstructorReferenceResolver.resolve`
     // (`an611:src/dart/resolver/constructor_reference_resolver.dart:31-41`):
-    // gerador (também o sintético sem nome, que o modelo não cria) de classe
-    // abstrata, no `ConstructorReference` inteiro.
+    // a generative one (also the synthetic unnamed one, which the model does
+    // not create) of an abstract class, on the whole `ConstructorReference`.
     let abstract_ = {
         let ce = inf.program.class(c);
         matches!(ce.kind, dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::MixinApplication) && ce.modifiers.abstract_
@@ -2889,9 +2910,9 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, c
             let sig = inf.primary_signature(c);
             return tearoff_with_arguments(inf, c, sig, args);
         }
-        // `C<T>.new` ainda é uma referência ao construtor sem nome. A
-        // ausência dele tem diagnóstico no token `new`, mesmo quando o
-        // receptor foi instanciado explicitamente.
+        // `C<T>.new` is still a reference to the unnamed constructor. Its
+        // absence has a diagnostic at the `new` token, even when the receiver
+        // was instantiated explicitly.
         if diagnose_absence && Some(name.sym) == inf.sym.new_ && !(of_alias && explicit_instance) {
             let cls = inf.interner.resolve(inf.program.class(c).name);
             let msg = if explicit_instance {
@@ -2913,15 +2934,15 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, c
             return inf.core.dynamic_;
         }
         // `PropertyElementResolver` (`property_element_resolver.dart:696-705`):
-        // num enum o código é `UNDEFINED_ENUM_CONSTANT`.
+        // in an enum the code is `UNDEFINED_ENUM_CONSTANT`.
         if inf.program.class(c).kind == dartforge_elements::model::ClassKind::Enum {
             let (n, en) = (inf.interner.resolve(name.sym).to_string(), inf.interner.resolve(inf.program.class(c).name).to_string());
             inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_ENUM_CONSTANT, name.span, &[&n, &en]);
             return inf.core.dynamic_;
         }
         // `[propertyName.name, typeReference.name]`
-        // (`property_element_resolver.dart:697-705`): o nome da classe, também
-        // pelo alias.
+        // (`property_element_resolver.dart:697-705`): the class name, also
+        // through the alias.
         let (n, cls) = (inf.interner.resolve(name.sym).to_string(), inf.interner.resolve(inf.program.class(c).name).to_string());
         inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER, name.span, &[&n, &cls]);
         return inf.core.dynamic_;
@@ -2933,10 +2954,11 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, c
     tearoff_with_arguments(inf, c, sig, args)
 }
 
-/// `F.new`/`F.nome` por um alias genérico que não só repassa os parâmetros
-/// (`typedef F<T> = C<int, T>`), sem argumentos de tipo: a função genérica
-/// nos parâmetros do alias, `C<int, T> Function<T>(…)` (como o analyzer e o
-/// CFE), que a instanciação implícita do contexto fecha depois.
+/// `F.new`/`F.the_name` through a generic alias that does more than forward the
+/// parameters (`typedef F<T> = C<int, T>`), without type arguments: the
+/// generic function over the alias's parameters, `C<int, T> Function<T>(…)`
+/// (like the analyzer and the CFE), which the context's implicit
+/// instantiation closes later.
 fn generic_alias_tearoff(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,
@@ -2976,8 +2998,9 @@ fn generic_alias_tearoff(
     }
 }
 
-/// O tipo do tearoff de um construtor de `c` com assinatura `sig`: instanciado
-/// com `args`, ou genérico sobre parâmetros novos no lugar dos da classe.
+/// The type of the tear-off of a constructor of `c` with signature `sig`:
+/// instantiated with `args`, or generic over new parameters in place of the
+/// class's.
 fn tearoff_with_arguments(inf: &mut BodyInferrer<'_>, c: ClassId, sig: TypeId, args: Option<Vec<TypeId>>) -> TypeId {
     let params = inf.outline.classes[c.0 as usize].type_params.clone();
     match args {
@@ -2987,14 +3010,14 @@ fn tearoff_with_arguments(inf: &mut BodyInferrer<'_>, c: ClassId, sig: TypeId, a
         }
         _ if params.is_empty() => sig,
         _ => {
-            // Genérico: `C<T> Function<T>(...)` com os parâmetros da **própria
-            // classe** como formais (`ConstructorElementToInfer.asType`,
+            // Generic: `C<T> Function<T>(...)` with the parameters of **the class
+            // itself** as formals (`ConstructorElementToInfer.asType`,
             // `invocation_inference_helper.dart:45-54`: `typeElement.typeParameters`,
-            // sem cópia). No contexto que menciona os mesmos parâmetros
-            // (`[A<T> Function() fn = A.new]` dentro de `A<T>`) o tipo do
-            // tear-off e o do contexto são iguais, o `trySubtypeMatch` fecha
-            // sem restrição (`P == Q`) e `T` vai a `dynamic`: `A<dynamic> Function()`
-            // não é atribuível (oráculo `ConstWithTypeParametersConstructorTearo_9751514d`).
+            // without a copy). In a context that mentions the same parameters
+            // (`[A<T> Function() fn = A.new]` inside `A<T>`) the tear-off's type and
+            // the context's are equal, `trySubtypeMatch` closes without a constraint
+            // (`P == Q`) and `T` goes to `dynamic`: `A<dynamic> Function()` is not
+            // assignable (oracle `ConstWithTypeParametersConstructorTearo_9751514d`).
             match inf.table.get(sig).clone() {
                 Type::Function { ret, positional, optional, named, nullable, .. } => inf.table.intern(Type::Function {
                     type_params: params.clone(),
@@ -3010,7 +3033,8 @@ fn tearoff_with_arguments(inf: &mut BodyInferrer<'_>, c: ClassId, sig: TypeId, a
     }
 }
 
-/// Como `super.nome` é usado: o código do nome que não existe muda.
+/// How `super.the_name` is used: the code for a name that does not exist
+/// changes.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SuperUse {
     Leitura,
@@ -3018,10 +3042,10 @@ pub(crate) enum SuperUse {
     Invocacao,
 }
 
-/// As classes da cadeia de `super` da classe corrente, na ordem da busca:
-/// os mixins dela (o último primeiro), a superclasse, os mixins dela… — sem
-/// as interfaces (o `getInheritedConcreteMap` do analyzer). Num mixin, as
-/// restrições `on` e os supertipos delas.
+/// The classes of the current class's `super` chain, in lookup order: its
+/// mixins (the last first), the superclass, its mixins… without the
+/// interfaces (the analyzer's `getInheritedConcreteMap`). In a mixin, the
+/// `on` constraints and their supertypes.
 fn super_chain(inf: &BodyInferrer<'_>, c: ClassId) -> Vec<ClassId> {
     let mut v = Vec::new();
     let cls = inf.program.class(c);
@@ -3036,7 +3060,7 @@ fn super_chain(inf: &BodyInferrer<'_>, c: ClassId) -> Vec<ClassId> {
                 v.insert(0, o);
             }
         }
-        // Sem `on`, a restrição é `Object`.
+        // Without `on`, the constraint is `Object`.
         if let Some(o) = inf.core.object_class {
             if !v.contains(&o) {
                 v.push(o);
@@ -3060,8 +3084,8 @@ fn super_chain(inf: &BodyInferrer<'_>, c: ClassId) -> Vec<ClassId> {
         }
         current = inf.program.class(k).supertype_class;
     }
-    // Toda cadeia termina em `Object` (o modelo pode não ligar a superclasse
-    // de um enum).
+    // Every chain ends at `Object` (the model may not link an enum's
+    // superclass).
     if let Some(o) = inf.core.object_class {
         if !v.contains(&o) && c != o {
             v.push(o);
@@ -3070,11 +3094,11 @@ fn super_chain(inf: &BodyInferrer<'_>, c: ClassId) -> Vec<ClassId> {
     v
 }
 
-/// O membro `chave` que `super` alcança: o `getMember2(forSuper: true)` da
-/// classe corrente (o `superImplemented.last` do `InheritanceManager3`).
-/// `Err(Some(..))`: só o herdado pela interface (`getInherited2`), que o
-/// analyzer usa para a recuperação com `ABSTRACT_SUPER_MEMBER_REFERENCE`;
-/// `Err(None)`: nenhum.
+/// The member `the_key` that `super` reaches: the current class's
+/// `getMember2(forSuper: true)` (the `superImplemented.last` of
+/// `InheritanceManager3`). `Err(Some(..))`: only the one inherited through
+/// the interface (`getInherited2`), which the analyzer uses for recovery with
+/// `ABSTRACT_SUPER_MEMBER_REFERENCE`; `Err(None)`: none.
 #[allow(clippy::type_complexity)]
 pub(crate) fn member_reached_through_super(
     inf: &mut BodyInferrer<'_>,
@@ -3091,24 +3115,24 @@ pub(crate) fn member_reached_through_super(
     }
 }
 
-/// `super.nome` (leitura, escrita ou invocação): o membro concreto da cadeia
-/// do super; só abstrato → `ABSTRACT_SUPER_MEMBER_REFERENCE` (e o tipo dele);
-/// nenhum → `UNDEFINED_SUPER_{GETTER,SETTER,METHOD}`
+/// `super.the_name` (read, write or invocation): the concrete member of the super
+/// chain; only abstract → `ABSTRACT_SUPER_MEMBER_REFERENCE` (and its type);
+/// none → `UNDEFINED_SUPER_{GETTER,SETTER,METHOD}`
 /// (`an611:src/dart/resolver/property_element_resolver.dart:790-880`,
-/// `method_invocation_resolver.dart:744-788`). Membros de `Object` contam
-/// (toda cadeia termina nele).
+/// `method_invocation_resolver.dart:744-788`). `Object`'s members count
+/// (every chain ends at it).
 pub(crate) fn super_member(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, name: ast::Name, use_: SuperUse) -> TypeId {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let setter = use_ == SuperUse::Escrita;
     let Some(cls) = cx.classe else { return inf.core.dynamic_ };
     let Some(this) = cx.tipo_this else { return inf.core.dynamic_ };
-    // `super` num extension type não é válido (`SuperContext`): outro erro,
-    // sem resolução.
+    // `super` in an extension type is not valid (`SuperContext`): another
+    // error, without resolution.
     if inf.program.class(cls).kind == dartforge_elements::model::ClassKind::ExtensionType {
         return inf.core.dynamic_;
     }
-    // Sem a chave do setter no interner, nenhuma declaração tem esse
-    // setter: a busca não acha nada e segue para o relato.
+    // Without the setter's key in the interner, no declaration has that
+    // setter: the lookup finds nothing and goes on to the report.
     let the_key = if setter { inf.setter_key(name.sym) } else { Some(name.sym) };
     let finding = match the_key.map(|k| member_reached_through_super(inf, cls, k)).unwrap_or(Err(None)) {
         Ok(x) => Some(x),
@@ -3131,14 +3155,14 @@ pub(crate) fn super_member(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId,
         let (t, _) = inf.declared_member_type(f, setter);
         let t = inf.substitute_from_owner(this, cls, sup, t);
         resolver(inf, cx, e, Resolved::Member { class: sup, member: MemberRef::Function(f), via_super: true });
-        // `super._x`: a propriedade do `_superSsaNode`.
+        // `super._x`: the property of the `_superSsaNode`.
         if use_ == SuperUse::Leitura {
             return field_read(inf, cx, e, Base::Super, t);
         }
         return t;
     }
-    // `late final x;` sem inicializador tem setter implícito (o modelo de
-    // elementos não o cria): `super.x = v` o alcança.
+    // `late final x;` without an initializer has an implicit setter (the
+    // element model does not create it): `super.x = v` reaches it.
     if setter {
         for k in super_chain(inf, cls) {
             let field = inf.program.class(k).fields.iter().copied().find(|&v| {
@@ -3150,7 +3174,7 @@ pub(crate) fn super_member(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId,
             }
         }
     }
-    // `Object` (a cadeia de uma classe sempre termina nele).
+    // `Object` (a class's chain always ends at it).
     let o = inf.core.object;
     if let Some(m) = inf.interface_member(o, name.sym, setter) {
         return m.tipo;
@@ -3170,15 +3194,16 @@ pub(crate) fn super_member(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId,
     inf.core.dynamic_
 }
 
-/// O operador `op` visto por `super` na classe corrente: o primeiro
-/// declarado nos supertipos, na ordem de [`membro_super`], instanciado como
-/// a classe corrente o vê; senão o de `Object`.
+/// The operator `op` as seen through `super` in the current class: the first
+/// one declared in the supertypes, in the order of [`super_member`],
+/// instantiated as the current class sees it; otherwise `Object`'s.
 pub(crate) fn lookup_super_operator(inf: &mut BodyInferrer<'_>, cx: &Body, op: SymbolId) -> Busca {
     let (Some(c), Some(this)) = (cx.classe, cx.tipo_this) else { return Busca::Dinamico };
     if inf.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
         return Busca::Dinamico;
     }
-    // Só o concreto (`getMember(forSuper: true)` do `TypePropertyResolver`).
+    // Only the concrete one (`TypePropertyResolver`'s
+    // `getMember(forSuper: true)`).
     if let Ok((sup, f)) = member_reached_through_super(inf, c, op) {
         let (t, _) = inf.declared_member_type(f, false);
         let typ = inf.substitute_from_owner(this, c, sup, t);
@@ -3197,7 +3222,7 @@ pub(crate) fn lookup_super_operator(inf: &mut BodyInferrer<'_>, cx: &Body, op: S
     }
 }
 
-/// Símbolo do operador binário.
+/// Symbol of the binary operator.
 fn operator_text(op: BinaryOp) -> Option<&'static str> {
     Some(match op {
         BinaryOp::Add => "+",
@@ -3265,7 +3290,8 @@ fn read_index(
 ) -> (TypeId, bool) {
     let (recv, short_circuit) = receptor(inf, cx, target, null_aware);
     // `resolveIndexExpression` (3.6.2 `property_element_resolver.dart:79-97`):
-    // o alvo pelo limite (`resolveToBound`) e o `Never` antes do `?[`.
+    // the target through its bound (`resolveToBound`) and the `Never` before
+    // the `?[`.
     let raw = inf.body_types.units[cx.unit.0 as usize].get_type(target).unwrap_or(recv);
     let bnd = inf.resolver_ao_limite(raw);
     if !cx.overlays.contains_key(&target) && never_receiver(inf, cx, target, bnd) {
@@ -3283,7 +3309,7 @@ fn read_index(
         return (inf.core.dynamic_, short_circuit);
     }
     let undefined = index_span(inf, cx, tgt, target);
-    // Alvo `void` (pelo limite): `USE_OF_VOID_RESULT` no `[…]`
+    // A `void` target (through the bound): `USE_OF_VOID_RESULT` at the `[…]`
     // (`property_element_resolver.dart:81-90`, `_reportUnresolvedIndex`).
     let bnd = {
         let mut b = recv;
@@ -3313,33 +3339,33 @@ fn read_index(
     (operador_binario(inf, cx, recv, op, index, ctx, positions, Some(tgt)).0, short_circuit)
 }
 
-/// Onde o analyzer relata os erros de um operador: `token` para o uso sem
-/// checagem de nulo (o operador; em `a[i]`, o `[`), `indefinido` para o
-/// `undefined_operator` (o operador; em `a[i]`, o `[i]`).
+/// Where the analyzer reports an operator's errors: `token` for the use
+/// without a null check (the operator; in `a[i]`, the `[`), `undefined` for
+/// `undefined_operator` (the operator; in `a[i]`, the `[i]`).
 #[derive(Clone, Copy)]
 pub(crate) struct OperatorPositions {
     pub token: dartforge_diagnostics::Span,
     pub undefined: dartforge_diagnostics::Span,
-    /// Atribuição composta (`x += 1`): o analyzer fala em "method '+'", e
-    /// o operador que falta não é relatado aqui quando o alvo é um método
-    /// (`assignment_to_method`) ou `void` (`use_of_void_result`).
+    /// Compound assignment (`x += 1`): the analyzer speaks of "method '+'", and
+    /// the missing operator is not reported here when the target is a method
+    /// (`assignment_to_method`) or `void` (`use_of_void_result`).
     pub compound: bool,
-    /// O receptor é `super` (`undefined_super_operator`, outra regra).
+    /// The receiver is `super` (`undefined_super_operator`, another rule).
     pub super_: bool,
-    /// O alvo do refinamento numérico do contexto do operando, quando não é
-    /// o receptor: na atribuição composta, o tipo de escrita
+    /// The target of the numeric refinement of the operand's context, when it
+    /// is not the receiver: in a compound assignment, the write type
     /// (`_computeRhsContext`, assignment_expression_resolver.dart:184-201).
     pub numeric_target: Option<TypeId>,
 }
 
-/// Operadores de Dart, do mais longo para o mais curto.
+/// Dart operators, from the longest to the shortest.
 const OPERATORS: &[&str] = &[
     ">>>=", "~/=", ">>=", "<<=", "??=", ">>>", "~/", ">>", "<<", "<=", ">=", "==", "!=", "&&", "||", "++", "--", "+=", "-=",
     "*=", "/=", "%=", "&=", "|=", "^=", "??", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "~",
 ];
 
-/// O token de operador logo depois de `depois_de` (pulando espaços e
-/// comentários).
+/// The operator token right after `after_` (skipping whitespace and
+/// comments).
 fn operator_token(inf: &BodyInferrer<'_>, cx: &Body, after_: usize) -> dartforge_diagnostics::Span {
     let source = &inf.program.unit(cx.unit).source;
     let rest = source.get(after_..).unwrap_or("");
@@ -3349,9 +3375,9 @@ fn operator_token(inf: &BodyInferrer<'_>, cx: &Body, after_: usize) -> dartforge
     dartforge_diagnostics::Span { start: pos, end: pos + n }
 }
 
-/// Invocação de um operador de um argumento (`a + b`, `a[i]`): busca o
-/// membro no receptor, infere o argumento com o contexto do parâmetro
-/// (com o refinamento numérico) e devolve `(tipo, membro)`.
+/// Invocation of a one-argument operator (`a + b`, `a[i]`): looks up the
+/// member on the receiver, infers the argument with the parameter's context
+/// (with the numeric refinement) and returns `(typ, mem)`.
 pub(crate) fn operador_binario(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,
@@ -3366,8 +3392,8 @@ pub(crate) fn operador_binario(
         infer_free(inf, cx, arg);
         return (inf.core.dynamic_, None);
     };
-    // Receptor potencialmente anulável: o analyzer relata a invocação do
-    // operador (`[]`/`[]=` como invocação de método) sem checagem de nulo.
+    // A potentially nullable receiver: the analyzer reports the operator's
+    // invocation (`[]`/`[]=` as a method invocation) without a null check.
     let check_null = inf.requires_null_check(cx.lib, recv, op, false);
     if check_null {
         let text = inf.interner.resolve(op).to_string();
@@ -3378,8 +3404,8 @@ pub(crate) fn operador_binario(
         };
         let since = inf.diagnostics.len();
         inf.null_warning(recv, code, positions.token, &[&text]);
-        // O receptor do operador (`leftOperand`, o alvo do índice, o lado
-        // esquerdo da composta).
+        // The operator's receiver (`leftOperand`, the index's target, the left
+        // side of the compound one).
         let receiver = no.and_then(|n| match &ast(inf, cx).expr(n).kind {
             ExprKind::Binary { left, .. } => Some(*left),
             ExprKind::Index { target, .. } => Some(*target),
@@ -3390,15 +3416,15 @@ pub(crate) fn operador_binario(
             inf.attach_non_promotion(since, cx, Some(r), positions.token);
         }
     }
-    // `super[i]`, `super + x`: o operador é o da superclasse (como o
-    // `super.m` de [`membro_super`]), não o que a própria classe sobrescreve.
+    // `super[i]`, `super + x`: the operator is the superclass's (like the
+    // `super.m` of [`super_member`]), not the one the class itself overrides.
     let search = if positions.super_ { lookup_super_operator(inf, cx, op) } else { inf.lookup_member(cx.lib, recv, op, false) };
-    // `AMBIGUOUS_EXTENSION_MEMBER_ACCESS` do operador: no binário inteiro;
-    // no índice, no alvo (`extension_member_resolver.dart:115-128`).
+    // The operator's `AMBIGUOUS_EXTENSION_MEMBER_ACCESS`: on the whole
+    // binary; for an index, at the target (`extension_member_resolver.dart:115-128`).
     {
         let sp = match no.map(|n| &ast(inf, cx).expr(n).kind) {
             Some(ExprKind::Index { target, .. }) => inf.span_expr(cx.unit, *target),
-            // A composta (`a += 0`): no operador.
+            // The compound one (`a += 0`): at the operator.
             Some(ExprKind::Assign { .. }) => positions.token,
             Some(_) => inf.span_expr(cx.unit, no.unwrap()),
             None => positions.token,
@@ -3413,7 +3439,7 @@ pub(crate) fn operador_binario(
         }
         Busca::Dinamico => {
             infer_free(inf, cx, arg);
-            // Operador sobre `InvalidType`: o resultado é inválido
+            // An operator on `InvalidType`: the result is invalid
             // (`binary_expression_resolver.dart:332-335`).
             (if inf.table.e_invalido(recv) { recv } else { inf.core.dynamic_ }, None)
         }
@@ -3424,7 +3450,7 @@ pub(crate) fn operador_binario(
         Busca::Missing => {
             infer_free(inf, cx, arg);
             if positions.super_ {
-                // `UNDEFINED_SUPER_OPERATOR` com o tipo de `super` (o de `this`).
+                // `UNDEFINED_SUPER_OPERATOR` with the type of `super` (that of `this`).
                 let text = inf.interner.resolve(op).to_string();
                 let typ = inf.table.format(recv, inf.interner, inf.program);
                 inf.warning_with_code(
@@ -3444,7 +3470,7 @@ pub(crate) fn operador_binario(
                 positions.undefined,
                 &[&text, &typ],
             );
-            // Operador que o tipo não tem: o resultado é `InvalidType`
+            // An operator the type does not have: the result is `InvalidType`
             // (`binary_expression_resolver.dart:308`).
             (inf.table.invalid(inf.core.dynamic_), None)
         }
@@ -3458,8 +3484,8 @@ fn binary_operator_with_member(
     binary_operator_with_target_member(inf, cx, recv, recv, op, arg, ctx, no, m)
 }
 
-/// Como [`operador_binario_com_membro`], com o alvo do refinamento numérico
-/// do contexto do operando à parte do receptor.
+/// Like [`binary_operator_with_member`], with the target of the numeric
+/// refinement of the operand's context separate from the receiver.
 #[allow(clippy::too_many_arguments)]
 fn binary_operator_with_target_member(
     inf: &mut BodyInferrer<'_>, cx: &mut Body, recv: TypeId, numeric_target: TypeId, op: SymbolId,
@@ -3492,7 +3518,7 @@ fn is_refinable_numeric(inf: &BodyInferrer<'_>, m: &Membro, op: SymbolId) -> boo
     matches!(s, "+" | "-" | "*" | "%" | "remainder")
 }
 
-/// Contexto do argumento de `e1 op e2` numérico (`_refineNumericInvocationContext`).
+/// Context of the argument of a numeric `e1 op e2` (`_refineNumericInvocationContext`).
 pub(crate) fn numeric_context(inf: &mut BodyInferrer<'_>, t: TypeId, m: &Membro, op: SymbolId, ctx: TypeId, current: TypeId) -> TypeId {
     if !is_refinable_numeric(inf, m, op) && Some(op) != inf.sym.clamp {
         return current;
@@ -3515,7 +3541,7 @@ pub(crate) fn numeric_context(inf: &mut BodyInferrer<'_>, t: TypeId, m: &Membro,
     num
 }
 
-/// Tipo de `e1 op e2` numérico (`_refineNumericInvocationTypeNullSafe`).
+/// Type of a numeric `e1 op e2` (`_refineNumericInvocationTypeNullSafe`).
 pub(crate) fn refine_numeric(inf: &mut BodyInferrer<'_>, t: TypeId, m: &Membro, op: SymbolId, args: &[TypeId], current: TypeId) -> TypeId {
     let (int, double, num) = (inf.core.int, inf.core.double, inf.core.num);
     let num_q = inf.anulavel(num);
@@ -3551,13 +3577,13 @@ pub(crate) fn refine_numeric(inf: &mut BodyInferrer<'_>, t: TypeId, m: &Membro, 
     current
 }
 
-/// Operadores binários.
+/// Binary operators.
 fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, left: ExprId, right: ExprId, ctx: TypeId) -> TypeId {
     let span = inf.span_expr(cx.unit, e);
     match op {
         // `BinaryExpressionResolver.resolve` (`binary_expression_resolver.dart:69-77`):
-        // o operador que não é binário, no token; `_resolveUnsupportedOperator`
-        // visita os dois lados sem contexto e o tipo é `InvalidType`.
+        // an operator that is not binary, at the token; `_resolveUnsupportedOperator`
+        // visits both sides without a context and the type is `InvalidType`.
         BinaryOp::NaoBinario => {
             let left_end = inf.span_expr(cx.unit, left).end;
             let token = operator_token(inf, cx, left_end);
@@ -3569,8 +3595,8 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
         BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq => {
             let (vf, ff) = binary_condition(inf, cx, e, op, left, right);
             cx.flow = inf.juntar(&vf, &ff);
-            // `x == y` com `x: Never`: o receptor nunca existe, e a invocação
-            // de `==` tem o tipo `Never` (como qualquer membro de `Never`).
+            // `x == y` with `x: Never`: the receiver never exists, and the `==`
+            // invocation has type `Never` (like any member of `Never`).
             if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                 && inf.body_types.units[cx.unit.0 as usize].get_type(left).is_some_and(|t| matches!(inf.table.get(t), Type::Never))
             {
@@ -3585,9 +3611,9 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
             dead_in_right_operand(inf, cx, left, right);
             warn_dead_null(inf, cx, t1, right);
             let j = if inf.the_is_unknown(ctx) || inf.e_dynamic(ctx) { t1 } else { ctx };
-            // Ramo em que `e1` não é nulo: `e1` promove a não nulo; no outro
-            // nada se promove. A junção dos dois vale depois, então
-            // `y ?? (throw 0)` deixa `y` promovido.
+            // Branch where `e1` is not null: `e1` promotes to non-null; in the
+            // other nothing is promoted. The join of both applies afterwards, so
+            // `y ?? (throw 0)` leaves `y` promoted.
             let mut before = cx.flow.clone();
             if let Some(id) = promotion_target(inf, cx, left) {
                 let decl = cx.local(id).tipo;
@@ -3642,9 +3668,9 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
     }
 }
 
-/// O operando direito de um binário que começa inalcançável: o primeiro nó
-/// morto tem pai `BinaryExpression`, e o trecho vai do operador ao fim do
-/// operando direito (`dead_code_verifier.dart:316-318`).
+/// The right operand of a binary that starts unreachable: the first dead node
+/// has a `BinaryExpression` parent, and the fragment goes from the operator
+/// to the end of the right operand (`dead_code_verifier.dart:316-318`).
 fn dead_in_right_operand(inf: &mut BodyInferrer<'_>, cx: &mut Body, left: ExprId, right: ExprId) {
     if cx.flow.alcancavel || cx.dead_code.is_some() {
         return;
@@ -3655,30 +3681,30 @@ fn dead_in_right_operand(inf: &mut BodyInferrer<'_>, cx: &mut Body, left: ExprId
     cx.dead_code = Some(cx.flow_ends.len());
 }
 
-/// Unários (`!`, `-`, `~`, `++`, `--`, `!` pós-fixo).
+/// Unary operators (`!`, `-`, `~`, `++`, `--`, postfix `!`).
 fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, operand: ExprId, ctx: TypeId, short_circuit: &mut bool) -> TypeId {
     let span = inf.span_expr(cx.unit, e);
     match op {
         UnaryOp::Not => {
             let (vf, ff) = condicao(inf, cx, operand);
-            // Fora de condição, `!e` também exige `bool` (e não `void`).
+            // Outside a condition, `!e` also requires `bool` (and not `void`).
             verify_bool(inf, cx, operand, BoolUse::Negation);
             cx.flow = inf.juntar(&vf, &ff);
             inf.core.bool_
         }
         UnaryOp::NullAssert => {
-            // O operando de `e!` recebe o contexto anulável (`K?`): em
-            // `_name = _becomeParentOf(name)!`, `T` sai `IdentifierImpl?`.
+            // The operand of `e!` gets the nullable context (`K?`): in
+            // `_name = _becomeParentOf(name)!`, `T` comes out as `IdentifierImpl?`.
             let k = if inf.the_is_unknown(ctx) { ctx } else { inf.anulavel(ctx) };
             let (t, c) = infer_at(inf, cx, operand, k, true);
             *short_circuit = c;
             // `NULL_CHECK_ALWAYS_FAILS` (`visitPostfixExpression`,
-            // `best_practices_verifier.dart:686-697`): `e!` com `e` de tipo `Null`.
+            // `best_practices_verifier.dart:686-697`): `e!` with `e` of type `Null`.
             if e_null_do_core(inf, t) {
                 inf.warning_with_code(dartforge_diagnostics::codigos::warning::NULL_CHECK_ALWAYS_FAILS, span, &[]);
             }
-            // `unnecessary_non_null_assertion` (no `!`): só com o operando
-            // certamente não anulável (`T extends Object?` não é).
+            // `unnecessary_non_null_assertion` (at the `!`): only with an operand
+            // that is certainly non-nullable (`T extends Object?` is not).
             if !c && strictly_non_nullable(inf, t) {
                 let sp = dartforge_diagnostics::Span { start: span.end.saturating_sub(1), end: span.end };
                 inf.warning_with_code(dartforge_diagnostics::codigos::static_warning::UNNECESSARY_NON_NULL_ASSERTION, sp, &[]);
@@ -3689,8 +3715,8 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
                 inf.promote_non_null(&mut f, id, decl);
                 cx.flow = f;
             }
-            // `visitPostfixExpression` com `!`: `checkForUseOfVoidResult(node)`
-            // (3.6.2 `error_verifier.dart:1310-1316`), no `e!` inteiro.
+            // `visitPostfixExpression` with `!`: `checkForUseOfVoidResult(node)`
+            // (3.6.2 `error_verifier.dart:1310-1316`), on the whole `e!`.
             let r = inf.non_null_promotion(t);
             if matches!(inf.table.get(r), Type::Void) {
                 inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, span, &[]);
@@ -3698,7 +3724,7 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
             r
         }
         UnaryOp::Neg | UnaryOp::BitNot => {
-            // `-1` com literal: o literal recebe o contexto (`double x = -1`).
+            // `-1` with a literal: the literal gets the context (`double x = -1`).
             let literal = op == UnaryOp::Neg && matches!(inf.program.unit(cx.unit).ast.expr(operand).kind, ExprKind::Int(_));
             let c = if literal { ctx } else { inf.core.unknown };
             if literal && op == UnaryOp::Neg {
@@ -3726,7 +3752,7 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
             let sp_op = dartforge_diagnostics::Span { start: span.start, end: span.start + 1 };
             let null = null_in_unary(inf, cx, t, sym, the_name, sp_op, operand);
             let search = inf.lookup_member(cx.lib, t, sym, false);
-            // A ambiguidade de extensão do prefixo, no operando.
+            // The prefix's extension ambiguity, at the operand.
             let sp_operand = inf.span_expr(cx.unit, operand);
             inf.report_extension_ambiguity(sp_operand);
             match search {
@@ -3749,10 +3775,10 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
             let prefix = matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec);
             let bop = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) { BinaryOp::Add } else { BinaryOp::Sub };
             let (read, write, local) = read_for_write(inf, cx, operand, short_circuit);
-            // `_resolve1` do `PostfixExpressionResolver` e o do
-            // `PrefixExpressionResolver` (3.6.2 `:127-132`, `:177-183`): a
-            // leitura `Never` é `RECEIVER_OF_TYPE_NEVER` no operando, sem
-            // operador, e o tipo é `Never`.
+            // `_resolve1` of `PostfixExpressionResolver` and that of
+            // `PrefixExpressionResolver` (3.6.2 `:127-132`, `:177-183`): a `Never`
+            // read is `RECEIVER_OF_TYPE_NEVER` at the operand, without the operator,
+            // and the type is `Never`.
             if matches!(inf.table.get(read), Type::Never) {
                 never_receiver(inf, cx, operand, read);
                 return inf.core.never;
@@ -3760,7 +3786,7 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
             let sym = operator_symbol(inf, bop);
             let int = inf.core.int;
             if let Some(s) = sym {
-                // O token `++`/`--`, antes ou depois do operando.
+                // The `++`/`--` token, before or after the operand.
                 let sp_op = if prefix {
                     dartforge_diagnostics::Span { start: span.start, end: span.start + 2 }
                 } else {
@@ -3768,7 +3794,7 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
                 };
                 let the_name = if bop == BinaryOp::Add { "+" } else { "-" };
                 let null = null_in_unary(inf, cx, read, s, the_name, sp_op, operand);
-                // `C++` com `C` tipo: só o `ASSIGNMENT_TO_TYPE` da escrita.
+                // `C++` with `C` a type: only the write's `ASSIGNMENT_TO_TYPE`.
                 let of_type = type_reference(inf, cx, operand).is_some()
                     || matches!(&ast(inf, cx).expr(operand).kind, ExprKind::Identifier(n)
                         if matches!(resolve_name(inf, cx, n.sym, false), NameRef::BuiltinType | NameRef::TypeParam(_)));
@@ -3784,10 +3810,10 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
                         _ => (inf.core.dynamic_, None),
                     };
                     let r = refine_numeric(inf, read, &m, sym.unwrap(), &[int], ret);
-                    // `++a`/`a++`: o `1` implícito (`int`) contra o parâmetro do
-                    // operador, relatado no operando
+                    // `++a`/`a++`: the implicit `1` (`int`) against the operator's parameter,
+                    // reported at the operand
                     // (`_checkForIntNotAssignable`, an611:src/generated/error_verifier.dart:3899-3906);
-                    // o resultado contra o tipo de escrita, no nó inteiro
+                    // the result against the write type, on the whole node
                     // (`_checkForInvalidAssignmentIncDec`,
                     // an611:src/dart/resolver/prefix_expression_resolver.dart:96-110).
                     if !inf.e_dynamic(read) && !matches!(inf.table.get(read), Type::Void) {
@@ -3795,11 +3821,11 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
                             let sp = inf.span_expr(cx.unit, sem_parenteses(inf, cx, operand));
                             inf.verify_assignable(int, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
                         }
-                        // Getter e setter de tipos diferentes (`int get x`, `set
-                        // x(String)`): o oráculo 3.6.2 não relata (conferido no
-                        // corpus, `InvalidAssignment__postfixExpression_in_*`).
-                        // O retorno do operador (`operatorReturnType`), sem o
-                        // `?` do encurtamento nulo (`x?[0]++`).
+                        // A getter and setter of different types (`int get x`,
+                        // `set x(String)`): the 3.6.2 oracle does not report (checked against
+                        // the corpus, `InvalidAssignment__postfixExpression_in_*`).
+                        // The operator's return (`operatorReturnType`), without the null
+                        // short-circuit's `?` (`x?[0]++`).
                         if !inf.e_dynamic(write) && (local.is_some() || read == write) {
                             inf.verify_assignable(r, write, span, INVALID_ASSIGNMENT.template);
                         }
@@ -3810,7 +3836,7 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
                 _ => inf.core.dynamic_,
             };
             if let Some(id) = local {
-                // A regra de escrita vê o estado de antes da escrita.
+                // The write rule sees the state from before the write.
                 let target_span = inf.span_expr(cx.unit, operand);
                 check_final_local(inf, cx, id, target_span);
                 let decl = cx.local(id).tipo;
@@ -3829,15 +3855,15 @@ fn unary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: UnaryOp, oper
     }
 }
 
-/// O operador de prefixo ou sufixo (`-x`, `~x`, `++x`, `x--`) num receptor
-/// potencialmente anulável: `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE`
-/// no token do operador, pelo `TypePropertyResolver` (o `Null` puro é
-/// `INVALID_USE_OF_NULL_VALUE`), com as mensagens de não promoção do operando.
+/// A prefix or postfix operator (`-x`, `~x`, `++x`, `x--`) on a potentially
+/// nullable receiver: `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` at the
+/// operator token, through `TypePropertyResolver` (a pure `Null` is
+/// `INVALID_USE_OF_NULL_VALUE`), with the operand's non-promotion messages.
 fn null_in_unary(inf: &mut BodyInferrer<'_>, cx: &Body, recv: TypeId, sym: SymbolId, the_name: &str, sp: dartforge_diagnostics::Span, operand: ExprId) -> bool {
-    // `void` é potencialmente anulável e não é limitado por `dynamic`: o
-    // `TypePropertyResolver` (`type_property_resolver.dart:80-150`) relata o
-    // operador que nem `Object` nem uma extensão tem (além do
-    // `USE_OF_VOID_RESULT` no operando).
+    // `void` is potentially nullable and is not bounded by `dynamic`:
+    // `TypePropertyResolver` (`type_property_resolver.dart:80-150`) reports
+    // an operator that neither `Object` nor an extension has (besides the
+    // `USE_OF_VOID_RESULT` at the operand).
     let requires = if matches!(inf.table.get(recv), Type::Void) {
         let o = inf.core.object;
         inf.interface_member(o, sym, false).is_none() && inf.extension_member(cx.lib, recv, sym, false).is_none()
@@ -3853,9 +3879,9 @@ fn null_in_unary(inf: &mut BodyInferrer<'_>, cx: &Body, recv: TypeId, sym: Symbo
     true
 }
 
-/// O operador de prefixo/sufixo que o tipo do operando não tem
-/// (`TypePropertyResolver` sem membro): `UNDEFINED_OPERATOR` no token do
-/// operador (`prefix_expression_resolver.dart`, `postfix_expression_resolver.dart`).
+/// A prefix/postfix operator that the operand's type does not have
+/// (`TypePropertyResolver` without a member): `UNDEFINED_OPERATOR` at the operator
+/// token (`prefix_expression_resolver.dart`, `postfix_expression_resolver.dart`).
 fn undefined_unary_operator(inf: &mut BodyInferrer<'_>, recv: TypeId, the_name: &str, sp: dartforge_diagnostics::Span) {
     if matches!(inf.table.get(recv), Type::Void | Type::Function { .. }) || inf.table.e_invalido(recv) {
         return;
@@ -3884,9 +3910,10 @@ fn warn_write_to_method(inf: &mut BodyInferrer<'_>, the_name: ast::Name) {
     inf.aviso(ASSIGNMENT_TO_METHOD.template.to_string(), the_name.span);
 }
 
-/// Diagnóstico quando a recuperação de uma escrita encontra apenas o getter.
-/// O getter explícito é uma propriedade sem setter; o getter implícito é um
-/// campo `final` ou `const`. `late final` sem inicializador ainda aceita escrita.
+/// Diagnostic for when the recovery of a write finds only the getter.
+/// An explicit getter is a property without a setter; an implicit getter is a
+/// `final` or `const` field. A `late final` without an initializer still accepts
+/// writes.
 fn warn_member_without_setter(inf: &mut BodyInferrer<'_>, the_name: ast::Name, f: dartforge_elements::model::FunctionElementId) -> bool {
     let fe = inf.program.function(f);
     match fe.kind {
@@ -3920,9 +3947,9 @@ fn warn_member_without_setter(inf: &mut BodyInferrer<'_>, the_name: ast::Name, f
     }
 }
 
-/// Para `x op= e` / `x++`: lê o alvo, devolvendo `(tipo lido, tipo de escrita, local)`.
-/// `curto` fica verdadeiro quando o alvo está numa cadeia `?.`/`?[` (o
-/// resultado da expressão é então anulável: `a?.x += 1` vale null com `a`
+/// For `x op= e` / `x++`: reads the target, returning `(typ lido, typ of write, local)`.
+/// `short_circuit` becomes true when the target is in a `?.`/`?[` chain (the
+/// expression's result is then nullable: `a?.x += 1` is null with `a`
 /// null).
 fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_circuit_out: &mut bool) -> (TypeId, TypeId, Option<LocalId>) {
     let a = ast(inf, cx);
@@ -3963,9 +3990,9 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
             let u = inf.core.unknown;
             let (t, c) = read_index(inf, cx, tgt, target, index, null_aware, u);
             *short_circuit_out = c;
-            // O tipo de escrita (`setWriteElement` com `IndexExpression`, 3.6.2
-            // `resolver.dart:1722-1728`): o 2º parâmetro do `[]=`; sem ele,
-            // `InvalidType` (`dynamic` em alvo `dynamic`).
+            // The write type (`setWriteElement` with `IndexExpression`, 3.6.2
+            // `resolver.dart:1722-1728`): the 2nd parameter of `[]=`; without it,
+            // `InvalidType` (`dynamic` on a `dynamic` target).
             let second = |inf: &BodyInferrer<'_>, f: TypeId| match inf.table.get(f) {
                 Type::Function { positional, .. } if positional.len() == 2 => Some(positional[1]),
                 _ => None,
@@ -3986,7 +4013,7 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
             } else if let Some(op) = inf.sym.set_index
                 && matches!(ast(inf, cx).expr(target).kind, ExprKind::Super)
             {
-                // `super[i]++`: o `[]=` também pela cadeia de `super`.
+                // `super[i]++`: the `[]=` also through the `super` chain.
                 match lookup_super_operator(inf, cx, op) {
                     Busca::Missing => {
                         let span = index_span(inf, cx, tgt, target);
@@ -4005,9 +4032,9 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
                 && let Some(recv) = inf.body_types.units[cx.unit.0 as usize].get_type(target)
                 && !matches!(ast(inf, cx).expr(target).kind, ExprKind::Super)
             {
-                // `x[i]++`: o `[]=` também é procurado (o `writeElement` do
-                // `PropertyElementResolver`); ausente, `UNDEFINED_OPERATOR`
-                // no `[…]` (`_reportUnresolvedIndex`).
+                // `x[i]++`: the `[]=` is also looked up (the `writeElement` of
+                // `PropertyElementResolver`); missing, `UNDEFINED_OPERATOR` at the
+                // `[…]` (`_reportUnresolvedIndex`).
                 let r = if null_aware { inf.non_null(recv) } else { recv };
                 let invalid = inf.table.e_invalido(r) || matches!(inf.table.get(r), Type::Dynamic | Type::Never | Type::Void);
                 if matches!(inf.table.get(r), Type::Dynamic) && !inf.table.e_invalido(r) {
@@ -4027,10 +4054,9 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
                             let typ = inf.table.format(r, inf.interner, inf.program);
                             inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR, span, &["[]=", &typ]);
                         }
-                        // `checkIndexExpressionIndex` com o `writeElement`
-                        // (3.6.2 `error_detection_helpers.dart:257-287`,
-                        // `resolver.dart:1443`): o índice também contra o
-                        // primeiro parâmetro do `[]=`.
+                        // `checkIndexExpressionIndex` with the `writeElement` (3.6.2
+                        // `error_detection_helpers.dart:257-287`, `resolver.dart:1443`): the
+                        // index also against the first parameter of `[]=`.
                         Busca::Achado(m) if m.metodo => {
                             if let Type::Function { positional, .. } = inf.table.get(m.tipo).clone()
                                 && let Some(&p0) = positional.first()
@@ -4054,10 +4080,11 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
     }
 }
 
-/// `_checkForAmbiguousImport` (3.6.2 `error_verifier.dart:2116-2130`): o
-/// nome (com o prefixo) que dois imports trazem com elementos diferentes é
-/// `AMBIGUOUS_IMPORT` no nome; o elemento é o `MultiplyDefinedElement` e o tipo
-/// é inválido. Diz se relatou.
+/// `_checkForAmbiguousImport` (3.6.2 `error_verifier.dart:2116-2130`): a name
+/// (with the prefix) that two imports bring in with different elements is
+/// `AMBIGUOUS_IMPORT` at the name; the element is the
+/// `MultiplyDefinedElement` and the type is invalid. Says whether it
+/// reported.
 pub(crate) fn ambiguous_import(inf: &mut BodyInferrer<'_>, cx: &Body, prefix: Option<SymbolId>, the_name: ast::Name) -> bool {
     let b = match prefix {
         Some(p) => inf.program.lookup_prefixed_na_unidade(cx.unit, p, the_name.sym),
@@ -4072,7 +4099,7 @@ pub(crate) fn ambiguous_import(inf: &mut BodyInferrer<'_>, cx: &Body, prefix: Op
     true
 }
 
-/// Tipo de escrita (setter) de um nome não local.
+/// Write type (setter) of a non-local name.
 fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: ast::Name) -> TypeId {
     match resolve_name(inf, cx, n.sym, true) {
         NameRef::Local(id) => cx.local(id).tipo,
@@ -4080,12 +4107,11 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
         NameRef::Elemento(el) => {
             resolver(inf, cx, tgt, Resolved::Element(el));
             match el {
-                // `setWriteElement` (3.6.2 `resolver.dart:1709-1747`): o tipo
-                // de escrita só vem de um setter (o sintético, pela variável)
-                // ou de um `VariableElement`; a variável de topo ou estática
-                // `final`/`const` não tem setter, a escrita cai no getter de
-                // recuperação e o tipo é `InvalidType` (sem
-                // `INVALID_ASSIGNMENT`).
+                // `setWriteElement` (3.6.2 `resolver.dart:1709-1747`): the write type
+                // only comes from a setter (the synthetic one, through the variable)
+                // or from a `VariableElement`; a `final`/`const` top-level or static
+                // variable has no setter, the write falls back to the recovery getter
+                // and the type is `InvalidType` (without `INVALID_ASSIGNMENT`).
                 Element::Variable(v) => {
                     let ve = inf.program.variable(v);
                     if ve.const_ {
@@ -4127,8 +4153,8 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
             inf.aviso(ASSIGNMENT_TO_TYPE.template.to_string(), n.span);
             inf.core.dynamic_
         }
-        // `AssignmentVerifier.verify` (`assignment_verifier.dart:66-71`): a
-        // recuperação da escrita é o prefixo.
+        // `AssignmentVerifier.verify` (`assignment_verifier.dart:66-71`): the
+        // write's recovery is the prefix.
         NameRef::Prefixo => {
             prefix_without_dot(inf, n);
             inf.core.dynamic_
@@ -4137,9 +4163,9 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
             let r = lexical_member_resolved(inf, cx, f, static_);
             resolver(inf, cx, tgt, r);
             let fe = inf.program.function(f);
-            // O setter de instância escrito onde `this` não vale (método
-            // estático, fábrica, inicializador): o elemento de escrita é ele
-            // (`setWriteElement`) e o erro é o do acesso sem `this`
+            // An instance setter written where `this` is not available (static
+            // method, factory, initializer): the write element is it
+            // (`setWriteElement`) and the error is the access without `this`
             // (`_checkForInvalidInstanceMemberAccess`).
             if !static_ && instance_without_this_error(inf, cx).is_some() {
                 let write_type = match (fe.kind, fe.variable) {
@@ -4156,23 +4182,23 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
             }
             if fe.kind == FunctionKind::Function && fe.class.is_some() {
                 warn_write_to_method(inf, n);
-                // `setWriteElement`: o tipo de escrita só vem de setter ou
-                // variável; de um método é `InvalidType`.
+                // `setWriteElement`: the write type only comes from a setter or a
+                // variable; from a method it is `InvalidType`.
                 return inf.table.invalid(inf.core.dynamic_);
             }
-            // `LexicalLookup.resolveSetter` (3.6.2 `lexical_lookup.dart`): o
-            // getter achado sem setter só segue para o `this` implícito
-            // (`ThisLookup.lookupSetter`, onde um setter herdado ou de extensão
-            // pode aparecer) quando é `isInstanceMember` — membro de instância
-            // de `InterfaceElement` (`extensions.dart:109-119`). O estático e o
-            // de extensão são a recuperação: `static final int x` numa classe
-            // cuja superclasse tem um setter `x` de extensão dá
+            // `LexicalLookup.resolveSetter` (3.6.2 `lexical_lookup.dart`): a getter
+            // found without a setter only goes on to the implicit `this`
+            // (`ThisLookup.lookupSetter`, where an inherited or extension setter may
+            // appear) when it `isInstanceMember`, an instance member of an
+            // `InterfaceElement` (`extensions.dart:109-119`). Static and extension ones
+            // are the recovery: `static final int x` in a class whose superclass has an
+            // extension setter `x` gives
             // `ASSIGNMENT_TO_FINAL` (`static_extension_internal_basename_shadowing_error_test.dart:402`).
             let follows_through_this = !static_ && fe.extension.is_none();
             if let (FunctionKind::ImplicitAccessor, Some(v)) = (fe.kind, fe.variable) {
                 let ve = inf.program.variable(v);
                 if (ve.final_ || ve.const_) && ve.setter.is_none() && follows_through_this {
-                    // Campo final sem setter: pode haver setter herdado.
+                    // A final field without a setter: there may be an inherited setter.
                     if let Some(this) = cx.tipo_this {
                         if let Busca::Achado(m) = inf.lookup_member(cx.lib, this, n.sym, true) {
                             return m.tipo;
@@ -4188,16 +4214,16 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
                 }
             }
             warn_member_without_setter(inf, n, f);
-            // Sem setter, o elemento de escrita é o de recuperação (o getter):
+            // Without a setter, the write element is the recovery one (the getter):
             // `InvalidType` (`setWriteElement`).
             inf.table.invalid(inf.core.dynamic_)
         }
         NameRef::ImplicitThis => {
             let this = cx.tipo_this.unwrap();
-            // `ThisLookup.lookupSetter` com `this` potencialmente anulável: o
-            // 3.6.2 relata a variante de método (`The method 'foo' can't be
-            // unconditionally invoked`) em toda escrita pelo `this`
-            // implícito — `=`, composta, `??=`, `++` — conferido no oráculo.
+            // `ThisLookup.lookupSetter` with a potentially nullable `this`: 3.6.2
+            // reports the method variant (`The method 'foo' can't be
+            // unconditionally invoked`) on every write through the implicit `this`
+            // (`=`, compound, `??=`, `++`), checked against the oracle.
             if inf.requires_null_check(cx.lib, this, n.sym, true) {
                 let the_name = inf.interner.resolve(n.sym).to_string();
                 let since = inf.diagnostics.len();
@@ -4229,8 +4255,8 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
                     undefined_written_name(inf, cx, n);
                     inf.core.dynamic_
                 }
-                // Extensões ambíguas (`ThisLookup.lookupSetter`): a
-                // ambiguidade e, sem setter, o nome indefinido.
+                // Ambiguous extensions (`ThisLookup.lookupSetter`): the ambiguity and,
+                // without a setter, the undefined name.
                 Busca::Dinamico if inf.extension_ambiguity.is_some() => {
                     inf.report_extension_ambiguity(n.span);
                     undefined_name_without_this(inf, cx, n);
@@ -4240,8 +4266,8 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
             }
         }
         NameRef::ConstantEnum(v) => inf.variable_type(v),
-        // Só curingas declaram `_` aqui (3.7): usar `_` é erro
-        // (`Undefined name '_'` no CFE).
+        // Only wildcards declare `_` here (3.7): using `_` is an error
+        // (`Undefined name '_'` in the CFE).
         NameRef::Nenhum if cx.curinga == Some(n.sym) => {
             inf.erro_de_linguagem(cx.unit, n.span, WILDCARD_DOES_NOT_BIND.template.to_string());
             inf.core.dynamic_
@@ -4254,13 +4280,13 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
     }
 }
 
-/// A escrita num nome simples sem setter no escopo léxico
+/// A write to a simple name without a setter in the lexical scope
 /// (`AssignmentVerifier.verify`, `an611:src/error/assignment_verifier.dart:28-113`,
-/// com `ThisLookup.lookupSetter`): o `this` implícito ainda pode achar o
-/// setter (o erro é então o de acesso sem `this` ou o de estático não
-/// qualificado) ou um getter de recuperação (o erro é outro: escrita em
-/// final, em método…); senão, nome indefinido — sem a exceção dos imports
-/// que não existem, que a escrita não consulta.
+/// with `ThisLookup.lookupSetter`): the implicit `this` may still find the
+/// setter (the error is then the access without `this` or the unqualified
+/// static one) or a recovery getter (the error is a different one: write to a
+/// final, to a method…); otherwise, undefined name, without the exception for
+/// imports that do not exist, which the write does not consult.
 fn undefined_written_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) {
     if let Some(this) = analyzer_this_type(inf, cx) {
         match lookup_through_this(inf, cx, this, n.sym, true) {
@@ -4283,14 +4309,14 @@ fn undefined_written_name(inf: &mut BodyInferrer<'_>, cx: &Body, n: ast::Name) {
     inf.aviso(msg, n.span);
 }
 
-/// Atribuições: `=`, compostas e `??=`.
+/// Assignments: `=`, compound ones and `??=`.
 fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp, tgt: ExprId, the_value: ExprId, short_circuit: &mut bool) -> TypeId {
     let span = inf.span_expr(cx.unit, e);
     let a = ast(inf, cx);
     let target_kind = &a.expr(tgt).kind;
     match op {
         AssignOp::Assign => {
-            // Tipo de escrita e contexto.
+            // Write type and context.
             let (write, context, local) = match target_kind {
                 ExprKind::Identifier(n) => {
                     let n = *n;
@@ -4306,7 +4332,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
                                 (inf.core.dynamic_, inf.core.dynamic_, None)
                             } else {
                                 // `assignment_expression_resolver.dart:360-385`:
-                                // `late final` já atribuída e `final` talvez atribuída.
+                                // an already assigned `late final` and a possibly assigned `final`.
                                 if l.const_ {
                                     if !cx.flow.unassigned(id) {
                                         inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), n.span);
@@ -4359,9 +4385,9 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
                 }
             };
             inf.body_types.units[cx.unit.0 as usize].tipos_de_escrita.insert(e, write);
-            // `flow.write(…, rhs)` (`_write`, `flow_analysis.dart:6133-6149`):
-            // a escrita de uma condição numa local guarda os modelos
-            // verdadeiro/falso dela no nó SSA, como o inicializador (§7.10).
+            // `flow.write(…, rhs)` (`_write`, `flow_analysis.dart:6133-6149`): writing
+            // a condition into a local keeps its true/false models in the SSA node,
+            // like the initializer (§7.10).
             let (tv, saved_condition) = if local.is_some() && is_condition_form(inf, cx, the_value) {
                 let (yes, not_) = condicao(inf, cx, the_value);
                 cx.flow = inf.juntar(&yes, &not_);
@@ -4391,28 +4417,28 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
         AssignOp::Compound(bop) => {
             let (read, write, local) = read_for_write(inf, cx, tgt, short_circuit);
             inf.body_types.units[cx.unit.0 as usize].tipos_de_escrita.insert(e, write);
-            // `x += 1` / `x ??= 3` com `x` de tipo `void`: no operador.
+            // `x += 1` / `x ??= 3` with `x` of type `void`: at the operator.
             if matches!(inf.table.get(read), Type::Void) {
                 let token = operator_token(inf, cx, inf.span_expr(cx.unit, tgt).end);
                 inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, token, &[]);
             }
             if bop == BinaryOp::IfNull {
-                // `checkFinalAlreadyAssigned(left)` antes do lado direito
-                // (3.6.2 `assignment_expression_resolver.dart:79`), com o
-                // estado de antes da escrita.
+                // `checkFinalAlreadyAssigned(left)` before the right side (3.6.2
+                // `assignment_expression_resolver.dart:79`), with the state from
+                // before the write.
                 if let Some(id) = local {
                     let target_span = inf.span_expr(cx.unit, tgt);
                     check_final_local(inf, cx, id, target_span);
                 }
-                // O lado direito só roda se o alvo for nulo: o que ele promove
-                // ou atribui não vale depois (`origin ??= element!.library;`
-                // não promove `element`).
+                // The right side only runs if the target is null: what it promotes or
+                // assigns does not hold afterwards (`origin ??= element!.library;`
+                // does not promote `element`).
                 let before = cx.flow.clone();
-                // O índice sem `[]` resolvido (receptor `Never`) tem o
-                // `readType` inválido (3.6.2 `resolver.dart:1665-1672`): o
-                // `isStrictlyNonNullable` não vale.
-                // O mesmo para o nome que não é getter nem variável (classe,
-                // alias, função, método, parâmetro de tipo: `C ??= null`).
+                // An index without a resolved `[]` (`Never` receiver) has an invalid
+                // `readType` (3.6.2 `resolver.dart:1665-1672`): `isStrictlyNonNullable`
+                // does not apply.
+                // The same for a name that is neither a getter nor a variable (class,
+                // alias, function, method, type parameter: `C ??= null`).
                 let without_read = match &ast(inf, cx).expr(tgt).kind {
                     ExprKind::Index { target, null_aware: false, .. } => inf.body_types.units[cx.unit.0 as usize]
                         .get_type(*target)
@@ -4440,8 +4466,8 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
                 if !matches!(inf.table.get(write), Type::Void) {
                     void_use(inf, cx, the_value, tv);
                 }
-                // `x ??= e`: o tipo de `e` contra o tipo de escrita, no lado
-                // direito (`_checkForInvalidAssignment`,
+                // `x ??= e`: the type of `e` against the write type, at the right side
+                // (`_checkForInvalidAssignment`,
                 // an611:src/dart/resolver/assignment_expression_resolver.dart:117-155, 263-270).
                 if !inf.e_dynamic(write) && !matches!(inf.table.get(tv), Type::Void) {
                     let sp = inf.span_expr(cx.unit, the_value);
@@ -4449,10 +4475,9 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
                 }
                 let nn = inf.non_null(read);
                 let t = inf.up(nn, tv);
-                // A escrita acontece só no ramo do nulo (`ifNullExpression_
-                // rightBegin` … `write` … `ifNullExpression_end`): depois da
-                // junção o local fica só potencialmente atribuído se não
-                // estava antes.
+                // The write only happens on the null branch (`ifNullExpression_
+                // rightBegin` … `write` … `ifNullExpression_end`): after the join the
+                // local is only potentially assigned if it was not before.
                 if let Some(id) = local {
                     let decl = cx.local(id).tipo;
                     let mut f = std::mem::replace(&mut cx.flow, Fluxo::alcancavel());
@@ -4461,7 +4486,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
                     cx.flow = f;
                 }
                 let after = cx.flow.clone();
-                // No ramo sem o lado direito o alvo não é nulo.
+                // On the branch without the right side the target is not null.
                 let mut before = before;
                 if let Some(id) = local {
                     let decl = cx.local(id).tipo;
@@ -4472,19 +4497,19 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
             }
             let sym = operator_symbol(inf, bop);
             let token = operator_token(inf, cx, inf.span_expr(cx.unit, tgt).end);
-            // O contexto do lado direito: `refineNumericInvocationContext`
-            // com o tipo de escrita como alvo e como contexto.
+            // The right side's context: `refineNumericInvocationContext` with the
+            // write type as target and as context.
             let positions = OperatorPositions { token, undefined: token, compound: true, super_: false, numeric_target: Some(write) };
             let (t, _) = operador_binario(inf, cx, read, sym, the_value, write, positions, Some(e));
-            // `x op= e`: o retorno do operador contra o tipo de escrita, no
-            // lado direito (`_resolveTypes` + `_checkForInvalidAssignment`,
+            // `x op= e`: the operator's return against the write type, at the right
+            // side (`_resolveTypes` + `_checkForInvalidAssignment`,
             // an611:src/dart/resolver/assignment_expression_resolver.dart:117-155, 272-290).
             if !inf.e_dynamic(write) && !inf.e_dynamic(read) && !matches!(inf.table.get(t), Type::Void) && (local.is_some() || read == write) {
                 let sp = inf.span_expr(cx.unit, the_value);
                 inf.verify_assignable(t, write, sp, INVALID_ASSIGNMENT.template);
             }
             if let Some(id) = local {
-                // A regra de escrita vê o estado de antes da escrita.
+                // The write rule sees the state from before the write.
                 let target_span = inf.span_expr(cx.unit, tgt);
                 check_final_local(inf, cx, id, target_span);
                 let decl = cx.local(id).tipo;
@@ -4498,10 +4523,10 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
     }
 }
 
-/// `r.x = …`: tipo do setter.
+/// `r.x = …`: the setter's type.
 fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target: ExprId, name: ast::Name, null_aware: bool, short_circuit: &mut bool, recv_read: Option<(TypeId, bool)>) -> TypeId {
-    // `Fn<int>.foo = 1`: o setter sem resolução possível; na composta só o
-    // getter relata (`hasRead`), já na leitura.
+    // `Fn<int>.foo = 1`: a setter with no possible resolution; in a compound
+    // one only the getter reports (`hasRead`), already at the read.
     if let ExprKind::TypeArguments { target: base, .. } = &ast(inf, cx).expr(target).kind
         && function_type_alias(inf, cx, *base)
     {
@@ -4565,8 +4590,8 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         };
         return match m {
             Some(m) => {
-                // O setter estático privado de outra biblioteca: achado, mas
-                // inacessível (`PRIVATE_SETTER`, 3.6.2
+                // A private static setter from another library: found, but
+                // inaccessible (`PRIVATE_SETTER`, 3.6.2
                 // `property_element_resolver.dart:710-719`).
                 if let TypeRef::Classe(c, _) | TypeRef::Alias(c, _, _) = &rt
                     && inf.interner.resolve(name.sym).starts_with('_')
@@ -4581,10 +4606,9 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
             None => {
                 if let TypeRef::Classe(c, _) | TypeRef::Alias(c, _, _) = &rt {
                     if inf.static_member(*c, name.sym, false).is_none() {
-                        // Um método de instância não declara setter. Em `C.m = v`,
-                        // o analyzer procura o setter estático e relata sua
-                        // ausência, enquanto `C.m` como leitura é acesso
-                        // estático indevido ao método de instância.
+                        // An instance method does not declare a setter. In `C.m = v`, the
+                        // analyzer looks for the static setter and reports its absence, while
+                        // `C.m` as a read is an improper static access to the instance method.
                         let cls = inf.program.class(*c);
                         let instance_setter = inf.setter_key(name.sym)
                             .is_some_and(|the_key| cls.instance_members.contains_key(&the_key));
@@ -4632,12 +4656,12 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                     let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extension);
                     inf.aviso(msg, name.span);
                 }
-                // `_resolveTargetInterfaceElement` sem setter nem getter
-                // (`augmented.getGetter`, que também vê os de instância): o
-                // `AssignmentVerifier` relata `UNDEFINED_SETTER` com o
-                // `thisType` da classe (3.6.2 `property_element_resolver.dart:708-731`,
-                // `assignment_verifier.dart:96-106`); os estáticos da
-                // superclasse não contam (`C.s = 1`), e `C.new = 1` também.
+                // `_resolveTargetInterfaceElement` with neither setter nor getter
+                // (`augmented.getGetter`, which also sees instance ones): `AssignmentVerifier`
+                // reports `UNDEFINED_SETTER` with the class's `thisType` (3.6.2
+                // `property_element_resolver.dart:708-731`, `assignment_verifier.dart:96-106`);
+                // the superclass's statics do not count (`C.s = 1`), and neither does
+                // `C.new = 1`.
                 if missing_getter
                     && !explicit_instance
                     && let TypeRef::Classe(c, _) = rt
@@ -4665,17 +4689,17 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         registrar(inf, cx, target, this);
         return super_member(inf, cx, tgt, name, SuperUse::Escrita);
     }
-    // Na escrita composta (`x.p += 1`) o receptor já foi lido, e a checagem
-    // de nulo saiu na leitura (uma só resolução no analyzer).
+    // In a compound write (`x.p += 1`) the receiver was already read, and the
+    // null check came out at the read (a single resolution in the analyzer).
     let compound = recv_read.is_some();
     let (recv, c) = recv_read.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *short_circuit = c;
-    // Receptor `void` (`property_element_resolver.dart:449-455`): no nome.
+    // A `void` receiver (`property_element_resolver.dart:449-455`): at the name.
     if !cx.overlays.contains_key(&target) && matches!(inf.table.get(recv), Type::Void) {
         inf.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
         return inf.core.dynamic_;
     }
-    // `x.new = v` (`type_property_resolver.dart:75-79`): sem setter `new`.
+    // `x.new = v` (`type_property_resolver.dart:75-79`): no `new` setter.
     if !cx.overlays.contains_key(&target) && inf.interner.resolve(name.sym) == "new" {
         let msg = format!(
             "{}: setter '{}' não definido para o tipo '{}'",
@@ -4686,16 +4710,16 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
     }
-    // `E(valor).m` força a extensão nomeada: na falta de setter ela emite
-    // `undefined_extension_setter`, mesmo que a extensão tenha um getter `m`.
+    // `E(the_value).m` forces the named extension: without a setter it emits
+    // `undefined_extension_setter`, even if the extension has a getter `m`.
     if let Some((x, args)) = cx.overlays.get(&target).cloned() {
         if let Some(m) = inf.explicit_extension_member(x, &args, name.sym, true) {
             resolver(inf, cx, tgt, m.resolved);
             return m.tipo;
         }
         if inf.extension_static_member(x, name.sym, true).is_some() {
-            // `+=` resolve leitura e escrita do mesmo nome. O analyzer relata
-            // o acesso estático uma vez, mesmo quando ambos os lados resolvem.
+            // `+=` resolves the read and the write of the same name. The analyzer
+            // reports the static access once, even when both sides resolve.
             let already_reported = inf.diagnostics.iter().zip(&inf.warning_units).any(|(d, unit)| {
                 *unit == inf.current_unit
                     && d.span == name.span
@@ -4711,11 +4735,11 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
     }
-    // Receptor anulável sem o getter nem o setter em `Object` ou numa
-    // extensão do tipo anulável: `UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE`
-    // (o `_hasGetterOrSetter` do `TypePropertyResolver.resolve`,
-    // an362:src/dart/resolver/type_property_resolver.dart:99-180), e então
-    // nada de `undefined_setter`; a resolução segue pelo tipo não anulável.
+    // A nullable receiver without the getter or the setter on `Object` or in an
+    // extension of the nullable type: `UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE`
+    // (the `_hasGetterOrSetter` of `TypePropertyResolver.resolve`,
+    // an362:src/dart/resolver/type_property_resolver.dart:99-180), and then no
+    // `undefined_setter`; resolution goes on through the non-nullable type.
     let check_null = !compound
         && inf.requires_null_check(cx.lib, recv, name.sym, false)
         && inf.requires_null_check(cx.lib, recv, name.sym, true);
@@ -4730,12 +4754,12 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         );
         inf.attach_non_promotion(since, cx, Some(target), name.span);
     }
-    // Um método da interface da classe prevalece sobre setter de extensão homônimo.
+    // A method of the class's interface takes precedence over a same-named extension setter.
     if let Some(m) = inf.interface_member(recv, name.sym, false) {
         if m.metodo && m.funcao.is_some_and(|f| inf.program.function(f).kind == FunctionKind::Function) {
             warn_write_to_method(inf, name);
             resolver(inf, cx, tgt, m.resolved);
-            // `setWriteElement`: escrita num método tem tipo `InvalidType`.
+            // `setWriteElement`: a write to a method has type `InvalidType`.
             return inf.table.invalid(inf.core.dynamic_);
         }
     }
@@ -4747,7 +4771,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
             m.tipo
         }
         Busca::Missing => {
-            // O setter estático recuperado (`lookupStaticSetter`).
+            // The recovered static setter (`lookupStaticSetter`).
             if let Some(m) = inf.instance_access_to_static(cx.lib, recv, name.sym, true, name.span) {
                 resolver(inf, cx, tgt, m.resolved);
                 return m.tipo;
@@ -4755,11 +4779,10 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
             if check_null {
                 return inf.core.dynamic_;
             }
-            // O analyzer recupera o getter quando a escrita não encontra um
-            // setter (`AssignmentVerifier.verify` com o `result.getter`, que
-            // pode ser o estático recuperado). Um getter declarado numa classe
-            // tem diagnóstico próprio; sem getter, continua sendo um setter
-            // indefinido.
+            // The analyzer recovers the getter when the write does not find a setter
+            // (`AssignmentVerifier.verify` with `result.getter`, which may be the
+            // recovered static one). A getter declared in a class has its own
+            // diagnostic; without a getter, it is still an undefined setter.
             let getter = match inf.lookup_member(cx.lib, recv, name.sym, false) {
                 Busca::Achado(getter) => Some(getter),
                 Busca::Missing => match inf.receiver_static_recovery(cx.lib, recv, name.sym, false) {
@@ -4784,7 +4807,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                         return getter.tipo;
                     }
                 } else if let Resolved::Member { member: MemberRef::Variable(v), .. } = getter.resolved {
-                    // A constante de enum (`static const`): `ASSIGNMENT_TO_CONST`.
+                    // An enum constant (`static const`): `ASSIGNMENT_TO_CONST`.
                     if inf.program.variable(v).const_ {
                         inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), name.span);
                         resolver(inf, cx, tgt, getter.resolved);
@@ -4808,7 +4831,7 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
     }
 }
 
-/// `r[i] = …`: tipo do valor em `[]=`.
+/// `r[i] = …`: the value's type in `[]=`.
 fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: TypeId, index: ExprId, span: dartforge_diagnostics::Span) -> TypeId {
     let target = match &ast(inf, cx).expr(tgt).kind {
         ExprKind::Index { target, .. } => Some(*target),
@@ -4832,10 +4855,10 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
             return inf.core.dynamic_;
         };
         // `resolveIndexExpression` (`property_element_resolver.dart:80-115`):
-        // o `TypePropertyResolver` com o nome `[]` (que procura `[]` e
-        // `[]=`); receptor potencialmente anulável é
-        // `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` `['[]']` no `[`
-        // (o `IndexExpression` é `MethodReferenceExpression`).
+        // `TypePropertyResolver` with the name `[]` (which looks for `[]` and
+        // `[]=`); a potentially nullable receiver is
+        // `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` `['[]']` at the `[`
+        // (the `IndexExpression` is a `MethodReferenceExpression`).
         if let Some(t) = target
             && let Some(the_read) = inf.interner.lookup("[]")
             && inf.requires_null_check(cx.lib, recv, the_read, false)
@@ -4847,7 +4870,7 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
             inf.null_warning(recv, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &["[]"]);
             inf.attach_non_promotion(since, cx, Some(t), sp);
         }
-        // `super[i] = v`: o `[]=` da cadeia de `super`.
+        // `super[i] = v`: the `[]=` of the `super` chain.
         if target.is_some_and(|t| matches!(ast(inf, cx).expr(t).kind, ExprKind::Super)) {
             lookup_super_operator(inf, cx, op)
         } else {
@@ -4870,13 +4893,13 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
         }
         Busca::Missing => {
             infer_free(inf, cx, index);
-            // `Never?` em `x?[i] = v`: promovido a `Never`, nada a relatar.
+            // `Never?` in `x?[i] = v`: promoted to `Never`, nothing to report.
             let nn = inf.non_null(recv);
             if matches!(inf.table.get(nn), Type::Never) {
                 return inf.core.dynamic_;
             }
-            // `[]=` ausente: `UNDEFINED_OPERATOR` (ou `…_SUPER_OPERATOR`) do
-            // `[` ao `]` (`_reportUnresolvedIndex`,
+            // A missing `[]=`: `UNDEFINED_OPERATOR` (or `…_SUPER_OPERATOR`) from the
+            // `[` to the `]` (`_reportUnresolvedIndex`,
             // an611:src/dart/resolver/property_element_resolver.dart:109-133, 365-381).
             let typ = inf.table.format(recv, inf.interner, inf.program);
             let (sp, code) = match target {
@@ -4891,8 +4914,8 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
                 }
                 None => (span, dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR),
             };
-            // Composta sem `[]` nem `[]=`: o oráculo só relata o `[]=` (o
-            // `[]` da leitura, no mesmo intervalo, sai).
+            // A compound one without `[]` or `[]=`: the oracle only reports the `[]=`
+            // (the read's `[]`, at the same range, is dropped).
             let mut i = 0;
             while i < inf.diagnostics.len() {
                 let d = &inf.diagnostics[i];
@@ -4914,11 +4937,12 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
 }
 
 // -------------------------------------------------------------------
-// Condições: modelos de fluxo verdadeiro/falso
+// Conditions: true/false flow models
 // -------------------------------------------------------------------
 
-/// Infere uma condição (contexto `bool`) e devolve `(true(E), false(E))`.
-/// Deixa `cx.fluxo` no estado de antes (o chamador escolhe o ramo).
+/// Infers a condition (context `bool`) and returns `(true(E), false(E))`.
+/// Leaves `cx.flow` in the state from before (the caller chooses the
+/// branch).
 pub(crate) fn condicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId) -> (Fluxo, Fluxo) {
     let a = ast(inf, cx);
     let kind = &a.expr(e).kind;
@@ -4968,7 +4992,7 @@ pub(crate) fn condicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId) -> 
             let b = inf.core.bool_;
             inferir(inf, cx, e, b);
             let f = cx.flow.clone();
-            // Leitura de variável de condição não reescrita (§7.10).
+            // Read of a condition variable that was not rewritten (§7.10).
             if let ExprKind::Identifier(n) = &ast(inf, cx).expr(e).kind
                 && let Some(Nome::Local(id)) = cx.buscar(n.sym)
                 && let Some((yes, not_, version)) = cx.conditions.get(&id).cloned()
@@ -4984,53 +5008,54 @@ pub(crate) fn condicao(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId) -> 
     }
 }
 
-/// Expressão cuja informação de condição não é trivial (`==`, `!=`, `&&`,
-/// `||`, `!`, `is`), para guardar numa variável de condição.
+/// An expression whose condition information is not trivial (`==`, `!=`,
+/// `&&`, `||`, `!`, `is`), for storing in a condition variable.
 pub(crate) fn is_condition_form(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     match &ast(inf, cx).expr(e).kind {
         ExprKind::Parenthesized(i) => is_condition_form(inf, cx, *i),
         ExprKind::Unary { op: UnaryOp::Not, .. } | ExprKind::Is { .. } => true,
         ExprKind::Binary { op, .. } => matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq),
-        // `booleanLiteral`: o ramo oposto é inalcançável (informação não
-        // trivial, guardada na variável de condição: `bool c = true; c ? a
-        // : b` tem o `b` morto).
+        // `booleanLiteral`: the opposite branch is unreachable (non-trivial
+        // information, stored in the condition variable: `bool c = true; c ? a
+        // : b` has a dead `b`).
         ExprKind::Bool(_) => true,
         _ => false,
     }
 }
 
-/// Condição de `if`/`while`/`?:`/`for`/`when`, com o diagnóstico de não-`bool`.
+/// Condition of `if`/`while`/`?:`/`for`/`when`, with the non-`bool`
+/// diagnostic.
 pub(crate) fn checked_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId) -> (Fluxo, Fluxo) {
     let r = condicao(inf, cx, e);
     verify_bool(inf, cx, e, BoolUse::Condition);
     r
 }
 
-/// Condição de `assert` (comando ou inicializador).
+/// Condition of an `assert` (statement or initializer).
 pub(crate) fn assert_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId) -> (Fluxo, Fluxo) {
     let r = condicao(inf, cx, e);
     verify_bool(inf, cx, e, BoolUse::Assert);
     r
 }
 
-/// Onde uma expressão precisa ser `bool` (o `BoolExpressionVerifier` do
-/// analyzer escolhe o código por aí).
+/// Where an expression needs to be a `bool` (the analyzer's
+/// `BoolExpressionVerifier` chooses the code from that).
 #[derive(Clone, Copy)]
 enum BoolUse {
     /// `if`, `while`, `do`, `for`, `?:`, `when`: `NON_BOOL_CONDITION`.
     Condition,
     /// `assert`: `NON_BOOL_EXPRESSION`.
     Assert,
-    /// Operando de `&&`/`||`: `NON_BOOL_OPERAND`.
+    /// Operand of `&&`/`||`: `NON_BOOL_OPERAND`.
     Operand(&'static str),
-    /// Operando de `!`: `NON_BOOL_NEGATION_EXPRESSION`.
+    /// Operand of `!`: `NON_BOOL_NEGATION_EXPRESSION`.
     Negation,
 }
 
-/// `checkForNonBoolExpression`: tipo não atribuível a `bool`. Com o próprio
-/// `bool` anulável (`bool?`), o erro é de uso de valor anulável como
-/// condição, em qualquer dos usos. Com `void`, o analyzer relata o uso do
-/// resultado `void` no lugar (fora daqui); nada sai.
+/// `checkForNonBoolExpression`: a type not assignable to `bool`. With a
+/// nullable `bool` itself (`bool?`), the error is the use of a nullable value
+/// as a condition, in any of the uses. With `void`, the analyzer reports the
+/// use of the `void` result instead (not here); nothing comes out.
 fn verify_bool(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, use_: BoolUse) {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.bool_);
@@ -5058,14 +5083,14 @@ fn verify_bool(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, use_: BoolUse) 
 }
 
 /// `UNNECESSARY_NULL_COMPARISON` (`_checkForInvariantNullComparison`,
-/// `an611:src/error/best_practices_verifier.dart:1060-1092`): `null` literal
-/// de um lado e o outro estritamente não anulável, do `null` ao operador ou
-/// do operador ao `null`; e, no resolvedor (`binary_expression_resolver.dart:
-/// 128-160`), uma local definitivamente não atribuída comparada com `null`
-/// (`ALWAYS_NULL`).
+/// `an611:src/error/best_practices_verifier.dart:1060-1092`): a literal `null`
+/// on one side and a strictly non-nullable other side, from the `null` to the
+/// operator or from the operator to the `null`; and, in the resolver
+/// (`binary_expression_resolver.dart:128-160`), a definitely unassigned local
+/// compared with `null` (`ALWAYS_NULL`).
 /// `NullableDereferenceVerifier.expression` (`an611:src/error/nullable_dereference_verifier.dart:33-90`):
-/// na expressão inteira, quando o tipo não é `dynamic`, inválido nem não
-/// anulável; com o tipo `Null`, o `INVALID_USE_OF_NULL_VALUE`.
+/// on the whole expression, when the type is not `dynamic`, invalid or
+/// non-nullable; with type `Null`, `INVALID_USE_OF_NULL_VALUE`.
 pub(crate) fn nullable_dereference(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, code: dartforge_diagnostics::Codigo) {
     if inf.e_dynamic(t) || inf.table.e_invalido(t) || inf.is_non_nullable(t) {
         return;
@@ -5078,7 +5103,7 @@ pub(crate) fn nullable_dereference(inf: &mut BodyInferrer<'_>, cx: &Body, e: Exp
 }
 
 /// `isDoubleNan` (`an611:src/error/best_practices_verifier.dart:2093-2100`):
-/// o `PrefixedIdentifier` `double.nan`, só pela forma escrita.
+/// the `PrefixedIdentifier` `double.nan`, only by its written form.
 pub(crate) fn e_double_nan(inf: &BodyInferrer<'_>, cx: &Body, x: ExprId) -> bool {
     let a = ast(inf, cx);
     match &a.expr(x).kind {
@@ -5091,8 +5116,9 @@ pub(crate) fn e_double_nan(inf: &BodyInferrer<'_>, cx: &Body, x: ExprId) -> bool
 }
 
 /// `UNNECESSARY_NAN_COMPARISON` (`_checkForInvariantNanComparison`,
-/// `an611:src/error/best_practices_verifier.dart:1031-1058`): `double.nan`
-/// num lado de `==`/`!=`, do `double.nan` ao operador ou do operador ao fim.
+/// `an611:src/error/best_practices_verifier.dart:1031-1058`): `double.nan` on
+/// one side of `==`/`!=`, from the `double.nan` to the operator or from the
+/// operator to the end.
 fn comparison_with_nan(inf: &mut BodyInferrer<'_>, cx: &Body, op: BinaryOp, left: ExprId, right: ExprId) {
     use dartforge_diagnostics::codigos::warning as w;
     let code = match op {
@@ -5109,15 +5135,15 @@ fn comparison_with_nan(inf: &mut BodyInferrer<'_>, cx: &Body, op: BinaryOp, left
     }
 }
 
-/// O `Null` do `dart:core` (`isDartCoreNull`): não o `Never?`.
+/// `dart:core`'s `Null` (`isDartCoreNull`): not `Never?`.
 pub(crate) fn e_null_do_core(inf: &BodyInferrer<'_>, t: TypeId) -> bool {
     matches!(inf.table.get(t), Type::Null) && !matches!(inf.table.exibicao(t), Some(crate::table::Exibicao::NeverAnulavel))
 }
 
-/// O `NullSafeApiVerifier` (`an611:src/error/null_safe_api_verifier.dart:29-80`):
-/// `Future<T>.value(…)` e `Completer<T>.complete(…)` com `T` não anulável, no
-/// máximo um argumento, e o argumento ausente (na chamada inteira) ou de
-/// tipo `Null` (no argumento): `NULL_ARGUMENT_TO_NON_NULL_TYPE`.
+/// `NullSafeApiVerifier` (`an611:src/error/null_safe_api_verifier.dart:29-80`):
+/// `Future<T>.value(…)` and `Completer<T>.complete(…)` with a non-nullable `T`,
+/// at most one argument, and the argument missing (on the whole call) or of
+/// type `Null` (at the argument): `NULL_ARGUMENT_TO_NON_NULL_TYPE`.
 fn null_free_api(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, result: TypeId) {
     let a = ast(inf, cx);
     let argument_of = |inf: &BodyInferrer<'_>, t: TypeId, cls: Option<ClassId>| -> Option<TypeId> {
@@ -5172,8 +5198,8 @@ fn null_free_api(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, result: TypeI
     };
     if null {
         let mut sp = inf.span_expr(cx.unit, argument.unwrap_or(e));
-        // A seção de cascata (`c..complete()`): o `MethodInvocation` sem alvo
-        // começa no operador `..`/`?..`.
+        // A cascade section (`c..complete()`): the `MethodInvocation` without a
+        // target starts at the `..`/`?..` operator.
         if argument.is_none()
             && let ExprKind::Call { target, .. } = &a.expr(e).kind
             && let ExprKind::Property { target: receiver, .. } = &a.expr(*target).kind
@@ -5203,8 +5229,8 @@ fn comparison_with_null(inf: &mut BodyInferrer<'_>, cx: &Body, op: BinaryOp, lef
     let null = |x: ExprId| matches!(a.expr(x).kind, ExprKind::Null);
     let (sl, sr) = (inf.span_expr(cx.unit, left), inf.span_expr(cx.unit, right));
     let operator = operator_token(inf, cx, sl.end);
-    // `===`/`!==` (`UNSUPPORTED_OPERATOR`): o nó não é uma comparação de
-    // igualdade para o `_checkForUnnecessaryNullComparison`.
+    // `===`/`!==` (`UNSUPPORTED_OPERATOR`): the node is not an equality
+    // comparison for `_checkForUnnecessaryNullComparison`.
     if inf.program.unit(cx.unit).source.get(operator.start..).is_some_and(|s| s.starts_with("===") || s.starts_with("!==")) {
         return;
     }
@@ -5239,7 +5265,7 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
             let (lv, lf) = condicao(inf, cx, left);
             verify_bool(inf, cx, left, BoolUse::Operand(symbol));
             cx.flow = if op == BinaryOp::And { lv.clone() } else { lf.clone() };
-            // O código morto do lado direito começa no operador.
+            // The right side's dead code starts at the operator.
             let start = {
                 let the_left_end = inf.span_expr(cx.unit, left).end;
                 let right_start = inf.span_expr(cx.unit, right).start;
@@ -5262,11 +5288,11 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
             let u = inf.core.unknown;
             let tl = inferir(inf, cx, left, u);
             void_use(inf, cx, left, tl);
-            // `e == .x`: o atalho à direita usa o tipo de `e` (3.10).
+            // `e == .x`: the shorthand on the right uses the type of `e` (3.10).
             shorthands::record_equality(inf, cx, right, tl);
             dead_in_right_operand(inf, cx, left, right);
             let tr = inferir(inf, cx, right, u);
-            // O lado direito é o argumento de `operator ==(Object)`.
+            // The right side is the argument of `operator ==(Object)`.
             void_use(inf, cx, right, tr);
             never_receiver(inf, cx, left, tl);
             comparison_with_null(inf, cx, op, left, right, tl, tr);
@@ -5275,9 +5301,9 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, left, this);
             }
-            // `E(x) == y`: o `==` só na extensão (`_resolveUserDefinableElement`
-            // com `ExtensionOverride`); ausente, `UNDEFINED_EXTENSION_OPERATOR`
-            // no operador, com o nome `==` também para `!=`.
+            // `E(x) == y`: the `==` only in the extension (`_resolveUserDefinableElement`
+            // with `ExtensionOverride`); missing, `UNDEFINED_EXTENSION_OPERATOR` at
+            // the operator, with the name `==` also for `!=`.
             if let Some((x, args)) = cx.overlays.get(&left).cloned()
                 && let Some(eq) = inf.sym.igual
                 && inf.explicit_extension_member(x, &args, eq, false).is_none()
@@ -5287,9 +5313,9 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                 let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, "==", extension);
                 inf.aviso(msg, token);
             }
-            // `super == x`: o `==` da cadeia de `super`, com o parâmetro
-            // tornado anulável (`_resolveEqual`): `super == 'a'` contra
-            // `==(covariant num other)` é `ARGUMENT_TYPE_NOT_ASSIGNABLE` de `num?`.
+            // `super == x`: the `==` of the `super` chain, with the parameter made
+            // nullable (`_resolveEqual`): `super == 'a'` against
+            // `==(covariant num other)` is an `ARGUMENT_TYPE_NOT_ASSIGNABLE` of `num?`.
             if let Some(eq) = inf.sym.igual
                 && matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super)
             {
@@ -5308,10 +5334,9 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                 }
             } else if let Some(eq) = inf.sym.igual {
                 if let Busca::Achado(m) = inf.lookup_member(cx.lib, tl, eq, false) {
-                    // O lado direito contra o parâmetro de `operator ==`
-                    // tornado anulável (`binary_expression_resolver.dart:117-124`,
-                    // `promoteParameterToNullable`), procurado no tipo
-                    // esquerdo promovido a não nulo.
+                    // The right side against the parameter of `operator ==` made nullable
+                    // (`binary_expression_resolver.dart:117-124`, `promoteParameterToNullable`),
+                    // looked up on the left type promoted to non-null.
                     let tl_nn = inf.non_null(tl);
                     let mem = if tl_nn != tl {
                         match inf.lookup_member(cx.lib, tl_nn, eq, false) {
@@ -5356,7 +5381,7 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                 None
             };
             let _ = (tl, tr);
-            // O alvo (um campo) pode ter sido criado agora: o fluxo corrente o tem.
+            // The target (a field) may have just been created: the current flow has it.
             let after = if tgt.is_some() { cx.flow.clone() } else { after };
             let (mut the_equal, mut different) = (after.clone(), after.clone());
             if let Some(id) = tgt {
@@ -5364,11 +5389,11 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                 inf.promote_non_null(&mut different, id, decl);
                 let _ = &mut the_equal;
             }
-            // Fluxo sólido (3.9, `sound-flow-analysis`): comparar com `null`
-            // uma expressão de tipo não anulável tem resultado conhecido — o
-            // ramo "igual" é inalcançável (`flow-analysis.md`, `equalityOp`:
-            // `equivalentToNull(T1)` e `T2` não anulável, ou o inverso). Antes
-            // da 3.9 os dois ramos continuam alcançáveis (mixed mode).
+            // Sound flow (3.9, `sound-flow-analysis`): comparing an expression of a
+            // non-nullable type with `null` has a known result: the "equal" branch
+            // is unreachable (`flow-analysis.md`, `equalityOp`:
+            // `equivalentToNull(T1)` and `T2` non-nullable, or the reverse). Before
+            // 3.9 both branches stay reachable (mixed mode).
             let solido = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::SoundFlowAnalysis);
             if solido {
                 let null = |inf: &BodyInferrer<'_>, t: TypeId| matches!(inf.table.get(t), Type::Null);
@@ -5385,12 +5410,13 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
     }
 }
 
-/// `e is T` / `e is! T`: `(true, false)` com promoção.
-/// `_checkAllTypeChecks` do `BestPracticesVerifier`
+/// `e is T` / `e is! T`: `(true, false)` with promotion.
+/// `BestPracticesVerifier`'s `_checkAllTypeChecks`
 /// (`an611:src/error/best_practices_verifier.dart:773-823`): `e is dynamic`,
-/// `null is Null`, e `e is T` com o tipo estático de `e` subtipo de `T` são
-/// sempre verdadeiros (`UNNECESSARY_TYPE_CHECK_TRUE`, ou `_FALSE` com `is!`);
-/// `e is Null` com `e` não literal é `TYPE_CHECK_IS_NULL` (`_IS_NOT_NULL`).
+/// `null is Null`, and `e is T` with the static type of `e` a subtype of `T`
+/// are always true (`UNNECESSARY_TYPE_CHECK_TRUE`, or `_FALSE` with `is!`);
+/// `e is Null` with `e` not a literal is `TYPE_CHECK_IS_NULL`
+/// (`_IS_NOT_NULL`).
 #[allow(clippy::too_many_arguments)]
 fn unnecessary_type_test(
     inf: &mut BodyInferrer<'_>,
@@ -5404,7 +5430,7 @@ fn unnecessary_type_test(
     span: dartforge_diagnostics::Span,
 ) {
     use dartforge_diagnostics::codigos::warning as w;
-    // Operando ou tipo `InvalidType`: nenhum aviso de teste desnecessário
+    // An `InvalidType` operand or type: no unnecessary-test warning
     // (`best_practices_verifier.dart:790`, `:801`).
     if invalid || inf.table.e_invalido(v) || inf.table.e_invalido(t) {
         return;
@@ -5417,8 +5443,8 @@ fn unnecessary_type_test(
     };
     let code = if the_negated { w::UNNECESSARY_TYPE_CHECK_FALSE } else { w::UNNECESSARY_TYPE_CHECK_TRUE };
     if inf.e_dynamic(t) {
-        // O `dynamic` de verdade: o escrito, ou o alias que chega a si mesmo
-        // (`hasSelfReference` instancia como `DynamicType`).
+        // The real `dynamic`: the written one, or the alias that reaches itself
+        // (`hasSelfReference` instantiates as `DynamicType`).
         let self_referencing_alias = match &ast(inf, cx).ty(ty).kind {
             ast::TypeKind::Named { name, .. } => {
                 let b = match &name[..] {
@@ -5436,7 +5462,7 @@ fn unnecessary_type_test(
         }
         return;
     }
-    // `is Never?` também é `isDartCoreNull` (o `Never?` escrito vira `Null`).
+    // `is Never?` is also `isDartCoreNull` (a written `Never?` becomes `Null`).
     let nullable_never = matches!(&ast(inf, cx).ty(ty).kind, ast::TypeKind::Named { name, .. }
         if ast(inf, cx).ty(ty).nullable && name.len() == 1 && inf.interner.resolve(name[0].sym) == "Never")
         && inf.table.canonico(t) == inf.core.null;
@@ -5459,10 +5485,12 @@ fn type_test(inf: &mut BodyInferrer<'_>, cx: &mut Body, value: ExprId, ty: ast::
     void_use(inf, cx, value, v);
     let warnings_before = inf.diagnostics.len();
     let t = inf.type_in_context(cx, ty, crate::resolve::TypeContext::Is);
-    // Tipo que não resolveu (`InvalidType` no analyzer): nada a dizer.
+    // A type that did not resolve (`InvalidType` in the analyzer): nothing to
+    // say.
     let invalid = inf.diagnostics[warnings_before..].iter().any(|d| d.code.is_some());
     unnecessary_type_test(inf, cx, value, v, ty, t, the_negated, invalid, span);
-    // `x is Never` não promove `x` (o ramo "sim" fica com o tipo de antes).
+    // `x is Never` does not promote `x` (the "yes" branch keeps the previous
+    // type).
     let tgt = promotion_target(inf, cx, value).filter(|_| !matches!(inf.table.get(t), Type::Never));
     let after = cx.flow.clone();
     let (mut yes, mut not_) = (after.clone(), after.clone());
@@ -5470,15 +5498,15 @@ fn type_test(inf: &mut BodyInferrer<'_>, cx: &mut Body, value: ExprId, ty: ast::
         let decl = cx.local(id).tipo;
         inf.promover(&mut yes, id, decl, t);
         let factored = factor(inf, v, t);
-        // `tryPromoteForTypeCheck` (flow_analysis.dart:2544-2557): o fator
-        // `Never` não promove (marcaria o ramo como inalcançável, e a
-        // unsoundness de modo misto pode alcançá-lo), nem o fator igual ao
-        // tipo anterior; o tipo testado é registrado de todo jeito.
+        // `tryPromoteForTypeCheck` (flow_analysis.dart:2544-2557): the factor
+        // `Never` does not promote (it would mark the branch as unreachable, and
+        // mixed-mode unsoundness may reach it), nor a factor equal to the
+        // previous type; the tested type is recorded anyway.
         let promotes = !matches!(inf.table.get(factored), Type::Never) && factored != v;
         inf.promote_factored(&mut not_, id, promotes.then_some(factored), t);
     }
-    // `e is Never` nunca é verdadeiro: o ramo "sim" é inalcançável (sem
-    // promover o alvo).
+    // `e is Never` is never true: the "yes" branch is unreachable (without
+    // promoting the target).
     if matches!(inf.table.get(t), Type::Never) {
         yes = yes.unreachable();
     }
@@ -5519,7 +5547,7 @@ pub(crate) fn factor(inf: &mut BodyInferrer<'_>, t: TypeId, s: TypeId) -> TypeId
     }
 }
 
-/// Declara um local (com tabela lateral de tipo por offset).
+/// Declares a local (with a type side table by offset).
 pub(crate) fn declarar_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, local: Local, initialized: bool) -> LocalId {
     let (offset, typ) = (local.offset, local.tipo);
     let id = cx.declarar(local);
@@ -5531,12 +5559,12 @@ pub(crate) fn declarar_local(inf: &mut BodyInferrer<'_>, cx: &mut Body, local: L
 }
 
 impl<'a> BodyInferrer<'a> {
-    /// Expressão constante (especificação, "Constants"), sobre a resolução
-    /// já feita: literais, constantes referidas, construtores e coleções
-    /// `const`, operadores sobre constantes, `?:`, interpolação, tipos.
-    /// `alvo` (de uma chamada) é o construtor primário de um tipo de extensão
-    /// declarado `const` (`extension type const E._(int v)`: `E._(1)`), que
-    /// não é elemento e por isso não tem `Resolved::Constructor`.
+    /// Constant expression (specification, "Constants"), over the resolution
+    /// already done: literals, referenced constants, `const` constructors and
+    /// collections, operators over constants, `?:`, interpolation, types.
+    /// `tgt` (of a call) is the primary constructor of an extension type
+    /// declared `const` (`extension type const E._(int v)`: `E._(1)`), which is
+    /// not an element and therefore has no `Resolved::Constructor`.
     fn const_primary(&self, cx: &Body, tgt: ExprId) -> bool {
         let a = ast(self, cx);
         let bt = &self.body_types.units[cx.unit.0 as usize];
@@ -5563,7 +5591,7 @@ impl<'a> BodyInferrer<'a> {
             match (fe.kind, fe.variable) {
                 (FunctionKind::ImplicitAccessor, Some(v)) => var_const(v),
                 (FunctionKind::Getter | FunctionKind::Setter, _) => false,
-                // Tear-off de função de topo ou estática é constante.
+                // A tear-off of a top-level or static function is constant.
                 _ => fe.static_ || fe.class.is_none(),
             }
         };
@@ -5589,7 +5617,7 @@ impl<'a> BodyInferrer<'a> {
                 if ref_const(bt.get_resolved(e)) {
                     return true;
                 }
-                // `s.length` de string constante.
+                // `s.length` of a constant string.
                 self.interner.resolve(name.sym) == "length" && self.is_constant(cx, *target)
             }
             ExprKind::TypeArguments { .. } => true,
@@ -5607,7 +5635,7 @@ impl<'a> BodyInferrer<'a> {
                 matches!(keyword, Some(ast::CreationKeyword::Const)) || arguments.args.iter().all(|x| self.is_constant(cx, x.value)) && self.const_constructor(bt.get_resolved(e))
             }
             ExprKind::Call { target, arguments } => {
-                // Construtor `const` sem `new` em contexto constante, ou `identical`.
+                // A `const` constructor without `new` in a constant context, or `identical`.
                 let ok_args = arguments.args.iter().all(|x| self.is_constant(cx, x.value));
                 if !ok_args {
                     return false;

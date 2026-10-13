@@ -1,7 +1,7 @@
-//! Unidades `dart:` não recebem inferência de corpos: só o outline do SDK é
-//! necessário para tipar código do usuário (docs/EMISSAO-DDC.md — o `dart:*`
-//! executado é o `dart_sdk.js`). O programa do usuário continua tipado, e uma
-//! constante do SDK sem tipo escrito ainda ganha tipo pelo inicializador.
+//! `dart:` units do not get body inference: only the SDK outline is needed
+//! to type user code (docs/EMISSAO-DDC.md: the executed `dart:*` is
+//! `dart_sdk.js`). The user program stays typed, and an SDK constant without
+//! a written type still gets a type from its initializer.
 
 use dartforge_elements::load::load;
 use dartforge_elements::sdk::SdkLayout;
@@ -100,7 +100,7 @@ fn sdk_without_bodies_and_typed_user() {
     let (mut outline, _) = resolve_outline(&program, &interner, &mut table, &core);
     let (bodies, diags) = infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
 
-    // Unidades do SDK (biblioteca, parte e patch): tabelas vazias, sem avisos.
+    // SDK units (library, part and patch): empty tables, no warnings.
     let mut sdk_units = 0;
     for (i, u) in program.units.iter().enumerate() {
         if program.library(u.library).is_sdk {
@@ -113,7 +113,7 @@ fn sdk_without_bodies_and_typed_user() {
     assert_eq!(sdk_units, 4, "core, int.dart (parte), core_patch e convert");
     assert!(diags.is_empty(), "sem avisos do usuário nem do SDK: {diags:?}");
 
-    // O usuário continua tipado: `y` em `dobro` é `int`.
+    // The user stays typed: `y` in `dobro` is `int`.
     let entry_unit = program.library(program.entry.unwrap()).units[0];
     let unit = program.unit(entry_unit);
     let the_table = &bodies.units[entry_unit.0 as usize];
@@ -132,10 +132,11 @@ fn sdk_without_bodies_and_typed_user() {
     }
     assert!(y_int, "`y` deve ter tipo `int`");
 
-    // `const json = JsonCodec()` do SDK, sem tipo escrito, ainda tem o
-    // inicializador visitado (`inferred` preenchido) — é o que `json.decode`
-    // no usuário precisa. (Hoje `JsonCodec()` sem `new` infere `dynamic` tanto
-    // no SDK quanto no usuário: lacuna do resolvedor, não deste corte.)
+    // The SDK's `const json = JsonCodec()`, without a written type, still has
+    // its initializer visited (`inferred` filled in), which is what
+    // `json.decode` in the user needs. (Today `JsonCodec()` without `new`
+    // infers `dynamic` both in the SDK and in the user: a resolver gap, not one
+    // of this cut.)
     let json_var = program.variables.iter().position(|v| interner.resolve(v.name) == "json").unwrap();
     assert!(outline.variables[json_var].inferred.is_some(), "json tem tipo inferido");
 }

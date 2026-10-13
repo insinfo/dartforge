@@ -1,27 +1,28 @@
-//! Inferência de tipos dos corpos: expressões, instruções, padrões e fluxo.
+//! Type inference of bodies: expressions, statements, patterns and flow.
 //!
-//! Segue a especificação de inferência (`references/dart-language/resources/
-//! type-system/inference.md`), a análise de fluxo (`flow-analysis.md`) e, onde
-//! a especificação é omissa, a implementação oficial (`pkg/analyzer/lib/src/
-//! dart/resolver`, `_fe_analyzer_shared/lib/src/type_inference`).
+//! Follows the inference specification (`references/dart-language/resources/
+//! type-system/inference.md`), flow analysis (`flow-analysis.md`) and, where
+//! the specification is silent, the official implementation
+//! (`pkg/analyzer/lib/src/dart/resolver`,
+//! `_fe_analyzer_shared/lib/src/type_inference`).
 //!
-//! Organização:
+//! Organization:
 //!
-//! * `corpo` — estado de um corpo (locais, escopos, contexto de função);
-//! * `fluxo` — modelo de fluxo: promoção, atribuição definitiva, alcance;
-//! * `membros` — busca de membros (interface, estáticos, extensões);
-//! * `expr` — expressões, com contexto (esquema) para baixo e tipo para cima;
-//! * `chamadas` — invocações e inferência de argumentos de tipo;
-//! * `colecoes` — literais de lista, conjunto e mapa;
-//! * `funcoes` — corpos, expressões de função e funções locais;
-//! * `instrucoes` — instruções;
-//! * `padroes` — padrões (Dart 3);
-//! * `tipos` — operações de tipo usadas por todos (subtipo, UP, flatten…).
+//! * `corpo`: state of a body (locals, scopes, function context);
+//! * `flow`: flow model: promotion, definite assignment, reachability;
+//! * `membros`: member lookup (interface, statics, extensions);
+//! * `expr`: expressions, with context (schema) downwards and type upwards;
+//! * `chamadas`: invocations and type argument inference;
+//! * `the_collections`: list, set and map literals;
+//! * `funcoes`: bodies, function expressions and local functions;
+//! * `instrucoes`: statements;
+//! * `padroes`: patterns (Dart 3);
+//! * `types`: type operations used by all (subtype, UP, flatten…).
 //!
-//! A inferência de topo (variáveis e campos sem tipo) é sob demanda
-//! (`BodyInferrer::tipo_variavel`): quem lê a variável dispara a inferência
-//! do inicializador, com detecção de ciclo (`inference.md`, "Top-level
-//! inference procedure").
+//! Top-level inference (untyped variables and fields) is on demand
+//! (`BodyInferrer::variable_type`): whoever reads the variable triggers the
+//! inference of the initializer, with cycle detection (`inference.md`,
+//! "Top-level inference procedure").
 
 mod shorthands;
 mod calls;
@@ -48,7 +49,7 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-/// Estado da inferência de topo de uma variável.
+/// State of the top-level inference of a variable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VarState {
     Pendente,
@@ -56,7 +57,7 @@ enum VarState {
     Ready,
 }
 
-/// Símbolos usados com frequência, resolvidos uma vez.
+/// Frequently used symbols, resolved once.
 pub(crate) struct Symbols {
     pub vazio: Option<SymbolId>,
     pub call: Option<SymbolId>,
@@ -89,18 +90,19 @@ impl Symbols {
     }
 }
 
-/// Um corpo inferível isoladamente (ver [`BodyInferrer::apenas_corpos`]).
+/// A body that can be inferred in isolation (see
+/// [`BodyInferrer::only_bodies`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BodyRef {
-    /// Função de topo, método, construtor, getter/setter ou função local
-    /// declarada como elemento.
+    /// Top-level function, method, constructor, getter/setter or local function
+    /// declared as an element.
     Funcao(FunctionElementId),
-    /// O inicializador de uma variável de topo ou de um campo.
+    /// The initializer of a top-level variable or of a field.
     Variavel(VariableId),
 }
 
-/// O corpo que contém o offset `pos` da unidade `u`: o executável ou o
-/// inicializador de variável cujo nó o envolve (o menor).
+/// The body that contains offset `pos` of unit `u`: the executable or
+/// variable initializer whose node encloses it (the smallest).
 pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let a = &program.unit(u).ast;
@@ -128,11 +130,11 @@ pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyR
     best.map(|(_, c)| c)
 }
 
-/// Os corpos da unidade `u`, na ordem da inferência completa (variáveis,
-/// depois funções). Com `todos = false`, só os inicializadores de variáveis
-/// sem tipo escrito que o esboço já inferiu: o que a inferência de uma
-/// biblioteca cujos corpos não foram pedidos grava nas tabelas desta unidade
-/// (a inferência de topo sob demanda).
+/// The bodies of unit `u`, in the order of full inference (variables, then
+/// functions). With `all = false`, only the initializers of variables
+/// without a written type that the sketch already inferred: what the
+/// inference of a library whose bodies were not requested writes into this
+/// unit's tables (on-demand top-level inference).
 pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTypes, u: UnitId, all: bool) -> Vec<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let mut v = Vec::new();
@@ -155,8 +157,8 @@ pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTyp
     for (i, f) in program.functions.iter().enumerate() {
         let its = match f.node {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit == u,
-            // Sintéticas (construtor implícito, acessores de campo): pela
-            // declaração da classe ou pela variável de origem.
+            // Synthetic ones (implicit constructor, field accessors): through the
+            // class declaration or through the originating variable.
             FunctionRef::None => {
                 f.class.and_then(|c| program.class(c).decl).is_some_and(|d| d.unit == u && f.variable.is_none())
                     || f.variable.is_some_and(|x| match program.variable(x).node {
@@ -172,26 +174,26 @@ pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTyp
     v
 }
 
-/// O resultado de [`inferir_corpos`].
+/// The result of [`inferir_corpos`].
 pub struct InferredBodies {
-    /// As tabelas da unidade, preenchidas pelos corpos pedidos.
+    /// The unit's tables, filled by the requested bodies.
     pub tabelas: UnitBodyTypes,
-    /// Os diagnósticos desses corpos.
+    /// The diagnostics of those bodies.
     pub diagnosticos: Vec<Diagnostic>,
-    /// O escopo capturado pela sonda, quando pedida e alcançada.
+    /// The scope captured by the probe, when requested and reached.
     pub escopo: Option<crate::resolved::EscopoSondado>,
 }
 
-/// Infere só `corpos` (todos da unidade `unidade`) sobre um esboço e uma
-/// tabela de tipos já povoados por uma inferência anterior do mesmo
-/// programa (docs/LSP-ESPECIFICACAO.md §16.5, E1): os tipos de variáveis já
-/// inferidos valem, as sobrescritas de campo já foram completadas (a lista
-/// do esboço está vazia) e a inferência de sobrescritas já rodou. Com
-/// `metadados`, as anotações da unidade também (a recriação das tabelas de
-/// uma unidade inteira; o completar não as pede).
+/// Infers only `bodies` (all from unit `unit_id`) over a sketch and a type
+/// table already populated by an earlier inference of the same program
+/// (docs/LSP-ESPECIFICACAO.md §16.5, E1): the already inferred variable
+/// types hold, field overrides were already completed (the sketch's list is
+/// empty) and override inference already ran. With `metadata`, the unit's
+/// annotations too (recreating the tables of a whole unit; completion does
+/// not request them).
 ///
-/// Invariante: para todo corpo `c`, as tabelas e os diagnósticos de `c` são
-/// os que a inferência completa do programa dá a `c`.
+/// Invariant: for every body `c`, the tables and diagnostics of `c` are
+/// those that full inference of the program gives `c`.
 #[allow(clippy::too_many_arguments)]
 pub fn inferir_corpos(
     program: &Program,
@@ -229,7 +231,7 @@ pub fn inferir_corpos(
     }
 }
 
-/// Contexto de inferência de corpos para o programa inteiro.
+/// Body inference context for the whole program.
 pub struct BodyInferrer<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -238,119 +240,118 @@ pub struct BodyInferrer<'a> {
     pub outline: &'a mut crate::resolve::OutlineTypes,
     pub diagnostics: Vec<Diagnostic>,
     pub body_types: BodyTypes,
-    /// Sessão residente: quando `Some`, só os corpos de funções destas
-    /// bibliotecas são inferidos — as outras não serão reemitidas, e o
-    /// emissor só consulta os corpos do que emite. Inicializadores de
-    /// variáveis continuam sendo inferidos em todas as bibliotecas, porque o
-    /// tipo inferido de uma variável (`var x = 1;`) é lido por quem a usa.
+    /// Resident session: when `Some`, only the function bodies of these
+    /// libraries are inferred; the others will not be re-emitted, and the
+    /// emitter only consults the bodies of what it emits. Variable initializers
+    /// are still inferred in all libraries, because the inferred type of a
+    /// variable (`var x = 1;`) is read by whoever uses it.
     pub apenas_bibliotecas: Option<HashSet<u32>>,
-    /// Inferência incremental (o completar do LSP): quando `Some`, só estes
-    /// corpos (funções/métodos/construtores e inicializadores de variáveis)
-    /// são inferidos; os tipos de variáveis de topo lidos por eles seguem sob
-    /// demanda. Os metadados das unidades não são visitados.
+    /// Incremental inference (LSP completion): when `Some`, only these bodies
+    /// (functions/methods/constructors and variable initializers) are inferred;
+    /// the types of top-level variables they read are still on demand. Unit
+    /// metadata is not visited.
     pub only_bodies: Option<HashSet<BodyRef>>,
     vars_state: Vec<VarState>,
-    /// Inicializadores já visitados para as tabelas laterais.
+    /// Initializers already visited for the side tables.
     visited_initializer: Vec<bool>,
     extensoes: HashMap<u32, Rc<[ExtensionId]>>,
     pub(crate) sym: Symbols,
-    /// Profundidade de inferências de topo aninhadas (proteção de pilha).
+    /// Depth of nested top-level inferences (stack protection).
     top_depth: u32,
-    /// Parâmetros auxiliares (E, K, V) da inferência de literais de coleção.
+    /// Auxiliary parameters (E, K, V) for collection literal inference.
     pub(crate) collection_params_cache: Option<[crate::table::TypeParamId; 3]>,
-    /// Parâmetros novos, por classe, da inferência de construtores.
+    /// New parameters, per class, for constructor inference.
     pub(crate) constructor_params: HashMap<u32, Vec<crate::table::TypeParamId>>,
-    /// O `FieldPromotability` de cada biblioteca já consultada.
+    /// The `FieldPromotability` of each library already consulted.
     pub(crate) promotion_by_library: HashMap<LibraryId, std::rc::Rc<crate::field_promotion::LibraryPromotion>>,
-    /// O `whyNotPromoted` de cada leitura de referência (local ou
-    /// propriedade) que tem algum motivo: `tipo -> motivo`, na ordem do mapa
-    /// do fluxo.
+    /// The `whyNotPromoted` of each reference read (local or property) that has
+    /// some reason: `ty -> motivo`, in the order of the flow's map.
     pub(crate) non_promotions: HashMap<(UnitId, ast::ExprId), Vec<(TypeId, flow::NonPromotionReason)>>,
-    /// Contexto refinado dos argumentos de `clamp`/`remainder` para a
-    /// próxima invocação.
+    /// Refined context of the arguments of `clamp`/`remainder` for the next
+    /// invocation.
     pub(crate) pending_numeric_context: Option<TypeId>,
-    /// O `errorEntity` da próxima invocação genérica (onde vai o
-    /// `COULD_NOT_INFER`) e os nomes dos parâmetros posicionais do alvo
-    /// (para a mensagem); só quem conhece o alvo os define.
+    /// The `errorEntity` of the next generic invocation (where the
+    /// `COULD_NOT_INFER` goes) and the names of the target's positional
+    /// parameters (for the message); only whoever knows the target sets them.
     pub(crate) inference_entity: Option<Span>,
-    /// Parâmetros cujo tipo escrito não resolve (`InvalidType` no
-    /// analyzer), pela unidade e o offset do nome: a leitura deles tem o tipo
-    /// de recuperação.
+    /// Parameters whose written type does not resolve (`InvalidType` in the
+    /// analyzer), by unit and name offset: reading them has the recovery type.
     pub(crate) invalid_locals: HashSet<(UnitId, usize)>,
     pub(crate) nomes_posicionais: Option<Vec<String>>,
-    /// Alvo da próxima verificação de aridade (`chamadas::verificar_aridade`):
-    /// o nome citado nos `NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_*` e o
-    /// intervalo do `MISSING_REQUIRED_ARGUMENT`; só quem conhece a chamada o define.
+    /// Target of the next arity check (`calls::verify_arity`): the name
+    /// cited in `NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_*` and the range of
+    /// `MISSING_REQUIRED_ARGUMENT`; only whoever knows the call sets it.
     pub(crate) arity_target: Option<calls::ArityTarget>,
-    /// A próxima [`chamadas::invocar`] é a de um `call` implícito: a função
-    /// invocada tem tipo de interface, e o `_checkInvocationTypeArguments`
-    /// (`type_arguments_verifier.dart`) não confere os limites dos
-    /// argumentos de tipo escritos (o tipo genérico não é `FunctionType`).
+    /// The next [`calls::invoke`] is that of an implicit `call`: the invoked
+    /// function has an interface type, and `_checkInvocationTypeArguments`
+    /// (`type_arguments_verifier.dart`) does not check the bounds of the written
+    /// type arguments (the generic type is not a `FunctionType`).
     pub(crate) implicit_call: bool,
-    /// Unidade de cada diagnóstico (paralelo a `diagnostics`), para quem
-    /// precisa do arquivo (ferramentas; o LSP).
+    /// Unit of each diagnostic (parallel to `diagnostics`), for whoever needs
+    /// the file (tools; the LSP).
     pub warning_units: Vec<Option<UnitId>>,
-    /// Unidade do corpo em inferência.
+    /// Unit of the body being inferred.
     pub(crate) current_unit: Option<UnitId>,
-    /// Tipos dos espalhamentos de um `{…}` só de espalhamentos, já
-    /// inferidos sem contexto para decidir entre conjunto e mapa (a visita
-    /// dos elementos os reaproveita em vez de inferir de novo).
+    /// Types of the spreads of a spreads-only `{…}`, already inferred without a
+    /// context to decide between set and map (the visit of the elements reuses
+    /// them instead of inferring again).
     pub(crate) inferred_spreads: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
-    /// O tipo de cada espalhamento depois da visita do literal, para a
-    /// forma pelos elementos (`colecoes::literal`).
+    /// The type of each spread after the literal's visit, for the shape from the
+    /// elements (`collections::literal`).
     pub(crate) visited_spreads: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
-    /// LSP: registra em [`UnitBodyTypes::declaracoes_de_locais`] a
-    /// declaração de cada local referido (renomear, referências). Desligado
-    /// no compilador, que não paga pela tabela.
+    /// LSP: records in [`UnitBodyTypes::declaracoes_de_locais`] the declaration
+    /// of each referenced local (rename, references). Off in the compiler, which
+    /// does not pay for the table.
     pub registrar_locais: bool,
-    /// LSP (completar): o identificador simples em `(unidade, offset do
-    /// nome)` tem o escopo léxico capturado em [`BodyInferrer::escopo_sondado`]
-    /// quando a inferência passa por ele.
+    /// LSP (completion): the simple identifier at `(unit_id, offset do name)`
+    /// has its lexical scope captured in [`BodyInferrer::probed_scope`] when
+    /// inference goes through it.
     pub sonda_escopo: Option<(UnitId, usize)>,
-    /// O escopo capturado pela [`BodyInferrer::sonda_escopo`].
+    /// The scope captured by [`BodyInferrer::sonda_escopo`].
     pub probed_scope: Option<crate::resolved::EscopoSondado>,
-    /// O contexto da próxima anotação resolvida (lido e zerado por
-    /// `resolver_anotacao`).
+    /// The context of the next resolved annotation (read and cleared by
+    /// `resolve_annotation`).
     pub(crate) type_context: crate::resolve::TypeContext,
-    /// Os locais do corpo visíveis na anotação em resolução (ver
-    /// [`Corpo::locais_visiveis`](corpo::Corpo::locais_visiveis)).
+    /// The body's locals visible in the annotation being resolved (see
+    /// [`Body::visible_locals`](body::Body::visible_locals)).
     pub(crate) locals_as_type: HashMap<SymbolId, (Span, bool)>,
-    /// A classe e a extensão cujos membros estão em escopo na anotação.
+    /// The class and the extension whose members are in scope in the
+    /// annotation.
     pub(crate) type_container: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
-    /// Ambiguidade de extensão da última busca de membro: `(nome, lista)`.
+    /// Extension ambiguity of the last member lookup: `(name, list)`.
     pub(crate) extension_ambiguity: Option<(String, String, Option<(String, String)>)>,
-    /// A anotação em resolução está num método ou campo estático.
+    /// The annotation being resolved is in a static method or field.
     pub(crate) in_static_member: bool,
-    /// O `InheritanceManager3` (as interfaces das classes), com os tipos
-    /// dos campos inferidos sob demanda.
+    /// The `InheritanceManager3` (the classes' interfaces), with the types of
+    /// the fields inferred on demand.
     pub(crate) heranca: crate::heranca::Heranca,
-    /// Os pais das expressões de cada unidade, sob demanda (as regras que
-    /// dependem do lugar sintático de um nó).
+    /// The parents of the expressions of each unit, on demand (the rules that
+    /// depend on a node's syntactic place).
     pais: HashMap<UnitId, Rc<dartforge_frontend::pais::Pais>>,
-    /// `_inferring` da inferência de topo: as variáveis cujo inicializador
-    /// está sendo inferido, na ordem.
+    /// `_inferring` of top-level inference: the variables whose initializer is
+    /// being inferred, in order.
     variable_stack: Vec<VariableId>,
-    /// As variáveis num ciclo de inferência (`dependencyCycle`): o tipo é
-    /// `dynamic`, e o relato já saiu.
+    /// The variables in an inference cycle (`dependencyCycle`): the type is
+    /// `dynamic`, and the report was already made.
     in_cycle: HashSet<VariableId>,
-    /// Na busca dos sobrescritos de um campo sem tipo, a classe dele: os
-    /// campos declarados nela não são tipados ao montar a interface
+    /// When looking up what an untyped field overrides, its class: the fields
+    /// declared in it are not typed when building the interface
     /// ([`crate::heranca::Provedor::tipo_do_membro`]).
     pub(crate) declared_untyped: Option<dartforge_elements::model::ClassId>,
-    /// Alguma interface do cache foi montada com um campo não tipado.
+    /// Some interface in the cache was built with an untyped field.
     pub(crate) provisional_inheritance: bool,
-    /// O nome (sem o `=`) buscado na interface durante uma inferência de
-    /// topo: os campos ainda não inferidos com outro nome ficam provisórios
+    /// The name (without the `=`) looked up in the interface during a top-level
+    /// inference: fields not yet inferred with another name stay provisional
     /// ([`crate::heranca::Provedor::tipo_do_membro`]).
     pub(crate) nome_da_busca: Option<SymbolId>,
 }
 
-/// As extensões acessíveis em `lib` (as da biblioteca e as que os imports
-/// trazem, `BodyInferrer::extensoes_acessiveis`) que se aplicam a `recv`,
-/// com os argumentos de tipo inferidos (`applicableTo` do analyzer, usado
-/// pelo completar: `InstanceExtensionMembersOperation` e os membros de
-/// extensão do `DeclarationHelper`). O receptor é tomado como está: quem
-/// chama já o promoveu a não anulável (`promoteToNonNull`).
+/// The extensions accessible in `lib` (the library's own and those the
+/// imports bring in, `BodyInferrer::accessible_extensions`) that apply to
+/// `recv`, with the inferred type arguments (the analyzer's `applicableTo`,
+/// used by completion: `InstanceExtensionMembersOperation` and the extension
+/// members of `DeclarationHelper`). The receiver is taken as is: the caller
+/// already promoted it to non-nullable (`promoteToNonNull`).
 pub fn extensoes_aplicaveis(
     program: &Program,
     interner: &Interner,
@@ -360,14 +361,14 @@ pub fn extensoes_aplicaveis(
     lib: LibraryId,
     recv: TypeId,
 ) -> Vec<(ExtensionId, Vec<TypeId>)> {
-    // Sem tabelas de corpo: só a aplicabilidade é consultada.
+    // Without body tables: only applicability is consulted.
     let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
     let exts = inf.accessible_extensions(lib);
     exts.iter().filter_map(|&e| inf.extensao_aplicavel(e, recv).map(|a| (e, a))).collect()
 }
 
-/// Como [`extensoes_aplicaveis`], para uma lista de extensões dada (as do
-/// `exportNamespace` de uma biblioteca ainda não importada,
+/// Like [`extensoes_aplicaveis`], for a given list of extensions (those of
+/// the `exportNamespace` of a library not yet imported,
 /// `addNotImportedExtensionMethods`).
 pub fn extensoes_aplicaveis_dentre(
     program: &Program,
@@ -393,8 +394,8 @@ impl<'a> BodyInferrer<'a> {
         Self::with_tables(program, interner, table, core, outline, None)
     }
 
-    /// Como [`BodyInferrer::new`]; com `so = Some(u)`, só a unidade `u` tem
-    /// tabelas (a inferência de corpos isolados, [`inferir_corpos`]).
+    /// Like [`BodyInferrer::new`]; with `only = Some(u)`, only unit `u` has tables
+    /// (the inference of isolated bodies, [`inferir_corpos`]).
     fn with_tables(
         program: &'a Program,
         interner: &'a Interner,
@@ -405,8 +406,8 @@ impl<'a> BodyInferrer<'a> {
     ) -> Self {
         let mut units = Vec::with_capacity(program.units.len());
         for (ui, u) in program.units.iter().enumerate() {
-            // Unidades do SDK não recebem inferência de corpos: tabela vazia
-            // (`get_type`/`get_resolved` devolvem `None`, `set_*` ignoram).
+            // SDK units do not get body inference: an empty table
+            // (`get_type`/`get_resolved` return `None`, `set_*` ignore).
             let allocate = match only {
                 Some(s) => s.0 as usize == ui,
                 None => !program.library(u.library).is_sdk,
@@ -465,9 +466,9 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Dá tabelas de corpo às unidades do SDK das bibliotecas `libs` (que
-    /// `new` deixa vazias): a busca de referências do LSP infere os corpos do
-    /// SDK que citam o nome procurado (docs/LSP-ESPECIFICACAO.md §11.9 B).
+    /// Gives body tables to the SDK units of the libraries `libs` (which `new`
+    /// leaves empty): the LSP's reference search infers the SDK bodies that
+    /// cite the searched name (docs/LSP-ESPECIFICACAO.md §11.9 B).
     pub fn alocar_corpos_de(&mut self, libs: &[LibraryId]) {
         for (i, u) in self.program.units.iter().enumerate() {
             if libs.contains(&u.library) && self.program.library(u.library).is_sdk && self.body_types.units[i].static_types.is_empty() {
@@ -476,9 +477,10 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Os tipos de variáveis já inferidos no esboço valem (um esboço retido
-    /// de uma inferência anterior do mesmo programa, docs/LSP-ESPECIFICACAO.md
-    /// §16.5): o estado delas começa pronto, e só as pedidas são reinferidas.
+    /// The variable types already inferred in the sketch hold (a sketch retained
+    /// from an earlier inference of the same program, docs/LSP-ESPECIFICACAO.md
+    /// §16.5): their state starts ready, and only the requested ones are
+    /// reinferred.
     fn use_retained_sketch(&mut self) {
         for (i, d) in self.outline.variables.iter().enumerate() {
             if d.declared_type.is_none() && d.inferred.is_some() {
@@ -487,11 +489,11 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// O inicializador de `vid` de novo, para as tabelas da unidade: com
-    /// tipo escrito, a visita; sem, a inferência de topo, mantendo o tipo do
-    /// esboço (o inicializador de variável sem tipo é assinatura: numa troca
-    /// de classe Corpo ele não mudou; na troca especulativa do completar, o
-    /// tipo novo não é gravado).
+    /// The initializer of `vid` again, for the unit's tables: with a written
+    /// type, the visit; without, the top-level inference, keeping the sketch's
+    /// type (an untyped variable's initializer is a signature: in a body-class
+    /// swap it did not change; in completion's speculative swap, the new type is
+    /// not recorded).
     fn reinfer_variable(&mut self, vid: VariableId) {
         let d = &self.outline.variables[vid.0 as usize];
         if d.declared_type.is_some() {
@@ -509,29 +511,29 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Ponto de entrada: infere inicializadores de variáveis e corpos.
+    /// Entry point: infers variable initializers and bodies.
     pub fn infer_all(self) -> (BodyTypes, Vec<Diagnostic>) {
         let (b, d, _) = self.infer_all_with_units();
         (b, d)
     }
 
-    /// Como [`BodyInferrer::infer_all`], com a unidade de cada diagnóstico.
+    /// Like [`BodyInferrer::infer_all`], with the unit of each diagnostic.
     pub fn infer_all_with_units(mut self) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<UnitId>>) {
         self.infer_everything();
         (self.body_types, self.diagnostics, self.warning_units)
     }
 
-    /// Como [`BodyInferrer::infer_all`], devolvendo também o escopo capturado
-    /// pela [`BodyInferrer::sonda_escopo`] (o completar do LSP).
+    /// Like [`BodyInferrer::infer_all`], also returning the scope captured by
+    /// [`BodyInferrer::sonda_escopo`] (LSP completion).
     pub fn infer_all_com_sonda(mut self) -> (BodyTypes, Vec<Diagnostic>, Option<crate::resolved::EscopoSondado>) {
         self.infer_everything();
         (self.body_types, self.diagnostics, self.probed_scope)
     }
 
-    /// Infere inicializadores, corpos e metadados, enchendo as tabelas.
+    /// Infers initializers, bodies and metadata, filling the tables.
     fn infer_everything(&mut self) {
-        // Bibliotecas do SDK pedidas explicitamente (o nativo compila o SDK
-        // da fonte) ganham tabelas laterais como as do usuário.
+        // SDK libraries requested explicitly (the native backend compiles the
+        // SDK from source) get side tables like the user's.
         if let Some(requested) = self.apenas_bibliotecas.clone() {
             for (ui, u) in self.program.units.iter().enumerate() {
                 if self.program.library(u.library).is_sdk && requested.contains(&u.library.0) {
@@ -540,8 +542,8 @@ impl<'a> BodyInferrer<'a> {
             }
         }
         self.complete_field_overrides();
-        // `_performOverrideInference`: a assinatura combinada dos
-        // sobrescritos nos tipos omitidos dos membros de instância.
+        // `_performOverrideInference`: the combined signature of the overridden
+        // members in the omitted types of instance members.
         self.infer_overrides();
         if let Some(bodies) = self.only_bodies.clone() {
             for c in bodies {
@@ -557,8 +559,8 @@ impl<'a> BodyInferrer<'a> {
         }
         for v in 0..self.program.variables.len() {
             let vid = VariableId(v as u32);
-            // Sessão residente: variáveis de bibliotecas que não serão
-            // reemitidas só são inferidas sob demanda (quem as lê pede o tipo).
+            // Resident session: variables of libraries that will not be re-emitted
+            // are only inferred on demand (whoever reads them asks for the type).
             let lib = self.program.variable(vid).library;
             if !self.infer_bodies_of(lib) {
                 continue;
@@ -583,8 +585,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Os corpos de `lib` são inferidos: os pedidos, quando há pedido
-    /// (inclusive do SDK); senão todos menos os do SDK.
+    /// The bodies of `lib` are inferred: the requested ones, when there is a
+    /// request (including the SDK's); otherwise all except the SDK's.
     pub(crate) fn infer_bodies_of(&self, lib: LibraryId) -> bool {
         match &self.apenas_bibliotecas {
             Some(s) => s.contains(&lib.0),
@@ -592,8 +594,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Tipo de uma variável de topo ou campo, inferindo o inicializador sob
-    /// demanda quando o tipo foi omitido.
+    /// Type of a top-level variable or field, inferring the initializer on
+    /// demand when the type was omitted.
     pub(crate) fn variable_type(&mut self, vid: VariableId) -> TypeId {
         let d = &self.outline.variables[vid.0 as usize];
         if let Some(t) = d.declared_type {
@@ -601,7 +603,7 @@ impl<'a> BodyInferrer<'a> {
         }
         match self.vars_state[vid.0 as usize] {
             VarState::Ready => return d.inferred.unwrap_or(self.core.dynamic_),
-            // Ciclo de inferência: `TopLevelInference` (`top_level_inference.dart:228-240`).
+            // Inference cycle: `TopLevelInference` (`top_level_inference.dart:228-240`).
             VarState::InProgress => {
                 self.inference_cycle(vid);
                 return self.core.dynamic_;
@@ -618,13 +620,13 @@ impl<'a> BodyInferrer<'a> {
         self.variable_stack.push(vid);
         let t = functions::infer_untyped_variable_type(self, vid);
         self.variable_stack.pop();
-        // Num ciclo, o tipo já ficou `dynamic` (o resultado do inicializador
-        // não conta).
+        // In a cycle, the type already became `dynamic` (the initializer's result
+        // does not count).
         let t = if self.in_cycle.contains(&vid) { self.core.dynamic_ } else { t };
         self.current_unit = saved_unit;
-        // Inferência sob demanda de uma variável cujos corpos não foram
-        // pedidos (SDK, biblioteca não reemitida): os avisos não são deste
-        // pedido.
+        // On-demand inference of a variable whose bodies were not requested
+        // (SDK, a library not re-emitted): its warnings do not belong to this
+        // request.
         if !self.infer_bodies_of(self.program.variable(vid).library) {
             self.diagnostics.truncate(diags_before);
             self.warning_units.truncate(diags_before);
@@ -637,11 +639,11 @@ impl<'a> BodyInferrer<'a> {
         t
     }
 
-    /// O ciclo achado ao pedir de novo o tipo de `vid`: as variáveis da pilha
-    /// a partir dela, ainda em inferência, ficam `dynamic` e relatam
-    /// `TOP_LEVEL_CYCLE` (`ResolverVisitor._checkTopLevelCycle`,
-    /// `resolver.dart:4009-4030`, só as não `const`) no nome, com os nomes do
-    /// ciclo em ordem.
+    /// The cycle found when the type of `vid` is requested again: the variables
+    /// on the stack from it onward, still being inferred, become `dynamic` and
+    /// report `TOP_LEVEL_CYCLE` (`ResolverVisitor._checkTopLevelCycle`,
+    /// `resolver.dart:4009-4030`, only the non-`const` ones) at the name, with
+    /// the names in the cycle in order.
     fn inference_cycle(&mut self, vid: VariableId) {
         let Some(start) = self.variable_stack.iter().position(|&v| v == vid) else { return };
         let cycle: Vec<VariableId> = self.variable_stack[start..].iter().copied().filter(|v| !self.in_cycle.contains(v)).collect();
@@ -682,9 +684,10 @@ impl<'a> BodyInferrer<'a> {
         self.current_unit = saved_unit;
     }
 
-    /// Override inference sobre campo sem tipo escrito: o getter (retorno) ou
-    /// o setter (parâmetro) sobrescritor que omitiu o tipo herda o tipo
-    /// inferido do campo sobreposto, instanciado na classe do sobrescritor.
+    /// Override inference over a field without a written type: the overriding
+    /// getter (return) or setter (parameter) that omitted the type inherits the
+    /// inferred type of the overridden field, instantiated in the overrider's
+    /// class.
     fn complete_field_overrides(&mut self) {
         let pendentes = std::mem::take(&mut self.outline.field_overrides);
         for p in &pendentes {
@@ -725,7 +728,7 @@ impl<'a> BodyInferrer<'a> {
         self.outline.field_overrides = pendentes;
     }
 
-    /// Os acessores implícitos da variável passam a ter o tipo inferido.
+    /// The variable's implicit accessors get the inferred type.
     fn sync_accessors(&mut self, vid: VariableId, t: TypeId) {
         let v = self.program.variable(vid);
         if let Some(g) = v.getter {
@@ -758,8 +761,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Visita (uma vez) o inicializador de uma variável com tipo escrito,
-    /// para preencher as tabelas laterais das suas expressões.
+    /// Visits (once) the initializer of a variable with a written type, to fill
+    /// the side tables of its expressions.
     fn visit_initializer(&mut self, vid: VariableId) {
         if self.visited_initializer[vid.0 as usize] {
             return;
@@ -777,11 +780,10 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Os inicializadores de campo não-`late` de uma classe com construtor
-    /// primário (Dart 3.13) são avaliados no escopo dos parâmetros dele
-    /// (spec, "primary initializer scope"): um parâmetro sombreia o que
-    /// estiver fora da classe. Os valores padrão já foram inferidos no
-    /// próprio construtor.
+    /// The non-`late` field initializers of a class with a primary constructor
+    /// (Dart 3.13) are evaluated in the scope of its parameters (spec, "primary
+    /// initializer scope"): a parameter shadows whatever is outside the class.
+    /// The default values were already inferred in the constructor itself.
     pub(crate) fn declare_primary_parameters(&mut self, cx: &mut Body, c: dartforge_elements::model::ClassId) {
         let Some(d) = self.program.class(c).decl else { return };
         let ast_unit = &self.program.unit(d.unit).ast;
@@ -812,7 +814,7 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// `(unidade, expressão)` do inicializador de uma variável, se houver.
+    /// `(unit_id, expressão)` of a variable's initializer, if any.
     pub(crate) fn inicializador(&self, vid: VariableId) -> Option<(UnitId, ast::ExprId)> {
         match self.program.variable(vid).node {
             VariableRef::TopLevel { unit, decl, index } => match &self.program.unit(unit).ast.decl(decl).kind {
@@ -827,13 +829,12 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Extensões acessíveis numa biblioteca: as declaradas nela (inclusive as
-    /// sem nome) e as que um import não adiado traz no seu espaço de nomes
-    /// (com ou sem prefixo, depois de `show`/`hide`). Como na especificação
-    /// de extensões, o nome não precisa estar visível no escopo: duas
-    /// `IterableExtension` importadas (a do `package:collection` e a do
-    /// próprio analyzer) conflitam como nome, mas as duas continuam
-    /// aplicáveis implicitamente.
+    /// Extensions accessible in a library: those declared in it (including
+    /// unnamed ones) and those that a non-deferred import brings into its
+    /// namespace (with or without a prefix, after `show`/`hide`). As in the
+    /// extensions specification, the name does not need to be visible in scope:
+    /// two imported `IterableExtension`s (`package:collection`'s and the
+    /// analyzer's own) conflict as names, but both stay implicitly applicable.
     pub(crate) fn accessible_extensions(&mut self, lib: LibraryId) -> Rc<[ExtensionId]> {
         if let Some(e) = self.extensoes.get(&lib.0) {
             return e.clone();
@@ -850,7 +851,8 @@ impl<'a> BodyInferrer<'a> {
                 empurrar(ExtensionId(i as u32), &mut v);
             }
         }
-        // O escopo traz também o `dart:core` implícito (que não é diretiva).
+        // The scope also brings the implicit `dart:core` (which is not a
+        // directive).
         let mut names: Vec<(&SymbolId, &dartforge_elements::model::Binding)> = l.scope.iter().collect();
         names.sort_by_key(|(s, _)| s.as_u32());
         for (_, b) in names {
@@ -882,10 +884,10 @@ impl<'a> BodyInferrer<'a> {
     }
 
     // ---------------------------------------------------------------
-    // Diagnósticos
+    // Diagnostics
     // ---------------------------------------------------------------
 
-    /// O pai sintático da expressão `e` da unidade `u`.
+    /// The syntactic parent of expression `e` of unit `u`.
     pub(crate) fn parent_of(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::pais::Pai {
         let program = self.program;
         let pais = self.pais.entry(u).or_insert_with(|| Rc::new(crate::lints_tipados::pais_da_unidade(program, u))).clone();
@@ -897,12 +899,12 @@ impl<'a> BodyInferrer<'a> {
         self.warning_units.push(self.current_unit);
     }
 
-    /// Uso sem checagem de nulo de um receptor potencialmente anulável
-    /// (`codigo`, um dos `UNCHECKED_…_OF_NULLABLE_VALUE`); com o receptor do
-    /// tipo `Null`, é o `INVALID_USE_OF_NULL_VALUE` (sem argumentos), no
-    /// mesmo lugar.
+    /// Use without a null check of a potentially nullable receiver (`code`,
+    /// one of the `UNCHECKED_…_OF_NULLABLE_VALUE`); with a receiver of type
+    /// `Null`, it is `INVALID_USE_OF_NULL_VALUE` (without arguments), at the
+    /// same place.
     pub(crate) fn null_warning(&mut self, recv: TypeId, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
-        // `Never?` não é `Null` para o analyzer (é o `NeverType` com `?`).
+        // `Never?` is not `Null` for the analyzer (it is `NeverType` with `?`).
         let nullable_never = matches!(self.table.exibicao(recv), Some(crate::table::Exibicao::NeverAnulavel));
         if matches!(self.table.get(recv), crate::table::Type::Null) && !nullable_never {
             self.warning_with_code(dartforge_diagnostics::codigos::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
@@ -911,15 +913,15 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Aviso já com o código do analyzer, a mensagem oficial e os
-    /// argumentos (o desenho do T1): a ponte da paridade o deixa como está.
+    /// A warning already with the analyzer's code, the official message and the
+    /// arguments (the T1 design): the parity bridge leaves it as is.
     pub(crate) fn warning_with_code(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
         self.diagnostics.push(Diagnostic::com_codigo(code, span, args.iter().copied()));
         self.warning_units.push(self.current_unit);
     }
 
-    /// Aviso com código e mensagens de contexto (`DiagnosticFactory`):
-    /// `(arquivo, intervalo, texto)`, o arquivo quando não é o do aviso.
+    /// A warning with a code and context messages (`DiagnosticFactory`):
+    /// `(file, intervalo, text)`, the file when it is not the warning's.
     pub(crate) fn warning_with_context(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[&str], context: Vec<(Option<String>, Span, String)>) {
         let mut d = Diagnostic::com_codigo(code, span, args.iter().copied());
         d.contexto.extend(context.into_iter().map(|(file, span, message)| dartforge_diagnostics::Contexto { arquivo: file.map(Into::into), span, mensagem: message.into() }));
@@ -927,10 +929,10 @@ impl<'a> BodyInferrer<'a> {
         self.warning_units.push(self.current_unit);
     }
 
-    /// Aviso com código cujos argumentos passam juntos pela conversão do
-    /// `ErrorReporter` ([`crate::exibicao::Exibidor::argumentos`], T7): os
-    /// tipos saem com alias, e dois tipos do mesmo relato com o mesmo texto
-    /// ganham o `(where X is defined in …)`.
+    /// A warning with a code whose arguments go together through the
+    /// `ErrorReporter`'s conversion ([`crate::exibicao::Exibidor::argumentos`],
+    /// T7): the types come out with aliases, and two types of the same report
+    /// with the same text get the `(where X is defined in …)`.
     pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Codigo, span: Span, args: &[crate::exibicao::Arg<'_>]) {
         let (texts, context) = {
             let displayer = crate::exibicao::Exibidor { table: &*self.table, interner: self.interner, program: self.program };
@@ -942,9 +944,9 @@ impl<'a> BodyInferrer<'a> {
         self.warning_units.push(self.current_unit);
     }
 
-    /// Registra um erro de linguagem (`codes::ERRO_DE_LINGUAGEM`,
-    /// docs/VERSOES-LINGUAGEM.md §3): aborta a compilação, com o arquivo e o
-    /// deslocamento na mensagem, como os erros de carga.
+    /// Records a language error (`codes::ERRO_DE_LINGUAGEM`,
+    /// docs/VERSOES-LINGUAGEM.md §3): aborts compilation, with the file and the
+    /// offset in the message, like load errors.
     pub(crate) fn erro_de_linguagem(&mut self, unit: UnitId, span: Span, msg: String) {
         let file = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         let text = format!("{}{file}:{}: {msg}", crate::codes::ERRO_DE_LINGUAGEM, span.start);
@@ -956,15 +958,15 @@ impl<'a> BodyInferrer<'a> {
         self.program.unit(unit).ast.expr(e).span
     }
 
-    /// Diagnóstico de atribuibilidade: `dynamic` é atribuível a tudo (cast
-    /// implícito); um objeto com `call` a um tipo de função também.
+    /// Assignability diagnostic: `dynamic` is assignable to everything (implicit
+    /// cast); an object with `call` to a function type too.
     pub(crate) fn verify_assignable(&mut self, of: TypeId, for_: TypeId, span: Span, template: &str) {
         if self.atribuivel(of, for_) {
             return;
         }
-        // Os códigos com tipos nos argumentos passam pela conversão do
-        // `ErrorReporter` (alias e a desambiguação `(where C is defined in …)`
-        // de dois tipos com o mesmo nome).
+        // Codes with types in their arguments go through the `ErrorReporter`'s
+        // conversion (aliases and the `(where C is defined in …)`
+        // disambiguation of two types with the same name).
         use crate::exibicao::Arg;
         use dartforge_diagnostics::codigos::compile_time_error as c;
         if template == crate::codes::INVALID_ASSIGNMENT.template {

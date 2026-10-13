@@ -1,12 +1,12 @@
-//! Representação de tipos e tabela hash-consed (`TypeTable`).
+//! Type representation and hash-consed table (`TypeTable`).
 //!
-//! Disciplina de memória (docs/FRONTEND-ARQUITETURA.md §2):
-//! - Tipos semânticos são hash-consed: um único [`TypeId`] por tipo estruturalmente igual.
-//! - Nulabilidade faz parte da identidade estrutural (`int` ≠ `int?`).
-//! - Sem ponteiros de heap em ciclo (`Rc`/`RefCell` proibidos); nós referenciam
-//!   outros tipos exclusivamente por [`TypeId`] e [`TypeParamId`].
-//! - Rastreio contínuo de `payload_bytes` e contagem de tipos para monitoramento
-//!   de platô do compilador e LSP.
+//! Memory discipline (docs/FRONTEND-ARQUITETURA.md §2):
+//! - Semantic types are hash-consed: a single [`TypeId`] per structurally equal type.
+//! - Nullability is part of the structural identity (`int` ≠ `int?`).
+//! - No cyclic heap pointers (`Rc`/`RefCell` forbidden); nodes reference other
+//!   types exclusively through [`TypeId`] and [`TypeParamId`].
+//! - Continuous tracking of `payload_bytes` and the type count for plateau
+//!   monitoring in the compiler and the LSP.
 
 use dartforge_elements::model::{
     ClassId, ExtensionId, FunctionElementId, LibraryId, Program, TypedefId,
@@ -14,15 +14,15 @@ use dartforge_elements::model::{
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
-/// Identificador de um tipo internado na [`TypeTable`].
+/// Identifier of a type interned in the [`TypeTable`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeId(pub u32);
 
-/// Identificador de um parâmetro de tipo na [`TypeTable`].
+/// Identifier of a type parameter in the [`TypeTable`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeParamId(pub u32);
 
-/// Dono de um parâmetro de tipo.
+/// Owner of a type parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TypeParamOwner {
     Class(ClassId),
@@ -32,7 +32,7 @@ pub enum TypeParamOwner {
     GenericFunctionType,
 }
 
-/// Variância de um parâmetro de tipo.
+/// Variance of a type parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Variance {
     #[default]
@@ -42,69 +42,69 @@ pub enum Variance {
     Invariant,
 }
 
-/// Metadados de um parâmetro de tipo registrado na tabela.
+/// Metadata of a type parameter registered in the table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeParameterData {
     pub name: SymbolId,
     pub owner: TypeParamOwner,
     pub bound: TypeId,
     pub variance: Variance,
-    /// O limite foi escrito (`T extends Object?`), e não é o `Object?`
-    /// implícito: a instanciação para os limites e a exibição distinguem.
+    /// The bound was written (`T extends Object?`), and is not the implicit
+    /// `Object?`: instantiation to bounds and display tell them apart.
     pub explicito: bool,
 }
 
-/// Representação semântica de um tipo em Dart 3.
+/// Semantic representation of a Dart 3 type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
-    /// O tipo `dynamic`.
+    /// The `dynamic` type.
     Dynamic,
-    /// O tipo `void`.
+    /// The `void` type.
     Void,
-    /// O tipo `Never` (fundo do sistema de tipos).
+    /// The `Never` type (bottom of the type system).
     Never,
-    /// O tipo `Null`.
+    /// The `Null` type.
     Null,
-    /// Tipo de interface de classe, mixin ou enum: `C<T1, ..., Tn>` ou `C<T1, ..., Tn>?`.
+    /// Interface type of a class, mixin or enum: `C<T1, ..., Tn>` or `C<T1, ..., Tn>?`.
     Interface {
         class: ClassId,
         args: Box<[TypeId]>,
         nullable: bool,
     },
-    /// Tipo de função estrutural: `U Function<X extends B>(P, [O], {N})`.
+    /// Structural function type: `U Function<X extends B>(P, [O], {N})`.
     Function {
         type_params: Box<[TypeParamId]>,
         ret: TypeId,
         positional: Box<[TypeId]>,
         optional: Box<[TypeId]>,
-        /// Parâmetros nomeados ordenados canonicamente por `SymbolId`: `(nome, tipo, required)`.
+        /// Named parameters canonically ordered by `SymbolId`: `(the_name, tipo, required)`.
         named: Box<[(SymbolId, TypeId, bool)]>,
         nullable: bool,
     },
-    /// Tipo de tupla/record: `(T1, ..., Tn, {N1: U1, ...})`.
+    /// Tuple/record type: `(T1, ..., Tn, {N1: U1, ...})`.
     Record {
         positional: Box<[TypeId]>,
-        /// Campos nomeados ordenados canonicamente por `SymbolId`: `(nome, tipo)`.
+        /// Named fields canonically ordered by `SymbolId`: `(the_name, tipo)`.
         named: Box<[(SymbolId, TypeId)]>,
         nullable: bool,
     },
-    /// Parâmetro de tipo em escopo: `X` ou `X?`.
+    /// Type parameter in scope: `X` or `X?`.
     TypeParameter { param: TypeParamId, nullable: bool },
-    /// Tipo união `FutureOr<T>` ou `FutureOr<T>?`.
+    /// Union type `FutureOr<T>` or `FutureOr<T>?`.
     FutureOr { arg: TypeId, nullable: bool },
-    /// Tipo de extensão (Dart 3.3+): preserva identidade estática e apaga sob demanda.
+    /// Extension type (Dart 3.3+): keeps its static identity and erases on demand.
     ExtensionType {
         decl: ClassId,
         args: Box<[TypeId]>,
         nullable: bool,
     },
-    /// Variável de tipo promovida `X & B` (`flow-analysis.md`, "promote"):
-    /// só existe como tipo estático de uma leitura promovida; nunca anulável.
+    /// Promoted type variable `X & B` (`flow-analysis.md`, "promote"): only
+    /// exists as the static type of a promoted read; never nullable.
     Intersection { param: TypeParamId, bound: TypeId },
 }
 
 impl Type {
-    /// Informa se o tipo foi explicitamente anotado como anulável com `?`.
+    /// Tells whether the type was explicitly annotated as nullable with `?`.
     pub fn is_declared_nullable(&self) -> bool {
         match self {
             Type::Dynamic | Type::Void | Type::Null | Type::Never | Type::Intersection { .. } => false,
@@ -118,53 +118,54 @@ impl Type {
     }
 }
 
-/// Tabela hash-consed de tipos.
+/// Hash-consed type table.
 ///
-/// Sobrevive à sessão inteira do compilador e cresce com o carregamento do
-/// SDK e dos pacotes. Garante que cada tipo estrutural idêntico receba
-/// exatamente o mesmo [`TypeId`].
+/// Survives the whole compiler session and grows as the SDK and packages
+/// are loaded. Guarantees that each structurally identical type gets
+/// exactly the same [`TypeId`].
 #[derive(Debug, Clone)]
 pub struct TypeTable {
     types: Vec<Type>,
     lookup: HashMap<Type, TypeId>,
     type_params: Vec<TypeParameterData>,
     payload_bytes: usize,
-    /// Tipos decorados para a exibição (C9): o alias de `typedef` com que o
-    /// tipo foi escrito (`TypeImpl.alias` do analyzer) e o `Never?` (que é
-    /// `Null` na semântica). Cada decorado é um `TypeId` próprio com a mesma
-    /// estrutura do alvo (`get` devolve a do alvo), fora do hash-consing;
-    /// só existem com [`TypeTable::preservar_exibicao`] ligado (a análise:
-    /// paridade, LSP), nunca na compilação.
+    /// Types decorated for display (C9): the `typedef` alias with which the type
+    /// was written (the analyzer's `TypeImpl.alias`) and `Never?` (which is
+    /// `Null` semantically). Each decorated type is its own `TypeId` with the
+    /// same structure as the target (`get` returns the target's), outside
+    /// hash-consing; they only exist with [`TypeTable::preservar_exibicao`] on
+    /// (analysis: parity, LSP), never in compilation.
     exibicao: HashMap<TypeId, Exibicao>,
     decorated: HashMap<(TypeId, Exibicao), TypeId>,
     canonical: HashMap<TypeId, TypeId>,
-    /// Liga a criação de tipos decorados ([`TypeTable::decorar`]).
+    /// Enables the creation of decorated types ([`TypeTable::decorate`]).
     pub preservar_exibicao: bool,
-    /// O parâmetro sentinela do desconhecido `_` ([`CoreTypes::unknown_param`]),
-    /// exibido `_` como no analyzer (`B<_>`).
+    /// The sentinel parameter of the unknown `_` ([`CoreTypes::unknown_param`]),
+    /// displayed as `_` like in the analyzer (`B<_>`).
     pub the_unknown_param: Option<TypeParamId>,
-    /// Os formais frescos de um tipo de função genérico cujos limites mudam
-    /// numa substituição (`crate::ops::substitute`), pelos formais
-    /// originais e os limites substituídos: a mesma substituição dá os
-    /// mesmos formais.
+    /// The fresh formals of a generic function type whose bounds change in a
+    /// substitution (`crate::ops::substitute`), keyed by the original formals
+    /// and the substituted bounds: the same substitution gives the same
+    /// formals.
     pub(crate) fresh_formals: HashMap<(Box<[TypeParamId]>, Box<[TypeId]>), Box<[TypeParamId]>>,
-    /// Os parâmetros de tipo sem `defaultType` no analyzer: os de função
-    /// literal e de tipo de função escrito no corpo (o `DefaultTypesBuilder`
-    /// só roda nas declarações). O `TypeParameterReplacer` da exaustividade
-    /// do 3.6.2 lança num deles (`exhaustiveness.dart:771`).
+    /// The type parameters without a `defaultType` in the analyzer: those of
+    /// function literals and of function types written in the body
+    /// (`DefaultTypesBuilder` only runs on declarations). The exhaustiveness
+    /// `TypeParameterReplacer` of 3.6.2 throws on one of them
+    /// (`exhaustiveness.dart:771`).
     pub without_default_type: std::collections::HashSet<TypeParamId>,
 }
 
-/// A decoração de exibição de um tipo (ver [`TypeTable`]).
+/// The display decoration of a type (see [`TypeTable`]).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Exibicao {
-    /// Escrito como o alias `typedef` com estes argumentos.
+    /// Written as the `typedef` alias with these arguments.
     Alias { typedef: dartforge_elements::model::TypedefId, args: Box<[TypeId]> },
     /// `Never?` (estrutura `Null`).
     NeverAnulavel,
-    /// O `InvalidType` do analyzer (estrutura `dynamic`): o tipo de
-    /// recuperação de um nome ou tipo que não resolve. Comporta-se como
-    /// `dynamic`, suprime diagnósticos de tipo e é exibido `InvalidType`.
+    /// The analyzer's `InvalidType` (`dynamic` structure): the recovery type of
+    /// a name or type that does not resolve. Behaves like `dynamic`, suppresses
+    /// type diagnostics and is displayed as `InvalidType`.
     Invalido,
 }
 
@@ -175,7 +176,7 @@ impl Default for TypeTable {
 }
 
 impl TypeTable {
-    /// Cria uma nova tabela vazia.
+    /// Creates a new empty table.
     pub fn new() -> Self {
         Self {
             types: Vec::with_capacity(1024),
@@ -192,9 +193,8 @@ impl TypeTable {
         }
     }
 
-    /// O tipo `alvo` com a decoração de exibição `ex` (um `TypeId` novo com
-    /// a mesma estrutura); sem [`TypeTable::preservar_exibicao`], o próprio
-    /// `alvo`.
+    /// The type `target` with the display decoration `ex` (a new `TypeId` with the
+    /// same structure); without [`TypeTable::preservar_exibicao`], `target` itself.
     pub fn decorate(&mut self, target: TypeId, ex: Exibicao) -> TypeId {
         if !self.preservar_exibicao {
             return target;
@@ -212,22 +212,22 @@ impl TypeTable {
         id
     }
 
-    /// O `InvalidType` (ver [`Exibicao::Invalido`]); sem
-    /// [`TypeTable::preservar_exibicao`], o próprio `dynamic`.
+    /// The `InvalidType` (see [`Exibicao::Invalido`]); without
+    /// [`TypeTable::preservar_exibicao`], `dynamic` itself.
     pub fn invalid(&mut self, dynamic_: TypeId) -> TypeId {
         self.decorate(dynamic_, Exibicao::Invalido)
     }
 
-    /// Se `t` é o `InvalidType` (no topo).
+    /// Whether `t` is the `InvalidType` (at the top).
     pub fn e_invalido(&self, t: TypeId) -> bool {
         matches!(self.exibicao(t), Some(Exibicao::Invalido))
     }
 
-    /// Se `t` é o `InvalidType` ou o contém em alguma posição (argumento de
-    /// tipo, parâmetro, retorno, campo de record): o `hasInvalidType` do
-    /// analyzer (`dart/constant/has_invalid_type.dart:9-28`), que cala a
-    /// exaustividade, os limites de argumentos de tipo e os avisos de tipo
-    /// desnecessário.
+    /// Whether `t` is the `InvalidType` or contains it in some position (type
+    /// argument, parameter, return, record field): the analyzer's
+    /// `hasInvalidType` (`dart/constant/has_invalid_type.dart:9-28`), which
+    /// silences exhaustiveness, type argument bounds and unnecessary type
+    /// warnings.
     pub fn contains_invalid(&self, t: TypeId) -> bool {
         self.contains_invalid_up_to(t, 0)
     }
@@ -257,17 +257,17 @@ impl TypeTable {
         }
     }
 
-    /// O tipo sem a decoração de topo (o internado).
+    /// The type without the top-level decoration (the interned one).
     pub fn canonico(&self, t: TypeId) -> TypeId {
         self.canonical.get(&t).copied().unwrap_or(t)
     }
 
-    /// Se nenhum tipo decorado foi criado.
+    /// Whether no decorated type was created.
     pub fn empty_display(&self) -> bool {
         self.exibicao.is_empty()
     }
 
-    /// A decoração de exibição de `t`, se houver.
+    /// The display decoration of `t`, if any.
     pub fn exibicao(&self, t: TypeId) -> Option<&Exibicao> {
         if self.exibicao.is_empty() {
             return None;
@@ -275,37 +275,37 @@ impl TypeTable {
         self.exibicao.get(&t)
     }
 
-    /// Retorna o número de tipos únicos internados na tabela.
+    /// Returns the number of unique types interned in the table.
     pub fn len(&self) -> usize {
         self.types.len()
     }
 
-    /// Informa se a tabela está vazia.
+    /// Tells whether the table is empty.
     pub fn is_empty(&self) -> bool {
         self.types.is_empty()
     }
 
-    /// Retorna o volume em bytes ocupado pelas estruturas internadas na tabela.
+    /// Returns the size in bytes taken by the structures interned in the table.
     pub fn payload_bytes(&self) -> usize {
         self.payload_bytes
     }
 
-    /// Obtém a referência para a definição do tipo pelo seu [`TypeId`].
+    /// Gets a reference to the type definition by its [`TypeId`].
     pub fn get(&self, id: TypeId) -> &Type {
         &self.types[id.0 as usize]
     }
 
-    /// Obtém os dados de um parâmetro de tipo pelo seu [`TypeParamId`].
+    /// Gets the data of a type parameter by its [`TypeParamId`].
     pub fn param(&self, id: TypeParamId) -> &TypeParameterData {
         &self.type_params[id.0 as usize]
     }
 
-    /// Obtém referência mutável aos dados de um parâmetro de tipo.
+    /// Gets a mutable reference to the data of a type parameter.
     pub fn param_mut(&mut self, id: TypeParamId) -> &mut TypeParameterData {
         &mut self.type_params[id.0 as usize]
     }
 
-    /// Registra um novo parâmetro de tipo na tabela.
+    /// Registers a new type parameter in the table.
     pub fn alloc_type_param(
         &mut self,
         name: SymbolId,
@@ -325,21 +325,21 @@ impl TypeTable {
         id
     }
 
-    /// Atualiza o limite (*bound*) de um parâmetro de tipo (útil em recursão mútua / F-bounds).
+    /// Updates the bound (*bound*) of a type parameter (useful for mutual recursion / F-bounds).
     ///
-    /// Marca o limite como escrito ([`TypeParameterData::explicito`]); cópias
-    /// de parâmetros restauram a marca do original.
+    /// Marks the bound as written ([`TypeParameterData::explicito`]); copies of
+    /// parameters restore the original's mark.
     pub fn set_type_param_bound(&mut self, id: TypeParamId, bound: TypeId) {
         let d = &mut self.type_params[id.0 as usize];
         d.bound = bound;
         d.explicito = true;
     }
 
-    /// Interna um tipo estrutural na tabela, garantindo unicidade por hash-consing.
+    /// Interns a structural type in the table, guaranteeing uniqueness by hash-consing.
     ///
-    /// Garante também canonicidade ordenando campos nomeados em registros e tipos de função.
+    /// Also guarantees canonicity by ordering named fields in records and function types.
     pub fn intern(&mut self, mut ty: Type) -> TypeId {
-        // Ordenação canônica para unicidade de hash e igualdade
+        // Canonical ordering for hash uniqueness and equality
         match &mut ty {
             Type::Function { named, .. } => {
                 named.sort_by_key(|(sym, _, _)| sym.as_u32());
@@ -385,13 +385,13 @@ impl TypeTable {
         id
     }
 
-    /// O `TypeId` de um tipo já internado, sem internar.
+    /// The `TypeId` of an already interned type, without interning.
     pub fn intern_lookup(&self, ty: Type) -> Option<TypeId> {
         self.lookup.get(&ty).copied()
     }
 
-    /// Os nomes de exibição dos parâmetros formais da função `ty`, além dos
-    /// já renomeados em `ren` (ver `formatar`).
+    /// The display names of the formal parameters of function `ty`, besides
+    /// those already renamed in `ren` (see `formatar`).
     fn rename_formals(&self, ty: TypeId, interner: &Interner, ren: &[(TypeParamId, String)]) -> Vec<(TypeParamId, String)> {
         let mut output = ren.to_vec();
         let Type::Function { type_params, .. } = self.get(ty) else { return output };
@@ -419,8 +419,8 @@ impl TypeTable {
         output
     }
 
-    /// `collectTypeParameters`: os parâmetros de tipo referidos em `ty`
-    /// (limites dos formais de funções, parâmetros, retorno, argumentos).
+    /// `collectTypeParameters`: the type parameters referenced in `ty` (bounds
+    /// of function formals, parameters, return, arguments).
     fn referenced_parameters(&self, ty: TypeId, out: &mut Vec<TypeParamId>, prof: u32) {
         if prof > 32 {
             return;
@@ -453,14 +453,14 @@ impl TypeTable {
         }
     }
 
-    /// Retorna representação textual legível de um tipo para mensagens de
-    /// diagnóstico: o `getDisplayString(preferTypeAlias: true)` com que o
-    /// `ErrorReporter` do analyzer converte os tipos dos argumentos.
+    /// Returns a readable textual representation of a type for diagnostic
+    /// messages: the `getDisplayString(preferTypeAlias: true)` with which the
+    /// analyzer's `ErrorReporter` converts the argument types.
     pub fn format(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
         self.formatar(ty, interner, program, true, &[])
     }
 
-    /// O `getDisplayString()` sem alias (`DartType.toString`).
+    /// `getDisplayString()` without the alias (`DartType.toString`).
     pub fn format_sem_alias(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
         self.formatar(ty, interner, program, false, &[])
     }
@@ -513,8 +513,8 @@ impl TypeTable {
             } => {
                 let q = if *nullable { "?" } else { "" };
                 // `_uniqueTypeParameters` (`display_string_builder.dart:552-614`):
-                // um parâmetro de tipo da função com o nome de um parâmetro
-                // livre referido dentro dela ganha subscrito (`T₀`, `T₁`).
+                // a type parameter of the function with the name of a free parameter
+                // referenced inside it gets a subscript (`T₀`, `T₁`).
                 let ren2 = self.rename_formals(ty, interner, ren);
                 let ren: &[(TypeParamId, String)] = &ren2;
                 let mut p_strs = Vec::new();
@@ -529,9 +529,9 @@ impl TypeTable {
                     p_strs.push(format!("[{}]", opt_strs.join(", ")));
                 }
                 if !named.is_empty() {
-                    // O `FunctionType` do analyzer guarda os nomeados em
-                    // ordem alfabética (`type.dart:157`); a tabela os guarda
-                    // pela ordem de internação dos nomes.
+                    // The analyzer's `FunctionType` keeps the named parameters in
+                    // alphabetical order (`type.dart:157`); the table keeps them in
+                    // the order the names were interned.
                     let mut order: Vec<&(SymbolId, TypeId, bool)> = named.iter().collect();
                     order.sort_by(|a, b| interner.resolve(a.0).cmp(interner.resolve(b.0)));
                     let named_strs: Vec<String> = order
@@ -544,7 +544,7 @@ impl TypeTable {
                     p_strs.push(format!("{{{}}}", named_strs.join(", ")));
                 }
                 let ret_str = self.formatar(*ret, interner, program, alias, ren);
-                // Genérica: `T Function<T>(T)`, com o limite quando não é `Object?`.
+                // Generic: `T Function<T>(T)`, with the bound when it is not `Object?`.
                 let tps = match t {
                     Type::Function { type_params, .. } if !type_params.is_empty() => {
                         let ps: Vec<String> = type_params
@@ -579,10 +579,10 @@ impl TypeTable {
                 for &p in positional.iter() {
                     parts.push(self.formatar(p, interner, program, alias, ren));
                 }
-                // Como o analyzer: nomeados entre chaves, e `(int,)` com um
-                // único posicional.
+                // Like the analyzer: named ones between braces, and `(int,)` with a
+                // single positional one.
                 if !named.is_empty() {
-                    // O `RecordType` do analyzer ordena os nomeados pelo nome.
+                    // The analyzer's `RecordType` sorts the named fields by name.
                     let mut order: Vec<&(SymbolId, TypeId)> = named.iter().collect();
                     order.sort_by(|a, b| interner.resolve(a.0).cmp(interner.resolve(b.0)));
                     let named_args: Vec<String> = order
@@ -611,7 +611,7 @@ impl TypeTable {
                 format!("{name}{q}")
             }
             Type::Intersection { param, bound } => {
-                // O parâmetro promovido usa o nome renomeado, quando há.
+                // The promoted parameter uses the renamed name, when there is one.
                 let the_name = ren.iter().rev().find(|(p, _)| p == param).map(|(_, n)| n.as_str()).unwrap_or(interner.resolve(self.param(*param).name));
                 format!("{the_name} & {}", self.formatar(*bound, interner, program, alias, ren))
             }
@@ -636,7 +636,7 @@ impl TypeTable {
     }
 }
 
-/// Tipos fundamentais do Dart (`dart:core` e `dart:async`) cacheados para consultas rápidas.
+/// Fundamental Dart types (`dart:core` and `dart:async`) cached for fast lookups.
 #[derive(Debug, Clone)]
 pub struct CoreTypes {
     pub dynamic_: TypeId,
@@ -667,7 +667,7 @@ pub struct CoreTypes {
     /// `double`.
     pub double: TypeId,
     pub double_class: Option<ClassId>,
-    /// `Type` (tipo de um literal de tipo).
+    /// `Type` (the type of a type literal).
     pub type_: TypeId,
     /// `Symbol`.
     pub symbol: TypeId,
@@ -675,23 +675,23 @@ pub struct CoreTypes {
     pub stream_class: Option<ClassId>,
     pub map_entry_class: Option<ClassId>,
     pub null_class: Option<ClassId>,
-    /// O tipo desconhecido `_` dos esquemas de contexto (`inference.md`,
-    /// "Type schemas"). Representado por um parâmetro de tipo sentinela que
-    /// nunca aparece em tipos finais: nenhum tipo inferido o contém.
+    /// The unknown type `_` of context schemas (`inference.md`, "Type schemas").
+    /// Represented by a sentinel type parameter that never appears in final
+    /// types: no inferred type contains it.
     pub unknown: TypeId,
     pub unknown_param: TypeParamId,
 }
 
 impl CoreTypes {
-    /// `t` é o desconhecido `_` (com ou sem `?`).
+    /// `t` is the unknown `_` (with or without `?`).
     pub fn is_unknown(&self, table: &TypeTable, t: TypeId) -> bool {
         matches!(table.get(t), Type::TypeParameter { param, .. } if *param == self.unknown_param)
     }
 }
 
 impl CoreTypes {
-    /// Inicializa os tipos fundamentais registrando-os na [`TypeTable`] e
-    /// resolvendo os símbolos em `dart:core` e `dart:async` a partir do [`Program`].
+    /// Initializes the fundamental types by registering them in the [`TypeTable`] and
+    /// resolving the symbols in `dart:core` and `dart:async` from the [`Program`].
     pub fn init(table: &mut TypeTable, program: &Program, interner: &Interner) -> Self {
         let dynamic_ = table.intern(Type::Dynamic);
         let void_ = table.intern(Type::Void);
@@ -738,7 +738,7 @@ impl CoreTypes {
                         nullable,
                     })
                 } else {
-                    // Fallback para quando o SDK não foi carregado ainda (testes unitários isolados)
+                    // Fallback for when the SDK has not been loaded yet (isolated unit tests)
                     if nullable { dynamic_ } else { never }
                 }
             };
@@ -759,7 +759,7 @@ impl CoreTypes {
         let stream_class = find_class(async_lib, "Stream");
         let map_entry_class = find_class(core_lib, "MapEntry");
         let null_class = find_class(core_lib, "Null");
-        // Sentinela do desconhecido `_`: um parâmetro de tipo sem dono real.
+        // Sentinel of the unknown `_`: a type parameter without a real owner.
         let name_unknown = interner
             .lookup("_")
             .or_else(|| object_class.map(|c| program.classes[c.0 as usize].name))

@@ -1,19 +1,19 @@
-//! Operações centrais do sistema de tipos.
+//! Core operations of the type system.
 //!
-//! Implementa substituição (`substitute`), nulabilidade (`nullable`/`non_nullable`),
-//! apagamento de tipos de extensão (`erase_extension_type`), normalização
-//! (`normalize`) e limites superior/inferior (`lub`/`glb`).
+//! Implements substitution (`substitute`), nullability (`nullable`/`non_nullable`),
+//! extension type erasure (`erase_extension_type`), normalization
+//! (`normalize`) and upper/lower bounds (`lub`/`glb`).
 
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
 use dartforge_elements::model::ClassId;
 use std::collections::HashMap;
 
-/// Torna um tipo anulável (`T?`).
+/// Makes a type nullable (`T?`).
 ///
-/// Tipos como `dynamic`, `void` e `Null` já são anuláveis por natureza e não mudam.
-/// `Never?` é canonicamente simplificado para `Null`.
+/// Types such as `dynamic`, `void` and `Null` are already nullable by nature and
+/// do not change. `Never?` is canonically simplified to `Null`.
 pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
-    // Decorados de exibição (C9): o alias anulável continua o alias.
+    // Display decorations (C9): the nullable alias stays the alias.
     if let Some(ex) = table.exibicao(ty).cloned() {
         let c = table.canonico(ty);
         let n = nullable(c, table);
@@ -28,7 +28,7 @@ pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
         Type::Dynamic | Type::Void | Type::Null => ty,
         Type::Intersection { param, .. } => table.intern(Type::TypeParameter { param, nullable: true }),
         Type::Never => {
-            // Never? === Null (exibido `Never?` quando a tabela preserva a exibição).
+            // Never? === Null (displayed as `Never?` when the table preserves the display).
             let n = table.intern(Type::Null);
             table.decorate(n, crate::table::Exibicao::NeverAnulavel)
         }
@@ -92,9 +92,9 @@ pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
     }
 }
 
-/// Remove a nulabilidade do tipo (`T`), se aplicável.
+/// Removes the nullability of the type (`T`), if applicable.
 ///
-/// `Null` torna-se `Never`. `dynamic` e `void` permanecem inalterados.
+/// `Null` becomes `Never`. `dynamic` and `void` remain unchanged.
 pub fn non_nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
     if let Some(ex) = table.exibicao(ty).cloned() {
         let c = table.canonico(ty);
@@ -170,7 +170,7 @@ pub fn non_nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
     }
 }
 
-/// Se `t` menciona algum dos parâmetros `params`.
+/// Whether `t` mentions any of the parameters `params`.
 pub fn mentions_parameters(t: TypeId, params: &[TypeParamId], table: &TypeTable) -> bool {
     match table.get(t) {
         Type::TypeParameter { param, .. } => params.contains(param),
@@ -193,12 +193,12 @@ pub fn mentions_parameters(t: TypeId, params: &[TypeParamId], table: &TypeTable)
     }
 }
 
-/// Instanciação para os limites (*instantiate to bounds*) de `params`, com os
-/// já conhecidos em `fixos`: parâmetro sem limite escrito vai a `dynamic`;
-/// com limite, ao limite com os parâmetros já instanciados substituídos, na
-/// ordem das dependências (`A<T extends U, U extends num>` é
-/// `A<num, num>`). Os que restam num ciclo de limites (F-limites,
-/// `T extends Comparable<T>`) têm os parâmetros do ciclo trocados por
+/// Instantiation to bounds (*instantiate to bounds*) of `params`, with the
+/// already known ones in `fixed`: a parameter without a written bound goes to
+/// `dynamic`; with a bound, to the bound with the already instantiated
+/// parameters substituted, in dependency order (`A<T extends U, U extends num>`
+/// is `A<num, num>`). Those left in a bound cycle (F-bounds,
+/// `T extends Comparable<T>`) have the cycle's parameters replaced by
 /// `dynamic`.
 pub fn instantiate_to_bounds(
     params: &[TypeParamId],
@@ -247,7 +247,7 @@ pub fn instantiate_to_bounds(
     args.into_iter().map(|a| a.unwrap_or(core.dynamic_)).collect()
 }
 
-/// Realiza substituição simultânea de parâmetros de tipo por argumentos.
+/// Performs simultaneous substitution of type parameters by arguments.
 ///
 /// `T[A0/X0, ..., An/Xn]`
 pub fn substitute(
@@ -258,7 +258,7 @@ pub fn substitute(
     if mapping.is_empty() {
         return ty;
     }
-    // Decorado de exibição: substitui o alvo e os argumentos do alias.
+    // Display decoration: substitutes the alias's target and arguments.
     if let Some(ex) = table.exibicao(ty).cloned() {
         let c = table.canonico(ty);
         let nc = substitute(c, mapping, table);
@@ -374,7 +374,7 @@ pub fn substitute(
             named,
             nullable: is_null,
         } => {
-            // Parâmetros de tipo genéricos locais sombreiam o mapeamento
+            // Local generic type parameters shadow the mapping
             let mut active_mapping: HashMap<TypeParamId, TypeId> = if type_params.is_empty() {
                 mapping.clone()
             } else {
@@ -384,9 +384,9 @@ pub fn substitute(
                 }
                 m
             };
-            // Limites dos formais que mudam com a substituição (`m<T extends X>`
-            // de `C<num>`): formais frescos com os limites substituídos, como o
-            // `FunctionTypeImpl` substituído do analyzer.
+            // Bounds of formals that change with the substitution (`m<T extends X>`
+            // of `C<num>`): fresh formals with the substituted bounds, like the
+            // analyzer's substituted `FunctionTypeImpl`.
             let mut type_params = type_params;
             let mut formals_changed = false;
             if !type_params.is_empty() && !active_mapping.is_empty() {
@@ -510,9 +510,10 @@ pub fn substitute(
     }
 }
 
-/// Normaliza tipos semânticos conforme regras da especificação do Dart.
+/// Normalizes semantic types according to the rules of the Dart
+/// specification.
 ///
-/// Ex.:
+/// E.g.:
 /// - `FutureOr<Never>` → `Future<Never>`
 /// - `FutureOr<Object>` → `Object`
 /// - `FutureOr<dynamic>` → `dynamic`
@@ -525,7 +526,7 @@ pub fn normalize(ty: TypeId, table: &mut TypeTable, core: &CoreTypes) -> TypeId 
     normalize_(ty, table, core, &mut in_progress)
 }
 
-/// `NormalizeHelper` (`analyzer/lib/src/dart/element/normalize.dart` do
+/// `NormalizeHelper` (`analyzer/lib/src/dart/element/normalize.dart` from
 /// 3.6.2): `NORM(T)`.
 fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: &mut Vec<TypeParamId>) -> TypeId {
     if table.e_invalido(ty) {
@@ -627,8 +628,8 @@ fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: 
             table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
         }
         Type::Function { type_params, ret, positional, optional, named, .. } => {
-            // `NORM(R Function<X extends B>(S))`: os limites, os parâmetros e
-            // o retorno normalizados (formais frescos quando um limite muda).
+            // `NORM(R Function<X extends B>(S))`: the bounds, the parameters and the
+            // return normalized (fresh formals when a bound changes).
             let mut formals = type_params.clone();
             let mut map: HashMap<TypeParamId, TypeId> = HashMap::new();
             if !type_params.is_empty() {
@@ -715,7 +716,7 @@ fn normalize_nullable(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_pr
     nullable(s, table)
 }
 
-/// `T` sem o `?` (`withNullability(none)`).
+/// `T` without the `?` (`withNullability(none)`).
 fn without_nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
     let t = table.get(ty).clone();
     match t {
@@ -751,8 +752,8 @@ fn nullable_norm(table: &TypeTable, t: TypeId) -> bool {
 }
 
 /// `TopMergeHelper.topMerge` (`analyzer/lib/src/dart/element/top_merge.dart`):
-/// `NNBD_TOP_MERGE(t, s)`; `None` onde o original lança (tipos que não são
-/// estruturalmente iguais).
+/// `NNBD_TOP_MERGE(t, s)`; `None` where the original throws (types that are
+/// not structurally equal).
 pub fn top_merge(table: &mut TypeTable, core: &CoreTypes, t: TypeId, s: TypeId) -> Option<TypeId> {
     top_merge_rec(table, core, t, s, 0)
 }
@@ -856,9 +857,9 @@ fn top_merge_rec(table: &mut TypeTable, core: &CoreTypes, t: TypeId, s: TypeId, 
             if tp_a.len() != tp_b.len() || pa.len() != pb.len() || oa.len() != ob.len() || at.len() != nb.len() {
                 return None;
             }
-            // Os parâmetros de tipo de `s` renomeados para os de `t`
-            // (os limites têm de existir nos dois ou em nenhum e se
-            // juntar).
+            // The type parameters of `s` renamed to those of `t`
+            // (bounds must exist on both or on neither and be
+            // merged).
             let mut map: HashMap<TypeParamId, TypeId> = HashMap::new();
             for (x, y) in tp_b.iter().zip(tp_a.iter()) {
                 let ty = table.intern(Type::TypeParameter { param: *y, nullable: false });
@@ -928,11 +929,11 @@ fn top_merge_rec(table: &mut TypeTable, core: &CoreTypes, t: TypeId, s: TypeId, 
 }
 
 
-/// Função de consulta para o tipo de representação instanciado de um extension type.
+/// Query function for the instantiated representation type of an extension type.
 pub type ExtensionTypeEraser<'a> = &'a dyn Fn(ClassId, &[TypeId], &mut TypeTable) -> Option<TypeId>;
 
-/// Apaga recursivamente tipos de extensão (*extension type erasure*),
-/// substituindo-os pelo seu tipo de representação instanciado.
+/// Recursively erases extension types (*extension type erasure*), replacing
+/// them with their instantiated representation type.
 pub fn erase_extension_type(
     ty: TypeId,
     table: &mut TypeTable,
@@ -945,7 +946,7 @@ pub fn erase_extension_type(
             args,
             nullable: is_null,
         } => {
-            // Apaga os argumentos primeiro
+            // Erases the arguments first
             let mut erased_args = Vec::with_capacity(args.len());
             for &a in args.iter() {
                 erased_args.push(erase_extension_type(a, table, rep_fn));
@@ -1090,14 +1091,14 @@ pub fn erase_extension_type(
     }
 }
 
-/// Menor supertipo comum: **UP**(`a`, `b`) de `upper-lower-bounds.md`.
+/// Least upper bound: **UP**(`a`, `b`) from `upper-lower-bounds.md`.
 pub use crate::bounds::up as lub;
-/// Maior subtipo comum: **DOWN**(`a`, `b`) de `upper-lower-bounds.md`.
+/// Greatest lower bound: **DOWN**(`a`, `b`) from `upper-lower-bounds.md`.
 pub use crate::bounds::down as glb;
 
-/// O tipo sem nenhuma decoração de exibição (alias, `Never?`), em toda a
-/// estrutura: a identidade semântica, para comparar `TypeId`s
-/// (`a as N` com `typedef N = num` e `a: num` é o mesmo tipo).
+/// The type without any display decoration (alias, `Never?`), throughout
+/// the structure: the semantic identity, for comparing `TypeId`s
+/// (`a as N` with `typedef N = num` and `a: num` is the same type).
 pub fn without_display(ty: TypeId, table: &mut TypeTable) -> TypeId {
     let c = table.canonico(ty);
     if table.empty_display() {

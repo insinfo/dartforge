@@ -1,9 +1,9 @@
-//! Códigos e identificadores canônicos de diagnóstico alinhados ao `analyzer` do Dart SDK.
+//! Canonical diagnostic codes and identifiers aligned with the Dart SDK `analyzer`.
 //!
-//! Usados para categorização, mensagens de erro estruturadas e testes negativos
-//! de conformidade com o compilador oficial.
+//! Used for categorization, structured error messages and negative conformance
+//! tests against the official compiler.
 
-/// Código de erro canônico do Dart Analyzer.
+/// Canonical Dart Analyzer error code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DiagnosticCode {
     pub name: &'static str,
@@ -16,7 +16,7 @@ impl DiagnosticCode {
     }
 }
 
-// Erros de tipagem e atribuição
+// Typing and assignment errors
 pub const ARGUMENT_TYPE_NOT_ASSIGNABLE: DiagnosticCode = DiagnosticCode::new(
     "argument_type_not_assignable",
     "O tipo de argumento '{0}' não pode ser atribuído ao parâmetro do tipo '{1}'.",
@@ -142,7 +142,7 @@ pub const DEFINITELY_UNASSIGNED_VARIABLE: DiagnosticCode = DiagnosticCode::new(
     "A variável '{0}' é lida antes de ser atribuída.",
 );
 
-// Erros de resolução de membros e identificadores
+// Member and identifier resolution errors
 pub const UNDEFINED_IDENTIFIER: DiagnosticCode = DiagnosticCode::new(
     "undefined_identifier",
     "Nome indefinido '{0}'.",
@@ -178,7 +178,7 @@ pub const AMBIGUOUS_EXTENSION_MEMBER_ACCESS: DiagnosticCode = DiagnosticCode::ne
     "Membro ambíguo '{0}' encontrado nas extensões '{1}' e '{2}'.",
 );
 
-// Erros de fluxo e controle
+// Flow and control errors
 pub const AWAIT_IN_WRONG_CONTEXT: DiagnosticCode = DiagnosticCode::new(
     "await_in_wrong_context",
     "A expressão 'await' só pode ser usada em funções assíncronas.",
@@ -199,7 +199,7 @@ pub const NON_BOOL_NEGATION_EXPRESSION: DiagnosticCode = DiagnosticCode::new(
     "A expressão negada deve ter o tipo estático 'bool'.",
 );
 
-// Erros de argumentos e parâmetros
+// Argument and parameter errors
 pub const EXTRA_POSITIONAL_ARGUMENTS: DiagnosticCode = DiagnosticCode::new(
     "extra_positional_arguments",
     "Muitos argumentos posicionais: esperava {0}, mas recebeu {1}.",
@@ -225,7 +225,7 @@ pub const TYPE_ARGUMENT_NOT_MATCHING_BOUNDS: DiagnosticCode = DiagnosticCode::ne
     "O argumento de tipo '{0}' não estende o limite '{1}'.",
 );
 
-// Erros de constantes
+// Constant errors
 pub const CONST_WITH_NON_CONSTANT_ARGUMENT: DiagnosticCode = DiagnosticCode::new(
     "const_with_non_constant_argument",
     "Argumentos de uma instanciação const devem ser expressões constantes.",
@@ -251,13 +251,13 @@ pub const CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE: DiagnosticCode = Diagnostic
     "A variável const deve ser inicializada com um valor constante.",
 );
 
-// Avisos de código morto e construções desnecessárias
+// Dead code and unnecessary construct warnings
 pub const INVALID_NULL_AWARE_OPERATOR: DiagnosticCode = DiagnosticCode::new(
     "invalid_null_aware_operator",
     "O operador de verificação de nulo é desnecessário porque o receptor não pode ser nulo.",
 );
 
-/// `e!` com `e` estritamente não anulável (aviso, no `!`).
+/// `e!` with `e` strictly non-nullable (warning, at the `!`).
 pub const UNNECESSARY_NON_NULL_ASSERTION: DiagnosticCode = DiagnosticCode::new(
     "unnecessary_non_null_assertion",
     "O '!' não tem efeito porque o receptor não pode ser nulo.",
@@ -278,45 +278,44 @@ pub const DEAD_CODE: DiagnosticCode = DiagnosticCode::new(
     "Código inalcançável (dead code).",
 );
 
-// Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §3).
+// Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3).
 //
-// Os diagnósticos de `types` são avisos, porque a inferência ainda tem
-// lacunas; estes não: são o que o CFE recusa nos recursos novos e o que um
-// programa negativo do corpus precisa ver recusado. A mensagem começa com
-// [`ERRO_DE_LINGUAGEM`], e quem compila (`compile-js`, `dartforge-jsprod`,
-// nativo) aborta como aborta nos erros de carga.
+// The `types` diagnostics are warnings, because the inference still has
+// gaps; these are not: they are what the CFE rejects in the new features and
+// what a negative corpus program needs to see rejected. The message starts
+// with [`ERRO_DE_LINGUAGEM`], and whoever compiles (`compile-js`,
+// `dartforge-jsprod`, native) aborts as it aborts on load errors.
 
-/// Prefixo das mensagens de erro de linguagem.
+/// Prefix of language error messages.
 pub const ERRO_DE_LINGUAGEM: &str = "erro de linguagem: ";
 
-/// A mensagem é de um erro de linguagem (e não de um aviso de tipos)?
+/// Is the message a language error (and not a types warning)?
 pub fn is_language_error(message: &str) -> bool {
     message.starts_with(ERRO_DE_LINGUAGEM)
 }
 
-/// O diagnóstico de `types` recusa o programa: um erro de linguagem
-/// ([`e_erro_de_linguagem`]) ou a leitura de um local não anulável (ou
-/// `final`) que não está definitivamente atribuído
-/// ([`DEFINITELY_UNASSIGNED_VARIABLE`]: o
-/// `NOT_ASSIGNED_POTENTIALLY_NON_NULLABLE_LOCAL_VARIABLE` /
-/// `READ_POTENTIALLY_UNASSIGNED_FINAL` do analyzer, que o CFE também recusa).
+/// The `types` diagnostic rejects the program: a language error
+/// ([`is_language_error`]) or the read of a non-nullable (or `final`) local
+/// that is not definitely assigned ([`DEFINITELY_UNASSIGNED_VARIABLE`]: the
+/// analyzer's `NOT_ASSIGNED_POTENTIALLY_NON_NULLABLE_LOCAL_VARIABLE` /
+/// `READ_POTENTIALLY_UNASSIGNED_FINAL`, which the CFE also rejects).
 ///
-/// A atribuição definitiva sai do mesmo modelo de fluxo que promove tipos
-/// (`inferencia/fluxo.rs`), e é o que separa os programas que a versão de
-/// linguagem aceita dos que ela recusa no fluxo sólido (3.9,
-/// docs/VERSOES-LINGUAGEM.md §4.6). Os demais diagnósticos continuam avisos.
+/// Definite assignment comes from the same flow model that promotes types
+/// (`inference/flow.rs`), and it is what separates the programs the language
+/// version accepts from those it rejects under sound flow (3.9,
+/// docs/VERSOES-LINGUAGEM.md §4.6). The other diagnostics remain warnings.
 ///
 /// ```
 /// use dartforge_types::codes::{e_erro_de_compilacao, DEFINITELY_UNASSIGNED_VARIABLE, ERRO_DE_LINGUAGEM};
 /// assert!(e_erro_de_compilacao(&format!("{}: 'y'", DEFINITELY_UNASSIGNED_VARIABLE.template)));
 /// assert!(e_erro_de_compilacao(&format!("{ERRO_DE_LINGUAGEM}a.dart:3: x")));
-/// assert!(!e_erro_de_compilacao("O tipo 'int' não pode ser atribuído a 'String'."));
+/// assert!(!e_erro_de_compilacao("The type 'int' can't be assigned to 'String'."));
 /// ```
 pub fn e_erro_de_compilacao(message: &str) -> bool {
     is_language_error(message)
         || message.starts_with(DEFINITELY_UNASSIGNED_VARIABLE.template)
-        // `READ_POTENTIALLY_UNASSIGNED_FINAL` (com código do analyzer): leitura
-        // de `final` local talvez não atribuída também aborta, como antes.
+        // `READ_POTENTIALLY_UNASSIGNED_FINAL` (with an analyzer code): reading a
+        // local `final` that is possibly unassigned also aborts, as before.
         || (message.starts_with("The final variable '") && message.ends_with("because it's potentially unassigned at this point."))
 }
 

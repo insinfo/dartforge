@@ -1,18 +1,18 @@
-//! Limites superior e inferior: **UP** e **DOWN** de
+//! Upper and lower bounds: **UP** and **DOWN** from
 //! `references/dart-language/resources/type-system/upper-lower-bounds.md`,
-//! com os predicados auxiliares da especificação de null safety (**TOP**,
-//! **OBJECT**, **BOTTOM**, **NULL**, **MORETOP**, **MOREBOTTOM**) e a extensão
-//! para esquemas (`inference.md`, "Upper bound": `UP(T, _) = T`).
+//! with the auxiliary predicates of the null safety specification (**TOP**,
+//! **OBJECT**, **BOTTOM**, **NULL**, **MORETOP**, **MOREBOTTOM**) and the
+//! extension to schemas (`inference.md`, "Upper bound": `UP(T, _) = T`).
 //!
-//! As regras são avaliadas de cima para baixo, na ordem do documento; a
-//! primeira que casa decide.
+//! The rules are evaluated top to bottom, in the order of the document; the
+//! first one that matches decides.
 
 use crate::ops::{non_nullable, nullable};
 use crate::subtyping::{is_subtype, SubtypeEnv};
 use crate::table::{Type, TypeId, TypeParamId};
 use std::collections::HashMap;
 
-/// **TOP**(`T`): `dynamic`, `void`, `S?` com **TOP**/**OBJECT**(`S`), `FutureOr<S>` com **TOP**(`S`).
+/// **TOP**(`T`): `dynamic`, `void`, `S?` with **TOP**/**OBJECT**(`S`), `FutureOr<S>` with **TOP**(`S`).
 pub fn is_top(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Dynamic | Type::Void => true,
@@ -24,7 +24,7 @@ pub fn is_top(t: TypeId, env: &SubtypeEnv) -> bool {
     }
 }
 
-/// **OBJECT**(`T`): `Object`, `FutureOr<S>` com **OBJECT**(`S`).
+/// **OBJECT**(`T`): `Object`, `FutureOr<S>` with **OBJECT**(`S`).
 pub fn is_object(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Interface { class, nullable: false, .. } => Some(*class) == env.core.object_class,
@@ -33,7 +33,7 @@ pub fn is_object(t: TypeId, env: &SubtypeEnv) -> bool {
     }
 }
 
-/// **BOTTOM**(`T`): `Never`, `X extends S` / `X & S` com **BOTTOM**(`S`).
+/// **BOTTOM**(`T`): `Never`, `X extends S` / `X & S` with **BOTTOM**(`S`).
 pub fn is_bottom(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Never => true,
@@ -46,7 +46,7 @@ pub fn is_bottom(t: TypeId, env: &SubtypeEnv) -> bool {
     }
 }
 
-/// **NULL**(`T`): `Null`, `S?` com **BOTTOM**(`S`).
+/// **NULL**(`T`): `Null`, `S?` with **BOTTOM**(`S`).
 pub fn is_null(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Null => true,
@@ -58,7 +58,7 @@ pub fn is_null(t: TypeId, env: &SubtypeEnv) -> bool {
     }
 }
 
-/// **MORETOP**(`S`, `T`): ordem total sobre tipos topo e `Object`.
+/// **MORETOP**(`S`, `T`): total order over top types and `Object`.
 fn more_top(s: TypeId, t: TypeId, env: &mut SubtypeEnv) -> bool {
     let (ts, tt) = (env.table.get(s).clone(), env.table.get(t).clone());
     if matches!(ts, Type::Void) {
@@ -96,7 +96,7 @@ fn more_top(s: TypeId, t: TypeId, env: &mut SubtypeEnv) -> bool {
     false
 }
 
-/// **MOREBOTTOM**(`S`, `T`): ordem (quase) total sobre tipos fundo e `Null`.
+/// **MOREBOTTOM**(`S`, `T`): (almost) total order over bottom types and `Null`.
 fn more_bottom(s: TypeId, t: TypeId, env: &mut SubtypeEnv) -> bool {
     let (ts, tt) = (env.table.get(s).clone(), env.table.get(t).clone());
     if matches!(ts, Type::Never) {
@@ -139,13 +139,13 @@ pub fn is_non_nullable(t: TypeId, env: &mut SubtypeEnv) -> bool {
     is_subtype(t, env.core.object, env)
 }
 
-/// Fecho maior de `t` em relação a `params` (`inference.md`, "Type variable
-/// elimination"): ocorrências covariantes viram `Object?`, contravariantes `Never`.
+/// Greatest closure of `t` with respect to `params` (`inference.md`, "Type variable
+/// elimination"): covariant occurrences become `Object?`, contravariant ones `Never`.
 pub fn greatest_closure(t: TypeId, params: &[TypeParamId], env: &mut SubtypeEnv) -> TypeId {
     closure(t, params, true, env)
 }
 
-/// Fecho menor de `t` em relação a `params`.
+/// Least closure of `t` with respect to `params`.
 pub fn least_closure(t: TypeId, params: &[TypeParamId], env: &mut SubtypeEnv) -> TypeId {
     closure(t, params, false, env)
 }
@@ -225,18 +225,18 @@ fn closure(t: TypeId, params: &[TypeParamId], greatest: bool, env: &mut SubtypeE
     }
 }
 
-/// `t` contém o desconhecido `_`.
+/// `t` contains the unknown `_`.
 pub fn has_unknown(t: TypeId, env: &SubtypeEnv) -> bool {
     contains_params(t, &[env.core.unknown_param], env)
 }
 
-/// Fecho maior de um esquema em relação a `_`.
+/// Greatest closure of a schema with respect to `_`.
 pub fn schema_greatest(t: TypeId, env: &mut SubtypeEnv) -> TypeId {
     let u = env.core.unknown_param;
     greatest_closure(t, &[u], env)
 }
 
-/// Fecho menor de um esquema em relação a `_`.
+/// Least closure of a schema with respect to `_`.
 pub fn schema_least(t: TypeId, env: &mut SubtypeEnv) -> TypeId {
     let u = env.core.unknown_param;
     least_closure(t, &[u], env)
@@ -257,14 +257,14 @@ fn is_iface(t: TypeId, env: &SubtypeEnv, c: Option<dartforge_elements::model::Cl
     }
 }
 
-/// Subtipagem entre esquemas para UP: fechos menores (`inference.md`).
+/// Subtyping between schemas for UP: least closures (`inference.md`).
 fn sub_up(a: TypeId, b: TypeId, env: &mut SubtypeEnv) -> bool {
     let a = schema_least(a, env);
     let b = schema_least(b, env);
     is_subtype(a, b, env)
 }
 
-/// Subtipagem entre esquemas para DOWN: fechos maiores.
+/// Subtyping between schemas for DOWN: greatest closures.
 fn sub_down(a: TypeId, b: TypeId, env: &mut SubtypeEnv) -> bool {
     let a = schema_greatest(a, env);
     let b = schema_greatest(b, env);
@@ -310,7 +310,7 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     if bot2 {
         return t1;
     }
-    // X1 & B1: tratado antes da nulabilidade (changelog de 2023.10.27).
+    // X1 & B1: handled before nullability (changelog of 2023.10.27).
     if let Type::Intersection { param, bound } = env.table.get(t1).clone() {
         let x1 = env.table.intern(Type::TypeParameter { param, nullable: false });
         if sub_up(x1, t2, env) {
@@ -360,7 +360,7 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         let s = up_depth(a, b, env, depth + 1);
         return nullable(s, env.table);
     }
-    // Variáveis de tipo.
+    // Type variables.
     if let Type::TypeParameter { param, .. } = ty1 {
         if sub_up(t1, t2, env) {
             return t2;
@@ -383,7 +383,7 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         let b = greatest_closure(b, &[param], env);
         return up_depth(t1, b, env, depth + 1);
     }
-    // Funções.
+    // Functions.
     let function_class = env.core.function_class;
     if is_function(t1, env) && is_iface(t2, env, function_class) {
         return t2;
@@ -478,14 +478,14 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     if sub_up(t2, t1, env) {
         return t1;
     }
-    // Interfaces (e tipos de extensão pelas suas superinterfaces).
+    // Interfaces (and extension types through their superinterfaces).
     if let (
         Type::Interface { class: c1, args: a1, .. } | Type::ExtensionType { decl: c1, args: a1, .. },
         Type::Interface { class: c2, args: a2, .. } | Type::ExtensionType { decl: c2, args: a2, .. },
     ) = (&ty1, &ty2)
     {
-        // Mesma declaração (classe ou tipo de extensão, R-UP-w §4.2.4 passo
-        // 3): argumento a argumento.
+        // Same declaration (class or extension type, R-UP-w §4.2.4 step 3):
+        // argument by argument.
         let ext1 = matches!(ty1, Type::ExtensionType { .. });
         let ext2 = matches!(ty2, Type::ExtensionType { .. });
         if c1 == c2 && a1.len() == a2.len() && ext1 == ext2 {
@@ -502,14 +502,14 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     env.core.object
 }
 
-/// Menor limite superior de duas interfaces "como no Dart 1": entre as
-/// superinterfaces comuns (instanciadas igualmente), a de maior profundidade
-/// que seja única nessa profundidade.
+/// Least upper bound of two interfaces "as in Dart 1": among the common
+/// superinterfaces (instantiated equally), the one of greatest depth that is
+/// unique at that depth.
 fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
-    // `_addSuperinterfaces` do analyzer: o próprio tipo, os supertipos
-    // (classes e tipos de extensão), `Object` quando há classe na cadeia e
-    // sempre `Object?` (fim de toda cadeia; tipo de extensão o acrescenta
-    // direto).
+    // The analyzer's `_addSuperinterfaces`: the type itself, the supertypes
+    // (classes and extension types), `Object` when there is a class in the chain
+    // and always `Object?` (the end of every chain; an extension type adds it
+    // directly).
     let supers = |t: TypeId, env: &mut SubtypeEnv| -> Vec<TypeId> {
         let (class, args) = match env.table.get(t) {
             Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (*class, args.clone()),
@@ -521,8 +521,8 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
             let list = data.all_supertypes.clone();
             for s in list {
                 let si = crate::ops::substitute(s, &map, env.table);
-                // `Object` entra abaixo só se houver classe na cadeia (a
-                // hierarquia o põe também sobre tipo de extensão).
+                // `Object` goes below only if there is a class in the chain (the hierarchy
+                // also puts it above an extension type).
                 if si != env.core.object && matches!(env.table.get(si), Type::Interface { .. } | Type::ExtensionType { .. }) && !out.contains(&si) {
                     out.push(si);
                 }
@@ -542,8 +542,8 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
     let common: Vec<TypeId> = s1.into_iter().filter(|x| s2.contains(x)).collect();
     let mut by_depth: HashMap<u32, Vec<TypeId>> = HashMap::new();
     for c in common {
-        // Profundidade: `Object?` 0, `Object` 1, os demais a da hierarquia + 1
-        // (tipo de extensão sem `implements` = 1, como no analyzer).
+        // Depth: `Object?` 0, `Object` 1, the others their hierarchy depth + 1
+        // (an extension type without `implements` = 1, as in the analyzer).
         let d = if c == env.core.object_nullable {
             0
         } else {
@@ -579,7 +579,7 @@ type FnParts<'x> = (
     &'x [(dartforge_intern::SymbolId, TypeId, bool)],
 );
 
-/// Renomeia os parâmetros de tipo de `b` para os de `a` (mesmos limites).
+/// Renames the type parameters of `b` to those of `a` (same bounds).
 fn align_generics(a: &[TypeParamId], b: &[TypeParamId], env: &mut SubtypeEnv) -> Option<HashMap<TypeParamId, TypeId>> {
     if a.len() != b.len() {
         return None;
@@ -666,7 +666,7 @@ fn down_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth:
     let (p0, o0, n0) = (f0.2, f0.3, f0.4);
     let ret = down_depth(f0.1, r1, env, depth + 1);
     if n0.is_empty() && n1.is_empty() {
-        // Todos os posicionais (obrigatórios e opcionais) em sequência.
+        // All positionals (required and optional) in sequence.
         let all0: Vec<TypeId> = p0.iter().chain(o0.iter()).copied().collect();
         let all1: Vec<TypeId> = p1.iter().chain(o1.iter()).copied().collect();
         let q = all0.len().max(all1.len());

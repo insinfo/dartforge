@@ -1,21 +1,22 @@
-//! Sobrescritas inválidas (`invalid_override`), como o
-//! `_ClassVerifier._checkDeclaredMember` do `InheritanceOverrideVerifier`
-//! (analyzer 3.6.2, `src/error/inheritance_override.dart`) e o
-//! `CorrectOverrideHelper` (`src/error/correct_override.dart`): cada membro
-//! de instância declarado na classe é comparado, por subtipagem do tipo de
-//! função, com o membro homônimo da interface de cada superinterface direta
-//! (superclasse, restrições `on`, mixins e interfaces, na ordem do
-//! analyzer). Parâmetros covariantes valem `Object?`.
+//! Invalid overrides (`invalid_override`), like the
+//! `_ClassVerifier._checkDeclaredMember` of `InheritanceOverrideVerifier`
+//! (analyzer 3.6.2, `src/error/inheritance_override.dart`) and
+//! `CorrectOverrideHelper` (`src/error/correct_override.dart`): each instance
+//! member declared in the class is compared, by subtyping of the function
+//! type, with the same-named member of the interface of each direct
+//! superinterface (superclass, `on` constraints, mixins and interfaces, in
+//! the analyzer's order). Covariant parameters count as `Object?`.
 //!
-//! As consultas à interface (`getMember`, `getInherited`, o `implemented`)
-//! são as do `InheritanceManager3` de [`crate::heranca`], com a assinatura
-//! combinada e o `topMerge`; a covariância de cada parâmetro é a escrita
-//! mais a herdada; os tipos omitidos são os da inferência de sobrescrita
-//! fiel (`inferencia::sobrescrita`), que roda antes destas fases.
+//! The interface queries (`getMember`, `getInherited`, `implemented`) are
+//! those of the `InheritanceManager3` in [`crate::heranca`], with the
+//! combined signature and `topMerge`; the covariance of each parameter is the
+//! written one plus the inherited one; the omitted types are those of the
+//! faithful override inference (`inference::overrides`), which runs before
+//! these passes.
 //!
-//! A classe entra só se o `verify()` do analyzer chegaria até aqui (quem
-//! chama filtra: supertipo proibido, `Enum` em classe concreta e herança
-//! recursiva encerram antes).
+//! A class is only checked if the analyzer's `verify()` would get this far
+//! (the caller filters: a forbidden supertype, `Enum` in a concrete class
+//! and recursive inheritance stop earlier).
 
 use crate::despejo::formatar;
 use crate::ops::substitute;
@@ -30,7 +31,7 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
-/// A espécie de um membro para `member.kind != superMember.kind`.
+/// The kind of a member for `member.kind != superMember.kind`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Especie {
     Metodo,
@@ -46,11 +47,11 @@ struct Ctx<'a> {
     outline: &'a OutlineTypes,
     /// O `InheritanceManager3`.
     heranca: crate::heranca::Heranca,
-    /// A biblioteca da classe verificada (o `Name` dos privados).
+    /// The library of the verified class (the `Name` of private members).
     biblioteca: dartforge_elements::model::LibraryId,
 }
 
-/// Um membro homônimo achado na interface de um supertipo.
+/// A same-named member found in the interface of a supertype.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Achado {
     dono: ClassId,
@@ -72,7 +73,7 @@ impl Ctx<'_> {
         }
     }
 
-    /// A chave do membro em `instance_members` (`x_=` para setter).
+    /// The member's key in `instance_members` (`x_=` for a setter).
     fn chave(&self, f: FunctionElementId) -> Option<SymbolId> {
         let func = self.program.function(f);
         if self.especie(f)? == Especie::Setter {
@@ -83,8 +84,8 @@ impl Ctx<'_> {
     }
 
 
-    /// O membro `chave` na interface da classe `d` (`getMember2`) ou herdado
-    /// por ela (`getInherited2`), pelo `Name` da biblioteca verificada.
+    /// The member `key` in the interface of class `d` (`getMember2`) or
+    /// inherited by it (`getInherited2`), by the `Name` of the verified library.
     fn inheritance_member(&mut self, d: ClassId, key: SymbolId, inherited: bool) -> Option<crate::heranca::Membro> {
         let the_name = crate::heranca::Nome::novo(self.interner, self.biblioteca, key);
         let mut h = std::mem::take(&mut self.heranca);
@@ -102,14 +103,14 @@ impl Ctx<'_> {
         r
     }
 
-    /// `InheritanceManager3.getMember(s, nome)`: o membro na interface do
-    /// tipo de interface `s` (a assinatura combinada, com o `topMerge`), com
-    /// o tipo visto por `s`.
+    /// `InheritanceManager3.getMember(s, the_name)`: the member in the interface of
+    /// interface type `s` (the combined signature, with `topMerge`), with the
+    /// type as seen by `s`.
     fn in_interface(&mut self, s: TypeId, key: SymbolId, _prof: u32) -> Option<(Achado, TypeId)> {
         self.in_interface_ex(s, key, false)
     }
 
-    /// `InheritanceManager3.getInherited(s, nome)`.
+    /// `InheritanceManager3.getInherited(s, the_name)`.
     fn herdado(&mut self, s: TypeId, key: SymbolId) -> Option<(Achado, TypeId)> {
         self.in_interface_ex(s, key, true)
     }
@@ -130,7 +131,8 @@ impl Ctx<'_> {
         Some((Achado { dono: m.classe, funcao: m.funcao }, t))
     }
 
-    /// O tipo do membro `a` visto pelo supertipo `s` (que o herda ou declara).
+    /// The type of member `a` as seen by supertype `s` (which inherits or
+    /// declares it).
     fn seen_type(&mut self, s: TypeId, a: Achado) -> Option<TypeId> {
         let sig = self.outline.functions.get(a.funcao.0 as usize)?.signature;
         let seen = self.outline.hierarchy.supertype_of(s, a.dono, self.table, self.core)?;
@@ -146,9 +148,9 @@ impl Ctx<'_> {
         Some(substitute(sig, &subst, self.table))
     }
 
-    /// `ParameterElement.isCovariant` do membro `f` visto pela classe `c`: o
-    /// declarado nela (escrito mais o herdado dos sobrescritos) ou o
-    /// implementado (com a covariância herdada).
+    /// `ParameterElement.isCovariant` of member `f` as seen by class `c`: the one
+    /// declared in it (written plus inherited from the overridden members) or the
+    /// implemented one (with inherited covariance).
     fn effective_covariant(&mut self, c: ClassId, f: FunctionElementId, key: SymbolId) -> (Vec<usize>, Vec<SymbolId>) {
         let the_name = crate::heranca::Nome::novo(self.interner, self.program.class(c).library, key);
         let mut h = std::mem::take(&mut self.heranca);
@@ -181,10 +183,10 @@ impl Ctx<'_> {
         (pos, names)
     }
 
-    /// `CovariantParametersVerifier`: cada parâmetro covariante contra o
-    /// correspondente do membro homônimo declarado em cada supertipo da
-    /// classe; tipos sem relação de subtipo em nenhum sentido são erro. A
-    /// mensagem mostra o membro do supertipo sem substituição.
+    /// `CovariantParametersVerifier`: each covariant parameter against the
+    /// corresponding one of the same-named member declared in each supertype of
+    /// the class; types with no subtype relation in either direction are an
+    /// error. The message shows the supertype's member without substitution.
     fn covariant_against_supertypes(&mut self, m: &Conferencia, key: SymbolId, output: &mut Vec<Diagnostic>) {
         let (pos, names) = self.effective_covariant(m.declarante, m.funcao, key);
         if pos.is_empty() && names.is_empty() {
@@ -213,9 +215,9 @@ impl Ctx<'_> {
                 continue;
             }
             let mut subst: HashMap<TypeParamId, TypeId> = params_s.iter().copied().zip(args.iter().copied()).collect();
-            // `_superSubstitution` (3.6.2 `correct_override.dart:195-215`): com
-            // a mesma contagem, os parâmetros de tipo do método do supertipo
-            // viram os do próprio método.
+            // `_superSubstitution` (3.6.2 `correct_override.dart:195-215`): with
+            // the same count, the type parameters of the supertype's method become
+            // those of the method itself.
             if !own.type_params.is_empty() && own.type_params.len() == data_g.type_params.len() {
                 for (&sp, &tp) in data_g.type_params.iter().zip(own.type_params.iter()) {
                     let t = self.table.intern(Type::TypeParameter { param: tp, nullable: false });
@@ -269,7 +271,7 @@ impl Ctx<'_> {
         }
     }
 
-    /// `_computeThisTypeForSubtype`: parâmetros covariantes viram `Object?`.
+    /// `_computeThisTypeForSubtype`: covariant parameters become `Object?`.
     fn for_subtype(&mut self, sig: TypeId, pos: &[usize], names: &[SymbolId]) -> TypeId {
         if pos.is_empty() && names.is_empty() {
             return sig;
@@ -289,9 +291,9 @@ impl Ctx<'_> {
     }
 }
 
-/// Um membro a conferir: a função, o tipo dela na classe que o recebe, a
-/// classe que o declara (nome da mensagem, covariância, inferência) e onde
-/// relatar.
+/// A member to check: the function, its type in the class that receives it,
+/// the class that declares it (name in the message, covariance, inference)
+/// and where to report.
 #[derive(Clone, Copy)]
 struct Conferencia {
     funcao: FunctionElementId,
@@ -301,7 +303,7 @@ struct Conferencia {
 }
 
 impl Ctx<'_> {
-    /// `_checkDeclaredMember` contra as superinterfaces `supers`.
+    /// `_checkDeclaredMember` against the superinterfaces `supers`.
     fn conferir(&mut self, m: Conferencia, supers: &[TypeId], output: &mut Vec<Diagnostic>) {
         let (Some(the_kind), Some(key)) = (self.especie(m.funcao), self.chave(m.funcao)) else { return };
         let the_name = self.interner.resolve(self.program.function(m.funcao).name).to_string();
@@ -329,8 +331,8 @@ impl Ctx<'_> {
                     self.interner.resolve(self.program.class(finding.dono).name).to_string(),
                     formatar(self.table, do_super, self.interner, self.program),
                 ];
-                // `invalidOverride`: o membro sobrescrito, no nome não
-                // sintético dele (no arquivo dele, se é outro).
+                // `invalidOverride`: the overridden member, at its non-synthetic
+                // name (in its own file, if it is a different one).
                 let mut d = Diagnostic::com_codigo(code, m.span, args);
                 if let Some((u, span)) = self.program.nome_nao_sintetico_da_funcao(finding.funcao) {
                     let error_unit = self.program.nome_nao_sintetico_da_funcao(m.funcao).map(|(x, _)| x);
@@ -344,9 +346,9 @@ impl Ctx<'_> {
     }
 }
 
-/// Os diagnósticos de `invalid_override` dos membros declarados nas classes
-/// `classes` e dos mixins que elas aplicam (cada um com a unidade da
-/// declaração da classe).
+/// The `invalid_override` diagnostics of the members declared in the classes
+/// `classes` and of the mixins they apply (each with the unit of the class
+/// declaration).
 pub fn sobrescritas_invalidas(
     program: &Program,
     interner: &Interner,
@@ -355,13 +357,13 @@ pub fn sobrescritas_invalidas(
     outline: &OutlineTypes,
     classes: &[ClassId],
 ) -> Vec<(UnitId, Diagnostic)> {
-    // `_reportNoCombinedSuperSignature` relatado: o método pula o
+    // `_reportNoCombinedSuperSignature` reported: the method skips
     // `_checkDeclaredMember` (`inheritance_override.dart:259-263`).
     let without_signature: std::collections::HashSet<FunctionElementId> =
         crate::fase_heranca::methods_without_combined_signature(program, interner, table, core, outline, classes).into_iter().map(|(_, f, _, _)| f).collect();
     let mut cx = Ctx { program, interner, table, core, outline, heranca: crate::heranca::Heranca::default(), biblioteca: dartforge_elements::model::LibraryId(0) };
     let mut output = Vec::new();
-    // Acessores e métodos por nó da fonte.
+    // Accessors and methods by source node.
     let mut by_function: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
     type Acessores = (Option<FunctionElementId>, Option<FunctionElementId>);
     let mut by_variable: HashMap<(UnitId, u32, usize), Acessores> = HashMap::new();
@@ -385,7 +387,7 @@ pub fn sobrescritas_invalidas(
             FunctionRef::Constructor { .. } => {}
         }
     }
-    // Os membros de instância declarados numa classe: `(função, nome no erro)`.
+    // The instance members declared in a class: `(função, the_name no erro)`.
     let the_declared = |cid: ClassId| -> Vec<(FunctionElementId, Span)> {
         let mut v = Vec::new();
         let Some(decl) = program.class(cid).decl else { return v };
@@ -427,9 +429,9 @@ pub fn sobrescritas_invalidas(
             DeclKind::Enum(d) => &d.with,
             _ => &[],
         };
-        // `directSuperInterfaces`: superclasse (`Object` quando omitida numa
-        // classe) e restrições `on`; os mixins entram um a um depois de
-        // conferidos; por fim as interfaces.
+        // `directSuperInterfaces`: superclass (`Object` when omitted in a class)
+        // and `on` constraints; the mixins come in one by one after being
+        // checked; finally the interfaces.
         let mut supers: Vec<TypeId> = Vec::new();
         match (data.supertype, cls.kind) {
             (Some(t), _) => supers.push(t),
@@ -451,7 +453,7 @@ pub fn sobrescritas_invalidas(
             {
                 let span = ast_.ty(with[i]).span;
                 for (f, _) in the_declared(m) {
-                    // O tipo do membro do mixin aplicado (`M<args>`).
+                    // The type of the member of the applied mixin (`M<args>`).
                     let Some(typ) = cx.seen_type(mt, Achado { dono: m, funcao: f }) else { continue };
                     cx.conferir(Conferencia { funcao: f, tipo: typ, declarante: m, span }, &supers.clone(), &mut diags);
                 }
@@ -479,8 +481,8 @@ pub fn sobrescritas_invalidas(
     output
 }
 
-/// Onde está o nome da função `f` (o do campo ou variável, num acessor
-/// implícito).
+/// Where the name of function `f` is (that of the field or variable, for an
+/// implicit accessor).
 fn name_of(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
     let func = program.function(f);
     match func.node {
@@ -492,8 +494,8 @@ fn name_of(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
     }
 }
 
-/// O nome declarado de uma variável (campo, de topo, constante de enum,
-/// representação).
+/// The declared name of a variable (field, top-level, enum constant,
+/// representation).
 fn nome_da_variavel(program: &Program, v: dartforge_elements::model::VariableId) -> Option<(UnitId, Span)> {
     {
         match program.variable(v).node {
@@ -519,10 +521,10 @@ fn nome_da_variavel(program: &Program, v: dartforge_elements::model::VariableId)
 }
 
 impl Ctx<'_> {
-    /// Os tipos de getter e setter de um acessor fora de interface (topo,
-    /// estático, extensão): o escrito, `dynamic` quando omitido numa função,
-    /// nada num campo ou variável sem tipo escrito (o tipo viria do
-    /// inicializador).
+    /// The getter and setter types of an accessor outside an interface (top
+    /// level, static, extension): the written one, `dynamic` when omitted in a
+    /// function, nothing for a field or variable without a written type (the
+    /// type would come from the initializer).
     fn accessor_type(&mut self, f: FunctionElementId, getter: bool) -> Option<TypeId> {
         let func = self.program.function(f);
         let data = self.outline.functions.get(f.0 as usize)?;
@@ -534,8 +536,8 @@ impl Ctx<'_> {
                 } else {
                     (af.parameters.as_deref().and_then(|p| p.first()).and_then(|p| p.ty), data.parameters.first()?.ty)
                 };
-                // Tipo escrito que não resolve (`InvalidType` no analyzer, que
-                // é subtipo de tudo e aceita tudo): não se decide.
+                // A written type that does not resolve (`InvalidType` in the analyzer,
+                // which is a subtype of everything and accepts everything): undecided.
                 if let Some(e) = written
                     && t == self.core.dynamic_
                     && !matches!(&self.program.unit(unit).ast.ty(e).kind,
@@ -549,7 +551,7 @@ impl Ctx<'_> {
                 let v = func.variable?;
                 let data_v = self.outline.variables.get(v.0 as usize)?;
                 match self.program.variable(v).node {
-                    // Constante de enum e representação: o tipo é conhecido.
+                    // Enum constant and representation: the type is known.
                     VariableRef::EnumConstant { .. } | VariableRef::Representation { .. } => {
                         data_v.declared_type.or(data_v.inferred)
                     }
@@ -562,11 +564,11 @@ impl Ctx<'_> {
 }
 
 /// `GetterSetterTypesVerifier` (`src/error/getter_setter_types_verifier.dart`):
-/// o tipo de retorno do getter precisa ser subtipo do tipo do parâmetro do
-/// setter homônimo. Os acessores de topo (por unidade), os estáticos de
-/// classe e enum e os de extensão (`checkStaticAccessors`/`checkExtension`),
-/// e a interface das classes `classes` (`checkInterface`, que o
-/// `InheritanceOverrideVerifier` chama depois das sobrescritas).
+/// the getter's return type must be a subtype of the parameter type of the
+/// same-named setter. Top-level accessors (per unit), static ones of classes
+/// and enums and extension ones (`checkStaticAccessors`/`checkExtension`),
+/// and the interface of the classes `classes` (`checkInterface`, which
+/// `InheritanceOverrideVerifier` calls after the overrides).
 pub fn getters_e_setters(
     program: &Program,
     interner: &Interner,
@@ -578,7 +580,7 @@ pub fn getters_e_setters(
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut cx = Ctx { program, interner, table, core, outline, heranca: crate::heranca::Heranca::default(), biblioteca: dartforge_elements::model::LibraryId(0) };
     let mut output = Vec::new();
-    // Acessores locais: `(recipiente, nome)` → getters e setters.
+    // Local accessors: `(holder, the_name)` → getters and setters.
     #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
     enum Holder {
         Unidade(UnitId),
@@ -586,10 +588,10 @@ pub fn getters_e_setters(
         Instance(ClassId),
         Extensao(u32),
     }
-    // Um acessor local: função (getter/setter escrito ou implícito de campo
-    // de classe), variável sem função de acesso no modelo (constante de
-    // enum, representação, campo de extensão) ou o `values` sintético do
-    // enum.
+    // A local accessor: a function (written getter/setter or implicit one of a
+    // class field), a variable without an access function in the model (enum
+    // constant, representation, extension field) or the enum's synthetic
+    // `values`.
     #[derive(PartialEq, Eq, Clone, Copy, Debug)]
     enum Acessor {
         Funcao(FunctionElementId),
@@ -597,8 +599,8 @@ pub fn getters_e_setters(
         Values(ClassId),
     }
     let mut groups: HashMap<(Holder, SymbolId), (Vec<Acessor>, Vec<Acessor>)> = HashMap::new();
-    // Acessores de `augment` (e o que eles aumentam) ficam de fora: a
-    // recuperação do parser sem o experimento os lê de outro jeito.
+    // `augment` accessors (and what they augment) are left out: the parser's
+    // recovery without the experiment reads them differently.
     let mut augmented: std::collections::HashSet<(UnitId, u32)> = std::collections::HashSet::new();
     for &u in &program.library(lib).units {
         let ast_ = &program.unit(u).ast;
@@ -608,7 +610,7 @@ pub fn getters_e_setters(
                     MemberKind::Method(f) => {
                         augmented.insert((u, f.0));
                     }
-                    // Campo com `augment`: a biblioteca inteira fica de fora.
+                    // A field with `augment`: the whole library is left out.
                     MemberKind::Field(_) => return Vec::new(),
                     MemberKind::Constructor(_) => {}
                 }
@@ -632,8 +634,8 @@ pub fn getters_e_setters(
             continue;
         }
         let id = FunctionElementId(i as u32);
-        // Os sintéticos do enum: `values` é o getter estático (no nome do
-        // enum); `index` e `name` vêm de `Enum` pela interface.
+        // The enum's synthetic members: `values` is the static getter (at the
+        // enum's name); `index` and `name` come from `Enum` through the interface.
         if matches!(f.node, FunctionRef::None) && f.variable.is_none() {
             if f.static_
                 && let Some(c) = f.class
@@ -656,9 +658,9 @@ pub fn getters_e_setters(
                 | dartforge_elements::model::ClassKind::ExtensionType => Holder::Classe(c),
                 _ => continue,
             },
-            // Membros de instância de tipo de extensão: os declarados nele
-            // (`checkExtensionType`, a parte da interface que ele mesmo
-            // declara), com a representação.
+            // Instance members of an extension type: those declared in it
+            // (`checkExtensionType`, the part of the interface it declares itself),
+            // including the representation.
             (Some(c), None) if program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType => {
                 Holder::Instance(c)
             }
@@ -671,9 +673,9 @@ pub fn getters_e_setters(
         let g = groups.entry((holder, f.name)).or_default();
         if the_kind == Especie::Getter { g.0.push(Acessor::Funcao(id)) } else { g.1.push(Acessor::Funcao(id)) }
     }
-    // As variáveis sem função de acesso: a constante de enum (getter
-    // estático), a representação (getter de instância do tipo de extensão)
-    // e o campo de extensão (getter, e setter se não é `final` nem `const`).
+    // Variables without an access function: the enum constant (static
+    // getter), the representation (instance getter of the extension type) and
+    // the extension field (getter, and setter if neither `final` nor `const`).
     for (i, v) in program.variables.iter().enumerate() {
         if v.library != lib || v.getter.is_some() {
             continue;
@@ -722,14 +724,14 @@ pub fn getters_e_setters(
             let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
             is_subtype(tg, ts, &mut env)
         };
-        // Num tipo de extensão, o getter da representação cede o lugar ao setter.
+        // In an extension type, the representation getter gives way to the setter.
         let representation = matches!(k.0, Holder::Instance(_))
             && matches!(*g, Acessor::Variavel(v) if matches!(program.variable(v).node, VariableRef::Representation { .. }));
         let place_of = |a: Acessor| -> Option<(UnitId, Span)> {
             match a {
                 Acessor::Funcao(f) => name_of(program, f),
                 Acessor::Variavel(v) => nome_da_variavel(program, v),
-                // O `values` sintético está no nome do enum.
+                // The synthetic `values` is at the enum's name.
                 Acessor::Values(c) => {
                     let d = program.class(c).decl?;
                     match &program.unit(d.unit).ast.decl(d.decl).kind {
@@ -746,8 +748,8 @@ pub fn getters_e_setters(
             output.push((u, Diagnostic::com_codigo(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
         }
     }
-    // O `Enum` do `dart:core`: os getters sintéticos `index` e `name` de um
-    // enum são, na interface, os dele (`'Enum.index'`).
+    // `dart:core`'s `Enum`: an enum's synthetic getters `index` and `name`
+    // are, in the interface, its own (`'Enum.index'`).
     let enum_do_core = program
         .classes
         .iter()
@@ -760,10 +762,10 @@ pub fn getters_e_setters(
             && !func.static_
             && func.class.is_some_and(|c| program.class(c).kind == dartforge_elements::model::ClassKind::Enum)
     };
-    // A interface de cada classe (`checkInterface` do
-    // `InheritanceOverrideVerifier`) e de cada tipo de extensão
-    // (`checkExtensionType`, do `ErrorVerifier`); no tipo de extensão, o par
-    // declarado nele mesmo já saiu na conferência local acima.
+    // The interface of each class (`InheritanceOverrideVerifier`'s
+    // `checkInterface`) and of each extension type (`checkExtensionType`, from
+    // `ErrorVerifier`); for an extension type, the pair it declares itself was
+    // already handled by the local check above.
     let extensions: Vec<ClassId> = program
         .classes
         .iter()
@@ -852,8 +854,8 @@ pub fn getters_e_setters(
     output
 }
 
-/// Começo de um nó anotado (`AnnotatedNodeImpl.beginToken`): o comentário
-/// de documentação logo antes, se houver.
+/// Start of an annotated node (`AnnotatedNodeImpl.beginToken`): the
+/// documentation comment right before it, if any.
 fn start_with_documentation(source: &str, start: usize) -> usize {
     let without_space = source[..start].trim_end();
     if let Some(without_end) = without_space.strip_suffix("*/") {
@@ -882,8 +884,8 @@ fn start_with_documentation(source: &str, start: usize) -> usize {
 }
 
 impl Ctx<'_> {
-    /// `getMember2(d, nome, concrete: true)`: o `implemented` da interface
-    /// (com os encaminhadores de `noSuchMethod` e a covariância herdada).
+    /// `getMember2(d, the_name, concrete: true)`: the interface's `implemented`
+    /// (with the `noSuchMethod` forwarders and inherited covariance).
     fn implementado(&mut self, d: ClassId, key: SymbolId, _prof: u32) -> Option<Achado> {
         let the_name = crate::heranca::Nome::novo(self.interner, self.biblioteca, key);
         let mut h = std::mem::take(&mut self.heranca);
@@ -901,13 +903,13 @@ impl Ctx<'_> {
         r.map(|m| Achado { dono: m.classe, funcao: m.funcao })
     }
 
-    /// `InterfaceElement.supertype`: a do modelo, e `Enum` num enum
+    /// `InterfaceElement.supertype`: the model's, and `Enum` for an enum
     /// (`LibraryBuilder.buildEnumChildren`).
     fn superclass(&self, d: ClassId) -> Option<ClassId> {
         let cls = self.program.class(d);
         match cls.supertype_class {
-            // `extends` de enum ou tipo de extensão (`extends_non_class`): o
-            // supertipo fica `Object`.
+            // `extends` of an enum or extension type (`extends_non_class`): the
+            // supertype becomes `Object`.
             Some(s) if self.outside_hierarchy(d, s) => self.core_class("Object"),
             Some(s) => Some(s),
             None if cls.kind == dartforge_elements::model::ClassKind::Enum => self.core_class("Enum"),
@@ -915,16 +917,16 @@ impl Ctx<'_> {
         }
     }
 
-    /// O supertipo `s` de `d` é enum ou tipo de extensão numa classe, mixin
-    /// ou enum (o analyzer o descarta da cláusula).
+    /// The supertype `s` of `d` is an enum or extension type in a class, mixin
+    /// or enum (the analyzer drops it from the clause).
     fn outside_hierarchy(&self, d: ClassId, s: ClassId) -> bool {
         use dartforge_elements::model::ClassKind as K;
         if self.program.class(d).kind != K::ExtensionType && matches!(self.program.class(s).kind, K::Enum | K::ExtensionType) {
             return true;
         }
-        // Uma classe (não enum) só chega a `Enum`/`_Enum` do `dart:core` pelo
-        // `implements` de um enum, que é `implements_non_class`: o tipo sai
-        // da cláusula, e com ele os supertipos dele.
+        // A class (not an enum) only reaches `dart:core`'s `Enum`/`_Enum` through
+        // the `implements` of an enum, which is `implements_non_class`: the type
+        // leaves the clause, and with it its supertypes.
         let sc = self.program.class(s);
         self.program.class(d).kind != K::Enum
             && matches!(self.interner.resolve(sc.name), "Enum" | "_Enum")
@@ -945,14 +947,14 @@ impl Ctx<'_> {
         }
     }
 
-    /// O nome privado `k` é declarado por `c` ou por um supertipo da
-    /// biblioteca `lib`.
+    /// The private name `k` is declared by `c` or by a supertype from library
+    /// `lib`.
     fn library_private(&self, c: ClassId, k: SymbolId, lib: dartforge_elements::model::LibraryId) -> bool {
         let supers = self.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
         std::iter::once(c).chain(supers).any(|s| self.program.class(s).library == lib && self.program.class(s).instance_members.contains_key(&k))
     }
 
-    /// Todas as chaves de membros de instância de `c` e dos supertipos.
+    /// All instance member keys of `c` and of its supertypes.
     fn hierarchy_keys(&self, c: ClassId) -> Vec<SymbolId> {
         let mut v: Vec<SymbolId> = Vec::new();
         let supers = self.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
@@ -977,15 +979,16 @@ impl Ctx<'_> {
     }
 }
 
-/// A parte do `verify()` do `InheritanceOverrideVerifier` sobre classes
-/// concretas e enums (`src/error/inheritance_override.dart`): para cada nome
-/// da interface sem implementação concreta, `concrete_class_with_abstract_member`
-/// (ou `enum_with_abstract_member`) no membro abstrato que a própria classe
-/// declara, senão `non_abstract_class_inherits_abstract_member` no nome da
-/// classe, com os membros herdados (menos os que a superclasse concreta já
-/// deixa sem implementar); havendo `noSuchMethod` que não é o de `Object`,
-/// os que faltam são encaminhados. Com implementação concreta de outra
-/// assinatura, `invalid_implementation_override`.
+/// The part of `InheritanceOverrideVerifier`'s `verify()` about concrete
+/// classes and enums (`src/error/inheritance_override.dart`): for each name of
+/// the interface without a concrete implementation,
+/// `concrete_class_with_abstract_member` (or `enum_with_abstract_member`) at the
+/// abstract member that the class itself declares, otherwise
+/// `non_abstract_class_inherits_abstract_member` at the class name, with the
+/// inherited members (minus those that the concrete superclass already leaves
+/// unimplemented); if there is a `noSuchMethod` other than `Object`'s, the
+/// missing ones are forwarded. With a concrete implementation of another
+/// signature, `invalid_implementation_override`.
 pub fn membros_abstratos(
     program: &Program,
     interner: &Interner,
@@ -1009,41 +1012,43 @@ pub fn membros_abstratos(
             _ => continue,
         };
         let e_enum = cls.kind == dartforge_elements::model::ClassKind::Enum;
-        // Membro de `augment`, ou método cujo nome vem depois de `.` (um
-        // construtor com o nome da classe errado): a recuperação do parser
-        // difere da do analyzer e a classe não se decide.
+        // An `augment` member, or a method whose name comes after `.` (a
+        // constructor with the wrong class name): the parser's recovery
+        // differs from the analyzer's and the class is undecided.
         let recovered = members.iter().any(|&m| {
             let mem = ast_.member(m);
             mem.augment
                 || matches!(&mem.kind, MemberKind::Method(f)
                     if ast_.function(*f).name.is_some_and(|n| source[..n.span.start].trim_end().ends_with('.')))
         });
-        // A palavra `augment` no começo de um membro, sem o experimento, é
-        // lida de outro jeito pelo parser do analyzer.
+        // The word `augment` at the start of a member, without the experiment,
+        // is read differently by the analyzer's parser.
         let sp = ast_.decl(decl.decl).span;
         let decl_text = source.get(sp.start..sp.end).unwrap_or("");
-        // Sem o experimento, o parser lê `augment` como identificador e a
-        // recuperação é a do analyzer (T1.1 f): nada a pular.
+        // Without the experiment, the parser reads `augment` as an identifier
+        // and the recovery is the analyzer's (T1.1 f): nothing to skip.
         let augment_in_text = program.biblioteca_com_augmentations(cls.library)
             && decl_text.lines().any(|l| l.trim_start().starts_with("augment "));
         if recovered || augment_in_text || ast_.decl(decl.decl).augment {
             continue;
         }
-        // T1.1 e: a interface é a do dono do grupo de homônimos (o cache do
-        // analyzer é por elemento), e o membro abstrato é procurado na árvore
-        // da própria declaração (`_reportConcreteClassWithAbstractMember`).
+        // T1.1 e: the interface is that of the owner of the same-named group (the
+        // analyzer's cache is per element), and the abstract member is looked for
+        // in the tree of the declaration itself
+        // (`_reportConcreteClassWithAbstractMember`).
         let intf = program.dono_da_classe(cid);
         let Some(this_one) = cx.own_type(intf) else { continue };
-        // `noSuchMethod` implementado que não é o de `Object`: o nome sem
-        // implementação concreta ganha o encaminhador (o membro da interface
-        // vira o `implemented`, 3.6.2 `inheritance_manager3.dart`), então nada
-        // sai por ele; a implementação concreta que existe continua conferida
-        // (`Enum.index` contra um `Never get index` da interface).
+        // An implemented `noSuchMethod` other than `Object`'s: the name without a
+        // concrete implementation gets the forwarder (the interface member
+        // becomes the `implemented`, 3.6.2 `inheritance_manager3.dart`), so
+        // nothing is reported for it; an existing concrete implementation is
+        // still checked (`Enum.index` against a `Never get index` in the
+        // interface).
         let forwards = nsm.is_some_and(|n| {
             cx.implementado(intf, n, 0).is_some_and(|a| program.library(program.class(a.dono).library).uri != "dart:core")
         });
-        // `_isNotImplementedInConcreteSuperClass`: a superclasse declarada,
-        // se concreta.
+        // `_isNotImplementedInConcreteSuperClass`: the declared superclass,
+        // if concrete.
         let concrete_superclass = program.class(intf).supertype_class.filter(|&s| {
             let sc = program.class(s);
             sc.decl.is_some()
@@ -1055,14 +1060,14 @@ pub fn membros_abstratos(
         let mut uncertain = false;
         for key in cx.hierarchy_keys(intf) {
             let text = interner.resolve(key).to_string();
-            // Um nome privado só declarado em outras bibliotecas (`_name` de
-            // `_Enum`) é outro `Name` para esta classe: não está na interface
-            // que ela vê.
+            // A private name declared only in other libraries (`_name` of
+            // `_Enum`) is a different `Name` for this class: it is not in the
+            // interface it sees.
             if text.starts_with('_') && !cx.library_private(intf, key, cls.library) {
                 continue;
             }
             let Some((mem, member_type)) = cx.in_interface(this_one, key, 0) else {
-                // Conflito ou assinatura combinada que não se decide aqui.
+                // A conflict or combined signature that is not decided here.
                 if !program.class(intf).instance_members.contains_key(&key) {
                     uncertain = true;
                 }
@@ -1077,10 +1082,10 @@ pub fn membros_abstratos(
                 None if forwards => {}
                 None => {
                     // `_reportConcreteClassWithAbstractMember` (3.6.2
-                    // `inheritance_override.dart:809-845`): o primeiro membro
-                    // da declaração com o nome, estático ou não; o campo dá
-                    // também o `nome=` quando não é `final` (o `isFinal` do
-                    // nó não conta o `const`).
+                    // `inheritance_override.dart:809-845`): the first member of
+                    // the declaration with the name, static or not; a field also
+                    // gives `the_name=` when it is not `final` (the node's `isFinal`
+                    // does not count `const`).
                     let declared = members.iter().find(|&&m| match &ast_.member(m).kind {
                         MemberKind::Method(f) => {
                             let af = ast_.function(*f);
@@ -1097,9 +1102,9 @@ pub fn membros_abstratos(
                     });
                     if let Some(&m) = declared {
                         let mut sp = ast_.member(m).span;
-                        // `var get a;`, `const m();`, `abstract void m();`…: os
-                        // modificadores que o `MethodDeclaration` não guarda (erros
-                        // de sintaxe) ficam fora do nó; `external`/`static` ficam.
+                        // `var get a;`, `const m();`, `abstract void m();`…: the
+                        // modifiers that `MethodDeclaration` does not keep (syntax
+                        // errors) are outside the node; `external`/`static` stay.
                         if let MemberKind::Method(_) = &ast_.member(m).kind {
                             const OUTSIDE: [&str; 7] = ["var", "const", "final", "abstract", "covariant", "late", "required"];
                             while let Some(rest) =
@@ -1130,13 +1135,13 @@ pub fn membros_abstratos(
                     the_inherited.push(format!("{prefix}{}.{displayed}", interner.resolve(program.class(mem.dono).name)));
                 }
                 Some(concrete) => {
-                    // A implementação concreta contra a assinatura da interface.
+                    // The concrete implementation against the interface signature.
                     if concrete == mem || cx.especie(concrete.funcao) != Some(the_kind) {
                         continue;
                     }
                     let Some(concrete_type) = cx.seen_type(this_one, concrete) else { continue };
-                    // `_inheritCovariance`: a covariância vem de todos os
-                    // membros homônimos na hierarquia da classe.
+                    // `_inheritCovariance`: the covariance comes from all the
+                    // same-named members in the class hierarchy.
                     let (pos, names) = cx.effective_covariant(intf, concrete.funcao, key);
                     let to_sub = cx.for_subtype(concrete_type, &pos, &names);
                     let ok = {
@@ -1181,7 +1186,7 @@ pub fn membros_abstratos(
     output
 }
 
-/// `TypeSystemImpl.isNullable`: o tipo aceita `null` com certeza.
+/// `TypeSystemImpl.isNullable`: the type certainly accepts `null`.
 fn anulavel(table: &TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => true,
@@ -1198,9 +1203,10 @@ fn anulavel(table: &TypeTable, t: TypeId) -> bool {
 
 /// `NOT_INITIALIZED_NON_NULLABLE_VARIABLE`
 /// (`_checkForNotInitializedNonNullableVariable`,
-/// `an611:src/generated/error_verifier.dart:4872-4911`): variável de topo
-/// (não `final`) ou campo estático, sem `const`, `late` nem `external`, com
-/// tipo escrito potencialmente não anulável e sem inicializador — no nome.
+/// `an611:src/generated/error_verifier.dart:4872-4911`): a top-level
+/// variable (not `final`) or static field, without `const`, `late` or
+/// `external`, with a written potentially non-nullable type and no
+/// initializer; at the name.
 pub fn variaveis_nao_inicializadas(
     program: &Program,
     interner: &Interner,
@@ -1237,21 +1243,22 @@ pub fn variaveis_nao_inicializadas(
         if anulavel(table, t) {
             continue;
         }
-        // Também no nome sintético (vazio), como o analyzer.
+        // Also at the synthetic (empty) name, like the analyzer.
         let the_name = var.name;
         output.push((unit, Diagnostic::com_codigo(c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE, the_name.span, [interner.resolve(the_name.sym)])));
     }
     output
 }
 
-/// `ErrorVerifier._checkUseOfDefaultValuesInParameters`: parâmetro opcional
-/// sem valor padrão cujo tipo pode não aceitar `null`
+/// `ErrorVerifier._checkUseOfDefaultValuesInParameters`: an optional
+/// parameter without a default value whose type may not accept `null`
 /// (`missing_default_value_for_parameter`, `_POSITIONAL`,
-/// `_WITH_ANNOTATION` com `@required`), nas funções de topo, métodos e
-/// construtores da biblioteca em que o valor padrão é esperado (nem
-/// abstrato, nem `external`, nem nativo, nem `factory` redirecionador). O
-/// tipo vale quando escrito ou num `this.x`; sem tipo escrito (inferido da
-/// sobrescrita ou do construtor da superclasse), não se decide.
+/// `_WITH_ANNOTATION` with `@required`), in the library's top-level
+/// functions, methods and constructors where a default value is expected
+/// (not abstract, not `external`, not native, not a redirecting `factory`).
+/// The type counts when written or for a `this.x`; without a written type
+/// (inferred from the override or from the superclass constructor), it is
+/// undecided.
 pub fn default_values(
     program: &Program,
     interner: &Interner,
@@ -1262,11 +1269,11 @@ pub fn default_values(
     valores_padrao_com(program, interner, table, None, outline, None, lib)
 }
 
-/// O parâmetro `super.x` (de índice `i` em `f`) e o parâmetro do construtor
-/// da superclasse que ele encaminha (`superConstructorParameter`, 3.6.2
-/// `element.dart:9291-9310`): pelo nome, se nomeado; senão pela posição
-/// entre os `super.x` do construtor, nos posicionais do construtor da
-/// superclasse (o do `super.nome(…)`, ou o sem nome).
+/// The `super.x` parameter (at index `i` in `f`) and the superclass
+/// constructor parameter it forwards to (`superConstructorParameter`, 3.6.2
+/// `element.dart:9291-9310`): by name, if named; otherwise by position among
+/// the constructor's `super.x` parameters, in the positionals of the
+/// superclass constructor (that of `super.the_name(…)`, or the unnamed one).
 fn parametro_do_super(program: &Program, interner: &Interner, f: FunctionElementId, i: usize) -> Option<(FunctionElementId, usize)> {
     let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
     let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return None };
@@ -1294,10 +1301,11 @@ fn parametro_do_super(program: &Program, interner: &Interner, f: FunctionElement
     positional_args.get(the_index).map(|&j| (fs, j))
 }
 
-/// O tipo do valor padrão do parâmetro `i` de `f` (o `computeConstantValue`
-/// dele: o valor escrito, ou o encaminhado pela cadeia de `super.x`), se
-/// houver; `None` sem valor. O tipo do valor é o estático do padrão escrito
-/// (dos corpos), ou o do parâmetro sem eles.
+/// The type of the default value of parameter `i` of `f` (its
+/// `computeConstantValue`: the written value, or the one forwarded through
+/// the `super.x` chain), if any; `None` without a value. The value's type is
+/// the static type of the written default (from the bodies), or the
+/// parameter's without them.
 fn parameter_default_value(
     program: &Program,
     interner: &Interner,
@@ -1322,14 +1330,14 @@ fn parameter_default_value(
     if !p.super_ {
         return None;
     }
-    // `_superConstructorParameterDefaultValue`: o valor do parâmetro da
-    // superclasse, se o tipo dele cabe no deste.
+    // `_superConstructorParameterDefaultValue`: the value of the superclass
+    // parameter, if its type fits this one's.
     let (fs, j) = parametro_do_super(program, interner, f, i)?;
     let v = parameter_default_value(program, interner, table, core, outline, bodies, fs, j, prof + 1)?;
     let core = core?;
-    // O tipo do valor não conhecido aqui (biblioteca da superclasse sem os
-    // corpos inferidos, como na análise de um arquivo só no LSP): o valor
-    // existe, e a checagem fica com quem o conhece (sem falso
+    // The value's type is not known here (the superclass's library without
+    // inferred bodies, as when analyzing a single file in the LSP): the value
+    // exists, and the check is left to whoever knows it (no false
     // `missing_default_value_for_parameter`).
     if v == core.dynamic_ {
         return Some(type_p);
@@ -1338,11 +1346,11 @@ fn parameter_default_value(
     is_subtype(v, type_p, &mut env).then_some(v)
 }
 
-/// `defaultValueCode != null` do parâmetro `i` de `f` (o `hasDefaultValue`):
-/// o padrão escrito; num `super.x` opcional sem padrão, o do parâmetro da
-/// superclasse, se o valor encaminhado existir
-/// (`DefaultSuperFormalParameterElementImpl.defaultValueCode`,
-/// `element.dart:1732-1748`); o `required` nunca tem.
+/// `defaultValueCode != null` of parameter `i` of `f` (the
+/// `hasDefaultValue`): the written default; for an optional `super.x`
+/// without a default, the superclass parameter's, if the forwarded value
+/// exists (`DefaultSuperFormalParameterElementImpl.defaultValueCode`,
+/// `element.dart:1732-1748`); `required` never has one.
 #[allow(clippy::too_many_arguments)]
 fn has_default(
     program: &Program,
@@ -1376,8 +1384,8 @@ fn has_default(
     }
 }
 
-/// Como [`valores_padrao`], com os tipos núcleo e os corpos (o tipo do valor
-/// padrão encaminhado por `super.x`).
+/// Like [`default_values`], with the core types and the bodies (the type of
+/// the default value forwarded through `super.x`).
 #[allow(clippy::too_many_arguments)]
 pub fn valores_padrao_com(
     program: &Program,
@@ -1410,8 +1418,9 @@ pub fn valores_padrao_com(
         if !expected || params.len() != data.parameters.len() {
             continue;
         }
-        // A linha da própria declaração, ou a da classe que a contém, começa
-        // com `augment`: sem o experimento, o analyzer a lê de outro jeito.
+        // The line of the declaration itself, or that of its enclosing class,
+        // starts with `augment`: without the experiment, the analyzer reads it
+        // differently.
         let source = &program.unit(unit).source;
         let line_starts_with_augment = |pos: usize| {
             let begin = source[..pos.min(source.len())].rfind('\n').map_or(0, |i| i + 1);
@@ -1434,14 +1443,14 @@ pub fn valores_padrao_com(
             if p.kind == ast::ParameterKind::Required || p.required || p.default_value.is_some() {
                 continue;
             }
-            // `super.x` opcional: o padrão encaminhado do construtor da
-            // superclasse conta (`hasDefaultValue`); o curinga posicional
-            // `_` com o recurso fica de fora
+            // Optional `super.x`: the default forwarded from the superclass
+            // constructor counts (`hasDefaultValue`); the positional wildcard
+            // `_` with the feature is left out
             // (`_isWildcardSuperFormalPositionalParameter`).
             if p.super_ {
-                // O `_` repetido (sem o recurso de curingas, `duplicate_definition`)
-                // não chega ao parâmetro da superclasse: sem padrão herdado
-                // (conferido no oráculo 3.6.2, `C(this.c, super._, [super._])`).
+                // A repeated `_` (without the wildcards feature, `duplicate_definition`)
+                // does not reach the superclass parameter: no inherited default
+                // (checked against the 3.6.2 oracle, `C(this.c, super._, [super._])`).
                 let repeated = p.name.is_some_and(|n| {
                     interner.resolve(n.sym) == "_" && params[..idx].iter().any(|q| q.name.is_some_and(|m| m.sym == n.sym))
                 });
@@ -1455,7 +1464,7 @@ pub fn valores_padrao_com(
                     continue;
                 }
             }
-            // Tipo escrito que não resolve (`dynamic` no outline): nada.
+            // A written type that does not resolve (`dynamic` in the outline): nothing.
             if anulavel(table, pd.ty) {
                 continue;
             }
@@ -1477,13 +1486,14 @@ pub fn valores_padrao_com(
     output
 }
 
-/// `ErrorVerifier._checkForConflictingClassMembers` (classes, mixins e tipos
-/// de extensão da biblioteca): estático declarado contra membro herdado
-/// (`conflicting_static_and_instance`, com a classe dona do herdado), método
-/// declarado contra campo herdado (`conflicting_method_and_field`), acessor
-/// declarado contra método herdado (`conflicting_field_and_method`), e método
-/// e setter herdados com o mesmo nome
-/// (`conflicting_inherited_method_and_setter`), pelo `getInherited2`.
+/// `ErrorVerifier._checkForConflictingClassMembers` (the library's classes,
+/// mixins and extension types): a declared static member against an
+/// inherited member (`conflicting_static_and_instance`, with the class that
+/// owns the inherited one), a declared method against an inherited field
+/// (`conflicting_method_and_field`), a declared accessor against an
+/// inherited method (`conflicting_field_and_method`), and an inherited
+/// method and setter with the same name
+/// (`conflicting_inherited_method_and_setter`), through `getInherited2`.
 pub fn membros_em_conflito(
     program: &Program,
     interner: &Interner,
@@ -1516,8 +1526,8 @@ pub fn membros_em_conflito(
             DeclKind::ExtensionType(d) => (d.name, &d.members),
             _ => continue,
         };
-        // T1.1 e: a interface herdada é a do dono do grupo de homônimos; os
-        // membros declarados são os da própria declaração.
+        // T1.1 e: the inherited interface is that of the owner of the same-named
+        // group; the declared members are those of the declaration itself.
         let intf = program.dono_da_classe(cid);
         let Some(this_one) = cx.own_type(intf) else { continue };
         let class_text = interner.resolve(cls.name).to_string();
@@ -1531,7 +1541,7 @@ pub fn membros_em_conflito(
         };
         let owner = |a: Achado| interner.resolve(program.class(a.dono).name).to_string();
         let mut conflicting: Vec<String> = Vec::new();
-        // Métodos declarados contra acessores herdados.
+        // Declared methods against inherited accessors.
         for &m in members {
             let MemberKind::Method(f) = &ast_.member(m).kind else { continue };
             let af = ast_.function(*f);
@@ -1562,8 +1572,8 @@ pub fn membros_em_conflito(
                 ));
             }
         }
-        // Acessores declarados (getters, setters e os dos campos) contra
-        // métodos herdados.
+        // Declared accessors (getters, setters and those of fields) against
+        // inherited methods.
         for &m in members {
             let mut accessors: Vec<(String, Span, bool)> = Vec::new();
             match &ast_.member(m).kind {
@@ -1608,7 +1618,7 @@ pub fn membros_em_conflito(
                 }
             }
         }
-        // Método e setter herdados com o mesmo nome.
+        // An inherited method and setter with the same name.
         for key in cx.hierarchy_keys(intf) {
             let the_name = interner.resolve(key).to_string();
             if the_name.ends_with("_=") || conflicting.contains(&the_name) {
@@ -1626,8 +1636,8 @@ pub fn membros_em_conflito(
                     K::ExtensionType => "extension type",
                     _ => "class",
                 };
-                // As duas mensagens de contexto: de onde vêm o método e o
-                // setter (o tipo e o nome da classe dona, no nome do membro).
+                // The two context messages: where the method and the setter come from
+                // (the type and the name of the owner class, at the member's name).
                 let mut d = Diagnostic::com_codigo(c::CONFLICTING_INHERITED_METHOD_AND_SETTER, class_name.span, [typ, class_text.as_str(), the_name.as_str()]);
                 for (a, template) in [(method, "The method is inherited from the"), (setter, "The setter is inherited from the")] {
                     let p = program;
@@ -1650,11 +1660,11 @@ pub fn membros_em_conflito(
     output
 }
 
-/// `DuplicateDefinitionVerifier._checkEnumStatic`: cada acessor estático (os
-/// das constantes e dos campos, getters e setters declarados; menos
-/// `values`) e cada método estático de um enum cujo nome está na interface
-/// dele (`getMember2` do nome ou do setter, com os membros herdados de
-/// `Enum` e `Object`), no nome, com o enum como dono.
+/// `DuplicateDefinitionVerifier._checkEnumStatic`: each static accessor
+/// (those of the constants and fields, declared getters and setters; except
+/// `values`) and each static method of an enum whose name is in its
+/// interface (`getMember2` of the name or of the setter, with the members
+/// inherited from `Enum` and `Object`), at the name, with the enum as owner.
 pub fn estaticos_de_enum(
     program: &Program,
     interner: &Interner,
@@ -1676,10 +1686,10 @@ pub fn estaticos_de_enum(
         let owner = program.dono_da_classe(ClassId(ci as u32));
         let enum_text = interner.resolve(program.class(owner).name).to_string();
         let in_interface = |cx: &mut Ctx<'_>, the_name: &str| -> bool {
-            // O getter `name` sintético do modelo (`outline.rs`, para os
-            // back-ends) não está na interface do analyzer: o `name` de um enum
-            // é a extensão `EnumName` do `dart:core` (o `Enum` só tem `_name`),
-            // e `static int name` num enum não conflita.
+            // The model's synthetic `name` getter (`outline.rs`, for the back ends)
+            // is not in the analyzer's interface: an enum's `name` is `dart:core`'s
+            // `EnumName` extension (`Enum` only has `_name`), and `static int name`
+            // in an enum does not conflict.
             let synthetic = |m: &crate::heranca::Membro| {
                 let f = program.function(m.funcao);
                 m.classe == owner && f.node == dartforge_elements::model::FunctionRef::None && interner.resolve(f.name) == "name"
@@ -1689,8 +1699,8 @@ pub fn estaticos_de_enum(
             };
             found(cx, the_name) || found(cx, &format!("{the_name}_="))
         };
-        // Os acessores: as constantes (getters), os campos estáticos (getter
-        // e, se não final, setter) e os getters e setters declarados.
+        // The accessors: the constants (getters), the static fields (getter and,
+        // if not final, setter) and the declared getters and setters.
         let mut accessors: Vec<(String, Span)> = Vec::new();
         for k in d.constants.iter() {
             accessors.push((interner.resolve(k.name.sym).to_string(), k.name.span));
@@ -1732,14 +1742,14 @@ pub fn estaticos_de_enum(
                 output.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [enum_text.as_str(), the_name.as_str(), enum_text.as_str()])));
             }
         }
-        // `_checkEnum` (3.6.2 `duplicate_definition_verifier.dart:600-640`): o
-        // acessor de instância declarado (getter, setter, os do campo) contra
-        // o método herdado, e o método de instância contra o acessor herdado
-        // (`_getInheritedMember`: o getter herdado, senão o setter; o nome
-        // privado de outra biblioteca não é visto). Com um enum homônimo na
-        // mesma unidade (o `augment enum E` que o 3.6.2 lê como outra
-        // declaração, ou um `enum E` repetido), o 3.6.2 não relata nada, em
-        // qualquer ordem: os dois elementos são iguais pela localização.
+        // `_checkEnum` (3.6.2 `duplicate_definition_verifier.dart:600-640`): the
+        // declared instance accessor (getter, setter, those of a field) against
+        // the inherited method, and the instance method against the inherited
+        // accessor (`_getInheritedMember`: the inherited getter, otherwise the
+        // setter; a private name from another library is not seen). With a
+        // same-named enum in the same unit (the `augment enum E` that 3.6.2 reads
+        // as another declaration, or a repeated `enum E`), 3.6.2 reports nothing,
+        // in any order: both elements are equal by location.
         let same_name = program.classes.iter().enumerate().any(|(j, k)| {
             j != ci && k.kind == K::Enum && k.name == cls.name && k.decl.is_some_and(|x| x.unit == decl.unit)
         });
@@ -1807,12 +1817,12 @@ pub fn estaticos_de_enum(
     output
 }
 
-/// A parte do `verify()` sobre classes que implementam `Enum`
-/// (`implementsDartCoreEnum`, pelos supertipos transitivos, e todo enum):
-/// `index`, `hashCode` e `==` concretos declarados
-/// (`illegal_concrete_enum_member`, na classe, no enum ou no mixin) ou
-/// herdados de outra classe que não `Object`/`Enum` (no nome da classe), e o
-/// membro de instância `values` declarado (fora de enum) ou herdado
+/// The part of `verify()` about classes that implement `Enum`
+/// (`implementsDartCoreEnum`, through the transitive supertypes, and every
+/// enum): concrete `index`, `hashCode` and `==` declared
+/// (`illegal_concrete_enum_member`, in the class, the enum or the mixin) or
+/// inherited from a class other than `Object`/`Enum` (at the class name),
+/// and an instance member `values` declared (outside an enum) or inherited
 /// (`illegal_enum_values`).
 pub fn membros_de_enum(
     program: &Program,
@@ -1878,7 +1888,7 @@ pub fn membros_de_enum(
                 _ => {}
             }
         }
-        // Herdados (`getInheritedConcreteMap2`; mixins não herdam).
+        // Inherited (`getInheritedConcreteMap2`; mixins do not inherit).
         if cls.kind != K::Mixin {
             for n in ["hashCode", "==", "index"] {
                 let Some(key) = interner.lookup(n) else { continue };

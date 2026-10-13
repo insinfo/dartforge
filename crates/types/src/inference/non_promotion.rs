@@ -1,14 +1,15 @@
-//! Why-not-promoted: as mensagens de contexto que explicam por que uma
-//! expressão não está promovida (`computeWhyNotPromotedMessages` e o
-//! `_WhyNotPromotedVisitor`, `an611:src/generated/resolver.dart:699-739` e
-//! `:5561-5736`; o `whyNotPromoted` do fluxo,
+//! Why-not-promoted: the context messages that explain why an expression is
+//! not promoted (`computeWhyNotPromotedMessages` and the
+//! `_WhyNotPromotedVisitor`, `an611:src/generated/resolver.dart:699-739` and
+//! `:5561-5736`; the flow's `whyNotPromoted`,
 //! `_fe_analyzer_shared/lib/src/flow_analysis/flow_analysis.dart:5581-5822`).
 //!
-//! Na leitura de cada referência (variável local ou propriedade) guarda-se
-//! o mapa `tipo -> motivo` daquele ponto, como o `whyNotPromoted(target)`
-//! chamado logo depois da expressão; `this` (inclusive o implícito) é
-//! consultado na hora do erro. Quem relata um erro que o analyzer acompanha
-//! dessas mensagens chama [`BodyInferrer::anexar_nao_promocao`].
+//! On the read of each reference (local variable or property) the
+//! `ty -> reason` map of that point is stored, like the
+//! `whyNotPromoted(target)` called right after the expression; `this`
+//! (including the implicit one) is consulted when the error happens. Whoever
+//! reports an error that the analyzer accompanies with these messages calls
+//! [`BodyInferrer::attach_non_promotion`].
 
 use super::body::{Base, Body};
 use super::flow::NonPromotionReason;
@@ -22,7 +23,7 @@ use dartforge_frontend::ast::{ExprId, ExprKind};
 use dartforge_intern::SymbolId;
 use std::rc::Rc;
 
-/// `ElementKind.displayName` de uma classe.
+/// `ElementKind.displayName` of a class.
 fn especie(program: &Program, c: ClassId) -> &'static str {
     match program.class(c).kind {
         ClassKind::Class | ClassKind::MixinApplication => "class",
@@ -32,14 +33,14 @@ fn especie(program: &Program, c: ClassId) -> &'static str {
     }
 }
 
-/// Uma mensagem de contexto num ponto de `u` (o arquivo, quando não é o do
-/// erro).
+/// A context message at a point of `u` (the file, when it is not the
+/// error's).
 fn contexto(program: &Program, error_unit: UnitId, u: UnitId, span: Span, message: String) -> Contexto {
     Contexto { arquivo: (u != error_unit).then(|| program.caminho_da_unidade(u).into()), span, mensagem: message.into() }
 }
 
 impl BodyInferrer<'_> {
-    /// O `FieldPromotability` de uma biblioteca (calculado uma vez).
+    /// The `FieldPromotability` of a library (computed once).
     pub(crate) fn library_promotion(&mut self, lib: LibraryId) -> Rc<LibraryPromotion> {
         if let Some(p) = self.promotion_by_library.get(&lib) {
             return p.clone();
@@ -49,9 +50,9 @@ impl BodyInferrer<'_> {
         p
     }
 
-    /// `_handleProperty`: `fieldPromotionEnabled` no corpo (`lib`) e
-    /// `isPropertyPromotable` do membro (o getter de um campo, ou o getter
-    /// abstrato, cujo campo tem `isPromotable`).
+    /// `_handleProperty`: `fieldPromotionEnabled` in the body (`lib`) and the
+    /// member's `isPropertyPromotable` (the getter of a field, or the abstract
+    /// getter, whose field has `isPromotable`).
     pub(crate) fn promotable_property(&mut self, lib: LibraryId, f: FunctionElementId) -> bool {
         if !field_promotion::enabled(self.program, lib) {
             return false;
@@ -73,15 +74,15 @@ impl BodyInferrer<'_> {
         }
     }
 
-    /// O `whyPropertyIsNotPromotable` (com o nome público tratado antes,
-    /// como o fluxo faz): `None` é o motivo não inerente (conflito, ou o
-    /// recurso desligado).
+    /// `whyPropertyIsNotPromotable` (with the public name handled first, as the
+    /// flow does): `None` is the non-inherent reason (a conflict, or the feature
+    /// being off).
     fn why_not_promoted(&mut self, name: SymbolId, f: FunctionElementId) -> Option<WhyNotPromoted> {
         if !self.interner.resolve(name).starts_with('_') {
             return Some(WhyNotPromoted::NotPrivate);
         }
         let fe = self.program.function(f);
-        // Um método, ou um getter escrito (o campo dele é sintético).
+        // A method, or a written getter (its field is synthetic).
         if fe.kind != FunctionKind::ImplicitAccessor {
             return Some(WhyNotPromoted::NotAField);
         }
@@ -103,9 +104,9 @@ impl BodyInferrer<'_> {
         None
     }
 
-    /// `whyNotPromoted` da leitura `e` da variável `id`: do histórico de
-    /// não promoção, cada tipo de que o tipo atual não é subtipo (o
-    /// primeiro motivo de cada tipo fica).
+    /// `whyNotPromoted` of the read `e` of variable `id`: from the non-promotion
+    /// history, each type of which the current type is not a subtype (the first
+    /// reason for each type is kept).
     pub(crate) fn record_local_non_promotion(&mut self, cx: &Body, e: ExprId, id: LocalId) {
         let key = (cx.unit, e);
         let Some(m) = cx.flow.modelo(id) else {
@@ -128,9 +129,9 @@ impl BodyInferrer<'_> {
         }
     }
 
-    /// `whyNotPromoted` da leitura `e` de uma propriedade não promovível: os
-    /// tipos promovidos (no fluxo de agora) de cada geração anterior, da mais
-    /// nova à mais antiga, todos com o mesmo motivo.
+    /// `whyNotPromoted` of the read `e` of a non-promotable property: the
+    /// promoted types (in the current flow) of each earlier generation, from
+    /// newest to oldest, all with the same reason.
     pub(crate) fn record_property_non_promotion(&mut self, cx: &Body, e: ExprId, property_key: (Base, u32, SymbolId), f: FunctionElementId) {
         let key = (cx.unit, e);
         let own = cx.read_generation.get(&e).copied();
@@ -166,17 +167,17 @@ impl BodyInferrer<'_> {
         self.non_promotions.insert(key, r);
     }
 
-    /// `whyNotPromotedImplicitThis` (e o de `this`/`super` escritos): cada
-    /// tipo promovido de `this`, com `ThisNotPromoted`.
+    /// `whyNotPromotedImplicitThis` (and that of written `this`/`super`): each
+    /// promoted type of `this`, with `ThisNotPromoted`.
     fn this_reasons(&self, cx: &Body) -> Vec<(TypeId, NonPromotionReason)> {
         let Some(id) = cx.local_this else { return Vec::new() };
         let Some(m) = cx.flow.modelo(id) else { return Vec::new() };
         m.cadeia.iter().map(|&t| (t, NonPromotionReason::This)).collect()
     }
 
-    /// `computeWhyNotPromotedMessages(errorEntity, whyNotPromoted(alvo))`:
-    /// as mensagens do primeiro tipo não potencialmente anulável do mapa.
-    /// `alvo` `None` é o `this` implícito; `erro` é o `errorEntity`.
+    /// `computeWhyNotPromotedMessages(errorEntity, whyNotPromoted(target))`: the
+    /// messages of the first non-potentially-nullable type in the map. `target`
+    /// `None` is the implicit `this`; `error` is the `errorEntity`.
     pub(crate) fn non_promotion_messages(&mut self, cx: &Body, target: Option<ExprId>, error: Span) -> Vec<Contexto> {
         let reasons = match target {
             Some(e) => {
@@ -212,7 +213,7 @@ impl BodyInferrer<'_> {
             NonPromotionReason::Propriedade { nome: name, membro: member, inherent, enabled } => {
                 let program = self.program;
                 let fe = program.function(*member);
-                // `receiverElement is PropertyAccessorElement`: só getters.
+                // `receiverElement is PropertyAccessorElement`: only getters.
                 if !matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
                     return Vec::new();
                 }
@@ -273,8 +274,9 @@ impl BodyInferrer<'_> {
         }
     }
 
-    /// Anexa as mensagens do why-not-promoted de `alvo` aos diagnósticos
-    /// relatados desde `desde` (o erro que o analyzer acompanha delas).
+    /// Attaches the why-not-promoted messages of `target` to the diagnostics
+    /// reported since `since` (the error that the analyzer accompanies with
+    /// them).
     pub(crate) fn attach_non_promotion(&mut self, since: usize, cx: &Body, target: Option<ExprId>, error: Span) {
         if self.diagnostics.len() <= since {
             return;

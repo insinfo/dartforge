@@ -1,6 +1,6 @@
-//! Operações de tipo usadas pela inferência: subtipagem, UP/DOWN, fechos de
-//! esquema, `flatten`, construção de tipos do núcleo e resolução de anotações
-//! escritas dentro de corpos.
+//! Type operations used by inference: subtyping, UP/DOWN, schema closures,
+//! `flatten`, building core types and resolving annotations written inside
+//! bodies.
 
 use super::body::Body;
 use super::BodyInferrer;
@@ -76,7 +76,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
 
-    /// Fecho maior de um esquema em relação a `_`.
+    /// Greatest closure of a schema with respect to `_`.
     pub(crate) fn greatest_closure_of(&mut self, t: TypeId) -> TypeId {
         if self.the_is_unknown(t) {
             return self.core.object_nullable;
@@ -127,8 +127,8 @@ impl<'a> BodyInferrer<'a> {
         self.iface(c, vec![k, v])
     }
 
-    /// Um tipo de interface cru (`List` sem argumentos, como o outline às
-    /// vezes guarda) ganha os argumentos da instanciação para os limites.
+    /// A raw interface type (`List` without arguments, as the outline sometimes
+    /// stores it) gets the arguments of the instantiation to bounds.
     pub(crate) fn complete_args(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Interface { class, args, nullable } if args.is_empty() => {
@@ -143,8 +143,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Argumentos de `class` em `t` visto como instância dela (`List<int>`
-    /// como `Iterable` dá `[int]`), ignorando a anulabilidade de `t`.
+    /// Arguments of `class` in `t` seen as an instance of it (`List<int>` as
+    /// `Iterable` gives `[int]`), ignoring the nullability of `t`.
     pub(crate) fn as_instance_of(&mut self, t: TypeId, class: Option<ClassId>) -> Option<Vec<TypeId>> {
         let class = class?;
         let t = self.non_null(t);
@@ -169,7 +169,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// `flatten(T)` (especificação, "Function Expressions"; `flatten` do CFE).
+    /// `flatten(T)` (specification, "Function Expressions"; the CFE's
+    /// `flatten`).
     pub(crate) fn flatten(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Dynamic | Type::Void => t,
@@ -194,7 +195,7 @@ impl<'a> BodyInferrer<'a> {
                 if b == t || self.table.param(param).bound == self.core.object_nullable {
                     return t;
                 }
-                // `X extends Future<S>`: flatten é S.
+                // `X extends Future<S>`: flatten is S.
                 match self.as_instance_of(b, self.core.future_class) {
                     Some(a) => a[0],
                     None => t,
@@ -220,7 +221,8 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Atribuível: subtipo, `dynamic` (cast implícito) ou coerção por `call`.
+    /// Assignable: subtype, `dynamic` (implicit cast) or coercion through
+    /// `call`.
     pub(crate) fn atribuivel(&mut self, of: TypeId, for_: TypeId) -> bool {
         if self.e_dynamic(of) || self.sub(of, for_) {
             return true;
@@ -229,8 +231,8 @@ impl<'a> BodyInferrer<'a> {
             if let Some(call) = self.sym.call {
                 if let Some(m) = self.interface_member(of, call, false) {
                     if m.metodo {
-                        // O `ImplicitCallReference` e, sendo o `call` genérico, a
-                        // instanciação pelo contexto (`insertGenericFunctionInstantiation`,
+                        // The `ImplicitCallReference` and, the `call` being generic, the
+                        // instantiation from the context (`insertGenericFunctionInstantiation`,
                         // INFERENCIA §8.4).
                         let t = self.instantiate_function_from_context(m.tipo, for_);
                         return self.sub(t, for_);
@@ -241,10 +243,10 @@ impl<'a> BodyInferrer<'a> {
         false
     }
 
-    /// A instanciação implícita de um tipo de função genérico `f` por um
-    /// contexto cujo `flatten`, sem `?`, é tipo de função não genérico
-    /// (`insertGenericFunctionInstantiation`, `resolver.dart:1171-1224`); senão
-    /// o próprio `f`.
+    /// The implicit instantiation of a generic function type `f` by a context
+    /// whose `flatten`, without `?`, is a non-generic function type
+    /// (`insertGenericFunctionInstantiation`, `resolver.dart:1171-1224`);
+    /// otherwise `f` itself.
     pub(crate) fn instantiate_function_from_context(&mut self, f: TypeId, ctx: TypeId) -> TypeId {
         let Type::Function { type_params, ret, positional, optional, named, nullable } = self.table.get(f).clone() else { return f };
         if type_params.is_empty() || self.the_is_unknown(ctx) {
@@ -264,11 +266,12 @@ impl<'a> BodyInferrer<'a> {
         crate::constraints::instantiate_function(f, &args, &mut env)
     }
 
-    /// Coerção por `call` (*implicit call tearoff*): um objeto de tipo de
-    /// interface com método `call`, num contexto de tipo função, vale o tipo
-    /// do seu `call`. É com esse tipo que o argumento restringe os parâmetros
-    /// de tipo de uma chamada genérica (`[1].map(somador)` infere `T` pelo
-    /// retorno de `Somador.call`). `None` quando a coerção não se aplica.
+    /// Coercion through `call` (*implicit call tearoff*): an object of an
+    /// interface type with a `call` method, in a function type context, takes
+    /// the type of its `call`. It is with that type that the argument
+    /// constrains the type parameters of a generic call (`[1].map(somador)`
+    /// infers `T` from the return of `Somador.call`). `None` when the coercion
+    /// does not apply.
     pub(crate) fn implicit_call_type(&mut self, of: TypeId, context: TypeId) -> Option<TypeId> {
         if !matches!(self.table.get(context), Type::Function { .. }) || !matches!(self.table.get(of), Type::Interface { nullable: false, .. }) {
             return None;
@@ -278,7 +281,7 @@ impl<'a> BodyInferrer<'a> {
         m.metodo.then_some(m.tipo)
     }
 
-    /// Tipo `this` da classe (argumentos = os próprios parâmetros).
+    /// The class's `this` type (arguments = its own parameters).
     pub(crate) fn class_this_type(&mut self, c: ClassId) -> TypeId {
         let params = self.outline.classes[c.0 as usize].type_params.clone();
         let args: Vec<TypeId> = params
@@ -292,14 +295,14 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Instanciação para os limites (`instantiate to bounds`) dos parâmetros
-    /// de uma classe usada crua (`List` → `List<dynamic>`).
+    /// Instantiation to bounds (`instantiate to bounds`) of the parameters of a
+    /// class used raw (`List` → `List<dynamic>`).
     pub(crate) fn instantiate_to_bounds(&mut self, params: &[TypeParamId]) -> Vec<TypeId> {
         crate::ops::instantiate_to_bounds(params, &[], self.table, self.core)
     }
 
-    /// Cópias frescas (reusadas por lista) de parâmetros de tipo, com os
-    /// limites reescritos nelas.
+    /// Fresh copies (reused per list) of type parameters, with the bounds
+    /// rewritten in them.
     pub(crate) fn new_parameters(&mut self, original: &[TypeParamId]) -> Vec<TypeParamId> {
         if original.is_empty() {
             return Vec::new();
@@ -326,7 +329,7 @@ impl<'a> BodyInferrer<'a> {
         new_
     }
 
-    /// Mapa de substituição `params → args`.
+    /// Substitution map `params → args`.
     pub(crate) fn mapa(&self, params: &[TypeParamId], args: &[TypeId]) -> HashMap<TypeParamId, TypeId> {
         params.iter().copied().zip(args.iter().copied()).collect()
     }
@@ -335,9 +338,9 @@ impl<'a> BodyInferrer<'a> {
         substitute(t, map, self.table)
     }
 
-    /// Tipo de uma anotação escrita num corpo (parâmetros de tipo em escopo
-    /// vêm de `cx`; os membros da classe ou extensão de `cx` escondem os
-    /// nomes de topo, como o `InstanceScope` do analyzer).
+    /// Type of an annotation written in a body (type parameters in scope come
+    /// from `cx`; the members of `cx`'s class or extension hide the top-level
+    /// names, like the analyzer's `InstanceScope`).
     pub(crate) fn type_from_annotation(&mut self, cx: &Body, t: ast::TypeId) -> TypeId {
         let unit = cx.unit;
         let lib = cx.lib;
@@ -350,27 +353,27 @@ impl<'a> BodyInferrer<'a> {
         self.locals_as_type = locals_before;
         self.type_container = before;
         self.in_static_member = static_before;
-        // `TypeAnnotation.type` do analyzer, para as regras que o leem.
+        // The analyzer's `TypeAnnotation.type`, for the rules that read it.
         self.body_types.units[unit.0 as usize].tipos_de_anotacoes.insert(t, r);
         r
     }
 
-    /// Como [`BodyInferrer::tipo_de_anotacao`], para a anotação que aparece
-    /// no `contexto` dado (`is`, `as`, `catch`, argumento de tipo): é o que
-    /// escolhe o código de um nome que não é tipo.
+    /// Like [`BodyInferrer::type_from_annotation`], for an annotation that appears
+    /// in the given `context` (`is`, `as`, `catch`, type argument): that is
+    /// what chooses the code for a name that is not a type.
     pub(crate) fn type_in_context(&mut self, cx: &Body, t: ast::TypeId, context: crate::resolve::TypeContext) -> TypeId {
         self.type_context = context;
         self.type_from_annotation(cx, t)
     }
 
-    /// Um argumento de tipo escrito (`f<T>()`, `<T>[]`, `C<T>()`).
+    /// A written type argument (`f<T>()`, `<T>[]`, `C<T>()`).
     pub(crate) fn type_argument_type(&mut self, cx: &Body, t: ast::TypeId) -> TypeId {
         self.type_in_context(cx, t, crate::resolve::TypeContext::TypeArgument)
     }
 
-    /// Resolve uma anotação e guarda o tipo dela e o de cada tipo aninhado
-    /// (argumentos de tipo, partes de função e de registro) no
-    /// `tipos_de_anotacoes` (o `NamedType.type` de cada nó do analyzer).
+    /// Resolves an annotation and stores its type and that of each nested type
+    /// (type arguments, function and record parts) in `tipos_de_anotacoes` (the
+    /// `NamedType.type` of each analyzer node).
     pub(crate) fn resolve_annotation(
         &mut self,
         unit: UnitId,
@@ -397,12 +400,12 @@ impl<'a> BodyInferrer<'a> {
         let r = match &node.kind {
             ast::TypeKind::Void => return self.core.void_,
             ast::TypeKind::Named { name, args } => {
-                // Faixa dos erros de nome: do prefixo ao fim do nome
-                // (`_getErrorRange`); o número de argumentos vai no tipo todo.
+                // Range of the name errors: from the prefix to the end of the name
+                // (`_getErrorRange`); the argument count goes on the whole type.
                 let range = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
                 let text = self.interner.resolve(name[name.len() - 1].sym).to_string();
-                // `visitImportPrefixReference`: o prefixo que nomeia um local
-                // ainda não declarado do bloco (`_checkForReferenceBeforeDeclaration`).
+                // `visitImportPrefixReference`: a prefix that names a local of the block
+                // not yet declared (`_checkForReferenceBeforeDeclaration`).
                 if name.len() == 2
                     && let Some(&(decl, true)) = self.locals_as_type.get(&name[0].sym)
                 {
@@ -440,10 +443,10 @@ impl<'a> BodyInferrer<'a> {
                         let tp = self.table.intern(Type::TypeParameter { param: pid, nullable: false });
                         return if is_nullable { self.anulavel(tp) } else { tp };
                     }
-                    // Um local (variável ou função local) com esse nome no
-                    // escopo do corpo: o elemento do tipo é ele.
-                    // `as`, `is` e argumento de tipo têm os códigos deles
-                    // antes (`named_type_resolver.dart:544-596`).
+                    // A local (variable or local function) with that name in the body's
+                    // scope: the type's element is it.
+                    // `as`, `is` and type arguments have their own codes first
+                    // (`named_type_resolver.dart:544-596`).
                     if let Some(&(decl, _)) = self.locals_as_type.get(&sym)
                         && matches!(context, crate::resolve::TypeContext::As | crate::resolve::TypeContext::Is | crate::resolve::TypeContext::TypeArgument)
                     {
@@ -473,7 +476,7 @@ impl<'a> BodyInferrer<'a> {
                         }
                         _ => {}
                     }
-                    // O escopo de instância esconde o de topo.
+                    // The instance scope hides the top-level one.
                     let (cls, extension) = self.type_container;
                     if range.start != range.end {
                         match crate::resolve::name_in_container(self.program, self.interner, cls, extension, sym) {
@@ -481,8 +484,8 @@ impl<'a> BodyInferrer<'a> {
                                 self.report_type_name(context, true, &text, range);
                                 return self.table.invalid(self.core.dynamic_);
                             }
-                            // Só setter: o `LocalScope` do `ResolutionVisitor`
-                            // o guarda sob `x=`; a busca segue para fora.
+                            // Setter only: `ResolutionVisitor`'s `LocalScope` keeps it under `x=`;
+                            // the lookup goes on outward.
                             Some(crate::resolve::InContainer::OnlySetter) | None => {}
                         }
                     }
@@ -496,8 +499,8 @@ impl<'a> BodyInferrer<'a> {
                         self.resolve_annotation(unit, lib, a, scope)
                     })
                     .collect();
-                // Quantos parâmetros o tipo nomeado declara (para o número de
-                // argumentos escritos).
+                // How many parameters the named type declares (for the number of
+                // written arguments).
                 let n_params = match binding.and_then(|b| b.getter) {
                     Some(Element::Class(cid)) => Some(self.outline.classes[cid.0 as usize].type_params.len()),
                     Some(Element::Typedef(tid)) => Some(self.outline.typedefs[tid.0 as usize].type_params.len()),
@@ -509,21 +512,20 @@ impl<'a> BodyInferrer<'a> {
                     }
                 }
                 match binding.and_then(|b| b.getter) {
-                    // `Null` do `dart:core` é uma classe, mas o tipo é o `Null`
-                    // da tabela (como no outline): senão `flatten(Future<Null>)`
-                    // não era `Null` e `return Future<Null>…` em
-                    // `Future<void> f() async` virava erro.
+                    // `dart:core`'s `Null` is a class, but the type is the table's `Null`
+                    // (as in the outline): otherwise `flatten(Future<Null>)` was not `Null`
+                    // and `return Future<Null>…` in `Future<void> f() async` became an error.
                     Some(Element::Class(cid)) if Some(cid) == self.core.null_class => self.core.null,
                     Some(Element::Class(cid)) => {
-                        // Número errado de argumentos de tipo: todos
-                        // inválidos (`named_type_resolver.dart:148`).
+                        // Wrong number of type arguments: all invalid
+                        // (`named_type_resolver.dart:148`).
                         let resolved = match n_params {
                             Some(n) if !args.is_empty() && args.len() != n => vec![self.table.invalid(self.core.dynamic_); n],
                             _ => resolved,
                         };
                         self.class_type_with_args(cid, resolved)
                     }
-                    // O alias que chega a si mesmo instancia como `dynamic`
+                    // An alias that reaches itself instantiates as `dynamic`
                     // (`hasSelfReference`, `auto_referencia`).
                     Some(Element::Typedef(tid)) if crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedef(tid).decl) => {
                         return self.core.dynamic_;
@@ -550,16 +552,15 @@ impl<'a> BodyInferrer<'a> {
                             }
                             "Null" if name.len() == 1 => return self.core.null,
                             _ => {
-                                // Nome que não resolve para tipo
-                                // (`NamedTypeResolver`); um nome sintético da
-                                // recuperação (sem largura) e uma referência
-                                // ambígua (relatada à parte) ficam fora.
+                                // A name that does not resolve to a type (`NamedTypeResolver`); a
+                                // synthetic recovery name (without width) and an ambiguous reference
+                                // (reported separately) are left out.
                                 let ambiguous = binding.is_some_and(|b| b.ambiguous);
                                 if range.start != range.end && !ambiguous {
                                     let found = binding.is_some_and(|b| b.getter.is_some());
                                     self.report_type_name(context, found, &text, range);
                                 }
-                                // O tipo de recuperação: `InvalidType`.
+                                // The recovery type: `InvalidType`.
                                 self.table.invalid(self.core.dynamic_)
                             }
                         }
@@ -615,9 +616,9 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Nome de tipo que não resolve para tipo, no código do contexto.
+    /// A type name that does not resolve to a type, in the context's code.
     fn report_type_name(&mut self, context: crate::resolve::TypeContext, found: bool, the_name: &str, range: dartforge_diagnostics::Span) {
-        // O nome sintético não é relatado (`reportNullOrNonTypeElement`).
+        // The synthetic name is not reported (`reportNullOrNonTypeElement`).
         if the_name.is_empty() {
             return;
         }
@@ -627,7 +628,7 @@ impl<'a> BodyInferrer<'a> {
         self.warning_with_code(code, range, &args);
     }
 
-    /// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` no tipo inteiro.
+    /// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` on the whole type.
     pub(crate) fn report_type_arguments(&mut self, the_name: &str, params_list: usize, arguments: usize, span: dartforge_diagnostics::Span) {
         let (p, a) = (params_list.to_string(), arguments.to_string());
         self.warning_with_code(
@@ -637,8 +638,8 @@ impl<'a> BodyInferrer<'a> {
         );
     }
 
-    /// `extensionTypeErasure` (o tipo de representação no lugar de cada tipo
-    /// de extensão).
+    /// `extensionTypeErasure` (the representation type in place of each
+    /// extension type).
     pub(crate) fn erase_extension(&mut self, t: TypeId) -> TypeId {
         let outline = &*self.outline;
         let program = self.program;
@@ -655,7 +656,7 @@ impl<'a> BodyInferrer<'a> {
         crate::ops::erase_extension_type(t, self.table, &rep)
     }
 
-    /// `C<args>` (com instanciação para os limites se faltarem argumentos).
+    /// `C<args>` (with instantiation to bounds if arguments are missing).
     pub(crate) fn class_type_with_args(&mut self, cid: ClassId, args: Vec<TypeId>) -> TypeId {
         let params = self.outline.classes[cid.0 as usize].type_params.clone();
         let args = if args.len() == params.len() { args } else { self.instantiate_to_bounds(&params) };
@@ -670,7 +671,7 @@ impl<'a> BodyInferrer<'a> {
         self.table.intern(Type::Interface { class: cid, args: args.into_boxed_slice(), nullable: false })
     }
 
-    /// Tipos (posicionais, opcionais, nomeados) de uma lista de parâmetros escrita.
+    /// Types (positional, optional, named) of a written parameter list.
     pub(crate) fn tipos_de_parametros(
         &mut self,
         unit: UnitId,
@@ -696,7 +697,7 @@ impl<'a> BodyInferrer<'a> {
         (pos, opt, named)
     }
 
-    /// Tipo escrito de um parâmetro (inclusive a forma antiga `int f(int x)`).
+    /// Written type of a parameter (including the old form `int f(int x)`).
     pub(crate) fn written_parameter_type(
         &mut self,
         unit: UnitId,

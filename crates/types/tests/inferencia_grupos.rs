@@ -1,7 +1,8 @@
-//! Casos mínimos dos grupos de lacunas de inferência medidos contra o
-//! oráculo (`tools/oraculo_tipos`): cada caso fixa o tipo estático que o
-//! `package:analyzer` dá a uma expressão. Usam o SDK 3.6.2 real
-//! (`SdkLayout::discover` / `DARTFORGE_SDK_LIB`); sem ele, os testes pulam.
+//! Minimal cases of the inference gap groups measured against the oracle
+//! (`tools/oraculo_tipos`): each case pins the static type that
+//! `package:analyzer` gives an expression. They use the real 3.6.2 SDK
+//! (`SdkLayout::discover` / `DARTFORGE_SDK_LIB`); without it, the tests are
+//! skipped.
 
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
@@ -18,8 +19,8 @@ fn sdk() -> Option<SdkLayout> {
     SdkLayout::load(&dir, "dartdevc").ok()
 }
 
-/// Tipos (no formato do analyzer) das expressões cujo texto é exatamente
-/// `trecho`, na ordem do código-fonte; e os avisos.
+/// Types (in the analyzer's format) of the expressions whose text is exactly
+/// `snippet`, in source order; and the warnings.
 struct Result_ {
     tipos: Vec<(String, String)>,
     avisos: Vec<String>,
@@ -75,7 +76,7 @@ fn infer_file(main: &std::path::Path) -> Result_ {
         .unwrap()
 }
 
-/// Como `DartType.getDisplayString()`.
+/// Like `DartType.getDisplayString()`.
 fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::model::Program) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
@@ -153,8 +154,8 @@ macro_rules! or_skip {
     };
 }
 
-/// Grupo base: literais, closures (corpo inferido), genéricos de coleção,
-/// índices, operadores numéricos, `super`, construtores genéricos.
+/// Base group: literals, closures (inferred body), collection generics,
+/// indices, numeric operators, `super`, generic constructors.
 #[test]
 fn new_engine_base() {
     let r = or_skip!(inferir(
@@ -193,8 +194,8 @@ void main() {
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Tipo cru numa anotação do outline é instanciado para os limites
-/// (`Map` → `Map<dynamic, dynamic>`, `C` com `T extends num` → `C<num>`).
+/// A raw type in an outline annotation is instantiated to bounds (`Map` →
+/// `Map<dynamic, dynamic>`, `C` with `T extends num` → `C<num>`).
 #[test]
 fn raw_type_instantiated_to_bounds() {
     let r = or_skip!(inferir(
@@ -212,8 +213,8 @@ void main() {
     assert_eq!(r.tipo("c.v"), "num?");
 }
 
-/// Construtores nomeados, `$this`, campos de extensão, `null.hashCode`,
-/// tear-off genérico como alvo de chamada (tipo não instanciado).
+/// Named constructors, `$this`, extension fields, `null.hashCode`, a generic
+/// tear-off as a call target (uninstantiated type).
 #[test]
 fn named_constructors_and_references() {
     let r = or_skip!(inferir(
@@ -251,8 +252,9 @@ void main() {
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// `late final x;` sem inicializador tem setter (atribuição única): a
-/// atribuição tipa o valor pelo campo, sem aviso de setter indefinido.
+/// `late final x;` without an initializer has a setter (single assignment):
+/// the assignment types the value through the field, without an undefined
+/// setter warning.
 #[test]
 fn late_final_setter() {
     let r = or_skip!(inferir(
@@ -272,9 +274,9 @@ class V {
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Classe do SDK cujo patch vem numa *parte* de um arquivo de patch
-/// (`core_patch.dart` → `part 'bigint_patch.dart'`): uma classe só, com os
-/// membros da declaração original (`BigInt.operator <<`).
+/// An SDK class whose patch comes in a *part* of a patch file
+/// (`core_patch.dart` → `part 'bigint_patch.dart'`): a single class, with the
+/// members of the original declaration (`BigInt.operator <<`).
 #[test]
 fn patch_in_part_of_patch() {
     let r = or_skip!(inferir(
@@ -292,8 +294,8 @@ void main() {
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Parâmetro-função da forma antiga com `?` (`int f(int x)?`): o tipo do
-/// parâmetro é anulável (`jsonEncode`, `List.sort`, `Stream.listen`).
+/// An old-style function parameter with `?` (`int f(int x)?`): the
+/// parameter's type is nullable (`jsonEncode`, `List.sort`, `Stream.listen`).
 #[test]
 fn old_nullable_function_parameter() {
     let r = or_skip!(inferir(
@@ -310,9 +312,10 @@ void main() {
     assert_eq!(r.tipo("l.sort"), "void Function([int Function(String, String)?])");
 }
 
-/// Inferência de sobreposição pela posição (o nome do parâmetro pode
-/// mudar), extensão genérica usada de dentro dela mesma, `-1` com contexto
-/// `double`, e closure que não herda promoção de variável escrita no corpo.
+/// Override inference by position (the parameter's name may change), a
+/// generic extension used from inside itself, `-1` with a `double` context,
+/// and a closure that does not inherit the promotion of a variable written
+/// in the body.
 #[test]
 fn extension_override_and_closure() {
     let r = or_skip!(inferir(
@@ -342,8 +345,8 @@ void main() {
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Conflito de import entre `dart:` e um pacote: o do sistema fica oculto
-/// (`dart:html` também exporta `NotificationEvent`).
+/// Import conflict between `dart:` and a package: the system one stays
+/// hidden (`dart:html` also exports `NotificationEvent`).
 #[test]
 fn system_import_loses_conflict() {
     let Some(sdk) = sdk() else { return };
@@ -359,8 +362,8 @@ void main() { var d = Duration(3); var n = d.n; }").unwrap();
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Promoção de variável de tipo: interseção `X & B` (`T?` testado contra
-/// `null` vira `T & Object`; `is int` vira `T & int`).
+/// Type variable promotion: the intersection `X & B` (`T?` tested against
+/// `null` becomes `T & Object`; `is int` becomes `T & int`).
 #[test]
 fn type_variable_promotion() {
     let r = or_skip!(inferir(
@@ -382,8 +385,9 @@ T f<T>(T? a, T b, Map<String, T> m) {
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Promoção de campo privado final (Dart 3.2), por `this`, implícito e por
-/// local; um homônimo não final na biblioteca a impede.
+/// Promotion of a private final field (Dart 3.2), through `this`, implicit
+/// and through a local; a non-final same-named one in the library prevents
+/// it.
 #[test]
 fn private_field_promotion() {
     let r = or_skip!(inferir(
@@ -414,11 +418,12 @@ int g(A a) {
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// `?.` promove o receptor só dentro da cadeia (argumentos inclusive);
-/// `clamp` com contexto `double`; dentro de função local, variável escrita
-/// fora dela (mesmo depois) se promove, e escrita dentro de outra função
-/// local não (`conservativeJoin(anywhere.written, anywhere.captured)`;
-/// sondado no analyzer 3.6.2 e 3.13.4: só o segundo caso dá
+/// `?.` promotes the receiver only inside the chain (arguments included);
+/// `clamp` with a `double` context; inside a local function, a variable
+/// written outside it (even afterwards) is promoted, and one written inside
+/// another local function is not
+/// (`conservativeJoin(anywhere.written, anywhere.captured)`; probed on
+/// analyzer 3.6.2 and 3.13.4: only the second case gives
 /// `unchecked_use_of_nullable_value`).
 #[test]
 fn chain_clamp_and_local_function() {
@@ -447,13 +452,13 @@ void g() {
     assert_eq!(types("s"), ["S?", "S"]);
     assert_eq!(types("1"), ["double"]);
     assert_eq!(types("buf")[..2], ["StringBuffer?", "StringBuffer"]);
-    // `cap = null` (escrita), `cap != null`, `cap.write`: capturada, não promove.
+    // `cap = null` (write), `cap != null`, `cap.write`: captured, does not promote.
     assert_eq!(types("cap")[1..3], ["StringBuffer?", "StringBuffer?"]);
 }
 
-/// A escrita de uma variável homônima declarada noutra closure (o `main` de
-/// um arquivo de teste com vários `test(…)`) não captura a variável desta:
-/// as escritas são resolvidas pela declaração, no escopo léxico
+/// A write to a same-named variable declared in another closure (the `main`
+/// of a test file with several `test(…)`) does not capture this one's
+/// variable: writes are resolved by declaration, in the lexical scope
 /// (`limitless_ui`, `li_datatable_component_test.dart`).
 #[test]
 fn same_name_write_in_other_closure_does_not_capture() {
@@ -474,17 +479,17 @@ void main() {
 "#
     ));
     let types = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
-    // `botao!`, depois `botao.write` dentro da closure: promovido.
+    // `botao!`, then `botao.write` inside the closure: promoted.
     assert_eq!(types("botao")[..2], ["StringBuffer?", "StringBuffer"]);
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Casos dos corpos do SDK compilado da fonte: limite de parâmetro de
-/// extensão, typedef que renomeia classe genérica, parâmetros `super.x`
-/// (tipo substituído e argumentos implícitos), tipo testado no ramo falso de
-/// `is!`, parâmetro de função local que sombreia o de fora, subtipo entre
-/// funções genéricas, construtor encaminhado de aplicação de mixin e
-/// constantes referidas.
+/// Cases from the bodies of the SDK compiled from source: an extension
+/// parameter bound, a typedef that renames a generic class, `super.x`
+/// parameters (substituted type and implicit arguments), the tested type in
+/// the false branch of `is!`, a local function parameter shadowing the outer
+/// one, subtyping between generic functions, a forwarded constructor of a
+/// mixin application and referenced constants.
 #[test]
 fn sdk_bodies() {
     let r = or_skip!(inferir(
@@ -527,9 +532,9 @@ const lista = [base, deslocado, 'x$base'];
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
-/// Promoção de campo privado final só a partir da versão de linguagem 3.2
-/// (R-FLU-12): em biblioteca `// @dart = 3.1` o `!` é necessário e o campo
-/// fica anulável.
+/// Promotion of a private final field only from language version 3.2
+/// (R-FLU-12): in a `// @dart = 3.1` library the `!` is needed and the field
+/// stays nullable.
 #[test]
 fn field_promotion_depends_on_version() {
     let r = or_skip!(inferir(
@@ -546,8 +551,8 @@ class A {
     assert_eq!(types, ["int?", "int?"]);
 }
 
-/// Variável de condição (§7.10): `final bool v = d != null; if (v) d` promove
-/// `d`; escrever `d` depois invalida.
+/// Condition variable (§7.10): `final bool v = d != null; if (v) d` promotes
+/// `d`; writing `d` afterwards invalidates it.
 #[test]
 fn condition_variable() {
     let r = or_skip!(inferir(
@@ -565,12 +570,13 @@ double f(double? d, double? e) {
     ));
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
     let types: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
-    // Escrita depois da condição: a variável não restaura a promoção.
+    // A write after the condition: the variable does not restore the promotion.
     assert_eq!(types.last(), Some(&"double?"));
 }
 
-/// Extension type que implementa outro extension type (`Element implements
-/// JSObject`, `JSString implements JSAny` no package:web).
+/// An extension type that implements another extension type
+/// (`Element implements JSObject`, `JSString implements JSAny` in
+/// package:web).
 #[test]
 fn extension_type_implements_extension_type() {
     let r = or_skip!(inferir(
@@ -581,15 +587,15 @@ extension type C._(Object _) implements B { C(B b) : _ = b; }
 A f(C c) => c;
 "#
     ));
-    // `C <: A` pelo `implements`; `B` não é subtipo de `Object` (nenhuma
-    // superinterface leva a uma classe), e o analyzer 3.6.2 relata o
-    // inicializador `_ = b` (conferido com `dart analyze`).
+    // `C <: A` through `implements`; `B` is not a subtype of `Object` (no
+    // superinterface leads to a class), and analyzer 3.6.2 reports the
+    // initializer `_ = b` (checked against `dart analyze`).
     assert_eq!(r.avisos, vec!["The initializer type 'B' can't be assigned to the field type 'Object'.".to_string()], "avisos: {:?}", r.avisos);
 }
 
-/// Objeto com `call` passado a um parâmetro de tipo função de uma chamada
-/// genérica: a coerção por `call` vem antes da restrição, e `T` sai do
-/// retorno do `call` (o analyzer dá `Iterable<int>`).
+/// An object with `call` passed to a function-typed parameter of a generic
+/// call: the `call` coercion comes before the constraint, and `T` comes from
+/// the return of `call` (the analyzer gives `Iterable<int>`).
 #[test]
 fn implicit_call_restricts_generic_invocation() {
     let r = or_skip!(inferir(
@@ -610,8 +616,8 @@ void main() {
     assert_eq!(r.tipo("[1, 2, 3].map(s)"), "Iterable<int>");
 }
 
-/// `Never` como valor é literal de tipo, como `dynamic` (o analyzer dá
-/// `Type`); não há declaração dele no `dart:core`.
+/// `Never` as a value is a type literal, like `dynamic` (the analyzer gives
+/// `Type`); there is no declaration of it in `dart:core`.
 #[test]
 fn never_as_type_literal() {
     let r = or_skip!(inferir(
@@ -627,9 +633,9 @@ void main() {
     assert_eq!(r.tipo("[Never, Null, dynamic]"), "List<Type>");
 }
 
-/// A variável de um padrão que sombreia o escrutinado (`Neg(:final e)` em
-/// `switch (e)`) tem o tipo do campo; a promoção do caso vale para o
-/// escrutinado, não para ela (o analyzer dá `Expr` ao `e` do corpo).
+/// The variable of a pattern that shadows the scrutinee (`Neg(:final e)` in
+/// `switch (e)`) has the field's type; the case's promotion applies to the
+/// scrutinee, not to it (the analyzer gives `Expr` to the body's `e`).
 #[test]
 fn pattern_variable_shadowing_scrutinee() {
     let r = or_skip!(inferir(

@@ -1,17 +1,17 @@
-//! Lista os avisos da inferência com arquivo e linha, e um resumo por código.
-//! Ferramenta de diagnóstico da inferência, não produto.
+//! Lists the inference warnings with file and line, and a summary per code.
+//! An inference diagnostic tool, not a product.
 //!
 //! ```text
-//! # projeto
+//! # project
 //! cargo run --release -p dartforge-types --example avisos -- \
 //!     projeto <entrada.dart> <package_config.json>
-//! # bibliotecas do SDK compiladas da fonte (backend nativo), com a sobreposição
+//! # SDK libraries compiled from source (native backend), with the overlay
 //! cargo run --release -p dartforge-types --example avisos -- \
 //!     sdk <sdk/lib> <sobreposicao> <alvo> core async ...
 //! ```
 //!
-//! Saída: `arquivo:linha\tmensagem\ttrecho`, e no fim o total por código
-//! (o texto do modelo da mensagem).
+//! Output: `arquivo:line\tmensagem\ttrecho`, and at the end the total per code
+//! (the text of the message template).
 
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::model::{LibraryId, Program, UnitId};

@@ -1,30 +1,31 @@
-//! Mais regras de lint que pedem os tipos estáticos e a resolução da
-//! inferência (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos
-//! emissores da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`).
-//! Como em [`crate::lints_tipados`], devolvem achados neutros (a posição, o
-//! nome único do código e os argumentos), que quem chama só emite com a
-//! regra ligada.
+//! More lint rules that need the static types and the resolution from
+//! inference (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from
+//! the 3.6.2 emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`).
+//! As in [`crate::lints_tipados`], they return neutral findings (the
+//! position, the unique name of the code and the arguments), which the
+//! caller only emits when the rule is enabled.
 //!
-//! Aqui: `use_truncating_division`, `avoid_double_and_int_checks`,
-//! `only_throw_errors`, `no_runtimeType_toString`, `avoid_dynamic_calls` e
-//! `unrelated_type_equality_checks` (expressão e padrão relacional).
+//! Here: `use_truncating_division`, `avoid_double_and_int_checks`,
+//! `only_throw_errors`, `no_runtimeType_toString`, `avoid_dynamic_calls` and
+//! `unrelated_type_equality_checks` (expression and relational pattern).
 //!
-//! Cada regra lê o mesmo dado do emissor:
-//! - o tipo escrito de um `is` é o resolvido
-//!   (`UnitBodyTypes::tipos_de_anotacoes`, o `TypeAnnotation.type`);
-//! - o `realTarget` de uma seção de cascata é o alvo da cascata;
-//! - o operando de `++`/`--` (posição de escrita) não tem tipo estático no
-//!   analyzer: conta o tipo lido da expressão inteira;
-//! - `typesAreUnrelated` usa a subtipagem normativa (`subtyping::is_subtype`),
-//!   o `promoteToNonNull`, os limites dos parâmetros de tipo e o
+//! Each rule reads the same data as the emitter:
+//! - the written type of an `is` is the resolved one
+//!   (`UnitBodyTypes::tipos_de_anotacoes`, the `TypeAnnotation.type`);
+//! - the `realTarget` of a cascade section is the cascade target;
+//! - the operand of `++`/`--` (a write position) has no static type in the
+//!   analyzer: the read type of the whole expression counts;
+//! - `typesAreUnrelated` uses normative subtyping (`subtyping::is_subtype`),
+//!   `promoteToNonNull`, type parameter bounds and
 //!   `lookUpConcreteMethod('call')`;
-//! - o `typeForInterfaceCheck` desce pelo limite promovido e pelo declarado;
-//! - a extensão só é pulada pelo `no_runtimeType_toString` quando o tipo
-//!   estendido é uma interface que não é classe concreta.
+//! - `typeForInterfaceCheck` goes down through the promoted bound and the
+//!   declared one;
+//! - an extension is only skipped by `no_runtimeType_toString` when the
+//!   extended type is an interface that is not a concrete class.
 //!
-//! O tipo que a inferência não determinou (`unknown`) não é relatado: é falta
-//! de dado da inferência, não um `InvalidType`.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! A type that inference did not determine (`unknown`) is not reported: it is
+//! missing inference data, not an `InvalidType`.
+//! Written without compiling or running (2026-10-05).
 
 use crate::lints_tipados::Achado;
 use crate::resolve::OutlineTypes;
@@ -48,7 +49,7 @@ fn dentro(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-/// A classe `nome` declarada na biblioteca `lib`.
+/// The class `the_name` declared in library `lib`.
 fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_name: &str) -> Option<ClassId> {
     let sym = interner.lookup(the_name)?;
     match program.library(lib?).declared.get(&sym)?.getter? {
@@ -57,24 +58,25 @@ fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_
     }
 }
 
-/// O tipo estático da expressão, sem o que a inferência não determinou.
+/// The static type of the expression, without what inference did not
+/// determine.
 fn tipo(body: &UnitBodyTypes, core: &CoreTypes, table: &TypeTable, e: ExprId) -> Option<TypeId> {
     body.get_type(e).filter(|t| !core.is_unknown(table, *t))
 }
 
-/// O tipo é a interface `c`, não anulável (`isDartCoreInt`, …).
+/// The type is the interface `c`, non-nullable (`isDartCoreInt`, …).
 fn is_of_class(table: &TypeTable, t: TypeId, c: Option<ClassId>) -> bool {
     matches!(table.get(t), Type::Interface { class, nullable: false, .. } if Some(*class) == c)
 }
 
-/// O `realTarget` de cada seção de cascata: o `CascadeTarget` de cada seção
-/// aponta para o alvo da cascata.
+/// The `realTarget` of each cascade section: the `CascadeTarget` of each
+/// section points to the cascade target.
 fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
         let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
         for &s in sections.iter() {
-            // Desce pela cadeia de receptores da seção até o marcador.
+            // Goes down the section's receiver chain to the marker.
             let mut x = s;
             loop {
                 let next_ = match &a.expr(x).kind {
@@ -97,7 +99,7 @@ fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     m
 }
 
-/// Os achados das regras tipadas deste módulo na unidade `u`.
+/// The findings of this module's typed rules in unit `u`.
 pub fn achados(
     program: &Program,
     interner: &Interner,
@@ -121,8 +123,8 @@ pub fn achados(
     out
 }
 
-/// `use_truncating_division`: `(a / b).toInt()` com `a` e `b` `int` e o `/`
-/// do `dart:core`.
+/// `use_truncating_division`: `(a / b).toInt()` with `a` and `b` `int` and
+/// the `/` from `dart:core`.
 fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Achado>) {
     for e in a.exprs.iter() {
         let ExprKind::Call { target, arguments } = &e.kind else { continue };
@@ -142,8 +144,9 @@ fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, b
 }
 
 /// `avoid_double_and_int_checks`: `if (x is double) … else if (x is int)`,
-/// com `x` parâmetro ou variável local, os tipos resolvidos iguais a
-/// `double` e `int` (o `is!` também conta: o emissor não olha o `!`).
+/// with `x` a parameter or local variable, the resolved types equal to
+/// `double` and `int` (`is!` also counts: the emitter does not look at the
+/// `!`).
 fn double_e_int(table: &mut TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Achado>) {
     for s in a.stmts.iter() {
         let StmtKind::If { condition, else_: Some(otherwise), .. } = &s.kind else { continue };
@@ -163,15 +166,15 @@ fn double_e_int(table: &mut TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a
     }
 }
 
-/// O `typeForInterfaceCheck`: o parâmetro de tipo vira o limite promovido
-/// ou o declarado, até não ser mais parâmetro.
+/// `typeForInterfaceCheck`: a type parameter becomes its promoted or
+/// declared bound, until it is no longer a parameter.
 pub(crate) fn to_interface(table: &TypeTable, core: &CoreTypes, mut t: TypeId) -> TypeId {
     for _ in 0..64 {
         match table.get(t) {
             Type::Intersection { bound, .. } => t = *bound,
             Type::TypeParameter { param, .. } => {
                 let p = table.param(*param);
-                // Sem limite escrito, o limite é `Object?`.
+                // Without a written bound, the bound is `Object?`.
                 t = if p.explicito { p.bound } else { core.object_nullable };
             }
             _ => return t,
@@ -180,8 +183,8 @@ pub(crate) fn to_interface(table: &TypeTable, core: &CoreTypes, mut t: TypeId) -
     t
 }
 
-/// `only_throw_errors`: o literal lançado, ou o tipo que não é `dynamic`,
-/// `Never` nem implementa `Exception`/`Error` do `dart:core`.
+/// `only_throw_errors`: the thrown literal, or a type that is not `dynamic`,
+/// not `Never` and does not implement `dart:core`'s `Exception`/`Error`.
 #[allow(clippy::too_many_arguments)]
 fn only_throw_errors(
     program: &Program,
@@ -195,7 +198,7 @@ fn only_throw_errors(
 ) {
     let exception = class_of(program, interner, core.core_library, "Exception");
     let error = class_of(program, interner, core.core_library, "Error");
-    // `implementsAnyInterface`: a própria ou algum supertipo.
+    // `implementsAnyInterface`: itself or some supertype.
     let implements = |c: ClassId| {
         [exception, error]
             .into_iter()
@@ -205,7 +208,7 @@ fn only_throw_errors(
     for e in a.exprs.iter() {
         let ExprKind::Throw(x) = &e.kind else { continue };
         let thrown = a.expr(*x);
-        // `Literal`: booleano, número, `null`, string, símbolo, coleção, record.
+        // `Literal`: boolean, number, `null`, string, symbol, collection, record.
         let literal = matches!(
             thrown.kind,
             ExprKind::Int(_)
@@ -252,7 +255,7 @@ fn runtime_type_to_string(
     out: &mut Vec<Achado>,
 ) {
     let the_name = |s: dartforge_intern::SymbolId| interner.resolve(s);
-    // `_canSkip`: as regiões em que a regra não age.
+    // `_canSkip`: the regions where the rule does not act.
     let mut outside: Vec<Span> = Vec::new();
     for s in a.stmts.iter() {
         if matches!(s.kind, StmtKind::Assert { .. }) {
@@ -279,8 +282,8 @@ fn runtime_type_to_string(
         match &d.kind {
             DeclKind::Mixin(_) => outside.push(d.span),
             DeclKind::Class(x) if x.modifiers.abstract_ => outside.push(d.span),
-            // A extensão cujo tipo estendido é uma interface que não é
-            // classe concreta.
+            // The extension whose extended type is an interface that is not
+            // a concrete class.
             DeclKind::Extension(_) => {
                 let Some(i) = program.extensions.iter().position(|x| x.decl.unit == u && x.decl.decl == ast::DeclId(di as u32)) else { continue };
                 let Some(data) = outline.extensions.get(i) else { continue };
@@ -290,8 +293,8 @@ fn runtime_type_to_string(
                         let concrete = matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication) && !c.modifiers.abstract_ && !c.modifiers.sealed;
                         !concrete
                     }
-                    // `Null` é classe concreta; `FutureOr` é abstrata; o tipo
-                    // de extensão não é classe.
+                    // `Null` is a concrete class; `FutureOr` is abstract; an extension
+                    // type is not a class.
                     Type::Null => false,
                     Type::FutureOr { .. } | Type::ExtensionType { .. } => true,
                     _ => false,
@@ -304,8 +307,8 @@ fn runtime_type_to_string(
         }
     }
     let skips = |s: Span| outside.iter().any(|&r| dentro(s, r));
-    // `_isRuntimeTypeAccess`: `this.runtimeType`, `super.runtimeType`, ou o
-    // identificador `runtimeType` cujo elemento é um getter.
+    // `_isRuntimeTypeAccess`: `this.runtimeType`, `super.runtimeType`, or the
+    // identifier `runtimeType` whose element is a getter.
     let e_getter = |r: Option<&Resolved>| match r {
         Some(Resolved::Member { member: MemberRef::Variable(_), .. }) | Some(Resolved::Element(Element::Variable(_))) => true,
         Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => {
@@ -380,7 +383,7 @@ fn dynamic_calls(
         }
     };
     let allowed = |n: &str| matches!(n, "hashCode" | "noSuchMethod" | "runtimeType" | "toString");
-    // Os alvos de chamada não são acesso a propriedade.
+    // Call targets are not property accesses.
     let mut called: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for e in a.exprs.iter() {
         if let ExprKind::Call { target, .. } = &e.kind {
@@ -390,10 +393,10 @@ fn dynamic_calls(
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         match &e.kind {
-            // A criação de instância sem `new` não é chamada.
+            // An instance creation without `new` is not a call.
             ExprKind::Call { .. } if matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) => {}
             ExprKind::Call { target, arguments } => match &a.expr(*target).kind {
-                // `MethodInvocation` com alvo (ou em cascata).
+                // `MethodInvocation` with a target (or in a cascade).
                 ExprKind::Property { target: tgt, name, .. } => {
                     let in_cascade = matches!(a.expr(*tgt).kind, ExprKind::CascadeTarget);
                     let n = the_name(name.sym);
@@ -405,8 +408,8 @@ fn dynamic_calls(
                     }
                     let real_target = real(*tgt);
                     if !if_dynamic(real_target, &mut findings) {
-                        // O `methodName`: o tipo do membro, salvo `call`
-                        // sobre um tipo de função.
+                        // The `methodName`: the member's type, except `call`
+                        // on a function type.
                         let target_type = real_target.and_then(ty);
                         let static_ = match target_type {
                             Some(t) if n == "call" && matches!(table.get(t), Type::Function { .. }) => Some(t),
@@ -419,12 +422,12 @@ fn dynamic_calls(
                         }
                     }
                 }
-                // `MethodInvocation` sem alvo: o `methodName`.
+                // `MethodInvocation` without a target: the `methodName`.
                 ExprKind::Identifier(_) => dynamic_or_function(*target, ty(*target), &mut findings),
                 // `FunctionExpressionInvocation`: `node.function`.
                 _ => dynamic_or_function(*target, ty(*target), &mut findings),
             },
-            // `PropertyAccess`/`PrefixedIdentifier` (não alvo de chamada).
+            // `PropertyAccess`/`PrefixedIdentifier` (not a call target).
             ExprKind::Property { target, name, .. } if !called.contains(&id) => {
                 if !allowed(the_name(name.sym)) {
                     if_dynamic(real(*target), &mut findings);
@@ -441,8 +444,8 @@ fn dynamic_calls(
             }
             ExprKind::Unary { op, operand } => match op {
                 UnaryOp::NullAssert => {}
-                // `++`/`--`: o operando é posição de escrita (sem tipo
-                // estático no analyzer); conta o tipo lido.
+                // `++`/`--`: the operand is a write position (no static
+                // type in the analyzer); the read type counts.
                 UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec => {
                     if dynamic(*operand) {
                         findings.push(e.span);
@@ -452,7 +455,7 @@ fn dynamic_calls(
                     if_dynamic(Some(*operand), &mut findings);
                 }
             },
-            // A atribuição com leitura `dynamic` (não `=`, não `??=`).
+            // An assignment with a `dynamic` read (not `=`, not `??=`).
             ExprKind::Assign { op, target, .. } => {
                 if !matches!(op, AssignOp::Assign | AssignOp::Compound(BinaryOp::IfNull)) && dynamic(*target) {
                     findings.push(e.span);
@@ -466,8 +469,8 @@ fn dynamic_calls(
     out.extend(findings.into_iter().map(|s| (s, "avoid_dynamic_calls", Vec::new())));
 }
 
-/// `unrelated_type_equality_checks`: a expressão `a == b`/`a != b` de tipo
-/// `bool` e o padrão relacional `== x`/`!= x`.
+/// `unrelated_type_equality_checks`: the expression `a == b`/`a != b` of type
+/// `bool` and the relational pattern `== x`/`!= x`.
 #[allow(clippy::too_many_arguments)]
 fn unrelated_equality(
     program: &Program,
@@ -505,7 +508,7 @@ fn unrelated_equality(
             continue;
         }
         let (Some(te), Some(td)) = (tipo(body, core, table, *left), tipo(body, core, table, *right)) else { continue };
-        // O token do operador: o primeiro depois do operando esquerdo.
+        // The operator token: the first one after the left operand.
         let i = dartforge_frontend::fonte::pular_brancos(unit.source.as_bytes(), a.expr(*left).span.end);
         cases.push((Span { start: i, end: i + 2 }, "unrelated_type_equality_checks_in_expression", te, td));
     }
@@ -520,20 +523,20 @@ fn unrelated_equality(
         if !rel.unrelated(l, r) || fixnum(table, l, r) {
             continue;
         }
-        // `[rightType, leftType]` (na forma do padrão: `[operando, valor]`).
+        // `[rightType, leftType]` (in the pattern form: `[operand, value]`).
         let args = vec![crate::despejo::formatar(table, r, interner, program), crate::despejo::formatar(table, l, interner, program)];
         out.push((span, code, args));
     }
 }
 
-/// `typesAreUnrelated` do linter (`util/dart_type_utilities.dart:150`).
+/// The linter's `typesAreUnrelated` (`util/dart_type_utilities.dart:150`).
 pub(crate) struct Relation<'a> {
     pub(crate) program: &'a Program,
     pub(crate) table: &'a mut TypeTable,
     pub(crate) core: &'a CoreTypes,
     pub(crate) outline: &'a OutlineTypes,
     pub(crate) future_or: Option<ClassId>,
-    /// O símbolo `call` (sem ele, nenhuma classe tem `call`).
+    /// The `call` symbol (without it, no class has `call`).
     pub(crate) call: Option<dartforge_intern::SymbolId>,
 }
 
@@ -543,8 +546,8 @@ impl Relation<'_> {
         is_subtype(a, b, &mut env)
     }
 
-    /// `isBottom`: `Never`, ou o parâmetro de tipo não anulável cujo limite
-    /// (promovido, ou o escrito) é fundo.
+    /// `isBottom`: `Never`, or a non-nullable type parameter whose bound
+    /// (promoted, or the written one) is bottom.
     fn bottom(&self, t: TypeId) -> bool {
         match self.table.get(t) {
             Type::Never => true,
@@ -557,8 +560,8 @@ impl Relation<'_> {
         }
     }
 
-    /// O elemento e os argumentos de um tipo que o analyzer tem por
-    /// `InterfaceType` (classe, enum, mixin, tipo de extensão, `FutureOr`).
+    /// The element and the arguments of a type that the analyzer treats as an
+    /// `InterfaceType` (class, enum, mixin, extension type, `FutureOr`).
     fn interface(&self, t: TypeId) -> Option<(ClassId, Vec<TypeId>)> {
         match self.table.get(t) {
             Type::Interface { class, args, .. } => Some((*class, args.to_vec())),
@@ -568,7 +571,7 @@ impl Relation<'_> {
         }
     }
 
-    /// O parâmetro de tipo (também promovido) e o limite escrito dele.
+    /// The type parameter (also promoted) and its written bound.
     fn parametro(&self, t: TypeId) -> Option<Option<TypeId>> {
         let param = match self.table.get(t) {
             Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => *param,
@@ -578,8 +581,8 @@ impl Relation<'_> {
         Some(if p.explicito { Some(p.bound) } else { None })
     }
 
-    /// O `supertype` do elemento (nulo para `Object`, mixin e tipo de
-    /// extensão).
+    /// The element's `supertype` (null for `Object`, mixins and extension
+    /// types).
     fn the_supertype(&mut self, c: ClassId) -> Option<TypeId> {
         if matches!(self.program.class(c).kind, ClassKind::Mixin | ClassKind::ExtensionType) {
             return None;
@@ -615,7 +618,7 @@ impl Relation<'_> {
             return self.unrelated_function(pl);
         }
         if matches!(self.table.get(pl), Type::Record { .. }) || matches!(self.table.get(pr), Type::Record { .. }) {
-            // `isAssignableTo` entre tipos não `dynamic`: a subtipagem.
+            // `isAssignableTo` between non-`dynamic` types: subtyping.
             return !self.sub(pl, pr) && !self.sub(pr, pl);
         }
         false
@@ -638,8 +641,8 @@ impl Relation<'_> {
         of_object || !same
     }
 
-    /// `_isFunctionTypeUnrelatedToType`: só a classe com `call` concreto
-    /// (`lookUpConcreteMethod`) e o tipo de função se relacionam.
+    /// `_isFunctionTypeUnrelatedToType`: only a class with a concrete `call`
+    /// (`lookUpConcreteMethod`) and a function type are related.
     fn unrelated_function(&mut self, other: TypeId) -> bool {
         match self.table.get(other) {
             Type::Function { .. } => false,

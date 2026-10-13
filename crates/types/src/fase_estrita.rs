@@ -1,46 +1,44 @@
-//! `inference_failure_on_untyped_parameter` e
+//! `inference_failure_on_untyped_parameter` and
 //! `inference_failure_on_function_return_type` (docs/ANALYZER-ESPECIFICACAO-INFRA.md,
-//! lote II.7 e §4.6): o `BestPracticesVerifier` da 3.6.2
-//! (`_checkStrictInferenceInParameters` e `_checkStrictInferenceReturnType`,
+//! batch II.7 and §4.6): the 3.6.2 `BestPracticesVerifier`
+//! (`_checkStrictInferenceInParameters` and `_checkStrictInferenceReturnType`,
 //! `analyzer/lib/src/error/best_practices_verifier.dart:1359-1431`).
 //!
-//! Só valem com `analyzer: language: strict-inference: true`; a fase relata
-//! sempre e quem publica (`dartforge_parity::diagnosticos_json`) tira os
-//! dois códigos sem a opção.
+//! They only apply with `analyzer: language: strict-inference: true`; the pass
+//! always reports and whoever publishes (`dartforge_parity::diagnosticos_json`)
+//! removes the two codes without the option.
 //!
-//! * Parâmetro simples sem tipo (nem `this.`, nem `super.`, nem forma de
-//!   função), citado: o nó do parâmetro sem o valor padrão, com o nome. Nos
-//!   construtores (`visitConstructorDeclaration`), nas declarações de função
-//!   de topo e locais (`visitFunctionDeclaration`), nos métodos que não
-//!   sobrescrevem (`visitMethodDeclaration`), nas expressões de função cujo
-//!   contexto não era um tipo de função (`visitFunctionExpression`), nos
-//!   typedefs antigos (`visitFunctionTypeAlias`) e nos parâmetros-função
-//!   (`visitFunctionTypedFormalParameter`, em qualquer lugar da árvore,
-//!   também dentro de método que sobrescreve, de expressão de função e de
-//!   tipo `Function(…)`).
-//! * Sem tipo de retorno: a função de topo (não setter) e o método (não
-//!   setter, não sobrescrevendo), no nome; o typedef antigo e o
-//!   parâmetro-função, no nó; o tipo `Function(…)` que não é o do typedef
-//!   `= Function(…)`, no nó, com o `toSource` dele
-//!   (`dartforge_frontend::fonte`); o typedef `= Function(…)`, no nó, com o
-//!   nome.
+//! * Simple parameter without a type (not `this.`, not `super.`, not function
+//!   form), referenced: the parameter node without the default value, with the
+//!   name. In constructors (`visitConstructorDeclaration`), in top-level and
+//!   local function declarations (`visitFunctionDeclaration`), in methods that
+//!   do not override (`visitMethodDeclaration`), in function expressions whose
+//!   context was not a function type (`visitFunctionExpression`), in old-style
+//!   typedefs (`visitFunctionTypeAlias`) and in function-typed parameters
+//!   (`visitFunctionTypedFormalParameter`, anywhere in the tree, also inside
+//!   an overriding method, a function expression and a `Function(…)` type).
+//! * Without a return type: the top-level function (not a setter) and the
+//!   method (not a setter, not overriding), at the name; the old-style typedef
+//!   and the function-typed parameter, at the node; the `Function(…)` type that
+//!   is not that of a `= Function(…)` typedef, at the node, with its `toSource`
+//!   (`dartforge_frontend::source`); the `= Function(…)` typedef, at the node,
+//!   with the name.
 //!
-//! "Citado" é o `isParameterReferenced`: sem corpo (ou corpo `;`) e sem
-//! lista de inicializadores (typedef, abstrato, externo, parâmetro-função),
-//! sempre; senão, o `_UsedParameterVisitor` sobre o corpo e os
-//! inicializadores: um identificador cujo local resolvido é o próprio
-//! parâmetro (a declaração dele, `UnitBodyTypes::declaracao_local`). O
-//! construtor tem sempre a lista de inicializadores (nunca nula no
-//! analyzer), então é sempre visitado; o corpo `native` também.
-//! "Sobrescreve" é o `getOverridden2` (`fase_override::sobrescreve`: a
-//! chave, `nome` ou `nome_=`, em algum supertipo, com o nome privado só da
-//! mesma biblioteca; o `overridden` do analyzer são os candidatos herdados,
-//! então vale também para o membro estático). A expressão de função é
-//! conferida quando o contexto não era um tipo de função
-//! (`UnitBodyTypes::com_tipo_de_funcao`, gravado pela inferência como o
-//! `wasFunctionTypeSupplied`). Os relatos repetidos saem uma vez, como no
-//! conjunto de erros do analyzer.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! "Referenced" is `isParameterReferenced`: without a body (or with a `;` body)
+//! and without an initializer list (typedef, abstract, external, function-typed
+//! parameter), always; otherwise, the `_UsedParameterVisitor` over the body and
+//! the initializers: an identifier whose resolved local is the parameter itself
+//! (its declaration, `UnitBodyTypes::declaracao_local`). A constructor always
+//! has the initializer list (never null in the analyzer), so it is always
+//! visited; the `native` body too.
+//! "Overrides" is `getOverridden2` (`fase_override::overrides`: the key,
+//! `name` or `nome_=`, in some supertype, with a private name only from the
+//! same library; the analyzer's `overridden` are the inherited candidates, so
+//! it also applies to a static member). A function expression is checked when
+//! the context was not a function type (`UnitBodyTypes::with_function_type`,
+//! recorded by the inference as `wasFunctionTypeSupplied`). Repeated reports
+//! are output once, as in the analyzer's error set.
+//! Written without compiling or running (2026-10-05).
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::UnitBodyTypes;
@@ -55,9 +53,9 @@ fn dentro(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-/// As regiões que o `_UsedParameterVisitor` percorre, ou `None` quando o
-/// `isParameterReferenced` dá todo parâmetro por citado: sem corpo (ou com
-/// o corpo `;`) e sem lista de inicializadores.
+/// The regions the `_UsedParameterVisitor` walks, or `None` when
+/// `isParameterReferenced` considers every parameter referenced: without a
+/// body (or with the `;` body) and without an initializer list.
 fn regions_of(a: &ast::Ast, body: &FunctionBody, initializers: Option<&[Initializer]>) -> Option<Vec<Span>> {
     if matches!(body, FunctionBody::Empty) && initializers.is_none() {
         return None;
@@ -66,7 +64,7 @@ fn regions_of(a: &ast::Ast, body: &FunctionBody, initializers: Option<&[Initiali
     match body {
         FunctionBody::Block(s) => v.push(a.stmt(*s).span),
         FunctionBody::Expression(e) => v.push(a.expr(*e).span),
-        // O corpo `native 'x';` só tem o literal: nenhum identificador.
+        // The `native 'x';` body only has the literal: no identifier.
         FunctionBody::Empty | FunctionBody::Native(_) => {}
     }
     for i in initializers.unwrap_or(&[]) {
@@ -79,7 +77,7 @@ fn regions_of(a: &ast::Ast, body: &FunctionBody, initializers: Option<&[Initiali
     Some(v)
 }
 
-/// Os relatos da unidade `u` (sem olhar a opção).
+/// The reports of unit `u` (without looking at the option).
 #[allow(clippy::too_many_arguments)]
 pub fn falhas_de_inferencia(
     program: &Program,
@@ -96,8 +94,8 @@ pub fn falhas_de_inferencia(
     let source = unit.source.as_str();
     let name = |s: SymbolId| interner.resolve(s).to_string();
 
-    // `_UsedParameterVisitor`: um identificador nas regiões cujo local
-    // resolvido é o parâmetro declarado em `declaracao`.
+    // `_UsedParameterVisitor`: an identifier in the regions whose resolved
+    // local is the parameter declared at `declaration`.
     let cited = |regions: &[Span], declaration: usize| {
         a.exprs.iter().enumerate().any(|(k, e)| {
             matches!(e.kind, ExprKind::Identifier(_))
@@ -105,8 +103,8 @@ pub fn falhas_de_inferencia(
                 && body.declaracao_local(ExprId(k as u32)) == Some(declaration)
         })
     };
-    // `_checkStrictInferenceInParameters`: os parâmetros simples da lista
-    // (também dentro do `DefaultFormalParameter`).
+    // `_checkStrictInferenceInParameters`: the simple parameters of the list
+    // (also inside the `DefaultFormalParameter`).
     let params_list = |ps: &[Parameter], regions: Option<&[Span]>, out: &mut Vec<Diagnostic>| {
         for p in ps {
             if p.ty.is_some() || p.this_ || p.super_ || p.function_parameters.is_some() {
@@ -118,32 +116,32 @@ pub fn falhas_de_inferencia(
                 Some(r) => cited(r, n.span.start),
             };
             if referenced {
-                // O nó do `SimpleFormalParameter`, sem o valor padrão: o
-                // nome é o último token dele.
+                // The node of the `SimpleFormalParameter`, without the default value: the
+                // name is its last token.
                 let end = if p.default_value.is_some() { n.span.end } else { p.span.end };
                 out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end: end }, [name(n.sym)]));
             }
         }
     };
-    // A classe da declaração (o `InterfaceElement` que a contém).
+    // The class of the declaration (the `InterfaceElement` that contains it).
     let decl_class = |d: ast::DeclId| -> Option<ClassId> {
         program.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == u && r.decl == d)).map(|i| ClassId(i as u32))
     };
-    // `getOverridden2` (o mesmo de `fase_override`), pela chave do membro.
+    // `getOverridden2` (the same as in `fase_override`), by the member key.
     let lib = unit.library;
     let mut inheritance = crate::heranca::Heranca::default();
     let mut provider = crate::heranca::ProvedorDoOutline { program, interner, core, outline, table };
     let mut overrides =
         |c: ClassId, key: Option<SymbolId>| crate::fase_override::sobrescreve(&mut inheritance, &mut provider, c, lib, key);
 
-    // `visitFunctionDeclaration`: as funções de topo e as locais.
+    // `visitFunctionDeclaration`: the top-level and the local functions.
     let mut the_declared: std::collections::HashSet<ast::FunctionId> = std::collections::HashSet::new();
     for d in a.decls.iter() {
         match &d.kind {
             DeclKind::Function(f) => {
                 the_declared.insert(*f);
                 let g = a.function(*f);
-                // Só a de topo tem o retorno conferido.
+                // Only the top-level one has its return type checked.
                 if g.return_type.is_none() && g.kind != ast::FunctionKind::Setter && let Some(n) = g.name {
                     out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
                 }
@@ -151,7 +149,7 @@ pub fn falhas_de_inferencia(
                     params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
                 }
             }
-            // `visitFunctionTypeAlias`: o retorno e os parâmetros, sem corpo.
+            // `visitFunctionTypeAlias`: the return type and the parameters, no body.
             DeclKind::Typedef(t) => match &t.kind {
                 TypedefKind::Legacy { return_type, parameters } => {
                     if return_type.is_none() {
@@ -178,7 +176,7 @@ pub fn falhas_de_inferencia(
             }
         }
     }
-    // `visitMethodDeclaration` e `visitConstructorDeclaration`.
+    // `visitMethodDeclaration` and `visitConstructorDeclaration`.
     for (di, d) in a.decls.iter().enumerate() {
         let members: &[ast::MemberId] = match &d.kind {
             DeclKind::Class(x) => &x.members,
@@ -194,7 +192,7 @@ pub fn falhas_de_inferencia(
                 MemberKind::Method(f) => {
                     let g = a.function(*f);
                     let Some(n) = g.name else { continue };
-                    // O `Name` do elemento: o do setter é `nome=`.
+                    // The element's `Name`: that of a setter is `name=`.
                     let key = if g.kind == ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", name(n.sym))) } else { Some(n.sym) };
                     if class.is_some_and(|c| overrides(c, key)) {
                         continue;
@@ -213,7 +211,7 @@ pub fn falhas_de_inferencia(
             }
         }
     }
-    // `visitFunctionExpression`: só sem tipo de função do contexto.
+    // `visitFunctionExpression`: only without a function type from the context.
     for e in a.exprs.iter() {
         let ExprKind::FunctionExpression(f) = &e.kind else { continue };
         if the_declared.contains(f) || body.with_function_type.contains(f) {
@@ -224,9 +222,9 @@ pub fn falhas_de_inferencia(
             params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
         }
     }
-    // `visitFunctionTypedFormalParameter`, em toda lista de parâmetros da
-    // unidade: funções (de topo, locais, métodos, expressões de função),
-    // construtores, typedefs antigos e tipos `Function(…)`.
+    // `visitFunctionTypedFormalParameter`, in every parameter list of the unit:
+    // functions (top-level, local, methods, function expressions),
+    // constructors, old-style typedefs and `Function(…)` types.
     let mut lists: Vec<&[Parameter]> = Vec::new();
     lists.extend(a.functions.iter().filter_map(|f| f.parameters.as_deref()));
     for m in a.members.iter() {
@@ -249,8 +247,8 @@ pub fn falhas_de_inferencia(
     let mut stack: Vec<&Parameter> = lists.into_iter().flatten().filter(|p| p.function_parameters.is_some()).collect();
     while let Some(q) = stack.pop() {
         let Some(fs) = &q.function_parameters else { continue };
-        // `this.f(…)` e `super.f(…)` não são `FunctionTypedFormalParameter`,
-        // mas a lista deles é percorrida.
+        // `this.f(…)` and `super.f(…)` are not `FunctionTypedFormalParameter`,
+        // but their list is walked.
         if !q.this_
             && !q.super_
             && let Some(n) = q.name
@@ -263,8 +261,8 @@ pub fn falhas_de_inferencia(
         }
         stack.extend(fs.iter().filter(|x| x.function_parameters.is_some()));
     }
-    // `visitGenericFunctionType`: o tipo `Function(…)` sem retorno que não é
-    // o do typedef `= Function(…)`, com o `node.toString()`.
+    // `visitGenericFunctionType`: the `Function(…)` type without a return type
+    // that is not that of a `= Function(…)` typedef, with `node.toString()`.
     let dos_typedefs: Vec<ast::TypeId> = a
         .decls
         .iter()
@@ -285,7 +283,7 @@ pub fn falhas_de_inferencia(
             out.push(Diagnostic::com_codigo(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, t.span, [text]));
         }
     }
-    // O conjunto de erros do analyzer: o mesmo relato sai uma vez.
+    // The analyzer's error set: the same report is output once.
     out.sort_by_key(|d| (d.span.start, d.span.end));
     out.dedup_by(|x, y| x.span == y.span && x.code == y.code && x.message == y.message);
     out

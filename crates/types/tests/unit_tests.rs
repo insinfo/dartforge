@@ -1,11 +1,11 @@
-//! Testes unitários sem SDK para `dartforge-types`.
+//! Unit tests without the SDK for `dartforge-types`.
 //!
-//! Cobre os requisitos de testes unitários rápidos (<100ms):
-//! 1. Typedef genérico com substituição (`typedef F<T> = T Function(T);`) expandido para `int Function(int)`
-//! 2. Inferência de override: getter, setter e método herdam tipos da superclasse genérica (`Base<int>`)
-//! 3. Herança com mixin application: `class C extends B with M` recebe a união das interfaces instanciadas
-//! 4. Extension type: `extension type E(int rep)` apaga para `int` e não subtipa `int` a menos que use `implements int`
-//! 5. Diagnósticos acumulados: erro de tipo inexistente é gravado e resolvido como `Type::Dynamic` sem pânico
+//! Covers the fast unit test requirements (<100ms):
+//! 1. Generic typedef with substitution (`typedef F<T> = T Function(T);`) expanded to `int Function(int)`
+//! 2. Override inference: getter, setter and method inherit types from the generic superclass (`Base<int>`)
+//! 3. Inheritance with a mixin application: `class C extends B with M` gets the union of the instantiated interfaces
+//! 4. Extension type: `extension type E(int rep)` erases to `int` and does not subtype `int` unless it uses `implements int`
+//! 5. Accumulated diagnostics: a nonexistent type error is recorded and resolved as `Type::Dynamic` without panicking
 
 use dartforge_elements::load::load;
 use dartforge_elements::model::*;
@@ -112,7 +112,7 @@ fn test_generic_typedef_expansion() {
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
     assert!(diags.is_empty(), "não deve haver erros de resolução: {:?}", diags);
 
-    // Encontra o campo Target.cb
+    // Finds the field Target.cb
     let cb_sym = interner.intern("cb");
     let (cb_idx, _) = prog
         .variables
@@ -125,7 +125,7 @@ fn test_generic_typedef_expansion() {
         .declared_type
         .expect("tipo declarado de cb deve estar presente");
 
-    // Verifica que é Type::Function com retorno int e posicional int, marcado como nullable
+    // Checks that it is Type::Function with return int and positional int, marked nullable
     match table.get(cb_ty) {
         Type::Function {
             ret,
@@ -141,7 +141,7 @@ fn test_generic_typedef_expansion() {
         other => panic!("esperava Type::Function para F<int>?, obteve {:?}", other),
     }
 
-    // Testa também expansão direta via tabela de typedefs
+    // Also tests direct expansion through the typedef table
     let f_sym = interner.intern("F");
     let (typedef_idx, _) = prog
         .typedefs
@@ -214,7 +214,7 @@ fn test_override_inference() {
 
     let child_elem = &prog.classes[child_cid];
 
-    // 1. Getter 'val' sem anotação em Child herda retorno 'int' de Base<int>
+    // 1. Getter 'val' without an annotation in Child inherits return 'int' from Base<int>
     let val_sym = interner.intern("val");
     let val_fn_id = child_elem
         .instance_members
@@ -226,7 +226,7 @@ fn test_override_inference() {
         "retorno de 'get val' em Child deve ser inferido como int"
     );
 
-    // 2. Método 'setVal(x)' com parâmetro omitido herda tipo 'int' de Base<int>
+    // 2. Method 'setVal(x)' with an omitted parameter inherits type 'int' from Base<int>
     let set_val_sym = interner.intern("setVal");
     let set_val_fn_id = child_elem
         .instance_members
@@ -239,7 +239,7 @@ fn test_override_inference() {
         "parâmetro 'x' em setVal(x) deve ser inferido como int"
     );
 
-    // 3. Método 'compute(input)' sem retorno nem tipo de parâmetro herda ambos como 'int'
+    // 3. Method 'compute(input)' without return or parameter type inherits both as 'int'
     let compute_sym = interner.intern("compute");
     let compute_fn_id = child_elem
         .instance_members
@@ -341,7 +341,7 @@ fn test_mixin_application_instantiated_supertypes() {
         other => panic!("esperava Interface M<String>, obteve {:?}", other),
     }
 
-    // C herda transitivamente I1<int> através de B<int>
+    // C transitively inherits I1<int> through B<int>
     let i1_super = outline
         .hierarchy
         .supertype_of(c_ty, i1_cls, &mut table, &core)
@@ -355,7 +355,7 @@ fn test_mixin_application_instantiated_supertypes() {
         other => panic!("esperava Interface I1<int>, obteve {:?}", other),
     }
 
-    // C herda transitivamente I2<String> através de M<String>
+    // C transitively inherits I2<String> through M<String>
     let i2_super = outline
         .hierarchy
         .supertype_of(c_ty, i2_cls, &mut table, &core)
@@ -423,7 +423,7 @@ fn test_extension_type_erasure_and_subtyping() {
         nullable: false,
     });
 
-    // 1. Função de apagamento de tipo de extensão via representação
+    // 1. Extension type erasure function through the representation
     let rep_fn = |cls: ClassId, args: &[TypeId], tbl: &mut TypeTable| -> Option<TypeId> {
         let class_elem = &prog.classes[cls.0 as usize];
         if class_elem.kind == ClassKind::ExtensionType {
@@ -453,18 +453,18 @@ fn test_extension_type_erasure_and_subtyping() {
         &core,
     );
 
-    // Id não implementa int: Id <: int é FALSO
+    // Id does not implement int: Id <: int is FALSE
     assert!(
         !is_subtype(id_ty, core.int, &mut env),
         "Id sem implements int não deve ser subtipo de int"
     );
-    // int <: Id é FALSO
+    // int <: Id is FALSE
     assert!(
         !is_subtype(core.int, id_ty, &mut env),
         "int não deve ser subtipo de Id"
     );
 
-    // SubId implementa int: SubId <: int é VERDADEIRO
+    // SubId implements int: SubId <: int is TRUE
     assert!(
         is_subtype(sub_id_ty, core.int, &mut env),
         "SubId com implements int deve ser subtipo de int"
@@ -475,7 +475,7 @@ fn test_extension_type_erasure_and_subtyping() {
         "int não deve ser subtipo de SubId"
     );
 
-    // SubId <: Object é VERDADEIRO (via int <: Object)
+    // SubId <: Object is TRUE (via int <: Object)
     assert!(
         is_subtype(sub_id_ty, core.object, &mut env),
         "SubId deve ser subtipo de Object"
@@ -510,7 +510,7 @@ fn test_accumulated_diagnostics_unknown_type() {
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
-    // Executa resolução sem pânico, capturando diagnósticos acumulados
+    // Runs resolution without panicking, capturing accumulated diagnostics
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
 
     assert!(
@@ -524,7 +524,7 @@ fn test_accumulated_diagnostics_unknown_type() {
         diags
     );
 
-    // O campo com erro vira dynamic
+    // The field with an error becomes dynamic
     let bad_sym = interner.intern("badField");
     let good_sym = interner.intern("goodField");
 
@@ -552,8 +552,8 @@ fn test_accumulated_diagnostics_unknown_type() {
     assert!(found_bad && found_good, "ambos os campos devem ter sido inspecionados");
 }
 
-/// `class C extends C` (`recursive_interface_inheritance`): o outline termina
-/// (a cadeia de superclasses com ciclo é percorrida uma vez).
+/// `class C extends C` (`recursive_interface_inheritance`): the outline
+/// finishes (the superclass chain with a cycle is walked once).
 #[test]
 fn superclass_of_itself_terminates() {
     let tmp = tempdir().unwrap();
@@ -567,9 +567,9 @@ fn superclass_of_itself_terminates() {
     let _ = resolve_outline(&prog, &interner, &mut table, &core);
 }
 
-/// `invalid_override` (`types::sobrescritas`), nas formas do corpus do
-/// analyzer (oráculo 3.6.2): retorno, parâmetro, setter, `covariant` e a
-/// verificação dos parâmetros covariantes contra todos os supertipos.
+/// `invalid_override` (`types::sobrescritas`), in the forms of the analyzer's
+/// corpus (3.6.2 oracle): return, parameter, setter, `covariant` and the check
+/// of covariant parameters against all supertypes.
 #[test]
 fn corpus_invalid_overrides() {
     let tmp = tempdir().unwrap();
@@ -602,9 +602,9 @@ fn corpus_invalid_overrides() {
     );
 }
 
-/// `types::variancia`: posições de variância e supertipos (conferidos com o
-/// `dart analyze` 3.6.2, que guarda a variância escrita mesmo sem o
-/// experimento).
+/// `types::variancia`: variance positions and supertypes (checked against
+/// `dart analyze` 3.6.2, which keeps the written variance even without the
+/// experiment).
 #[test]
 fn type_parameter_variance() {
     let tmp = tempdir().unwrap();
@@ -636,7 +636,8 @@ fn type_parameter_variance() {
 }
 
 /// `getter_not_subtype_setter_types` (`types::sobrescritas::getters_e_setters`):
-/// topo, estático e a interface (o getter herdado leva o nome da classe).
+/// top-level, static and the interface (the inherited getter carries the class
+/// name).
 #[test]
 fn getter_and_setter_with_incompatible_types() {
     let tmp = tempdir().unwrap();
@@ -669,9 +670,9 @@ fn getter_and_setter_with_incompatible_types() {
     );
 }
 
-/// `types::sobrescritas::membros_abstratos`: membro abstrato em classe
-/// concreta, herdados sem implementação (ordenados, com `getter`), a
-/// superclasse concreta que já os deixa de fora, e o `noSuchMethod`.
+/// `types::sobrescritas::membros_abstratos`: an abstract member in a concrete
+/// class, inherited ones without an implementation (sorted, with `getter`),
+/// the concrete superclass that already leaves them out, and `noSuchMethod`.
 #[test]
 fn abstract_members_in_concrete_class() {
     let tmp = tempdir().unwrap();
@@ -702,8 +703,8 @@ fn abstract_members_in_concrete_class() {
     );
 }
 
-/// `membros_em_conflito` e `valores_padrao` de `types::sobrescritas`
-/// (corpus do analyzer, oráculo 3.6.2).
+/// `membros_em_conflito` and `default_values` of `types::sobrescritas`
+/// (analyzer corpus, 3.6.2 oracle).
 #[test]
 fn conflicting_members_and_default_values() {
     let tmp = tempdir().unwrap();
@@ -734,8 +735,8 @@ fn conflicting_members_and_default_values() {
     );
 }
 
-/// `membros_de_enum`: `index`/`hashCode` concretos e `values` numa classe
-/// que implementa `Enum` (corpus `illegal_*`, oráculo 3.6.2).
+/// `membros_de_enum`: concrete `index`/`hashCode` and `values` in a class
+/// that implements `Enum` (`illegal_*` corpus, 3.6.2 oracle).
 #[test]
 fn members_forbidden_in_enum_implementers() {
     let tmp = tempdir().unwrap();

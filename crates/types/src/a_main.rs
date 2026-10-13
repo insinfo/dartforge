@@ -1,10 +1,11 @@
-//! A função `main` de topo (`ErrorVerifier._checkForMainFunction2`,
+//! The top-level `main` function (`ErrorVerifier._checkForMainFunction2`,
 //! `analyzer/lib/src/generated/error_verifier.dart:4143-4187`;
-//! docs/ANALYZER-ESPECIFICACAO.md §A, grupo 4): mais de dois posicionais
-//! obrigatórios, nomeado `required`, e primeiro posicional cujo tipo não é
-//! supertipo de `List<String>`. Os três relatos são independentes.
+//! docs/ANALYZER-ESPECIFICACAO.md §A, group 4): more than two required
+//! positionals, a `required` named parameter, and a first positional whose
+//! type is not a supertype of `List<String>`. The three reports are
+//! independent.
 //!
-//! Escrito sem compilar nem executar (2026-10-04).
+//! Written without compiling or running (2026-10-04).
 
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -15,7 +16,7 @@ use dartforge_elements::model::{FunctionKind, FunctionRef, LibraryId, Program, U
 use dartforge_frontend::ast::ParameterKind;
 use dartforge_intern::Interner;
 
-/// Os diagnósticos da função `main` de topo da biblioteca `lib`.
+/// The diagnostics of the top-level `main` function of library `lib`.
 pub fn funcao_main(
     program: &Program,
     interner: &Interner,
@@ -27,8 +28,8 @@ pub fn funcao_main(
     let mut output = Vec::new();
     let Some(sym_main) = interner.lookup("main") else { return output };
     for (i, f) in program.functions.iter().enumerate() {
-        // Só a função de topo: um método `main` de classe não conta, nem um
-        // getter (que não tem lista de parâmetros).
+        // Only the top-level function: a class method `main` does not count, nor
+        // does a getter (which has no parameter list).
         if f.library != lib || f.name != sym_main || f.class.is_some() || f.extension.is_some() || f.kind != FunctionKind::Function {
             continue;
         }
@@ -44,13 +45,13 @@ pub fn funcao_main(
         if ps.iter().any(|p| p.kind == ParameterKind::Named && p.required) {
             output.push((unit, Diagnostic::com_codigo(c::MAIN_HAS_REQUIRED_NAMED_PARAMETERS, name.span, empty.iter().copied())));
         }
-        // O primeiro posicional (obrigatório ou opcional), pelo tipo escrito:
-        // sem tipo ele é `dynamic` e a condição não dispara.
+        // The first positional (required or optional), by its written type:
+        // without a type it is `dynamic` and the condition does not fire.
         let Some(k) = ps.iter().position(|p| p.kind != ParameterKind::Named) else { continue };
         let p = &ps[k];
-        // `typeOrSelf` do `notDefault`: o tipo escrito de um parâmetro simples;
-        // o parâmetro inteiro (sem o valor padrão) na forma de função
-        // (`void args()`), em `this.x` e em `super.x`.
+        // `typeOrSelf` of `notDefault`: the written type of a simple parameter;
+        // the whole parameter (without the default value) in function form
+        // (`void args()`), in `this.x` and in `super.x`.
         let span = if p.function_parameters.is_none() && !p.this_ && !p.super_ {
             let Some(written) = p.ty else { continue };
             a.ty(written).span

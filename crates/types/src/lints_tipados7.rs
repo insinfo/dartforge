@@ -1,9 +1,10 @@
 //! `unnecessary_await_in_return` (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8),
-//! escrita direto do emissor da 3.6.2: o `await` de um `Future` no retorno
-//! (ou no corpo de expressão) de uma função ou método que devolve `Future`,
-//! quando o tipo esperado é subtipo do de retorno; o mais próximo que manda
-//! é a função, o método ou o bloco de um `try` (que cala).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! written directly from the 3.6.2 emitter: the `await` of a `Future` in the
+//! return (or in the expression body) of a function or method that returns
+//! `Future`, when the awaited type is a subtype of the return type; the
+//! nearest thing that decides is the function, the method or the block of a
+//! `try` (which silences it).
+//! Written without compiling or running (2026-10-05).
 
 use crate::lints_tipados::Achado;
 use crate::resolve::OutlineTypes;
@@ -22,12 +23,12 @@ fn sem_parenteses(a: &dartforge_frontend::ast::Ast, mut e: ExprId) -> ExprId {
     e
 }
 
-/// Os achados na unidade `u`.
+/// The findings in unit `u`.
 pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, the_body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
     let mut out = Vec::new();
     let a = &program.unit(u).ast;
     let e_future = |table: &TypeTable, t: TypeId| matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == core.future_class);
-    // Os retornos: (o nó que procura o ancestral, a expressão).
+    // The returns: (the node that looks for the ancestor, the expression).
     let mut cases: Vec<(Span, ExprId)> = Vec::new();
     for f in a.functions.iter() {
         if let FunctionBody::Expression(e) = &f.body {
@@ -42,7 +43,7 @@ pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
     if cases.is_empty() {
         return out;
     }
-    // Os blocos de `try` (o corpo e o `finally`).
+    // The `try` blocks (the body and the `finally`).
     let mut try_blocks: Vec<Span> = Vec::new();
     for s in a.stmts.iter() {
         if let StmtKind::Try { body, finally_, .. } = &s.kind {
@@ -77,8 +78,8 @@ pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
         if !e_future(table, t) {
             continue;
         }
-        // O ancestral mais próximo: uma função (ou método) ou um bloco de
-        // `try`.
+        // The nearest ancestor: a function (or method) or a `try`
+        // block.
         let func = a
             .functions
             .iter()
@@ -91,7 +92,7 @@ pub fn achados(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
         if block.is_some_and(|b| b.end - b.start < fspan.end - fspan.start && b.start >= fspan.start) {
             continue;
         }
-        // O tipo de retorno do elemento.
+        // The element's return type.
         let return_ = if let Some(&k) = elements.get(&fid) {
             outline.functions.get(k).map(|d| d.return_type)
         } else if let Some(&fe) = literals.get(&fid) {

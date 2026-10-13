@@ -1,20 +1,20 @@
-//! O `UseResultVerifier` do analyzer
-//! (`analyzer/lib/src/error/use_result_verifier.dart`, lido por inteiro na
-//! 6.11.0; docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.8): `unused_result`
-//! numa chamada, leitura de propriedade, identificador ou criação de
-//! instância cujo elemento tem `@useResult`/`@UseResult(...)` e cujo valor
-//! não é usado.
+//! The analyzer's `UseResultVerifier`
+//! (`analyzer/lib/src/error/use_result_verifier.dart`, read in full in
+//! 6.11.0; docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.8): `unused_result`
+//! on a call, property read, identifier or instance creation whose element
+//! has `@useResult`/`@UseResult(...)` and whose value is not used.
 //!
-//! O original sobe do nó aos pais (`_isUsed`); aqui se desce dos contextos
-//! que não usam o valor: o comando de expressão, a inicialização e as
-//! atualizações de um `for`, as seções de uma cascata, o operando de `is` e
-//! o valor de um `switch` expressão. Dali o "não usado" atravessa
-//! parênteses, `await`, `as`, `?:`, `!` e os operadores prefixos. Ficam de
-//! fora os contextos raros que o original também não conta como uso (valor
-//! padrão de parâmetro, expressão de padrão constante).
+//! The original goes up from the node to its parents (`_isUsed`); here we go
+//! down from the contexts that do not use the value: the expression
+//! statement, the initialization and the updaters of a `for`, the sections
+//! of a cascade, the operand of `is` and the value of a `switch`
+//! expression. From there "not used" goes through parentheses, `await`,
+//! `as`, `?:`, `!` and the prefix operators. Left out are the rare contexts
+//! that the original also does not count as a use (parameter default value,
+//! constant pattern expression).
 //!
-//! A anotação é reconhecida pelo nome, sem conferir o `package:meta`.
-//! Escrito sem compilar nem executar (2026-10-04).
+//! The annotation is recognized by name, without checking `package:meta`.
+//! Written without compiling or running (2026-10-04).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_diagnostics::codigos::warning as w;
@@ -23,19 +23,19 @@ use dartforge_elements::model::{Element, FunctionElementId, FunctionRef, Program
 use dartforge_frontend::ast::{self, CollectionElement, DeclKind, ExprId, ExprKind, ForInit, MemberKind, StmtKind, UnaryOp};
 use dartforge_intern::Interner;
 
-/// As anotações da declaração de uma função, método ou construtor.
-/// A anotação `m`, escrita na unidade `unit`, é a constante `nome` do
-/// `package:meta` (o `isDoNotStore`, `isLiteral`… do analyzer comparam o
-/// elemento e a biblioteca `meta`): o nome, com ou sem prefixo, resolvido
-/// pelos escopos com que o analyzer resolve a anotação (locais, parâmetros,
-/// membros do tipo que a contém, unidade) para uma variável de topo de uma
-/// biblioteca `package:meta/…`, e sem argumentos.
+/// The annotations of a function, method or constructor declaration.
+/// Annotation `m`, written in unit `unit`, is the constant `the_name` of
+/// `package:meta` (the analyzer's `isDoNotStore`, `isLiteral`… compare the
+/// element and the `meta` library): the name, with or without a prefix,
+/// resolved through the scopes with which the analyzer resolves the
+/// annotation (locals, parameters, members of the enclosing type, unit) to a
+/// top-level variable of a `package:meta/…` library, and without arguments.
 pub(crate) fn meta_annotation(program: &Program, interner: &Interner, unit: UnitId, m: &ast::Annotation, the_name: &str) -> bool {
-    // Pelos escopos do analyzer (locais, membros, unidade): `anotacoes`.
+    // Through the analyzer's scopes (locals, members, unit): `anotacoes`.
     crate::anotacoes::annotation_and_variable(program, interner, unit, m, the_name, &|uri| uri.starts_with("package:meta/"))
 }
 
-/// A unidade em que a função `f` está escrita.
+/// The unit in which function `f` is written.
 pub(crate) fn function_unit(program: &Program, f: FunctionElementId) -> Option<UnitId> {
     match program.function(f).node {
         FunctionRef::Constructor { unit, .. } | FunctionRef::Function { unit, .. } => Some(unit),
@@ -60,7 +60,7 @@ pub(crate) fn function_annotations(program: &Program, f: FunctionElementId) -> &
     }
 }
 
-/// As anotações da declaração de uma variável de topo ou de um campo.
+/// The annotations of a top-level variable or field declaration.
 fn variable_annotations(program: &Program, v: VariableId) -> &[ast::Annotation] {
     match program.variable(v).node {
         VariableRef::TopLevel { unit, decl, .. } => &program.unit(unit).ast.decl(decl).metadata[..],
@@ -69,8 +69,8 @@ fn variable_annotations(program: &Program, v: VariableId) -> &[ast::Annotation] 
     }
 }
 
-/// `_getUseResultMetadata`: as anotações do elemento; as do campo para um
-/// acessor implícito.
+/// `_getUseResultMetadata`: the element's annotations; those of the field for
+/// an implicit accessor.
 pub(crate) fn element_annotations<'p>(program: &'p Program, r: &Resolved) -> (&'p [ast::Annotation], Option<UnitId>) {
     let of_function = |f: FunctionElementId| {
         let e = program.function(f);
@@ -101,16 +101,16 @@ fn variable_unit(program: &Program, v: VariableId) -> Option<UnitId> {
     }
 }
 
-/// O que a anotação de uso de resultado diz.
+/// What the use-result annotation says.
 struct Uso {
-    /// `UseResult('msg')` ou `message:`.
+    /// `UseResult('msg')` or `message:`.
     mensagem: Option<String>,
     /// `UseResult.unless(parameterDefined: 'p')`.
     parametro: Option<String>,
 }
 
-/// A primeira anotação `@useResult` ou `@UseResult(...)` da lista. `a` é a
-/// árvore da unidade em que a anotação está escrita.
+/// The first `@useResult` or `@UseResult(...)` annotation of the list. `a` is
+/// the tree of the unit in which the annotation is written.
 fn uso_de_resultado(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Uso> {
     let text_of = |e: ExprId| match &a.expr(e).kind {
         ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
@@ -119,7 +119,7 @@ fn uso_de_resultado(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Inter
     for m in metadata {
         let names: Vec<&str> = m.name.iter().map(|n| interner.resolve(n.sym)).collect();
         match &m.arguments {
-            // `@useResult`: um getter constante, sem mensagem.
+            // `@useResult`: a constant getter, without a message.
             None if names.last() == Some(&"useResult") => return Some(Uso { mensagem: None, parametro: None }),
             Some(args) if names.contains(&"UseResult") => {
                 let named = |the_name: &str| {
@@ -134,8 +134,8 @@ fn uso_de_resultado(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Inter
     None
 }
 
-/// Os elementos de coleção `for (init; cond; updates)`: a inicialização e as
-/// atualizações são contextos que não usam o valor.
+/// The collection elements `for (init; cond; updates)`: the initialization
+/// and the updaters are contexts that do not use the value.
 fn collection_roots(el: &CollectionElement, roots: &mut Vec<ExprId>) {
     match el {
         CollectionElement::For { init, updates, body, .. } => {
@@ -156,8 +156,8 @@ fn collection_roots(el: &CollectionElement, roots: &mut Vec<ExprId>) {
     }
 }
 
-/// Os nós "não usados" a partir de uma raiz: a raiz e, através dos nós que
-/// só repassam o valor, os operandos deles.
+/// The "unused" nodes starting from a root: the root and, through the nodes
+/// that only pass the value along, their operands.
 fn descend(a: &ast::Ast, root: ExprId, output: &mut Vec<ExprId>) {
     let mut stack = vec![root];
     while let Some(e) = stack.pop() {
@@ -166,17 +166,17 @@ fn descend(a: &ast::Ast, root: ExprId, output: &mut Vec<ExprId>) {
             ExprKind::Parenthesized(x) | ExprKind::Await(x) => stack.push(*x),
             ExprKind::As { value, .. } => stack.push(*value),
             ExprKind::Conditional { condition, then, else_ } => stack.extend([*condition, *then, *else_]),
-            // `e!` e os prefixos repassam; `e++` e `e--` contam como uso.
+            // `e!` and the prefixes pass it along; `e++` and `e--` count as a use.
             ExprKind::Unary { op, operand } if !matches!(op, UnaryOp::PostfixInc | UnaryOp::PostfixDec) => stack.push(*operand),
             _ => {}
         }
     }
 }
 
-/// Os `unused_result` da unidade `u`.
+/// The `unused_result`s of unit `u`.
 pub fn resultados_nao_usados(program: &Program, interner: &Interner, the_body: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    // Sem nenhuma das duas anotações internadas, nada a fazer.
+    // Without either of the two interned annotations, nothing to do.
     if interner.lookup("useResult").is_none() && interner.lookup("UseResult").is_none() {
         return out;
     }
@@ -216,8 +216,8 @@ pub fn resultados_nao_usados(program: &Program, interner: &Interner, the_body: &
     let resolved = |e: ExprId| the_body.resolved.get(e.0 as usize).and_then(|r| r.as_ref());
     for e in unused {
         let expr = a.expr(e);
-        // O elemento, o nó a marcar, o nome a mostrar e os argumentos (só
-        // de uma chamada de método).
+        // The element, the node to mark, the name to show and the arguments (only
+        // for a method call).
         let (r, span, the_name, args_list): (&Resolved, Span, String, Option<&ast::Arguments>) = match &expr.kind {
             ExprKind::Identifier(n) => match resolved(e) {
                 Some(r) => (r, n.span, interner.resolve(n.sym).to_string(), None),
@@ -245,8 +245,8 @@ pub fn resultados_nao_usados(program: &Program, interner: &Interner, the_body: &
         let (metadata, where_) = element_annotations(program, r);
         let Some(where_) = where_ else { continue };
         let Some(use_) = uso_de_resultado(metadata, &program.unit(where_).ast, interner) else { continue };
-        // Uma chamada sem `new` que resolve para construtor é criação de
-        // instância: marca o nó inteiro, com o nome do construtor.
+        // A call without `new` that resolves to a constructor is an instance
+        // creation: marks the whole node, with the constructor name.
         let (span, the_name) = match r {
             Resolved::Constructor(f) => {
                 let k = program.function(*f);
@@ -256,7 +256,7 @@ pub fn resultados_nao_usados(program: &Program, interner: &Interner, the_body: &
             }
             _ => (span, the_name),
         };
-        // `_passesUsingParam`: a chamada passa o parâmetro de `unless`.
+        // `_passesUsingParam`: the call passes the `unless` parameter.
         if let (Some(p), Some(args), false) = (&use_.parametro, args_list, matches!(r, Resolved::Constructor(_)))
             && args.args.iter().any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == p))
         {

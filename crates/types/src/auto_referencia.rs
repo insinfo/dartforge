@@ -1,14 +1,14 @@
-//! O `TypeAliasSelfReferenceFinder` do analyzer (`summary2/type_alias.dart`):
-//! o `typedef` que chega a si mesmo. Um alias assim instancia como `dynamic`
-//! (`TypeAliasElementImpl.instantiate` com `hasSelfReference`,
-//! `element.dart:9690-9696`), e a conferência de limites dos argumentos não
-//! roda nele (o `TYPE_ALIAS_CANNOT_REFERENCE_ITSELF` sai no `analise`).
+//! The analyzer's `TypeAliasSelfReferenceFinder` (`summary2/type_alias.dart`):
+//! the `typedef` that reaches itself. Such an alias instantiates as `dynamic`
+//! (`TypeAliasElementImpl.instantiate` with `hasSelfReference`,
+//! `element.dart:9690-9696`), and the bounds check of the arguments does not
+//! run on it (`TYPE_ALIAS_CANNOT_REFERENCE_ITSELF` is reported in `analise`).
 
 use dartforge_elements::model::{DeclRef, Element, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, Parameter, TypeKind, TypedefKind};
 use dartforge_intern::SymbolId;
 
-/// O `typedef` declarado em `alvo` chega a si mesmo.
+/// The `typedef` declared in `target` reaches itself.
 pub fn typedef_auto_referente(program: &Program, target: DeclRef) -> bool {
     let lib = program.unit(target.unit).library;
     let mut finder = SelfReferenceFinder { programa: program, lib, alvo: target, visited: Vec::new(), found: false };
@@ -16,11 +16,11 @@ pub fn typedef_auto_referente(program: &Program, target: DeclRef) -> bool {
     finder.found
 }
 
-/// `TypeAliasSelfReferenceFinder` (`summary2/type_alias.dart`): o `typedef`
-/// chega a si mesmo pelos tipos que escreve e pelos limites dos parâmetros de
-/// tipo das classes, mixins e `typedef` que nomeia (enum e tipo de extensão
-/// não são seguidos). Só se seguem declarações desta biblioteca (o analyzer
-/// segue as do ciclo de bibliotecas em ligação).
+/// `TypeAliasSelfReferenceFinder` (`summary2/type_alias.dart`): the `typedef`
+/// reaches itself through the types it writes and through the bounds of the
+/// type parameters of the classes, mixins and `typedef`s it names (enums and
+/// extension types are not followed). Only declarations of this library are
+/// followed (the analyzer follows those of the library cycle being linked).
 struct SelfReferenceFinder<'a> {
     programa: &'a Program,
     lib: LibraryId,
@@ -89,7 +89,7 @@ impl SelfReferenceFinder<'_> {
         }
     }
 
-    /// Os limites (`_typeParameterList`), com os nomes já no escopo.
+    /// The bounds (`_typeParameterList`), with the names already in scope.
     fn parametros_de_tipo(&mut self, u: UnitId, ast_: &ast::Ast, tps: &[ast::TypeParameter], scope: &mut Vec<SymbolId>) {
         scope.extend(tps.iter().map(|p| p.name.sym));
         for p in tps {
@@ -99,8 +99,8 @@ impl SelfReferenceFinder<'_> {
         }
     }
 
-    /// `_formalParameterList`: os tipos dos parâmetros simples e das
-    /// funções-parâmetro (não os de `this.x`/`super.x`).
+    /// `_formalParameterList`: the types of the simple parameters and of the
+    /// function-typed parameters (not those of `this.x`/`super.x`).
     fn parametros(&mut self, u: UnitId, ast_: &ast::Ast, ps: &[Parameter], scope: &mut Vec<SymbolId>) {
         for p in ps {
             if p.this_ || p.super_ {

@@ -1,34 +1,36 @@
-//! Mais regras de lint tipadas do conjunto `core`
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`). Como
-//! em [`crate::lints_tipados`], devolvem achados neutros.
+//! More typed lint rules from the `core` set
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the
+//! 3.6.2 emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`).
+//! As in [`crate::lints_tipados`], they return neutral findings.
 //!
-//! * `collection_methods_unrelated_type`: as definições na ordem do emissor
-//!   (`contains` do `Iterable`, `remove` de `List`, `Map`, `Queue` do
-//!   `dart.collection` e `Set`, `containsKey`/`containsValue` de `Map`,
-//!   `lookup` de `Set`, e o `[]` de `Map`), o `asInstanceOf` pela hierarquia
-//!   instanciada e o `typesAreUnrelated` de [`crate::lints_tipados3`]. Sem
-//!   alvo, o tipo é o `thisType` da classe, mixin ou enum que envolve a
-//!   chamada, ou o tipo estendido da extensão. Só o `MethodInvocation`: o
-//!   nome resolvido a variável ou getter vira `FunctionExpressionInvocation`
-//!   no analyzer.
-//! * `void_checks`: a atribuição (pelo `writeType`), o `return` (pela
-//!   `FunctionExpression` ou pelo método mais próximo; o construtor não
-//!   conta), os argumentos de criação de instância e de `MethodInvocation`
-//!   (pelo `staticParameterElement`, `UnitBodyTypes::tipos_de_parametros`) e
-//!   o padrão de variável atribuída (pelo tipo casado).
-//! * `unnecessary_overrides`: o membro concreto herdado
-//!   (`lookUp…(concrete: true, inherited: true)`: os mixins do último para o
-//!   primeiro, depois a superclasse, com o acesso a nomes privados só na
-//!   própria biblioteca), a assinatura instanciada no supertipo, os
-//!   metadados (`@override`, `@protected`), o comentário de documentação e
-//!   o corpo com uma só instrução que repassa ao `super`. O `isCovariant`
-//!   compara o `covariant` escrito (a covariância herdada de mais acima
-//!   vale para os dois lados).
-//! * `no_duplicate_case_values`: só o `SwitchCase` antigo (biblioteca antes
-//!   da 3.0), com o motor de constantes e a igualdade do `DartObjectImpl`.
+//! * `collection_methods_unrelated_type`: the definitions in the emitter's
+//!   order (`Iterable`'s `contains`, `remove` of `List`, `Map`,
+//!   `dart.collection`'s `Queue` and `Set`, `containsKey`/`containsValue` of
+//!   `Map`, `Set`'s `lookup`, and `Map`'s `[]`), `asInstanceOf` through the
+//!   instantiated hierarchy and the `typesAreUnrelated` of
+//!   [`crate::lints_tipados3`]. Without a target, the type is the
+//!   `thisType` of the class, mixin or enum enclosing the call, or the
+//!   extension's extended type. Only `MethodInvocation`: a name resolved to
+//!   a variable or getter becomes `FunctionExpressionInvocation` in the
+//!   analyzer.
+//! * `void_checks`: the assignment (through `writeType`), the `return`
+//!   (through the `FunctionExpression` or the nearest method; a constructor
+//!   does not count), the arguments of instance creations and of
+//!   `MethodInvocation` (through `staticParameterElement`,
+//!   `UnitBodyTypes::tipos_de_parametros`) and the assigned variable
+//!   pattern (through the matched type).
+//! * `unnecessary_overrides`: the inherited concrete member
+//!   (`lookUp…(concrete: true, inherited: true)`: mixins from last to first,
+//!   then the superclass, with access to private names only in the same
+//!   library), the signature instantiated in the supertype, the metadata
+//!   (`@override`, `@protected`), the documentation comment and a body with
+//!   a single statement that forwards to `super`. `isCovariant` compares the
+//!   written `covariant` (covariance inherited from further up applies to
+//!   both sides).
+//! * `no_duplicate_case_values`: only the old `SwitchCase` (library before
+//!   3.0), with the constants engine and `DartObjectImpl` equality.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::lints_tipados::Achado;
@@ -52,7 +54,7 @@ fn dentro(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-/// O `FunctionElementId` de cada função escrita da unidade.
+/// The `FunctionElementId` of each written function of the unit.
 fn function_elements(program: &Program, u: UnitId) -> HashMap<ast::FunctionId, FunctionElementId> {
     let mut m = HashMap::new();
     for (k, f) in program.functions.iter().enumerate() {
@@ -65,7 +67,7 @@ fn function_elements(program: &Program, u: UnitId) -> HashMap<ast::FunctionId, F
     m
 }
 
-/// O `realTarget` de cada seção de cascata.
+/// The `realTarget` of each cascade section.
 fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
@@ -93,8 +95,8 @@ fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     m
 }
 
-/// A chamada é um `MethodInvocation` do analyzer (o nome não resolve a
-/// variável nem a getter, que viram `FunctionExpressionInvocation`).
+/// The call is an analyzer `MethodInvocation` (the name does not resolve to
+/// a variable or a getter, which become `FunctionExpressionInvocation`).
 pub(crate) fn e_invocacao_de_metodo(program: &Program, a: &ast::Ast, body: &UnitBodyTypes, tgt: ExprId) -> bool {
     if !matches!(a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
         return false;
@@ -107,7 +109,7 @@ pub(crate) fn e_invocacao_de_metodo(program: &Program, a: &ast::Ast, body: &Unit
         Some(Resolved::Element(_)) => false,
         Some(Resolved::ExtensionMember { member, .. }) => non_getter_function(*member),
         Some(Resolved::Local(_)) => {
-            // A função local é `MethodInvocation`; a variável local, não.
+            // A local function is a `MethodInvocation`; a local variable is not.
             body.declaracao_local(tgt).is_some_and(|d| {
                 a.stmts.iter().any(|s| matches!(&s.kind, StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d)))
             })
@@ -117,7 +119,7 @@ pub(crate) fn e_invocacao_de_metodo(program: &Program, a: &ast::Ast, body: &Unit
     }
 }
 
-/// Os achados das regras tipadas deste módulo na unidade `u`.
+/// The findings of this module's typed rules in unit `u`.
 #[allow(clippy::too_many_arguments)]
 pub fn achados(
     program: &Program,
@@ -138,10 +140,10 @@ pub fn achados(
     out
 }
 
-/// Uma definição de `_MethodDefinition`.
+/// A `_MethodDefinition` definition.
 struct Definition {
     metodo: &'static str,
-    /// A classe (`dart:core`), ou a interface pelo nome e a biblioteca.
+    /// The class (`dart:core`), or the interface by name and library.
     classe: Option<ClassId>,
     por_nome: Option<(&'static str, &'static str)>,
     indice: usize,
@@ -198,8 +200,8 @@ fn the_collections(
         outline.hierarchy.supertype_of(t, tgt, table, core)
     };
     let e_interface = |table: &TypeTable, t: TypeId| matches!(table.get(t), Type::Interface { .. } | Type::ExtensionType { .. } | Type::FutureOr { .. });
-    // O tipo do alvo implícito (`this`): a classe, mixin ou enum que envolve,
-    // ou o tipo estendido da extensão.
+    // The type of the implicit target (`this`): the enclosing class, mixin or
+    // enum, or the extension's extended type.
     let implicit_target = |table: &mut TypeTable, span: Span| -> Option<TypeId> {
         let mut best: Option<(Span, TypeId)> = None;
         for &did in &program.unit(u).unit.declarations {
@@ -322,8 +324,8 @@ fn accepted_as_future_or_void(program: &Program, table: &TypeTable, core: &CoreT
     }
 }
 
-/// `_check` do `void_checks`: `true` relata. `closure_de_bloco`: o nó
-/// conferido é uma `FunctionExpression` de corpo que não é de expressão.
+/// `void_checks`'s `_check`: `true` reports. `block_closure`: the checked
+/// node is a `FunctionExpression` whose body is not an expression body.
 fn check_void(program: &Program, table: &TypeTable, core: &CoreTypes, expected: TypeId, t: TypeId, is_return: bool, block_closure: bool) -> bool {
     if core.is_unknown(table, expected) || core.is_unknown(table, t) {
         return false;
@@ -362,7 +364,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
         _ => false,
     };
     let report = |span: Span, out: &mut Vec<Achado>| out.push((span, "void_checks", Vec::new()));
-    // Atribuições.
+    // Assignments.
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         if let ExprKind::Assign { value, .. } = &e.kind
@@ -372,7 +374,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             report(e.span, out);
         }
     }
-    // `return`: a função mais próxima (literal, local, de topo ou método).
+    // `return`: the nearest function (literal, local, top-level or method).
     let elems = function_elements(program, u);
     let literals: HashMap<ast::FunctionId, ExprId> = a
         .exprs
@@ -391,7 +393,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             _ => None,
         })
         .collect();
-    // Os corpos de construtor (o `return` neles não tem função).
+    // Constructor bodies (a `return` in them has no function).
     let constructors: Vec<Span> = a
         .members
         .iter()
@@ -418,7 +420,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
     };
     for s in a.stmts.iter() {
         let StmtKind::Return(Some(v)) = &s.kind else { continue };
-        // A função mais interna que contém o `return`.
+        // The innermost function containing the `return`.
         let innermost = a
             .functions
             .iter()
@@ -427,9 +429,9 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             .min_by_key(|(_, f)| f.span.end - f.span.start)
             .map(|(k, f)| (ast::FunctionId(k as u32), f.span));
         let Some((f, fspan)) = innermost else { continue };
-        // Um construtor dentro da função (não acontece) ou a função dentro
-        // de um construtor: vale a mais interna; o construtor mais interno
-        // que a função tira a checagem.
+        // A constructor inside the function (does not happen) or the function
+        // inside a constructor: the innermost one wins; a constructor more
+        // inner than the function removes the check.
         if constructors.iter().any(|c| dentro(s.span, *c) && dentro(*c, fspan) && *c != fspan) {
             continue;
         }
@@ -439,7 +441,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             report(s.span, out);
         }
     }
-    // Argumentos de criação de instância e de `MethodInvocation`.
+    // Arguments of instance creations and of `MethodInvocation`.
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         let args_list = match &e.kind {
@@ -461,7 +463,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             }
         }
     }
-    // O padrão de variável atribuída.
+    // The assigned variable pattern.
     let mut assigned: Vec<ast::PatternId> = Vec::new();
     fn variaveis(a: &ast::Ast, p: ast::PatternId, v: &mut Vec<ast::PatternId>) {
         match &a.pattern(p).kind {
@@ -505,7 +507,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
     }
 }
 
-/// A espécie do membro: método (com operador), getter ou setter.
+/// The member kind: method (including operators), getter or setter.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Especie {
     Metodo,
@@ -513,12 +515,12 @@ enum Especie {
     Setter,
 }
 
-/// Um parâmetro de um membro: nome, espécie, `covariant` escrito, tipo e o
+/// A parameter of a member: name, kind, written `covariant`, type and the
 /// `defaultValueCode`.
 struct MemberParameter {
     nome: String,
-    /// `_sameKind`: 0 obrigatório (posicional ou nomeado `required`), 1
-    /// posicional opcional, 2 nomeado opcional.
+    /// `_sameKind`: 0 required (positional or named `required`), 1 optional
+    /// positional, 2 optional named.
     especie: u8,
     covariante: bool,
     tipo: TypeId,
@@ -544,7 +546,7 @@ fn unnecessary_overrides(
     let comments = dartforge_frontend::comentarios::Comentarios::de(source);
     let elems = function_elements(program, u);
     let protected = |u2: UnitId, m: &ast::Annotation| crate::anotacoes::e_getter_de(program, interner, u2, m, "meta", "protected");
-    // As anotações de um membro (o do método, ou o do campo do acessor implícito).
+    // The annotations of a member (the method's, or the implicit accessor's field's).
     let member_metadata = |f: FunctionElementId| -> Option<(UnitId, Vec<&ast::Annotation>)> {
         let fe = program.function(f);
         match fe.node {
@@ -588,7 +590,7 @@ fn unnecessary_overrides(
             if text == "noSuchMethod" {
                 continue;
             }
-            // O comentário de documentação.
+            // The documentation comment.
             let after = match m.metadata.last() {
                 Some(x) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), x.span.end),
                 None => m.span.start,
@@ -658,8 +660,8 @@ fn unnecessary_overrides(
     }
 }
 
-/// `lookUp{Method,Getter,Setter}2(concrete: true, inherited: true)`: a
-/// classe que declara e o membro.
+/// `lookUp{Method,Getter,Setter}2(concrete: true, inherited: true)`: the
+/// declaring class and the member.
 fn inherited_concrete(program: &Program, cls: ClassId, key: SymbolId, lib: LibraryId, private: bool, kind: Especie) -> Option<(ClassId, FunctionElementId)> {
     let serve = |c: ClassId| -> Option<FunctionElementId> {
         let e = program.class(c);
@@ -697,9 +699,9 @@ fn inherited_concrete(program: &Program, cls: ClassId, key: SymbolId, lib: Libra
     None
 }
 
-/// O tipo de retorno e os parâmetros (na ordem escrita) de um membro;
-/// `instanciado`: a classe dona e o supertipo instanciado em que o membro é
-/// visto (a substituição dos parâmetros de tipo dela).
+/// The return type and the parameters (in written order) of a member;
+/// `instantiated`: the owner class and the instantiated supertype in which the
+/// member is seen (the substitution of its type parameters).
 fn parametros_do_membro(
     program: &Program,
     interner: &Interner,
@@ -756,8 +758,8 @@ fn parametros_do_membro(
             }
         }
         _ => {
-            // O acessor implícito de um campo: o setter tem um parâmetro
-            // `_<nome>`.
+            // The implicit accessor of a field: the setter has a parameter
+            // `_<the_name>`.
             if fe.kind == FunctionKind::Setter {
                 let v_id = fe.variable?;
                 let the_name = interner.resolve(program.variable(v_id).name);
@@ -781,7 +783,7 @@ fn parametros_do_membro(
     Some((ret, v))
 }
 
-/// O corpo repassa ao `super` (os visitantes do emissor).
+/// The body forwards to `super` (the emitter's visitors).
 #[allow(clippy::too_many_arguments)]
 fn passes_to_super(
     a: &ast::Ast,
@@ -800,7 +802,7 @@ fn passes_to_super(
         matches!(a.expr(e).kind, ExprKind::Super) && !commented(a.expr(e).span.start)
     };
     let ps = f.parameters.as_deref().unwrap_or(&[]);
-    // O parâmetro do próprio método que a expressão cita (`canonicalElement`).
+    // The method's own parameter that the expression cites (`canonicalElement`).
     let parameter = |e: ExprId| -> Option<SymbolId> {
         let e = sem_parenteses(a, e);
         match (&a.expr(e).kind, body.get_resolved(e)) {
@@ -894,7 +896,7 @@ fn passes_to_super(
     }
 }
 
-/// O texto do operador binário (o nome do `operator` que ele chama).
+/// The binary operator's text (the name of the `operator` it calls).
 fn operator_text(op: BinaryOp) -> Option<&'static str> {
     Some(match op {
         BinaryOp::Add => "+",

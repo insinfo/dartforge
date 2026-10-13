@@ -1,24 +1,24 @@
-//! Posições de variância dos parâmetros de tipo de classes, mixins, enums e
-//! extension types, como o `ErrorVerifier` do analyzer 6.11.0
+//! Variance positions of the type parameters of classes, mixins, enums and
+//! extension types, like the `ErrorVerifier` of analyzer 6.11.0
 //! (`src/generated/error_verifier.dart`):
 //!
-//! * `_checkForWrongTypeParameterVarianceInField` e
-//!   `_checkForWrongTypeParameterVarianceInMethod` —
-//!   `WRONG_TYPE_PARAMETER_VARIANCE_POSITION` para um parâmetro de tipo com
-//!   variância escrita (`in`/`out`/`inout`) usado numa posição de variância
-//!   incompatível no tipo de um campo, de um parâmetro, do retorno ou do
-//!   limite de um parâmetro de tipo de método;
-//! * `_checkForWrongTypeParameterVarianceInSuperinterfaces` —
-//!   `WRONG_EXPLICIT_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE` (com
-//!   variância escrita) e `WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE`
-//!   (sem, o "legado covariante") nos supertipos diretos.
+//! * `_checkForWrongTypeParameterVarianceInField` and
+//!   `_checkForWrongTypeParameterVarianceInMethod`:
+//!   `WRONG_TYPE_PARAMETER_VARIANCE_POSITION` for a type parameter with a
+//!   written variance (`in`/`out`/`inout`) used in an incompatible variance
+//!   position in the type of a field, a parameter, the return or the bound
+//!   of a method type parameter;
+//! * `_checkForWrongTypeParameterVarianceInSuperinterfaces`:
+//!   `WRONG_EXPLICIT_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE` (with a
+//!   written variance) and `WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE`
+//!   (without one, the "legacy covariant") in the direct supertypes.
 //!
-//! A variância de um parâmetro num tipo é a de
-//! `TypeParameterElementImpl.computeVarianceInType`, com o reticulado
-//! `Variance` do `_fe_analyzer_shared` (`combine`, `meet`,
-//! `greaterThanOrEqual`). O analyzer guarda a variância escrita no elemento
-//! mesmo com o experimento `variance` desligado; aqui ela vem da árvore
-//! (`TypeParameter.variance`), gravada na tabela por `resolve`.
+//! The variance of a parameter in a type is that of
+//! `TypeParameterElementImpl.computeVarianceInType`, with the `Variance`
+//! lattice of `_fe_analyzer_shared` (`combine`, `meet`,
+//! `greaterThanOrEqual`). The analyzer stores the written variance in the
+//! element even with the `variance` experiment off; here it comes from the
+//! tree (`TypeParameter.variance`), recorded in the table by `resolve`.
 
 use crate::despejo::formatar;
 use crate::resolve::OutlineTypes;
@@ -29,8 +29,8 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind};
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 
-/// `Variance` do `_fe_analyzer_shared` (a ordem é a codificação: `meet` é o
-/// `|` dos índices).
+/// `_fe_analyzer_shared`'s `Variance` (the order is the encoding: `meet` is
+/// the `|` of the indices).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum V {
     Unrelated = 0,
@@ -85,7 +85,7 @@ impl V {
         }
     }
 
-    /// A variância de um parâmetro de tipo (sem modificador: covariante).
+    /// The variance of a type parameter (without a modifier: covariant).
     fn of_parameter(d: Declared) -> V {
         match d {
             Declared::Unspecified | Declared::Covariant => V::Covariant,
@@ -95,7 +95,7 @@ impl V {
     }
 }
 
-/// `computeVarianceInType`: a variância de `x` em `t`.
+/// `computeVarianceInType`: the variance of `x` in `t`.
 fn variance_in(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: TypeId) -> V {
     match table.get(t) {
         Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => {
@@ -123,7 +123,7 @@ fn variance_in(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: Typ
             }
             r
         }
-        // `FutureOr<T>` é uma interface de parâmetro covariante no analyzer.
+        // `FutureOr<T>` is an interface with a covariant parameter in the analyzer.
         Type::FutureOr { arg, .. } => {
             V::Unrelated.meet(V::Covariant.combine(variance_in(table, outline, x, *arg)))
         }
@@ -155,9 +155,9 @@ fn variance_in(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: Typ
     }
 }
 
-/// Os diagnósticos de variância das declarações de `lib`.
-/// Os parâmetros de tipo sem modificador só entram na conferência dos
-/// supertipos (`WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE`).
+/// The variance diagnostics of the declarations of `lib`.
+/// Type parameters without a modifier only take part in the supertype check
+/// (`WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE`).
 pub fn variancia(
     program: &Program,
     interner: &Interner,
@@ -225,7 +225,7 @@ pub fn variancia(
             .copied()
             .filter(|&p| table.param(p).variance != Declared::Unspecified)
             .collect();
-        // Membros, na ordem da fonte.
+        // Members, in source order.
         if !explicit.is_empty() {
             for &m in members {
                 match &ast_.member(m).kind {
@@ -294,7 +294,7 @@ pub fn variancia(
                 }
             }
         }
-        // Supertipos diretos: superclasse, interfaces, mixins e restrições `on`.
+        // Direct supertypes: superclass, interfaces, mixins and `on` constraints.
         let supers: Vec<TypeId> = data
             .supertype
             .iter()
@@ -303,10 +303,10 @@ pub fn variancia(
             .chain(data.on.iter())
             .copied()
             .collect();
-        // O supertipo exibido é o do elemento (`supertype`, `interfaces`,
-        // `mixins`, `superclassConstraints`), que guarda o alias escrito nos
-        // argumentos (`Covariant<CovFunction<T>>`): a anotação da cláusula
-        // de mesma estrutura.
+        // The displayed supertype is the element's (`supertype`, `interfaces`,
+        // `mixins`, `superclassConstraints`), which keeps the alias written in the
+        // arguments (`Covariant<CovFunction<T>>`): the clause annotation with
+        // the same structure.
         let written_ones: Vec<TypeId> = {
             let (e, w, i, o): (Option<ast::TypeId>, &[ast::TypeId], &[ast::TypeId], &[ast::TypeId]) =
                 match &ast_.decl(decl.decl).kind {
@@ -359,7 +359,7 @@ pub fn variancia(
     output
 }
 
-/// A variância do `NonCovariantTypeParameterPositionVisitor`
+/// The variance of `NonCovariantTypeParameterPositionVisitor`
 /// (`analyzer/lib/src/dart/element/non_covariant_type_parameter_position.dart`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Posicao {
@@ -381,7 +381,7 @@ impl Posicao {
     }
 }
 
-/// O parâmetro de tipo `x` aparece em `t` numa posição não covariante.
+/// The type parameter `x` appears in `t` in a non-covariant position.
 fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Posicao, prof: u32) -> bool {
     if prof > 64 {
         return false;
@@ -398,7 +398,7 @@ fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Po
             if in_non_covariant_position(table, x, *ret, v, prof + 1) {
                 return true;
             }
-            // Os limites escritos dos parâmetros de tipo da função: invariante.
+            // The written bounds of the function's type parameters: invariant.
             for tp in type_params.iter() {
                 let d = table.param(*tp);
                 if d.explicito && in_non_covariant_position(table, x, d.bound, Posicao::InvariantPos, prof + 1) {
@@ -414,9 +414,9 @@ fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Po
 }
 
 /// `ErrorVerifier._checkForNonCovariantTypeParameterPositionInRepresentationType`
-/// (`analyzer/lib/src/generated/error_verifier.dart:4752-4780`): cada
-/// parâmetro de tipo de um tipo de extensão que aparece numa posição não
-/// covariante do tipo de representação, no nó do parâmetro de tipo.
+/// (`analyzer/lib/src/generated/error_verifier.dart:4752-4780`): each type
+/// parameter of an extension type that appears in a non-covariant position of
+/// the representation type, at the type parameter's node.
 pub fn posicoes_nao_covariantes_na_representacao(program: &Program, table: &TypeTable, outline: &OutlineTypes, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
     for (i, k) in program.classes.iter().enumerate() {

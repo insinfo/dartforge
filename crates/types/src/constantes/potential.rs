@@ -1,6 +1,6 @@
-//! `getNotPotentiallyConstants` do analyzer 6.11
-//! (`src/dart/constant/potentially_constant.dart`): os nós de uma expressão
-//! que não são potencialmente constantes.
+//! `getNotPotentiallyConstants` of analyzer 6.11
+//! (`src/dart/constant/potentially_constant.dart`): the nodes of an
+//! expression that are not potentially constant.
 
 use super::avaliador::{Ctx, Motor};
 use crate::resolved::{MemberRef, Resolved};
@@ -8,15 +8,15 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, FunctionKind};
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ExprKind, UnaryOp};
 
-/// Onde os parâmetros do construtor valem como constantes: dentro dos
-/// inicializadores de um construtor `const` (o ambiente léxico do
-/// avaliador, ou a verificação dos inicializadores).
+/// Where the constructor's parameters count as constants: inside the
+/// initializers of a `const` constructor (the evaluator's lexical
+/// environment, or the verification of the initializers).
 pub fn coletar(m: &Motor<'_>, cx: &Ctx, e: ExprId, nodes: &mut Vec<Span>) {
     collect_into(m, cx, e, cx.lexical.is_some(), true, nodes);
 }
 
-/// Como [`coletar`], dizendo se os parâmetros valem e se o nó está num
-/// contexto constante.
+/// Like [`coletar`], saying whether the parameters count and whether the
+/// node is in a constant context.
 pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_const: bool, nodes: &mut Vec<Span>) {
     let u = cx.unidade;
     let a = m.ast(u);
@@ -37,8 +37,8 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
             }
         }
         ExprKind::Call { target, arguments } => {
-            // `const .id(…)` é sempre um `DotShorthandConstructorInvocation`
-            // constante (`isConst` pela palavra), resolvido ou não
+            // `const .id(…)` is always a constant `DotShorthandConstructorInvocation`
+            // (`isConst` by the keyword), resolved or not
             // (`potentially_constant.dart`, 3.13).
             if matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. }) {
                 return;
@@ -70,10 +70,10 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
                 nodes.push(span);
                 return;
             }
-            // `_typedLiteral` (`potentially_constant.dart:340-383`): com um
-            // argumento de tipo (lista, conjunto), ele é tipo potencialmente
-            // constante; com dois (mapa), a chave e o valor são tipos
-            // constantes — o parâmetro de tipo não serve.
+            // `_typedLiteral` (`potentially_constant.dart:340-383`): with one type
+            // argument (list, set), it is a potentially constant type; with two
+            // (map), the key and the value are constant types: a type parameter
+            // does not qualify.
             match &type_args[..] {
                 [t] => {
                     if !constant_type(m, u, *t, true) {
@@ -144,11 +144,11 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
             nodes.push(span);
         }
         ExprKind::As { value, .. } | ExprKind::Is { value, .. } => collect_into(m, cx, *value, params_list, in_const, nodes),
-        // `DotShorthandNameExpression` (3.13): o getter de uma variável
-        // `const` (a constante de enum, o campo estático `const`) e o tear-off
-        // de um método estático são potencialmente constantes; o resto
-        // (getter, variável não constante, nome que não resolve) acusa o
-        // nome depois do ponto (`propertyName`).
+        // `DotShorthandNameExpression` (3.13): the getter of a `const`
+        // variable (the enum constant, the `const` static field) and the
+        // tear-off of a static method are potentially constant; the rest
+        // (getter, non-constant variable, name that does not resolve) reports
+        // the name after the dot (`propertyName`).
         ExprKind::DotShorthand { name, .. } => {
             let ok = match m.resolvido(u, e) {
                 Some(Resolved::Element(Element::Class(d))) => {
@@ -176,8 +176,8 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
             }
         }
         ExprKind::TypeArguments { target, .. } => {
-            // `FunctionReference`/`TypeLiteral`: os argumentos de tipo são
-            // aceitos; a função é coletada.
+            // `FunctionReference`/`TypeLiteral`: the type arguments are accepted;
+            // the function is collected.
             if !matches!(m.resolvido(u, *target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))) {
                 collect_into(m, cx, *target, params_list, in_const, nodes);
             }
@@ -186,12 +186,12 @@ pub fn collect_into(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_co
     }
 }
 
-/// `_ConstantTypeChecker.check` (`potentially_constant.dart:393-476`): o
-/// tipo escrito `t` é constante (ou, com `potencial`, potencialmente
-/// constante: o parâmetro de tipo também serve). O nomeado é constante
-/// quando nomeia classe ou alias sem prefixo diferido (e os argumentos
-/// também), ou quando é `dynamic`, `Never` ou `void`; a função, pelo
-/// retorno, os limites e os parâmetros simples; o record, pelos campos.
+/// `_ConstantTypeChecker.check` (`potentially_constant.dart:393-476`): the
+/// written type `t` is constant (or, with `potential`, potentially constant:
+/// a type parameter also qualifies). A named type is constant when it names
+/// a class or alias without a deferred prefix (and its arguments are too),
+/// or when it is `dynamic`, `Never` or `void`; a function, through its
+/// return, bounds and simple parameters; a record, through its fields.
 fn constant_type(m: &Motor<'_>, u: dartforge_elements::model::UnitId, t: ast::TypeId, potential: bool) -> bool {
     use crate::table::Type;
     let a = &m.program.unit(u).ast;
@@ -258,8 +258,8 @@ fn elemento(m: &Motor<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, 
     }
 }
 
-/// Um getter que lê uma variável: `Some(Some(const))`; getter sem
-/// variável: `Some(None)`; outra coisa: `None`.
+/// A getter that reads a variable: `Some(Some(const))`; a getter without a
+/// variable: `Some(None)`; something else: `None`.
 fn getter_variable(m: &Motor<'_>, cx: &Ctx, e: ExprId) -> Option<Option<bool>> {
     match m.resolvido(cx.unidade, e)? {
         Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => {
@@ -277,7 +277,7 @@ fn getter_variable(m: &Motor<'_>, cx: &Ctx, e: ExprId) -> Option<Option<bool>> {
     }
 }
 
-/// `_identifier` (identificador simples ou prefixado `a.b`).
+/// `_identifier` (simple or prefixed identifier `a.b`).
 fn identificador(m: &Motor<'_>, cx: &Ctx, e: ExprId, params_list: bool, nodes: &mut Vec<Span>) {
     let u = cx.unidade;
     let a = m.ast(u);

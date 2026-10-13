@@ -1,24 +1,24 @@
-//! O `OverrideVerifier` e o `RedeclareVerifier` do analyzer 3.6.2
+//! The analyzer 3.6.2 `OverrideVerifier` and `RedeclareVerifier`
 //! (`analyzer/lib/src/error/override_verifier.dart`,
-//! `redeclare_verifier.dart`; docs/ANALYZER-ESPECIFICACAO-INFRA.md, Parte
-//! III, etapa 6), o `invalid_override_of_non_virtual_member` do
-//! `BestPracticesVerifier` e o lint `annotate_overrides`, todos sobre o
-//! `InheritanceManager3` de [`crate::heranca`]:
+//! `redeclare_verifier.dart`; docs/ANALYZER-ESPECIFICACAO-INFRA.md, Part
+//! III, step 6), the `invalid_override_of_non_virtual_member` of the
+//! `BestPracticesVerifier` and the lint `annotate_overrides`, all on top of
+//! the `InheritanceManager3` of [`crate::heranca`]:
 //!
-//! * `override_on_non_overriding_{method,getter,setter,field}`: o membro com
-//!   `@override` (o getter `override` do `dart.core`) cujo `getOverridden2`
-//!   na classe, enum ou mixin é nulo; em extensões e tipos de extensão o
-//!   verificador não tem classe corrente, e todo `@override` é relatado;
-//! * `redeclare_on_non_redeclaring_member`: o membro de instância de tipo de
-//!   extensão com `@redeclare` (do `package:meta`) cujo nome não está no
-//!   `redeclared` da interface;
-//! * `invalid_override_of_non_virtual_member`: o membro cujo
-//!   `getMember2(…, forSuper: true)` tem `@nonVirtual` do `package:meta`;
-//! * `annotate_overrides`: o campo ou método de instância sem `@override`
-//!   com `getInherited` (o mapa herdado) não nulo.
+//! * `override_on_non_overriding_{method,getter,setter,field}`: a member with
+//!   `@override` (the `override` getter of `dart.core`) whose `getOverridden2`
+//!   in the class, enum or mixin is null; in extensions and extension types
+//!   the verifier has no current class, and every `@override` is reported;
+//! * `redeclare_on_non_redeclaring_member`: an extension type instance member
+//!   with `@redeclare` (from `package:meta`) whose name is not in the
+//!   interface's `redeclared`;
+//! * `invalid_override_of_non_virtual_member`: a member whose
+//!   `getMember2(…, forSuper: true)` has `@nonVirtual` from `package:meta`;
+//! * `annotate_overrides`: an instance field or method without `@override`
+//!   whose `getInherited` (the inherited map) is not null.
 //!
-//! Os nomes são os `Name` da biblioteca verificada.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The names are the `Name`s of the verified library.
+//! Written without compiling or running (2026-10-05).
 
 use crate::heranca::{Especie, Heranca, Membro, Nome, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
@@ -30,30 +30,30 @@ use dartforge_frontend::ast::{self, DeclKind, FunctionKind, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
-/// `getOverridden2(classe, Name(lib, chave)) != null`.
+/// `getOverridden2(class, Name(lib, key)) != null`.
 pub(crate) fn sobrescreve(h: &mut Heranca, p: &mut ProvedorDoOutline<'_, '_>, class: ClassId, lib: LibraryId, key: Option<SymbolId>) -> bool {
     let Some(key) = key else { return false };
     let name = Nome::novo(p.interner, lib, key);
     h.sobrescritos(p, class, name).is_some()
 }
 
-/// `hasOverride`: o getter `override` do `dart.core`.
+/// `hasOverride`: the `override` getter of `dart.core`.
 fn with_override(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation]) -> bool {
     metadata.iter().any(|m| crate::anotacoes::e_getter_de(program, interner, u, m, "dart.core", "override"))
 }
 
-/// A chave de setter de `nome`.
+/// The setter key of `name`.
 fn setter_key(interner: &Interner, name: SymbolId) -> Option<SymbolId> {
     interner.lookup(&format!("{}_=", interner.resolve(name)))
 }
 
-/// O campo tem setter: não `const`, e não `final` (salvo `late final` sem
-/// inicializador).
+/// The field has a setter: not `const`, and not `final` (except `late final`
+/// without an initializer).
 fn has_setter(l: &ast::VariableList, v: &ast::Variable) -> bool {
     !l.const_ && (!l.final_ || (l.late && v.initializer.is_none()))
 }
 
-/// As declarações das unidades da biblioteca, com a classe de cada uma.
+/// The declarations of the library's units, with the class of each one.
 fn declaracoes(program: &Program, lib: LibraryId) -> Vec<(UnitId, ast::DeclId, Option<ClassId>)> {
     let mut classes: HashMap<(UnitId, ast::DeclId), ClassId> = HashMap::new();
     for (i, c) in program.classes.iter().enumerate() {
@@ -75,7 +75,7 @@ fn declaracoes(program: &Program, lib: LibraryId) -> Vec<(UnitId, ast::DeclId, O
     v
 }
 
-/// Os membros de uma declaração de tipo.
+/// The members of a type declaration.
 fn membros(d: &ast::Decl) -> &[ast::MemberId] {
     match &d.kind {
         DeclKind::Class(x) => &x.members,
@@ -87,7 +87,7 @@ fn membros(d: &ast::Decl) -> &[ast::MemberId] {
     }
 }
 
-/// Os `override_on_non_overriding_*` da biblioteca `lib`.
+/// The `override_on_non_overriding_*` of library `lib`.
 pub fn sem_sobrescrita(
     program: &Program,
     interner: &Interner,
@@ -103,7 +103,7 @@ pub fn sem_sobrescrita(
     for (u, did, class) in declaracoes(program, lib) {
         let a = &program.unit(u).ast;
         let d = a.decl(did);
-        // `_currentClass`: só classe, enum e mixin.
+        // `_currentClass`: only class, enum and mixin.
         let current = match &d.kind {
             DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_) => class,
             _ => None,
@@ -115,9 +115,9 @@ pub fn sem_sobrescrita(
         };
         for &mid in membros(d) {
             let mem = a.member(mid);
-            // O parâmetro declarante do construtor primário (3.13) é o campo:
-            // a anotação dele vale para o campo, que a elaboração cria sem
-            // metadata. No nome do parâmetro.
+            // The declaring parameter of the primary constructor (3.13) is the field:
+            // its annotation applies to the field, which the elaboration creates
+            // without metadata. At the parameter name.
             if primary == Some(mid)
                 && let MemberKind::Constructor(k) = &mem.kind
             {
@@ -169,9 +169,9 @@ pub fn sem_sobrescrita(
     output
 }
 
-/// O `RedeclareVerifier`: `redeclare_on_non_redeclaring_member` no nome de
-/// um membro não estático de tipo de extensão com `@redeclare` cujo nome não
-/// está no `redeclared` da interface.
+/// The `RedeclareVerifier`: `redeclare_on_non_redeclaring_member` at the name
+/// of a non-static extension type member with `@redeclare` whose name is not
+/// in the interface's `redeclared`.
 pub fn sem_redeclaracao(
     program: &Program,
     interner: &Interner,
@@ -215,18 +215,18 @@ pub fn sem_redeclaracao(
     output
 }
 
-/// O nome de um membro herdado (`ExecutableElement.name`: o setter com `=`).
+/// The name of an inherited member (`ExecutableElement.name`: a setter with `=`).
 fn member_name(program: &Program, interner: &Interner, m: &Membro) -> String {
     let base = interner.resolve(program.function(m.funcao).name);
     let base = base.strip_suffix("_=").unwrap_or(base);
     if m.especie == Especie::Setter { format!("{base}=") } else { base.to_string() }
 }
 
-/// O lint `annotate_overrides` (`linter/lib/src/rules/annotate_overrides.dart`):
-/// o campo ou método de instância de classe, enum ou mixin sem `@override`
-/// cujo `overriddenMember` (o `getInherited` pelo `Name` da biblioteca da
-/// classe; o campo pelo nome do getter) não é nulo. Devolve a unidade, a
-/// posição do nome e o nome do membro herdado.
+/// The lint `annotate_overrides` (`linter/lib/src/rules/annotate_overrides.dart`):
+/// an instance field or method of a class, enum or mixin without `@override`
+/// whose `overriddenMember` (`getInherited` by the `Name` of the class's
+/// library; a field by the getter name) is not null. Returns the unit, the
+/// position of the name and the name of the inherited member.
 pub fn sem_anotacao_de_override(
     program: &Program,
     interner: &Interner,
@@ -283,9 +283,9 @@ pub fn sem_anotacao_de_override(
     output
 }
 
-/// `_hasNonVirtualAnnotation`: o `@nonVirtual` do `package:meta` no membro
-/// (no acessor sintético, no campo). O sintético da herança (covariância)
-/// não tem anotações.
+/// `_hasNonVirtualAnnotation`: the `@nonVirtual` of `package:meta` on the
+/// member (on a synthetic accessor, on the field). The synthetic member from
+/// inheritance (covariance) has no annotations.
 fn nao_virtual(program: &Program, interner: &Interner, m: &Membro) -> bool {
     if m.sintetico {
         return false;
@@ -308,9 +308,9 @@ fn nao_virtual(program: &Program, interner: &Interner, m: &Membro) -> bool {
 }
 
 /// `invalid_override_of_non_virtual_member` (`BestPracticesVerifier`,
-/// `visitFieldDeclaration` e `visitMethodDeclaration`): o membro de classe,
-/// enum ou mixin cujo `getMember2(…, forSuper: true)` (o campo: pelo getter,
-/// senão pelo setter) tem `@nonVirtual`.
+/// `visitFieldDeclaration` and `visitMethodDeclaration`): a class, enum or
+/// mixin member whose `getMember2(…, forSuper: true)` (the field: through the
+/// getter, otherwise through the setter) has `@nonVirtual`.
 pub fn sobrescritas_de_nao_virtuais(
     program: &Program,
     interner: &Interner,

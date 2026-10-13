@@ -1,29 +1,29 @@
-//! O `DeprecatedMemberUseVerifier` do analyzer
-//! (`analyzer/lib/src/error/deprecated_member_use_verifier.dart`, lido por
-//! inteiro na 3.6.2; docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.8):
-//! `deprecated_member_use` e `deprecated_member_use_from_same_package`, com
-//! e sem mensagem, no uso de um elemento anotado com o `deprecated` ou o
-//! `Deprecated(…)` do `dart:core`; e o lint
-//! `deprecated_member_use_from_same_package`, que é o mesmo verificador com
-//! o visitante do linter (sem os campos de padrão, e com os parâmetros
-//! obrigatórios simples e de campo também abrindo região depreciada), só
-//! para os elementos do pacote.
+//! The analyzer's `DeprecatedMemberUseVerifier`
+//! (`analyzer/lib/src/error/deprecated_member_use_verifier.dart`, read in
+//! full in 3.6.2; docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.8):
+//! `deprecated_member_use` and `deprecated_member_use_from_same_package`,
+//! with and without a message, on the use of an element annotated with the
+//! `deprecated` or the `Deprecated(…)` of `dart:core`; and the lint
+//! `deprecated_member_use_from_same_package`, which is the same verifier
+//! with the linter's visitor (without the pattern fields, and with the
+//! simple and field required parameters also opening a deprecated region),
+//! only for the package's elements.
 //!
-//! Cobre, como o `BaseDeprecatedMemberUseVerifier`: os identificadores
-//! (fora de declaração, do nome de `ConstructorName`, do nome de
-//! `super.nome(…)` e de `hide`; os de `show` também), o lado esquerdo de
-//! atribuição e o operando de `++`/`--` (pelos elementos de leitura e de
-//! escrita), os operadores (binário, índice, prefixo, pós-fixo, atribuição
-//! composta), o `ConstructorName` (criação, sem `new` também, e tear-off),
-//! os tipos nomeados, os campos de padrão de objeto (só no aviso), o
-//! `call` implícito, os `super(…)`/`this(…)`, os argumentos passados a
-//! parâmetros depreciados não obrigatórios (fora da própria função), e os
-//! imports e exports de biblioteca depreciada. Um uso dentro de uma
-//! declaração depreciada não é relatado; numa biblioteca depreciada, nada.
-//! A mensagem é o `message` do `Deprecated` (a string literal, ou a de uma
-//! constante de topo que a tenha).
+//! Covers, like `BaseDeprecatedMemberUseVerifier`: identifiers (outside a
+//! declaration, the name of a `ConstructorName`, the name of
+//! `super.the_name(…)` and of `hide`; those of `show` too), the left-hand side
+//! of an assignment and the operand of `++`/`--` (through the read and
+//! write elements), operators (binary, index, prefix, postfix, compound
+//! assignment), the `ConstructorName` (creation, also without `new`, and
+//! tear-off), named types, object pattern fields (only in the warning), the
+//! implicit `call`, the `super(…)`/`this(…)`, the arguments passed to
+//! non-required deprecated parameters (outside the function itself), and
+//! imports and exports of a deprecated library. A use inside a deprecated
+//! declaration is not reported; in a deprecated library, nothing is.
+//! The message is the `message` of the `Deprecated` (the string literal, or
+//! that of a top-level constant that holds it).
 //!
-//! Escrito sem compilar nem executar (2026-10-04; refeito em 2026-10-05).
+//! Written without compiling or running (2026-10-04; redone on 2026-10-05).
 
 use crate::lints_tipados::Achado;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
@@ -34,8 +34,8 @@ use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, Functi
 use dartforge_frontend::ast::{self, Combinator, DeclKind, DirectiveKind, ExprId, ExprKind, Initializer, MemberKind, ParameterKind, PatternKind, TypeKind, UnaryOp};
 use dartforge_intern::Interner;
 
-/// O texto de uma expressão constante de string: a literal, ou o
-/// inicializador literal de uma constante de topo.
+/// The text of a constant string expression: the literal, or the literal
+/// initializer of a top-level constant.
 fn constant_text(program: &Program, u: UnitId, e: ExprId, prof: u32) -> Option<String> {
     let a = &program.unit(u).ast;
     match &a.expr(e).kind {
@@ -55,9 +55,9 @@ fn constant_text(program: &Program, u: UnitId, e: ExprId, prof: u32) -> Option<S
     }
 }
 
-/// `ElementAnnotation.isDeprecated` da anotação `m` (escrita na unidade
-/// `u`): `Some(mensagem)` quando é o getter `deprecated` (sem mensagem) ou
-/// o construtor de `Deprecated` do `dart:core`.
+/// `ElementAnnotation.isDeprecated` of annotation `m` (written in unit
+/// `u`): `Some(message)` when it is the `deprecated` getter (without a
+/// message) or the constructor of `Deprecated` of `dart:core`.
 fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<Option<String>> {
     let do_core = |b: Option<dartforge_elements::model::Binding>| -> Option<Element> {
         let e = b?.getter?;
@@ -68,14 +68,15 @@ fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &
         };
         (program.library(lib).uri == "dart:core").then_some(e)
     };
-    // O construtor nomeado (`Deprecated.nome(…)`): só conta se existe na
-    // classe; senão a anotação não resolve (`INVALID_ANNOTATION`, sem
-    // `isDeprecated`), como `@Deprecated.extend()` no 3.6.2.
+    // The named constructor (`Deprecated.the_name(…)`): it only counts if it exists
+    // in the class; otherwise the annotation does not resolve
+    // (`INVALID_ANNOTATION`, without `isDeprecated`), like
+    // `@Deprecated.extend()` in 3.6.2.
     let (element, the_name, the_constructor) = match &m.name[..] {
         [n] => (do_core(program.lookup_na_unidade(u, n.sym)), n.sym, None),
         [p, n] => match do_core(program.lookup_prefixed_na_unidade(u, p.sym, n.sym)) {
             Some(e) => (Some(e), n.sym, None),
-            // `Deprecated.new(…)`, `Deprecated.nome(…)`.
+            // `Deprecated.new(…)`, `Deprecated.the_name(…)`.
             None => (do_core(program.lookup_na_unidade(u, p.sym)), p.sym, Some(n.sym)),
         },
         [p, c, k] => (do_core(program.lookup_prefixed_na_unidade(u, p.sym, c.sym)), c.sym, Some(k.sym)),
@@ -104,16 +105,16 @@ fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &
     }
 }
 
-/// `Some(mensagem)` se a lista tem anotação de depreciação (a mensagem da
-/// primeira).
+/// `Some(message)` if the list has a deprecation annotation (the message of
+/// the first one).
 fn deprecated(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation]) -> Option<Option<String>> {
     metadata.iter().find_map(|m| deprecated_annotation(program, interner, u, m))
 }
 
-/// As anotações de uma função, método ou construtor, com a unidade delas.
+/// The annotations of a function, method or constructor, with their unit.
 pub(crate) fn of_function(program: &Program, f: FunctionElementId) -> Option<(&[ast::Annotation], UnitId)> {
     let e = program.function(f);
-    // Acessor implícito: as anotações são as da variável.
+    // Implicit accessor: the annotations are those of the variable.
     if let Some(v) = e.variable
         && matches!(e.node, FunctionRef::None)
     {
@@ -156,7 +157,7 @@ pub(crate) fn of_element(program: &Program, e: Element) -> Option<(&[ast::Annota
     }
 }
 
-/// A biblioteca é depreciada: a diretiva `library` dela tem a anotação.
+/// The library is deprecated: its `library` directive has the annotation.
 fn deprecated_library(program: &Program, interner: &Interner, lib: LibraryId) -> Option<Option<String>> {
     let first = *program.library(lib).units.first()?;
     let unit_id = program.unit(first);
@@ -164,15 +165,15 @@ fn deprecated_library(program: &Program, interner: &Interner, lib: LibraryId) ->
     deprecated(program, interner, first, &directive.metadata)
 }
 
-/// Quem visita: o `BestPracticesVerifier` (o aviso) ou o visitante do lint.
+/// Who visits: the `BestPracticesVerifier` (the warning) or the lint visitor.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Modo {
     Aviso,
     Lint,
 }
 
-/// Um uso relatável: o nó, o nome de exibição, a mensagem e a biblioteca do
-/// elemento.
+/// A reportable use: the node, the display name, the message and the
+/// element's library.
 struct Uso {
     span: Span,
     nome: String,
@@ -180,18 +181,18 @@ struct Uso {
     lib: LibraryId,
 }
 
-/// Um elemento depreciável: a metadata dele, a unidade, a biblioteca e o
-/// nome de exibição.
+/// A deprecatable element: its metadata, the unit, the library and the
+/// display name.
 struct Alvo<'p> {
     metadata: &'p [ast::Annotation],
     unidade: UnitId,
     nome: String,
 }
 
-/// O núcleo do verificador sobre a unidade `u`.
+/// The core of the verifier over unit `u`.
 fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Option<&UnitBodyTypes>, u: UnitId, mode: Modo) -> Vec<Uso> {
     let mut out: Vec<Uso> = Vec::new();
-    // Sem nenhuma das duas anotações internadas, nada a fazer.
+    // Without either of the two interned annotations, nothing to do.
     if interner.lookup("deprecated").is_none() && interner.lookup("Deprecated").is_none() {
         return out;
     }
@@ -202,8 +203,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         return out;
     }
     let dep = |metadata: &[ast::Annotation]| deprecated(program, interner, u, metadata).is_some();
-    // `_inDeprecatedMemberStack`: as declarações, os membros e os parâmetros
-    // depreciados desta unidade.
+    // `_inDeprecatedMemberStack`: the deprecated declarations, members and
+    // parameters of this unit.
     let mut regions: Vec<Span> = Vec::new();
     regions.extend(a.decls.iter().filter(|d| dep(&d.metadata)).map(|d| d.span));
     regions.extend(a.members.iter().filter(|m| dep(&m.metadata)).map(|m| m.span));
@@ -221,8 +222,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         }
         for ps in lists {
             for p in ps {
-                // O `DefaultFormalParameter` nos dois; o simples e o de campo
-                // obrigatórios só no lint.
+                // The `DefaultFormalParameter` in both; the required simple and field
+                // parameters only in the lint.
                 let optional = p.kind != ParameterKind::Required;
                 let simple_or_field = !p.super_ && p.function_parameters.is_none();
                 if (optional || (mode == Modo::Lint && simple_or_field)) && dep(&p.metadata) {
@@ -238,13 +239,13 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         }
         let Some(message) = deprecated(program, interner, tgt.unidade, tgt.metadata) else { return };
         let lib = program.unit(tgt.unidade).library;
-        // O ouvinte do analyzer é um conjunto: um relato por posição.
+        // The analyzer's listener is a set: one report per position.
         if !out.iter().any(|x| x.span == span && x.nome == tgt.nome) {
             out.push(Uso { span, nome: tgt.nome, mensagem: message, lib });
         }
     };
     let text = |s: dartforge_intern::SymbolId| interner.resolve(s).to_string();
-    // O nome de exibição de uma função (o do setter sem `=`).
+    // The display name of a function (that of a setter without `=`).
     let function_name = |f: FunctionElementId| -> String {
         let k = program.function(f);
         if matches!(k.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
@@ -268,8 +269,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         of_element(program, e).map(|(metadata, unit_id)| Alvo { metadata, unidade: unit_id, nome: the_name })
     };
     let variable_target = |v: VariableId| of_variable(program, v).map(|(metadata, unit_id)| Alvo { metadata, unidade: unit_id, nome: text(program.variable(v).name) });
-    // O elemento de uma resolução (os locais e parâmetros não entram: o
-    // `_isLocalParameter` cala o parâmetro dentro da própria função).
+    // The element of a resolution (locals and parameters are not included:
+    // `_isLocalParameter` silences the parameter inside its own function).
     let resolved_target = |r: &Resolved| -> Option<Alvo<'_>> {
         match r {
             Resolved::Constructor(f) => function_target(*f),
@@ -279,7 +280,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
             _ => None,
         }
     };
-    // O getter que acompanha um setter escrito (o `readElement`).
+    // The getter that accompanies a written setter (the `readElement`).
     let read = |r: &Resolved| -> Option<Alvo<'_>> {
         let f = match r {
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Element(Element::Function(f)) => *f,
@@ -302,7 +303,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         function_target(getter)
     };
 
-    // 1. Tipos nomeados (`namedType`): no último nome.
+    // 1. Named types (`namedType`): at the last name.
     for (k, t) in a.types.iter().enumerate() {
         let TypeKind::Named { name, .. } = &t.kind else { continue };
         let binding = match &name[..] {
@@ -310,7 +311,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
             [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
             _ => None,
         };
-        // O parâmetro de tipo de mesmo nome esconde a declaração de topo.
+        // A type parameter of the same name hides the top-level declaration.
         if body
             .and_then(|c| c.tipos_de_anotacoes.get(&ast::TypeId(k as u32)).copied())
             .is_some_and(|x| matches!(table.get(x), Type::TypeParameter { .. }))
@@ -325,8 +326,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         }
     }
 
-    // 2. Imports e exports de biblioteca depreciada (a diretiva inteira, com
-    // a URI como nome) e os nomes de `show`.
+    // 2. Imports and exports of a deprecated library (the whole directive, with
+    // the URI as the name) and the names in `show`.
     let library = program.library(unit_id.library);
     let targets = library
         .imports
@@ -336,7 +337,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         .chain(library.exports.iter().filter(|e| e.unit == u).map(|e| (e.directive, e.library)));
     for (idx, tgt) in targets {
         let Some(directive) = unit_id.unit.directives.get(idx) else { continue };
-        // A biblioteca depreciada: a metadata da diretiva `library` dela.
+        // The deprecated library: the metadata of its `library` directive.
         if let Some(first) = program.library(tgt).units.first().copied()
             && let Some(d) = program.unit(first).unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. }))
         {
@@ -361,8 +362,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
 
     let Some(body) = body else { return out };
 
-    // Os lados esquerdos de atribuição e os operandos de `++`/`--` (sem
-    // `staticElement`).
+    // The left-hand sides of assignments and the operands of `++`/`--`
+    // (without `staticElement`).
     let mut written_ones: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for e in a.exprs.iter() {
         match &e.kind {
@@ -375,20 +376,20 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
             _ => {}
         }
     }
-    // O nome de um nó de escrita: o identificador, ou o nome da propriedade.
+    // The name of a write node: the identifier, or the property name.
     let node_name = |x: ExprId| match &a.expr(x).kind {
         ExprKind::Property { name, .. } => name.span,
         _ => a.expr(x).span,
     };
-    // O operador resolvido no próprio nó (`staticElement`).
+    // The operator resolved on the node itself (`staticElement`).
     let operator = |e: ExprId| -> Option<Alvo<'_>> {
         match body.get_resolved(e)? {
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => function_target(*f),
             _ => None,
         }
     };
-    // `_invocationArguments`: os argumentos passados a parâmetros
-    // depreciados não obrigatórios, fora da função que os declara.
+    // `_invocationArguments`: the arguments passed to non-required deprecated
+    // parameters, outside the function that declares them.
     let args_list = |f: FunctionElementId, args: &ast::Arguments, the_call: Span, report: &mut dyn FnMut(Span, Alvo<'_>)| {
         let (ps, pu, owner) = match program.function(f).node {
             FunctionRef::Function { unit, function } => {
@@ -427,7 +428,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
             report(span, Alvo { metadata: &p.metadata, unidade: pu, nome: text(the_name.sym) });
         }
     };
-    // O elemento invocado por uma chamada de método.
+    // The element invoked by a method call.
     let invoked = |tgt: ExprId| -> Option<FunctionElementId> {
         match body.get_resolved(tgt)? {
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Element(Element::Function(f)) => {
@@ -437,15 +438,15 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         }
     };
 
-    // 3. As expressões.
+    // 3. The expressions.
     for (i, expr) in a.exprs.iter().enumerate() {
         let id = ExprId(i as u32);
         match &expr.kind {
-            // `simpleIdentifier` (o nome de propriedade também).
+            // `simpleIdentifier` (the property name too).
             ExprKind::Identifier(_) | ExprKind::Property { .. } if !written_ones.contains(&id) => {
                 let Some(r) = body.get_resolved(id) else { continue };
                 if matches!(r, Resolved::Constructor(_)) {
-                    // O tear-off `C.nome`/`C.new`: o `ConstructorName`.
+                    // O tear-off `C.the_name`/`C.new`: o `ConstructorName`.
                     if let Some(tgt) = resolved_target(r) {
                         report(expr.span, tgt);
                     }
@@ -456,7 +457,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
                 }
             }
             ExprKind::Assign { target, .. } => {
-                // `readElement`/`writeElement` no nome, e o operador no nó.
+                // `readElement`/`writeElement` at the name, and the operator at the node.
                 if let Some(r) = body.get_resolved(*target) {
                     if let Some(tgt) = resolved_target(r) {
                         report(node_name(*target), tgt);
@@ -473,7 +474,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
                 if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec)
                     && let Some(r) = body.get_resolved(*operand)
                 {
-                    // No operando inteiro.
+                    // On the whole operand.
                     let sp = a.expr(*operand).span;
                     if let Some(tgt) = resolved_target(r) {
                         report(sp, tgt);
@@ -495,7 +496,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
             }
             ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
                 if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
-                    // O `ConstructorName`: do tipo ao nome do construtor.
+                    // The `ConstructorName`: from the type to the constructor name.
                     let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
                     if let Some(tgt) = function_target(*f) {
                         report(Span { start: a.ty(*ty).span.start, end: end }, tgt);
@@ -505,8 +506,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
             }
             ExprKind::Call { target, arguments } => {
                 if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
-                    // A criação sem `new`: o `ConstructorName` é o alvo; o tipo
-                    // dele é o identificador da classe (ou do typedef).
+                    // Creation without `new`: the `ConstructorName` is the target; its type
+                    // is the identifier of the class (or of the typedef).
                     if let Some(tgt) = function_target(*f) {
                         report(a.expr(*target).span, tgt);
                     }
@@ -536,8 +537,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
                     }
                     continue;
                 }
-                // `functionExpressionInvocation`: o `call` de um objeto de
-                // classe chamado como função.
+                // `functionExpressionInvocation`: the `call` of a class object called as a
+                // function.
                 if let Some(t) = body.get_type(*target)
                     && let Type::Interface { class, nullable: false, .. } = table.get(t)
                     && let Some(call) = interner.lookup("call")
@@ -552,8 +553,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         }
     }
 
-    // 4. `super(…)` e `this(…)`: o nó inteiro, os argumentos, e o nome de
-    // `this.nome(…)` (o identificador dele tem o construtor).
+    // 4. `super(…)` and `this(…)`: the whole node, the arguments, and the name
+    // of `this.the_name(…)` (its identifier has the constructor).
     for m in a.members.iter() {
         let MemberKind::Constructor(k) = &m.kind else { continue };
         let cls = (0..program.functions.len())
@@ -586,8 +587,8 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
         }
     }
 
-    // 5. Os campos de padrão de objeto (só no aviso): no nome do campo, ou no
-    // da variável do atalho.
+    // 5. Object pattern fields (only in the warning): at the field name, or at
+    // that of the shorthand's variable.
     if mode == Modo::Aviso {
         for p in a.patterns.iter() {
             let PatternKind::Object { ty, fields } = &p.kind else { continue };
@@ -623,7 +624,7 @@ fn verificar(program: &Program, interner: &Interner, table: &TypeTable, body: Op
     out
 }
 
-/// O membro de instância `nome` da classe ou de um supertipo dela.
+/// The instance member `the_name` of the class or of one of its supertypes.
 fn class_member(program: &Program, cls: dartforge_elements::model::ClassId, the_name: dartforge_intern::SymbolId) -> Option<FunctionElementId> {
     let mut seen: Vec<dartforge_elements::model::ClassId> = Vec::new();
     let mut stack = vec![cls];
@@ -644,8 +645,8 @@ fn class_member(program: &Program, cls: dartforge_elements::model::ClassId, the_
     None
 }
 
-/// Os usos de elementos depreciados na unidade `u` (o aviso). `mesmo_pacote`
-/// diz se uma biblioteca está no pacote da biblioteca analisada
+/// The uses of deprecated elements in unit `u` (the warning). `same_package`
+/// says whether a library is in the package of the analyzed library
 /// (`_isLibraryInWorkspacePackage`).
 pub fn usos_de_deprecados(
     program: &Program,
@@ -677,8 +678,9 @@ pub fn usos_de_deprecados(
     out
 }
 
-/// O lint `deprecated_member_use_from_same_package`: os usos de elementos
-/// do pacote (os de fora o analyzer já relata como aviso).
+/// The lint `deprecated_member_use_from_same_package`: the uses of the
+/// package's elements (the analyzer already reports outside ones as a
+/// warning).
 pub fn lint_do_mesmo_pacote(
     program: &Program,
     interner: &Interner,
@@ -696,8 +698,8 @@ pub fn lint_do_mesmo_pacote(
         match normalized.filter(|m| !m.is_empty() && *m != ".") {
             None => out.push((x.span, "deprecated_member_use_from_same_package_without_message", vec![x.nome])),
             Some(_) => {
-                // O emissor do lint acrescenta o ponto à mensagem original
-                // (sem o `trim`).
+                // The lint emitter appends the period to the original message (without the
+                // `trim`).
                 let original = x.mensagem.clone().unwrap_or_default();
                 let m = normalized.unwrap_or_default();
                 let dotted = if m.ends_with(['.', '?', '!']) { m.to_string() } else { format!("{original}.") };
@@ -709,20 +711,20 @@ pub fn lint_do_mesmo_pacote(
 }
 
 // ---------------------------------------------------------------------------
-// `DEPRECATED_OPTIONAL` (o `DeprecatedFunctionalityVerifier` do 3.13.4,
-// `analyzer/lib/src/error/deprecated_functionality_verifier.dart`, lido por
-// inteiro na tag; roda no `BestPracticesVerifier`).
+// `DEPRECATED_OPTIONAL` (the 3.13.4 `DeprecatedFunctionalityVerifier`,
+// `analyzer/lib/src/error/deprecated_functionality_verifier.dart`, read in
+// full at the tag; runs in the `BestPracticesVerifier`).
 
-/// O `deprecationKind` de uma anotação (`ElementAnnotationImpl` do 3.13.4):
-/// `use` para o getter `deprecated` e o `Deprecated(…)`/`Deprecated.new(…)`;
-/// o nome do construtor para `Deprecated.extend(…)`, `.implement(…)`,
-/// `.subclass(…)`, `.instantiate(…)`, `.mixin(…)` e `.optional(…)` (o
-/// `_DeprecationKind` do `dart:core` do 3.13.4, `annotations.dart:222-230`).
+/// The `deprecationKind` of an annotation (3.13.4 `ElementAnnotationImpl`):
+/// `use` for the `deprecated` getter and `Deprecated(…)`/`Deprecated.new(…)`;
+/// the constructor name for `Deprecated.extend(…)`, `.implement(…)`,
+/// `.subclass(…)`, `.instantiate(…)`, `.mixin(…)` and `.optional(…)` (the
+/// `_DeprecationKind` of the 3.13.4 `dart:core`, `annotations.dart:222-230`).
 ///
-/// O nosso `dart:core` é o 3.6.2, que não tem esses construtores: a regra só
-/// vale para a biblioteca julgada pelo 3.13.4
-/// ([`Program::referencia_da_biblioteca`]), em que o oráculo resolve a
-/// anotação contra o SDK dele.
+/// Our `dart:core` is 3.6.2, which does not have these constructors: the
+/// rule only applies to the library judged by 3.13.4
+/// ([`Program::referencia_da_biblioteca`]), in which the oracle resolves the
+/// annotation against its own SDK.
 fn deprecation_type(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<String> {
     let do_core = |b: Option<dartforge_elements::model::Binding>| -> Option<Element> {
         let e = b?.getter?;
@@ -757,13 +759,13 @@ fn deprecation_type(program: &Program, interner: &Interner, u: UnitId, m: &ast::
     }
 }
 
-/// `Element.isDeprecatedWithKind(kind)`: alguma anotação de depreciação da
-/// lista tem o tipo `kind`.
+/// `Element.isDeprecatedWithKind(kind)`: some deprecation annotation in the
+/// list has the kind `kind`.
 fn deprecated_with_type(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation], kind: &str) -> bool {
     metadata.iter().any(|m| deprecation_type(program, interner, u, m).as_deref() == Some(kind))
 }
 
-/// Os parâmetros formais de uma função ou construtor, com a unidade deles.
+/// The formal parameters of a function or constructor, with their unit.
 fn formal_parameters(program: &Program, f: FunctionElementId) -> Option<(&[ast::Parameter], UnitId)> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => Some((program.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[]), unit)),
@@ -775,8 +777,7 @@ fn formal_parameters(program: &Program, f: FunctionElementId) -> Option<(&[ast::
     }
 }
 
-/// `ParameterElement.isOptional`: posicional opcional, ou nomeado não
-/// `required`.
+/// `ParameterElement.isOptional`: optional positional, or named non-`required`.
 fn opcional(p: &ast::Parameter) -> bool {
     match p.kind {
         ParameterKind::Required => false,
@@ -785,11 +786,11 @@ fn opcional(p: &ast::Parameter) -> bool {
     }
 }
 
-/// Os avisos `DEPRECATED_OPTIONAL` da unidade `u`: o argumento omitido para
-/// um parâmetro anotado com `@Deprecated.optional()`, nas invocações (de
-/// método, de construtor, de atalho de ponto e de `this(…)`), nos
-/// construtores que passam pelo construtor da superclasse sem ele (os
-/// parâmetros `super.` e o `super(…)`) e nos construtores redirecionados.
+/// The `DEPRECATED_OPTIONAL` warnings of unit `u`: the omitted argument for
+/// a parameter annotated with `@Deprecated.optional()`, in invocations (of a
+/// method, of a constructor, of a dot shorthand and of `this(…)`), in the
+/// constructors that go through the superclass constructor without it (the
+/// `super.` parameters and the `super(…)`) and in redirected constructors.
 pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Option<&UnitBodyTypes>, u: UnitId) -> Vec<Diagnostic> {
     use dartforge_diagnostics::codigos::warning::DEPRECATED_OPTIONAL;
     let mut out: Vec<Diagnostic> = Vec::new();
@@ -808,8 +809,8 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
             out.push(d);
         }
     };
-    // `_checkForDeprecatedOptional`: os parâmetros que nenhum argumento
-    // preenche (o `correspondingParameter`), com o tipo `optional`.
+    // `_checkForDeprecatedOptional`: the parameters that no argument fills
+    // (the `correspondingParameter`), with the kind `optional`.
     let omitted = |out: &mut Vec<Diagnostic>, f: FunctionElementId, args: &ast::Arguments, entity: Span| {
         let Some((ps, pu)) = formal_parameters(program, f) else { return };
         let mut filled = vec![false; ps.len()];
@@ -841,7 +842,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
         for (i, expr) in a.exprs.iter().enumerate() {
             let id = ExprId(i as u32);
             match &expr.kind {
-                // `instanceCreationExpression`: no `ConstructorName`.
+                // `instanceCreationExpression`: at the `ConstructorName`.
                 ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
                     if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
                         let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
@@ -849,9 +850,9 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
                     }
                 }
                 ExprKind::Call { target, arguments } => {
-                    // O atalho de ponto: `.id(…)`/`.new(…)` de construtor
-                    // (`dotShorthandConstructorInvocation`) e `.m(…)` de
-                    // método estático (`dotShorthandInvocation`), no nome.
+                    // The dot shorthand: `.id(…)`/`.new(…)` of a constructor
+                    // (`dotShorthandConstructorInvocation`) and `.m(…)` of a static method
+                    // (`dotShorthandInvocation`), at the name.
                     if let ExprKind::DotShorthand { name, .. } = &a.expr(*target).kind {
                         let f = match body.get_resolved(id) {
                             Some(Resolved::Constructor(f)) => Some(*f),
@@ -870,13 +871,13 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
                         }
                         continue;
                     }
-                    // A criação sem `new`: no `ConstructorName` (o alvo).
+                    // Creation without `new`: at the `ConstructorName` (the target).
                     if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
                         omitted(&mut out, *f, arguments, a.expr(*target).span);
                         continue;
                     }
-                    // `methodInvocation`: no nome do método; a função local
-                    // (`LocalFunctionElement`) não conta.
+                    // `methodInvocation`: at the method name; a local function
+                    // (`LocalFunctionElement`) does not count.
                     if crate::lints_tipados4::e_invocacao_de_metodo(program, a, body, *target) {
                         let f = match body.get_resolved(*target) {
                             Some(Resolved::Member { member: MemberRef::Function(f), .. })
@@ -897,7 +898,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
             }
         }
     }
-    // Os construtores declarados (e os primários elaborados).
+    // The declared constructors (and the elaborated primary ones).
     for (mi, m) in a.members.iter().enumerate() {
         let MemberKind::Constructor(k) = &m.kind else { continue };
         let Some(f) = (0..program.functions.len())
@@ -907,9 +908,9 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
             continue;
         };
         let Some(cls) = program.function(f).class else { continue };
-        // `ConstructorDeclaration.errorRange`: do nome da classe ao nome do
-        // construtor; no primário com `const`, desde o `const`
-        // (`PrimaryConstructorDeclaration.errorRange`, o `beginToken`).
+        // `ConstructorDeclaration.errorRange`: from the class name to the
+        // constructor name; in a primary one with `const`, from the `const`
+        // (`PrimaryConstructorDeclaration.errorRange`, the `beginToken`).
         let primary = a.decls.iter().any(|d| match &d.kind {
             DeclKind::Class(c) => c.primary_constructor.is_some_and(|p| p.0 as usize == mi),
             DeclKind::Enum(e) => e.primary_constructor.is_some_and(|p| p.0 as usize == mi),
@@ -918,8 +919,8 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
         let start = if primary && k.const_ { m.span.start.min(k.class_name.span.start) } else { k.class_name.span.start };
         let error_range = Span { start: start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
 
-        // `this(…)`/`this.nome(…)` na lista de inicializadores: no nome do
-        // construtor, ou no `this`.
+        // `this(…)`/`this.the_name(…)` in the initializer list: at the constructor
+        // name, or at the `this`.
         for i in k.initializers.iter() {
             if let Initializer::Redirect { span, constructor, arguments } = i {
                 let key = match constructor {
@@ -933,8 +934,8 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
             }
         }
 
-        // `_checkForDeprecatedOptionalRedirectedParameters`: a fábrica
-        // redirecionadora, contra os parâmetros do construtor alvo.
+        // `_checkForDeprecatedOptionalRedirectedParameters`: the redirecting
+        // factory, against the parameters of the target constructor.
         if let Some(r) = &k.redirect
             && let Some(g) = redirect_target(program, interner, u, r)
             && let Some((ps, pu)) = formal_parameters(program, g)
@@ -962,9 +963,9 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
             }
         }
 
-        // `_checkForDeprecatedOptionalSuperParameters`: o construtor da
-        // superclasse que este invoca (o `super(…)`, ou o sem nome
-        // implícito do gerador que não redireciona).
+        // `_checkForDeprecatedOptionalSuperParameters`: the superclass constructor
+        // that this one invokes (the `super(…)`, or the implicit unnamed one of a
+        // non-redirecting generative constructor).
         if k.factory || k.redirect.is_some() || k.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. })) {
             continue;
         }
@@ -986,8 +987,8 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
         };
         let Some(g) = key.and_then(|c| program.class(superclass).constructors.get(&c).copied()) else { continue };
         let Some((ps, pu)) = formal_parameters(program, g) else { continue };
-        // `verifySuperFormalParameters`: os `super.` posicionais e os nomes
-        // dos `super.` nomeados.
+        // `verifySuperFormalParameters`: the positional `super.` ones and the
+        // names of the named `super.` ones.
         let super_positional = k.parameters.iter().filter(|p| p.super_ && p.kind != ParameterKind::Named).count();
         let super_named: Vec<dartforge_intern::SymbolId> =
             k.parameters.iter().filter(|p| p.super_ && p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
@@ -1023,7 +1024,7 @@ pub fn opcionais_depreciados(program: &Program, interner: &Interner, body: Optio
     out
 }
 
-/// O construtor alvo de `factory C(…) = D.nome;` (o `redirectedConstructor`).
+/// The target constructor of `factory C(…) = D.the_name;` (the `redirectedConstructor`).
 fn redirect_target(program: &Program, interner: &Interner, u: UnitId, r: &ast::RedirectTarget) -> Option<FunctionElementId> {
     let a = &program.unit(u).ast;
     let TypeKind::Named { name, .. } = &a.ty(r.ty).kind else { return None };

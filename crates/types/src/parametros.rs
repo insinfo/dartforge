@@ -1,23 +1,24 @@
-//! Parâmetros opcionais que nenhuma chamada da biblioteca preenche
-//! (`UNUSED_ELEMENT_PARAMETER`, código `unused_element` no 3.6): a parte de
-//! parâmetros do `UnusedLocalElementsVerifier` do analyzer 6.11
+//! Optional parameters that no call in the library fills in
+//! (`UNUSED_ELEMENT_PARAMETER`, code `unused_element` in 3.6): the parameter
+//! part of analyzer 6.11's `UnusedLocalElementsVerifier`
 //! (`an611:src/error/unused_local_elements_verifier.dart`):
 //!
-//! * `visitFormalParameterList` (`:600-609`) relata cada parâmetro que não
-//!   é usado;
-//! * `_isUsedElement` (`:860-923`): só parâmetros **opcionais** de
-//!   construtores, funções e métodos; fora os de construtor de classe
-//!   genérica e os de executável genérico; fora os de executável acessível
-//!   de fora da biblioteca (`_isPubliclyAccessible`, `:799-823`); fora o que
-//!   corresponde a um obrigatório do construtor da superclasse ou de um
-//!   membro sobrescrito, ou a um parâmetro usado do sobrescrito
+//! * `visitFormalParameterList` (`:600-609`) reports each parameter that is
+//!   not used;
+//! * `_isUsedElement` (`:860-923`): only **optional** parameters of
+//!   constructors, functions and methods; excluding those of constructors of
+//!   generic classes and of generic executables; excluding those of
+//!   executables accessible from outside the library
+//!   (`_isPubliclyAccessible`, `:799-823`); excluding the one that
+//!   corresponds to a required parameter of the superclass constructor or of
+//!   an overridden member, or to a used parameter of the overridden one
 //!   (`_overridesUsedParameter`, `:970-992`);
-//! * "usado" é receber argumento em alguma chamada da biblioteca
-//!   (`_addParametersForArguments`, `:360-365`: o `staticParameterElement`
-//!   de cada argumento), ou ser o alvo de um `super.x` (`:116-118`).
+//! * "used" means receiving an argument in some call in the library
+//!   (`_addParametersForArguments`, `:360-365`: the `staticParameterElement`
+//!   of each argument), or being the target of a `super.x` (`:116-118`).
 //!
-//! A ligação argumento → parâmetro vem das resoluções que a inferência de
-//! corpos guarda (`crate::resolved`).
+//! The argument → parameter binding comes from the resolutions that body
+//! inference stores (`crate::resolved`).
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
@@ -30,7 +31,7 @@ use dartforge_frontend::ast::{self, DeclKind, ExprKind, MemberKind, ParameterKin
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashSet;
 
-/// Os parâmetros formais escritos de `f` (`None` sem nó).
+/// The written formal parameters of `f` (`None` without a node).
 fn parametros<'p>(program: &'p Program, f: FunctionElementId) -> Option<(UnitId, &'p [ast::Parameter])> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => {
@@ -48,7 +49,7 @@ fn nome_externo(p: &ast::Parameter) -> Option<SymbolId> {
     p.public_name.or(p.name).map(|n| n.sym)
 }
 
-/// O parâmetro de `ps` que recebe o argumento `i` de `args`.
+/// The parameter of `ps` that receives argument `i` of `args`.
 fn argument_target(ps: &[ast::Parameter], args: &ast::Arguments, i: usize) -> Option<usize> {
     let a = &args.args[i];
     match a.name {
@@ -60,8 +61,8 @@ fn argument_target(ps: &[ast::Parameter], args: &ast::Arguments, i: usize) -> Op
     }
 }
 
-/// `_getCorrespondingParameter`: pelo nome (nomeado) ou pela posição na
-/// lista.
+/// `_getCorrespondingParameter`: by name (named) or by position in the
+/// list.
 fn corresponding(ps: &[ast::Parameter], j: usize, others: &[ast::Parameter]) -> Option<usize> {
     let p = &ps[j];
     if p.kind == ParameterKind::Named {
@@ -87,7 +88,7 @@ fn resolved_function(r: Option<&Resolved>) -> Option<FunctionElementId> {
     }
 }
 
-/// O construtor `nome` (ou o sem nome) da classe `c`.
+/// The constructor `the_name` (or the unnamed one) of class `c`.
 fn construtor(program: &Program, interner: &Interner, c: ClassId, the_name: Option<ast::Name>) -> Option<FunctionElementId> {
     let s = match the_name {
         Some(n) => n.sym,
@@ -96,14 +97,14 @@ fn construtor(program: &Program, interner: &Interner, c: ClassId, the_name: Opti
     program.class(c).constructors.get(&s).copied()
 }
 
-/// O construtor da superclasse que `k` (da classe `c`) invoca, explícito
-/// (`super.nome(...)`) ou implícito (o sem nome).
+/// The superclass constructor that `k` (of class `c`) invokes, explicit
+/// (`super.the_name(...)`) or implicit (the unnamed one).
 fn superclass_constructor(program: &Program, interner: &Interner, c: ClassId, k: &ast::Constructor) -> Option<FunctionElementId> {
     if k.factory || k.initializers.iter().any(|i| matches!(i, ast::Initializer::Redirect { .. })) {
         return None;
     }
     let mut sup = program.class(c).supertype_class?;
-    // As aplicações sintéticas de mixin repassam os construtores da superclasse.
+    // Synthetic mixin applications forward the superclass constructors.
     let mut guard = 0;
     while program.class(sup).decl.is_none() && guard < 50 {
         sup = program.class(sup).supertype_class?;
@@ -116,7 +117,7 @@ fn superclass_constructor(program: &Program, interner: &Interner, c: ClassId, k:
     construtor(program, interner, sup, the_name.flatten())
 }
 
-/// Os diagnósticos de `lib`.
+/// The diagnostics of `lib`.
 pub fn parametros_nao_usados(
     program: &Program,
     interner: &Interner,
@@ -134,20 +135,20 @@ pub fn parametros_nao_usados(
             }
         }
     };
-    // Executáveis cujos parâmetros contam todos como usados: referência que
-    // não é chamada (tear-off; `visitSimpleIdentifier`, `:290-305`), e o nome
-    // de `this.nome(...)`/`super.nome(...)` (o identificador não está numa
+    // Executables whose parameters all count as used: a reference that is not
+    // called (tear-off; `visitSimpleIdentifier`, `:290-305`), and the name of
+    // `this.the_name(...)`/`super.the_name(...)` (the identifier is not in a
     // `MethodInvocation`).
     let mut all: HashSet<FunctionElementId> = HashSet::new();
-    // Nomes lidos por identificadores, por unidade (`_useIdentifierElement`:
-    // ler o parâmetro o usa), com o offset.
+    // Names read by identifiers, per unit (`_useIdentifierElement`: reading
+    // the parameter uses it), with the offset.
     let mut reads: Vec<(UnitId, SymbolId, usize)> = Vec::new();
     let mut shorthands: HashSet<SymbolId> = HashSet::new();
     let units = program.library(lib).units.clone();
     for &u in &units {
         let a = &program.unit(u).ast;
         let Some(b) = body.units.get(u.0 as usize) else { continue };
-        // Alvos de chamada (o nome chamado e o `Property` do método).
+        // Call targets (the called name and the method's `Property`).
         let mut targets: HashSet<ast::ExprId> = HashSet::new();
         for e in a.exprs.iter() {
             if let ExprKind::Call { target, .. } = &e.kind {
@@ -184,7 +185,7 @@ pub fn parametros_nao_usados(
                         if let Some(f) = resolved_function(b.get_resolved(id)) {
                             all.insert(f);
                         }
-                        // `A._named` (tear-off de construtor): pelo nome.
+                        // `A._named` (constructor tear-off): by name.
                         reads.push((u, name.sym, usize::MAX));
                     }
                 }
@@ -195,8 +196,8 @@ pub fn parametros_nao_usados(
             }
         }
     }
-    // Argumentos de anotações (`@A(valor: 1)`): o rótulo e a posição usam o
-    // parâmetro do construtor.
+    // Annotation arguments (`@A(valor: 1)`): the label and the position use
+    // the constructor parameter.
     for &u in &units {
         let a = &program.unit(u).ast;
         let mut annotations: Vec<&ast::Annotation> = Vec::new();
@@ -224,7 +225,7 @@ pub fn parametros_nao_usados(
             }
         }
     }
-    // Inicializadores (`super(...)`, `this(...)`), `super.x` e constantes de enum.
+    // Initializers (`super(...)`, `this(...)`), `super.x` and enum constants.
     for (ci, k) in program.classes.iter().enumerate() {
         let c = ClassId(ci as u32);
         if k.library != lib {
@@ -254,8 +255,8 @@ pub fn parametros_nao_usados(
                     _ => {}
                 }
             }
-            // Fábrica redirecionadora (`factory C() = D._;`): os parâmetros
-            // correspondentes do alvo contam como usados
+            // Redirecting factory (`factory C() = D._;`): the target's corresponding
+            // parameters count as used
             // (`visitConstructorDeclaration`, `_matchParameters`, `:93-110`).
             if let Some(rd) = &kk.redirect {
                 let ast_u = &program.unit(unit).ast;
@@ -332,7 +333,7 @@ pub fn parametros_nao_usados(
         if all.contains(&f) || shorthands.contains(&fe.name) {
             continue;
         }
-        // O nome do construtor nomeado lido como propriedade (tear-off).
+        // The name of the named constructor read as a property (tear-off).
         if constructor_ && reads.iter().any(|&(_, n, o)| o == usize::MAX && n == fe.name) {
             continue;
         }
@@ -340,7 +341,7 @@ pub fn parametros_nao_usados(
         if !ps.iter().any(|p| p.kind != ParameterKind::Required && !p.required) {
             continue;
         }
-        // Executável genérico, ou construtor de classe genérica.
+        // Generic executable, or constructor of a generic class.
         if !outline.functions[fi].type_params.is_empty() {
             continue;
         }
@@ -369,7 +370,7 @@ pub fn parametros_nao_usados(
             if used.contains(&(f, j)) {
                 continue;
             }
-            // Lido no corpo ou nos inicializadores.
+            // Read in the body or in the initializers.
             if let Some((ru, start, end)) = region {
                 if reads.iter().any(|&(u, n, o)| u == ru && n == the_name.sym && o >= start && o < end && o != the_name.span.start) {
                     continue;
@@ -406,8 +407,8 @@ pub fn parametros_nao_usados(
     output
 }
 
-/// O intervalo da declaração do executável (onde as leituras dos
-/// parâmetros contam).
+/// The range of the executable's declaration (where reads of the
+/// parameters count).
 fn executable_region(program: &Program, f: FunctionElementId) -> Option<(UnitId, usize, usize)> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => {
@@ -444,8 +445,8 @@ fn publicly_accessible(program: &Program, interner: &Interner, f: FunctionElemen
     true
 }
 
-/// Os membros que o método de instância `f` sobrescreve (`getOverridden2`):
-/// os de mesmo nome nos supertipos.
+/// The members that the instance method `f` overrides (`getOverridden2`):
+/// those with the same name in the supertypes.
 fn sobrescritos(program: &Program, outline: &OutlineTypes, f: FunctionElementId) -> Vec<FunctionElementId> {
     let fe = program.function(f);
     let Some(c) = fe.class else { return Vec::new() };

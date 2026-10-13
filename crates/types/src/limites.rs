@@ -1,23 +1,23 @@
-//! `TYPE_ARGUMENT_NOT_MATCHING_BOUNDS` dos tipos escritos: o
-//! `TypeArgumentsVerifier._checkForTypeArgumentNotMatchingBounds` do analyzer
-//! 7.x (`src/error/type_arguments_verifier.dart`).
+//! `TYPE_ARGUMENT_NOT_MATCHING_BOUNDS` for written types: the analyzer 7.x
+//! `TypeArgumentsVerifier._checkForTypeArgumentNotMatchingBounds`
+//! (`src/error/type_arguments_verifier.dart`).
 //!
-//! Para cada `C<A1, …, An>` escrito (classe ou alias de tipo), cada
-//! argumento precisa ser subtipo do limite do parâmetro com os argumentos
-//! substituídos (*regular-bounded*). Se não for, e o lugar aceita tipo
-//! *super-bounded* (não é `extends`/`with`/`implements`/`on`, criação de
-//! instância, corpo de `typedef` nem tipo de extensão), o tipo invertido
-//! (`invertido`: topo por `Never` nas posições não contravariantes, fundo
-//! por `Object?` nas contravariantes) é conferido do mesmo jeito, e são os
-//! argumentos e limites invertidos que o diagnóstico mostra.
+//! For each written `C<A1, …, An>` (class or type alias), each argument
+//! must be a subtype of the parameter's bound with the arguments
+//! substituted (*regular-bounded*). If it is not, and the place accepts a
+//! *super-bounded* type (not `extends`/`with`/`implements`/`on`, instance
+//! creation, a `typedef` body or an extension type), the inverted type
+//! (`invertido`: top replaced by `Never` in non-contravariant positions,
+//! bottom by `Object?` in contravariant ones) is checked the same way, and
+//! the diagnostic shows the inverted arguments and bounds.
 //!
-//! O tipo de cada `NamedType` é o resolvido (`NamedType.type`): o
-//! `tipos_escritos` do esboço ou o `tipos_de_anotacoes` dos corpos, com os
-//! tipos crus instanciados para os limites. Os tipos nomeados que o
-//! analyzer cria a partir de expressões (literal de tipo `C<T>`, criação
-//! `C<T>()` sem `new`, referência de construtor `C<T>.new`) entram pela
-//! árvore de expressões. Um nó que nenhuma resolução registrou cai na
-//! resolução no escopo da biblioteca, que pula nomes de parâmetro de tipo.
+//! The type of each `NamedType` is the resolved one (`NamedType.type`): the
+//! sketch's `tipos_escritos` or the bodies' `tipos_de_anotacoes`, with raw
+//! types instantiated to bounds. The named types that the analyzer creates
+//! from expressions (type literal `C<T>`, creation `C<T>()` without `new`,
+//! constructor reference `C<T>.new`) come in through the expression tree. A
+//! node that no resolution recorded falls back to resolution in the
+//! library scope, which skips type parameter names.
 
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -28,7 +28,7 @@ use dartforge_frontend::ast::{self, DeclKind, ExprKind, ParameterKind, TypeKind}
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
-/// Variância de uma posição (`Variance` do analyzer).
+/// Variance of a position (the analyzer's `Variance`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Variance_ {
     Nenhuma,
@@ -38,7 +38,7 @@ enum Variance_ {
 }
 
 impl Variance_ {
-    /// `Variance.combine`: o sinal da posição dentro de outra.
+    /// `Variance.combine`: the sign of a position inside another.
     fn combinar(self, other: Variance_) -> Variance_ {
         use Variance_::*;
         match (self, other) {
@@ -49,7 +49,7 @@ impl Variance_ {
         }
     }
 
-    /// `Variance.meet`: duas ocorrências do mesmo parâmetro.
+    /// `Variance.meet`: two occurrences of the same parameter.
     fn juntar(self, other: Variance_) -> Variance_ {
         use Variance_::*;
         match (self, other) {
@@ -60,13 +60,13 @@ impl Variance_ {
     }
 }
 
-/// O elemento de um tipo nomeado e os argumentos dele.
+/// The element of a named type and its arguments.
 struct Parts {
     nome: String,
     params: Vec<TypeParamId>,
     tipos: Vec<TypeId>,
     of_extension: bool,
-    /// O alvo do alias (as variâncias dos parâmetros na inversão).
+    /// The alias target (the variances of the parameters in the inversion).
     alias_target: Option<TypeId>,
 }
 
@@ -77,13 +77,13 @@ struct Verifier<'a> {
     core: &'a CoreTypes,
     outline: &'a OutlineTypes,
     unit: UnitId,
-    /// Nomes de parâmetros de tipo declarados em algum lugar da unidade.
+    /// Names of type parameters declared somewhere in the unit.
     parameter_names: HashSet<SymbolId>,
-    /// Os tipos resolvidos dos corpos da unidade.
+    /// The resolved types of the unit's bodies.
     corpo: Option<&'a crate::resolved::UnitBodyTypes>,
 }
 
-/// Os `type_argument_not_matching_bounds` dos tipos escritos numa unidade.
+/// The `type_argument_not_matching_bounds` of the written types in a unit.
 pub fn argumentos_fora_dos_limites(
     program: &Program,
     interner: &Interner,
@@ -97,8 +97,8 @@ pub fn argumentos_fora_dos_limites(
     let mut v = Verifier { program, interner, table, core, outline, unit, parameter_names: HashSet::new(), corpo: body };
     v.parameter_names = parameter_names(a, &program.unit(unit).unit);
     let without_super = without_super_bound(a, &program.unit(unit).unit);
-    // A criação sem argumentos escritos é conferida com os inferidos
-    // (`argumentos_inferidos_fora_dos_limites`).
+    // A creation without written arguments is checked with the inferred
+    // ones (`argumentos_inferidos_fora_dos_limites`).
     let raw_creations: HashSet<ast::TypeId> = a
         .exprs
         .iter()
@@ -128,12 +128,13 @@ pub fn argumentos_fora_dos_limites(
     out
 }
 
-/// `ReplaceTopBottomVisitor.process` sobre um tipo já resolvido: topo vira
-/// `Never` fora das posições contravariantes; o que é subtipo de `Never` vira
-/// `Object?` nas contravariantes. Um alias leva cada argumento com a
-/// variância do parâmetro dele no alvo combinada com a de fora; classes (e
-/// `FutureOr`, tipos de extensão) levam a variância adiante; funções invertem
-/// nos parâmetros (os parâmetros de tipo ficam).
+/// `ReplaceTopBottomVisitor.process` over an already resolved type: top
+/// becomes `Never` outside contravariant positions; whatever is a subtype of
+/// `Never` becomes `Object?` in contravariant ones. An alias carries each
+/// argument with the variance of its parameter in the target combined with
+/// the outer one; classes (and `FutureOr`, extension types) carry the
+/// variance forward; functions invert in the parameters (type parameters
+/// stay).
 fn swap_top_and_bottom(v: &mut Verifier<'_>, t: TypeId, va: Variance_) -> TypeId {
     if va == Variance_::Contra {
         let never = v.core.never;
@@ -192,10 +193,11 @@ fn swap_top_and_bottom(v: &mut Verifier<'_>, t: TypeId, va: Variance_) -> TypeId
 
 /// `enum_instantiated_to_bounds_is_not_well_bounded`
 /// (`ErrorVerifier._checkForEnumInstantiatedToBoundsIsNotWellBounded`,
-/// `analyzer/lib/src/generated/error_verifier.dart:3239-3256`): o argumento do
-/// tipo do campo `values` (`List<E<instanciado aos limites>>`) passa por
-/// `isWellBounded(…, allowSuperBounded: true)`, que só confere o invertido
-/// (`_isSuperBounded`: o resultado regular é descartado). No nome do enum.
+/// `analyzer/lib/src/generated/error_verifier.dart:3239-3256`): the type
+/// argument of the `values` field (`List<E<instantiated to bounds>>`) goes
+/// through `isWellBounded(…, allowSuperBounded: true)`, which only checks the
+/// inverted one (`_isSuperBounded`: the regular result is discarded). At the
+/// enum name.
 pub fn enum_instanciado_aos_limites(
     program: &Program,
     interner: &Interner,
@@ -242,12 +244,12 @@ pub fn enum_instanciado_aos_limites(
     output
 }
 
-/// Os `type_argument_not_matching_bounds` dos argumentos de tipo
-/// **inferidos** de uma criação de instância sem argumentos escritos
-/// (`C(x)`, `new C.nome(x)`): o analyzer confere o `NamedType` do
-/// construtor com o tipo já inferido (`checkNamedType`,
-/// `an611:src/error/type_arguments_verifier.dart`), no nome da classe.
-/// Nunca super-bounded (criação de instância).
+/// The `type_argument_not_matching_bounds` of the **inferred** type arguments
+/// of an instance creation without written arguments (`C(x)`,
+/// `new C.the_name(x)`): the analyzer checks the constructor's `NamedType` with
+/// the already inferred type (`checkNamedType`,
+/// `an611:src/error/type_arguments_verifier.dart`), at the class name.
+/// Never super-bounded (instance creation).
 pub fn argumentos_inferidos_fora_dos_limites(
     program: &Program,
     interner: &Interner,
@@ -276,7 +278,7 @@ pub fn argumentos_inferidos_fora_dos_limites(
                 }
                 let sp = match &a.expr(*target).kind {
                     ExprKind::Identifier(_) => a.expr(*target).span,
-                    // `C.nome(x)`: o nome da classe; `p.C(x)`: o nome inteiro.
+                    // `C.the_name(x)`: the class name; `p.C(x)`: the whole name.
                     ExprKind::Property { target: t, .. } => match &a.expr(*t).kind {
                         ExprKind::Identifier(_) => a.expr(*t).span,
                         _ => continue,
@@ -335,7 +337,7 @@ impl Verifier<'_> {
         self.table.format(t, self.interner, self.program)
     }
 
-    /// O tipo que a resolução registrou para o nó (`NamedType.type`).
+    /// The type the resolution recorded for the node (`NamedType.type`).
     fn registered(&self, t: ast::TypeId) -> Option<TypeId> {
         self.outline
             .tipos_escritos
@@ -344,7 +346,8 @@ impl Verifier<'_> {
             .copied()
     }
 
-    /// O tipo de um argumento escrito: o registrado, ou o resolvido aqui.
+    /// The type of a written argument: the recorded one, or the one resolved
+    /// here.
     fn tipo_do_no(&mut self, t: ast::TypeId) -> Option<TypeId> {
         match self.registered(t) {
             Some(r) => Some(r),
@@ -352,9 +355,9 @@ impl Verifier<'_> {
         }
     }
 
-    /// `_checkForTypeArgumentNotMatchingBounds` sobre o tipo resolvido `t`
-    /// de um `NamedType` de intervalo `tipo`, com os argumentos escritos
-    /// `escritos` (vazio: tipo cru).
+    /// `_checkForTypeArgumentNotMatchingBounds` over the resolved type `t` of a
+    /// `NamedType` with range `typ`, with the written arguments `written_ones`
+    /// (empty: raw type).
     fn conferir_tipo(&mut self, t: TypeId, typ: Span, written_ones: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
         if self.table.e_invalido(t) {
             return;
@@ -363,8 +366,9 @@ impl Verifier<'_> {
         self.check_parts(t, parts, typ, written_ones, super_allowed, out);
     }
 
-    /// O mesmo, com o elemento e os argumentos já conhecidos (o tipo montado
-    /// aqui, que sem a decoração de exibição não guarda o alias).
+    /// The same, with the element and the arguments already known (the type
+    /// built here, which without the display decoration does not keep the
+    /// alias).
     fn check_parts(&mut self, t: TypeId, parts: Parts, typ: Span, written_ones: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
         let Parts { nome: the_name, params, tipos: types, of_extension, alias_target } = parts;
         if params.is_empty() || params.len() != types.len() {
@@ -396,9 +400,9 @@ impl Verifier<'_> {
             }
             return;
         }
-        // `replaceTopAndBottom(type)`: o tipo inteiro topo vira `Never` (nem
-        // alias nem interface); senão cada argumento pela variância do
-        // parâmetro no alvo do alias (numa classe, covariante).
+        // `replaceTopAndBottom(type)`: a whole type that is top becomes `Never`
+        // (neither alias nor interface); otherwise each argument by the
+        // variance of the parameter in the alias target (in a class, covariant).
         if self.the_is_top(t) {
             return;
         }
@@ -423,8 +427,9 @@ impl Verifier<'_> {
         }
     }
 
-    /// O nome do elemento, os parâmetros e os argumentos de tipo de `t`
-    /// (`type.alias` antes de `InterfaceType`), e se é tipo de extensão.
+    /// The element name, the parameters and the type arguments of `t`
+    /// (`type.alias` before `InterfaceType`), and whether it is an extension
+    /// type.
     fn partes(&self, t: TypeId) -> Option<Parts> {
         if let Some(crate::table::Exibicao::Alias { typedef, args }) = self.table.exibicao(t) {
             return Some(self.alias_parts(*typedef, args.to_vec(), t));
@@ -432,7 +437,7 @@ impl Verifier<'_> {
         match self.table.get(t) {
             Type::Interface { class, args, .. } => Some(self.class_parts(*class, args.to_vec())),
             Type::ExtensionType { decl, args, .. } => Some(self.class_parts(*decl, args.to_vec())),
-            // `FutureOr<T>`: o `T` não tem limite.
+            // `FutureOr<T>`: `T` has no bound.
             _ => None,
         }
     }
@@ -479,14 +484,14 @@ impl Verifier<'_> {
         out.push(d);
     }
 
-    /// Os `NamedType` que o analyzer cria de expressões: o literal de tipo
-    /// `C<T>` (aceita *super-bounded*), a referência de construtor
-    /// `C<T>.nome` e a criação `C<T>()` sem `new` (`ConstructorName`: não
-    /// aceita).
+    /// The `NamedType`s the analyzer creates from expressions: the type literal
+    /// `C<T>` (accepts *super-bounded*), the constructor reference `C<T>.the_name`
+    /// and the creation `C<T>()` without `new` (`ConstructorName`: does not
+    /// accept).
     fn expression_named_types(&mut self, out: &mut Vec<Diagnostic>) {
         let Some(body) = self.corpo else { return };
         let a = &self.program.unit(self.unit).ast;
-        // Os `C<T>` que são alvo de `.nome`.
+        // The `C<T>` that are the target of `.the_name`.
         let mut of_constructor: HashSet<ast::ExprId> = HashSet::new();
         for e in a.exprs.iter() {
             if let ExprKind::Property { target, .. } = &e.kind
@@ -500,7 +505,7 @@ impl Verifier<'_> {
             let (tgt, written_ones, super_allowed, span) = match &e.kind {
                 ExprKind::TypeArguments { target, type_args } => {
                     let constructor = of_constructor.contains(&id);
-                    // O literal tem o tipo `Type`; a referência de função não.
+                    // The literal has type `Type`; the function reference does not.
                     if !constructor && body.get_type(id) != Some(self.core.type_) {
                         continue;
                     }
@@ -527,7 +532,7 @@ impl Verifier<'_> {
                 },
                 _ => None,
             };
-            // O nome resolvido no corpo tem de ser o mesmo elemento.
+            // The name resolved in the body must be the same element.
             if let Some(crate::resolved::Resolved::Element(r)) = body.get_resolved(tgt)
                 && Some(*r) != el
             {
@@ -544,7 +549,7 @@ impl Verifier<'_> {
         }
     }
 
-    /// O elemento que o nome escrito designa no escopo da unidade.
+    /// The element that the written name designates in the unit's scope.
     fn elemento(&self, name: &[ast::Name]) -> Option<Element> {
         if name.iter().any(|n| self.parameter_names.contains(&n.sym)) {
             return None;
@@ -560,13 +565,13 @@ impl Verifier<'_> {
         b.getter
     }
 
-    /// Parâmetros de tipo (e o alvo, se alias) do elemento genérico.
+    /// Type parameters (and the target, if an alias) of the generic element.
     fn parametros(&self, el: Element) -> Option<(Vec<TypeParamId>, Option<TypeId>)> {
         match el {
             Element::Class(c) => Some((self.outline.classes[c.0 as usize].type_params.to_vec(), None)),
             Element::Typedef(t) => {
-                // O alias que chega a si mesmo instancia como `dynamic`: sem
-                // conferência de limites (`auto_referencia`).
+                // The alias that reaches itself instantiates as `dynamic`: no bounds
+                // check (`auto_referencia`).
                 if crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedef(t).decl) {
                     return None;
                 }
@@ -577,9 +582,9 @@ impl Verifier<'_> {
         }
     }
 
-    /// Um `NamedType` com argumentos escritos que nenhuma resolução
-    /// registrou: o elemento pelo escopo da unidade (`Tipo.construtor` pelo
-    /// primeiro nome) e os argumentos registrados ou resolvidos aqui.
+    /// A `NamedType` with written arguments that no resolution recorded: the
+    /// element through the unit's scope (`Tipo.constructor` by the first name)
+    /// and the arguments recorded or resolved here.
     fn conferir(&mut self, typ: Span, name: &[ast::Name], args: &[ast::TypeId], super_allowed: bool, out: &mut Vec<Diagnostic>) {
         let el = match self.elemento(name) {
             Some(el) => Some(el),
@@ -596,7 +601,7 @@ impl Verifier<'_> {
         self.check_parts(t, parts, typ, args, super_allowed, out);
     }
 
-    /// O tipo `el<tipos>` e as partes dele.
+    /// The type `el<types>` and its parts.
     fn assemble(&mut self, el: Element, tgt: Option<TypeId>, params: &[TypeParamId], types: Vec<TypeId>) -> Option<(TypeId, Parts)> {
         match (el, tgt) {
             (Element::Typedef(td), Some(tgt)) => {
@@ -617,8 +622,8 @@ impl Verifier<'_> {
         }
     }
 
-    /// O tipo escrito, resolvido no escopo da biblioteca; `None` se depender
-    /// de algo que aqui não se resolve com certeza.
+    /// The written type, resolved in the library scope; `None` if it depends on
+    /// something that cannot be resolved here with certainty.
     fn resolver(&mut self, t: ast::TypeId) -> Option<TypeId> {
         let no = self.ast().ty(t);
         let is_nullable = no.nullable;
@@ -653,7 +658,7 @@ impl Verifier<'_> {
                         } else {
                             let params = self.outline.classes[cid.0 as usize].type_params.clone();
                             if params.len() != types.len() {
-                                // Cru e genérico (instanciado para os limites): fora.
+                                // Raw and generic (instantiated to bounds): skipped.
                                 return None;
                             }
                             if cl.kind == dartforge_elements::model::ClassKind::ExtensionType {
@@ -721,7 +726,7 @@ impl Verifier<'_> {
     }
 }
 
-/// Os parâmetros de uma lista escrita, só o que a resolução usa.
+/// The parameters of a written list, only what resolution uses.
 trait SimpleParameters {
     fn clone_params(&self) -> Vec<(ParameterKind, Option<ast::TypeId>, Option<SymbolId>, bool)>;
 }
@@ -732,7 +737,7 @@ impl SimpleParameters for Box<[ast::Parameter]> {
     }
 }
 
-/// Variância do parâmetro `p` no tipo `t` (a posição de fora é `va`).
+/// Variance of parameter `p` in type `t` (the outer position is `va`).
 fn variance_in(table: &TypeTable, t: TypeId, p: TypeParamId, va: Variance_) -> Variance_ {
     match table.get(t) {
         Type::TypeParameter { param, .. } if *param == p => va,
@@ -749,7 +754,7 @@ fn variance_in(table: &TypeTable, t: TypeId, p: TypeParamId, va: Variance_) -> V
             for (_, x, _) in named.iter() {
                 v = v.juntar(variance_in(table, *x, p, against));
             }
-            // Nos limites dos parâmetros de tipo da função: invariante.
+            // In the bounds of the function's type parameters: invariant.
             for &tp in type_params.iter() {
                 if variance_in(table, table.param(tp).bound, p, va) != Variance_::Nenhuma {
                     v = v.juntar(Variance_::In);
@@ -772,7 +777,7 @@ fn variance_in(table: &TypeTable, t: TypeId, p: TypeParamId, va: Variance_) -> V
     }
 }
 
-/// Todo nome de parâmetro de tipo declarado na unidade.
+/// Every type parameter name declared in the unit.
 fn parameter_names(a: &ast::Ast, unit: &ast::CompilationUnit) -> HashSet<SymbolId> {
     let mut s = HashSet::new();
     let mut tps = |l: &[ast::TypeParameter]| {
@@ -810,9 +815,9 @@ fn parameter_names(a: &ast::Ast, unit: &ast::CompilationUnit) -> HashSet<SymbolI
     s
 }
 
-/// Tipos escritos onde o analyzer não aceita *super-bounded*: `extends`,
-/// `with`, `implements`, `on` de mixin, o corpo de `typedef X = T` e o tipo
-/// da criação de instância.
+/// Written types where the analyzer does not accept *super-bounded*:
+/// `extends`, `with`, `implements`, a mixin's `on`, the body of
+/// `typedef X = T` and the type of an instance creation.
 fn without_super_bound(a: &ast::Ast, unit: &ast::CompilationUnit) -> HashSet<ast::TypeId> {
     let mut s = HashSet::new();
     for &d in &unit.declarations {

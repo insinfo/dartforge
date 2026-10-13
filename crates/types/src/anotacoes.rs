@@ -1,22 +1,22 @@
-//! O elemento a que uma anotação se refere pelo nome, pelos escopos com que
-//! o analyzer 3.6.2 a resolve (`analyzer/lib/src/dart/element/scope.dart`):
-//! os locais declarados antes dela no bloco que os contém, os parâmetros e
-//! os parâmetros de tipo das funções que a contêm (`FormalParameterScope`,
-//! `TypeParameterScope`), os membros declarados da classe, mixin, enum, tipo
-//! de extensão ou extensão que a contém (`InstanceScope`: os acessores e os
-//! métodos dela, não os herdados) com os parâmetros de tipo dela, e por fim
-//! a unidade e a biblioteca (com o prefixo de importação).
+//! The element an annotation refers to by name, through the scopes with which
+//! analyzer 3.6.2 resolves it (`analyzer/lib/src/dart/element/scope.dart`):
+//! the locals declared before it in the enclosing block, the parameters and
+//! the type parameters of the enclosing functions (`FormalParameterScope`,
+//! `TypeParameterScope`), the declared members of the enclosing class, mixin,
+//! enum, extension type or extension (`InstanceScope`: its accessors and
+//! methods, not the inherited ones) with its type parameters, and finally the
+//! unit and the library (with the import prefix).
 //!
-//! Um nome achado num escopo local ou de membro não é o elemento de topo de
-//! mesmo nome: a anotação não é a constante procurada.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! A name found in a local or member scope is not the top-level element of
+//! the same name: the annotation is not the constant being looked for.
+//! Written without compiling or running (2026-10-05).
 
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, MemberKind, PatternId, PatternKind, StmtKind, TypeKind};
 use dartforge_intern::{Interner, SymbolId};
 
-/// Os nomes declarados por um padrão (as variáveis dele).
+/// The names declared by a pattern (its variables).
 fn variaveis_do_padrao(a: &ast::Ast, p: PatternId, output: &mut Vec<ast::Name>) {
     match &a.pattern(p).kind {
         PatternKind::Variable { name, .. } => output.push(*name),
@@ -49,9 +49,9 @@ fn variaveis_do_padrao(a: &ast::Ast, p: PatternId, output: &mut Vec<ast::Name>) 
     }
 }
 
-/// Os nomes das variáveis que um padrão declara. Num padrão refutável
-/// (`case`, `if-case`), o nome solto (sem `var`, `final` nem tipo) é
-/// constante, não variável.
+/// The names of the variables a pattern declares. In a refutable pattern
+/// (`case`, `if-case`), a bare name (without `var`, `final` or a type) is a
+/// constant, not a variable.
 fn declared_in_pattern(a: &ast::Ast, p: PatternId, refutable: bool, output: &mut Vec<ast::Name>) {
     let mut all: Vec<ast::Name> = Vec::new();
     variaveis_do_padrao(a, p, &mut all);
@@ -59,7 +59,7 @@ fn declared_in_pattern(a: &ast::Ast, p: PatternId, refutable: bool, output: &mut
         output.extend(all);
         return;
     }
-    // As variáveis com palavra-chave ou tipo.
+    // The variables with a keyword or a type.
     let mut stack = vec![p];
     while let Some(q) = stack.pop() {
         match &a.pattern(q).kind {
@@ -81,7 +81,7 @@ fn declared_in_pattern(a: &ast::Ast, p: PatternId, refutable: bool, output: &mut
     }
 }
 
-/// O trecho de um elemento de coleção (das expressões dele).
+/// The span of a collection element (of its expressions).
 fn element_snippet(a: &ast::Ast, el: &ast::CollectionElement) -> Option<Span> {
     use ast::CollectionElement as E;
     let joins_with = |x: Option<Span>, y: Option<Span>| match (x, y) {
@@ -102,7 +102,7 @@ fn element_snippet(a: &ast::Ast, el: &ast::CollectionElement) -> Option<Span> {
     }
 }
 
-/// Os escopos locais dos elementos de coleção: (trecho, nomes declarados).
+/// The local scopes of the collection elements: (span, declared names).
 fn collection_scopes(a: &ast::Ast, el: &ast::CollectionElement, output: &mut Vec<(Span, Vec<ast::Name>)>) {
     use ast::CollectionElement as E;
     match el {
@@ -155,14 +155,14 @@ fn collection_scopes(a: &ast::Ast, el: &ast::CollectionElement, output: &mut Vec
     }
 }
 
-/// O nome `n` está declarado num escopo local ou de membro que contém a
-/// posição `pos` da unidade (a busca léxica do analyzer pararia antes do
-/// escopo da biblioteca).
+/// The name `n` is declared in a local or member scope that contains position
+/// `pos` of the unit (the analyzer's lexical lookup would stop before the
+/// library scope).
 pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> bool {
     let in_ = |s: Span| s.start <= pos && pos < s.end;
     let declares = |names: &[ast::Name]| names.iter().any(|x| x.sym == n && x.span.start < pos);
-    // O menor bloco que contém o trecho `s` (o escopo de uma declaração
-    // local); sem bloco, o próprio trecho.
+    // The smallest block that contains the span `s` (the scope of a local
+    // declaration); without a block, the span itself.
     let block_of = |s: Span| {
         a.stmts
             .iter()
@@ -171,12 +171,12 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             .min_by_key(|x| x.end - x.start)
             .unwrap_or(s)
     };
-    // Os locais declarados antes de `pos`, no escopo que os contém.
+    // The locals declared before `pos`, in the scope that contains them.
     for s in a.stmts.iter() {
         let mut names: Vec<ast::Name> = Vec::new();
-        // O local de bloco vale no bloco inteiro, também antes da declaração
-        // (o uso antes dela é `REFERENCED_BEFORE_DECLARATION`, e um prefixo
-        // de mesmo nome fica sombreado: `PREFIX_SHADOWED_BY_LOCAL_DECLARATION`).
+        // A block local is in scope in the whole block, also before its declaration
+        // (a use before it is `REFERENCED_BEFORE_DECLARATION`, and a prefix of the
+        // same name is shadowed: `PREFIX_SHADOWED_BY_LOCAL_DECLARATION`).
         let mut in_whole_block = false;
         let scope = match &s.kind {
             StmtKind::Variables(l) => {
@@ -194,7 +194,7 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
                 in_whole_block = true;
                 block_of(s.span)
             }
-            // As variáveis do laço valem no próprio laço.
+            // The loop variables are in scope in the loop itself.
             StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
                 names.extend(l.variables.iter().map(|v| v.name));
                 s.span
@@ -211,12 +211,12 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
                 declared_in_pattern(a, *pattern, false, &mut names);
                 s.span
             }
-            // As variáveis do `if-case` valem na guarda e no `then`.
+            // The `if-case` variables are in scope in the guard and in the `then`.
             StmtKind::If { case_pattern: Some(p), then, .. } => {
                 declared_in_pattern(a, *p, true, &mut names);
                 Span { start: a.pattern(*p).span.start, end: a.stmt(*then).span.end }
             }
-            // As de cada caso valem na guarda e no corpo do caso.
+            // Those of each case are in scope in the guard and in the case body.
             StmtKind::Switch { cases, .. } => {
                 for c in cases.iter() {
                     let Some(p) = c.pattern else { continue };
@@ -243,7 +243,7 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             return true;
         }
     }
-    // Os casos de `switch` de expressão e os elementos de coleção.
+    // The cases of a `switch` expression and the collection elements.
     for e in a.exprs.iter() {
         match &e.kind {
             ExprKind::Switch { cases, .. } => {
@@ -270,8 +270,8 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             _ => {}
         }
     }
-    // Os parâmetros (no corpo) e os parâmetros de tipo (em toda a função)
-    // das funções que contêm `pos`.
+    // The parameters (in the body) and the type parameters (in the whole
+    // function) of the functions that contain `pos`.
     let common = |ps: &[ast::Parameter]| ps.iter().any(|p| !p.this_ && !p.super_ && p.name.is_some_and(|x| x.sym == n));
     for f in a.functions.iter() {
         if in_(f.span) && f.type_params.iter().any(|t| t.name.sym == n) {
@@ -286,8 +286,8 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             return true;
         }
     }
-    // O construtor: na lista de inicializadores valem todos os parâmetros
-    // (os `this.x` e `super.x` também); no corpo, os comuns.
+    // The constructor: in the initializer list all parameters are in scope
+    // (`this.x` and `super.x` too); in the body, the ordinary ones.
     for m in a.members.iter() {
         let MemberKind::Constructor(k) = &m.kind else { continue };
         let in_initializers = k.initializers.iter().any(|i| {
@@ -307,8 +307,8 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             return true;
         }
     }
-    // Os parâmetros de tipo de um tipo `Function<T>(…)` e de um
-    // parâmetro-função `f<T>(…)`.
+    // The type parameters of a `Function<T>(…)` type and of a function-typed
+    // parameter `f<T>(…)`.
     fn parameter_types(ps: &[ast::Parameter], pos: usize, n: SymbolId) -> bool {
         ps.iter().any(|p| {
             (p.span.start <= pos && pos < p.span.end && p.function_type_params.iter().any(|t| t.name.sym == n))
@@ -327,14 +327,14 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             return true;
         }
     }
-    // Os membros declarados (e os parâmetros de tipo) do tipo que contém
-    // `pos` depois do nome dele; os parâmetros de tipo do typedef.
+    // The declared members (and the type parameters) of the type that contains
+    // `pos` after its name; the type parameters of the typedef.
     let values = interner.lookup("values");
     for d in a.decls.iter() {
         let (the_name, types, members, extras): (Option<ast::Name>, &[ast::TypeParameter], &[ast::MemberId], Vec<SymbolId>) = match &d.kind {
             DeclKind::Class(x) => (Some(x.name), &x.type_params[..], &x.members[..], Vec::new()),
             DeclKind::Mixin(x) => (Some(x.name), &x.type_params[..], &x.members[..], Vec::new()),
-            // O `values` sintético do enum também está no escopo.
+            // The enum's synthetic `values` is also in scope.
             DeclKind::Enum(x) => (Some(x.name), &x.type_params[..], &x.members[..], x.constants.iter().map(|c| c.name.sym).chain(values).collect()),
             DeclKind::Extension(x) => (x.name, &x.type_params[..], &x.members[..], Vec::new()),
             DeclKind::ExtensionType(x) => (Some(x.name), &x.type_params[..], &x.members[..], vec![x.representation_name.sym]),
@@ -367,10 +367,10 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
     false
 }
 
-/// O elemento de topo da anotação `m`, escrita na unidade `u`: o nome
-/// simples, o prefixado (`p.x`, `p.C.ctor`) ou o de classe (`C.ctor`, `C.x`,
-/// que devolve a classe). `None` quando o nome é de um escopo local ou de
-/// membro, ou não resolve.
+/// The top-level element of annotation `m`, written in unit `u`: the simple
+/// name, the prefixed one (`p.x`, `p.C.ctor`) or the class one (`C.ctor`,
+/// `C.x`, which returns the class). `None` when the name is from a local or
+/// member scope, or does not resolve.
 pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<Element> {
     let a = &program.unit(u).ast;
     let pos = m.span.start;
@@ -381,7 +381,7 @@ pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: 
     let in_scope = program.lookup_na_unidade(u, first.sym).and_then(|b| b.getter);
     match &m.name[..] {
         [_] => in_scope,
-        // `p.x` com `p` prefixo de importação, ou `C.x`.
+        // `p.x` with `p` an import prefix, or `C.x`.
         [p, x, ..] => match in_scope {
             Some(e) => Some(e),
             None => program.lookup_prefixed_na_unidade(u, p.sym, x.sym).and_then(|b| b.getter),
@@ -390,9 +390,9 @@ pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: 
     }
 }
 
-/// `ElementAnnotation.element`: o construtor invocado, a classe citada sem
-/// argumentos, ou o getter lido (o da variável de topo ou estática, ou o
-/// explícito).
+/// `ElementAnnotation.element`: the invoked constructor, the class referenced
+/// without arguments, or the getter read (that of the top-level or static
+/// variable, or the explicit one).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InvokedElement {
     Construtor(dartforge_elements::model::ClassId, dartforge_elements::model::FunctionElementId),
@@ -401,7 +401,7 @@ pub enum InvokedElement {
     Outro,
 }
 
-/// O [`ElementoInvocado`] da anotação `m`, escrita na unidade `u`.
+/// The [`InvokedElement`] of annotation `m`, written in unit `u`.
 pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> InvokedElement {
     use dartforge_elements::model::FunctionKind;
     let a = &program.unit(u).ast;
@@ -449,13 +449,13 @@ pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &as
     }
 }
 
-/// O nome da biblioteca (`library a.b;`), como o `LibraryElement.name`.
+/// The library name (`library a.b;`), like `LibraryElement.name`.
 pub fn nome_da_biblioteca(program: &Program, interner: &Interner, l: dartforge_elements::model::LibraryId) -> String {
     program.library(l).name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
 }
 
-/// `_isTopGetter`: a anotação lê o getter `nome` de uma biblioteca chamada
-/// `biblioteca` (`_isPackageMetaGetter` com `meta`).
+/// `_isTopGetter`: the annotation reads the getter `the_name` of a library named
+/// `library` (`_isPackageMetaGetter` with `meta`).
 pub fn e_getter_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, library: &str, the_name: &str) -> bool {
     match invoked_element(program, interner, u, m) {
         InvokedElement::Getter(f) => {
@@ -466,8 +466,8 @@ pub fn e_getter_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::A
     }
 }
 
-/// `_isConstructor`: a anotação invoca um construtor da classe `classe` de
-/// uma biblioteca chamada `biblioteca`.
+/// `_isConstructor`: the annotation invokes a constructor of class `class` of
+/// a library named `library`.
 pub fn e_construtor_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, library: &str, class: &str) -> bool {
     match invoked_element(program, interner, u, m) {
         InvokedElement::Construtor(c, _) => {
@@ -478,8 +478,8 @@ pub fn e_construtor_de(program: &Program, interner: &Interner, u: UnitId, m: &as
     }
 }
 
-/// A anotação `m` (escrita na unidade `u`), sem argumentos, é a variável de
-/// topo `nome` de uma biblioteca cujo URI satisfaz `da_biblioteca`.
+/// Annotation `m` (written in unit `u`), without arguments, is the top-level
+/// variable `the_name` of a library whose URI satisfies `of_library`.
 pub fn annotation_and_variable(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, the_name: &str, of_library: &dyn Fn(&str) -> bool) -> bool {
     if m.arguments.is_some() || m.name.last().is_none_or(|n| interner.resolve(n.sym) != the_name) {
         return false;
@@ -493,9 +493,9 @@ pub fn annotation_and_variable(program: &Program, interner: &Interner, u: UnitId
     }
 }
 
-/// `ElementAnnotation.isDeprecated`: a variável `deprecated` do `dart:core`
-/// (sem argumentos), ou um construtor da classe `Deprecated` do `dart:core`
-/// (`@Deprecated('…')`, com argumentos).
+/// `ElementAnnotation.isDeprecated`: the `deprecated` variable of `dart:core`
+/// (without arguments), or a constructor of the `Deprecated` class of
+/// `dart:core` (`@Deprecated('…')`, with arguments).
 pub fn e_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {
     match annotation_element(program, interner, u, m) {
         Some(Element::Variable(v)) => {
@@ -510,8 +510,8 @@ pub fn e_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast::
     }
 }
 
-/// `ElementAnnotation.isDeprecated` sem argumentos: a variável
-/// `deprecated` do `dart:core`.
+/// `ElementAnnotation.isDeprecated` without arguments: the `deprecated`
+/// variable of `dart:core`.
 pub fn e_deprecated_do_core(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {
     annotation_and_variable(program, interner, u, m, "deprecated", &|uri| uri == "dart:core")
 }

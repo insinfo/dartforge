@@ -1,19 +1,19 @@
-//! O `SdkConstraintVerifier` do analyzer
-//! (`analyzer/lib/src/hint/sdk_constraint_verifier.dart`, lido por inteiro
-//! na 6.11.0; docs/ANALYZER-ESPECIFICACAO-INFRA.md §6.4 e lote II.8):
+//! The analyzer's `SdkConstraintVerifier`
+//! (`analyzer/lib/src/hint/sdk_constraint_verifier.dart`, read in full in
+//! 6.11.0; docs/ANALYZER-ESPECIFICACAO-INFRA.md §6.4 and batch II.8):
 //!
-//! * `sdk_version_gt_gt_gt_operator`: o operador `>>>`, usado ou declarado,
-//!   quando a restrição de SDK do `pubspec.yaml` admite versão anterior à
+//! * `sdk_version_gt_gt_gt_operator`: the `>>>` operator, used or declared,
+//!   when the SDK constraint in `pubspec.yaml` admits a version earlier than
 //!   2.14.0;
-//! * `sdk_version_since`: a referência a um elemento do SDK anotado com
-//!   `@Since('x.y')` (nele ou na classe que o contém) que a restrição não
-//!   garante.
+//! * `sdk_version_since`: a reference to an SDK element annotated with
+//!   `@Since('x.y')` (on itself or on its enclosing class) that the
+//!   constraint does not guarantee.
 //!
-//! Fora: os argumentos posicionais passados a parâmetros com `@Since`, os
-//! operadores de índice e de atribuição, a invocação de expressão de
-//! função, e a propriedade `index` (o original só a relata quando o alvo é
-//! exatamente `Enum`). A restrição em união (`||`) não é lida.
-//! Escrito sem compilar nem executar (2026-10-04).
+//! Left out: positional arguments passed to parameters with `@Since`, index
+//! and assignment operators, function expression invocation, and the
+//! `index` property (the original only reports it when the target is
+//! exactly `Enum`). A union constraint (`||`) is not read.
+//! Written without compiling or running (2026-10-04).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_diagnostics::codigos::warning as w;
@@ -22,13 +22,13 @@ use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionRef
 use dartforge_frontend::ast::{self, BinaryOp, DeclKind, ExprKind, FunctionKind, MemberKind, TypeKind};
 use dartforge_intern::Interner;
 
-/// Uma versão `maior.menor.correção`, sem pré-lançamento.
+/// A `major.minor.patch` version, without pre-release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version(pub u32, pub u32, pub u32);
 
 impl Version {
-    /// `2.15`, `2.15.0`, `3.0.0-dev.1`: o que falta é zero; o que vem depois
-    /// de `-` ou `+` é descartado.
+    /// `2.15`, `2.15.0`, `3.0.0-dev.1`: missing parts are zero; whatever comes
+    /// after `-` or `+` is discarded.
     pub fn de_texto(text: &str) -> Option<Version> {
         let core_lib = text.trim().split(['-', '+']).next()?;
         let mut parts = core_lib.split('.').map(|p| p.parse::<u32>());
@@ -45,18 +45,19 @@ impl std::fmt::Display for Version {
     }
 }
 
-/// A restrição `environment: sdk:` do `pubspec.yaml`.
+/// The `environment: sdk:` constraint of `pubspec.yaml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestricaoDeSdk {
-    /// O mínimo (de `^v`, `>=v`, `>v` ou da versão exata); `None` sem piso.
+    /// The minimum (from `^v`, `>=v`, `>v` or the exact version); `None` without
+    /// a lower bound.
     pub minimo: Option<Version>,
-    /// O texto da restrição, com os espaços normalizados (o `toString`).
+    /// The constraint text, with normalized spaces (the `toString`).
     pub texto: String,
 }
 
 impl RestricaoDeSdk {
-    /// `^3.6.0`, `>=2.12.0 <4.0.0`, `any`, `3.6.0`. `None` para o que não se
-    /// lê (uniões com `||`, texto inválido): o verificador não roda.
+    /// `^3.6.0`, `>=2.12.0 <4.0.0`, `any`, `3.6.0`. `None` for what cannot be
+    /// read (unions with `||`, invalid text): the verifier does not run.
     pub fn de_texto(text: &str) -> Option<RestricaoDeSdk> {
         let normal = text.split_whitespace().collect::<Vec<_>>().join(" ");
         if normal.contains("||") {
@@ -78,18 +79,18 @@ impl RestricaoDeSdk {
         Some(RestricaoDeSdk { minimo: minimum, texto: normal })
     }
 
-    /// `requiresAtLeast`: o mínimo da restrição é pelo menos `versao`.
+    /// `requiresAtLeast`: the constraint's minimum is at least `version`.
     fn guarantees(&self, version: Version) -> bool {
         self.minimo.is_some_and(|m| m >= version)
     }
 
-    /// `checkTripleShift`: a restrição admite versão anterior à 2.14.0.
+    /// `checkTripleShift`: the constraint admits a version earlier than 2.14.0.
     fn before_triple_shift(&self) -> bool {
         self.minimo.is_none_or(|m| m < Version(2, 14, 0))
     }
 }
 
-/// A versão do `@Since('x.y')` de uma lista de anotações.
+/// The `@Since('x.y')` version from a list of annotations.
 fn desde(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Option<Version> {
     metadata.iter().find_map(|m| {
         let args = m.arguments.as_ref()?;
@@ -130,7 +131,7 @@ fn since_of_variable(program: &Program, interner: &Interner, v: VariableId) -> O
         }
         _ => None,
     };
-    // `sinceSdkVersion`: o maior entre o do elemento e o de quem o contém.
+    // `sinceSdkVersion`: the greater of the element's and its container's.
     own.max(e.class.and_then(|c| since_of_class(program, interner, c)))
 }
 
@@ -158,7 +159,7 @@ fn since_of_function(program: &Program, interner: &Interner, f: FunctionElementI
     own.max(e.class.and_then(|c| since_of_class(program, interner, c)))
 }
 
-/// Os relatos do `SdkConstraintVerifier` na unidade `u`.
+/// The `SdkConstraintVerifier` reports in unit `u`.
 pub fn restricao_de_sdk(
     program: &Program,
     interner: &Interner,
@@ -169,7 +170,7 @@ pub fn restricao_de_sdk(
     let mut out: Vec<Diagnostic> = Vec::new();
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
-    // `>>>`: o uso e a declaração do operador.
+    // `>>>`: use and declaration of the operator.
     if constraint.before_triple_shift() {
         for e in a.exprs.iter() {
             if let ExprKind::Binary { op: BinaryOp::UShr, left, right } = &e.kind {
@@ -193,13 +194,13 @@ pub fn restricao_de_sdk(
         if constraint.guarantees(v) {
             return;
         }
-        // O ouvinte é um conjunto: um relato por posição.
+        // The listener is a set: one report per position.
         if !out.iter().any(|x| x.code == Some(w::SDK_VERSION_SINCE) && x.span == span) {
             let text = v.to_string();
             out.push(Diagnostic::com_codigo(w::SDK_VERSION_SINCE, span, [text.as_str(), constraint.texto.as_str()]));
         }
     };
-    // Tipos nomeados: a classe do SDK, no nome.
+    // Named types: the SDK class, at the name.
     for t in a.types.iter() {
         let TypeKind::Named { name, .. } = &t.kind else { continue };
         let binding = match &name[..] {
@@ -224,8 +225,8 @@ pub fn restricao_de_sdk(
                 Resolved::Element(Element::Class(c)) => since_of_class(program, interner, *c),
                 Resolved::Element(Element::Function(f)) => since_of_function(program, interner, *f),
                 Resolved::Element(Element::Variable(v)) => since_of_variable(program, interner, *v),
-                // `_shouldReportEnumIndex`: `index` só com alvo exatamente
-                // `Enum`, o que aqui não se confere.
+                // `_shouldReportEnumIndex`: `index` only with a target that is exactly
+                // `Enum`, which is not checked here.
                 Resolved::Member { .. } | Resolved::ExtensionMember { .. } if interner.resolve(at_name.sym) == "index" => None,
                 Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
                     since_of_function(program, interner, *f)

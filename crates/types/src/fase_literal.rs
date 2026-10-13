@@ -1,17 +1,17 @@
-//! `non_const_call_to_literal_constructor` (e a variante `_USING_NEW`)
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.7): o
-//! `BestPracticesVerifier._checkForLiteralConstructorUse` da 3.6.2
+//! `non_const_call_to_literal_constructor` (and the `_USING_NEW` variant)
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.7): the 3.6.2
+//! `BestPracticesVerifier._checkForLiteralConstructorUse`
 //! (`analyzer/lib/src/error/best_practices_verifier.dart`).
 //!
-//! A criação sem `const` de um construtor marcado com o `@literal` do
-//! `package:meta` (`fase_resultado::anotacao_do_meta`) que poderia ser
-//! `const` relata o nó inteiro com o nome do construtor como escrito
-//! (`constructorName.type.qualifiedName` e `.nome`); com `new`, a variante
-//! `_USING_NEW`. O "poderia ser `const`" é o `canBeConst` do linter do
-//! analyzer: o construtor `const` e a verificação de constantes da criação,
-//! como se tivesse `const`, sem erro de constante
-//! (`constantes::verificador::criacao_pode_ser_const`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! A creation without `const` of a constructor marked with the `@literal` of
+//! `package:meta` (`fase_resultado::meta_annotation`) that could be `const`
+//! reports the whole node with the constructor name as written
+//! (`constructorName.type.qualifiedName` and `.the_name`); with `new`, the
+//! `_USING_NEW` variant. "Could be `const`" is the analyzer linter's
+//! `canBeConst`: the `const` constructor and the constant check of the
+//! creation, as if it had `const`, without a constant error
+//! (`constantes::verifier::creation_can_be_const`).
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::Motor;
 use crate::resolve::OutlineTypes;
@@ -24,8 +24,8 @@ use dartforge_frontend::ast::{self, CreationKeyword, ExprId, ExprKind};
 use dartforge_intern::Interner;
 use std::collections::HashSet;
 
-/// Uma criação candidata: a unidade, a expressão, o nome a relatar e se
-/// foi escrita com `new`.
+/// A candidate creation: the unit, the expression, the name to report and
+/// whether it was written with `new`.
 struct Candidate {
     unidade: UnitId,
     lib: LibraryId,
@@ -34,7 +34,7 @@ struct Candidate {
     with_new: bool,
 }
 
-/// Os relatos das bibliotecas `libs` (as próprias, cujos corpos `corpos` tem).
+/// The reports of the libraries `libs` (our own, whose bodies `bodies` holds).
 #[allow(clippy::too_many_arguments)]
 pub fn construtores_literais(
     program: &Program,
@@ -50,7 +50,7 @@ pub fn construtores_literais(
     if interner.lookup("literal").is_none() {
         return out;
     }
-    // As criações sem `const` de construtor `@literal`.
+    // The creations without `const` of a `@literal` constructor.
     let mut candidates: Vec<Candidate> = Vec::new();
     for &lib in libs {
         for &u in &program.library(lib).units {
@@ -72,8 +72,8 @@ pub fn construtores_literais(
                         };
                         (matches!(keyword, Some(CreationKeyword::New)), the_name)
                     }
-                    // A criação sem `new` que a resolução diz ser de
-                    // construtor: o nome escrito, sem os argumentos de tipo.
+                    // A creation without `new` that resolution says is of a constructor: the
+                    // written name, without the type arguments.
                     ExprKind::Call { target, .. } => {
                         if !matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) {
                             continue;
@@ -108,8 +108,8 @@ pub fn construtores_literais(
     out
 }
 
-/// O nome escrito no alvo de uma criação sem `new`: `C`, `p.C`, `C.nome`,
-/// `p.C.nome`, sem os argumentos de tipo.
+/// The name written in the target of a creation without `new`: `C`, `p.C`,
+/// `C.the_name`, `p.C.the_name`, without the type arguments.
 fn written_name(interner: &Interner, a: &ast::Ast, e: ExprId) -> Option<String> {
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => Some(interner.resolve(n.sym).to_string()),

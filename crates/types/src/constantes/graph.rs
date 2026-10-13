@@ -1,61 +1,62 @@
-//! O caminhante do grafo de dependências de constantes: o porte literal do
-//! `DependencyWalker` do analyzer (`dependency_walker.dart:7-152`, usado por
-//! `computeConstants`, `compute.dart:31-96`). É o algoritmo de Tarjan com duas
-//! particularidades que a paridade exige reproduzir
-//! (docs/ANALYZER-ESPECIFICACAO.md §D, D.R4-1 §1.4, e §G, T8):
+//! The walker of the constant dependency graph: a literal port of the
+//! analyzer's `DependencyWalker` (`dependency_walker.dart:7-152`, used by
+//! `computeConstants`, `compute.dart:31-96`). It is Tarjan's algorithm with
+//! two particularities that parity requires reproducing
+//! (docs/ANALYZER-ESPECIFICACAO.md §D, D.R4-1 §1.4, and §G, T8):
 //!
-//! * o índice e o menor índice alcançável de cada nó **persistem** entre os
-//!   percursos, e o contador de índices **recomeça em 1** a cada percurso;
-//! * um nó só sai de consideração quando o grafo o dá por avaliado
-//!   ([`Grafo::avaliado`]). O construtor de um ciclo nunca fica avaliado: num
-//!   percurso posterior ele é "já visto" com o índice velho, e um dependente
-//!   pode ser desempilhado junto com o ancestral como um componente de vários
-//!   nós — o falso `recursive_compile_time_constant` que depende da ordem
-//!   das declarações (o caso `c27` da especificação).
+//! * the index and the lowest reachable index of each node **persist** across
+//!   walks, and the index counter **restarts at 1** on each walk;
+//! * a node only leaves consideration when the graph considers it evaluated
+//!   ([`Grafo::evaluated`]). A constructor in a cycle never becomes evaluated:
+//!   in a later walk it is "already seen" with its old index, and a
+//!   dependent may be popped together with the ancestor as a multi-node
+//!   component, which is the false `recursive_compile_time_constant` that
+//!   depends on declaration order (case `c27` of the specification).
 //!
-//! Cada componente fortemente conexo é entregue uma vez: um nó sozinho e sem
-//! aresta para si vai a [`Grafo::avaliar`]; qualquer outro componente (vários
-//! nós, ou um nó que depende de si) vai a [`Grafo::avaliar_componente`], que
-//! marca o ciclo.
+//! Each strongly connected component is delivered once: a single node without
+//! an edge to itself goes to [`Grafo::avaliar`]; any other component
+//! (several nodes, or a node that depends on itself) goes to
+//! [`Grafo::evaluate_component`], which marks the cycle.
 
-/// O grafo que o caminhante percorre. Os nós são índices densos.
+/// The graph the walker traverses. Nodes are dense indices.
 pub trait Grafo {
-    /// As dependências diretas de `no`, na ordem em que o analyzer as relata
-    /// (`computeDependencies`). Chamado no máximo uma vez por nó.
+    /// The direct dependencies of `no`, in the order the analyzer reports them
+    /// (`computeDependencies`). Called at most once per node.
     fn dependencias(&mut self, no: usize) -> Vec<usize>;
-    /// O nó já tem resultado (`isConstantEvaluated`): variável com valor
-    /// guardado, construtor `const` fora de ciclo já computado, anotação com
-    /// valor; variável não `const` e parâmetro sem padrão, sempre.
+    /// The node already has a result (`isConstantEvaluated`): a variable with a
+    /// stored value, an already computed `const` constructor outside a cycle, an
+    /// annotation with a value; a non-`const` variable and a parameter without a
+    /// default, always.
     fn evaluated(&self, no: usize) -> bool;
-    /// Um componente de um nó só, sem auto-referência: calcula o valor
-    /// (`computeConstantValue`). Todas as dependências já estão avaliadas ou
-    /// marcadas como ciclo.
+    /// A single-node component without self-reference: computes the value
+    /// (`computeConstantValue`). All dependencies are already evaluated or
+    /// marked as a cycle.
     fn avaliar(&mut self, no: usize);
-    /// Um componente com ciclo, do topo da pilha para baixo (o nó que fecha
-    /// o componente é o último): cada variável recebe o erro de ciclo e cada
-    /// construtor deixa de ser livre de ciclo (`generateCycleError`).
+    /// A component with a cycle, from the top of the stack down (the node that
+    /// closes the component is the last one): each variable gets the cycle error
+    /// and each constructor stops being cycle-free (`generateCycleError`).
     fn evaluate_component(&mut self, nodes: &[usize]);
 }
 
-/// O estado do percurso que persiste entre as chamadas de
-/// [`Caminhante::percorrer`].
+/// The walk state that persists across calls to
+/// [`Walker::percorrer`].
 #[derive(Debug, Default)]
 pub struct Walker {
-    /// `_index` de cada nó (0 = nunca visto).
+    /// `_index` of each node (0 = never seen).
     indice: Vec<u32>,
-    /// `_lowLink` de cada nó.
+    /// `_lowLink` of each node.
     less: Vec<u32>,
-    /// As dependências de cada nó, pedidas ao grafo uma vez.
+    /// The dependencies of each node, requested from the graph once.
     dependencias: Vec<Option<Vec<usize>>>,
 }
 
-/// Um quadro de `strongConnect` (a recursão do original, explícita: uma
-/// cadeia de constantes pode ser mais funda que a pilha da thread).
+/// A `strongConnect` frame (the original's recursion, made explicit: a chain
+/// of constants may be deeper than the thread's stack).
 struct Quadro {
     no: usize,
-    /// A próxima dependência a examinar.
+    /// The next dependency to examine.
     proxima: usize,
-    /// O nó depende de si mesmo (`hasTrivialCycle`).
+    /// The node depends on itself (`hasTrivialCycle`).
     trivial: bool,
 }
 
@@ -72,13 +73,13 @@ impl Walker {
         }
     }
 
-    /// `walk(start)`: avalia `inicio` e tudo de que ele depende, na ordem das
-    /// dependências, entregando ao grafo cada componente fortemente conexo.
+    /// `walk(start)`: evaluates `start` and everything it depends on, in
+    /// dependency order, handing each strongly connected component to the graph.
     pub fn percorrer<G: Grafo>(&mut self, g: &mut G, start: usize) {
         if g.evaluated(start) {
             return;
         }
-        // O contador recomeça a cada percurso; os índices dos nós, não.
+        // The counter restarts on each walk; the node indices do not.
         let mut counter: u32 = 1;
         let mut stack: Vec<usize> = Vec::new();
         let mut frames: Vec<Quadro> = Vec::new();
@@ -103,17 +104,17 @@ impl Walker {
                     if dep == no {
                         frames[top].trivial = true;
                     } else if self.indice[dep] == 0 {
-                        // Desce; o menor índice do filho sobe na volta
-                        // (abaixo, quando o quadro dele fecha).
+                        // Goes down; the child's lowest index comes back up on return
+                        // (below, when its frame closes).
                         self.abrir(dep, &mut counter, &mut stack, &mut frames);
                     } else if self.indice[dep] < self.less[no] {
-                        // Já visto (neste percurso ou num anterior, sem
-                        // ter sido avaliado): o índice dele, como está.
+                        // Already seen (in this walk or an earlier one, without having
+                        // been evaluated): its index, as it is.
                         self.less[no] = self.indice[dep];
                     }
                 }
                 None => {
-                    // Todas as dependências vistas: fecha o nó.
+                    // All dependencies seen: closes the node.
                     let trivial = frames[top].trivial;
                     frames.pop();
                     if self.less[no] == self.indice[no] {
@@ -135,7 +136,7 @@ impl Walker {
                             g.evaluate_component(&component);
                         }
                     }
-                    // A volta de `strongConnect(dep)` no pai.
+                    // The return of `strongConnect(dep)` in the parent.
                     if let Some(parent) = frames.last() {
                         let parent = parent.no;
                         if self.less[no] < self.less[parent] {
@@ -147,7 +148,7 @@ impl Walker {
         }
     }
 
-    /// O começo de `strongConnect(no)`: numera o nó e o empilha.
+    /// The start of `strongConnect(no)`: numbers the node and pushes it.
     fn abrir(&mut self, no: usize, counter: &mut u32, stack: &mut Vec<usize>, frames: &mut Vec<Quadro>) {
         self.ensure(no);
         self.indice[no] = *counter;
@@ -162,8 +163,8 @@ impl Walker {
 mod testes {
     use super::*;
 
-    /// Um grafo de teste: as arestas, quem é construtor (nunca fica avaliado
-    /// depois de um ciclo, e fica depois de `avaliar`), e o que aconteceu.
+    /// A test graph: the edges, which nodes are constructors (never evaluated
+    /// after a cycle, and evaluated after `avaliar`), and what happened.
     struct Test {
         arestas: Vec<Vec<usize>>,
         avaliados: Vec<bool>,
@@ -202,8 +203,8 @@ mod testes {
             self.simples.push(no);
         }
         fn evaluate_component(&mut self, nodes: &[usize]) {
-            // A variável de um ciclo fica com o inválido guardado (avaliada);
-            // o construtor de um ciclo nunca fica avaliado.
+            // A variable in a cycle keeps the stored invalid value (evaluated);
+            // a constructor in a cycle never becomes evaluated.
             for &n in nodes {
                 if !self.construtor[n] {
                     self.avaliados[n] = true;
@@ -226,7 +227,7 @@ mod testes {
 
     #[test]
     fn three_cycle_with_clean_dependent() {
-        // `c02`: a → b → c → a; d → a. Só as três do ciclo recebem o erro.
+        // `c02`: a → b → c → a; d → a. Only the three in the cycle get the error.
         let mut g = Test::novo(vec![vec![1], vec![2], vec![0], vec![0]], &[]);
         g.run(&[0, 1, 2, 3]);
         assert_eq!(g.cycles, vec![vec![0, 1, 2]]);
@@ -246,27 +247,27 @@ mod testes {
     fn cycle_constructor_seen_before_gives_false_cycle() {
         // `c27`: class C { const C() : this.a(); const C.a() : this(); }
         //        const y = z;  const z = const C();
-        // Nós: 0 = C(), 1 = C.a(), 2 = y, 3 = z. Ordem dos alvos: a da fonte.
+        // Nodes: 0 = C(), 1 = C.a(), 2 = y, 3 = z. Target order: source order.
         let mut g = Test::novo(vec![vec![1], vec![0], vec![3], vec![0]], &[0, 1]);
         g.run(&[0, 1, 2, 3]);
-        // Os dois construtores formam o ciclo de verdade; `y` e `z` saem
-        // como um segundo componente, que não existe no grafo.
+        // The two constructors form the real cycle; `y` and `z` come out as
+        // a second component, which does not exist in the graph.
         assert_eq!(g.cycles, vec![vec![0, 1], vec![2, 3]]);
-        // O percurso de `C.a`, sozinho, fecha um componente de um nó (o
-        // índice velho de `C()` não é menor que o dele): é "computado".
+        // The walk of `C.a`, alone, closes a single-node component (the old
+        // index of `C()` is not lower than its own): it is "computed".
         assert_eq!(g.simples, vec![1]);
     }
 
     #[test]
     fn same_thing_with_class_after_gives_no_false_cycle() {
-        // `s28`: const w2 = w;  const w = const R();  class R { os dois construtores }
-        // Nós: 0 = w2, 1 = w, 2 = R(), 3 = R.a(). O percurso de `w2` é quem
-        // visita `R` pela primeira vez.
+        // `s28`: const w2 = w;  const w = const R();  class R { both constructors }
+        // Nodes: 0 = w2, 1 = w, 2 = R(), 3 = R.a(). The walk of `w2` is the one
+        // that visits `R` for the first time.
         let mut g = Test::novo(vec![vec![1], vec![2], vec![3], vec![2]], &[2, 3]);
         g.run(&[0, 1, 2, 3]);
         assert_eq!(g.cycles, vec![vec![2, 3]]);
-        // `w` e `w2` saem limpos; os percursos seguintes dos dois
-        // construtores, cada um sozinho, os dão por computados.
+        // `w` and `w2` come out clean; the following walks of the two
+        // constructors, each alone, consider them computed.
         assert_eq!(g.simples, vec![1, 0, 2, 3]);
     }
 }

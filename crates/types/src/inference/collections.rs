@@ -1,7 +1,7 @@
-//! Literais de lista, conjunto e mapa: inferência como a de uma chamada
-//! genérica `<E>(E, …) -> List<E>` (`<K, V>(…) -> Map<K, V>`), com os
-//! elementos (inclusive `...`, `if`, `for`) gerando restrições; e a decisão
-//! conjunto × mapa para `{}` pelos elementos e pelo contexto.
+//! List, set and map literals: inference like that of a generic call
+//! `<E>(E, …) -> List<E>` (`<K, V>(…) -> Map<K, V>`), with the elements
+//! (including `...`, `if`, `for`) generating constraints; and the set ×
+//! map decision for `{}` from the elements and the context.
 
 use super::body::Body;
 use super::expr::{self, inferir, infer_free};
@@ -20,14 +20,14 @@ enum Forma {
 }
 
 impl<'a> BodyInferrer<'a> {
-    /// Três parâmetros de tipo auxiliares (E, K, V) para os literais.
+    /// Three auxiliary type parameters (E, K, V) for the literals.
     fn collection_params(&mut self) -> [TypeParamId; 3] {
         let o = self.core.object_nullable;
         if let Some(p) = self.collection_params_cache {
             return p;
         }
-        // Os nomes do SDK (`List<E>`/`Set<E>`, `Map<K, V>`): aparecem no
-        // `COULD_NOT_INFER` do literal.
+        // The SDK's names (`List<E>`/`Set<E>`, `Map<K, V>`): they appear in the
+        // literal's `COULD_NOT_INFER`.
         let unnamed = self.table.param(self.core.unknown_param).name;
         let names = ["E", "K", "V"].map(|n| self.interner.lookup(n).unwrap_or(unnamed));
         let mk = |t: &mut crate::table::TypeTable, name| t.alloc_type_param(name, crate::table::TypeParamOwner::GenericFunctionType, o, crate::table::Variance::Unspecified);
@@ -37,8 +37,8 @@ impl<'a> BodyInferrer<'a> {
     }
 }
 
-/// Classificação sintática dos elementos de `{...}`: `Some(true)` mapa,
-/// `Some(false)` conjunto, `None` indeciso (só espalhamentos ou vazio).
+/// Syntactic classification of the elements of `{...}`: `Some(true)` map,
+/// `Some(false)` set, `None` undecided (only spreads, or empty).
 fn shape_from_elements(els: &[CollectionElement]) -> Option<bool> {
     for el in els {
         match el {
@@ -65,13 +65,13 @@ fn shape_from_elements(els: &[CollectionElement]) -> Option<bool> {
     None
 }
 
-/// Infere um literal de coleção.
+/// Infers a collection literal.
 pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
-    // `Some(ambos)`: o literal é ambíguo (`ambos`: o `_BOTH`).
+    // `Some(both)`: the literal is ambiguous (`both`: the `_BOTH`).
     let mut ambiguous: Option<bool> = None;
-    // `{…}` sem argumentos de tipo: depois da visita, os tipos dos
-    // elementos decidem a forma de novo (`_inferSetOrMapLiteralType`).
+    // `{…}` without type arguments: after the visit, the element types
+    // decide the shape again (`_inferSetOrMapLiteralType`).
     let mut keys = false;
     let (mut shape, type_args, elements, const_) = match &a.expr(e).kind {
         ExprKind::List { const_, type_args, elements } => (Forma::Lista, type_args, elements, *const_),
@@ -101,19 +101,20 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         _ => unreachable!(),
     };
     let elements: &[CollectionElement] = elements;
-    // Num literal `const` o contexto vale pelo fecho menor em relação às
-    // variáveis de tipo (uma constante não pode depender delas): o padrão
-    // `{Iterable<T> m = const []}` de uma classe genérica é
-    // `const <Never>[]`, como na VM (o `Router<T>` do angel3; sem isto o
-    // literal saía `List<dynamic>` no nativo e o argumento padrão falhava na
-    // conferência do parâmetro, docs/NATIVO-PROJETOS-REAIS.md C12).
+    // In a `const` literal the context counts through the least closure with
+    // respect to the type variables (a constant cannot depend on them): the
+    // default `{Iterable<T> m = const []}` of a generic class is
+    // `const <Never>[]`, as in the VM (angel3's `Router<T>`; without this the
+    // literal came out as `List<dynamic>` in the native backend and the
+    // default argument failed the parameter check,
+    // docs/NATIVO-PROJETOS-REAIS.md C12).
     let ctx = if const_ && type_args.is_empty() && !inf.the_is_unknown(ctx) {
         let mut ps = Vec::new();
         params_in_type(inf.table, ctx, &mut ps);
-        // Só as variáveis de tipo em escopo (classe, método, funções
-        // envolventes): as da invocação genérica sendo inferida (o `T` de
-        // `Stream.fromIterable(const [1])`) não são variáveis livres do
-        // literal — a CFE as tem como `_` no contexto
+        // Only the type variables in scope (class, method, enclosing
+        // functions): those of the generic invocation being inferred (the `T`
+        // of `Stream.fromIterable(const [1])`) are not free variables of the
+        // literal: the CFE has them as `_` in the context
         // (type_schema_environment.dart `setupGenericTypeInference`).
         let visible = cx.visible_type_parameters();
         ps.retain(|p| visible.values().any(|q| q == p));
@@ -163,16 +164,16 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
             visitar(inf, cx, el, shape, ctxs, Some((&mut gi, &params[..])));
         }
         // `_inferSetOrMapLiteralType` (`typed_literal_resolver.dart:516-597`):
-        // depois da visita, os tipos dos elementos decidem antes do contexto
-        // — todos admitem conjunto e algum o exige, conjunto; senão, todos
-        // admitem mapa e algum o exige, mapa; senão a forma do contexto
-        // (`Iterable` sem `Map`, conjunto; `Map` sem `Iterable`, mapa); vazio,
-        // mapa; senão o literal é ambíguo (o inferidor sai sem relatar).
-        // `{...[1, 2]}` com contexto `Map` é `Set<int>`; `{null, ...o}` com
-        // `o` de tipo `Object?` é `AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER`.
-        // Contra a forma da visita, o inferidor dela é abandonado e um novo,
-        // sem contexto, recebe os tipos dos elementos (`_toSetType`/
-        // `_toMapType`, `:740-815`).
+        // after the visit, the element types decide before the context: if all
+        // admit a set and some require it, set; otherwise, if all admit a map
+        // and some require it, map; otherwise the context's shape (`Iterable`
+        // without `Map`, set; `Map` without `Iterable`, map); empty, map;
+        // otherwise the literal is ambiguous (the inferrer exits without
+        // reporting). `{...[1, 2]}` with a `Map` context is `Set<int>`;
+        // `{null, ...o}` with `o` of type `Object?` is
+        // `AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER`. Against the visit's shape, its
+        // inferrer is abandoned and a new one, without a context, receives the
+        // element types (`_toSetType`/`_toMapType`, `:740-815`).
         let mut gi = gi;
         if keys && ambiguous.is_none() {
             let infos: Vec<Admits> = elements.iter().map(|el| admits(inf, el, true)).collect();
@@ -220,8 +221,8 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         let (interner, program) = (inf.interner, inf.program);
         let mut env = inf.env();
         let finals = gi.choose_final(&mut env);
-        // O `chooseFinalTypes` com o relator e o literal como entidade (o
-        // literal ambíguo sai da inferência sem ele).
+        // `chooseFinalTypes` with the reporter and the literal as entity (an
+        // ambiguous literal leaves inference without it).
         let failures = if ambiguous.is_none() { gi.failures(&finals, &mut env, interner, program) } else { Vec::new() };
         drop(env);
         let sp = inf.span_expr(cx.unit, e);
@@ -234,8 +235,8 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         validate_const_collection(inf, cx, e);
     }
     // `_inferSetOrMapLiteralType` (`typed_literal_resolver.dart:579-597`):
-    // ambíguo, o literal inteiro relata e fica `dynamic` (sem a verificação
-    // dos elementos, que só roda em mapa ou conjunto).
+    // when ambiguous, the whole literal reports and becomes `dynamic`
+    // (without the element check, which only runs on a map or a set).
     if let Some(both) = ambiguous {
         let sp = inf.span_expr(cx.unit, e);
         let code = if both {
@@ -251,13 +252,14 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
 }
 
 /// `LiteralElementVerifier` (an611:src/error/literal_element_verifier.dart:52-325),
-/// chamado pelo `ErrorVerifier` para todo literal (const ou não) com o tipo
-/// estático final: elemento, chave/valor e espalhamento contra o tipo do
-/// literal. Num literal `const`, o verificador de constantes já relata os
-/// elementos avaliados; aqui só os de dentro de `if`/`for` (ramos que a
-/// avaliação pode não visitar), para não duplicar o relato.
-/// Objeto (com `call`) num contexto de tipo de função: a conversão implícita
-/// de `call` muda o tipo; fica de fora (sem a regra completa, nada relatar).
+/// called by `ErrorVerifier` for every literal (const or not) with the final
+/// static type: element, key/value and spread against the literal's type. In a
+/// `const` literal, the constant verifier already reports the evaluated
+/// elements; here only those inside `if`/`for` (branches that evaluation may
+/// not visit), so the report is not duplicated.
+/// An object (with `call`) in a function type context: the implicit `call`
+/// conversion changes the type; it is left out (without the full rule,
+/// report nothing).
 fn implicit_tearoff(inf: &BodyInferrer<'_>, of: TypeId, for_: TypeId) -> bool {
     matches!(inf.table.get(for_), Type::Function { .. } | Type::FutureOr { .. })
         && matches!(inf.table.get(of), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. })
@@ -298,10 +300,9 @@ fn verify_elements(
                 let types = &inf.body_types.units[cx.unit.0 as usize];
                 let (Some(tk), Some(tv)) = (types.get_type(*key), types.get_type(*value)) else { continue };
                 // `_verifyMapLiteralEntry` (3.13.4 `literal_element_verifier.dart:144-172`):
-                // a chave (depois o valor) `void` para a entrada quando tem
-                // o `?` ou quando o tipo dela no mapa não é `void` (o
-                // `use_of_void_result` sai na inferência); com `<K, void>`,
-                // o valor `void` segue para a conferência da chave.
+                // a `void` key (then value) for the entry when it has the `?` or when its
+                // type in the map is not `void` (`use_of_void_result` comes from
+                // inference); with `<K, void>`, the `void` value goes on to the key check.
                 let void = |t: TypeId| matches!(inf.table.get(t), Type::Void);
                 let (void_key, void_value) = (void(tk), void(tv));
                 if void_key && (*null_aware_key || !void(args[0])) {
@@ -324,13 +325,13 @@ fn verify_elements(
                     continue;
                 }
                 let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*value) else { continue };
-                // `...e` (sem `?`) com `e` de tipo `Null`
-                // (`literal_element_verifier.dart:180-200`, `:275-292`): na
-                // expressão espalhada.
-                // `_verifySpreadForListOrSet`/`_verifySpreadForMap`: subtipo de
-                // `Never` não relata; subtipo de `Null` (inclusive o parâmetro
-                // de tipo de limite `Null`) só sem `?`; o resto pelo
-                // `asInstanceOf` (sem o `?`, parâmetro de tipo pelo limite).
+                // `...e` (without `?`) with `e` of type `Null`
+                // (`literal_element_verifier.dart:180-200`, `:275-292`): at the spread
+                // expression.
+                // `_verifySpreadForListOrSet`/`_verifySpreadForMap`: a subtype of
+                // `Never` does not report; a subtype of `Null` (including a type
+                // parameter bounded by `Null`) only without `?`; the rest through
+                // `asInstanceOf` (without the `?`, a type parameter through its bound).
                 if inf.e_dynamic(tx) {
                     continue;
                 }
@@ -352,8 +353,8 @@ fn verify_elements(
                 }
                 let sp = inf.span_expr(cx.unit, *value);
                 // `_verifySpreadForListOrSet`/`_verifySpreadForMap`
-                // (`literal_element_verifier.dart:176-213`, `:267-303`): o que
-                // não é `Iterable`/`Map`.
+                // (`literal_element_verifier.dart:176-213`, `:267-303`): whatever is
+                // not an `Iterable`/`Map`.
                 let cls = if shape == Forma::Mapa { inf.core.map_class } else { inf.core.iterable_class };
                 if inf.as_instance_of(tx, cls).is_none() {
                     let code = if shape == Forma::Mapa { ce::NOT_MAP_SPREAD } else { ce::NOT_ITERABLE_SPREAD };
@@ -388,10 +389,10 @@ fn verify_elements(
             CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
                 verify_elements(inf, cx, std::slice::from_ref(&**body), shape, t, const_, true);
             }
-            // Entrada `k: v` numa lista ou num conjunto (o `forList`/`forSet`
-            // do `LiteralElementVerifier`, `literal_element_verifier.dart:93-100`):
-            // relatada sempre, const ou não (o verificador de constantes não
-            // relata a entrada fora de mapa).
+            // A `k: v` entry in a list or set (the `forList`/`forSet` of
+            // `LiteralElementVerifier`, `literal_element_verifier.dart:93-100`):
+            // always reported, const or not (the constant verifier does not report
+            // an entry outside a map).
             CollectionElement::MapEntry { key, value, null_aware_key, .. } => {
                 if args.len() != 1 {
                     continue;
@@ -401,7 +402,7 @@ fn verify_elements(
                 let start = if *null_aware_key { back_up_question_mark(inf, cx, k.start) } else { k.start };
                 inf.warning_with_code(ce::MAP_ENTRY_NOT_IN_MAP, Span { start: start, end: v.end }, &[]);
             }
-            // Expressão (ou `?e`) num mapa (`:79-85`, `:107-114`).
+            // An expression (or `?e`) in a map (`:79-85`, `:107-114`).
             CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
                 if args.len() != 2 {
                     continue;
@@ -414,7 +415,8 @@ fn verify_elements(
     }
 }
 
-/// O início do elemento null-aware: o `?` antes de `i`, saltando brancos.
+/// The start of a null-aware element: the `?` before `i`, skipping
+/// whitespace.
 fn back_up_question_mark(inf: &BodyInferrer<'_>, cx: &Body, i: usize) -> usize {
     let source = inf.program.unit(cx.unit).source.as_bytes();
     let mut j = i;
@@ -424,7 +426,7 @@ fn back_up_question_mark(inf: &BodyInferrer<'_>, cx: &Body, i: usize) -> usize {
     if j > 0 && source[j - 1] == b'?' { j - 1 } else { i }
 }
 
-/// As variáveis de tipo que aparecem em `t`.
+/// The type variables that appear in `t`.
 fn params_in_type(table: &crate::table::TypeTable, t: TypeId, output: &mut Vec<TypeParamId>) {
     match table.get(t) {
         Type::TypeParameter { param, .. } => {
@@ -467,8 +469,8 @@ fn final_type(inf: &mut BodyInferrer<'_>, shape: Forma, args: &[TypeId]) -> Type
     }
 }
 
-/// `_InferredCollectionElementTypeInformation`: o que um elemento admite
-/// (`Some` = tipo de elemento / chave / valor conhecido).
+/// `_InferredCollectionElementTypeInformation`: what an element admits
+/// (`Some` = known element / key / value type).
 #[derive(Clone, Copy)]
 struct Admits {
     elemento: Option<TypeId>,
@@ -491,12 +493,12 @@ impl Admits {
     }
 }
 
-/// `_inferCollectionElementType` (`typed_literal_resolver.dart:344-430`) de
-/// um elemento de `{…}`: antes da visita (`depois` falso), pelos tipos dos
-/// espalhamentos inferidos sem contexto (`espalhamentos_inferidos`); depois
-/// dela, pelos de todo elemento visitado (`espalhamentos_visitados`: a
-/// expressão, a sem `?` do `?e`, e a chave e o valor da entrada, sem `?` nos
-/// `?k`/`?v`).
+/// `_inferCollectionElementType` (`typed_literal_resolver.dart:344-430`) of
+/// an element of `{…}`: before the visit (`after` false), through the types
+/// of the spreads inferred without a context (`inferred_spreads`);
+/// after it, through those of every visited element
+/// (`visited_spreads`: the expression, the one without `?` of `?e`,
+/// and the entry's key and value, without `?` in `?k`/`?v`).
 fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Admits {
     let nothing = Admits { elemento: None, chave: None, valor: None };
     let ty = |inf: &BodyInferrer<'_>, x: &dartforge_frontend::ast::ExprId| {
@@ -518,7 +520,7 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
             }
             let n = inf.core.never;
             // `isSubtypeOf(expressionType, nullNone)` (`:413-420`): `X extends
-            // Null` também.
+            // Null` too.
             let null = inf.core.null;
             if inf.sub(t, n) || (*null_aware && inf.sub(t, null)) {
                 return Admits { elemento: Some(n), chave: Some(n), valor: Some(n) };
@@ -550,12 +552,13 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
     }
 }
 
-/// `{}` indeciso pela sintaxe: o contexto (`Map`/`Iterable`) decide; senão os
-/// espalhamentos, inferidos sem contexto (`_inferSetOrMapLiteralType`,
-/// `typed_literal_resolver.dart:516-597`): todos admitem conjunto e algum o
-/// exige, conjunto; todos admitem mapa e algum o exige, mapa; vazio, mapa;
-/// senão o literal é ambíguo (`Some(mustBeAMap && mustBeASet)` no segundo
-/// campo; a visita segue como mapa, e o tipo fica `dynamic`).
+/// `{}` undecided by syntax: the context (`Map`/`Iterable`) decides;
+/// otherwise the spreads, inferred without a context
+/// (`_inferSetOrMapLiteralType`, `typed_literal_resolver.dart:516-597`): if
+/// all admit a set and some require it, set; if all admit a map and some
+/// require it, map; empty, map; otherwise the literal is ambiguous
+/// (`Some(mustBeAMap && mustBeASet)` in the second field; the visit goes on
+/// as a map, and the type becomes `dynamic`).
 fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[CollectionElement], ctx: TypeId) -> (Forma, Option<bool>) {
     if let Some(f) = shape_from_context_type(inf, ctx) {
         return (f, None);
@@ -563,9 +566,10 @@ fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[Collecti
     if els.is_empty() {
         return (Forma::Mapa, None);
     }
-    // Os espalhamentos são inferidos sem contexto; o tipo fica guardado para
-    // a visita dos elementos. Só os que não dependem de variáveis do próprio
-    // elemento (fora de `for` e de `if-case`) podem ser inferidos antes.
+    // The spreads are inferred without a context; the type is kept for the
+    // visit of the elements. Only those that do not depend on variables of
+    // the element itself (outside `for` and `if-case`) can be inferred
+    // earlier.
     fn anticipatable(els: &[CollectionElement]) -> bool {
         els.iter().all(|el| match el {
             CollectionElement::If { case_pattern: None, then, else_, .. } => {
@@ -594,8 +598,8 @@ fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[Collecti
         }
     }
     if !anticipatable(els) {
-        // Espalhamento dentro de `for`/`if-case`: o primeiro de topo que é
-        // `Iterable` ou `Map` decide, sem relato de ambiguidade.
+        // A spread inside `for`/`if-case`: the first top-level one that is an
+        // `Iterable` or `Map` decides, without an ambiguity report.
         let u = inf.core.unknown;
         let mut shape = None;
         for el in els {
@@ -629,7 +633,7 @@ fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[Collecti
     (Forma::Mapa, Some(must_map && must_set))
 }
 
-/// A forma que o contexto (`Map`/`Iterable`) impõe, se impõe.
+/// The shape that the context (`Map`/`Iterable`) imposes, if it does.
 fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Forma> {
     if !inf.the_is_unknown(ctx) {
         let k = inf.greatest_closure_of(ctx);
@@ -657,9 +661,9 @@ fn restrict(inf: &mut BodyInferrer<'_>, gi: &mut Inferrer<'_>, t: TypeId, i: usi
     if let Some((g, params)) = gi {
         let v = inf.table.intern(Type::TypeParameter { param: params[i], nullable: false });
         // `_toListType`/`_toSetType`/`_toMapType`
-        // (`typed_literal_resolver.dart:460-490`, `:740-815`): parâmetros
-        // sintéticos `element`, `key` e `value`, sem `genericClass` (a origem
-        // é `Parameter '…'`).
+        // (`typed_literal_resolver.dart:460-490`, `:740-815`): synthetic
+        // parameters `element`, `key` and `value`, without `genericClass` (the
+        // origin is `Parameter '…'`).
         let parameter = if params.len() == 2 { ["key", "value"][i] } else { "element" };
         g.with_origin(crate::constraints::Origem::Argumento { parametro: parameter.to_string(), declarado: v, argumento: t, prefixo: None });
         let mut env = inf.env();
@@ -667,17 +671,17 @@ fn restrict(inf: &mut BodyInferrer<'_>, gi: &mut Inferrer<'_>, t: TypeId, i: usi
     }
 }
 
-/// Visita um elemento, gerando restrições. `ctxs = [E, K, V]`.
+/// Visits an element, generating constraints. `ctxs = [E, K, V]`.
 fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Forma, ctxs: [TypeId; 3], mut gi: Inferrer<'_>) {
     let u = inf.core.unknown;
     match el {
         CollectionElement::Expression(x) => {
             let c = if shape == Forma::Mapa { u } else { ctxs[0] };
             let t = inferir(inf, cx, *x, c);
-            // Com argumentos de tipo escritos (sem inferência) e elemento
-            // não `void`: valor `void` é `use_of_void_result`
-            // (`LiteralElementVerifier._verifyElement`, só em lista e
-            // conjunto; no mapa a expressão é `EXPRESSION_IN_MAP`).
+            // With written type arguments (no inference) and a non-`void`
+            // element: a `void` value is `use_of_void_result`
+            // (`LiteralElementVerifier._verifyElement`, only in lists and sets;
+            // in a map the expression is `EXPRESSION_IN_MAP`).
             if gi.is_none() && shape != Forma::Mapa && !matches!(inf.table.get(c), Type::Void) {
                 super::expr::void_use(inf, cx, *x, t);
             }
@@ -689,7 +693,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
         CollectionElement::NullAwareExpression(x) => {
             let c = if shape == Forma::Mapa || inf.the_is_unknown(ctxs[0]) { u } else { inf.anulavel(ctxs[0]) };
             let t = inferir(inf, cx, *x, c);
-            // O `void` do valor antes da promoção (`:107-112`).
+            // The value's `void` before promotion (`:107-112`).
             if gi.is_none() && shape != Forma::Mapa && !matches!(inf.table.get(ctxs[0]), Type::Void) {
                 super::expr::void_use(inf, cx, *x, t);
             }
@@ -705,7 +709,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
             let tk = inferir(inf, cx, *key, ck);
             let tv = inferir(inf, cx, *value, cv);
             // `_verifyMapLiteralEntry` (`literal_element_verifier.dart:130-141`):
-            // a chave `void` encerra a entrada, sem olhar o valor.
+            // a `void` key ends the entry, without looking at the value.
             if gi.is_none() {
                 let void_key = !matches!(inf.table.get(ck), Type::Void) && super::expr::void_use(inf, cx, *key, tk);
                 if !void_key && !matches!(inf.table.get(cv), Type::Void) {
@@ -737,11 +741,11 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
                 super::expr::nullable_dereference(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_SPREAD);
             }
             // `_computeElementType` / `_inferCollectionElementType`
-            // (`typed_literal_resolver.dart:203-226, 380-425`), pelo tipo da
-            // expressão: a instância de `Iterable`/`Map`; `dynamic`;
-            // subtipo de `Never` → `Never`; subtipo de `Null` → `Never` com
-            // `...?` (sem, `dynamic` na lista e nada no mapa); o resto,
-            // `dynamic` na lista.
+            // (`typed_literal_resolver.dart:203-226, 380-425`), through the
+            // expression's type: the instance of `Iterable`/`Map`; `dynamic`; a
+            // subtype of `Never` → `Never`; a subtype of `Null` → `Never` with
+            // `...?` (without it, `dynamic` in a list and nothing in a map); the
+            // rest, `dynamic` in a list.
             let t0 = t;
             let t = inf.non_null(t);
             let (never, null) = (inf.core.never, inf.core.null);
@@ -787,7 +791,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
                 None => expr::checked_condition(inf, cx, *condition),
             };
             cx.flow = vf;
-            // `visitIfElement`: cada ramo fecha um bloco básico
+            // `visitIfElement`: each branch closes a basic block
             // (`nullSafetyDeadCodeVerifier.flowEnd(ifTrue/ifFalse)`).
             let open = enter_branch(inf, cx, then);
             reborrow_visit(inf, cx, then, shape, ctxs, &mut gi);
@@ -809,11 +813,11 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
             if let Some(i) = init {
                 super::statements::for_initialization(inf, cx, i);
             }
-            // Inicialização que não completa (`[for (var (i) = throw 0; c; u) e]`),
-            // como no comando `for`: o primeiro nó morto é a condição, e o
-            // `flowEnd` que o encerra (o do corpo da função) vai dele ao fim
-            // da última atualização (o pai é o `ForParts`); o resto do
-            // elemento fica no mesmo trecho.
+            // An initialization that does not complete (`[for (var (i) = throw 0; c; u) e]`),
+            // as in the `for` statement: the first dead node is the condition, and
+            // the `flowEnd` that ends it (the function body's) goes from it to the
+            // end of the last update (the parent is the `ForParts`); the rest of the
+            // element stays in the same fragment.
             let dead_at_start = !cx.flow.alcancavel && cx.dead_code.is_none();
             if dead_at_start {
                 let a = &inf.program.unit(cx.unit).ast;
@@ -823,10 +827,10 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
                 }
                 cx.dead_code = Some(usize::MAX);
             }
-            // `for_conditionBegin`: o que o laço escreve — a condição, as
-            // atualizações e o corpo (o `AssignedVariables` do nó inteiro,
-            // como no comando `for`) — perde a promoção e deixa de estar
-            // definitivamente não atribuído (junção conservadora do laço).
+            // `for_conditionBegin`: what the loop writes (the condition, the
+            // updates and the body: the whole node's `AssignedVariables`, as in
+            // the `for` statement) loses its promotion and stops being definitely
+            // unassigned (the loop's conservative join).
             let mut parts = vec![super::statements::Parte::Elemento(body)];
             if let Some(c) = condition {
                 parts.push(super::statements::Parte::Expr(*c));
@@ -854,9 +858,9 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, sh
         CollectionElement::ForIn { await_, target, iterable, body } => {
             cx.push_scope();
             let write = super::statements::for_in_header(inf, cx, target, *iterable, *await_);
-            // `forEach_bodyBegin`: o que o corpo escreve, como no comando
-            // `for-in` (junção conservadora do laço); o estado daí entra no
-            // `forEach_end`, juntado ao do fim do corpo.
+            // `forEach_bodyBegin`: what the body writes, as in the `for-in`
+            // statement (the loop's conservative join); the state from there goes
+            // into `forEach_end`, joined with that of the end of the body.
             let (writes, captured) = super::statements::writes_in(inf, cx, &[super::statements::Parte::Elemento(body)]);
             cx.flow.conservative_join(&writes, &captured);
             let before = cx.flow.clone();
@@ -880,7 +884,7 @@ fn reborrow_visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElem
     visitar(inf, cx, el, shape, ctxs, sub);
 }
 
-/// Diagnósticos de coleções `const` (chaves/elementos repetidos, não constantes).
+/// Diagnostics of `const` collections (repeated keys/elements, non-constant ones).
 pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     let unit = cx.unit;
     let a = &inf.program.unit(unit).ast;
@@ -940,9 +944,9 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
         }
         drop(av);
         for (m, s) in diags {
-            // O avaliador não sabe tudo (constantes referidas, operadores de
-            // tipos do SDK): "não constante" só quando a expressão de fato
-            // não é constante (especificação, "Constants").
+            // The evaluator does not know everything (referenced constants, SDK
+            // type operators): "non-constant" only when the expression really is
+            // not constant (specification, "Constants").
             if m == CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template {
                 let tgt = a.exprs.iter().position(|x| x.span == s).map(|i| ExprId(i as u32));
                 if tgt.is_some_and(|x| inf.is_constant(cx, x)) {
@@ -957,7 +961,7 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
     }
 }
 
-/// A faixa de um elemento de coleção (o nó do `flowEnd`).
+/// The range of a collection element (the `flowEnd` node).
 fn element_range(inf: &BodyInferrer<'_>, cx: &Body, el: &CollectionElement) -> dartforge_diagnostics::Span {
     let a = &inf.program.unit(cx.unit).ast;
     let source = inf.program.unit(cx.unit).source.as_str();
@@ -987,8 +991,8 @@ fn element_range(inf: &BodyInferrer<'_>, cx: &Body, el: &CollectionElement) -> d
     }
 }
 
-/// Entra no ramo de um `if` de coleção como bloco básico: se ele começa
-/// inalcançável e não há trecho aberto, o trecho é o ramo inteiro.
+/// Enters the branch of a collection `if` as a basic block: if it starts
+/// unreachable and no fragment is open, the fragment is the whole branch.
 fn enter_branch(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement) -> bool {
     let sp = element_range(inf, cx, el);
     let open = !cx.flow.alcancavel && cx.dead_code.is_none();

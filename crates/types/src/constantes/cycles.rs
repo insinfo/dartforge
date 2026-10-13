@@ -1,26 +1,26 @@
-//! Os ciclos de constantes de uma biblioteca, como o `computeConstants` do
-//! analyzer os acha (`compute.dart:13-96`): os alvos do `ConstantFinder`
-//! (`utilities.dart:107-210`) e as dependências soltas do
-//! `ConstantExpressionsDependenciesFinder` (`:20-101`), percorridos na ordem
-//! pelo caminhante de [`super::grafo`], com as dependências de
-//! `computeDependencies` (`evaluation.dart:223-326`) e do `ReferenceFinder`
+//! The constant cycles of a library, as the analyzer's `computeConstants`
+//! finds them (`compute.dart:13-96`): the targets of `ConstantFinder`
+//! (`utilities.dart:107-210`) and the loose dependencies of
+//! `ConstantExpressionsDependenciesFinder` (`:20-101`), walked in order by
+//! the walker of [`super::graph`], with the dependencies of
+//! `computeDependencies` (`evaluation.dart:223-326`) and of `ReferenceFinder`
 //! (`utilities.dart:214-273`).
 //!
-//! O grafo só **acha os componentes** (docs/ANALYZER-ESPECIFICACAO.md §G,
-//! T8.5): o valor de cada constante continua calculado sob demanda pelo
-//! [`Motor`]. O que sai daqui é quem está em ciclo:
+//! The graph only **finds the components** (docs/ANALYZER-ESPECIFICACAO.md
+//! §G, T8.5): the value of each constant is still computed on demand by the
+//! [`Motor`]. What comes out of here is who is in a cycle:
 //!
-//! * cada variável de um componente recebe `recursive_compile_time_constant`
-//!   no nome ([`Estado::variaveis_em_ciclo`], [`Estado::locais_em_ciclo`]);
-//! * cada construtor de um componente deixa de ser livre de ciclo
-//!   ([`Estado::construtores_em_ciclo`]): toda criação por ele vale um
-//!   desconhecido do tipo, e o verificador relata
-//!   `recursive_constant_constructor` no nome da classe do cabeçalho.
+//! * each variable of a component gets `recursive_compile_time_constant`
+//!   at its name ([`Estado::variables_in_cycle`], [`Estado::locals_in_cycle`]);
+//! * each constructor of a component stops being cycle-free
+//!   ([`Estado::constructors_in_cycle`]): every creation through it is worth
+//!   an unknown of the type, and the verifier reports
+//!   `recursive_constant_constructor` at the name of the header's class.
 //!
-//! O estado do caminhante (índices dos nós) persiste entre as bibliotecas
-//! de uma mesma verificação, como os elementos persistem na sessão do
-//! analyzer. Elementos de bibliotecas cujos corpos não foram inferidos
-//! contam como já avaliados: não viram nó.
+//! The walker's state (the node indices) persists across the libraries of a
+//! single verification, as elements persist in the analyzer's session.
+//! Elements of libraries whose bodies were not inferred count as already
+//! evaluated: they do not become nodes.
 
 use super::avaliador::{constant_locals, Motor};
 use super::graph::{Walker, Grafo};
@@ -37,27 +37,28 @@ use dartforge_frontend::features::LanguageVersion;
 use dartforge_intern::SymbolId;
 use std::collections::{HashMap, HashSet};
 
-/// Um alvo de avaliação constante (`ConstantEvaluationTarget`).
+/// A constant evaluation target (`ConstantEvaluationTarget`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Alvo {
-    /// Variável de topo, campo ou constante de enum.
+    /// Top-level variable, field or enum constant.
     Var(VariableId),
     Ctor(FunctionElementId),
-    /// Parâmetro opcional (o `DefaultFormalParameter` do analyzer, com ou
-    /// sem valor padrão): a unidade, o início do parâmetro e o padrão. Um
-    /// parâmetro obrigatório está sempre avaliado e não vira alvo.
+    /// Optional parameter (the analyzer's `DefaultFormalParameter`, with or
+    /// without a default value): the unit, the start of the parameter and the
+    /// default. A required parameter is always evaluated and does not become a
+    /// target.
     Param(UnitId, usize, Option<ExprId>),
-    /// Constante local: a unidade e o offset do nome.
+    /// Local constant: the unit and the name's offset.
     Local(UnitId, usize),
-    /// Anotação: o índice em `Estado::anotacoes`.
+    /// Annotation: the index in `Estado::anotacoes`.
     Annot(u32),
-    /// O campo `const` sintético `values` de um enum, cujo inicializador é
-    /// a lista das constantes (`LibraryBuilder.buildEnumChildren`): depende
-    /// de todas elas, e `e1(values)` fecha um ciclo.
+    /// The synthetic `const` field `values` of an enum, whose initializer is the
+    /// list of the constants (`LibraryBuilder.buildEnumChildren`): it depends on
+    /// all of them, and `e1(values)` closes a cycle.
     Values(ClassId),
 }
 
-/// Os índices das declarações do programa, pelo nó da árvore.
+/// The indices of the program's declarations, by tree node.
 #[derive(Debug, Default)]
 struct Indices {
     topo: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
@@ -94,35 +95,35 @@ impl Indices {
     }
 }
 
-/// O que persiste no [`Motor`] entre as bibliotecas.
+/// What persists in the [`Motor`] across libraries.
 #[derive(Debug, Default)]
 pub struct Estado {
     walker: Walker,
     nos: Vec<Alvo>,
     by_target: HashMap<Alvo, usize>,
-    /// `isConstantEvaluated` de cada nó.
+    /// `isConstantEvaluated` of each node.
     avaliados: Vec<bool>,
-    /// As dependências de cada anotação, calculadas quando ela é achada
-    /// (nada depende de uma anotação: ela só começa percursos).
+    /// The dependencies of each annotation, computed when it is found (nothing
+    /// depends on an annotation: it only starts walks).
     anotacoes: Vec<Vec<Alvo>>,
-    /// As constantes locais de cada unidade, pelo offset do nome.
+    /// The local constants of each unit, by the name's offset.
     locais: HashMap<UnitId, HashMap<usize, (StmtId, usize)>>,
     indices: Option<Indices>,
-    /// Construtores com `isCycleFree == false`.
+    /// Constructors with `isCycleFree == false`.
     pub constructors_in_cycle: HashSet<FunctionElementId>,
-    /// Variáveis cujo resultado é o inválido de ciclo.
+    /// Variables whose result is the cycle's invalid value.
     pub variables_in_cycle: HashSet<VariableId>,
-    /// Idem, constantes locais (unidade e offset do nome).
+    /// Same, local constants (unit and name offset).
     pub locals_in_cycle: HashSet<(UnitId, usize)>,
 }
 
 impl Estado {
-    /// O construtor declarado no membro `mid` da unidade `u`.
+    /// The constructor declared in member `mid` of unit `u`.
     pub fn construtor_de(&self, u: UnitId, mid: ast::MemberId) -> Option<FunctionElementId> {
         self.indices.as_ref()?.construtores.get(&(u, mid)).copied()
     }
 
-    /// O inicializador da constante local declarada em `offset`.
+    /// The initializer of the local constant declared at `offset`.
     fn local_initializer(&mut self, m: &Motor<'_>, u: UnitId, offset: usize) -> Option<Option<ExprId>> {
         let a = m.ast(u);
         let map = self.locais.entry(u).or_insert_with(|| constant_locals(a));
@@ -136,8 +137,8 @@ impl Estado {
     }
 }
 
-/// Acha os ciclos de constantes de `lib` e os guarda em `m.grafo`. Roda
-/// antes do verificador, que lê o resultado.
+/// Finds the constant cycles of `lib` and stores them in `m.grafo`. Runs
+/// before the verifier, which reads the result.
 pub fn compute(m: &mut Motor<'_>, lib: LibraryId) {
     if !m.the_inferred.contains(&lib) {
         return;
@@ -150,8 +151,8 @@ pub fn compute(m: &mut Motor<'_>, lib: LibraryId) {
     {
         let engine: &Motor<'_> = m;
         let program = engine.program;
-        // Os alvos, unidade por unidade: os do `ConstantFinder` e depois
-        // as dependências das expressões constantes soltas.
+        // The targets, unit by unit: those of `ConstantFinder` and then the
+        // dependencies of the loose constant expressions.
         let mut order: Vec<Alvo> = Vec::new();
         for &u in &program.library(lib).units {
             if program.unit(u).role == UnitRole::Patch {
@@ -174,7 +175,7 @@ pub fn compute(m: &mut Motor<'_>, lib: LibraryId) {
     m.grafo = st;
 }
 
-/// O inicializador escrito de uma variável de topo ou de um campo.
+/// The written initializer of a top-level variable or a field.
 fn inicializador(m: &Motor<'_>, v: VariableId) -> Option<(UnitId, ExprId)> {
     match m.program.variable(v).node {
         VariableRef::TopLevel { unit, decl, index } => match &m.ast(unit).decl(decl).kind {
@@ -189,9 +190,9 @@ fn inicializador(m: &Motor<'_>, v: VariableId) -> Option<(UnitId, ExprId)> {
     }
 }
 
-/// A variável é um `ConstVariableElement`: `const`, constante de enum, ou
-/// `final` de instância de um enum ou de uma classe com algum construtor
-/// `const` (`constFieldsForFinalInstance`). As outras estão sempre avaliadas.
+/// The variable is a `ConstVariableElement`: `const`, an enum constant, or an
+/// instance `final` of an enum or of a class with some `const` constructor
+/// (`constFieldsForFinalInstance`). The others are always evaluated.
 fn constant_element(m: &Motor<'_>, v: VariableId) -> bool {
     let program = m.program;
     let var = program.variable(v);
@@ -210,8 +211,8 @@ fn constant_element(m: &Motor<'_>, v: VariableId) -> bool {
     }
 }
 
-/// A superclasse declarada de `k`: as classes sintéticas `S&M` de uma
-/// cláusula `with` não contam (o `superclass` do analyzer é `S`).
+/// The declared superclass of `k`: the synthetic classes `S&M` of a `with`
+/// clause do not count (the analyzer's `superclass` is `S`).
 pub(super) fn declared_superclass(program: &Program, k: ClassId) -> Option<ClassId> {
     let mut sup = program.class(k).supertype_class?;
     let mut steps = 0;
@@ -222,7 +223,7 @@ pub(super) fn declared_superclass(program: &Program, k: ClassId) -> Option<Class
     Some(sup)
 }
 
-// -- O grafo -------------------------------------------------------------------
+// -- The graph -----------------------------------------------------------------
 
 struct G<'p, 'a> {
     m: &'p Motor<'a>,
@@ -230,8 +231,8 @@ struct G<'p, 'a> {
 }
 
 impl<'a> G<'_, 'a> {
-    /// O nó de `alvo`; `None` quando o elemento é de uma biblioteca opaca
-    /// (conta como avaliado).
+    /// The node of `tgt`; `None` when the element is from an opaque library
+    /// (counts as evaluated).
     fn no(&mut self, tgt: Alvo) -> Option<usize> {
         let program = self.m.program;
         match tgt {
@@ -253,7 +254,7 @@ impl<'a> G<'_, 'a> {
         Some(i)
     }
 
-    /// O `ReferenceFinder` sobre o que `f` visita, na unidade `u`.
+    /// The `ReferenceFinder` over what `f` visits, in unit `u`.
     fn referencias(&mut self, u: UnitId, f: impl FnOnce(&mut Walk<'_, 'a>)) -> Vec<Alvo> {
         let mut p = Walk::novo(self.m, &mut *self.est, u, true);
         f(&mut p);
@@ -267,8 +268,8 @@ impl<'a> G<'_, 'a> {
         if let VariableRef::EnumConstant { unit, decl, index } = var.node {
             let DeclKind::Enum(en) = &m.ast(unit).decl(decl).kind else { return Vec::new() };
             let Some(cst) = en.constants.get(index) else { return Vec::new() };
-            // O enum chamado `values`, ou a constante com o nome do enum: o
-            // erro já saiu em outro lugar.
+            // An enum called `values`, or a constant with the enum's name: the
+            // error was already reported elsewhere.
             if m.interner.resolve(en.name.sym) == "values" || cst.name.sym == en.name.sym {
                 return Vec::new();
             }
@@ -314,8 +315,8 @@ impl<'a> G<'_, 'a> {
             _ => None,
         };
         if public.factory || no.is_some_and(|(_, k)| k.factory) {
-            // `getConstRedirectedConstructor`: só o alvo `const` do
-            // redirecionamento; o `Symbol` de `dart:core` é exceção.
+            // `getConstRedirectedConstructor`: only the `const` target of the
+            // redirection; `dart:core`'s `Symbol` is an exception.
             let e_symbol = m.interner.resolve(program.class(cls).name) == "Symbol" && Some(fe.library) == m.core.core_library;
             if e_symbol {
                 return Vec::new();
@@ -346,7 +347,7 @@ impl<'a> G<'_, 'a> {
                     }
                     ast::Initializer::Super { constructor, arguments, .. } => {
                         implicit_super = false;
-                        // O alvo, `const` ou não.
+                        // The target, `const` or not.
                         let the_key = constructor.map(|n| n.sym).or(empty);
                         let sup = program.class(cls).supertype_class;
                         if let Some(g) = the_key.and_then(|c| sup.and_then(|s| program.class(s).constructors.get(&c).copied())) {
@@ -374,8 +375,8 @@ impl<'a> G<'_, 'a> {
             }
         }
         if implicit_super {
-            // Sem `super(...)`/`this(...)` escrito: o construtor sem nome da
-            // superclasse, se é `const` e a superclasse não é `Object`.
+            // Without a written `super(...)`/`this(...)`: the superclass's unnamed
+            // constructor, if it is `const` and the superclass is not `Object`.
             if let Some(sup) = declared_superclass(program, cls) {
                 if Some(sup) != m.core.object_class {
                     if let Some(g) = empty.and_then(|c| program.class(sup).constructors.get(&c).copied()) {
@@ -386,14 +387,14 @@ impl<'a> G<'_, 'a> {
                 }
             }
         }
-        // Todo campo de instância `final`/`const` com inicializador.
+        // Every `final`/`const` instance field with an initializer.
         for &v in program.class(cls).fields.iter() {
             let var = program.variable(v);
             if (var.final_ || var.const_) && !var.static_ && inicializador(m, v).is_some() {
                 deps.push(Alvo::Var(v));
             }
         }
-        // Todos os parâmetros.
+        // All the parameters.
         if let Some((unit, k)) = no {
             for p in k.parameters.iter() {
                 if p.kind != ast::ParameterKind::Required {
@@ -405,7 +406,7 @@ impl<'a> G<'_, 'a> {
     }
 }
 
-/// O construtor para o qual a factory `k` redireciona (`= C.nome`).
+/// The constructor that factory `k` redirects to (`= C.the_name`).
 fn redirection_target(m: &Motor<'_>, unit: UnitId, k: &ast::Constructor) -> Option<FunctionElementId> {
     let program = m.program;
     let r = k.redirect.as_ref()?;
@@ -443,12 +444,12 @@ impl Grafo for G<'_, '_> {
         let m = self.m;
         let tgt = self.est.nos[no];
         let ready = match tgt {
-            // Sem inicializador não há resultado a guardar: o nó fica por
-            // avaliar, como no analyzer.
+            // Without an initializer there is no result to store: the node stays
+            // unevaluated, as in the analyzer.
             Alvo::Var(v) => {
                 matches!(m.program.variable(v).node, VariableRef::EnumConstant { .. }) || inicializador(m, v).is_some()
             }
-            // Só o construtor `const` fica computado.
+            // Only a `const` constructor becomes computed.
             Alvo::Ctor(f) => m.program.function(m.program.publico(f)).const_,
             Alvo::Param(..) | Alvo::Annot(_) | Alvo::Values(_) => true,
             Alvo::Local(u, offset) => matches!(self.est.local_initializer(m, u, offset), Some(Some(_))),
@@ -466,7 +467,7 @@ impl Grafo for G<'_, '_> {
                     self.est.variables_in_cycle.insert(v);
                     self.est.avaliados[no] = true;
                 }
-                // O construtor de um ciclo nunca fica avaliado.
+                // A constructor in a cycle never becomes evaluated.
                 Alvo::Ctor(f) => {
                     self.est.constructors_in_cycle.insert(f);
                 }
@@ -474,21 +475,21 @@ impl Grafo for G<'_, '_> {
                     self.est.locals_in_cycle.insert((u, offset));
                     self.est.avaliados[no] = true;
                 }
-                // O parâmetro é uma variável para `generateCycleError`: fica
-                // com o inválido guardado.
-                // O `values` sintético não tem nome a relatar.
+                // A parameter is a variable for `generateCycleError`: it keeps the
+                // stored invalid value.
+                // The synthetic `values` has no name to report.
                 Alvo::Param(..) | Alvo::Annot(_) | Alvo::Values(_) => self.est.avaliados[no] = true,
             }
         }
     }
 }
 
-// -- O passeio pela árvore -------------------------------------------------------
+// -- The tree walk ---------------------------------------------------------------
 
-/// Um passeio em pré-ordem pela árvore de uma unidade, nos dois papéis:
-/// com `referencias`, é o `ReferenceFinder` (o que acha vai a `saida`);
-/// sem, é o `ConstantFinder` (`alvos`) junto com o
-/// `ConstantExpressionsDependenciesFinder` (`soltas`).
+/// A pre-order walk over the tree of a unit, in two roles: with
+/// `references`, it is `ReferenceFinder` (what it finds goes to `saida`);
+/// without, it is `ConstantFinder` (`targets`) together with
+/// `ConstantExpressionsDependenciesFinder` (`loose`).
 struct Walk<'p, 'a> {
     m: &'p Motor<'a>,
     est: &'p mut Estado,
@@ -498,13 +499,13 @@ struct Walk<'p, 'a> {
     saida: Vec<Alvo>,
     alvos: Vec<Alvo>,
     loose: Vec<Alvo>,
-    /// As dependências soltas já vistas (o conjunto do original é ordenado
-    /// pela inserção).
+    /// The loose dependencies already seen (the original's set is ordered by
+    /// insertion).
     the_seen: HashSet<Alvo>,
-    /// A classe (ou mixin, enum, extension type) do membro visitado.
+    /// The class (or mixin, enum, extension type) of the visited member.
     classe: Option<ClassId>,
-    /// `treatFinalInstanceVarAsConst`: dentro de uma classe com algum
-    /// construtor `const`.
+    /// `treatFinalInstanceVarAsConst`: inside a class with some `const`
+    /// constructor.
     finals_as_const: bool,
     patterns_enabled: bool,
 }
@@ -530,7 +531,7 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    /// `_find`: as referências do que `f` visita viram dependências soltas.
+    /// `_find`: the references of what `f` visits become loose dependencies.
     fn release(&mut self, f: impl FnOnce(&mut Self)) {
         let stored = std::mem::take(&mut self.saida);
         let before = std::mem::replace(&mut self.referencias, true);
@@ -544,13 +545,13 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    // -- Declarações -------------------------------------------------------------
+    // -- Declarations ------------------------------------------------------------
 
     fn unidade(&mut self) {
         let program = self.m.program;
         let cu = &program.unit(self.u).unit;
         for d in cu.directives.iter() {
-            // As anotações de `part` e `part of` não têm elemento.
+            // The annotations of `part` and `part of` have no element.
             if matches!(d.kind, ast::DirectiveKind::Part { .. } | ast::DirectiveKind::PartOf { .. }) {
                 continue;
             }
@@ -657,8 +658,8 @@ impl<'p, 'a> Walk<'p, 'a> {
                         }
                     }
                     self.corpo(&k.body);
-                    // O construtor `const` e todos os parâmetros dele,
-                    // depois dos filhos.
+                    // The `const` constructor and all its parameters, after the
+                    // children.
                     if k.const_ {
                         let f = self.est.indices.as_ref().and_then(|x| x.construtores.get(&(self.u, mid)).copied());
                         if let Some(f) = f {
@@ -707,9 +708,9 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    /// As anotações de uma declaração: cada uma é um alvo, com o elemento a
-    /// que resolve (a variável do getter, ou o construtor) e as referências
-    /// dos argumentos como dependências.
+    /// The annotations of a declaration: each one is a target, with the element
+    /// it resolves to (the getter's variable, or the constructor) and the
+    /// references of the arguments as dependencies.
     fn anotacoes(&mut self, ms: &'a [ast::Annotation]) {
         if self.referencias {
             return;
@@ -895,12 +896,12 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    // -- Padrões -------------------------------------------------------------------
+    // -- Patterns --------------------------------------------------------------------
 
     fn padrao(&mut self, p: PatternId) {
         let a = self.a;
         match &a.pattern(p).kind {
-            // `ConstantPattern.expression` e `SwitchCase.expression`.
+            // `ConstantPattern.expression` and `SwitchCase.expression`.
             PatternKind::Constant(e) => {
                 let e = *e;
                 if self.referencias {
@@ -909,8 +910,8 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.release(|s| s.expr(e, true));
                 }
             }
-            // `case nome:` (o parser guarda como variável): a constante de
-            // topo com esse nome, como o verificador a lê.
+            // `case the_name:` (the parser stores it as a variable): the top-level
+            // constant with that name, as the verifier reads it.
             PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
                 let program = self.m.program;
                 if let Some(Element::Variable(v)) = program.lookup_na_unidade(self.u, name.sym).and_then(|b| b.getter) {
@@ -965,10 +966,10 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    // -- Expressões ----------------------------------------------------------------
+    // -- Expressions -----------------------------------------------------------------
 
-    /// A referência que o próprio nó `e` é: a variável `const` (direta ou
-    /// pelo getter), de topo, estática ou local.
+    /// The reference that node `e` itself is: the `const` variable (direct or
+    /// through the getter), top-level, static or local.
     fn referencia(&mut self, e: ExprId) {
         if !self.referencias {
             return;
@@ -984,7 +985,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                 if fe.kind == FunctionKind::ImplicitAccessor {
                     fe.variable
                 } else {
-                    // O getter `values` sintético do enum.
+                    // The enum's synthetic `values` getter.
                     if fe.node == FunctionRef::None
                         && fe.variable.is_none()
                         && fe.static_
@@ -997,8 +998,8 @@ impl<'p, 'a> Walk<'p, 'a> {
                     None
                 }
             }
-            // O local (ou o local declarado adiante, sem resolução na
-            // inferência, mas com a declaração registrada).
+            // The local (or the local declared ahead, without resolution in
+            // inference, but with the declaration recorded).
             Some(Resolved::Local(_)) | None => {
                 let offset = m.body.units.get(self.u.0 as usize).and_then(|b| b.declaracao_local(e));
                 if let Some(offset) = offset {
@@ -1017,8 +1018,8 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    /// Uma criação de instância: `e_const` é o `isConst` do nó (o `const`
-    /// escrito, ou a criação implícita num contexto constante).
+    /// An instance creation: `e_const` is the node's `isConst` (the written
+    /// `const`, or the implicit creation in a constant context).
     fn criacao(&mut self, e: ExprId, e_const: bool, in_const: bool, args: &'a ast::Arguments) {
         if self.referencias {
             if e_const {
@@ -1095,8 +1096,8 @@ impl<'p, 'a> Walk<'p, 'a> {
             }
             ExprKind::Call { target, arguments } => {
                 if matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
-                    // Criação implícita: constante num contexto constante
-                    // (ou com o `const` do atalho de ponto).
+                    // Implicit creation: constant in a constant context
+                    // (or with the dot shorthand's `const`).
                     let const_shorthand = matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. });
                     self.criacao(e, in_const || const_shorthand, in_const, arguments);
                     return;
@@ -1123,8 +1124,8 @@ impl<'p, 'a> Walk<'p, 'a> {
                         self.release(|s| s.expr(e, in_const));
                         return;
                     }
-                    // Sem `const`: as chaves de um mapa e os elementos de um
-                    // conjunto são avaliados para a checagem de unicidade.
+                    // Without `const`: the keys of a map and the elements of a set
+                    // are evaluated for the uniqueness check.
                     let cls = match self.m.table.get(self.m.estatico(u, e)) {
                         Type::Interface { class, .. } => Some(*class),
                         _ => None,

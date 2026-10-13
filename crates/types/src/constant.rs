@@ -1,11 +1,11 @@
-//! Avaliador de expressões e valores constantes (`const`).
+//! Evaluator of constant (`const`) expressions and values.
 //!
-//! Avalia expressões em tempo de compilação para:
-//! - Anotações e metadados.
-//! - Valores padrão de parâmetros opcionais.
-//! - Casos de `switch` clássicos.
-//! - Expressões `const` de aritmética, strings (UTF-16 via `DartStr`), coleções e construtores.
-//! - Consultas de ambiente (`fromEnvironment`).
+//! Evaluates expressions at compile time for:
+//! - Annotations and metadata.
+//! - Default values of optional parameters.
+//! - Classic `switch` cases.
+//! - `const` expressions of arithmetic, strings (UTF-16 via `DartStr`), collections and constructors.
+//! - Environment queries (`fromEnvironment`).
 
 use crate::table::{CoreTypes, TypeId, TypeTable};
 use dartforge_elements::model::{ClassId, Program, UnitId};
@@ -14,7 +14,7 @@ use dartforge_frontend::text::{DartStr, DartStrBuilder};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
-/// Valor avaliado de uma expressão constante em tempo de compilação.
+/// Evaluated value of a constant expression at compile time.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstValue {
     Null,
@@ -38,7 +38,7 @@ pub enum ConstValue {
     Symbol(Vec<SymbolId>),
 }
 
-/// Avaliador de expressões constantes em uma unidade sintática.
+/// Evaluator of constant expressions in a syntactic unit.
 pub struct ConstantEvaluator<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -65,7 +65,7 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    /// Avalia recursivamente uma expressão para um [`ConstValue`].
+    /// Recursively evaluates an expression to a [`ConstValue`].
     pub fn evaluate_expr(&mut self, unit_id: UnitId, expr_id: ast::ExprId) -> Option<ConstValue> {
         let expr = &self.program.unit(unit_id).ast.exprs[expr_id.0 as usize];
 
@@ -171,7 +171,7 @@ impl<'a> ConstantEvaluator<'a> {
                 Some(ConstValue::List(list))
             }
             ast::ExprKind::SetOrMap { elements, .. } => {
-                // Avalia se é mapa ou conjunto
+                // Evaluates whether it is a map or a set
                 let is_map = elements.iter().any(|el| matches!(el, ast::CollectionElement::MapEntry { .. }));
                 if is_map {
                     let mut map = Vec::new();
@@ -208,7 +208,7 @@ impl<'a> ConstantEvaluator<'a> {
                 })
             }
             ast::ExprKind::Call { target, arguments } => {
-                // Trata métodos estáticos / construtores especiais como identical e fromEnvironment
+                // Handles static methods / special constructors such as identical and fromEnvironment
                 self.evaluate_special_call(unit_id, *target, arguments)
             }
             _ => None,
@@ -227,7 +227,7 @@ impl<'a> ConstantEvaluator<'a> {
 
     fn evaluate_binary(&mut self, op: BinaryOp, left: ConstValue, right: ConstValue) -> Option<ConstValue> {
         match (op, left, right) {
-            // Aritmética inteira
+            // Integer arithmetic
             (BinaryOp::Add, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a.wrapping_add(b))),
             (BinaryOp::Sub, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a.wrapping_sub(b))),
             (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a.wrapping_mul(b))),
@@ -255,7 +255,7 @@ impl<'a> ConstantEvaluator<'a> {
                     Some(ConstValue::Int(a % b))
                 }
             }
-            // Operadores bitwise com semântica de 32/64 bits
+            // Bitwise operators with 32/64-bit semantics
             (BinaryOp::BitAnd, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a & b)),
             (BinaryOp::BitOr, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a | b)),
             (BinaryOp::BitXor, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a ^ b)),
@@ -268,14 +268,14 @@ impl<'a> ConstantEvaluator<'a> {
             (BinaryOp::UShr, ConstValue::Int(a), ConstValue::Int(b)) => {
                 if b < 0 { None } else { Some(ConstValue::Int(((a as u64) >> (b as u32 % 64)) as i64)) }
             }
-            // Comparações
+            // Comparisons
             (BinaryOp::Lt, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a < b)),
             (BinaryOp::LtEq, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a <= b)),
             (BinaryOp::Gt, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a > b)),
             (BinaryOp::GtEq, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a >= b)),
             (BinaryOp::Eq, l, r) => Some(ConstValue::Bool(l == r)),
             (BinaryOp::NotEq, l, r) => Some(ConstValue::Bool(l != r)),
-            // Lógica booleana
+            // Boolean logic
             (BinaryOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => Some(ConstValue::Bool(a && b)),
             (BinaryOp::Or, ConstValue::Bool(a), ConstValue::Bool(b)) => Some(ConstValue::Bool(a || b)),
             _ => None,
@@ -359,11 +359,12 @@ impl<'a> ConstantEvaluator<'a> {
     }
 }
 
-/// Valor de um literal inteiro: decimal ou hexadecimal (`0x`), com
-/// separadores de dígitos (`1_000`, Dart 3.6); hexadecimal entre 2^63 e
-/// 2^64 dá a volta em complemento de dois, como na VM.
-/// O valor de um literal `double`: sem os `_`; um expoente sem dígito
-/// (`1e`, `1e+`) vale como o token sintético do scanner, com `0` no fim.
+/// Value of an integer literal: decimal or hexadecimal (`0x`), with digit
+/// separators (`1_000`, Dart 3.6); a hexadecimal between 2^63 and 2^64 wraps
+/// around in two's complement, as in the VM.
+/// The value of a `double` literal: without the `_`s; an exponent without a
+/// digit (`1e`, `1e+`) counts as the scanner's synthetic token, with `0` at
+/// the end.
 pub fn real_literal(the_text: &str) -> Option<f64> {
     let mut t = the_text.trim().replace('_', "");
     if t.ends_with(['e', 'E', '+', '-']) {
@@ -375,7 +376,7 @@ pub fn real_literal(the_text: &str) -> Option<f64> {
 pub fn integer_literal(the_text: &str) -> Option<i64> {
     let t: String = the_text.trim().chars().filter(|c| *c != '_').collect();
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        // `0x` sem dígito: o token sintético do scanner vale 0.
+        // `0x` without a digit: the scanner's synthetic token is worth 0.
         if h.is_empty() {
             return Some(0);
         }

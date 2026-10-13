@@ -1,18 +1,18 @@
-//! Os conflitos da interface no `InheritanceOverrideVerifier.verify()`
+//! The interface conflicts in `InheritanceOverrideVerifier.verify()`
 //! (`analyzer/lib/src/error/inheritance_override.dart:186-217`, `:847-875`)
-//! e o `overrideNoCombinedSuperSignature` da inferência de sobrescrita
-//! (`analyzer/lib/src/task/strong_mode.dart:403-457`), relatado em
+//! and the `overrideNoCombinedSuperSignature` of override inference
+//! (`analyzer/lib/src/task/strong_mode.dart:403-457`), reported in
 //! `_reportNoCombinedSuperSignature` (`inheritance_override.dart:953-971`):
 //!
-//! * `inconsistent_inheritance_getter_and_method` e `inconsistent_inheritance`,
-//!   um por conflito, no nome da declaração;
-//! * `no_combined_super_signature`, no nome do método de instância com tipo
-//!   omitido cujos sobrescritos (todos métodos) não se combinam.
+//! * `inconsistent_inheritance_getter_and_method` and `inconsistent_inheritance`,
+//!   one per conflict, at the declaration name;
+//! * `no_combined_super_signature`, at the name of the instance method with an
+//!   omitted type whose overridden members (all methods) do not combine.
 //!
-//! Só nas classes em que `verify()` passa das verificações que o encerram
-//! cedo (`clausulas::verificador_de_heranca_prossegue`).
+//! Only in the classes in which `verify()` gets past the checks that end it
+//! early (`clausulas::verificador_de_heranca_prossegue`).
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::heranca::{combinar, Conflict, Especie, Heranca, Membro, Nome, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
@@ -24,13 +24,13 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind};
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 
-/// O `Name.name` do analyzer: o setter é `x=` (a chave do modelo é `x_=`).
+/// The analyzer's `Name.name`: a setter is `x=` (the model's key is `x_=`).
 fn member_name(interner: &Interner, n: &Nome) -> String {
     let text = interner.resolve(n.chave);
     text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="))
 }
 
-/// `'Classe.nome (tipo)'` de cada candidato, com `, `.
+/// `'Classe.name (ty)'` of each candidate, joined with `, `.
 fn displayed_candidates(program: &Program, interner: &Interner, table: &TypeTable, name: &str, candidates: &[Membro]) -> String {
     candidates
         .iter()
@@ -43,7 +43,7 @@ fn displayed_candidates(program: &Program, interner: &Interner, table: &TypeTabl
         .join(", ")
 }
 
-/// O nome e os membros da declaração de uma classe, mixin, enum ou alias.
+/// The name and the members of a class, mixin, enum or alias declaration.
 fn declaracao(program: &Program, c: ClassId) -> Option<(UnitId, ast::Name, &[ast::MemberId])> {
     let d = program.class(c).decl?;
     let a = &program.unit(d.unit).ast;
@@ -59,8 +59,8 @@ fn declaracao(program: &Program, c: ClassId) -> Option<(UnitId, ast::Name, &[ast
     }
 }
 
-/// Os métodos (e operadores) de instância com tipo omitido cujos
-/// sobrescritos não se combinam: `(classe, método, nome, explicação)`.
+/// The instance methods (and operators) with an omitted type whose overridden
+/// members do not combine: `(class, método, name, explicação)`.
 pub fn methods_without_combined_signature(
     program: &Program,
     interner: &Interner,
@@ -133,8 +133,8 @@ pub fn inconsistencias(
             let mut p = ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
             inheritance.interface(&mut p, cid)
         };
-        // O mesmo conflito pode vir das restrições `on` e das interfaces de
-        // um mixin: um relato por texto.
+        // The same conflict may come from the `on` constraints and from the
+        // interfaces of a mixin: one report per text.
         let mut seen: HashSet<(bool, String, String)> = HashSet::new();
         for conflict in interface.conflicts.iter() {
             match conflict {
@@ -157,8 +157,8 @@ pub fn inconsistencias(
             }
         }
     }
-    // `_reportNoCombinedSuperSignature`, no laço dos membros (depois dos
-    // conflitos de todas as classes: offsets diferentes).
+    // `_reportNoCombinedSuperSignature`, in the member loop (after the
+    // conflicts of all classes: different offsets).
     for (cid, _, n, explanation) in methods_without_combined_signature(program, interner, table, core, outline, classes) {
         let Some((u, _, _)) = declaracao(program, cid) else { continue };
         let class = interner.resolve(program.class(cid).name).to_string();

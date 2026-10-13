@@ -1,35 +1,37 @@
-//! `assignment_of_do_not_store` e `return_of_do_not_store`
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.7): o
-//! `BestPracticesVerifier` da 3.6.2 (`_checkForAssignmentOfDoNotStore`,
-//! `_checkForReturnOfDoNotStore` e `_getSubExpressionsMarkedDoNotStore`,
+//! `assignment_of_do_not_store` and `return_of_do_not_store`
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.7): the 3.6.2
+//! `BestPracticesVerifier` (`_checkForAssignmentOfDoNotStore`,
+//! `_checkForReturnOfDoNotStore` and `_getSubExpressionsMarkedDoNotStore`,
 //! `analyzer/lib/src/error/best_practices_verifier.dart`).
 //!
-//! As subexpressões "marcadas": a propriedade (`PropertyAccess` e
-//! `PrefixedIdentifier`), o identificador e a chamada de método
-//! (`MethodInvocation`, não a criação de instância) cujo elemento tem
-//! `hasOrInheritsDoNotStore` (nele; na classe, mixin, enum, tipo de extensão
-//! ou extensão que o contém; ou, para o que está numa unidade, na
-//! biblioteca), exceto o tear-off de função ou método; o acessor sintético
-//! vale pela variável. O `?:` e o operador binário descem nos dois lados; a
-//! expressão de função `=> e` desce no corpo; o parêntese não desce. O nome
-//! relatado é o `name` do elemento (o identificador escrito).
+//! The "marked" subexpressions: the property (`PropertyAccess` and
+//! `PrefixedIdentifier`), the identifier and the method call
+//! (`MethodInvocation`, not instance creation) whose element has
+//! `hasOrInheritsDoNotStore` (on it; on the enclosing class, mixin, enum,
+//! extension type or extension; or, for what is in a unit, on the library),
+//! except the tear-off of a function or method; a synthetic accessor counts
+//! through the variable. `?:` and a binary operator descend into both sides;
+//! the function expression `=> e` descends into the body; a parenthesis does
+//! not descend. The reported name is the element's `name` (the written
+//! identifier).
 //!
-//! O inicializador de variável de topo e de campo dá
-//! `assignment_of_do_not_store`; o `return e;` e o `=> e`, fora de
-//! `_inDoNotStoreMember`, dão `return_of_do_not_store` com o nome da
-//! declaração de função ou método mais próxima que os contém (sem uma,
-//! nada). O `_inDoNotStoreMember` começa com a biblioteca e é ligado só pela
-//! classe (`visitClassDeclaration`), pela função de topo ou local
-//! (`visitFunctionDeclaration`) e pelo método (`visitMethodDeclaration`)
-//! marcados. Nada numa unidade em diretório de teste (`inTestDir`: `test`,
-//! `integration_test`, `test_driver`, `testing`).
+//! The initializer of a top-level variable and of a field gives
+//! `assignment_of_do_not_store`; `return e;` and `=> e`, outside
+//! `_inDoNotStoreMember`, give `return_of_do_not_store` with the name of the
+//! nearest function or method declaration that contains them (without one,
+//! nothing). `_inDoNotStoreMember` starts with the library and is turned on
+//! only by the marked class (`visitClassDeclaration`), top-level or local
+//! function (`visitFunctionDeclaration`) and method
+//! (`visitMethodDeclaration`). Nothing in a unit in a test directory
+//! (`inTestDir`: `test`, `integration_test`, `test_driver`, `testing`).
 //!
-//! A anotação é a do `package:meta`, resolvida pelo escopo da unidade em que
-//! está escrita (`fase_resultado::anotacao_do_meta`). A metadata da
-//! biblioteca é a da diretiva `library` ou, sem ela, a da primeira diretiva
-//! (`ElementBuilder._buildLibraryMetadata`). A de variável local e de
-//! função local vem de `Ast::metadados_locais`; a de parâmetro, do nó.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The annotation is that of `package:meta`, resolved through the scope of
+//! the unit in which it is written (`fase_resultado::meta_annotation`). The
+//! library metadata is that of the `library` directive or, without it, that
+//! of the first directive (`ElementBuilder._buildLibraryMetadata`). That of
+//! a local variable and of a local function comes from
+//! `Ast::metadados_locais`; that of a parameter, from the node.
+//! Written without compiling or running (2026-10-05).
 
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_diagnostics::codigos::warning as w;
@@ -38,21 +40,21 @@ use dartforge_elements::model::{Element, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind, ExprId, ExprKind, ForInTarget, FunctionBody, MemberKind, StmtId, StmtKind};
 use dartforge_intern::Interner;
 
-/// Os diretórios de teste do `CompilationUnitExtension.inTestDir`.
+/// The test directories of `CompilationUnitExtension.inTestDir`.
 const TEST_DIRECTORIES: [&str; 4] = ["test", "integration_test", "test_driver", "testing"];
 
 fn dentro(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-/// A lista, escrita na unidade `unit`, tem o `@doNotStore` do `package:meta`.
+/// The list, written in unit `unit`, has the `@doNotStore` of `package:meta`.
 fn the_marked(program: &Program, interner: &Interner, unit: UnitId, metadata: &[ast::Annotation]) -> bool {
     metadata.iter().any(|m| crate::fase_resultado::meta_annotation(program, interner, unit, m, "doNotStore"))
 }
 
-/// `LibraryElement.hasDoNotStore` da biblioteca da unidade `u`: a metadata
-/// da diretiva `library` da unidade que define a biblioteca ou, sem ela, a
-/// da primeira diretiva.
+/// `LibraryElement.hasDoNotStore` of the library of unit `u`: the metadata of
+/// the `library` directive of the unit that defines the library or, without
+/// it, that of the first directive.
 fn marked_library(program: &Program, interner: &Interner, u: UnitId) -> bool {
     let lib = program.library(program.unit(u).library);
     lib.units.first().is_some_and(|&d| {
@@ -62,24 +64,25 @@ fn marked_library(program: &Program, interner: &Interner, u: UnitId) -> bool {
     })
 }
 
-/// O que a declaração de um local é: a metadata e se é uma função local.
+/// What the declaration of a local is: the metadata and whether it is a local
+/// function.
 struct LocalDeclaration<'a> {
     metadata: &'a [ast::Annotation],
     funcao: bool,
 }
 
-/// A metadata de uma instrução (`Ast::metadados_locais`).
+/// The metadata of a statement (`Ast::metadados_locais`).
 fn statement_metadata(a: &ast::Ast, s: StmtId) -> &[ast::Annotation] {
     a.metadados_locais.iter().find(|(x, _)| *x == s).map(|(_, m)| &**m).unwrap_or(&[])
 }
 
-/// O parâmetro de `ps` declarado no deslocamento `decl`.
+/// The parameter of `ps` declared at offset `decl`.
 fn parametro_em(ps: &[ast::Parameter], decl: usize) -> Option<&ast::Parameter> {
     ps.iter().find(|p| p.name.is_some_and(|n| n.span.start == decl))
 }
 
-/// A declaração do local declarado no deslocamento `decl`: parâmetro,
-/// variável local, função local ou variável do `for-in`.
+/// The declaration of the local declared at offset `decl`: parameter, local
+/// variable, local function or `for-in` variable.
 fn declaracao_local(a: &ast::Ast, decl: usize) -> Option<LocalDeclaration<'_>> {
     for f in a.functions.iter() {
         if let Some(p) = f.parameters.as_deref().and_then(|ps| parametro_em(ps, decl)) {
@@ -111,8 +114,8 @@ fn declaracao_local(a: &ast::Ast, decl: usize) -> Option<LocalDeclaration<'_>> {
     None
 }
 
-/// O parâmetro `nome` da função ou do construtor mais de dentro que contém
-/// `e` e o declara (`Resolved::Parameter`).
+/// The parameter `the_name` of the innermost function or constructor that
+/// contains `e` and declares it (`Resolved::Parameter`).
 fn parameter_declaration(a: &ast::Ast, e: Span, the_name: dartforge_intern::SymbolId) -> Option<LocalDeclaration<'_>> {
     let mut best: Option<(usize, &ast::Parameter)> = None;
     let mut lists: Vec<(Span, &[ast::Parameter])> = Vec::new();
@@ -140,13 +143,13 @@ fn parameter_declaration(a: &ast::Ast, e: Span, the_name: dartforge_intern::Symb
     best.map(|(_, p)| LocalDeclaration { metadata: &p.metadata, funcao: false })
 }
 
-/// `hasOrInheritsDoNotStore` do elemento resolvido `r` da expressão `e`
-/// (`u` é a unidade da expressão, para os locais).
+/// `hasOrInheritsDoNotStore` of the resolved element `r` of expression `e`
+/// (`u` is the unit of the expression, for the locals).
 fn marked_element(program: &Program, interner: &Interner, u: UnitId, body: &UnitBodyTypes, e: ExprId, r: &Resolved) -> bool {
     let a = &program.unit(u).ast;
     match r {
-        // O elemento local: só a própria metadata (o que o contém é uma
-        // função, nem classe nem unidade).
+        // A local element: only its own metadata (what contains it is a function,
+        // neither a class nor a unit).
         Resolved::Local(_) => body
             .declaracao_local(e)
             .and_then(|d| declaracao_local(a, d))
@@ -159,7 +162,7 @@ fn marked_element(program: &Program, interner: &Interner, u: UnitId, body: &Unit
             if where_.is_some_and(|w| the_marked(program, interner, w, metadata)) {
                 return true;
             }
-            // A classe ou a extensão que o contém; depois, a biblioteca.
+            // The class or extension that contains it; then, the library.
             match r {
                 Resolved::Member { class, .. } => match program.class(*class).decl {
                     Some(d) => {
@@ -179,14 +182,14 @@ fn marked_element(program: &Program, interner: &Interner, u: UnitId, body: &Unit
     }
 }
 
-/// O elemento é uma função ou um método (`FunctionElement`,
-/// `MethodElement`; não getter, setter nem acessor de variável): o
-/// identificador e a propriedade que o citam são tear-off.
+/// The element is a function or a method (`FunctionElement`,
+/// `MethodElement`; not a getter, setter or variable accessor): the
+/// identifier and the property that reference it are a tear-off.
 fn e_tear_off(program: &Program, a: &ast::Ast, body: &UnitBodyTypes, e: ExprId, r: &Resolved) -> bool {
     let f = match r {
         Resolved::Element(Element::Function(f)) | Resolved::Member { member: MemberRef::Function(f), .. } => *f,
         Resolved::ExtensionMember { member, .. } => *member,
-        // A função local é um `FunctionElement`.
+        // A local function is a `FunctionElement`.
         Resolved::Local(_) => return body.declaracao_local(e).and_then(|d| declaracao_local(a, d)).is_some_and(|d| d.funcao),
         _ => return false,
     };
@@ -194,13 +197,13 @@ fn e_tear_off(program: &Program, a: &ast::Ast, body: &UnitBodyTypes, e: ExprId, 
     g.variable.is_none() && matches!(g.kind, dartforge_elements::model::FunctionKind::Function | dartforge_elements::model::FunctionKind::Operator)
 }
 
-/// `_getSubExpressionsMarkedDoNotStore`: as subexpressões marcadas, com o
-/// nome a relatar.
+/// `_getSubExpressionsMarkedDoNotStore`: the marked subexpressions, with the
+/// name to report.
 fn marked_(program: &Program, interner: &Interner, u: UnitId, body: &UnitBodyTypes, e: ExprId, output: &mut Vec<(Span, String)>) {
     let a = &program.unit(u).ast;
     let resolved = |x: ExprId| body.get_resolved(x);
     let expr = a.expr(e);
-    // (a expressão cujo elemento conta, o elemento, o nome)
+    // (the expression whose element counts, the element, the name)
     let finding: Option<(ExprId, &Resolved, String)> = match &expr.kind {
         ExprKind::Property { name, .. } => {
             resolved(e).filter(|r| !e_tear_off(program, a, body, e, r)).map(|r| (e, r, interner.resolve(name.sym).to_string()))
@@ -208,9 +211,9 @@ fn marked_(program: &Program, interner: &Interner, u: UnitId, body: &UnitBodyTyp
         ExprKind::Identifier(n) => {
             resolved(e).filter(|r| !e_tear_off(program, a, body, e, r)).map(|r| (e, r, interner.resolve(n.sym).to_string()))
         }
-        // `MethodInvocation`: `f(…)`, `o.m(…)`; a criação de instância sem
-        // `new` (`C()`, `C.nome()`, `p.C()`) é `InstanceCreationExpression`
-        // no analyzer e não conta.
+        // `MethodInvocation`: `f(…)`, `o.m(…)`; an instance creation without `new`
+        // (`C()`, `C.the_name()`, `p.C()`) is an `InstanceCreationExpression` in the
+        // analyzer and does not count.
         ExprKind::Call { target, .. } if !matches!(resolved(e), Some(Resolved::Constructor(_))) => match &a.expr(*target).kind {
             ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => {
                 match resolved(*target) {
@@ -245,14 +248,14 @@ fn marked_(program: &Program, interner: &Interner, u: UnitId, body: &UnitBodyTyp
     }
 }
 
-/// Os relatos da unidade `u`.
+/// The reports of unit `u`.
 pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     if interner.lookup("doNotStore").is_none() {
         return out;
     }
     let unit_id = program.unit(u);
-    // `inTestDir`: um diretório da lista no caminho.
+    // `inTestDir`: a directory from the list in the path.
     let in_test = unit_id
         .path
         .as_ref()
@@ -263,7 +266,7 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
     }
     let a = &unit_id.ast;
 
-    // `assignment_of_do_not_store`: os inicializadores de topo e de campo.
+    // `assignment_of_do_not_store`: the top-level and field initializers.
     let mut initial: Vec<ExprId> = Vec::new();
     for d in a.decls.iter() {
         if let DeclKind::Variables(l) = &d.kind {
@@ -283,8 +286,8 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
         }
     }
 
-    // `return_of_do_not_store`. As declarações de função (de topo e locais)
-    // e de método: o trecho, o `displayName` e se ligam o
+    // `return_of_do_not_store`. The function (top-level and local) and method
+    // declarations: the span, the `displayName` and whether they turn on
     // `_inDoNotStoreMember`.
     let name_of = |g: &ast::Function| g.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default();
     let mut declarations: Vec<(Span, String, bool)> = Vec::new();
@@ -306,8 +309,8 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
             declarations.push((g.span, name_of(g), the_marked(program, interner, u, &m.metadata)));
         }
     }
-    // Os trechos com `_inDoNotStoreMember` ligado: as declarações marcadas e
-    // as classes marcadas (só `visitClassDeclaration` o liga).
+    // The spans with `_inDoNotStoreMember` on: the marked declarations and the
+    // marked classes (only `visitClassDeclaration` turns it on).
     let mut marked: Vec<Span> = declarations.iter().filter(|x| x.2).map(|x| x.0).collect();
     for d in a.decls.iter() {
         if matches!(d.kind, DeclKind::Class(_)) && the_marked(program, interner, u, &d.metadata) {
@@ -338,7 +341,7 @@ pub fn guardados_e_devolvidos(program: &Program, interner: &Interner, body: &Uni
         if findings.is_empty() {
             continue;
         }
-        // A declaração de função ou método mais próxima que contém o retorno.
+        // The nearest function or method declaration that contains the return.
         let Some(owner) = declarations.iter().filter(|x| dentro(sp, x.0)).min_by_key(|x| x.0.end - x.0.start) else { continue };
         for (s, the_name) in findings {
             out.push(Diagnostic::com_codigo(w::RETURN_OF_DO_NOT_STORE, s, [the_name.as_str(), owner.1.as_str()]));

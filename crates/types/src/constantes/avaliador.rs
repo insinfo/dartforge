@@ -1,13 +1,13 @@
-//! O `ConstantVisitor` e o `_InstanceCreationEvaluator` do analyzer 6.11
-//! (`src/dart/constant/evaluation.dart`): avaliação de expressões
-//! constantes, com os mesmos erros (`InvalidConstant`), as mesmas posições
-//! e as mesmas marcas (`avoidReporting`, `isUnresolved`,
+//! The `ConstantVisitor` and `_InstanceCreationEvaluator` of analyzer 6.11
+//! (`src/dart/constant/evaluation.dart`): evaluation of constant
+//! expressions, with the same errors (`InvalidConstant`), the same positions
+//! and the same marks (`avoidReporting`, `isUnresolved`,
 //! `isRuntimeException`).
 //!
-//! **Pelo lado seguro.** O que depende de informação que a inferência desta
-//! passada não produziu (corpos e inicializadores de bibliotecas que não
-//! foram inferidas, como as do SDK) vira valor desconhecido válido
-//! (`validWithUnknownValue`): nenhum erro é provado sobre ele.
+//! **On the safe side.** Anything that depends on information that this
+//! pass's inference did not produce (bodies and initializers of libraries
+//! that were not inferred, like the SDK's) becomes a valid unknown value
+//! (`validWithUnknownValue`): no error is proven about it.
 
 use super::valor::{texto, Campo, Estado, Excecao, Funcao, Valor};
 use crate::resolve::OutlineTypes;
@@ -34,12 +34,12 @@ pub struct Invalid {
     pub avoid_report: bool,
     pub unresolved: bool,
     pub excecao: bool,
-    /// `contextMessages`: unidade, intervalo e texto (a unidade decide o
-    /// arquivo da mensagem quando o erro é relatado).
+    /// `contextMessages`: unit, range and text (the unit decides the file of the
+    /// message when the error is reported).
     pub contexto: Vec<(UnitId, Span, String)>,
 }
 
-/// `Constant`: um valor válido ou um erro.
+/// `Constant`: a valid value or an error.
 #[derive(Clone, Debug)]
 pub enum Constante {
     Valor(Valor),
@@ -55,17 +55,18 @@ impl Constante {
     }
 }
 
-/// O estado do `ConstantVisitor`: a unidade da expressão, o ambiente léxico
-/// dos parâmetros (`_lexicalEnvironment`) e o dos parâmetros de tipo
-/// (`_lexicalTypeEnvironment`, que também faz a substituição da classe).
+/// The state of `ConstantVisitor`: the unit of the expression, the lexical
+/// environment of the parameters (`_lexicalEnvironment`) and that of the
+/// type parameters (`_lexicalTypeEnvironment`, which also does the class
+/// substitution).
 #[derive(Clone)]
 pub struct Ctx {
     pub unidade: UnitId,
     pub lib: LibraryId,
     pub lexical: Option<Rc<HashMap<SymbolId, Valor>>>,
     pub tipos: Option<Rc<HashMap<TypeParamId, TypeId>>>,
-    /// O relator do visitante é o do `ConstantVerifier` (e não um que
-    /// descarta): os erros de `_valueOf` saem.
+    /// The visitor's reporter is the `ConstantVerifier`'s (and not one that
+    /// discards): the errors of `_valueOf` come out.
     pub relatar: bool,
 }
 
@@ -81,8 +82,8 @@ enum VarState {
     Ready(Constante),
 }
 
-/// O motor de avaliação (`ConstantEvaluationEngine` com os resultados
-/// guardados nos elementos).
+/// The evaluation engine (`ConstantEvaluationEngine` with the results stored
+/// in the elements).
 pub struct Motor<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -90,35 +91,35 @@ pub struct Motor<'a> {
     pub core: &'a CoreTypes,
     pub outline: &'a OutlineTypes,
     pub body: &'a BodyTypes,
-    /// Bibliotecas cujos corpos (e inicializadores) foram inferidos.
+    /// Libraries whose bodies (and initializers) were inferred.
     pub the_inferred: &'a HashSet<LibraryId>,
     vars: HashMap<VariableId, VarState>,
     vars_stack: Vec<VariableId>,
     cyclic: HashSet<VariableId>,
-    /// Valores padrão já avaliados, pela expressão.
+    /// Default values already evaluated, by expression.
     padroes: HashMap<(UnitId, ExprId), Constante>,
-    /// Constantes locais: pelo offset do nome, a lista e o índice.
+    /// Local constants: by the name's offset, the list and the index.
     unit_locals: HashMap<UnitId, HashMap<usize, (ast::StmtId, usize)>>,
     locais: HashMap<(UnitId, usize), Option<Constante>>,
-    /// Construtores em avaliação (ciclo: `isCycleFree` falso).
+    /// Constructors being evaluated (cycle: `isCycleFree` false).
     constructors_in_progress: Vec<FunctionElementId>,
-    /// O grafo de dependências de constantes e quem está em ciclo
-    /// ([`super::ciclos::computar`], antes do verificador de cada biblioteca).
+    /// The constant dependency graph and who is in a cycle
+    /// ([`super::cycles::compute`], before each library's verifier).
     pub grafo: super::cycles::Estado,
-    /// Argumentos posicionais diretos de uma criação constante: o
-    /// `genericError` deles é `CONST_WITH_NON_CONSTANT_ARGUMENT`.
+    /// Direct positional arguments of a constant creation: their
+    /// `genericError` is `CONST_WITH_NON_CONSTANT_ARGUMENT`.
     creation_args: HashSet<(UnitId, ExprId)>,
-    /// Erros relatados pelo próprio visitante (`_valueOf`) quando `relatar`.
+    /// Errors reported by the visitor itself (`_valueOf`) when `relatar`.
     pub relatos: Vec<Invalid>,
-    /// O analyzer 3.6.2 lançaria aqui (a exaustividade, ver
-    /// [`crate::table::TypeTable::sem_tipo_padrao`]).
+    /// Analyzer 3.6.2 would throw here (exhaustiveness, see
+    /// [`crate::table::TypeTable::without_default_type`]).
     pub analyzer_break: bool,
-    /// Quando `Some`, o verificador guarda aqui, por (unidade, offset do
-    /// `switch`), as testemunhas com partes de cada `non_exhaustive_switch_*`
-    /// (o `diagnostic.data` do analyzer, usado pelo `AddMissingSwitchCases`).
+    /// When `Some`, the verifier stores here, by (unit, offset of the
+    /// `switch`), the witnesses with parts of each `non_exhaustive_switch_*`
+    /// (the analyzer's `diagnostic.data`, used by `AddMissingSwitchCases`).
     pub witnesses: Option<HashMap<(UnitId, usize), Vec<Vec<super::exhaustiveness::ParteDeTestemunha>>>>,
-    /// Offsets dos nomes de parâmetros formais, por unidade inferida (a
-    /// inferência resolve a leitura de um parâmetro como a de um local).
+    /// Offsets of the names of formal parameters, per inferred unit (inference
+    /// resolves a read of a parameter as that of a local).
     parametros: HashMap<UnitId, HashSet<usize>>,
     depth: u32,
     sym_identical: Option<SymbolId>,
@@ -177,7 +178,7 @@ impl<'a> Motor<'a> {
         }
     }
 
-    // -- Acesso --------------------------------------------------------------
+    // -- Access --------------------------------------------------------------
 
     pub fn ast(&self, u: UnitId) -> &'a ast::Ast {
         &self.program.unit(u).ast
@@ -191,7 +192,7 @@ impl<'a> Motor<'a> {
         self.the_inferred.contains(&self.program.unit(u).library)
     }
 
-    /// Tipo estático de `e` (`dynamic` numa unidade não inferida).
+    /// Static type of `e` (`dynamic` in a unit that was not inferred).
     pub fn estatico(&self, u: UnitId, e: ExprId) -> TypeId {
         self.body.units.get(u.0 as usize).and_then(|b| b.get_type(e)).unwrap_or(self.core.dynamic_)
     }
@@ -200,8 +201,8 @@ impl<'a> Motor<'a> {
         self.body.units.get(u.0 as usize).and_then(|b| b.get_resolved(e))
     }
 
-    /// O tipo estático de `e` é o de recuperação (`InvalidType`): o tipo
-    /// registrado inválido, ou o local de inicializador inválido.
+    /// The static type of `e` is the recovery type (`InvalidType`): the invalid
+    /// recorded type, or the local with an invalid initializer.
     pub(crate) fn invalid_type(&self, u: UnitId, e: ExprId) -> bool {
         self.body.units.get(u.0 as usize).is_some_and(|b| {
             b.invalid_types.contains(&e) || b.get_type(e).is_some_and(|t| self.table.e_invalido(t))
@@ -217,7 +218,8 @@ impl<'a> Motor<'a> {
         self.table.format(t, self.interner, self.program)
     }
 
-    /// Sem o alias (`getDisplayString()`): onde o analyzer já passa texto.
+    /// Without the alias (`getDisplayString()`): where the analyzer already
+    /// passes text.
     pub fn format_without_alias(&self, t: TypeId) -> String {
         self.table.format_sem_alias(t, self.interner, self.program)
     }
@@ -239,8 +241,8 @@ impl<'a> Motor<'a> {
         crate::ops::erase_extension_type(t, self.table, &rep)
     }
 
-    /// `runtimeTypeMatch`: o tipo do objeto é subtipo do tipo apagado. Um
-    /// objeto de tipo `dynamic` (expressão não resolvida) casa com tudo.
+    /// `runtimeTypeMatch`: the object's type is a subtype of the erased type. An
+    /// object of type `dynamic` (unresolved expression) matches everything.
     pub fn casa(&mut self, v: &Valor, t: TypeId) -> bool {
         if v.tipo == self.core.dynamic_ || matches!(v.estado, Estado::Null { invalid: true }) {
             return true;
@@ -249,7 +251,7 @@ impl<'a> Motor<'a> {
         self.sub(v.tipo, t)
     }
 
-    /// `isAssignableTo` do tipo estático.
+    /// `isAssignableTo` of the static type.
     pub fn atribuivel(&mut self, a: TypeId, b: TypeId) -> bool {
         a == self.core.dynamic_ || self.sub(a, b)
     }
@@ -275,13 +277,13 @@ impl<'a> Motor<'a> {
         }
     }
 
-    // -- Erros ---------------------------------------------------------------
+    // -- Errors --------------------------------------------------------------
 
     pub fn erro(&self, u: UnitId, span: Span, code: Codigo) -> Invalid {
         Invalid { codigo: code, unidade: u, span, args: Vec::new(), avoid_report: false, unresolved: false, excecao: false, contexto: Vec::new() }
     }
 
-    /// `ConstructorElement.displayName`: `C` ou `C.nome`.
+    /// `ConstructorElement.displayName`: `C` or `C.the_name`.
     fn constructor_display(&self, f: FunctionElementId) -> String {
         let fe = self.program.function(f);
         let cls = fe.class.map(|k| self.interner.resolve(self.program.class(k).name).to_string()).unwrap_or_default();
@@ -293,8 +295,8 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `_constructor.source`: a unidade da declaração do construtor (a da
-    /// classe, no sintético).
+    /// `_constructor.source`: the unit of the constructor's declaration (that of
+    /// the class, for the synthetic one).
     fn constructor_unit(&self, f: FunctionElementId) -> Option<UnitId> {
         let fe = self.program.function(f);
         match fe.node {
@@ -303,8 +305,9 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `_checkInitializers`: o erro (que não é de execução) no inicializador
-    /// passa ao nó da criação; sem contexto ainda, ganha o de onde ocorre.
+    /// `_checkInitializers`: the error (not a runtime one) in the initializer
+    /// moves to the creation node; without a context yet, it gets the one where
+    /// it occurs.
     fn error_in_initializer(&self, i: &Invalid, f: Option<FunctionElementId>, where_: &str, error: ErrorAt) -> Invalid {
         let mut n = i.clone();
         if n.contexto.is_empty() {
@@ -320,8 +323,8 @@ impl<'a> Motor<'a> {
         n
     }
 
-    /// `_stackTraceContextMessage`: no nome do construtor que chama (nenhum
-    /// no sintético, cujo `nameOffset` é -1).
+    /// `_stackTraceContextMessage`: at the name of the calling constructor (none
+    /// for the synthetic one, whose `nameOffset` is -1).
     fn constructor_stack(&self, super_: FunctionElementId, f: FunctionElementId) -> Option<(UnitId, Span, String)> {
         if !matches!(self.program.function(f).node, FunctionRef::Constructor { .. }) {
             return None;
@@ -350,10 +353,10 @@ impl<'a> Motor<'a> {
         Constante::Invalid(Box::new(i))
     }
 
-    // -- Expressões ----------------------------------------------------------
+    // -- Expressions -----------------------------------------------------------
 
-    /// `evaluateConstant`: `em_const` diz se o nó está num contexto
-    /// constante (`inConstantContext`).
+    /// `evaluateConstant`: `in_const` says whether the node is in a constant
+    /// context (`inConstantContext`).
     pub fn avaliar(&mut self, cx: &Ctx, e: ExprId, in_const: bool) -> R {
         if self.depth > 400 {
             return self.generic(cx.unidade, e, true);
@@ -364,18 +367,18 @@ impl<'a> Motor<'a> {
         self.instantiate_reference(cx, e, r)
     }
 
-    /// `visitFunctionReference` sem argumentos escritos (3.6.2
-    /// `evaluation.dart:852-882`): a instanciação implícita de qualquer
-    /// expressão (`instanciacao_de_tearoff`). Argumento inferido que menciona
-    /// parâmetro de tipo é `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`; senão
-    /// `_instantiateFunctionType` (`:1939-1959`): o valor cuja função é
-    /// genérica (o tipo **do elemento**) fica com esse tipo instanciado pelos
-    /// argumentos e depois substituído pelo ambiente do construtor.
+    /// `visitFunctionReference` without written arguments (3.6.2
+    /// `evaluation.dart:852-882`): the implicit instantiation of any expression
+    /// (`instanciacao_de_tearoff`). An inferred argument that mentions a type
+    /// parameter is `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`; otherwise
+    /// `_instantiateFunctionType` (`:1939-1959`): the value whose function is
+    /// generic (the type **of the element**) gets that type instantiated by the
+    /// arguments and then substituted by the constructor's environment.
     fn instantiate_reference(&mut self, cx: &Ctx, e: ExprId, r: R) -> R {
         let Constante::Valor(mut val) = r else { return r };
         let u = cx.unidade;
-        // O tear-off de construtor é `ConstructorReference`
-        // (`visitConstructorReference`), não `FunctionReference`.
+        // A constructor tear-off is a `ConstructorReference`
+        // (`visitConstructorReference`), not a `FunctionReference`.
         if matches!(self.resolvido(u, e), Some(Resolved::Constructor(_))) {
             return Constante::Valor(val);
         }
@@ -523,14 +526,14 @@ impl<'a> Motor<'a> {
                     return self.generic(u, e, false);
                 }
                 let Some(Resolved::Constructor(f)) = self.resolvido(u, e) else {
-                    // O construtor encaminhado de uma aplicação de mixin.
+                    // The forwarded constructor of a mixin application.
                     if let Some((f, typ)) = self.forwarded_constructor(u, e, constructor.map(|n| n.sym)) {
                         let kw = self.creation_keyword(u, e, keyword.is_some());
                         let r = self.call_constructor(cx, e, f, arguments, kw, Some(typ));
                         return self.format_constructor_error(u, e, r);
                     }
-                    // `const E(0)` pelo construtor primário de um tipo de
-                    // extensão (sem função no modelo): a representação.
+                    // `const E(0)` through the primary constructor of an extension
+                    // type (without a function in the model): the representation.
                     let static_ = self.body.units.get(u.0 as usize).and_then(|b| b.get_type(e));
                     if let Some(t) = static_
                         && let Type::ExtensionType { decl: k, .. } = self.table.get(t).clone()
@@ -546,7 +549,7 @@ impl<'a> Motor<'a> {
             }
             ExprKind::Call { target, arguments } => {
                 if let Some(Resolved::Constructor(f)) = self.resolvido(u, e) {
-                    // Criação implícita: constante só num contexto constante.
+                    // Implicit creation: constant only in a constant context.
                     if !in_const {
                         return self.generic(u, e, false);
                     }
@@ -555,21 +558,21 @@ impl<'a> Motor<'a> {
                     return self.format_constructor_error(u, e, r);
                 }
                 let tgt = *target;
-                // O construtor primário de um tipo de extensão (`A(true)`,
-                // `A.n(1)`), que o modelo não guarda como função: a criação
-                // vale a representação (`_fieldMap[representation]`, 3.6.2
-                // `evaluation.dart:2573-2578`), o argumento avaliado.
+                // The primary constructor of an extension type (`A(true)`,
+                // `A.n(1)`), which the model does not keep as a function: the creation
+                // is worth the representation (`_fieldMap[representation]`, 3.6.2
+                // `evaluation.dart:2573-2578`), the evaluated argument.
                 if let Some(r) = self.creation_via_extension_primary(cx, e, tgt, arguments, in_const) {
                     return r;
                 }
-                // `assert(…)` como expressão é `FunctionExpressionInvocation`
-                // (o `visitNode` genérico), não `MethodInvocation`.
+                // `assert(…)` as an expression is a `FunctionExpressionInvocation`
+                // (the generic `visitNode`), not a `MethodInvocation`.
                 let is_method = matches!(a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
                     && !a.invocacoes_de_assert.contains(&e);
                 if !is_method {
                     return self.generic(u, e, false);
                 }
-                // `identical(a, b)` de `dart:core`.
+                // `identical(a, b)` from `dart:core`.
                 if let ExprKind::Identifier(n) = &a.expr(tgt).kind {
                     if Some(n.sym) == self.sym_identical && arguments.args.len() == 2 && arguments.args.iter().all(|x| x.name.is_none()) {
                         if let Some(Resolved::Element(Element::Function(f))) = self.resolvido(u, tgt) {
@@ -598,14 +601,14 @@ impl<'a> Motor<'a> {
             }
             ExprKind::Property { target, name, .. } => self.propriedade(cx, e, *target, *name, in_const),
             ExprKind::TypeArguments { target, .. } => {
-                // Literal de tipo genérico ou instanciação de função: o
-                // valor exato do tipo não é reconstruído aqui.
+                // Generic type literal or function instantiation: the exact
+                // value of the type is not reconstructed here.
                 match self.avaliar(cx, *target, in_const) {
                     Constante::Valor(v) => match v.estado {
                         Estado::Tipo(_) => Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(None))),
                         Estado::Funcao { elemento: element, .. } => {
-                            // `_instantiateFunctionType`: o tipo instanciado
-                            // passa pela substituição do construtor.
+                            // `_instantiateFunctionType`: the instantiated type goes
+                            // through the constructor's substitution.
                             let t = self.estatico(u, e);
                             let t = match &cx.tipos {
                                 Some(m) => crate::ops::substitute(t, m, self.table),
@@ -658,8 +661,8 @@ impl<'a> Motor<'a> {
                     Constante::Valor(v) => v,
                     i => return i,
                 };
-                // O tipo testado não é reconstruído aqui: o resultado é
-                // desconhecido (nunca prova erro).
+                // The tested type is not reconstructed here: the result is
+                // unknown (never proves an error).
                 let _ = (v, negated);
                 Constante::Valor(Valor::bool_(self.core, None))
             }
@@ -669,8 +672,8 @@ impl<'a> Motor<'a> {
                     Constante::Valor(v) => v,
                     i => return i,
                 };
-                // `node.type.type` (`visitAsExpression`): o tipo escrito, não
-                // o estático do `as` (que a instanciação implícita muda).
+                // `node.type.type` (`visitAsExpression`): the written type, not the
+                // static type of the `as` (which the implicit instantiation changes).
                 let tgt = self
                     .body
                     .units
@@ -678,9 +681,9 @@ impl<'a> Motor<'a> {
                     .and_then(|b| b.tipos_de_anotacoes.get(&ty).copied())
                     .or_else(|| self.outline.tipos_escritos.get(&(u, ty)).copied())
                     .unwrap_or_else(|| self.estatico(u, e));
-                // O tipo do `as` com o ambiente léxico do construtor aplicado
-                // (`_substitution`, `x as List<T>` em `C<int>`): só o que
-                // ainda menciona parâmetro de tipo fica sem conferir.
+                // The type of the `as` with the constructor's lexical environment
+                // applied (`_substitution`, `x as List<T>` in `C<int>`): only what
+                // still mentions a type parameter is left unchecked.
                 let tgt = match &cx.tipos {
                     Some(m) => crate::ops::substitute(tgt, m, self.table),
                     None => tgt,
@@ -695,7 +698,7 @@ impl<'a> Motor<'a> {
                 Constante::Valor(v)
             }
             ExprKind::DotShorthand { .. } => {
-                // Atalho resolvido para um membro estático ou constante de enum.
+                // A shorthand resolved to a static member or enum constant.
                 match self.resolvido(u, e) {
                     Some(Resolved::Element(Element::Class(d))) => {
                         let d = *d;
@@ -729,7 +732,7 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// O span da palavra-chave `new`/`const` de uma criação explícita.
+    /// The span of the `new`/`const` keyword of an explicit creation.
     fn creation_keyword(&self, u: UnitId, e: ExprId, has: bool) -> Option<Span> {
         if !has {
             return None;
@@ -741,15 +744,15 @@ impl<'a> Motor<'a> {
         Some(Span { start: s.start, end: s.start + n })
     }
 
-    /// `evaluateAndFormatErrorsInConstructorCall`: uma exceção de execução
-    /// vira `CONST_EVAL_THROWS_EXCEPTION` na criação.
+    /// `evaluateAndFormatErrorsInConstructorCall`: a runtime exception becomes
+    /// `CONST_EVAL_THROWS_EXCEPTION` at the creation.
     pub fn format_constructor_error(&self, u: UnitId, e: ExprId, r: R) -> R {
         match r {
             Constante::Invalid(i) if i.excecao => {
                 let mut n = self.erro(u, self.span(u, e), c::CONST_EVAL_THROWS_EXCEPTION);
                 n.avoid_report = i.avoid_report;
-                // O contexto da exceção, no arquivo da biblioteca
-                // (`library.source`), depois dos que o erro já tinha.
+                // The exception's context, in the library's file
+                // (`library.source`), after those the error already had.
                 let text = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
                 let defining = self.program.library(self.program.unit(u).library).units.first().copied().unwrap_or(u);
                 n.contexto = i.contexto.clone();
@@ -790,7 +793,7 @@ impl<'a> Motor<'a> {
         Constante::Valor(Valor::novo(self.core.string, Estado::Str(st)))
     }
 
-    /// O intervalo do `InterpolationExpression`: `$x` ou `${e}`.
+    /// The range of the `InterpolationExpression`: `$x` or `${e}`.
     fn interpolation_span(&self, u: UnitId, x: ExprId) -> Span {
         let s = self.span(u, x);
         let b = self.program.unit(u).source.as_bytes();
@@ -812,10 +815,10 @@ impl<'a> Motor<'a> {
         s
     }
 
-    // -- Coleções --------------------------------------------------------------
+    // -- Collections -------------------------------------------------------------
 
-    /// `_buildListConstant`: `None` completa; `Some(Ok(()))` desconhecida
-    /// (condição de `if` desconhecida); `Some(Err)` erro.
+    /// `_buildListConstant`: `None` complete; `Some(Ok(()))` unknown (unknown
+    /// `if` condition); `Some(Err)` error.
     fn build_list(
         &mut self,
         cx: &Ctx,
@@ -1044,7 +1047,7 @@ impl<'a> Motor<'a> {
         None
     }
 
-    /// O intervalo de um elemento de coleção.
+    /// The range of a collection element.
     pub fn element_span(&self, u: UnitId, el: &CollectionElement) -> Span {
         let a = self.ast(u);
         let source = self.program.unit(u).source.as_bytes();
@@ -1100,9 +1103,10 @@ impl<'a> Motor<'a> {
         if let Some(code) = self.is_of_extension(u, e) {
             return self.inv(u, e, code);
         }
-        // Pós-fixos (`a++`, `a!`) não têm visita própria (`visitNode`): o
-        // erro genérico no nó. `visitPrefixExpression`: o operando primeiro
-        // (o erro dele vence); só então `++`/`--` são o erro genérico.
+        // Postfix operators (`a++`, `a!`) have no visit of their own
+        // (`visitNode`): the generic error at the node. `visitPrefixExpression`:
+        // the operand first (its error wins); only then are `++`/`--` the
+        // generic error.
         if matches!(op, UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert) {
             return self.generic(u, e, false);
         }
@@ -1246,7 +1250,7 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `equalEqual`: com `patterns` ligado (3.0+), primitiva ou `double`.
+    /// `equalEqual`: with `patterns` on (3.0+), primitive or `double`.
     fn equal_equal(&mut self, lib: LibraryId, l: &Valor, r: &Valor) -> Result<Option<bool>, Excecao> {
         if l.estado.is_null() || r.estado.is_null() {
             return Ok(Some(l.estado.is_null() && r.estado.is_null()));
@@ -1275,7 +1279,7 @@ impl<'a> Motor<'a> {
         self.identical_state(&l.estado, &r.estado)
     }
 
-    /// `InstanceState.isIdentical` (e `equalEqual`, que é o mesmo aqui).
+    /// `InstanceState.isIdentical` (and `equalEqual`, which is the same here).
     fn identical_state(&mut self, l: &Estado, r: &Estado) -> Option<bool> {
         match (l, r) {
             (Estado::Bool(a), b) => {
@@ -1352,16 +1356,16 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `==` de `DartObjectImpl` (a igualdade estrutural das chaves de mapa e
-    /// dos elementos de conjunto).
+    /// `DartObjectImpl`'s `==` (the structural equality of map keys and set
+    /// elements).
     pub fn iguais(&mut self, a: &Valor, b: &Valor) -> bool {
         a.tipo == b.tipo && self.equal_states(&a.estado, &b.estado)
     }
 
     fn equal_states(&mut self, a: &Estado, b: &Estado) -> bool {
-        // Valor não conhecido (constante de outra biblioteca, opaca) não é
-        // provadamente igual a nada: dois `CompileTimeErrorCode.X` vindos
-        // de fora não são o mesmo elemento de conjunto.
+        // A value that is not known (an opaque constant from another library) is
+        // not provably equal to anything: two `CompileTimeErrorCode.X` coming
+        // from outside are not the same set element.
         if a.desconhecido() || b.desconhecido() {
             return false;
         }
@@ -1418,8 +1422,8 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// A classe que declara o membro de instância concreto `nome` visto de
-    /// `c` (superclasses e mixins, na ordem de busca).
+    /// The class that declares the concrete instance member `the_name` as seen from
+    /// `c` (superclasses and mixins, in lookup order).
     fn concrete_member(&self, c: ClassId, the_name: SymbolId) -> Option<ClassId> {
         let mut current = Some(c);
         let mut seen = 0;
@@ -1446,7 +1450,7 @@ impl<'a> Motor<'a> {
         None
     }
 
-    // -- Nomes -----------------------------------------------------------------
+    // -- Names -----------------------------------------------------------------
 
     fn propriedade(&mut self, cx: &Ctx, e: ExprId, tgt: ExprId, the_name: ast::Name, in_const: bool) -> R {
         let u = cx.unidade;
@@ -1454,8 +1458,8 @@ impl<'a> Motor<'a> {
         let simple_target = matches!(a.expr(tgt).kind, ExprKind::Identifier(_));
         let res_target = self.resolvido(u, tgt).cloned();
         match res_target {
-            // Constante de topo importada com prefixo; do prefixo adiado,
-            // o erro de biblioteca adiada no nome (`visitPrefixedIdentifier`,
+            // A top-level constant imported with a prefix; for a deferred prefix,
+            // the deferred library error at the name (`visitPrefixedIdentifier`,
             // 3.6.2 `evaluation.dart:1108-1115`).
             Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))) => {
                 if self.deferred_prefix(u, tgt) {
@@ -1463,8 +1467,8 @@ impl<'a> Motor<'a> {
                 }
                 return self.constant_value(cx, e, e, true);
             }
-            // `p.Ext.m` (`visitPropertyAccess`, `:1176-1185`): com `p`
-            // adiado, o erro no nome da extensão.
+            // `p.Ext.m` (`visitPropertyAccess`, `:1176-1185`): with `p`
+            // deferred, the error at the extension's name.
             Some(Resolved::Element(Element::Extension(_))) => {
                 if let ExprKind::Property { target: p, name: ext_name, .. } = &a.expr(tgt).kind
                     && matches!(self.resolvido(u, *p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))))
@@ -1487,8 +1491,8 @@ impl<'a> Motor<'a> {
             i => return i,
         };
         let e_interface = simple_target && matches!(res_target, Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))));
-        // `C<T>.new`, `C.nome`: o `ConstructorReference` (tear-off de
-        // construtor), não um acesso a propriedade do `Type`.
+        // `C<T>.new`, `C.the_name`: the `ConstructorReference` (constructor
+        // tear-off), not a property access on the `Type`.
         if matches!(self.resolvido(u, e), Some(Resolved::Constructor(_))) {
             return self.constant_value(cx, e, e, true);
         }
@@ -1500,9 +1504,9 @@ impl<'a> Motor<'a> {
         self.constant_value(cx, e, e, true)
     }
 
-    /// `PrefixedIdentifier.isDeferred` (3.6.2 `ast.dart:14386-14396`): o
-    /// prefixo `p` (um identificador) é de exatamente um import da unidade, e
-    /// esse import é `deferred`.
+    /// `PrefixedIdentifier.isDeferred` (3.6.2 `ast.dart:14386-14396`): the prefix
+    /// `p` (an identifier) belongs to exactly one import of the unit, and that
+    /// import is `deferred`.
     fn deferred_prefix(&self, u: UnitId, p: ExprId) -> bool {
         let ExprKind::Identifier(n) = &self.ast(u).expr(p).kind else {
             return false;
@@ -1515,9 +1519,9 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `_getDeferredLibraryError` (3.6.2 `evaluation.dart:1873-1933`): o código
-    /// pelo primeiro ancestral de `no` que o decide, no `alvo`; sem nenhum,
-    /// `INVALID_CONSTANT` no próprio `no`.
+    /// `_getDeferredLibraryError` (3.6.2 `evaluation.dart:1873-1933`): the code
+    /// from the first ancestor of `no` that decides it, at `tgt`; with none,
+    /// `INVALID_CONSTANT` at `no` itself.
     fn deferred_library_error(&self, u: UnitId, no: ExprId, tgt: Span) -> R {
         match self.deferred_library_code(u, no) {
             Some(code) => Constante::Invalid(Box::new(self.erro(u, tgt, code))),
@@ -1525,14 +1529,15 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// A subida do `_getDeferredLibraryError`: `Annotation`, `DefaultFormalParameter`,
-    /// `IfElement` cuja condição é o próprio `no`, `InstanceCreationExpression`,
-    /// `ListLiteral`, `MapLiteralEntry` (chave ou valor, pelo filho), `RecordLiteral`,
-    /// `SetOrMapLiteral`, `SpreadElement`, `SwitchCase` (o antigo), `SwitchPatternCase`
-    /// e `VariableDeclaration`. Os pais vêm de `dartforge_frontend::pais`; onde o
-    /// pai não é expressão (instrução, padrão, valor padrão…), a subida continua
-    /// pela menor expressão que contém o trecho (uma expressão de função, um
-    /// `switch` de expressão, a coleção do `if (… case …)`).
+    /// The ascent of `_getDeferredLibraryError`: `Annotation`, `DefaultFormalParameter`,
+    /// `IfElement` whose condition is `no` itself, `InstanceCreationExpression`,
+    /// `ListLiteral`, `MapLiteralEntry` (key or value, by the child), `RecordLiteral`,
+    /// `SetOrMapLiteral`, `SpreadElement`, `SwitchCase` (the old one), `SwitchPatternCase`
+    /// and `VariableDeclaration`. The parents come from `dartforge_frontend::pais`;
+    /// where the parent is not an expression (statement, pattern, default value…),
+    /// the ascent continues through the smallest expression that contains the
+    /// fragment (a function expression, a `switch` expression, the collection of
+    /// an `if (… case …)`).
     fn deferred_library_code(&self, u: UnitId, no: ExprId) -> Option<Codigo> {
         let a = self.ast(u);
         let pais = crate::lints_tipados::pais_da_unidade(self.program, u);
@@ -1547,10 +1552,10 @@ impl<'a> Motor<'a> {
                 dartforge_frontend::pais::Pai::Anotacao => return Some(c::INVALID_ANNOTATION_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
                 dartforge_frontend::pais::Pai::Variavel { .. } => return Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
                 // `EnumConstantArguments` → `EnumConstantDeclaration` →
-                // `EnumDeclaration`: nenhum decide.
+                // `EnumDeclaration`: none decides.
                 dartforge_frontend::pais::Pai::ConstanteDeEnum => return None,
                 dartforge_frontend::pais::Pai::PadraoConstante { .. } => {
-                    // No `case` de um `switch` de instrução, o código do caso.
+                    // In the `case` of a `switch` statement, the case's code.
                     let in_case = a.stmts.iter().any(|s| match &s.kind {
                         ast::StmtKind::Switch { cases, .. } => {
                             cases.iter().any(|k| k.pattern.is_some_and(|p| contains(a.pattern(p).span, sp)))
@@ -1582,7 +1587,8 @@ impl<'a> Motor<'a> {
                     None
                 }
             };
-            // O pai que não é expressão: a menor expressão que contém o trecho.
+            // A parent that is not an expression: the smallest expression containing
+            // the fragment.
             let p = match next_ {
                 Some(p) => p,
                 None => {
@@ -1611,11 +1617,13 @@ impl<'a> Motor<'a> {
         None
     }
 
-    /// O código que a expressão `p`, pai do trecho `filho`, decide na subida.
+    /// The code that expression `p`, parent of fragment `child`, decides in the
+    /// ascent.
     fn role_on_ascent(&self, u: UnitId, p: ExprId, child: Span, no: ExprId) -> Option<Codigo> {
         let a = self.ast(u);
         let contains = |of: Span, sp: Span| of.start <= sp.start && sp.end <= of.end;
-        // O elemento de coleção que contém o filho, do mais fundo ao mais raso.
+        // The collection element that contains the child, from deepest to
+        // shallowest.
         fn elemento(a: &ast::Ast, el: &ast::CollectionElement, child: Span, no: ExprId, contains: &dyn Fn(Span, Span) -> bool) -> Option<Option<Codigo>> {
             let span = |e: ExprId| a.expr(e).span;
             match el {
@@ -1710,9 +1718,10 @@ impl<'a> Motor<'a> {
         Some(Constante::Invalid(Box::new(i)))
     }
 
-    /// `alvo(args)` que cria pelo construtor primário de um tipo de extensão:
-    /// o alvo é o tipo (`A`) ou `A.nome` com o nome do primário. Fora de
-    /// contexto constante é o genérico; o primário sem `const`, também.
+    /// `tgt(args)` that creates through the primary constructor of an extension
+    /// type: the target is the type (`A`) or `A.the_name` with the primary's name.
+    /// Outside a constant context it is the generic one; the primary without
+    /// `const`, too.
     fn creation_via_extension_primary(&mut self, cx: &Ctx, e: ExprId, tgt: ExprId, arguments: &ast::Arguments, in_const: bool) -> Option<R> {
         let u = cx.unidade;
         let a = self.ast(u);
@@ -1725,8 +1734,9 @@ impl<'a> Motor<'a> {
         self.extension_primary(cx, e, k, the_name, arguments, in_const)
     }
 
-    /// A criação pelo construtor primário do tipo de extensão `k` (`nome`: o
-    /// do construtor escrito): vale a representação, o argumento avaliado.
+    /// The creation through the primary constructor of extension type `k`
+    /// (`the_name`: that of the written constructor): it is worth the
+    /// representation, the evaluated argument.
     fn extension_primary(&mut self, cx: &Ctx, e: ExprId, k: ClassId, the_name: Option<SymbolId>, arguments: &ast::Arguments, in_const: bool) -> Option<R> {
         let u = cx.unidade;
         let d = self.program.class(k).decl?;
@@ -1747,15 +1757,15 @@ impl<'a> Motor<'a> {
         Some(self.avaliar(cx, x.value, true))
     }
 
-    /// A instanciação implícita do tear-off `e` (`typeArgumentTypes` de um
-    /// `FunctionReference` sem argumentos escritos) com algum argumento que
-    /// menciona parâmetro de tipo depois do ambiente léxico do construtor
+    /// The implicit instantiation of tear-off `e` (`typeArgumentTypes` of a
+    /// `FunctionReference` without written arguments) with some argument that
+    /// mentions a type parameter after the constructor's lexical environment
     /// (3.6.2 `evaluation.dart:862-876`).
     fn instantiation_with_parameter(&mut self, cx: &Ctx, e: ExprId) -> bool {
         let inferred: Option<Vec<TypeId>> = self.body.units.get(cx.unidade.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec());
         let Some(args) = inferred else { return false };
-        // Só o argumento que é ele mesmo um parâmetro de tipo passa pelo
-        // `_lexicalTypeEnvironment` (`:866-871`); `List<U>` fica como está.
+        // Only an argument that is itself a type parameter goes through
+        // `_lexicalTypeEnvironment` (`:866-871`); `List<U>` stays as it is.
         args.iter().any(|&a| {
             let a = match (self.table.get(a), &cx.tipos) {
                 (Type::TypeParameter { param, .. }, Some(m)) => m.get(param).copied().unwrap_or(a),
@@ -1765,34 +1775,33 @@ impl<'a> Motor<'a> {
         })
     }
 
-    /// `_getConstantValue` do elemento a que `e` resolve (`erro_em` é o nó
-    /// do erro).
+    /// `_getConstantValue` of the element that `e` resolves to (`error_at` is the
+    /// error node).
     fn constant_value(&mut self, cx: &Ctx, e: ExprId, error_at: ExprId, with_identifier: bool) -> R {
         let u = cx.unidade;
         let res = self.resolvido(u, e).cloned();
         let _ = with_identifier;
         match res {
             Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
-                // A variável que guarda uma função genérica, instanciada
-                // implicitamente: o valor primeiro, depois os argumentos.
+                // A variable holding a generic function, implicitly instantiated:
+                // the value first, then the arguments.
                 let r = self.variable_reference_value(cx, error_at, v);
                 if matches!(r, Constante::Valor(_)) && self.instantiation_with_parameter(cx, e) {
                     return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
                 }
                 return r;
             }
-            // O estático de extensão citado pelo nome simples (o `foo` de
-            // `@A(foo)` num membro da extensão) é um `ExecutableElement`
-            // estático como o de classe: o valor é a função
+            // An extension static cited by its simple name (the `foo` of
+            // `@A(foo)` in a member of the extension) is a static
+            // `ExecutableElement` like a class's: the value is the function
             // (`_getConstantValue`, 3.6.2 `evaluation.dart`).
             Some(Resolved::Element(Element::Function(f)))
             | Some(Resolved::Member { member: MemberRef::Function(f), .. })
             | Some(Resolved::ExtensionMember { member: f, .. }) => {
                 let fe = self.program.function(f);
-                // `values` de um enum: o campo `const` sintético cujo
-                // inicializador é a lista das constantes
-                // (`LibraryBuilder.buildEnumChildren`); no modelo, um getter
-                // estático sem nó.
+                // An enum's `values`: the synthetic `const` field whose initializer
+                // is the list of the constants (`LibraryBuilder.buildEnumChildren`);
+                // in the model, a static getter without a node.
                 if fe.node == FunctionRef::None
                     && fe.static_
                     && fe.kind == FunctionKind::Getter
@@ -1809,18 +1818,18 @@ impl<'a> Motor<'a> {
                 }
                 let the_static_ = fe.class.is_none() && fe.extension.is_none() || fe.static_;
                 if the_static_ && matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) {
-                    // Instanciação implícita do tear-off genérico
-                    // (`visitFunctionReference` sem argumentos escritos, 3.6.2
-                    // `evaluation.dart:862-876`): um argumento inferido que
-                    // menciona parâmetro de tipo (depois do ambiente léxico do
-                    // construtor) é `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`.
+                    // Implicit instantiation of the generic tear-off
+                    // (`visitFunctionReference` without written arguments, 3.6.2
+                    // `evaluation.dart:862-876`): an inferred argument that mentions a
+                    // type parameter (after the constructor's lexical environment) is
+                    // `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`.
                     if self.instantiation_with_parameter(cx, e) {
                         return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
                     }
                     let t = self.outline.functions.get(f.0 as usize).map(|d| d.signature).unwrap_or(self.core.dynamic_);
                     let t = if self.inferred_(u) { self.estatico(u, e) } else { t };
                     // `_instantiateFunctionType` (`evaluation.dart:1939-1959`):
-                    // o tipo instanciado passa pela substituição do construtor.
+                    // the instantiated type goes through the constructor's substitution.
                     let t = match &cx.tipos {
                         Some(m) => crate::ops::substitute(t, m, self.table),
                         None => t,
@@ -1858,9 +1867,9 @@ impl<'a> Motor<'a> {
                     return r;
                 }
             }
-            // A leitura antes da declaração (`const x = [x]`): o analyzer
-            // liga o nome ao local adiante (`REFERENCED_BEFORE_DECLARATION`),
-            // e a constante em ciclo vale o inválido calado.
+            // A read before the declaration (`const x = [x]`): the analyzer
+            // binds the name to the local ahead (`REFERENCED_BEFORE_DECLARATION`),
+            // and the constant in the cycle is the silenced invalid one.
             None if self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)).is_some() => {
                 if let Some(r) = self.local_value(cx, e, error_at) {
                     return r;
@@ -1868,7 +1877,7 @@ impl<'a> Motor<'a> {
             }
             _ => {}
         }
-        // `dynamic`/`Never`/`void` como literais de tipo.
+        // `dynamic`/`Never`/`void` as type literals.
         if let ExprKind::Identifier(n) = &self.ast(u).expr(e).kind {
             match self.interner.resolve(n.sym) {
                 "dynamic" if res.is_none() => {
@@ -1890,8 +1899,9 @@ impl<'a> Motor<'a> {
         self.generic(u, error_at, false)
     }
 
-    /// O valor de `E.values`: `List<E>` com o valor de cada constante, na
-    /// ordem; uma constante inválida invalida a lista (sem relato próprio).
+    /// The value of `E.values`: `List<E>` with the value of each constant, in
+    /// order; an invalid constant invalidates the list (without its own
+    /// report).
     fn valores_do_enum(&mut self, u: UnitId, error_at: ExprId, k: ClassId) -> R {
         let n = self.program.class(k).type_params.len();
         let element = self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false });
@@ -1901,10 +1911,9 @@ impl<'a> Motor<'a> {
         for v in self.program.class(k).enum_constants.clone() {
             match self.valor_de_variavel(v) {
                 Some(Constante::Valor(x)) => list.push(x),
-                // Uma constante inválida (num ciclo com o próprio `values`,
-                // `e1(values)`): o `values` fica inválido como variável `const`
-                // de resultado inválido, calado (`avoidReporting`,
-                // `evaluation.dart:1867-1878`).
+                // An invalid constant (in a cycle with `values` itself, `e1(values)`):
+                // `values` becomes invalid like a `const` variable with an invalid
+                // result, silenced (`avoidReporting`, `evaluation.dart:1867-1878`).
                 Some(Constante::Invalid(_)) => {
                     let mut i = self.erro(u, self.span(u, error_at), c::INVALID_CONSTANT);
                     i.unresolved = true;
@@ -1917,8 +1926,8 @@ impl<'a> Motor<'a> {
         Constante::Valor(self.valor(typ, Estado::Lista { elemento: element, elementos: Rc::new(list), unknown: false }))
     }
 
-    /// O membro estático variável `nome` de `d` (constante de enum ou campo
-    /// estático).
+    /// The static variable member `the_name` of `d` (enum constant or static
+    /// field).
     fn static_variable_member(&self, d: ClassId, the_name: SymbolId) -> Option<VariableId> {
         let k = self.program.class(d);
         k.enum_constants
@@ -1928,8 +1937,8 @@ impl<'a> Motor<'a> {
             .find(|v| self.program.variable(*v).name == the_name && self.program.variable(*v).static_)
     }
 
-    /// Referência a uma variável de topo ou estática: o valor dela, se é
-    /// `const`; senão o erro genérico no nó.
+    /// Reference to a top-level or static variable: its value, if it is
+    /// `const`; otherwise the generic error at the node.
     fn variable_reference_value(&mut self, cx: &Ctx, error_at: ExprId, v: VariableId) -> R {
         let u = cx.unidade;
         let var = self.program.variable(v);
@@ -1951,11 +1960,11 @@ impl<'a> Motor<'a> {
         self.generic(u, error_at, false)
     }
 
-    /// `ElementAnnotation.computeConstantValue` da anotação `m`, escrita na
-    /// unidade `u`: a invocação de construtor (`@C(…)`, `@C.n(…)`,
-    /// `@p.C(…)`, `@p.C.n(…)`, com os argumentos de tipo que a inferência
-    /// registrou para a lista de argumentos) ou a leitura de variável
-    /// (`@x`, `@p.x`, `@C.x`). `None` quando não resolve ou não é constante.
+    /// `ElementAnnotation.computeConstantValue` of annotation `m`, written in
+    /// unit `u`: the constructor invocation (`@C(…)`, `@C.n(…)`, `@p.C(…)`,
+    /// `@p.C.n(…)`, with the type arguments that inference recorded for the
+    /// argument list) or the variable read (`@x`, `@p.x`, `@C.x`). `None` when it
+    /// does not resolve or is not constant.
     pub fn evaluate_annotation(&mut self, u: UnitId, m: &ast::Annotation) -> Option<Valor> {
         let lib = self.program.unit(u).library;
         let cx = Ctx::simples(u, lib);
@@ -1997,7 +2006,7 @@ impl<'a> Motor<'a> {
                 Constante::Invalid(_) => None,
             },
             (Element::Function(g), None) => {
-                // A leitura de uma variável de topo pelo getter sintético.
+                // Reading a top-level variable through the synthetic getter.
                 let v = self.program.function(g).variable?;
                 match self.valor_de_variavel(v)? {
                     Constante::Valor(x) => Some(x),
@@ -2008,13 +2017,13 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// O valor de uma variável com inicializador constante (`const`, ou
-    /// `final` de instância numa classe com construtor gerador `const`),
-    /// calculado uma vez. `None` enquanto está em cálculo (ciclo).
-    /// O `_IsSerializableNodeVisitor` sobre `init`: algum nó da subárvore é
-    /// `ForElement`, `FunctionExpression`, `PatternAssignment` ou
-    /// `SwitchExpression`. Os nós de uma expressão nascem antes dela, em ids
-    /// contíguos e dentro do intervalo dela.
+    /// The value of a variable with a constant initializer (`const`, or an
+    /// instance `final` in a class with a `const` generative constructor),
+    /// computed once. `None` while it is being computed (cycle).
+    /// The `_IsSerializableNodeVisitor` over `init`: some node of the subtree is
+    /// a `ForElement`, `FunctionExpression`, `PatternAssignment` or
+    /// `SwitchExpression`. The nodes of an expression are created before it, in
+    /// contiguous ids and within its range.
     fn not_serializable(&self, u: UnitId, init: ExprId) -> bool {
         fn has_for(el: &ast::CollectionElement) -> bool {
             match el {
@@ -2056,11 +2065,11 @@ impl<'a> Motor<'a> {
             }
             None => {}
         }
-        // O componente do grafo de dependências a que a variável pertence
-        // tem ciclo (`generateCycleError`): o resultado guardado é o
-        // inválido no nome dela, e quem a lê recebe um inválido calado.
+        // The component of the dependency graph that the variable belongs to
+        // has a cycle (`generateCycleError`): the stored result is the
+        // invalid one at its name, and whoever reads it gets a silenced invalid.
         if self.grafo.variables_in_cycle.contains(&v) {
-            // A constante de enum também: o erro no nome dela.
+            // Also the enum constant: the error at its name.
             let unit_id = match self.program.variable(v).node {
                 VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } => Some(unit),
                 _ => None,
@@ -2104,11 +2113,10 @@ impl<'a> Motor<'a> {
             return Some(r);
         }
         // `DetachNodes._detachConstVariable` (3.6.2 `summary2/detach_nodes.dart:103-115`,
-        // `replaceNotSerializableNode` em `:18-51`): o inicializador da
-        // constante de topo ou de campo que tem `for` de coleção, expressão de
-        // função, atribuição de padrão ou `switch` de expressão vira um
-        // identificador sintético; o `evaluationResult` é inválido, no
-        // inicializador.
+        // `replaceNotSerializableNode` at `:18-51`): the initializer of a top-level
+        // or field constant that has a collection `for`, a function expression, a
+        // pattern assignment or a `switch` expression becomes a synthetic
+        // identifier; the `evaluationResult` is invalid, at the initializer.
         if self.not_serializable(unit_id, init) {
             let r = Constante::Invalid(Box::new(self.erro(unit_id, self.span(unit_id, init), c::INVALID_CONSTANT)));
             self.vars.insert(v, VarState::Ready(r.clone()));
@@ -2163,14 +2171,14 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// Uma constante de enum: o objeto com `index` e `_name`.
+    /// An enum constant: the object with `index` and `_name`.
     fn enum_value(&mut self, v: VariableId, unit: UnitId, decl: ast::DeclId, index: usize) -> Constante {
         let _ = (unit, decl);
         let Some(k) = self.program.variable(v).class else {
             return Constante::Valor(Valor::novo(self.core.dynamic_, Estado::Generico { campos: Rc::new(Vec::new()), desconhecido: true }));
         };
-        // O tipo da constante (a instanciação escrita, `a<int>()`, ou a dos
-        // limites), como o `DartObject` do analyzer.
+        // The constant's type (the written instantiation, `a<int>()`, or the one
+        // from the bounds), like the analyzer's `DartObject`.
         let vd = &self.outline.variables[v.0 as usize];
         let typ = match vd.declared_type.or(vd.inferred) {
             Some(t) => t,
@@ -2184,10 +2192,10 @@ impl<'a> Motor<'a> {
             (Campo::Indice, Valor::novo(self.core.int, Estado::Int(Some(index as i64)))),
             (Campo::EnumName, Valor::novo(self.core.string, Estado::Str(Some(texto(the_name))))),
         ];
-        // O inicializador da constante é a criação `E.nome(args)` com a
-        // declaração da constante como nó de erro (`_errorNodes`,
-        // `evaluation.dart:39-61`); a exceção de avaliação vira
-        // `CONST_EVAL_THROWS_EXCEPTION` nela (`:350-376`).
+        // The constant's initializer is the creation `E.the_name(args)` with the
+        // constant's declaration as the error node (`_errorNodes`,
+        // `evaluation.dart:39-61`); the evaluation exception becomes
+        // `CONST_EVAL_THROWS_EXCEPTION` on it (`:350-376`).
         let lib = self.program.class(k).library;
         if self.the_inferred.contains(&lib)
             && let ast::DeclKind::Enum(en) = &self.ast(unit).decl(decl).kind
@@ -2197,8 +2205,8 @@ impl<'a> Motor<'a> {
                 Some(n) if self.interner.resolve(n.sym) != "new" => Some(n.sym),
                 _ => self.interner.lookup(""),
             };
-            // O primário (3.13) numa biblioteca sem o recurso: o oráculo 3.13.4
-            // não o avalia.
+            // The primary (3.13) in a library without the feature: the 3.13.4 oracle
+            // does not evaluate it.
             let primary_disabled = |f: FunctionElementId| {
                 matches!(self.program.function(f).node, FunctionRef::Constructor { member, .. } if en.primary_constructor == Some(member))
                     && !self.program.library(lib).features.tem(dartforge_frontend::Feature::PrimaryConstructors)
@@ -2240,7 +2248,7 @@ impl<'a> Motor<'a> {
         Constante::Valor(Valor { tipo: typ, estado: Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }, variavel: Some(v) })
     }
 
-    /// Constante local: a declaração pelo offset do nome.
+    /// Local constant: the declaration by the name's offset.
     fn local_value(&mut self, cx: &Ctx, e: ExprId, error_at: ExprId) -> Option<R> {
         let u = cx.unidade;
         let offset = self.body.units.get(u.0 as usize)?.declaracao_local(e)?;
@@ -2249,7 +2257,7 @@ impl<'a> Motor<'a> {
             self.unit_locals.insert(u, map);
         }
         let Some(&(stmt, i)) = self.unit_locals[&u].get(&offset) else {
-            // Local que não é `const`: o erro genérico.
+            // A local that is not `const`: the generic error.
             return None;
         };
         if let Some(r) = self.locais.get(&(u, offset)) {
@@ -2276,7 +2284,7 @@ impl<'a> Motor<'a> {
         })
     }
 
-    /// O valor da constante local `i` da lista em `stmt` (guardado).
+    /// The value of local constant `i` of the list in `stmt` (cached).
     pub fn declared_local_value(&mut self, u: UnitId, lib: LibraryId, stmt: ast::StmtId, i: usize) -> Constante {
         let list = match &self.ast(u).stmt(stmt).kind {
             ast::StmtKind::Variables(l) => l,
@@ -2316,13 +2324,13 @@ impl<'a> Motor<'a> {
         r
     }
 
-    /// O local lido por `e` é um parâmetro formal.
+    /// The local read by `e` is a formal parameter.
     pub fn parameter_local(&self, u: UnitId, e: ExprId) -> bool {
         let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
         self.parametros.get(&u).is_some_and(|s| s.contains(&offset))
     }
 
-    /// O local lido por `e` é uma constante (`const`).
+    /// The local read by `e` is a constant (`const`).
     pub fn constant_local(&self, u: UnitId, e: ExprId) -> bool {
         let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
         match self.unit_locals.get(&u) {
@@ -2333,8 +2341,8 @@ impl<'a> Motor<'a> {
 
     // -- Potencialmente constante ---------------------------------------------
 
-    /// `_reportNotPotentialConstants`: o primeiro nó que não é
-    /// potencialmente constante, como `INVALID_CONSTANT`.
+    /// `_reportNotPotentialConstants`: the first node that is not potentially
+    /// constant, as `INVALID_CONSTANT`.
     fn not_potentially_constant(&self, cx: &Ctx, e: ExprId) -> Option<R> {
         let lib_nnbd = true;
         let _ = lib_nnbd;
@@ -2344,9 +2352,9 @@ impl<'a> Motor<'a> {
         Some(Constante::Invalid(Box::new(self.erro(cx.unidade, *n, c::INVALID_CONSTANT))))
     }
 
-    // -- Construtores ----------------------------------------------------------
+    // -- Constructors ----------------------------------------------------------
 
-    /// O tipo de uma criação: o estático do nó, senão a classe crua.
+    /// The type of a creation: the node's static type, otherwise the raw class.
     fn creation_type(&mut self, u: UnitId, e: ExprId, f: FunctionElementId) -> TypeId {
         let t = self.estatico(u, e);
         if matches!(self.table.get(t), Type::Interface { .. } | Type::ExtensionType { .. }) {
@@ -2357,19 +2365,20 @@ impl<'a> Motor<'a> {
         self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false })
     }
 
-    /// `_InstanceCreationEvaluator.evaluate` para uma criação escrita
-    /// (`e` é o nó do erro; `palavra`, o `new`/`const` escrito).
-    /// O construtor encaminhado de `class B = A with M` (sem elemento no
-    /// modelo): o de mesmo nome da primeira superclasse que não é aplicação de
-    /// mixin, com o tipo da criação (`B`). A avaliação do encaminhador é a do
-    /// construtor da superclasse com os mesmos argumentos.
+    /// `_InstanceCreationEvaluator.evaluate` for a written creation (`e` is the
+    /// error node; `the_keyword`, the written `new`/`const`).
+    /// The forwarded constructor of `class B = A with M` (without an element in
+    /// the model): the one with the same name in the first superclass that is
+    /// not a mixin application, with the creation's type (`B`). Evaluating the
+    /// forwarder is evaluating the superclass constructor with the same
+    /// arguments.
     fn forwarded_constructor(&self, u: UnitId, e: ExprId, the_name: Option<SymbolId>) -> Option<(FunctionElementId, TypeId)> {
         let typ = self.estatico(u, e);
         let Type::Interface { class, .. } = self.table.get(typ) else { return None };
         if self.program.class(*class).kind != ClassKind::MixinApplication {
             return None;
         }
-        // `C.new` e `C()` são o construtor sem nome (o símbolo vazio).
+        // `C.new` and `C()` are the unnamed constructor (the empty symbol).
         let empty = self.interner.lookup("");
         let the_key = match the_name {
             Some(n) if self.interner.resolve(n) != "new" => Some(n),
@@ -2410,8 +2419,8 @@ impl<'a> Motor<'a> {
         self.evaluate_call(cx, error, f, typ, &Argumentos::Ast(args), the_keyword, true)
     }
 
-    /// Avalia a chamada do construtor `f` com os argumentos (`ConstantVisitor`
-    /// de `cx` para eles), relatando em `erro`.
+    /// Evaluates the call of constructor `f` with the arguments (`cx`'s
+    /// `ConstantVisitor` for them), reporting at `error`.
     fn evaluate_call(
         &mut self,
         cx: &Ctx,
@@ -2422,8 +2431,9 @@ impl<'a> Motor<'a> {
         the_keyword: Option<Span>,
         in_const_args: bool,
     ) -> R {
-        // T3: o `const` é o da declaração pública (no SDK, o patch de
-        // `bool.fromEnvironment` e dos irmãos é uma fábrica sem `const`).
+        // T3: the `const` is that of the public declaration (in the SDK, the
+        // patch of `bool.fromEnvironment` and its siblings is a factory without
+        // `const`).
         let fe = self.program.function(self.program.publico(f));
         if !fe.const_ {
             let span = the_keyword.unwrap_or(error.span);
@@ -2432,8 +2442,8 @@ impl<'a> Motor<'a> {
         if self.constructors_in_progress.contains(&f) || self.constructors_in_progress.len() > 64 {
             return Constante::Valor(self.desconhecido(typ));
         }
-        // Argumentos (`_valueOf`: o não resolvido é relatado e vira um
-        // objeto fictício do tipo do parâmetro).
+        // Arguments (`_valueOf`: an unresolved one is reported and becomes a
+        // fictitious object of the parameter's type).
         let params = self.outline.functions.get(f.0 as usize).map(|d| d.parameters.clone()).unwrap_or_default();
         let mut positional_args: Vec<Valor> = Vec::new();
         let mut named_args: Vec<(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)> = Vec::new();
@@ -2473,10 +2483,10 @@ impl<'a> Motor<'a> {
                 named_args = n.iter().map(|(s, v)| (*s, v.clone(), None)).collect();
             }
         }
-        // Redirecionamentos de factory `const` até um construtor que não é.
+        // `const` factory redirections up to a constructor that is not one.
         let (f, typ) = self.follow_redirections(f, typ);
-        // O construtor não é livre de ciclo (`isCycleFree`,
-        // `evaluation.dart:3090-3099`): um desconhecido do tipo, sem erro.
+        // The constructor is not cycle-free (`isCycleFree`,
+        // `evaluation.dart:3090-3099`): an unknown of the type, without an error.
         if self.grafo.constructors_in_cycle.contains(&f) {
             return Constante::Valor(self.desconhecido(typ));
         }
@@ -2529,15 +2539,15 @@ impl<'a> Motor<'a> {
         (f, typ)
     }
 
-    /// O construtor para o qual a factory `f` redireciona (`= C.nome`), e o
-    /// tipo instanciado.
+    /// The constructor that factory `f` redirects to (`= C.the_name`), and the
+    /// instantiated type.
     fn redirection_target(&mut self, f: FunctionElementId, typ: TypeId) -> Option<(FunctionElementId, TypeId)> {
         let FunctionRef::Constructor { unit, member } = self.program.function(f).node else { return None };
         let ast::MemberKind::Constructor(k) = &self.ast(unit).member(member).kind else { return None };
         let r = k.redirect.as_ref()?;
         let ast::TypeKind::Named { name, .. } = &self.ast(unit).ty(r.ty).kind else { return None };
-        // `C.nome` sem prefixo de import é a classe `C` e o construtor `nome`
-        // (o parser não distingue de um tipo prefixado).
+        // `C.the_name` without an import prefix is class `C` and constructor `the_name`
+        // (the parser does not tell it apart from a prefixed type).
         let mut the_constructor = r.constructor.map(|n| n.sym);
         let b = match &name[..] {
             [n] => self.program.lookup_na_unidade(unit, n.sym),
@@ -2557,8 +2567,9 @@ impl<'a> Motor<'a> {
             None => self.interner.lookup("")?,
         };
         let g = *self.program.class(tgt).constructors.get(&the_key)?;
-        // Os argumentos de tipo passam pela declaração: o alvo é tratado com
-        // os do tipo original quando a classe é a mesma; senão, cru.
+        // The type arguments go through the declaration: the target is handled
+        // with those of the original type when the class is the same; otherwise,
+        // raw.
         let t = match self.table.get(typ) {
             Type::Interface { class, .. } if *class == tgt => typ,
             _ => {
@@ -2631,7 +2642,7 @@ impl<'a> Motor<'a> {
         named_args: Vec<(SymbolId, Valor, Option<(UnitId, Span, TypeId)>)>,
     ) -> R {
         let lib = self.program.function(f).library;
-        // Substituição dos parâmetros de tipo da classe.
+        // Substitution of the class's type parameters.
         let class_params = self.outline.classes.get(k.0 as usize).map(|d| d.type_params.clone()).unwrap_or_default();
         let type_args: Vec<TypeId> = match self.table.get(typ) {
             Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.to_vec(),
@@ -2647,7 +2658,7 @@ impl<'a> Motor<'a> {
             if types_map.is_empty() { t } else { crate::ops::substitute(t, &types_map, m.table) }
         };
         let mut the_fields: Vec<(Campo, Valor)> = Vec::new();
-        // `_checkFields`: campos `final` com inicializador na declaração.
+        // `_checkFields`: `final` fields with an initializer in the declaration.
         let fields = self.program.class(k).fields.clone();
         for v in fields {
             let var = self.program.variable(v);
@@ -2666,11 +2677,11 @@ impl<'a> Motor<'a> {
             let declared = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred).unwrap_or(self.core.dynamic_);
             let field_type = subst(self, declared);
             if !self.casa(&x, field_type) {
-                // `hasTypeParameterReference(field.type)`: o tipo declarado do
-                // campo, antes da substituição (`final T x` com `C<String>`),
-                // faz do descasamento uma exceção da avaliação — relatada como
-                // `CONST_EVAL_THROWS_EXCEPTION` na criação, com a mensagem do
-                // campo de contexto.
+                // `hasTypeParameterReference(field.type)`: the field's declared type,
+                // before the substitution (`final T x` with `C<String>`), makes the
+                // mismatch an evaluation exception, reported as
+                // `CONST_EVAL_THROWS_EXCEPTION` at the creation, with the field's
+                // context message.
                 let exception = self.mentions_parameter(declared);
                 let (eu, es) = if fu == error.unidade || true { (fu, self.span(fu, fx)) } else { (error.unidade, error.span) };
                 let mut i = self.erro(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
@@ -2682,7 +2693,7 @@ impl<'a> Motor<'a> {
         }
         // `_checkParameters`.
         let FunctionRef::Constructor { unit: cu, member } = self.program.function(f).node else {
-            // Construtor sintético: sem parâmetros nem inicializadores.
+            // Synthetic constructor: no parameters or initializers.
             let g = self.complete_generator(error, f, k, typ, lib, the_fields, None, Vec::new(), HashMap::new(), types_map);
             return self.finish_generator(g);
         };
@@ -2707,11 +2718,11 @@ impl<'a> Motor<'a> {
                 i_pos += 1;
                 r
             };
-            // Só o opcional (`isOptional`) recebe o padrão; o nomeado
-            // `required` ausente fica sem valor.
+            // Only an optional one (`isOptional`) receives the default; a missing
+            // `required` named one is left without a value.
             if the_value.is_none() && p.kind != ast::ParameterKind::Required && !p.required {
                 the_value = match p.default_value {
-                    // `super.x` sem padrão: o do parâmetro do construtor super.
+                    // `super.x` without a default: that of the super constructor's parameter.
                     None if p.super_ => {
                         let idx = ctor.parameters[..i].iter().filter(|q| q.super_ && q.kind != ast::ParameterKind::Named).count();
                         Some(self.inherited_default(f, the_name.sym, p.kind == ast::ParameterKind::Named, idx, 0).unwrap_or_else(|| Valor::nulo(self.core)))
@@ -2754,7 +2765,7 @@ impl<'a> Motor<'a> {
             }
             lexical.insert(the_name.sym, the_value);
         }
-        // Parâmetros `super.x`: argumentos implícitos da chamada ao super.
+        // `super.x` parameters: implicit arguments of the super call.
         let mut implicit_supers: (Vec<Valor>, Vec<(SymbolId, Valor)>) = (Vec::new(), Vec::new());
         for p in ctor.parameters.iter() {
             if !p.super_ {
@@ -2776,12 +2787,13 @@ impl<'a> Motor<'a> {
     }
 
     /// `SuperFormalParameterElementImpl.evaluationResult` (3.6.2
-    /// `element.dart:1750-1761`, usado pelo `_checkParameters`,
-    /// `evaluation.dart:2889-2900`): o `super.x` sem padrão próprio vale o
-    /// padrão do parâmetro correspondente do construtor super (o nomeado pelo
-    /// nome, o posicional pela posição entre os `super.` posicionais), sem
-    /// conferir o tipo; em cadeia, se aquele também é `super.` sem padrão.
-    /// `None`: sem parâmetro correspondente (o valor fica `null`).
+    /// `element.dart:1750-1761`, used by `_checkParameters`,
+    /// `evaluation.dart:2889-2900`): a `super.x` without its own default takes
+    /// the default of the corresponding parameter of the super constructor (a
+    /// named one by name, a positional one by position among the positional
+    /// `super.` parameters), without checking the type; in a chain, if that one
+    /// is also a `super.` without a default. `None`: no corresponding parameter
+    /// (the value becomes `null`).
     fn inherited_default(&mut self, f: FunctionElementId, the_name: SymbolId, named_one: bool, idx: usize, prof: u32) -> Option<Valor> {
         if prof > 16 {
             return None;
@@ -2823,7 +2835,7 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `_checkInitializers`, `_checkSuperConstructorCall` e o objeto.
+    /// `_checkInitializers`, `_checkSuperConstructorCall` and the object.
     #[allow(clippy::too_many_arguments)]
     fn complete_generator(
         &mut self,
@@ -2937,7 +2949,7 @@ impl<'a> Motor<'a> {
         }
     }
 
-    /// `_checkSuperConstructorCall` e o objeto final.
+    /// `_checkSuperConstructorCall` and the final object.
     fn finish_generator(&mut self, g: Gerador) -> R {
         if let Some(r) = g.ready_engine {
             return r;
@@ -2962,7 +2974,7 @@ impl<'a> Motor<'a> {
                                 if super_positional_args.is_empty() && super_named_args.is_empty() {
                                     self.evaluate_call(&cx, error, g, super_type, &Argumentos::Ast(&a), None, false)
                                 } else {
-                                    // Argumentos escritos mais os de `super.x`.
+                                    // Written arguments plus those of `super.x`.
                                     let mut pos = super_positional_args.clone();
                                     let mut the_named: Vec<(SymbolId, Valor)> = super_named_args.clone();
                                     for arg in a.args.iter() {
@@ -3028,7 +3040,7 @@ impl<'a> Motor<'a> {
         Constante::Valor(Valor::novo(t, Estado::Generico { campos: Rc::new(the_fields), desconhecido: false }))
     }
 
-    /// Valor padrão de um parâmetro (guardado pela expressão).
+    /// Default value of a parameter (cached by expression).
     fn valor_padrao(&mut self, u: UnitId, lib: LibraryId, d: ExprId) -> Constante {
         if let Some(r) = self.padroes.get(&(u, d)) {
             return r.clone();
@@ -3041,30 +3053,30 @@ impl<'a> Motor<'a> {
         r
     }
 
-    /// O resultado da avaliação do padrão `d` (para o verificador).
+    /// The result of evaluating the default `d` (for the verifier).
     pub fn default_result(&mut self, u: UnitId, lib: LibraryId, d: ExprId) -> Constante {
         self.valor_padrao(u, lib, d)
     }
 }
 
-/// Onde um erro de construtor é relatado (`_errorNode`).
+/// Where a constructor error is reported (`_errorNode`).
 #[derive(Clone, Copy, Debug)]
 pub struct ErrorAt {
     pub unidade: UnitId,
     pub span: Span,
 }
 
-/// Os argumentos de uma chamada de construtor: escritos, ou já avaliados
-/// (super implícito, `super.x`).
+/// The arguments of a constructor call: written ones, or already evaluated
+/// (implicit super, `super.x`).
 enum Argumentos<'x> {
     Ast(&'x ast::Arguments),
     Values { posicionais: Vec<Valor>, nomeados: Vec<(SymbolId, Valor)> },
 }
 
-/// O estado entre os inicializadores e a chamada ao super.
+/// The state between the initializers and the super call.
 struct Gerador {
     ready_engine: Option<Constante>,
-    /// O construtor avaliado (`_constructor`), para as mensagens de contexto.
+    /// The evaluated constructor (`_constructor`), for the context messages.
     f: Option<FunctionElementId>,
     erro: ErrorAt,
     k: ClassId,
@@ -3100,7 +3112,7 @@ impl Gerador {
     }
 }
 
-/// Recua de `i` sobre espaços até o byte `b` (inclusive), se ele vier logo antes.
+/// Backs up from `i` over whitespace to byte `b` (inclusive), if it comes right before.
 fn back_up_to(source: &[u8], i: usize, b: u8) -> usize {
     let mut j = i;
     while j > 0 && source[j - 1].is_ascii_whitespace() {
@@ -3109,13 +3121,14 @@ fn back_up_to(source: &[u8], i: usize, b: u8) -> usize {
     if j > 0 && source[j - 1] == b { j - 1 } else { i }
 }
 
-/// Recua de `i` sobre espaços até uma das palavras (a primeira que casar).
+/// Backs up from `i` over whitespace to one of the words (the first one that
+/// matches).
 fn back_up_word(source: &[u8], i: usize, words: &[&str]) -> usize {
     let mut j = i;
     while j > 0 && source[j - 1].is_ascii_whitespace() {
         j -= 1;
     }
-    // `if (cond)`: pula o `(`.
+    // `if (cond)`: skips the `(`.
     if j > 0 && source[j - 1] == b'(' {
         j -= 1;
         while j > 0 && source[j - 1].is_ascii_whitespace() {
@@ -3131,7 +3144,8 @@ fn back_up_word(source: &[u8], i: usize, words: &[&str]) -> usize {
     i
 }
 
-/// O início do `for` que envolve a posição `i` (o `for` mais próximo antes).
+/// The start of the `for` that encloses position `i` (the nearest `for`
+/// before it).
 fn inicio_de_for(source: &[u8], i: usize) -> usize {
     let mut j = i.min(source.len());
     let mut prof = 0i32;
@@ -3167,8 +3181,8 @@ fn inicio_de_for(source: &[u8], i: usize) -> usize {
     i
 }
 
-/// As constantes locais de uma unidade: pelo offset do nome, o comando
-/// (`Variables` ou `for`) e o índice na lista.
+/// The local constants of a unit: by the name's offset, the statement
+/// (`Variables` or `for`) and the index in the list.
 pub(super) fn constant_locals(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, usize)> {
     let mut m = HashMap::new();
     for (i, s) in a.stmts.iter().enumerate() {
@@ -3187,8 +3201,8 @@ pub(super) fn constant_locals(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, usiz
     m
 }
 
-/// Os offsets dos nomes de todos os parâmetros formais de uma unidade
-/// (funções, construtores, tipos de função e parâmetros-função).
+/// The name offsets of all formal parameters of a unit (functions,
+/// constructors, function types and function-typed parameters).
 fn parameter_offsets(a: &ast::Ast) -> HashSet<usize> {
     fn params(ps: &[ast::Parameter], s: &mut HashSet<usize>) {
         for p in ps {

@@ -1,37 +1,38 @@
-//! O `FfiVerifier` do analyzer 3.6.2
-//! (`analyzer/lib/src/generated/ffi_verifier.dart`), inteiro: os 48 códigos
-//! de `FfiCode` sobre o uso das APIs de `dart:ffi`.
+//! The analyzer 3.6.2 `FfiVerifier`
+//! (`analyzer/lib/src/generated/ffi_verifier.dart`), in full: the 48
+//! `FfiCode` codes about the use of the `dart:ffi` APIs.
 //!
-//! O percurso é o do `RecursiveAstVisitor` original:
-//! * a classe (`visitClassDeclaration`, só a `ClassDeclaration`: o
-//!   `class A = B with C;` não passa): a superclasse de `dart:ffi` (`Struct`,
-//!   `Union`, `AbiSpecificInteger`) e os subtipos de composto em `extends`,
-//!   `implements` e `with`; dentro de um composto, os campos de instância
-//!   (`_validateFieldsInCompound`);
-//! * o `@Native` de campos, variáveis de topo, funções (de topo e locais) e
-//!   métodos (`_checkFfiNative`); o `@DefaultAsset` da diretiva `library`;
-//! * as invocações: `Pointer.fromFunction`, `Pointer.elementAt`,
+//! The traversal is that of the original `RecursiveAstVisitor`:
+//! * the class (`visitClassDeclaration`, only the `ClassDeclaration`:
+//!   `class A = B with C;` does not go through): the `dart:ffi` superclass
+//!   (`Struct`, `Union`, `AbiSpecificInteger`) and the compound subtypes in
+//!   `extends`, `implements` and `with`; inside a compound, the instance
+//!   fields (`_validateFieldsInCompound`);
+//! * the `@Native` of fields, top-level variables, functions (top-level and
+//!   local) and methods (`_checkFfiNative`); the `@DefaultAsset` of the
+//!   `library` directive;
+//! * the invocations: `Pointer.fromFunction`, `Pointer.elementAt`,
 //!   `Struct.create`/`Union.create`, `Native.addressOf`, `asFunction`,
-//!   `lookupFunction`, `sizeOf`, o `call` de `AllocatorAlloc`, `ref`, `[]`,
-//!   `address` e a criação de `Struct`/`Union`/`NativeCallable`.
+//!   `lookupFunction`, `sizeOf`, the `call` of `AllocatorAlloc`, `ref`, `[]`,
+//!   `address` and the creation of `Struct`/`Union`/`NativeCallable`.
 //!
-//! `visitIndexExpression` não chama o `super`: nada dentro de uma expressão
-//! de índice (o alvo, o índice, closures neles) é visitado, e o porte segue
-//! essa regra.
+//! `visitIndexExpression` does not call `super`: nothing inside an index
+//! expression (the target, the index, closures in them) is visited, and the
+//! port follows that rule.
 //!
-//! O valor de uma anotação de `dart:ffi` (`computeConstantValue`) é o objeto
-//! que o construtor do SDK 3.6.2 monta: `Native({assetId, isLeaf = false,
-//! symbol})`, `Packed(memberAlignment)`, os quatro de `Array` (que
-//! redirecionam a `_ArraySize`), `AbiSpecificIntegerMapping(mapping)` e
-//! `DefaultAsset(id)`. O motor de constantes não executa construtores de
-//! bibliotecas que não foram inferidas (as do SDK); os campos são montados
-//! aqui a partir dos argumentos, que o motor avalia, pelo texto daqueles
-//! construtores. O tipo do valor (`Native<T>`) é o da instanciação que a
-//! inferência registrou para a lista de argumentos da anotação.
+//! The value of a `dart:ffi` annotation (`computeConstantValue`) is the object
+//! that the SDK 3.6.2 constructor builds: `Native({assetId, isLeaf = false,
+//! symbol})`, `Packed(memberAlignment)`, the four of `Array` (which redirect
+//! to `_ArraySize`), `AbiSpecificIntegerMapping(mapping)` and
+//! `DefaultAsset(id)`. The constant engine does not execute constructors of
+//! libraries that were not inferred (the SDK ones); the fields are built here
+//! from the arguments, which the engine evaluates, following the text of those
+//! constructors. The type of the value (`Native<T>`) is that of the
+//! instantiation the inference recorded for the annotation's argument list.
 //!
-//! `strict-casts` não existe no motor: o `isAssignableTo` do
-//! `Native.addressOf` é o sem `strict-casts`.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `strict-casts` does not exist in the engine: the `isAssignableTo` of
+//! `Native.addressOf` is the one without `strict-casts`.
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::constantes::valor::{Estado, Valor};
@@ -98,7 +99,7 @@ impl Direction {
     }
 }
 
-/// Os `allow*` de `_isValidFfiNativeType`.
+/// The `allow*` flags of `_isValidFfiNativeType`.
 #[derive(Clone, Copy, Default)]
 struct Allows {
     void_: bool,
@@ -108,28 +109,28 @@ struct Allows {
     opaco: bool,
 }
 
-/// O valor de uma anotação (`DartObject`), com os campos que o verificador
-/// consulta (`getField`).
+/// The value of an annotation (`DartObject`), with the fields the verifier
+/// consults (`getField`).
 struct Instance {
-    /// A classe do tipo do valor.
+    /// The class of the value's type.
     classe: ClassId,
-    /// O tipo do valor (`Native<T>`).
+    /// The type of the value (`Native<T>`).
     tipo: TypeId,
     /// `isLeaf`.
     is_leaf: Option<bool>,
     /// `memberAlignment`.
     alinhamento: Option<i64>,
-    /// `dimensions` (`toListValue` dos `toIntValue`).
+    /// `dimensions` (`toListValue` of the `toIntValue`s).
     lista: Option<Vec<i64>>,
     /// `dimension1` a `dimension5`.
     dimensions: [Option<i64>; 5],
     /// `variableLength`.
     variavel: Option<bool>,
-    /// Os tipos dos valores de `mapping`.
+    /// The types of the values of `mapping`.
     mapa: Option<Vec<TypeId>>,
 }
 
-/// O elemento a que uma anotação se refere (`Annotation.element`).
+/// The element an annotation refers to (`Annotation.element`).
 #[derive(Clone, Copy)]
 enum AnnotationTarget {
     Construtor(ClassId, FunctionElementId),
@@ -138,17 +139,17 @@ enum AnnotationTarget {
     Outro,
 }
 
-/// O nó de uma declaração que o `_checkFfiNative` examina.
+/// The node of a declaration that `_checkFfiNative` examines.
 #[derive(Clone, Copy)]
 enum No {
     Funcao(ast::FunctionId),
     VariavelDeTopo(ast::DeclId, usize),
     Campo(ast::MemberId, usize),
-    /// Função local: o tipo dela.
+    /// Local function: its type.
     Local(TypeId),
 }
 
-/// O elemento declarado (`declarationElement`).
+/// The declared element (`declarationElement`).
 #[derive(Clone, Copy)]
 enum Declaracao {
     Variavel(VariableId),
@@ -156,14 +157,14 @@ enum Declaracao {
     Local(TypeId),
 }
 
-/// Uma referência constante (`ConstVariableElement`).
+/// A constant reference (`ConstVariableElement`).
 enum ConstantRef {
     Variavel(VariableId),
     Local,
     Parametro(Option<ExprId>),
 }
 
-/// A tabela de tipos, solta até o motor ser preciso.
+/// The type table, loose until the engine is precise.
 enum Tabela<'a> {
     Livre(&'a mut TypeTable),
     Motor(Box<Motor<'a>>),
@@ -196,18 +197,18 @@ struct V<'a> {
     cascades: HashMap<ExprId, ExprId>,
     pais: Pais,
     indices: Option<Indices>,
-    /// Os trechos das expressões de índice (`visitIndexExpression` não
-    /// visita os filhos).
+    /// The spans of the index expressions (`visitIndexExpression` does not visit
+    /// the children).
     bracket_indices: Vec<Span>,
-    /// O `FfiVerifier` do 3.6.2 lançou (ver [`QuebraDoAnalyzer`]).
+    /// The 3.6.2 `FfiVerifier` threw (see [`QuebraDoAnalyzer`]).
     quebra: bool,
 }
 
-/// O `FfiVerifier` do analyzer 3.6.2 lança uma exceção na unidade: o
-/// `LibraryAnalyzer.analyze()` da biblioteca inteira falha, e o driver
-/// (`driver.dart:1473-1490`) completa os pedidos com erro, sem resultado
-/// para nenhuma unidade. O `dart analyze` não mostra diagnóstico algum dos
-/// arquivos da biblioteca, e quem chama descarta todos eles.
+/// The analyzer 3.6.2 `FfiVerifier` throws an exception on the unit: the
+/// `LibraryAnalyzer.analyze()` of the whole library fails, and the driver
+/// (`driver.dart:1473-1490`) completes the requests with an error, without a
+/// result for any unit. `dart analyze` shows no diagnostic at all for the
+/// files of the library, and the caller discards all of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuebraDoAnalyzer;
 
@@ -215,7 +216,7 @@ fn nome_da_biblioteca(interner: &Interner, l: &Library) -> String {
     l.name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
 }
 
-/// Os relatos do `FfiVerifier` na unidade `u`, ou a quebra do analyzer 3.6.2
+/// The `FfiVerifier` reports in unit `u`, or the analyzer 3.6.2 crash
 /// ([`QuebraDoAnalyzer`]).
 #[allow(clippy::too_many_arguments)]
 pub fn verificar<'a>(
@@ -321,7 +322,7 @@ impl<'a> V<'a> {
         self.interner.resolve(s)
     }
 
-    /// Dentro de uma expressão de índice (sem ser ela).
+    /// Inside an index expression (without being it).
     fn inside_index(&self, s: Span) -> bool {
         self.bracket_indices.iter().any(|r| r.start <= s.start && s.end <= r.end && (r.start, r.end) != (s.start, s.end))
     }
@@ -330,7 +331,7 @@ impl<'a> V<'a> {
         self.a.expr(e).span
     }
 
-    /// O nó do argumento (`NamedExpression` inteira, se nomeado).
+    /// The node of the argument (the whole `NamedExpression`, if named).
     fn argument_span(&self, x: &ast::Argument) -> Span {
         let s = self.span(x.value);
         match x.name {
@@ -339,7 +340,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `Annotation.name` (o identificador, prefixado ou não).
+    /// `Annotation.name` (the identifier, prefixed or not).
     fn nome_da_anotacao(&self, m: &ast::Annotation) -> Span {
         match (m.name.first(), m.name.get(1).or(m.name.first())) {
             (Some(a), Some(b)) => Span { start: a.span.start, end: b.span.end },
@@ -362,7 +363,7 @@ impl<'a> V<'a> {
         self.corpo.tipos_de_anotacoes.get(&t).or_else(|| self.outline.tipos_escritos.get(&(self.u, t))).copied()
     }
 
-    /// `typeArgumentTypes` da invocação cuja lista de argumentos é `args`.
+    /// `typeArgumentTypes` of the invocation whose argument list is `args`.
     fn instanciacao(&self, args: &ast::Arguments) -> Vec<TypeId> {
         self.corpo.instanciacao(args.span.start).map(|v| v.to_vec()).unwrap_or_default()
     }
@@ -410,7 +411,7 @@ impl<'a> V<'a> {
         })
     }
 
-    // -- Elementos e tipos de `dart:ffi` --------------------------------------
+    // -- `dart:ffi` elements and types ----------------------------------------
 
     fn of_ffi(&self, c: ClassId) -> bool {
         self.program.class(c).library == self.ffi
@@ -438,8 +439,8 @@ impl<'a> V<'a> {
         self.ffi_class(c, "Struct") || self.ffi_class(c, "Union")
     }
 
-    /// O elemento de um `InterfaceType` (classe, enum, mixin, tipo de
-    /// extensão, `Null`).
+    /// The element of an `InterfaceType` (class, enum, mixin, extension type,
+    /// `Null`).
     fn classe_do_tipo(&self, t: TypeId) -> Option<ClassId> {
         match self.table_ref().get(t) {
             Type::Interface { class, .. } => Some(*class),
@@ -449,7 +450,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `dartType is InterfaceType` (no analyzer, `Null` e `FutureOr` também).
+    /// `dartType is InterfaceType` (in the analyzer, `Null` and `FutureOr` too).
     fn e_interface(&self, t: TypeId) -> bool {
         matches!(
             self.table_ref().get(t),
@@ -469,7 +470,7 @@ impl<'a> V<'a> {
         matches!(self.table_ref().get(t), Type::Interface { .. }) && self.classe_do_tipo(t).is_some_and(|c| self.ffi_class(c, the_name))
     }
 
-    /// `element.supertype` do tipo.
+    /// `element.supertype` of the type.
     fn superclass(&self, t: TypeId) -> Option<ClassId> {
         self.classe_do_tipo(t).and_then(|c| self.program.class(c).supertype_class)
     }
@@ -515,7 +516,7 @@ impl<'a> V<'a> {
         Some(self.program.class(c).library) == self.typed_data
     }
 
-    /// `isTypedData`: só as listas que correspondem a um `Pointer`.
+    /// `isTypedData`: only the lists that correspond to a `Pointer`.
     fn e_typed_data(&self, t: TypeId) -> bool {
         let Some(c) = self.classe_do_tipo(t) else { return false };
         if !self.typed_data_class(c) {
@@ -565,8 +566,8 @@ impl<'a> V<'a> {
         self.outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred)).unwrap_or(self.core.dynamic_)
     }
 
-    /// Os tipos dos campos da classe (`InterfaceElement.fields`: os
-    /// declarados e os sintéticos dos acessores explícitos).
+    /// The types of the class fields (`InterfaceElement.fields`: the declared
+    /// ones and the synthetic ones of explicit accessors).
     fn field_types(&self, c: ClassId) -> Vec<TypeId> {
         let k = self.program.class(c);
         let mut v = Vec::new();
@@ -693,7 +694,7 @@ impl<'a> V<'a> {
         false
     }
 
-    /// `_extendsNativeFieldWrapperClass1`: o texto do tipo e dos supertipos.
+    /// `_extendsNativeFieldWrapperClass1`: the text of the type and supertypes.
     fn extends_nfwc1(&self, t: TypeId) -> bool {
         if self.table_ref().format_sem_alias(t, self.interner, self.program) == "NativeFieldWrapperClass1" {
             return true;
@@ -830,12 +831,12 @@ impl<'a> V<'a> {
         true
     }
 
-    /// `isAssignableTo` sem `strict-casts`.
+    /// `isAssignableTo` without `strict-casts`.
     fn atribuivel(&mut self, of: TypeId, for_: TypeId) -> bool {
         if self.sub(of, for_) || self.table_ref().e_invalido(of) {
             return true;
         }
-        // O tear-off do `call`.
+        // The tear-off of `call`.
         if let Type::Interface { nullable: false, .. } = self.table_ref().get(of)
             && self.accepts_function(for_)
             && let Some(the_call) = self.call_type(of)
@@ -856,11 +857,11 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `getCallMethodType`: o método `call` da interface, instanciado.
+    /// `getCallMethodType`: the interface's `call` method, instantiated.
     fn call_type(&mut self, t: TypeId) -> Option<TypeId> {
         let Type::Interface { class, args, .. } = self.tipo(t) else { return None };
         let call = self.interner.lookup("call")?;
-        // A classe e as superclasses, na ordem da busca.
+        // The class and the superclasses, in lookup order.
         let mut owner = Some(class);
         let mut finding = None;
         while let Some(k) = owner {
@@ -874,7 +875,7 @@ impl<'a> V<'a> {
         }
         let (k, f) = finding?;
         let signature = self.outline.functions.get(f.0 as usize)?.signature;
-        // Os parâmetros de `k` vistos de `class`, depois os de `class` pelos argumentos.
+        // The parameters of `k` seen from `class`, then those of `class` by the arguments.
         let class_formals = self.outline.classes.get(class.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
         let mut map_class: HashMap<crate::table::TypeParamId, TypeId> = HashMap::new();
         for (p, a) in class_formals.iter().zip(args.iter()) {
@@ -891,9 +892,9 @@ impl<'a> V<'a> {
         Some(crate::ops::substitute(sig, &map_class, self.tabela()))
     }
 
-    // -- Anotações -----------------------------------------------------------
+    // -- Annotations ----------------------------------------------------------
 
-    /// `Annotation.element` da anotação `m`, escrita na unidade `u`.
+    /// `Annotation.element` of annotation `m`, written in unit `u`.
     fn annotation_target(&self, u: UnitId, m: &ast::Annotation) -> AnnotationTarget {
         let a = &self.program.unit(u).ast;
         let Some(first) = m.name.first() else { return AnnotationTarget::Outro };
@@ -910,8 +911,8 @@ impl<'a> V<'a> {
             [x, c, n] => (p.lookup_prefixed_na_unidade(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
             _ => (None, None),
         };
-        // `@DWORD()` com `typedef DWORD = Uint32;`: o elemento da anotação é o
-        // construtor da classe que o alias nomeia.
+        // `@DWORD()` with `typedef DWORD = Uint32;`: the annotation's element is
+        // the constructor of the class the alias names.
         let tgt = match tgt {
             Some(Element::Typedef(t)) if m.arguments.is_some() || mem.is_some() => self
                 .outline
@@ -949,7 +950,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `annotation.element` é um construtor da classe `nome` de `dart:ffi`
+    /// `annotation.element` is a constructor of the `dart:ffi` class `the_name`
     /// (`isArray`, `isPacked`, `isAbiSpecificIntegerMapping`).
     fn ffi_constructor(&self, u: UnitId, m: &ast::Annotation, the_name: &str) -> bool {
         matches!(self.annotation_target(u, m), AnnotationTarget::Construtor(c, _) if self.ffi_class(c, the_name))
@@ -963,7 +964,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `computeConstantValue` da anotação.
+    /// `computeConstantValue` of the annotation.
     fn annotation_instance(&mut self, u: UnitId, m: &'a ast::Annotation) -> Option<Instance> {
         match self.annotation_target(u, m) {
             AnnotationTarget::Construtor(c, f) => {
@@ -975,8 +976,8 @@ impl<'a> V<'a> {
         }
     }
 
-    /// O valor de uma variável constante usada como anotação: a criação do
-    /// inicializador, ou o valor que o motor calcula.
+    /// The value of a constant variable used as an annotation: the creation in
+    /// the initializer, or the value the engine computes.
     fn variable_instance(&mut self, v: VariableId) -> Option<Instance> {
         let x = self.program.variable(v);
         if !x.const_ {
@@ -1021,8 +1022,8 @@ impl<'a> V<'a> {
         })
     }
 
-    /// O objeto que o construtor `f` da classe `c` monta com os argumentos
-    /// `args` (escritos na unidade `u`).
+    /// The object that constructor `f` of class `c` builds with the arguments
+    /// `args` (written in unit `u`).
     fn assemble(&mut self, u: UnitId, c: ClassId, f: FunctionElementId, args: &'a ast::Arguments) -> Option<Instance> {
         let n = self.program.class(c).type_params.len();
         let type_arguments = match self.corpos.units.get(u.0 as usize).and_then(|b| b.instanciacao(args.span.start)) {
@@ -1043,8 +1044,8 @@ impl<'a> V<'a> {
         if !self.of_ffi(c) {
             return Some(i);
         }
-        // Os argumentos, avaliados (um que não é constante deixa a anotação
-        // sem valor).
+        // The arguments, evaluated (one that is not constant leaves the annotation
+        // without a value).
         let lib = self.program.unit(u).library;
         let cx = Ctx::simples(u, lib);
         let mut positional_args: Vec<Valor> = Vec::new();
@@ -1109,7 +1110,7 @@ impl<'a> V<'a> {
         Some(i)
     }
 
-    /// As anotações da declaração de uma função ou variável, com a unidade.
+    /// The annotations of a function or variable declaration, with the unit.
     fn element_annotations(&self, d: Declaracao) -> (UnitId, &'a [ast::Annotation]) {
         let p = self.program;
         match d {
@@ -1131,8 +1132,8 @@ impl<'a> V<'a> {
 
     // -- Constantes ------------------------------------------------------------
 
-    /// A referência constante de um identificador (`staticElement is
-    /// ConstVariableElement`, direto ou pela variável do acessor).
+    /// The constant reference of an identifier (`staticElement is
+    /// ConstVariableElement`, directly or through the accessor's variable).
     fn constant_reference(&mut self, e: ExprId) -> Option<ConstantRef> {
         let a = self.a;
         match &a.expr(e).kind {
@@ -1147,8 +1148,8 @@ impl<'a> V<'a> {
             if x.const_ {
                 return true;
             }
-            // `constFieldsForFinalInstance`: campo `final` de instância com
-            // inicializador, de classe ou enum.
+            // `constFieldsForFinalInstance`: a `final` instance field with an
+            // initializer, of a class or enum.
             let of_class = x.class.is_some_and(|c| matches!(p.class(c).kind, ClassKind::Class | ClassKind::Enum));
             let has_initializer = match x.node {
                 VariableRef::Field { unit, member, index } => match &p.unit(unit).ast.member(member).kind {
@@ -1182,8 +1183,8 @@ impl<'a> V<'a> {
         }
     }
 
-    /// O parâmetro `nome` da função mais interna que contém `pos` e o
-    /// declara.
+    /// The parameter `the_name` of the innermost function that contains `pos` and
+    /// declares it.
     fn declared_parameter(&self, pos: usize, the_name: SymbolId) -> Option<&'a ast::Parameter> {
         let a = self.a;
         let mut best: Option<(usize, &'a ast::Parameter)> = None;
@@ -1267,7 +1268,7 @@ impl<'a> V<'a> {
         }
     }
 
-    // -- Declarações -----------------------------------------------------------
+    // -- Declarations ----------------------------------------------------------
 
     fn declaracoes(&mut self) {
         let a = self.a;
@@ -1303,7 +1304,7 @@ impl<'a> V<'a> {
                 DeclKind::Typedef(_) => {}
             }
         }
-        // As funções locais (`FunctionDeclarationStatement`).
+        // The local functions (`FunctionDeclarationStatement`).
         for (si, s) in a.stmts.iter().enumerate() {
             let StmtKind::Function(fid) = &s.kind else { continue };
             let Some((_, metadata)) = a.metadados_locais.iter().find(|(id, _)| id.0 as usize == si) else { continue };
@@ -1317,7 +1318,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `visitLibraryDirective`: no máximo um `@DefaultAsset`.
+    /// `visitLibraryDirective`: at most one `@DefaultAsset`.
     fn default_active(&mut self, metadata: &'a [ast::Annotation]) {
         let mut happened = false;
         for m in metadata {
@@ -1333,8 +1334,8 @@ impl<'a> V<'a> {
         }
     }
 
-    /// O elemento do `NamedType` `t` escrito no cabeçalho de uma classe com
-    /// os parâmetros de tipo `tps`.
+    /// The element of the `NamedType` `t` written in the header of a class with
+    /// the type parameters `tps`.
     fn named_type_element(&self, t: ast::TypeId, tps: &[ast::TypeParameter]) -> Option<Element> {
         let TypeKind::Named { name, .. } = &self.a.ty(t).kind else { return None };
         match &name[..] {
@@ -1349,7 +1350,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `name2.lexeme` do `NamedType`.
+    /// `name2.lexeme` of the `NamedType`.
     fn lexema(&self, t: ast::TypeId) -> &'a str {
         match &self.a.ty(t).kind {
             TypeKind::Named { name, .. } => name.last().map_or("", |n| self.nome(n.sym)),
@@ -1357,13 +1358,13 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `ClassElement` (classe ou alias de classe; não mixin, enum ou tipo de
-    /// extensão).
+    /// `ClassElement` (class or class alias; not a mixin, enum or extension
+    /// type).
     fn e_class_element(&self, c: ClassId) -> bool {
         matches!(self.program.class(c).kind, ClassKind::Class | ClassKind::MixinApplication)
     }
 
-    /// `allSupertypes` (sem a própria classe).
+    /// `allSupertypes` (without the class itself).
     fn supertipos(&self, c: ClassId) -> Vec<ClassId> {
         self.outline.hierarchy.get(c).map(|h| h.supertypes.keys().copied().filter(|k| *k != c).collect()).unwrap_or_default()
     }
@@ -1434,7 +1435,7 @@ impl<'a> V<'a> {
         self.membros_da_classe(&x.members, compound);
     }
 
-    /// `checkSupertype` de `implements` e `with`.
+    /// `checkSupertype` of `implements` and `with`.
     fn check_supertype(&mut self, x: &'a ast::ClassDecl, t: ast::TypeId, code: Codigo) {
         let el = self.named_type_element(t, &x.type_params);
         let the_name = match el {
@@ -1614,9 +1615,9 @@ impl<'a> V<'a> {
         }
     }
 
-    /// O primeiro campo da declaração `mid` é o último campo de instância
-    /// externo da classe (`fields.reversed`, com os sintéticos dos acessores
-    /// depois dos declarados).
+    /// The first field of declaration `mid` is the last external instance field
+    /// of the class (`fields.reversed`, with the synthetic ones of the accessors
+    /// after the declared ones).
     fn is_last_field(&mut self, c: ClassId, mid: ast::MemberId, members: &'a [ast::MemberId]) -> bool {
         let Some(&first) = self.indices().campos.get(&(mid.0, 0)) else { return false };
         let k = self.program.class(c);
@@ -1629,7 +1630,7 @@ impl<'a> V<'a> {
                 last = Some(Some(v));
             }
         }
-        // Os campos sintéticos dos acessores explícitos, na ordem.
+        // The synthetic fields of the explicit accessors, in order.
         let mut synthetic: Vec<(SymbolId, bool, bool)> = Vec::new();
         for &m in members {
             let MemberKind::Method(fid) = &self.a.member(m).kind else { continue };
@@ -1756,8 +1757,7 @@ impl<'a> V<'a> {
         if variable && !allows_variable {
             self.relatar(cf::VARIABLE_LENGTH_ARRAY_NOT_LAST, the_first.span, &[]);
         }
-        // Os nós dos argumentos: os elementos da lista única, ou os
-        // argumentos.
+        // The argument nodes: the elements of the single list, or the arguments.
         let mut nodes: Vec<Span> = Vec::new();
         if let Some(args) = &the_first.arguments {
             match &args.args[..] {
@@ -1776,12 +1776,12 @@ impl<'a> V<'a> {
                 }
             }
         }
-        // O nó do erro. No 3.6.2 (`ffi_verifier.dart:1995-2022`), o
-        // argumento `i` quando há argumentos: `argumentNodes[i]` sem guarda,
-        // e o `@Array.variable(-1)` (dimensões `[0, -1]`, um argumento só)
-        // lança `RangeError` — a biblioteca sai sem diagnósticos
-        // ([`QuebraDoAnalyzer`]). No 3.13.4 (`:2171-2220`), o último
-        // argumento que existe até `i`, e a anotação sem argumentos.
+        // The error node. In 3.6.2 (`ffi_verifier.dart:1995-2022`), argument `i`
+        // when there are arguments: `argumentNodes[i]` without a guard, and
+        // `@Array.variable(-1)` (dimensions `[0, -1]`, a single argument) throws
+        // `RangeError` — the library ends up without diagnostics
+        // ([`QuebraDoAnalyzer`]). In 3.13.4 (`:2171-2220`), the last argument
+        // that exists up to `i`, and the annotation when there are no arguments.
         let reference_313 = self.program.referencia(self.u) == dartforge_diagnostics::Referencia::V3_13;
         let mut error_node = the_first.span;
         for (i, d) in dimensions.iter().enumerate() {
@@ -1816,7 +1816,7 @@ impl<'a> V<'a> {
         let u = self.u;
         let mut happened = false;
         for m in metadata {
-            // Só o valor de `Native` interessa; o resto nem é avaliado.
+            // Only the value of `Native` matters; the rest is not even evaluated.
             let candidate = match self.annotation_target(u, m) {
                 AnnotationTarget::Construtor(c, _) => self.ffi_class(c, "Native"),
                 AnnotationTarget::Variavel(v) => self.program.variable(v).const_,
@@ -1860,7 +1860,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// O tipo do i-ésimo parâmetro formal da declaração.
+    /// The type of the i-th formal parameter of the declaration.
     fn parameter_type(&self, d: Declaracao, i: usize, parameters: &'a [ast::Parameter]) -> Option<TypeId> {
         match d {
             Declaracao::Funcao(f) => self.outline.functions.get(f.0 as usize).and_then(|x| x.parameters.get(i)).map(|p| p.ty),
@@ -1969,8 +1969,8 @@ impl<'a> V<'a> {
                 self.tipo_da_variavel(v)
             }
             Declaracao::Funcao(f) => {
-                // O acessor: o tipo da variável sintética (o retorno do
-                // getter de mesmo nome, ou o parâmetro do setter).
+                // The accessor: the type of the synthetic variable (the return type of the
+                // getter of the same name, or the setter's parameter).
                 let g = self.program.function(f);
                 if let Some(v) = g.variable {
                     self.tipo_da_variavel(v)
@@ -2058,7 +2058,7 @@ impl<'a> V<'a> {
         }
     }
 
-    // -- Expressões ------------------------------------------------------------
+    // -- Expressions -----------------------------------------------------------
 
     fn expressoes(&mut self) {
         let a = self.a;
@@ -2095,14 +2095,14 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `MethodInvocation` e `FunctionExpressionInvocation` (e a criação
-    /// implícita, que o analyzer reescreve em `InstanceCreationExpression`).
+    /// `MethodInvocation` and `FunctionExpressionInvocation` (and the implicit
+    /// creation, which the analyzer rewrites into `InstanceCreationExpression`).
     fn chamada(&mut self, id: ExprId, target: ExprId, args: &'a ast::Arguments) {
         let a = self.a;
         match self.corpo.get_resolved(id) {
             Some(Resolved::ExtensionMember { extension, member }) => {
-                // `valor<T>(n)`: o `call` de `AllocatorAlloc`. O `.call(…)`
-                // escrito é uma `MethodInvocation`, que não é verificada.
+                // `the_value<T>(n)`: the `call` of `AllocatorAlloc`. A written `.call(…)` is a
+                // `MethodInvocation`, which is not checked.
                 let written = matches!(&a.expr(target).kind, ExprKind::Property { name, .. } if self.nome(name.sym) == "call");
                 if !written && self.ffi_extension(*extension, &["AllocatorAlloc"]) && self.nome(self.program.function(*member).name) == "call" {
                     self.validate_allocation(id, args);
@@ -2160,7 +2160,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// O receptor (`realTarget`) da invocação cujo nome de método é `target`.
+    /// The receiver (`realTarget`) of the invocation whose method name is `target`.
     fn receptor(&self, target: ExprId) -> Option<ExprId> {
         match &self.a.expr(target).kind {
             ExprKind::Property { target: r, .. } => Some(self.real_target(*r)),
@@ -2214,10 +2214,10 @@ impl<'a> V<'a> {
                 let s = self.span(id);
                 self.relatar(cf::MISSING_EXCEPTION_VALUE, s, &[Arg::from(the_name)]);
             } else {
-                // `(arguments[1] as NamedExpression)` (3.6.2; `as NamedArgument`
-                // no 3.13.4): o `exceptionalReturn` passado como posicional
-                // (`isolateLocal(f, 0)`) faz o cast lançar, e a biblioteca
-                // inteira fica sem diagnósticos ([`QuebraDoAnalyzer`]).
+                // `(arguments[1] as NamedExpression)` (3.6.2; `as NamedArgument` in
+                // 3.13.4): an `exceptionalReturn` passed as a positional
+                // (`isolateLocal(f, 0)`) makes the cast throw, and the whole library ends
+                // up without diagnostics ([`QuebraDoAnalyzer`]).
                 if args.args[1].name.is_none() {
                     self.quebra = true;
                     return;
@@ -2390,7 +2390,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// O elemento (não sintético) que um identificador referencia.
+    /// The (non-synthetic) element an identifier references.
     fn referenced_element(&self, e: ExprId) -> Option<Declaracao> {
         match &self.a.expr(e).kind {
             ExprKind::Identifier(_) => {}
@@ -2461,8 +2461,8 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `visitIndexExpression`: o `[]` de `StructPointer`, `StructArray`,
-    /// `UnionPointer` e `UnionArray`.
+    /// `visitIndexExpression`: the `[]` of `StructPointer`, `StructArray`,
+    /// `UnionPointer` and `UnionArray`.
     fn indice(&mut self, id: ExprId, target: ExprId) {
         let Some(Resolved::ExtensionMember { extension, member }) = self.corpo.get_resolved(id) else { return };
         if !self.ffi_extension(*extension, &["StructPointer", "StructArray", "UnionPointer", "UnionArray"]) || self.nome(self.program.function(*member).name) != "[]" {
@@ -2476,7 +2476,7 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `visitPrefixedIdentifier` e `visitPropertyAccess`: `ref` e `address`.
+    /// `visitPrefixedIdentifier` and `visitPropertyAccess`: `ref` and `address`.
     fn propriedade(&mut self, id: ExprId, target: ExprId, the_name: ast::Name) {
         let Some(Resolved::ExtensionMember { extension, member }) = self.corpo.get_resolved(id) else { return };
         let (x, f) = (*extension, *member);
@@ -2502,8 +2502,8 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `_validateAddressPosition`: o `.address` só como argumento de uma
-    /// chamada a uma função `@Native(isLeaf: true)` (ou pelo `.cast()`).
+    /// `_validateAddressPosition`: `.address` only as an argument of a call to a
+    /// `@Native(isLeaf: true)` function (or through `.cast()`).
     fn validate_address_position(&mut self, no: ExprId, error: Span) {
         let a = self.a;
         let mut current = no;
@@ -2533,8 +2533,8 @@ impl<'a> V<'a> {
         }
     }
 
-    /// `isNativeLeafInvocation`: a invocação de método cujo elemento é uma
-    /// função ou método com `@Native(isLeaf: true)`.
+    /// `isNativeLeafInvocation`: the method invocation whose element is a
+    /// function or method with `@Native(isLeaf: true)`.
     fn leaf_call(&mut self, tgt: ExprId) -> bool {
         if !matches!(self.a.expr(tgt).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
             return false;
@@ -2564,12 +2564,12 @@ impl<'a> V<'a> {
         }
         let receiver = self.real_target(receiver);
         let ok = match &self.a.expr(receiver).kind {
-            // Elemento de `Array` ou de lista tipada.
+            // Element of an `Array` or of a typed list.
             ExprKind::Index { target, .. } => {
                 let t = self.corpo.get_type(self.real_target(*target));
                 t.is_some_and(|t| self.e_ffi_t(t, "Array") || self.e_typed_data(t))
             }
-            // Campo de `Struct` ou `Union`.
+            // Field of a `Struct` or `Union`.
             ExprKind::Property { target, .. } => {
                 let t = self.corpo.get_type(self.real_target(*target));
                 t.is_some_and(|t| self.compound_subtype(t))

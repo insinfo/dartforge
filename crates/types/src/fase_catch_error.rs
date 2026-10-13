@@ -1,42 +1,44 @@
-//! O `ErrorHandlerVerifier.verifyMethodInvocation` da 3.6.2
-//! (`analyzer/lib/src/error/error_handler_verifier.dart`), com o
-//! `ReturnTypeVerifier` no contexto do `onError` de `catchError`
+//! The 3.6.2 `ErrorHandlerVerifier.verifyMethodInvocation`
+//! (`analyzer/lib/src/error/error_handler_verifier.dart`), with the
+//! `ReturnTypeVerifier` in the context of the `onError` of `catchError`
 //! (`return_type_verifier.dart`), docs/ANALYZER-ESPECIFICACAO.md
 //! ("`invalid_return_type_for_catch_error`").
 //!
-//! Na invocação de método com alvo (o `realTarget`, também o de uma
-//! cascata) e algum argumento:
+//! On a method invocation with a target (the `realTarget`, also that of a
+//! cascade) and some argument:
 //!
-//! * `catchError` sobre `Future<X>`, com o primeiro argumento posicional
-//!   (sem isso, nada): com `T = FutureOr<X>`,
-//!   - se o argumento é uma expressão de função: o tipo dela como manipulador
-//!     de erro (`_checkErrorHandlerFunctionType`, com o primeiro parâmetro
-//!     conferido); e, fora de gerador, cada `return` da própria closure (não
-//!     das funções de dentro) e o corpo `=> e`, como num executável
-//!     assíncrono de retorno `T` (`T_v = X`): o `return;` sem valor com `X`
-//!     que não é `void`, `dynamic` nem `Null` dá `RETURN_WITHOUT_VALUE` na
-//!     palavra; o `return e;` dá `RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR`
-//!     quando `X` é `void` e `flatten(S)` não é `void`, `dynamic` nem `Null`,
-//!     quando `flatten(S)` é `void` e `X` não é `void` nem `dynamic`, ou
-//!     quando `S` não é atribuível a `X` nem `flatten(S)` é subtipo de `X`;
-//!     o corpo `=> e` só quando `X` não é `void`;
-//!   - senão, com um tipo de função: o retorno dele não atribuível a `T` dá
-//!     `RETURN_TYPE_INVALID_FOR_CATCH_ERROR` no argumento, e o tipo como
-//!     manipulador de erro.
-//! * `then` sobre `Future`, com o nomeado `onError:` de tipo de função; o
-//!   `listen` de `Stream`, idem: o tipo como manipulador (retorno `void`),
-//!   com o primeiro parâmetro conferido só se o valor é expressão de função;
-//!   o relato vai no argumento nomeado inteiro.
-//! * `handleError` de `Stream` e `onError` de `StreamSubscription`, com o
-//!   primeiro argumento posicional de tipo de função: idem.
+//! * `catchError` on `Future<X>`, with the first positional argument
+//!   (without it, nothing): with `T = FutureOr<X>`,
+//!   - if the argument is a function expression: its type as an error handler
+//!     (`_checkErrorHandlerFunctionType`, with the first parameter checked);
+//!     and, outside a generator, each `return` of the closure itself (not of
+//!     the inner functions) and the `=> e` body, as in an asynchronous
+//!     executable with return type `T` (`T_v = X`): a `return;` without a
+//!     value with `X` that is not `void`, `dynamic` or `Null` gives
+//!     `RETURN_WITHOUT_VALUE` at the keyword; `return e;` gives
+//!     `RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR` when `X` is `void` and
+//!     `flatten(S)` is not `void`, `dynamic` or `Null`, when `flatten(S)` is
+//!     `void` and `X` is not `void` or `dynamic`, or when `S` is not
+//!     assignable to `X` and `flatten(S)` is not a subtype of `X`; the
+//!     `=> e` body only when `X` is not `void`;
+//!   - otherwise, with a function type: its return type not assignable to `T`
+//!     gives `RETURN_TYPE_INVALID_FOR_CATCH_ERROR` at the argument, and the
+//!     type as an error handler.
+//! * `then` on `Future`, with the named `onError:` of function type; the
+//!   `listen` of `Stream`, likewise: the type as a handler (return `void`),
+//!   with the first parameter checked only if the value is a function
+//!   expression; the report goes on the whole named argument.
+//! * `handleError` of `Stream` and `onError` of `StreamSubscription`, with
+//!   the first positional argument of function type: likewise.
 //!
 //! `_checkErrorHandlerFunctionType`: `ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER`
-//! quando não há parâmetro, o primeiro é nomeado, o primeiro (conferido) não
-//! aceita `Object`, o segundo é nomeado ou não aceita `StackTrace`, ou há
-//! mais de dois.
+//! when there is no parameter, the first one is named, the first (checked) one
+//! does not accept `Object`, the second is named or does not accept
+//! `StackTrace`, or there are more than two.
 //!
-//! O "atribuível" é o sem `strict-casts` (o motor não liga a opção).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! "Assignable" is the one without `strict-casts` (the engine does not enable
+//! the option).
+//! Written without compiling or running (2026-10-05).
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::{Resolved, UnitBodyTypes};
@@ -53,7 +55,7 @@ fn dentro(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-/// `flatten`: `Future<Y>` e `FutureOr<Y>` dão `Y` (anulável com eles).
+/// `flatten`: `Future<Y>` and `FutureOr<Y>` give `Y` (nullable with them).
 fn achatar(table: &mut TypeTable, core: &CoreTypes, t: TypeId) -> TypeId {
     let (y, is_nullable) = match table.get(t) {
         Type::Interface { class, args, nullable } if Some(*class) == core.future_class && args.len() == 1 => (args[0], *nullable),
@@ -63,7 +65,7 @@ fn achatar(table: &mut TypeTable, core: &CoreTypes, t: TypeId) -> TypeId {
     if is_nullable { crate::ops::nullable(y, table) } else { y }
 }
 
-/// A classe `nome` declarada na biblioteca `lib`.
+/// The class `the_name` declared in library `lib`.
 fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_name: &str) -> Option<ClassId> {
     let sym = interner.lookup(the_name)?;
     match program.library(lib?).declared.get(&sym)?.getter? {
@@ -72,8 +74,8 @@ fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_
     }
 }
 
-/// O `realTarget` de cada seção de cascata (o `CascadeTarget` aponta para o
-/// alvo da cascata).
+/// The `realTarget` of each cascade section (the `CascadeTarget` points to
+/// the cascade's target).
 pub(crate) fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
@@ -117,7 +119,7 @@ impl Verifier<'_> {
         is_subtype(a, b, &mut env)
     }
 
-    /// `isAssignableTo` sem `strict-casts`.
+    /// `isAssignableTo` without `strict-casts`.
     fn atribuivel(&mut self, a: TypeId, b: TypeId) -> bool {
         matches!(self.table.get(a), Type::Dynamic) || self.sub(a, b)
     }
@@ -133,7 +135,7 @@ impl Verifier<'_> {
             let args = [v.formatar(ty), v.formatar(expected_return)];
             v.saida.push(Diagnostic::com_codigo(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, where_, args));
         };
-        // Os parâmetros na ordem: posicionais, opcionais, nomeados.
+        // The parameters in order: positional, optional, named.
         let positional_args: Vec<TypeId> = positional.iter().chain(optional.iter()).copied().collect();
         let total = positional_args.len() + named.len();
         if total == 0 {
@@ -159,7 +161,7 @@ impl Verifier<'_> {
     }
 }
 
-/// Os relatos da unidade `u`.
+/// The reports of unit `u`.
 pub fn retornos_de_catch_error(
     program: &Program,
     interner: &Interner,
@@ -179,7 +181,7 @@ pub fn retornos_de_catch_error(
     let ty = |e: ExprId, v: &Verifier<'_>| body.get_type(e).filter(|t| !core.is_unknown(&*v.table, *t));
     for (k, e) in a.exprs.iter().enumerate() {
         let ExprKind::Call { target, arguments } = &e.kind else { continue };
-        // A invocação de método (não a criação de instância sem `new`).
+        // The method invocation (not the instance creation without `new`).
         if matches!(body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) {
             continue;
         }
@@ -203,7 +205,7 @@ pub fn retornos_de_catch_error(
         let method = interner.resolve(name.sym);
         let first_positional = arguments.args.first().filter(|x| x.name.is_none());
         let named_one = |n: &str| arguments.args.iter().find(|x| x.name.is_some_and(|m| interner.resolve(m.sym) == n));
-        // O tipo de função do argumento.
+        // The function type of the argument.
         let function_type = |x: ExprId, v: &Verifier<'_>| ty(x, v).filter(|t| matches!(v.table.get(*t), Type::Function { .. }));
         let is_function_literal = |x: ExprId| matches!(a.expr(x).kind, ExprKind::FunctionExpression(_));
         if method == "catchError" && target_class.is_some() && target_class == core.future_class {
@@ -230,8 +232,8 @@ pub fn retornos_de_catch_error(
             continue;
         }
         let empty = core.void_;
-        // `then(onError:)` de `Future` e `listen(onError:)` de `Stream`: o
-        // relato no argumento nomeado inteiro.
+        // `then(onError:)` of `Future` and `listen(onError:)` of `Stream`: the
+        // report on the whole named argument.
         let of_named = (method == "then" && target_class.is_some() && target_class == core.future_class)
             || (method == "listen" && target_class.is_some() && target_class == stream);
         if of_named {
@@ -244,7 +246,7 @@ pub fn retornos_de_catch_error(
             }
             continue;
         }
-        // `handleError` de `Stream` e `onError` de `StreamSubscription`.
+        // `handleError` of `Stream` and `onError` of `StreamSubscription`.
         let of_positional = (method == "handleError" && target_class.is_some() && target_class == stream)
             || (method == "onError" && target_class.is_some() && target_class == subscription);
         if of_positional
@@ -257,11 +259,12 @@ pub fn retornos_de_catch_error(
     v.saida
 }
 
-/// Os `return` da closure do `onError` de `catchError` (não os das funções de
-/// dentro), no contexto assíncrono de retorno `esperado = FutureOr<X>`.
+/// The `return`s of the closure of the `onError` of `catchError` (not those
+/// of the inner functions), in the asynchronous context with return type
+/// `expected = FutureOr<X>`.
 fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &UnitBodyTypes, fid: ast::FunctionId, x: TypeId, expected: TypeId) {
     let f = a.function(fid);
-    // O gerador não tem os `return` conferidos.
+    // A generator does not have its `return`s checked.
     if matches!(f.modifier, AsyncModifier::AsyncStar | AsyncModifier::SyncStar) {
         return;
     }
@@ -282,7 +285,7 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
                 }
                 match &s.kind {
                     StmtKind::Return(Some(r)) => returned.push(*r),
-                    // `_checkReturnWithoutValue` com `T_v = X`.
+                    // `_checkReturnWithoutValue` with `T_v = X`.
                     StmtKind::Return(None) if !x_empty_dynamic_or_null => {
                         let end = if source.get(s.span.start..).is_some_and(|t| t.starts_with("return")) { s.span.start + 6 } else { s.span.end };
                         v.saida.push(Diagnostic::com_codigo(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end: end }, std::iter::empty::<&str>()));

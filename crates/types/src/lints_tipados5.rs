@@ -1,26 +1,26 @@
-//! Regras de lint tipadas do conjunto `recommended`
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`). Como
-//! em [`crate::lints_tipados`], devolvem achados neutros.
+//! Typed lint rules from the `recommended` set
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the
+//! 3.6.2 emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`).
+//! As in [`crate::lints_tipados`], they return neutral findings.
 //!
-//! * `exhaustive_cases`: o `switch` (comando) sobre uma classe "enum-like"
-//!   (`asEnumLikeClass`: concreta, só construtores privados que não são
-//!   fábrica, duas ou mais constantes estáticas do tipo da classe, nenhuma
-//!   subclasse na unidade que define a biblioteca), tirando os valores dos
-//!   casos (identificador ou acesso a propriedade) pelo valor constante; o
-//!   `default` cala. Relata cada valor que sobrou, do `switch` ao `)`, com o
-//!   nome do primeiro campo não `@deprecated` do valor.
-//! * `use_super_parameters`: o `super(…)` dos inicializadores, os
-//!   posicionais que são parâmetros do construtor (na ordem, sem `this.`/
-//!   `super.` e não citados no corpo) e os nomeados repassados com o mesmo
-//!   nome, com o tipo do parâmetro do construtor da superclasse atribuível
-//!   ao do parâmetro.
-//! * `invalid_runtime_check_with_js_interop_types`: o `canBeSubtypeOf` com o
-//!   apagamento que mantém os tipos de `dart:js_interop`
-//!   (`EraseNonJSInteropTypes`) e decide o código na primeira comparação que
-//!   o pede.
+//! * `exhaustive_cases`: a `switch` (statement) over an "enum-like" class
+//!   (`asEnumLikeClass`: concrete, only private non-factory constructors,
+//!   two or more static constants of the class type, no subclass in the
+//!   library's defining unit), removing the case values (identifier or
+//!   property access) by constant value; `default` silences it. Reports each
+//!   remaining value, from the `switch` to the `)`, with the name of the
+//!   value's first non-`@deprecated` field.
+//! * `use_super_parameters`: the `super(…)` of the initializers, the
+//!   positional ones that are constructor parameters (in order, without
+//!   `this.`/`super.` and not cited in the body) and the named ones forwarded
+//!   with the same name, with the type of the superclass constructor's
+//!   parameter assignable to that of the parameter.
+//! * `invalid_runtime_check_with_js_interop_types`: `canBeSubtypeOf` with the
+//!   erasure that keeps the `dart:js_interop` types
+//!   (`EraseNonJSInteropTypes`) and decides the code at the first comparison
+//!   that asks for it.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::constantes::avaliador::{Constante, Motor};
 use crate::lints_tipados::Achado;
@@ -41,7 +41,7 @@ fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     e
 }
 
-/// Os achados das regras deste módulo na unidade `u`.
+/// The findings of this module's rules in unit `u`.
 #[allow(clippy::too_many_arguments)]
 pub fn achados(
     program: &Program,
@@ -62,7 +62,7 @@ pub fn achados(
     out
 }
 
-/// O `thisType` de uma classe.
+/// The `thisType` of a class.
 fn tipo_this(table: &mut TypeTable, outline: &OutlineTypes, c: ClassId) -> TypeId {
     let params: Vec<TypeId> = outline
         .classes
@@ -108,7 +108,7 @@ fn exhaustive_cases(
                 || crate::anotacoes::e_construtor_de(program, interner, unit, x, "dart.core", "Deprecated")
         })
     };
-    // Primeira passada (com a tabela): as candidatas e o `thisType`.
+    // First pass (with the table): the candidates and the `thisType`.
     let mut candidates: Vec<(Span, ExprId, &[ast::SwitchCase], ClassId, TypeId)> = Vec::new();
     for (span, the_value, the_cases) in switches {
         let Some(t) = body.get_type(the_value) else { continue };
@@ -122,8 +122,8 @@ fn exhaustive_cases(
     let mut engine = Motor::novo(program, interner, table, core, outline, bodies, the_inferred);
     let exhaustive_on = true;
     for (span, the_value, the_cases, class, this_t) in candidates {
-        // `no_default_cases`: o `default` de um `switch` sobre enum ou
-        // classe "enum-like" (o primeiro `default`).
+        // `no_default_cases`: the `default` of a `switch` over an enum or an
+        // "enum-like" class (the first `default`).
         let e_enum = program.class(class).kind == ClassKind::Enum;
         let k = program.class(class);
         let switch_pattern = the_cases.iter().find(|c| c.pattern.is_none()).map(|c| c.span);
@@ -136,8 +136,8 @@ fn exhaustive_cases(
         if !matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) || k.modifiers.abstract_ {
             continue;
         }
-        // Só construtores privados que não são fábrica (sem nenhum
-        // declarado, o padrão é público).
+        // Only private non-factory constructors (with none declared, the
+        // default one is public).
         let constructors = k.construtores();
         if constructors.is_empty() {
             continue;
@@ -146,7 +146,7 @@ fn exhaustive_cases(
         if !all_private {
             continue;
         }
-        // As constantes estáticas do tipo da classe, por valor.
+        // The static constants of the class type, by value.
         let mut constantes: Vec<(crate::constantes::valor::Valor, Vec<VariableId>)> = Vec::new();
         let mut count = 0;
         for &v in &k.fields {
@@ -169,7 +169,7 @@ fn exhaustive_cases(
         if count < 2 {
             continue;
         }
-        // Nenhuma subclasse na unidade que define a biblioteca.
+        // No subclass in the library's defining unit.
         let defining = program.library(k.library).units.first().copied();
         let has_subclass = (0..program.classes.len()).map(|i| ClassId(i as u32)).any(|cand| {
             let ck = program.class(cand);
@@ -192,7 +192,7 @@ fn exhaustive_cases(
         if has_subclass {
             continue;
         }
-        // A classe é "enum-like": o `default` é `no_default_cases`.
+        // The class is "enum-like": the `default` is `no_default_cases`.
         if let Some(sp) = switch_pattern {
             out.push((sp, "no_default_cases", Vec::new()));
         }
@@ -229,7 +229,7 @@ fn exhaustive_cases(
         if !exhaustive_on {
             continue;
         }
-        // Do `switch` ao `)` depois da expressão.
+        // From the `switch` to the `)` after the expression.
         let b = source.as_bytes();
         let after = dartforge_frontend::fonte::pular_brancos(b, a.expr(the_value).span.end);
         let end = if b.get(after) == Some(&b')') { after + 1 } else { a.expr(the_value).span.end };
@@ -241,8 +241,8 @@ fn exhaustive_cases(
     }
 }
 
-/// `use_named_constants` e `prefer_const_declarations` (o motor de
-/// constantes).
+/// `use_named_constants` and `prefer_const_declarations` (the constants
+/// engine).
 #[allow(clippy::too_many_arguments)]
 fn named_constants_and_declarations(
     program: &Program,
@@ -261,7 +261,7 @@ fn named_constants_and_declarations(
     let lib = unit_id.library;
     let Some(body) = bodies.units.get(u.0 as usize) else { return };
     let pais = crate::lints_tipados::pais_da_unidade(program, u);
-    // `use_named_constants`: as criações constantes de uma classe.
+    // `use_named_constants`: the constant creations of a class.
     let mut creations: Vec<(ExprId, ClassId)> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
@@ -277,7 +277,7 @@ fn named_constants_and_declarations(
         if program.class(*class).kind != ClassKind::Class {
             continue;
         }
-        // Dentro do inicializador de um campo da própria classe.
+        // Inside the initializer of a field of the class itself.
         let inside_field = program.class(*class).fields.iter().any(|v| match program.variable(*v).node {
             VariableRef::Field { unit, member, index } if unit == u => match &a.member(member).kind {
                 MemberKind::Field(l) => l.variables.get(index).and_then(|x| x.initializer).is_some_and(|i| {
@@ -292,8 +292,8 @@ fn named_constants_and_declarations(
             creations.push((id, *class));
         }
     }
-    // `prefer_const_declarations`: as listas `final` (campos estáticos, de
-    // topo e locais) com o começo da lista e os inicializadores.
+    // `prefer_const_declarations`: the `final` lists (static, top-level and
+    // local fields) with the start of the list and the initializers.
     let mut lists: Vec<(usize, usize, Vec<ExprId>)> = Vec::new();
     let list = |start: usize, l: &ast::VariableList, lists: &mut Vec<(usize, usize, Vec<ExprId>)>| {
         if l.const_ || !l.final_ {
@@ -302,7 +302,7 @@ fn named_constants_and_declarations(
         let mut inits = Vec::new();
         for v in l.variables.iter() {
             let Some(i) = v.initializer else { return };
-            // `TypedLiteral` sem `const`.
+            // `TypedLiteral` without `const`.
             if matches!(a.expr(i).kind, ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. }) {
                 return;
             }
@@ -408,14 +408,14 @@ fn super_parameters(
         };
         for &mid in members {
             let MemberKind::Constructor(k) = &a.member(mid).kind else { continue };
-            // O último `super(…)` dos inicializadores.
+            // The last `super(…)` of the initializers.
             let Some((super_name_of, args)) = k.initializers.iter().rev().find_map(|i| match i {
                 Initializer::Super { constructor, arguments, .. } => Some((*constructor, arguments)),
                 _ => None,
             }) else {
                 continue;
             };
-            // O construtor da superclasse (o `staticElement`).
+            // The superclass constructor (the `staticElement`).
             let Some(sup) = program.class(cls).supertype_class else { continue };
             let key = match super_name_of {
                 Some(n) => n.sym,
@@ -425,7 +425,7 @@ fn super_parameters(
                 },
             };
             let Some(&ksup) = program.class(sup).constructors.get(&key) else { continue };
-            // Os parâmetros citados no corpo.
+            // The parameters cited in the body.
             let body_span = match &k.body {
                 ast::FunctionBody::Block(s) => Some(a.stmt(*s).span),
                 ast::FunctionBody::Expression(e) => Some(a.expr(*e).span),
@@ -467,8 +467,8 @@ fn super_parameters(
             let mut matched_index = 0usize;
             let mut aborts = false;
             'args: for n in &positional {
-                // O elemento do argumento é um parâmetro deste construtor
-                // (o escopo dos inicializadores).
+                // The argument's element is a parameter of this constructor
+                // (the initializer scope).
                 let Some(p) = ps.iter().find(|p| p.name.is_some_and(|q| q.sym == n.sym)) else {
                     aborts = true;
                     break;
@@ -505,7 +505,7 @@ fn super_parameters(
             if aborts {
                 continue;
             }
-            // Os nomeados.
+            // The named ones.
             let sup_types = named_parameters(program, table, outline, ksup, cls, sup, core);
             for p in ps.iter() {
                 if p.this_ || p.kind != ParameterKind::Named {
@@ -524,7 +524,7 @@ fn super_parameters(
                 if !passed_on {
                     continue;
                 }
-                // O tipo deste parâmetro.
+                // The type of this parameter.
                 let own_type = p.ty.and_then(|t| outline.tipos_escritos.get(&(u, t)).copied()).unwrap_or(core.dynamic_);
                 let assignable = matches!(table.get(sup_type), Type::Dynamic) || {
                     let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
@@ -552,8 +552,8 @@ fn super_parameters(
     }
 }
 
-/// Os tipos dos parâmetros nomeados do construtor `f` da superclasse `sup`,
-/// instanciados no supertipo da classe `classe`.
+/// The types of the named parameters of constructor `f` of superclass `sup`,
+/// instantiated in the supertype of class `cls`.
 fn named_parameters(
     program: &Program,
     table: &mut TypeTable,
@@ -585,13 +585,13 @@ fn named_parameters(
 
 const WEB_SDK: [&str; 6] = ["dart:html", "dart:indexed_db", "dart:svg", "dart:web_audio", "dart:web_gl", "dart:js_util"];
 
-/// As consultas de interop JS.
+/// The JS interop queries.
 struct Js<'a> {
     program: &'a Program,
     interner: &'a Interner,
     outline: &'a OutlineTypes,
     core: &'a CoreTypes,
-    /// O `JSObject` do `dart:js_interop`.
+    /// The `JSObject` of `dart:js_interop`.
     js_object: Option<ClassId>,
 }
 
@@ -617,14 +617,14 @@ impl Js<'_> {
         }
     }
 
-    /// O tipo de representação declarado de um tipo de extensão.
+    /// The declared representation type of an extension type.
     fn representacao(&self, decl: ClassId) -> Option<TypeId> {
         let v = self.program.class(decl).representation?;
         self.outline.variables.get(v.0 as usize)?.declared_type
     }
 
-    /// `getJsTypeForStaticInterop`: a classe com `@JS()` do
-    /// `dart:js_interop` e `@staticInterop`.
+    /// `getJsTypeForStaticInterop`: the class with `dart:js_interop`'s `@JS()`
+    /// and `@staticInterop`.
     fn static_interop(&self, c: ClassId) -> bool {
         let k = self.program.class(c);
         if k.kind != ClassKind::Class {
@@ -711,7 +711,7 @@ impl Js<'_> {
                         .unwrap_or_default();
                     return table.intern(Type::ExtensionType { decl, args: params.into(), nullable: false });
                 }
-                // O apagamento: a representação instanciada.
+                // The erasure: the instantiated representation.
                 let Some(rep) = self.representacao(decl) else { return t };
                 let params = self.outline.classes.get(decl.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
                 let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
@@ -776,8 +776,8 @@ impl Js<'_> {
         is_subtype(a, b, &mut env)
     }
 
-    /// O `eraseTypes` do emissor: decide o código (uma vez) e devolve os
-    /// tipos para seguir a comparação.
+    /// The emitter's `eraseTypes`: decides the code (once) and returns the types
+    /// to continue the comparison.
     fn erase_pair(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, code: &mut Option<&'static str>) -> (TypeId, TypeId) {
         let el0 = self.apagar(table, l, false, &mut HashSet::new());
         let mut el = crate::ops::non_nullable(el0, table);
@@ -825,7 +825,7 @@ impl Js<'_> {
         (el, er)
     }
 
-    /// `canBeSubtypeOf` com o `eraseTypes` (o resultado guia a recursão).
+    /// `canBeSubtypeOf` with `eraseTypes` (the result guides the recursion).
     fn can(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, code: &mut Option<&'static str>, prof: u32) -> bool {
         if prof > 16 {
             return true;

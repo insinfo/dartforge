@@ -1,23 +1,23 @@
-//! As declarações `extension type` (docs/ANALYZER-ESPECIFICACAO.md §A, grupo
+//! `extension type` declarations (docs/ANALYZER-ESPECIFICACAO.md §A, group
 //! 4):
 //!
-//! * os ciclos do link (`summary2/extension_type.dart`): a representação que
-//!   depende de si (`extension_type_representation_depends_on_itself`, no
-//!   nome de cada tipo da componente) e o `implements` em ciclo
-//!   (`extension_type_implements_itself`), pelo `DependencyWalker` (Tarjan,
-//!   com o auto-laço);
+//! * the link cycles (`summary2/extension_type.dart`): a representation that
+//!   depends on itself (`extension_type_representation_depends_on_itself`, at
+//!   the name of each type in the component) and a cyclic `implements`
+//!   (`extension_type_implements_itself`), through `DependencyWalker`
+//!   (Tarjan, with the self-loop);
 //! * `_checkForExtensionTypeRepresentationTypeBottom`
-//!   (`error_verifier.dart:3503-3513`), no tipo da representação;
-//! * `_checkForExtensionTypeMemberConflicts` (`:3448-3485`): um relato por
-//!   conflito da interface (candidatos, membro de classe e de tipo de
-//!   extensão, membro de tipo de extensão não único), no nome;
+//!   (`error_verifier.dart:3503-3513`), at the representation type;
+//! * `_checkForExtensionTypeMemberConflicts` (`:3448-3485`): one report per
+//!   interface conflict (candidates, class member and extension type member,
+//!   non-unique extension type member), at the name;
 //! * `ResolutionVisitor._verifyExtensionElementImplements`
-//!   (`resolution_visitor.dart:1786-1838`), em cada tipo do `implements`:
+//!   (`resolution_visitor.dart:1786-1838`), at each type of the `implements`:
 //!   `extension_type_implements_disallowed_type`,
-//!   `extension_type_implements_representation_not_supertype` e
+//!   `extension_type_implements_representation_not_supertype` and
 //!   `extension_type_implements_not_supertype`.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::heranca::{Conflict, Heranca, ProvedorDoOutline};
 use crate::resolve::OutlineTypes;
@@ -30,10 +30,10 @@ use dartforge_frontend::ast::{self, DeclKind};
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 
-/// Os tipos de extensão citados num tipo (`_DependenciesCollector`: os
-/// argumentos de tipo, o retorno, os limites dos parâmetros de tipo e os
-/// parâmetros de uma função, os campos de um registro; não o limite de um
-/// parâmetro de tipo).
+/// The extension types cited in a type (`_DependenciesCollector`: the type
+/// arguments, the return, the bounds of the type parameters and the
+/// parameters of a function, the fields of a record; not the bound of a
+/// type parameter).
 fn cited(table: &TypeTable, t: TypeId, output: &mut Vec<ClassId>, prof: u32) {
     if prof > 64 {
         return;
@@ -78,8 +78,8 @@ fn cited(table: &TypeTable, t: TypeId, output: &mut Vec<ClassId>, prof: u32) {
     }
 }
 
-/// Os nós de componentes fortemente conexas com mais de um nó ou com
-/// auto-laço (`DependencyWalker.evaluateScc`).
+/// The nodes of strongly connected components with more than one node or
+/// with a self-loop (`DependencyWalker.evaluateScc`).
 fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet<ClassId> {
     struct Estado<'a> {
         deps: &'a HashMap<ClassId, Vec<ClassId>>,
@@ -140,8 +140,8 @@ fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet
     e.marked
 }
 
-/// `isBottom`: `Never`, ou parâmetro de tipo não anulável cujo limite é
-/// fundo.
+/// `isBottom`: `Never`, or a non-nullable type parameter whose bound is
+/// bottom.
 fn e_fundo(table: &TypeTable, t: TypeId, prof: u32) -> bool {
     if prof > 16 {
         return false;
@@ -154,13 +154,13 @@ fn e_fundo(table: &TypeTable, t: TypeId, prof: u32) -> bool {
     }
 }
 
-/// O tipo escrito é literalmente `dynamic` (e não um nome que não resolveu,
-/// que o outline também deixa `dynamic`).
+/// The written type is literally `dynamic` (and not a name that did not
+/// resolve, which the outline also leaves as `dynamic`).
 fn written_dynamic(interner: &Interner, a: &ast::Ast, t: ast::TypeId) -> bool {
     matches!(&a.ty(t).kind, ast::TypeKind::Named { name, .. } if name.len() == 1 && interner.resolve(name[0].sym) == "dynamic")
 }
 
-/// O tipo da representação declarada (o `InvalidType` fica `None`).
+/// The type of the declared representation (`InvalidType` becomes `None`).
 fn representacao(program: &Program, outline: &OutlineTypes, table: &TypeTable, interner: &Interner, c: ClassId) -> Option<TypeId> {
     let v = program.class(c).representation?;
     let t = outline.variables[v.0 as usize].declared_type?;
@@ -197,8 +197,8 @@ pub fn verificar(
     if !types.iter().any(|&t| program.class(t).library == lib) {
         return output;
     }
-    // O grafo da representação e o do `implements` (só os tipos de extensão
-    // não anuláveis: os outros saem do `interfaces` do elemento).
+    // The representation graph and the `implements` graph (only non-nullable
+    // extension types: the others leave the element's `interfaces`).
     let mut deps_rep: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
     let mut deps_impl: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
     for &t in &types {
@@ -231,17 +231,17 @@ pub fn verificar(
         let the_name = interner.resolve(et.name.sym).to_string();
         let rep = if rep_in_cycle.contains(&t) { None } else { representacao(program, outline, table, interner, t) };
 
-        // `ResolutionVisitor` (antes do `ErrorVerifier`): o `implements`.
+        // `ResolutionVisitor` (before `ErrorVerifier`): the `implements`.
         if let Some(r) = rep {
             let interfaces = outline.classes[t.0 as usize].interfaces.clone();
             for (k, &written) in et.implements.iter().enumerate() {
                 let Some(&ty) = interfaces.get(k) else { continue };
-                // `_verifyNullability` (`named_type_resolver.dart:388-414`): o
-                // tipo de hierarquia perde o `?` depois do
-                // `NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE`. O `hasErrorReported`
-                // só vale para o alias que expande a parâmetro de tipo: o nome
-                // indefinido é `InvalidType`, e `isValidExtensionTypeSuperinterface`
-                // (`type_system.dart:1361-1378`) o recusa.
+                // `_verifyNullability` (`named_type_resolver.dart:388-414`): the
+                // hierarchy type loses the `?` after
+                // `NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE`. `hasErrorReported` only
+                // applies to an alias that expands to a type parameter: an undefined
+                // name is `InvalidType`, and `isValidExtensionTypeSuperinterface`
+                // (`type_system.dart:1361-1378`) rejects it.
                 let invalid = table.e_invalido(ty);
                 let ty = if invalid { ty } else { crate::ops::non_nullable(ty, table) };
                 let sp = a.ty(written).span;
@@ -254,10 +254,10 @@ pub fn verificar(
                         _ => false,
                     };
                 if !valid {
-                    // O tipo como o analyzer o escreve: com o alias com que foi
-                    // escrito (`implements X` com `typedef X = void Function()`
-                    // dá `X`, e `X?` também), salvo `void` e `dynamic` (que
-                    // não levam alias), e `InvalidType` para o que não resolveu.
+                    // The type as the analyzer writes it: with the alias it was
+                    // written with (`implements X` with `typedef X = void Function()`
+                    // gives `X`, and `X?` too), except `void` and `dynamic` (which
+                    // take no alias), and `InvalidType` for what did not resolve.
                     let text = if invalid {
                         "InvalidType".to_string()
                     } else if matches!(table.get(ty), Type::Dynamic | Type::Void) {
@@ -310,7 +310,7 @@ pub fn verificar(
             }
         }
 
-        // `ErrorVerifier.visitExtensionTypeDeclaration`, na ordem.
+        // `ErrorVerifier.visitExtensionTypeDeclaration`, in order.
         if rep_in_cycle.contains(&t) {
             output.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF, et.name.span, empty.iter().copied())));
         } else if let Some(r) = rep
@@ -327,14 +327,15 @@ pub fn verificar(
             inheritance.interface(&mut p, t)
         };
         for conflict in interface.conflicts.iter() {
-            // `_checkForExtensionTypeMemberConflicts`: os candidatos (os sem
-            // extensão antes dos de extensão) viram as mensagens de contexto.
+            // `_checkForExtensionTypeMemberConflicts`: the candidates (the
+            // non-extension ones before the extension ones) become the context
+            // messages.
             let (n, candidates): (_, Vec<&crate::heranca::Membro>) = match conflict {
                 Conflict::Candidates { nome: the_name, candidatos: candidates } | Conflict::NonUniqueExtension { nome: the_name, candidatos: candidates } => (the_name, candidates.iter().collect()),
                 Conflict::ExtensionAndNonExtension { nome: the_name, non_extension, extensao: extension } => (the_name, non_extension.iter().chain(extension.iter()).collect()),
                 Conflict::GetterMethod { .. } => continue,
             };
-            // O `Name.name` do setter é `x=`; a chave do modelo, `x_=`.
+            // The setter's `Name.name` is `x=`; the model key, `x_=`.
             let text = interner.resolve(n.chave);
             let member = text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="));
             let mut d = Diagnostic::com_codigo(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [the_name.as_str(), member.as_str()]);

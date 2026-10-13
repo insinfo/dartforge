@@ -1,26 +1,27 @@
 //! `DefaultTypesBuilder._breakRawTypeCycles` (`summary2/default_types_builder.dart`):
-//! o limite de um parâmetro de tipo que chega à própria declaração por um tipo
-//! cru (`class A<T extends void Function<U extends A>()>`) vira `dynamic`, e
-//! com ele os limites de todos os parâmetros do caminho (o `S` de
-//! `class B<S extends A>` em `class A<T extends B>`). O `_TypesBuilder` lê o
-//! limite do nó depois disso (`element.bound = node.bound?.type`), então é o
-//! limite do elemento que muda: a instanciação para os limites e a conferência
-//! dos argumentos o veem como `dynamic`.
+//! the bound of a type parameter that reaches its own declaration through a raw
+//! type (`class A<T extends void Function<U extends A>()>`) becomes `dynamic`, and
+//! with it the bounds of all parameters on the path (the `S` of
+//! `class B<S extends A>` in `class A<T extends B>`). The `_TypesBuilder` reads the
+//! node's bound after that (`element.bound = node.bound?.type`), so it is the
+//! element's bound that changes: instantiation to bounds and the argument check
+//! see it as `dynamic`.
 //!
-//! O caminho (`_findRawTypePathsToDeclaration`) desce pelos argumentos dos tipos
-//! com argumentos, pelo retorno, pelos limites dos parâmetros de tipo e pelos
-//! tipos dos parâmetros dos tipos função; um tipo cru de outra declaração segue
-//! os limites dos parâmetros dela (uma vez por caminho). Registros não são
-//! seguidos. As declarações são lidas em ordem e um limite já quebrado não
-//! continua caminho. Só se seguem declarações desta biblioteca (o analyzer
-//! segue as do ciclo de bibliotecas em ligação, `getLinkingNode`).
+//! The path (`_findRawTypePathsToDeclaration`) descends through the arguments of
+//! types with arguments, through the return type, through the bounds of type
+//! parameters and through the parameter types of function types; a raw type of
+//! another declaration follows the bounds of its parameters (once per path).
+//! Records are not followed. Declarations are read in order and an already broken
+//! bound does not continue a path. Only declarations of this library are followed
+//! (the analyzer follows those of the library cycle being linked,
+//! `getLinkingNode`).
 
 use dartforge_elements::model::{DeclRef, Element, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, Parameter, TypeKind, TypeParameter};
 use dartforge_intern::SymbolId;
 use std::collections::HashSet;
 
-/// Os parâmetros de tipo (declaração, índice) cujo limite vira `dynamic`.
+/// The type parameters (declaration, index) whose bound becomes `dynamic`.
 pub fn broken_bounds(program: &Program) -> HashSet<(DeclRef, usize)> {
     let mut broken: HashSet<(DeclRef, usize)> = HashSet::new();
     for (ui, unit) in program.units.iter().enumerate() {
@@ -47,9 +48,9 @@ pub fn broken_bounds(program: &Program) -> HashSet<(DeclRef, usize)> {
     broken
 }
 
-/// Os parâmetros de tipo das declarações que o `DefaultTypesBuilder` percorre
-/// e que um tipo cru pode nomear (classe, mixin, enum, tipo de extensão,
-/// `typedef`); a extensão e as funções não são alvo de tipo cru.
+/// The type parameters of the declarations that `DefaultTypesBuilder` walks
+/// and that a raw type can name (class, mixin, enum, extension type,
+/// `typedef`); extensions and functions are not targets of a raw type.
 fn parametros_de(k: &DeclKind) -> Option<&[TypeParameter]> {
     match k {
         DeclKind::Class(x) => Some(&x.type_params),
@@ -85,7 +86,7 @@ impl Busca<'_> {
         (lib == self.lib).then_some(decl)
     }
 
-    /// `_findRawTypePathsToDeclaration(início, t, alvo, visitados)`.
+    /// `_findRawTypePathsToDeclaration(início, t, target, visited)`.
     fn caminhos(
         &mut self,
         start: (DeclRef, usize),
@@ -144,8 +145,8 @@ impl Busca<'_> {
         output
     }
 
-    /// Os tipos dos parâmetros de um tipo função; o parâmetro no estilo
-    /// função (`int f(A x)`) é um tipo função com o retorno escrito.
+    /// The parameter types of a function type; a function-style parameter
+    /// (`int f(A x)`) is a function type with the written return type.
     fn parametros(
         &mut self,
         start: (DeclRef, usize),

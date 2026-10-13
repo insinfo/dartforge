@@ -1,6 +1,7 @@
-//! Padrões (Dart 3): esquema de tipo de um padrão (contexto do valor
-//! casado), tipagem dos subpadrões pelo tipo casado, variáveis de padrão,
-//! `switch` como expressão, `if-case`, declarações e atribuições por padrão.
+//! Patterns (Dart 3): the type schema of a pattern (the context of the
+//! matched value), typing of subpatterns by the matched type, pattern
+//! variables, `switch` as an expression, `if-case`, declarations and
+//! assignments by pattern.
 
 use super::body::{Body, Local, Nome};
 use super::expr::{self, declarar_local, inferir, infer_free};
@@ -15,12 +16,12 @@ use dartforge_frontend::ast::{self, ExprId, ListPatternElement, PatternId, Patte
 mod matching;
 pub(crate) use matching::{declared_variables, Matching};
 
-/// O fluxo de padrões do analyzer (T6) está em uso neste corpo.
+/// The analyzer's pattern flow (T6) is in use in this body.
 pub(crate) fn pattern_flow_enabled(inf: &BodyInferrer<'_>) -> bool {
     matching::ligado(inf)
 }
 
-/// Esquema de tipo de um padrão (`_` onde nada restringe).
+/// Type schema of a pattern (`_` where nothing constrains).
 pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     let u = inf.core.unknown;
@@ -95,7 +96,7 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
     }
 }
 
-/// `:x` num campo nomeado de record/objeto usa o nome da variável.
+/// `:x` in a named record/object field uses the variable's name.
 fn nome_implicito(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId) -> Option<dartforge_intern::SymbolId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
@@ -106,8 +107,8 @@ fn nome_implicito(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId) -> Option<dar
     }
 }
 
-/// O campo foi escrito como `:x` (nome omitido mas com dois-pontos): o parser
-/// registra `name = None` com o span do campo começando em `:`.
+/// The field was written as `:x` (name omitted but with a colon): the parser
+/// records `name = None` with the field's span starting at `:`.
 fn implicit_named_field(inf: &BodyInferrer<'_>, cx: &Body, parent: PatternId, child: PatternId) -> bool {
     let a = &inf.program.unit(cx.unit).ast;
     let fields = match &a.pattern(parent).kind {
@@ -117,14 +118,14 @@ fn implicit_named_field(inf: &BodyInferrer<'_>, cx: &Body, parent: PatternId, ch
     fields.iter().any(|f| f.pattern == child && f.name.is_none() && inf.program.unit(cx.unit).source.as_bytes().get(f.span.start) == Some(&b':'))
 }
 
-/// Tipa o padrão `p` contra o tipo casado `t`, declarando variáveis.
-/// `decl`: contexto de declaração (variáveis sem tipo são declaradas com o
-/// tipo casado); em atribuição, os identificadores são variáveis existentes.
+/// Types pattern `p` against the matched type `t`, declaring variables.
+/// `decl`: declaration context (untyped variables are declared with the
+/// matched type); in an assignment, the identifiers are existing variables.
 fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, final_: bool, assignment: bool) {
     let a = &inf.program.unit(cx.unit).ast;
-    // O tipo casado de cada padrão, lido pelo verificador de constantes
-    // (`UnitBodyTypes::tipos_casados`); ainda sem a promoção do fluxo de
-    // padrões (T6 da especificação).
+    // The matched type of each pattern, read by the constant verifier
+    // (`UnitBodyTypes::tipos_casados`); still without the pattern flow's
+    // promotion (T6 of the specification).
     inf.body_types.units[cx.unit.0 as usize].tipos_casados.insert(p, t);
     match &a.pattern(p).kind {
         PatternKind::Wildcard { ty: Some(x) } => {
@@ -139,12 +140,12 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
         PatternKind::Variable { final_: f2, var_, ty, name } => {
             let (f2, ty, name) = (*f2, *ty, *name);
             if cx.padrao_refutavel && !*var_ && !f2 && ty.is_none() {
-                // `case limite:`: constante (o nome de uma const), não uma
-                // variável que esconde a constante e fica sem valor.
+                // `case limite:`: a constant (the name of a const), not a variable that
+                // hides the constant and has no value.
                 return;
             }
-            // Com `var`, `final` ou tipo, é declaração mesmo em atribuição
-            // (`DeclaredVariablePattern`).
+            // With `var`, `final` or a type, it is a declaration even in an
+            // assignment (`DeclaredVariablePattern`).
             if assignment && !*var_ && !f2 && ty.is_none() {
                 if let Some(Nome::Local(id)) = cx.buscar(name.sym) {
                     super::expr::write_in_primary(inf, cx, id, name.span);
@@ -298,9 +299,8 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                 let ft = match the_name {
                     Some(nm) => match inf.lookup_member(cx.lib, obj, nm, false) {
                         Busca::Achado(m) => {
-                            // Membro de extensão ou de tipo de extensão: a
-                            // exaustividade o lê como `ExtensionKey` (o tipo
-                            // do objeto é apagado).
+                            // A member of an extension or extension type: exhaustiveness reads it as
+                            // an `ExtensionKey` (the object's type is erased).
                             let of_extension_type = matches!(
                                 &m.resolved,
                                 crate::resolved::Resolved::Member { class, .. }
@@ -322,10 +322,10 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
     }
 }
 
-/// Guarda o tipo do padrão para a exaustividade (ver
-/// [`crate::resolved::UnitBodyTypes::tipos_de_padroes`]); um tipo escrito
-/// que não resolve (fica `dynamic` sem ser `dynamic`) marca o padrão como
-/// inválido, como o `InvalidType` do analyzer.
+/// Stores the pattern's type for exhaustiveness (see
+/// [`crate::resolved::UnitBodyTypes::tipos_de_padroes`]); a written type that
+/// does not resolve (it is `dynamic` without being `dynamic`) marks the
+/// pattern as invalid, like the analyzer's `InvalidType`.
 fn record_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId, invalid: bool) {
     let b = &mut inf.body_types.units[cx.unit.0 as usize];
     b.tipos_de_padroes.insert(p, t);
@@ -334,8 +334,8 @@ fn record_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: T
     }
 }
 
-/// A anotação `x`, resolvida para `r`, não resolve: `dynamic` sem ter sido
-/// escrita `dynamic`.
+/// The annotation `x`, resolved to `r`, does not resolve: `dynamic` without
+/// having been written `dynamic`.
 fn invalid_annotation(inf: &BodyInferrer<'_>, cx: &Body, x: ast::TypeId, r: TypeId) -> bool {
     if !inf.e_dynamic(r) {
         return false;
@@ -347,9 +347,10 @@ fn invalid_annotation(inf: &BodyInferrer<'_>, cx: &Body, x: ast::TypeId, r: Type
 }
 
 /// `PATTERN_NEVER_MATCHES_VALUE_TYPE` (`checkPatternNeverMatchesValueType`,
-/// `an611:src/generated/resolver.dart:613-640`): num contexto refutável, o
-/// tipo casado não pode ser subtipo do tipo exigido pelo padrão. Relatado no
-/// tipo escrito (variável, curinga, cast, objeto) ou no padrão (lista).
+/// `an611:src/generated/resolver.dart:613-640`): in a refutable context, the
+/// matched type cannot be a subtype of the type required by the pattern.
+/// Reported at the written type (variable, wildcard, cast, object) or at the
+/// pattern (list).
 fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_required: TypeId, span: dartforge_diagnostics::Span) {
     if !cx.padrao_refutavel || span.start == span.end {
         return;
@@ -365,10 +366,9 @@ fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_req
 }
 
 /// `TypeSystemImpl.canBeSubtypeOf` (`an611:src/dart/element/type_system.dart:
-/// 147-315`): pode existir um valor de `left` que seja de `right`? Pelo lado
-/// otimista: só diz "não" quando sabe (Null, funções contra interfaces,
-/// enums, classes `final`/`sealed` com todos os subtipos na biblioteca,
-/// registros).
+/// 147-315`): can a value of `left` be of `right`? On the optimistic side: it
+/// only says "no" when it knows (Null, functions against interfaces, enums,
+/// `final`/`sealed` classes with all subtypes in the library, records).
 pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: TypeId, prof: u32) -> bool {
     if prof > 16 {
         return true;
@@ -415,9 +415,9 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
         if (Some(lc) == int && Some(rc) == double) || (Some(lc) == double && Some(rc) == int) {
             return true;
         }
-        // Enum: os tipos de todas as instâncias são conhecidos; alguma
-        // constante (`v1<String>()` é `A<String>`) é subtipo do da direita
-        // (3.6.2 `type_system.dart:221-229`).
+        // Enum: the types of all instances are known; some constant
+        // (`v1<String>()` is `A<String>`) is a subtype of the right one (3.6.2
+        // `type_system.dart:221-229`).
         if inf.program.class(lc).kind == dartforge_elements::model::ClassKind::Enum {
             let constantes = inf.program.class(lc).enum_constants.clone();
             return constantes.into_iter().any(|v| {
@@ -432,7 +432,7 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
             for cand in std::iter::once(lc).chain(subtypes) {
                 let tc = inf.class_this_type(cand);
                 if let Some(args) = inf.as_instance_of(tc, Some(rc)) {
-                    // `_canBeEqualArguments`: só classes diferentes impedem.
+                    // `_canBeEqualArguments`: only different classes prevent it.
                     let equal = args.iter().zip(ra.iter()).all(|(&a, &b)| {
                         match (inf.table.get(a), inf.table.get(b)) {
                             (Type::Interface { class: x, .. }, Type::Interface { class: y, .. }) => x == y,
@@ -484,9 +484,9 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
 }
 
 /// `ClassElementImpl.allSubtypes` (`an611:src/dart/element/element.dart:
-/// 235-276`): de uma classe `final`, todas as classes da biblioteca que a
-/// têm por supertipo; de uma `sealed`, idem, desde que cada uma seja
-/// `final`/`sealed` ou enum (senão, desconhecido). Outras: desconhecido.
+/// 235-276`): of a `final` class, all the classes of the library that have
+/// it as a supertype; of a `sealed` one, likewise, provided each is
+/// `final`/`sealed` or an enum (otherwise, unknown). Others: unknown.
 fn all_subtypes(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<Vec<ClassId>> {
     let k = inf.program.class(c);
     if k.kind != dartforge_elements::model::ClassKind::Class {
@@ -523,8 +523,9 @@ fn all_subtypes(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<Vec<ClassId>> 
     Some(out)
 }
 
-/// Tipo de um padrão objeto `C(...)`: com `C` genérico cru, os argumentos
-/// vêm do tipo casado (`Option<int>` casado com `Some()` → `Some<int>`).
+/// Type of an object pattern `C(...)`: with `C` a raw generic, the arguments
+/// come from the matched type (`Option<int>` matched with `Some()` →
+/// `Some<int>`).
 fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, matched: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     let node = a.ty(ty);
@@ -554,10 +555,10 @@ fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, m
     inf.type_from_annotation(cx, ty)
 }
 
-/// Tipo que o valor casado passa a ter quando `p` casa com um valor de
-/// tipo `t` (`promoteForPattern`, R-FLU-14): tipo escrito de variável ou
-/// curinga, `p?`/`p!`/`!= null` não nulo, cast, padrão objeto; `None` se o
-/// padrão não estreita.
+/// The type the matched value gets when `p` matches a value of type `t`
+/// (`promoteForPattern`, R-FLU-14): the written type of a variable or
+/// wildcard, non-null for `p?`/`p!`/`!= null`, cast, object pattern; `None`
+/// if the pattern does not narrow.
 fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -> Option<TypeId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
@@ -592,18 +593,19 @@ fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -
     }
 }
 
-/// `case p when g`: tipa o padrão e a guarda, devolve `(casou, não casou)`.
-/// `escrutinio`: a expressão casada; variável promovível é promovida ao
-/// tipo casado no ramo que casa, antes da guarda (R-FLU-14).
+/// `case p when g`: types the pattern and the guard, returns
+/// `(matched, não matched)`. `scrutinee`: the matched expression; a promotable
+/// variable is promoted to the matched type on the matching branch, before
+/// the guard (R-FLU-14).
 pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, guard: Option<ExprId>, scrutinee: Option<ExprId>) -> (Fluxo, Fluxo) {
     if matching::ligado(inf) {
         return matching::caso(inf, cx, p, t, guard, scrutinee);
     }
     let before = cx.flow.clone();
-    // O escrutínio é resolvido no escopo de fora, antes de o padrão declarar
-    // as suas variáveis: em `switch (e) { Neg(:final e) => … }` o `e` do
-    // padrão sombreia o escrutinado, e é o escrutinado (não a variável nova,
-    // do tipo do campo) que o caso promove.
+    // The scrutinee is resolved in the outer scope, before the pattern
+    // declares its variables: in `switch (e) { Neg(:final e) => … }` the
+    // pattern's `e` shadows the scrutinee, and it is the scrutinee (not the
+    // new variable, of the field's type) that the case promotes.
     let target = scrutinee.and_then(|e| expr::promotion_target(inf, cx, e));
     let refutable_before = std::mem::replace(&mut cx.padrao_refutavel, true);
     type_check(inf, cx, p, t, false, false);
@@ -616,9 +618,9 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: T
         inf.promover(&mut yes, id, decl, tc);
         cx.flow = yes.clone();
     }
-    // Padrão que casa com qualquer valor do tipo (`case _:`, `case var x:`,
-    // `case Object o:` sobre `Object`): a falha do casamento é inalcançável,
-    // como na análise de fluxo do analyzer.
+    // A pattern that matches any value of the type (`case _:`,
+    // `case var x:`, `case Object o:` over `Object`): the match failure is
+    // unreachable, as in the analyzer's flow analysis.
     let mut not_ = if irrefutable(inf, cx, p, t) { before.unreachable() } else { before };
     if let Some(g) = guard {
         let (gv, gf) = expr::checked_condition(inf, cx, g);
@@ -629,10 +631,10 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: T
     (yes, not_)
 }
 
-/// O padrão (num `case`) casa com todo valor de tipo `t`? Só as formas
-/// simples: curinga e variável (com tipo que `t` satisfaz), `as`, `!`,
-/// parênteses, `&&` e `||`. O identificador solto de um `case` é constante,
-/// não variável.
+/// Does the pattern (in a `case`) match every value of type `t`? Only the
+/// simple forms: wildcard and variable (with a type that `t` satisfies),
+/// `as`, `!`, parentheses, `&&` and `||`. A bare identifier in a `case` is a
+/// constant, not a variable.
 fn irrefutable(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -> bool {
     let kind = &inf.program.unit(cx.unit).ast.pattern(p).kind;
     match kind {
@@ -676,7 +678,8 @@ pub(crate) fn declaracao(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool
     type_check(inf, cx, p, t, final_, false);
 }
 
-/// Declara as variáveis de um padrão casado com `t` (`for (var (a, b) in …)`).
+/// Declares the variables of a pattern matched with `t`
+/// (`for (var (a, b) in …)`).
 pub(crate) fn declare_by_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool, p: PatternId, t: TypeId) {
     if matching::ligado(inf) {
         matching::irrefutable(inf, cx, p, t, final_, false, None);
@@ -685,14 +688,15 @@ pub(crate) fn declare_by_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_:
     type_check(inf, cx, p, t, final_, false);
 }
 
-/// `(a, b) = e` — atribuição por padrão a variáveis existentes.
+/// `(a, b) = e`: pattern assignment to existing variables.
 pub(crate) fn pattern_assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, the_value: ExprId) -> TypeId {
     let s = assignment_schema(inf, cx, p);
-    // `patternAssignment_afterRhs` empurra o escrutínio com a informação do
-    // lado direito (`_pushScrutinee`, `addPreviousInfo`); a variável no nível
-    // de cima (só parênteses em volta) a escreve com ela
-    // (`assignedVariablePattern` → `_write`): `(b) = x != null` guarda a
-    // condição em `b`. Num subpadrão o valor casado é outro, sem a condição.
+    // `patternAssignment_afterRhs` pushes the scrutinee with the right side's
+    // information (`_pushScrutinee`, `addPreviousInfo`); a top-level variable
+    // (only parentheses around it) writes it with that information
+    // (`assignedVariablePattern` → `_write`): `(b) = x != null` stores the
+    // condition in `b`. In a subpattern the matched value is another one,
+    // without the condition.
     let mut q = p;
     while let PatternKind::Parenthesized(i) = &inf.program.unit(cx.unit).ast.pattern(q).kind {
         q = *i;
@@ -725,7 +729,7 @@ pub(crate) fn pattern_assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
     t
 }
 
-/// Esquema de um padrão de atribuição: variáveis contribuem com o tipo declarado.
+/// Schema of an assignment pattern: variables contribute their declared type.
 fn assignment_schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
@@ -750,7 +754,7 @@ fn assignment_schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
     }
 }
 
-/// `switch (v) { p => e, ... }` como expressão.
+/// `switch (v) { p => e, ... }` as an expression.
 pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_value: ExprId, cases: &[ast::SwitchExprCase], ctx: TypeId) -> TypeId {
     let t = infer_free(inf, cx, the_value);
     expr::void_use(inf, cx, the_value, t);
@@ -762,9 +766,9 @@ pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_v
     for c in cases {
         cx.flow = not_matched.clone();
         cx.push_scope();
-        // O caso é um bloco básico (`flowEnd` em `resolver.dart:874`). Um
-        // caso a que nenhum valor chega é código morto inteiro; um caso cujo
-        // padrão nunca casa, do corpo ao fim (Apêndice B do §B).
+        // The case is a basic block (`flowEnd` at `resolver.dart:874`). A case
+        // that no value reaches is entirely dead code; a case whose pattern never
+        // matches, from the body to the end (Appendix B of §B).
         let new_ = matching::ligado(inf);
         if new_ {
             super::statements::enter_flow(cx, c.span.end);
@@ -809,10 +813,10 @@ pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_v
 
 /// `analyzeRelationalPattern`
 /// (`_fe_analyzer_shared/lib/src/type_inference/type_analyzer.dart:1700-1760`):
-/// o operador pelo tipo casado `t` (`==` para `==` e `!=`); o operando com o
-/// parâmetro dele como contexto (anulável na igualdade); o operando contra o
-/// parâmetro (`RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE`) e o retorno
-/// contra `bool`. Devolve o tipo do operando.
+/// the operator through the matched type `t` (`==` for `==` and `!=`); the
+/// operand with its parameter as context (nullable for equality); the
+/// operand against the parameter (`RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE`)
+/// and the return against `bool`. Returns the operand's type.
 pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, op: ast::BinaryOp, value: ExprId, t: TypeId) -> TypeId {
     let u = inf.core.unknown;
     let (the_name, lexeme, equality) = match op {
@@ -824,10 +828,10 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         ast::BinaryOp::GtEq => (">=", ">=", false),
         _ => ("", "", false),
     };
-    // `resolveRelationalPatternOperator`: fora da igualdade, o
-    // `TypePropertyResolver` com o tipo casado; potencialmente anulável é
-    // `UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE` no operador (o pai é
-    // `RelationalPattern`, `type_property_resolver.dart:127-130`).
+    // `resolveRelationalPatternOperator`: outside equality,
+    // `TypePropertyResolver` with the matched type; potentially nullable is
+    // `UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE` at the operator (the
+    // parent is `RelationalPattern`, `type_property_resolver.dart:127-130`).
     if !equality
         && let Some(s) = inf.interner.lookup(the_name)
         && inf.requires_null_check(cx.lib, t, s, false)

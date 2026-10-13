@@ -1,17 +1,17 @@
-//! Comparador em fluxo do despejo de tipos com o do oráculo
-//! (`tools/oraculo_tipos/oraculo.dart`): os dois arquivos vêm ordenados por
-//! (arquivo, offset, comprimento), e o comparador faz um merge arquivo a
-//! arquivo, com memória só do arquivo corrente e dos contadores por grupo.
+//! Streaming comparator of our type dump against the oracle's
+//! (`tools/oraculo_tipos/oracle.dart`): both files come sorted by
+//! (file, offset, length), and the comparator does a file-by-file merge,
+//! keeping in memory only the current file and the per-group counters.
 //!
 //! ```text
 //! cargo run --release -p dartforge-types --example comparar_tipos -- \
 //!     <nosso.tsv> <oraculo.tsv> [--exemplos N] [--grupo PADRAO]
 //! ```
 //!
-//! Uma divergência é **causa** quando a expressão diverge e nenhuma
-//! divergência está estritamente contida nela (a divergência começa ali; as
-//! que a contêm são cascata). As causas são agrupadas pelo nó nosso, pelo nó
-//! do analyzer e pela forma da diferença.
+//! A divergence is a **cause** when the expression diverges and no divergence
+//! is strictly contained in it (the divergence starts there; the ones that
+//! contain it are cascade). Causes are grouped by our node, by the analyzer's
+//! node and by the shape of the difference.
 
 use dartforge_types::despejo::{compare_block, forma, Bloco};
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ impl Reader {
         None
     }
 
-    /// O próximo bloco (todas as linhas de um mesmo arquivo).
+    /// The next block (all lines of the same file).
     fn bloco(&mut self) -> Option<(String, Bloco)> {
         let first = self.proxima()?;
         let file = first[0].clone();
@@ -89,7 +89,7 @@ fn main() {
     let mut groups: HashMap<String, Grupo> = HashMap::new();
     let mut block_o = oracle.bloco();
     while let Some((file, b_ours)) = ours.bloco() {
-        // Alinha o oráculo no mesmo arquivo (os dois na ordem da lista).
+        // Aligns the oracle on the same file (both in list order).
         while let Some((a, _)) = &block_o {
             if a.as_str() < file.as_str() {
                 block_o = oracle.bloco();

@@ -1,24 +1,25 @@
-//! O `_InvalidAccessVerifier` e a checagem de classe `@sealed` do
+//! The `_InvalidAccessVerifier` and the `@sealed` class check of the
 //! `BestPracticesVerifier`
-//! (`analyzer/lib/src/error/best_practices_verifier.dart`, lidos na 6.11.0;
-//! docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.7):
+//! (`analyzer/lib/src/error/best_practices_verifier.dart`, read in 6.11.0;
+//! docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.7):
 //!
 //! * `invalid_use_of_internal_member`, `invalid_use_of_protected_member`,
 //!   `invalid_use_of_visible_for_template_member`,
-//!   `invalid_use_of_visible_for_testing_member` e
-//!   `invalid_use_of_visible_for_overriding_member`, no uso de um elemento
-//!   de **outra** biblioteca anotado com `@internal`, `@protected`,
-//!   `@visibleForTemplate`, `@visibleForTesting` ou `@visibleForOverriding`;
-//! * `subtype_of_sealed_class` e `mixin_on_sealed_class`, na classe ou no
-//!   mixin que tem por supertipo uma classe `@sealed` de outro pacote.
+//!   `invalid_use_of_visible_for_testing_member` and
+//!   `invalid_use_of_visible_for_overriding_member`, on the use of an
+//!   element from **another** library annotated with `@internal`,
+//!   `@protected`, `@visibleForTemplate`, `@visibleForTesting` or
+//!   `@visibleForOverriding`;
+//! * `subtype_of_sealed_class` and `mixin_on_sealed_class`, on the class or
+//!   mixin that has as a supertype a `@sealed` class from another package.
 //!
-//! Cobre identificadores e acessos a propriedade resolvidos, construtores e
-//! tipos nomeados. Fora: os operadores (`verifyBinary`), o import de
-//! biblioteca `@internal`, os campos de padrão, a chamada implícita ao
-//! construtor da superclasse, o `@doNotSubmit` e os nomes de combinadores.
-//! As anotações são reconhecidas pelo nome. A posição dos dois de classe
-//! selada é a da declaração sem o comentário de documentação.
-//! Escrito sem compilar nem executar (2026-10-04).
+//! Covers resolved identifiers and property accesses, constructors and named
+//! types. Left out: operators (`verifyBinary`), the import of an `@internal`
+//! library, pattern fields, the implicit call to the superclass constructor,
+//! `@doNotSubmit` and combinator names. Annotations are recognized by name.
+//! The position of the two sealed-class ones is that of the declaration
+//! without the doc comment.
+//! Written without compiling or running (2026-10-04).
 
 use crate::fase_deprecado::{of_function, of_variable, of_element};
 use crate::resolve::OutlineTypes;
@@ -29,13 +30,13 @@ use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program,
 use dartforge_frontend::ast::{self, DeclKind, ExprKind, MemberKind, TypeKind};
 use dartforge_intern::Interner;
 
-/// O elemento referido: as anotações dele, a unidade em que está declarado
-/// e a classe que o contém.
+/// The referenced element: its annotations, the unit in which it is declared
+/// and the class that contains it.
 struct Referenced<'p> {
     anotacoes: &'p [ast::Annotation],
     unidade: UnitId,
     classe: Option<ClassId>,
-    /// Classe, enum ou mixin: fora da regra do `@visibleForTemplate`.
+    /// Class, enum or mixin: outside the `@visibleForTemplate` rule.
     is_type: bool,
 }
 
@@ -56,13 +57,13 @@ fn referenced<'p>(program: &'p Program, r: &Resolved) -> Option<Referenced<'p>> 
     Some(Referenced { anotacoes: annotations, unidade: unit, classe: class, is_type })
 }
 
-/// As anotações da declaração de uma classe.
+/// The annotations of a class declaration.
 fn da_classe(program: &Program, c: ClassId) -> &[ast::Annotation] {
     program.class(c).decl.map_or(&[][..], |d| &program.unit(d.unit).ast.decl(d.decl).metadata[..])
 }
 
-/// Os relatos de acesso inválido na unidade `u`. `mesmo_pacote` diz se uma
-/// biblioteca está no pacote da biblioteca analisada.
+/// The invalid access reports in unit `u`. `same_package` says whether a
+/// library is in the package of the analyzed library.
 pub fn acessos_invalidos(
     program: &Program,
     interner: &Interner,
@@ -80,11 +81,11 @@ pub fn acessos_invalidos(
     let a = &unit.ast;
     let lib = unit.library;
     let has = |metadata: &[ast::Annotation], the_name: &str| metadata.iter().any(|m| m.name.last().is_some_and(|n| interner.resolve(n.sym) == the_name));
-    // `_inTemplateSource` e `inTestDir`, pelo caminho do arquivo.
+    // `_inTemplateSource` and `inTestDir`, by the file path.
     let path = unit.path.as_ref().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
     let in_template = path.contains(".template");
     let in_test = ["/test/", "/integration_test/", "/test_driver/", "/testing/"].iter().any(|d| path.contains(d));
-    // As classes desta unidade, pela posição: `_enclosingClass`.
+    // The classes of this unit, by position: `_enclosingClass`.
     let local_classes: Vec<(Span, ClassId)> = program
         .classes
         .iter()
@@ -93,7 +94,7 @@ pub fn acessos_invalidos(
         .filter_map(|(i, c)| c.decl.filter(|d| d.unit == u).map(|d| (a.decl(d.decl).span, ClassId(i as u32))))
         .collect();
     let class_in = |s: Span| local_classes.iter().find(|(r, _)| r.start <= s.start && s.end <= r.end).map(|(_, c)| *c);
-    // O método que contém a posição, com o nome dele.
+    // The method that contains the position, with its name.
     let method_in = |s: Span| {
         a.members.iter().find_map(|m| match &m.kind {
             MemberKind::Method(f) if m.span.start <= s.start && s.end <= m.span.end => a.function(*f).name.map(|n| interner.resolve(n.sym)),
@@ -103,7 +104,7 @@ pub fn acessos_invalidos(
     let inherits = |of: Option<ClassId>, defining: ClassId| {
         of.is_some_and(|c| c == defining || outline.hierarchy.get(c).is_some_and(|d| d.supertypes.contains_key(&defining)))
     };
-    // `_checkForInvalidInternalAccess` e `_checkForOtherInvalidAccess`.
+    // `_checkForInvalidInternalAccess` and `_checkForOtherInvalidAccess`.
     let mut check = |tgt: &Referenced<'_>, span: Span, the_name: &str, where_: Span, via_super: bool| {
         let owner = program.unit(tgt.unidade);
         // `_inCurrentLibrary`.
@@ -134,7 +135,7 @@ pub fn acessos_invalidos(
             return;
         }
         let for_override = has(tgt.anotacoes, "visibleForOverriding");
-        // `super.m()` dentro do próprio `m` é o uso previsto.
+        // `super.m()` inside `m` itself is the intended use.
         if for_override && via_super && method_in(where_) == Some(the_name) {
             return;
         }
@@ -152,7 +153,7 @@ pub fn acessos_invalidos(
             report(Diagnostic::com_codigo(w::INVALID_USE_OF_VISIBLE_FOR_OVERRIDING_MEMBER, span, [the_name]));
         }
     };
-    // Tipos nomeados (`verifyNamedType`).
+    // Named types (`verifyNamedType`).
     for t in a.types.iter() {
         let TypeKind::Named { name, .. } = &t.kind else { continue };
         let binding = match &name[..] {
@@ -167,7 +168,7 @@ pub fn acessos_invalidos(
             check(&tgt, last.span, interner.resolve(last.sym), t.span, false);
         }
     }
-    // Identificadores e propriedades resolvidos (`verify`).
+    // Resolved identifiers and properties (`verify`).
     if let Some(body) = body {
         for (i, expr) in a.exprs.iter().enumerate() {
             let Some(Some(r)) = body.resolved.get(i) else { continue };
@@ -177,7 +178,7 @@ pub fn acessos_invalidos(
                 _ => continue,
             };
             let Some(tgt) = referenced(program, r) else { continue };
-            // Um construtor leva o nome inteiro como está escrito (`C.nome`).
+            // A constructor takes the whole name as written (`C.the_name`).
             let (span, the_name) = match r {
                 Resolved::Constructor(_) => (expr.span, unit.source.get(expr.span.start..expr.span.end).unwrap_or("")),
                 _ => (at_name.span, interner.resolve(at_name.sym)),
@@ -185,8 +186,8 @@ pub fn acessos_invalidos(
             check(&tgt, span, the_name, expr.span, via_super);
         }
     }
-    // `_checkForInvalidSealedSuperclass`: classe, aplicação de mixin e
-    // mixin desta unidade.
+    // `_checkForInvalidSealedSuperclass`: class, mixin application and mixin
+    // of this unit.
     for (i, class) in program.classes.iter().enumerate() {
         if class.library != lib || !matches!(class.kind, ClassKind::Class | ClassKind::Mixin) {
             continue;

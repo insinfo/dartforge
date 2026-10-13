@@ -1,13 +1,13 @@
-//! Despejo de tipos e comparação com o oráculo (`package:analyzer`,
-//! `tools/oraculo_tipos/oraculo.dart`). Ferramenta de conformidade da
-//! inferência, não produto: usada pelos exemplos `despejo_tipos`,
-//! `comparar_tipos` e `gravar_corpus` e pelo teste do corpus
-//! `corpus/inferencia` (`tests/corpus_inferencia.rs`).
+//! Type dump and comparison with the oracle (`package:analyzer`,
+//! `tools/oraculo_tipos/oracle.dart`). An inference conformance tool, not a
+//! product: used by the examples `despejo_tipos`, `comparar_tipos` and
+//! `gravar_corpus` and by the corpus test `corpus/inference`
+//! (`tests/corpus_inferencia.rs`).
 //!
-//! Linha do despejo: `caminho \t offset \t comprimento \t nó \t tipo \t
-//! resolução`, offsets em unidades UTF-16 (os do analyzer), ordenada por
-//! `(offset, comprimento)`. Expressão que a inferência nunca visitou sai com
-//! o tipo `?`.
+//! Dump line: `caminho \t offset \t comprimento \t nó \t tipo \t
+//! resolução`, offsets in UTF-16 units (the analyzer's), sorted by
+//! `(offset, comprimento)`. An expression the inference never visited is
+//! output with the type `?`.
 
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
@@ -21,10 +21,10 @@ use dartforge_intern::Interner;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Sentinela das expressões não visitadas.
+/// Sentinel for unvisited expressions.
 pub const NOT_VISITED: TypeId = TypeId(u32::MAX);
 
-/// Uma expressão despejada.
+/// A dumped expression.
 #[derive(Debug, Clone)]
 pub struct Line {
     pub offset: usize,
@@ -34,24 +34,24 @@ pub struct Line {
     pub resolution: String,
 }
 
-/// Uma unidade (arquivo) despejada.
+/// A dumped unit (file).
 pub struct Unidade {
-    /// Caminho com `/`.
+    /// Path with `/`.
     pub caminho: String,
     pub linhas: Vec<Line>,
 }
 
-/// Resultado do despejo de um programa.
+/// Result of dumping a program.
 pub struct Dump {
-    /// Unidades fora do SDK, ordenadas pelo caminho.
+    /// Units outside the SDK, sorted by path.
     pub unidades: Vec<Unidade>,
-    /// Avisos do outline e dos corpos.
+    /// Warnings from the outline and the bodies.
     pub avisos: Vec<Diagnostic>,
     pub not_visited: usize,
     pub inference_time: std::time::Duration,
 }
 
-/// Carrega `entrada`, infere e despeja as unidades fora do SDK.
+/// Loads `entry`, infers and dumps the units outside the SDK.
 pub fn dump(entry: &Path, sdk: &SdkLayout, packages: Option<&Path>) -> Dump {
     let mut interner = Interner::new();
     let (prog, _) = load_lenient(entry, sdk, packages, &mut interner);
@@ -88,7 +88,7 @@ pub fn dump(entry: &Path, sdk: &SdkLayout, packages: Option<&Path>) -> Dump {
     Dump { unidades: units, avisos: warnings, not_visited, inference_time }
 }
 
-/// Linhas de uma unidade, ordenadas por `(offset, comprimento)` UTF-16.
+/// Lines of a unit, sorted by UTF-16 `(offset, comprimento)`.
 pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interner: &Interner, u: UnitId) -> Vec<Line> {
     let unit = prog.unit(u);
     let bt = &bodies.units[u.0 as usize];
@@ -121,7 +121,7 @@ pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interne
     lines
 }
 
-/// Offset em bytes UTF-8 → offset em unidades UTF-16.
+/// Offset in UTF-8 bytes → offset in UTF-16 units.
 pub fn utf16_map(source: &str) -> impl Fn(usize) -> usize + '_ {
     let mut accumulated = Vec::with_capacity(source.len() + 1);
     let mut u = 0usize;
@@ -194,7 +194,7 @@ pub fn format_resolution(r: &Resolved, prog: &Program, i: &Interner) -> String {
     }
 }
 
-/// Formata como o `DartType.getDisplayString()` do analyzer.
+/// Formats like the analyzer's `DartType.getDisplayString()`.
 pub fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
@@ -266,13 +266,13 @@ pub fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String 
 }
 
 // -------------------------------------------------------------------
-// Comparação
+// Comparison
 // -------------------------------------------------------------------
 
-/// Linhas de um arquivo: `(offset, comprimento) -> [(nó, tipo)]`.
+/// Lines of a file: `(offset, comprimento) -> [(nó, typ)]`.
 pub type Bloco = BTreeMap<(usize, usize), Vec<(String, String)>>;
 
-/// Uma expressão cujo tipo diverge do oráculo.
+/// An expression whose type diverges from the oracle.
 #[derive(Debug, Clone)]
 pub struct Divergence {
     pub ini: usize,
@@ -283,19 +283,18 @@ pub struct Divergence {
     pub oraculo: String,
 }
 
-/// Resultado da comparação de um arquivo.
+/// Result of comparing a file.
 #[derive(Debug, Default)]
 pub struct Comparison {
     pub compared: usize,
     pub iguais: usize,
-    /// Ordenadas por início e, no mesmo início, da maior para a menor.
+    /// Sorted by start and, for the same start, from largest to smallest.
     pub divergences: Vec<Divergence>,
 }
 
 impl Comparison {
-    /// Índices das divergências que são **causa**: nenhuma outra
-    /// divergência está estritamente contida nela (as que a contêm são
-    /// cascata).
+    /// Indices of the divergences that are a **cause**: no other divergence is
+    /// strictly contained in it (the ones that contain it are cascade).
     pub fn causas(&self) -> Vec<usize> {
         let div = &self.divergences;
         let mut v = Vec::new();
@@ -313,8 +312,8 @@ impl Comparison {
     }
 }
 
-/// Compara o bloco nosso com o do oráculo (só as expressões que o oráculo
-/// tipa; `-` é nó sem tipo, como um nome de classe).
+/// Compares our block with the oracle's (only the expressions the oracle
+/// types; `-` is a node without a type, such as a class name).
 pub fn compare_block(ours: &Bloco, oracle: &Bloco) -> Comparison {
     let mut c = Comparison::default();
     for (&(start, comp), the_ours) in ours {
@@ -343,7 +342,7 @@ pub fn compare_block(ours: &Bloco, oracle: &Bloco) -> Comparison {
     c
 }
 
-/// Bloco a partir das linhas do despejo.
+/// Block from the dump lines.
 pub fn line_block(lines: &[Line]) -> Bloco {
     let mut b = Bloco::new();
     for l in lines {
@@ -352,7 +351,7 @@ pub fn line_block(lines: &[Line]) -> Bloco {
     b
 }
 
-/// Bloco a partir de um `.esperado.tsv` do corpus (`linha coluna offset
+/// Block from a corpus `.esperado.tsv` (`linha coluna offset
 /// comprimento nó tipo elemento marca trecho`).
 pub fn expected_block(text: &str) -> Bloco {
     let mut b = Bloco::new();
@@ -370,7 +369,7 @@ pub fn expected_block(text: &str) -> Bloco {
     b
 }
 
-/// Tipo sem argumentos e sem `?` (para a forma da diferença).
+/// Type without arguments and without `?` (for the shape of the difference).
 fn without_args(s: &str) -> &str {
     let s = match s.find('<') {
         Some(i) => &s[..i],
@@ -379,7 +378,7 @@ fn without_args(s: &str) -> &str {
     s.trim_end_matches('?')
 }
 
-/// Forma da diferença entre o nosso tipo e o do oráculo.
+/// Shape of the difference between our type and the oracle's.
 pub fn forma(ours: &str, oracle: &str) -> &'static str {
     if ours == "?" {
         return "não visitada";

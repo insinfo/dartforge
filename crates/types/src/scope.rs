@@ -1,7 +1,7 @@
-//! Escopos léxicos e resolução de identificadores e membros em corpos.
+//! Lexical scopes and resolution of identifiers and members in bodies.
 //!
-//! Gerencia a pilha de escopos léxicos (locais, parâmetros, membros de instância implícitos,
-//! biblioteca e prefixos) e a busca de membros e extensions aplicáveis sobre receptores estáticos.
+//! Manages the stack of lexical scopes (locals, parameters, implicit instance members,
+//! library and prefixes) and the lookup of members and applicable extensions on static receivers.
 
 use crate::codes::*;
 use crate::hierarchy::ClassHierarchy;
@@ -17,16 +17,16 @@ use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;
 
-/// Supertipos de `class` na ordem de precedência da busca de membros, e
-/// determinística.
+/// Supertypes of `class` in member lookup precedence order, and
+/// deterministic.
 ///
-/// `ClassHierarchyData::supertypes` é um `HashMap`: percorrê-lo direto fazia
-/// a busca de um membro herdado depender da semente do hash — com mixins
-/// (dois supertipos definindo o mesmo membro) a resolução mudava de uma
-/// execução para outra, e o teste de determinismo do backend nativo pegou.
-/// Ordem: a cadeia de superclasses, com os mixins de cada aplicação logo
-/// depois dela (o último mixin primeiro — a linearização do Dart); depois o
-/// resto (interfaces), por `ClassId`.
+/// `ClassHierarchyData::supertypes` is a `HashMap`: walking it directly made
+/// the lookup of an inherited member depend on the hash seed; with mixins
+/// (two supertypes defining the same member) the resolution changed from one
+/// run to another, and the native backend's determinism test caught it.
+/// Order: the superclass chain, with the mixins of each application right
+/// after it (the last mixin first: Dart's linearization); then the rest
+/// (interfaces), by `ClassId`.
 pub fn ordered_supertypes(
     program: &Program,
     hierarchy: &ClassHierarchy,
@@ -48,8 +48,8 @@ pub fn ordered_supertypes(
     for &m in program.classes[class.0 as usize].mixin_classes.iter().rev() {
         push(m, &mut output);
     }
-    // A cadeia de superclasses pode ter ciclo (`class C extends C`, erro
-    // `recursive_interface_inheritance`): cada classe entra uma vez.
+    // The superclass chain may have a cycle (`class C extends C`, error
+    // `recursive_interface_inheritance`): each class enters once.
     let mut chain: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
     while let Some(c) = current {
         if !chain.insert(c) {
@@ -72,7 +72,7 @@ pub fn ordered_supertypes(
     output
 }
 
-/// Metadados de uma variável local no escopo léxico.
+/// Metadata of a local variable in the lexical scope.
 #[derive(Debug, Clone)]
 pub struct LocalVarInfo {
     pub id: LocalId,
@@ -82,12 +82,12 @@ pub struct LocalVarInfo {
     pub is_const: bool,
     pub is_late: bool,
     pub declaration_offset: usize,
-    /// `false` num curinga (Dart 3.7): o local existe (tem `LocalId`, o
-    /// inicializador roda), mas o nome `_` não o encontra.
+    /// `false` for a wildcard (Dart 3.7): the local exists (it has a `LocalId`,
+    /// the initializer runs), but the name `_` does not find it.
     pub ligada: bool,
 }
 
-/// Metadados de um parâmetro formal no escopo léxico.
+/// Metadata of a formal parameter in the lexical scope.
 #[derive(Debug, Clone)]
 pub struct ParamInfo {
     pub index: u32,
@@ -96,36 +96,36 @@ pub struct ParamInfo {
     pub is_final: bool,
 }
 
-/// Camada de escopo léxico na pilha de um corpo de função.
+/// Lexical scope layer on the stack of a function body.
 #[derive(Debug, Clone, Default)]
 pub struct ScopeBlock {
     pub locals: Vec<LocalVarInfo>,
     pub local_functions: HashMap<SymbolId, (ast::FunctionId, TypeId)>,
 }
 
-/// Gerenciador de escopos léxicos durante a travessia de um corpo de função ou método.
+/// Manager of lexical scopes while traversing a function or method body.
 pub struct ScopeStack {
-    /// Pilha de blocos léxicos aninhados (`{ ... }`).
+    /// Stack of nested lexical blocks (`{ ... }`).
     pub blocks: Vec<ScopeBlock>,
-    /// Parâmetros formais da função/método envolvente.
+    /// Formal parameters of the enclosing function/method.
     pub parameters: Vec<ParamInfo>,
-    /// Parâmetros de tipo genéricos locais (da função).
+    /// Local generic type parameters (of the function).
     pub function_type_params: HashMap<SymbolId, TypeParamId>,
-    /// Classe envolvente (se estiver dentro de método de instância, getter, setter ou construtor).
+    /// Enclosing class (if inside an instance method, getter, setter or constructor).
     pub enclosing_class: Option<ClassId>,
-    /// Extensão envolvente (se estiver dentro de membro de extensão).
+    /// Enclosing extension (if inside an extension member).
     pub enclosing_extension: Option<ExtensionId>,
-    /// Se o membro atual é estático (`static`).
+    /// Whether the current member is static (`static`).
     pub is_static_context: bool,
-    /// Próximo ID a ser atribuído para variável local.
+    /// Next ID to assign to a local variable.
     pub next_local_id: u32,
-    /// O símbolo `_` quando a biblioteca tem curingas (Dart 3.7): local e
-    /// parâmetro com esse nome não ligam nome.
+    /// The symbol `_` when the library has wildcards (Dart 3.7): a local or
+    /// parameter with that name does not bind a name.
     pub curinga: Option<SymbolId>,
 }
 
 impl ScopeStack {
-    /// Cria uma nova pilha de escopos para uma função ou método.
+    /// Creates a new scope stack for a function or method.
     pub fn new(
         enclosing_class: Option<ClassId>,
         enclosing_extension: Option<ExtensionId>,
@@ -143,19 +143,19 @@ impl ScopeStack {
         }
     }
 
-    /// Entra em um novo bloco léxico aninhado.
+    /// Enters a new nested lexical block.
     pub fn push_block(&mut self) {
         self.blocks.push(ScopeBlock::default());
     }
 
-    /// Sai do bloco léxico atual.
+    /// Leaves the current lexical block.
     pub fn pop_block(&mut self) {
         if self.blocks.len() > 1 {
             self.blocks.pop();
         }
     }
 
-    /// Declara uma variável local no bloco mais interno.
+    /// Declares a local variable in the innermost block.
     pub fn declare_local(
         &mut self,
         name: SymbolId,
@@ -183,7 +183,7 @@ impl ScopeStack {
         id
     }
 
-    /// Busca uma variável local pelo nome no bloco atual.
+    /// Looks up a local variable by name in the current block.
     pub fn find_local_in_current_block(&mut self, name: SymbolId) -> Option<&mut LocalVarInfo> {
         if let Some(block) = self.blocks.last_mut() {
             block.locals.iter_mut().find(|l| l.ligada && l.name == name)
@@ -192,7 +192,7 @@ impl ScopeStack {
         }
     }
 
-    /// Adiciona um parâmetro formal ao escopo.
+    /// Adds a formal parameter to the scope.
     pub fn add_parameter(&mut self, index: u32, name: SymbolId, ty: TypeId, is_final: bool) {
         if self.curinga == Some(name) {
             return;
@@ -205,12 +205,12 @@ impl ScopeStack {
         });
     }
 
-    /// Registra um parâmetro de tipo de função genérica no escopo.
+    /// Registers a type parameter of a generic function in the scope.
     pub fn add_function_type_param(&mut self, name: SymbolId, param_id: TypeParamId) {
         self.function_type_params.insert(name, param_id);
     }
 
-    /// Retorna os metadados de uma variável local a partir do seu [`LocalId`].
+    /// Returns the metadata of a local variable from its [`LocalId`].
     pub fn get_local(&self, id: LocalId) -> Option<&LocalVarInfo> {
         for block in self.blocks.iter().rev() {
             for local in block.locals.iter().rev() {
@@ -222,12 +222,12 @@ impl ScopeStack {
         None
     }
 
-    /// Retorna os metadados de um parâmetro formal pelo nome.
+    /// Returns the metadata of a formal parameter by name.
     pub fn get_param(&self, name: SymbolId) -> Option<&ParamInfo> {
         self.parameters.iter().find(|p| p.name == name)
     }
 
-    /// Resolve um identificador não qualificado no escopo léxico atual.
+    /// Resolves an unqualified identifier in the current lexical scope.
     #[allow(clippy::too_many_arguments)]
     pub fn resolve_identifier(
         &self,
@@ -239,11 +239,11 @@ impl ScopeStack {
         interner: &dartforge_intern::Interner,
         diagnostics: &mut Vec<Diagnostic>,
     ) -> Option<Resolved> {
-        // 1. Variáveis locais (do bloco mais interno para o mais externo)
+        // 1. Local variables (from the innermost block to the outermost)
         for block in self.blocks.iter().rev() {
             for local in block.locals.iter().rev() {
                 if local.ligada && local.name == name {
-                    // Valida regra: variável local só é visível após sua declaração
+                    // Enforces the rule: a local variable is only visible after its declaration
                     if span.start < local.declaration_offset {
                         diagnostics.push(Diagnostic::new(
                             format!(
@@ -259,7 +259,7 @@ impl ScopeStack {
             }
         }
 
-        // 2. Parâmetros formais
+        // 2. Formal parameters
         for param in self.parameters.iter().rev() {
             if param.name == name {
                 return Some(Resolved::Parameter {
@@ -269,24 +269,24 @@ impl ScopeStack {
             }
         }
 
-        // 3. Funções locais
+        // 3. Local functions
         for block in self.blocks.iter().rev() {
             if let Some(&(func_id, _)) = block.local_functions.get(&name) {
-                // Representado como LocalId ou Element::Function
+                // Represented as LocalId or Element::Function
                 return Some(Resolved::Local(LocalId(func_id.0)));
             }
         }
 
-        // 4. Parâmetros de tipo da função
+        // 4. Type parameters of the function
         if let Some(&pid) = self.function_type_params.get(&name) {
             return Some(Resolved::TypeParameter(pid));
         }
 
-        // 5. Membros de instância da classe envolvente (se não for contexto estático)
+        // 5. Instance members of the enclosing class (if not a static context)
         if !self.is_static_context && let Some(class_id) = self.enclosing_class {
             let class_elem = &program.classes[class_id.0 as usize];
 
-            // Busca membros declarados na classe
+            // Looks up members declared in the class
             if let Some(&func_id) = class_elem.instance_members.get(&name) {
                 return Some(Resolved::Member {
                     class: class_id,
@@ -304,7 +304,7 @@ impl ScopeStack {
                 });
             }
 
-            // Busca membros herdados na hierarquia
+            // Looks up inherited members in the hierarchy
             {
                 for (super_cls, _) in ordered_supertypes(program, hierarchy, class_id) {
                     let super_elem = &program.classes[super_cls.0 as usize];
@@ -328,12 +328,12 @@ impl ScopeStack {
             }
         }
 
-        // 6. Símbolos de nível superior da biblioteca (declarados e importados)
+        // 6. Top-level symbols of the library (declared and imported)
         if let Some(binding) = program.lookup(current_library, name) {
             return binding.getter.map(Resolved::Element);
         }
 
-        // 7. Prefixos de importação da biblioteca atual
+        // 7. Import prefixes of the current library
         let lib = &program.libraries[current_library.0 as usize];
         if lib.prefixes.contains_key(&name) {
             return Some(Resolved::Prefix(current_library));
@@ -343,7 +343,7 @@ impl ScopeStack {
     }
 }
 
-/// Auxiliar para busca de membros em receptores com tipo estático conhecido.
+/// Helper for looking up members on receivers with a known static type.
 pub struct MemberResolver<'a> {
     pub program: &'a Program,
     pub outline: &'a crate::resolve::OutlineTypes,
@@ -372,9 +372,9 @@ impl<'a> MemberResolver<'a> {
         }
     }
 
-    /// Resolve um membro `name` em um receptor com tipo estático `receiver_ty`.
+    /// Resolves a member `name` on a receiver with static type `receiver_ty`.
     ///
-    /// Retorna `(Resolved, TipoDoMembroSubstituído)` ou `None` se não encontrado.
+    /// Returns `(Resolved, TipoDoMembroSubstituído)` or `None` if not found.
     pub fn lookup_member(
         &mut self,
         receiver_ty: TypeId,
@@ -385,27 +385,27 @@ impl<'a> MemberResolver<'a> {
         let t = self.table.get(receiver_ty).clone();
 
         match t {
-            // Receptor dynamic: tudo é resolvido dinamicamente
+            // dynamic receiver: everything is resolved dynamically
             Type::Dynamic => {
                 Some((Resolved::Dynamic, self.core.dynamic_))
             }
-            // Tipo de interface de classe / mixin / enum
+            // Class / mixin / enum interface type
             Type::Interface { class, args, .. } => {
                 self.lookup_in_class(class, &args, name, is_setter, false)
                     .or_else(|| self.lookup_extension_member(receiver_ty, name, is_setter, current_library))
             }
-            // Tipo de extensão (extension type)
+            // Extension type
             Type::ExtensionType { decl, args, .. } => {
                 self.lookup_in_extension_type(decl, &args, name, is_setter)
                     .or_else(|| self.lookup_extension_member(receiver_ty, name, is_setter, current_library))
             }
-            // Tipo de função: membro `.call` resolve para o próprio tipo de função
+            // Function type: member `.call` resolves to the function type itself
             Type::Function { .. } => {
                 let call_sym = self.interner.lookup("call");
                 if Some(name) == call_sym && !is_setter {
                     Some((Resolved::Dynamic, receiver_ty))
                 } else {
-                    // Herda membros de Object (hashCode, toString, noSuchMethod, runtimeType)
+                    // Inherits members from Object (hashCode, toString, noSuchMethod, runtimeType)
                     if let Some(obj_cid) = self.core.object_class {
                         self.lookup_in_class(obj_cid, &[], name, is_setter, false)
                     } else {
@@ -413,7 +413,7 @@ impl<'a> MemberResolver<'a> {
                     }
                 }
             }
-            // Tipo de registro (Record): campos posicionais `$1`, `$2` ou nomeados
+            // Record type: positional fields `$1`, `$2` or named ones
             Type::Record { positional, named, .. } => {
                 self.lookup_in_record(&positional, &named, name)
                     .or_else(|| {
@@ -424,12 +424,12 @@ impl<'a> MemberResolver<'a> {
                         }
                     })
             }
-            // Tipo Never: qualquer acesso tem tipo Never
+            // Never type: any access has type Never
             Type::Never => {
                 Some((Resolved::Dynamic, self.core.never))
             }
             _ => {
-                // Fallback para Object
+                // Fallback to Object
                 if let Some(obj_cid) = self.core.object_class {
                     self.lookup_in_class(obj_cid, &[], name, is_setter, false)
                         .or_else(|| self.lookup_extension_member(receiver_ty, name, is_setter, current_library))
@@ -440,7 +440,7 @@ impl<'a> MemberResolver<'a> {
         }
     }
 
-    /// Busca membro em uma classe e sua cadeia de herança, aplicando substituição de generics.
+    /// Looks up a member in a class and its inheritance chain, applying generic substitution.
     pub fn lookup_in_class(
         &mut self,
         class_id: ClassId,
@@ -449,12 +449,12 @@ impl<'a> MemberResolver<'a> {
         is_setter: bool,
         via_super: bool,
     ) -> Option<(Resolved, TypeId)> {
-        // T1.1 d: a interface de um homônimo é a do dono do grupo (o
-        // `InheritanceManager3._interfaces` do analyzer é por elemento).
+        // T1.1 d: the interface of a same-named class is that of the group's
+        // owner (the analyzer's `InheritanceManager3._interfaces` is per element).
         let class_id = self.program.dono_da_classe(class_id);
         let class_elem = &self.program.classes[class_id.0 as usize];
 
-        // 1. Procura membro declarado diretamente na classe
+        // 1. Looks for a member declared directly in the class
         if let Some(&func_id) = class_elem.instance_members.get(&name) {
             let func_elem = &self.program.functions[func_id.0 as usize];
             if is_setter {
@@ -496,7 +496,7 @@ impl<'a> MemberResolver<'a> {
             }
         }
 
-        // Procura campos / variáveis
+        // Looks for fields / variables
         if let Some(&var_id) = class_elem.fields.iter().find(|&&f| {
             self.program.variables[f.0 as usize].name == name
         }) {
@@ -516,7 +516,7 @@ impl<'a> MemberResolver<'a> {
             }
         }
 
-        // 2. Procura na hierarquia transitiva instanciada
+        // 2. Looks in the instantiated transitive hierarchy
         {
             for (super_cls, super_ty) in ordered_supertypes(self.program, self.hierarchy, class_id) {
                 let super_elem = &self.program.classes[super_cls.0 as usize];
@@ -612,9 +612,9 @@ impl<'a> MemberResolver<'a> {
             }
         }
 
-        // 3. Receptor que é a própria classe (`C.x`): constantes de enum e
-        // membros estáticos. O tipo do receptor não distingue instância de
-        // literal de classe, por isso é o último recurso.
+        // 3. A receiver that is the class itself (`C.x`): enum constants and
+        // static members. The receiver's type does not distinguish an instance
+        // from a class literal, so this is the last resort.
         if !via_super {
             let class_elem = &self.program.classes[class_id.0 as usize];
             if let Some(&var_id) = class_elem.enum_constants.iter().find(|&&v| self.program.variables[v.0 as usize].name == name) {
@@ -658,7 +658,7 @@ impl<'a> MemberResolver<'a> {
         None
     }
 
-    /// Busca membro em um extension type.
+    /// Looks up a member in an extension type.
     pub fn lookup_in_extension_type(
         &mut self,
         decl: ClassId,
@@ -671,7 +671,7 @@ impl<'a> MemberResolver<'a> {
             return None;
         }
 
-        // Membros declarados no próprio extension type
+        // Members declared in the extension type itself
         if let Some(&func_id) = class_elem.instance_members.get(&name) {
             let func_elem = &self.program.functions[func_id.0 as usize];
             if is_setter {
@@ -713,7 +713,7 @@ impl<'a> MemberResolver<'a> {
             }
         }
 
-        // Se implements outras interfaces, busca nelas
+        // If it implements other interfaces, looks in them
         {
             for (super_cls, super_ty) in ordered_supertypes(self.program, self.hierarchy, decl) {
                 let super_args = match self.table.get(super_ty) {
@@ -729,21 +729,21 @@ impl<'a> MemberResolver<'a> {
         None
     }
 
-    /// Busca campo em um tipo de Record por `$1` ou por nome.
+    /// Looks up a field in a Record type by `$1` or by name.
     pub fn lookup_in_record(
         &self,
         positional: &[TypeId],
         named: &[(SymbolId, TypeId)],
         name: SymbolId,
     ) -> Option<(Resolved, TypeId)> {
-        // Campos nomeados
+        // Named fields
         for &(sym, ty) in named {
             if sym == name {
                 return Some((Resolved::Dynamic, ty));
             }
         }
 
-        // Campos posicionais `$1`, `$2`, etc.
+        // Positional fields `$1`, `$2`, etc.
         let name_str = self.interner.resolve(name);
         if let Some(digits) = name_str.strip_prefix('$')
             && let Ok(idx) = digits.parse::<usize>()
@@ -755,7 +755,7 @@ impl<'a> MemberResolver<'a> {
         None
     }
 
-    /// Busca métodos de extensão aplicáveis no escopo da biblioteca para `receiver_ty`.
+    /// Looks up applicable extension methods in the library scope for `receiver_ty`.
     pub fn lookup_extension_member(
         &mut self,
         receiver_ty: TypeId,
@@ -765,7 +765,7 @@ impl<'a> MemberResolver<'a> {
     ) -> Option<(Resolved, TypeId)> {
         let mut candidates = Vec::new();
 
-        // Itera sobre as extensões visíveis na biblioteca atual
+        // Iterates over the extensions visible in the current library
         let lib = &self.program.libraries[current_library.0 as usize];
         for entry in lib.scope.values() {
             if let Some(Element::Extension(ext_id)) = entry.getter {
@@ -787,7 +787,7 @@ impl<'a> MemberResolver<'a> {
             return None;
         }
 
-        // Se houver 1 candidato único, resolve
+        // If there is a single candidate, resolves it
         if candidates.len() == 1 {
             let (ext_id, func_id, _) = candidates[0];
             let func_elem = &self.program.functions[func_id.0 as usize];
@@ -816,7 +816,7 @@ impl<'a> MemberResolver<'a> {
             ));
         }
 
-        // Desempate por especificidade: escolhe o tipo `on` mais específico
+        // Tie-break by specificity: picks the most specific `on` type
         let mut best_idx = 0;
         for i in 1..candidates.len() {
             let on_best = candidates[best_idx].2;
@@ -892,12 +892,12 @@ impl<'a> MemberResolver<'a> {
 }
 
 /// `LibraryFragment.shouldIgnoreUndefined`
-/// (`an611:src/dart/element/element.dart:1186-1221`): um nome que não
-/// resolve não é relatado quando pode vir de um import que não existe — com
-/// o mesmo prefixo e sem `show`, ou num `show` que o cita — ou, sem prefixo
-/// e começando com `_$`, de uma parte gerada que ainda não existe. A
-/// biblioteca já tem outro erro (o do import ou da parte), então o programa
-/// não passa por válido.
+/// (`an611:src/dart/element/element.dart:1186-1221`): a name that does not
+/// resolve is not reported when it may come from an import that does not
+/// exist (with the same prefix and without `show`, or in a `show` that cites
+/// it) or, without a prefix and starting with `_$`, from a generated part
+/// that does not exist yet. The library already has another error (that of
+/// the import or the part), so the program does not pass as valid.
 pub fn should_ignore_undefined(
     program: &Program,
     interner: &dartforge_intern::Interner,
@@ -915,8 +915,8 @@ pub fn should_ignore_undefined(
                     if prefix.map(|p| p.sym) != the_prefix {
                         continue;
                     }
-                    // `importedLibrary?.isSynthetic != false`: sem biblioteca
-                    // carregada para a diretiva.
+                    // `importedLibrary?.isSynthetic != false`: no library loaded
+                    // for the directive.
                     let synthetic = !lib
                         .imports
                         .iter()
@@ -941,7 +941,7 @@ pub fn should_ignore_undefined(
                 }
                 ast::DirectiveKind::Part { uri } if the_prefix.is_none() && interner.resolve(the_name).starts_with("_$") => {
                     let Some(text) = dartforge_elements::load::string_lit_value(uri) else { continue };
-                    // `file_paths.isGenerated`, para uma parte cujo arquivo não existe.
+                    // `file_paths.isGenerated`, for a part whose file does not exist.
                     let generated = [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
                         .iter()
                         .any(|s| text.ends_with(s));
@@ -958,11 +958,12 @@ pub fn should_ignore_undefined(
     false
 }
 
-/// O `{1}` do `AMBIGUOUS_IMPORT` (`ErrorVerifier._checkForAmbiguousImport` e
-/// `_getLibraryName`, 3.6.2 `error_verifier.dart:2116-2130`, `:6278-6322`): os
-/// elementos que os imports (com o `prefixo`) trazem para `nome`, cada um pelo
-/// URI da biblioteca que o declara, com ` (via …)` os imports que o reexportam
-/// quando ela não é importada diretamente; ordenados, entre aspas, com `and`.
+/// The `{1}` of `AMBIGUOUS_IMPORT` (`ErrorVerifier._checkForAmbiguousImport`
+/// and `_getLibraryName`, 3.6.2 `error_verifier.dart:2116-2130`,
+/// `:6278-6322`): the elements that the imports (with `the_prefix`) bring in for
+/// `the_name`, each by the URI of the library that declares it, with ` (via …)`
+/// for the imports that re-export it when it is not imported directly;
+/// sorted, quoted, joined with `and`.
 pub fn ambiguous_libraries(
     program: &Program,
     unit: dartforge_elements::model::UnitId,

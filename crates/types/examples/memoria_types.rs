@@ -1,6 +1,6 @@
-//! Mede o consumo de memória, pico e tempo de resolução do sistema de tipos e inferência de corpos.
+//! Measures the memory consumption, peak and resolution time of the type system and body inference.
 //!
-//! Execução:
+//! Run:
 //! `cargo run -q --release -p dartforge-types --example memoria_types -- C:/MyDartProjects/new_sali/frontend/web/main.dart`
 
 #[global_allocator]
@@ -45,24 +45,24 @@ fn main() {
     let base_bytes = dartforge_instrument::live_bytes();
     dartforge_instrument::reset_peak();
 
-    // 1. Carga dos Elementos
+    // 1. Loading the Elements
     let t0 = Instant::now();
     let mut interner = Interner::new();
     let (program, elements_diags) = load_lenient(&entry_point, &sdk, package_config.as_deref(), &mut interner);
     let t_elements = t0.elapsed();
     let bytes_after_elements = dartforge_instrument::live_bytes();
 
-    // 2. Inicialização da TypeTable e CoreTypes
+    // 2. Initializing the TypeTable and CoreTypes
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
 
-    // 3. Resolução do Outline
+    // 3. Outline Resolution
     let t1 = Instant::now();
     let (mut outline, outline_diags) = resolve_outline(&program, &interner, &mut table, &core);
     let t_outline = t1.elapsed();
     let bytes_after_outline = dartforge_instrument::live_bytes();
 
-    // 4. Inferência de Corpos
+    // 4. Body Inference
     let t2 = Instant::now();
     let (body_types, body_diags) = infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     let t_bodies = t2.elapsed();
@@ -71,7 +71,7 @@ fn main() {
     let peak_bytes = dartforge_instrument::peak_bytes();
     let total_allocations = dartforge_instrument::allocation_count();
 
-    // Contagem de estatísticas
+    // Statistics count
     let mut total_exprs = 0;
     let mut resolved_exprs = 0;
     for u in &body_types.units {

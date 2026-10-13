@@ -1,7 +1,7 @@
-//! Testes integrados com o Dart SDK real (3.6.2).
+//! Integration tests with the real Dart SDK (3.6.2).
 //!
-//! Marcados com `#[ignore]` para não travar ambientes sem SDK instalado.
-//! Para rodar:
+//! Marked with `#[ignore]` so as not to block environments without an
+//! installed SDK. To run:
 //! `cargo test -p dartforge-types --test sdk -- --ignored --nocapture`
 
 use dartforge_elements::load::load_lenient;
@@ -145,7 +145,7 @@ fn sdk_hierarchy_instantiates() {
     let _int_cls = find_class("dart:core", "int");
     let comp_cls = find_class("dart:core", "Comparable");
 
-    // 1. List<int> tem Iterable<int> na hierarquia (e NÃO Iterable<E>)
+    // 1. List<int> has Iterable<int> in its hierarchy (and NOT Iterable<E>)
     let list_int = table.intern(Type::Interface {
         class: list_cls,
         args: Box::new([core.int]),
@@ -166,7 +166,7 @@ fn sdk_hierarchy_instantiates() {
         other => panic!("esperava Interface Iterable<int>, obteve {:?}", other),
     }
 
-    // 2. int tem Comparable<num> na hierarquia do SDK
+    // 2. int has Comparable<num> in the SDK hierarchy
     let super_comp = outline
         .hierarchy
         .supertype_of(core.int, comp_cls, &mut table, &core)
@@ -181,7 +181,7 @@ fn sdk_hierarchy_instantiates() {
         other => panic!("esperava Interface Comparable<num>, obteve {:?}", other),
     }
 
-    // 3. Map<String, int> tem Object na hierarquia
+    // 3. Map<String, int> has Object in its hierarchy
     let map_str_int = table.intern(Type::Interface {
         class: map_cls,
         args: Box::new([core.string, core.int]),
@@ -273,7 +273,7 @@ fn known_subtyping() {
         "List<int> <: Iterable<int>"
     );
 
-    // 2. List<int> <: Iterable<num> (covariância de tipo de argumento)
+    // 2. List<int> <: Iterable<num> (type argument covariance)
     assert!(
         is_subtype(list_int, iter_num, &mut env),
         "List<int> <: Iterable<num>"
@@ -285,13 +285,13 @@ fn known_subtyping() {
         "Future<int> <: Future<Object>"
     );
 
-    // 4. int Function(num) <: num Function(int) (contravariância de parâmetro e covariância de retorno)
+    // 4. int Function(num) <: num Function(int) (parameter contravariance and return covariance)
     assert!(
         is_subtype(fn_num_to_int, fn_int_to_num, &mut env),
         "int Function(num) <: num Function(int)"
     );
 
-    // 5. num Function(int) <: int Function(num) é FALSO
+    // 5. num Function(int) <: int Function(num) is FALSE
     assert!(
         !is_subtype(fn_int_to_num, fn_num_to_int, &mut env),
         "num Function(int) NÃO deve ser subtipo de int Function(num)"

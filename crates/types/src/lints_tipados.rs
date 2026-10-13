@@ -1,14 +1,14 @@
-//! As regras de lint que pedem os tipos estáticos da inferência
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8). Devolvem achados neutros (a
-//! posição, o nome único do código e os argumentos): quem chama os guarda
-//! e só os emite com a regra ligada.
+//! The lint rules that need the static types from inference
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8). They return neutral findings
+//! (the position, the unique name of the code and the arguments): the caller
+//! keeps them and only emits them when the rule is enabled.
 //!
-//! Aqui: `prefer_is_empty` (`linter/lib/src/rules/prefer_is_empty.dart`,
-//! lido no `main` do SDK; a conferir contra a 3.6.2), com os quatro
-//! códigos. O contexto constante é o `inConstantContext` do analyzer
-//! (`dartforge_frontend::pais`), e o inicializador de construtor `const` fica
-//! de fora como no `_check` do original.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Here: `prefer_is_empty` (`linter/lib/src/rules/prefer_is_empty.dart`,
+//! read from the SDK's `main`; to be checked against 3.6.2), with its four
+//! codes. The constant context is the analyzer's `inConstantContext`
+//! (`dartforge_frontend::pais`), and a `const` constructor initializer is
+//! left out as in the original's `_check`.
+//! Written without compiling or running (2026-10-05).
 
 use crate::resolve::OutlineTypes;
 use crate::resolved::UnitBodyTypes;
@@ -17,16 +17,17 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Program, UnitId};
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, Initializer, MemberKind, UnaryOp};
 
-/// Um achado: a posição, o nome único do código de lint e os argumentos.
+/// A finding: the position, the unique name of the lint code and the
+/// arguments.
 pub type Achado = (Span, &'static str, Vec<String>);
 
-/// `getIntValue`: o valor de um literal inteiro, com o `-` na frente.
+/// `getIntValue`: the value of an integer literal, with a leading `-`.
 fn integer_value(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     let literal = |x: ExprId| match &a.expr(x).kind {
         ExprKind::Int(s) => {
             let text: String = source.get(s.start..s.end)?.chars().filter(|c| *c != '_').collect();
             match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
-                // O hexadecimal vai até 64 bits (`0xFFFFFFFFFFFFFFFF` é -1).
+                // Hexadecimal goes up to 64 bits (`0xFFFFFFFFFFFFFFFF` is -1).
                 Some(hex) => u64::from_str_radix(hex, 16).ok().map(|v| v as i64),
                 None => text.parse::<i64>().ok(),
             }
@@ -39,8 +40,8 @@ fn integer_value(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     }
 }
 
-/// Os pais das expressões da unidade `u` (`dartforge_frontend::pais`), com
-/// o `case` antigo nas bibliotecas de antes da 3.0.
+/// The parents of the expressions of unit `u` (`dartforge_frontend::pais`),
+/// with the old `case` in libraries from before 3.0.
 pub(crate) fn pais_da_unidade(program: &Program, u: UnitId) -> dartforge_frontend::pais::Pais {
     let unit = program.unit(u);
     let version = program.library(unit.library).features.versao();
@@ -48,14 +49,14 @@ pub(crate) fn pais_da_unidade(program: &Program, u: UnitId) -> dartforge_fronten
     dartforge_frontend::pais::Pais::novo(&unit.ast, &unit.unit, &unit.source, before_3)
 }
 
-/// Os achados das regras tipadas na unidade `u`.
+/// The findings of the typed rules in unit `u`.
 pub fn achados(program: &Program, table: &TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId) -> Vec<Achado> {
     let mut out: Vec<Achado> = Vec::new();
     let unit = program.unit(u);
     let a = &unit.ast;
     let source = unit.source.as_str();
 
-    // `_check`: dentro de um inicializador de construtor `const`, nada.
+    // `_check`: inside a `const` constructor initializer, nothing.
     let mut of_const: Vec<Span> = Vec::new();
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind
@@ -70,8 +71,8 @@ pub fn achados(program: &Program, table: &TypeTable, core: &CoreTypes, outline: 
     let pais = pais_da_unidade(program, u);
     let in_constant = |e: ExprId| pais.em_contexto_constante(a, e) || of_const.iter().any(|k| k.start <= a.expr(e).span.start && a.expr(e).span.end <= k.end);
 
-    // `_isLengthAccess`: `x.length` com `x` um `Iterable`, um `Map` ou uma
-    // `String` (através de parênteses e de `as`).
+    // `_isLengthAccess`: `x.length` with `x` an `Iterable`, a `Map` or a
+    // `String` (through parentheses and `as`).
     let of_length = |mut e: ExprId| {
         loop {
             match &a.expr(e).kind {
@@ -94,7 +95,7 @@ pub fn achados(program: &Program, table: &TypeTable, core: &CoreTypes, outline: 
 
     for (k, e) in a.exprs.iter().enumerate() {
         let ExprKind::Binary { op, left, right } = &e.kind else { continue };
-        // A constante de um lado e o `length` do outro.
+        // The constant on one side and the `length` on the other.
         let (the_value, to_the_right) = match integer_value(a, source, *right) {
             Some(v) if of_length(*left) => (v, true),
             Some(_) => continue,

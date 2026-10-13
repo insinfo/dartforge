@@ -1,14 +1,14 @@
-//! Exaustividade de `switch` como o analyzer 6.11: o algoritmo de espaços
-//! do `_fe_analyzer_shared-76.0.0` (`lib/src/exhaustiveness/`, citado como
-//! `fe76:`) com a cola do analyzer (`an611:src/generated/exhaustiveness.dart`)
-//! e o `_validateSwitchExhaustiveness` do `ConstantVerifier`
+//! `switch` exhaustiveness like analyzer 6.11: the space algorithm of
+//! `_fe_analyzer_shared-76.0.0` (`lib/src/exhaustiveness/`, cited as `fe76:`)
+//! with the analyzer's glue (`an611:src/generated/exhaustiveness.dart`) and
+//! `ConstantVerifier`'s `_validateSwitchExhaustiveness`
 //! (`an611:src/dart/constant/constant_verifier.dart:883-1000`).
 //!
-//! Os tipos estáticos do algoritmo (`StaticType`) vivem numa arena com
-//! internação pela igualdade do Dart (`TypeBasedStaticType ==` compara o
-//! tipo e a restrição; `NullableStaticType ==` o subjacente), então a
-//! igualdade é a do índice. Os espaços (`Space`) comparam por identidade,
-//! como no Dart (a classe não define `==`), e por isso são `Rc`.
+//! The algorithm's static types (`StaticType`) live in an arena interned by
+//! Dart equality (`TypeBasedStaticType ==` compares the type and the
+//! restriction; `NullableStaticType ==` the underlying one), so equality is
+//! index equality. Spaces (`Space`) compare by identity, as in Dart (the
+//! class does not define `==`), and that is why they are `Rc`.
 
 use super::avaliador::Motor;
 use super::valor::{double_as_dart, Estado, Valor};
@@ -18,7 +18,7 @@ use dartforge_frontend::ast::{self, ExprId, ListPatternElement, PatternId, Patte
 use std::collections::HashMap;
 use std::rc::Rc;
 
-// -- Tipos estáticos (`fe76:static_type.dart`, `fe76:types.dart`) ------------
+// -- Static types (`fe76:static_type.dart`, `fe76:types.dart`) ----------------
 
 type St = usize;
 const OBJ_NULLABLE: St = 0;
@@ -26,25 +26,26 @@ const OBJ: St = 1;
 const NULL: St = 2;
 const NEVER: St = 3;
 
-/// Identidade de uma `IdentityRestriction`.
+/// Identity of an `IdentityRestriction`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Ident {
     Bool(bool),
     Enum(VariableId),
-    /// Valor constante de igualdade primitiva (índice em `Exaustividade::valores`).
+    /// Constant value with primitive equality (index into `Exhaustiveness::values`).
     Valor(usize),
-    /// `getUnknownStaticType`: único, não casa nem é casado por nada.
+    /// `getUnknownStaticType`: unique, matches nothing and is matched by nothing.
     Unique(usize),
 }
 
-/// `Restriction` (a parte da igualdade de um `TypeBasedStaticType`).
+/// `Restriction` (the equality part of a `TypeBasedStaticType`).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum Restr {
     Livre,
     Id(Ident),
-    /// `ListTypeRestriction` (o texto dos argumentos não entra na igualdade).
+    /// `ListTypeRestriction` (the arguments' text does not take part in
+    /// equality).
     Lista { el: TypeId, tam: usize, resto: bool },
-    /// `MapTypeRestriction`: as chaves pelos valores (índices ordenados).
+    /// `MapTypeRestriction`: the keys by their values (sorted indices).
     Mapa { k: TypeId, v: TypeId, chaves: Vec<usize> },
 }
 
@@ -68,19 +69,19 @@ enum Especie {
     FutureOr { arg: St, fut: St },
     Registro,
     ListType,
-    /// `ListPatternStaticType` (o nome já tem o texto dos argumentos).
+    /// `ListPatternStaticType` (the name already has the arguments' text).
     ListPattern,
-    /// `MapPatternStaticType`: as chaves na ordem escrita, com o texto.
+    /// `MapPatternStaticType`: the keys in written order, with the text.
     MapPattern { chaves: Vec<(usize, String)> },
     BoolValue,
     EnumElement,
-    /// `GeneralValueStaticType` (constante comum ou o desconhecido `?`).
+    /// `GeneralValueStaticType` (an ordinary constant or the unknown `?`).
     General,
 }
 
 #[derive(Clone, Debug)]
 enum Tipo {
-    /// `NullableStaticType(u)`; `OBJ_ANUL` e `NULL` são deste formato.
+    /// `NullableStaticType(u)`; `OBJ_NULLABLE` and `NULL` have this shape.
     Anulavel(St),
     Objeto,
     Never,
@@ -95,7 +96,7 @@ enum TypeKey {
     Wrapped(St, St),
 }
 
-// -- Chaves (`fe76:key.dart`) --------------------------------------------------
+// -- Keys (`fe76:key.dart`) ----------------------------------------------------
 
 #[derive(Clone, Debug)]
 enum Chave {
@@ -103,9 +104,9 @@ enum Chave {
     Cabeca(usize),
     Cauda(usize),
     RestPart(usize, usize),
-    /// `NameKey`; `registro` é `RecordNameKey`.
+    /// `NameKey`; `registro` is `RecordNameKey`.
     Nome { nome: Rc<str>, registro: bool },
-    /// `RecordIndexKey` (nome `$i+1`).
+    /// `RecordIndexKey` (name `$i+1`).
     Indice(usize),
     Extensao { recv: St, nome: Rc<str>, tipo: St },
 }
@@ -130,7 +131,7 @@ impl Chave {
         matches!(self, Chave::Cabeca(_) | Chave::Cauda(_) | Chave::RestPart(..))
     }
 
-    /// A posição na ordem total de `compareTo`.
+    /// The position in the total order of `compareTo`.
     fn grupo(&self) -> u8 {
         match self {
             Chave::Cabeca(_) => 0,
@@ -150,7 +151,7 @@ impl PartialEq for Chave {
             (Chave::Mapa { id: a, .. }, Chave::Mapa { id: b, .. }) => a == b,
             (Chave::Cabeca(a), Chave::Cabeca(b)) | (Chave::Cauda(a), Chave::Cauda(b)) => a == b,
             (Chave::RestPart(a, b), Chave::RestPart(c, d)) => a == c && b == d,
-            // `NameKey ==` só olha o nome: `RecordIndexKey(0)` é `NameKey('$1')`.
+            // `NameKey ==` only looks at the name: `RecordIndexKey(0)` is `NameKey('$1')`.
             (Chave::Nome { .. } | Chave::Indice(_), Chave::Nome { .. } | Chave::Indice(_)) => self.nome() == o.nome(),
             (Chave::Extensao { recv: a, nome: n, .. }, Chave::Extensao { recv: b, nome: m, .. }) => a == b && n == m,
             _ => false,
@@ -158,7 +159,7 @@ impl PartialEq for Chave {
     }
 }
 
-/// `Key.compareTo` (ordem só para escolher a testemunha de forma estável).
+/// `Key.compareTo` (an order only for choosing the witness stably).
 fn compare_keys(ex: &Exhaustiveness, a: &Chave, b: &Chave) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let (ga, gb) = (a.grupo(), b.grupo());
@@ -179,7 +180,7 @@ fn compare_keys(ex: &Exhaustiveness, a: &Chave, b: &Chave) -> std::cmp::Ordering
     }
 }
 
-// -- Caminhos e espaços (`fe76:path.dart`, `fe76:space.dart`) -----------------
+// -- Paths and spaces (`fe76:path.dart`, `fe76:space.dart`) -------------------
 
 #[derive(Clone, Default)]
 struct Path(Option<Rc<(Path, Chave)>>);
@@ -215,7 +216,7 @@ impl Simples {
         Simples(Rc::new(SimpleD { tipo: typ, props: Vec::new(), additional: Vec::new() }))
     }
 
-    /// `SingleSpace ==`: o tipo e as propriedades (espaços por identidade).
+    /// `SingleSpace ==`: the type and the properties (spaces by identity).
     fn igual(&self, o: &Simples) -> bool {
         if Rc::ptr_eq(&self.0, &o.0) {
             return true;
@@ -253,7 +254,7 @@ impl Espaco {
     }
 }
 
-/// Um predicado da testemunha (`fe76:witness.dart`).
+/// A predicate of the witness (`fe76:witness.dart`).
 #[derive(Clone)]
 struct Predicate {
     caminho: Path,
@@ -268,9 +269,9 @@ struct Witness {
     props: Vec<(Chave, Witness)>,
 }
 
-// -- O estado: tipos, valores, consultas ao sistema de tipos ------------------
+// -- The state: types, values, type system queries ----------------------------
 
-/// O que a conversão de padrões lê da inferência e da avaliação.
+/// What the pattern conversion reads from inference and evaluation.
 pub(crate) struct Entrada<'x> {
     pub ast: &'x ast::Ast,
     pub source: &'x str,
@@ -279,19 +280,19 @@ pub(crate) struct Entrada<'x> {
     pub invalid_patterns: &'x std::collections::HashSet<PatternId>,
     pub the_default_values: &'x HashMap<PatternId, Valor>,
     pub key_values: &'x HashMap<ExprId, Valor>,
-    /// A biblioteca tem a versão 3.3 ou maior (`createCastSpace`).
+    /// The library has version 3.3 or later (`createCastSpace`).
     pub version_3_3: bool,
 }
 
-/// Um caso do `switch` para a verificação.
+/// A `switch` case for the check.
 pub(crate) struct Caso {
     /// `None`: `default`.
     pub padrao: Option<PatternId>,
     pub stored: bool,
 }
 
-/// Uma parte de testemunha (`MissingPatternPart` do analyzer): texto, valor
-/// de enum (`writeReference(enum).nome`) ou tipo (`writeType`).
+/// A witness part (the analyzer's `MissingPatternPart`): text, enum value
+/// (`writeReference(enum).the_name`) or type (`writeType`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParteDeTestemunha {
     Texto(String),
@@ -299,11 +300,11 @@ pub enum ParteDeTestemunha {
     Tipo(TypeId),
 }
 
-/// Os marcadores das partes no texto da testemunha (`\u{1}` em volta).
+/// The part markers in the witness text (`\u{1}` around them).
 const MARCA: char = '\u{1}';
 
-/// O texto com marcadores em partes; `None` quando há constante geral (o
-/// `isComplete = false` do `AnalyzerDartTemplateBuffer`).
+/// The marked-up text split into parts; `None` when there is a general
+/// constant (the `isComplete = false` of `AnalyzerDartTemplateBuffer`).
 fn text_parts(m: &Motor<'_>, s: &str) -> Option<Vec<ParteDeTestemunha>> {
     let mut v: Vec<ParteDeTestemunha> = Vec::new();
     let mut text = String::new();
@@ -336,15 +337,15 @@ fn text_parts(m: &Motor<'_>, s: &str) -> Option<Vec<ParteDeTestemunha>> {
     Some(v)
 }
 
-/// O resultado de `_validateSwitchExhaustiveness`.
+/// The result of `_validateSwitchExhaustiveness`.
 pub(crate) struct Result_ {
-    /// Índices (em `casos`) dos casos inalcançáveis.
+    /// Indices (into `cases`) of the unreachable cases.
     pub unreachable: Vec<usize>,
-    /// A primeira testemunha, quando não é exaustivo (sem correção).
+    /// The first witness, when not exhaustive (without correction).
     pub witness: Option<String>,
-    /// A primeira testemunha para a correção.
+    /// The first witness for the correction.
     pub correcao: Option<String>,
-    /// Todas as testemunhas com partes (só com `coletar_partes`).
+    /// All the witnesses with parts (only with `collect_parts`).
     pub partes: Vec<Vec<ParteDeTestemunha>>,
 }
 
@@ -357,9 +358,9 @@ pub(crate) struct Exhaustiveness<'m, 'a> {
     subtipos: HashMap<St, Vec<St>>,
     lib: LibraryId,
     invalid: bool,
-    /// Escreve as testemunhas com marcadores de partes.
+    /// Writes the witnesses with part markers.
     marcar: bool,
-    /// Calcula [`Resultado::partes`].
+    /// Computes [`Result_::partes`].
     pub(crate) collect_parts: bool,
 }
 
@@ -403,13 +404,13 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         self.unico(o, "?")
     }
 
-    // ---- consultas ao sistema de tipos (`AnalyzerTypeOperations`) ----
+    // ---- type system queries (`AnalyzerTypeOperations`) ----
 
     fn sub_dart(&mut self, a: TypeId, b: TypeId) -> bool {
         self.m.sub(a, b)
     }
 
-    /// `typeToString` (`DartType.toString`, sem alias).
+    /// `typeToString` (`DartType.toString`, without the alias).
     fn texto(&self, t: TypeId) -> String {
         self.m.table.format_sem_alias(t, self.m.interner, self.m.program)
     }
@@ -468,7 +469,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         self.substitute_parameters(t, 1, 0)
     }
 
-    /// `variancia`: 1 covariante, -1 contravariante, 0 invariante.
+    /// `variance`: 1 covariant, -1 contravariant, 0 invariant.
     fn substitute_parameters(&mut self, t: TypeId, variance: i8, prof: u32) -> TypeId {
         if prof > 16 {
             return t;
@@ -478,7 +479,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 if variance == -1 {
                     self.m.core.never
                 } else {
-                    // `element.defaultType!` nulo: o 3.6.2 lança.
+                    // `element.defaultType!` null: 3.6.2 throws.
                     if self.m.table.without_default_type.contains(&param) {
                         self.m.analyzer_break = true;
                     }
@@ -518,7 +519,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         }
     }
 
-    /// `TypeParameterElement.defaultType` (instanciação para o limite).
+    /// `TypeParameterElement.defaultType` (instantiation to the bound).
     fn parameter_default(&mut self, p: TypeParamId) -> TypeId {
         crate::ops::instantiate_to_bounds(&[p], &[], self.m.table, self.m.core)[0]
     }
@@ -601,7 +602,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         st
     }
 
-    // ---- operações de `StaticType` ----
+    // ---- `StaticType` operations ----
 
     fn anulavel(&mut self, s: St) -> St {
         match self.tipos[s].clone() {
@@ -784,8 +785,8 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     /// `EnumStaticType._createEnumElements` (`fe76:types/enum.dart`).
     fn enum_elements(&mut self, s: St, ty: TypeId, c: ClassId) -> Vec<St> {
         let constantes = self.m.program.class(c).enum_constants.clone();
-        // `overapproximate(_type)` por elemento (`enum.dart:118-124`): nenhum
-        // sem elementos.
+        // `overapproximate(_type)` per element (`enum.dart:118-124`): none
+        // without elements.
         let over = if constantes.is_empty() { ty } else { self.overapproximate(ty) };
         let mut v = Vec::new();
         for var in constantes {
@@ -814,7 +815,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         self.base(ty, Especie::EnumElement, Restr::Id(Ident::Enum(var)), the_name, false)
     }
 
-    /// `AnalyzerSealedClassOperations.getDirectSubclasses` e
+    /// `AnalyzerSealedClassOperations.getDirectSubclasses` and
     /// `SealedClassStaticType._createSubtypes` (`fe76:types/sealed.dart`).
     fn sealed_subclasses(&mut self, s: St, ty: TypeId, sealed: ClassId) -> Vec<St> {
         let program = self.m.program;
@@ -826,7 +827,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 continue;
             }
             let mut sup = k.supertype_class;
-            // A cadeia sintética de `extends B with M` leva à superclasse escrita.
+            // The synthetic chain of `extends B with M` leads to the written superclass.
             let mut mixins: Vec<ClassId> = k.mixin_classes.clone();
             let mut guard = 0;
             while let Some(sc) = sup {
@@ -845,7 +846,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 direct.push(id);
             }
         }
-        // `overapproximate(_type)` só para a subclasse não genérica
+        // `overapproximate(_type)` only for a non-generic subclass
         // (`sealed.dart:76-96`).
         let mut over: Option<TypeId> = None;
         let mut v = Vec::new();
@@ -929,7 +930,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
 
     // ---- propriedades ----
 
-    /// O tipo (Dart) do membro de instância `nome` de `t`
+    /// The (Dart) type of instance member `the_name` of `t`
     /// (`_getInterfaceFieldTypes`, `an611:src/generated/exhaustiveness.dart:389-417`).
     fn membro(&mut self, t: TypeId, the_name: &str) -> Option<TypeId> {
         let t = crate::ops::non_nullable(t, self.m.table);
@@ -996,7 +997,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(ka.iter().copied()).collect();
             candidates.push(crate::ops::substitute(raw, &map, self.m.table));
         }
-        // O mais específico (o sobrescritor covariante).
+        // The most specific one (the covariant overrider).
         let mut best = *candidates.first()?;
         for &c in &candidates[1..] {
             if c != best && self.sub_dart(c, best) && !self.sub_dart(best, c) {
@@ -1016,7 +1017,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         Some(self.tipo_estatico(t))
     }
 
-    /// `fields[key]` de um `TypeBasedStaticType` (`getFieldTypes`).
+    /// `fields[key]` of a `TypeBasedStaticType` (`getFieldTypes`).
     fn type_field(&mut self, ty: TypeId, k: &Chave) -> Option<St> {
         if !matches!(k, Chave::Nome { .. } | Chave::Indice(_)) {
             return None;
@@ -1213,7 +1214,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         (unreachable, t)
     }
 
-    // ---- espaços dos padrões (`SpaceCreator`, `PatternConverter`) ----
+    // ---- pattern spaces (`SpaceCreator`, `PatternConverter`) ----
 
     fn com_contexto(&mut self, context: St, t: TypeId, non_null: bool) -> St {
         let mut s = self.tipo_estatico(t);
@@ -1266,9 +1267,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         match &e.ast.pattern(p).kind {
             PatternKind::Variable { final_, var_, ty, .. } => {
                 let Some(&t) = e.tipos_de_padroes.get(&p) else {
-                    // `case nome:` é um padrão constante: o valor da
-                    // constante de topo, se o verificador o achou; senão a
-                    // verificação fica de fora, como com um tipo inválido.
+                    // `case the_name:` is a constant pattern: the value of the top-level
+                    // constant, if the verifier found it; otherwise the check is
+                    // skipped, as with an invalid type.
                     let _ = (final_, var_, ty);
                     if let Some(v) = e.the_default_values.get(&p).cloned() {
                         return self.constant_value(&v, path);
@@ -1703,17 +1704,17 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
 
     fn constant_value(&mut self, v: &Valor, path: Path) -> Espaco {
         if v.estado.desconhecido() {
-            // Valor opaco (de biblioteca não inferida): o analyzer o conhece;
-            // sem ele, a verificação inteira fica de fora.
+            // An opaque value (from a library that was not inferred): the analyzer
+            // knows it; without it, the whole check is skipped.
             self.invalid = true;
             let d = self.desconhecido();
             return Espaco::novo(path, d);
         }
         match &v.estado {
             Estado::Null { .. } => return Espaco::novo(path, NULL),
-            // Literal de tipo: a identidade depende do alias e da
-            // normalização (`const (Alias)`); fica como espaço desconhecido,
-            // que não cobre nada além de si (nunca relata a mais).
+            // Type literal: the identity depends on the alias and on
+            // normalization (`const (Alias)`); it stays an unknown space, which
+            // covers nothing but itself (never over-reports).
             Estado::Tipo(_) => {
                 let d = self.desconhecido();
                 return Espaco::novo(path, d);
@@ -1772,7 +1773,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         Espaco::novo(path, s)
     }
 
-    // ---- testemunhas (`fe76:witness.dart`) ----
+    // ---- witnesses (`fe76:witness.dart`) ----
 
     fn build_witness(&self, preds: &[Predicate]) -> Witness {
         let mut root = Witness { estatico: OBJ_NULLABLE, valor: OBJ_NULLABLE, props: Vec::new() };
@@ -1836,7 +1837,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     fn escrever_tipo(&self, buf: &mut String, s: St) {
         match &self.tipos[s] {
             _ if s == NULL => buf.push_str("Null"),
-            // `writeGeneralType` dos tipos de base.
+            // `writeGeneralType` of the base types.
             Tipo::Base { ty, .. } if self.marcar => {
                 buf.push(MARCA);
                 buf.push_str(&format!("T{}", ty.0));
@@ -1918,8 +1919,8 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                             buf.push_str(&format!("E{}", v.0));
                             buf.push(MARCA);
                         }
-                        // `writeGeneralConstantValue`: a testemunha não é
-                        // representável.
+                        // `writeGeneralConstantValue`: the witness cannot be
+                        // represented.
                         (Tipo::Base { especie: Especie::General, .. }, true) => {
                             buf.push(MARCA);
                             buf.push('X');
@@ -2060,9 +2061,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         }
     }
 
-    /// `_validateSwitchExhaustiveness` sem o relato: os casos inalcançáveis
-    /// e, se não é exaustivo, a primeira testemunha. `None` quando há tipo
-    /// inválido (o analyzer não verifica).
+    /// `_validateSwitchExhaustiveness` without the report: the unreachable cases
+    /// and, if not exhaustive, the first witness. `None` when there is an
+    /// invalid type (the analyzer does not check).
     pub(crate) fn verificar(&mut self, e: &Entrada<'_>, scrutinee: TypeId, cases: &[Caso]) -> Option<Result_> {
         self.invalid = false;
         let value = self.tipo_estatico(scrutinee);
@@ -2084,7 +2085,7 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         if let Some(ts) = &not_
             && self.collect_parts
         {
-            // `witness.toDart(buffer, forCorrection: true)` de cada uma.
+            // `witness.toDart(buffer, forCorrection: true)` of each one.
             self.marcar = true;
             for t in ts.iter() {
                 let w = self.build_witness(t);
@@ -2127,7 +2128,7 @@ fn list_text(text: &str, tam: usize, rest: bool) -> String {
     s
 }
 
-/// `effectiveName` de um campo sem nome escrito (`:x`): o da variável.
+/// `effectiveName` of a field without a written name (`:x`): the variable's.
 fn nome_implicito(a: &ast::Ast, p: PatternId) -> Option<dartforge_intern::SymbolId> {
     match &a.pattern(p).kind {
         PatternKind::Variable { name, .. } => Some(name.sym),
