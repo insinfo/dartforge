@@ -1,14 +1,14 @@
-//! Harness do corpus de compatibilidade (`corpus/builders/`, oráculo do
-//! `build_runner` oficial). Pré-requisito: `dart pub get --enforce-lockfile`
-//! em cada caso (o `package_config.json`), por isso `#[ignore]`: o `ci.yml`
-//! roda o `pub get` e depois `--ignored`.
+//! Harness of the compatibility corpus (`corpus/builders/`, oracle of the
+//! official `build_runner`). Prerequisite: `dart pub get --enforce-lockfile`
+//! in each case (the `package_config.json`), hence `#[ignore]`: `ci.yml` runs
+//! `pub get` and then `--ignored`.
 //!
-//! * **plano**: forma canônica do motor = a do `oraculo/plano.dart`;
-//! * **saídas**: cada saída do manifesto cai em igual / pendente (com
-//!   motivo) / diferente; critério: `diferentes == 0`;
-//! * **determinismo**: 1, 4 e 8 trabalhadores dão o mesmo estado;
-//! * **incremental = do zero**: aplicadas as `edicoes/` em sequência, o motor
-//!   vivo e um motor novo dão o mesmo estado.
+//! * **plan**: the engine's canonical form = that of `oraculo/plano.dart`;
+//! * **outputs**: each manifest output falls into equal / pending (with a
+//!   reason) / different; criterion: `different == 0`;
+//! * **determinism**: 1, 4 and 8 workers give the same state;
+//! * **incremental = from scratch**: with the `edicoes/` applied in sequence,
+//!   the live engine and a new engine give the same state.
 use dartforge_build::consulta::SemBanco;
 use dartforge_build::executor::{
     Disponibilidade, ErroExecutor, ExecutorDart, PedidoAcao, ResultadoAcao, ScriptDeBuilders,
@@ -25,12 +25,12 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-fn raiz_do_corpus() -> PathBuf {
+fn corpus_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/builders")
 }
 
-fn casos() -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(raiz_do_corpus())
+fn cases() -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(corpus_root())
         .expect("corpus/builders")
         .flatten()
         .map(|e| e.path())
@@ -40,19 +40,19 @@ fn casos() -> Vec<PathBuf> {
     v
 }
 
-fn cfg_de(dir: &Path) -> Option<PackageConfig> {
+fn cfg_of(dir: &Path) -> Option<PackageConfig> {
     PackageConfig::load(&dir.join(".dart_tool/package_config.json")).ok()
 }
 
-/// Saídas do manifesto com os bytes do oráculo.
-fn referencias(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
-    let texto = std::fs::read_to_string(dir.join("oraculo/manifesto.json")).expect("manifesto");
-    let m: serde_json::Value = serde_json::from_str(&texto).expect("manifesto JSON");
+/// The manifest's outputs with the oracle's bytes.
+fn references(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
+    let text = std::fs::read_to_string(dir.join("oraculo/manifesto.json")).expect("manifest");
+    let m: serde_json::Value = serde_json::from_str(&text).expect("manifest JSON");
     let mut r = BTreeMap::new();
     for s in m["saidas"].as_array().into_iter().flatten() {
         let asset = s["asset"].as_str().expect("asset");
-        let id = AssetId::de_texto(asset).expect("pacote|caminho");
-        let arq = match s["build_to"].as_str() {
+        let id = AssetId::de_texto(asset).expect("package|path");
+        let file = match s["build_to"].as_str() {
             Some("source") => dir.join("oraculo/source").join(id.caminho.as_ref()),
             _ => dir
                 .join("oraculo/cache")
@@ -61,20 +61,20 @@ fn referencias(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
         };
         r.insert(
             id,
-            std::fs::read(&arq).unwrap_or_else(|e| panic!("{}: {e}", arq.display())),
+            std::fs::read(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display())),
         );
     }
     r
 }
 
-fn motor(dir: &Path, trabalhadores: usize) -> Result<Motor, String> {
-    let cfg = cfg_de(dir).ok_or("sem package_config.json (rode dart pub get)")?;
-    let opcoes = OpcoesMotor {
-        trabalhadores,
+fn engine(dir: &Path, workers: usize) -> Result<Motor, String> {
+    let cfg = cfg_of(dir).ok_or("no package_config.json (run dart pub get)")?;
+    let options = OpcoesMotor {
+        trabalhadores: workers,
         medir_nao_verificados: true,
         ..Default::default()
     };
-    let mut m = Motor::novo(dir, &cfg, opcoes)?;
+    let mut m = Motor::novo(dir, &cfg, options)?;
     m.atualizar(
         &Contexto {
             banco: &SemBanco,
@@ -86,20 +86,20 @@ fn motor(dir: &Path, trabalhadores: usize) -> Result<Motor, String> {
     Ok(m)
 }
 
-struct DartFalso {
-    preparos: Arc<AtomicUsize>,
-    chamadas: Arc<AtomicUsize>,
-    fechamentos: Arc<AtomicUsize>,
-    /// O "código dos builders" que o executor declara (o depfile do real).
-    codigo: Option<Vec<PathBuf>>,
+struct FakeDart {
+    preparations: Arc<AtomicUsize>,
+    calls: Arc<AtomicUsize>,
+    shutdowns: Arc<AtomicUsize>,
+    /// The "builders' code" the executor declares (the real one's depfile).
+    code: Option<Vec<PathBuf>>,
 }
 
-impl ExecutorDart for DartFalso {
+impl ExecutorDart for FakeDart {
     fn disponibilidade(&self) -> Disponibilidade {
         Disponibilidade::Disponivel
     }
     fn preparar(&mut self, _: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
-        self.preparos.fetch_add(1, Ordering::SeqCst);
+        self.preparations.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
     fn executar(
@@ -107,49 +107,49 @@ impl ExecutorDart for DartFalso {
         p: &PedidoAcao,
         s: &mut dyn ServicoBuildStep,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        self.chamadas.fetch_add(1, Ordering::SeqCst);
+        self.calls.fetch_add(1, Ordering::SeqCst);
         let _ = s.ler(&p.entrada);
         for id in &p.saidas_permitidas {
             let bytes: Arc<[u8]> = format!("{}:{}\n", p.chave, p.entrada.texto())
                 .into_bytes()
                 .into();
             s.escrever(id, bytes)
-                .map_err(|e| ErroExecutor(format!("saída recusada: {}", e.0.texto())))?;
+                .map_err(|e| ErroExecutor(format!("output refused: {}", e.0.texto())))?;
         }
         Ok(ResultadoAcao::default())
     }
     fn codigo(&self) -> Option<Vec<PathBuf>> {
-        self.codigo.clone()
+        self.code.clone()
     }
     fn encerrar(&mut self) {
-        self.fechamentos.fetch_add(1, Ordering::SeqCst);
+        self.shutdowns.fetch_add(1, Ordering::SeqCst);
     }
 }
 
 #[test]
-#[ignore = "exige `dart pub get` em corpus/builders/cadeia_configuracao"]
-fn executor_dart_injetado_roda_e_reusa_acoes() {
-    let dir = raiz_do_corpus().join("cadeia_configuracao");
-    let cfg = cfg_de(&dir).expect("package_config.json");
+#[ignore = "requires `dart pub get` in corpus/builders/cadeia_configuracao"]
+fn injected_dart_executor_runs_and_reuses_actions() {
+    let dir = corpus_root().join("cadeia_configuracao");
+    let cfg = cfg_of(&dir).expect("package_config.json");
     let mut m = Motor::novo(&dir, &cfg, OpcoesMotor::default()).unwrap();
-    let preparos = Arc::new(AtomicUsize::new(0));
-    let chamadas = Arc::new(AtomicUsize::new(0));
-    let fechamentos = Arc::new(AtomicUsize::new(0));
-    m.definir_executor_dart(Box::new(DartFalso {
-        preparos: preparos.clone(),
-        chamadas: chamadas.clone(),
-        fechamentos: fechamentos.clone(),
-        codigo: None,
+    let preparations = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let shutdowns = Arc::new(AtomicUsize::new(0));
+    m.definir_executor_dart(Box::new(FakeDart {
+        preparations: preparations.clone(),
+        calls: calls.clone(),
+        shutdowns: shutdowns.clone(),
+        code: None,
     }));
     let ctx = Contexto {
         banco: &SemBanco,
         programa: None,
     };
     m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
-    let feitas = chamadas.load(Ordering::SeqCst);
+    let done = calls.load(Ordering::SeqCst);
     assert!(
-        feitas > 0,
-        "o executor Dart disponível não recebeu nenhuma ação"
+        done > 0,
+        "the available Dart executor did not receive any action"
     );
     assert!(
         m.grafo
@@ -160,28 +160,28 @@ fn executor_dart_injetado_roda_e_reusa_acoes() {
     );
     m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
     assert_eq!(
-        chamadas.load(Ordering::SeqCst),
-        feitas,
-        "ação limpa foi reexecutada"
+        calls.load(Ordering::SeqCst),
+        done,
+        "clean action was rerun"
     );
     assert_eq!(
-        preparos.load(Ordering::SeqCst),
+        preparations.load(Ordering::SeqCst),
         1,
-        "script de builders recompilado na sessão"
+        "builder script recompiled within the session"
     );
     drop(m);
     assert_eq!(
-        fechamentos.load(Ordering::SeqCst),
+        shutdowns.load(Ordering::SeqCst),
         1,
-        "executor não foi encerrado ao fim da sessão"
+        "executor was not shut down at the end of the session"
     );
 }
 
-/// Um processo do motor (como o `dartforge build`): motor novo, executor
-/// falso novo, uma atualização, saídas `source` no disco.
-/// Devolve o estado canônico e quantas ações o executor Dart recebeu.
-fn processo(dir: &Path, persistir: bool) -> (String, usize, Motor) {
-    let cfg = cfg_de(dir).expect("package_config.json");
+/// One engine process (like `dartforge build`): new engine, new fake
+/// executor, one update, `source` outputs on disk.
+/// Returns the canonical state and how many actions the Dart executor received.
+fn process(dir: &Path, persistir: bool) -> (String, usize, Motor) {
+    let cfg = cfg_of(dir).expect("package_config.json");
     let mut m = Motor::novo(
         dir,
         &cfg,
@@ -191,12 +191,12 @@ fn processo(dir: &Path, persistir: bool) -> (String, usize, Motor) {
         },
     )
     .unwrap();
-    let chamadas = Arc::new(AtomicUsize::new(0));
-    m.definir_executor_dart(Box::new(DartFalso {
-        preparos: Arc::new(AtomicUsize::new(0)),
-        chamadas: chamadas.clone(),
-        fechamentos: Arc::new(AtomicUsize::new(0)),
-        codigo: Some(vec![dir.join("tool/builders.dart")]),
+    let calls = Arc::new(AtomicUsize::new(0));
+    m.definir_executor_dart(Box::new(FakeDart {
+        preparations: Arc::new(AtomicUsize::new(0)),
+        calls: calls.clone(),
+        shutdowns: Arc::new(AtomicUsize::new(0)),
+        code: Some(vec![dir.join("tool/builders.dart")]),
     }));
     let at = m
         .atualizar(
@@ -208,248 +208,254 @@ fn processo(dir: &Path, persistir: bool) -> (String, usize, Motor) {
             Demanda::Tudo,
         )
         .unwrap();
+    // "não gravado" matches the warning `motor.rs` emits when saving the state
+    // fails (kept in Portuguese there).
     assert!(
         at.avisos.iter().all(|a| !a.contains("não gravado")),
         "{:?}",
         at.avisos
     );
-    // Como a CLI: as saídas `source` que mudaram vão ao disco.
+    // Like the CLI: the `source` outputs that changed go to disk.
     for (p, c) in m.saidas_source_nativas(&at.alterados) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, &c[..]).unwrap();
     }
-    (m.estado_canonico(), chamadas.load(Ordering::SeqCst), m)
+    (m.estado_canonico(), calls.load(Ordering::SeqCst), m)
 }
 
-/// Estado salvo entre processos (B04, `docs/BUILD-MOTOR.md` §4.1): um
-/// processo novo reaproveita as ações válidas e o estado é o de um motor que
-/// começou do zero; entrada editada, opção alterada e código do builder
-/// alterado (entrada que nenhuma consulta vê) invalidam o necessário.
+/// State saved across processes (B04, `docs/BUILD-MOTOR.md` §4.1): a new
+/// process reuses the valid actions and the state is that of an engine that
+/// started from scratch; an edited input, a changed option and a changed
+/// builder code (an input no query sees) invalidate what is needed.
 #[test]
-#[ignore = "exige `dart pub get` em corpus/builders/cadeia_configuracao"]
-fn estado_salvo_entre_processos() {
+#[ignore = "requires `dart pub get` in corpus/builders/cadeia_configuracao"]
+fn state_saved_across_processes() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("cadeia_configuracao");
-    copiar(&raiz_do_corpus().join("cadeia_configuracao"), &dir);
-    let estado = dir.join(".dart_tool/dartforge/build/estado");
+    copy_case(&corpus_root().join("cadeia_configuracao"), &dir);
+    let state = dir.join(".dart_tool/dartforge/build/estado");
 
-    // Sem `persistir`, nada é gravado.
-    let (do_zero, todas, _) = processo(&dir, false);
-    assert!(todas > 0);
-    assert!(!estado.exists(), "motor sem persistir gravou estado");
+    // Without `persistir`, nothing is written.
+    let (from_scratch, all, _) = process(&dir, false);
+    assert!(all > 0);
+    assert!(!state.exists(), "engine without persistir wrote state");
 
-    // Primeiro processo grava; o segundo não executa nada e chega ao mesmo
-    // estado.
-    let (primeiro, n, _) = processo(&dir, true);
-    assert_eq!((primeiro.as_str(), n), (do_zero.as_str(), todas));
-    assert!(estado.join("estado.json").is_file());
-    let (segundo, n, _) = processo(&dir, true);
-    assert_eq!(n, 0, "processo novo reexecutou ações válidas");
-    assert_eq!(segundo, do_zero, "estado restaurado ≠ do zero");
+    // The first process writes; the second runs nothing and reaches the same
+    // state.
+    let (first, n, _) = process(&dir, true);
+    assert_eq!((first.as_str(), n), (from_scratch.as_str(), all));
+    assert!(state.join("estado.json").is_file());
+    let (second, n, _) = process(&dir, true);
+    assert_eq!(n, 0, "new process reran valid actions");
+    assert_eq!(second, from_scratch, "restored state ≠ from scratch");
 
-    // Entrada editada: só o que a leu reexecuta.
+    // Edited input: only what read it reruns.
     let alfa = dir.join("lib/entrada/alfa.txt");
-    let mut texto = std::fs::read_to_string(&alfa).unwrap();
-    texto.push_str("linha nova\n");
-    std::fs::write(&alfa, &texto).unwrap();
-    let (depois, n, _) = processo(&dir, true);
-    let (zero, n_zero, _) = processo(&dir, false);
-    assert_eq!(depois, zero, "entrada editada: restaurado ≠ do zero");
-    assert!(n > 0 && n < n_zero, "reexecutou {n} de {n_zero}");
+    let mut text = std::fs::read_to_string(&alfa).unwrap();
+    text.push_str("new line\n");
+    std::fs::write(&alfa, &text).unwrap();
+    let (after, n, _) = process(&dir, true);
+    let (zero, n_zero, _) = process(&dir, false);
+    assert_eq!(after, zero, "edited input: restored ≠ from scratch");
+    assert!(n > 0 && n < n_zero, "reran {n} of {n_zero}");
 
-    // Opção alterada (global_options do build.yaml): a fase muda de
-    // identidade e as ações dela reexecutam.
+    // Changed option (build.yaml's global_options): the phase changes
+    // identity and its actions rerun.
     let yaml = dir.join("build.yaml");
     let original = std::fs::read_to_string(&yaml).unwrap();
     std::fs::write(&yaml, original.replace("      nivel: 3", "      nivel: 4")).unwrap();
-    let (depois, n, _) = processo(&dir, true);
-    let (zero, n_zero, _) = processo(&dir, false);
-    assert_eq!(depois, zero, "opção alterada: restaurado ≠ do zero");
-    assert!(n > 0 && n < n_zero, "reexecutou {n} de {n_zero}");
+    let (after, n, _) = process(&dir, true);
+    let (zero, n_zero, _) = process(&dir, false);
+    assert_eq!(after, zero, "changed option: restored ≠ from scratch");
+    assert!(n > 0 && n < n_zero, "reran {n} of {n_zero}");
 
-    // Código do builder alterado: nenhuma consulta o vê, mas as ações Dart
-    // deixam de valer.
+    // Changed builder code: no query sees it, but the Dart actions are no
+    // longer valid.
     let tool = dir.join("tool/builders.dart");
-    let mut codigo = std::fs::read_to_string(&tool).unwrap();
-    codigo.push_str("\n// alteração que só o código do builder vê\n");
-    std::fs::write(&tool, codigo).unwrap();
-    let (depois, n, _) = processo(&dir, true);
-    assert_eq!(depois, zero);
+    let mut code = std::fs::read_to_string(&tool).unwrap();
+    code.push_str("\n// a change only the builder's code sees\n");
+    std::fs::write(&tool, code).unwrap();
+    let (after, n, _) = process(&dir, true);
+    assert_eq!(after, zero);
     assert_eq!(
         n, n_zero,
-        "código do builder mudou e ações Dart foram reaproveitadas"
+        "builder code changed and Dart actions were reused"
     );
 
-    // Saída `source` apagada do disco entre processos: a ação reexecuta.
-    let (_, _, m) = processo(&dir, true);
+    // A `source` output deleted from disk between processes: the action
+    // reruns.
+    let (_, _, m) = process(&dir, true);
     let source = m
         .grafo
         .gerados
         .iter()
         .find(|(_, g)| !g.oculto)
         .map(|(id, _)| dir.join(id.caminho.as_ref()))
-        .expect("saída source no caso");
+        .expect("source output in the case");
     drop(m);
     let _ = std::fs::remove_file(&source);
-    let (_, n, _) = processo(&dir, true);
-    assert!(n >= 1, "saída source apagada e nada reexecutou");
+    let (_, n, _) = process(&dir, true);
+    assert!(n >= 1, "source output deleted and nothing reran");
 
-    // Estado corrompido é ignorado: tudo executa.
-    std::fs::write(estado.join("estado.json"), b"{corrompido").unwrap();
-    let (depois, n, _) = processo(&dir, true);
-    assert_eq!((depois, n), (zero, n_zero));
+    // A corrupted state is ignored: everything runs.
+    std::fs::write(state.join("estado.json"), b"{corrupted").unwrap();
+    let (after, n, _) = process(&dir, true);
+    assert_eq!((after, n), (zero, n_zero));
 }
 
-fn resumo(linhas: &[String]) {
-    let texto = linhas.join("\n");
-    println!("{texto}");
-    if let Ok(arq) = std::env::var("GITHUB_STEP_SUMMARY") {
+fn summary(lines: &[String]) {
+    let text = lines.join("\n");
+    println!("{text}");
+    if let Ok(file) = std::env::var("GITHUB_STEP_SUMMARY") {
         use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(arq) {
-            let _ = writeln!(f, "{texto}\n");
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(file) {
+            let _ = writeln!(f, "{text}\n");
         }
     }
 }
 
 #[test]
-#[ignore = "exige `dart pub get` em cada caso de corpus/builders"]
-fn corpus_builders_plano_e_placar() {
-    let mut linhas = vec![
-        "### corpus/builders — plano e placar (iguais/pendentes/diferentes)".to_string(),
+#[ignore = "requires `dart pub get` in each case of corpus/builders"]
+fn corpus_builders_plan_and_scoreboard() {
+    let mut lines = vec![
+        "### corpus/builders — plan and scoreboard (equal/pending/different)".to_string(),
         String::new(),
     ];
-    linhas.push("| caso | plano | iguais | pendentes | diferentes | motivos |".into());
-    linhas.push("|---|---|---|---|---|---|".into());
-    let mut falhas = Vec::new();
-    for dir in casos() {
-        let nome = dir.file_name().unwrap().to_string_lossy().to_string();
-        let Some(cfg) = cfg_de(&dir) else {
-            falhas.push(format!("{nome}: sem package_config.json (dart pub get)"));
+    lines.push("| case | plan | equal | pending | different | reasons |".into());
+    lines.push("|---|---|---|---|---|---|".into());
+    let mut failures = Vec::new();
+    for dir in cases() {
+        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        let Some(cfg) = cfg_of(&dir) else {
+            failures.push(format!("{name}: no package_config.json (dart pub get)"));
             continue;
         };
         if !dartforge_build::detectar(&cfg) {
-            // Controle do custo zero: sem build_runner, nada de motor.
+            // Zero-cost control: without build_runner, no engine.
             assert!(
                 !dir.join("oraculo/plano.dart").exists(),
-                "{nome}: sem build_runner mas com plano.dart"
+                "{name}: no build_runner but a plano.dart"
             );
-            linhas.push(format!(
-                "| {nome} | sem builders (motor não construído) | 0 | 0 | 0 | |"
+            lines.push(format!(
+                "| {name} | no builders (engine not built) | 0 | 0 | 0 | |"
             ));
             continue;
         }
-        let plano = match std::fs::read_to_string(dir.join("oraculo/plano.dart")) {
-            Ok(texto) => {
-                let (_, _, p) = dartforge_build::plano_do_projeto(&dir, &cfg).expect("plano");
-                match dartforge_build::oraculo::comparar(&p.aplicacoes, &texto)
-                    .expect("plano.dart legível")
+        let plan = match std::fs::read_to_string(dir.join("oraculo/plano.dart")) {
+            Ok(text) => {
+                let (_, _, p) = dartforge_build::plano_do_projeto(&dir, &cfg).expect("plan");
+                match dartforge_build::oraculo::comparar(&p.aplicacoes, &text)
+                    .expect("readable plano.dart")
                 {
-                    Ok(()) => format!("igual ({})", p.aplicacoes.len()),
+                    Ok(()) => format!("equal ({})", p.aplicacoes.len()),
                     Err(d) => {
-                        falhas.push(format!("{nome}: plano diferente:\n{}", d.join("\n")));
-                        "DIFERENTE".into()
+                        failures.push(format!("{name}: different plan:\n{}", d.join("\n")));
+                        "DIFFERENT".into()
                     }
                 }
             }
             Err(_) => "-".into(),
         };
-        let m = match motor(&dir, 4) {
+        let m = match engine(&dir, 4) {
             Ok(m) => m,
             Err(e) => {
-                falhas.push(format!("{nome}: motor: {e}"));
+                failures.push(format!("{name}: engine: {e}"));
                 continue;
             }
         };
-        let p = m.placar(&referencias(&dir));
-        let motivos: Vec<String> = p
+        let p = m.placar(&references(&dir));
+        let reasons: Vec<String> = p
             .motivos()
             .into_iter()
             .map(|(k, n)| format!("{n}× {k}"))
             .collect();
-        linhas.push(format!(
-            "| {nome} | {plano} | {} | {} | {} | {} |",
+        lines.push(format!(
+            "| {name} | {plan} | {} | {} | {} | {} |",
             p.iguais.len(),
             p.pendentes.len(),
             p.diferentes.len(),
-            motivos.join("; ")
+            reasons.join("; ")
         ));
         for (id, m) in &p.diferentes {
-            falhas.push(format!("{nome}: diferente {}: {m}", id.texto()));
+            failures.push(format!("{name}: different {}: {m}", id.texto()));
         }
         for (id, m) in &p.pendentes {
+            // "pós-processador" matches the reasons `motor.rs` gives for
+            // post-processors (kept in Portuguese there).
             if m.starts_with("pós-processador") {
-                println!("{nome}: {} ({m})", id.texto());
+                println!("{name}: {} ({m})", id.texto());
             }
         }
     }
-    resumo(&linhas);
-    assert!(falhas.is_empty(), "{}", falhas.join("\n"));
+    summary(&lines);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
-#[ignore = "exige `dart pub get` em cada caso de corpus/builders"]
-fn corpus_builders_determinismo() {
-    for dir in casos() {
-        let Some(cfg) = cfg_de(&dir) else { continue };
+#[ignore = "requires `dart pub get` in each case of corpus/builders"]
+fn corpus_builders_determinism() {
+    for dir in cases() {
+        let Some(cfg) = cfg_of(&dir) else { continue };
         if !dartforge_build::detectar(&cfg) {
             continue;
         }
-        let estados: Vec<String> = [1, 4, 8]
+        let states: Vec<String> = [1, 4, 8]
             .iter()
-            .map(|&n| motor(&dir, n).expect("motor").estado_canonico())
+            .map(|&n| engine(&dir, n).expect("engine").estado_canonico())
             .collect();
         assert_eq!(
-            estados[0],
-            estados[1],
-            "{}: 1 ≠ 4 trabalhadores",
+            states[0],
+            states[1],
+            "{}: 1 ≠ 4 workers",
             dir.display()
         );
         assert_eq!(
-            estados[0],
-            estados[2],
-            "{}: 1 ≠ 8 trabalhadores",
+            states[0],
+            states[2],
+            "{}: 1 ≠ 8 workers",
             dir.display()
         );
     }
 }
 
-fn copiar(de: &Path, para: &Path) {
-    std::fs::create_dir_all(para).unwrap();
-    for e in std::fs::read_dir(de).unwrap().flatten() {
+fn copy_case(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().flatten() {
         let p = e.path();
-        let nome = e.file_name();
-        if nome == "oraculo" || nome == "edicoes" || nome == "build" {
+        let name = e.file_name();
+        if name == "oraculo" || name == "edicoes" || name == "build" {
             continue;
         }
-        let alvo = para.join(&nome);
+        let target = to.join(&name);
         if p.is_dir() {
-            if nome == ".dart_tool" {
-                std::fs::create_dir_all(&alvo).unwrap();
+            if name == ".dart_tool" {
+                std::fs::create_dir_all(&target).unwrap();
                 std::fs::copy(
                     p.join("package_config.json"),
-                    alvo.join("package_config.json"),
+                    target.join("package_config.json"),
                 )
                 .unwrap();
                 continue;
             }
-            copiar(&p, &alvo);
+            copy_case(&p, &target);
         } else {
-            std::fs::copy(&p, &alvo).unwrap();
+            std::fs::copy(&p, &target).unwrap();
         }
     }
 }
 
 #[test]
-#[ignore = "exige `dart pub get` em corpus/builders/sass_builder_compressed"]
-fn sass_release_css_sob_demanda_sem_apoio() {
-    let origem = raiz_do_corpus().join("sass_builder_compressed");
+#[ignore = "requires `dart pub get` in corpus/builders/sass_builder_compressed"]
+fn sass_release_css_on_demand_without_support() {
+    let origin = corpus_root().join("sass_builder_compressed");
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("sass_builder_compressed");
-    copiar(&origem, &dir);
-    // Sem o apoio do build_runner: a resposta só pode vir do nativo.
+    copy_case(&origin, &dir);
+    // Without build_runner's support: the answer can only come from the native
+    // generator.
     let scss = dir.join("web/principal.scss");
     std::fs::write(&scss, ".a { color: red; }\n").unwrap();
-    let cfg = cfg_de(&dir).expect("package_config.json");
+    let cfg = cfg_of(&dir).expect("package_config.json");
     let mut m = Motor::novo(
         &dir,
         &cfg,
@@ -464,29 +470,29 @@ fn sass_release_css_sob_demanda_sem_apoio() {
         programa: None,
     };
     m.atualizar(&ctx, &[], Demanda::Carregador).unwrap();
-    let destino = dartforge_elements::gerado::chave(&dir.join("web/principal.css"));
+    let target = dartforge_elements::gerado::chave(&dir.join("web/principal.css"));
     assert!(
         m.naturais
             .keys()
             .any(|id| id.caminho.as_ref() == "web/principal.css"),
-        "CSS fora do grafo: {destino:?}"
+        "CSS outside the graph: {target:?}"
     );
-    let css = m.materializar(&ctx, &destino).unwrap_or_else(|| {
-        let estado_completo = m.estado_canonico();
-        let estado: Vec<_> = estado_completo
+    let css = m.materializar(&ctx, &target).unwrap_or_else(|| {
+        let full_state = m.estado_canonico();
+        let state: Vec<_> = full_state
             .lines()
             .filter(|l| l.contains("principal.scss"))
             .collect();
-        panic!("CSS nativo sob demanda: {estado:?}")
+        panic!("native CSS on demand: {state:?}")
     });
     assert_eq!(&*css, b".a{color:red}\n");
 }
 
-fn arquivos(dir: &Path, base: &Path, v: &mut Vec<PathBuf>) {
+fn files(dir: &Path, base: &Path, v: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap().flatten() {
         let p = e.path();
         if p.is_dir() {
-            arquivos(&p, base, v);
+            files(&p, base, v);
         } else {
             v.push(p.strip_prefix(base).unwrap().to_path_buf());
         }
@@ -494,53 +500,53 @@ fn arquivos(dir: &Path, base: &Path, v: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "exige `dart pub get` em cada caso de corpus/builders"]
-fn corpus_builders_incremental_igual_ao_do_zero() {
-    let mut feitos = 0;
-    for dir in casos() {
-        let edicoes = dir.join("edicoes");
-        if !edicoes.is_dir() || cfg_de(&dir).is_none() {
+#[ignore = "requires `dart pub get` in each case of corpus/builders"]
+fn corpus_builders_incremental_equals_from_scratch() {
+    let mut done = 0;
+    for dir in cases() {
+        let edits = dir.join("edicoes");
+        if !edits.is_dir() || cfg_of(&dir).is_none() {
             continue;
         }
         let tmp = tempfile::tempdir().unwrap();
-        let copia = tmp.path().join(dir.file_name().unwrap());
-        copiar(&dir, &copia);
-        let mut vivo = motor(&copia, 4).expect("motor vivo");
-        let mut passos: Vec<PathBuf> = std::fs::read_dir(&edicoes)
+        let copy = tmp.path().join(dir.file_name().unwrap());
+        copy_case(&dir, &copy);
+        let mut live = engine(&copy, 4).expect("live engine");
+        let mut steps: Vec<PathBuf> = std::fs::read_dir(&edits)
             .unwrap()
             .flatten()
             .map(|e| e.path())
             .collect();
-        passos.sort();
-        for passo in passos {
+        steps.sort();
+        for step in steps {
             let mut rel = Vec::new();
-            arquivos(&passo, &passo, &mut rel);
-            let mut mudados = Vec::new();
+            files(&step, &step, &mut rel);
+            let mut changed = Vec::new();
             for r in rel {
-                let alvo = copia.join(&r);
-                std::fs::create_dir_all(alvo.parent().unwrap()).unwrap();
-                std::fs::copy(passo.join(&r), &alvo).unwrap();
-                mudados.push(alvo);
+                let target = copy.join(&r);
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+                std::fs::copy(step.join(&r), &target).unwrap();
+                changed.push(target);
             }
-            vivo.atualizar(
+            live.atualizar(
                 &Contexto {
                     banco: &SemBanco,
                     programa: None,
                 },
-                &mudados,
+                &changed,
                 Demanda::Tudo,
             )
-            .expect("atualizar");
-            let novo = motor(&copia, 4).expect("motor novo");
+            .expect("update");
+            let fresh = engine(&copy, 4).expect("new engine");
             assert_eq!(
-                vivo.estado_canonico(),
-                novo.estado_canonico(),
-                "{}: incremental ≠ do zero depois de {}",
+                live.estado_canonico(),
+                fresh.estado_canonico(),
+                "{}: incremental ≠ from scratch after {}",
                 dir.display(),
-                passo.display()
+                step.display()
             );
-            feitos += 1;
+            done += 1;
         }
     }
-    println!("{feitos} edições verificadas");
+    println!("{done} edits verified");
 }
