@@ -353,6 +353,13 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'dart:core' as core;\nimport 'dart:core';\nclass N { N? next; int v = 0; }\nvoid f(N? n, int? i) {\n  N? c = n;\n  while (!identical(c, null)) {\n    print(c.v);\n    c = c.next;\n  }\n  if (identical(null, i)) return;\n  print(i.isEven);\n  if (core.identical(n, null)) return;\n  print(n.v);\n}\nbool identical2(Object? a, Object? b) => true;\nvoid g(int? i) {\n  if (identical2(i, null)) return;\n  print(i.isEven);\n}\n",
         &[("unchecked_use_of_nullable_value", 18, 11, 6)],
     ),
+    // A `const` redirecting factory passes its type arguments to the written
+    // target (`Stream.empty() = _EmptyStream<T>`; http, sass, async; 2026-10-13).
+    (
+        "fabrica_redirecionada.dart",
+        "import 'dart:async';\nfinal class BS extends StreamView<List<int>> {\n  const BS(super.stream);\n}\nconst x = BS(Stream.empty());\nconst y = Stream<int>.empty();\nconst z = StreamView<int>(Stream.empty());\n",
+        &[],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

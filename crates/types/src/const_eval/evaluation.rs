@@ -2567,15 +2567,43 @@ impl<'a> Engine<'a> {
             None => self.interner.lookup("")?,
         };
         let g = *self.program.class(tgt).constructors.get(&the_key)?;
-        // The type arguments go through the declaration: the target is handled
-        // with those of the original type when the class is the same; otherwise,
-        // raw.
-        let t = match self.table.get(typ) {
-            Type::Interface { class, .. } if *class == tgt => typ,
-            _ => {
-                let n = self.program.class(tgt).type_params.len();
-                self.table.intern(Type::Interface { class: tgt, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false })
+        // The type arguments go through the declaration
+        // (`ConstructorMember.redirectedConstructor`): a written target whose
+        // arguments are type parameters of the factory's class
+        // (`= _EmptyStream<T>`) takes those of `typ`; without arguments, those
+        // of the original type when the class is the same; otherwise, raw.
+        let raw = |m: &mut Self| {
+            let n = m.program.class(tgt).type_params.len();
+            m.table.intern(Type::Interface { class: tgt, args: vec![m.core.dynamic_; n].into_boxed_slice(), nullable: false })
+        };
+        let written_args: Vec<ast::TypeId> = match &self.ast(unit).ty(r.ty).kind {
+            ast::TypeKind::Named { args, .. } => args.to_vec(),
+            _ => Vec::new(),
+        };
+        let t = match self.table.get(typ).clone() {
+            Type::Interface { class, args, .. } if !written_args.is_empty() => {
+                let params = &self.program.class(class).type_params;
+                let mapped: Option<Vec<TypeId>> = written_args
+                    .iter()
+                    .map(|&w| {
+                        let wt = self.ast(unit).ty(w);
+                        match &wt.kind {
+                            ast::TypeKind::Named { name, args: inner } if name.len() == 1 && inner.is_empty() && !wt.nullable => {
+                                params.iter().position(|p| p.name == name[0].sym).and_then(|i| args.get(i).copied())
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                match mapped {
+                    Some(a) if a.len() == self.program.class(tgt).type_params.len() => {
+                        self.table.intern(Type::Interface { class: tgt, args: a.into_boxed_slice(), nullable: false })
+                    }
+                    _ => raw(self),
+                }
             }
+            Type::Interface { class, .. } if class == tgt => typ,
+            _ => raw(self),
         };
         Some((g, t))
     }
