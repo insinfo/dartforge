@@ -1,14 +1,14 @@
-//! O décimo terceiro lote de regras de lint que só olham a árvore
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
-//! `avoid_shadowing_type_parameters` e `parameter_assignments`.
+//! The thirteenth batch of lint rules that only look at the tree
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
+//! `avoid_shadowing_type_parameters` and `parameter_assignments`.
 //!
-//! `parameter_assignments` liga o identificador e a variável do padrão ao
-//! parâmetro pelo elemento, e o "potencialmente mutado" é o do analyzer
-//! (`super::is_mutated`); pede a semântica da unidade. A isenção do `_` curinga
-//! de `avoid_shadowing_type_parameters` depende do recurso da 3.7, que uma
-//! biblioteca da 3.6 não liga.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `parameter_assignments` links the identifier and the pattern variable to
+//! the parameter by element, and "potentially mutated" is the analyzer's
+//! (`super::is_mutated`); it needs the unit's semantics. The exemption of the
+//! `_` wildcard in `avoid_shadowing_type_parameters` depends on the 3.7
+//! feature, which a 3.6 library does not enable.
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -21,12 +21,12 @@ use dartforge_frontend::ast::{
 };
 use dartforge_intern::Interner;
 
-fn dentro(a: Span, b: Span) -> bool {
+fn within(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
 }
 
-/// A região do corpo (`None` no corpo `;`).
-fn regiao_do_corpo(a: &Ast, b: &FunctionBody) -> Option<Span> {
+/// The body's region (`None` for a `;` body).
+fn body_region(a: &Ast, b: &FunctionBody) -> Option<Span> {
     match b {
         FunctionBody::Block(s) => Some(a.stmt(*s).span),
         FunctionBody::Expression(e) => Some(a.expr(*e).span),
@@ -34,207 +34,207 @@ fn regiao_do_corpo(a: &Ast, b: &FunctionBody) -> Option<Span> {
     }
 }
 
-/// Os contêineres de parâmetros de tipo que envolvem `span`, de dentro para
-/// fora: as declarações de tipo, as funções declaradas e os métodos.
-fn ancestrais_de<'x>(
+/// The type parameter containers that enclose `span`, from the inside out:
+/// the type declarations, the declared functions and the methods.
+fn enclosing_containers<'x>(
     a: &'x Ast,
-    conteineres: &[(Span, &'x [TypeParameter], &'static str)],
-    declaradas: &[FunctionId],
-    metodos: &[(FunctionId, bool)],
+    containers: &[(Span, &'x [TypeParameter], &'static str)],
+    declared: &[FunctionId],
+    methods: &[(FunctionId, bool)],
     span: Span,
 ) -> Vec<(Span, &'x [TypeParameter], &'static str)> {
     let mut v: Vec<(Span, &'x [TypeParameter], &'static str)> = Vec::new();
-    for &(r, tps, tipo) in conteineres {
-        if dentro(span, r) && r != span {
-            v.push((r, tps, tipo));
+    for &(r, tps, kind) in containers {
+        if within(span, r) && r != span {
+            v.push((r, tps, kind));
         }
     }
-    for &f in declaradas {
+    for &f in declared {
         let r = a.function(f).span;
-        if dentro(span, r) && r != span {
+        if within(span, r) && r != span {
             v.push((r, &a.function(f).type_params[..], "function"));
         }
     }
-    for &(f, _) in metodos {
+    for &(f, _) in methods {
         let r = a.function(f).span;
-        if dentro(span, r) && r != span {
+        if within(span, r) && r != span {
             v.push((r, &a.function(f).type_params[..], "method"));
         }
     }
-    // De dentro para fora: o menor primeiro.
+    // From the inside out: the smallest first.
     v.sort_by_key(|x| x.0.end - x.0.start);
     v
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `avoid_shadowing_type_parameters`.
-    if ligada("avoid_shadowing_type_parameters") {
-        let mut achados: Vec<(Span, String, &'static str)> = Vec::new();
-        let sombra = |tps: &[TypeParameter], de_fora: &[TypeParameter], tipo: &'static str, achados: &mut Vec<(Span, String, &'static str)>| {
+    if enabled("avoid_shadowing_type_parameters") {
+        let mut findings: Vec<(Span, String, &'static str)> = Vec::new();
+        let shadows = |tps: &[TypeParameter], outer: &[TypeParameter], kind: &'static str, findings: &mut Vec<(Span, String, &'static str)>| {
             for p in tps {
-                if de_fora.iter().any(|q| q.name.sym == p.name.sym) {
-                    achados.push((p.span, interner.resolve(p.name.sym).to_string(), tipo));
+                if outer.iter().any(|q| q.name.sym == p.name.sym) {
+                    findings.push((p.span, interner.resolve(p.name.sym).to_string(), kind));
                 }
             }
         };
-        // Os contêineres de tipo da unidade, com a região e a espécie.
-        let mut conteineres: Vec<(Span, &[TypeParameter], &'static str)> = Vec::new();
+        // The unit's type containers, with the region and the kind.
+        let mut containers: Vec<(Span, &[TypeParameter], &'static str)> = Vec::new();
         for d in a.decls.iter() {
             match &d.kind {
-                DeclKind::Class(x) => conteineres.push((d.span, &x.type_params[..], "class")),
-                DeclKind::Enum(x) => conteineres.push((d.span, &x.type_params[..], "enum")),
-                DeclKind::Extension(x) => conteineres.push((d.span, &x.type_params[..], "extension")),
-                DeclKind::ExtensionType(x) => conteineres.push((d.span, &x.type_params[..], "extension type")),
-                DeclKind::Mixin(x) => conteineres.push((d.span, &x.type_params[..], "mixin")),
+                DeclKind::Class(x) => containers.push((d.span, &x.type_params[..], "class")),
+                DeclKind::Enum(x) => containers.push((d.span, &x.type_params[..], "enum")),
+                DeclKind::Extension(x) => containers.push((d.span, &x.type_params[..], "extension")),
+                DeclKind::ExtensionType(x) => containers.push((d.span, &x.type_params[..], "extension type")),
+                DeclKind::Mixin(x) => containers.push((d.span, &x.type_params[..], "mixin")),
                 _ => {}
             }
         }
-        // As funções declaradas (de topo e locais) e os métodos.
-        let mut declaradas: Vec<FunctionId> = Vec::new();
-        let mut metodos: Vec<(FunctionId, bool)> = Vec::new();
+        // The declared functions (top-level and local) and the methods.
+        let mut declared: Vec<FunctionId> = Vec::new();
+        let mut methods: Vec<(FunctionId, bool)> = Vec::new();
         for d in a.decls.iter() {
             if let DeclKind::Function(f) = &d.kind {
-                declaradas.push(*f);
+                declared.push(*f);
             }
         }
         for s in a.stmts.iter() {
             if let StmtKind::Function(f) = &s.kind {
-                declaradas.push(*f);
+                declared.push(*f);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Method(f) = &m.kind {
-                metodos.push((*f, a.function(*f).static_));
+                methods.push((*f, a.function(*f).static_));
             }
         }
-        let ancestrais = |span: Span| ancestrais_de(a, &conteineres, &declaradas, &metodos, span);
-        // A função local genérica, contra todos os ancestrais.
+        let ancestors = |span: Span| enclosing_containers(a, &containers, &declared, &methods, span);
+        // A generic local function, against all ancestors.
         for s in a.stmts.iter() {
             let StmtKind::Function(f) = &s.kind else { continue };
             let f = a.function(*f);
             if f.type_params.is_empty() {
                 continue;
             }
-            for (_, de_fora, tipo) in ancestrais(f.span) {
-                sombra(&f.type_params, de_fora, tipo, &mut achados);
+            for (_, outer, kind) in ancestors(f.span) {
+                shadows(&f.type_params, outer, kind, &mut findings);
             }
         }
-        // O método genérico de instância.
-        for &(fid, estatico) in &metodos {
+        // A generic instance method.
+        for &(fid, is_static) in &methods {
             let f = a.function(fid);
-            if f.type_params.is_empty() || estatico {
+            if f.type_params.is_empty() || is_static {
                 continue;
             }
-            for (_, de_fora, tipo) in ancestrais(f.span) {
-                sombra(&f.type_params, de_fora, tipo, &mut achados);
+            for (_, outer, kind) in ancestors(f.span) {
+                shadows(&f.type_params, outer, kind, &mut findings);
             }
         }
-        // O typedef com tipo de função genérico.
+        // A typedef with a generic function type.
         for d in a.decls.iter() {
             if let DeclKind::Typedef(x) = &d.kind
                 && let TypedefKind::Alias(t) = &x.kind
                 && let TypeKind::Function { type_params, .. } = &a.ty(*t).kind
             {
-                sombra(type_params, &x.type_params, "typedef", &mut achados);
+                shadows(type_params, &x.type_params, "typedef", &mut findings);
             }
         }
-        for (s, nome, tipo) in achados {
-            relatar(&c::AVOID_SHADOWING_TYPE_PARAMETERS, s, &[&nome, tipo]);
+        for (s, name, kind) in findings {
+            report(&c::AVOID_SHADOWING_TYPE_PARAMETERS, s, &[&name, kind]);
         }
     }
 
-    // `parameter_assignments`: nas funções declaradas (de topo e locais) e
-    // nos métodos, o parâmetro que alguma escrita muda (pelo elemento) e que
-    // é o comum obrigatório posicional ou tem valor padrão (nunca nulo de
-    // início), ou não tem valor padrão (o opcional e o nomeado, também o
-    // `required`: nulo de início, e a primeira atribuição passa). Na ordem
-    // do texto: a atribuição ao identificador, o pós-fixo e o prefixo sobre
-    // ele (só o "nunca nulo"), e o padrão de atribuição com ele num campo ou
-    // elemento direto. Pede a semântica da unidade.
-    if ligada("parameter_assignments")
+    // `parameter_assignments`: in declared functions (top-level and local) and
+    // methods, the parameter that some write changes (by element) and that is
+    // the plain required positional one or has a default value (never null
+    // at the start), or has no default value (optional and named ones, also
+    // `required`: null at the start, and the first assignment passes). In
+    // text order: the assignment to the identifier, the postfix and prefix
+    // on it (only "never null"), and an assignment pattern with it in a field
+    // or direct element. Needs the unit's semantics.
+    if enabled("parameter_assignments")
         && let Some(sem) = sem
     {
-        let mut alvos: Vec<FunctionId> = Vec::new();
+        let mut targets: Vec<FunctionId> = Vec::new();
         for d in a.decls.iter() {
             if let DeclKind::Function(f) = &d.kind {
-                alvos.push(*f);
+                targets.push(*f);
             }
         }
         for s in a.stmts.iter() {
             if let StmtKind::Function(f) = &s.kind {
-                alvos.push(*f);
+                targets.push(*f);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Method(f) = &m.kind {
-                alvos.push(*f);
+                targets.push(*f);
             }
         }
-        let mut achados: Vec<(Span, String)> = Vec::new();
-        for fid in alvos {
+        let mut findings: Vec<(Span, String)> = Vec::new();
+        for fid in targets {
             let f = a.function(fid);
-            let (Some(ps), Some(corpo)) = (&f.parameters, regiao_do_corpo(a, &f.body)) else { continue };
+            let (Some(ps), Some(body)) = (&f.parameters, body_region(a, &f.body)) else { continue };
             for p in ps.iter() {
                 let Some(n) = p.name else { continue };
                 let decl = n.span.start;
                 if !super::is_mutated(sem, a, decl) {
                     continue;
                 }
-                // `SimpleFormalParameter` sem `DefaultFormalParameter` (o
-                // obrigatório posicional comum), ou com valor padrão: nunca
-                // nulo de início; `DefaultFormalParameter` sem valor padrão:
-                // nulo de início.
-                let comum = p.kind == ParameterKind::Required && p.function_parameters.is_none() && !p.this_ && !p.super_;
-                let nao_nulo = comum || (p.kind != ParameterKind::Required && p.default_value.is_some());
-                let comeca_nulo = p.kind != ParameterKind::Required && p.default_value.is_none();
-                if !nao_nulo && !comeca_nulo {
+                // `SimpleFormalParameter` without `DefaultFormalParameter` (the
+                // plain required positional one), or with a default value: never
+                // null at the start; `DefaultFormalParameter` without a default
+                // value: null at the start.
+                let plain = p.kind == ParameterKind::Required && p.function_parameters.is_none() && !p.this_ && !p.super_;
+                let never_null = plain || (p.kind != ParameterKind::Required && p.default_value.is_some());
+                let starts_null = p.kind != ParameterKind::Required && p.default_value.is_none();
+                if !never_null && !starts_null {
                     continue;
                 }
-                let o_parametro = |e: dartforge_frontend::ast::ExprId| {
+                let is_the_param = |e: dartforge_frontend::ast::ExprId| {
                     matches!(a.expr(e).kind, ExprKind::Identifier(_)) && sem.body.declaracao_local(e) == Some(decl)
                 };
-                let padrao_e_o_parametro = |q: PatternId| sem.body.declaracoes_de_padroes.get(&q) == Some(&decl);
-                let nome = interner.resolve(n.sym).to_string();
-                let mut ja_atribuido = false;
-                // Em ordem de fonte (o `RecursiveAstVisitor`).
-                let mut no_corpo: Vec<(usize, &dartforge_frontend::ast::Expr)> =
-                    a.exprs.iter().enumerate().filter(|(_, e)| dentro(e.span, corpo)).collect();
-                no_corpo.sort_by_key(|(_, e)| (e.span.start, std::cmp::Reverse(e.span.end)));
-                for (_, e) in no_corpo {
+                let pattern_is_the_param = |q: PatternId| sem.body.declaracoes_de_padroes.get(&q) == Some(&decl);
+                let name = interner.resolve(n.sym).to_string();
+                let mut already_assigned = false;
+                // In source order (the `RecursiveAstVisitor`).
+                let mut in_body: Vec<(usize, &dartforge_frontend::ast::Expr)> =
+                    a.exprs.iter().enumerate().filter(|(_, e)| within(e.span, body)).collect();
+                in_body.sort_by_key(|(_, e)| (e.span.start, std::cmp::Reverse(e.span.end)));
+                for (_, e) in in_body {
                     match &e.kind {
-                        ExprKind::Assign { target, .. } if o_parametro(*target) => {
-                            if nao_nulo {
-                                achados.push((e.span, nome.clone()));
-                            } else if comeca_nulo {
-                                if ja_atribuido {
-                                    achados.push((e.span, nome.clone()));
+                        ExprKind::Assign { target, .. } if is_the_param(*target) => {
+                            if never_null {
+                                findings.push((e.span, name.clone()));
+                            } else if starts_null {
+                                if already_assigned {
+                                    findings.push((e.span, name.clone()));
                                 }
-                                ja_atribuido = true;
+                                already_assigned = true;
                             }
                         }
-                        // Todo pós-fixo e prefixo sobre o parâmetro (`p++`,
+                        // Every postfix and prefix on the parameter (`p++`,
                         // `p!`, `-p`, `!p`).
-                        ExprKind::Unary { operand, .. } if nao_nulo && o_parametro(*operand) => achados.push((e.span, nome.clone())),
+                        ExprKind::Unary { operand, .. } if never_null && is_the_param(*operand) => findings.push((e.span, name.clone())),
                         ExprKind::PatternAssign { pattern, .. } => {
-                            let relata = match &a.pattern(*pattern).kind {
-                                PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields.iter().any(|f| padrao_e_o_parametro(f.pattern)),
+                            let reported = match &a.pattern(*pattern).kind {
+                                PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields.iter().any(|f| pattern_is_the_param(f.pattern)),
                                 PatternKind::List { elements, .. } => elements.iter().any(|el| match el {
-                                    ListPatternElement::Pattern(q) => padrao_e_o_parametro(*q),
-                                    // O `RestPatternElement` não é a variável.
+                                    ListPatternElement::Pattern(q) => pattern_is_the_param(*q),
+                                    // The `RestPatternElement` is not the variable.
                                     ListPatternElement::Rest(_) => false,
                                 }),
-                                PatternKind::Map { entries, .. } => entries.iter().any(|en| padrao_e_o_parametro(en.value)),
+                                PatternKind::Map { entries, .. } => entries.iter().any(|en| pattern_is_the_param(en.value)),
                                 _ => false,
                             };
-                            if relata {
-                                achados.push((a.pattern(*pattern).span, nome.clone()));
+                            if reported {
+                                findings.push((a.pattern(*pattern).span, name.clone()));
                             }
                         }
                         _ => {}
@@ -242,9 +242,9 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
             }
         }
-        achados.sort_by_key(|x| (x.0.start, x.0.end));
-        for (s, nome) in achados {
-            relatar(&c::PARAMETER_ASSIGNMENTS, s, &[&nome]);
+        findings.sort_by_key(|x| (x.0.start, x.0.end));
+        for (s, name) in findings {
+            report(&c::PARAMETER_ASSIGNMENTS, s, &[&name]);
         }
     }
 
