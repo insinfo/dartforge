@@ -72,7 +72,7 @@ def main():
                                        exe_sha256=sha(exe), stdout_sha256=sha(saida / f"{caso}.stdout")))
                 print(f"{caso}: aprovado", flush=True)
     fontes_verificadas = [fixture, layout, Path(__file__),
-        raiz / "crates/emit_native/src/lower/membros.rs",
+        raiz / "crates/emit_native/src/lower/members.rs",
         raiz / "crates/emit_native/src/llvm/mod.rs",
         raiz / "crates/emit_native/src/optimize/escape.rs"]
     manifesto = dict(status="aprovado", base=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=raiz).decode().strip(),

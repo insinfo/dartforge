@@ -31,7 +31,7 @@ if (!(Test-Path -LiteralPath $bootstrap) -or !(Test-Path -LiteralPath $pacotes))
 & $binario compile-native $bootstrap -o (Join-Path $trabalho 'invalido.exe') `
     --enable-experiment=desconhecido *> (Join-Path $trabalho 'parser.txt')
 if ($LASTEXITCODE -eq 0 -or
-    -not ([IO.File]::ReadAllText((Join-Path $trabalho 'parser.txt')).Contains('experimento desconhecido'))) {
+    -not ([IO.File]::ReadAllText((Join-Path $trabalho 'parser.txt')).Contains('unknown experiment'))) {
     throw 'parser nativo não rejeitou experimento desconhecido'
 }
 

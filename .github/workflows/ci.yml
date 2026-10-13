@@ -239,9 +239,10 @@ jobs:
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
       # Os #[ignore] que o runner consegue satisfazer: SDK Dart,
       # Clang e rustc. Ficam de fora, pelo nome:
-      #   corpus_pub*       references/pub é baixado pelo proprietário, fora do git
-      #   new_sali_tipa     projeto privado do proprietário (C:/MyDartProjects)
-      #   corpus_roda_no_dart_run, ddc_bate_com_dart_run
+      #   *pub_corpus*      references/pub é baixado pelo proprietário, fora do git
+      #   new_sali_type_checks
+      #                     projeto privado do proprietário (C:/MyDartProjects)
+      #   corpus_runs_under_dart_run, ddc_matches_dart_run
       #                     o corpus diferencial inteiro — é o pesado.yml
       #   microbenchmark    medição de desempenho do heap, não correção
       #   ng_edicao_dart_em_cada_arquivo
@@ -296,8 +297,8 @@ jobs:
           DARTFORGE_COMPILADOR_NATIVO: ${{ github.workspace }}\target\release\dartforge.exe
         run: >-
           cargo test --locked --workspace --tests --no-fail-fast --
-          --ignored --skip corpus_pub --skip new_sali_tipa --skip corpus_roda_no_dart_run
-          --skip ddc_bate_com_dart_run --skip microbenchmark
+          --ignored --skip pub_corpus --skip new_sali_type_checks --skip corpus_runs_under_dart_run
+          --skip ddc_matches_dart_run --skip microbenchmark
           --skip ng_edicao_dart_em_cada_arquivo
 
   # O backend nativo e o JIT no Linux e no macOS: compilar com os dois

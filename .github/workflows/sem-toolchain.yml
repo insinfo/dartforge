@@ -205,7 +205,7 @@ jobs:
               if ($passou) { Write-Host "::warning::$($r[0]): $n falhou uma vez e passou ao repetir (intermitente)" }
               else { Write-Host "::error::$($r[0]): $n falha só sem o MSVC"; $falhou = $true }
             }
-            $ligacao = @($texto | Select-String -Pattern 'falhou na ligação|CRT mínima não compilou|LNK\d{4}|vcruntime140|não foi possível instalar')
+            $ligacao = @($texto | Select-String -Pattern 'failed to link|minimal CRT did not compile|LNK\d{4}|vcruntime140|could not install')
             if ($ligacao.Count -gt 0) { $ligacao | ForEach-Object { Write-Host "::error::$($r[0]): $_" }; $falhou = $true }
           }
           # N02: a observação de arquivos igual à VM.
@@ -322,7 +322,7 @@ jobs:
               else echo "::error::$nome: $n falha só sem o Xcode"; falhou=1; fi
             done
             # Nenhuma falha de ligação (o que o toolchain escondido causaria).
-            if grep -nE 'falhou na ligação|xcrun|não tem usr/lib/libSystem.tbd|SDK do macOS' "relatorios/$nome.txt"; then falhou=1; fi
+            if grep -nE 'failed to link|xcrun|não tem usr/lib/libSystem.tbd|macOS SDK' "relatorios/$nome.txt"; then falhou=1; fi
           done
           # N02: a observação de arquivos igual à VM (FSEvents).
           for p in 34_observar_arquivos 38_observar_arquivos_windows 39_observar_arquivos_macos; do
