@@ -1,4 +1,4 @@
-//! Carregador do fecho transitivo de bibliotecas Dart.
+//! Loader of the transitive closure of Dart libraries.
 use crate::config::PackageConfig;
 use crate::model::*;
 use crate::outline;
@@ -11,12 +11,12 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use url::Url;
 
-/// Representação intermediária desvinculada de empréstimos para processar diretivas.
+/// Intermediate representation free of borrows, for processing directives.
 enum DirectiveAction {
     Library(Vec<SymbolId>),
-    /// `part 'uri'` ou, com `augmentation`, `import augment 'uri'` (forma
-    /// 3.6 das bibliotecas de augmentation): a unidade apontada pertence a
-    /// esta biblioteca.
+    /// `part 'uri'` or, with `augmentation`, `import augment 'uri'` (the 3.6
+    /// form of augmentation libraries): the unit pointed to belongs to this
+    /// library.
     Part {
         uri: String,
         augmentation: bool,
@@ -35,7 +35,7 @@ enum DirectiveAction {
     },
 }
 
-/// Clona combinadores de uma diretiva de importação ou exportação.
+/// Clones the combinators of an import or export directive.
 fn clone_combinators(combinators: &[ast::Combinator]) -> Vec<ast::Combinator> {
     combinators
         .iter()
@@ -46,12 +46,12 @@ fn clone_combinators(combinators: &[ast::Combinator]) -> Vec<ast::Combinator> {
         .collect()
 }
 
-/// Extrai a string literal de um `ast::StringLit`.
+/// Extracts the string literal of an `ast::StringLit`.
 pub fn string_lit_value(lit: &ast::StringLit) -> Option<String> {
     let mut out = String::new();
     for part in &lit.parts {
         match part {
-            // URI com surrogate solto não é URI: `as_str` devolve `None`.
+            // A URI with a lone surrogate is not a URI: `as_str` returns `None`.
             ast::StringPart::Text(t) => out.push_str(t.as_str()?),
             _ => return None,
         }
@@ -59,7 +59,8 @@ pub fn string_lit_value(lit: &ast::StringLit) -> Option<String> {
     Some(out)
 }
 
-/// Carrega um programa e acumula diagnósticos sem abortar, retornando o `Program` e `Vec<Diagnostic>`.
+/// Loads a program and accumulates diagnostics without aborting, returning
+/// the `Program` and a `Vec<Diagnostic>`.
 pub fn load_lenient(
     entry: &Path,
     sdk: &SdkLayout,
@@ -69,12 +70,12 @@ pub fn load_lenient(
     load_lenient_com_cache(entry, sdk, package_config_path, interner, None)
 }
 
-/// Como [`load_lenient`], tirando as unidades das bibliotecas `dart:` de
-/// `cache` em vez de ler e analisar os arquivos do SDK.
+/// Like [`load_lenient`], taking the units of the `dart:` libraries from
+/// `cache` instead of reading and parsing the SDK files.
 ///
-/// O cache só é usado se os seus símbolos couberem em `interner` com os
-/// mesmos ids (interner vazio, ou já preparado por este mesmo cache); caso
-/// contrário a carga segue pelos arquivos.
+/// The cache is only used if its symbols fit in `interner` with the same
+/// ids (an empty interner, or one already prepared by this same cache);
+/// otherwise the load goes through the files.
 pub fn load_lenient_com_cache(
     entry: &Path,
     sdk: &SdkLayout,
@@ -85,10 +86,11 @@ pub fn load_lenient_com_cache(
     load_lenient_incremental(entry, sdk, package_config_path, interner, cache, None)
 }
 
-/// Como [`load_lenient_com_cache`], reaproveitando de `unidades` as unidades
-/// cujos arquivos não mudaram (sessão residente).
+/// Like [`load_lenient_com_cache`], reusing from `unidades` the units whose
+/// files did not change (resident session).
 ///
-/// O `interner` tem de ser o mesmo das análises que encheram o cache.
+/// The `interner` must be the same as that of the analyses that filled the
+/// cache.
 pub fn load_lenient_incremental(
     entry: &Path,
     sdk: &SdkLayout,
@@ -100,9 +102,9 @@ pub fn load_lenient_incremental(
     load_lenient_gerados(entry, sdk, package_config_path, interner, cache, unidades, None)
 }
 
-/// Como `load_lenient_incremental`, com uma geração de fontes em memória
-/// (`.template.dart` do ngdart e afins): o que estiver nela vale mais que o
-/// disco e nem é lido de lá.
+/// Like `load_lenient_incremental`, with an in-memory source generation
+/// (ngdart's `.template.dart` and the like): what is in it wins over the
+/// disk and is not even read from there.
 #[allow(clippy::too_many_arguments)]
 pub fn load_lenient_gerados(
     entry: &Path,
@@ -116,16 +118,16 @@ pub fn load_lenient_gerados(
     load_lenient_entradas(&[entry], sdk, package_config_path, interner, cache, unidades, gerados)
 }
 
-/// Como [`load_lenient_gerados`], com várias bibliotecas de entrada no mesmo
-/// programa: a primeira é [`Program::entry`] e as outras só entram na fila,
-/// com o que importam. É a carga de um projeto inteiro (o renomear do LSP
-/// precisa ver as bibliotecas que importam a declaração, não só as que ela
-/// importa). As entradas devem ser bibliotecas, não partes (`part of`): uma
-/// parte carregada como biblioteca apareceria duas vezes.
+/// Like [`load_lenient_gerados`], with several entry libraries in the same
+/// program: the first one is [`Program::entry`] and the others only go into
+/// the queue, with what they import. It is the load of a whole project (the
+/// LSP's rename needs to see the libraries that import the declaration, not
+/// only those it imports). The entries must be libraries, not parts
+/// (`part of`): a part loaded as a library would appear twice.
 ///
 /// # Panics
 ///
-/// Quando `entries` é vazio.
+/// When `entries` is empty.
 #[allow(clippy::too_many_arguments)]
 pub fn load_lenient_entradas(
     entries: &[&Path],
@@ -139,9 +141,9 @@ pub fn load_lenient_entradas(
     load_lenient_(entries, sdk, package_config_path, interner, cache, unidades, gerados, None)
 }
 
-/// Como [`load_lenient`], sem enxergar `ocultos` (chaves de
-/// [`crate::gerado::chave`]): a carga que um builder do `build_runner` faz
-/// do programa, sem as saídas das fases que ainda não rodaram para ele.
+/// Like [`load_lenient`], without seeing `ocultos` (keys from
+/// [`crate::gerado::chave`]): the load a `build_runner` builder makes of the
+/// program, without the outputs of the phases that have not run for it yet.
 pub fn load_lenient_hiding(
     entry: &Path,
     sdk: &SdkLayout,
@@ -152,10 +154,10 @@ pub fn load_lenient_hiding(
     load_lenient_(&[entry], sdk, package_config_path, interner, None, None, None, Some(ocultos))
 }
 
-/// Como [`load_lenient_hiding`], com várias raízes: a primeira é a
-/// entrada do programa; as outras entram na fila como bibliotecas. Uma raiz
-/// que é parte (`part of`) é descartada — ela entra pela biblioteca dona, e
-/// carregá-la também como biblioteca a duplicaria.
+/// Like [`load_lenient_hiding`], with several roots: the first one is the
+/// program's entry point; the others go into the queue as libraries. A root
+/// that is a part (`part of`) is dropped — it comes in through its owning
+/// library, and loading it as a library too would duplicate it.
 pub fn load_lenient_entradas_ocultando(
     entries: &[&Path],
     sdk: &SdkLayout,
@@ -172,7 +174,7 @@ pub fn load_lenient_entradas_ocultando(
     load_lenient_(&roots, sdk, package_config_path, interner, None, None, None, Some(ocultos))
 }
 
-/// O arquivo tem a diretiva `part of`? Ilegível conta como não.
+/// Does the file have the `part of` directive? Unreadable counts as no.
 fn is_part_on_disk(caminho: &Path, interner: &mut Interner) -> bool {
     let Ok(text) = std::fs::read_to_string(caminho) else {
         return false;
@@ -197,17 +199,17 @@ fn load_lenient_(
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
     ocultos: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
 ) -> (Program, Vec<Diagnostic>) {
-    let entry = *entries.first().expect("ao menos uma entrada");
+    let entry = *entries.first().expect("at least one entry");
     if let Some(u) = unidades.as_deref_mut() {
         u.start_load();
     }
     let mut diagnostics = Vec::new();
     let mut cache = cache.filter(|c| c.prepare_interner(interner));
-    // Bibliotecas cujas partes já vieram do cache (a diretiva `part` não
-    // deve recarregá-las).
+    // Libraries whose parts already came from the cache (the `part` directive
+    // must not reload them).
     let mut libs_do_cache: std::collections::HashSet<LibraryId> = std::collections::HashSet::new();
 
-    // 1. Carrega o package_config.json
+    // 1. Loads package_config.json
     let mut package_config = if let Some(p) = package_config_path {
         PackageConfig::load(p).unwrap_or_default()
     } else if let Some(discovered) = PackageConfig::discover(entry) {
@@ -222,7 +224,7 @@ fn load_lenient_(
     let mut uri_to_library: HashMap<String, LibraryId> = HashMap::new();
     let mut queue: VecDeque<LibraryId> = VecDeque::new();
 
-    // 2. Garante o carregamento inicial de dart:core
+    // 2. Makes sure dart:core is loaded first
     if sdk.library("core").is_some() {
         let core_uri = "dart:core".to_string();
         let core_id = LibraryId(program.libraries.len() as u32);
@@ -248,18 +250,18 @@ fn load_lenient_(
         queue.push_back(core_id);
     }
 
-    // 3. Registra e enfileira os pontos de entrada. É o único `canonicalize`
-    // da carga (corrige maiúsculas e links do caminho dado pelo usuário);
-    // tudo o que deriva dele — partes e imports relativos — é resolvido
-    // lexicalmente, como a `Uri.resolve` do Dart faz.
+    // 3. Registers and enqueues the entry points. It is the load's only
+    // `canonicalize` (it fixes the case and links of the path the user gave);
+    // everything derived from it — parts and relative imports — is resolved
+    // lexically, as Dart's `Uri.resolve` does.
     let mut prefetch = Prefetch {
         gerados: package_config.gerados.clone(),
         ocultos: package_config.ocultos.clone(),
         ..Default::default()
     };
     let mut considered = 0usize;
-    // Unidades do SDK já decodificadas do cache pela onda, à espera da vez da
-    // biblioteca na fila.
+    // SDK units already decoded from the cache by the wave, waiting for their
+    // library's turn in the queue.
     let mut decoded_sdk: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
     for (i, entrada) in entries.iter().enumerate() {
         let canonical_entry = crate::config::sem_verbatim(
@@ -297,14 +299,14 @@ fn load_lenient_(
         }
     }
 
-    // 4. Processa a fila de bibliotecas transitivas
+    // 4. Processes the queue of transitive libraries
     while let Some(lib_id) = queue.pop_front() {
-        // Onda: as bibliotecas já enfileiradas (um nível do grafo de imports)
-        // são lidas e lexadas em paralelo antes de serem analisadas em série.
-        // `considered` evita reexaminar a fila inteira a cada iteração: as
-        // bibliotecas ganham ids em ordem, então basta olhar as novas. (Sem
-        // isso, uma compilação em que tudo vem do cache varria a fila 2.063
-        // vezes — 11 s no `new_sali`.)
+        // Wave: the libraries already enqueued (one level of the import graph) are
+        // read and lexed in parallel before being parsed serially. `considered`
+        // avoids reexamining the whole queue on every iteration: libraries get ids
+        // in order, so it is enough to look at the new ones. (Without this, a
+        // compilation where everything comes from the cache swept the queue 2,063
+        // times — 11 s in `new_sali`.)
         if prefetch.empty() && considered < program.libraries.len() {
             let t = std::time::Instant::now();
             let mut caminhos: Vec<PathBuf> = Vec::new();
@@ -312,21 +314,20 @@ fn load_lenient_(
                 let uri = &program.libraries[i].uri;
                 if !uri.starts_with("dart:") {
                     if let Some(p) = library_path(uri, &package_config) {
-                        // Unidade já analisada não precisa ser lida nem lexada
-                        // aqui. Se o arquivo tiver mudado, `load_unit`
-                        // descobre pela marca e lê ele mesmo — é um arquivo.
-                        // (Conferir a marca aqui custava um `stat` por
-                        // biblioteca da fila **em cada onda**: 34 mil no
-                        // `new_sali`, 13 s de relógio no Windows.)
+                        // An already analyzed unit does not need to be read or lexed here. If the
+                        // file changed, `load_unit` finds out through the stamp and reads it
+                        // itself — it is one file. (Checking the stamp here cost one `stat` per
+                        // queued library **on every wave**: 34 thousand in `new_sali`, 13 s of wall
+                        // clock on Windows.)
                         if !unidades.as_deref().is_some_and(|u| u.contem(&p)) {
                             caminhos.push(p);
                         }
                     }
                 }
             }
-            // As bibliotecas `dart:` da onda saem do cache decodificadas em
-            // paralelo (em série, no perfil `dev`, custavam tanto quanto
-            // reanalisar o SDK).
+            // The wave's `dart:` libraries come out of the cache decoded in parallel
+            // (serially, in the `dev` profile, they cost as much as reanalyzing the
+            // SDK).
             if let Some(c) = cache.as_mut() {
                 let t_cache = std::time::Instant::now();
                 let names_: Vec<&str> = program.libraries[considered..]
@@ -346,7 +347,7 @@ fn load_lenient_(
         }
         let lib_uri = program.libraries[lib_id.0 as usize].uri.clone();
 
-        // Determina os arquivos da biblioteca (origem + patches se for SDK)
+        // Determines the library's files (source + patches if it is the SDK)
         if lib_uri.starts_with("dart:") {
             let lib_name = lib_uri.strip_prefix("dart:").unwrap();
             let t_cache = std::time::Instant::now();
@@ -373,7 +374,7 @@ fn load_lenient_(
                 }
                 libs_do_cache.insert(lib_id);
             } else if let Some(sdk_lib) = sdk.library(lib_name) {
-                // Unidade principal
+                // Main unit
                 let main_unit = load_unit(
                     &sdk_lib.path,
                     &lib_uri,
@@ -390,7 +391,7 @@ fn load_lenient_(
                     program.libraries[lib_id.0 as usize].units.push(uid);
                 }
 
-                // Patches do SDK na ordem especificada em libraries.json
+                // SDK patches in the order given in libraries.json
                 for patch_path in &sdk_lib.patches {
                     let patch_uri = format!(
                         "{lib_uri}#patch_{}",
@@ -414,12 +415,12 @@ fn load_lenient_(
                 }
             } else {
                 diagnostics.push(Diagnostic::new(
-                    format!("biblioteca SDK '{lib_uri}' não encontrada no layout"),
+                    format!("SDK library '{lib_uri}' not found in the layout"),
                     Span { start: 0, end: 0 },
                 ));
             }
         } else {
-            // Biblioteca de arquivo local ou pacote
+            // A local file or package library
             let file_path = library_path(&lib_uri, &package_config);
 
             if let Some(path) = file_path {
@@ -440,21 +441,20 @@ fn load_lenient_(
                 }
             } else {
                 diagnostics.push(Diagnostic::new(
-                    format!("não foi possível resolver caminho para '{lib_uri}'"),
+                    format!("could not resolve a path for '{lib_uri}'"),
                     Span { start: 0, end: 0 },
                 ));
             }
         }
 
-        // 5. Analisa diretivas em todas as unidades carregadas desta biblioteca
+        // 5. Analyzes the directives in every loaded unit of this library
         let t_dir = std::time::Instant::now();
         let (read_before, parse_antes) = (program.tempos.leitura, program.tempos.parse);
         let mut unit_idx = 0;
-        // A augmentation que o hospedeiro de macros montou para esta
-        // biblioteca (em memória, `<nome>.macro.dart` ao lado dela) entra
-        // por último, depois de todas as partes — como as bibliotecas de
-        // augmentation que o CFE cria para a saída das macros. Só é
-        // consultada quando há fontes geradas (custo zero sem macros).
+        // The augmentation the macro host built for this library (in memory,
+        // `<name>.macro.dart` next to it) comes in last, after every part — like
+        // the augmentation libraries the CFE creates for macro output. It is only
+        // consulted when there are generated sources (zero cost without macros).
         let mut macro_anexada = false;
         loop {
             if unit_idx >= program.libraries[lib_id.0 as usize].units.len() {
@@ -474,19 +474,19 @@ fn load_lenient_(
             unit_idx += 1;
             let unit_path = program.units[unit_id.0 as usize].path.clone();
             let unit_uri = program.units[unit_id.0 as usize].uri.clone();
-            // Parte de um arquivo de patch (`core_patch.dart` tem
-            // `part 'bigint_patch.dart'`) é patch também: as suas classes
-            // `@patch` se fundem na classe de origem, em vez de criarem outra.
+            // A part of a patch file (`core_patch.dart` has
+            // `part 'bigint_patch.dart'`) is a patch too: its `@patch` classes merge
+            // into the source class, instead of creating another one.
             let part_roles = if program.units[unit_id.0 as usize].role == UnitRole::Patch {
                 UnitRole::Patch
             } else {
                 UnitRole::Part
             };
 
-            // As unidades incluídas por esta (`part`, `import augment`) entram
-            // logo depois dela, na ordem das diretivas: `Library::units` fica
-            // na pré-ordem da árvore de partes, que é a ordem de aplicação
-            // das augmentations (spec de augmentations, "Application order").
+            // The units included by this one (`part`, `import augment`) come right
+            // after it, in directive order: `Library::units` stays in the preorder of
+            // the parts tree, which is the application order of the augmentations
+            // (augmentations spec, "Application order").
             let mut included = 0usize;
             let actions: Vec<(usize, DirectiveAction)> = program.units[unit_id.0 as usize]
                 .unit
@@ -553,14 +553,14 @@ fn load_lenient_(
                     }
                     DirectiveAction::Part { uri, augmentation } => {
                         if libs_do_cache.contains(&lib_id) {
-                            // Partes já vieram do cache, verificadas ao construí-lo.
+                            // Parts already came from the cache, checked when building it.
                             continue;
                         }
                         let Some(base_path) = &unit_path else {
                             continue;
                         };
-                        // `part 'package:p/x.dart'` (o `diff_match_patch`): a URI
-                        // já é absoluta; o resto é relativo à da biblioteca.
+                        // `part 'package:p/x.dart'` (`diff_match_patch`): the URI is already
+                        // absolute; the rest is relative to the library's.
                         let absolute = uri.starts_with("package:").then(|| uri.clone());
                         let by_uri = absolute
                             .or_else(|| resolve_relative_to_package(&unit_uri, &uri))
@@ -573,9 +573,9 @@ fn load_lenient_(
                                 (p, u)
                             }
                         };
-                        // Uma parte que já é unidade desta biblioteca (`part` do
-                        // próprio arquivo, ou ciclo de partes aninhadas) não é
-                        // carregada de novo: a carga não termina.
+                        // A part that is already a unit of this library (a `part` of the file
+                        // itself, or a cycle of nested parts) is not loaded again: the load would
+                        // not end.
                         let already_in_library = program.libraries[lib_id.0 as usize]
                             .units
                             .iter()
@@ -611,8 +611,8 @@ fn load_lenient_(
                             } else {
                                 verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
                             }
-                            // O SDK fica na ordem de descoberta de sempre (a
-                            // mesma do cache do SDK): lá não há augmentation.
+                            // The SDK stays in the usual discovery order (the same as the SDK cache's):
+                            // there are no augmentations there.
                             let libr = &mut program.libraries[lib_id.0 as usize];
                             libr.pais.insert(p_uid, unit_id);
                             if libr.is_sdk {
@@ -696,24 +696,24 @@ fn load_lenient_(
                 }
             }
         }
-        // Partes carregadas aqui já contaram em leitura/parse.
+        // Parts loaded here were already counted in read/parse.
         program.tempos.diretivas += t_dir
             .elapsed()
             .saturating_sub(program.tempos.leitura - read_before)
             .saturating_sub(program.tempos.parse - parse_antes);
     }
 
-    // 6. Constrói outline, namespaces e resolve supertipos
+    // 6. Builds the outline and namespaces and resolves supertypes
     outline::build_outline(&mut program, interner, &mut diagnostics);
 
     (program, diagnostics)
 }
 
-/// Carrega um programa a partir de um arquivo de entrada e seu SDK.
+/// Loads a program from an entry file and its SDK.
 ///
-/// # Erros
-/// Retorna `Err(Vec<Diagnostic>)` com todos os diagnósticos acumulados
-/// de sintaxe, I/O ou resolução de diretivas.
+/// # Errors
+/// Returns `Err(Vec<Diagnostic>)` with all the accumulated syntax, I/O or
+/// directive resolution diagnostics.
 pub fn load(
     entry: &Path,
     sdk: &SdkLayout,
@@ -729,20 +729,20 @@ pub fn load(
 }
 
 // ---------------------------------------------------------------------------
-// Funções auxiliares de resolução e carregamento
+// Resolution and loading helpers
 // ---------------------------------------------------------------------------
 
-/// Fonte e tokens de um arquivo lido e lexado fora da thread principal.
+/// Source and tokens of a file read and lexed off the main thread.
 type Lido = std::io::Result<(String, Result<Vec<dartforge_frontend::token::Token>, Diagnostic>)>;
 
-/// Arquivos de uma onda da fila, lidos e lexados em paralelo.
+/// Files of one queue wave, read and lexed in parallel.
 #[derive(Default)]
 struct Prefetch {
     ready: HashMap<PathBuf, Lido>,
-    /// Geração corrente: fontes daqui nunca vêm do disco.
+    /// Current generation: sources from here never come from the disk.
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
-    /// O que a carga não enxerga ([`PackageConfig::ocultos`]): lido como
-    /// arquivo inexistente.
+    /// What the load does not see ([`PackageConfig::ocultos`]): read as a
+    /// nonexistent file.
     ocultos: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
 }
 
@@ -760,11 +760,11 @@ impl Prefetch {
         self.ready.remove(path)
     }
 
-    /// Lê e lexa `caminhos` com até 8 threads (`std::thread::scope`); poucos
-    /// arquivos ficam na própria thread, que o custo de criar threads não
-    /// compensa.
+    /// Reads and lexes `caminhos` with up to 8 threads (`std::thread::scope`);
+    /// a few files stay on the current thread, since the cost of creating
+    /// threads does not pay off.
     fn load_(&mut self, caminhos: Vec<PathBuf>) {
-        // O que a geração tem em memória não é lido do disco.
+        // What the generation has in memory is not read from the disk.
         let caminhos: Vec<PathBuf> = match &self.gerados {
             Some(g) => caminhos.into_iter().filter(|p| !g.contem(p)).collect(),
             None => caminhos,
@@ -814,10 +814,11 @@ impl Prefetch {
     }
 }
 
-/// O texto de um arquivo do SDK que a sobreposição troca
-/// (`SdkLayout::load_com_sobreposicao`): lido do substituto, com o caminho
-/// lógico do original — é o que faz um `part` dele resolver ao lado do
-/// original. `None` quando não há troca (a leitura segue o caminho normal).
+/// The text of an SDK file the overlay swaps
+/// (`SdkLayout::load_com_sobreposicao`): read from the substitute, with the
+/// original's logical path — that is what makes a `part` of it resolve next
+/// to the original. `None` when there is no swap (reading follows the normal
+/// path).
 fn read_substitute(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
     let novo = sdk.substituto(path)?;
     Some(std::fs::read_to_string(novo).map(|s| {
@@ -826,13 +827,14 @@ fn read_substitute(sdk: &SdkLayout, path: &Path) -> Option<Lido> {
     }))
 }
 
-/// Caminho do arquivo principal de uma biblioteca `package:` ou `file:`.
+/// Path of the main file of a `package:` or `file:` library.
 fn library_path(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf> {
     if lib_uri.starts_with("package:") {
         package_config.resolve_package_uri(lib_uri).ok()
     } else if let Ok(url) = Url::parse(lib_uri) {
         let p = url.to_file_path().ok()?;
-        // `file:` sem arquivo no lugar: o gerado do `build_runner`, se houver.
+        // `file:` without a file in place: the `build_runner` generated file, if
+        // any.
         if package_config.generated_root.is_some()
             && !p.is_file()
             && !package_config.gerados.as_ref().is_some_and(|g| g.contem(&p))
@@ -847,8 +849,9 @@ fn library_path(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf
     }
 }
 
-/// Resolve `.` e `..` sem tocar no sistema de arquivos (`Uri.resolve` do Dart
-/// é lexical; `canonicalize` custava uma chamada ao sistema por diretiva).
+/// Resolves `.` and `..` without touching the file system (Dart's
+/// `Uri.resolve` is lexical; `canonicalize` cost a system call per
+/// directive).
 pub(crate) fn normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
@@ -865,22 +868,22 @@ pub(crate) fn normalize(p: &Path) -> PathBuf {
     out
 }
 
-/// De onde vem a versão de linguagem de uma unidade
-/// (`docs/VERSOES-LINGUAGEM.md` §2). Resolvida uma vez por unidade, antes do
-/// parse, a partir da fonte já lida (o marcador) e do `package_config`.
+/// Where a unit's language version comes from (`docs/VERSOES-LINGUAGEM.md`
+/// §2). Resolved once per unit, before parsing, from the source already read
+/// (the marker) and the `package_config`.
 #[derive(Clone, Copy)]
 enum Version<'c> {
-    /// Biblioteca, patch ou parte do SDK: sempre o piso (D1).
+    /// SDK library, patch or part: always the floor (D1).
     Sdk,
-    /// Unidade principal de uma biblioteca do usuário ou de pacote.
+    /// Main unit of a user or package library.
     Library { config: &'c PackageConfig, corrente: LanguageVersion, experimentos: &'c [Feature] },
-    /// Parte: analisada com os recursos da biblioteca; a versão da própria
-    /// parte (marcador ou pacote) tem de ser a mesma, senão é erro
+    /// Part: parsed with the library's features; the part's own version (marker
+    /// or package) must be the same, otherwise it is an error
     /// (`LanguageVersionMismatchInPart`).
     Part { of_library: LibraryFeatures, config: &'c PackageConfig, corrente: LanguageVersion },
 }
 
-/// Os recursos de uma unidade e os diagnósticos da escolha da versão.
+/// The features of a unit and the diagnostics of the version choice.
 fn unit_features(
     source: &str,
     uri: &str,
@@ -901,7 +904,7 @@ fn unit_features(
                 let span = marker.map_or(Span { start: 0, end: 0 }, |m| m.1);
                 diagnostics.push(Diagnostic::new(
                     format!(
-                        "{}:{}: a parte está na versão de linguagem {own}, mas a biblioteca dela está na {}: uma parte tem de ter a versão da sua biblioteca",
+                        "{}:{}: the part is at language version {own}, but its library is at {}: a part must have the version of its library",
                         path.display(),
                         span.start,
                         of_library.versao()
@@ -914,10 +917,10 @@ fn unit_features(
     }
 }
 
-/// A versão padrão da unidade (a do pacote, ou a corrente fora de pacote) e
-/// o marcador `// @dart = x.y` válido, com o seu intervalo. Marcador acima da
-/// corrente ou abaixo de 2.12 é erro e fica de fora, como no CFE
-/// (`LanguageVersionTooHighExplicit`/`TooLowExplicit`).
+/// The unit's default version (the package's, or the current one outside a
+/// package) and the valid `// @dart = x.y` marker, with its range. A marker
+/// above the current version or below 2.12 is an error and is left out, as
+/// in the CFE (`LanguageVersionTooHighExplicit`/`TooLowExplicit`).
 fn own_version(
     source: &str,
     uri: &str,
@@ -926,8 +929,9 @@ fn own_version(
     corrente: LanguageVersion,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> (LanguageVersion, Option<(LanguageVersion, Span)>) {
-    // O caminho e o offset na frente da mensagem, como os diagnósticos do
-    // parser; o código (quando há um no analyzer) fica no diagnóstico.
+    // The path and offset in front of the message, like the parser's
+    // diagnostics; the code (when the analyzer has one) stays in the
+    // diagnostic.
     let prefix = |span: Span| format!("{}:{}: ", path.display(), span.start);
     let mut error_code = |mut d: Diagnostic| {
         d.message = format!("{}{}", prefix(d.span), d.message);
@@ -985,11 +989,11 @@ fn load_unit(
     lido: Option<Lido>,
     unidades: Option<&mut crate::unidades::CacheUnidades>,
 ) -> Option<UnitId> {
-    // Sessão residente: unidade já analisada entra direto (o que mudou já foi
-    // invalidado pelo dono do cache; a carga não consulta o disco por isso).
-    // A versão é recalculada da fonte guardada (o marcador) e do
-    // `package_config` de agora: se o `languageVersion` do pacote mudou, a
-    // unidade é analisada de novo.
+    // Resident session: an already analyzed unit comes straight in (what
+    // changed was already invalidated by the cache's owner; the load does not
+    // consult the disk for that). The version is recomputed from the stored
+    // source (the marker) and the current `package_config`: if the package's
+    // `languageVersion` changed, the unit is analyzed again.
     let mut unidades = unidades;
     if let Some(cache) = unidades.as_deref_mut() {
         let removed = cache.take(path);
@@ -1031,7 +1035,7 @@ fn load_unit(
     program.tempos.leitura += t.elapsed();
     program.tempos.arquivos_lidos += 1;
     program.tempos.bytes_lidos += source.len();
-    // Um único `stat` por arquivo lido, para a sessão saber quando ele mudar.
+    // A single `stat` per file read, so the session knows when it changes.
     if let Some(cache) = unidades.as_deref_mut() {
         cache.annotate_marker(path);
     }
@@ -1099,18 +1103,19 @@ fn get_or_create_library(
     }
 }
 
-/// URI canônica de um caminho **já canonizado** pelo chamador: `package:x/y.dart`
-/// quando está dentro do `packageUri` de um pacote ou dos gerados do
-/// `build_runner` (`<projeto>/.dart_tool/build/generated/<package>/lib/<rel>`),
-/// senão `file:///…`.
+/// Canonical URI of a path **already canonicalized** by the caller:
+/// `package:x/y.dart` when it is inside a package's `packageUri` or the
+/// `build_runner` generated files
+/// (`<project>/.dart_tool/build/generated/<package>/lib/<rel>`), otherwise
+/// `file:///…`.
 ///
-/// Não chama `canonicalize`: os diretórios dos pacotes e a raiz de gerados
-/// vêm prontos de [`PackageConfig`] (canonizados uma vez na carga) e o
-/// caminho chega canônico (entrada, parte ou import relativo, cada um
-/// canonizado uma vez por quem o descobriu).
+/// Does not call `canonicalize`: the package directories and the generated
+/// root come ready from [`PackageConfig`] (canonicalized once at load time)
+/// and the path arrives canonical (entry, part or relative import, each one
+/// canonicalized once by whoever discovered it).
 fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> String {
-    // No Windows `canonicalize` devolve `\?\C:\…`; os diretórios dos pacotes
-    // estão sem o prefixo, então o caminho também fica sem ele.
+    // On Windows `canonicalize` returns `\?\C:\…`; the package directories are
+    // without the prefix, so the path is too.
     let canonical = crate::config::sem_verbatim(canonical.to_path_buf());
     if let Some(gen_root) = &package_config.generated_root {
         if let Ok(rel) = canonical.strip_prefix(gen_root) {
@@ -1131,9 +1136,9 @@ fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> Strin
         .unwrap_or_else(|_| canonical.to_string_lossy().to_string())
 }
 
-/// Resolve `rel` (sem esquema) contra `base` (`package:x/a/b.dart`) só com
-/// texto, como `Uri.resolve`: `None` se `..` sair do pacote (aí o chamador
-/// resolve pelo caminho) ou se `rel` tiver esquema.
+/// Resolves `rel` (without a scheme) against `base` (`package:x/a/b.dart`)
+/// with text only, like `Uri.resolve`: `None` if `..` leaves the package
+/// (then the caller resolves through the path) or if `rel` has a scheme.
 fn resolve_relative_to_package(base: &str, rel: &str) -> Option<String> {
     if rel.contains(':') || rel.starts_with("//") {
         return None;
@@ -1141,10 +1146,10 @@ fn resolve_relative_to_package(base: &str, rel: &str) -> Option<String> {
     let body_node = base.strip_prefix("package:")?;
     let (package, rest) = body_node.split_once('/')?;
     let mut segs: Vec<&str> = rest.split('/').collect();
-    segs.pop(); // o arquivo base
-    // `/x.dart` numa biblioteca `package:`: a raiz do pacote (a VM e o
-    // analyzer 3.6.2 resolvem `package:p/src/a.dart` + `/x.dart` como
-    // `package:p/x.dart`; conferido com `dart run` e `dart analyze`).
+    segs.pop(); // the base file
+    // `/x.dart` in a `package:` library: the package root (the VM and the
+    // 3.6.2 analyzer resolve `package:p/src/a.dart` + `/x.dart` as
+    // `package:p/x.dart`; checked with `dart run` and `dart analyze`).
     if rel.starts_with('/') {
         segs.clear();
     }
@@ -1174,10 +1179,10 @@ fn resolve_directive_target(
     sdk: &SdkLayout,
     package_config: &PackageConfig,
 ) -> Result<(String, Option<PathBuf>), String> {
-    // `import '' as self;` (o `native.dart` gerado do `sqlite3`): a URI
-    // vazia, resolvida contra a da biblioteca, é a própria biblioteca
-    // (RFC 3986 §5.2: referência vazia = a base). Juntada ao diretório, dava
-    // "não foi possível ler …/generated: Is a directory".
+    // `import '' as self;` (`sqlite3`'s generated `native.dart`): the empty URI,
+    // resolved against the library's, is the library itself (RFC 3986 §5.2: an
+    // empty reference = the base). Joined to the directory, it gave "could not
+    // read …/generated: Is a directory".
     if uri_str.is_empty() {
         return Ok((base_uri.to_string(), base_path.map(Path::to_path_buf)));
     }
@@ -1185,13 +1190,13 @@ fn resolve_directive_target(
         if sdk.library(sdk_name).is_some() {
             Ok((format!("dart:{sdk_name}"), None))
         } else {
-            // Como o CFE: a biblioteca de outra plataforma (`dart:js_interop`
-            // no nativo, `dart:io` sem o layout da VM) é erro de compilação.
-            Err(format!("a biblioteca Dart 'dart:{sdk_name}' não está disponível nesta plataforma"))
+            // Like the CFE: a library of another platform (`dart:js_interop` on native,
+            // `dart:io` without the VM layout) is a compile error.
+            Err(format!("the Dart library 'dart:{sdk_name}' is not available on this platform"))
         }
     } else if uri_str.starts_with("package:") {
-        // Só valida o pacote; o caminho é calculado uma vez, quando a
-        // biblioteca sai da fila (`library_path`), não por diretiva.
+        // Only validates the package; the path is computed once, when the library
+        // leaves the queue (`library_path`), not per directive.
         let nome = uri_str["package:".len()..].split('/').next().unwrap_or("");
         if package_config.packages.contains_key(nome) {
             Ok((uri_str.to_string(), None))
@@ -1202,12 +1207,13 @@ fn resolve_directive_target(
     } else if let Some(uri) = resolve_relative_to_package(base_uri, uri_str) {
         Ok((uri, None))
     } else {
-        // Relativo ao arquivo base. Se o base está num pacote (real ou gerado),
-        // resolve pela URI `package:` para que gerados e originais se encontrem.
+        // Relative to the base file. If the base is in a package (real or
+        // generated), resolves through the `package:` URI so that generated and
+        // original files find each other.
         if let Some(bp) = base_path {
             let base_uri = canonical_file_uri(bp, package_config);
             if let Some(rest) = base_uri.strip_prefix("package:") {
-                // `package:` não é hierárquica para o `url`: junta-se à mão.
+                // `package:` is not hierarchical for `url`: joined by hand.
                 let mut segs: Vec<&str> = rest.split('/').collect();
                 segs.pop();
                 for part in uri_str.split('/') {
@@ -1229,16 +1235,16 @@ fn resolve_directive_target(
                 }
             }
         }
-        // Um gerado do `build_runner` resolve os relativos a partir do lugar
-        // de origem dele (`test/x.template.dart` importa `x.dart` de `test/`).
+        // A `build_runner` generated file resolves relative imports from its
+        // original place (`test/x.template.dart` imports `x.dart` from `test/`).
         let origin = base_path.and_then(|p| package_config.generated_origin(p));
         let base = origin.as_deref().or(base_path).and_then(|p| p.parent()).unwrap_or(Path::new("."));
         let target_path = base.join(uri_str);
-        // Lexical, como `Uri.resolve`; arquivo inexistente falha na leitura.
+        // Lexical, like `Uri.resolve`; a nonexistent file fails when read.
         let canonical = normalize(&target_path);
         let canonical_uri = canonical_file_uri(&canonical, package_config);
-        // Fora de `lib/` (`test/`, `web/`), o gerado do `build_runner` ocupa
-        // o lugar do arquivo que falta, com a URI do lugar.
+        // Outside `lib/` (`test/`, `web/`), the `build_runner` generated file takes
+        // the place of the missing file, with the place's URI.
         if !canonical.is_file() && !package_config.gerados.as_ref().is_some_and(|g| g.contem(&canonical)) {
             if let Some(gerado) = package_config.gerado_no_lugar_de(&canonical) {
                 return Ok((canonical_uri, Some(gerado)));
@@ -1267,7 +1273,7 @@ fn evaluate_configuration(
     sdk: &SdkLayout,
     interner: &Interner,
 ) -> bool {
-    // Avalia expressões do tipo: dart.library.io == 'true' ou dart.library.io
+    // Evaluates expressions like: dart.library.io == 'true' or dart.library.io
     if config.test.len() == 3
         && interner.resolve(config.test[0].sym) == "dart"
         && interner.resolve(config.test[1].sym) == "library"
@@ -1284,16 +1290,17 @@ fn evaluate_configuration(
     false
 }
 
-/// O caminho da augmentation de macro de uma biblioteca: `x.macro.dart` ao
-/// lado de `x.dart` (o mesmo nome da materialização,
+/// The path of a library's macro augmentation: `x.macro.dart` next to
+/// `x.dart` (the same name as the materialization,
 /// docs/MACROS-COMPATIBILIDADE.md).
 pub fn caminho_da_augmentation_de_macro(library: &Path) -> PathBuf {
     let stem = library.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     library.with_file_name(format!("{stem}.macro.dart"))
 }
 
-/// Carrega a augmentation de macro de `lib`, se a geração em memória tiver
-/// uma (e a biblioteca ainda não a incluir por `import augment`/`part`).
+/// Loads the macro augmentation of `lib`, if the in-memory generation has
+/// one (and the library does not include it yet through
+/// `import augment`/`part`).
 fn attach_macro_augmentation(
     program: &mut Program,
     lib_id: LibraryId,
@@ -1324,8 +1331,9 @@ fn attach_macro_augmentation(
     Some(uid)
 }
 
-/// A unidade de `import augment 'x'` tem de começar por `augment library 'y'`
-/// com `y` apontando para quem a importou (a regra do par `part`/`part of`).
+/// The unit of `import augment 'x'` must start with `augment library 'y'`
+/// with `y` pointing to whoever imported it (the rule of the
+/// `part`/`part of` pair).
 fn verify_augment_library(
     program: &Program,
     aug_unit_id: UnitId,
@@ -1339,7 +1347,7 @@ fn verify_augment_library(
     });
     let Some((span, uri)) = header else {
         diagnostics.push(Diagnostic::new(
-            format!("a biblioteca de augmentation '{}' não começa por 'augment library'", unidade.uri),
+            format!("augmentation library '{}' does not start with 'augment library'", unidade.uri),
             Span { start: 0, end: 0 },
         ));
         return;
@@ -1351,7 +1359,7 @@ fn verify_augment_library(
     if expected != normalize(importer) {
         diagnostics.push(Diagnostic::new(
             format!(
-                "'augment library' aponta para '{}', mas quem importa a augmentation é '{}'",
+                "'augment library' points to '{}', but the library importing the augmentation is '{}'",
                 expected.display(),
                 importer.display()
             ),
@@ -1391,7 +1399,7 @@ fn verify_part_of(
                         if !matches_any_unit {
                             diagnostics.push(Diagnostic::new(
                                 format!(
-                                    "diretiva 'part of' aponta para '{}', mas a biblioteca declarante é '{}'",
+                                    "'part of' directive points to '{}', but the declaring library is '{}'",
                                     expected_parent.display(),
                                     parent_lib.uri
                                 ),
@@ -1404,7 +1412,7 @@ fn verify_part_of(
                 let part_name_syms: Vec<_> = name.iter().map(|n| n.sym).collect();
                 if parent_lib.name.as_ref() != Some(&part_name_syms) {
                     diagnostics.push(Diagnostic::new(
-                        "nome da biblioteca na diretiva 'part of' não corresponde à biblioteca declarante",
+                        "library name in the 'part of' directive does not match the declaring library",
                         d.span,
                     ));
                 }
@@ -1415,7 +1423,7 @@ fn verify_part_of(
     if !found_part_of {
         diagnostics.push(Diagnostic::new(
             format!(
-                "arquivo de parte '{}' não contém diretiva 'part of'",
+                "part file '{}' does not contain a 'part of' directive",
                 part_unit.uri
             ),
             Span { start: 0, end: 0 },

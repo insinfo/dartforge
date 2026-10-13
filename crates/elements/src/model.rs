@@ -1,14 +1,14 @@
-//! Modelo de elementos: o *outline* de um programa Dart, sem corpos analisados.
+//! Element model: the *outline* of a Dart program, without analyzed bodies.
 //!
-//! É o que o CFE chama de outline e o `analyzer` chama de element model: para
-//! cada biblioteca, o que ela declara e o que ela vê; para cada classe, seus
-//! membros por nome e seus supertipos por classe. Nenhum corpo de função é
-//! tocado aqui — resolver `a.b` dentro de um corpo depende do tipo de `a`, e
-//! isso é da fase `types`.
+//! It is what the CFE calls the outline and the `analyzer` calls the element
+//! model: for each library, what it declares and what it sees; for each
+//! class, its members by name and its supertypes by class. No function body
+//! is touched here — resolving `a.b` inside a body depends on the type of
+//! `a`, and that belongs to the `types` phase.
 //!
-//! Regras de memória (docs/FRONTEND-ARQUITETURA.md §2): tudo em `Vec` indexado
-//! por id `u32`; nomes são [`SymbolId`]; nós da árvore são referenciados por
-//! `(UnitId, id na arena)`, nunca copiados.
+//! Memory rules (docs/FRONTEND-ARQUITETURA.md §2): everything in `Vec`s
+//! indexed by `u32` ids; names are [`SymbolId`]; tree nodes are referenced
+//! by `(UnitId, id in the arena)`, never copied.
 use dartforge_diagnostics::Span;
 use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
@@ -24,56 +24,57 @@ macro_rules! id {
     };
 }
 
-id!(/// Índice em [`Program::units`].
+id!(/// Index into [`Program::units`].
     UnitId);
-id!(/// Índice em [`Program::libraries`].
+id!(/// Index into [`Program::libraries`].
     LibraryId);
-id!(/// Índice em [`Program::classes`] (classe, mixin, enum ou extension type).
+id!(/// Index into [`Program::classes`] (class, mixin, enum or extension type).
     ClassId);
-id!(/// Índice em [`Program::extensions`].
+id!(/// Index into [`Program::extensions`].
     ExtensionId);
-id!(/// Índice em [`Program::typedefs`].
+id!(/// Index into [`Program::typedefs`].
     TypedefId);
-id!(/// Índice em [`Program::functions`] (funções de topo, métodos, getters,
-    /// setters, operadores e construtores).
+id!(/// Index into [`Program::functions`] (top-level functions, methods, getters,
+    /// setters, operators and constructors).
     FunctionElementId);
-id!(/// Índice em [`Program::variables`] (variáveis de topo e campos).
+id!(/// Index into [`Program::variables`] (top-level variables and fields).
     VariableId);
 
-/// Tempos das sub-fases de `load_lenient`, para o `--timings` do `compile-js`.
+/// Timings of the `load_lenient` sub-phases, for `compile-js --timings`.
 #[derive(Debug, Default, Clone)]
 pub struct TemposCarga {
-    /// Leitura e lexing em série (partes e SDK dos arquivos), mais o custo
-    /// de tirar do prefetch o que já veio pronto.
+    /// Serial reading and lexing (parts and SDK from files), plus the cost of
+    /// taking from the prefetch what already came ready.
     pub leitura: std::time::Duration,
-    /// Ondas de leitura + lexing em paralelo (tempo de parede).
+    /// Parallel read + lex waves (wall time).
     pub leitura_lex_paralelo: std::time::Duration,
     pub ondas: usize,
-    /// Análise sintática (sequencial: precisa do `Interner`).
+    /// Parsing (sequential: it needs the `Interner`).
     pub parse: std::time::Duration,
-    /// Decodificação das unidades do SDK vindas do cache.
+    /// Decoding of the SDK units coming from the cache.
     pub sdk_cache: std::time::Duration,
-    /// Resolução de diretivas: URIs, `canonicalize`, `verify_part_of`, fila.
+    /// Directive resolution: URIs, `canonicalize`, `verify_part_of`, queue.
     pub diretivas: std::time::Duration,
-    /// `build_outline` fase 1: declarações e membros.
+    /// `build_outline` phase 1: declarations and members.
     pub outline_declaracoes: std::time::Duration,
-    /// `build_outline` fase 2: `exported` com ponto fixo de reexports.
+    /// `build_outline` phase 2: `exported` with the reexport fixpoint.
     pub outline_reexports: std::time::Duration,
-    /// `build_outline` fase 3: escopo léxico e prefixos por biblioteca.
+    /// `build_outline` phase 3: lexical scope and prefixes per library.
     pub outline_escopos: std::time::Duration,
-    /// `build_outline` fase 4: supertipos e ciclos.
+    /// `build_outline` phase 4: supertypes and cycles.
     pub outline_supertipos: std::time::Duration,
-    /// Arquivos lidos e bytes de fonte (usuário e pacotes).
+    /// Files read and source bytes (user and packages).
     pub arquivos_lidos: usize,
     pub bytes_lidos: usize,
-    /// Unidades que vieram prontas do cache da sessão residente.
+    /// Units that came ready from the resident session's cache.
     pub unidades_reaproveitadas: usize,
 }
 
-/// Programa inteiro: SDK, pacotes e o projeto, num só grafo de bibliotecas.
+/// The whole program: SDK, packages and the project, in a single library
+/// graph.
 #[derive(Debug, Default)]
 pub struct Program {
-    /// Tempos das sub-fases da carga (preenchido por `load_lenient`).
+    /// Timings of the load sub-phases (filled in by `load_lenient`).
     pub tempos: TemposCarga,
     pub units: Vec<Unit>,
     pub libraries: Vec<Library>,
@@ -82,42 +83,43 @@ pub struct Program {
     pub typedefs: Vec<TypedefElement>,
     pub functions: Vec<FunctionElement>,
     pub variables: Vec<VariableElement>,
-    /// Biblioteca de `dart:core`, importada implicitamente por todas.
+    /// The `dart:core` library, implicitly imported by all.
     pub core: Option<LibraryId>,
-    /// Biblioteca da entrada do programa (a que declara `main`), quando há.
+    /// The library of the program's entry point (the one declaring `main`),
+    /// when there is one.
     pub entry: Option<LibraryId>,
-    /// As declarações `augment class`/`augment mixin` de cada classe, na
-    /// ordem de aplicação (docs/AUGMENTATIONS.md). Vazio num programa sem
+    /// The `augment class`/`augment mixin` declarations of each class, in
+    /// application order (docs/AUGMENTATIONS.md). Empty in a program without
     /// augmentations.
     pub augmentacoes: HashMap<ClassId, Vec<DeclRef>>,
-    /// As classes declaradas com `macro` (experimento `macros`), anotadas na
-    /// mesma passada que cria os elementos. Vazio ⇒ nenhuma anotação pode ser
-    /// aplicação de macro, e o hospedeiro de macros nem é consultado
-    /// (regra de custo zero, docs/MACROS-PROTOCOLO.md §2).
+    /// The classes declared with `macro` (`macros` experiment), recorded in the
+    /// same pass that creates the elements. Empty ⇒ no annotation can be a macro
+    /// application, and the macro host is not even consulted (zero-cost rule,
+    /// docs/MACROS-PROTOCOLO.md §2).
     pub classes_macro: Vec<ClassId>,
 }
 
-/// Papel de um arquivo dentro da sua biblioteca.
+/// Role of a file within its library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UnitRole {
-    /// Arquivo que declara a biblioteca (tem os imports).
+    /// File that declares the library (it has the imports).
     Library,
-    /// `part of` da biblioteca.
+    /// A `part of` of the library.
     Part,
-    /// Patch file do SDK (`libraries.json`), fundido na biblioteca de origem.
+    /// SDK patch file (`libraries.json`), merged into the source library.
     Patch,
-    /// Biblioteca de augmentation da forma 3.6 (`import augment 'x'` +
-    /// `augment library 'y'`): pertence à biblioteca, como uma parte, e as
-    /// suas declarações `augment` se fundem nas da biblioteca
-    /// (docs/AUGMENTATIONS.md). Na forma atual da spec a augmentation vive
-    /// numa [`UnitRole::Part`] comum.
+    /// Augmentation library in the 3.6 form (`import augment 'x'` +
+    /// `augment library 'y'`): it belongs to the library, like a part, and its
+    /// `augment` declarations merge into the library's (docs/AUGMENTATIONS.md).
+    /// In the current form of the spec the augmentation lives in a plain
+    /// [`UnitRole::Part`].
     Augmentation,
 }
 
-/// Um arquivo `.dart` já analisado sintaticamente.
+/// A `.dart` file already parsed.
 #[derive(Debug)]
 pub struct Unit {
-    /// URI canônica: `dart:core`, `package:x/y.dart` ou `file:///…`.
+    /// Canonical URI: `dart:core`, `package:x/y.dart` or `file:///…`.
     pub uri: String,
     pub path: Option<PathBuf>,
     pub source: String,
@@ -125,24 +127,24 @@ pub struct Unit {
     pub unit: CompilationUnit,
     pub library: LibraryId,
     pub role: UnitRole,
-    /// Recursos com que a unidade foi analisada (os da biblioteca). A sessão
-    /// residente só reaproveita a unidade se continuarem os mesmos.
+    /// Features the unit was parsed with (the library's). The resident session
+    /// only reuses the unit if they stay the same.
     pub features: LibraryFeatures,
-    /// Os trechos da fonte que a recuperação de erro do parser descartou
-    /// (`dartforge_frontend::parser::Parsed::pulados`); vazio numa unidade
-    /// sem erro de sintaxe e nas que vêm do cache do SDK.
+    /// The source ranges the parser's error recovery discarded
+    /// (`dartforge_frontend::parser::Parsed::pulados`); empty in a unit without
+    /// syntax errors and in those coming from the SDK cache.
     pub pulados: Vec<dartforge_diagnostics::Span>,
-    /// Qual analyzer é a referência de nomes de código e de textos deste
-    /// arquivo (`dartforge_frontend::parser::Parsed::referencia`). As
-    /// unidades do SDK são do 3.6.2.
+    /// Which analyzer is the reference for this file's code names and texts
+    /// (`dartforge_frontend::parser::Parsed::referencia`). SDK units are
+    /// 3.6.2's.
     pub referencia: dartforge_diagnostics::Referencia,
 }
 
-/// Importação já resolvida para uma biblioteca do programa.
+/// An import already resolved to a library of the program.
 #[derive(Debug)]
 pub struct Import {
     pub unit: UnitId,
-    /// Índice da diretiva em `Unit::unit.directives`.
+    /// Index of the directive in `Unit::unit.directives`.
     pub directive: usize,
     pub library: LibraryId,
     pub prefix: Option<SymbolId>,
@@ -196,90 +198,91 @@ impl Clone for Export {
     }
 }
 
-/// Referência a um elemento nomeável no escopo de uma biblioteca.
+/// Reference to a nameable element in a library's scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Element {
     Class(ClassId),
     Extension(ExtensionId),
     Typedef(TypedefId),
-    /// Função, getter ou setter de topo.
+    /// Top-level function, getter or setter.
     Function(FunctionElementId),
-    /// Variável de topo (com getter/setter implícitos).
+    /// Top-level variable (with implicit getter/setter).
     Variable(VariableId),
-    /// Prefixo de import (`import 'x' as p;`): resolve para a biblioteca dona.
+    /// Import prefix (`import 'x' as p;`): resolves to the owning library.
     Prefix(LibraryId, SymbolId),
 }
 
-/// Entrada de namespace: um nome pode mapear para um getter e um setter
-/// distintos (`get x` e `set x` de topo são elementos separados).
+/// Namespace entry: one name may map to a distinct getter and setter
+/// (top-level `get x` and `set x` are separate elements).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Binding {
     pub getter: Option<Element>,
     pub setter: Option<Element>,
-    /// Dois imports trouxeram elementos diferentes com este nome; o uso do
-    /// nome é erro, mas a importação em si não (regra do Dart).
+    /// Two imports brought different elements with this name; using the name is
+    /// an error, but the import itself is not (a Dart rule).
     pub ambiguous: bool,
 }
 
-/// Mapa de nomes → elementos.
+/// Map of names → elements.
 pub type Namespace = HashMap<SymbolId, Binding>;
 
 #[derive(Debug)]
 pub struct Library {
     pub uri: String,
     pub name: Option<Vec<SymbolId>>,
-    /// Unidade principal, depois partes e patches, na ordem de descoberta.
+    /// Main unit, then parts and patches, in discovery order.
     pub units: Vec<UnitId>,
     pub imports: Vec<Import>,
     pub exports: Vec<Export>,
-    /// Elementos declarados nesta biblioteca (inclusive os de patches),
-    /// privados incluídos.
+    /// Elements declared in this library (including those from patches),
+    /// private ones included.
     pub declared: Namespace,
-    /// O que a biblioteca exporta: `declared` sem privados, mais os exports.
+    /// What the library exports: `declared` without private names, plus the
+    /// exports.
     pub exported: Namespace,
-    /// Escopo de resolução de nomes de topo: `declared` sombreia os imports
-    /// sem prefixo; `dart:core` implícito tem a menor precedência.
+    /// Resolution scope for top-level names: `declared` shadows the unprefixed
+    /// imports; the implicit `dart:core` has the lowest precedence.
     pub scope: Namespace,
-    /// Namespaces alcançáveis por prefixo (`p.nome`).
+    /// Namespaces reachable through a prefix (`p.name`).
     pub prefixes: HashMap<SymbolId, Namespace>,
-    /// Biblioteca do SDK (`dart:`), que pode usar `JS()`, `@patch`, `native`.
+    /// SDK library (`dart:`), which may use `JS()`, `@patch`, `native`.
     pub is_sdk: bool,
-    /// Versão de linguagem e recursos ligados (`docs/VERSOES-LINGUAGEM.md`):
-    /// o marcador `// @dart = x.y`, senão o `languageVersion` do pacote,
-    /// senão a versão corrente; `dart:*` no piso 3.6. Resolvida uma vez, na
-    /// carga, antes do parse.
+    /// Language version and enabled features (`docs/VERSOES-LINGUAGEM.md`): the
+    /// `// @dart = x.y` marker, otherwise the package's `languageVersion`,
+    /// otherwise the current version; `dart:*` at the 3.6 floor. Resolved once,
+    /// at load time, before parsing.
     pub features: LibraryFeatures,
-    /// O arquivo que incluiu cada parte (ou augmentation) da biblioteca: a
-    /// árvore de partes (`part` dentro de `part`, `parts-with-imports`).
+    /// The file that included each part (or augmentation) of the library: the
+    /// parts tree (`part` inside `part`, `parts-with-imports`).
     pub pais: HashMap<UnitId, UnitId>,
-    /// O escopo de cada unidade quando alguma parte tem imports próprios
-    /// (`parts-with-imports`): os imports de um arquivo valem nele e nas
-    /// partes dele, e os de dentro escondem os de fora. Vazio quando só o
-    /// arquivo da biblioteca importa — aí vale [`Library::scope`] para
-    /// todas. Consulte por [`Program::lookup_na_unidade`].
+    /// The scope of each unit when some part has its own imports
+    /// (`parts-with-imports`): a file's imports apply to it and to its parts,
+    /// and the inner ones hide the outer ones. Empty when only the library file
+    /// imports — then [`Library::scope`] applies to all. Query it through
+    /// [`Program::lookup_na_unidade`].
     pub escopos_de_unidade: HashMap<UnitId, UnitScope>,
-    /// Para cada elemento de topo com homônimo da MESMA espécie na
-    /// biblioteca (duas classes `A`, duas funções `f`): o representante do
-    /// grupo, o primeiro em ordem de fonte — ele próprio inclusive. Sem
-    /// homônimo, ausente. É a "chave de mapa" do analyzer, que iguala
-    /// elementos pela espécie e pela localização: os caches por elemento
-    /// (interface, hierarquia, nomes de membros já vistos) são um só para o
-    /// grupo (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 c–d). A identidade de
-    /// tipo continua sendo a de cada elemento.
+    /// For each top-level element with a homonym of the SAME kind in the
+    /// library (two classes `A`, two functions `f`): the group's representative,
+    /// the first in source order — itself included. Without a homonym, absent.
+    /// It is the analyzer's "map key", which equates elements by kind and
+    /// location: the per-element caches (interface, hierarchy, member names
+    /// already seen) are a single one for the group
+    /// (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 c–d). Type identity remains that
+    /// of each element.
     pub representante: HashMap<Element, Element>,
-    /// T1.1 d: para cada classe com homônimo da mesma espécie, a classe cujo
-    /// cálculo de interface e de hierarquia vale para o grupo inteiro — a
-    /// que o analyzer consulta primeiro (`outline::compute_homonym_owners`).
-    /// Sem homônimo, ausente.
+    /// T1.1 d: for each class with a homonym of the same kind, the class whose
+    /// interface and hierarchy computation applies to the whole group — the one
+    /// the analyzer consults first (`outline::compute_homonym_owners`). Without
+    /// a homonym, absent.
     pub dono_do_grupo: HashMap<ClassId, ClassId>,
 }
 
-/// Escopo de nomes de topo de uma unidade (ver [`Library::escopos_de_unidade`]).
+/// Top-level name scope of a unit (see [`Library::escopos_de_unidade`]).
 #[derive(Debug, Clone, Default)]
 pub struct UnitScope {
-    /// Como [`Library::scope`], com os imports da cadeia da unidade.
+    /// Like [`Library::scope`], with the imports of the unit's chain.
     pub scope: Namespace,
-    /// Como [`Library::prefixes`], com os prefixos da cadeia da unidade.
+    /// Like [`Library::prefixes`], with the prefixes of the unit's chain.
     pub prefixes: HashMap<SymbolId, Namespace>,
 }
 
@@ -289,12 +292,12 @@ pub enum ClassKind {
     Mixin,
     Enum,
     ExtensionType,
-    /// `class C = S with M;` — ou a classe sintética `S with M` gerada para
-    /// cada mixin numa cláusula `with` (`S&M`).
+    /// `class C = S with M;` — or the synthetic class `S with M` generated for
+    /// each mixin in a `with` clause (`S&M`).
     MixinApplication,
 }
 
-/// Onde a declaração está na árvore.
+/// Where the declaration is in the tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeclRef {
     pub unit: UnitId,
@@ -304,7 +307,7 @@ pub struct DeclRef {
 #[derive(Debug)]
 pub struct TypeParameterElement {
     pub name: SymbolId,
-    /// `(unidade, kind na arena)` do bound escrito, resolvido em `types`.
+    /// `(unit, kind in the arena)` of the written bound, resolved in `types`.
     pub bound: Option<(UnitId, ast::TypeId)>,
 }
 
@@ -312,50 +315,51 @@ pub struct TypeParameterElement {
 pub struct ClassElement {
     pub name: SymbolId,
     pub library: LibraryId,
-    /// Declaração de origem; `None` em classes sintéticas de mixin.
+    /// Source declaration; `None` for synthetic mixin classes.
     pub decl: Option<DeclRef>,
     pub kind: ClassKind,
     pub modifiers: ast::ClassModifiers,
     pub type_params: Vec<TypeParameterElement>,
-    /// Supertipos como escritos, para `types` instanciar com argumentos.
+    /// Supertypes as written, for `types` to instantiate with arguments.
     pub supertype: Option<(UnitId, ast::TypeId)>,
     pub mixins: Vec<(UnitId, ast::TypeId)>,
     pub interfaces: Vec<(UnitId, ast::TypeId)>,
-    /// `on` de mixins.
+    /// The `on` of mixins.
     pub on: Vec<(UnitId, ast::TypeId)>,
-    /// Classe do supertipo, já resolvida pelo nome (`Object` quando omitida,
-    /// `None` só para `Object` mesmo). Argumentos de tipo ficam em `types`.
+    /// The supertype's class, already resolved by name (`Object` when omitted,
+    /// `None` only for `Object` itself). Type arguments stay in `types`.
     pub supertype_class: Option<ClassId>,
     pub mixin_classes: Vec<ClassId>,
     pub interface_classes: Vec<ClassId>,
     pub on_classes: Vec<ClassId>,
-    /// Membros de instância por nome; getters e setters são entradas
-    /// separadas (`x` e `x_=`), operadores pelo texto (`+`, `[]=`).
+    /// Instance members by name; getters and setters are separate entries (`x`
+    /// and `x_=`), operators by their text (`+`, `[]=`).
     pub instance_members: HashMap<SymbolId, FunctionElementId>,
-    /// Os membros de instância que um homônimo posterior tirou de
-    /// [`ClassElement::instance_members`] (declaração duplicada), em ordem.
-    /// O mapa declarado da interface (`_getTypeMembers`) não segue a ordem
-    /// da fonte: métodos, depois os acessores dos campos, depois os acessores
-    /// escritos (`_visitPropertyFirst`), com o último vencendo.
+    /// The instance members a later homonym removed from
+    /// [`ClassElement::instance_members`] (duplicate declaration), in order. The
+    /// interface's declared map (`_getTypeMembers`) does not follow source
+    /// order: methods, then the fields' accessors, then the written accessors
+    /// (`_visitPropertyFirst`), with the last one winning.
     pub instancia_sobrepostos: Vec<(SymbolId, FunctionElementId)>,
     pub static_members: HashMap<SymbolId, FunctionElementId>,
-    /// Construtores por nome; o sem nome usa o símbolo vazio `""`. A chave é
-    /// o `SymbolId`, cuja ordem é a da **internação**: numa sessão residente
-    /// (`dartforge dev`) ela depende da ordem das edições, então percorrer o
-    /// mapa direto faz a saída de uma recompilação divergir da de uma
-    /// compilação limpa. Quem emite percorre [`ClassElement::construtores`].
+    /// Constructors by name; the unnamed one uses the empty symbol `""`. The key
+    /// is the `SymbolId`, whose order is that of **interning**: in a resident
+    /// session (`dartforge dev`) it depends on the order of the edits, so
+    /// walking the map directly makes a recompilation's output diverge from a
+    /// clean compilation's. Emitters walk [`ClassElement::construtores`].
     pub constructors: BTreeMap<SymbolId, FunctionElementId>,
-    /// Campos de instância e estáticos, na ordem de declaração.
+    /// Instance and static fields, in declaration order.
     pub fields: Vec<VariableId>,
-    /// Constantes de um `enum`, na ordem.
+    /// Constants of an `enum`, in order.
     pub enum_constants: Vec<VariableId>,
-    /// Tipo de representação de um extension type.
+    /// Representation type of an extension type.
     pub representation: Option<VariableId>,
 }
 
 impl ClassElement {
-    /// Os construtores na ordem de declaração na fonte (o outline numera as
-    /// funções nessa ordem), que não depende da ordem de internação dos nomes.
+    /// The constructors in source declaration order (the outline numbers the
+    /// functions in that order), which does not depend on the interning order
+    /// of the names.
     pub fn construtores(&self) -> Vec<(SymbolId, FunctionElementId)> {
         let mut v: Vec<(SymbolId, FunctionElementId)> = self.constructors.iter().map(|(&s, &f)| (s, f)).collect();
         v.sort_by_key(|&(_, f)| f);
@@ -390,20 +394,20 @@ pub enum FunctionKind {
     Setter,
     Operator,
     Constructor,
-    /// Construtor sintético (padrão sem nome, ou de aplicação de mixin).
+    /// Synthetic constructor (default unnamed, or a mixin application's).
     SyntheticConstructor,
-    /// Getter/setter implícitos de um campo ou variável de topo.
+    /// Implicit getter/setter of a field or top-level variable.
     ImplicitAccessor,
 }
 
-/// Onde a função está na árvore.
+/// Where the function is in the tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionRef {
-    /// Função de topo ou método: `Ast::functions[id]`.
+    /// Top-level function or method: `Ast::functions[id]`.
     Function { unit: UnitId, function: FunctionId },
-    /// Construtor: `Ast::members[id]` com `MemberKind::Constructor`.
+    /// Constructor: `Ast::members[id]` with `MemberKind::Constructor`.
     Constructor { unit: UnitId, member: MemberId },
-    /// Sem nó (sintético).
+    /// No node (synthetic).
     None,
 }
 
@@ -411,7 +415,7 @@ pub enum FunctionRef {
 pub struct FunctionElement {
     pub name: SymbolId,
     pub library: LibraryId,
-    /// Classe/mixin/enum dona, para membros; `None` em funções de topo.
+    /// Owning class/mixin/enum, for members; `None` for top-level functions.
     pub class: Option<ClassId>,
     pub extension: Option<ExtensionId>,
     pub kind: FunctionKind,
@@ -421,43 +425,43 @@ pub struct FunctionElement {
     pub const_: bool,
     pub factory: bool,
     pub node: FunctionRef,
-    /// Para acessores implícitos, a variável de origem.
+    /// For implicit accessors, the source variable.
     pub variable: Option<VariableId>,
-    /// Membro de patch que substituiu este `external` (o corpo a compilar é
-    /// o dele); `None` quando não há patch.
+    /// Patch member that replaced this `external` one (the body to compile is
+    /// its); `None` when there is no patch.
     pub patched_by: Option<FunctionElementId>,
-    /// Membro de patch do SDK → a declaração pública que ele substitui (o
-    /// inverso de `patched_by`, sempre a de origem, mesmo com dois patches
-    /// do mesmo membro). O analyzer não aplica patches: a assinatura e os
-    /// modificadores (`const`, `factory`, `external`) que a análise vê são
-    /// os da declaração pública — o patch só dá o corpo
-    /// (docs/ANALYZER-ESPECIFICACAO.md §G, T3). `None` em código do usuário e
-    /// em membros que só existem no patch.
+    /// SDK patch member → the public declaration it replaces (the inverse of
+    /// `patched_by`, always the source one, even with two patches of the same
+    /// member). The analyzer does not apply patches: the signature and the
+    /// modifiers (`const`, `factory`, `external`) analysis sees are those of the
+    /// public declaration — the patch only provides the body
+    /// (docs/ANALYZER-ESPECIFICACAO.md §G, T3). `None` in user code and in
+    /// members that only exist in the patch.
     pub declaracao_publica: Option<FunctionElementId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VariableRef {
-    /// Variável de topo: `Ast::decls[decl]` é `DeclKind::Variables` e
-    /// `index` é a posição na lista.
+    /// Top-level variable: `Ast::decls[decl]` is a `DeclKind::Variables` and
+    /// `index` is the position in the list.
     TopLevel {
         unit: UnitId,
         decl: DeclId,
         index: usize,
     },
-    /// Campo: `Ast::members[member]` é `MemberKind::Field`.
+    /// Field: `Ast::members[member]` is a `MemberKind::Field`.
     Field {
         unit: UnitId,
         member: MemberId,
         index: usize,
     },
-    /// Constante de enum: `EnumDecl::constants[index]`.
+    /// Enum constant: `EnumDecl::constants[index]`.
     EnumConstant {
         unit: UnitId,
         decl: DeclId,
         index: usize,
     },
-    /// Campo de representação de extension type.
+    /// Extension type representation field.
     Representation {
         unit: UnitId,
         decl: DeclId,
@@ -485,13 +489,13 @@ impl Program {
     pub fn unit(&self, id: UnitId) -> &Unit {
         &self.units[id.0 as usize]
     }
-    /// A referência do arquivo `u` (docs/ANALYZER-ESPECIFICACAO.md, T2): a
-    /// regra do corpus é por arquivo.
+    /// The reference of file `u` (docs/ANALYZER-ESPECIFICACAO.md, T2): the
+    /// corpus rule is per file.
     pub fn referencia(&self, u: UnitId) -> dartforge_diagnostics::Referencia {
         self.unit(u).referencia
     }
-    /// A referência de uma biblioteca, para as regras que são da biblioteca
-    /// inteira (juntar classes homônimas): a maior entre as das unidades.
+    /// The reference of a library, for the rules that belong to the whole
+    /// library (merging homonymous classes): the highest among its units'.
     pub fn referencia_da_biblioteca(&self, l: LibraryId) -> dartforge_diagnostics::Referencia {
         self.library(l).units.iter().map(|&u| self.unit(u).referencia).max().unwrap_or_default()
     }
@@ -510,10 +514,9 @@ impl Program {
     pub fn function(&self, id: FunctionElementId) -> &FunctionElement {
         &self.functions[id.0 as usize]
     }
-    /// O elemento cuja ASSINATURA a análise vê: a declaração pública quando
-    /// `f` é um membro de patch do SDK ([`FunctionElement::declaracao_publica`]);
-    /// senão o próprio `f`. Os emissores continuam com `f` (o corpo é o do
-    /// patch).
+    /// The element whose SIGNATURE analysis sees: the public declaration when
+    /// `f` is an SDK patch member ([`FunctionElement::declaracao_publica`]);
+    /// otherwise `f` itself. Emitters keep `f` (the body is the patch's).
     pub fn publico(&self, f: FunctionElementId) -> FunctionElementId {
         self.function(f).declaracao_publica.unwrap_or(f)
     }
@@ -521,14 +524,13 @@ impl Program {
         &self.variables[id.0 as usize]
     }
 
-    /// T1 (docs/ANALYZER-ESPECIFICACAO.md §G): o representante do grupo de
-    /// homônimos da classe `c` — a primeira declaração de classe, mixin,
-    /// enum ou tipo de extensão com o mesmo nome e a mesma espécie na
-    /// biblioteca; sem homônimo, a própria `c`. É a classe cuja interface e
-    /// cuja hierarquia o analyzer guarda em cache para o grupo inteiro
-    /// (`ElementImpl.==` por espécie e localização): os verificadores
-    /// calculam a interface do representante e percorrem a árvore de cada
-    /// declaração.
+    /// T1 (docs/ANALYZER-ESPECIFICACAO.md §G): the representative of class `c`'s
+    /// homonym group — the first class, mixin, enum or extension type
+    /// declaration with the same name and kind in the library; without a
+    /// homonym, `c` itself. It is the class whose interface and hierarchy the
+    /// analyzer caches for the whole group (`ElementImpl.==` by kind and
+    /// location): the checkers compute the representative's interface and walk
+    /// each declaration's tree.
     pub fn representante_da_classe(&self, c: ClassId) -> ClassId {
         match self.library(self.class(c).library).representante.get(&Element::Class(c)) {
             Some(Element::Class(r)) => *r,
@@ -536,10 +538,10 @@ impl Program {
         }
     }
 
-    /// T1.1 d: a classe cuja interface e cuja hierarquia valem para `c` (o
-    /// dono do cache do grupo de homônimos); sem homônimo, a própria `c`.
-    /// Os tipos continuam distintos: só os supertipos e os membros da
-    /// interface vêm do dono.
+    /// T1.1 d: the class whose interface and hierarchy apply to `c` (the owner
+    /// of the homonym group's cache); without a homonym, `c` itself. The types
+    /// stay distinct: only the supertypes and the interface members come from
+    /// the owner.
     pub fn dono_da_classe(&self, c: ClassId) -> ClassId {
         let lib = self.library(self.class(c).library);
         if lib.dono_do_grupo.is_empty() {
@@ -548,29 +550,29 @@ impl Program {
         lib.dono_do_grupo.get(&c).copied().unwrap_or(c)
     }
 
-    /// T1: a classe `c` tem homônimo da mesma espécie na biblioteca (ela é
-    /// uma das declarações repetidas, a primeira inclusive)?
+    /// T1: does class `c` have a homonym of the same kind in the library (is it
+    /// one of the repeated declarations, the first included)?
     pub fn class_with_homonym(&self, c: ClassId) -> bool {
         self.library(self.class(c).library).representante.contains_key(&Element::Class(c))
     }
 
-    /// A biblioteca tem augmentations de verdade: o experimento
-    /// `augmentations` (ou `macros`) está ligado nela. Sem ele, `augment`
-    /// não é modificador — o parser lê `augment class A {}` como a variável
-    /// de topo `augment` seguida de uma segunda declaração `A` — e nenhum
-    /// filtro de "declaração aumentada" se aplica (T1.1 f).
+    /// The library really has augmentations: the `augmentations` (or `macros`)
+    /// experiment is on in it. Without it, `augment` is not a modifier — the
+    /// parser reads `augment class A {}` as the top-level variable `augment`
+    /// followed by a second declaration `A` — and no "augmented declaration"
+    /// filter applies (T1.1 f).
     pub fn biblioteca_com_augmentations(&self, lib: LibraryId) -> bool {
         let f = self.library(lib).features;
         f.tem(dartforge_frontend::Feature::Augmentations) || f.tem(dartforge_frontend::Feature::Macros)
     }
 
-    /// Os membros sintáticos de uma classe: os da declaração introdutória
-    /// seguidos dos de cada augmentation, na ordem de aplicação, cada um com
-    /// a sua unidade. Um membro cuja declaração foi completada por outra da
-    /// cadeia continua na lista; quem emite pega o elemento efetivo pelo mapa
-    /// de membros e pula o membro cujo elemento não é o efetivo.
-    /// `source.fullName`: o caminho nativo do arquivo da unidade (a URI, sem
-    /// arquivo).
+    /// The syntactic members of a class: those of the introductory declaration
+    /// followed by those of each augmentation, in application order, each with
+    /// its unit. A member whose declaration was completed by another one of the
+    /// chain stays in the list; emitters take the effective element from the
+    /// member map and skip the member whose element is not the effective one.
+    /// `source.fullName`: the native path of the unit's file (the URI, without
+    /// a file).
     pub fn caminho_da_unidade(&self, u: UnitId) -> String {
         let unit = self.unit(u);
         match &unit.path {
@@ -579,8 +581,8 @@ impl Program {
         }
     }
 
-    /// O nome declarado de uma classe (`nameOffset`/`nameLength`); nenhum na
-    /// sintética.
+    /// The declared name of a class (`nameOffset`/`nameLength`); none for a
+    /// synthetic one.
     pub fn nome_da_classe(&self, c: ClassId) -> Option<(UnitId, Span)> {
         let d = self.class(c).decl?;
         let n = match &self.unit(d.unit).ast.decl(d.decl).kind {
@@ -593,8 +595,8 @@ impl Program {
         Some((d.unit, n.span))
     }
 
-    /// O nome declarado de uma variável (de topo, campo, constante de enum,
-    /// representação).
+    /// The declared name of a variable (top-level, field, enum constant,
+    /// representation).
     pub fn nome_da_variavel(&self, v: VariableId) -> Option<(UnitId, Span)> {
         match self.variable(v).node {
             VariableRef::TopLevel { unit, decl, index } => match &self.unit(unit).ast.decl(decl).kind {
@@ -617,11 +619,11 @@ impl Program {
         }
     }
 
-    /// `element.nonSynthetic` + `nameOffset`/`nameLength` de uma função
-    /// (docs/ANALYZER-ESPECIFICACAO-INFRA.md III.3 item 4, o
-    /// `intervalo_de_relato`): o acessor implícito vale pela variável; o
-    /// construtor sintético, pela classe; o construtor sem nome, pelo nome da
-    /// classe escrito nele.
+    /// `element.nonSynthetic` + `nameOffset`/`nameLength` of a function
+    /// (docs/ANALYZER-ESPECIFICACAO-INFRA.md III.3 item 4, the
+    /// `intervalo_de_relato`): an implicit accessor counts through the variable;
+    /// a synthetic constructor, through the class; the unnamed constructor,
+    /// through the class name written in it.
     pub fn nome_nao_sintetico_da_funcao(&self, f: FunctionElementId) -> Option<(UnitId, Span)> {
         let fe = self.function(f);
         match fe.node {
@@ -657,15 +659,15 @@ impl Program {
         out
     }
 
-    /// Resolve um nome de topo no escopo de uma biblioteca (sem prefixo).
+    /// Resolves a top-level name in a library's scope (without a prefix).
     pub fn lookup(&self, library: LibraryId, name: SymbolId) -> Option<Binding> {
         self.library(library).scope.get(&name).copied()
     }
 
-    /// Resolve um nome de topo no escopo de uma **unidade**: com
-    /// `parts-with-imports`, cada arquivo vê os próprios imports (e os dos
-    /// arquivos que o incluíram, que os de dentro escondem); sem imports em
-    /// partes, é [`Program::lookup`] da biblioteca.
+    /// Resolves a top-level name in the scope of a **unit**: with
+    /// `parts-with-imports`, each file sees its own imports (and those of the
+    /// files that included it, which the inner ones hide); without imports in
+    /// parts, it is the library's [`Program::lookup`].
     pub fn lookup_na_unidade(&self, unit: UnitId, name: SymbolId) -> Option<Binding> {
         let lib = self.library(self.unit(unit).library);
         match lib.escopos_de_unidade.get(&unit) {
@@ -674,12 +676,12 @@ impl Program {
         }
     }
 
-    /// `prefix.nome` no escopo de uma unidade (ver [`Program::lookup_na_unidade`]).
+    /// `prefix.name` in a unit's scope (see [`Program::lookup_na_unidade`]).
     pub fn lookup_prefixed_na_unidade(&self, unit: UnitId, prefix: SymbolId, name: SymbolId) -> Option<Binding> {
         self.prefixos_na_unidade(unit).get(&prefix).and_then(|ns| ns.get(&name).copied())
     }
 
-    /// Os prefixos de import visíveis numa unidade.
+    /// The import prefixes visible in a unit.
     pub fn prefixos_na_unidade(&self, unit: UnitId) -> &HashMap<SymbolId, Namespace> {
         let lib = self.library(self.unit(unit).library);
         match lib.escopos_de_unidade.get(&unit) {

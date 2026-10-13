@@ -1,50 +1,51 @@
-//! Layout do SDK: `libraries.json` diz onde cada `dart:x` vive e quais patches
-//! a completam.
+//! SDK layout: `libraries.json` says where each `dart:x` lives and which
+//! patches complete it.
 //!
-//! O arquivo é o mesmo que o CFE lê. A seção escolhida é `dartdevc`, porque a
-//! emissão segue o modelo do DDC (docs/FRONTEND-ARQUITETURA.md §5); a seção
-//! `dart2js` tem as mesmas bibliotecas de origem com patches diferentes, e
-//! trocar de modelo é trocar a seção.
+//! The file is the same one the CFE reads. The chosen section is
+//! `dartdevc`, because emission follows the DDC model
+//! (docs/FRONTEND-ARQUITETURA.md §5); the `dart2js` section has the same
+//! source libraries with different patches, and switching models means
+//! switching sections.
 use dartforge_frontend::{Feature, LanguageVersion};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Uma biblioteca `dart:` do SDK.
+/// A `dart:` library of the SDK.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdkLibrary {
-    /// Nome após `dart:` (`core`, `_js_helper`).
+    /// Name after `dart:` (`core`, `_js_helper`).
     pub name: String,
-    /// Arquivo da biblioteca de origem.
+    /// File of the source library.
     pub path: PathBuf,
-    /// Patch files, na ordem em que o SDK os aplica.
+    /// Patch files, in the order the SDK applies them.
     pub patches: Vec<PathBuf>,
-    /// `supported: false` em `libraries.json` (`dart:io` no DDC): importável,
-    /// mas todo uso lança `UnsupportedError`.
+    /// `supported: false` in `libraries.json` (`dart:io` in DDC): importable,
+    /// but every use throws `UnsupportedError`.
     pub supported: bool,
 }
 
-/// Mapa `dart:x` → arquivos, para um alvo de `libraries.json`.
+/// Map `dart:x` → files, for one `libraries.json` target.
 #[derive(Debug, Clone, Default)]
 pub struct SdkLayout {
-    /// Diretório `lib/` do SDK.
+    /// The SDK's `lib/` directory.
     pub root: PathBuf,
     pub libraries: HashMap<String, SdkLibrary>,
-    /// A versão de linguagem **corrente** da ferramenta: a de uma biblioteca
-    /// sem marcador e fora de pacote, e o teto dos marcadores
-    /// (`docs/VERSOES-LINGUAGEM.md`, D2). Padrão 3.13; a CLI a troca com
-    /// `--version-linguagem`. As bibliotecas `dart:*` ficam sempre no piso
-    /// ([`LanguageVersion::PISO`]), porque são as do SDK 3.6.2 (D1).
+    /// The tool's **current** language version: that of a library without a
+    /// marker and outside a package, and the ceiling of the markers
+    /// (`docs/VERSOES-LINGUAGEM.md`, D2). Default 3.13; the CLI changes it with
+    /// `--versao-linguagem`. The `dart:*` libraries always stay at the floor
+    /// ([`LanguageVersion::PISO`]), because they are those of SDK 3.6.2 (D1).
     pub versao_corrente: LanguageVersion,
-    /// `--enable-experiment=…`: valem só para bibliotecas sem marcador cuja
-    /// versão padrão é a corrente.
+    /// `--enable-experiment=…`: they only apply to libraries without a marker
+    /// whose default version is the current one.
     pub experimentos: Vec<Feature>,
-    /// Sobreposição (`load_com_sobreposicao`): arquivo do SDK, pelo caminho
-    /// normalizado → arquivo que o substitui. Vazio sem sobreposição.
+    /// Overlay (`load_com_sobreposicao`): SDK file, by normalized path → the
+    /// file that replaces it. Empty without an overlay.
     pub substituicoes: HashMap<PathBuf, PathBuf>,
 }
 
-/// Opções de linguagem da linha de comando: `--version-linguagem x.y` (a
-/// versão corrente, D2) e `--enable-experiment=a,b`.
+/// Command-line language options: `--versao-linguagem x.y` (the current
+/// version, D2) and `--enable-experiment=a,b`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Linguagem {
     pub versao_corrente: Option<LanguageVersion>,
@@ -52,22 +53,22 @@ pub struct Linguagem {
 }
 
 impl Linguagem {
-    /// Consome `arg` (e o valor seguinte, em `rest`) se for uma opção de
-    /// linguagem. `Ok(false)` quando `arg` não é dela.
+    /// Consumes `arg` (and the next value, in `rest`) if it is a language
+    /// option. `Ok(false)` when `arg` is not one.
     ///
-    /// # Erros
-    /// Versão fora do formato `x.y`, acima da corrente ou abaixo de 2.12, e
-    /// experimento desconhecido.
+    /// # Errors
+    /// A version not in the `x.y` format, above the current one or below 2.12,
+    /// and an unknown experiment.
     pub fn ler_opcao<'a>(&mut self, arg: &str, rest: &mut impl Iterator<Item = &'a str>) -> Result<bool, String> {
         if arg == "--versao-linguagem" || arg.starts_with("--versao-linguagem=") {
             let value = match arg.split_once('=') {
                 Some((_, v)) => v.to_string(),
-                None => rest.next().ok_or("--versao-linguagem exige x.y")?.to_string(),
+                None => rest.next().ok_or("--versao-linguagem requires x.y")?.to_string(),
             };
-            let v = LanguageVersion::parse(&value).ok_or_else(|| format!("--versao-linguagem: '{value}' não é x.y"))?;
+            let v = LanguageVersion::parse(&value).ok_or_else(|| format!("--versao-linguagem: '{value}' is not x.y"))?;
             if v > LanguageVersion::ATUAL || v < LanguageVersion::MINIMA {
                 return Err(format!(
-                    "--versao-linguagem {v}: fora do intervalo suportado ({} a {})",
+                    "--versao-linguagem {v}: outside the supported range ({} to {})",
                     LanguageVersion::MINIMA,
                     LanguageVersion::ATUAL
                 ));
@@ -78,10 +79,10 @@ impl Linguagem {
         if arg == "--enable-experiment" || arg.starts_with("--enable-experiment=") {
             let value = match arg.split_once('=') {
                 Some((_, v)) => v.to_string(),
-                None => rest.next().ok_or("--enable-experiment exige nomes")?.to_string(),
+                None => rest.next().ok_or("--enable-experiment requires names")?.to_string(),
             };
             for nome in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
-                let f = Feature::do_nome(nome).ok_or_else(|| format!("--enable-experiment: experimento desconhecido '{nome}'"))?;
+                let f = Feature::do_nome(nome).ok_or_else(|| format!("--enable-experiment: unknown experiment '{nome}'"))?;
                 if !self.experimentos.contains(&f) {
                     self.experimentos.push(f);
                 }
@@ -91,7 +92,7 @@ impl Linguagem {
         Ok(false)
     }
 
-    /// Aplica ao layout (o que não foi pedido fica como está).
+    /// Applies to the layout (what was not requested stays as it is).
     pub fn aplicar(&self, sdk: &mut SdkLayout) {
         if let Some(v) = self.versao_corrente {
             sdk.versao_corrente = v;
@@ -105,10 +106,11 @@ impl Linguagem {
 }
 
 impl SdkLayout {
-    /// Lê `<lib>/libraries.json` e a seção `target` (`dartdevc` ou `dart2js`).
+    /// Reads `<lib>/libraries.json` and the `target` section (`dartdevc` or
+    /// `dart2js`).
     ///
-    /// # Erros
-    /// Arquivo ausente, JSON inválido ou seção inexistente.
+    /// # Errors
+    /// Missing file, invalid JSON or nonexistent section.
     ///
     /// ```no_run
     /// let sdk = dartforge_elements::sdk::SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
@@ -117,9 +119,9 @@ impl SdkLayout {
     pub fn load(lib_dir: &Path, target: &str) -> Result<Self, String> {
         let path = lib_dir.join("libraries.json");
         let text = std::fs::read_to_string(&path)
-            .map_err(|e| format!("não foi possível ler {}: {e}", path.display()))?;
+            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
         let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| format!("{} inválido: {e}", path.display()))?;
+            serde_json::from_str(&text).map_err(|e| format!("{} is invalid: {e}", path.display()))?;
         let mut libraries = HashMap::new();
         Self::read_section(&json, lib_dir, target, &path, &mut libraries, 0)?;
         Ok(SdkLayout {
@@ -131,28 +133,28 @@ impl SdkLayout {
         })
     }
 
-    /// O SDK como o analyzer o enxerga (`FolderBasedDartSdk`): cada
-    /// biblioteca de `_internal/sdk_library_metadata/lib/libraries.dart`
-    /// pelo caminho declarado no `LibraryInfo`, **sem patches** (o analyzer
-    /// não os aplica: as declarações `external` ficam como estão, e as
-    /// bibliotecas internas são as do dart2js, `_internal/js_runtime`). Sem o
-    /// arquivo (um SDK reduzido), o perfil `dartdevc` de `libraries.json`.
+    /// The SDK as the analyzer sees it (`FolderBasedDartSdk`): each library of
+    /// `_internal/sdk_library_metadata/lib/libraries.dart` by the path declared
+    /// in its `LibraryInfo`, **without patches** (the analyzer does not apply
+    /// them: `external` declarations stay as they are, and the internal
+    /// libraries are dart2js's, `_internal/js_runtime`). Without that file (a
+    /// reduced SDK), the `dartdevc` profile of `libraries.json`.
     ///
-    /// # Erros
-    /// Os de [`SdkLayout::load`], quando cai nele.
+    /// # Errors
+    /// Those of [`SdkLayout::load`], when it falls back to it.
     pub fn load_como_analyzer(lib_dir: &Path) -> Result<Self, String> {
         let metadata = lib_dir.join("_internal/sdk_library_metadata/lib/libraries.dart");
         let Ok(text) = std::fs::read_to_string(&metadata) else {
             return Self::load(lib_dir, "dartdevc");
         };
         let mut libraries = HashMap::new();
-        // `'nome': const LibraryInfo(\n    'caminho',` (aspas simples ou duplas).
+        // `'name': const LibraryInfo(\n    'path',` (single or double quotes).
         let bytes = text.as_bytes();
         let mut i = 0usize;
         while let Some(rel) = text[i..].find("const LibraryInfo(") {
             let pos = i + rel;
             i = pos + "const LibraryInfo(".len();
-            // O nome: a última string antes de `:` que precede o `const`.
+            // The name: the last string before the `:` that precedes the `const`.
             let antes = text[..pos].trim_end();
             let Some(antes) = antes.strip_suffix(':') else { continue };
             let antes = antes.trim_end();
@@ -160,7 +162,7 @@ impl SdkLayout {
             let body_node = &antes[..antes.len() - 1];
             let Some(ini) = body_node.rfind(quote) else { continue };
             let nome = body_node[ini + 1..].to_string();
-            // O caminho: a primeira string depois do `(`.
+            // The path: the first string after the `(`.
             let mut j = i;
             while j < bytes.len() && (bytes[j] as char).is_whitespace() {
                 j += 1;
@@ -171,9 +173,9 @@ impl SdkLayout {
             }
             let Some(end) = text[j + 1..].find(q as char) else { break };
             let mut caminho = &text[j + 1..j + 1 + end];
-            // `dart2jsPath:` troca o caminho (o `_LibraryBuilder` do
-            // `SdkLibrariesReader` grava o argumento nomeado por cima do
-            // posicional): `dart:html_common` é o `html_common_dart2js.dart`.
+            // `dart2jsPath:` replaces the path (the `SdkLibrariesReader`'s
+            // `_LibraryBuilder` writes the named argument over the positional one):
+            // `dart:html_common` is `html_common_dart2js.dart`.
             if let Some(closes) = text[j..].find(')') {
                 let args = &text[j..j + closes];
                 if let Some(k) = args.find("dart2jsPath:") {
@@ -202,48 +204,48 @@ impl SdkLayout {
         })
     }
 
-    /// A seção `base` do SDK com arquivos trocados pela sobreposição de
-    /// `overlay_dir` (o `native_sdk/` do backend nativo,
+    /// The SDK's `base` section with files swapped by the overlay at
+    /// `overlay_dir` (the native backend's `native_sdk/`,
     /// docs/NATIVO-PLANO.md §7, P5a).
     ///
-    /// `<overlay_dir>/libraries.json` tem uma seção `target` com `base`
-    /// (a seção do SDK de partida, `vm`) e `substitui`: caminho relativo ao
-    /// `lib/` do SDK → arquivo relativo à sobreposição. A troca é por
-    /// **conteúdo**: a unidade carregada continua com o caminho do SDK, então
-    /// um `part` de um arquivo trocado resolve ao lado do original (e pode
-    /// estar trocado também). Assim a sobreposição troca só o que depende da
-    /// máquina interna da VM sem copiar o resto do patch.
+    /// `<overlay_dir>/libraries.json` has a `target` section with `base` (the
+    /// starting SDK section, `vm`) and `substitui`: a path relative to the SDK's
+    /// `lib/` → a file relative to the overlay. The swap is by **content**: the
+    /// loaded unit keeps the SDK path, so a `part` of a swapped file resolves
+    /// next to the original (and may be swapped too). That way the overlay only
+    /// swaps what depends on the VM's internals without copying the rest of the
+    /// patch.
     ///
-    /// # Erros
-    /// Os de [`SdkLayout::load`], seção ausente, e arquivo (original ou
-    /// substituto) que não existe — uma troca que não acontece em silêncio é
-    /// um SDK diferente do declarado.
+    /// # Errors
+    /// Those of [`SdkLayout::load`], a missing section, and a file (original
+    /// or substitute) that does not exist — a swap that silently does not
+    /// happen is an SDK different from the declared one.
     pub fn load_com_sobreposicao(lib_dir: &Path, overlay_dir: &Path, target: &str) -> Result<Self, String> {
         let path = overlay_dir.join("libraries.json");
         let text = std::fs::read_to_string(&path)
-            .map_err(|e| format!("não foi possível ler {}: {e}", path.display()))?;
+            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
         let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| format!("{} inválido: {e}", path.display()))?;
+            serde_json::from_str(&text).map_err(|e| format!("{} is invalid: {e}", path.display()))?;
         let section_ = json
             .get(target)
-            .ok_or_else(|| format!("seção {target} ausente em {}", path.display()))?;
+            .ok_or_else(|| format!("section {target} missing in {}", path.display()))?;
         let base = section_
             .get("base")
             .and_then(|b| b.as_str())
-            .ok_or_else(|| format!("{target}.base ausente em {}", path.display()))?;
+            .ok_or_else(|| format!("{target}.base missing in {}", path.display()))?;
         let mut sdk = Self::load(lib_dir, base)?;
         if let Some(swaps) = section_.get("substitui").and_then(|s| s.as_object()) {
             for (original, novo) in swaps {
                 let novo = novo
                     .as_str()
-                    .ok_or_else(|| format!("{target}.substitui[{original}] não é texto em {}", path.display()))?;
+                    .ok_or_else(|| format!("{target}.substitui[{original}] is not a string in {}", path.display()))?;
                 let original = crate::load::normalize(&lib_dir.join(original));
                 let novo = crate::load::normalize(&overlay_dir.join(novo));
                 if !original.is_file() {
-                    return Err(format!("sobreposição troca {}, que não existe no SDK", original.display()));
+                    return Err(format!("the overlay replaces {}, which does not exist in the SDK", original.display()));
                 }
                 if !novo.is_file() {
-                    return Err(format!("sobreposição aponta {}, que não existe", novo.display()));
+                    return Err(format!("the overlay points to {}, which does not exist", novo.display()));
                 }
                 sdk.substituicoes.insert(original, novo);
             }
@@ -251,7 +253,7 @@ impl SdkLayout {
         Ok(sdk)
     }
 
-    /// O arquivo a ler no lugar de `path`, se a sobreposição o troca.
+    /// The file to read in place of `path`, if the overlay swaps it.
     pub fn substituto(&self, path: &Path) -> Option<&Path> {
         if self.substituicoes.is_empty() {
             return None;
@@ -259,12 +261,13 @@ impl SdkLayout {
         self.substituicoes.get(&crate::load::normalize(path)).map(PathBuf::as_path)
     }
 
-    /// Lê uma seção e, antes dela, as que ela inclui (`"include": [{"target":
-    /// "vm_common"}]`). A seção `vm` do SDK 3.6.2 só declara `cli`: `core`,
-    /// `async`, `collection`… estão em `vm_common`. Sem seguir o `include`, o
-    /// backend nativo carregava o programa **sem `dart:core`** — e todo tipo
-    /// estático (`int`, `String`…) virava `dynamic`. As bibliotecas da própria
-    /// seção sobrescrevem as incluídas, como no `libraries.yaml` do SDK.
+    /// Reads a section and, before it, the ones it includes (`"include":
+    /// [{"target": "vm_common"}]`). The SDK 3.6.2 `vm` section only declares
+    /// `cli`: `core`, `async`, `collection`… are in `vm_common`. Without
+    /// following the `include`, the native backend loaded the program
+    /// **without `dart:core`** — and every static type (`int`, `String`…)
+    /// became `dynamic`. The section's own libraries override the included
+    /// ones, as in the SDK's `libraries.yaml`.
     fn read_section(
         json: &serde_json::Value,
         lib_dir: &Path,
@@ -274,11 +277,11 @@ impl SdkLayout {
         depth: usize,
     ) -> Result<(), String> {
         if depth > 8 {
-            return Err(format!("include cíclico na seção {target} de {}", path.display()));
+            return Err(format!("cyclic include in section {target} of {}", path.display()));
         }
         let section_ = json
             .get(target)
-            .ok_or_else(|| format!("seção {target} ausente em {}", path.display()))?;
+            .ok_or_else(|| format!("section {target} missing in {}", path.display()))?;
         if let Some(includes) = section_.get("include").and_then(|i| i.as_array()) {
             for inc in includes {
                 if let Some(t) = inc.get("target").and_then(|t| t.as_str()) {
@@ -289,12 +292,12 @@ impl SdkLayout {
         let section = section_
             .get("libraries")
             .and_then(|l| l.as_object())
-            .ok_or_else(|| format!("seção {target}.libraries ausente em {}", path.display()))?;
+            .ok_or_else(|| format!("section {target}.libraries missing in {}", path.display()))?;
         for (name, entry) in section {
             let uri = entry
                 .get("uri")
                 .and_then(|u| u.as_str())
-                .ok_or_else(|| format!("biblioteca {name} sem uri"))?;
+                .ok_or_else(|| format!("library {name} without uri"))?;
             let patches = match entry.get("patches") {
                 None => Vec::new(),
                 Some(serde_json::Value::String(one)) => vec![lib_dir.join(one)],
@@ -303,7 +306,7 @@ impl SdkLayout {
                     .filter_map(|p| p.as_str())
                     .map(|p| lib_dir.join(p))
                     .collect(),
-                Some(_) => return Err(format!("biblioteca {name} com patches inválidos")),
+                Some(_) => return Err(format!("library {name} with invalid patches")),
             };
             let supported = entry
                 .get("supported")
@@ -326,9 +329,9 @@ impl SdkLayout {
         self.libraries.get(name)
     }
 
-    /// Localiza o `lib/` do SDK: `DARTFORGE_SDK_LIB`, o da distribuição
-    /// (`distribuicao::sdk_do_dart`), `DART_SDK/lib`, ou o `dart` no `PATH`
-    /// (`<bin>/../lib`).
+    /// Finds the SDK's `lib/`: `DARTFORGE_SDK_LIB`, the distribution's
+    /// (`distribuicao::sdk_do_dart`), `DART_SDK/lib`, or the `dart` on the
+    /// `PATH` (`<bin>/../lib`).
     pub fn discover() -> Option<PathBuf> {
         if let Ok(explicit) = std::env::var("DARTFORGE_SDK_LIB") {
             let path = PathBuf::from(explicit);
@@ -336,8 +339,8 @@ impl SdkLayout {
                 return Some(path);
             }
         }
-        // O SDK que a distribuição leva (a versão que a sobreposição nativa
-        // conhece), antes de qualquer SDK da máquina.
+        // The SDK the distribution carries (the version the native overlay knows),
+        // before any SDK on the machine.
         if let Some(path) = crate::distribuicao::sdk_do_dart() {
             return Some(path);
         }
@@ -351,9 +354,9 @@ impl SdkLayout {
         for dir in std::env::split_paths(&path_var) {
             for exe in ["dart.exe", "dart"] {
                 if dir.join(exe).exists() {
-                    // `<bin>/../lib` sem o `..` (os caminhos do SDK aparecem nas
-                    // mensagens, como no analyzer: `…/dart-sdk/lib/…`); com o
-                    // `dart` simbólico (Homebrew), pelo executável real.
+                    // `<bin>/../lib` without the `..` (SDK paths show up in messages, as in the
+                    // analyzer: `…/dart-sdk/lib/…`); with a symlinked `dart` (Homebrew), via the
+                    // real executable.
                     let candidates = [
                         dir.parent().map(|p| p.join("lib")),
                         Some(dir.join("..").join("lib")),
@@ -376,7 +379,7 @@ mod tests {
     #[test]
     fn reads_dartdevc_section_of_local_sdk() {
         let Some(lib) = SdkLayout::discover() else {
-            eprintln!("SDK não encontrado; teste pulado");
+            eprintln!("SDK not found; test skipped");
             return;
         };
         let sdk = SdkLayout::load(&lib, "dartdevc").unwrap();
@@ -387,26 +390,26 @@ mod tests {
         assert!(sdk.library("_runtime").is_some());
     }
 
-    /// A sobreposição do nativo (`native_sdk/`, P5a) troca por conteúdo os
-    /// patches que dependem da máquina interna da VM, e o programa carrega
-    /// sem diagnóstico: as `part` do patch trocado resolvem ao lado do
-    /// original (e também são trocadas).
+    /// The native overlay (`native_sdk/`, P5a) swaps by content the patches
+    /// that depend on the VM's internals, and the program loads without
+    /// diagnostics: the `part`s of the swapped patch resolve next to the
+    /// original (and are swapped too).
     #[test]
     fn native_overlay_swaps_patches_and_loads() {
         let Some(lib) = SdkLayout::discover() else {
-            eprintln!("SDK não encontrado; teste pulado");
+            eprintln!("SDK not found; test skipped");
             return;
         };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk");
         let sdk = SdkLayout::load_com_sobreposicao(&lib, &dir, "dartforge_nativo").unwrap();
-        // Uma substituição por entrada de `substitui` no libraries.json.
+        // One substitution per entry of `substitui` in libraries.json.
         let json: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("libraries.json")).unwrap()).unwrap();
         let expected_ones = json["dartforge_nativo"]["substitui"].as_object().unwrap().len();
         assert_eq!(sdk.substituicoes.len(), expected_ones);
         assert!(expected_ones >= 20);
         let async_patch = &sdk.library("async").unwrap().patches[0];
-        let novo = sdk.substituto(async_patch).expect("async_patch trocado");
+        let novo = sdk.substituto(async_patch).expect("async_patch swapped");
         assert!(novo.ends_with("async_patch.dart") && novo.starts_with(crate::load::normalize(&dir)));
         assert!(sdk.substituto(&sdk.library("core").unwrap().path).is_none());
 
@@ -426,21 +429,22 @@ mod tests {
             .map(|u| program.units[u.0 as usize].source.as_str())
             .collect();
         for mark in ["DartForge_scheduleImmediate", "DartForge_Timer_novo", "_envolverCorpo"] {
-            assert!(async_sources.iter().any(|s| s.contains(mark)), "{mark} ausente do dart:async carregado");
+            assert!(async_sources.iter().any(|s| s.contains(mark)), "{mark} missing from the loaded dart:async");
         }
-        assert!(!async_sources.iter().any(|s| s.contains("class _SuspendState")), "_SuspendState da VM ainda carregado");
+        assert!(!async_sources.iter().any(|s| s.contains("class _SuspendState")), "the VM's _SuspendState is still loaded");
     }
 
-    /// A seção `vm` só tem `cli`; `core` vem do `include` de `vm_common`.
+    /// The `vm` section only has `cli`; `core` comes from `vm_common`'s
+    /// `include`.
     #[test]
     fn vm_section_follows_include() {
         let Some(lib) = SdkLayout::discover() else {
-            eprintln!("SDK não encontrado; teste pulado");
+            eprintln!("SDK not found; test skipped");
             return;
         };
         let sdk = SdkLayout::load(&lib, "vm").unwrap();
         assert!(sdk.library("cli").is_some());
-        let core = sdk.library("core").expect("core de vm_common");
+        let core = sdk.library("core").expect("core from vm_common");
         assert!(core.path.ends_with("core/core.dart"));
         assert!(!core.patches.is_empty());
     }

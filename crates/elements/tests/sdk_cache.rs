@@ -1,6 +1,6 @@
-//! Cache do SDK analisado (`sdk_cache.rs`): a carga pelo cache produz o mesmo
-//! `Program` que a carga pelos arquivos e é mais rápida. Precisa do SDK 3.6.2;
-//! sem ele o teste é pulado.
+//! Cache of the analyzed SDK (`sdk_cache.rs`): loading through the cache
+//! produces the same `Program` as loading from the files and is faster. It
+//! needs SDK 3.6.2; without it the test is skipped.
 
 use dartforge_elements::load::{load_lenient, load_lenient_com_cache};
 use dartforge_elements::sdk::SdkLayout;
@@ -22,7 +22,7 @@ fn sdk_real() -> Option<SdkLayout> {
 #[test]
 fn sdk_cache_reproduces_the_program_and_is_faster() {
     let Some(sdk) = sdk_real() else {
-        eprintln!("SDK não encontrado; teste pulado");
+        eprintln!("SDK not found; test skipped");
         return;
     };
     let tmp = tempdir().unwrap();
@@ -30,33 +30,33 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
     fs::write(
         &entry,
         "import 'dart:async';\nimport 'dart:convert';\nimport 'dart:collection';\nimport 'dart:math';\nimport 'dart:typed_data';\n\
-         part 'parte.dart';\nclass C { int x = 1; }\nvoid main() { print(json.encode([C().x, max(1, 2)])); }\n",
+         part 'part.dart';\nclass C { int x = 1; }\nvoid main() { print(json.encode([C().x, max(1, 2)])); }\n",
     )
     .unwrap();
-    fs::write(tmp.path().join("parte.dart"), "part of 'main.dart';\nint dobro(int a) => a * 2;\n").unwrap();
+    fs::write(tmp.path().join("part.dart"), "part of 'main.dart';\nint dobro(int a) => a * 2;\n").unwrap();
 
-    // 1. Pelos arquivos.
+    // 1. From the files.
     let mut i1 = Interner::new();
     let (p1, d1) = load_lenient(&entry, &sdk, None, &mut i1);
     assert!(d1.is_empty(), "{d1:?}");
 
-    // 2. Constrói o cache (uma vez) e carrega por ele.
+    // 2. Builds the cache (once) and loads through it.
     let caminho = tmp.path().join("sdk.bin");
     let t1 = Instant::now();
-    SdkCache::build_and_write(&sdk, &caminho).expect("constrói o cache");
+    SdkCache::build_and_write(&sdk, &caminho).expect("builds the cache");
     let t_build = t1.elapsed();
     assert!(caminho.exists());
-    let cache = SdkCache::abrir(&caminho).expect("abre o cache");
+    let cache = SdkCache::abrir(&caminho).expect("opens the cache");
     let mut i2 = Interner::new();
     let (p2, d2) = load_lenient_com_cache(&entry, &sdk, None, &mut i2, Some(cache));
     assert!(d2.is_empty(), "{d2:?}");
 
-    // 3. Tempo: o mínimo de N execuções de cada caminho, intercaladas (o
-    // ruído do runner só soma; o mínimo é o custo do trabalho). No perfil
-    // `dev` do teste, o cache com a decodificação em paralelo fica em ~45% dos
-    // arquivos (75 ms × 165 ms na máquina de desenvolvimento; em série
-    // empatava, 150 × 155 ms, e o teste reprovava ao acaso); em `release`,
-    // 15 × 44 ms (em série, 22 ms). A margem exige que continue claramente mais rápido.
+    // 3. Time: the minimum of N runs of each path, interleaved (the runner's
+    // noise only adds; the minimum is the cost of the work). In the test's
+    // `dev` profile, the cache with parallel decoding takes ~45% of the files
+    // path (75 ms × 165 ms on the development machine; serially it tied,
+    // 150 × 155 ms, and the test failed at random); in `release`, 15 × 44 ms
+    // (serially, 22 ms). The margin requires it to stay clearly faster.
     const N: usize = 5;
     let mut t_files = std::time::Duration::MAX;
     let mut t_cache = std::time::Duration::MAX;
@@ -65,20 +65,20 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
         let _ = load_lenient(&entry, &sdk, None, &mut Interner::new());
         t_files = t_files.min(t.elapsed());
         let t = Instant::now();
-        let cache = SdkCache::abrir(&caminho).expect("abre o cache");
+        let cache = SdkCache::abrir(&caminho).expect("opens the cache");
         let _ = load_lenient_com_cache(&entry, &sdk, None, &mut Interner::new(), Some(cache));
         t_cache = t_cache.min(t.elapsed());
     }
 
     eprintln!(
-        "mínimo de {N}: arquivos {t_files:.1?}; abrir+carregar pelo cache {t_cache:.1?} ({:.0}%); construir cache {t_build:.1?}; \
-         unidades {} / bibliotecas {} / classes {} / funções {} / variáveis {}",
+        "minimum of {N}: files {t_files:.1?}; open+load through the cache {t_cache:.1?} ({:.0}%); build cache {t_build:.1?}; \
+         units {} / libraries {} / classes {} / functions {} / variables {}",
         100.0 * t_cache.as_secs_f64() / t_files.as_secs_f64(),
         p2.units.len(), p2.libraries.len(), p2.classes.len(), p2.functions.len(), p2.variables.len()
     );
 
-    // Mesmo programa: contagens, URIs e papéis das unidades na mesma ordem,
-    // e os mesmos nomes de classes/funções na mesma ordem.
+    // Same program: counts, URIs and roles of the units in the same order, and
+    // the same class/function names in the same order.
     assert_eq!(p1.libraries.len(), p2.libraries.len());
     assert_eq!(p1.units.len(), p2.units.len());
     assert_eq!(p1.classes.len(), p2.classes.len());
@@ -101,13 +101,13 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
         assert_eq!(i1.resolve(f1.name), i2.resolve(f2.name));
     }
     let sdk_units = p2.units.iter().filter(|u| p2.library(u.library).is_sdk).count();
-    assert!(sdk_units > 100, "o SDK tem mais de 100 unidades: {sdk_units}");
-    // A unidade do usuário e a sua parte continuam a vir dos arquivos.
-    assert!(p2.units.iter().any(|u| u.uri.ends_with("/parte.dart") && !p2.library(u.library).is_sdk));
+    assert!(sdk_units > 100, "the SDK has more than 100 units: {sdk_units}");
+    // The user's unit and its part still come from the files.
+    assert!(p2.units.iter().any(|u| u.uri.ends_with("/part.dart") && !p2.library(u.library).is_sdk));
 
     assert!(
         t_cache.as_secs_f64() < 0.75 * t_files.as_secs_f64(),
-        "abrir+carregar pelo cache ({t_cache:?}, mínimo de {N}) deveria custar menos de 75% da carga pelos arquivos ({t_files:?})"
+        "open+load through the cache ({t_cache:?}, minimum of {N}) should cost less than 75% of loading from the files ({t_files:?})"
     );
 }
 
@@ -118,7 +118,7 @@ fn invalid_cache_is_ignored() {
     };
     let tmp = tempdir().unwrap();
     let caminho = tmp.path().join("sdk.bin");
-    fs::write(&caminho, b"lixo").unwrap();
+    fs::write(&caminho, b"garbage").unwrap();
     assert!(SdkCache::abrir(&caminho).is_none());
     assert!(!SdkCache::hash(&sdk, "dartdevc").is_empty());
     assert_ne!(SdkCache::hash(&sdk, "dartdevc"), SdkCache::hash(&sdk, "dart2js"));

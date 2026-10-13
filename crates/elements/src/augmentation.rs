@@ -1,28 +1,30 @@
-//! Fusão das declarações `augment` no outline (docs/AUGMENTATIONS.md).
+//! Merging of `augment` declarations into the outline
+//! (docs/AUGMENTATIONS.md).
 //!
-//! Fonte normativa: `working/augmentations/feature-specification.md` v1.46,
-//! com duas divergências do CFE 3.6.2 (D9): uma declaração `external` pode
-//! ser completada por uma augmentation (`external C.fromJson(...)` seguido
-//! de `augment C.fromJson(...) : ...`); sob o experimento `macros`, uma
-//! augmentation pode substituir o corpo de uma função que já o tinha. O CFE
-//! 3.6.2 faz isso tanto na saída de macro quanto em `import augment` manual.
+//! Normative source: `working/augmentations/feature-specification.md` v1.46,
+//! with two divergences from the 3.6.2 CFE (D9): an `external` declaration
+//! can be completed by an augmentation (`external C.fromJson(...)` followed
+//! by `augment C.fromJson(...) : ...`); under the `macros` experiment, an
+//! augmentation can replace the body of a function that already had one.
+//! The 3.6.2 CFE does this both for macro output and for a manual
+//! `import augment`.
 //!
-//! É a generalização do mecanismo de patch do SDK (o CFE reusou a mesma
-//! infraestrutura): a declaração `augment` não cria nome novo; ela se liga à
-//! declaração de mesmo nome que vem **antes** dela na ordem de aplicação (a
-//! pré-ordem da árvore de partes, que o carregador deixa em
-//! [`Library::units`]).
+//! It is the generalization of the SDK's patch mechanism (the CFE reused the
+//! same infrastructure): an `augment` declaration does not create a new
+//! name; it attaches to the declaration of the same name that comes
+//! **before** it in application order (the preorder of the parts tree,
+//! which the loader leaves in [`Library::units`]).
 //!
-//! Invariante da cadeia de um membro, a mesma dos patches: a entrada do mapa
-//! de membros (e do `declared` da biblioteca) aponta sempre para o elemento
-//! **efetivo** — a última declaração completa da cadeia, ou a introdutória se
-//! nenhuma é completa —, e todo outro elemento da cadeia tem `patched_by`
-//! apontando para ele. Quem emite percorre só os elementos com
-//! `patched_by == None`.
+//! Invariant of a member's chain, the same as for patches: the entry in the
+//! member map (and in the library's `declared`) always points to the
+//! **effective** element — the last complete declaration of the chain, or
+//! the introductory one if none is complete —, and every other element of
+//! the chain has `patched_by` pointing to it. Emitters walk only the
+//! elements with `patched_by == None`.
 //!
-//! O que os emissores veem de uma classe aumentada: os membros das
-//! declarações da cadeia ([`Program::membros_da_classe`]), um elemento por
-//! membro, e os supertipos acrescentados (`implements`/`with`/`extends`).
+//! What emitters see of an augmented class: the members of the chain's
+//! declarations ([`Program::membros_da_classe`]), one element per member,
+//! and the added supertypes (`implements`/`with`/`extends`).
 use crate::model::*;
 use crate::outline::{extract_members, ElementPools};
 use dartforge_diagnostics::{Diagnostic, Span};
@@ -31,7 +33,7 @@ use dartforge_frontend::features::Feature;
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{BTreeMap, HashMap};
 
-/// O que a fusão precisa ler e escrever, além dos elementos.
+/// What the merge needs to read and write, besides the elements.
 pub(crate) struct Merge<'a> {
     pub units: &'a [Unit],
     pub library: &'a mut Library,
@@ -39,7 +41,7 @@ pub(crate) struct Merge<'a> {
     pub empty_sym: SymbolId,
     pub interner: &'a mut Interner,
     pub diagnostics: &'a mut Vec<Diagnostic>,
-    /// Declarações de augmentation de cada classe, na ordem de aplicação.
+    /// Augmentation declarations of each class, in application order.
     pub cadeias: &'a mut Vec<(ClassId, DeclRef)>,
 }
 
@@ -50,7 +52,7 @@ impl Merge<'_> {
     }
 }
 
-/// Aplica a declaração de topo `augment` `decl_id` da unidade `unit_id`.
+/// Applies the top-level `augment` declaration `decl_id` of unit `unit_id`.
 pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId, decl_id: ast::DeclId) {
     let ast = &f.units[unit_id.0 as usize].ast;
     let decl = ast.decl(decl_id);
@@ -58,14 +60,14 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
     match &decl.kind {
         DeclKind::Class(c) => {
             if c.mixin_application {
-                f.erro(unit_id, "uma aplicação de mixin ('class C = S with M') não pode ser aumentada", span);
+                f.erro(unit_id, "a mixin application ('class C = S with M') cannot be augmented", span);
                 return;
             }
             let Some(cid) = introductory_class(f, pools, unit_id, c.name, ClassKind::Class) else { return };
             let class_elem = &mut pools.classes[cid.0 as usize];
             if let Some(t) = c.extends {
                 if class_elem.supertype.is_some() {
-                    f.erro(unit_id, format!("a classe '{}' já tem cláusula 'extends'", nome(f, c.name.sym)), span);
+                    f.erro(unit_id, format!("class '{}' already has an 'extends' clause", nome(f, c.name.sym)), span);
                 } else {
                     class_elem.supertype = Some((unit_id, t));
                 }
@@ -95,7 +97,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
             let Some(Element::Function(old)) = anterior else {
                 f.erro(
                     unit_id,
-                    format!("'augment' de '{}' sem declaração introdutória antes dele", nome(f, n.sym)),
+                    format!("'augment' of '{}' without an introductory declaration before it", nome(f, n.sym)),
                     n.span,
                 );
                 return;
@@ -127,16 +129,15 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
         }
         DeclKind::Enum(e) => {
             if e.primary_constructor.is_some() {
-                f.erro(unit_id, "augmentation de enum com construtor primário ainda não é suportada", span);
+                f.erro(unit_id, "augmenting an enum with a primary constructor is not supported yet", span);
                 return;
             }
             let Some(cid) = introductory_class(f, pools, unit_id, e.name, ClassKind::Enum) else { return };
             let class_elem = &mut pools.classes[cid.0 as usize];
             class_elem.mixins.extend(e.with.iter().map(|t| (unit_id, *t)));
             class_elem.interfaces.extend(e.implements.iter().map(|t| (unit_id, *t)));
-            // Valores novos entram depois dos que já existem, na ordem de
-            // aplicação (spec, "Augmenting enum declarations": `values` na
-            // ordem da cadeia).
+            // New values go after the existing ones, in application order (spec,
+            // "Augmenting enum declarations": `values` in chain order).
             for (idx, k) in e.constants.iter().enumerate() {
                 let c = &pools.classes[cid.0 as usize];
                 let repeated = c.enum_constants.iter().any(|v| pools.variables[v.0 as usize].name == k.name.sym)
@@ -144,7 +145,7 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
                     || c.static_members.contains_key(&k.name.sym);
                 if repeated {
                     let n = nome(f, k.name.sym);
-                    f.erro(unit_id, format!("'{n}' já está declarado; para aumentá-lo, use 'augment'"), k.name.span);
+                    f.erro(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), k.name.span);
                     continue;
                 }
                 let id = VariableId(pools.variables.len() as u32);
@@ -168,18 +169,18 @@ pub(crate) fn aplicar(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: Unit
             apply_members(f, pools, cid, unit_id, &e.members);
         }
         DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
-            f.erro(unit_id, "augmentation de extension e extension type ainda não é suportada", span);
+            f.erro(unit_id, "augmenting extensions and extension types is not supported yet", span);
         }
         DeclKind::Variables(_) => {
-            f.erro(unit_id, "augmentation de variável de topo ainda não é suportada", span);
+            f.erro(unit_id, "augmenting top-level variables is not supported yet", span);
         }
         DeclKind::Typedef(_) => {
-            f.erro(unit_id, "um typedef não pode ser aumentado", span);
+            f.erro(unit_id, "a typedef cannot be augmented", span);
         }
     }
 }
 
-/// A classe (ou mixin) introdutória de mesmo nome, já declarada antes.
+/// The introductory class (or mixin) of the same name, already declared.
 fn introductory_class(
     f: &mut Merge<'_>,
     pools: &ElementPools,
@@ -191,23 +192,23 @@ fn introductory_class(
     match found_one {
         Some(Element::Class(cid)) if pools.classes[cid.0 as usize].kind == kind => Some(cid),
         Some(_) => {
-            f.erro(unit_id, format!("'augment' de '{}' com outro tipo de declaração", nome(f, n.sym)), n.span);
+            f.erro(unit_id, format!("'augment' of '{}' with a different kind of declaration", nome(f, n.sym)), n.span);
             None
         }
         None => {
-            f.erro(unit_id, format!("'augment' de '{}' sem declaração introdutória antes dele", nome(f, n.sym)), n.span);
+            f.erro(unit_id, format!("'augment' of '{}' without an introductory declaration before it", nome(f, n.sym)), n.span);
             None
         }
     }
 }
 
-/// Os membros do corpo de uma `augment class`/`augment mixin`: os comuns são
-/// acrescentados; os `augment` se ligam ao membro de mesmo nome.
+/// The members of the body of an `augment class`/`augment mixin`: plain ones
+/// are added; `augment` ones attach to the member of the same name.
 fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, members_: &[ast::MemberId]) {
     let ast = &f.units[unit_id.0 as usize].ast;
-    // Na ordem do texto: um membro novo pode ser aumentado logo depois, no
-    // mesmo corpo (é o que a saída das macros faz: `external C.x(...)` e
-    // `augment C.x(...)` na mesma `augment class`).
+    // In text order: a new member may be augmented right after it, in the same
+    // body (that is what macro output does: `external C.x(...)` and
+    // `augment C.x(...)` in the same `augment class`).
     for &mid in members_ {
         let m = ast.member(mid);
         if !m.augment {
@@ -224,7 +225,7 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 };
                 if exists_ {
                     let n = nome(f, sym);
-                    f.erro(unit_id, format!("'{n}' já está declarado; para aumentá-lo, use 'augment'"), span);
+                    f.erro(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), span);
                     continue;
                 }
             }
@@ -253,7 +254,7 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 let map = if func.static_ { &c.static_members } else { &c.instance_members };
                 let Some(&old) = map.get(&chave) else {
                     let t = nome(f, n.sym);
-                    f.erro(unit_id, format!("'augment' de '{t}' sem membro introdutório antes dele"), n.span);
+                    f.erro(unit_id, format!("'augment' of '{t}' without an introductory member before it"), n.span);
                     continue;
                 };
                 let novo = FunctionElementId(pools.functions.len() as u32);
@@ -283,7 +284,7 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 let sym = k.name.map(|n| n.sym).unwrap_or(f.empty_sym);
                 let span = k.name.map(|n| n.span).unwrap_or(k.class_name.span);
                 let Some(&old) = pools.classes[cid.0 as usize].constructors.get(&sym) else {
-                    f.erro(unit_id, "'augment' de construtor sem construtor introdutório antes dele", span);
+                    f.erro(unit_id, "constructor 'augment' without an introductory constructor before it", span);
                     continue;
                 };
                 let novo = FunctionElementId(pools.functions.len() as u32);
@@ -308,15 +309,15 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 }
             }
             MemberKind::Field(_) => {
-                f.erro(unit_id, "augmentation de campo ainda não é suportada", m.span);
+                f.erro(unit_id, "augmenting fields is not supported yet", m.span);
             }
         }
     }
 }
 
-/// Um membro novo: os mesmos elementos de uma declaração comum. Um
-/// construtor declarado na augmentation tira o construtor sintético (a
-/// classe passa a declarar construtor).
+/// A new member: the same elements as a plain declaration. A constructor
+/// declared in the augmentation removes the synthetic constructor (the class
+/// now declares a constructor).
 fn append_member(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, mid: ast::MemberId) {
     let ast = &f.units[unit_id.0 as usize].ast;
     let mut class_elem = std::mem::replace(&mut pools.classes[cid.0 as usize], empty_class(f.lib_id, f.empty_sym));
@@ -329,8 +330,9 @@ fn append_member(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
     pools.classes[cid.0 as usize] = class_elem;
 }
 
-/// Liga `novo` à cadeia cujo elemento efetivo é `old`. Devolve `true` se
-/// `novo` passou a ser o efetivo (quem chama troca a entrada do mapa).
+/// Attaches `novo` to the chain whose effective element is `old`. Returns
+/// `true` if `novo` became the effective one (the caller swaps the map
+/// entry).
 fn link(
     f: &mut Merge<'_>,
     pools: &mut ElementPools,
@@ -341,12 +343,12 @@ fn link(
     span: Span,
 ) -> bool {
     if !new_full {
-        // Só metadata (ou nada): o corpo continua o do efetivo.
+        // Only metadata (or nothing): the body stays the effective one's.
         pools.functions[novo.0 as usize].patched_by = Some(old);
         return false;
     }
     if has_body(f.units, &pools.functions[old.0 as usize]) && !augmentation_with_macros(f.units, unit_id) {
-        f.erro(unit_id, "a declaração aumentada já tem corpo; uma augmentation não pode substituí-lo", span);
+        f.erro(unit_id, "the augmented declaration already has a body; an augmentation cannot replace it", span);
         pools.functions[novo.0 as usize].patched_by = Some(old);
         return false;
     }
@@ -359,14 +361,14 @@ fn link(
     true
 }
 
-/// O CFE 3.6.2 aceita a substituição sob `macros`, inclusive de uma
-/// augmentation escrita manualmente; fora do experimento segue a spec.
+/// The 3.6.2 CFE accepts the replacement under `macros`, including for a
+/// hand-written augmentation; outside the experiment it follows the spec.
 fn augmentation_with_macros(units: &[Unit], unit: UnitId) -> bool {
     let u = &units[unit.0 as usize];
     u.role == UnitRole::Augmentation && u.features.tem(Feature::Macros)
 }
 
-/// A declaração tem corpo em Dart (não `external`, não `;`)?
+/// Does the declaration have a body in Dart (not `external`, not `;`)?
 fn has_body(units: &[Unit], e: &FunctionElement) -> bool {
     match e.node {
         FunctionRef::Function { unit, function } => {
@@ -377,12 +379,13 @@ fn has_body(units: &[Unit], e: &FunctionElement) -> bool {
             let MemberKind::Constructor(k) = &units[unit.0 as usize].ast.member(member).kind else { return false };
             !k.external && full_constructor(k)
         }
-        // Acessor implícito de campo não abstrato: tem o corpo sintético.
+        // Implicit accessor of a non-abstract field: it has the synthetic body.
         FunctionRef::None => !e.abstract_ && !e.external,
     }
 }
 
-/// "Complete" da spec (`:547-560`), com `external` contando como completa.
+/// The spec's "Complete" (`:547-560`), with `external` counting as
+/// complete.
 fn full_function(func: &ast::Function) -> bool {
     func.external || !matches!(func.body, FunctionBody::Empty)
 }
@@ -416,8 +419,8 @@ fn nome(f: &Merge<'_>, s: SymbolId) -> String {
     f.interner.resolve(s).to_string()
 }
 
-/// Marcador que ocupa o lugar de uma classe enquanto os membros novos são
-/// extraídos para ela (a extração trabalha sobre um `ClassElement` solto).
+/// Marker that takes the place of a class while the new members are
+/// extracted into it (extraction works on a loose `ClassElement`).
 fn empty_class(library: LibraryId, name: SymbolId) -> ClassElement {
     ClassElement {
         name,

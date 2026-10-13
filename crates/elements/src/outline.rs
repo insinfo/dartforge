@@ -1,31 +1,35 @@
-//! Construção do outline e dos namespaces (Passo 2 da Meta Governante).
+//! Building the outline and the namespaces (Step 2 of the Governing Goal).
 //!
-//! Conforme docs/FRONTEND-ARQUITETURA.md §3 e PLANO.md:
-//! 1. Coleta declarações de topo de todas as unidades (incluindo patches).
-//! 2. Aplica `@patch` do SDK sobre declarações e membros de classes `external`.
-//! 3. Constrói o namespace exportado com resolução de ponto fixo para reexports transitivos.
-//! 4. Constrói o escopo léxico de cada biblioteca (declarações locais > imports > core implícito).
-//! 5. Resolve nomes de supertipos (`extends`, `with`, `implements`, `on`) para `ClassId`
-//!    e detecta ciclos de herança.
+//! Following docs/FRONTEND-ARQUITETURA.md §3 and PLANO.md:
+//! 1. Collects the top-level declarations of every unit (including patches).
+//! 2. Applies the SDK's `@patch` over declarations and members of `external`
+//!    classes.
+//! 3. Builds the exported namespace with fixpoint resolution for transitive
+//!    reexports.
+//! 4. Builds each library's lexical scope (local declarations > imports >
+//!    implicit core).
+//! 5. Resolves supertype names (`extends`, `with`, `implements`, `on`) to
+//!    `ClassId` and detects inheritance cycles.
 use crate::model::*;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
-/// Verifica se um identificador é privado (inicia com `_`).
+/// Checks whether an identifier is private (starts with `_`).
 pub fn is_private(sym: SymbolId, interner: &Interner) -> bool {
     interner.resolve(sym).starts_with('_')
 }
 
-/// Verifica se uma lista de anotações contém `@patch`.
+/// Checks whether a list of annotations contains `@patch`.
 fn has_patch_annotation(metadata: &[ast::Annotation], interner: &Interner) -> bool {
     metadata
         .iter()
         .any(|m| m.name.len() == 1 && interner.resolve(m.name[0].sym) == "patch")
 }
 
-/// Pools de elementos mutáveis separados de units e libraries para satisfazer o borrow checker.
+/// Mutable element pools kept apart from units and libraries to satisfy the
+/// borrow checker.
 pub(crate) struct ElementPools<'a> {
     pub(crate) classes: &'a mut Vec<ClassElement>,
     pub(crate) extensions: &'a mut Vec<ExtensionElement>,
@@ -33,8 +37,8 @@ pub(crate) struct ElementPools<'a> {
     pub(crate) variables: &'a mut Vec<VariableElement>,
 }
 
-/// A espécie de uma declaração de topo, para a regra de qual declaração um
-/// nome repetido designa (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 a).
+/// The kind of a top-level declaration, for the rule of which declaration a
+/// repeated name designates (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Species {
     Getter,
@@ -50,11 +54,11 @@ enum Species {
 }
 
 impl Species {
-    /// A ordem em que o analyzer põe as declarações no escopo da biblioteca
+    /// The order in which the analyzer puts declarations into the library scope
     /// (`LibraryDeclarations._addLibraryFragment`, `scope.dart:312-332`):
-    /// acessores (os explícitos e os das variáveis), funções, enums,
-    /// extensões, tipos de extensão, typedefs, mixins, classes. Cada inclusão
-    /// é `??=`: quem entra primeiro fica com o nome.
+    /// accessors (explicit ones and those of variables), functions, enums,
+    /// extensions, extension types, typedefs, mixins, classes. Each insertion
+    /// is `??=`: whoever comes first keeps the name.
     fn order(self) -> u8 {
         match self {
             Species::Getter | Species::Setter | Species::Variavel => 0,
@@ -69,12 +73,13 @@ impl Species {
     }
 }
 
-/// T1: com um nome de topo declarado mais de uma vez, o nome designa a
-/// declaração que o analyzer poria primeiro no escopo — a de espécie
-/// anterior na [`Species::order`] e, na mesma espécie, a primeira da fonte —,
-/// e não a última, que é o que o laço de declarações deixa. Getter e setter
-/// são vagas separadas. Os homônimos da mesma espécie ganham o
-/// [`Library::representante`]. Sem nome repetido, nada muda.
+/// T1: with a top-level name declared more than once, the name designates
+/// the declaration the analyzer would put in the scope first — the one of
+/// the earlier kind in [`Species::order`] and, within the same kind, the
+/// first in the source —, and not the last one, which is what the
+/// declaration loop leaves. Getter and setter are separate slots. Homonyms
+/// of the same kind get the [`Library::representante`]. Without a repeated
+/// name, nothing changes.
 fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, Element, u32)]) {
     let mut per_slot: HashMap<(SymbolId, bool), Vec<usize>> = HashMap::new();
     for (k, (nome, setter, _, _, _)) in candidates.iter().enumerate() {
@@ -84,22 +89,21 @@ fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, E
         if group.len() < 2 {
             continue;
         }
-        // O vencedor: a menor (unidade, ordem da espécie, posição na fonte).
-        // O escopo é montado unidade por unidade (`library.units.forEach(
-        // _addLibraryFragment)`, `scope.dart:286`), e só dentro de cada uma
-        // vale a ordem por espécie.
+        // The winner: the smallest (unit, kind order, source position). The scope
+        // is built unit by unit (`library.units.forEach(_addLibraryFragment)`,
+        // `scope.dart:286`), and the order by kind only applies within each one.
         let winner = group
             .iter()
             .copied()
             .min_by_key(|&k| (candidates[k].4, candidates[k].2.order(), k))
-            .expect("grupo não vazio");
+            .expect("non-empty group");
         let entrada = lib.declared.entry(*nome).or_default();
         if *setter {
             entrada.setter = Some(candidates[winner].3);
         } else {
             entrada.getter = Some(candidates[winner].3);
         }
-        // Os representantes: o primeiro de cada espécie no grupo.
+        // The representatives: the first of each kind in the group.
         let mut first: HashMap<Species, Element> = HashMap::new();
         for &k in group {
             let (_, _, species, element, _) = candidates[k];
@@ -118,7 +122,8 @@ fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, E
     }
 }
 
-/// Constrói o outline completo do programa: declarações, membros, namespaces e supertipos.
+/// Builds the program's complete outline: declarations, members, namespaces
+/// and supertypes.
 pub fn build_outline(
     program: &mut Program,
     interner: &mut Interner,
@@ -128,13 +133,14 @@ pub fn build_outline(
     let mut t_phase = std::time::Instant::now();
 
     // -----------------------------------------------------------------------
-    // Fase 1: Coleta de elementos declarados por biblioteca
+    // Phase 1: collecting the declared elements per library
     // -----------------------------------------------------------------------
     let num_libs = program.libraries.len();
     for lib_idx in 0..num_libs {
         let lib_id = LibraryId(lib_idx as u32);
         let mut unit_ids = program.libraries[lib_idx].units.clone();
-        // Garante que unidades de origem (Library e Part) sejam declaradas antes dos patches
+        // Makes sure source units (Library and Part) are declared before the
+        // patches
         unit_ids.sort_by_key(|&u| {
             if program.units[u.0 as usize].role == UnitRole::Patch {
                 1
@@ -152,9 +158,9 @@ pub fn build_outline(
 
         let mut cadeias: Vec<(ClassId, DeclRef)> = Vec::new();
         let mut classes_macro: Vec<ClassId> = Vec::new();
-        // T1: cada declaração de topo das unidades de origem, na ordem da
-        // fonte — (nome, é a vaga do setter?, espécie, elemento). Com um
-        // nome repetido, quem ele designa sai de `resolve_homonyms`.
+        // T1: each top-level declaration of the source units, in source order —
+        // (name, is it the setter slot?, kind, element). With a repeated name, what
+        // it designates comes out of `resolve_homonyms`.
         let mut candidates: Vec<(SymbolId, bool, Species, Element, u32)> = Vec::new();
         let has_patch = unit_ids.iter().any(|u| program.units[u.0 as usize].role == UnitRole::Patch);
         for (unit_order, unit_id) in unit_ids.into_iter().enumerate() {
@@ -165,9 +171,9 @@ pub fn build_outline(
 
             for decl_id in decl_ids {
                 let decl = ast.decl(decl_id);
-                // `augment`: liga-se à declaração de mesmo nome que veio antes
-                // (docs/AUGMENTATIONS.md). As unidades estão na ordem de
-                // aplicação (pré-ordem da árvore de partes, `load.rs`).
+                // `augment`: attaches to the declaration of the same name that came before
+                // (docs/AUGMENTATIONS.md). The units are in application order (preorder of
+                // the parts tree, `load.rs`).
                 if decl.augment && role != UnitRole::Patch {
                     let mut merge = crate::augmentation::Merge {
                         units: &program.units,
@@ -187,7 +193,8 @@ pub fn build_outline(
                 match &decl.kind {
                     DeclKind::Class(c) => {
                         let class_name = c.name.sym;
-                        // Se for patch ou classe em patch com mesmo nome já existente na biblioteca: funde
+                        // If it is a patch, or a class in a patch, with a name that already exists
+                        // in the library: merge
                         let existing_class = if role == UnitRole::Patch {
                             program.libraries[lib_idx]
                                 .declared
@@ -201,7 +208,7 @@ pub fn build_outline(
                         };
 
                         if let Some(existing_cid) = existing_class {
-                            // Funde membros do patch na classe existente
+                            // Merges the patch's members into the existing class
                             merge_class_patch(
                                 &mut pools,
                                 ast,
@@ -249,8 +256,8 @@ pub fn build_outline(
                         candidates.push((e.name.sym, false, Species::Enum, Element::Class(enum_id), unit_order));
                     }
                     DeclKind::Extension(ext) => {
-                        // `@patch extension E` funde os membros na extensão
-                        // `E` da biblioteca (como `merge_class_patch`).
+                        // `@patch extension E` merges the members into the library's extension `E`
+                        // (like `merge_class_patch`).
                         let existing_one = if role == UnitRole::Patch {
                             ext.name.and_then(|n| {
                                 program.libraries[lib_idx].declared.get(&n.sym).and_then(|b| match b.getter {
@@ -393,7 +400,7 @@ pub fn build_outline(
                             let var_sym = var.name.sym;
                             let var_id = VariableId(pools.variables.len() as u32);
 
-                            // Getter implícito
+                            // Implicit getter
                             let getter_id = FunctionElementId(pools.functions.len() as u32);
                             pools.functions.push(FunctionElement {
                                 name: var_sym,
@@ -412,7 +419,7 @@ pub fn build_outline(
                                 declaracao_publica: None,
                             });
 
-                            // Setter implícito se não for const/final
+                            // Implicit setter if not const/final
                             let setter_id = if !vars.final_ && !vars.const_ {
                                 let sid = FunctionElementId(pools.functions.len() as u32);
                                 pools.functions.push(FunctionElement {
@@ -470,8 +477,8 @@ pub fn build_outline(
                 }
             }
         }
-        // Uma biblioteca com patches (o SDK) não tem homônimos: lá o patch
-        // substitui a declaração, e a ordem é a que o laço acima já deu.
+        // A library with patches (the SDK) has no homonyms: there the patch
+        // replaces the declaration, and the order is the one the loop above gave.
         if !has_patch {
             resolve_homonyms(&mut program.libraries[lib_idx], &candidates);
         }
@@ -482,11 +489,11 @@ pub fn build_outline(
     }
 
     // -----------------------------------------------------------------------
-    // Fase 2: Construção de Library::exported (com ponto fixo para reexports)
+    // Phase 2: building Library::exported (with a fixpoint for reexports)
     program.tempos.outline_declaracoes += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
-    // Inicializa `exported` com o que é declarado localmente e não privado
+    // Initializes `exported` with what is declared locally and not private
     for lib in &mut program.libraries {
         for (&sym, &binding) in &lib.declared {
             if !is_private(sym, interner) {
@@ -495,7 +502,7 @@ pub fn build_outline(
         }
     }
 
-    // Itera reexports transitivos até atingir ponto fixo
+    // Iterates transitive reexports until reaching a fixpoint
     let mut changed = true;
     let mut iterations = 0;
     while changed && iterations < 500 {
@@ -528,7 +535,7 @@ pub fn build_outline(
     }
 
     // -----------------------------------------------------------------------
-    // Fase 3: Construção do escopo léxico de cada biblioteca (Library::scope)
+    // Phase 3: building each library's lexical scope (Library::scope)
     program.tempos.outline_reexports += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
@@ -544,13 +551,13 @@ pub fn build_outline(
             let filtered = filter_namespace(&target_exported, &import.combinators);
 
             if let Some(prefix_sym) = import.prefix {
-                // Import com prefixo: acessível via p.membro
+                // Prefixed import: accessible via p.member
                 let prefix_ns = prefixes.entry(prefix_sym).or_default();
                 for (sym, binding) in filtered {
                     let entry = prefix_ns.entry(sym).or_default();
                     merge_binding_with(entry, binding, &|e| sdk_element(program, e));
                 }
-                // Registra o prefixo no escopo geral
+                // Records the prefix in the general scope
                 scope.insert(
                     prefix_sym,
                     Binding {
@@ -560,9 +567,9 @@ pub fn build_outline(
                     },
                 );
             } else {
-                // Import sem prefixo: vai direto para o escopo
+                // Unprefixed import: goes straight into the scope
                 for (sym, binding) in filtered {
-                    // Declaração local sempre vence import
+                    // A local declaration always wins over an import
                     if program.libraries[lib_idx].declared.contains_key(&sym) {
                         continue;
                     }
@@ -572,12 +579,12 @@ pub fn build_outline(
             }
         }
 
-        // dart:core implícito: menor precedência de todas. Só sem import
-        // explícito do `dart:core` (`import 'dart:core' as core;` tira do
-        // escopo até `int`) no arquivo da biblioteca: o analyzer 3.6.2 decide
-        // pelas diretivas do `LibraryFileKind` (`file_state.dart:288-300`,
-        // `hasDartCoreImport`), e o `import 'dart:core' as prefix0;` de uma
-        // augmentation (a das macros) ou de uma parte não conta.
+        // Implicit dart:core: the lowest precedence of all. Only without an
+        // explicit `dart:core` import (`import 'dart:core' as core;` removes even
+        // `int` from the scope) in the library file: the 3.6.2 analyzer decides by
+        // the directives of the `LibraryFileKind` (`file_state.dart:288-300`,
+        // `hasDartCoreImport`), and the `import 'dart:core' as prefix0;` of an
+        // augmentation (the macros' one) or of a part does not count.
         let principal = program.libraries[lib_idx].units.first().copied();
         let imports_core = program.libraries[lib_idx]
             .imports
@@ -589,7 +596,8 @@ pub fn build_outline(
             if LibraryId(lib_idx as u32) != core_id {
                 let core_exported = program.libraries[core_id.0 as usize].exported.clone();
                 for (sym, binding) in core_exported {
-                    // Só entra se nada na biblioteca ou nos imports anteriores ocupou o nome
+                    // Only goes in if nothing in the library or in the previous imports took
+                    // the name
                     scope.entry(sym).or_insert(binding);
                 }
             }
@@ -602,7 +610,7 @@ pub fn build_outline(
     }
 
     // -----------------------------------------------------------------------
-    // Fase 4: Resolução de supertipos e verificação de ciclos
+    // Phase 4: supertype resolution and cycle checking
     program.tempos.outline_escopos += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
@@ -619,11 +627,11 @@ pub fn build_outline(
         let interface_refs = program.classes[class_idx].interfaces.clone();
         let on_refs = program.classes[class_idx].on.clone();
 
-        // 1. Resolve extends
+        // 1. Resolves extends
         let resolved_super = if let Some((unit_id, type_id)) = supertype_ref {
             resolve_type_to_class(program, lib_id, unit_id, type_id, diagnostics)
         } else if class_kind == ClassKind::Class || class_kind == ClassKind::MixinApplication {
-            // Se omitido e não for a classe Object: default é Object de dart:core
+            // If omitted and not the Object class: the default is dart:core's Object
             if class_name != object_sym {
                 resolve_name_to_class(program, lib_id, None, object_sym, core_id)
             } else {
@@ -644,7 +652,7 @@ pub fn build_outline(
         }
         program.classes[class_idx].mixin_classes = resolved_mixins;
 
-        // 3. Resolve implements (interfaces)
+        // 3. Resolves implements (interfaces)
         let mut resolved_interfaces = Vec::new();
         for (unit_id, type_id) in interface_refs {
             if let Some(cid) = resolve_type_to_class(program, lib_id, unit_id, type_id, diagnostics)
@@ -654,7 +662,7 @@ pub fn build_outline(
         }
         program.classes[class_idx].interface_classes = resolved_interfaces;
 
-        // 4. Resolve on (para mixins)
+        // 4. Resolves on (for mixins)
         let mut resolved_on = Vec::new();
         for (unit_id, type_id) in on_refs {
             if let Some(cid) = resolve_type_to_class(program, lib_id, unit_id, type_id, diagnostics)
@@ -664,7 +672,7 @@ pub fn build_outline(
         }
         program.classes[class_idx].on_classes = resolved_on;
 
-        // 5. Detecta ciclos na cadeia de supertipos
+        // 5. Detects cycles in the supertype chain
         let mut visited = HashSet::new();
         visited.insert(class_id);
         let mut curr = resolved_super;
@@ -676,7 +684,7 @@ pub fn build_outline(
                     .map(|d| program.units[d.unit.0 as usize].ast.decl(d.decl).span)
                     .unwrap_or(Span { start: 0, end: 0 });
                 diagnostics.push(Diagnostic::new(
-                    format!("ciclo de herança detectado na classe '{name_str}'"),
+                    format!("inheritance cycle detected in class '{name_str}'"),
                     span,
                 ));
                 break;
@@ -688,16 +696,17 @@ pub fn build_outline(
     program.tempos.outline_supertipos += t_phase.elapsed();
 }
 
-/// T1 (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 d): o dono dos caches de
-/// interface e de hierarquia de cada grupo de classes homônimas, isto é, a
-/// declaração que o analyzer consulta primeiro (o cache é por elemento, e
-/// os homônimos são o mesmo elemento como chave). A resolução anda as
-/// declarações da biblioteca em ordem de fonte: a primeira classe do grupo
-/// com `this` ou `super` no corpo pede a própria interface; uma declaração
-/// de fora do grupo que cita o nome antes disso pede a do elemento que o
-/// nome designa. Sem pedido na resolução, o verificador de herança pede
-/// pela primeira em ordem de fonte (o representante). Citar o nome conta
-/// como pedido (aproximação: o analyzer só pede no acesso a membro).
+/// T1 (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 d): the owner of the
+/// interface and hierarchy caches of each group of homonymous classes, that
+/// is, the declaration the analyzer consults first (the cache is per
+/// element, and homonyms are the same element as a key). Resolution walks
+/// the library's declarations in source order: the first class of the
+/// group with `this` or `super` in its body asks for its own interface; a
+/// declaration outside the group that mentions the name before that asks
+/// for that of the element the name designates. With no request during
+/// resolution, the inheritance checker asks for the first in source order
+/// (the representative). Mentioning the name counts as a request (an
+/// approximation: the analyzer only asks on member access).
 fn compute_homonym_owners(program: &mut Program) {
     let inside = |a: Span, b: Span| a.start >= b.start && a.end <= b.end;
     for li in 0..program.libraries.len() {
@@ -765,18 +774,18 @@ fn compute_homonym_owners(program: &mut Program) {
     }
 }
 
-/// Os escopos por unidade de uma biblioteca com imports em partes
-/// (`accepted/future-releases/parts-with-imports`, "Scopes"): o escopo de
-/// imports de um arquivo são os imports dele, cujo pai é o escopo de imports
-/// do arquivo que o incluiu; os de dentro escondem os de fora (nome solto e
-/// prefixo). As declarações da biblioteca escondem todo import, e o
-/// `dart:core` implícito tem a menor precedência. Conferido com o CFE e o
-/// analyzer 3.13.4 (`--enable-experiment=enhanced-parts`): numa parte que
-/// importa `b.dart`, `nome()` é o de `b` mesmo com o arquivo da biblioteca
-/// importando outro `nome` de `a.dart`.
+/// The per-unit scopes of a library with imports in parts
+/// (`accepted/future-releases/parts-with-imports`, "Scopes"): a file's
+/// import scope is its imports, whose parent is the import scope of the
+/// file that included it; the inner ones hide the outer ones (bare name and
+/// prefix). The library's declarations hide every import, and the implicit
+/// `dart:core` has the lowest precedence. Checked against the CFE and the
+/// 3.13.4 analyzer (`--enable-experiment=enhanced-parts`): in a part that
+/// imports `b.dart`, `name()` is `b`'s even with the library file importing
+/// another `name` from `a.dart`.
 ///
-/// Vazio quando só o arquivo da biblioteca importa: aí o escopo da
-/// biblioteca vale para todas as unidades.
+/// Empty when only the library file imports: then the library scope
+/// applies to every unit.
 fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, UnitScope> {
     let lib = &program.libraries[lib_id.0 as usize];
     if lib.is_sdk {
@@ -790,7 +799,7 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, U
     if lib.is_sdk || !with_imports_in_part {
         return output;
     }
-    // Os imports de cada arquivo, filtrados pelos combinadores.
+    // Each file's imports, filtered by the combinators.
     let mut without_prefix: HashMap<UnitId, Namespace> = HashMap::new();
     let mut with_prefix: HashMap<UnitId, HashMap<SymbolId, (Namespace, LibraryId)>> = HashMap::new();
     for import in &lib.imports {
@@ -816,7 +825,7 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, U
         if program.units[unidade.0 as usize].role == UnitRole::Patch {
             continue;
         }
-        // A cadeia do arquivo até o da biblioteca, de fora para dentro.
+        // The chain from the file up to the library's, from outside in.
         let mut chain = vec![unidade];
         let mut atual = unidade;
         while let Some(&parent) = lib.pais.get(&atual) {
@@ -856,12 +865,13 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, U
     output
 }
 
-/// Os escopos dos arquivos de patch de uma biblioteca do SDK que importam:
-/// como no CFE, os imports do patch valem nele e escondem os da biblioteca —
-/// `js_interop_unsafe_patch.dart` importa `dart:_foreign_helper show JS` e
-/// `dart:js_interop hide JS`, e o `JS(...)` do corpo é o intrínseco, não a
-/// anotação `@JS` que o arquivo da biblioteca traz. Nomes que o patch não
-/// importa caem no escopo da biblioteca (declarações, imports, `dart:core`).
+/// The scopes of an SDK library's patch files that import: as in the CFE, a
+/// patch's imports apply in it and hide the library's —
+/// `js_interop_unsafe_patch.dart` imports `dart:_foreign_helper show JS` and
+/// `dart:js_interop hide JS`, and the `JS(...)` in the body is the
+/// intrinsic, not the `@JS` annotation the library file brings. Names the
+/// patch does not import fall to the library scope (declarations, imports,
+/// `dart:core`).
 fn patch_scopes(program: &Program, lib: &crate::model::Library) -> HashMap<UnitId, UnitScope> {
     let mut output: HashMap<UnitId, UnitScope> = HashMap::new();
     for import in &lib.imports {
@@ -903,7 +913,7 @@ fn patch_scopes(program: &Program, lib: &crate::model::Library) -> HashMap<UnitI
 }
 
 // ---------------------------------------------------------------------------
-// Auxiliares de construção de elementos
+// Element building helpers
 // ---------------------------------------------------------------------------
 
 fn create_class_element(
@@ -957,7 +967,7 @@ fn create_class_element(
         pools, ast, &mut elem, class_id, unit_id, &c.members, empty_sym, interner,
     );
 
-    // Construtor sintético padrão caso nenhum tenha sido declarado
+    // Default synthetic constructor in case none was declared
     if elem.constructors.is_empty() && !elem.modifiers.abstract_ && elem.kind == ClassKind::Class {
         let synth_id = FunctionElementId(pools.functions.len() as u32);
         pools.functions.push(FunctionElement {
@@ -1077,7 +1087,7 @@ fn create_enum_element(
         representation: None,
     };
 
-    // Membros sintéticos de enum: values, index, name
+    // Synthetic enum members: values, index, name
     let values_sym = interner.intern("values");
     let index_sym = interner.intern("index");
     let name_sym = interner.intern("name");
@@ -1139,7 +1149,7 @@ fn create_enum_element(
     });
     elem.instance_members.insert(name_sym, name_fn);
 
-    // Constantes do enum
+    // The enum's constants
     for (idx, ec) in e.constants.iter().enumerate() {
         let const_id = VariableId(pools.variables.len() as u32);
         pools.variables.push(VariableElement {
@@ -1202,7 +1212,7 @@ fn create_extension_element(
     ext_id
 }
 
-/// Funde os membros de um `@patch extension` na extensão `ext_id`.
+/// Merges the members of a `@patch extension` into extension `ext_id`.
 fn merge_extension_patch(
     pools: &mut ElementPools,
     ast: &dartforge_frontend::ast::Ast,
@@ -1212,8 +1222,8 @@ fn merge_extension_patch(
     is_patch: bool,
     interner: &mut Interner,
 ) {
-    // O elemento sai do pool enquanto os membros entram (os dois são
-    // emprestados mutavelmente).
+    // The element leaves the pool while the members go in (both are borrowed
+    // mutably).
     let mut elem = std::mem::replace(
         &mut pools.extensions[ext_id.0 as usize],
         ExtensionElement {
@@ -1257,7 +1267,7 @@ fn extension_members(
                         ast::FunctionKind::Operator => FunctionKind::Operator,
                         _ => FunctionKind::Function,
                     };
-                    // `operator -()` sem parâmetros é o menos unário: chave `unary-`.
+                    // `operator -()` without parameters is unary minus: key `unary-`.
                     if fn_kind == FunctionKind::Operator
                         && interner.resolve(fn_sym) == "-"
                         && ast_fn.parameters.as_ref().is_some_and(|p| p.is_empty())
@@ -1295,7 +1305,7 @@ fn extension_members(
                     } else {
                         &mut ext_elem.instance_members
                     };
-                    // Um membro `@patch` substitui o `external` da declaração.
+                    // A `@patch` member replaces the declaration's `external` one.
                     let old_ = members_.insert(key, fn_id);
                     if is_patch && let Some(old_) = old_ {
                         pools.functions[old_.0 as usize].patched_by = Some(fn_id);
@@ -1306,12 +1316,11 @@ fn extension_members(
             MemberKind::Field(vars) => {
                 for (idx, var) in vars.variables.iter().enumerate() {
                     let var_id = VariableId(pools.variables.len() as u32);
-                    // O campo de instância (o `external`, como o
-                    // `IntAddress.address` do `dart:ffi`; o outro é
-                    // `EXTENSION_DECLARES_INSTANCE_FIELD`) tem getter e, se não
-                    // é `final`, setter implícitos, membros de instância da
-                    // extensão (`FieldElementImpl` com acessores sintéticos).
-                    // Os estáticos seguem lidos pela variável.
+                    // The instance field (the `external` one, like `dart:ffi`'s
+                    // `IntAddress.address`; the other is `EXTENSION_DECLARES_INSTANCE_FIELD`)
+                    // has an implicit getter and, if not `final`, setter, instance members of
+                    // the extension (`FieldElementImpl` with synthetic accessors). Static ones
+                    // are still read through the variable.
                     let (getter, setter) = if vars.static_ {
                         (None, None)
                     } else {
@@ -1388,7 +1397,7 @@ fn create_extension_type_element(
     let type_params = extract_type_params(&et.type_params, unit_id);
     let interfaces = et.implements.iter().map(|t| (unit_id, *t)).collect();
 
-    // Representação é tratada como campo especial
+    // The representation is handled as a special field
     let rep_id = VariableId(pools.variables.len() as u32);
     pools.variables.push(VariableElement {
         name: et.representation_name.sym,
@@ -1462,7 +1471,7 @@ fn extract_type_params(
         .collect()
 }
 
-/// Extrai métodos, construtores e campos de uma classe/mixin/enum.
+/// Extracts methods, constructors and fields of a class/mixin/enum.
 pub(crate) fn extract_members(
     pools: &mut ElementPools,
     ast: &dartforge_frontend::ast::Ast,
@@ -1488,7 +1497,7 @@ pub(crate) fn extract_members(
                         ast::FunctionKind::Operator => FunctionKind::Operator,
                         _ => FunctionKind::Function,
                     };
-                    // `operator -()` sem parâmetros é o menos unário: chave `unary-`.
+                    // `operator -()` without parameters is unary minus: key `unary-`.
                     if fn_kind == FunctionKind::Operator
                         && interner.resolve(fn_sym) == "-"
                         && ast_fn.parameters.as_ref().is_some_and(|p| p.is_empty())
@@ -1532,8 +1541,8 @@ pub(crate) fn extract_members(
                 }
             }
             MemberKind::Constructor(ctor) => {
-                // `C.new(…)` declara o construtor sem nome (o nome `new` é o
-                // `''` do elemento).
+                // `C.new(…)` declares the unnamed constructor (the name `new` is the
+                // element's `''`).
                 let ctor_sym = ctor.name.map(|n| n.sym).filter(|s| interner.resolve(*s) != "new").unwrap_or(empty_sym);
                 let fn_id = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
@@ -1555,9 +1564,9 @@ pub(crate) fn extract_members(
                     patched_by: None,
                     declaracao_publica: None,
                 });
-                // Construtor repetido (`DUPLICATE_CONSTRUCTOR`): o nome
-                // resolve para o primeiro declarado
-                // (`InterfaceElement.getNamedConstructor`, o primeiro da lista).
+                // Repeated constructor (`DUPLICATE_CONSTRUCTOR`): the name resolves to the
+                // first one declared (`InterfaceElement.getNamedConstructor`, the first of
+                // the list).
                 elem.constructors.entry(ctor_sym).or_insert(fn_id);
             }
             MemberKind::Field(vars) => {
@@ -1651,7 +1660,7 @@ pub(crate) fn extract_members(
     }
 }
 
-/// Aplica patch nos membros de uma classe existente.
+/// Applies a patch to the members of an existing class.
 fn merge_class_patch(
     pools: &mut ElementPools,
     ast: &dartforge_frontend::ast::Ast,
@@ -1677,7 +1686,7 @@ fn merge_class_patch(
                         ast::FunctionKind::Operator => FunctionKind::Operator,
                         _ => FunctionKind::Function,
                     };
-                    // `operator -()` sem parâmetros é o menos unário: chave `unary-`.
+                    // `operator -()` without parameters is unary minus: key `unary-`.
                     if fn_kind == FunctionKind::Operator
                         && interner.resolve(fn_sym) == "-"
                         && ast_fn.parameters.as_ref().is_some_and(|p| p.is_empty())
@@ -1719,19 +1728,19 @@ fn merge_class_patch(
                     };
 
                     if let Some(&existing_fn_id) = target_map.get(&key) {
-                        // Membro substitui membro external
+                        // A member replaces an external member
                         pools.functions[existing_fn_id.0 as usize].patched_by = Some(fn_id);
                         pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[existing_fn_id.0 as usize].declaracao_publica.unwrap_or(existing_fn_id));
                         target_map.insert(key, fn_id);
                     } else {
-                        // Membro novo acrescentado
+                        // A new member is added
                         target_map.insert(key, fn_id);
                     }
                 }
             }
             MemberKind::Constructor(ctor) => {
-                // `C.new(…)` declara o construtor sem nome (o nome `new` é o
-                // `''` do elemento).
+                // `C.new(…)` declares the unnamed constructor (the name `new` is the
+                // element's `''`).
                 let ctor_sym = ctor.name.map(|n| n.sym).filter(|s| interner.resolve(*s) != "new").unwrap_or(empty_sym);
                 let fn_id = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
@@ -1761,9 +1770,9 @@ fn merge_class_patch(
                 constructors.insert(ctor_sym, fn_id);
             }
             MemberKind::Field(_) => {
-                // Campos declarados no patch (`final int _value;` do
-                // `DateTime` da VM): entram na classe de origem como os da
-                // declaração, pelo mesmo caminho.
+                // Fields declared in the patch (the VM `DateTime`'s `final int _value;`):
+                // they go into the source class like the declaration's, through the same
+                // path.
                 let idx = class_id.0 as usize;
                 let c = &mut pools.classes[idx];
                 let mut tmp = ClassElement {
@@ -1802,7 +1811,7 @@ fn merge_class_patch(
 }
 
 // ---------------------------------------------------------------------------
-// Filtros e combinações de namespace
+// Namespace filters and combinations
 // ---------------------------------------------------------------------------
 
 fn filter_namespace(ns: &Namespace, combinators: &[ast::Combinator]) -> Namespace {
@@ -1822,7 +1831,7 @@ fn filter_namespace(ns: &Namespace, combinators: &[ast::Combinator]) -> Namespac
     out
 }
 
-/// A biblioteca do SDK que declara o elemento (para a regra de conflito).
+/// The SDK library that declares the element (for the conflict rule).
 fn sdk_element(program: &Program, el: Element) -> bool {
     let lib = match el {
         Element::Class(c) => program.classes[c.0 as usize].library,
@@ -1835,9 +1844,9 @@ fn sdk_element(program: &Program, el: Element) -> bool {
     program.libraries[lib.0 as usize].is_sdk
 }
 
-/// Junta dois imports do mesmo nome. Regra do Dart (especificação,
-/// "Imports"): se um vem de biblioteca do sistema (`dart:`) e o outro não,
-/// o do sistema fica oculto — não há ambiguidade.
+/// Merges two imports of the same name. Dart rule (specification,
+/// "Imports"): if one comes from a system library (`dart:`) and the other
+/// does not, the system one is hidden — there is no ambiguity.
 fn merge_binding_with(entry: &mut Binding, incoming: Binding, from_sdk: &dyn Fn(Element) -> bool) {
     let join = |atual: &mut Option<Element>, novo: Option<Element>, amb: &mut bool| match (*atual, novo) {
         (None, n) => *atual = n,
@@ -1859,7 +1868,7 @@ fn merge_binding_with(entry: &mut Binding, incoming: Binding, from_sdk: &dyn Fn(
 }
 
 // ---------------------------------------------------------------------------
-// Resolução de tipos e nomes para ClassId
+// Resolving types and names to ClassId
 // ---------------------------------------------------------------------------
 
 fn resolve_type_to_class(
@@ -1885,7 +1894,7 @@ fn resolve_type_to_class(
                     .and_then(|b| {
                         if b.ambiguous {
                             diagnostics.push(Diagnostic::new(
-                                "referência ambígua em supertipo prefixado",
+                                "ambiguous reference in a prefixed supertype",
                                 name[1].span,
                             ));
                             None
@@ -1905,11 +1914,11 @@ fn resolve_type_to_class(
     }
 }
 
-/// A classe que um `typedef X = C<…>;` nomeia, para o alias usado como
-/// supertipo, mixin ou interface (`with MapMixin<K, V>`, com `typedef
-/// MapMixin<K, V> = MapBase<K, V>` no `dart:collection`). Segue alias de
-/// alias até uma profundidade pequena; um alias de tipo que não é classe dá
-/// `None`.
+/// The class a `typedef X = C<…>;` names, for an alias used as a supertype,
+/// mixin or interface (`with MapMixin<K, V>`, with
+/// `typedef MapMixin<K, V> = MapBase<K, V>` in `dart:collection`). Follows
+/// aliases of aliases up to a small depth; a type alias that is not a class
+/// gives `None`.
 fn typedef_class(program: &Program, tid: TypedefId, depth: u32) -> Option<ClassId> {
     if depth > 8 {
         return None;
@@ -1931,8 +1940,8 @@ fn typedef_class(program: &Program, tid: TypedefId, depth: u32) -> Option<ClassI
     }
 }
 
-/// `unit`: a unidade onde o nome está escrito (o escopo dela, com
-/// `parts-with-imports`); `None` usa o da biblioteca.
+/// `unit`: the unit where the name is written (its scope, with
+/// `parts-with-imports`); `None` uses the library's.
 fn resolve_name_to_class(
     program: &Program,
     lib_id: LibraryId,
@@ -1954,7 +1963,7 @@ fn resolve_name_to_class(
             }
         }
     }
-    // Tenta fallback em core diretamente se não estiver no escopo
+    // Tries the core fallback directly if it is not in the scope
     if let Some(cid) = core_id {
         if let Some(b) = program.libraries[cid.0 as usize].exported.get(&name_sym) {
             if let Some(Element::Class(cid)) = b.getter {

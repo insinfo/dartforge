@@ -33,7 +33,7 @@ fn empty_sdk(dir: &Path) -> SdkLayout {
     )
     .unwrap();
 
-    SdkLayout::load(&lib_dir, "dartdevc").expect("carrega layout sdk falso")
+    SdkLayout::load(&lib_dir, "dartdevc").expect("loads a fake sdk layout")
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn test_part_and_part_of() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loading failed");
 
     assert!(prog.libraries.len() >= 2); // dart:core e my_lib
     let my_lib = prog
@@ -119,7 +119,7 @@ fn test_prefixes() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loading failed");
     let my_lib = prog
         .libraries
         .iter()
@@ -129,10 +129,10 @@ fn test_prefixes() {
     let p_sym = interner.intern("p");
     let b_sym = interner.intern("B");
 
-    // B não deve estar no escopo raiz sem prefixo
+    // B must not be in the root scope without a prefix
     assert!(!my_lib.scope.contains_key(&b_sym));
 
-    // B deve estar no prefixo p
+    // B must be in prefix p
     assert!(my_lib.prefixes.contains_key(&p_sym));
     let pref_ns = &my_lib.prefixes[&p_sym];
     assert!(pref_ns.contains_key(&b_sym));
@@ -150,7 +150,7 @@ fn test_show_hide_sequence() {
     let main_dart = proj_dir.join("main.dart");
     let lib_b_dart = proj_dir.join("lib_b.dart");
 
-    // Exporta com show seguido de hide
+    // Exports with show followed by hide
     fs::write(
         &main_dart,
         r#"
@@ -169,7 +169,7 @@ fn test_show_hide_sequence() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loading failed");
     let my_lib = prog
         .libraries
         .iter()
@@ -215,7 +215,7 @@ fn test_cyclic_reexports() {
     )
     .unwrap();
 
-    let prog = load(&a_dart, &sdk, None, &mut interner).expect("deve resolver reexports cíclicos");
+    let prog = load(&a_dart, &sdk, None, &mut interner).expect("must resolve cyclic reexports");
 
     let lib_a = prog
         .libraries
@@ -231,7 +231,7 @@ fn test_cyclic_reexports() {
     let sym_a = interner.intern("FromA");
     let sym_b = interner.intern("FromB");
 
-    // Ambos reexportam mutuamente e convergem no ponto fixo
+    // Both reexport each other and converge at the fixpoint
     assert!(lib_a.exported.contains_key(&sym_a));
     assert!(lib_a.exported.contains_key(&sym_b));
 
@@ -268,7 +268,7 @@ fn test_local_shadowing() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loading failed");
     let my_lib = prog
         .libraries
         .iter()
@@ -276,9 +276,9 @@ fn test_local_shadowing() {
         .unwrap();
 
     let foo_sym = interner.intern("Foo");
-    let binding = my_lib.scope.get(&foo_sym).expect("Foo deve estar no escopo");
+    let binding = my_lib.scope.get(&foo_sym).expect("Foo must be in scope");
 
-    // Declaração local sombreia o import: não é ambíguo!
+    // A local declaration shadows the import: not ambiguous!
     assert!(!binding.ambiguous);
     let local_foo = my_lib.declared[&foo_sym].getter;
     assert_eq!(binding.getter, local_foo);
@@ -322,7 +322,7 @@ fn test_ambiguous_imports() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loading failed");
     let my_lib = prog
         .libraries
         .iter()
@@ -333,9 +333,9 @@ fn test_ambiguous_imports() {
     let binding = my_lib
         .scope
         .get(&conflict_sym)
-        .expect("Conflict deve estar no escopo");
+        .expect("Conflict must be in scope");
 
-    // Deve estar marcado como ambíguo
+    // Must be marked as ambiguous
     assert!(binding.ambiguous);
 }
 
@@ -361,7 +361,7 @@ fn test_supertype_resolution() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loading failed");
 
     let sub_sym = interner.intern("Sub");
     let base_sym = interner.intern("Base");
@@ -400,20 +400,21 @@ fn test_inheritance_cycle_detection() {
     .unwrap();
 
     let res = load(&main_dart, &sdk, None, &mut interner);
-    assert!(res.is_err(), "deve falhar por ciclo de herança");
+    assert!(res.is_err(), "must fail because of an inheritance cycle");
     let errs = res.err().unwrap();
     assert!(
-        errs.iter().any(|e| e.message.contains("ciclo de herança")),
-        "esperava diagnóstico de ciclo de herança, obteve: {:?}",
+        errs.iter().any(|e| e.message.contains("inheritance cycle")),
+        "expected an inheritance cycle diagnostic, got: {:?}",
         errs
     );
 }
 
-/// Gerados do `build_runner` fora de `lib/` (`test/`, `web/`): um import
-/// relativo a um `.template.dart` que só existe em
-/// `.dart_tool/build/generated/<package>/test/` resolve para ele, com a URI do
-/// lugar de origem, e os relativos do gerado voltam para `test/`. O `dart
-/// analyze` 3.6.2 dá "No issues found!" nesse projeto (`v01/min/gentest`).
+/// `build_runner` generated files outside `lib/` (`test/`, `web/`): a
+/// relative import of a `.template.dart` that only exists in
+/// `.dart_tool/build/generated/<package>/test/` resolves to it, with the URI
+/// of the original place, and the generated file's relative imports go back
+/// to `test/`. `dart analyze` 3.6.2 gives "No issues found!" on this project
+/// (`v01/min/gentest`).
 #[test]
 fn build_runner_output_outside_lib() {
     let tmp = tempdir().unwrap();
@@ -437,25 +438,25 @@ fn build_runner_output_outside_lib() {
     .unwrap();
     let entrada = proj.join("test/x_test.dart");
     let config = proj.join(".dart_tool/package_config.json");
-    let prog = load(&entrada, &sdk, Some(&config), &mut interner).expect("carregamento falhou");
-    let gerado = prog.libraries.iter().find(|l| l.uri.ends_with("test/x_test.template.dart")).expect("biblioteca gerada");
+    let prog = load(&entrada, &sdk, Some(&config), &mut interner).expect("loading failed");
+    let gerado = prog.libraries.iter().find(|l| l.uri.ends_with("test/x_test.template.dart")).expect("generated library");
     assert!(gerado.uri.starts_with("file://"), "{}", gerado.uri);
     let unidade = &prog.units[gerado.units[0].0 as usize];
     let caminho = unidade.path.as_ref().unwrap().to_string_lossy().replace('\\', "/");
     assert!(caminho.contains(".dart_tool/build/generated/gentest/test/x_test.template.dart"), "{caminho}");
     let value = interner.intern("valor");
     assert!(gerado.declared.contains_key(&value));
-    // O relativo do gerado (`x_test.dart`) é a biblioteca de `test/`, não
-    // um arquivo inexistente na pasta dos gerados.
+    // The generated file's relative import (`x_test.dart`) is the `test/`
+    // library, not a nonexistent file in the generated folder.
     let orig = interner.intern("orig");
-    let target = gerado.imports.iter().find(|i| i.prefix == Some(orig)).expect("import do gerado");
+    let target = gerado.imports.iter().find(|i| i.prefix == Some(orig)).expect("import from the generated file");
     assert!(prog.library(target.library).uri.ends_with("/proj/test/x_test.dart"), "{}", prog.library(target.library).uri);
 }
 
-/// `parts-with-imports`: os imports de uma parte valem nela e nas partes
-/// dela e escondem os do arquivo que a incluiu (nome solto e prefixo); as
-/// declarações da biblioteca escondem todo import. Mesmo resultado do CFE
-/// 3.13.4 (`corpus/macros/406_partes_imports_313`).
+/// `parts-with-imports`: a part's imports apply in it and in its parts and
+/// hide those of the file that included it (bare name and prefix); the
+/// library's declarations hide every import. Same result as the 3.13.4 CFE
+/// (`corpus/macros/406_partes_imports_313`).
 #[test]
 fn import_scope_per_unit() {
     let tmp = tempdir().unwrap();
@@ -471,7 +472,7 @@ fn import_scope_per_unit() {
     fs::write(proj.join("parte.dart"), "part of 'main.dart';\nimport 'b.dart';\nimport 'b.dart' as p;\npart 'neta.dart';\npart 'outra.dart';\n").unwrap();
     fs::write(proj.join("neta.dart"), "part of 'parte.dart';\n").unwrap();
     fs::write(proj.join("outra.dart"), "part of 'parte.dart';\nimport 'c.dart';\n").unwrap();
-    let prog = load(&proj.join("main.dart"), &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog = load(&proj.join("main.dart"), &sdk, None, &mut interner).expect("loading failed");
     let lib = prog.libraries.iter().position(|l| l.uri.ends_with("/main.dart")).map(|i| LibraryId(i as u32)).unwrap();
     let unidade = |suffix: &str| {
         *prog.library(lib).units.iter().find(|u| prog.unit(**u).uri.ends_with(suffix)).expect(suffix)
@@ -495,20 +496,21 @@ fn import_scope_per_unit() {
     let (m, pa, ne, either) = (unidade("/main.dart"), unidade("/parte.dart"), unidade("/neta.dart"), unidade("/outra.dart"));
     assert_eq!((de(m, "nome"), de(pa, "nome"), de(ne, "nome"), de(either, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
     assert_eq!((prefixed(m), prefixed(pa), prefixed(ne), prefixed(either)), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "b.dart".into()));
-    // A declaração da biblioteca vence o import da parte.
+    // The library's declaration wins over the part's import.
     assert_eq!(de(pa, "local"), "main.dart");
-    // Sem imports em partes, nada muda: o escopo da biblioteca vale para todas.
+    // Without imports in parts, nothing changes: the library scope applies to
+    // all of them.
     let proj2 = tmp.path().join("proj2");
     fs::create_dir_all(&proj2).unwrap();
     fs::write(proj2.join("main.dart"), "import 'a.dart';\npart 'parte.dart';\n").unwrap();
     fs::write(proj2.join("a.dart"), "int nome() => 1;\n").unwrap();
     fs::write(proj2.join("parte.dart"), "part of 'main.dart';\n").unwrap();
-    let prog2 = load(&proj2.join("main.dart"), &sdk, None, &mut interner).expect("carregamento falhou");
+    let prog2 = load(&proj2.join("main.dart"), &sdk, None, &mut interner).expect("loading failed");
     assert!(prog2.libraries.iter().all(|l| l.escopos_de_unidade.is_empty()));
 }
 
-/// `part` do próprio arquivo (`part/self_test.dart` da linguagem): a carga
-/// termina, com a unidade uma vez só.
+/// A `part` of the file itself (the language's `part/self_test.dart`): the
+/// load ends, with the unit only once.
 #[test]
 fn part_of_itself_does_not_reload() {
     let dir = tempdir().unwrap();
@@ -521,9 +523,10 @@ fn part_of_itself_does_not_reload() {
     assert_eq!(lib.units.len(), 1);
 }
 
-/// `part 'package:p/x.dart'` (o `diff_match_patch`, docs/NATIVO-PROJETOS-REAIS.md
-/// C5): a URI absoluta da parte vai ao `package_config`, como a de um
-/// `import`; antes era juntada ao diretório da biblioteca (`lib/src/package:p/…`).
+/// `part 'package:p/x.dart'` (`diff_match_patch`,
+/// docs/NATIVO-PROJETOS-REAIS.md C5): the part's absolute URI goes to the
+/// `package_config`, like an `import`'s; before, it was joined to the
+/// library's directory (`lib/src/package:p/…`).
 #[test]
 fn part_by_package_uri() {
     let tmp = tempdir().unwrap();
@@ -543,9 +546,9 @@ fn part_by_package_uri() {
     fs::write(proj.join("lib/src/sub/b.dart"), "part of a;\nint g() => 1;\n").unwrap();
     fs::write(proj.join("bin/main.dart"), "import 'package:p/src/a.dart';\nvoid main() { f(); }\n").unwrap();
     let config = proj.join(".dart_tool/package_config.json");
-    let prog = load(&proj.join("bin/main.dart"), &sdk, Some(&config), &mut interner).expect("carregamento falhou");
-    let a = prog.libraries.iter().find(|l| l.uri == "package:p/src/a.dart").expect("biblioteca a");
-    assert_eq!(a.units.len(), 2, "a parte entrou na biblioteca");
+    let prog = load(&proj.join("bin/main.dart"), &sdk, Some(&config), &mut interner).expect("loading failed");
+    let a = prog.libraries.iter().find(|l| l.uri == "package:p/src/a.dart").expect("library a");
+    assert_eq!(a.units.len(), 2, "the part entered the library");
     let g = interner.intern("g");
     assert!(a.declared.contains_key(&g));
 }

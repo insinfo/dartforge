@@ -1,30 +1,31 @@
-//! Troca do texto de uma unidade sem recarregar o programa
-//! (docs/LSP-ESPECIFICACAO.md §16.6, etapa I1): reanalisa a unidade, compara
-//! a **assinatura de API** da versão velha com a da nova e, quando só o
-//! interior de corpos mudou (classe **Corpo**), troca a árvore e o texto no
-//! lugar.
+//! Replacing a unit's text without reloading the program
+//! (docs/LSP-ESPECIFICACAO.md §16.6, stage I1): reanalyzes the unit, compares
+//! the **API signature** of the old version with the new one's and, when only
+//! the inside of bodies changed (class **Body**), swaps the tree and the text
+//! in place.
 //!
-//! A assinatura é a sequência de tokens do arquivo fora dos corpos (o
-//! `apiSignature` do analyzer, que também é feito de tokens): ficam de fora o
-//! interior dos blocos e das expressões `=>` de funções de topo, métodos e
-//! construtores, e os inicializadores de variáveis e campos com tipo escrito
-//! que não são `const` nem `final` de instância numa classe com construtor
-//! `const`. Os tokens das diretivas formam uma assinatura à parte (classe
-//! **Diretivas**: o grafo de bibliotecas pode mudar). Comentários e espaços
-//! não contam; a cola de `>` (que compõe `>>`) conta.
+//! The signature is the file's token sequence outside the bodies (the
+//! analyzer's `apiSignature`, which is also made of tokens): left out are the
+//! inside of blocks and of `=>` expressions of top-level functions, methods
+//! and constructors, and the initializers of variables and fields with a
+//! written type that are neither `const` nor instance `final` in a class
+//! with a `const` constructor. The directives' tokens form a separate
+//! signature (class **Directives**: the library graph may change). Comments
+//! and whitespace do not count; the gluing of `>` (which composes `>>`)
+//! does.
 //!
-//! Os membros de `mixin` não têm corpo fora da assinatura: os nomes chamados
-//! por `super` dentro deles pertencem à assinatura no analyzer, e a edição
-//! dentro de um deles recusa a troca (recarga), o que é conservador.
+//! `mixin` members have no body outside the signature: the names called via
+//! `super` inside them belong to the signature in the analyzer, and an edit
+//! inside one of them refuses the swap (a reload), which is conservative.
 //!
-//! Os elementos guardam ids das arenas de declarações, membros e funções
-//! (`DeclRef`, `FunctionRef`, `VariableRef`), conferidos um a um; e pares
-//! `(UnitId, ast::TypeId)` de cláusulas e limites, que são **remapeados** pelo
-//! percurso paralelo das anotações de tipo das assinaturas (a arena de tipos
-//! é preenchida em ordem de parse, por assinaturas e corpos: um tipo novo num
-//! corpo desloca os ids do que vem depois). O esboço dos tipos guarda pares
-//! iguais (`OutlineTypes::tipos_escritos`); quem o retém aplica
-//! [`Anterior::mapa_de_tipos`] (e o inverso, ao desfazer).
+//! The elements keep ids from the declaration, member and function arenas
+//! (`DeclRef`, `FunctionRef`, `VariableRef`), checked one by one; and
+//! `(UnitId, ast::TypeId)` pairs of clauses and bounds, which are
+//! **remapped** by walking the signatures' type annotations in parallel (the
+//! type arena is filled in parse order, by signatures and bodies: a new type
+//! in a body shifts the ids of what comes after). The types outline keeps
+//! the same pairs (`OutlineTypes::tipos_escritos`); whoever keeps it applies
+//! [`Anterior::mapa_de_tipos`] (and the inverse, when undoing).
 
 use crate::model::{Program, UnitId};
 use dartforge_diagnostics::Span;
@@ -33,34 +34,35 @@ use dartforge_frontend::token::{Kind, Op, Token};
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 
-/// Por que a troca foi recusada (o chamador recarrega o programa).
+/// Why the swap was refused (the caller reloads the program).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Recusa {
-    /// As arenas de declarações, membros ou funções não correspondem uma a
-    /// uma, ou as anotações de tipo das assinaturas não se alinham.
+    /// The declaration, member or function arenas do not correspond one to one,
+    /// or the signatures' type annotations do not line up.
     ShapeChanged(&'static str),
-    /// Uma das versões tem erro léxico: a assinatura não é comparável.
+    /// One of the versions has a lexical error: the signature is not
+    /// comparable.
     Lexico,
-    /// A assinatura de API das declarações mudou.
+    /// The declarations' API signature changed.
     Assinatura,
-    /// As diretivas mudaram.
+    /// The directives changed.
     Diretivas,
 }
 
-/// Um corpo da unidade, pelos ids das arenas (estáveis numa troca aceita).
+/// A body of the unit, by arena ids (stable in an accepted swap).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnitBody {
-    /// Função de topo, método, getter, setter ou operador.
+    /// Top-level function, method, getter, setter or operator.
     Funcao(ast::FunctionId),
-    /// Corpo de construtor (os inicializadores são assinatura).
+    /// Constructor body (the initializers are signature).
     Construtor(ast::MemberId),
-    /// Inicializador de variável de topo.
+    /// Top-level variable initializer.
     VariavelDeTopo { decl: ast::DeclId, index: usize },
-    /// Inicializador de campo.
+    /// Field initializer.
     Campo { member: ast::MemberId, index: usize },
 }
 
-/// O que a troca substituiu, para desfazer com [`restaurar_unidade`].
+/// What the swap replaced, to undo it with [`restaurar_unidade`].
 pub struct Anterior {
     unidade: UnitId,
     source: String,
@@ -68,41 +70,41 @@ pub struct Anterior {
     unit: CompilationUnit,
     pulados: Vec<Span>,
     referencia: dartforge_diagnostics::Referencia,
-    /// `TypeId` velho → novo das anotações das assinaturas.
+    /// Old → new `TypeId` of the signatures' annotations.
     map: HashMap<TypeId, TypeId>,
     alterados: Vec<UnitBody>,
 }
 
 impl Anterior {
-    /// A unidade trocada.
+    /// The swapped unit.
     pub fn unidade(&self) -> UnitId {
         self.unidade
     }
 
-    /// Os corpos cujo texto mudou.
+    /// The bodies whose text changed.
     pub fn changed_bodies(&self) -> &[UnitBody] {
         &self.alterados
     }
 
-    /// `TypeId` da árvore velha → o da nova, para as anotações das
-    /// assinaturas (as únicas que o esboço guarda).
+    /// The old tree's `TypeId` → the new one's, for the signatures' annotations
+    /// (the only ones the outline keeps).
     pub fn mapa_de_tipos(&self) -> &HashMap<TypeId, TypeId> {
         &self.map
     }
 
-    /// O inverso de [`Anterior::mapa_de_tipos`] (o mapa é uma bijeção).
+    /// The inverse of [`Anterior::mapa_de_tipos`] (the map is a bijection).
     pub fn mapa_inverso(&self) -> HashMap<TypeId, TypeId> {
         self.map.iter().map(|(&a, &b)| (b, a)).collect()
     }
 }
 
-/// Troca o texto da unidade `u` por `text` quando a assinatura de API não
-/// mudou; devolve o anterior para desfazer.
+/// Replaces the text of unit `u` with `text` when the API signature did not
+/// change; returns the previous state to undo it.
 ///
-/// `initializers_as_body`: os inicializadores de variáveis e campos
-/// contam todos como corpo (o completar, §16.7 regra 5: o tipo inferido de
-/// uma variável não importa para as sugestões dentro do próprio
-/// inicializador, e nada do que a troca especulativa produz é gravado).
+/// `initializers_as_body`: the initializers of variables and fields all
+/// count as body (completion, §16.7 rule 5: a variable's inferred type does
+/// not matter for the suggestions inside its own initializer, and nothing
+/// the speculative swap produces is written).
 pub fn substituir_unidade(
     program: &mut Program,
     names_: &mut Interner,
@@ -139,12 +141,12 @@ pub fn substituir_unidade(
             .collect();
         let (lv, ln) = (signature_types(&old_.ast), signature_types(&novo.ast));
         if lv.len() != ln.len() {
-            return Err(Recusa::ShapeChanged("tipos das assinaturas"));
+            return Err(Recusa::ShapeChanged("signature types"));
         }
         for (a, b) in lv.iter().zip(ln.iter()) {
             let (ta, tb) = (old_.ast.ty(*a), novo.ast.ty(*b));
             if ta.nullable != tb.nullable || std::mem::discriminant(&ta.kind) != std::mem::discriminant(&tb.kind) {
-                return Err(Recusa::ShapeChanged("tipos das assinaturas"));
+                return Err(Recusa::ShapeChanged("signature types"));
             }
         }
         let map: HashMap<TypeId, TypeId> = lv.into_iter().zip(ln).collect();
@@ -153,7 +155,7 @@ pub fn substituir_unidade(
     {
         let mut ps = pairs(program);
         if ps.iter().any(|p| p.0 == u && !map.contains_key(&p.1)) {
-            return Err(Recusa::ShapeChanged("tipos dos elementos"));
+            return Err(Recusa::ShapeChanged("element types"));
         }
         for p in ps.iter_mut() {
             if p.0 == u {
@@ -174,8 +176,8 @@ pub fn substituir_unidade(
     })
 }
 
-/// Desfaz uma [`substituir_unidade`] (os pares dos elementos voltam aos ids
-/// da árvore velha).
+/// Undoes a [`substituir_unidade`] (the elements' pairs go back to the old
+/// tree's ids).
 pub fn restaurar_unidade(program: &mut Program, anterior: Anterior) {
     let u = anterior.unidade;
     let inverse = anterior.mapa_inverso();
@@ -194,63 +196,63 @@ pub fn restaurar_unidade(program: &mut Program, anterior: Anterior) {
     un.referencia = anterior.referencia;
 }
 
-/// A correspondência um a um das arenas que os elementos citam.
+/// The one-to-one correspondence of the arenas the elements cite.
 fn verify_shape(old_: &Ast, old_unit: &CompilationUnit, a: &Ast, new_unit: &CompilationUnit) -> Result<(), Recusa> {
     if old_.decls.len() != a.decls.len() {
-        return Err(Recusa::ShapeChanged("declarações"));
+        return Err(Recusa::ShapeChanged("declarations"));
     }
     if old_.members.len() != a.members.len() {
-        return Err(Recusa::ShapeChanged("membros"));
+        return Err(Recusa::ShapeChanged("members"));
     }
     if old_.functions.len() != a.functions.len() {
-        return Err(Recusa::ShapeChanged("funções"));
+        return Err(Recusa::ShapeChanged("functions"));
     }
     for (d0, d1) in old_.decls.iter().zip(a.decls.iter()) {
         if std::mem::discriminant(&d0.kind) != std::mem::discriminant(&d1.kind) || decl_name(&d0.kind) != decl_name(&d1.kind) {
-            return Err(Recusa::ShapeChanged("declaração"));
+            return Err(Recusa::ShapeChanged("declaration"));
         }
         if let (DeclKind::Variables(l0), DeclKind::Variables(l1)) = (&d0.kind, &d1.kind)
             && !same_names(l0, l1)
         {
-            return Err(Recusa::ShapeChanged("variáveis"));
+            return Err(Recusa::ShapeChanged("variables"));
         }
     }
     for (m0, m1) in old_.members.iter().zip(a.members.iter()) {
         if std::mem::discriminant(&m0.kind) != std::mem::discriminant(&m1.kind) || member_name(&m0.kind) != member_name(&m1.kind) {
-            return Err(Recusa::ShapeChanged("membro"));
+            return Err(Recusa::ShapeChanged("member"));
         }
         if let (MemberKind::Field(l0), MemberKind::Field(l1)) = (&m0.kind, &m1.kind)
             && !same_names(l0, l1)
         {
-            return Err(Recusa::ShapeChanged("campos"));
+            return Err(Recusa::ShapeChanged("fields"));
         }
     }
     for (f0, f1) in old_.functions.iter().zip(a.functions.iter()) {
         if f0.name.map(|n| n.sym) != f1.name.map(|n| n.sym) {
-            return Err(Recusa::ShapeChanged("função"));
+            return Err(Recusa::ShapeChanged("function"));
         }
     }
     if old_unit.declarations != new_unit.declarations {
-        return Err(Recusa::ShapeChanged("declarações da unidade"));
+        return Err(Recusa::ShapeChanged("unit declarations"));
     }
     Ok(())
 }
 
-/// A lista inteira de nomes (o `index` de `VariableRef` aponta nela).
+/// The whole list of names (the `index` of a `VariableRef` points into it).
 fn same_names(a: &ast::VariableList, b: &ast::VariableList) -> bool {
     a.variables.len() == b.variables.len() && a.variables.iter().zip(b.variables.iter()).all(|(x, y)| x.name.sym == y.name.sym)
 }
 
-/// Um trecho de corpo: os tokens dentro dele ficam fora da assinatura.
+/// A body range: the tokens inside it stay out of the signature.
 struct Region {
     owner: UnitBody,
     span: Span,
-    /// Bloco: as chaves ficam na assinatura ("corpo vazio?"), só o
-    /// interior sai.
+    /// Block: the braces stay in the signature ("empty body?"), only the inside
+    /// leaves.
     strict: bool,
 }
 
-/// Os corpos da unidade, na ordem das arenas.
+/// The unit's bodies, in arena order.
 fn regions(a: &Ast, initializers_as_body: bool) -> Vec<Region> {
     let mut v = Vec::new();
     let body_node = |v: &mut Vec<Region>, owner: UnitBody, body: &FunctionBody| match body {
@@ -306,7 +308,7 @@ fn directive_spans(unit: &CompilationUnit) -> Vec<(Span, bool)> {
     v
 }
 
-/// O token está num dos trechos (ordenados pelo início, sem sobreposição).
+/// Is the token in one of the ranges (sorted by start, non-overlapping)?
 fn inside(excerpts: &[(Span, bool)], t: Span) -> bool {
     let i = excerpts.partition_point(|(s, _)| s.start <= t.start);
     if i == 0 {
@@ -316,10 +318,10 @@ fn inside(excerpts: &[(Span, bool)], t: Span) -> bool {
     if strict { t.start > s.start && t.end < s.end } else { t.start >= s.start && t.end <= s.end }
 }
 
-/// Um token da assinatura: espécie, texto e a cola de um `>`.
+/// A signature token: kind, text and the gluing of a `>`.
 type Lexeme<'s> = (Kind, &'s str, bool);
 
-/// Os tokens das diretivas e os da assinatura das declarações.
+/// The directives' tokens and the declarations' signature tokens.
 fn split<'s>(source: &'s str, tokens: &[Token], diretivas: &[(Span, bool)], bodies: &[Region]) -> (Vec<Lexeme<'s>>, Vec<Lexeme<'s>>) {
     let mut excerpts: Vec<(Span, bool)> = bodies.iter().map(|r| (r.span, r.strict)).collect();
     excerpts.sort_by_key(|(s, _)| s.start);
@@ -335,8 +337,8 @@ fn split<'s>(source: &'s str, tokens: &[Token], diretivas: &[(Span, bool)], bodi
     (d, s)
 }
 
-/// As anotações de tipo das assinaturas, numa ordem determinada pela forma
-/// (a mesma nas duas árvores quando as assinaturas são iguais).
+/// The signatures' type annotations, in an order determined by their shape
+/// (the same in both trees when the signatures are equal).
 fn signature_types(a: &Ast) -> Vec<TypeId> {
     let mut v = Vec::new();
     let mut declared: Vec<ast::FunctionId> = Vec::new();
@@ -489,7 +491,7 @@ fn annotations(a: &Ast, list: &[ast::Annotation], v: &mut Vec<TypeId>) {
     }
 }
 
-/// Os pares `(UnitId, ast::TypeId)` guardados nos elementos.
+/// The `(UnitId, ast::TypeId)` pairs stored in the elements.
 fn pairs(program: &mut Program) -> Vec<&mut (UnitId, TypeId)> {
     let mut v: Vec<&mut (UnitId, TypeId)> = Vec::new();
     for c in program.classes.iter_mut() {

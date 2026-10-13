@@ -19,7 +19,7 @@ fn is_parser_diagnostic(d: &dartforge_diagnostics::Diagnostic) -> bool {
 #[test]
 fn test_sdk_core_load_and_patch() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
-        eprintln!("SDK não disponível no ambiente, pulando teste.");
+        eprintln!("SDK not available in the environment, skipping test.");
         return;
     };
 
@@ -49,63 +49,63 @@ fn test_sdk_core_load_and_patch() {
     }
 
     println!(
-        "[test_sdk_core_load_and_patch] Recusados pelo parser: {}, Recusados pelo elements: {}",
+        "[test_sdk_core_load_and_patch] Rejected by the parser: {}, rejected by elements: {}",
         parser_diags.len(),
         elements_diags.len()
     );
 
     for ed in &elements_diags {
-        eprintln!("Erro elements: {}", ed);
+        eprintln!("elements error: {}", ed);
     }
     assert!(
         elements_diags.is_empty(),
-        "O elements produziu diagnósticos indevidos: {:?}",
+        "elements produced unexpected diagnostics: {:?}",
         elements_diags
     );
 
-    // 1. dart:core carregou
-    let core_id = program.core.expect("dart:core deve estar registrado");
+    // 1. dart:core loaded
+    let core_id = program.core.expect("dart:core must be registered");
     let core_lib = &program.libraries[core_id.0 as usize];
     assert_eq!(core_lib.uri, "dart:core");
 
-    // 2. int existe em dart:core
+    // 2. int exists in dart:core
     let int_sym = interner.intern("int");
     let int_binding = core_lib
         .exported
         .get(&int_sym)
-        .expect("int deve estar exportado por dart:core");
+        .expect("int must be exported by dart:core");
     let int_cid = match int_binding.getter {
         Some(Element::Class(cid)) => cid,
-        other => panic!("int deve ser uma classe, obteve {:?}", other),
+        other => panic!("int must be a class, got {:?}", other),
     };
 
-    // 3. int.parse vindo do patch e não external
+    // 3. int.parse coming from the patch and not external
     let int_class = &program.classes[int_cid.0 as usize];
     let parse_sym = interner.intern("parse");
     let parse_fn_id = int_class
         .static_members
         .get(&parse_sym)
-        .expect("int.parse deve existir nos static_members de int");
+        .expect("int.parse must exist in int's static_members");
 
     let parse_fn = &program.functions[parse_fn_id.0 as usize];
     assert!(
         !parse_fn.external,
-        "int.parse vindo do patch deve ter external == false"
+        "int.parse coming from the patch must have external == false"
     );
-    println!("int.parse verificado com sucesso (patched_by={:?}, external={})", parse_fn.patched_by, parse_fn.external);
+    println!("int.parse checked successfully (patched_by={:?}, external={})", parse_fn.patched_by, parse_fn.external);
 }
 
 #[test]
 fn every_dart_x_loads() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
-        eprintln!("SDK não disponível no ambiente, pulando teste.");
+        eprintln!("SDK not available in the environment, skipping test.");
         return;
     };
 
     let tmp = tempdir().unwrap();
     let entry = tmp.path().join("main.dart");
 
-    // Importa todas as bibliotecas suportadas do SDK declaradas em libraries.json
+    // Imports every supported SDK library declared in libraries.json
     let mut imports = String::new();
     for (name, lib) in &sdk.libraries {
         if lib.supported && !name.starts_with('_') {
@@ -130,34 +130,34 @@ fn every_dart_x_loads() {
     }
 
     println!(
-        "[todo_dart_x_carrega] Bibliotecas carregadas: {}, Unidades: {}, Classes: {}, Funções: {}",
+        "[every_dart_x_loads] Libraries loaded: {}, units: {}, classes: {}, functions: {}",
         program.libraries.len(),
         program.units.len(),
         program.classes.len(),
         program.functions.len()
     );
     println!(
-        "[todo_dart_x_carrega] Recusados pelo parser: {}, Recusados pelo elements: {}",
+        "[every_dart_x_loads] Rejected by the parser: {}, rejected by elements: {}",
         parser_diags.len(),
         elements_diags.len()
     );
 
     for ed in &elements_diags {
-        eprintln!("Erro elements: {}", ed);
+        eprintln!("elements error: {}", ed);
     }
     assert!(
         elements_diags.is_empty(),
-        "O elements produziu diagnósticos indevidos: {:?}",
+        "elements produced unexpected diagnostics: {:?}",
         elements_diags
     );
 
-    // Valida que int.parse de dart:core foi aplicado
-    let core_id = program.core.expect("dart:core registrado");
+    // Checks that dart:core's int.parse was applied
+    let core_id = program.core.expect("dart:core registered");
     let core_lib = &program.libraries[core_id.0 as usize];
     let int_sym = interner.intern("int");
     let int_cid = match core_lib.exported.get(&int_sym).and_then(|b| b.getter) {
         Some(Element::Class(cid)) => cid,
-        _ => panic!("int não encontrado em dart:core"),
+        _ => panic!("int not found in dart:core"),
     };
     let parse_sym = interner.intern("parse");
     let parse_fn_id = program.classes[int_cid.0 as usize]
@@ -170,7 +170,7 @@ fn every_dart_x_loads() {
 #[test]
 fn sdk_supertypes_resolve() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
-        eprintln!("SDK não disponível no ambiente, pulando teste.");
+        eprintln!("SDK not available in the environment, skipping test.");
         return;
     };
 
@@ -182,9 +182,10 @@ fn sdk_supertypes_resolve() {
     let (program, diags) = load_lenient(&entry, &sdk, None, &mut interner);
 
     let elements_diags: Vec<_> = diags.into_iter().filter(|d| !is_parser_diagnostic(d)).collect();
-    assert!(elements_diags.is_empty(), "Diagnósticos do elements: {:?}", elements_diags);
+    assert!(elements_diags.is_empty(), "elements diagnostics: {:?}", elements_diags);
 
-    // Assegura que todas as classes que declararam extends têm supertype_class resolvido (exceto Object)
+    // Ensures every class that declared extends has a resolved supertype_class
+    // (except Object)
     let mut resolved_count = 0;
     let mut total_with_super = 0;
     let object_sym = interner.intern("Object");
@@ -202,17 +203,17 @@ fn sdk_supertypes_resolve() {
     }
 
     println!(
-        "[supertipos_do_sdk_resolvem] Supertipos com extends: {}, Resolvidos para ClassId: {}",
+        "[sdk_supertypes_resolve] Supertypes with extends: {}, resolved to ClassId: {}",
         total_with_super, resolved_count
     );
-    assert!(total_with_super > 0, "Deve haver classes com supertipo no SDK");
-    assert_eq!(total_with_super, resolved_count, "Todos os supertipos declarados devem resolver para ClassId");
+    assert!(total_with_super > 0, "There must be classes with a supertype in the SDK");
+    assert_eq!(total_with_super, resolved_count, "Every declared supertype must resolve to a ClassId");
 }
 
 #[test]
 fn sdk_namespaces_without_ambiguity_in_use() {
     let Some((_lib_dir, sdk)) = get_sdk() else {
-        eprintln!("SDK não disponível no ambiente, pulando teste.");
+        eprintln!("SDK not available in the environment, skipping test.");
         return;
     };
 
@@ -223,14 +224,14 @@ fn sdk_namespaces_without_ambiguity_in_use() {
     let mut interner = Interner::new();
     let (program, _) = load_lenient(&entry, &sdk, None, &mut interner);
 
-    let core_id = program.core.expect("dart:core registrado");
+    let core_id = program.core.expect("dart:core registered");
     let core_lib = &program.libraries[core_id.0 as usize];
 
-    // Nenhum export de dart:core pode ser ambíguo
+    // No export of dart:core may be ambiguous
     for (sym, binding) in &core_lib.exported {
         assert!(
             !binding.ambiguous,
-            "Símbolo '{}' exportado por dart:core está ambíguo",
+            "Symbol '{}' exported by dart:core is ambiguous",
             interner.resolve(*sym)
         );
     }
