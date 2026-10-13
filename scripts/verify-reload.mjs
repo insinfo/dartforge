@@ -63,7 +63,7 @@ const estado = await cmd('Runtime.evaluate', {
 });
 console.log('estado inicial:', estado.result?.result?.value, '| carregamentos:', antes);
 
-// Edita o componente: o servidor recompila e deve mandar `recarregar`.
+// Edita o componente: o servidor recompila e deve mandar `reload`.
 const original = readFileSync(ARQUIVO, 'utf8');
 writeFileSync(ARQUIVO, `// recarga ${Date.now()}\n` + original);
 console.log('editado:', ARQUIVO);

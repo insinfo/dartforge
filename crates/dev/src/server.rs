@@ -46,13 +46,13 @@ impl Message {
     pub fn json(&self) -> String {
         match self {
             Message::Hello { generation } => {
-                format!("{{\"tipo\":\"ola\",\"protocolo\":{PROTOCOL_VERSION},\"geracao\":{generation}}}")
+                format!("{{\"type\":\"hello\",\"protocol\":{PROTOCOL_VERSION},\"generation\":{generation}}}")
             }
             Message::Reload { generation } => {
-                format!("{{\"tipo\":\"recarregar\",\"geracao\":{generation}}}")
+                format!("{{\"type\":\"reload\",\"generation\":{generation}}}")
             }
             Message::CompileError { message } => {
-                format!("{{\"tipo\":\"erro\",\"mensagem\":{}}}", json_string(message))
+                format!("{{\"type\":\"error\",\"message\":{}}}", json_string(message))
             }
         }
     }
@@ -299,25 +299,25 @@ fn handle(
 
 /// Route of the reload channel (outside the application's namespace). The
 /// value is part of the protocol with the client script.
-const RELOAD_ROUTE: &str = "/__dartforge_recarga";
+const RELOAD_ROUTE: &str = "/__dartforge_reload";
 
 /// Script injected into `index.html`: reloads the page on every
 /// compilation. Its text is served as is to the browser.
 const RELOAD_SCRIPT: &str = "<script>
 (function () {
-  var geracao = null;
-  function conectar() {
+  var generation = null;
+  function connect() {
     var p = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    var s = new WebSocket(p + location.host + '/__dartforge_recarga');
+    var s = new WebSocket(p + location.host + '/__dartforge_reload');
     s.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-      if (m.tipo === 'ola') { if (geracao !== null && m.geracao !== geracao) location.reload(); geracao = m.geracao; }
-      else if (m.tipo === 'recarregar') location.reload();
-      else if (m.tipo === 'erro') console.error('[dartforge] ' + m.mensagem);
+      if (m.type === 'hello') { if (generation !== null && m.generation !== generation) location.reload(); generation = m.generation; }
+      else if (m.type === 'reload') location.reload();
+      else if (m.type === 'error') console.error('[dartforge] ' + m.message);
     };
-    s.onclose = function () { setTimeout(conectar, 500); };
+    s.onclose = function () { setTimeout(connect, 500); };
   }
-  conectar();
+  connect();
 })();
 </script>
 ";
