@@ -13,7 +13,13 @@
 //!   caller passes a JavaScript indexable (`JSArray`, `JSString`, a typed
 //!   array, a DOM list), whose JavaScript `length` is the Dart one;
 //! * `stringContainsUnchecked(receiver, other, startIndex)` receives the
-//!   `Pattern` of `String.contains`.
+//!   `Pattern` of `String.contains`;
+//! * `JSNoSuchMethodError` (the extension of the JavaScript `TypeError`,
+//!   live in every program) builds its message with four `RegExp`s and
+//!   `String.split`, which kept `JSSyntaxRegExp`, `FormatException` and the
+//!   match iterators. The same JavaScript regular expressions now run
+//!   directly (`new RegExp(source).exec(message)`, which is what
+//!   `firstMatch` does) and the stack is cut with the JavaScript `split`.
 //!
 //! The patched file replaces the original through the overlay of
 //! [`SdkLayout`] (the content changes, the path stays), so the SDK cache key
@@ -34,6 +40,53 @@ const PATCHES: &[(&str, &str, &str)] = &[
         "_internal/js_dev_runtime/private/string_helper.dart",
         "    var substr = receiver.substring(startIndex);\n    return other.allMatches(substr).isNotEmpty;",
         "    var substr = receiver.substring(startIndex);\n    return (other as Pattern).allMatches(substr).isNotEmpty;",
+    ),
+    (
+        "_internal/js_dev_runtime/private/interceptors.dart",
+        r##"  static final _nullError = RegExp(r"^Cannot read property '(.+)' of null$");
+  static final _notAFunction = RegExp(r"^(.+) is not a function$");
+  static final _extensionName = RegExp(r"^Symbol\(dartx\.(.+)\)$");
+  static final _privateName = RegExp(r"^Symbol\((_.+)\)$");
+
+  String? _fieldName(String message) {
+    RegExpMatch? match = _nullError.firstMatch(message);
+    if (match == null) return null;
+    String name = match[1]!;
+    match = _extensionName.firstMatch(name) ?? _privateName.firstMatch(name);
+    return match != null ? match[1] : name;
+  }
+
+  String? _functionCallTarget(String message) {
+    var match = _notAFunction.firstMatch(message);
+    return match != null ? match[1] : null;
+  }
+
+  String dartStack() {
+    var stack = super.dartStack();
+    // Strip TypeError from first line.
+    stack = toString() + '\n' + stack.split('\n').sublist(1).join('\n');
+    return stack;
+  }"##,
+        r##"  String? _fieldName(String message) {
+    Object? match = JS('', 'new RegExp(#).exec(#)', r"^Cannot read property '(.+)' of null$", message);
+    if (match == null) return null;
+    String name = JS('String', '#[1]', match);
+    match = JS('', 'new RegExp(#).exec(#)', r"^Symbol\(dartx\.(.+)\)$", name) ??
+        JS('', 'new RegExp(#).exec(#)', r"^Symbol\((_.+)\)$", name);
+    return match != null ? JS('String', '#[1]', match) : name;
+  }
+
+  String? _functionCallTarget(String message) {
+    Object? match = JS('', 'new RegExp(#).exec(#)', r"^(.+) is not a function$", message);
+    return match != null ? JS('String', '#[1]', match) : null;
+  }
+
+  String dartStack() {
+    var stack = super.dartStack();
+    // Strip TypeError from first line.
+    stack = toString() + '\n' + JS<String>('!', r'#.split("\n").slice(1).join("\n")', stack);
+    return stack;
+  }"##,
     ),
 ];
 
