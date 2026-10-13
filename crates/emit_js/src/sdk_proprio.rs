@@ -1,19 +1,18 @@
-//! Modo SDK do emissor: as bibliotecas `dart:` compiladas pela nossa trilha
-//! (`docs/JS-PRODUCAO-SDK-PROPRIO.md` §5).
+//! The emitter's SDK mode: the `dart:` libraries compiled through our own
+//! pipeline (`docs/JS-PRODUCAO-SDK-PROPRIO.md` §5).
 //!
-//! O código do usuário nunca exercita o que o DDC faz de especial ao compilar
-//! o SDK: os intrínsecos de `dart:_foreign_helper` (`JS('', '#.x', o)`,
-//! `JS_GET_FLAG`, `TYPE_REF<T>()`…), as classes nativas (membros com símbolo
-//! `dartx`, `registerExtension`), a biblioteca do runtime (`dart:_runtime`, que
-//! **é** o objeto `dart`) e o módulo do SDK com o seu *bootstrap*. Este módulo
-//! junta tudo isso; o resto do emissor só o consulta por ganchos pequenos,
-//! todos atrás de `Ctx::sdk`.
+//! User code never exercises what DDC does specially when compiling the SDK: the
+//! `dart:_foreign_helper` intrinsics (`JS('', '#.x', o)`, `JS_GET_FLAG`,
+//! `TYPE_REF<T>()`…), the native classes (members with a `dartx` symbol,
+//! `registerExtension`), the runtime library (`dart:_runtime`, which **is** the
+//! `dart` object) and the SDK module with its *bootstrap*. This module brings all
+//! of that together; the rest of the emitter only consults it through small
+//! hooks, all behind `Ctx::sdk`.
 //!
-//! Sem `Ctx::sdk` nenhum gancho dispara: o perfil de desenvolvimento e o
-//! caminho de produção que liga contra o `dart_sdk.js` emitem byte a byte o
-//! de antes.
+//! Without `Ctx::sdk` no hook fires: the development profile and the production
+//! path that links against `dart_sdk.js` emit byte for byte what they did before.
 //!
-//! As referências `compiler.dart:N` são do DDC **3.6.2**.
+//! The `compiler.dart:N` references are to DDC **3.6.2**.
 
 use crate::body::{js_member_name, FnEmitter};
 use crate::ctx::Ctx;
@@ -24,10 +23,10 @@ use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKin
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StringPart};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-/// Uma chamada que o DDC resolve na compilação, sem chamar função nenhuma.
+/// A call that DDC resolves at compile time, without calling any function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Intrinseco {
-    /// `JS(tipo, 'template', a…)` (`compiler.dart:6421-6479`).
+    /// `JS(type, 'template', a…)` (`compiler.dart:6421-6479`).
     Js,
     GetFlag,
     GetName,
@@ -42,109 +41,109 @@ pub enum Intrinseco {
     RtiParameter,
     RuntimeLibrary,
     GetInterceptor,
-    /// `extensionSymbol('x')` do runtime → o símbolo `dartx.x`.
+    /// The runtime's `extensionSymbol('x')` → the `dartx.x` symbol.
     ExtensionSymbol,
-    /// `_jsInstanceOf(x, T)` do runtime → `x instanceof T`.
+    /// The runtime's `_jsInstanceOf(x, T)` → `x instanceof T`.
     InstanceOf,
     GetPrototypeOf,
     SetPrototypeOf,
-    /// `staticInteropGlobalContext` (getter de `dart:_js_helper`) → `dart.global`.
+    /// `staticInteropGlobalContext` (a `dart:_js_helper` getter) → `dart.global`.
     GlobalContext,
     UnsafeCast,
     ExtractTypeArguments,
     Spread,
 }
 
-/// O que o modo SDK sabe do programa, calculado uma vez (`ModoSdk::novo`).
+/// What SDK mode knows about the program, computed once (`ModoSdk::new`).
 pub struct ModoSdk {
-    /// Declarações `@patch class X` de cada classe do SDK: os membros delas
-    /// (os que substituem os `external` e os novos) entram na classe.
+    /// `@patch class X` declarations of each SDK class: their members (those
+    /// that replace the `external` ones and the new ones) go into the class.
     pub patches: HashMap<ClassId, Vec<(UnitId, ast::DeclId)>>,
-    /// `dart:_runtime`: a biblioteca cujo objeto **é** `dart`.
+    /// `dart:_runtime`: the library whose object **is** `dart`.
     pub runtime: Option<LibraryId>,
-    /// `dart:_rti`, para os símbolos `_as`/`_is` de `JS_GET_NAME`.
+    /// `dart:_rti`, for the `_as`/`_is` symbols of `JS_GET_NAME`.
     pub rti: Option<LibraryId>,
-    pub intrinsecos: HashMap<FunctionElementId, Intrinseco>,
-    /// `@JSExportName('x')` de funções (de topo e membros).
-    pub nome_exportado: HashMap<FunctionElementId, String>,
-    /// `@JSExportName('x')` de variáveis de topo (`global_` → `dart.global`).
-    pub nome_exportado_var: HashMap<VariableId, String>,
-    /// Tags de `@Native('A,B')`/`@JsPeerInterface(name: 'A')` por classe
-    /// (sem as que começam com `!`, `native_types.dart:143-155`).
-    pub pares: HashMap<ClassId, Vec<String>>,
-    /// Bibliotecas com `@ReifyFunctionTypes(false)` na diretiva `library`.
-    pub sem_reificar_lib: HashSet<LibraryId>,
-    /// Funções com `@ReifyFunctionTypes(false)`.
-    pub sem_reificar_fn: HashSet<FunctionElementId>,
-    /// Funções com `@NoReifyGeneric()`: sem parâmetros de tipo no JS
+    pub intrinsics: HashMap<FunctionElementId, Intrinseco>,
+    /// `@JSExportName('x')` of functions (top-level and members).
+    pub export_names: HashMap<FunctionElementId, String>,
+    /// `@JSExportName('x')` of top-level variables (`global_` → `dart.global`).
+    pub var_export_names: HashMap<VariableId, String>,
+    /// Tags of `@Native('A,B')`/`@JsPeerInterface(name: 'A')` per class
+    /// (without those starting with `!`, `native_types.dart:143-155`).
+    pub peers: HashMap<ClassId, Vec<String>>,
+    /// Libraries with `@ReifyFunctionTypes(false)` on the `library` directive.
+    pub no_reify_libs: HashSet<LibraryId>,
+    /// Functions with `@ReifyFunctionTypes(false)`.
+    pub no_reify_fns: HashSet<FunctionElementId>,
+    /// Functions with `@NoReifyGeneric()`: no type parameters in the JS
     /// (`compiler.dart:3596-3598, 6394`).
-    pub sem_generico: HashSet<FunctionElementId>,
-    /// Parâmetros com `@nullCheck`, pelo início do nome na fonte (unidade, byte).
-    pub verificar_nulo: HashSet<(u32, u32)>,
-    /// Classes primitivas no JS (`JSBool`, `JSNumber`, `JSString`): ganham
-    /// `definePrimitiveHashCode` (`compiler.dart:1114-1117`).
-    pub primitivas: HashSet<ClassId>,
-    /// Os `assert` do SDK não são emitidos (o dart2js também não emite os
-    /// do SDK; os do programa ficam, como no perfil de desenvolvimento).
-    pub sem_asserts_do_sdk: bool,
-    /// Nomes de membro declarados por descendentes de cada classe (pela
-    /// cadeia de superclasses e mixins) e as classes usadas como mixin:
-    /// [`campo_nao_virtual`], calculado na primeira consulta.
-    pub virtualidade: std::cell::OnceCell<(HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>, HashSet<ClassId>)>,
-    /// Nomes simples de classe que se repetem no programa ([`precisa_uri_da_biblioteca`]).
-    pub nomes_repetidos: std::cell::OnceCell<HashSet<dartforge_intern::SymbolId>>,
+    pub no_reify_generic: HashSet<FunctionElementId>,
+    /// Parameters with `@nullCheck`, by the start of the name in the source (unit, byte).
+    pub null_checked_params: HashSet<(u32, u32)>,
+    /// Classes that are primitive in JS (`JSBool`, `JSNumber`, `JSString`): they
+    /// get `definePrimitiveHashCode` (`compiler.dart:1114-1117`).
+    pub primitives: HashSet<ClassId>,
+    /// The SDK's `assert`s are not emitted (dart2js does not emit the SDK's
+    /// either; the program's stay, as in the development profile).
+    pub no_sdk_asserts: bool,
+    /// Member names declared by descendants of each class (through the chain of
+    /// superclasses and mixins) and the classes used as mixins:
+    /// [`non_virtual_field`], computed on the first query.
+    pub virtuality: std::cell::OnceCell<(HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>, HashSet<ClassId>)>,
+    /// Simple class names that repeat in the program ([`needs_library_uri`]).
+    pub repeated_names: std::cell::OnceCell<HashSet<dartforge_intern::SymbolId>>,
 }
 
-/// `dart.setLibraryUri(C, uri)` só é lido pela mensagem de erro de `as`
-/// quando os dois tipos têm o mesmo nome (`errors.dart:110-117`): no perfil
-/// de produção ele sai só para as classes cujo nome simples se repete.
-pub fn precisa_uri_da_biblioteca(ctx: &Ctx, c: ClassId) -> bool {
+/// `dart.setLibraryUri(C, uri)` is only read by the error message of `as` when
+/// both types have the same name (`errors.dart:110-117`): in the production
+/// profile it is emitted only for the classes whose simple name repeats.
+pub fn needs_library_uri(ctx: &Ctx, c: ClassId) -> bool {
     let Some(s) = ctx.sdk.as_ref() else { return true };
     let p = ctx.program;
-    let repetidos = s.nomes_repetidos.get_or_init(|| {
-        let mut vistos: HashSet<dartforge_intern::SymbolId> = HashSet::new();
+    let repeated = s.repeated_names.get_or_init(|| {
+        let mut seen: HashSet<dartforge_intern::SymbolId> = HashSet::new();
         let mut rep: HashSet<dartforge_intern::SymbolId> = HashSet::new();
         for k in p.classes.iter() {
-            if !vistos.insert(k.name) {
+            if !seen.insert(k.name) {
                 rep.insert(k.name);
             }
         }
         rep
     });
-    repetidos.contains(&p.class(c).name)
+    repeated.contains(&p.class(c).name)
 }
 
-/// Campo público de instância que nenhuma classe do programa sobrescreve nem
-/// que sobrescreve um membro concreto herdado: no perfil de produção (mundo
-/// fechado) ele vira propriedade comum do objeto, sem o par `get`/`set`
-/// sobre um símbolo de armazenamento que o DDC escreve para todo campo
-/// público porque, modular, não sabe se algum módulo o sobrescreverá
-/// (`docs/JS-PRODUCAO-TAMANHO.md` §3.4). Classes nativas, mixins e classes
-/// usadas como mixin ficam como antes.
-pub fn campo_nao_virtual(ctx: &Ctx, c: ClassId, nome: dartforge_intern::SymbolId) -> bool {
+/// A public instance field that no class of the program overrides and that does
+/// not override an inherited concrete member: in the production profile (closed
+/// world) it becomes a plain property of the object, without the `get`/`set` pair
+/// over a storage symbol that DDC writes for every public field because, being
+/// modular, it does not know whether some module will override it
+/// (`docs/JS-PRODUCAO-TAMANHO.md` §3.4). Native classes, mixins and classes used
+/// as mixins stay as before.
+pub fn non_virtual_field(ctx: &Ctx, c: ClassId, name: dartforge_intern::SymbolId) -> bool {
     let Some(s) = ctx.sdk.as_ref() else { return false };
     let p = ctx.program;
-    // Só no código do programa: as classes do SDK têm acessos que o emissor
-    // não vê (`JS()`, *patches*, o runtime lendo campos por nome).
-    if classe_nativa(ctx, c) || ctx.libs[p.class(c).library.0 as usize].is_sdk || p.class(c).kind != dartforge_elements::model::ClassKind::Class {
+    // Only in program code: the SDK classes have accesses the emitter does not
+    // see (`JS()`, *patches*, the runtime reading fields by name).
+    if is_native_class(ctx, c) || ctx.libs[p.class(c).library.0 as usize].is_sdk || p.class(c).kind != dartforge_elements::model::ClassKind::Class {
         return false;
     }
-    let (desc, mixins) = s.virtualidade.get_or_init(|| {
+    let (desc, mixins) = s.virtuality.get_or_init(|| {
         let mut desc: HashMap<ClassId, HashSet<dartforge_intern::SymbolId>> = HashMap::new();
         let mut mixins: HashSet<ClassId> = HashSet::new();
         for (i, k) in p.classes.iter().enumerate() {
             mixins.extend(k.mixin_classes.iter().copied());
-            // Os ancestrais de `k` pela superclasse e pelos mixins aplicados.
-            let mut vistos: HashSet<ClassId> = HashSet::new();
-            let mut pilha: Vec<ClassId> = k.supertype_class.into_iter().chain(k.mixin_classes.iter().copied()).collect();
-            while let Some(a) = pilha.pop() {
-                if a.0 as usize == i || !vistos.insert(a) {
+            // The ancestors of `k` through the superclass and the applied mixins.
+            let mut seen: HashSet<ClassId> = HashSet::new();
+            let mut stack: Vec<ClassId> = k.supertype_class.into_iter().chain(k.mixin_classes.iter().copied()).collect();
+            while let Some(a) = stack.pop() {
+                if a.0 as usize == i || !seen.insert(a) {
                     continue;
                 }
                 desc.entry(a).or_default().extend(k.instance_members.keys().copied());
                 let ka = p.class(a);
-                pilha.extend(ka.supertype_class);
-                pilha.extend(ka.mixin_classes.iter().copied());
+                stack.extend(ka.supertype_class);
+                stack.extend(ka.mixin_classes.iter().copied());
             }
         }
         (desc, mixins)
@@ -152,41 +151,41 @@ pub fn campo_nao_virtual(ctx: &Ctx, c: ClassId, nome: dartforge_intern::SymbolId
     if mixins.contains(&c) {
         return false;
     }
-    let texto = ctx.interner.resolve(nome);
-    let setter = ctx.interner.lookup(&format!("{texto}_="));
-    let tem = |k: ClassId| {
+    let text = ctx.interner.resolve(name);
+    let setter = ctx.interner.lookup(&format!("{text}_="));
+    let has = |k: ClassId| {
         let m = &p.class(k).instance_members;
-        m.contains_key(&nome) || setter.is_some_and(|s| m.contains_key(&s))
+        m.contains_key(&name) || setter.is_some_and(|s| m.contains_key(&s))
     };
-    // Sobrescrito por um descendente.
-    if desc.get(&c).is_some_and(|ns| ns.contains(&nome) || setter.is_some_and(|s| ns.contains(&s))) {
+    // Overridden by a descendant.
+    if desc.get(&c).is_some_and(|ns| ns.contains(&name) || setter.is_some_and(|s| ns.contains(&s))) {
         return false;
     }
-    // Sobrescreve um membro de um ancestral (superclasse ou mixin aplicado).
-    let mut vistos: HashSet<ClassId> = HashSet::new();
+    // Overrides a member of an ancestor (superclass or applied mixin).
+    let mut seen: HashSet<ClassId> = HashSet::new();
     let k = p.class(c);
-    let mut pilha: Vec<ClassId> = k.supertype_class.into_iter().chain(k.mixin_classes.iter().copied()).collect();
-    while let Some(a) = pilha.pop() {
-        if a == c || !vistos.insert(a) {
+    let mut stack: Vec<ClassId> = k.supertype_class.into_iter().chain(k.mixin_classes.iter().copied()).collect();
+    while let Some(a) = stack.pop() {
+        if a == c || !seen.insert(a) {
             continue;
         }
-        if tem(a) {
+        if has(a) {
             return false;
         }
         let ka = p.class(a);
-        pilha.extend(ka.supertype_class);
-        pilha.extend(ka.mixin_classes.iter().copied());
+        stack.extend(ka.supertype_class);
+        stack.extend(ka.mixin_classes.iter().copied());
     }
     true
 }
 
-fn nome_da_anotacao<'a>(ctx: &'a Ctx, a: &ast::Annotation) -> &'a str {
+fn annotation_name<'a>(ctx: &'a Ctx, a: &ast::Annotation) -> &'a str {
     a.name.last().map(|n| ctx.interner.resolve(n.sym)).unwrap_or("")
 }
 
-/// Primeiro argumento posicional de uma anotação, quando é literal de string
-/// (ou argumento nomeado `name:` em `@JsPeerInterface(name: 'X')`).
-fn texto_da_anotacao(ctx: &Ctx, unit: UnitId, a: &ast::Annotation) -> Option<String> {
+/// First positional argument of an annotation, when it is a string literal
+/// (or the named argument `name:` in `@JsPeerInterface(name: 'X')`).
+fn annotation_text(ctx: &Ctx, unit: UnitId, a: &ast::Annotation) -> Option<String> {
     let args = a.arguments.as_ref()?;
     for arg in args.args.iter() {
         if let Some(n) = arg.name {
@@ -201,7 +200,7 @@ fn texto_da_anotacao(ctx: &Ctx, unit: UnitId, a: &ast::Annotation) -> Option<Str
     None
 }
 
-fn bool_da_anotacao(ctx: &Ctx, unit: UnitId, a: &ast::Annotation) -> Option<bool> {
+fn annotation_bool(ctx: &Ctx, unit: UnitId, a: &ast::Annotation) -> Option<bool> {
     let args = a.arguments.as_ref()?;
     let first = args.args.first()?;
     match &ctx.program.unit(unit).ast.expr(first.value).kind {
@@ -211,34 +210,34 @@ fn bool_da_anotacao(ctx: &Ctx, unit: UnitId, a: &ast::Annotation) -> Option<bool
 }
 
 impl ModoSdk {
-    /// Lê do programa o que o modo SDK precisa: intrínsecos, anotações do
-    /// DDC, classes nativas.
-    pub fn novo(ctx: &Ctx) -> ModoSdk {
+    /// Reads from the program what SDK mode needs: intrinsics, DDC annotations,
+    /// native classes.
+    pub fn new(ctx: &Ctx) -> ModoSdk {
         let p = ctx.program;
-        let lib_por_uri = |uri: &str| p.libraries.iter().position(|l| l.uri == uri).map(|i| LibraryId(i as u32));
-        let runtime = lib_por_uri("dart:_runtime");
-        let rti = lib_por_uri("dart:_rti");
-        let foreign = lib_por_uri("dart:_foreign_helper");
-        let js_helper = lib_por_uri("dart:_js_helper");
-        let internal = lib_por_uri("dart:_internal");
+        let lib_by_uri = |uri: &str| p.libraries.iter().position(|l| l.uri == uri).map(|i| LibraryId(i as u32));
+        let runtime = lib_by_uri("dart:_runtime");
+        let rti = lib_by_uri("dart:_rti");
+        let foreign = lib_by_uri("dart:_foreign_helper");
+        let js_helper = lib_by_uri("dart:_js_helper");
+        let internal = lib_by_uri("dart:_internal");
         let mut m = ModoSdk {
             runtime,
             rti,
-            intrinsecos: HashMap::new(),
-            nome_exportado: HashMap::new(),
-            nome_exportado_var: HashMap::new(),
-            pares: HashMap::new(),
-            sem_reificar_lib: HashSet::new(),
-            sem_reificar_fn: HashSet::new(),
-            sem_generico: HashSet::new(),
-            verificar_nulo: HashSet::new(),
-            primitivas: [ctx.jsbool, ctx.jsnumber, ctx.jsstring].into_iter().flatten().collect(),
-            sem_asserts_do_sdk: true,
+            intrinsics: HashMap::new(),
+            export_names: HashMap::new(),
+            var_export_names: HashMap::new(),
+            peers: HashMap::new(),
+            no_reify_libs: HashSet::new(),
+            no_reify_fns: HashSet::new(),
+            no_reify_generic: HashSet::new(),
+            null_checked_params: HashSet::new(),
+            primitives: [ctx.jsbool, ctx.jsnumber, ctx.jsstring].into_iter().flatten().collect(),
+            no_sdk_asserts: true,
             patches: HashMap::new(),
-            virtualidade: std::cell::OnceCell::new(),
-            nomes_repetidos: std::cell::OnceCell::new(),
+            virtuality: std::cell::OnceCell::new(),
+            repeated_names: std::cell::OnceCell::new(),
         };
-        // Intrínsecos, por (biblioteca, nome).
+        // Intrinsics, by (library, name).
         for (i, f) in p.functions.iter().enumerate() {
             let fid = FunctionElementId(i as u32);
             if f.class.is_some() || f.extension.is_some() {
@@ -289,33 +288,33 @@ impl ModoSdk {
                 None
             };
             if let Some(k) = k {
-                m.intrinsecos.insert(fid, k);
+                m.intrinsics.insert(fid, k);
             }
         }
-        // Anotações, varrendo as unidades do SDK.
-        let mut fn_por_no: HashMap<(u32, u32), FunctionElementId> = HashMap::new();
+        // Annotations, scanning the SDK units.
+        let mut fn_by_node: HashMap<(u32, u32), FunctionElementId> = HashMap::new();
         for (i, f) in p.functions.iter().enumerate() {
             if !p.library(f.library).is_sdk {
                 continue;
             }
             if let FunctionRef::Function { unit, function } = f.node {
-                fn_por_no.insert((unit.0, function.0), FunctionElementId(i as u32));
+                fn_by_node.insert((unit.0, function.0), FunctionElementId(i as u32));
             }
         }
-        let mut var_por_no: HashMap<(u32, u32, usize), VariableId> = HashMap::new();
+        let mut var_by_node: HashMap<(u32, u32, usize), VariableId> = HashMap::new();
         for (i, v) in p.variables.iter().enumerate() {
             if !p.library(v.library).is_sdk {
                 continue;
             }
             if let VariableRef::TopLevel { unit, decl, index } = v.node {
-                var_por_no.insert((unit.0, decl.0, index), VariableId(i as u32));
+                var_by_node.insert((unit.0, decl.0, index), VariableId(i as u32));
             }
         }
-        let mut classe_por_decl: HashMap<(u32, u32), ClassId> = HashMap::new();
+        let mut class_by_decl: HashMap<(u32, u32), ClassId> = HashMap::new();
         for (i, c) in p.classes.iter().enumerate() {
             if let Some(d) = c.decl {
                 if p.library(c.library).is_sdk {
-                    classe_por_decl.insert((d.unit.0, d.decl.0), ClassId(i as u32));
+                    class_by_decl.insert((d.unit.0, d.decl.0), ClassId(i as u32));
                 }
             }
         }
@@ -330,8 +329,8 @@ impl ModoSdk {
                     for d in &unit.unit.directives {
                         if let ast::DirectiveKind::Library { .. } = d.kind {
                             for a in &d.metadata {
-                                if nome_da_anotacao(ctx, a) == "ReifyFunctionTypes" && bool_da_anotacao(ctx, uid, a) == Some(false) {
-                                    m.sem_reificar_lib.insert(lid);
+                                if annotation_name(ctx, a) == "ReifyFunctionTypes" && annotation_bool(ctx, uid, a) == Some(false) {
+                                    m.no_reify_libs.insert(lid);
                                 }
                             }
                         }
@@ -342,17 +341,17 @@ impl ModoSdk {
                     let did = di as u32;
                     match &decl.kind {
                         ast::DeclKind::Function(fid) => {
-                            let Some(&fe) = fn_por_no.get(&(uid.0, fid.0)) else { continue };
-                            m.anotacoes_de_funcao(ctx, uid, &decl.metadata, fe);
-                            m.parametros(uid, ctx, ast.function(*fid));
+                            let Some(&fe) = fn_by_node.get(&(uid.0, fid.0)) else { continue };
+                            m.function_annotations(ctx, uid, &decl.metadata, fe);
+                            m.params(uid, ctx, ast.function(*fid));
                         }
                         ast::DeclKind::Variables(l) => {
                             for a in decl.metadata.iter() {
-                                if nome_da_anotacao(ctx, a) == "JSExportName" {
-                                    if let Some(n) = texto_da_anotacao(ctx, uid, a) {
+                                if annotation_name(ctx, a) == "JSExportName" {
+                                    if let Some(n) = annotation_text(ctx, uid, a) {
                                         for idx in 0..l.variables.len() {
-                                            if let Some(&v) = var_por_no.get(&(uid.0, did, idx)) {
-                                                m.nome_exportado_var.insert(v, n.clone());
+                                            if let Some(&v) = var_by_node.get(&(uid.0, did, idx)) {
+                                                m.var_export_names.insert(v, n.clone());
                                             }
                                         }
                                     }
@@ -360,38 +359,38 @@ impl ModoSdk {
                             }
                         }
                         ast::DeclKind::Class(cd) => {
-                            // `@patch class X`: os membros vão para a classe original.
-                            let e_patch = decl.metadata.iter().any(|a| nome_da_anotacao(ctx, a) == "patch");
-                            if e_patch {
+                            // `@patch class X`: the members go to the original class.
+                            let is_patch = decl.metadata.iter().any(|a| annotation_name(ctx, a) == "patch");
+                            if is_patch {
                                 if let Some(Element::Class(orig)) = lib.declared.get(&cd.name.sym).and_then(|b| b.getter) {
                                     if p.class(orig).decl.is_some_and(|d| (d.unit, d.decl) != (uid, ast::DeclId(did))) {
                                         m.patches.entry(orig).or_default().push((uid, ast::DeclId(did)));
                                     }
                                 }
                             }
-                            if let Some(&c) = classe_por_decl.get(&(uid.0, did)) {
+                            if let Some(&c) = class_by_decl.get(&(uid.0, did)) {
                                 for a in decl.metadata.iter() {
-                                    let n = nome_da_anotacao(ctx, a);
+                                    let n = annotation_name(ctx, a);
                                     if n == "Native" || n == "JsPeerInterface" {
-                                        if let Some(t) = texto_da_anotacao(ctx, uid, a) {
+                                        if let Some(t) = annotation_text(ctx, uid, a) {
                                             let tags: Vec<String> = t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && !s.starts_with('!')).collect();
-                                            m.pares.insert(c, tags);
+                                            m.peers.insert(c, tags);
                                         }
                                     }
                                 }
                             }
                             for &mid in cd.members.iter() {
-                                m.membro(ctx, uid, &fn_por_no, ast.member(mid));
+                                m.member(ctx, uid, &fn_by_node, ast.member(mid));
                             }
                         }
                         ast::DeclKind::Mixin(md) => {
                             for &mid in md.members.iter() {
-                                m.membro(ctx, uid, &fn_por_no, ast.member(mid));
+                                m.member(ctx, uid, &fn_by_node, ast.member(mid));
                             }
                         }
                         ast::DeclKind::Extension(ed) => {
                             for &mid in ed.members.iter() {
-                                m.membro(ctx, uid, &fn_por_no, ast.member(mid));
+                                m.member(ctx, uid, &fn_by_node, ast.member(mid));
                             }
                         }
                         _ => {}
@@ -402,60 +401,60 @@ impl ModoSdk {
         m
     }
 
-    fn membro(&mut self, ctx: &Ctx, uid: UnitId, fn_por_no: &HashMap<(u32, u32), FunctionElementId>, mem: &ast::Member) {
+    fn member(&mut self, ctx: &Ctx, uid: UnitId, fn_by_node: &HashMap<(u32, u32), FunctionElementId>, mem: &ast::Member) {
         match &mem.kind {
             ast::MemberKind::Method(fid) => {
-                if let Some(&fe) = fn_por_no.get(&(uid.0, fid.0)) {
-                    self.anotacoes_de_funcao(ctx, uid, &mem.metadata, fe);
+                if let Some(&fe) = fn_by_node.get(&(uid.0, fid.0)) {
+                    self.function_annotations(ctx, uid, &mem.metadata, fe);
                 }
-                self.parametros(uid, ctx, ctx.program.unit(uid).ast.function(*fid));
+                self.params(uid, ctx, ctx.program.unit(uid).ast.function(*fid));
             }
             ast::MemberKind::Constructor(k) => {
                 for p in k.parameters.iter() {
-                    self.parametro(uid, ctx, p);
+                    self.param(uid, ctx, p);
                 }
             }
             ast::MemberKind::Field(_) => {}
         }
     }
 
-    fn anotacoes_de_funcao(&mut self, ctx: &Ctx, uid: UnitId, metadata: &[ast::Annotation], fe: FunctionElementId) {
+    fn function_annotations(&mut self, ctx: &Ctx, uid: UnitId, metadata: &[ast::Annotation], fe: FunctionElementId) {
         for a in metadata {
-            match nome_da_anotacao(ctx, a) {
+            match annotation_name(ctx, a) {
                 "JSExportName" => {
-                    if let Some(n) = texto_da_anotacao(ctx, uid, a) {
-                        self.nome_exportado.insert(fe, n);
+                    if let Some(n) = annotation_text(ctx, uid, a) {
+                        self.export_names.insert(fe, n);
                     }
                 }
-                "ReifyFunctionTypes" if bool_da_anotacao(ctx, uid, a) == Some(false) => {
-                    self.sem_reificar_fn.insert(fe);
+                "ReifyFunctionTypes" if annotation_bool(ctx, uid, a) == Some(false) => {
+                    self.no_reify_fns.insert(fe);
                 }
                 "NoReifyGeneric" => {
-                    self.sem_generico.insert(fe);
+                    self.no_reify_generic.insert(fe);
                 }
                 _ => {}
             }
         }
     }
 
-    fn parametros(&mut self, uid: UnitId, ctx: &Ctx, f: &ast::Function) {
+    fn params(&mut self, uid: UnitId, ctx: &Ctx, f: &ast::Function) {
         for p in f.parameters.iter().flat_map(|ps| ps.iter()) {
-            self.parametro(uid, ctx, p);
+            self.param(uid, ctx, p);
         }
     }
 
-    fn parametro(&mut self, uid: UnitId, ctx: &Ctx, p: &ast::Parameter) {
-        if p.metadata.iter().any(|a| nome_da_anotacao(ctx, a) == "nullCheck") {
+    fn param(&mut self, uid: UnitId, ctx: &Ctx, p: &ast::Parameter) {
+        if p.metadata.iter().any(|a| annotation_name(ctx, a) == "nullCheck") {
             if let Some(n) = p.name {
-                self.verificar_nulo.insert((uid.0, n.span.start as u32));
+                self.null_checked_params.insert((uid.0, n.span.start as u32));
             }
         }
     }
 
-    /// Valor de `JS_GET_FLAG('X')` (`compiler.dart:6147-6177`), com null
-    /// safety sólida e o DDC como compilador.
-    pub fn flag(nome: &str) -> Option<bool> {
-        match nome {
+    /// Value of `JS_GET_FLAG('X')` (`compiler.dart:6147-6177`), with sound null
+    /// safety and DDC as the compiler.
+    pub fn flag(name: &str) -> Option<bool> {
+        match name {
             "DEV_COMPILER" | "SOUND_NULL_SAFETY" | "VARIANCE" => Some(true),
             "MINIFIED" | "LEGACY" | "EXTRA_NULL_SAFETY_CHECKS" | "PRINT_LEGACY_STARS" => Some(false),
             _ => None,
@@ -463,11 +462,12 @@ impl ModoSdk {
     }
 }
 
-// --------------------------------------------------------------------- consultas
+// --------------------------------------------------------------------- queries
 
-/// Os membros de uma classe com os das declarações `@patch` dela (no modo
-/// SDK); fora dele, os de sempre ([`dartforge_elements::model::Program::membros_da_classe`]).
-pub fn membros_da_classe(ctx: &Ctx, c: ClassId) -> Vec<(UnitId, ast::MemberId)> {
+/// The members of a class together with those of its `@patch` declarations (in
+/// SDK mode); outside it, the usual ones
+/// ([`dartforge_elements::model::Program::membros_da_classe`]).
+pub fn class_members(ctx: &Ctx, c: ClassId) -> Vec<(UnitId, ast::MemberId)> {
     let mut out = ctx.program.membros_da_classe(c);
     if let Some(ps) = ctx.sdk.as_ref().and_then(|s| s.patches.get(&c)) {
         for &(u, d) in ps {
@@ -479,63 +479,64 @@ pub fn membros_da_classe(ctx: &Ctx, c: ClassId) -> Vec<(UnitId, ast::MemberId)> 
     out
 }
 
-/// A classe é nativa no sentido do DDC (`isNativeClass`): `int`, `double`,
-/// `bool`, `String` e as `@Native` das bibliotecas de interceptadores, dados
-/// tipados e web. Só no modo SDK.
-pub fn classe_nativa(ctx: &Ctx, c: ClassId) -> bool {
+/// The class is native in DDC's sense (`isNativeClass`): `int`, `double`,
+/// `bool`, `String` and the `@Native` ones of the interceptors, typed data and
+/// web libraries. SDK mode only.
+pub fn is_native_class(ctx: &Ctx, c: ClassId) -> bool {
     ctx.sdk.is_some() && ctx.native_set.contains(&c)
 }
 
-/// O emissor está compilando código de uma biblioteca do SDK no modo SDK.
-pub fn em_sdk(ctx: &Ctx, lib: LibraryId) -> bool {
+/// The emitter is compiling code of an SDK library in SDK mode.
+pub fn in_sdk(ctx: &Ctx, lib: LibraryId) -> bool {
     ctx.sdk.is_some() && ctx.libs[lib.0 as usize].is_sdk
 }
 
-/// Nome da propriedade de uma função de topo (ou estática) com
-/// `@JSExportName`: `throw_` → `throw`.
-pub fn nome_de_topo<'c>(ctx: &'c Ctx, fid: FunctionElementId) -> Option<&'c str> {
-    ctx.sdk.as_ref()?.nome_exportado.get(&fid).map(String::as_str)
+/// Property name of a top-level (or static) function with `@JSExportName`:
+/// `throw_` → `throw`.
+pub fn export_name<'c>(ctx: &'c Ctx, fid: FunctionElementId) -> Option<&'c str> {
+    ctx.sdk.as_ref()?.export_names.get(&fid).map(String::as_str)
 }
 
-pub fn nome_de_topo_var<'c>(ctx: &'c Ctx, vid: VariableId) -> Option<&'c str> {
-    ctx.sdk.as_ref()?.nome_exportado_var.get(&vid).map(String::as_str)
+/// Property name of a top-level variable with `@JSExportName`.
+pub fn export_name_var<'c>(ctx: &'c Ctx, vid: VariableId) -> Option<&'c str> {
+    ctx.sdk.as_ref()?.var_export_names.get(&vid).map(String::as_str)
 }
 
-/// Funções desta biblioteca/função não ganham `dart.fn` (`@ReifyFunctionTypes(false)`,
+/// Functions of this library/function get no `dart.fn` (`@ReifyFunctionTypes(false)`,
 /// `compiler.dart:7306-7338`).
 pub fn sem_reificar(ctx: &Ctx, lib: LibraryId) -> bool {
-    ctx.sdk.as_ref().is_some_and(|s| s.sem_reificar_lib.contains(&lib))
+    ctx.sdk.as_ref().is_some_and(|s| s.no_reify_libs.contains(&lib))
 }
 
 pub fn funcao_sem_reificar(ctx: &Ctx, fid: FunctionElementId) -> bool {
-    ctx.sdk.as_ref().is_some_and(|s| s.sem_reificar_fn.contains(&fid) || s.sem_reificar_lib.contains(&ctx.program.function(fid).library))
+    ctx.sdk.as_ref().is_some_and(|s| s.no_reify_fns.contains(&fid) || s.no_reify_libs.contains(&ctx.program.function(fid).library))
 }
 
-/// A função tem `@NoReifyGeneric()`.
+/// The function has `@NoReifyGeneric()`.
 pub fn sem_generico(ctx: &Ctx, fid: FunctionElementId) -> bool {
-    ctx.sdk.as_ref().is_some_and(|s| s.sem_generico.contains(&fid))
+    ctx.sdk.as_ref().is_some_and(|s| s.no_reify_generic.contains(&fid))
 }
 
-/// O `assert` não é emitido: modo SDK e a unidade é do SDK.
-pub fn omitir_assert(ctx: &Ctx, lib: LibraryId) -> bool {
-    // O único `assert` do `dart:_runtime` é o de `assertInterop` (função Dart
-    // passada ao JS sem `allowInterop`), comportamento observável que o
-    // `dart_sdk.js` do DDC mantém: fica.
-    (ctx.sdk.as_ref().is_some_and(|s| s.sem_asserts_do_sdk && s.runtime != Some(lib)) && ctx.libs[lib.0 as usize].is_sdk)
+/// The `assert` is not emitted: SDK mode and the unit belongs to the SDK.
+pub fn omit_assert(ctx: &Ctx, lib: LibraryId) -> bool {
+    // The only `assert` of `dart:_runtime` is the one in `assertInterop` (a Dart
+    // function passed to JS without `allowInterop`), observable behavior that
+    // DDC's `dart_sdk.js` keeps: it stays.
+    (ctx.sdk.as_ref().is_some_and(|s| s.no_sdk_asserts && s.runtime != Some(lib)) && ctx.libs[lib.0 as usize].is_sdk)
         || ctx.filtro.is_some_and(|f| !f.manter_asserts())
 }
 
-/// Conferências de `@nullCheck` dos parâmetros já declarados (`compiler.dart:3855`):
+/// `@nullCheck` checks of the already declared parameters (`compiler.dart:3855`):
 /// `if (p == null) dart.argumentError(p);`.
-pub fn verificacoes_de_nulo(e: &FnEmitter, params: &[ast::Parameter]) -> String {
+pub fn null_checks(e: &FnEmitter, params: &[ast::Parameter]) -> String {
     let Some(s) = e.ctx.sdk.as_ref() else { return String::new() };
-    if s.verificar_nulo.is_empty() || !e.ctx.libs[e.lib.0 as usize].is_sdk {
+    if s.null_checked_params.is_empty() || !e.ctx.libs[e.lib.0 as usize].is_sdk {
         return String::new();
     }
     let mut out = String::new();
     for p in params {
         let Some(n) = p.name else { continue };
-        if !s.verificar_nulo.contains(&(e.unit.0, n.span.start as u32)) {
+        if !s.null_checked_params.contains(&(e.unit.0, n.span.start as u32)) {
             continue;
         }
         if let Some(l) = e.lookup_local(n.sym) {
@@ -545,10 +546,10 @@ pub fn verificacoes_de_nulo(e: &FnEmitter, params: &[ast::Parameter]) -> String 
     out
 }
 
-/// Inicializador que o DDC dobra no ponto de uso (`kernel/constants.dart:105-120`,
-/// `shouldInlineConstant`): literal numérico, booleano, nulo ou *string*
-/// com menos de 32 unidades. O mesmo critério está em `crates/world`
-/// (`constante_inlinavel`), que não mantém viva a variável assim lida.
+/// Initializer that DDC folds at the use site (`kernel/constants.dart:105-120`,
+/// `shouldInlineConstant`): a numeric, boolean or null literal, or a *string*
+/// with fewer than 32 units. The same criterion is in `crates/world`
+/// (`constante_inlinavel`), which does not keep a variable read this way alive.
 pub fn literal_inlinavel(ast: &ast::Ast, x: ExprId) -> bool {
     match &ast.expr(x).kind {
         ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null => true,
@@ -559,9 +560,9 @@ pub fn literal_inlinavel(ast: &ast::Ast, x: ExprId) -> bool {
     }
 }
 
-/// A leitura de uma constante primitiva vira o próprio valor (modo SDK, que é
-/// o perfil de produção): `dart_rti.interfaceTypeRecipePropertyName` sai
-/// `"$interfaceRecipe"`, e a variável deixa de existir no arquivo.
+/// Reading a primitive constant becomes the value itself (SDK mode, which is the
+/// production profile): `dart_rti.interfaceTypeRecipePropertyName` comes out as
+/// `"$interfaceRecipe"`, and the variable no longer exists in the file.
 pub fn constante_inline(e: &FnEmitter, vid: VariableId) -> Option<Js> {
     e.ctx.sdk.as_ref()?;
     let v = e.ctx.program.variable(vid);
@@ -588,103 +589,103 @@ pub fn constante_inline(e: &FnEmitter, vid: VariableId) -> Option<Js> {
     Some(js)
 }
 
-/// Conferências de covariância dos parâmetros de um método de instância de
-/// classe genérica do SDK (`compiler.dart:3848-3856`): parâmetro cujo tipo
-/// cita um parâmetro de tipo da classe (ou marcado `covariant`) é conferido
-/// na entrada — `List<num> l = <int>[]; l.add(2.5)` lança `TypeError` no
-/// `JSArray.add`.
-/// Sem as checagens de covariância com `--omitir-checagens`.
-fn checagens_omitidas(e: &FnEmitter) -> bool {
+/// No covariance checks with `--omitir-checagens`.
+fn checks_omitted(e: &FnEmitter) -> bool {
     e.ctx.filtro.is_some_and(|f| f.omitir_checagens())
 }
 
-pub fn verificacoes_de_covariancia(e: &FnEmitter, params: &[ast::Parameter]) -> String {
+/// Covariance checks of the parameters of an instance method of a generic SDK
+/// class (`compiler.dart:3848-3856`): a parameter whose type references a type
+/// parameter of the class (or that is marked `covariant`) is checked on entry —
+/// `List<num> l = <int>[]; l.add(2.5)` throws `TypeError` in `JSArray.add`.
+pub fn covariance_checks(e: &FnEmitter, params: &[ast::Parameter]) -> String {
     let Some(c) = e.class else { return String::new() };
-    if e.ctx.sdk.is_none() || e.is_static || !e.ctx.libs[e.lib.0 as usize].is_sdk || checagens_omitidas(e) {
+    if e.ctx.sdk.is_none() || e.is_static || !e.ctx.libs[e.lib.0 as usize].is_sdk || checks_omitted(e) {
         return String::new();
     }
-    let da_classe: HashSet<u32> = e.ctx.class_params[c.0 as usize].iter().map(|p| p.id).collect();
+    let class_param_ids: HashSet<u32> = e.ctx.class_params[c.0 as usize].iter().map(|p| p.id).collect();
     let mut out = String::new();
     for p in params {
         let Some(n) = p.name else { continue };
         let Some(l) = e.lookup_local(n.sym) else { continue };
-        // Só a ocorrência **covariante** do parâmetro de tipo pede conferência
-        // (`void Function(T)` é contravariante em `T`: sempre seguro).
-        let cita = ocorre_covariante(&l.ty, &da_classe, true);
-        if !(cita || p.covariant) || matches!(l.ty, Ty::Dynamic) {
+        // Only a **covariant** occurrence of the type parameter calls for a check
+        // (`void Function(T)` is contravariant in `T`: always safe).
+        let mentions = occurs_covariantly(&l.ty, &class_param_ids, true);
+        if !(mentions || p.covariant) || matches!(l.ty, Ty::Dynamic) {
             continue;
         }
-        // `null` passa: o tipo local pode ter perdido o `?` de um parâmetro-função
-        // (`E Function()? orElse`), e a chamada tipada já provou a nulidade.
+        // `null` passes: the local type may have lost the `?` of a function
+        // parameter (`E Function()? orElse`), and the typed call already proved
+        // the nullability.
         out.push_str(&format!("if ({0} != null) {1}[_as]({0});\n", l.js, e.rti(&l.ty)));
     }
     out
 }
 
-/// Um parâmetro de tipo de `ids` ocorre em posição covariante de `t`
-/// (`positivo` é a polaridade corrente; parâmetro de função a inverte).
-fn ocorre_covariante(t: &Ty, ids: &HashSet<u32>, positivo: bool) -> bool {
+/// A type parameter in `ids` occurs in a covariant position of `t` (`positive`
+/// is the current polarity; a function parameter flips it).
+fn occurs_covariantly(t: &Ty, ids: &HashSet<u32>, positive: bool) -> bool {
     match t {
-        Ty::Param { id, .. } => positivo && ids.contains(id),
-        Ty::Iface { args, .. } => args.iter().any(|a| ocorre_covariante(a, ids, positivo)),
-        Ty::FutureOr { arg, .. } => ocorre_covariante(arg, ids, positivo),
+        Ty::Param { id, .. } => positive && ids.contains(id),
+        Ty::Iface { args, .. } => args.iter().any(|a| occurs_covariantly(a, ids, positive)),
+        Ty::FutureOr { arg, .. } => occurs_covariantly(arg, ids, positive),
         Ty::Fn { ret, pos, opt, named, .. } => {
-            ocorre_covariante(ret, ids, positivo)
-                || pos.iter().chain(opt.iter()).any(|p| ocorre_covariante(p, ids, !positivo))
-                || named.iter().any(|(_, p, _)| ocorre_covariante(p, ids, !positivo))
+            occurs_covariantly(ret, ids, positive)
+                || pos.iter().chain(opt.iter()).any(|p| occurs_covariantly(p, ids, !positive))
+                || named.iter().any(|(_, p, _)| occurs_covariantly(p, ids, !positive))
         }
-        Ty::Record { pos, named, .. } => pos.iter().any(|p| ocorre_covariante(p, ids, positivo)) || named.iter().any(|(_, p)| ocorre_covariante(p, ids, positivo)),
+        Ty::Record { pos, named, .. } => pos.iter().any(|p| occurs_covariantly(p, ids, positive)) || named.iter().any(|(_, p)| occurs_covariantly(p, ids, positive)),
         _ => false,
     }
 }
 
-/// `@rest` no último parâmetro posicional (`compiler.dart:3722-3726`): o
-/// parâmetro JS vira `...nome` — `gbind(f, @rest typeArgs)` recebe todos os
-/// argumentos seguintes num array.
-pub fn com_rest(e: &FnEmitter, params: &[ast::Parameter], js: String) -> String {
+/// `@rest` on the last positional parameter (`compiler.dart:3722-3726`): the JS
+/// parameter becomes `...name` — `gbind(f, @rest typeArgs)` receives all the
+/// following arguments in an array.
+pub fn with_rest(e: &FnEmitter, params: &[ast::Parameter], js: String) -> String {
     if e.ctx.sdk.is_none() || !e.ctx.libs[e.lib.0 as usize].is_sdk {
         return js;
     }
-    let Some(ultimo) = params.iter().rev().find(|p| p.kind != ast::ParameterKind::Named) else { return js };
-    if !ultimo.metadata.iter().any(|a| nome_da_anotacao(e.ctx, a) == "rest") {
+    let Some(last) = params.iter().rev().find(|p| p.kind != ast::ParameterKind::Named) else { return js };
+    if !last.metadata.iter().any(|a| annotation_name(e.ctx, a) == "rest") {
         return js;
     }
-    let Some(n) = ultimo.name else { return js };
+    let Some(n) = last.name else { return js };
     let Some(l) = e.lookup_local(n.sym) else { return js };
-    let nome = l.js.clone();
-    // O nome é o último item da lista de parâmetros posicionais.
-    match js.rfind(nome.as_str()) {
-        Some(p) if js[p..].trim_end() == nome => format!("{}...{}", &js[..p], &js[p..]),
+    let name = l.js.clone();
+    // The name is the last item of the positional parameter list.
+    match js.rfind(name.as_str()) {
+        Some(p) if js[p..].trim_end() == name => format!("{}...{}", &js[..p], &js[p..]),
         _ => js,
     }
 }
 
-// --------------------------------------------------------------------- intrínsecos
+// --------------------------------------------------------------------- intrinsics
 
-/// O intrínseco que `fid` é, se for.
+/// The intrinsic that `fid` is, if it is one.
 pub fn intrinseco_de(ctx: &Ctx, fid: FunctionElementId) -> Option<Intrinseco> {
-    ctx.sdk.as_ref()?.intrinsecos.get(&fid).copied()
+    ctx.sdk.as_ref()?.intrinsics.get(&fid).copied()
 }
 
-/// Valor de string constante de uma expressão: literal sem interpolação ou
-/// identificador de constante de topo com inicializador literal (o
-/// `JS_EMBEDDED_GLOBAL('', RTI_UNIVERSE)` do `rti.dart`).
-fn string_constante(e: &FnEmitter, x: ExprId) -> Option<String> {
+/// Constant string value of an expression: a literal without interpolation or an
+/// identifier of a top-level constant with a literal initializer (the
+/// `JS_EMBEDDED_GLOBAL('', RTI_UNIVERSE)` of `rti.dart`).
+fn constant_string(e: &FnEmitter, x: ExprId) -> Option<String> {
     match &e.expr(x).kind {
         ExprKind::String(lit) => lit.constant_value().map(|v| v.to_string_lossy()),
         ExprKind::Identifier(id) => {
             if let crate::expr::IdentTarget::Element(Element::Variable(v)) = e.alvo_do_identificador(id.sym, x) {
-                return string_de_variavel(e.ctx, v);
+                return variable_string(e.ctx, v);
             }
             None
         }
         ExprKind::Property { target, name, .. } => {
-            // `prefixo.CONST`
+            // `prefix.CONST`
             if let ExprKind::Identifier(id) = &e.expr(*target).kind {
                 if let crate::expr::IdentTarget::Prefix(pf) = e.alvo_do_identificador(id.sym, *target) {
                     let b = e.ctx.program.lookup_prefixed_na_unidade(e.unit, pf, name.sym)?;
                     if let Some(Element::Variable(v)) = b.getter {
-                        return string_de_variavel(e.ctx, v);
+                        return variable_string(e.ctx, v);
                     }
                 }
             }
@@ -694,7 +695,7 @@ fn string_constante(e: &FnEmitter, x: ExprId) -> Option<String> {
     }
 }
 
-fn string_de_variavel(ctx: &Ctx, v: VariableId) -> Option<String> {
+fn variable_string(ctx: &Ctx, v: VariableId) -> Option<String> {
     let var = ctx.program.variable(v);
     if !var.const_ {
         return None;
@@ -709,8 +710,8 @@ fn string_de_variavel(ctx: &Ctx, v: VariableId) -> Option<String> {
     }
 }
 
-/// Nome do membro de enum citado (`JsGetName.RTI_NAME` → `RTI_NAME`).
-fn nome_de_enum(e: &FnEmitter, x: ExprId) -> Option<String> {
+/// Name of the referenced enum member (`JsGetName.RTI_NAME` → `RTI_NAME`).
+fn enum_member_name(e: &FnEmitter, x: ExprId) -> Option<String> {
     match &e.expr(x).kind {
         ExprKind::Property { name, .. } => Some(e.name(name.sym).to_string()),
         ExprKind::Identifier(id) => Some(e.name(id.sym).to_string()),
@@ -718,8 +719,8 @@ fn nome_de_enum(e: &FnEmitter, x: ExprId) -> Option<String> {
     }
 }
 
-/// A classe de um literal de tipo (`Foo` ou `prefixo.Foo`).
-fn classe_do_literal(e: &FnEmitter, x: ExprId) -> Option<ClassId> {
+/// The class of a type literal (`Foo` or `prefix.Foo`).
+fn literal_class(e: &FnEmitter, x: ExprId) -> Option<ClassId> {
     match &e.expr(x).kind {
         ExprKind::Identifier(id) => match e.alvo_do_identificador(id.sym, x) {
             crate::expr::IdentTarget::Element(Element::Class(c)) => Some(c),
@@ -738,15 +739,15 @@ fn classe_do_literal(e: &FnEmitter, x: ExprId) -> Option<ClassId> {
                 _ => None,
             }
         }
-        ExprKind::TypeArguments { target, .. } => classe_do_literal(e, *target),
+        ExprKind::TypeArguments { target, .. } => literal_class(e, *target),
         _ => None,
     }
 }
 
-/// Tipo estático de uma chamada a um intrínseco genérico (`JS<T>`,
-/// `unsafeCast<T>`): o argumento de tipo explícito, senão o do contexto
-/// (inferência descendente, como o CFE faz), senão `dynamic`.
-fn tipo_do_generico(e: &FnEmitter, args: &ast::Arguments, expected: Option<&Ty>) -> Ty {
+/// Static type of a call to a generic intrinsic (`JS<T>`, `unsafeCast<T>`): the
+/// explicit type argument, otherwise the context's (downward inference, as the
+/// CFE does), otherwise `dynamic`.
+fn generic_call_type(e: &FnEmitter, args: &ast::Arguments, expected: Option<&Ty>) -> Ty {
     if let Some(t) = args.type_args.first() {
         return e.resolve_type(*t);
     }
@@ -756,46 +757,47 @@ fn tipo_do_generico(e: &FnEmitter, args: &ast::Arguments, expected: Option<&Ty>)
     }
 }
 
-/// Emite um argumento de `JS()` (`_isInForeignJS`, `compiler.dart:6460-6463`).
-fn arg_estrangeiro(e: &mut FnEmitter, x: ExprId) -> Js {
-    let salvo = std::mem::replace(&mut e.em_js_estrangeiro, true);
+/// Emits an argument of `JS()` (`_isInForeignJS`, `compiler.dart:6460-6463`).
+fn foreign_arg(e: &mut FnEmitter, x: ExprId) -> Js {
+    let saved = std::mem::replace(&mut e.em_js_estrangeiro, true);
     let (js, _) = e.emit_expr(x, None);
-    e.em_js_estrangeiro = salvo;
+    e.em_js_estrangeiro = saved;
     js
 }
 
-/// Uma peça do *template*: texto JS ou um buraco.
-enum Peca {
-    Texto(String),
-    Buraco(ExprId),
+/// A piece of the *template*: JS text or a hole.
+enum Piece {
+    Text(String),
+    Hole(ExprId),
 }
 
-/// As peças do *template* de `JS()`: literal com `#` (buracos dos argumentos
-/// seguintes) ou com interpolações Dart (cada `$x` vira um buraco, na ordem).
-fn pecas_do_template(e: &FnEmitter, tpl: ExprId, resto: &[ExprId]) -> Option<Vec<Peca>> {
+/// The pieces of the `JS()` *template*: a literal with `#` (holes for the
+/// following arguments) or with Dart interpolations (each `$x` becomes a hole,
+/// in order).
+fn template_pieces(e: &FnEmitter, tpl: ExprId, rest: &[ExprId]) -> Option<Vec<Piece>> {
     let ExprKind::String(lit) = &e.expr(tpl).kind else { return None };
-    let mut texto = String::new();
+    let mut text = String::new();
     let mut interp: Vec<ExprId> = Vec::new();
     for part in lit.parts.iter() {
         match part {
-            StringPart::Text(t) => texto.push_str(&t.to_string_lossy()),
+            StringPart::Text(t) => text.push_str(&t.to_string_lossy()),
             StringPart::Interpolation(x) => {
-                // Interpolação de constante de string: o DDC dobra a
-                // constante e o valor entra como texto JS (`compiler.dart:6435`).
-                if let Some(s) = string_constante(e, *x) {
-                    texto.push_str(&s);
+                // Interpolation of a string constant: DDC folds the constant and
+                // the value goes in as JS text (`compiler.dart:6435`).
+                if let Some(s) = constant_string(e, *x) {
+                    text.push_str(&s);
                 } else {
-                    texto.push('#');
+                    text.push('#');
                     interp.push(*x);
                 }
             }
         }
     }
-    let buracos: Vec<ExprId> = if interp.is_empty() { resto.to_vec() } else { interp };
+    let holes: Vec<ExprId> = if interp.is_empty() { rest.to_vec() } else { interp };
     let mut out = Vec::new();
     let mut i = 0usize;
-    let b = texto.as_bytes();
-    let mut ini = 0usize;
+    let b = text.as_bytes();
+    let mut start = 0usize;
     let mut n = 0usize;
     while i < b.len() {
         match b[i] {
@@ -823,64 +825,65 @@ fn pecas_do_template(e: &FnEmitter, tpl: ExprId, resto: &[ExprId]) -> Option<Vec
                 i += 2;
             }
             b'#' => {
-                out.push(Peca::Texto(texto[ini..i].to_string()));
-                let x = *buracos.get(n)?;
+                out.push(Piece::Text(text[start..i].to_string()));
+                let x = *holes.get(n)?;
                 n += 1;
-                out.push(Peca::Buraco(x));
+                out.push(Piece::Hole(x));
                 i += 1;
-                ini = i;
+                start = i;
             }
             _ => i += 1,
         }
     }
-    out.push(Peca::Texto(texto[ini.min(texto.len())..].to_string()));
+    out.push(Piece::Text(text[start.min(text.len())..].to_string()));
     Some(out)
 }
 
-fn e_ident_js(s: &str) -> bool {
+fn is_plain_js_ident(s: &str) -> bool {
     js::is_js_ident(s)
 }
 
-/// Monta o texto de `JS(tipo, 'template', a…)`. `None` se a chamada não tem a
-/// forma esperada (então é emitida como chamada comum, e o erro aparece).
-pub fn texto_js(e: &mut FnEmitter, args: &ast::Arguments) -> Option<String> {
-    let lista: Vec<ExprId> = args.args.iter().map(|a| a.value).collect();
-    if lista.len() < 2 {
+/// Builds the text of `JS(type, 'template', a…)`. `None` if the call does not
+/// have the expected shape (then it is emitted as a plain call, and the error
+/// shows up).
+pub fn js_text(e: &mut FnEmitter, args: &ast::Arguments) -> Option<String> {
+    let list: Vec<ExprId> = args.args.iter().map(|a| a.value).collect();
+    if list.len() < 2 {
         return None;
     }
-    let pecas = pecas_do_template(e, lista[1], &lista[2..])?;
-    // Os argumentos são emitidos na ordem em que aparecem (efeitos e temps).
-    let mut emitidos: HashMap<u32, (Js, Option<String>)> = HashMap::new();
-    for p in &pecas {
-        if let Peca::Buraco(x) = p {
-            // Literal de string que é identificador: pode virar nome de
-            // propriedade (`#.#` com `'foo'` dá `.foo`, `compiler.dart` via
-            // o impressor do `js_ast`).
+    let pieces = template_pieces(e, list[1], &list[2..])?;
+    // The arguments are emitted in the order they appear (effects and temps).
+    let mut emitted: HashMap<u32, (Js, Option<String>)> = HashMap::new();
+    for p in &pieces {
+        if let Piece::Hole(x) = p {
+            // A string literal that is an identifier: it may become a property
+            // name (`#.#` with `'foo'` gives `.foo`, `compiler.dart` via the
+            // `js_ast` printer).
             let lit = match &e.expr(*x).kind {
                 ExprKind::String(l) => l.constant_value().map(|v| v.to_string_lossy()),
                 _ => None,
             };
-            let js = arg_estrangeiro(e, *x);
-            emitidos.insert(x.0, (js, lit));
+            let js = foreign_arg(e, *x);
+            emitted.insert(x.0, (js, lit));
         }
     }
     let mut out = String::new();
-    for p in &pecas {
+    for p in &pieces {
         match p {
-            Peca::Texto(t) => out.push_str(t),
-            Peca::Buraco(x) => {
-                let (js, lit) = &emitidos[&x.0];
-                let antes = out.trim_end();
-                // Só o ponto na mesma linha: o de fim de comentário não conta.
-                let colado = out.trim_end_matches([' ', '\t']);
-                let depois_ponto = colado.ends_with('.') && !colado.ends_with("..");
-                if depois_ponto {
+            Piece::Text(t) => out.push_str(t),
+            Piece::Hole(x) => {
+                let (js, lit) = &emitted[&x.0];
+                let before = out.trim_end();
+                // Only a dot on the same line: one ending a comment does not count.
+                let trimmed = out.trim_end_matches([' ', '\t']);
+                let after_dot = trimmed.ends_with('.') && !trimmed.ends_with("..");
+                if after_dot {
                     match lit {
-                        Some(s) if e_ident_js(s) => out.push_str(s),
+                        Some(s) if is_plain_js_ident(s) => out.push_str(s),
                         _ => {
-                            // `a.#` com expressão: `a[expr]`.
-                            let corte = colado.len() - 1;
-                            out.truncate(corte);
+                            // `a.#` with an expression: `a[expr]`.
+                            let cut = trimmed.len() - 1;
+                            out.truncate(cut);
                             out.push('[');
                             out.push_str(&js.code);
                             out.push(']');
@@ -888,10 +891,10 @@ pub fn texto_js(e: &mut FnEmitter, args: &ast::Arguments) -> Option<String> {
                     }
                     continue;
                 }
-                let e_chave = (antes.ends_with('{') || antes.ends_with(',')) && proximo_nao_branco_e(&pecas, x, ':');
-                if e_chave {
+                let is_key = (before.ends_with('{') || before.ends_with(',')) && next_non_blank_is(&pieces, x, ':');
+                if is_key {
                     match lit {
-                        Some(s) if e_ident_js(s) => out.push_str(s),
+                        Some(s) if is_plain_js_ident(s) => out.push_str(s),
                         _ => {
                             out.push('[');
                             out.push_str(&js.code);
@@ -900,8 +903,8 @@ pub fn texto_js(e: &mut FnEmitter, args: &ast::Arguments) -> Option<String> {
                     }
                     continue;
                 }
-                let depois_new = antes.ends_with("new") && antes.len() >= 3 && !antes[..antes.len() - 3].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-                if depois_new {
+                let after_new = before.ends_with("new") && before.len() >= 3 && !before[..before.len() - 3].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+                if after_new {
                     out.push('(');
                     out.push_str(&js.code);
                     out.push(')');
@@ -914,45 +917,45 @@ pub fn texto_js(e: &mut FnEmitter, args: &ast::Arguments) -> Option<String> {
     Some(out)
 }
 
-/// O texto que segue o buraco `x` começa com `c` (depois de espaços).
-fn proximo_nao_branco_e(pecas: &[Peca], x: &ExprId, c: char) -> bool {
-    let mut achou = false;
-    for p in pecas {
+/// The text following hole `x` starts with `c` (after whitespace).
+fn next_non_blank_is(pieces: &[Piece], x: &ExprId, c: char) -> bool {
+    let mut found = false;
+    for p in pieces {
         match p {
-            Peca::Buraco(y) if y.0 == x.0 => achou = true,
-            Peca::Texto(t) if achou => return t.trim_start().starts_with(c),
-            Peca::Buraco(_) if achou => return false,
+            Piece::Hole(y) if y.0 == x.0 => found = true,
+            Piece::Text(t) if found => return t.trim_start().starts_with(c),
+            Piece::Hole(_) if found => return false,
             _ => {}
         }
     }
     false
 }
 
-/// `JS()` cujo *template* é uma instrução (`throw …`, `compiler.dart` via
-/// `parseForeignJS`): o texto, para ser escrito em posição de instrução.
-pub fn instrucao_js(e: &mut FnEmitter, x: ExprId) -> Option<String> {
+/// `JS()` whose *template* is a statement (`throw …`, `compiler.dart` via
+/// `parseForeignJS`): the text, to be written in statement position.
+pub fn js_statement(e: &mut FnEmitter, x: ExprId) -> Option<String> {
     e.ctx.sdk.as_ref()?;
     let ExprKind::Call { target, arguments } = &e.expr(x).kind else { return None };
-    let fid = funcao_chamada(e, *target)?;
+    let fid = called_function(e, *target)?;
     if intrinseco_de(e.ctx, fid) != Some(Intrinseco::Js) {
         return None;
     }
     let tpl = arguments.args.get(1)?.value;
     let ExprKind::String(lit) = &e.expr(tpl).kind else { return None };
-    let comeca = match lit.parts.first() {
+    let starts = match lit.parts.first() {
         Some(StringPart::Text(t)) => t.to_string_lossy().trim_start().starts_with("throw "),
         _ => false,
     };
-    if !comeca {
+    if !starts {
         return None;
     }
-    texto_js(e, arguments)
+    js_text(e, arguments)
 }
 
-/// A função de topo chamada por `alvo(...)` (`f` ou `prefixo.f`).
-fn funcao_chamada(e: &FnEmitter, alvo: ExprId) -> Option<FunctionElementId> {
-    match &e.expr(alvo).kind {
-        ExprKind::Identifier(id) => match e.alvo_do_identificador(id.sym, alvo) {
+/// The top-level function called by `callee(...)` (`f` or `prefix.f`).
+fn called_function(e: &FnEmitter, callee: ExprId) -> Option<FunctionElementId> {
+    match &e.expr(callee).kind {
+        ExprKind::Identifier(id) => match e.alvo_do_identificador(id.sym, callee) {
             crate::expr::IdentTarget::Element(Element::Function(f)) => Some(f),
             _ => None,
         },
@@ -964,57 +967,58 @@ fn funcao_chamada(e: &FnEmitter, alvo: ExprId) -> Option<FunctionElementId> {
                 _ => None,
             }
         }
-        ExprKind::TypeArguments { target, .. } => funcao_chamada(e, *target),
+        ExprKind::TypeArguments { target, .. } => called_function(e, *target),
         _ => None,
     }
 }
 
-/// Emite a chamada a um intrínseco. `None`: não é intrínseco (ou a forma não
-/// casa) — o chamador emite a chamada comum.
+/// Emits the call to an intrinsic. `None`: it is not an intrinsic (or the shape
+/// does not match) — the caller emits the plain call.
 pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
     let k = intrinseco_de(e.ctx, fid)?;
     let pos: Vec<ExprId> = args.args.iter().filter(|a| a.name.is_none()).map(|a| a.value).collect();
-    let ret_declarado = || match e.ctx.fn_ty(fid) {
+    let declared_ret = || match e.ctx.fn_ty(fid) {
         Ty::Fn { ret, .. } if !ret.mentions_params() => (*ret).clone(),
         _ => Ty::Dynamic,
     };
     match k {
         Intrinseco::Js => {
-            let ty = tipo_do_generico(e, args, expected);
-            // `Function.apply` (`core_patch.dart:96-101`) monta o objeto dos
-            // nomeados com `JS('', '#[#] = #', map, _symbolToString(symbol), arg)`:
-            // com as chaves curtas dos nomeados (`emit_js_production/src/nomeados.rs`),
-            // o nome de origem é traduzido em execução por `dart.nomeadoJS`.
+            let ty = generic_call_type(e, args, expected);
+            // `Function.apply` (`core_patch.dart:96-101`) builds the object of
+            // named arguments with `JS('', '#[#] = #', map, _symbolToString(symbol), arg)`:
+            // with the short keys of named parameters
+            // (`emit_js_production/src/nomeados.rs`), the source name is translated
+            // at run time by `dart.nomeadoJS`.
             if e.class.is_some() && e.class == e.ctx.function_ && e.ctx.filtro.is_some_and(|f| f.tabela_de_nomeados().is_some()) {
-                let tpl = pos.get(1).and_then(|t| string_constante(e, *t));
+                let tpl = pos.get(1).and_then(|t| constant_string(e, *t));
                 if tpl.as_deref() == Some("#[#] = #") && pos.len() == 5 {
-                    let a = arg_estrangeiro(e, pos[2]).code;
-                    let k = arg_estrangeiro(e, pos[3]).code;
-                    let v = arg_estrangeiro(e, pos[4]).code;
+                    let a = foreign_arg(e, pos[2]).code;
+                    let k = foreign_arg(e, pos[3]).code;
+                    let v = foreign_arg(e, pos[4]).code;
                     return Some((Js::prim(format!("({a}[dart.nomeadoJS({k})] = {v})")), ty));
                 }
             }
-            let tpl_instrucao = pos.get(1).is_some_and(|t| match &e.expr(*t).kind {
+            let statement_template = pos.get(1).is_some_and(|t| match &e.expr(*t).kind {
                 ExprKind::String(lit) => matches!(lit.parts.first(), Some(StringPart::Text(x)) if x.to_string_lossy().trim_start().starts_with("throw ")),
                 _ => false,
             });
-            let texto = texto_js(e, args)?;
-            if tpl_instrucao {
-                // Instrução em posição de expressão: numa função-flecha.
-                return Some((Js::prim(format!("(() => {{ {texto}; }})()")), ty));
+            let text = js_text(e, args)?;
+            if statement_template {
+                // A statement in expression position: inside an arrow function.
+                return Some((Js::prim(format!("(() => {{ {text}; }})()")), ty));
             }
-            // Entre parênteses: o *template* é JS livre, e nem todo ponto do
-            // emissor confere a precedência (`!JS('', '# || #', a, b)`).
-            let simples = texto.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'.'));
-            Some((if simples { Js::prim(texto) } else { Js::prim(format!("({texto})")) }, ty))
+            // In parentheses: the *template* is free-form JS, and not every place
+            // in the emitter checks precedence (`!JS('', '# || #', a, b)`).
+            let simple = text.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'.'));
+            Some((if simple { Js::prim(text) } else { Js::prim(format!("({text})")) }, ty))
         }
         Intrinseco::GetFlag => {
-            let nome = string_constante(e, *pos.first()?)?;
-            let v = ModoSdk::flag(&nome)?;
+            let name = constant_string(e, *pos.first()?)?;
+            let v = ModoSdk::flag(&name)?;
             Some((Js::prim(if v { "true" } else { "false" }), e.ctx.t_bool()))
         }
         Intrinseco::GetName => {
-            let n = nome_de_enum(e, *pos.first()?)?;
+            let n = enum_member_name(e, *pos.first()?)?;
             let js = match n.as_str() {
                 "OPERATOR_IS_PREFIX" => "\"$is_\"".to_string(),
                 "SIGNATURE_NAME" => "dart._functionRti".to_string(),
@@ -1027,52 +1031,52 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
                 }
                 _ => return None,
             };
-            Some((Js::prim(js), ret_declarado()))
+            Some((Js::prim(js), declared_ret()))
         }
         Intrinseco::EmbeddedGlobal => {
-            let nome = string_constante(e, *pos.get(1)?)?;
-            let js = if nome == "arrayRti" { e.dartx("arrayRti") } else { format!("dart{}", js::prop_access(&nome)) };
-            Some((Js::prim(js), tipo_do_generico(e, args, expected)))
+            let name = constant_string(e, *pos.get(1)?)?;
+            let js = if name == "arrayRti" { e.dartx("arrayRti") } else { format!("dart{}", js::prop_access(&name)) };
+            Some((Js::prim(js), generic_call_type(e, args, expected)))
         }
         Intrinseco::ClassRef => {
             let x = *pos.first()?;
             if let ExprKind::Identifier(id) = &e.expr(x).kind {
                 if e.name(id.sym) == "Null" {
-                    return Some((Js::prim("core.Null"), ret_declarado()));
+                    return Some((Js::prim("core.Null"), declared_ret()));
                 }
             }
-            let c = classe_do_literal(e, x)?;
-            Some((Js::prim(e.class_ref(c)), ret_declarado()))
+            let c = literal_class(e, x)?;
+            Some((Js::prim(e.class_ref(c)), declared_ret()))
         }
         Intrinseco::TypeRef | Intrinseco::LegacyTypeRef => {
             let t = e.resolve_type(*args.type_args.first()?);
             let mut rti = e.rti(&t);
             if k == Intrinseco::LegacyTypeRef {
-                // `T*`: a receita fechada ganha a estrela.
+                // `T*`: the closed recipe gets the star.
                 let pre = "dart_rti._Universe.eval(dart_rti._theUniverse(), \"";
                 if let Some(r) = rti.strip_prefix(pre).and_then(|r| r.strip_suffix("\", true)")) {
                     rti = format!("{pre}{r}*\", true)");
                 }
             }
-            Some((Js::prim(rti), ret_declarado()))
+            Some((Js::prim(rti), declared_ret()))
         }
         Intrinseco::RawFunctionRef => {
-            let js = arg_estrangeiro(e, *pos.first()?);
-            Some((js, ret_declarado()))
+            let js = foreign_arg(e, *pos.first()?);
+            Some((js, declared_ret()))
         }
         Intrinseco::StringConcat => {
-            let a = arg_estrangeiro(e, *pos.first()?);
-            let b = arg_estrangeiro(e, *pos.get(1)?);
+            let a = foreign_arg(e, *pos.first()?);
+            let b = foreign_arg(e, *pos.get(1)?);
             Some((Js::new(format!("{} + {}", a.at(P_ADD), b.at(P_ADD + 1)), P_ADD), e.ctx.t_string()))
         }
         Intrinseco::Builtin => {
-            let n = nome_de_enum(e, *pos.get(1)?)?;
+            let n = enum_member_name(e, *pos.get(1)?)?;
             let js = match n.as_str() {
                 "dartClosureConstructor" => "Function",
                 "dartObjectConstructor" => "core.Object",
                 _ => return None,
             };
-            Some((Js::prim(js), tipo_do_generico(e, args, expected)))
+            Some((Js::prim(js), generic_call_type(e, args, expected)))
         }
         Intrinseco::RawException => {
             let v = e.rethrow_var.last().cloned()?;
@@ -1081,7 +1085,7 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
         Intrinseco::RtiParameter => Some((Js::prim("_ti"), Ty::Dynamic)),
         Intrinseco::RuntimeLibrary => Some((Js::prim("dart"), Ty::Dynamic)),
         Intrinseco::GetInterceptor => {
-            let a = arg_estrangeiro(e, *pos.first()?);
+            let a = foreign_arg(e, *pos.first()?);
             Some((Js::prim(format!("dart.getInterceptorForRti({})", a.code)), Ty::Dynamic))
         }
         Intrinseco::ExtensionSymbol => {
@@ -1091,25 +1095,25 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
             Some((Js::prim(e.dartx(&js_member_name(&n))), Ty::Dynamic))
         }
         Intrinseco::InstanceOf => {
-            let c = classe_do_literal(e, *pos.get(1)?)?;
+            let c = literal_class(e, *pos.get(1)?)?;
             if !e.ctx.class_params[c.0 as usize].is_empty() {
                 return None;
             }
-            let a = arg_estrangeiro(e, *pos.first()?);
+            let a = foreign_arg(e, *pos.first()?);
             Some((Js::new(format!("{} instanceof {}", a.at(P_REL), e.class_ref(c)), P_REL), e.ctx.t_bool()))
         }
         Intrinseco::GetPrototypeOf => {
-            let a = arg_estrangeiro(e, *pos.first()?);
+            let a = foreign_arg(e, *pos.first()?);
             Some((Js::prim(format!("Object.getPrototypeOf({})", a.code)), Ty::Dynamic))
         }
         Intrinseco::SetPrototypeOf => {
-            let a = arg_estrangeiro(e, *pos.first()?);
-            let b = arg_estrangeiro(e, *pos.get(1)?);
+            let a = foreign_arg(e, *pos.first()?);
+            let b = foreign_arg(e, *pos.get(1)?);
             Some((Js::prim(format!("Object.setPrototypeOf({}, {})", a.code, b.code)), Ty::Dynamic))
         }
         Intrinseco::GlobalContext => Some((Js::prim("dart.global"), Ty::Dynamic)),
         Intrinseco::UnsafeCast => {
-            let ty = tipo_do_generico(e, args, expected);
+            let ty = generic_call_type(e, args, expected);
             let (js, _) = e.emit_expr(*pos.first()?, None);
             Some((js, ty))
         }
@@ -1121,53 +1125,53 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
             let (inst, _) = e.emit_expr(*pos.first()?, None);
             let (f, _) = e.emit_expr(*pos.get(1)?, None);
             let tmp = e.temp();
-            let extraidos: Vec<String> = params.iter().map(|p| format!("dart_rti.evalInInstance({tmp}, {})", js::string_literal(&format!("{cname}.{p}")))).collect();
-            Some((Js::prim(format!("({tmp} = {}, dart.dgcall({}, [{}], []))", inst.code, f.code, extraidos.join(", "))), Ty::Dynamic))
+            let extracted: Vec<String> = params.iter().map(|p| format!("dart_rti.evalInInstance({tmp}, {})", js::string_literal(&format!("{cname}.{p}")))).collect();
+            Some((Js::prim(format!("({tmp} = {}, dart.dgcall({}, [{}], []))", inst.code, f.code, extracted.join(", "))), Ty::Dynamic))
         }
         Intrinseco::Spread => {
-            let a = arg_estrangeiro(e, *pos.first()?);
+            let a = foreign_arg(e, *pos.first()?);
             Some((Js::prim(format!("...{}", a.at(P_PRIMARY))), Ty::Dynamic))
         }
     }
 }
 
-// --------------------------------------------------------------------- classes nativas
+// --------------------------------------------------------------------- native classes
 
-/// Chave de declaração de um membro de instância público de classe nativa:
-/// o símbolo `dartx` (`compiler.dart:2766-2773`).
-pub fn chave_nativa(m: &ModState, nome: &str) -> String {
-    format!("[{}]", m.dartx(&js_member_name(nome)))
+/// Declaration key of a public instance member of a native class: the `dartx`
+/// symbol (`compiler.dart:2766-2773`).
+pub fn native_key(m: &ModState, name: &str) -> String {
+    format!("[{}]", m.dartx(&js_member_name(name)))
 }
 
-/// Corpo de um membro `external` (ou `native`) de instância de classe nativa
-/// (`_emitNativeFunctionBody`, `compiler.dart:2322-2343`): a propriedade JS
-/// de mesmo nome (ou a do `@JSName`). Em biblioteca web, retorno não anulável
-/// passa por `dart.checkNativeNonNull`.
-pub fn membro_externo_nativo(ctx: &Ctx, head: &str, fid: FunctionElementId, nome_dart: &str, kind: ast::FunctionKind) -> String {
+/// Body of an `external` (or `native`) instance member of a native class
+/// (`_emitNativeFunctionBody`, `compiler.dart:2322-2343`): the JS property with
+/// the same name (or the `@JSName` one). In a web library, a non-nullable return
+/// goes through `dart.checkNativeNonNull`.
+pub fn native_external_member(ctx: &Ctx, head: &str, fid: FunctionElementId, dart_name: &str, kind: ast::FunctionKind) -> String {
     let f = ctx.program.function(fid);
-    let jsn = ctx.js_names.get(&fid.0).cloned().unwrap_or_else(|| nome_dart.to_string());
-    let acesso = format!("this{}", js::prop_access(&jsn));
+    let jsn = ctx.js_names.get(&fid.0).cloned().unwrap_or_else(|| dart_name.to_string());
+    let access = format!("this{}", js::prop_access(&jsn));
     let web = ctx.is_web_library(f.library);
     let ret = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
-    let checar = |x: String| if web && !ret.is_nullable() && !matches!(ret, Ty::Void | Ty::Dynamic) { format!("dart.checkNativeNonNull({x})") } else { x };
+    let check = |x: String| if web && !ret.is_nullable() && !matches!(ret, Ty::Void | Ty::Dynamic) { format!("dart.checkNativeNonNull({x})") } else { x };
     match kind {
-        ast::FunctionKind::Getter => format!("{head}() {{\n  return {};\n}}", checar(acesso)),
-        ast::FunctionKind::Setter => format!("{head}(v) {{\n  {acesso} = v;\n}}"),
-        _ => format!("{head}(...args) {{\n  return {};\n}}", checar(format!("{acesso}.apply(this, args)"))),
+        ast::FunctionKind::Getter => format!("{head}() {{\n  return {};\n}}", check(access)),
+        ast::FunctionKind::Setter => format!("{head}(v) {{\n  {access} = v;\n}}"),
+        _ => format!("{head}(...args) {{\n  return {};\n}}", check(format!("{access}.apply(this, args)"))),
     }
 }
 
-/// Linhas que fecham a declaração de uma classe do SDK (`compiler.dart:1108-1117`):
-/// `Object` instala a igualdade por identidade; cada *peer* nativo é registrado.
-pub fn epilogo_de_classe(ctx: &Ctx, c: ClassId, cref: &str) -> String {
+/// Lines that close the declaration of an SDK class (`compiler.dart:1108-1117`):
+/// `Object` installs identity equality; each native *peer* is registered.
+pub fn class_epilogue(ctx: &Ctx, c: ClassId, cref: &str) -> String {
     let Some(s) = ctx.sdk.as_ref() else { return String::new() };
     let mut out = String::new();
     if Some(c) == ctx.object {
         out.push_str("dart._installIdentityEquals();\n");
         return out;
     }
-    if let Some(tags) = s.pares.get(&c) {
-        if !tags.is_empty() && s.primitivas.contains(&c) {
+    if let Some(tags) = s.peers.get(&c) {
+        if !tags.is_empty() && s.primitives.contains(&c) {
             out.push_str(&format!("dart.definePrimitiveHashCode({cref}.prototype);\n"));
         }
         for t in tags {
@@ -1177,8 +1181,8 @@ pub fn epilogo_de_classe(ctx: &Ctx, c: ClassId, cref: &str) -> String {
     out
 }
 
-/// Corpo extra de classes especiais (`compiler.dart:2163-2183`).
-pub fn construtor_especial(ctx: &Ctx, c: ClassId) -> Option<&'static str> {
+/// Extra body of special classes (`compiler.dart:2163-2183`).
+pub fn special_constructor(ctx: &Ctx, c: ClassId) -> Option<&'static str> {
     ctx.sdk.as_ref()?;
     if Some(c) == ctx.object {
         return Some("constructor() {\n  throw Error(\"use `new \" + dart.typeName(dart.getReifiedType(this)) + \".new(...)` to create a Dart object\");\n}");
@@ -1189,23 +1193,23 @@ pub fn construtor_especial(ctx: &Ctx, c: ClassId) -> Option<&'static str> {
     None
 }
 
-// --------------------------------------------------------------------- o módulo do SDK
+// --------------------------------------------------------------------- the SDK module
 
-/// Bibliotecas do SDK com fonte, na ordem do programa.
-pub fn bibliotecas_do_sdk(ctx: &Ctx) -> Vec<LibraryId> {
+/// SDK libraries with source, in program order.
+pub fn sdk_libraries(ctx: &Ctx) -> Vec<LibraryId> {
     (0..ctx.program.libraries.len() as u32)
         .map(LibraryId)
         .filter(|l| ctx.libs[l.0 as usize].is_sdk && !ctx.program.library(*l).units.is_empty())
         .collect()
 }
 
-/// O *bootstrap* (`compiler.dart:7934-7989`): o objeto `dart`, um namespace
-/// por biblioteca, o `dartx`, o `dart.privateName` e os símbolos `dartx`
-/// usados por qualquer módulo do arquivo — **um** `Symbol()` por nome.
-pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, campos_tardios: bool) -> String {
+/// The *bootstrap* (`compiler.dart:7934-7989`): the `dart` object, one namespace
+/// per library, `dartx`, `dart.privateName` and the `dartx` symbols used by any
+/// module of the file — **one** `Symbol()` per name.
+pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, late_fields: bool) -> String {
     let mut out = String::new();
     out.push_str("const _library = Object.create(null);\nconst dart = Object.create(_library);\ndart.library = _library;\n");
-    for l in bibliotecas_do_sdk(ctx) {
+    for l in sdk_libraries(ctx) {
         let v = &ctx.libs[l.0 as usize].js_var;
         if v != "dart" {
             out.push_str(&format!("var {v} = Object.create(dart.library);\n"));
@@ -1221,9 +1225,9 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, campos_tardios: bool) -> S
             js::string_literal(&t)
         ));
     }
-    if campos_tardios {
-        // `late` sem inicializador (`module.rs`, `tardios`): o mesmo par
-        // `get`/`set` que a classe escreveria, definido uma vez por campo.
+    if late_fields {
+        // `late` without an initializer (`module.rs`, `late_fields`): the same
+        // `get`/`set` pair the class would write, defined once per field.
         out.push_str("dart.lateFields = function(p, fin, outros) {
   for (const [o, f] of [[fin, true], [outros, false]]) {
     for (const k of Reflect.ownKeys(o)) {
@@ -1239,56 +1243,56 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, campos_tardios: bool) -> S
 ");
     }
     for n in dartx {
-        let chave = if js::is_js_ident(n) { format!(".{n}") } else { format!("[{}]", js::string_literal(n)) };
-        out.push_str(&format!("dartx{chave} = Symbol({});\n", js::string_literal(&format!("dartx.{n}"))));
+        let key = if js::is_js_ident(n) { format!(".{n}") } else { format!("[{}]", js::string_literal(n)) };
+        out.push_str(&format!("dartx{key} = Symbol({});\n", js::string_literal(&format!("dartx.{n}"))));
     }
     out
 }
 
-/// Campo de topo do runtime emitido no lugar (`compiler.dart:2635-2681`):
-/// inicializador nulo, literal, `JS()` ou construção de classe do runtime.
-fn campo_ansioso(e: &FnEmitter, init: Option<ExprId>) -> bool {
+/// A runtime top-level field emitted in place (`compiler.dart:2635-2681`): a null
+/// initializer, a literal, `JS()` or the construction of a runtime class.
+fn eager_field(e: &FnEmitter, init: Option<ExprId>) -> bool {
     let Some(x) = init else { return true };
     match &e.expr(x).kind {
         ExprKind::Null | ExprKind::Bool(_) | ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::String(_) => true,
-        ExprKind::Call { target, .. } => funcao_chamada(e, *target).is_some_and(|f| intrinseco_de(e.ctx, f) == Some(Intrinseco::Js)),
+        ExprKind::Call { target, .. } => called_function(e, *target).is_some_and(|f| intrinseco_de(e.ctx, f) == Some(Intrinseco::Js)),
         _ => false,
     }
 }
 
-/// O módulo do SDK: tudo o que o filtro deixar vivo das bibliotecas `dart:`,
-/// na ordem que o carregamento exige (`docs/JS-PRODUCAO-SDK-PROPRIO.md` §5.6):
-/// funções e campos ansiosos do runtime → classes (superclasse antes) →
-/// resto de cada biblioteca → regras rti. Devolve o texto e os nomes `dartx`
-/// que ele usa (para o *bootstrap*).
-pub fn emitir_modulo_sdk(ctx: &Ctx) -> (String, BTreeSet<String>) {
-    let libs = bibliotecas_do_sdk(ctx);
-    let Some(&primeira) = libs.first() else { return (String::new(), BTreeSet::new()) };
-    let mut m = ModState::new(primeira);
+/// The SDK module: everything the filter leaves live of the `dart:` libraries, in
+/// the order loading requires (`docs/JS-PRODUCAO-SDK-PROPRIO.md` §5.6): the
+/// runtime's functions and eager fields → classes (superclass first) → the rest
+/// of each library → rti rules. Returns the text and the `dartx` names it uses
+/// (for the *bootstrap*).
+pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
+    let libs = sdk_libraries(ctx);
+    let Some(&first) = libs.first() else { return (String::new(), BTreeSet::new()) };
+    let mut m = ModState::new(first);
     m.group = libs.clone();
     let runtime = ctx.sdk.as_ref().and_then(|s| s.runtime);
-    let mut corpo = crate::js::Writer::default();
+    let mut body = crate::js::Writer::default();
 
-    // 1. O runtime: o universo de tipos, as funções e os campos ansiosos.
-    let mut preguicosos_do_runtime: Vec<VariableId> = Vec::new();
+    // 1. The runtime: the type universe, the functions and the eager fields.
+    let mut runtime_lazy_vars: Vec<VariableId> = Vec::new();
     if let Some(rt) = runtime {
-        corpo.line("dart.typeUniverse = {eC: new Map(), tR: {}, eT: {}, tPV: {}, sEA: []};");
-        let mut acessores: Vec<(String, String)> = Vec::new();
+        body.line("dart.typeUniverse = {eC: new Map(), tR: {}, eT: {}, tPV: {}, sEA: []};");
+        let mut accessors: Vec<(String, String)> = Vec::new();
         for (i, f) in ctx.program.functions.iter().enumerate() {
             let fid = FunctionElementId(i as u32);
             if f.library != rt || f.class.is_some() || f.extension.is_some() || f.kind == FunctionKind::ImplicitAccessor {
                 continue;
             }
-            if ctx.estado_fn(fid) == crate::filtro::Estado::Morta || externa_sem_corpo(ctx, fid) {
+            if ctx.estado_fn(fid) == crate::filtro::Estado::Morta || external_without_body(ctx, fid) {
                 continue;
             }
-            crate::module::emit_top_function(ctx, &m, fid, &mut corpo, &mut acessores);
+            crate::module::emit_top_function(ctx, &m, fid, &mut body, &mut accessors);
         }
-        if !acessores.is_empty() {
-            corpo.line("dart.copyProperties(dart, {");
-            let textos: Vec<String> = acessores.iter().map(|(_, t)| crate::module::indent(t)).collect();
-            corpo.push_raw(&textos.join(",\n"));
-            corpo.push_raw("\n});\n");
+        if !accessors.is_empty() {
+            body.line("dart.copyProperties(dart, {");
+            let texts: Vec<String> = accessors.iter().map(|(_, t)| crate::module::indent(t)).collect();
+            body.push_raw(&texts.join(",\n"));
+            body.push_raw("\n});\n");
         }
         for (i, v) in ctx.program.variables.iter().enumerate() {
             let vid = VariableId(i as u32);
@@ -1300,42 +1304,42 @@ pub fn emitir_modulo_sdk(ctx: &Ctx) -> (String, BTreeSet<String>) {
             let ast::DeclKind::Variables(list) = &d.kind else { continue };
             let var = &list.variables[index];
             let mut e = FnEmitter::new(ctx, &m, unit, None, true);
-            if v.late || !campo_ansioso(&e, var.initializer) {
-                preguicosos_do_runtime.push(vid);
+            if v.late || !eager_field(&e, var.initializer) {
+                runtime_lazy_vars.push(vid);
                 continue;
             }
-            let nome = nome_de_topo_var(ctx, vid).map(str::to_string).unwrap_or_else(|| ctx.name(v.name).to_string());
+            let name = export_name_var(ctx, vid).map(str::to_string).unwrap_or_else(|| ctx.name(v.name).to_string());
             let ty = ctx.var_ty(vid);
-            let valor = match var.initializer {
+            let value = match var.initializer {
                 Some(x) => {
                     let (js, _) = e.emit_expr(x, Some(&ty));
                     let pre = crate::module::finish_body(&mut e);
-                    corpo.push_raw(&pre);
+                    body.push_raw(&pre);
                     js.code
                 }
                 None => "null".to_string(),
             };
-            corpo.line(&format!("dart{} = {valor};", js::prop_access(&nome)));
+            body.line(&format!("dart{} = {value};", js::prop_access(&name)));
         }
     }
 
-    // 1b. Os campos preguiçosos do runtime.
+    // 1b. The runtime's lazy fields.
     if let Some(rt) = runtime {
-        if !preguicosos_do_runtime.is_empty() {
-            crate::module::emit_top_variables(ctx, &m, rt, &preguicosos_do_runtime, &mut corpo);
+        if !runtime_lazy_vars.is_empty() {
+            crate::module::emit_top_variables(ctx, &m, rt, &runtime_lazy_vars, &mut body);
         }
     }
 
-    // 2. Funções e variáveis de topo de todas as bibliotecas (só definições:
-    // as variáveis são preguiçosas): a definição de uma classe executa código
-    // (`addRtiResources`, `registerExtension`) que pode lê-las.
+    // 2. Top-level functions and variables of all libraries (definitions only:
+    // the variables are lazy): the definition of a class runs code
+    // (`addRtiResources`, `registerExtension`) that may read them.
     for &l in &libs {
         if Some(l) != runtime {
-            crate::module::emit_library_rest_parts(ctx, &m, l, &mut corpo, true, true);
+            crate::module::emit_library_rest_parts(ctx, &m, l, &mut body, true, true);
         }
     }
 
-    // 3. Classes de todas as bibliotecas, superclasse antes.
+    // 3. Classes of all libraries, superclass first.
     let mut classes: Vec<ClassId> = Vec::new();
     for (i, c) in ctx.program.classes.iter().enumerate() {
         let cid = ClassId(i as u32);
@@ -1343,25 +1347,25 @@ pub fn emitir_modulo_sdk(ctx: &Ctx) -> (String, BTreeSet<String>) {
             classes.push(cid);
         }
     }
-    // `core.Object` primeiro: todas as outras a estendem, inclusive as do runtime.
-    let ordenadas = crate::module::order_classes(ctx, &classes);
-    let rastro = std::env::var("DARTFORGE_SDK_RASTRO").is_ok();
-    for c in ordenadas {
-        if rastro {
-            eprintln!("[sdk] classe {}::{}", ctx.program.library(ctx.program.class(c).library).uri, ctx.class_name(c));
+    // `core.Object` first: all the others extend it, including the runtime's.
+    let ordered = crate::module::order_classes(ctx, &classes);
+    let trace = std::env::var("DARTFORGE_SDK_RASTRO").is_ok();
+    for c in ordered {
+        if trace {
+            eprintln!("[sdk] class {}::{}", ctx.program.library(ctx.program.class(c).library).uri, ctx.class_name(c));
         }
         m.note_class(c);
-        crate::module::emit_class(ctx, &m, c, &mut corpo);
+        crate::module::emit_class(ctx, &m, c, &mut body);
     }
 
-    // 5. Regras rti das classes do SDK.
-    let regras = crate::module::emit_rules_with(ctx, &m, true);
-    corpo.push_raw(&regras);
+    // 5. rti rules of the SDK classes.
+    let rules = crate::module::emit_rules_with(ctx, &m, true);
+    body.push_raw(&rules);
 
-    // Prelúdio do módulo: aliases `dartx`, nomes privados, os símbolos do rti
-    // e do async que o emissor cita sem qualificar, caches de constantes.
+    // Module prelude: `dartx` aliases, private names, the rti and async symbols
+    // the emitter references unqualified, constant caches.
     let mut out = String::new();
-    let dartx_usados: BTreeSet<String> = m.dartx_used.borrow().values().cloned().collect();
+    let dartx_names: BTreeSet<String> = m.dartx_used.borrow().values().cloned().collect();
     for (var, name) in m.dartx_used.borrow().iter() {
         if js::is_js_ident(name) {
             out.push_str(&format!("var {var} = dartx.{name};\n"));
@@ -1379,14 +1383,14 @@ pub fn emitir_modulo_sdk(ctx: &Ctx) -> (String, BTreeSet<String>) {
         let lvar = &ctx.libs[l.0 as usize].js_var;
         out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
     }
-    out.push_str(&corpo.out);
-    let objeto = ctx.receita_de("dart:core", "Object", "core|Object");
-    out.push_str(&format!("dart_rti.findType(\"{objeto}*\");\ndart_rti.findType(\"{objeto}?\");\ndart_rti.findType(\"0&*\");\n"));
-    (out, dartx_usados)
+    out.push_str(&body.out);
+    let object_recipe = ctx.receita_de("dart:core", "Object", "core|Object");
+    out.push_str(&format!("dart_rti.findType(\"{object_recipe}*\");\ndart_rti.findType(\"{object_recipe}?\");\ndart_rti.findType(\"0&*\");\n"));
+    (out, dartx_names)
 }
 
-/// `external` sem corpo nem *patch*: nunca emitida (`compiler.dart:3096-3099`).
-pub fn externa_sem_corpo(ctx: &Ctx, fid: FunctionElementId) -> bool {
+/// `external` with neither a body nor a *patch*: never emitted (`compiler.dart:3096-3099`).
+pub fn external_without_body(ctx: &Ctx, fid: FunctionElementId) -> bool {
     let f = ctx.program.function(fid);
     if !f.external {
         return false;

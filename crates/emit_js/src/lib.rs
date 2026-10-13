@@ -227,11 +227,11 @@ impl<'a> Analise<'a> {
     pub fn emitir_com_sdk<'b>(&'b self, filter: Option<&'b dyn filtro::Vivos>) -> Result<EmitidoComSdk, String> {
         let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
         ctx.filtro = filter;
-        let mode = sdk_proprio::ModoSdk::novo(&ctx);
+        let mode = sdk_proprio::ModoSdk::new(&ctx);
         ctx.sdk = Some(Box::new(mode));
         let join = |ds: Vec<Diagnostic>| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n");
         let emitted = module::emitir_com_cache(&ctx, None, None).map_err(join)?;
-        let (sdk, mut dartx) = sdk_proprio::emitir_modulo_sdk(&ctx);
+        let (sdk, mut dartx) = sdk_proprio::emit_sdk_module(&ctx);
         let errors = std::mem::take(&mut *ctx.erros.borrow_mut());
         if !errors.is_empty() {
             return Err(join(errors));

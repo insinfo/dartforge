@@ -753,15 +753,15 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
     let ps: &[ast::Parameter] = af.parameters.as_deref().unwrap_or(&[]);
     let (pjs, prologue) = e.declare_params(ps, Some(&sig_ty));
     // SDK mode: `@rest` on the last parameter.
-    let pjs = crate::sdk_proprio::com_rest(&e, ps, pjs);
+    let pjs = crate::sdk_proprio::with_rest(&e, ps, pjs);
     if !pjs.is_empty() {
         params_js.push(pjs);
     }
     extra_prologue.push_str(&prologue);
     // SDK mode: `@nullCheck` on the parameters.
     if ctx.sdk.is_some() {
-        extra_prologue.push_str(&crate::sdk_proprio::verificacoes_de_covariancia(&e, ps));
-        extra_prologue.push_str(&crate::sdk_proprio::verificacoes_de_nulo(&e, ps));
+        extra_prologue.push_str(&crate::sdk_proprio::covariance_checks(&e, ps));
+        extra_prologue.push_str(&crate::sdk_proprio::null_checks(&e, ps));
     }
     e.emit_body(&af.body);
     let body = finish_body(&mut e);
@@ -900,11 +900,11 @@ pub(crate) fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId,
         return;
     }
     // SDK mode: an `external` without a body (the intrinsics) is never emitted.
-    if ctx.sdk.is_some() && crate::sdk_proprio::externa_sem_corpo(ctx, fid) {
+    if ctx.sdk.is_some() && crate::sdk_proprio::external_without_body(ctx, fid) {
         return;
     }
     let lvar = &ctx.libs[f.library.0 as usize].js_var;
-    let name = crate::sdk_proprio::nome_de_topo(ctx, fid).unwrap_or(ctx.name(f.name));
+    let name = crate::sdk_proprio::export_name(ctx, fid).unwrap_or(ctx.name(f.name));
     if ctx.is_js_member(fid) {
         return; // interop `external`: direct access to `dart.global`
     }
@@ -1173,7 +1173,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // The members of the declaration and of its augmentations
     // (docs/AUGMENTATIONS.md), each with its unit.
     let members: Vec<(UnitId, ast::MemberId)> = match &d.kind {
-        DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => crate::sdk_proprio::membros_da_classe(ctx, c),
+        DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => crate::sdk_proprio::class_members(ctx, c),
         _ => vec![],
     };
 
@@ -1192,11 +1192,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let var = &list.variables[index];
         let private = name.starts_with('_');
         // Production profile: a public field that nobody overrides is a plain
-        // property (`sdk_proprio::campo_nao_virtual`).
+        // property (`sdk_proprio::non_virtual_field`).
         // A member name of a native supertype stays an accessor:
         // `defineExtensionAccessors` copies the *getter* to the `dartx` key, which
         // is where it is read from.
-        let plain = !private && !is_enum && !v.late && !native_names.contains(&name) && crate::sdk_proprio::campo_nao_virtual(ctx, c, v.name);
+        let plain = !private && !is_enum && !v.late && !native_names.contains(&name) && crate::sdk_proprio::non_virtual_field(ctx, c, v.name);
         let helper = v.late && var.initializer.is_none() && ctx.sdk.is_some() && private && !is_mixin;
         let storage = if helper {
             None
@@ -1225,9 +1225,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let mut ext_accessors: Vec<String> = Vec::new();
     // SDK mode: a native class declares its members through the `dartx` symbol
     // and has no `defineExtensionMethods` (`property_model.dart:283`).
-    let native_class = crate::sdk_proprio::classe_nativa(ctx, c);
+    let native_class = crate::sdk_proprio::is_native_class(ctx, c);
     let natives = if native_class { HashSet::new() } else { native_member_names(ctx, c) };
-    if let Some(k) = crate::sdk_proprio::construtor_especial(ctx, c) {
+    if let Some(k) = crate::sdk_proprio::special_constructor(ctx, c) {
         for l in k.lines() {
             cw.line(l);
         }
@@ -1351,7 +1351,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 // JS (the access is `dart.global.Peer.x`); an instance one only in
                 // a native class.
                 let native_external = native_class && !af.static_ && (af.external || matches!(af.body, FunctionBody::Native(_)));
-                if ctx.sdk.is_some() && !native_external && crate::sdk_proprio::externa_sem_corpo(ctx, feid) {
+                if ctx.sdk.is_some() && !native_external && crate::sdk_proprio::external_without_body(ctx, feid) {
                     continue;
                 }
                 let jsname = js_member_name(&name);
@@ -1375,7 +1375,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     }
                 };
                 // SDK mode: `@JSExportName('Symbol.iterator')` on a member.
-                let head = match crate::sdk_proprio::nome_de_topo(ctx, feid) {
+                let head = match crate::sdk_proprio::export_name(ctx, feid) {
                     Some(x) if !af.static_ && x.contains('.') => format!("[{x}]"),
                     Some(x) if !af.static_ => js::prop_key(x),
                     _ => head,
@@ -1390,7 +1390,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     continue;
                 }
                 let (text, _) = if native_external {
-                    (crate::sdk_proprio::membro_externo_nativo(ctx, &head, feid, &name, af.kind), crate::body::AsyncKind::None)
+                    (crate::sdk_proprio::native_external_member(ctx, &head, feid, &name, af.kind), crate::body::AsyncKind::None)
                 } else {
                     function_text(ctx, m, feid, Some(&head), Some(c), af.static_, None)
                 };
@@ -1790,7 +1790,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let duplicate = ctx.sdk.is_some() && !native_class && ctx.libs[class.library.0 as usize].is_sdk;
     let with_dartx = |items: &mut Vec<String>, n: &str, value: &str| {
         if duplicate && natives.contains(n) {
-            items.push(format!("{}: {value}", crate::sdk_proprio::chave_nativa(m, n)));
+            items.push(format!("{}: {value}", crate::sdk_proprio::native_key(m, n)));
         }
     };
     // Production profile: only the entries that dynamic dispatch and the
@@ -1843,7 +1843,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         w.line(&format!("dart.setStaticMethodSignature({cref}, () => [{}]);", items.join(", ")));
     }
     let lib_uri = js::string_literal(&ctx.program.library(class.library).uri);
-    if crate::sdk_proprio::precisa_uri_da_biblioteca(ctx, c) {
+    if crate::sdk_proprio::needs_library_uri(ctx, c) {
         crate::linha!(w, "dart.setLibraryUri({cref}, {lib_uri});");
     }
     if !fields_sig.is_empty() {
@@ -1890,7 +1890,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     // SDK mode: `_installIdentityEquals`, `definePrimitiveHashCode`, `registerExtension`.
     if ctx.sdk.is_some() {
-        w.push_raw(&crate::sdk_proprio::epilogo_de_classe(ctx, c, &cref));
+        w.push_raw(&crate::sdk_proprio::class_epilogue(ctx, c, &cref));
     }
     // Static fields and enum constants (lazy).
     let mut lazy: Vec<String> = Vec::new();
@@ -2112,8 +2112,8 @@ fn fix_equals_param(text: &str) -> String {
 
 fn sig_key(name: &str, e: &FnEmitter, c: ClassId) -> String {
     // SDK mode: for a native class, the key is the `dartx` symbol (the declaration's).
-    if crate::sdk_proprio::classe_nativa(e.ctx, c) && (!name.starts_with('_') || matches!(name, "_equals" | "_get" | "_set" | "_negate")) {
-        return crate::sdk_proprio::chave_nativa(e.m, name);
+    if crate::sdk_proprio::is_native_class(e.ctx, c) && (!name.starts_with('_') || matches!(name, "_equals" | "_get" | "_set" | "_negate")) {
+        return crate::sdk_proprio::native_key(e.m, name);
     }
     if name.starts_with('_') && !matches!(name, "_equals" | "_get" | "_set" | "_negate") {
         e.decl_member_key(c, name)

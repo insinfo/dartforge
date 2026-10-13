@@ -427,7 +427,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if self.ctx.sdk.is_some() {
             if let Some(m) = self.ctx.lookup_member(recv_ty, name, setter) {
                 if let MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) = m.kind {
-                    if let Some(x) = crate::sdk_proprio::nome_de_topo(self.ctx, f) {
+                    if let Some(x) = crate::sdk_proprio::export_name(self.ctx, f) {
                         return if x.contains('.') { format!("[{x}]") } else { js::prop_access(x) };
                     }
                 }
@@ -456,8 +456,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return format!("[{}]", self.private_sym(lib, name));
         }
         // SDK mode: a member of a native class is declared by the `dartx` symbol.
-        if crate::sdk_proprio::classe_nativa(self.ctx, class) {
-            return crate::sdk_proprio::chave_nativa(self.m, name);
+        if crate::sdk_proprio::is_native_class(self.ctx, class) {
+            return crate::sdk_proprio::native_key(self.m, name);
         }
         js::prop_key(&js_member_name(name))
     }
@@ -486,7 +486,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return Some((self.ctx.js_static_ref(None, lib, &mk, n), ty));
                 }
                 // SDK mode: `@JSExportName('throw')` on `throw_`.
-                if let Some(x) = crate::sdk_proprio::nome_de_topo(self.ctx, fid) {
+                if let Some(x) = crate::sdk_proprio::export_name(self.ctx, fid) {
                     return Some((format!("{}{}", self.lib_var(lib), js::prop_access(x)), ty));
                 }
                 let js = format!("{}{}", self.lib_var(lib), js::prop_access(&top_level_name(n)));
@@ -498,7 +498,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if self.ctx.is_js_var(vid) {
                     return Some((self.ctx.js_static_ref(None, v.library, &MemberKind::Field(vid), n), self.ctx.var_ty(vid)));
                 }
-                if let Some(x) = crate::sdk_proprio::nome_de_topo_var(self.ctx, vid) {
+                if let Some(x) = crate::sdk_proprio::export_name_var(self.ctx, vid) {
                     return Some((format!("{}{}", self.lib_var(v.library), js::prop_access(x)), self.ctx.var_ty(vid)));
                 }
                 let js = format!("{}{}", self.lib_var(v.library), js::prop_access(&top_level_name(n)));
@@ -1206,7 +1206,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             StmtKind::Expression(e) => {
                 // SDK mode: `JS('', 'throw #', x)` is a statement.
                 if self.ctx.sdk.is_some() {
-                    if let Some(t) = crate::sdk_proprio::instrucao_js(self, *e) {
+                    if let Some(t) = crate::sdk_proprio::js_statement(self, *e) {
                         crate::linha!(self.w, "{t};");
                         return;
                     }
@@ -1459,7 +1459,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 }
             }
             StmtKind::Assert { condition, message } => {
-                if crate::sdk_proprio::omitir_assert(self.ctx, self.lib) {
+                if crate::sdk_proprio::omit_assert(self.ctx, self.lib) {
                     return;
                 }
                 let (cjs, _) = self.emit_cond(*condition);
