@@ -25,5 +25,5 @@ if (-not $env:DARTFORGE_DART_SDK_JS) { $env:DARTFORGE_DART_SDK_JS = Join-Path $r
 $env:DARTFORGE_WARNINGS = '0'
 $saida = Join-Path $raiz 'target/scratch-build/dev-geracao'
 $a = @("$Project/web/main.dart", "$Project/.dart_tool/package_config.json", $saida, "$Repetitions")
-if ($NoEngine) { $a += 'sem-motor' }
+if ($NoEngine) { $a += 'no-engine' }
 & (Join-Path $alvo 'release/examples/measure_generation.exe') @a 2>&1 | Where-Object { $_ -notmatch '^warning: (Invalid reference|A value|Nome|FutureOr)' }

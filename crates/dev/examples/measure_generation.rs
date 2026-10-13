@@ -1,6 +1,6 @@
 //! Edit latency with the generation engine turned on (engine plan §6.5).
 //!
-//! `cargo run --release -p dartforge-dev --example measure_generation -- <input.dart> <package_config.json> [output] [repetitions] [sem-motor]`
+//! `cargo run --release -p dartforge-dev --example measure_generation -- <input.dart> <package_config.json> [output] [repetitions] [no-engine]`
 //!
 //! Opens the session, compiles, picks a component whose `.template.dart`
 //! comes from the native generator (with `.html` and `.scss` next to it) and
@@ -39,10 +39,10 @@ fn main() {
     let output = PathBuf::from(args.get(2).cloned().unwrap_or_else(|| "target/dev-measure-generation".into()));
     let repetitions: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(3);
 
-    // `sem-motor` (no engine): the same session without a stage (the
+    // `no-engine` (no engine): the same session without a stage (the
     // baseline of the zero-cost rule), with the files of
     // `MEASURE_COMPONENT`/`MEASURE_NO_ANGULAR`.
-    let no_engine = args.get(4).is_some_and(|a| a == "sem-motor");
+    let no_engine = args.get(4).is_some_and(|a| a == "no-engine");
     let stage = if no_engine {
         None
     } else {
