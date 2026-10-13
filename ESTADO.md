@@ -52,6 +52,32 @@ registrados abaixo são de antes do I7). Em investigação: retenção ou alocad
 Pendentes: I5–I6 (motor), 22 avisos de código morto e ~170 de clippy em
 `crates/lsp`.
 
+## JS: `limitless_ui` corrigido e nova rodada de tamanho (2026-10-13, tarde, macOS)
+
+Os dois erros da rodada anterior também aconteciam no desenvolvimento.
+Membros `external` de `extension` sobre tipos de interop
+(`SafeElement.innerHtml`) agora viram acesso direto ao receptor, e o `isA` dos
+tipos de `dart:js_interop` é rebaixado como no DDC. Os campos estáticos de
+tipos de extensão de interop (`Node.ELEMENT_NODE`) passaram a ser emitidos;
+sem eles o `sanitize_dom` travava no desenvolvimento. Corpus **241/241** em
+desenvolvimento e produção (novos 239–241). `limitless_ui`: 47 rotas sem erro
+no Chrome e e2e **15/15** nos dois perfis (a suíte atual tem 15 testes; antes,
+a produção passava 1/15). `new_sali` carrega sem erro.
+
+| alvo (bruto / gzip) | antes | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| corpus (237) | 23,86 / 7,58 MB | **23,05 / 7,49 MB** | 9,61 / 3,12 MB |
+| `01_print` | 88,4 KB | **85,5 KB** | 34,9 KB |
+| `limitless_ui` | 4,03 MB | **3,86 MB** | 3,71 MB |
+| `new_sali` | 8,34 MB | **8,02 MB** (24–28 s) | 7,62 MB (68 s) |
+
+O que reduziu: regras de tipo repetidas apontam para a primeira, assinaturas
+sem `_ti =>`, estáticos literais atribuídos na carga, tabela de nomes com
+prefixo compartilhado, formas compactas `t$G`/`t$Q`, `null` encadeado,
+símbolos `dartx` num laço e `Object.create` puro
+(`docs/JS-PRODUCAO-TAMANHO.md` §11). `DARTFORGE_JSPROD_RULE_FORWARDING=0`
+desliga o encaminhamento de regras.
+
 ## JS de produção: o piso do runtime (2026-10-13, macOS)
 
 Substituições de variável de tipo só as citadas, nativos de *typed data* só
