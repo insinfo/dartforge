@@ -621,7 +621,7 @@ impl Motor {
             &own_libs,
         )));
         // `computeSimplyBounded`, once for the program.
-        let simple_bounds = dartforge_analysis::simple_bounds::calcular(&program);
+        let simple_bounds = dartforge_analysis::simple_bounds::compute(&program);
         // 3. Duplicate names (`crates/analysis`), per library of the batch.
         for lib in &own_libs {
             let library = program.library(*lib);
@@ -729,7 +729,7 @@ impl Motor {
             for (u, d, f) in with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::clauses::verificar(&program, *lib, &interner))
                 .into_iter()
                 .chain(with_phase(phase::MEMBER_DUPLICATE_DEFINITION, dartforge_analysis::members::verificar(&program, *lib, &interner)))
-                .chain(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::simple_bounds::verificar(&program, *lib, &interner, &simple_bounds)))
+                .chain(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::simple_bounds::check(&program, *lib, &interner, &simple_bounds)))
             {
                 if let Some(p) = &program.unit(u).path {
                     analysis.report(&chave(p), d, f);

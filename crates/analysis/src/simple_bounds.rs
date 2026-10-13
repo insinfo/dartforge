@@ -1,20 +1,20 @@
-//! Os limites dos parâmetros de tipo (docs/ANALYZER-ESPECIFICACAO.md, §A):
+//! Type parameter bounds (docs/ANALYZER-ESPECIFICACAO.md, §A):
 //!
 //! * `computeSimplyBounded` (`analyzer/lib/src/summary2/simply_bounded.dart`):
-//!   uma classe, mixin, enum, tipo de extensão ou alias é *simplesmente
-//!   limitado* quando os limites dos seus parâmetros de tipo (e, num alias,
-//!   os tipos do lado direito) não citam parâmetro de tipo (no alias, o lado
-//!   direito pode) nem tipo genérico cru que não seja simplesmente
-//!   limitado; um ciclo de tipos crus (`class A<T extends A>`) não é;
+//!   a class, mixin, enum, extension type or alias is *simply bounded* when
+//!   the bounds of its type parameters (and, in an alias, the right-hand side
+//!   types) cite no type parameter (in an alias, the right-hand side may) nor
+//!   a raw generic type that is not simply bounded; a cycle of raw types
+//!   (`class A<T extends A>`) is not;
 //! * `NOT_INSTANTIATED_BOUND` (`_UninstantiatedBoundChecker`,
-//!   `error_verifier.dart:7167-7190`): no limite de qualquer parâmetro de
-//!   tipo, cada tipo nomeado cru cujo elemento não é simplesmente limitado;
+//!   `error_verifier.dart:7167-7190`): in the bound of any type parameter,
+//!   each raw named type whose element is not simply bounded;
 //! * `TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND`
-//!   (`_checkForTypeParameterBoundRecursion`, `:5382-5416`): seguindo os
-//!   limites que são parâmetros da mesma lista (apagando tipos de extensão),
-//!   `parameters.length` passos fecham um ciclo.
+//!   (`_checkForTypeParameterBoundRecursion`, `:5382-5416`): following the
+//!   bounds that are parameters of the same list (erasing extension types),
+//!   `parameters.length` steps close a cycle.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use dartforge_diagnostics::codigos::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
@@ -24,102 +24,102 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum No {
-    Classe(ClassId),
+enum Node {
+    Class(ClassId),
     Alias(TypedefId),
 }
 
-/// As declarações que não são simplesmente limitadas.
+/// The declarations that are not simply bounded.
 #[derive(Default)]
-pub struct LimitesSimples {
-    nao_simples: HashSet<No>,
+pub struct SimpleBounds {
+    not_simple: HashSet<Node>,
 }
 
-/// `_TypeCollector`: os tipos de um tipo de função (retorno, limites dos
-/// parâmetros de tipo, parâmetros).
-fn coletar_de_parametros(ps: &[Parameter], saida: &mut Vec<ast::TypeId>) {
+/// `_TypeCollector`: the types of a function type (return, bounds of the type
+/// parameters, parameters).
+fn collect_from_params(ps: &[Parameter], out: &mut Vec<ast::TypeId>) {
     for p in ps {
         if p.this_ {
             continue;
         }
         if let Some(t) = p.ty {
-            saida.push(t);
+            out.push(t);
         }
         if let Some(inner) = &p.function_parameters {
-            coletar_de_parametros(inner, saida);
+            collect_from_params(inner, out);
         }
     }
 }
 
-fn coletar_de_funcao(retorno: Option<ast::TypeId>, tps: &[TypeParameter], ps: &[Parameter], saida: &mut Vec<ast::TypeId>) {
-    if let Some(r) = retorno {
-        saida.push(r);
+fn collect_from_function(ret: Option<ast::TypeId>, tps: &[TypeParameter], ps: &[Parameter], out: &mut Vec<ast::TypeId>) {
+    if let Some(r) = ret {
+        out.push(r);
     }
     for tp in tps {
         if let Some(b) = tp.bound {
-            saida.push(b);
+            out.push(b);
         }
     }
-    coletar_de_parametros(ps, saida);
+    collect_from_params(ps, out);
 }
 
-/// O elemento de tipo de um nome (`p.Nome` ou `Nome`) no escopo da unidade.
-fn elemento(programa: &Program, u: UnitId, nome: &[ast::Name]) -> Option<Element> {
-    let b = match nome {
-        [n] => programa.lookup_na_unidade(u, n.sym),
-        [p, n] => programa.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+/// The type element of a name (`p.Name` or `Name`) in the unit's scope.
+fn element(program: &Program, u: UnitId, name: &[ast::Name]) -> Option<Element> {
+    let b = match name {
+        [n] => program.lookup_na_unidade(u, n.sym),
+        [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
         _ => None,
     }?;
     b.getter
 }
 
-fn no_de(programa: &Program, el: Element) -> Option<No> {
+fn node_of(program: &Program, el: Element) -> Option<Node> {
     match el {
-        Element::Class(c) if programa.class(c).decl.is_some() => Some(No::Classe(c)),
-        Element::Typedef(t) => Some(No::Alias(t)),
+        Element::Class(c) if program.class(c).decl.is_some() => Some(Node::Class(c)),
+        Element::Typedef(t) => Some(Node::Alias(t)),
         _ => None,
     }
 }
 
-/// `SimplyBoundedNode._visitType`: `false` decide (não simplesmente
-/// limitado); os tipos crus de declarações viram dependências.
-fn visitar(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, permite_parametros: bool, escopo: &[SymbolId], deps: &mut Vec<No>) -> bool {
+/// `SimplyBoundedNode._visitType`: `false` decides (not simply bounded); the
+/// raw types of declarations become dependencies.
+fn visit(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, allows_params: bool, scope: &[SymbolId], deps: &mut Vec<Node>) -> bool {
     match &a.ty(t).kind {
         TypeKind::Named { name, args } => {
             if let [n] = &name[..]
-                && escopo.contains(&n.sym)
+                && scope.contains(&n.sym)
             {
-                return permite_parametros;
+                return allows_params;
             }
             if !args.is_empty() {
-                return args.iter().all(|&x| visitar(programa, u, a, x, permite_parametros, escopo, deps));
+                return args.iter().all(|&x| visit(program, u, a, x, allows_params, scope, deps));
             }
-            if let Some(no) = elemento(programa, u, name).and_then(|el| no_de(programa, el)) {
-                deps.push(no);
+            if let Some(node) = element(program, u, name).and_then(|el| node_of(program, el)) {
+                deps.push(node);
             }
             true
         }
         TypeKind::Void => true,
         TypeKind::Function { return_type, type_params, parameters } => {
-            let mut escopo2 = escopo.to_vec();
+            let mut escopo2 = scope.to_vec();
             escopo2.extend(type_params.iter().map(|p| p.name.sym));
-            let mut tipos = Vec::new();
-            coletar_de_funcao(*return_type, type_params, parameters, &mut tipos);
-            tipos.into_iter().all(|x| visitar(programa, u, a, x, permite_parametros, &escopo2, deps))
+            let mut types = Vec::new();
+            collect_from_function(*return_type, type_params, parameters, &mut types);
+            types.into_iter().all(|x| visit(program, u, a, x, allows_params, &escopo2, deps))
         }
         TypeKind::Record { positional, named } => {
-            positional.iter().chain(named.iter().map(|(_, x)| x)).all(|&x| visitar(programa, u, a, x, permite_parametros, escopo, deps))
+            positional.iter().chain(named.iter().map(|(_, x)| x)).all(|&x| visit(program, u, a, x, allows_params, scope, deps))
         }
     }
 }
 
-/// Os parâmetros de tipo e os tipos do lado direito de um nó.
-fn partes_do_no<'a>(programa: &'a Program, no: No) -> Option<(UnitId, &'a [TypeParameter], Vec<ast::TypeId>)> {
-    let d = match no {
-        No::Classe(c) => programa.class(c).decl?,
-        No::Alias(t) => programa.typedef(t).decl,
+/// The type parameters and the right-hand side types of a node.
+fn node_parts<'a>(program: &'a Program, node: Node) -> Option<(UnitId, &'a [TypeParameter], Vec<ast::TypeId>)> {
+    let d = match node {
+        Node::Class(c) => program.class(c).decl?,
+        Node::Alias(t) => program.typedef(t).decl,
     };
-    let a = &programa.unit(d.unit).ast;
+    let a = &program.unit(d.unit).ast;
     let decl = a.decl(d.decl);
     let (tps, rhs): (&'a [TypeParameter], Vec<ast::TypeId>) = match &decl.kind {
         DeclKind::Class(x) => (&x.type_params, Vec::new()),
@@ -130,10 +130,10 @@ fn partes_do_no<'a>(programa: &'a Program, no: No) -> Option<(UnitId, &'a [TypeP
             let mut rhs = Vec::new();
             match &x.kind {
                 TypedefKind::Alias(t) => match &a.ty(*t).kind {
-                    TypeKind::Function { return_type, type_params, parameters } => coletar_de_funcao(*return_type, type_params, parameters, &mut rhs),
+                    TypeKind::Function { return_type, type_params, parameters } => collect_from_function(*return_type, type_params, parameters, &mut rhs),
                     _ => rhs.push(*t),
                 },
-                TypedefKind::Legacy { return_type, parameters } => coletar_de_funcao(*return_type, &[], parameters, &mut rhs),
+                TypedefKind::Legacy { return_type, parameters } => collect_from_function(*return_type, &[], parameters, &mut rhs),
             }
             (&x.type_params, rhs)
         }
@@ -142,31 +142,31 @@ fn partes_do_no<'a>(programa: &'a Program, no: No) -> Option<(UnitId, &'a [TypeP
     Some((d.unit, tps, rhs))
 }
 
-/// `computeSimplyBounded` sobre todas as declarações do programa.
-pub fn calcular(programa: &Program) -> LimitesSimples {
-    let mut nos: Vec<No> = Vec::new();
-    for (i, ce) in programa.classes.iter().enumerate() {
+/// `computeSimplyBounded` over every declaration of the program.
+pub fn compute(program: &Program) -> SimpleBounds {
+    let mut nodes: Vec<Node> = Vec::new();
+    for (i, ce) in program.classes.iter().enumerate() {
         if ce.decl.is_some() && matches!(ce.kind, ClassKind::Class | ClassKind::Mixin | ClassKind::Enum | ClassKind::ExtensionType | ClassKind::MixinApplication) {
-            nos.push(No::Classe(ClassId(i as u32)));
+            nodes.push(Node::Class(ClassId(i as u32)));
         }
     }
-    for i in 0..programa.typedefs.len() {
-        nos.push(No::Alias(TypedefId(i as u32)));
+    for i in 0..program.typedefs.len() {
+        nodes.push(Node::Alias(TypedefId(i as u32)));
     }
-    // `computeDependencies`: `None` decide falso de imediato.
-    let mut deps: HashMap<No, Option<Vec<No>>> = HashMap::new();
-    for &no in &nos {
-        let Some((u, tps, rhs)) = partes_do_no(programa, no) else {
-            deps.insert(no, Some(Vec::new()));
+    // `computeDependencies`: `None` decides false right away.
+    let mut deps: HashMap<Node, Option<Vec<Node>>> = HashMap::new();
+    for &node in &nodes {
+        let Some((u, tps, rhs)) = node_parts(program, node) else {
+            deps.insert(node, Some(Vec::new()));
             continue;
         };
-        let a = &programa.unit(u).ast;
-        let escopo: Vec<SymbolId> = tps.iter().map(|p| p.name.sym).collect();
+        let a = &program.unit(u).ast;
+        let scope: Vec<SymbolId> = tps.iter().map(|p| p.name.sym).collect();
         let mut v = Vec::new();
         let mut ok = true;
         for tp in tps {
             if let Some(b) = tp.bound
-                && !visitar(programa, u, a, b, false, &escopo, &mut v)
+                && !visit(program, u, a, b, false, &scope, &mut v)
             {
                 ok = false;
                 break;
@@ -174,111 +174,111 @@ pub fn calcular(programa: &Program) -> LimitesSimples {
         }
         if ok {
             for &t in &rhs {
-                if !visitar(programa, u, a, t, true, &escopo, &mut v) {
+                if !visit(program, u, a, t, true, &scope, &mut v) {
                     ok = false;
                     break;
                 }
             }
         }
-        deps.insert(no, ok.then_some(v));
+        deps.insert(node, ok.then_some(v));
     }
-    // Tarjan (o `DependencyWalker`): as componentes saem com as dependências
-    // já avaliadas; ciclo (ou auto-laço) não é simplesmente limitado.
-    struct Estado<'d> {
-        deps: &'d HashMap<No, Option<Vec<No>>>,
-        indice: HashMap<No, usize>,
-        baixo: HashMap<No, usize>,
-        pilha: Vec<No>,
-        na_pilha: HashSet<No>,
-        proximo: usize,
-        nao_simples: HashSet<No>,
+    // Tarjan (the `DependencyWalker`): the components come out with their
+    // dependencies already evaluated; a cycle (or self-loop) is not simply bounded.
+    struct State<'d> {
+        deps: &'d HashMap<Node, Option<Vec<Node>>>,
+        index: HashMap<Node, usize>,
+        low: HashMap<Node, usize>,
+        stack: Vec<Node>,
+        on_stack: HashSet<Node>,
+        next: usize,
+        not_simple: HashSet<Node>,
     }
-    fn conectar(e: &mut Estado<'_>, v: No) {
-        e.indice.insert(v, e.proximo);
-        e.baixo.insert(v, e.proximo);
-        e.proximo += 1;
-        e.pilha.push(v);
-        e.na_pilha.insert(v);
-        let mut auto = false;
-        let vizinhos: Vec<No> = match e.deps.get(&v) {
+    fn connect(e: &mut State<'_>, v: Node) {
+        e.index.insert(v, e.next);
+        e.low.insert(v, e.next);
+        e.next += 1;
+        e.stack.push(v);
+        e.on_stack.insert(v);
+        let mut self_loop = false;
+        let neighbours: Vec<Node> = match e.deps.get(&v) {
             Some(Some(d)) => d.clone(),
             _ => Vec::new(),
         };
-        for w in vizinhos.iter().copied() {
+        for w in neighbours.iter().copied() {
             if !e.deps.contains_key(&w) {
                 continue;
             }
             if w == v {
-                auto = true;
-            } else if !e.indice.contains_key(&w) {
-                conectar(e, w);
-                let bw = e.baixo[&w];
-                if bw < e.baixo[&v] {
-                    e.baixo.insert(v, bw);
+                self_loop = true;
+            } else if !e.index.contains_key(&w) {
+                connect(e, w);
+                let bw = e.low[&w];
+                if bw < e.low[&v] {
+                    e.low.insert(v, bw);
                 }
-            } else if e.na_pilha.contains(&w) {
-                let iw = e.indice[&w];
-                if iw < e.baixo[&v] {
-                    e.baixo.insert(v, iw);
+            } else if e.on_stack.contains(&w) {
+                let iw = e.index[&w];
+                if iw < e.low[&v] {
+                    e.low.insert(v, iw);
                 }
             }
         }
-        if e.baixo[&v] == e.indice[&v] {
-            let mut componente = Vec::new();
-            while let Some(x) = e.pilha.pop() {
-                e.na_pilha.remove(&x);
-                componente.push(x);
+        if e.low[&v] == e.index[&v] {
+            let mut component = Vec::new();
+            while let Some(x) = e.stack.pop() {
+                e.on_stack.remove(&x);
+                component.push(x);
                 if x == v {
                     break;
                 }
             }
-            if componente.len() > 1 || auto {
-                e.nao_simples.extend(componente);
+            if component.len() > 1 || self_loop {
+                e.not_simple.extend(component);
             } else {
-                // `_evaluate`: falso de imediato, ou alguma dependência falsa.
-                let falso = match e.deps.get(&v) {
+                // `_evaluate`: false right away, or some false dependency.
+                let is_false = match e.deps.get(&v) {
                     Some(None) => true,
-                    Some(Some(d)) => d.iter().any(|x| e.nao_simples.contains(x)),
+                    Some(Some(d)) => d.iter().any(|x| e.not_simple.contains(x)),
                     None => false,
                 };
-                if falso {
-                    e.nao_simples.insert(v);
+                if is_false {
+                    e.not_simple.insert(v);
                 }
             }
         }
     }
-    let mut e = Estado { deps: &deps, indice: HashMap::new(), baixo: HashMap::new(), pilha: Vec::new(), na_pilha: HashSet::new(), proximo: 1, nao_simples: HashSet::new() };
-    for &v in &nos {
-        if !e.indice.contains_key(&v) {
-            conectar(&mut e, v);
+    let mut e = State { deps: &deps, index: HashMap::new(), low: HashMap::new(), stack: Vec::new(), on_stack: HashSet::new(), next: 1, not_simple: HashSet::new() };
+    for &v in &nodes {
+        if !e.index.contains_key(&v) {
+            connect(&mut e, v);
         }
     }
-    LimitesSimples { nao_simples: e.nao_simples }
+    SimpleBounds { not_simple: e.not_simple }
 }
 
-/// Uma lista de parâmetros de tipo e onde seus nomes valem.
-struct Lista<'a> {
-    parametros: &'a [TypeParameter],
-    escopo: Span,
-    /// A declaração passa pelo link (`DefaultTypesBuilder`: classe, mixin,
-    /// enum, extensão, tipo de extensão, alias, método, função de topo), que
-    /// troca o limite em ciclo por `dynamic` (`_breakSelfCycles`).
-    ligada: bool,
+/// A type parameter list and where its names are valid.
+struct TypeParamList<'a> {
+    params: &'a [TypeParameter],
+    scope: Span,
+    /// The declaration goes through linking (`DefaultTypesBuilder`: class,
+    /// mixin, enum, extension, extension type, alias, method, top-level
+    /// function), which replaces a cyclic bound with `dynamic` (`_breakSelfCycles`).
+    linked: bool,
 }
 
-fn listas_de_parametros<'a>(ps: &'a [Parameter], saida: &mut Vec<Lista<'a>>) {
+fn param_lists<'a>(ps: &'a [Parameter], out: &mut Vec<TypeParamList<'a>>) {
     for p in ps {
         if !p.function_type_params.is_empty() {
-            saida.push(Lista { parametros: &p.function_type_params, escopo: p.span, ligada: false });
+            out.push(TypeParamList { params: &p.function_type_params, scope: p.span, linked: false });
         }
         if let Some(inner) = &p.function_parameters {
-            listas_de_parametros(inner, saida);
+            param_lists(inner, out);
         }
     }
 }
 
-/// Todas as listas de parâmetros de tipo da unidade.
-fn listas(a: &ast::Ast) -> Vec<Lista<'_>> {
+/// Every type parameter list of the unit.
+fn lists(a: &ast::Ast) -> Vec<TypeParamList<'_>> {
     let mut v = Vec::new();
     for d in &a.decls {
         let tps: &[TypeParameter] = match &d.kind {
@@ -289,18 +289,18 @@ fn listas(a: &ast::Ast) -> Vec<Lista<'_>> {
             DeclKind::Extension(x) => &x.type_params,
             DeclKind::Typedef(x) => {
                 if let TypedefKind::Legacy { parameters, .. } = &x.kind {
-                    listas_de_parametros(parameters, &mut v);
+                    param_lists(parameters, &mut v);
                 }
                 &x.type_params
             }
             _ => &[],
         };
         if !tps.is_empty() {
-            v.push(Lista { parametros: tps, escopo: d.span, ligada: true });
+            v.push(TypeParamList { params: tps, scope: d.span, linked: true });
         }
     }
-    // As funções de topo e os métodos (as locais e os literais não passam
-    // pelo link).
+    // Top-level functions and methods (local functions and literals do not go
+    // through linking).
     let mut ligadas: std::collections::HashSet<u32> = std::collections::HashSet::new();
     for d in &a.decls {
         if let DeclKind::Function(fid) = &d.kind {
@@ -314,49 +314,49 @@ fn listas(a: &ast::Ast) -> Vec<Lista<'_>> {
     }
     for (i, f) in a.functions.iter().enumerate() {
         if !f.type_params.is_empty() {
-            v.push(Lista { parametros: &f.type_params, escopo: f.span, ligada: ligadas.contains(&(i as u32)) });
+            v.push(TypeParamList { params: &f.type_params, scope: f.span, linked: ligadas.contains(&(i as u32)) });
         }
         if let Some(ps) = &f.parameters {
-            listas_de_parametros(ps, &mut v);
+            param_lists(ps, &mut v);
         }
     }
     for m in &a.members {
         if let ast::MemberKind::Constructor(k) = &m.kind {
-            listas_de_parametros(&k.parameters, &mut v);
+            param_lists(&k.parameters, &mut v);
         }
     }
     for t in &a.types {
         if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
             if !type_params.is_empty() {
-                v.push(Lista { parametros: type_params, escopo: t.span, ligada: false });
+                v.push(TypeParamList { params: type_params, scope: t.span, linked: false });
             }
-            listas_de_parametros(parameters, &mut v);
+            param_lists(parameters, &mut v);
         }
     }
     v
 }
 
-/// O parâmetro da lista que o limite `t` designa depois de apagar tipos de
-/// extensão (`boundType.extensionTypeErasure.element`).
-fn parametro_do_limite(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, lista: &[TypeParameter], prof: u32) -> Option<usize> {
-    if prof > 8 {
+/// The parameter of the list that bound `t` designates after erasing
+/// extension types (`boundType.extensionTypeErasure.element`).
+fn param_of_bound(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, list: &[TypeParameter], depth: u32) -> Option<usize> {
+    if depth > 8 {
         return None;
     }
     let TypeKind::Named { name, args } = &a.ty(t).kind else { return None };
     if let [n] = &name[..]
-        && let Some(i) = lista.iter().position(|p| p.name.sym == n.sym)
+        && let Some(i) = list.iter().position(|p| p.name.sym == n.sym)
     {
         return Some(i);
     }
-    // Tipo de extensão cuja representação é um dos seus parâmetros: o
-    // apagamento é o argumento correspondente.
-    let Some(Element::Class(c)) = elemento(programa, u, name) else { return None };
-    let ce = programa.class(c);
+    // An extension type whose representation is one of its parameters: the
+    // erasure is the corresponding argument.
+    let Some(Element::Class(c)) = element(program, u, name) else { return None };
+    let ce = program.class(c);
     if ce.kind != ClassKind::ExtensionType {
         return None;
     }
     let d = ce.decl?;
-    let ad = &programa.unit(d.unit).ast;
+    let ad = &program.unit(d.unit).ast;
     let DeclKind::ExtensionType(et) = &ad.decl(d.decl).kind else { return None };
     let TypeKind::Named { name: rn, args: ra } = &ad.ty(et.representation_type).kind else { return None };
     if !ra.is_empty() {
@@ -365,66 +365,66 @@ fn parametro_do_limite(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::Type
     let [r] = &rn[..] else { return None };
     let k = et.type_params.iter().position(|p| p.name.sym == r.sym)?;
     let &arg = args.get(k)?;
-    parametro_do_limite(programa, u, a, arg, lista, prof + 1)
+    param_of_bound(program, u, a, arg, list, depth + 1)
 }
 
 /// `_UninstantiatedBoundChecker` num limite.
-fn nao_instanciados(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, visiveis: &dyn Fn(usize, SymbolId) -> bool, limites: &LimitesSimples, saida: &mut Vec<(UnitId, Diagnostic)>) {
+fn uninstantiated(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, visible: &dyn Fn(usize, SymbolId) -> bool, bounds: &SimpleBounds, out: &mut Vec<(UnitId, Diagnostic)>) {
     let no_tipo = a.ty(t);
     match &no_tipo.kind {
         TypeKind::Named { name, args } => {
             if !args.is_empty() {
                 for &x in args.iter() {
-                    nao_instanciados(programa, u, a, x, visiveis, limites, saida);
+                    uninstantiated(program, u, a, x, visible, bounds, out);
                 }
                 return;
             }
             if let [n] = &name[..]
-                && visiveis(n.span.start, n.sym)
+                && visible(n.span.start, n.sym)
             {
                 return;
             }
-            if let Some(no) = elemento(programa, u, name).and_then(|el| no_de(programa, el))
-                && limites.nao_simples.contains(&no)
+            if let Some(node) = element(program, u, name).and_then(|el| node_of(program, el))
+                && bounds.not_simple.contains(&node)
             {
-                saida.push((u, Diagnostic::com_codigo(c::NOT_INSTANTIATED_BOUND, no_tipo.span, [] as [&str; 0])));
+                out.push((u, Diagnostic::com_codigo(c::NOT_INSTANTIATED_BOUND, no_tipo.span, [] as [&str; 0])));
             }
         }
         TypeKind::Void => {}
         TypeKind::Function { return_type, type_params, parameters } => {
             if let Some(r) = return_type {
-                nao_instanciados(programa, u, a, *r, visiveis, limites, saida);
+                uninstantiated(program, u, a, *r, visible, bounds, out);
             }
             for tp in type_params.iter() {
                 if let Some(b) = tp.bound {
-                    nao_instanciados(programa, u, a, b, visiveis, limites, saida);
+                    uninstantiated(program, u, a, b, visible, bounds, out);
                 }
             }
-            let mut tipos = Vec::new();
-            coletar_de_parametros(parameters, &mut tipos);
-            for x in tipos {
-                nao_instanciados(programa, u, a, x, visiveis, limites, saida);
+            let mut types = Vec::new();
+            collect_from_params(parameters, &mut types);
+            for x in types {
+                uninstantiated(program, u, a, x, visible, bounds, out);
             }
         }
         TypeKind::Record { positional, named } => {
             for &x in positional.iter().chain(named.iter().map(|(_, x)| x)) {
-                nao_instanciados(programa, u, a, x, visiveis, limites, saida);
+                uninstantiated(program, u, a, x, visible, bounds, out);
             }
         }
     }
 }
 
-/// O tipo escrito é um tipo de função genérico (direto ou por um alias de um).
-fn funcao_generica(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, prof: u32) -> bool {
+/// The written type is a generic function type (directly or through an alias of one).
+fn generic_function(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, depth: u32) -> bool {
     match &a.ty(t).kind {
         TypeKind::Function { type_params, .. } => !type_params.is_empty(),
-        TypeKind::Named { name, args } if args.is_empty() && prof < 8 => {
-            let Some(Element::Typedef(td)) = elemento(programa, u, name) else { return false };
-            let d = programa.typedef(td).decl;
-            let ad = &programa.unit(d.unit).ast;
+        TypeKind::Named { name, args } if args.is_empty() && depth < 8 => {
+            let Some(Element::Typedef(td)) = element(program, u, name) else { return false };
+            let d = program.typedef(td).decl;
+            let ad = &program.unit(d.unit).ast;
             match &ad.decl(d.decl).kind {
                 DeclKind::Typedef(x) => match &x.kind {
-                    TypedefKind::Alias(corpo) => funcao_generica(programa, d.unit, ad, *corpo, prof + 1),
+                    TypedefKind::Alias(body) => generic_function(program, d.unit, ad, *body, depth + 1),
                     TypedefKind::Legacy { .. } => false,
                 },
                 _ => false,
@@ -434,76 +434,76 @@ fn funcao_generica(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, 
     }
 }
 
-pub fn verificar(programa: &Program, lib: LibraryId, nomes: &Interner, limites: &LimitesSimples) -> Vec<(UnitId, Diagnostic)> {
-    let mut saida = Vec::new();
-    // `generic-metadata` (2.14): antes dele, tipo de função genérico como
-    // argumento de tipo escrito é `GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT`
-    // (`type_arguments_verifier.dart:300-310`), no argumento.
-    let sem_metadados_genericos = programa.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 14);
-    for &u in &programa.library(lib).units {
-        let a = &programa.unit(u).ast;
-        if sem_metadados_genericos {
+pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &SimpleBounds) -> Vec<(UnitId, Diagnostic)> {
+    let mut out = Vec::new();
+    // `generic-metadata` (2.14): before it, a generic function type as a
+    // written type argument is `GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT`
+    // (`type_arguments_verifier.dart:300-310`), on the argument.
+    let without_generic_metadata = program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 14);
+    for &u in &program.library(lib).units {
+        let a = &program.unit(u).ast;
+        if without_generic_metadata {
             for t in &a.types {
                 let TypeKind::Named { args, .. } = &t.kind else { continue };
                 for &x in args.iter() {
-                    if funcao_generica(programa, u, a, x, 0) {
-                        saida.push((u, Diagnostic::com_codigo(c::GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT, a.ty(x).span, [] as [&str; 0])));
+                    if generic_function(program, u, a, x, 0) {
+                        out.push((u, Diagnostic::com_codigo(c::GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT, a.ty(x).span, [] as [&str; 0])));
                     }
                 }
             }
         }
-        let todas = listas(a);
-        // Os parâmetros de tipo em escopo numa posição: os das listas cujo
-        // dono a contém.
-        let visiveis = |pos: usize, nome: SymbolId| {
-            todas.iter().any(|l| l.escopo.start <= pos && pos <= l.escopo.end && l.parametros.iter().any(|p| p.name.sym == nome))
+        let all = lists(a);
+        // The type parameters in scope at a position: those of the lists
+        // whose owner contains it.
+        let visible = |pos: usize, name: SymbolId| {
+            all.iter().any(|l| l.scope.start <= pos && pos <= l.scope.end && l.params.iter().any(|p| p.name.sym == name))
         };
-        for l in &todas {
-            // `visitTypeParameter`: o limite de cada parâmetro.
-            for tp in l.parametros {
+        for l in &all {
+            // `visitTypeParameter`: the bound of each parameter.
+            for tp in l.params {
                 if let Some(b) = tp.bound {
-                    nao_instanciados(programa, u, a, b, &visiveis, limites, &mut saida);
+                    uninstantiated(program, u, a, b, &visible, bounds, &mut out);
                 }
             }
             // `_checkForTypeParameterBoundRecursion`.
-            let n = l.parametros.len();
-            for (i, tp) in l.parametros.iter().enumerate() {
+            let n = l.params.len();
+            for (i, tp) in l.params.iter().enumerate() {
                 if tp.bound.is_none() {
                     continue;
                 }
-                let mut atual = Some(i);
-                let mut passo = 0usize;
-                while let Some(k) = atual {
-                    atual = l.parametros[k].bound.and_then(|b| parametro_do_limite(programa, u, a, b, l.parametros, 0));
-                    if passo == n {
-                        // `{1}` (só na correção): o `element.bound`. Na
-                        // declaração ligada, o `_breakSelfCycles`
-                        // (`default_types_builder.dart:137-174`) troca por
-                        // `dynamic` o limite cuja cadeia de nomes simples
-                        // da lista volta a ela; senão, o limite como escrito.
-                        let nome = nomes.resolve(tp.name.sym).to_string();
-                        let ciclo_de_nomes = {
-                            let mut atual = Some(i);
+                let mut current = Some(i);
+                let mut step = 0usize;
+                while let Some(k) = current {
+                    current = l.params[k].bound.and_then(|b| param_of_bound(program, u, a, b, l.params, 0));
+                    if step == n {
+                        // `{1}` (only in the correction): the `element.bound`.
+                        // In the linked declaration, `_breakSelfCycles`
+                        // (`default_types_builder.dart:137-174`) replaces with
+                        // `dynamic` the bound whose chain of simple names from
+                        // the list leads back to it; otherwise, the bound as written.
+                        let name = names.resolve(tp.name.sym).to_string();
+                        let name_cycle = {
+                            let mut current = Some(i);
                             for _ in 0..n {
-                                atual = atual.and_then(|k| l.parametros[k].bound).and_then(|b| match &a.ty(b).kind {
-                                    TypeKind::Named { name, .. } if name.len() == 1 => l.parametros.iter().position(|p| p.name.sym == name[0].sym),
+                                current = current.and_then(|k| l.params[k].bound).and_then(|b| match &a.ty(b).kind {
+                                    TypeKind::Named { name, .. } if name.len() == 1 => l.params.iter().position(|p| p.name.sym == name[0].sym),
                                     _ => None,
                                 });
                             }
-                            atual.is_some()
+                            current.is_some()
                         };
-                        let limite = if l.ligada && ciclo_de_nomes {
+                        let bound = if l.linked && name_cycle {
                             "dynamic".to_string()
                         } else {
-                            tp.bound.map(|b| a.ty(b).span).map(|s| programa.unit(u).source[s.start..s.end].to_string()).unwrap_or_default()
+                            tp.bound.map(|b| a.ty(b).span).map(|s| program.unit(u).source[s.start..s.end].to_string()).unwrap_or_default()
                         };
-                        saida.push((u, Diagnostic::com_codigo(c::TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND, tp.name.span, [nome.as_str(), limite.as_str()])));
+                        out.push((u, Diagnostic::com_codigo(c::TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND, tp.name.span, [name.as_str(), bound.as_str()])));
                         break;
                     }
-                    passo += 1;
+                    step += 1;
                 }
             }
         }
     }
-    saida
+    out
 }
