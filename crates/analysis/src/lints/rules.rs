@@ -593,12 +593,12 @@ impl<'a> Ctx<'a> {
     /// `provide_deprecation_message`: every annotation without arguments whose
     /// element is `dart:core`'s `deprecated` (`isDeprecated`). Needs the unit's
     /// semantics.
-    fn deprecated_without_message(&mut self, without: Option<&super::Semantics<'_>>) {
-        let Some(without) = without else { return };
+    fn deprecated_without_message(&mut self, sem: Option<&super::Semantics<'_>>) {
+        let Some(sem) = sem else { return };
         let interner = self.interner;
         let findings: Vec<Span> = dartforge_frontend::pais::todas_as_anotacoes(self.u.ast, self.u.unit)
             .into_iter()
-            .filter(|m| m.arguments.is_none() && dartforge_types::anotacoes::e_deprecated_do_core(without.program, interner, without.unit, m))
+            .filter(|m| m.arguments.is_none() && dartforge_types::anotacoes::e_deprecated_do_core(sem.program, interner, sem.unit, m))
             .map(|m| m.span)
             .collect();
         for span in findings {
@@ -608,7 +608,7 @@ impl<'a> Ctx<'a> {
 }
 
 /// Runs the enabled rules (`enabled(name)`) over a unit.
-pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, without: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut ctx = Ctx { u, interner, enabled, out: Vec::new() };
     if enabled("camel_case_types") || enabled("camel_case_extensions") {
         ctx.type_names();
@@ -626,7 +626,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, 
         ctx.old_typedefs();
     }
     if enabled("provide_deprecation_message") {
-        ctx.deprecated_without_message(without);
+        ctx.deprecated_without_message(sem);
     }
     ctx.out.sort_by_key(|r| (r.span.start, r.span.end));
     ctx.out
