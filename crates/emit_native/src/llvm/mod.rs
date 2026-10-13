@@ -949,6 +949,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("xc{v}.fim")))
                     } else if Self::rti_evaluate_cached(i) {
                         Some((b.id.0, format!("ra{v}.fim")))
+                    } else if Self::rti_test_cached(i) {
+                        Some((b.id.0, format!("rt{v}.fim")))
                     } else {
                         None
                     }
@@ -1607,6 +1609,9 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::CallRuntime { args, .. } if Self::rti_evaluate_cached(inst) => {
                         self.emit_rti_evaluate_cached(v, args);
+                    }
+                    Instruction::CallRuntime { args, .. } if Self::rti_test_cached(inst) => {
+                        self.emit_rti_test_cached(v, args);
                     }
                     // The class of the receiver: that of the object of the space read from the
                     // header, inline (`df.class`); the rest, the runtime.
@@ -2535,6 +2540,7 @@ impl<'a> LlvmEmitter<'a> {
                         | Instruction::CallSelectorForward { .. }
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
                 ) || Self::rti_evaluate_cached(i)
+                    || Self::rti_test_cached(i)
             })
         })
     }
@@ -2556,6 +2562,65 @@ impl<'a> LlvmEmitter<'a> {
                 && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
                 && !matches!(args[1].0, Operand::Constant(_)))
             && !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_RTI_CACHE").is_some_and(|v| !v.is_empty() && v != "0"))
+    }
+
+    /// `dartforge_rti_e` (`v is T`) with a cache at the use site
+    /// ([`Self::emit_rti_test_cached`]). Not under `DARTFORGE_EFFECTS=check`,
+    /// which watches the extern itself; `DARTFORGE_NO_RTI_CACHE=1` turns it off too.
+    fn rti_test_cached(i: &Instruction) -> bool {
+        matches!(i, Instruction::CallRuntime { name, args, .. }
+            if name == "dartforge_rti_e" && args.len() == 2 && !matches!(args[0].0, Operand::Constant(_)))
+            && !externs::check_effects()
+            && std::env::var_os("DARTFORGE_NO_RTI_CACHE").is_none_or(|v| v.is_empty() || v == "0")
+    }
+
+    /// `v is T` with a cache at the use site, like [`Self::emit_rti_evaluate_cached`]:
+    /// two words of the isolate's area keep the key of the type of the last
+    /// object tested (the runtime's `value_key`: the header metadata, or
+    /// `-16 - class`) and `T << 1 | answer`. The runtime's memo of `is` is keyed
+    /// by the same pair, so an object with the stored key and the same `T` answers
+    /// with three loads and no call — the covariance check of `List.[]=` in a
+    /// sort called `dartforge_rti_e` (13% of `ordenar_objetos`). The rest (null,
+    /// `Smi`, runtime values, a miss) calls `dartforge_rti_e_cache`, which
+    /// answers and stores.
+    fn emit_rti_test_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
+        let value = self.coerce(&args[0].0, Type::I64);
+        let t = self.coerce(&args[1].0, Type::I64);
+        let slot = self.cache_slot();
+        let o = &mut self.out;
+        writeln!(o, "  %rt{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        writeln!(o, "  %rt{v}m = and i64 {value}, {OBJECT_MASK}").unwrap();
+        writeln!(o, "  %rt{v}o = icmp eq i64 %rt{v}m, 2").unwrap();
+        writeln!(o, "  br i1 %rt{v}o, label %rt{v}.obj, label %rt{v}.lenta").unwrap();
+        writeln!(o, "rt{v}.obj:").unwrap();
+        writeln!(o, "  %rt{v}p = inttoptr i64 {value} to ptr").unwrap();
+        writeln!(o, "  %rt{v}mp = getelementptr inbounds i8, ptr %rt{v}p, i64 10").unwrap();
+        writeln!(o, "  %rt{v}md = load i32, ptr %rt{v}mp, align 4").unwrap();
+        writeln!(o, "  %rt{v}cp = getelementptr inbounds i8, ptr %rt{v}p, i64 2").unwrap();
+        writeln!(o, "  %rt{v}cl = load i32, ptr %rt{v}cp, align 4").unwrap();
+        writeln!(o, "  %rt{v}mz = zext i32 %rt{v}md to i64").unwrap();
+        writeln!(o, "  %rt{v}cs = sext i32 %rt{v}cl to i64").unwrap();
+        writeln!(o, "  %rt{v}cn = sub i64 -16, %rt{v}cs").unwrap();
+        writeln!(o, "  %rt{v}tm = icmp ne i32 %rt{v}md, 0").unwrap();
+        writeln!(o, "  %rt{v}k = select i1 %rt{v}tm, i64 %rt{v}mz, i64 %rt{v}cn").unwrap();
+        writeln!(o, "  %rt{v}k0 = load i64, ptr %rt{v}c, align 8").unwrap();
+        writeln!(o, "  %rt{v}wp = getelementptr inbounds i64, ptr %rt{v}c, i64 1").unwrap();
+        writeln!(o, "  %rt{v}w = load i64, ptr %rt{v}wp, align 8").unwrap();
+        writeln!(o, "  %rt{v}wt = lshr i64 %rt{v}w, 1").unwrap();
+        writeln!(o, "  %rt{v}ok1 = icmp eq i64 %rt{v}k0, %rt{v}k").unwrap();
+        writeln!(o, "  %rt{v}ok2 = icmp eq i64 %rt{v}wt, {t}").unwrap();
+        writeln!(o, "  %rt{v}ok = and i1 %rt{v}ok1, %rt{v}ok2").unwrap();
+        writeln!(o, "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.lenta").unwrap();
+        writeln!(o, "rt{v}.acerto:").unwrap();
+        writeln!(o, "  %rt{v}b = and i64 %rt{v}w, 1").unwrap();
+        writeln!(o, "  %rt{v}r1 = trunc i64 %rt{v}b to i8").unwrap();
+        writeln!(o, "  br label %rt{v}.fim").unwrap();
+        writeln!(o, "rt{v}.lenta:").unwrap();
+        writeln!(o, "  %rt{v}r2 = call i8 @dartforge_rti_e_cache(ptr %rt{v}c, i64 {value}, i64 {t})").unwrap();
+        writeln!(o, "  br label %rt{v}.fim").unwrap();
+        writeln!(o, "rt{v}.fim:").unwrap();
+        writeln!(o, "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ]").unwrap();
+        self.current_label = format!("rt{v}.fim");
     }
 
     /// `P<i>` evaluated with a cache at the use site (N17): two words of the

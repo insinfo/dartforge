@@ -774,6 +774,7 @@ dartforge_request_at_safepoint	1	1	0
 dartforge_rti_as	1	1	1
 dartforge_rti_as_with_context	1	1	1
 dartforge_rti_e	0	0	0
+dartforge_rti_e_cache	0	0	0
 dartforge_rti_eval	0	0	0
 dartforge_rti_eval_cache	1	1	0
 dartforge_rti_init_table	0	0	0

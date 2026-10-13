@@ -983,6 +983,10 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
+        decl: "declare i8 @dartforge_rti_e_cache(ptr, i64, i64)",
+        effects: Effects { allocates: false, throws: false, calls_dart: false },
+    },
+    Extern {
         decl: "declare void @dartforge_rti_as_with_context(i64, i64, i64, i64)",
         effects: CONSERVATIVE,
     },
