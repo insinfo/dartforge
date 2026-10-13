@@ -1631,7 +1631,7 @@ fn save_live(
         let Terminator::CondBranch { cond: Operand::Val(c), else_block, .. } = &b.terminator else { return None };
         let [(p, Instruction::CallRuntime { name, .. }, _), (ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(pv), _), _)] =
             b.instructions.get(n.checked_sub(2)?..)? else { return None };
-        (name == "dartforge_exception_pending" && pv == p && ic == c && n >= 3).then_some((n - 3, *else_block))
+        (name == "dartforge_exception_pending" && pv == p && ic == c && n >= 3).then(|| (n - 3, *else_block))
     }
     // Writes of the result of a guarded call: they go to the success
     // edge (a new block), after the guard.
