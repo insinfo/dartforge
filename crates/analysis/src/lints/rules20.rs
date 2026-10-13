@@ -73,7 +73,7 @@ pub(super) fn propriedade_de_widget(s: &super::Semantics<'_>, interner: &Interne
     if prof > 8 {
         return false;
     }
-    if super::flutter::e_widget_tipo(s, interner, t) {
+    if super::flutter::is_widget_type(s, interner, t) {
         return true;
     }
     let mut x = t;
@@ -244,7 +244,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if !matches!(s.body.get_resolved(id), Some(Resolved::Constructor(_))) {
                 continue;
             }
-            if !s.body.get_type(id).is_some_and(|t| super::flutter::e_widget_tipo(s, interner, t)) {
+            if !s.body.get_type(id).is_some_and(|t| super::flutter::is_widget_type(s, interner, t)) {
                 continue;
             }
             let args = match &e.kind {

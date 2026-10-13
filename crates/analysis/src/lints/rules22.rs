@@ -218,7 +218,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         continue;
                     }
                     let Some(iteravel) = s.core.iterable_class else { continue };
-                    if super::obvious::argumento_como_instancia(s, ti, iteravel, 0) == Some(tl) {
+                    if super::obvious::argument_as_instance(s, ti, iteravel, 0) == Some(tl) {
                         relatar(&c::OMIT_LOCAL_VARIABLE_TYPES, a.ty(*ty).span, &[]);
                     }
                 }
@@ -314,7 +314,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
             let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            if privado(interner, x.name.sym) || !super::flutter::tem_widget_ascendente(s, interner, classe) {
+            if privado(interner, x.name.sym) || !super::flutter::has_widget_as_ascendant(s, interner, classe) {
                 continue;
             }
             let construtores: Vec<&dartforge_frontend::ast::Constructor> = x
@@ -329,7 +329,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 relatar(&c::USE_KEY_IN_WIDGET_CONSTRUCTORS, x.name.span, &[]);
                 continue;
             }
-            if super::flutter::e_widget_exato(s, interner, classe) {
+            if super::flutter::is_exactly_widget(s, interner, classe) {
                 continue;
             }
             for &mid in &x.members {

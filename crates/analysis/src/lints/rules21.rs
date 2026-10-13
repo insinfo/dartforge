@@ -135,10 +135,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => listas.push(l),
                 StmtKind::ForIn { target: ForInTarget::Declared { ty: Some(ty), .. }, iterable, .. } => {
                     let Some(&tl) = s.body.tipos_de_anotacoes.get(ty) else { continue };
-                    if matches!(table.get(tl), Type::Dynamic) || !super::obvious::tem_tipo_obvio(s, interner, a, *iterable) {
+                    if matches!(table.get(tl), Type::Dynamic) || !super::obvious::has_obvious_type(s, interner, a, *iterable) {
                         continue;
                     }
-                    if super::obvious::tipo_do_elemento_do_iteravel(s, interner, s.body.get_type(*iterable)) == Some(tl) {
+                    if super::obvious::iterable_element_type(s, interner, s.body.get_type(*iterable)) == Some(tl) {
                         relatar(&c::OMIT_OBVIOUS_LOCAL_VARIABLE_TYPES, a.ty(*ty).span, &[]);
                     }
                 }
@@ -152,7 +152,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 continue;
             }
             let todas = l.variables.iter().all(|v| match v.initializer {
-                Some(i) => super::obvious::tem_tipo_obvio(s, interner, a, i) && s.body.get_type(i) == Some(tl),
+                Some(i) => super::obvious::has_obvious_type(s, interner, a, i) && s.body.get_type(i) == Some(tl),
                 None => false,
             });
             if todas {
@@ -326,7 +326,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if !interner.resolve(program.function(*f).name).is_empty() {
                 continue;
             }
-            if !s.body.get_type(id).is_some_and(|t| super::flutter::e_sized_box(s, interner, t)) {
+            if !s.body.get_type(id).is_some_and(|t| super::flutter::is_sized_box(s, interner, t)) {
                 continue;
             }
             let args = match &e.kind {

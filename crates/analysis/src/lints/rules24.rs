@@ -63,7 +63,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     // `specify_nonobvious_local_variable_types`.
     if ligada("specify_nonobvious_local_variable_types") {
         let mut achados: Vec<Span> = Vec::new();
-        let obvio = |e: ExprId| super::obvious::tem_tipo_obvio(s, interner, a, e);
+        let obvio = |e: ExprId| super::obvious::has_obvious_type(s, interner, a, e);
         let lista = |l: &dartforge_frontend::ast::VariableList, inicio: usize, achados: &mut Vec<Span>| {
             if let Some(t) = l.ty
                 && s.body.tipos_de_anotacoes.get(&t).is_some_and(|x| !matches!(table.get(*x), Type::Null))

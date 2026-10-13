@@ -878,7 +878,7 @@ fn elemento_de_contexto(cx: &Cx<'_>, interner: &Interner, mut n: usize) -> Optio
                 Resolved::Parameter { .. } => (s.body.get_type(e)?, false, None),
                 _ => return None,
             };
-            if !super::flutter::e_build_context(s, interner, tipo, acessor) {
+            if !super::flutter::is_build_context(s, interner, tipo, acessor) {
                 return None;
             }
             Some(if acessor { Contexto::Acessor { classe, tipo } } else { Contexto::Outro { tipo } })
@@ -921,7 +921,7 @@ fn getter_mounted(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> 
 /// `associatedMountedGetter`.
 fn getter_associado(s: &super::Semantics<'_>, interner: &Interner, c: Contexto) -> Option<FunctionElementId> {
     if let Contexto::Acessor { classe: Some(k), .. } = c
-        && super::flutter::e_state(s, interner, k)
+        && super::flutter::is_state(s, interner, k)
     {
         return getter_mounted(s, interner, k);
     }
@@ -1092,7 +1092,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         match cx.especie(n) {
             "MethodInvocation" => {
                 if let Some(alvo) = cx.alvo_do_metodo(n)
-                    && cx.tipo(alvo).is_some_and(|t| super::flutter::e_build_context(s, interner, t, true))
+                    && cx.tipo(alvo).is_some_and(|t| super::flutter::is_build_context(s, interner, t, true))
                     && let Some(el) = elemento_de_contexto(&cx, interner, alvo)
                     && let Some(m) = getter_associado(s, interner, el)
                 {
@@ -1120,7 +1120,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if cx.texto(id) == "mounted" {
                     continue;
                 }
-                if cx.tipo(prefixo).is_some_and(|t| super::flutter::e_build_context(s, interner, t, true))
+                if cx.tipo(prefixo).is_some_and(|t| super::flutter::is_build_context(s, interner, t, true))
                     && let Some(el) = elemento_de_contexto(&cx, interner, prefixo)
                     && let Some(m) = getter_associado(s, interner, el)
                 {

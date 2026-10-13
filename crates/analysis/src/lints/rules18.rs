@@ -221,7 +221,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     if ligada("avoid_unnecessary_containers") {
         let pais = super::rules16::pais_da_unidade(u, &|e| matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))));
         for &(e, _) in &criacoes {
-            if !s.body.get_type(e).is_some_and(|t| super::flutter::e_widget_tipo(s, interner, t)) {
+            if !s.body.get_type(e).is_some_and(|t| super::flutter::is_widget_type(s, interner, t)) {
                 continue;
             }
             let Some(Node::Expr(p)) = pais.expr.get(&e).copied() else { continue };
@@ -242,7 +242,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 })
             };
             if let Some(d) = dona
-                && s.body.get_type(d).is_some_and(|t| super::flutter::e_container(s, interner, t))
+                && s.body.get_type(d).is_some_and(|t| super::flutter::is_container(s, interner, t))
             {
                 relatar(&c::AVOID_UNNECESSARY_CONTAINERS, nome_do_construtor(a, d), &[]);
             }

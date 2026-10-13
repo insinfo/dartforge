@@ -430,7 +430,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if !matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))) {
                 continue;
             }
-            if !s.body.get_type(e).is_some_and(|t| super::flutter::e_container(s, interner, t)) {
+            if !s.body.get_type(e).is_some_and(|t| super::flutter::is_container(s, interner, t)) {
                 continue;
             }
             let args = match &a.expr(e).kind {
@@ -489,7 +489,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
             let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            if !super::flutter::e_stateful_widget(s, interner, classe) {
+            if !super::flutter::is_stateful_widget(s, interner, classe) {
                 continue;
             }
             for &mid in &x.members {
