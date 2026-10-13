@@ -561,3 +561,25 @@ fn references_follow_the_searched_elements() {
     assert!(!refs.contains(&doc) && !refs.contains(&sup), "{refs:?}");
     assert!(refs.contains(&("lib/b.dart".to_string(), 3, 9)), "the `this.x` writes the family's field: {refs:?}");
 }
+
+#[test]
+fn definition_like_the_navigation_computer() {
+    let mut p = Project::new("nav-definicao-regioes");
+    let a = "class A {\n  final int x;\n  /// Docs.\n  A(this.x);\n  A.named(this.x);\n  const A.c(this.x);\n}\nclass B extends A {\n  B(super.x) : super();\n  int twice() => x * 2;\n}\nclass D {\n  const D();\n}\n@D()\nvoid f(List<int> xs) {\n  for (final e in xs) {\n    print(e);\n  }\n}\n";
+    p.open("lib/a.dart", a);
+    let class_a = start(0, 6);
+    // The class name of a constructor declaration is the class (after a doc
+    // comment or a keyword the identifier is the node visited); an unnamed
+    // constructor that starts at its name keeps the constructor.
+    assert_eq!(definition(&mut p, "lib/a.dart", a, "A(this.x)", 0).1, class_a);
+    assert_eq!(definition(&mut p, "lib/a.dart", a, "A.named", 0).1, class_a);
+    assert_eq!(definition(&mut p, "lib/a.dart", a, "D();", 0).1, start(11, 6));
+    assert_eq!(definition(&mut p, "lib/a.dart", a, "B(super", 0).1, start(8, 2));
+    // The name of an annotation is the class.
+    assert_eq!(definition(&mut p, "lib/a.dart", a, "D()\nvoid", 0).1, start(11, 6));
+    // `super.x` goes to the super constructor's parameter.
+    assert_eq!(definition(&mut p, "lib/a.dart", a, "x) : super", 0).1, start(3, 9));
+    // The variable of a `for-in` has no definition.
+    let r = request(&mut p, "textDocument/definition", "lib/a.dart", a, "e in", 0, json!({}));
+    assert!(r.is_null() || r.as_array().is_some_and(|l| l.is_empty()), "{r}");
+}

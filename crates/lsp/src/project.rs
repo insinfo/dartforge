@@ -1654,6 +1654,84 @@ impl Project {
         }
     }
 
+    /// `textDocument/definition`: the `DartNavigationComputer` visits only the
+    /// node at the offset (`_getNavigationTargetNode`: the outermost node that
+    /// starts there), so a few names navigate differently from what they
+    /// denote: the name of a `for (… x in …)` variable has no region; the
+    /// class name of a constructor declaration is the class (the unnamed
+    /// constructor that starts at its name visits the whole declaration and
+    /// keeps the constructor); an annotation's name is the class (the
+    /// identifier's element, not `annotation.element`); and a `super.x`
+    /// parameter is the parameter of the super constructor.
+    pub(crate) fn definition(&self, unit: UnitId, offset: usize) -> Option<(UnitId, Span)> {
+        let d = self.identify(unit, offset).ok()??;
+        let p = self.program();
+        let u = p.unit(unit);
+        let ast = &u.ast;
+        if for_in_variable(ast, d.name) {
+            return None;
+        }
+        for (mi, m) in ast.members.iter().enumerate() {
+            let MemberKind::Constructor(k) = &m.kind else { continue };
+            if k.class_name.span != d.name {
+                continue;
+            }
+            let starts_at_name = m.span.start == k.class_name.span.start && m.metadata.is_empty() && !doc_comment_before(&u.source, m.span.start);
+            if k.name.is_none() && starts_at_name {
+                break;
+            }
+            let class = self.node_constructor(unit, ast::MemberId(mi as u32)).and_then(|f| p.function(f).class)?;
+            return self.top_element_name(Element::Class(class));
+        }
+        for a in metadata(ast, &u.unit) {
+            if a.name.first().is_some_and(|n| n.span == d.name)
+                && let Some(Element::Class(c)) = p.lookup(u.library, a.name[0].sym).and_then(|b| b.getter)
+            {
+                return self.top_element_name(Element::Class(c));
+            }
+        }
+        if let Target::Local { declaration, .. } = d.target
+            && declaration == d.name.start
+            && let Some(target) = self.super_parameter_target(unit, declaration)
+        {
+            return Some(target);
+        }
+        self.declaration(&d)
+    }
+
+    /// The parameter of the super constructor that the `super.x` parameter
+    /// declared at `declaration` forwards to (`superConstructorParameter`):
+    /// the named one with the same name, or the positional one at the same
+    /// position among the positional `super.` parameters.
+    fn super_parameter_target(&self, unit: UnitId, declaration: usize) -> Option<(UnitId, Span)> {
+        use dartforge_elements::model::FunctionRef;
+        let p = self.program();
+        let ast = &p.unit(unit).ast;
+        let (parameter, owner) = parameter_in(ast, declaration)?;
+        if !parameter.super_ {
+            return None;
+        }
+        let OwnerParameter::Constructor(m) = owner else { return None };
+        let MemberKind::Constructor(k) = &ast.member(m).kind else { return None };
+        let sub = self.node_constructor(unit, m)?;
+        let sup = self.super_constructor(sub)?;
+        let (su, parameters): (UnitId, &[Parameter]) = match p.function(sup).node {
+            FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
+                MemberKind::Constructor(x) => (unit, &x.parameters[..]),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let name = parameter.name?;
+        let target = if parameter.kind == ast::ParameterKind::Named {
+            parameters.iter().find(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| self.name(n.sym) == self.name(name.sym)))?
+        } else {
+            let position = k.parameters.iter().take_while(|q| q.name.is_none_or(|n| n.span.start != declaration)).filter(|q| q.super_ && q.kind != ast::ParameterKind::Named).count();
+            parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).nth(position)?
+        };
+        Some((su, target.name?.span))
+    }
+
     /// The declaration that `references` adds (`_getDeclarations`, §11.5): that
     /// of the element of step 6, through `nonSynthetic`. The `A` of `A()` is the
     /// class; a declared setter becomes the homonymous getter (a synthetic field
@@ -3448,6 +3526,42 @@ pub(crate) fn parameter_in(ast: &Ast, offset: usize) -> Option<(&Parameter, Owne
         }
     }
     None
+}
+
+/// `name` declares the variable of a `for (… x in …)` (statement or
+/// collection element): the analyzer's `DeclaredIdentifier`, whose name has
+/// no navigation region.
+fn for_in_variable(ast: &Ast, name: Span) -> bool {
+    let declared = |t: &ast::ForInTarget| matches!(t, ast::ForInTarget::Declared { name: n, .. } if n.span == name);
+    ast.stmts.iter().any(|s| matches!(&s.kind, ast::StmtKind::ForIn { target, .. } if declared(target)))
+        || ast.exprs.iter().any(|e| collection_elements(&e.kind).iter().any(|c| for_in_element(c, &declared)))
+}
+
+fn collection_elements(kind: &ExprKind) -> &[ast::CollectionElement] {
+    match kind {
+        ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => elements,
+        _ => &[],
+    }
+}
+
+fn for_in_element(c: &ast::CollectionElement, declared: &impl Fn(&ast::ForInTarget) -> bool) -> bool {
+    match c {
+        ast::CollectionElement::ForIn { target, body, .. } => declared(target) || for_in_element(body, declared),
+        ast::CollectionElement::For { body, .. } => for_in_element(body, declared),
+        ast::CollectionElement::If { then, else_, .. } => for_in_element(then, declared) || else_.as_deref().is_some_and(|o| for_in_element(o, declared)),
+        _ => false,
+    }
+}
+
+/// A documentation comment (`///` or `/** */`) ends right before `start`
+/// (only whitespace between): it belongs to the declaration's node.
+fn doc_comment_before(source: &str, start: usize) -> bool {
+    let before = source[..start].trim_end();
+    if before.ends_with("*/") {
+        return before.rfind("/*").is_some_and(|i| before[i..].starts_with("/**"));
+    }
+    let line = before.rsplit('\n').next().unwrap_or("").trim_start();
+    line.starts_with("///")
 }
 
 /// The offset of the declaration of the innermost type parameter `name` in

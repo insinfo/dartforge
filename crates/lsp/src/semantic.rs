@@ -164,9 +164,9 @@ impl SemanticAnalyzer {
         }
         if let Some(project) = self.library(documents, uri)
             && let Some(unit) = project.uri_unit(uri)
-            && let Ok(Some(d)) = project.identify(unit, offset)
-            && let Some((u, span)) = project.declaration(&d)
+            && let Ok(Some(_)) = project.identify(unit, offset)
         {
+            let (u, span) = project.definition(unit, offset)?;
             return Some((project.unit_uri(u)?, Some(span)));
         }
         self.syntactic.definition_in_workspace(uri, text, offset, documents)
