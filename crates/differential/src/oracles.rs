@@ -698,11 +698,11 @@ pub fn dartforge_production(env: &Environment, program: &Program, dir: &Path) ->
     }
     // A bundle that does not even parse must fail with its own message, not
     // with a runtime error ten frames deep (docs/JS-PRODUCAO.md §5.2).
-    let check = run("node", &["--check".into(), "saida.js".into()], dir, env.timeout);
+    let check = run("node", &["--check".into(), "output.js".into()], dir, env.timeout);
     if check.code != 0 {
         return Output::error(format!("[jsprod] node --check rejected the bundle: {}", check.first_stderr_line()));
     }
-    run("node", &["saida.js".into()], dir, env.timeout)
+    run("node", &["output.js".into()], dir, env.timeout)
 }
 
 #[cfg(test)]
