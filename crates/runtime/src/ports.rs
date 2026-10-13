@@ -1,122 +1,122 @@
-// Runtime nativo: portas (`RawReceivePort`/`SendPort`) e a fila de mensagens
-// do isolado — o `PortMap`/`MessageHandler` da VM (`runtime/vm/port.cc`,
+// Native runtime: ports (`RawReceivePort`/`SendPort`) and the isolate's
+// message queue — the VM's `PortMap`/`MessageHandler` (`runtime/vm/port.cc`,
 // `message_handler.cc`).
 //
-// * Uma porta é um id global (nunca 0). O registro global diz a quem ela
-//   pertence: a fila de um isolado (uma thread) ou um serviço do runtime
-//   (as portas nativas, como a do IOService), que recebe a mensagem na
-//   thread de quem enviou.
-// * Enviar copia a mensagem para um grafo portátil (`Graph`), que o destino
-//   materializa no próprio heap. É a semântica da VM
-//   (`object_graph_copy.cc`): o que é mutável é copiado; o que é
-//   profundamente imutável e permanente passa pela identidade — os objetos
-//   estáticos da imagem (as caixas de `bool`, os literais de string do AOT)
-//   em qualquer isolado do processo; constantes, enums, tear-offs de topo e
-//   strings do heap quando a mensagem fica no mesmo isolado.
-// * O grafo copia blocos do espaço de objetos pelo formato do corpo
-//   (docs/NATIVO-ESPACO-UNIFICADO.md §2.12): `INSTANCIA` campo a campo com o
-//   bit de referência; `REFS` pela palavra 0 e as referências; `BRUTO` cru,
-//   menos o que aponta para dentro de si ou para fora do heap (lista tipada,
-//   visão, anexo), que o destino refaz.
-// * A fila do isolado guarda (porta, grafo, chegada). O laço de eventos
-//   (`eventos.rs`) atende timers e mensagens pela ordem de chegada — na VM o
-//   timer também é uma mensagem —, e esvazia as microtarefas depois de
-//   cada uma.
-// * O despacho chama o `_RawReceivePort._despachar` da sobreposição (o
-//   `_handleMessage` da VM), que lê a porta e a mensagem correntes.
-// * O isolado vive enquanto tiver porta aberta com `keepIsolateAlive`.
+// * A port is a global id (never 0). The global registry says who it
+//   belongs to: an isolate's queue (a thread) or a runtime service
+//   (the native ports, like the IOService one), which receives the message on
+//   the sender's thread.
+// * Sending copies the message into a portable graph (`Graph`), which the
+//   destination materializes in its own heap. This is the VM semantics
+//   (`object_graph_copy.cc`): what is mutable is copied; what is
+//   deeply immutable and permanent goes by identity — the image's static
+//   objects (the `bool` boxes, the AOT string literals)
+//   in any isolate of the process; constants, enums, top-level tear-offs and
+//   heap strings when the message stays in the same isolate.
+// * The graph copies blocks of the object space by body format
+//   (docs/NATIVO-ESPACO-UNIFICADO.md §2.12): `INSTANCIA` field by field with the
+//   reference bit; `REFS` by word 0 and the references; `BRUTO` raw,
+//   except what points into itself or outside the heap (typed list,
+//   view, attachment), which the destination rebuilds.
+// * The isolate's queue keeps (port, graph, arrival). The event loop
+//   (`events.rs`) serves timers and messages in arrival order — in the VM the
+//   timer is also a message —, and drains the microtasks after
+//   each one.
+// * Dispatch calls the overlay's `_RawReceivePort._despachar` (the
+//   VM's `_handleMessage`), which reads the current port and message.
+// * The isolate lives while it has an open port with `keepIsolateAlive`.
 
-/// Uma palavra dentro de um grafo portátil (uma referência ou os bits de um
-/// campo escalar, no destino).
+/// A word inside a portable graph (a reference or the bits of a
+/// scalar field, at the destination).
 #[derive(Clone, Copy, Debug)]
 enum GValue {
-    /// Uma palavra que não aponta para o heap: `null`, um `Smi` numa posição
-    /// `Ref`, ou os bits de um campo escalar.
+    /// A word that does not point to the heap: `null`, a `Smi` in a `Ref`
+    /// position, or the bits of a scalar field.
     Word(i64),
-    /// O nó `i` do grafo.
+    /// Node `i` of the graph.
     No(usize),
-    /// Um objeto estático da imagem (`PERMANENTE`): o mesmo endereço em todo
-    /// isolado do processo, nunca coletado nem gravado.
+    /// A static object of the image (`PERMANENTE`): the same address in every
+    /// isolate of the process, never collected nor written.
     Static(i64),
-    /// Um objeto permanente do heap de origem, passado pela identidade (só
-    /// quando origem e destino são o mesmo isolado).
+    /// A permanent object of the source heap, passed by identity (only
+    /// when source and destination are the same isolate).
     Same(i64),
-    /// Uma constante canônica, pelo getter gerado que a produz: o destino
-    /// recebe a instância canônica dele (o grupo de isolados da VM
-    /// compartilha as constantes; aqui cada isolado tem a sua, e `identical`
-    /// continua valendo entre eles).
+    /// A canonical constant, by the generated getter that produces it: the destination
+    /// receives its own canonical instance (the VM's isolate group
+    /// shares constants; here each isolate has its own, and `identical`
+    /// still holds between them).
     Constant(usize),
-    /// O tear-off canônico de uma função de topo, pelo código, com o corpo
-    /// tipado, a ABI e o metadado RTI (o tipo da função) da closure de
-    /// origem: o destino que ainda não tem o tear-off o cria igual — antes
-    /// nascia sem tipo (`runtimeType` `Function`) e o `as Stream
-    /// Function(Stream, dynamic)` do `StreamIsolate` do new_sali/backend
-    /// falhava no isolado novo (docs/NATIVO-PROJETOS-REAIS.md, C11). Os ids
-    /// de tipo são do processo (`tipos.rs`).
+    /// The canonical tear-off of a top-level function, by code, with the typed
+    /// body, the ABI and the RTI metadata (the function type) of the source
+    /// closure: a destination that does not have the tear-off yet creates it identically — before,
+    /// it was born without a type (`runtimeType` `Function`) and the `as Stream
+    /// Function(Stream, dynamic)` of `StreamIsolate` in new_sali/backend
+    /// failed in the new isolate (docs/NATIVO-PROJETOS-REAIS.md, C11). Type
+    /// ids belong to the process (`types.rs`).
     TearOff { code: i64, typed_one: i64, abi: i64, metadata: u32 },
 }
 
-/// Um nó do grafo: um bloco do espaço de objetos copiado pelo formato, com as
-/// referências trocadas por `GValue`.
+/// A graph node: a block of the object space copied by format, with the
+/// references replaced by `GValue`.
 #[derive(Clone, Debug)]
 enum GNode {
-    /// Um objeto `INSTANCIA` (do programa, ou do runtime: `_GrowableList`,
-    /// `_Closure`, `_Contexto`, `_Celula`, `_SendPort`…): a classe e os campos,
-    /// com o bit de referência de cada um.
+    /// An `INSTANCIA` object (of the program, or of the runtime: `_GrowableList`,
+    /// `_Closure`, `_Contexto`, `_Celula`, `_SendPort`…): the class and the fields,
+    /// with the reference bit of each.
     Instance { cid: i32, fields: Vec<(GValue, bool)> },
-    /// Um corpo `REFS` (`_List`/`_ImmutableList` geral, `_Record`): a palavra 0
-    /// (o comprimento ou a forma) e as referências.
+    /// A `REFS` body (general `_List`/`_ImmutableList`, `_Record`): word 0
+    /// (the length or the shape) and the references.
     Refs { cid: i32, word0: i64, refs: Vec<GValue> },
-    /// Uma `_List`/`_ImmutableList` compacta (`BRUTO` com `ELEMENTO`): os
-    /// elementos crus (`i64`, bits de `f64` ou 0/1).
+    /// A compact `_List`/`_ImmutableList` (`BRUTO` with `ELEMENTO`): the
+    /// raw elements (`i64`, `f64` bits or 0/1).
     Compact { cid: i32, shape: crate::lists::Element, elements: Vec<i64> },
-    /// Um corpo `BRUTO` sem ponteiro para dentro de si nem para fora do heap
-    /// (`_Mint`, `_Double`, SIMD): as palavras e os `flags`, copiados crus.
+    /// A `BRUTO` body with no pointer into itself nor outside the heap
+    /// (`_Mint`, `_Double`, SIMD): the words and the `flags`, copied raw.
     Bruto { cid: i32, flags: u8, words: Box<[i64]> },
-    /// Uma string (a forma canônica é refeita no destino).
+    /// A string (the canonical form is rebuilt at the destination).
     Texto(Texto),
-    /// O acumulador de um `StringBuffer` (`_AcumuladorDeTexto`, `ATTACHMENT`): as
-    /// unidades, que moram fora do heap.
+    /// The accumulator of a `StringBuffer` (`_AcumuladorDeTexto`, `ATTACHMENT`): the
+    /// units, which live outside the heap.
     Accumulator(Vec<u16>),
-    /// O programa de um `RegExp` (`_ProgramaDeRegExp`, `ATTACHMENT`): o padrão e as
-    /// opções, recompilado no destino (`regexp.rs`).
+    /// The program of a `RegExp` (`_ProgramaDeRegExp`, `ATTACHMENT`): the pattern and the
+    /// options, recompiled at the destination (`regexp.rs`).
     ReProgram { source: Vec<u16>, options: [bool; 4] },
-    /// Uma lista tipada interna ou externa (`EXTERNAL`): os bytes, copiados
-    /// numa interna no destino (a VM copia a externa para memória nova,
+    /// An internal or external (`EXTERNAL`) typed list: the bytes, copied
+    /// into an internal one at the destination (the VM copies the external one to new memory,
     /// `object_graph_copy.cc`).
     Typed { tipo: u8, bytes: Vec<u8> },
-    /// Uma visão: a base (copiada) e o deslocamento; o endereço dos dados é
-    /// recalculado no destino.
+    /// A view: the base (copied) and the offset; the data address is
+    /// recomputed at the destination.
     View { cid: i32, base: GValue, offset: usize, len: usize },
-    /// Um objeto do runtime de um campo inteiro vindo de fora do heap
-    /// (`SendPort`, `Capability` do C): a classe é a da posição `pos` da
-    /// cid fixo (`layout::cid`, `_SendPort`/`_Capability`).
+    /// A runtime object with one integer field coming from outside the heap
+    /// (`SendPort`, `Capability` from C): the class is the one at position `pos` of the
+    /// fixed cids (`layout::cid`, `_SendPort`/`_Capability`).
     FromRuntime { cid: i32, id: i64 },
 }
 
-/// Uma mensagem copiada: os nós (com o metadado RTI de cada um) e a raiz.
+/// A copied message: the nodes (with the RTI metadata of each) and the root.
 #[derive(Clone)]
 pub struct Graph {
     nodes: Vec<(GNode, i64)>,
     root: GValue,
-    /// O isolado de origem (id da fila): `GValue::Same` só vale nele.
+    /// The source isolate (queue id): `GValue::Same` is only valid there.
     origin: u64,
-    /// Numa mensagem para outro isolado, os tipos (RTI) dos nós: o
-    /// metadado de cada nó (`1 + tipo`) é então `1 + índice` nesta tabela
-    /// (0 = sem tipo), porque os ids de tipo são por isolado.
+    /// In a message to another isolate, the types (RTI) of the nodes: the
+    /// metadata of each node (`1 + type`) is then `1 + index` in this table
+    /// (0 = no type), because type ids are per isolate.
     types: Option<MessageTypes>,
-    /// Numa mensagem para outro isolado, a tabela de métodos de cada classe
-    /// dos objetos (registrada no isolado na criação do primeiro objeto da
-    /// classe; um objeto que chega numa mensagem não passa por lá).
+    /// In a message to another isolate, the method table of each class
+    /// of the objects (registered in the isolate when the first object of the
+    /// class is created; an object that arrives in a message does not go through there).
     tables: Vec<(i64, MethodTable)>,
 }
 
-/// Por que uma mensagem não pode ser enviada.
+/// Why a message cannot be sent.
 pub struct IllegalMessage(pub String);
 
-/// A palavra `h` (numa posição `Ref`) no grafo: imediata, estática, pela
-/// identidade, canônica, ou o nó do objeto (reservado agora e preenchido
-/// quando `h` sai da pilha).
+/// The word `h` (in a `Ref` position) in the graph: immediate, static, by
+/// identity, canonical, or the object's node (reserved now and filled
+/// when `h` leaves the stack).
 fn ref_de_handle(heap: &Heap, h: i64, map: &mut crate::hash::HashMap<i64, usize>, stack: &mut Vec<i64>, nodes: &mut Vec<(GNode, i64)>, share: bool) -> GValue {
     if !crate::layout::is_object(h) {
         return GValue::Word(h);
@@ -135,8 +135,8 @@ fn ref_de_handle(heap: &Heap, h: i64, map: &mut crate::hash::HashMap<i64, usize>
         return GValue::TearOff { code: c, typed_one, abi, metadata: heap.header(h).metadata };
     }
     let c = *heap.header(h);
-    // Um anexo nativo que o grafo não sabe copiar (só o acumulador do
-    // `StringBuffer` e o programa do `RegExp` têm cópia) chega como `null`.
+    // A native attachment the graph does not know how to copy (only the
+    // `StringBuffer` accumulator and the `RegExp` program have a copy) arrives as `null`.
     if c.flags & crate::layout::flags::ATTACHMENT != 0
         && c.class_id != crate::layout::cid::STRING_ACCUMULATOR
         && c.class_id != crate::layout::cid::REGEXP_PROGRAM
@@ -148,15 +148,15 @@ fn ref_de_handle(heap: &Heap, h: i64, map: &mut crate::hash::HashMap<i64, usize>
     }
     let i = nodes.len();
     map.insert(h, i);
-    // Reserva o nó; o conteúdo é preenchido quando `h` sai da pilha.
+    // Reserves the node; the content is filled when `h` leaves the stack.
     nodes.push((GNode::Accumulator(Vec::new()), 0));
     stack.push(h);
     GValue::No(i)
 }
 
-/// Classes cujo primeiro campo é MOVIDO numa mensagem (o
-/// `TransferableTypedData`): o objeto de origem fica com `null`. Os ids de
-/// classe são do programa, então o registro vale para todos os isolados.
+/// Classes whose first field is MOVED in a message (the
+/// `TransferableTypedData`): the source object keeps `null`. Class
+/// ids belong to the program, so the registry holds for all isolates.
 fn transferable_classes() -> std::sync::RwLockReadGuard<'static, crate::hash::HashSet<i64>> {
     transferable().read().unwrap_or_else(|e| e.into_inner())
 }
@@ -167,30 +167,30 @@ fn transferable() -> &'static std::sync::RwLock<crate::hash::HashSet<i64>> {
 }
 
 thread_local! {
-    /// Classes cujas instâncias não podem ir numa mensagem (as portas de
-    /// recepção; `DartForge_porta_abrir` registra a classe).
-    /// Classe → a descrição que a recusa leva (o texto da VM).
+    /// Classes whose instances cannot go in a message (the receive
+    /// ports; `DartForge_porta_abrir` registers the class).
+    /// Class → the description the refusal carries (the VM text).
     static NOT_SENDABLE: RefCell<crate::hash::HashMap<i64, String>> = RefCell::new(crate::hash::HashMap::default());
-    /// A descrição da última mensagem recusada.
+    /// The description of the last refused message.
     static LAST_REJECTION: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
-/// As unidades do acumulador de texto `h` (`_AcumuladorDeTexto`): o anexo em
-/// `b+16` é um `Box<Vec<u16>>` (docs/NATIVO-ESPACO-UNIFICADO.md §2.5).
+/// The units of the text accumulator `h` (`_AcumuladorDeTexto`): the attachment at
+/// `b+16` is a `Box<Vec<u16>>` (docs/NATIVO-ESPACO-UNIFICADO.md §2.5).
 fn accumulator_units(heap: &Heap, h: i64) -> Vec<u16> {
     let p = heap.attachment(h) as *const Vec<u16>;
     if p.is_null() {
         return Vec::new();
     }
-    // SAFETY: o anexo de um `_AcumuladorDeTexto` vivo é o `Vec<u16>` dele,
-    // solto só quando o bloco morre; o empréstimo do heap o mantém.
+    // SAFETY: the attachment of a live `_AcumuladorDeTexto` is its `Vec<u16>`,
+    // freed only when the block dies; the heap borrow keeps it.
     #[allow(unsafe_code)]
     unsafe {
         (*p).clone()
     }
 }
 
-/// Os elementos de uma `_List`/`_ImmutableList` como nó do grafo, pela forma.
+/// The elements of a `_List`/`_ImmutableList` as a graph node, by shape.
 fn fixed_list_node(heap: &Heap, h: i64, class: i32, v: &mut dyn FnMut(i64) -> GValue) -> GNode {
     use crate::lists::{Element, RefElements};
     match heap.list_elements(h) {
@@ -201,8 +201,8 @@ fn fixed_list_node(heap: &Heap, h: i64, class: i32, v: &mut dyn FnMut(i64) -> GV
     }
 }
 
-/// O nó do bloco `h` (já conferido: nem imediato, nem estático, nem anexo de
-/// programa). `v` traduz cada referência encontrada.
+/// The node of block `h` (already checked: neither immediate, nor static, nor a program
+/// attachment). `v` translates each reference found.
 fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred: &mut Vec<i64>) -> Result<GNode, IllegalMessage> {
     use crate::layout::{cid, flags};
     let c = *heap.header(h);
@@ -210,11 +210,11 @@ fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred
     let shape = c.flags & flags::FORMA;
     if shape == flags::INSTANCIA {
         if cid::is_typed(class) {
-            // Visão (`INSTANCIA`, cids 36–65): a base e o deslocamento.
-            let t = heap.tipada(h).expect("visão viva");
+            // View (`INSTANCIA`, cids 36–65): the base and the offset.
+            let t = heap.tipada(h).expect("live view");
             return Ok(GNode::View { cid: class, base: v(t.base.unwrap_or(0)), offset: t.offset, len: t.len });
         }
-        let object = heap.object(h).expect("objeto vivo");
+        let object = heap.object(h).expect("live object");
         let class_id = object.class_id;
         let fields = object.to_vec();
         if let Some(d) = NOT_SENDABLE.with(|n| n.borrow().get(&class_id).cloned()) {
@@ -237,7 +237,7 @@ fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred
             let fields = heap.record(h).expect("record vivo");
             return Ok(GNode::Refs { cid: class, word0: fields.len() as i64, refs: fields.iter().map(|&x| v(x)).collect() });
         }
-        // Outro `REFS`: a palavra 0 é o número de referências.
+        // Another `REFS`: word 0 is the number of references.
         let p = heap.words(h);
         let n = usize::try_from(p[0]).unwrap_or(0).min(p.len().saturating_sub(1));
         return Ok(GNode::Refs { cid: class, word0: p[0], refs: p[1..=n].iter().map(|&x| v(x)).collect() });
@@ -254,19 +254,19 @@ fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred
         return Ok(GNode::Texto(heap.text(h).expect("string viva").to_string_fn()));
     }
     if cid::is_typed(class) {
-        let t = heap.tipada(h).expect("lista tipada viva");
+        let t = heap.tipada(h).expect("live typed list");
         let bytes = heap.typed_bytes(h).map(<[u8]>::to_vec).unwrap_or_default();
         return Ok(GNode::Typed { tipo: t.tipo, bytes });
     }
     if cid::is_fixed_list(class) {
-        // Compacta: `list_elements` diz a forma.
+        // Compact: `list_elements` tells the shape.
         return Ok(fixed_list_node(heap, h, class, v));
     }
     Ok(GNode::Bruto { cid: class, flags: c.flags, words: heap.words(h).into() })
 }
 
-/// Copia o valor `root` (um valor numa posição `Ref`) para um grafo.
-/// `share`: o destino é este mesmo isolado.
+/// Copies the value `root` (a value in a `Ref` position) into a graph.
+/// `share`: the destination is this same isolate.
 fn copy_to_graph(root: i64, share: bool) -> Result<Graph, IllegalMessage> {
     let mut map = crate::hash::HashMap::default();
     let mut stack = Vec::new();
@@ -285,11 +285,11 @@ fn copy_to_graph(root: i64, share: bool) -> Result<Graph, IllegalMessage> {
         });
         let (mut no, meta) = r?;
         let meta = match types.as_mut() {
-            // O metadado é `1 + tipo` (0 = sem tipo, `tipos.rs`).
+            // The metadata is `1 + type` (0 = no type, `types.rs`).
             Some(t) if meta != 0 => 1 + t.export(meta - 1),
             _ => meta,
         };
-        // Um objeto `Type` leva o tipo pela tabela da mensagem.
+        // A `Type` object carries the type through the message table.
         if let (Some(t), GNode::Instance { cid, fields }) = (types.as_mut(), &mut no)
             && i64::from(*cid) == TYPE_CLASS
             && let Some((GValue::Word(id), _)) = fields.first().copied()
@@ -298,7 +298,7 @@ fn copy_to_graph(root: i64, share: bool) -> Result<Graph, IllegalMessage> {
         }
         nodes[i] = (no, meta);
     }
-    // Os `TransferableTypedData` enviados ficam vazios na origem.
+    // Sent `TransferableTypedData` become empty at the source.
     if !transferred.is_empty() {
         HEAP.with(|heap| {
             let mut heap = heap.borrow_mut();
@@ -328,7 +328,7 @@ fn copy_to_graph(root: i64, share: bool) -> Result<Graph, IllegalMessage> {
 }
 
 impl Graph {
-    /// Chama `f` para a raiz e para cada aresta do grafo.
+    /// Calls `f` for the root and for each edge of the graph.
     fn visit_values(&self, mut f: impl FnMut(&GValue)) {
         f(&self.root);
         for (no, _) in &self.nodes {
@@ -347,27 +347,27 @@ impl Graph {
         }
     }
 
-    /// Um grafo de um valor só, sem nó (as respostas do runtime): `null` ou
-    /// um `Smi`.
+    /// A single-value graph, without nodes (runtime answers): `null` or
+    /// a `Smi`.
     fn immediate(r: i64) -> Graph {
         Graph { nodes: Vec::new(), root: GValue::Word(r), origin: 0, types: None, tables: Vec::new() }
     }
 
-    /// O grafo de `null`.
+    /// The graph of `null`.
     pub fn null_val() -> Graph {
         Graph::immediate(0)
     }
 
-    /// O grafo do `int` `v`.
+    /// The graph of the `int` `v`.
     pub fn from_int(v: i64) -> Graph {
         Portable::Int(v).to_graph()
     }
 }
 
-/// Um valor que o runtime lê ou monta fora de um heap (as mensagens dos
-/// serviços nativos — o `Dart_CObject` da VM): `null`, `bool`, `int`,
-/// `double`, `String`, lista, `Uint8List` e, só na leitura, os campos de um
-/// objeto (a `SendPort` de resposta).
+/// A value the runtime reads or builds outside a heap (the messages of the
+/// native services — the VM's `Dart_CObject`): `null`, `bool`, `int`,
+/// `double`, `String`, list, `Uint8List` and, only when reading, the fields of an
+/// object (the reply `SendPort`).
 #[derive(Clone, Debug)]
 pub enum Portable {
     Null,
@@ -376,12 +376,12 @@ pub enum Portable {
     Double(f64),
     Str(String),
     List(Vec<Portable>),
-    /// Os bytes de uma lista tipada (de qualquer tipo de elemento, como o
-    /// `CObjectTypedData` da VM).
+    /// The bytes of a typed list (of any element type, like the VM's
+    /// `CObjectTypedData`).
     Bytes(Vec<u8>),
-    /// Uma lista tipada de elementos `tipo` (os `TIPO_*` do runtime).
+    /// A typed list of `tipo` elements (the runtime's `TIPO_*`).
     Typed(u8, Vec<u8>),
-    /// Um objeto do runtime de um campo inteiro (ver [`GNode::FromRuntime`]).
+    /// A runtime object with one integer field (see [`GNode::FromRuntime`]).
     FromRuntime { cid: i32, id: i64 },
     Objeto(Vec<Portable>),
 }
@@ -419,14 +419,14 @@ impl Portable {
     }
 }
 
-/// Um objeto estático da imagem (`GValue::Static`) lido sem heap: as caixas
-/// de `bool` e os literais de string (o bloco é constante e vive o processo
-/// inteiro; `layout` dá os deslocamentos).
+/// A static object of the image (`GValue::Static`) read without a heap: the `bool`
+/// boxes and the string literals (the block is constant and lives for the whole
+/// process; `layout` gives the offsets).
 fn portable_from_static(h: i64) -> Portable {
     use crate::layout::{DESLOCAMENTO_DO_HANDLE, cid, desl};
     let b = (h - DESLOCAMENTO_DO_HANDLE) as *const u8;
-    // SAFETY: `h` é o handle de um objeto estático (conferido na cópia), um
-    // bloco constante da seção da imagem com o cabeçalho e o corpo inteiros.
+    // SAFETY: `h` is the handle of a static object (checked when copying), a
+    // constant block of the image section with the whole header and body.
     #[allow(unsafe_code)]
     unsafe {
         let c = *(b as *const crate::layout::Header);
@@ -449,11 +449,11 @@ fn portable_from_static(h: i64) -> Portable {
 }
 
 impl Graph {
-    /// O grafo lido como [`Portable`] (numa thread sem heap Dart). Um ciclo,
-    /// que as mensagens dos serviços nunca têm, vira `Null` na volta.
+    /// The graph read as [`Portable`] (on a thread without a Dart heap). A cycle,
+    /// which service messages never have, becomes `Null` on the way back.
     pub fn to_portable(&self) -> Portable {
-        /// A palavra `v`; `is_ref_kind` diz se ela está numa posição `Ref` (senão,
-        /// os bits de um campo escalar, lidos como `int`).
+        /// The word `v`; `is_ref_kind` says whether it is in a `Ref` position (otherwise,
+        /// the bits of a scalar field, read as `int`).
         fn val(g: &Graph, v: &GValue, is_ref_kind: bool, visiting: &mut Vec<bool>) -> Portable {
             match *v {
                 GValue::Word(bits) if !is_ref_kind => Portable::Int(bits),
@@ -492,7 +492,7 @@ impl Graph {
                         .collect(),
                 ),
                 GNode::Instance { cid: cid::GROWABLE_LIST, fields } => {
-                    // O comprimento (campo 0, bruto) e o armazenamento (campo 1).
+                    // The length (field 0, raw) and the storage (field 1).
                     let n = match fields.first() {
                         Some((GValue::Word(n), false)) => usize::try_from(*n).unwrap_or(0),
                         _ => 0,
@@ -525,7 +525,7 @@ impl Graph {
 }
 
 impl Portable {
-    /// O grafo deste valor.
+    /// The graph of this value.
     pub fn to_graph(&self) -> Graph {
         fn no(n: GNode, nodes: &mut Vec<(GNode, i64)>) -> GValue {
             nodes.push((n, 0));
@@ -560,10 +560,10 @@ impl Portable {
     }
 }
 
-/// Aloca, no heap deste isolado, o bloco vazio do nó `no` (as referências
-/// ficam para depois: o grafo pode ter ciclos). `None` para a visão, que
-/// precisa da base já alocada, e para os anexos (acumulador, programa de
-/// `RegExp`), que o runtime cria fora do empréstimo do heap
+/// Allocates, in this isolate's heap, the empty block of node `no` (the references
+/// are left for later: the graph may have cycles). `None` for the view, which
+/// needs the base already allocated, and for attachments (accumulator, `RegExp`
+/// program), which the runtime creates outside the heap borrow
 /// ([`allocate_attachment`]).
 fn allocate_node(heap: &mut Heap, no: &GNode) -> Option<i64> {
     use crate::layout::{cid, flags};
@@ -585,7 +585,7 @@ fn allocate_node(heap: &mut Heap, no: &GNode) -> Option<i64> {
         }
         GNode::Compact { cid: c, shape, elements } => {
             let h = heap.new_list(*c, elements.len(), *shape);
-            // Antes de publicar: sem barreira (e são escalares).
+            // Before publishing: no barrier (and they are scalars).
             heap.words_mut(h)[1..=elements.len()].copy_from_slice(elements);
             h
         }
@@ -609,9 +609,9 @@ fn allocate_node(heap: &mut Heap, no: &GNode) -> Option<i64> {
     })
 }
 
-/// O bloco de um nó com anexo nativo (o acumulador do `StringBuffer`, o
-/// programa do `RegExp`), criado pelo dono do anexo (`nativos_strings.rs`,
-/// `regexp.rs`), que empresta o heap ele mesmo. `None` para os outros nós.
+/// The block of a node with a native attachment (the `StringBuffer` accumulator, the
+/// `RegExp` program), created by the attachment owner (`natives_strings.rs`,
+/// `regexp.rs`), which borrows the heap itself. `None` for the other nodes.
 fn allocate_attachment(no: &GNode) -> Option<i64> {
     match no {
         GNode::Accumulator(u) => Some(new_accumulator_with(u.clone())),
@@ -620,12 +620,12 @@ fn allocate_attachment(no: &GNode) -> Option<i64> {
     }
 }
 
-/// Recria o grafo no heap deste isolado e devolve o valor (numa posição
-/// `Ref`). Todos os nós são alocados primeiro, enraizados, e as arestas
-/// ligadas depois — o grafo pode ter ciclos.
+/// Recreates the graph in this isolate's heap and returns the value (in a
+/// `Ref` position). All nodes are allocated first, rooted, and the edges
+/// linked afterwards — the graph may have cycles.
 fn materialize(g: &Graph) -> i64 {
     let same = g.origin == isolate_id();
-    // As tabelas de métodos das classes que este isolado ainda não viu.
+    // The method tables of the classes this isolate has not seen yet.
     if !g.tables.is_empty() {
         METHODS.with(|m| {
             let mut m = m.borrow_mut();
@@ -634,8 +634,8 @@ fn materialize(g: &Graph) -> i64 {
             }
         });
     }
-    // Os tipos da mensagem no universo deste isolado, e os objetos `Type`
-    // canônicos dela (fora do empréstimo do heap).
+    // The message types in this isolate's universe, and its canonical `Type`
+    // objects (outside the heap borrow).
     let ids_de_tipo = g.types.as_ref().map(MessageTypes::import);
     let mut type_objects: crate::hash::HashMap<usize, i64> = crate::hash::HashMap::default();
     if let Some(ids) = &ids_de_tipo {
@@ -648,17 +648,17 @@ fn materialize(g: &Graph) -> i64 {
             }
         }
     }
-    // As constantes canônicas deste isolado, pelos getters (fora do
-    // empréstimo do heap: o getter é código gerado, que aloca na primeira
-    // vez). São permanentes: não precisam de raiz durante a montagem.
+    // This isolate's canonical constants, through the getters (outside the
+    // heap borrow: the getter is generated code, which allocates the first
+    // time). They are permanent: they need no root during assembly.
     let mut canonical: crate::hash::HashMap<usize, i64> = crate::hash::HashMap::default();
     let mut tearoffs: crate::hash::HashMap<i64, i64> = crate::hash::HashMap::default();
     g.visit_values(|v| match *v {
         GValue::Constant(getter) => {
             canonical.entry(getter).or_insert_with(|| {
-                // SAFETY: `getter` é o endereço de um getter gerado sem
-                // argumentos (registrado por `dartforge_marcar_constante`),
-                // o mesmo em todos os isolados do processo.
+                // SAFETY: `getter` is the address of a generated getter without
+                // arguments (registered by `dartforge_marcar_constante`),
+                // the same in all isolates of the process.
                 let f = { let dart_target: usize = getter; move || -> i64 { dart_r0(dart_target) } };
                 f()
             });
@@ -681,8 +681,8 @@ fn materialize(g: &Graph) -> i64 {
         }
         _ => {}
     });
-    // Cópias proprietárias dos nós, inclusive anexos criados fora do
-    // empréstimo do heap, duram até ligar as arestas e refazer os índices.
+    // Owning copies of the nodes, including attachments created outside the
+    // heap borrow, last until the edges are linked and the indices rebuilt.
     let frame = HEAP.with(|heap| heap.borrow_mut().push_owning_frame(g.nodes.len()));
     let mut handles = vec![0i64; g.nodes.len()];
     for (i, (no, _)) in g.nodes.iter().enumerate() {
@@ -715,12 +715,12 @@ fn materialize(g: &Graph) -> i64 {
                 GValue::Same(h) if same => h,
                 GValue::Constant(getter) => canonical.get(&getter).copied().unwrap_or(0),
                 GValue::TearOff { code, .. } => tearoffs.get(&code).copied().unwrap_or(0),
-                // Fora do isolado de origem não há o que compartilhar: o
-                // emissor copia (`share` falso) para outro isolado.
+                // Outside the source isolate there is nothing to share: the
+                // sender copies (`share` false) for another isolate.
                 GValue::Same(_) => 0,
             }
         };
-        // As visões, depois das bases (uma visão de visão espera a dela).
+        // The views, after the bases (a view of a view waits for its own).
         loop {
             let mut pending_list = false;
             let mut progress = false;
@@ -779,18 +779,18 @@ fn materialize(g: &Graph) -> i64 {
     result
 }
 
-/// Os `_Map`/`_Set` copiados chegam com o `_index` da origem, calculado com
-/// os hashes de identidade de lá (aqui o hash é o endereço, `heap.rs`
-/// `identity_hash`): como a VM (`runtime/vm/object_graph_copy.cc`,
-/// `CopyLinkedHashBase` + `_rehashObjects`), o índice é refeito no destino
-/// quando alguma chave pode ter outro hash. A decisão e o refazer são do
+/// Copied `_Map`/`_Set` arrive with the source's `_index`, computed with
+/// the identity hashes there (here the hash is the address, `heap.rs`
+/// `identity_hash`): like the VM (`runtime/vm/object_graph_copy.cc`,
+/// `CopyLinkedHashBase` + `_rehashObjects`), the index is rebuilt at the destination
+/// when some key may have another hash. The decision and the rebuild belong to
 /// Dart (`_dartforgeRefazerIndiceCopiado`, `native_sdk/collection/
-/// compact_hash.dart`): -1 to object que não é `_Map`/`_Set` (a classe
-/// inteira fica de fora daí em diante). Os nós continuam enraizados no
-/// quadro de [`materialize`].
+/// compact_hash.dart`): -1 for an object that is not a `_Map`/`_Set` (the whole class
+/// is left out from then on). The nodes stay rooted in the
+/// frame of [`materialize`].
 fn refazer_indices_copiados(g: &Graph, handles: &[i64]) {
     let Some(f) = ajudante("_dartforgeRefazerIndiceCopiado") else { return };
-    // SAFETY: registrado pela `dart:_compact_hash` com a assinatura
+    // SAFETY: registered by `dart:_compact_hash` with the signature
     // `(Object) -> int`.
     let redo = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     let mut others: crate::hash::HashSet<i32> = crate::hash::HashSet::default();
@@ -809,7 +809,7 @@ fn refazer_indices_copiados(g: &Graph, handles: &[i64]) {
 }
 
 // ---------------------------------------------------------------------------
-// O registro das portas e a fila do isolado.
+// The port registry and the isolate queue.
 
 #[cfg(test)]
 mod tests_owners_materialization {
@@ -823,7 +823,7 @@ mod tests_owners_materialization {
             let mut h = h.borrow_mut();
             h.enable_arc();
             let frame = h.push_owning_frame(1);
-            let text = h.allocate_str("não publicar");
+            let text = h.allocate_str("do not publish");
             h.set_root(frame, 0, text);
             (frame, text)
         });
@@ -867,7 +867,7 @@ mod tests_owners_materialization {
             let mut h = h.borrow_mut();
             h.enable_arc();
             let frame = h.push_owning_frame(1);
-            let text = h.allocate_str("mensagem não atendida");
+            let text = h.allocate_str("unserved message");
             h.set_root(frame, 0, text);
             (frame, text)
         });
@@ -897,7 +897,7 @@ mod tests_owners_materialization {
             h.collect();
             let text = h.words(value)[1];
             assert_eq!(h.words(value)[2], text);
-            assert_eq!(h.text(text).unwrap().para_string(), "aliases na fila");
+            assert_eq!(h.text(text).unwrap().para_string(), "aliases in the queue");
         });
         0
     }
@@ -909,7 +909,7 @@ mod tests_owners_materialization {
             let mut h = h.borrow_mut();
             h.enable_arc();
             let frame = h.push_owning_frame(1);
-            let text = h.allocate_str("aliases na fila");
+            let text = h.allocate_str("aliases in the queue");
             h.set_root(frame, 0, text);
             let list = h.new_list(crate::layout::cid::LIST, 2, crate::lists::Element::General);
             h.write_refs(list, 1, &[text, text]);
@@ -945,7 +945,7 @@ mod tests_owners_materialization {
             let mut h = h.borrow_mut();
             h.enable_arc();
             let frame = h.push_owning_frame(1);
-            let text = h.allocate_str("mensagem compartilhada");
+            let text = h.allocate_str("shared message");
             h.set_root(frame, 0, text);
             (frame, text)
         });
@@ -955,7 +955,7 @@ mod tests_owners_materialization {
             let mut h = h.borrow_mut();
             h.pop_frame(frame);
             h.collect();
-            assert!(h.is_live_object(text), "a fila deve manter o owner compartilhado");
+            assert!(h.is_live_object(text), "the queue must keep the shared owner");
         });
         dartforge_nativo_DartForge_porta_fechar(port);
         extern "C" fn ignore(_: i64) -> i64 { 0 }
@@ -963,7 +963,7 @@ mod tests_owners_materialization {
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(!h.is_live_object(text), "descarte da mensagem deve soltar seu owner");
+            assert!(!h.is_live_object(text), "discarding the message must release its owner");
         });
         HEAP.with(|h| { h.replace(previous); });
     }
@@ -1004,67 +1004,67 @@ mod tests_owners_materialization {
     }
 }
 
-/// Uma mensagem na fila de um isolado.
+/// A message in an isolate's queue.
 struct Message {
     port: i64,
     graph: Graph,
-    /// Tokens do heap destinatário para cada ocorrência `Same`.
+    /// Tokens of the receiving heap for each `Same` occurrence.
     owners: Vec<u64>,
     arrival: std::time::Instant,
 }
 
-/// As mensagens de um isolado: as das portas do Dart e as da porta de
-/// controle (as OOB da VM: `pause`, `kill`, `ping`…), que o runtime atende
-/// antes das outras.
+/// The messages of an isolate: those of the Dart ports and those of the control
+/// port (the VM's OOB ones: `pause`, `kill`, `ping`…), which the runtime serves
+/// before the others.
 #[derive(Default)]
 struct Queues {
-    /// Protegido pelo mesmo mutex da publicação: clones antigos não reabrem a fila.
+    /// Protected by the same mutex as publication: old clones do not reopen the queue.
     closed: bool,
     normal: std::collections::VecDeque<Message>,
     control: std::collections::VecDeque<Graph>,
-    /// Os pedidos para rodar no ponto seguro (a publicação de uma recarga
-    /// do JIT), atendidos com o controle, entre um evento e outro.
+    /// Requests to run at the safepoint (the publication of a JIT
+    /// reload), served with the control messages, between one event and the next.
     safepoints: std::collections::VecDeque<SafepointRequest>,
 }
 
-/// Um pedido para rodar no ponto seguro do isolado: a função recebe o dado
-/// e `1` quando roda no ponto seguro, ou `0` quando o isolado terminou sem
-/// atendê-lo (o pedido é descartado, e quem pediu fica sabendo).
+/// A request to run at the isolate's safepoint: the function receives the datum
+/// and `1` when it runs at the safepoint, or `0` when the isolate ended without
+/// serving it (the request is discarded, and the requester gets to know).
 pub type SafepointRequest = (extern "C" fn(usize, i32), usize);
 
-/// A fila de mensagens de um isolado; qualquer thread posta nela.
+/// The message queue of an isolate; any thread posts to it.
 pub struct IsolateQueue {
     id: u64,
     messages: std::sync::Mutex<Queues>,
     sig_num: std::sync::Condvar,
-    /// A espera com prazo no macOS (ver [`Waker`]).
+    /// The timed wait on macOS (see [`Waker`]).
     waker: Waker,
-    /// O endereço do pedido de interrupção da thread do isolado
-    /// (`Context::interrupt`), ou 0 depois que ela terminou. Uma mensagem
-    /// de controle o liga: o código gerado o lê no ponto seguro de cada volta
-    /// de laço e chama [`dartforge_ponto_seguro`], que atende o controle sem
-    /// esperar o próximo evento — um `kill` imediato ou um `ping` alcançam
-    /// um isolado preso num laço sem eventos, como a verificação de pilha da
-    /// VM. O mutex garante que ninguém grava depois que a thread o zerou.
+    /// The address of the interrupt request of the isolate's thread
+    /// (`Context::interrupt`), or 0 after it ended. A control message
+    /// sets it: the generated code reads it at the safepoint of each loop
+    /// iteration and calls [`dartforge_ponto_seguro`], which serves the control without
+    /// waiting for the next event — an immediate `kill` or a `ping` reach
+    /// an isolate stuck in a loop without events, like the VM's stack
+    /// check. The mutex guarantees nobody writes after the thread zeroed it.
     interrupt: std::sync::Mutex<usize>,
 }
 
 impl IsolateQueue {
-    /// Acorda a thread do isolado: o `Condvar` e, no macOS, o despertador.
+    /// Wakes the isolate's thread: the `Condvar` and, on macOS, the waker.
     fn notify(&self) {
         self.sig_num.notify_one();
         self.waker.wake();
     }
 }
 
-/// A espera com prazo do laço de eventos no macOS: um `kqueue` com um
-/// `EVFILT_USER` que o aviso aciona e o prazo no `timeout` do `kevent`, como
-/// o manipulador de eventos da VM (`eventhandler_macos.cc`, `Poll`). O
-/// `pthread_cond_timedwait` do `Condvar` passa do prazo pela folga de
-/// coalescência do kernel: 200 timers de 5 ms levavam 5,9 s contra 1,5 s na
-/// VM (a sonda `tools/sondas/precisao_de_timers.dart`), e o
-/// `corpus/native/33_mensagens_de_controle` estourava o tempo. Fora do macOS
-/// o `Condvar` já é preciso e o despertador não faz nada.
+/// The event loop's timed wait on macOS: a `kqueue` with an
+/// `EVFILT_USER` that the notification triggers and the deadline in the `kevent` `timeout`, like
+/// the VM's event handler (`eventhandler_macos.cc`, `Poll`). The
+/// `Condvar`'s `pthread_cond_timedwait` overshoots the deadline by the kernel's
+/// coalescing slack: 200 timers of 5 ms took 5.9 s versus 1.5 s in the
+/// VM (the probe `tools/sondas/precisao_de_timers.dart`), and
+/// `corpus/native/33_mensagens_de_controle` timed out. Outside macOS
+/// the `Condvar` is already precise and the waker does nothing.
 struct Waker {
     #[cfg(target_vendor = "apple")]
     kq: i32,
@@ -1118,29 +1118,29 @@ impl Waker {
     }
 
     fn new() -> Waker {
-        // SAFETY: cria o kqueue; o evento vive durante a chamada.
+        // SAFETY: creates the kqueue; the event lives during the call.
         let kq = unsafe { kqueue_do_despertador() };
         if kq < 0 {
-            panic!("falha ao criar o kqueue do laço de eventos");
+            panic!("failed to create the event loop kqueue");
         }
         let ev = Self::event(Self::EV_ADD | Self::EV_CLEAR, 0);
-        // SAFETY: a mudança vive durante a chamada.
+        // SAFETY: the change lives during the call.
         if unsafe { kevent_do_despertador(kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == -1 {
-            panic!("falha ao registrar o despertador do laço de eventos");
+            panic!("failed to register the event loop waker");
         }
         Waker { kq }
     }
 
     fn wake(&self) {
         let ev = Self::event(0, Self::NOTE_TRIGGER);
-        // SAFETY: a mudança vive durante a chamada; o kqueue é deste isolado.
+        // SAFETY: the change lives during the call; the kqueue belongs to this isolate.
         unsafe { kevent_do_despertador(self.kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
     }
 
     fn wait_for(&self, deadline: std::time::Duration) {
         let ts = PrazoDoDespertador { seconds: deadline.as_secs() as i64, nanos: i64::from(deadline.subsec_nanos()) };
         let mut ev = Self::event(0, 0);
-        // SAFETY: um evento de saída; o prazo vive durante a chamada.
+        // SAFETY: an output event; the deadline lives during the call.
         unsafe { kevent_do_despertador(self.kq, std::ptr::null(), 0, &mut ev, 1, &ts) };
     }
 }
@@ -1148,7 +1148,7 @@ impl Waker {
 #[cfg(target_vendor = "apple")]
 impl Drop for Waker {
     fn drop(&mut self) {
-        // SAFETY: o kqueue é deste despertador.
+        // SAFETY: the kqueue belongs to this waker.
         unsafe { close_do_despertador(self.kq) };
     }
 }
@@ -1163,8 +1163,8 @@ impl Waker {
     fn wait_for(&self, _deadline: std::time::Duration) {}
 }
 
-/// Zera o endereço do pedido de interrupção quando a thread termina (antes
-/// de a memória dos `thread_local` dela ser liberada).
+/// Zeroes the interrupt request address when the thread ends (before
+/// the memory of its `thread_local`s is freed).
 struct InterruptGuard(std::sync::Arc<IsolateQueue>);
 
 impl Drop for InterruptGuard {
@@ -1173,12 +1173,12 @@ impl Drop for InterruptGuard {
     }
 }
 
-/// Um serviço nativo: recebe (porta, grafo) na thread de quem enviou.
+/// A native service: receives (port, graph) on the sender's thread.
 pub type NativeService = std::sync::Arc<dyn Fn(i64, Graph) + Send + Sync>;
 
 enum Owner {
     Isolate(std::sync::Arc<IsolateQueue>),
-    /// A porta de controle de um isolado (`Isolate.controlPort`).
+    /// The control port of an isolate (`Isolate.controlPort`).
     Control(std::sync::Arc<IsolateQueue>),
     Native(NativeService),
 }
@@ -1208,18 +1208,18 @@ thread_local! {
         INTERRUPT_GUARD.with(|g| *g.borrow_mut() = Some(guard));
         queue
     };
-    /// Zera o endereço do pedido de interrupção no fim da thread.
+    /// Zeroes the interrupt request address at the end of the thread.
     static INTERRUPT_GUARD: RefCell<Option<InterruptGuard>> = const { RefCell::new(None) };
-    /// Portas abertas deste isolado → se mantêm o isolado vivo.
+    /// Open ports of this isolate → whether they keep the isolate alive.
     static OPEN_PORTS: RefCell<crate::hash::HashMap<i64, bool>> = RefCell::new(crate::hash::HashMap::default());
-    /// A mensagem em despacho: (porta, valor), o valor enraizado.
+    /// The message being dispatched: (port, value), the value rooted.
     static CURRENT: RefCell<(i64, i64)> = const { RefCell::new((0, 0)) };
-    /// O despachante Dart (`_RawReceivePort._despachar`), enraizado.
+    /// The Dart dispatcher (`_RawReceivePort._despachar`), rooted.
     static DISPATCHER: RefCell<i64> = const { RefCell::new(0) };
 }
 
-/// Raízes globais do runtime para as portas (ids negativos fora da faixa
-/// dos timers de `eventos.rs`).
+/// Global runtime roots for the ports (negative ids outside the range
+/// of the timers of `events.rs`).
 const DISPATCHER_ROOT: i64 = -0x7000_0000_0000;
 const MESSAGE_ROOT: i64 = -0x7000_0000_0001;
 
@@ -1227,9 +1227,9 @@ fn isolate_id() -> u64 {
     QUEUE.with(|f| f.id)
 }
 
-/// Posta `graph` para a porta `port`: na fila do isolado dono, ou no
-/// serviço nativo. Porta fechada ou inexistente: a mensagem é descartada,
-/// como na VM.
+/// Posts `graph` to the port `port`: in the owner isolate's queue, or in the
+/// native service. Closed or nonexistent port: the message is discarded,
+/// as in the VM.
 pub fn post(port: i64, graph: Graph) {
     let owner = {
         let r = rec().lock().unwrap_or_else(|e| e.into_inner());
@@ -1255,16 +1255,16 @@ pub fn post(port: i64, graph: Graph) {
     }
 }
 
-/// Publica com a referência já obtida do registro; o mutex lineariza o fechamento.
+/// Publishes with the reference already obtained from the registry; the mutex linearizes closing.
 fn post_to_queue(f: &IsolateQueue, port: i64, graph: Graph) {
     let mut m = f.messages.lock().unwrap_or_else(|e| e.into_inner());
     if m.closed { return; }
-    // Retenção não coleta nem chama Dart; o fechamento usa este mesmo mutex.
+    // Retaining neither collects nor calls Dart; closing uses this same mutex.
     let mut owners = Vec::new();
     graph.visit_values(|v| {
         if let GValue::Same(h) = *v {
-            assert_eq!(f.id, isolate_id(), "owner compartilhado fora do seu isolado");
-            assert_eq!(graph.origin, f.id, "origem do owner compartilhado incorreta");
+            assert_eq!(f.id, isolate_id(), "shared owner outside its isolate");
+            assert_eq!(graph.origin, f.id, "wrong origin of the shared owner");
             owners.push(HEAP.with(|heap| heap.borrow_mut().retain_message_owner(h)));
         }
     });
@@ -1272,8 +1272,8 @@ fn post_to_queue(f: &IsolateQueue, port: i64, graph: Graph) {
     f.notify();
 }
 
-/// Posta `graph` na fila de controle do isolado dono de `port` (as
-/// mensagens OOB: `Isolate_sendOOB` vale para qualquer porta do isolado).
+/// Posts `graph` to the control queue of the isolate that owns `port` (the
+/// OOB messages: `Isolate_sendOOB` holds for any port of the isolate).
 fn post_control(port: i64, graph: Graph) {
     let queue = {
         let r = rec().lock().unwrap_or_else(|e| e.into_inner());
@@ -1290,8 +1290,8 @@ fn post_control(port: i64, graph: Graph) {
         }
         let target = f.interrupt.lock().unwrap_or_else(|e| e.into_inner());
         if *target != 0 {
-            // SAFETY: o contexto da thread do isolado, vivo enquanto o
-            // endereço não foi zerado (com este mutex) pela guarda dela.
+            // SAFETY: the context of the isolate's thread, alive while the
+            // address has not been zeroed (with this mutex) by its guard.
             unsafe { (*(*target as *const std::sync::atomic::AtomicU8)).store(1, std::sync::atomic::Ordering::Release) };
         }
         drop(target);
@@ -1299,36 +1299,36 @@ fn post_control(port: i64, graph: Graph) {
     }
 }
 
-/// Apaga o pedido de interrupção deste isolado (quem o atende vai esvaziar a
-/// fila de controle em seguida; uma mensagem que chegar depois liga de novo).
+/// Clears this isolate's interrupt request (whoever serves it will drain the
+/// control queue next; a message arriving later sets it again).
 fn clear_interrupt_request() {
     crate::heap::CONTEXTO.with(|c| c.interrupt.store(0, std::sync::atomic::Ordering::Relaxed));
 }
 
 // ---------------------------------------------------------------------------
-// O ponto seguro do isolado principal (a recarga do JIT).
+// The main isolate's safepoint (the JIT reload).
 //
-// A publicação de uma geração nova (a troca das células das entradas
-// estáveis, o registro das tabelas) só pode acontecer quando nenhum quadro
-// Dart do isolado está na pilha: entre dois eventos do laço — o ponto em que
-// a VM também comita uma recarga (`isolate_reload.cc`). O observador do
-// `dartforge reload` compila numa thread própria e entrega a publicação como
-// um pedido na fila do isolado principal; o laço o atende antes do próximo
-// evento, e um isolado ocioso (um servidor esperando conexão) acorda para ele.
+// Publishing a new generation (swapping the cells of the stable
+// entries, registering the tables) can only happen when no Dart frame
+// of the isolate is on the stack: between two loop events — the point at which
+// the VM also commits a reload (`isolate_reload.cc`). The watcher of
+// `dartforge reload` compiles on its own thread and hands over the publication as
+// a request in the main isolate's queue; the loop serves it before the next
+// event, and an idle isolate (a server waiting for a connection) wakes up for it.
 
 fn main_isolate() -> &'static std::sync::Mutex<Option<std::sync::Arc<IsolateQueue>>> {
     static P: std::sync::OnceLock<std::sync::Mutex<Option<std::sync::Arc<IsolateQueue>>>> = std::sync::OnceLock::new();
     P.get_or_init(Default::default)
 }
 
-/// Este isolado é o principal: passa a aceitar pedidos no ponto seguro.
+/// This isolate is the main one: it starts accepting requests at the safepoint.
 pub fn mark_main_isolate() {
     let queue = QUEUE.with(|f| f.clone());
     *main_isolate().lock().unwrap_or_else(|e| e.into_inner()) = Some(queue);
 }
 
-/// O isolado principal terminou: os pedidos pendentes são descartados (quem
-/// pediu recebe `0`) e os novos, recusados.
+/// The main isolate ended: pending requests are discarded (the
+/// requester receives `0`) and new ones refused.
 pub fn unmark_main_isolate() {
     remove_live_isolate();
     let Some(queue) = main_isolate().lock().unwrap_or_else(|e| e.into_inner()).take() else {
@@ -1340,15 +1340,15 @@ pub fn unmark_main_isolate() {
     }
 }
 
-/// Pede que `f(datum, 1)` rode no próximo ponto seguro do isolado principal,
-/// na thread dele. Devolve `0` (e não chama `f`) se não há isolado principal
-/// rodando o laço de eventos; `1` se o pedido foi aceito — então `f` é
-/// chamada exatamente uma vez, com `1` no ponto seguro ou com `0` se o
-/// isolado terminar antes.
+/// Asks for `f(datum, 1)` to run at the next safepoint of the main isolate,
+/// on its thread. Returns `0` (and does not call `f`) if there is no main isolate
+/// running the event loop; `1` if the request was accepted — then `f` is
+/// called exactly once, with `1` at the safepoint or with `0` if the
+/// isolate ends first.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_pedir_no_ponto_seguro(f: extern "C" fn(usize, i32), datum: usize) -> i32 {
-    // O registro fica travado durante a inserção: o descarte do fim do
-    // isolado não perde um pedido que chegue ao mesmo tempo.
+    // The registry stays locked during the insertion: the isolate's end-of-life
+    // discard does not lose a request arriving at the same time.
     let main_queue = main_isolate().lock().unwrap_or_else(|e| e.into_inner());
     let Some(queue) = main_queue.as_ref() else {
         return 0;
@@ -1358,15 +1358,15 @@ pub extern "C" fn dartforge_pedir_no_ponto_seguro(f: extern "C" fn(usize, i32), 
     1
 }
 
-// A parada de todos os isolados (a publicação de uma recarga): o código
-// novo só pode entrar com nenhum quadro Dart na pilha de NENHUM isolado,
-// porque as células das entradas estáveis são do processo. O isolado
-// principal, no ponto seguro dele, pede aos demais que parem no próximo
-// ponto seguro deles (`dartforge_parar_isolados`), troca o código, e os
-// libera (`dartforge_liberar_isolados`); cada um refaz os próprios registros
-// da geração nova (o estado do runtime é por isolado) antes de continuar.
+// Stopping all isolates (the publication of a reload): the new code
+// can only come in with no Dart frame on the stack of ANY isolate,
+// because the cells of the stable entries belong to the process. The main
+// isolate, at its safepoint, asks the others to stop at their next
+// safepoint (`dartforge_parar_isolados`), swaps the code, and
+// releases them (`dartforge_liberar_isolados`); each one redoes its own registrations
+// of the new generation (the runtime state is per isolate) before continuing.
 
-/// Os isolados vivos no laço de eventos (os que atendem pedidos).
+/// The isolates alive in the event loop (those that serve requests).
 fn live_isolates() -> &'static std::sync::Mutex<Vec<std::sync::Arc<IsolateQueue>>> {
     static V: std::sync::OnceLock<std::sync::Mutex<Vec<std::sync::Arc<IsolateQueue>>>> = std::sync::OnceLock::new();
     V.get_or_init(Default::default)
@@ -1376,7 +1376,7 @@ thread_local! {
     static LIVE_REGISTERED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Este isolado entrou no laço: passa a ser parado nas publicações.
+/// This isolate entered the loop: it is now stopped during publications.
 fn register_live_isolate() {
     if LIVE_REGISTERED.with(|r| r.replace(true)) {
         return;
@@ -1385,8 +1385,8 @@ fn register_live_isolate() {
     live_isolates().lock().unwrap_or_else(|e| e.into_inner()).push(queue);
 }
 
-/// Este isolado terminou: sai do registro, e os pedidos pendentes dele são
-/// respondidos com `0` (sob o mesmo trinco: nenhum pedido chega depois).
+/// This isolate ended: it leaves the registry, and its pending requests are
+/// answered with `0` (under the same latch: no request arrives afterwards).
 fn remove_live_isolate() {
     if !LIVE_REGISTERED.with(|r| r.replace(false)) {
         return;
@@ -1402,18 +1402,18 @@ fn remove_live_isolate() {
     }
 }
 
-/// A barreira de uma parada: quantos pararam, e os registros da geração nova
-/// quando o principal libera.
+/// The barrier of a stop: how many stopped, and the registrations of the new generation
+/// when the main isolate releases.
 #[derive(Default)]
 struct WriteBarrier {
     estado: std::sync::Mutex<(usize, Option<[usize; 3]>)>,
     sig_num: std::sync::Condvar,
 }
 
-/// O pedido de parada, num isolado que não é o principal.
+/// The stop request, in an isolate that is not the main one.
 extern "C" fn parar_neste_isolado(datum: usize, execute_fn: i32) {
-    // SAFETY: `datum` é um `Arc<Barreira>` entregue por `dartforge_parar_isolados`
-    // (uma referência por pedido, devolvida aqui).
+    // SAFETY: `datum` is an `Arc<Barreira>` handed over by `dartforge_parar_isolados`
+    // (one reference per request, returned here).
     let barrier = unsafe { std::sync::Arc::from_raw(datum as *const WriteBarrier) };
     let mut estado = barrier.estado.lock().unwrap_or_else(|e| e.into_inner());
     estado.0 += 1;
@@ -1427,15 +1427,15 @@ extern "C" fn parar_neste_isolado(datum: usize, execute_fn: i32) {
     let [area, register, rti] = estado.1.expect("liberado");
     drop(estado);
     let as_fn = |p: usize| {
-        // SAFETY: 0 ou um trampolim `void ()` da geração publicada.
+        // SAFETY: 0 or a `void ()` trampoline of the published generation.
         (p != 0).then(|| unsafe { std::mem::transmute::<usize, extern "C" fn()>(p) })
     };
     dartforge_publicar_geracao(as_fn(area), as_fn(register), as_fn(rti));
 }
 
-/// Para todos os isolados vivos além deste no ponto seguro deles e devolve a
-/// parada, que [`dartforge_liberar_isolados`] encerra. Chamada no ponto
-/// seguro do isolado principal.
+/// Stops all live isolates other than this one at their safepoint and returns the
+/// stop, which [`dartforge_liberar_isolados`] ends. Called at the
+/// main isolate's safepoint.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_parar_isolados() -> usize {
     let mine = isolate_id();
@@ -1458,18 +1458,18 @@ pub extern "C" fn dartforge_parar_isolados() -> usize {
     std::sync::Arc::into_raw(barrier) as usize
 }
 
-/// Libera os isolados da parada `stopped_flag`: cada um refaz os registros da
-/// geração nova (`area`, `register`, `rti`, trampolins `void ()` ou 0) na
-/// thread dele e continua.
+/// Releases the isolates of the stop `stopped_flag`: each one redoes the registrations of the
+/// new generation (`area`, `register`, `rti`, `void ()` trampolines or 0) on
+/// its thread and continues.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_liberar_isolados(stopped_flag: usize, area: usize, register: usize, rti: usize) {
-    // SAFETY: `stopped_flag` veio de `dartforge_parar_isolados`, uma vez.
+    // SAFETY: `stopped_flag` came from `dartforge_parar_isolados`, once.
     let barrier = unsafe { std::sync::Arc::from_raw(stopped_flag as *const WriteBarrier) };
     barrier.estado.lock().unwrap_or_else(|e| e.into_inner()).1 = Some([area, register, rti]);
     barrier.sig_num.notify_all();
 }
 
-/// Atende os pedidos no ponto seguro deste isolado (o laço de eventos).
+/// Serves the requests at this isolate's safepoint (the event loop).
 fn serve_safepoints() {
     loop {
         let request = QUEUE.with(|f| f.messages.lock().unwrap_or_else(|e| e.into_inner()).safepoints.pop_front());
@@ -1478,13 +1478,13 @@ fn serve_safepoints() {
     }
 }
 
-/// A próxima mensagem da porta de controle deste isolado.
+/// The next message of this isolate's control port.
 fn next_control() -> Option<Graph> {
     clear_interrupt_request();
     QUEUE.with(|f| f.messages.lock().unwrap_or_else(|e| e.into_inner()).control.pop_front())
 }
 
-/// Abre a porta de controle deste isolado e devolve o id.
+/// Opens this isolate's control port and returns the id.
 fn open_control_port() -> i64 {
     let id = next_port_id();
     let queue = QUEUE.with(|f| f.clone());
@@ -1492,8 +1492,8 @@ fn open_control_port() -> i64 {
     id
 }
 
-/// Fecha todas as portas deste isolado (ele terminou): as mensagens que
-/// chegarem depois são descartadas, como na VM.
+/// Closes all ports of this isolate (it ended): messages that
+/// arrive afterwards are discarded, as in the VM.
 fn close_isolate_ports() {
     let mine = isolate_id();
     rec().lock().unwrap_or_else(|e| e.into_inner()).retain(|_, d| match d {
@@ -1510,12 +1510,12 @@ fn close_isolate_ports() {
     for m in pending_list { release_message_owners(&m.owners); }
 }
 
-/// Fecha uma porta nativa: as mensagens seguintes são descartadas.
+/// Closes a native port: the following messages are discarded.
 pub fn close_native_port(id: i64) {
     rec().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
 }
 
-/// Abre uma porta nativa atendida por `service` e devolve o id.
+/// Opens a native port served by `service` and returns the id.
 pub fn open_native_port(service: NativeService) -> i64 {
     let id = next_port_id();
     rec().lock().unwrap_or_else(|e| e.into_inner()).insert(id, Owner::Native(service));
@@ -1523,28 +1523,28 @@ pub fn open_native_port(service: NativeService) -> i64 {
 }
 
 thread_local! {
-    /// `NativeCallable.isolateLocal` abertos com `keepIsolateAlive`
-    /// (`ffi_callbacks.rs`): cada um mantém o isolado vivo como uma porta.
+    /// `NativeCallable.isolateLocal` opened with `keepIsolateAlive`
+    /// (`ffi_callbacks.rs`): each one keeps the isolate alive like a port.
     static CALLBACKS_KEEPING_ALIVE: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 }
 
-/// Soma `delta` aos callbacks locais que mantêm o isolado vivo.
+/// Adds `delta` to the local callbacks that keep the isolate alive.
 pub fn adjust_callbacks_keeping_alive(delta: i64) {
     CALLBACKS_KEEPING_ALIVE.with(|c| c.set((c.get() + delta).max(0)));
 }
 
-/// Se o isolado tem porta aberta (ou callback local) que o mantém vivo.
+/// Whether the isolate has an open port (or local callback) that keeps it alive.
 fn has_live_port() -> bool {
     CALLBACKS_KEEPING_ALIVE.with(|c| c.get() > 0) || OPEN_PORTS.with(|p| p.borrow().values().any(|&v| v))
 }
 
-/// A chegada da mensagem mais antiga da fila, se houver.
+/// The arrival of the oldest message in the queue, if any.
 fn next_arrival() -> Option<std::time::Instant> {
     QUEUE.with(|f| f.messages.lock().unwrap_or_else(|e| e.into_inner()).normal.front().map(|m| m.arrival))
 }
 
-/// Espera uma mensagem até `deadline` (ou sem prazo). Devolve se chegou. Com
-/// `control_only` (o isolado pausado), só a de controle acorda.
+/// Waits for a message until `deadline` (or without deadline). Returns whether one arrived. With
+/// `control_only` (the isolate paused), only a control message wakes it.
 fn wait_message(deadline: Option<std::time::Instant>, control_only: bool) -> bool {
     QUEUE.with(|f| {
         let mut m = f.messages.lock().unwrap_or_else(|e| e.into_inner());
@@ -1560,9 +1560,9 @@ fn wait_message(deadline: Option<std::time::Instant>, control_only: bool) -> boo
                         return false;
                     }
                     if Waker::ACTIVE {
-                        // O `kevent` com prazo (ver [`Waker`]): o aviso
-                        // que chega entre soltar o mutex e esperar fica
-                        // pendente no `EVFILT_USER` e acorda na hora.
+                        // The timed `kevent` (see [`Waker`]): a notification
+                        // arriving between releasing the mutex and waiting stays
+                        // pending in the `EVFILT_USER` and wakes immediately.
                         drop(m);
                         f.waker.wait_for(p - current_time);
                         m = f.messages.lock().unwrap_or_else(|e| e.into_inner());
@@ -1575,7 +1575,7 @@ fn wait_message(deadline: Option<std::time::Instant>, control_only: bool) -> boo
     })
 }
 
-/// Solta tokens exclusivamente no heap que os criou (o destinatário).
+/// Releases tokens exclusively in the heap that created them (the receiver).
 fn release_message_owners(owners: &[u64]) {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
@@ -1583,13 +1583,13 @@ fn release_message_owners(owners: &[u64]) {
     });
 }
 
-/// Tira a próxima mensagem, materializa e despacha pelo `call` do código
-/// gerado. Devolve se havia mensagem.
+/// Takes the next message, materializes it and dispatches it through the generated
+/// code's `call`. Returns whether there was a message.
 fn dispatch_next(call: extern "C" fn(i64) -> i64) -> bool {
     let Some(m) = QUEUE.with(|f| f.messages.lock().unwrap_or_else(|e| e.into_inner()).normal.pop_front()) else {
         return false;
     };
-    // Mensagem para porta já fechada: descartada, como na VM.
+    // Message for an already closed port: discarded, as in the VM.
     if !OPEN_PORTS.with(|p| p.borrow().contains_key(&m.port)) {
         release_message_owners(&m.owners);
         return true;
@@ -1610,11 +1610,11 @@ fn dispatch_next(call: extern "C" fn(i64) -> i64) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Natives da sobreposição (`native_sdk/isolate/isolate_patch.dart`).
+// Overlay natives (`native_sdk/isolate/isolate_patch.dart`).
 
-/// `DartForge_porta_abrir(port)`: abre uma porta deste isolado para o
-/// objeto `port` (um `_RawReceivePort`, cuja classe passa a ser não
-/// enviável) e devolve o id.
+/// `DartForge_porta_abrir(port)`: opens a port of this isolate for the
+/// object `port` (a `_RawReceivePort`, whose class becomes
+/// unsendable) and returns the id.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_abrir(object: i64) -> i64 {
     let class = HEAP.with(|h| h.borrow().object(object).map(|o| o.class_id));
@@ -1630,8 +1630,8 @@ pub extern "C" fn dartforge_nativo_DartForge_porta_abrir(object: i64) -> i64 {
     id
 }
 
-/// `DartForge_porta_fechar(id)`: fecha a porta; mensagens pendentes para
-/// ela são descartadas no despacho.
+/// `DartForge_porta_fechar(id)`: closes the port; pending messages for
+/// it are discarded at dispatch.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_fechar(id: i64) {
     rec().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
@@ -1654,8 +1654,8 @@ pub extern "C" fn dartforge_nativo_DartForge_porta_mantem_vivo(id: i64) -> u8 {
     OPEN_PORTS.with(|p| u8::from(p.borrow().get(&id).copied().unwrap_or(false)))
 }
 
-/// `DartForge_porta_enviar(id, message)`: copia e posta. Devolve 1 se a
-/// mensagem tem objeto não enviável (a descrição fica em
+/// `DartForge_porta_enviar(id, message)`: copies and posts. Returns 1 if the
+/// message has an unsendable object (the description stays in
 /// `DartForge_porta_recusa`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_enviar(id: i64, message: i64) -> u8 {
@@ -1676,36 +1676,36 @@ pub extern "C" fn dartforge_nativo_DartForge_porta_enviar(id: i64, message: i64)
     }
 }
 
-/// `DartForge_porta_recusa()`: por que a última mensagem foi recusada.
+/// `DartForge_porta_recusa()`: why the last message was refused.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_recusa() -> i64 {
     let d = LAST_REJECTION.with(|u| u.borrow().clone());
     HEAP.with(|h| h.borrow_mut().allocate_str(&d))
 }
 
-/// `DartForge_portas_despachante(f)`: a closure sem argumentos que o laço
-/// chama para cada mensagem (`_RawReceivePort._despachar`).
+/// `DartForge_portas_despachante(f)`: the argument-less closure the loop
+/// calls for each message (`_RawReceivePort._despachar`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_portas_despachante(f: i64) {
     HEAP.with(|h| h.borrow_mut().set_global_root(DISPATCHER_ROOT, f));
     DISPATCHER.with(|d| *d.borrow_mut() = f);
 }
 
-/// `DartForge_porta_atual()`: a porta da mensagem em despacho.
+/// `DartForge_porta_atual()`: the port of the message being dispatched.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_atual() -> i64 {
     CURRENT.with(|a| a.borrow().0)
 }
 
-/// `DartForge_mensagem_atual()`: a mensagem em despacho.
+/// `DartForge_mensagem_atual()`: the message being dispatched.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_mensagem_atual() -> i64 {
     CURRENT.with(|a| a.borrow().1)
 }
 
-/// `DartForge_classe_nao_enviavel(object)`: a classe de `object` não vai
-/// numa mensagem (`@pragma('vm:isolate-unsendable')` da VM). A descrição é a
-/// da VM sem o sufixo de biblioteca privada e sem o caminho de retenção.
+/// `DartForge_classe_nao_enviavel(object)`: the class of `object` does not go
+/// in a message (the VM's `@pragma('vm:isolate-unsendable')`). The description is the
+/// VM's without the private library suffix and without the retaining path.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(object: i64) {
     let class = HEAP.with(|h| h.borrow().object(object).map(|o| o.class_id));
@@ -1720,8 +1720,8 @@ pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(object: i64) {
     });
 }
 
-/// `DartForge_classe_transferivel(object)`: a classe de `object` tem o
-/// primeiro campo movido numa mensagem (`TransferableTypedData`).
+/// `DartForge_classe_transferivel(object)`: the class of `object` has its
+/// first field moved in a message (`TransferableTypedData`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_classe_transferivel(object: i64) {
     let class = HEAP.with(|h| h.borrow().object(object).map(|o| o.class_id));
@@ -1732,14 +1732,14 @@ pub extern "C" fn dartforge_nativo_DartForge_classe_transferivel(object: i64) {
     }
 }
 
-/// `DartForge_capacidade_nova()`: um id de capacidade único no processo.
+/// `DartForge_capacidade_nova()`: a capability id unique in the process.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_capacidade_nova() -> i64 {
     static NEXT_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
     NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-/// O nome registrado da classe `c` (vazio se não houver).
+/// The registered name of class `c` (empty if none).
 fn class_name(c: i64) -> String {
     CLASS_NAMES.with(|m| m.borrow().get(&c).cloned()).unwrap_or_default()
 }

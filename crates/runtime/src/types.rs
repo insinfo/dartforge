@@ -1,27 +1,27 @@
-// Runtime nativo: tipos em tempo de execução (RTI, docs/NATIVO-PLANO.md
-// §7.7), no desenho do dart2js (`sdk/lib/_internal/js_runtime/lib/rti.dart`):
+// Native runtime: runtime types (RTI, docs/NATIVO-PLANO.md
+// §7.7), following the dart2js design (`sdk/lib/_internal/js_runtime/lib/rti.dart`):
 //
-// * um **universo** de tipos canônicos por isolado: cada tipo é um id
-//   (`i64`) de uma tabela com *hash-consing* — o mesmo tipo tem sempre o
-//   mesmo id, então igualdade de tipos é igualdade de ids;
-// * **receitas**: o compilador descreve um tipo por um texto curto (a
-//   gramática está em `Reader`) que o runtime lê uma vez (o getter do
-//   global da receita guarda o id). Uma receita pode ter **variáveis**:
-//   `P<i>`, o i-ésimo parâmetro de tipo da classe que declara o código
-//   corrente, e `M<i>`, o i-ésimo argumento de tipo da função genérica
-//   corrente. `dartforge_rti_avaliar` troca as variáveis pelos tipos do
-//   ambiente (o tipo de `this` visto como aquela classe, e a tupla de
-//   argumentos da função) — o `_Rti._eval` do dart2js;
-// * **regras de supertipo** por classe (o `_Universe.findRule` do dart2js):
-//   para cada classe `C<X…>`, os supertipos dela escritos em `P<i>`;
-//   registradas pelo código gerado na entrada;
-// * o **tipo de cada objeto** genérico mora no `metadata` do cabeçalho do
-//   bloco (`layout::Header`, `id + 1`; docs/NATIVO-ESPACO-UNIFICADO.md
-//   §2.15), para todo objeto do espaço — listas e closures inclusive; um
-//   objeto sem metadado tem o tipo cru da classe (argumentos `dynamic`).
+// * a **universe** of canonical types per isolate: each type is an id
+//   (`i64`) of a *hash-consed* table — the same type always has the
+//   same id, so type equality is id equality;
+// * **recipes**: the compiler describes a type by a short text (the
+//   grammar is in `Reader`) that the runtime reads once (the getter of the
+//   recipe's global keeps the id). A recipe can have **variables**:
+//   `P<i>`, the i-th type parameter of the class that declares the current
+//   code, and `M<i>`, the i-th type argument of the current generic
+//   function. `dartforge_rti_avaliar` replaces the variables with the types of
+//   the environment (the type of `this` seen as that class, and the tuple of
+//   function arguments) — dart2js's `_Rti._eval`;
+// * **supertype rules** per class (dart2js's `_Universe.findRule`):
+//   for each class `C<X…>`, its supertypes written in `P<i>`;
+//   registered by the generated code at startup;
+// * the **type of each generic object** lives in the `metadata` of the block
+//   header (`layout::Header`, `id + 1`; docs/NATIVO-ESPACO-UNIFICADO.md
+//   §2.15), for every object of the space — lists and closures included; an
+//   object without metadata has the raw type of its class (`dynamic` arguments).
 //
-// A subtipagem segue as regras da especificação (Dart 3, sem tipos legados;
-// "Subtypes", o `_isSubtype` do dart2js), com cache por par.
+// Subtyping follows the rules of the specification (Dart 3, no legacy types;
+// "Subtypes", dart2js's `_isSubtype`), with a per-pair cache.
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum Type {
@@ -29,13 +29,13 @@ enum Type {
     Void,
     Never,
     Null,
-    /// Classe (id RTI) e argumentos.
+    /// Class (RTI id) and arguments.
     Interface(i64, Vec<i64>),
-    /// `T?` (normalizado: `T` não é anulável nem topo).
+    /// `T?` (normalized: `T` is neither nullable nor top).
     Nullable(i64),
     FutureOr(i64),
-    /// `R Function<X…>(pos…, [opc…], {nomeados…})`: `n_required` dos
-    /// posicionais são obrigatórios; os nomeados vêm ordenados pelo nome.
+    /// `R Function<X…>(pos…, [opt…], {named…})`: `n_required` of the
+    /// positionals are required; the named ones come sorted by name.
     Function {
         generics: usize,
         ret: i64,
@@ -43,21 +43,21 @@ enum Type {
         n_required: usize,
         named: Vec<(String, i64, bool)>,
     },
-    /// Variável ligada de um tipo de função genérico (índice de De Bruijn).
+    /// Bound variable of a generic function type (De Bruijn index).
     Enabled(usize),
     Record {
         pos: Vec<i64>,
         named: Vec<(String, i64)>,
     },
-    /// Variáveis de receita: parâmetro da classe e argumento da função.
+    /// Recipe variables: class parameter and function argument.
     ClassParam(usize),
     FunctionParam(usize),
-    /// Os argumentos de tipo de uma chamada genérica (o ambiente `M<i>`).
+    /// The type arguments of a generic call (the `M<i>` environment).
     Tuple(Vec<i64>),
 }
 
-/// As classes do SDK que o runtime precisa conhecer (registradas pelo
-/// código gerado): `dartforge_rti_classe_do_runtime`.
+/// The SDK classes the runtime needs to know (registered by the
+/// generated code): `dartforge_rti_classe_do_runtime`.
 #[derive(Default)]
 struct RuntimeClasses {
     int: i64,
@@ -79,48 +79,48 @@ struct RuntimeClasses {
 
 #[derive(Default)]
 struct Universe {
-    /// Cópia local (sem trava) dos tipos do [`GlobalUniverse`] que este
-    /// isolado já viu, pelo id.
+    /// Local copy (without lock) of the types of the [`GlobalUniverse`] that
+    /// this isolate has already seen, by id.
     types: Vec<Option<&'static Type>>,
     ix: HashMap<Type, i64>,
-    /// Supertipos de cada classe: (classe do supertipo, modelo em `P<i>`).
+    /// Supertypes of each class: (supertype class, model in `P<i>`).
     rules: HashMap<i64, Vec<(i64, i64)>>,
-    /// Nome e número de parâmetros de tipo de cada classe (id RTI).
+    /// Name and number of type parameters of each class (RTI id).
     classes: HashMap<i64, (String, usize)>,
-    /// Classe RTI de um id de classe do heap que não é o mesmo número (as
-    /// classes de erro 1000–1012 do runtime).
+    /// RTI class of a heap class id that is not the same number (the
+    /// runtime's error classes 1000–1012).
     from_heap: HashMap<i64, i64>,
     rt: RuntimeClasses,
     cache_sub: HashMap<(i64, i64), bool>,
     eval_cache: HashMap<(i64, i64, i64, i64), i64>,
     recipes: HashMap<Vec<u16>, i64>,
-    /// `Interface(class, [])` já internado, por classe: o tipo de todo
-    /// `int`, `double`, `String`… de uma checagem, sem montar e hashear o
-    /// `Type` a cada vez (ids internados nunca mudam).
+    /// `Interface(class, [])` already interned, per class: the type of every
+    /// `int`, `double`, `String`… of a check, without building and hashing the
+    /// `Type` each time (interned ids never change).
     no_args: HashMap<i64, i64>,
-    /// O tipo cru de cada classe, com a aridade com que foi calculado (uma
-    /// recarga que mude a aridade recalcula).
+    /// The raw type of each class, with the arity it was computed with (a
+    /// reload that changes the arity recomputes it).
     raws: HashMap<i64, (usize, i64)>,
-    /// Memória direta (sem colisão resolvida: a entrada nova ocupa a vaga)
-    /// de `v is t`, pela chave do valor ([`value_key`]): `(chave, t,
-    /// resposta)`. Evita montar o tipo do valor e o cache de subtipos a cada
-    /// conferência de covariância (`K`/`V` do `[]=` de um mapa, `E` do `add`
-    /// de uma lista), que a VM faz com um teste de classe em linha.
+    /// Direct-mapped memo (no collision resolution: the new entry takes the slot)
+    /// of `v is t`, by the value key ([`value_key`]): `(key, t,
+    /// answer)`. Avoids building the value's type and the subtype cache on every
+    /// covariance check (`K`/`V` of a map's `[]=`, `E` of a list's
+    /// `add`), which the VM does with an inline class test.
     memo_and: Vec<(i64, i64, bool)>,
-    /// O mesmo para `dartforge_rti_avaliar`: `[chave de this, modelo,
-    /// classe, tupla, resultado]`.
+    /// The same for `dartforge_rti_avaliar`: `[key of this, model,
+    /// class, tuple, result]`.
     memo_eval: Vec<[i64; 5]>,
-    /// O mesmo para `dartforge_rti_definir` de uma coleção do runtime:
-    /// `[class concreta, tipo request, tipo gravado]` — o `List<E>` de um
-    /// literal visto como `_GrowableList<E>` passava por `as_supertype`
-    /// (e um `Vec` novo) a cada lista criada (N17).
+    /// The same for `dartforge_rti_definir` of a runtime collection:
+    /// `[concrete class, requested type, stored type]` — the `List<E>` of a
+    /// literal seen as `_GrowableList<E>` went through `as_supertype`
+    /// (and a new `Vec`) on every list created (N17).
     memo_set: Vec<[i64; 3]>,
 }
 
-/// O tamanho das memórias diretas do [`Universe`] (potência de 2).
+/// The size of the direct-mapped memos of the [`Universe`] (power of 2).
 const MEMO_N: usize = 1 << 10;
 
-/// A vaga de uma chave nas memórias diretas.
+/// The slot of a key in the direct-mapped memos.
 fn memo_slot(a: i64, b: i64, c: i64) -> usize {
     let h = (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
         ^ (b as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
@@ -128,12 +128,12 @@ fn memo_slot(a: i64, b: i64, c: i64) -> usize {
     (h >> (64 - MEMO_N.trailing_zeros())) as usize
 }
 
-/// Uma chave que determina o tipo de `h` em [`value_type`] sem o
-/// montar (§2.15): o tipo reificado gravado no objeto (o metadado, > 0), ou,
-/// sem ele, `-16 - cid` — para todo valor: `null` e `Smi` pelos cids 1 e 2,
-/// os demais pelo cid do cabeçalho. Um record posicional sem metadado não
-/// tem chave (o tipo dele sai dos campos). `None` também para o que não é
-/// valor válido.
+/// A key that determines the type of `h` in [`value_type`] without
+/// building it (§2.15): the reified type stored in the object (the metadata, > 0), or,
+/// without it, `-16 - cid` — for every value: `null` and `Smi` by cids 1 and 2,
+/// the others by the header cid. A positional record without metadata has
+/// no key (its type comes from the fields). `None` also for what is not a
+/// valid value.
 fn value_key(h: i64) -> Option<i64> {
     use crate::layout::{DESLOCAMENTO_DO_HANDLE, cid};
     if h == 0 {
@@ -145,10 +145,10 @@ fn value_key(h: i64) -> Option<i64> {
     if !crate::layout::is_object(h) {
         return None;
     }
-    // O metadado e a classe no cabeçalho, sem o heap (o handle é o bloco + 2;
-    // vale também para os estáticos da imagem).
-    // SAFETY: o handle de um objeto vivo (o valor que o código gerado
-    // passou) aponta para o cabeçalho do bloco dele.
+    // The metadata and the class in the header, without the heap (the handle is the block + 2;
+    // also holds for the image statics).
+    // SAFETY: the handle of a live object (the value the generated code
+    // passed) points to its block header.
     #[allow(unsafe_code)]
     let c = unsafe { *((h - DESLOCAMENTO_DO_HANDLE) as *const crate::layout::Header) };
     if c.metadata != 0 {
@@ -161,17 +161,17 @@ thread_local! {
     static RTI: RefCell<Universe> = RefCell::new(Universe::new());
 }
 
-/// Os ids de tipo são do PROCESSO, não do isolado (docs/NATIVO-PROJETOS-REAIS.md,
-/// C11): um id guardado como palavra crua — o argumento de tipo `T` que uma
-/// closure genérica capturou no contexto, a tupla de tipos de uma chamada —
-/// atravessa `Isolate.spawn` copiado como número, e no isolado novo tinha de
-/// denotar o mesmo tipo. Com um universo por isolado, o id do principal
-/// apontava para outro tipo (ou para fora da tabela: o pânico
-/// "index out of bounds" do `NotificationServiceWorker` do new_sali/backend).
-/// A VM manda os argumentos de tipo como objetos. Aqui a tabela canônica é
-/// uma só, só de acréscimo (cada tipo vazado para viver o processo todo); cada
-/// isolado guarda a sua cópia local dos que já viu, e só o tipo novo passa
-/// pela trava.
+/// Type ids belong to the PROCESS, not to the isolate (docs/NATIVO-PROJETOS-REAIS.md,
+/// C11): an id kept as a raw word — the type argument `T` that a
+/// generic closure captured in its context, the type tuple of a call —
+/// crosses `Isolate.spawn` copied as a number, and in the new isolate it had to
+/// denote the same type. With one universe per isolate, the main isolate's id
+/// pointed to another type (or outside the table: the
+/// "index out of bounds" panic of `NotificationServiceWorker` in new_sali/backend).
+/// The VM sends type arguments as objects. Here the canonical table is
+/// a single one, append-only (each type leaked to live for the whole process); each
+/// isolate keeps its local copy of those it has already seen, and only a new type goes
+/// through the lock.
 struct GlobalUniverse {
     types: Vec<&'static Type>,
     ix: HashMap<Type, i64>,
@@ -181,7 +181,7 @@ fn global_universe() -> &'static std::sync::RwLock<GlobalUniverse> {
     static G: std::sync::OnceLock<std::sync::RwLock<GlobalUniverse>> = std::sync::OnceLock::new();
     G.get_or_init(|| {
         let mut g = GlobalUniverse { types: Vec::new(), ix: HashMap::default() };
-        // Os ids fixos: T_DINAMICO, T_VAZIO, T_NUNCA, T_NULO.
+        // The fixed ids: T_DINAMICO, T_VAZIO, T_NUNCA, T_NULO.
         for t in [Type::Dynamic, Type::Void, Type::Never, Type::Null] {
             let id = g.types.len() as i64;
             g.types.push(Box::leak(Box::new(t.clone())));
@@ -191,59 +191,59 @@ fn global_universe() -> &'static std::sync::RwLock<GlobalUniverse> {
     })
 }
 
-/// O tipo `id` da tabela do processo.
+/// The type `id` of the process table.
 fn global_type(id: i64) -> Option<&'static Type> {
     let g = global_universe().read().unwrap_or_else(|e| e.into_inner());
     usize::try_from(id).ok().and_then(|i| g.types.get(i).copied())
 }
 
-/// Vagas da [`FAST_MEMO`] (potência de 2).
+/// Slots of the [`FAST_MEMO`] (power of 2).
 const FAST_MEMO_N: usize = 256;
 
 thread_local! {
-    /// A memória direta de `v is t` na frente do [`Universe`]
-    /// (docs/NATIVO-PLANO.md §13.2, item 7): `[key do value, t, response]`,
-    /// a mesma chave e as mesmas respostas de `memo_and`, mas num estático de
-    /// thread sem destrutor nem `RefCell`. O acerto dispensa o acesso ao
-    /// universo, o `borrow` e as consultas de `test_without_value` — o que pesa
-    /// nas duas conferências de covariância de cada `mapa[k] = v`. Esquecida
-    /// junto com as memórias do universo ([`Universe::forget_memos`]).
+    /// The direct-mapped memo of `v is t` in front of the [`Universe`]
+    /// (docs/NATIVO-PLANO.md §13.2, item 7): `[key of the value, t, response]`,
+    /// the same key and the same answers as `memo_and`, but in a thread
+    /// static with no destructor nor `RefCell`. A hit avoids accessing the
+    /// universe, the `borrow` and the `test_without_value` lookups — which weighs
+    /// on the two covariance checks of each `map[k] = v`. Forgotten
+    /// together with the universe memos ([`Universe::forget_memos`]).
     static FAST_MEMO: std::cell::UnsafeCell<[[i64; 3]; FAST_MEMO_N]> =
         const { std::cell::UnsafeCell::new([[0, -1, 0]; FAST_MEMO_N]) };
 }
 
-/// A vaga de `(key, t)` na [`FAST_MEMO`].
+/// The slot of `(key, t)` in the [`FAST_MEMO`].
 #[inline(always)]
 fn fast_slot(key: i64, t: i64) -> usize {
     let h = (key as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (t as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
     (h >> (64 - FAST_MEMO_N.trailing_zeros())) as usize
 }
 
-/// `v is t` guardado na [`FAST_MEMO`] para a chave do valor. Nenhuma chave
-/// vale 0 e nenhum tipo -1: a vaga vazia nunca casa.
+/// `v is t` stored in the [`FAST_MEMO`] for the value key. No key
+/// is 0 and no type is -1: the empty slot never matches.
 #[inline(always)]
 #[allow(unsafe_code)]
 fn fast_memo_read(key: i64, t: i64) -> Option<u8> {
-    // SAFETY: a memória é desta thread e nenhuma referência a ela sobrevive à
-    // leitura.
+    // SAFETY: the memo belongs to this thread and no reference to it outlives the
+    // read.
     let e = FAST_MEMO.with(|m| unsafe { (*m.get())[fast_slot(key, t)] });
     (e[0] == key && e[1] == t).then_some(e[2] as u8)
 }
 
 #[allow(unsafe_code)]
 fn fast_memo_store(key: i64, t: i64, r: bool) {
-    // SAFETY: como em `fast_memo_read`.
+    // SAFETY: as in `fast_memo_read`.
     FAST_MEMO.with(|m| unsafe { (*m.get())[fast_slot(key, t)] = [key, t, i64::from(r)] });
 }
 
 #[allow(unsafe_code)]
 fn fast_memo_forget() {
-    // SAFETY: como em `fast_memo_read`.
+    // SAFETY: as in `fast_memo_read`.
     FAST_MEMO.with(|m| unsafe { *m.get() = [[0, -1, 0]; FAST_MEMO_N] });
 }
 
 impl Type {
-    /// O tipo com cada tipo-filho trocado por `f(child)`.
+    /// The type with each child type replaced by `f(child)`.
     fn with_children(&self, mut f: impl FnMut(i64) -> i64) -> Type {
         match self {
             Type::Interface(c, args) => Type::Interface(*c, args.iter().map(|&x| f(x)).collect()),
@@ -266,9 +266,9 @@ impl Type {
     }
 }
 
-/// Os tipos de uma mensagem para outro isolado: cada id do universo deste
-/// isolado vira um índice de uma tabela própria, com os filhos antes dos
-/// pais (os ids de tipo são por isolado; os de classe, do programa).
+/// The types of a message to another isolate: each id of this isolate's
+/// universe becomes an index of its own table, with children before
+/// parents (type ids are per isolate; class ids, per program).
 #[derive(Clone, Default)]
 pub struct MessageTypes {
     types: Vec<Type>,
@@ -276,7 +276,7 @@ pub struct MessageTypes {
 }
 
 impl MessageTypes {
-    /// O índice (na tabela da mensagem) do tipo `id` deste isolado.
+    /// The index (in the message table) of this isolate's type `id`.
     pub fn export(&mut self, id: i64) -> i64 {
         if let Some(&i) = self.ix.get(&id) {
             return i;
@@ -289,7 +289,7 @@ impl MessageTypes {
         i
     }
 
-    /// Os ids, no universo deste isolado, de todos os tipos da tabela.
+    /// The ids, in this isolate's universe, of all types in the table.
     pub fn import(&self) -> Vec<i64> {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
@@ -317,8 +317,8 @@ impl Universe {
         u
     }
 
-    /// Esquece as memórias diretas (uma regra, classe ou forma nova do
-    /// runtime pode mudar uma resposta guardada).
+    /// Forgets the direct-mapped memos (a new rule, class or runtime shape
+    /// can change a stored answer).
     fn forget_memos(&mut self) {
         fast_memo_forget();
         self.memo_and.clear();
@@ -326,7 +326,7 @@ impl Universe {
         self.memo_set.clear();
     }
 
-    /// `v is t` guardado para a chave do valor.
+    /// `v is t` stored for the value key.
     fn memo_and_read(&self, key: i64, t: i64) -> Option<bool> {
         let (c, tt, r) = *self.memo_and.get(memo_slot(key, t, 0))?;
         (c == key && tt == t).then_some(r)
@@ -334,15 +334,15 @@ impl Universe {
 
     fn memo_and_store(&mut self, key: i64, t: i64, r: bool) {
         if self.memo_and.is_empty() {
-            // Uma vaga vazia nunca casa: nenhuma chave vale 0 (o metadado
-            // é > 0, as espécies < 0).
+            // An empty slot never matches: no key is 0 (metadata
+            // is > 0, kinds < 0).
             self.memo_and = vec![(0, 0, false); MEMO_N];
         }
         let i = memo_slot(key, t, 0);
         self.memo_and[i] = (key, t, r);
     }
 
-    /// `dartforge_rti_avaliar` guardado.
+    /// Stored `dartforge_rti_avaliar`.
     fn memo_eval_read(&self, k: [i64; 4]) -> Option<i64> {
         let e = self.memo_eval.get(memo_slot(k[0], k[1], k[2] ^ k[3].rotate_left(32)))?;
         (e[..4] == k).then_some(e[4])
@@ -382,7 +382,7 @@ impl Universe {
         id
     }
 
-    /// O tipo `id`, se existe (a cópia local, senão a tabela do processo).
+    /// The type `id`, if it exists (the local copy, otherwise the process table).
     fn get_value(&self, id: i64) -> Option<&Type> {
         match usize::try_from(id).ok().and_then(|i| self.types.get(i).copied().flatten()) {
             Some(t) => Some(t),
@@ -391,7 +391,7 @@ impl Universe {
     }
 
     fn tipo(&self, id: i64) -> &Type {
-        self.get_value(id).expect("tipo inválido")
+        self.get_value(id).expect("invalid type")
     }
 
     fn is_top(&self, id: i64) -> bool {
@@ -403,10 +403,10 @@ impl Universe {
         }
     }
 
-    /// `v is t` quando a resposta não depende do tipo do valor: `t` é um
-    /// tipo topo, ou `Object` e `v` não é null. O caso de todo `as E` com
-    /// `E` = `Object?`/`dynamic` nas coleções do SDK; poupa montar o tipo
-    /// do valor (o heap, o metadado, o universo) e o cache de subtipos.
+    /// `v is t` when the answer does not depend on the value's type: `t` is a
+    /// top type, or `Object` and `v` is not null. The case of every `as E` with
+    /// `E` = `Object?`/`dynamic` in SDK collections; spares building the value's
+    /// type (the heap, the metadata, the universe) and the subtype cache.
     fn test_without_value(&self, v: i64, t: i64) -> Option<bool> {
         if self.is_top(t) {
             return Some(true);
@@ -421,7 +421,7 @@ impl Universe {
         matches!(self.tipo(id), Type::Interface(c, a) if *c == self.rt.object && a.is_empty())
     }
 
-    /// `T?` normalizado (especificação, "Type normalization").
+    /// Normalized `T?` (specification, "Type normalization").
     fn nullable(&mut self, t: i64) -> i64 {
         match self.tipo(t).clone() {
             Type::Dynamic | Type::Void | Type::Null | Type::Nullable(_) => t,
@@ -439,7 +439,7 @@ impl Universe {
         }
     }
 
-    /// `FutureOr<T>` normalizado.
+    /// Normalized `FutureOr<T>`.
     fn future_or(&mut self, t: i64) -> i64 {
         if self.is_top(t) || self.e_object(t) {
             return t;
@@ -466,12 +466,12 @@ impl Universe {
         self.intern(Type::Interface(class, args))
     }
 
-    /// A classe RTI de um id de classe do heap.
+    /// The RTI class of a heap class id.
     fn heap_class(&self, id: i64) -> i64 {
         self.from_heap.get(&id).copied().unwrap_or(id)
     }
 
-    /// Tipo cru de uma classe: argumentos `dynamic`.
+    /// Raw type of a class: `dynamic` arguments.
     fn raw_value(&mut self, class: i64) -> i64 {
         let n = self.classes.get(&class).map_or(0, |c| c.1);
         if let Some(&(arity, id)) = self.raws.get(&class)
@@ -484,7 +484,7 @@ impl Universe {
         id
     }
 
-    /// Troca as variáveis de receita pelos tipos do ambiente.
+    /// Replaces the recipe variables with the environment types.
     fn substitute(&mut self, t: i64, class: &[i64], function: &[i64]) -> i64 {
         match self.tipo(t).clone() {
             Type::ClassParam(i) => class.get(i).copied().unwrap_or(T_DYNAMIC),
@@ -529,8 +529,8 @@ impl Universe {
         }
     }
 
-    /// Os argumentos do supertipo `target` de `classe<args>` (a própria classe
-    /// ou uma das regras dela).
+    /// The arguments of the supertype `target` of `class<args>` (the class itself
+    /// or one of its rules).
     fn as_supertype(&mut self, class: i64, args: &[i64], target: i64) -> Option<Vec<i64>> {
         if class == target {
             return Some(args.to_vec());
@@ -633,7 +633,7 @@ impl Universe {
                     }
                     let _ = req;
                 }
-                // Todo nomeado obrigatório de S tem de ser passado por T.
+                // Every required named parameter of S must be passed by T.
                 n1.iter()
                     .filter(|(_, _, r)| *r)
                     .all(|(m, _, _)| n2.iter().any(|(n, _, r)| n == m && *r))
@@ -649,7 +649,7 @@ impl Universe {
         }
     }
 
-    /// O texto de um tipo, como o `Type.toString()` da VM.
+    /// The text of a type, like the VM's `Type.toString()`.
     fn text(&self, t: i64) -> String {
         match self.tipo(t) {
             Type::Dynamic => "dynamic".to_string(),
@@ -681,7 +681,7 @@ impl Universe {
                     part_list.push(format!("{{{}}}", n.join(", ")));
                 }
                 let g = if *generics > 0 {
-                    // Como a VM: `<Y0, Y1>(Y0) => Y1`.
+                    // Like the VM: `<Y0, Y1>(Y0) => Y1`.
                     let v: Vec<String> = (0..*generics).map(|i| format!("Y{i}")).collect();
                     format!("<{}>", v.join(", "))
                 } else {
@@ -708,21 +708,21 @@ impl Universe {
     }
 }
 
-/// Leitor de receitas (unidades UTF-16 do texto). A gramática:
+/// Recipe reader (UTF-16 units of the text). The grammar:
 ///
 /// ```text
 /// T := 'D' | 'V' | 'N' | 'U'              dynamic, void, Never, Null
-///    | 'C' n [ '<' T (',' T)* '>' ]       class (id RTI) com arguments
+///    | 'C' n [ '<' T (',' T)* '>' ]       class (RTI id) with arguments
 ///    | 'O' '<' T '>'                      FutureOr
-///    | 'P' n | 'M' n | 'B' n              pairâmetro da class, da função, variável ligada
+///    | 'P' n | 'M' n | 'B' n              class parameter, function parameter, bound variable
 ///    | 'F' '<' g ';' T ';' n ';' T* ';' (name ':' T ['!'])* '>'
-///                                         função: genéricos, ret, obrigatórios,
+///                                         function: generics, ret, required count,
 ///                                         positional, named ('!' = required)
 ///    | 'R' '<' T* ';' (name ':' T)* '>'   record
-///    | 'L' '<' T* '>'                     tuple de arguments de tipo
-///    | T '?'                              anulável
+///    | 'L' '<' T* '>'                     tuple of type arguments
+///    | T '?'                              nullable
 /// ```
-/// Listas separadas por `,`.
+/// Lists separated by `,`.
 struct Reader<'x> {
     u: &'x [u16],
     i: usize,
@@ -733,13 +733,13 @@ impl Reader<'_> {
         self.u.get(self.i).map(|&c| char::from_u32(u32::from(c)).unwrap_or('\0'))
     }
     fn take(&mut self) -> char {
-        let c = self.peek().expect("receita de tipo truncada");
+        let c = self.peek().expect("truncated type recipe");
         self.i += 1;
         c
     }
     fn wait_for(&mut self, c: char) {
         let d = self.take();
-        assert!(d == c, "receita de tipo: esperava {c:?}, veio {d:?}");
+        assert!(d == c, "type recipe: expected {c:?}, got {d:?}");
     }
     fn number(&mut self) -> i64 {
         let mut neg = false;
@@ -862,7 +862,7 @@ impl Reader<'_> {
                 self.wait_for('>');
                 u.intern(Type::Tuple(a))
             }
-            c => panic!("receita de tipo: caractere inesperado {c:?}"),
+            c => panic!("type recipe: unexpected character {c:?}"),
         };
         while self.peek() == Some('?') {
             self.i += 1;
@@ -872,10 +872,10 @@ impl Reader<'_> {
     }
 }
 
-// `smi` para todos os fragmentos.
+// `smi` for all fragments.
 use crate::heap::smi;
 
-/// O tipo de um valor sem caixa ou numa posição `Ref`.
+/// The type of an unboxed value or one in a `Ref` position.
 #[allow(dead_code)]
 fn value_type(u: &mut Universe, v: crate::heap::Value) -> i64 {
     use crate::heap::Value;
@@ -887,7 +887,7 @@ fn value_type(u: &mut Universe, v: crate::heap::Value) -> i64 {
     }
 }
 
-/// O tipo de um `Ref` (null, `Smi` ou objeto), despachado pelo cid (§2.15).
+/// The type of a `Ref` (null, `Smi` or object), dispatched by cid (§2.15).
 fn ref_type(u: &mut Universe, h: i64) -> i64 {
     use crate::layout::cid;
     if h == 0 {
@@ -914,14 +914,14 @@ fn ref_type(u: &mut Universe, h: i64) -> i64 {
             cid::ONE_BYTE_STRING | cid::TWO_BYTE_STRING => Shape::Raw(u.rt.string),
             cid::CLOSURE => Shape::Raw(u.rt.function),
             cid::RECORD => Shape::Record(heap.record(h).map(<[i64]>::to_vec).unwrap_or_default()),
-            // As classes internas do runtime (contexto, célula, acumulador,
-            // programa de `RegExp`) nunca chegam ao programa como valor.
+            // The runtime's internal classes (context, cell, accumulator,
+            // `RegExp` program) never reach the program as values.
             cid::CONTEXTO | cid::CELULA | cid::STRING_ACCUMULATOR | cid::REGEXP_PROGRAM => Shape::Raw(u.rt.object),
-            // Lista sem tipo gravado (literal de `E` dinâmico, lista do
-            // runtime), lista tipada, objeto: a classe concreta
-            // (`_GrowableList`, `_List`, `_ImmutableList`…), como na VM —
-            // `List` cru não é subtipo de `ListBase`, e o `addAll` do SDK
-            // converte para ele.
+            // List without a stored type (literal with dynamic `E`, runtime
+            // list), typed list, object: the concrete class
+            // (`_GrowableList`, `_List`, `_ImmutableList`…), as in the VM —
+            // raw `List` is not a subtype of `ListBase`, and the SDK's `addAll`
+            // converts to it.
             c => Shape::Raw(u.heap_class(i64::from(c))),
         }
     });
@@ -935,11 +935,11 @@ fn ref_type(u: &mut Universe, h: i64) -> i64 {
     }
 }
 
-/// Os natives `_List` e `_GrowableList` recebem a tupla dos argumentos de
-/// tipo do construtor como último parâmetro. Converte `L<E>` no tipo do
-/// objeto concreto (`_List<E>` ou `_GrowableList<E>`) que será guardado no
-/// metadado do slot do heap. A classe concreta preserva `P0` nos métodos do
-/// SDK declarados nessas classes, como `_GrowableList.toList`.
+/// The `_List` and `_GrowableList` natives receive the tuple of the constructor's
+/// type arguments as the last parameter. Converts `L<E>` into the type of the
+/// concrete object (`_List<E>` or `_GrowableList<E>`) that will be stored in the
+/// metadata of the heap slot. The concrete class preserves `P0` in the SDK
+/// methods declared in those classes, such as `_GrowableList.toList`.
 pub(crate) fn tuple_list_type(tuple: i64, concrete_class: Option<i64>) -> Option<i64> {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
@@ -955,11 +955,11 @@ pub(crate) fn tuple_list_type(tuple: i64, concrete_class: Option<i64>) -> Option
     })
 }
 
-/// O tipo reificado `meta` de uma lista (`Interface(List, [E])`) aceita um
-/// valor `int` (`code` 1), `double` (2) ou `bool` (3)? Só lê o universo
-/// (sem internar): `E` é `dynamic`, `void`, `Object`, a própria classe, ou
-/// um anulável ou `FutureOr` deles. Outro `E` (`num`, `Comparable`…)
-/// responde falso, e quem pergunta segue pelo `[]=` do SDK, que confere.
+/// Does the reified type `meta` of a list (`Interface(List, [E])`) accept an
+/// `int` (`code` 1), `double` (2) or `bool` (3) value? Only reads the universe
+/// (without interning): `E` is `dynamic`, `void`, `Object`, the class itself, or
+/// a nullable or `FutureOr` of them. Any other `E` (`num`, `Comparable`…)
+/// answers false, and the caller goes through the SDK's `[]=`, which checks.
 pub(crate) fn list_accepts_scalar(meta: i64, code: i64) -> bool {
     RTI.with(|u| {
         let u = u.borrow();
@@ -982,12 +982,12 @@ pub(crate) fn list_accepts_scalar(meta: i64, code: i64) -> bool {
     })
 }
 
-/// A forma dos elementos (N14) de uma lista de tipo reificado `meta`
-/// (`Interface(List, [E])`): compacta quando o `E` é exatamente `int`,
-/// `double` ou `bool` não anuláveis — então só esse escalar entra pelo
-/// `[]=`/`add` do SDK (a covariância confere o valor contra o `E`
-/// reificado), e os 8 bytes dos bits bastam; senão a geral. Só lê o
-/// universo.
+/// The element shape (N14) of a list with reified type `meta`
+/// (`Interface(List, [E])`): compact when `E` is exactly non-nullable `int`,
+/// `double` or `bool` — then only that scalar enters through the SDK's
+/// `[]=`/`add` (covariance checks the value against the reified
+/// `E`), and the 8 bytes of the bits are enough; otherwise the general one. Only reads the
+/// universe.
 pub(crate) fn type_list_shape(meta: i64) -> crate::lists::Element {
     use crate::lists::Element;
     RTI.with(|u| {
@@ -1011,12 +1011,12 @@ pub(crate) fn type_list_shape(meta: i64) -> crate::lists::Element {
     })
 }
 
-/// Põe a lista `h` na forma do tipo reificado dela (N14,
-/// [`type_list_shape`]): chamado sempre que o metadado de uma lista
-/// é gravado. A troca é do armazenamento (`Heap::list_adjust_shape`,
-/// `lists.rs`, §2.15), que converte no lugar os elementos que já existem,
-/// sem alocar; uma lista que ainda não cabe na forma compacta fica geral.
-/// Nada disso é observável.
+/// Puts the list `h` in the shape of its reified type (N14,
+/// [`type_list_shape`]): called whenever the metadata of a list
+/// is stored. The switch is of the storage (`Heap::list_adjust_shape`,
+/// `lists.rs`, §2.15), which converts the existing elements in place,
+/// without allocating; a list that does not fit the compact shape yet stays general.
+/// None of this is observable.
 pub(crate) fn adjust_list_shape(heap: &mut Heap, h: i64) {
     if !crate::layout::is_object(h) || !heap.e_lista(h) {
         return;
@@ -1024,8 +1024,8 @@ pub(crate) fn adjust_list_shape(heap: &mut Heap, h: i64) {
     let meta = heap.metadata(h);
     let shape = if meta == 0 { crate::lists::Element::General } else { type_list_shape(meta - 1) };
     if heap.list_shape(h) != shape {
-        // A troca pode alocar (as caixas da forma geral, §2.16): a lista
-        // fica enraizada enquanto isso (quem chama nem sempre a enraizou).
+        // The switch can allocate (the boxes of the general shape, §2.16): the list
+        // stays rooted meanwhile (the caller has not always rooted it).
         let frame = heap.push_frame_with_slots(1);
         heap.set_root(frame, 0, h);
         heap.list_adjust_shape(h, shape);
@@ -1033,8 +1033,8 @@ pub(crate) fn adjust_list_shape(heap: &mut Heap, h: i64) {
     }
 }
 
-/// Grava o tipo reificado `meta` (o metadado, `tipo + 1`) da lista `h` e a
-/// põe na forma dele ([`adjust_list_shape`]).
+/// Stores the reified type `meta` (the metadata, `type + 1`) of the list `h` and
+/// puts it in its shape ([`adjust_list_shape`]).
 pub(crate) fn set_list_type(h: i64, meta: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
@@ -1043,8 +1043,8 @@ pub(crate) fn set_list_type(h: i64, meta: i64) {
     });
 }
 
-/// `List<String>` na classe concreta de uma lista que o runtime cria (o
-/// `Dart_NewListOfTypeFilled` da VM).
+/// `List<String>` in the concrete class of a list the runtime creates (the
+/// VM's `Dart_NewListOfTypeFilled`).
 pub(crate) fn string_list_type(concrete_class: Option<i64>) -> Option<i64> {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
@@ -1058,8 +1058,8 @@ pub(crate) fn string_list_type(concrete_class: Option<i64>) -> Option<i64> {
     })
 }
 
-/// `_List._sliceInternal` cria outra classe concreta de lista, mas conserva
-/// o argumento `E` do receptor. O native não recebe tupla de tipo separada.
+/// `_List._sliceInternal` creates another concrete list class, but keeps
+/// the receiver's `E` argument. The native receives no separate type tuple.
 pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Option<i64> {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
@@ -1076,28 +1076,28 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
     })
 }
 
-// --- ABI do código gerado ------------------------------------------------
+// --- Generated code ABI --------------------------------------------------
 
-/// Os registros da RTI do programa numa tabela (`lower/rti.rs`): uma linha
-/// por registro — `C<id> <parâmetros> <nome>` (o nome da classe),
-/// `R<id> <receita>` (uma regra de supertipo) e `F<forma> <id>` (a classe de
-/// uma forma do runtime) —, lidos na ordem. A tabela grande vem comprimida
+/// The program's RTI registrations in a table (`lower/rti.rs`): one line
+/// per registration — `C<id> <parameters> <name>` (the class name),
+/// `R<id> <recipe>` (a supertype rule) and `F<shape> <id>` (the class of
+/// a runtime shape) —, read in order. The large table comes compressed
 /// (`tabela_rti`).
 ///
 /// # Safety
-/// `data` aponta para as palavras do vetor constante do módulo, com ao menos
-/// `len` bytes legíveis (empacotados em little-endian): o texto UTF-8 ou a
-/// forma comprimida dele. O vetor vive o processo inteiro.
+/// `data` points to the words of the module's constant vector, with at least
+/// `len` readable bytes (packed in little-endian): the UTF-8 text or its
+/// compressed form. The vector lives for the whole process.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(data: *const i64, len: i64) {
-    // SAFETY: garantido por quem chama (uma constante do módulo).
+    // SAFETY: guaranteed by the caller (a module constant).
     let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
     let bytes = if bytes.starts_with(crate::tabela_rti::HEADER) { crate::tabela_rti::decompressed(bytes) } else { bytes };
-    let text = std::str::from_utf8(bytes).expect("tabela da RTI em UTF-8");
+    let text = std::str::from_utf8(bytes).expect("RTI table in UTF-8");
     for line in text.lines() {
         let (tipo, rest) = line.split_at(1);
-        let (a, b) = rest.split_once(' ').expect("registro da RTI");
-        let id: i64 = a.parse().expect("id da RTI");
+        let (a, b) = rest.split_once(' ').expect("RTI registration");
+        let id: i64 = a.parse().expect("RTI id");
         match tipo {
             "C" => {
                 let (n, name) = b.split_once(' ').unwrap_or((b, ""));
@@ -1112,19 +1112,19 @@ pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(data: *const i64, len: i64
                 let model = units_recipe(b.encode_utf16().collect());
                 dartforge_rti_regra(id, model);
             }
-            "F" => dartforge_rti_classe_do_runtime(id, b.parse().expect("id da RTI")),
-            // A biblioteca e o nome declarado da classe (`dart:mirrors`).
+            "F" => dartforge_rti_classe_do_runtime(id, b.parse().expect("RTI id")),
+            // The library and the declared name of the class (`dart:mirrors`).
             "B" => {
                 let (uri, name) = b.split_once(' ').unwrap_or((b, ""));
                 register_class_library(id, uri, name);
             }
-            _ => panic!("registro da RTI desconhecido: {line}"),
+            _ => panic!("unknown RTI registration: {line}"),
         }
     }
 }
 
-/// Registra uma regra de supertipo: `class` tem o supertipo `model` (uma
-/// receita já lida, em `P<i>` dos parâmetros de `class`).
+/// Registers a supertype rule: `class` has the supertype `model` (an
+/// already read recipe, in `P<i>` of the parameters of `class`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_regra(class: i64, model: i64) {
     RTI.with(|u| {
@@ -1133,22 +1133,22 @@ pub extern "C" fn dartforge_rti_regra(class: i64, model: i64) {
             Type::Interface(c, _) => *c,
             _ => return,
         };
-        // Sem duplicar: a publicação de uma recarga refaz as regras.
+        // Without duplicating: publishing a reload redoes the rules.
         let rules = u.rules.entry(class).or_default();
         if !rules.contains(&(sup, model)) {
             rules.push((sup, model));
-            // Uma regra nova (a geração nova de uma recarga) pode mudar uma
-            // resposta já guardada.
+            // A new rule (the new generation of a reload) can change an
+            // already stored answer.
             u.cache_sub.clear();
             u.forget_memos();
         }
     });
 }
 
-/// A classe RTI de uma das formas do runtime (0 int, 1 double, 2 bool,
+/// The RTI class of one of the runtime shapes (0 int, 1 double, 2 bool,
 /// 3 String, 4 List, 5 Map, 6 Set, 7 Function, 8 Record, 9 Future,
-/// 10 Object, 11 StringBuffer, 12 RegExp, 13 Match, 14 Type) ou, com
-/// `shape` ≥ 1000, a classe RTI do id de classe do heap `shape`.
+/// 10 Object, 11 StringBuffer, 12 RegExp, 13 Match, 14 Type) or, with
+/// `shape` ≥ 1000, the RTI class of the heap class id `shape`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_classe_do_runtime(shape: i64, class: i64) {
     RTI.with(|u| {
@@ -1178,15 +1178,15 @@ pub extern "C" fn dartforge_rti_classe_do_runtime(shape: i64, class: i64) {
     });
 }
 
-/// Lê uma receita (uma `String` do heap; o getter do global dela guarda o
-/// resultado).
+/// Reads a recipe (a heap `String`; the getter of its global keeps the
+/// result).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_receita(text: i64) -> i64 {
     let unidades: Vec<u16> = HEAP.with(|h| h.borrow().text(text).map(|t| t.unidades().collect()).unwrap_or_default());
     units_recipe(unidades)
 }
 
-/// A receita (em UTF-16) lida e internada.
+/// The recipe (in UTF-16) read and interned.
 fn units_recipe(unidades: Vec<u16>) -> i64 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
@@ -1195,34 +1195,34 @@ fn units_recipe(unidades: Vec<u16>) -> i64 {
         }
         let mut l = Reader { u: &unidades, i: 0 };
         let t = l.tipo(&mut u);
-        assert!(l.i == unidades.len(), "receita de tipo com sobra");
+        assert!(l.i == unidades.len(), "type recipe with leftover");
         u.recipes.insert(unidades, t);
         t
     })
 }
 
-/// A receita `model` no ambiente: `P<i>` é o i-ésimo argumento do tipo de
-/// `this` visto como a classe `class` (0 = sem `this`), `M<i>` o i-ésimo
-/// da tupla `tuple` (0 = nenhuma: `dynamic`).
+/// The recipe `model` in the environment: `P<i>` is the i-th argument of the type of
+/// `this` seen as the class `class` (0 = no `this`), `M<i>` the i-th
+/// of the tuple `tuple` (0 = none: `dynamic`).
 ///
-/// O receiver é emprestado, inclusive os filhos de records sem metadado.
-/// Só lê o heap; internamento e memórias usam estruturas nativas, sem coleta,
-/// alocação Dart, escrita de campos, publicação de handles ou saída pending.
-/// Os IDs são do universo RTI, não referências gerenciadas.
+/// The receiver is borrowed, including the children of records without metadata.
+/// Only reads the heap; interning and memos use native structures, with no collection,
+/// Dart allocation, field writes, handle publication or pending exit.
+/// The IDs belong to the RTI universe, not managed references.
 ///
 /// # Panics
-/// IDs inconsistentes ou receiver sem vida válida: erro interno, sem exceção Dart.
+/// Inconsistent IDs or a receiver without valid lifetime: internal error, no Dart exception.
 ///
 /// ```
 /// use dartforge_runtime::abi::dartforge_rti_avaliar;
-/// assert_eq!(dartforge_rti_avaliar(0, 0, 0, 0), 0); // dynamic permanece dynamic.
+/// assert_eq!(dartforge_rti_avaliar(0, 0, 0, 0), 0); // dynamic stays dynamic.
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_avaliar(model: i64, this: i64, class: i64, tuple: i64) -> i64 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
-        // O tipo de `this` só entra pela chave dele: a memória direta
-        // responde sem montá-lo.
+        // The type of `this` only enters through its key: the direct-mapped memo
+        // answers without building it.
         let this_key = if this == 0 { Some(0) } else { value_key(this) };
         let memo = this_key.map(|c| [c, model, class, tuple]);
         if let Some(r) = memo.and_then(|k| u.memo_eval_read(k)) {
@@ -1257,17 +1257,17 @@ pub extern "C" fn dartforge_rti_avaliar(model: i64, this: i64, class: i64, tuple
     })
 }
 
-/// [`dartforge_rti_avaliar`] (sem tupla) de um ponto de uso com cache em
-/// linha (`llvm/mod.rs`, N17): `cache` são as duas palavras do ponto na
-/// área de globais do isolado — a chave de `this` ([`value_key`] de
-/// um objeto do espaço: o metadado, ou `-16 - class`) e o resultado. O
-/// código gerado compara a chave lida no cabeçalho de `this` com a
-/// primeira palavra e só chama aqui na falha; aqui a resposta é gravada
-/// quando `this` é objeto do espaço (os outros valores não têm a chave no
-/// cabeçalho e voltam sempre ao runtime).
+/// [`dartforge_rti_avaliar`] (without tuple) of a use site with an inline
+/// cache (`llvm/mod.rs`, N17): `cache` are the two words of the site in the
+/// isolate's globals area — the key of `this` ([`value_key`] of
+/// an object of the space: the metadata, or `-16 - class`) and the result. The
+/// generated code compares the key read from the header of `this` with the
+/// first word and only calls here on a miss; here the answer is stored
+/// when `this` is an object of the space (other values do not have the key in the
+/// header and always come back to the runtime).
 ///
 /// # Safety
-/// `cache` aponta para duas palavras graváveis da área do isolado.
+/// `cache` points to two writable words of the isolate area.
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
 pub unsafe extern "C" fn dartforge_rti_avaliar_cache(cache: *mut i64, model: i64, this: i64, class: i64) -> i64 {
@@ -1276,7 +1276,7 @@ pub unsafe extern "C" fn dartforge_rti_avaliar_cache(cache: *mut i64, model: i64
         && let Some(key) = value_key(this)
         && key != 0
     {
-        // SAFETY: o contrato acima; só a thread do isolado grava a área.
+        // SAFETY: the contract above; only the isolate's thread writes the area.
         unsafe {
             *cache = key;
             *cache.add(1) = r;
@@ -1285,23 +1285,23 @@ pub unsafe extern "C" fn dartforge_rti_avaliar_cache(cache: *mut i64, model: i64
     r
 }
 
-/// Grava o tipo de um objeto genérico (no `metadata` do cabeçalho).
+/// Stores the type of a generic object (in the header `metadata`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     if !crate::layout::is_object(obj) {
         return;
     }
-    // O lowering dos literais reifica `List<E>`, `Map<K,V>` ou `Set<E>`, mas
-    // os objetos pertencem às classes concretas do SDK. Os métodos dessas
-    // classes (e de seus mixins) avaliam `P<i>` a partir do receptor.
-    // A classe e o metadado no cabeçalho do bloco (`layout::Header`), sem
-    // consultar o heap — como o código gerado lê.
+    // The lowering of literals reifies `List<E>`, `Map<K,V>` or `Set<E>`, but
+    // the objects belong to the SDK's concrete classes. The methods of those
+    // classes (and of their mixins) evaluate `P<i>` from the receiver.
+    // The class and the metadata in the block header (`layout::Header`), without
+    // consulting the heap — as the generated code reads them.
     let header = (obj - crate::layout::DESLOCAMENTO_DO_HANDLE) as *mut crate::layout::Header;
-    // SAFETY: o handle de um objeto vivo aponta para o cabeçalho dele.
+    // SAFETY: the handle of a live object points to its header.
     #[allow(unsafe_code)]
     let (estado, cid) = unsafe { ((*header).estado, (*header).class_id) };
-    // Um estático da imagem (`PERMANENTE`) é só leitura e não tem tipo a
-    // gravar (os literais de string e as caixas de `bool`).
+    // An image static (`PERMANENTE`) is read-only and has no type to
+    // store (string literals and the `bool` boxes).
     if estado == crate::layout::estado::PERMANENTE {
         return;
     }
@@ -1309,9 +1309,9 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     let tipo = if let Some(class) = concrete_class {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
-            // Só a interface de coleção de outra classe muda; o caso comum
-            // (a classe do próprio objeto: `Future<T>`, `_Map<K, V>`…) sai
-            // sem copiar o tipo. Só esse caso entra na memória, lida antes.
+            // Only the collection interface of another class changes; the common case
+            // (the object's own class: `Future<T>`, `_Map<K, V>`…) leaves
+            // without copying the type. Only that case enters the memo, read before.
             let slot = memo_slot(class, tipo, 1);
             if let Some(&[mc, mt, r]) = u.memo_set.get(slot)
                 && mc == class
@@ -1331,7 +1331,7 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
                 tipo
             };
             if u.memo_set.is_empty() {
-                // Vaga vazia nunca casa: nenhum tipo pedido vale -1.
+                // An empty slot never matches: no requested type is -1.
                 u.memo_set = vec![[0, -1, 0]; MEMO_N];
             }
             u.memo_set[slot] = [class, tipo, r];
@@ -1340,35 +1340,35 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     } else {
         tipo
     };
-    // O metadado (`id + 1`) não é referência: sem barreira.
-    // SAFETY: como acima; o cabeçalho é do objeto e só esta thread o grava.
+    // The metadata (`id + 1`) is not a reference: no barrier.
+    // SAFETY: as above; the header belongs to the object and only this thread writes it.
     #[allow(unsafe_code)]
     unsafe {
-        (*header).metadata = u32::try_from(tipo + 1).expect("metadado além de 32 bits");
+        (*header).metadata = u32::try_from(tipo + 1).expect("metadata beyond 32 bits");
     }
-    // Um literal `<int>[…]` (N14): a lista compacta.
+    // An `<int>[…]` literal (N14): the compact list.
     if crate::layout::cid::e_lista(cid) {
         HEAP.with(|h| adjust_list_shape(&mut h.borrow_mut(), obj));
     }
 }
 
-/// Grava o tipo estrutural de um record com campos nomeados. Os campos do
-/// objeto já foram preenchidos em ordem canônica (posicionais, depois nomes
-/// ordenados); os tipos vêm dos valores reais, como exige `Record.runtimeType`.
+/// Stores the structural type of a record with named fields. The object's
+/// fields were already filled in canonical order (positionals, then sorted
+/// names); the types come from the actual values, as `Record.runtimeType` requires.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, names: i64) {
-    let npos = usize::try_from(npos).expect("número de campos posicionais inválido");
+    let npos = usize::try_from(npos).expect("invalid number of positional fields");
     let names = HEAP.with(|h| h.borrow().text(names).map(|t| t.para_string()).unwrap_or_default());
     let fields = HEAP.with(|h| {
         let h = h.borrow();
-        h.object(obj).expect("record nomeado esperado").to_vec()
+        h.object(obj).expect("named record expected").to_vec()
     });
     let names: Vec<&str> = names.split(',').collect();
-    assert_eq!(fields.len(), npos + names.len(), "forma do record nomeado");
+    assert_eq!(fields.len(), npos + names.len(), "shape of the named record");
     let tipo = RTI.with(|u| {
         let mut u = u.borrow_mut();
         let mut fields: Vec<i64> = fields.into_iter().map(|(bits, is_ref)| {
-            assert!(is_ref, "campo de record sem referência");
+            assert!(is_ref, "record field without reference");
             ref_type(&mut u, bits)
         }).collect();
         let named = names.into_iter().zip(fields.drain(npos..)).map(|(n, t)| (n.to_string(), t)).collect();
@@ -1377,9 +1377,9 @@ pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, names: i64
     dartforge_rti_definir(obj, tipo);
 }
 
-/// Texto com argumentos de tipo para o `toString` padrão de um valor
-/// (`Instance of 'Caixa<int>'`, como a VM), ou `None` quando o tipo do valor
-/// não tem argumentos — aí o chamador usa o nome registrado da classe.
+/// Text with type arguments for the default `toString` of a value
+/// (`Instance of 'Caixa<int>'`, like the VM), or `None` when the value's type
+/// has no arguments — then the caller uses the registered class name.
 pub(crate) fn text_with_arguments(v: i64) -> Option<String> {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
@@ -1389,7 +1389,7 @@ pub(crate) fn text_with_arguments(v: i64) -> Option<String> {
     })
 }
 
-/// O tipo de um valor `Ref`.
+/// The type of a `Ref` value.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_do_valor(v: i64) -> i64 {
     RTI.with(|u| ref_type(&mut u.borrow_mut(), v))
@@ -1432,21 +1432,21 @@ pub extern "C" fn dartforge_rti_subtipo(s: i64, t: i64) -> u8 {
     RTI.with(|u| u8::from(u.borrow_mut().sub(s, t)))
 }
 
-/// `v as T`: `TypeError` pendente se `v` não é um `T` (a mensagem da VM:
+/// `v as T`: pending `TypeError` if `v` is not a `T` (the VM message:
 /// "type 'S' is not a subtype of type 'T' in type cast").
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
     dartforge_rti_como_em(v, t, 0, 0);
 }
 
-/// [`dartforge_rti_como`] com o contexto da conferência, que muda o fim da
-/// mensagem da VM: 0 o `as` (" in type cast"), 1 a atribuição implícita de
-/// um `dynamic` (sem sufixo), 2 o parâmetro `name` (um `String`) na entrada
-/// de uma chamada dinâmica ou covariante (" of 'nome'").
+/// [`dartforge_rti_como`] with the check context, which changes the end of the
+/// VM message: 0 the `as` (" in type cast"), 1 the implicit assignment of
+/// a `dynamic` (no suffix), 2 the parameter `name` (a `String`) on entry
+/// to a dynamic or covariant call (" of 'name'").
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, name: i64) {
-    // O sufixo só é montado na falha: a conferência que passa (quase
-    // todas) não aloca nada.
+    // The suffix is only built on failure: a passing check (almost
+    // all of them) allocates nothing.
     let suffix = || match contexto {
         0 => " in type cast".to_string(),
         1 => String::new(),
@@ -1479,17 +1479,17 @@ pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, name: i64
     }
 }
 
-/// Id de classe do heap do objeto `Type` (o `_Type` da VM): um objeto com o
-/// id do tipo no campo 0, canônico por tipo (`identical(A, A)`, chave de
-/// mapa). O compilador registra a classe com o `toString` dela.
+/// Heap class id of the `Type` object (the VM's `_Type`): an object with the
+/// type id in field 0, canonical per type (`identical(A, A)`, map
+/// key). The compiler registers the class with its `toString`.
 const TYPE_CLASS: i64 = 0x3FFF_FF01;
 
 thread_local! {
     static TYPE_OBJECTS: RefCell<HashMap<i64, i64>> = RefCell::new(HashMap::default());
 }
 
-/// O objeto `Type` canônico do tipo `t` (raiz permanente, como os valores
-/// de enum).
+/// The canonical `Type` object of type `t` (permanent root, like enum
+/// values).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
     if let Some(h) = TYPE_OBJECTS.with(|m| m.borrow().get(&t).copied()) {
@@ -1498,11 +1498,11 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
     let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let h = heap.new_object(TYPE_CLASS, &[(t, false)]);
-        // Raiz permanente num id que os globais do programa (não negativos)
-        // e o laço de eventos (negativos pequenos) não usam. A sabotagem
+        // Permanent root in an id that the program globals (non-negative)
+        // and the event loop (small negatives) do not use. The sabotage
         // `tipo_sem_raiz` (D12, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-        // §7.3) tira o registro: o cache passa a guardar um handle que a
-        // coleta libera.
+        // §7.3) removes the registration: the cache then keeps a handle that
+        // collection frees.
         if !crate::heap::sabotage("tipo_sem_raiz") {
             heap.set_global_root(-(1_i64 << 40) - t, h);
         }
@@ -1512,9 +1512,9 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
     h
 }
 
-/// [`dartforge_rti_objeto_tipo`] sob ARC: o objeto `Type` canônico com um
-/// owner do código, independente da raiz permanente do cache. Pode alocar
-/// na primeira consulta; não lança nem executa Dart.
+/// [`dartforge_rti_objeto_tipo`] under ARC: the canonical `Type` object with a
+/// code owner, independent of the cache's permanent root. May allocate
+/// on the first lookup; does not throw nor run Dart.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1532,18 +1532,18 @@ pub extern "C" fn dartforge_arc_rti_objeto_tipo_owned_v1(t: i64) -> i64 {
     h
 }
 
-/// O texto de um tipo (`Type.toString()`), como `String` do heap.
+/// The text of a type (`Type.toString()`), as a heap `String`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {
     let s = RTI.with(|u| u.borrow().text(t));
     HEAP.with(|h| h.borrow_mut().allocate_str(&s))
 }
 
-/// O texto de um tipo sob ARC, com um owner do código do resultado.
+/// The text of a type under ARC, with a code owner of the result.
 ///
-/// `t` é um ID do universo RTI, não referência do heap. O chamador transfere
-/// o owner ou chama release exatamente uma vez. Não executa Dart nem deixa
-/// exceção pendente.
+/// `t` is an RTI universe ID, not a heap reference. The caller transfers
+/// the owner or calls release exactly once. Does not run Dart nor leave a
+/// pending exception.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -1564,12 +1564,12 @@ pub extern "C" fn dartforge_arc_rti_texto_owned_v1(t: i64) -> i64 {
     })
 }
 
-/// `TypeError` com a mensagem. No SDK da fonte, a exceção precisa ser a classe
-/// `_TypeError` real para `e is TypeError` e o despacho de `toString`.
+/// `TypeError` with the message. In the source SDK, the exception must be the real
+/// `_TypeError` class for `e is TypeError` and `toString` dispatch.
 fn dartforge_type_error_com_mensagem(message: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeTipo") {
-        // SAFETY: o helper registrado pelo `dart:core` recebe String e
-        // devolve a instância concreta de `_TypeError`.
+        // SAFETY: the helper registered by `dart:core` receives a String and
+        // returns the concrete `_TypeError` instance.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[message], || g(message));
     }
@@ -1594,7 +1594,7 @@ mod tests_arc_borrowed_evaluation {
             dartforge_arc_gravar_campo_ref_v1(object, 1, child);
             dartforge_rti_definir(object, recipe("C32001<C200>"));
             let refs = [child, 0, crate::layout::smi::de(7).unwrap()];
-            // SAFETY: vetor vivo de três Ref sustentados pelo chamador.
+            // SAFETY: live vector of three Refs held by the caller.
             let rec = unsafe { dartforge_record_novo(refs.as_ptr(), refs.len() as i64) };
             dartforge_arc_retain(rec);
             let parameter = recipe("P0");
