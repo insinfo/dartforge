@@ -8,12 +8,12 @@
 #   pwsh scripts/custo-zero.ps1 -Atual <dir> -Base <dir> [-Rodadas 5] [-Tolerancia 0.10]
 #       mede (1) o corpus JS inteiro (corpus/js, um `dartforge compile-js` por
 #       programa) e (2) a edição de corpo numa sessão sintética de ~300
-#       bibliotecas (exemplo `medir` do crates/dev, média do platô).
+#       bibliotecas (exemplo `measure` do crates/dev, média do platô).
 #   pwsh scripts/custo-zero.ps1 -Atual <dir> -Base <dir> -Entrada <x.dart> -Packages <cfg> [-Alvo <arq>]
 #       só a edição de corpo, num projeto real (ex.: new_sali/core; ver
 #       scripts/medir-custo-zero.ps1).
 #
-# Cada <dir> tem `dartforge.exe` e `medir.exe` (o exemplo). Sai com código 1
+# Cada <dir> tem `dartforge.exe` e `measure.exe` (o exemplo). Sai com código 1
 # se alguma medida piorar além da tolerância; escreve a tabela em
 # $env:GITHUB_STEP_SUMMARY quando existe.
 param(
@@ -50,9 +50,9 @@ function Corpus([string]$dir, [string]$saida) {
     return $t.Elapsed.TotalMilliseconds
 }
 
-# (2) Sessão residente: média de ms por edição de corpo (platô do `medir`).
+# (2) Sessão residente: média de ms por edição de corpo (platô do `measure`).
 function Sessao([string]$dir, [string]$entrada, [string]$cfg, [string]$alvo) {
-    $exe = Join-Path $dir 'medir.exe'
+    $exe = Join-Path $dir 'measure.exe'
     $env:DARTFORGE_DEV_SAIDA = Join-Path $tmp ('dev-' + (Split-Path $dir -Leaf))
     $a = @($entrada)
     if ($cfg) { $a += $cfg } else { $a += '' }
@@ -61,7 +61,7 @@ function Sessao([string]$dir, [string]$entrada, [string]$cfg, [string]$alvo) {
     # Tolerante à página de código do console (a saída do exemplo é UTF-8).
     # A média vem com duas casas (inteira em binários antigos, como o da base):
     # em ms inteiros, 1 ms a ~26 ms já passava da tolerância de 3%.
-    if ($saida -notmatch 'm\S*dia (\d+(?:\.\d+)?) ms/edi') { throw "medir sem a linha de média:`n$saida" }
+    if ($saida -notmatch 'm\S*dia (\d+(?:\.\d+)?) ms/edi') { throw "measure sem a linha de média:`n$saida" }
     return [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
 }
 

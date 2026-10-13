@@ -30,20 +30,24 @@ function Compilar([string]$fonte, [string]$alvo, [string]$destino) {
     # pedidos, e o binário `dartforge` ficaria de fora.
     cargo build --release -p dartforge-cli
     $ok = $LASTEXITCODE -eq 0
-    cargo build --release -p dartforge-dev --example medir
+    # O exemplo chamava-se `medir` antes da tradução dos nomes para inglês:
+    # uma -Ref antiga ainda o tem com o nome antigo.
+    $exemplo = if (Test-Path (Join-Path $fonte 'crates/dev/examples/measure.rs')) { 'measure' } else { 'medir' }
+    cargo build --release -p dartforge-dev --example $exemplo
     $ok = $ok -and ($LASTEXITCODE -eq 0)
     Remove-Item Env:CARGO_TARGET_DIR
     Pop-Location
     if (-not $ok) { throw "build falhou em $fonte" }
     New-Item -ItemType Directory -Force $destino | Out-Null
-    Copy-Item (Join-Path $alvo 'release/dartforge.exe'), (Join-Path $alvo 'release/examples/medir.exe') $destino -Force
+    Copy-Item (Join-Path $alvo 'release/dartforge.exe') $destino -Force
+    Copy-Item (Join-Path $alvo "release/examples/$exemplo.exe") (Join-Path $destino 'measure.exe') -Force
 }
 
 $alvoAtual = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $raiz 'target' }
 Compilar $raiz $alvoAtual (Join-Path $trabalho 'bin-atual')
 
 $binBase = Join-Path $trabalho 'bin-base'
-if (-not ($ReusarBase -and (Test-Path (Join-Path $binBase 'medir.exe')))) {
+if (-not ($ReusarBase -and (Test-Path (Join-Path $binBase 'measure.exe')))) {
     $fonteBase = Join-Path $trabalho 'base-src'
     if (Test-Path $fonteBase) { Remove-Item -Recurse -Force $fonteBase }
     New-Item -ItemType Directory -Force $fonteBase | Out-Null

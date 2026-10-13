@@ -1,6 +1,6 @@
 //! Edit latency with the generation engine turned on (engine plan §6.5).
 //!
-//! `cargo run --release -p dartforge-dev --example medir_geracao -- <input.dart> <package_config.json> [output] [repetitions] [sem-motor]`
+//! `cargo run --release -p dartforge-dev --example measure_generation -- <input.dart> <package_config.json> [output] [repetitions] [sem-motor]`
 //!
 //! Opens the session, compiles, picks a component whose `.template.dart`
 //! comes from the native generator (with `.html` and `.scss` next to it) and
@@ -34,9 +34,9 @@ fn row(name: &str, r: &Report) {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let input = PathBuf::from(args.first().expect("usage: medir_geracao <input.dart> <package_config.json> [output] [repetitions]"));
+    let input = PathBuf::from(args.first().expect("usage: measure_generation <input.dart> <package_config.json> [output] [repetitions]"));
     let packages = PathBuf::from(args.get(1).expect("package_config.json"));
-    let output = PathBuf::from(args.get(2).cloned().unwrap_or_else(|| "target/dev-medir-geracao".into()));
+    let output = PathBuf::from(args.get(2).cloned().unwrap_or_else(|| "target/dev-measure-generation".into()));
     let repetitions: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(3);
 
     // `sem-motor` (no engine): the same session without a stage (the

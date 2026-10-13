@@ -13,7 +13,7 @@
 #   * `cargo doc`: por decisão do proprietário (2026-09-29), o CI não gasta
 #     tempo com formatação nem documentação gerada; os doctests seguem no
 #     `cargo test`.
-#   * Ubuntu: a trilha nova falha no Linux em dartforge-dev (hashes, plato),
+#   * Ubuntu: a trilha nova falha no Linux em dartforge-dev (hashes, plateau),
 #     dartforge-emit-js (basico) e dartforge-elements (sdk_cache) — não no
 #     Windows, que é o alvo. Registrado para quem cuidar do Linux.
 #

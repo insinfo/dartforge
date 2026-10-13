@@ -894,7 +894,7 @@ jobs:
   # lentos que no main. Compila os dois (commit e main) e mede em 5 rodadas
   # alternadas; reprova se a mediana do commit passar a do main + 3%
   # (scripts/custo-zero.ps1). O portão estrutural (nenhum motor construído,
-  # alocações iguais por edição) é o crates/dev/tests/custo_zero.rs, no ci.yml.
+  # alocações iguais por edição) é o crates/dev/tests/zero_cost.rs, no ci.yml.
   custo-zero:
     name: custo zero (tempo)
     needs: compilar
@@ -929,17 +929,17 @@ jobs:
         run: |
           cargo build --locked --release -p dartforge-cli
           if ($LASTEXITCODE -ne 0) { throw 'build do commit falhou' }
-          cargo build --locked --release -p dartforge-dev --example medir
+          cargo build --locked --release -p dartforge-dev --example measure
           if ($LASTEXITCODE -ne 0) { throw 'build do commit falhou' }
           New-Item -ItemType Directory -Force bin-atual, bin-base | Out-Null
-          Copy-Item target/release/dartforge.exe, target/release/examples/medir.exe bin-atual
+          Copy-Item target/release/dartforge.exe, target/release/examples/measure.exe bin-atual
           Push-Location base
           cargo build --locked --release -p dartforge-cli
           if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'build do main falhou' }
-          cargo build --locked --release -p dartforge-dev --example medir
+          cargo build --locked --release -p dartforge-dev --example measure
           if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'build do main falhou' }
           Pop-Location
-          Copy-Item base/target/release/dartforge.exe, base/target/release/examples/medir.exe bin-base
+          Copy-Item base/target/release/dartforge.exe, base/target/release/examples/measure.exe bin-base
       - name: Medir (5 rodadas alternadas)
         shell: pwsh
         run: |

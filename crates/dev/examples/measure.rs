@@ -1,7 +1,7 @@
 //! Measures the resident session: first compilation, body edit, public API
 //! edit and the memory plateau after N edits.
 //!
-//! `cargo run -q --release -p dartforge-dev --example medir -- <input.dart> [package_config.json] [file_to_edit] [N]`
+//! `cargo run -q --release -p dartforge-dev --example measure -- <input.dart> [package_config.json] [file_to_edit] [N]`
 //!
 //! The edited file is restored at the end (the example truncates what it
 //! appended).
@@ -62,7 +62,7 @@ fn main() {
     // directory that the full `compile-js` wrote.
     let output = std::env::var_os("DARTFORGE_DEV_SAIDA")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/dev-medir"));
+        .unwrap_or_else(|| PathBuf::from("target/dev-measure"));
     if !input.exists() {
         eprintln!("input does not exist: {}", input.display());
         return;

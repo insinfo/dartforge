@@ -76,7 +76,7 @@ impl AnalyzedUnitCache {
     }
 
     /// Source bytes retained — the share that grows with the project, not with
-    /// the number of edits (the `medir` example watches this).
+    /// the number of edits (the `measure` example watches this).
     pub fn source_bytes(&self) -> usize {
         self.units.values().map(|u| u.source.len()).sum()
     }

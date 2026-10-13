@@ -6362,7 +6362,7 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   `docs/BUILD-PEDIDOS-GERADOR-NG.md`, "Estágio B no motor"). Falta medir a
   latência no `new_sali` e os recursos SCSS encadeados.
 * **Custo zero** (regra governante, PLANO.md): portão estrutural
-  `crates/dev/tests/custo_zero.rs` verde — num projeto sem `build_runner`,
+  `crates/dev/tests/zero_cost.rs` verde — num projeto sem `build_runner`,
   nenhum motor construído (`instancias() == 0`), relatório sem motor e a
   **mesma contagem de alocações** por edição que uma sessão construída sem
   etapas; portão de tempo no `pesado.yml` (job `custo-zero`, commit × main,

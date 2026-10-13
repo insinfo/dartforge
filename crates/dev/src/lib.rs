@@ -7,7 +7,7 @@
 //!
 //! Memory discipline: what the session retains grows with the **project**,
 //! not with the number of edits — the new unit replaces the old one in the
-//! same cache slot (`crates/dev/tests/plato.rs` watches it with
+//! same cache slot (`crates/dev/tests/plateau.rs` watches it with
 //! `live_bytes`).
 pub mod generation;
 pub mod hashes;
