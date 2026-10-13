@@ -1,16 +1,16 @@
-//! O `KeywordHelper` do analysis server 3.6.2
-//! (`AS:src/services/completion/dart/keyword_helper.dart`, lido inteiro) e a
+//! The analysis server 3.6.2 `KeywordHelper`
+//! (`AS:src/services/completion/dart/keyword_helper.dart`, read in full) and
 //! `KeywordSuggestion` (`candidate_suggestion.dart:452-512`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::isp::{Isp, Feature};
 use super::*;
 use dartforge_frontend::token::Op;
 use std::sync::{Mutex, OnceLock};
 
-/// O texto de uma sugestão de palavra-chave como `&'static str` (o
-/// `Rel.word`): os textos possíveis são finitos (a palavra mais um texto
-/// anotado fixo do passe), guardados uma vez cada.
+/// The text of a keyword suggestion as `&'static str` (the `Rel.word`): the
+/// possible texts are finite (the keyword plus a fixed annotated text of the
+/// pass), stored once each.
 fn is_static(s: &str) -> &'static str {
     static TEXTS: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
     let mut m = TEXTS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
@@ -30,13 +30,13 @@ fn without_caret(t: &str) -> (String, Option<usize>) {
     }
 }
 
-/// `CollectionElement` que não é `Expression`.
+/// A `CollectionElement` that is not an `Expression`.
 fn element_not_expression(e: &str) -> bool {
     matches!(e, "IfElement" | "ForElement" | "SpreadElement" | "MapLiteralEntry" | "NullAwareElement")
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
-    /// Empurra a `KeywordSuggestion` (`completion`, `selectionOffset`).
+    /// Pushes the `KeywordSuggestion` (`completion`, `selectionOffset`).
     pub(super) fn word_suggestion(&mut self, completion: String, selection: usize, score: f64) {
         let before = self.collector.items.len();
         let end = completion.encode_utf16().count();
@@ -49,7 +49,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.register(before, score);
     }
 
-    /// `addKeyword`: o casamento é pelo lexema.
+    /// `addKeyword`: matching is by lexeme.
     pub(super) fn kw(&mut self, word: &str) {
         let s = self.score(word);
         if s != -1.0 {
@@ -57,7 +57,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `addKeywordAndText`: o casamento é pelo lexema; o texto vai depois.
+    /// `addKeywordAndText`: matching is by lexeme; the text goes after.
     pub(super) fn kw_and_text(&mut self, word: &str, annotated: &str) {
         let s = self.score(word);
         if s != -1.0 {
@@ -67,7 +67,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `addText`: o casamento é pelo texto sem o `^`.
+    /// `addText`: matching is by the text without the `^`.
     pub(super) fn annotated_text(&mut self, annotated: &str) {
         let (raw, c) = without_caret(annotated);
         let s = self.score(&raw);
@@ -85,16 +85,16 @@ impl<'a, 'c> Isp<'a, 'c> {
         })
     }
 
-    /// A palavra que abre a cláusula filha `kind` de `n`
-    /// (`extendsKeyword`, `withKeyword`…).
+    /// The keyword that opens the child clause `kind` of `n` (`extendsKeyword`,
+    /// `withKeyword`…).
     pub(super) fn clause_word(&self, n: usize, kind: &str) -> Option<usize> {
         let c = self.child(n, kind)?;
         let i = self.tok_after(self.start(c))?;
         (self.span_tok(i).start < self.end(c).max(self.start(c) + 1) && self.word(i)).then_some(i)
     }
 
-    /// Um modificador escrito antes da palavra `until` (`class`, `mixin`) da
-    /// declaração.
+    /// A modifier written before the keyword `until` (`class`, `mixin`) of the
+    /// declaration.
     pub(super) fn modifier_before(&self, n: usize, word: &str, until: &str) -> Option<usize> {
         let start = self.first_after_annotations(n).map_or(self.start(n), |i| self.span_tok(i).start);
         let end = self.word_in(until, start, self.end(n)).map_or(self.end(n), |i| self.span_tok(i).start);
@@ -152,7 +152,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O `else` de um `IfElement` e o elemento depois dele.
+    /// The `else` of an `IfElement` and the element after it.
     pub(super) fn if_else(&self, n: usize) -> (Option<usize>, Option<usize>) {
         let opens = self.op_in(Op::LParen, self.start(n), self.end(n));
         let after = opens.and_then(|a| self.pair(a)).map_or(self.start(n), |f| self.span_tok(f).end);
@@ -180,7 +180,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.kind(f) != "IfElement" || self.if_else(f).0.is_some() {
             return false;
         }
-        // `thenElement` não sintético: há um elemento depois do `)`.
+        // A non-synthetic `thenElement`: there is an element after the `)`.
         let opens = self.op_in(Op::LParen, self.start(f), self.end(f));
         let Some(closes) = opens.and_then(|a| self.pair(a)) else { return false };
         let end_f = self.span_tok(closes).end;
@@ -235,9 +235,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `addConstructorInitializerKeywords`. A lista vazia (o fasta sempre
-    /// cria ao menos um inicializador, sintético) conta como um
-    /// `ConstructorFieldInitializer` sintético.
+    /// `addConstructorInitializerKeywords`. The empty list (fasta always creates
+    /// at least one initializer, a synthetic one) counts as a synthetic
+    /// `ConstructorFieldInitializer`.
     pub(super) fn constructor_initializer_kw(&mut self, ctor: usize, init: Option<usize>) {
         self.kw("assert");
         let inits = self.children_of(ctor, &["ConstructorFieldInitializer", "SuperConstructorInvocation", "RedirectingConstructorInvocation", "AssertInitializer"]);
@@ -303,7 +303,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `constIsValid` de `addExpressionKeywords`.
+    /// `constIsValid` of `addExpressionKeywords`.
     pub(super) fn valid_const(&self, n: usize) -> bool {
         let mut n = n;
         if element_not_expression(self.kind(n)) {
@@ -326,8 +326,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O `:` de um `SwitchPatternCase` (o offset; sintético: o do próximo
-    /// token depois do padrão).
+    /// The `:` of a `SwitchPatternCase` (the offset; synthetic: that of the next
+    /// token after the pattern).
     pub(super) fn case_colon(&self, n: usize) -> usize {
         let after = self.child(n, "GuardedPattern").map_or_else(|| self.tok_after(self.start(n)).map_or(self.start(n), |i| self.span_tok(i).end), |g| self.end(g));
         match self.op_in(Op::Colon, after, self.end(n).max(after + 1)) {
@@ -336,7 +336,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `switchIsValid` de `addExpressionKeywords`.
+    /// `switchIsValid` of `addExpressionKeywords`.
     pub(super) fn valid_switch(&self, n: usize) -> bool {
         let mut n = n;
         if element_not_expression(self.kind(n)) {
@@ -411,8 +411,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.extension_member_kw(is_static);
     }
 
-    /// `addFieldDeclarationKeywords`: `word` é a palavra-chave que a
-    /// recuperação usou como nome da única variável.
+    /// `addFieldDeclarationKeywords`: `word` is the keyword that recovery used
+    /// as the name of the only variable.
     pub(super) fn field_declaration_kw(&mut self, n: usize, word: Option<&str>) {
         let Some(list_node) = self.child(n, "VariableDeclarationList") else { return };
         let Some(l) = self.real_list(list_node) else { return };
@@ -520,8 +520,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                     Some(a) if self.offset < self.span_tok(a).start => self.kw("deferred"),
                     Some(a) => {
-                        // `prefix`: o identificador depois do `as` (sintético:
-                        // no próximo token).
+                        // `prefix`: the identifier after the `as` (synthetic: at the next token).
                         let end_a = self.span_tok(a).end;
                         let prefix_end = match self.tok_after(end_a) {
                             Some(i) if self.is_identifier(i) => self.span_tok(i).end,

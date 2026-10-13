@@ -1,28 +1,29 @@
-//! Tokens semânticos (`textDocument/semanticTokens/full` e `/range`) no
-//! formato do servidor do Dart 3.6.2: o `DartUnitHighlightsComputer`
-//! (`pkg/analysis_server/lib/src/computer/computer_highlights.dart`) com o
-//! mapa de `lsp/semantic_tokens/mapping.dart` e o `SemanticTokenEncoder`
-//! (`lsp/semantic_tokens/encoder.dart`).
+//! Semantic tokens (`textDocument/semanticTokens/full` and `/range`) in the
+//! Dart 3.6.2 server's format: the `DartUnitHighlightsComputer`
+//! (`pkg/analysis_server/lib/src/computer/computer_highlights.dart`) with
+//! the map of `lsp/semantic_tokens/mapping.dart` and the
+//! `SemanticTokenEncoder` (`lsp/semantic_tokens/encoder.dart`).
 //!
-//! * palavras reservadas e embutidas (`keyword`; `control` nas de fluxo:
+//! * reserved and built-in words (`keyword`; `control` for the flow ones:
 //!   `if`, `for`, `return`, `await`, `async`…), `true`/`false` (`boolean`),
-//!   `void` (`keyword` + `void`), números, strings (cada trecho de uma
-//!   interpolada; `${…}` como `source` + `interpolation`; escapes como
-//!   `string` + `escape`), comentários (`documentation` nos `///`/`/**`);
-//! * cada nome pela identidade da inferência comum (`get_resolved`,
-//!   namespaces): classe, enum, extensão e extension type (`class`/`enum`;
-//!   `constructor` quando é o nome de uma criação), typedef (`type`),
-//!   construtor nomeado (`method` + `constructor`), método (`method`),
-//!   getter, setter e referência a campo ou variável de topo (`property`),
-//!   declaração de campo ou variável (`variable` + `declaration`), local,
-//!   parâmetro (`parameter`; rótulo `name:` com `label`), parâmetro de tipo,
-//!   constante de enum, prefixo de import (`variable` + `importPrefix`),
-//!   função; `instance`/`static` e `declaration` como no Dart;
-//! * anotações (`annotation` do `@` ao `(`, e o `)`), com `annotation` nos
-//!   nomes dentro delas;
-//! * sobreposições divididas pelo de cima (o mais interno), como o
-//!   `splitOverlappingTokens`, e tokens de várias linhas quebrados por linha
-//!   quando o cliente não aceita `multilineTokenSupport`.
+//!   `void` (`keyword` + `void`), numbers, strings (each piece of an
+//!   interpolated one; `${…}` as `source` + `interpolation`; escapes as
+//!   `string` + `escape`), comments (`documentation` for `///`/`/**`);
+//! * each name by the identity from the common inference (`get_resolved`,
+//!   namespaces): class, enum, extension and extension type
+//!   (`class`/`enum`; `constructor` when it is the name of a creation),
+//!   typedef (`type`), named constructor (`method` + `constructor`), method
+//!   (`method`), getter, setter and reference to a field or top-level
+//!   variable (`property`), field or variable declaration (`variable` +
+//!   `declaration`), local, parameter (`parameter`; a `name:` label with
+//!   `label`), type parameter, enum constant, import prefix (`variable` +
+//!   `importPrefix`), function; `instance`/`static` and `declaration` as in
+//!   Dart;
+//! * annotations (`annotation` from the `@` to the `(`, and the `)`), with
+//!   `annotation` on the names inside them;
+//! * overlaps split by the one on top (the innermost), like
+//!   `splitOverlappingTokens`, and multi-line tokens broken per line when
+//!   the client does not accept `multilineTokenSupport`.
 
 use crate::project::{Project, type_parameter_declaration, is_prefix};
 use dartforge_diagnostics::Span;
@@ -32,21 +33,20 @@ use dartforge_frontend::token::{Kind, Op};
 use dartforge_types::{MemberRef, Resolved, Type};
 use std::collections::HashMap;
 
-/// Tipos de token na ordem da legenda do Dart 3.6.2 (o índice é o número
-/// enviado ao cliente).
+/// Token types in the order of the Dart 3.6.2 legend (the index is the
+/// number sent to the client).
 pub(crate) const TYPES: &[&str] = &[
     "annotation", "keyword", "class", "comment", "method", "variable", "parameter", "enum", "enumMember", "type",
     "source", "property", "namespace", "boolean", "number", "string", "function", "typeParameter",
 ];
 
-/// Modificadores na ordem da legenda do Dart 3.6.2 (o índice é o bit).
+/// Modifiers in the order of the Dart 3.6.2 legend (the index is the bit).
 pub(crate) const MODIFIERS: &[&str] = &[
     "documentation", "constructor", "declaration", "importPrefix", "instance", "static", "escape", "annotation",
     "control", "label", "interpolation", "void", "wildcard",
 ];
 
-/// Um token antes da codificação: offset e fim em bytes, tipo e
-/// modificadores.
+/// A token before encoding: offset and end in bytes, type and modifiers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Highlight {
     pub start: usize,
@@ -55,8 +55,8 @@ pub(crate) struct Highlight {
     pub modifiers: Vec<&'static str>,
 }
 
-/// Palavras embutidas e contextuais que, fora de um nome da árvore, são
-/// palavras-chave (`BUILT_IN` do analyzer).
+/// Built-in and contextual words that, outside a tree name, are keywords
+/// (the analyzer's `BUILT_IN`).
 const INLINE: &[&str] = &[
     "abstract", "as", "augment", "async", "await", "base", "covariant", "deferred", "export", "extension", "external",
     "factory", "Function", "get", "hide", "implements", "import", "interface", "late", "library", "macro", "mixin",
@@ -64,7 +64,7 @@ const INLINE: &[&str] = &[
     "when", "yield",
 ];
 
-/// Palavras de fluxo de controle (modificador `control`).
+/// Control flow words (the `control` modifier).
 const CONTROL: &[&str] = &[
     "assert", "await", "break", "case", "catch", "continue", "default", "do", "else", "finally", "for", "if", "in",
     "rethrow", "return", "switch", "throw", "try", "when", "while", "yield", "async", "sync",
@@ -73,7 +73,7 @@ const CONTROL: &[&str] = &[
 struct Collector<'a> {
     project: &'a Project,
     unit: UnitId,
-    /// Nomes classificados pela árvore, por início.
+    /// Names classified by the tree, by start.
     names: HashMap<usize, Highlight>,
     others: Vec<Highlight>,
 }
@@ -91,7 +91,7 @@ impl Collector<'_> {
         }
     }
 
-    /// Nome de tipo escrito (`A`, `p.A`, `T`, `dynamic`).
+    /// Written type name (`A`, `p.A`, `T`, `dynamic`).
     fn written_type(&mut self, ty: ast::TypeId, extra: &[&'static str]) {
         let p = self.project.program();
         let u = p.unit(self.unit);
@@ -120,7 +120,7 @@ impl Collector<'_> {
                 }
             }
             [c, k] => {
-                // `A.name` como tipo: a classe e o construtor.
+                // `A.name` as a type: the class and the constructor.
                 if let Some(el) = p.lookup(lib, c.sym).and_then(|b| b.getter) {
                     self.element(c.span, el, extra);
                 }
@@ -132,7 +132,7 @@ impl Collector<'_> {
         }
     }
 
-    /// Referência a um elemento de topo.
+    /// Reference to a top-level element.
     fn element(&mut self, s: Span, el: Element, extra: &[&'static str]) {
         let p = self.project.program();
         let (ty, mods): (&'static str, Vec<&'static str>) = match el {
@@ -154,7 +154,7 @@ impl Collector<'_> {
         self.name(s, ty, &m);
     }
 
-    /// Referência resolvida numa expressão.
+    /// Resolved reference in an expression.
     fn resolved(&mut self, s: Span, r: Option<&Resolved>, constructor: bool, extra: &[&'static str], dynamic: bool) {
         let p = self.project.program();
         let com = |base: &[&'static str]| {
@@ -269,7 +269,7 @@ impl Collector<'_> {
 }
 
 impl Project {
-    /// Os tokens semânticos de `unit`, já sem sobreposição, em ordem.
+    /// The semantic tokens of `unit`, already without overlaps, in order.
     pub(crate) fn highlights(&self, unit: UnitId) -> Vec<Highlight> {
         let p = self.program();
         let u = p.unit(unit);
@@ -278,7 +278,7 @@ impl Project {
         let bodies = &self.query.bodies.units[unit.0 as usize];
         let mut c = Collector { project: self, unit, names: HashMap::new(), others: Vec::new() };
 
-        // Declarações de topo.
+        // Top-level declarations.
         for d in &ast.decls {
             c.annotations(&d.metadata);
             match &d.kind {
@@ -370,7 +370,7 @@ impl Project {
                 }
             }
         }
-        // Membros.
+        // Members.
         for m in &ast.members {
             c.annotations(&m.metadata);
             match &m.kind {
@@ -417,7 +417,7 @@ impl Project {
                 }
             }
         }
-        // Funções: parâmetros, parâmetros de tipo e retorno; locais.
+        // Functions: parameters, type parameters and return; locals.
         for f in &ast.functions {
             c.parameters(f.parameters.as_deref().unwrap_or(&[]), bodies);
             for tp in f.type_params.iter() {
@@ -434,8 +434,8 @@ impl Project {
                         c.name(var.name.span, "variable", &["declaration"]);
                     }
                 }
-                // `for (var i = 0; …)`: a variável do cabeçalho é declaração
-                // como qualquer local (docs/LSP-ESPECIFICACAO.md §15.2).
+                // `for (var i = 0; …)`: the header variable is a declaration like any local
+                // (docs/LSP-ESPECIFICACAO.md §15.2).
                 StmtKind::For { init: Some(ast::ForInit::Variables(v)), .. } => {
                     for var in v.variables.iter() {
                         c.name(var.name.span, "variable", &["declaration"]);
@@ -465,11 +465,11 @@ impl Project {
                 c.name(name.span, "variable", &["declaration"]);
             }
         }
-        // Anotações de tipo (as que não vieram pelas declarações acima).
+        // Type annotations (those that did not come through the declarations above).
         for i in 0..ast.types.len() {
             c.written_type(ast::TypeId(i as u32), &[]);
         }
-        // Prefixos das diretivas.
+        // Directive prefixes.
         for d in &u.unit.directives {
             c.annotations(&d.metadata);
             if let ast::DirectiveKind::Import { prefix: Some(n), .. } = &d.kind {
@@ -481,7 +481,7 @@ impl Project {
                 c.region(a.span.start, b.span.end, "namespace", &[]);
             }
         }
-        // Expressões: referências, criações e rótulos de argumentos.
+        // Expressions: references, creations and argument labels.
         let constructor2: std::collections::HashSet<u32> = ast
             .exprs
             .iter()
@@ -491,8 +491,8 @@ impl Project {
                 _ => None,
             })
             .collect();
-        // Os nomes de parâmetros declarados (a inferência resolve o uso de
-        // um parâmetro como local).
+        // The names of declared parameters (inference resolves a use of a parameter
+        // as a local).
         let parameters_: std::collections::HashSet<usize> = ast
             .functions
             .iter()
@@ -517,7 +517,7 @@ impl Project {
                 }
                 ExprKind::Property { target, name, .. } => {
                     let constructor_ = constructor2.contains(&(i as u32));
-                    // `A.name(…)`: o alvo é a classe da criação.
+                    // `A.name(…)`: the target is the creation's class.
                     if constructor_ && let ExprKind::Identifier(cn) = &ast.expr(*target).kind {
                         c.name(cn.span, "class", &["constructor"]);
                     }
@@ -557,7 +557,7 @@ impl Project {
             }
         }
 
-        // Nomes de `show`/`hide`: o elemento que a biblioteca alvo exporta.
+        // `show`/`hide` names: the element the target library exports.
         for d in &u.unit.directives {
             if let ast::DirectiveKind::Import { combinators, .. } | ast::DirectiveKind::Export { combinators, .. } = &d.kind {
                 for comb in combinators.iter() {
@@ -572,8 +572,8 @@ impl Project {
                 }
             }
         }
-        // Referências `[name]` dos comentários de documentação, por cima do
-        // comentário (que fica dividido em volta delas).
+        // `[name]` references of documentation comments, on top of the comment
+        // (which is split around them).
         let mut references: Vec<Highlight> = Vec::new();
         for com in crate::dartdoc::comments(source) {
             for r in &com.references {
@@ -586,17 +586,17 @@ impl Project {
             }
         }
 
-        // Tokens do texto: palavras, literais, strings e comentários.
+        // Text tokens: words, literals, strings and comments.
         let mut regions = std::mem::take(&mut c.others);
         regions.extend(references);
         let names = std::mem::take(&mut c.names);
         let Ok(tokens) = dartforge_frontend::lexer::lex(source) else { return Vec::new() };
         let mut previous = 0usize;
-        // Interpolação aberta por `${` (início do `$`).
+        // Interpolation opened by `${` (start of the `$`).
         let mut interpolations: Vec<usize> = Vec::new();
         let mut last_interp_ident: Option<usize> = None;
         for (k, t) in tokens.iter().enumerate() {
-            // Comentários na lacuna.
+            // Comments in the gap.
             for (start, end) in comments(source, previous, t.span.start) {
                 let text = &source[start..end];
                 let doc = text.starts_with("///") || text.starts_with("/**");
@@ -631,7 +631,7 @@ impl Project {
                     if text == "dynamic" {
                         regions.push(r("type", &[]));
                     } else if INLINE.contains(&text) {
-                        // `async*`/`sync*`/`yield*`: um token só com o `*`.
+                        // `async*`/`sync*`/`yield*`: a single token with the `*`.
                         let mut end = t.span.end;
                         if matches!(text, "async" | "sync" | "yield")
                             && let Some(next) = tokens.get(k + 1)
@@ -639,7 +639,7 @@ impl Project {
                         {
                             end = next.span.end;
                         }
-                        // `part of`: um token só.
+                        // `part of`: a single token.
                         if text == "part"
                             && let Some(next) = tokens.get(k + 1)
                             && next.text(source) == "of"
@@ -664,7 +664,7 @@ impl Project {
                     }
                 }
                 Kind::StrBegin(_, interp) | Kind::StrMid(_, interp) => {
-                    // O trecho de texto vai até antes do `$`/`${`.
+                    // The text piece goes up to before the `$`/`${`.
                     let mut start = t.span.start;
                     if matches!(t.kind, Kind::StrMid(..)) && source.as_bytes().get(start) == Some(&b'}') {
                         if let Some(opens) = interpolations.pop() {
@@ -699,8 +699,8 @@ impl Project {
     }
 }
 
-/// O token de um nome pelo que ele denota (referências de documentação e
-/// nomes de `show`/`hide`, como o `_addIdentifierRegion` do analyzer).
+/// The token of a name by what it denotes (documentation references and
+/// `show`/`hide` names, like the analyzer's `_addIdentifierRegion`).
 fn classify(
     project: &Project,
     target: &crate::project::Target,
@@ -748,18 +748,19 @@ fn classify(
     })
 }
 
-/// O `switch` em `offset` é um comando (o de expressão não leva `control`).
+/// The `switch` at `offset` is a statement (the expression one gets no
+/// `control`).
 fn is_command_switch(ast: &ast::Ast, offset: usize) -> bool {
     ast.stmts.iter().any(|s| s.span.start == offset && matches!(s.kind, StmtKind::Switch { .. }))
         || !ast.exprs.iter().any(|e| e.span.start == offset && matches!(e.kind, ExprKind::Switch { .. }))
 }
 
-/// O `on` em `offset` é o de uma cláusula `catch` (`} on T catch`).
+/// The `on` at `offset` is that of a `catch` clause (`} on T catch`).
 fn is_catch_on(source: &str, offset: usize) -> bool {
     source[..offset].trim_end().ends_with('}')
 }
 
-/// Os escapes válidos de uma string simples (`\n`, `\x41`, `\u{1F600}`).
+/// The valid escapes of a simple string (`\n`, `\x41`, `\u{1F600}`).
 fn escapes(source: &str, s: Span, output: &mut Vec<Highlight>) {
     let b = source.as_bytes();
     let hex = |i: usize, min: usize, max: usize| {
@@ -794,7 +795,7 @@ fn escapes(source: &str, s: Span, output: &mut Vec<Highlight>) {
     }
 }
 
-/// Os comentários (início, fim) da lacuna `[de, until)`.
+/// The comments (start, end) of the gap `[de, until)`.
 fn comments(source: &str, de: usize, until: usize) -> Vec<(usize, usize)> {
     let b = source.as_bytes();
     let until = until.min(b.len());
@@ -831,8 +832,8 @@ fn comments(source: &str, de: usize, until: usize) -> Vec<(usize, usize)> {
     output
 }
 
-/// Ordena (início; o maior primeiro; `boolean` acima de `keyword`) e divide
-/// as sobreposições pelo token de cima, como o `splitOverlappingTokens`.
+/// Sorts (start; the larger first; `boolean` above `keyword`) and splits the
+/// overlaps by the token on top, like `splitOverlappingTokens`.
 fn split_overlaps(mut regions: Vec<Highlight>) -> Vec<Highlight> {
     regions.sort_by(|a, b| {
         let priority = |r: &Highlight| u8::from(r.ty == "boolean");
@@ -868,10 +869,10 @@ fn split_overlaps(mut regions: Vec<Highlight>) -> Vec<Highlight> {
     output
 }
 
-/// Codifica para o protocolo: linha e coluna relativas, comprimento (UTF-16),
-/// índice do tipo e bits dos modificadores. Sem `multilineTokenSupport`,
-/// cada token de várias linhas vira um por linha. `range` (bytes) filtra
-/// os tokens fora dela.
+/// Encodes for the protocol: relative line and column, length (UTF-16), type
+/// index and modifier bits. Without `multilineTokenSupport`, each multi-line
+/// token becomes one per line. `range` (bytes) filters out the tokens
+/// outside it.
 pub(crate) fn encode(
     text: &str,
     table: &crate::utf16::LineTable,
@@ -916,7 +917,7 @@ pub(crate) fn encode(
             emit(r.start, r.end, r, &mut data);
             continue;
         }
-        // Um por linha, com a quebra e a indentação incluídas.
+        // One per line, with the line break and the indentation included.
         for l in l0..=l1 {
             let start = if l == l0 { r.start } else { table.line_start(l) };
             let end = if l == l1 { r.end } else { table.line_start(l + 1) };

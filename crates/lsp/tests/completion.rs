@@ -1,11 +1,11 @@
-//! `textDocument/completion` pelas mensagens JSON-RPC, com código incompleto.
+//! `textDocument/completion` through JSON-RPC messages, with incomplete code.
 
 mod common;
 
 use common::{Project, item, mark, labels};
 use serde_json::json;
 
-/// Abre `text` (com o marcador `▮`) e completa no marcador.
+/// Opens `text` (with the `▮` marker) and completes at the marker.
 fn completion(project: &mut Project, relative: &str, text: &str) -> serde_json::Value {
     let (text, line, column) = mark(text);
     project.open(relative, &text);
@@ -44,7 +44,8 @@ fn announces_capability() {
 #[test]
 fn members_by_receiver_type_with_dangling_dot() {
     let mut p = Project::new("completar-membros");
-    // `b.` sem nome nem `;`: o comando não analisa e o parser o descarta.
+    // `b.` without a name or `;`: the statement does not parse and the parser
+    // discards it.
     let r = completion(
         &mut p,
         "lib/a.dart",
@@ -64,7 +65,7 @@ fn members_by_receiver_type_with_dangling_dot() {
             "{expected} em {r_labels:?}"
         );
     }
-    // Membros estáticos e construtores não aparecem numa instância.
+    // Static members and constructors do not appear on an instance.
     assert!(
         !r_labels
             .iter()
@@ -78,15 +79,15 @@ fn members_by_receiver_type_with_dangling_dot() {
     assert_eq!(item(&r, "campo")["detail"], "int");
     assert_eq!(item(&r, "campo")["kind"], 5);
     assert_eq!(item(&r, "rotulo")["kind"], 10);
-    // O intervalo substituído é o prefixo (vazio) na posição do cursor.
+    // The replaced range is the (empty) prefix at the cursor position.
     assert_eq!(
         item(&r, "campo")["textEdit"]["range"],
         json!({
             "start": {"line": 12, "character": 4}, "end": {"line": 12, "character": 4}
         })
     );
-    // A ordem e o sortText do `dart language-server` 3.6.2 no mesmo texto
-    // (o servidor só ordena quando trunca).
+    // The order and the sortText of `dart language-server` 3.6.2 on the same
+    // text (the server only sorts when it truncates).
     let order: Vec<(String, String)> = r["result"]["items"]
         .as_array()
         .unwrap()
@@ -112,7 +113,8 @@ fn members_by_receiver_type_with_dangling_dot() {
 #[test]
 fn filters_by_typed_prefix_without_semicolon() {
     let mut p = Project::new("completar-prefixo");
-    // `a.ca` seguido de outro comando: sem o fecho, os dois comandos somem.
+    // `a.ca` followed by another statement: without the closure, both
+    // statements disappear.
     let r = completion(
         &mut p,
         "lib/a.dart",
@@ -127,7 +129,7 @@ fn filters_by_typed_prefix_without_semicolon() {
         item(&r, "campo")["textEdit"]["range"]["end"],
         json!({"line": 12, "character": 6})
     );
-    // Maiúsculas não importam no filtro.
+    // Case does not matter in the filter.
     let r = completion(
         &mut p,
         "lib/b.dart",
@@ -146,7 +148,7 @@ fn generic_types_are_substituted() {
     );
     assert_eq!(item(&r, "first")["detail"], "String");
     assert_eq!(item(&r, "add(…)")["detail"], "(String value) → void");
-    // O receptor é o resultado de outra expressão, dentro de argumentos.
+    // The receiver is the result of another expression, inside arguments.
     let r = completion(
         &mut p,
         "lib/b.dart",
@@ -191,7 +193,7 @@ fn scope_locals_parameters_members_top_level_and_keywords() {
             "{expected} em {r_labels:?}"
         );
     }
-    // Fora de escopo, declarado adiante, privado de outra biblioteca.
+    // Out of scope, declared later, private to another library.
     for missing in ["interno", "depois", "_escondido"] {
         assert!(
             !r_labels.contains(&missing.to_string()),
@@ -201,9 +203,9 @@ fn scope_locals_parameters_members_top_level_and_keywords() {
     assert_eq!(item(&r, "local")["detail"], "String");
     assert_eq!(item(&r, "parametro")["detail"], "int");
     assert_eq!(item(&r, "dobro(…)")["kind"], 3);
-    // A relevância do Dart no começo de um comando (`Block_statement`): o
-    // `sortText` de cada item, o do `dart language-server` 3.6.2 no mesmo
-    // texto (o servidor não ordena a lista; o cliente ordena por ele).
+    // Dart's relevance at the start of a statement (`Block_statement`): the
+    // `sortText` of each item, that of `dart language-server` 3.6.2 on the same
+    // text (the server does not sort the list; the client sorts by it).
     if let Some(label) = [
         ("local", "9424"),
         ("parametro", "9444"),
@@ -229,9 +231,8 @@ fn scope_locals_parameters_members_top_level_and_keywords() {
         panic!("sortText divergente: {label}");
     }
 
-    // Com prefixo, primeiro o que começa com ele (sem diferenciar
-    // maiúsculas); depois o que só casa por aproximação (`Comparable`
-    // contém `para`).
+    // With a prefix, first what starts with it (case-insensitively); then what
+    // only matches fuzzily (`Comparable` contains `para`).
     let r = completion(
         &mut p,
         "lib/b.dart",
@@ -252,7 +253,7 @@ fn import_prefix_and_statics() {
         "lib/a.dart",
         "import 'util.dart' as u;\nvoid f() {\n  u.▮\n}\n",
     );
-    // A ordem do `exportNamespace` (a da fonte), com o construtor
+    // The `exportNamespace` order (the source's), with the constructor
     // (`dart language-server` 3.6.2).
     assert_eq!(labels(&r), vec!["dobro(…)", "Util", "Util()"]);
     let r = completion(
@@ -260,7 +261,7 @@ fn import_prefix_and_statics() {
         "lib/b.dart",
         &format!("{CLASSES}void f() {{\n  A.▮\n}}\n"),
     );
-    // Os construtores antes dos estáticos (`dart language-server` 3.6.2).
+    // Constructors before statics (`dart language-server` 3.6.2).
     assert_eq!(labels(&r), vec!["vazio()", "contar()"]);
 }
 
@@ -276,13 +277,13 @@ fn named_arguments_not_yet_passed() {
     assert_eq!(r_labels[0], "nome: ");
     assert!(!r_labels.contains(&"idade: ".to_string()));
     assert_eq!(item(&r, "nome: ")["detail"], "String?");
-    // Sem o fecho da chamada: o texto analisado recebe `);`.
+    // Without closing the call: the analyzed text gets `);`.
     let r = completion(
         &mut p,
         "lib/b.dart",
         &format!("{CLASSES}void f(A a) {{\n  a.met(1, ▮\n}}\n"),
     );
-    // A ordem da declaração (`dart language-server` 3.6.2).
+    // Declaration order (`dart language-server` 3.6.2).
     assert_eq!(&labels(&r)[..2], ["nome: ", "idade: "]);
 }
 
@@ -297,7 +298,7 @@ fn nothing_in_comments_and_strings() {
         "void f(int x) {\n  print('x.▮');\n}\n",
     );
     assert_eq!(r["result"]["items"], json!([]));
-    // Interpolação é código.
+    // Interpolation is code.
     let r = completion(
         &mut p,
         "lib/c.dart",
@@ -310,12 +311,12 @@ fn nothing_in_comments_and_strings() {
 fn top_level_offers_declaration_keywords_and_types() {
     let mut p = Project::new("completar-topo");
     let r = completion(&mut p, "lib/a.dart", &format!("{CLASSES}cl▮\n"));
-    // O prefixo primeiro; `Comparable` casa por aproximação (`c…l`).
+    // The prefix first; `Comparable` matches fuzzily (`c…l`).
     assert_eq!(labels(&r), vec!["class", "Comparable"]);
     let r = completion(&mut p, "lib/b.dart", &format!("{CLASSES}▮\n"));
     let r_labels = labels(&r);
-    // Depois de declarações, o `dart language-server` 3.6.2 não oferece
-    // `import` (só as palavras de declaração e os tipos).
+    // After declarations, `dart language-server` 3.6.2 does not offer `import`
+    // (only the declaration keywords and the types).
     assert!(r_labels.contains(&"A".to_string()) && r_labels.contains(&"class".to_string()), "{r_labels:?}");
     assert!(!r_labels.contains(&"import".to_string()), "{r_labels:?}");
 }
@@ -353,7 +354,8 @@ fn part_file_uses_owning_library() {
         "part of 'a.dart';\nvoid g() {\n  glo▮\n}\n",
     );
     assert_eq!(labels(&r), vec!["global"]);
-    // Parte que a dona não declara: entra sozinha, sem os nomes da dona.
+    // A part that the owner does not declare: enters alone, without the
+    // owner's names.
     let r = completion(
         &mut p,
         "lib/r.dart",
@@ -362,7 +364,7 @@ fn part_file_uses_owning_library() {
     assert_eq!(r["result"]["items"], json!([]));
 }
 
-/// O item de rótulo `label` cujo `detail` é `detail`.
+/// The item labeled `label` whose `detail` is `detail`.
 fn item_with<'a>(r: &'a serde_json::Value, label: &str, detail: &str) -> &'a serde_json::Value {
     r["result"]["items"]
         .as_array()
@@ -379,12 +381,13 @@ fn auto_import_from_sdk_and_project() {
         "lib/util.dart",
         "/// Soma dois.\nint somar(int a, int b) => a + b;\nclass Utilitario {}\n",
     );
-    // Sem `workspace.applyEdit`, o servidor do Dart não sugere não importados.
+    // Without `workspace.applyEdit`, the Dart server does not suggest
+    // not-imported items.
     let r = completion(&mut p, "lib/a.dart", "void f() {\n  Rand▮\n}\n");
     assert!(!labels(&r).contains(&"Random".to_string()), "{r}");
     p.restart(json!({"capabilities": {"workspace": {"applyEdit": true}}}));
-    // Como o `dart language-server` 3.6.2: na lista, o item leva só os
-    // `importUris` em `data`; o `detail` e a edição do import vêm no
+    // Like `dart language-server` 3.6.2: in the list, the item carries only the
+    // `importUris` in `data`; the `detail` and the import edit come in
     // `completionItem/resolve`.
     let r = completion(&mut p, "lib/a.dart", "void f() {\n  Rand▮\n}\n");
     let random = item(&r, "Random").clone();
@@ -399,10 +402,10 @@ fn auto_import_from_sdk_and_project() {
         resolved["result"]["additionalTextEdits"],
         json!([{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": "import 'dart:math';\n\n"}])
     );
-    // A biblioteca privada do SDK (`dart:_interna`) não é oferecida.
+    // The SDK's private library (`dart:_interna`) is not offered.
     assert!(!r.to_string().contains("dart:_interna"));
-    // Do projeto (com `package_config`, a URI `package:`), depois dos
-    // imports existentes (uma linha em branco entre os grupos), como o
+    // From the project (with `package_config`, the `package:` URI), after the
+    // existing imports (a blank line between the groups), like
     // `dart language-server` 3.6.2.
     let r = completion(&mut p, "lib/b.dart", "import 'dart:math';\nvoid f() {\n  som▮\n}\n");
     let absorb = item(&r, "somar(…)").clone();
@@ -411,16 +414,16 @@ fn auto_import_from_sdk_and_project() {
     assert_eq!(resolved["result"]["detail"], "Auto import from 'package:projeto/util.dart'\n\n(int a, int b) → int");
     assert_eq!(resolved["result"]["additionalTextEdits"][0]["newText"], "\n\nimport 'package:projeto/util.dart';");
     assert_eq!(resolved["result"]["additionalTextEdits"][0]["range"]["start"], json!({"line": 0, "character": 19}));
-    // Já importado: o item é o do escopo, sem edição adicional.
+    // Already imported: the item is the in-scope one, without an additional edit.
     let r = completion(&mut p, "lib/c.dart", "import 'dart:math';\nvoid f() {\n  Rand▮\n}\n");
     let random = item(&r, "Random");
     assert!(random.get("additionalTextEdits").is_none(), "{random}");
     assert_eq!(labels(&r).iter().filter(|x| *x == "Random").count(), 1);
-    // Numa parte, o import iria para outro arquivo: não oferece.
+    // In a part, the import would go to another file: not offered.
     p.write("lib/dona.dart", "part 'parte.dart';\n");
     let r = completion(&mut p, "lib/parte.dart", "part of 'dona.dart';\nvoid g() {\n  Rand▮\n}\n");
     assert!(!labels(&r).contains(&"Random".to_string()), "{r}");
-    // Sem nada digitado, não há não importados.
+    // With nothing typed, there are no not-imported items.
     let r = completion(&mut p, "lib/d.dart", "void f() {\n  ▮\n}\n");
     assert!(!r.to_string().contains("importUris"));
 }
@@ -440,14 +443,14 @@ fn resolve_brings_documentation() {
     let resolved = p.request("completionItem/resolve", field);
     assert_eq!(resolved["result"]["documentation"], "O campo guardado.");
     assert_eq!(resolved["result"]["label"], "campo");
-    // Item de biblioteca não importada (só com `workspace.applyEdit`): a
-    // documentação vem do arquivo dele.
+    // Item of a not-imported library (only with `workspace.applyEdit`): the
+    // documentation comes from its file.
     p.restart(json!({"capabilities": {"workspace": {"applyEdit": true}, "textDocument": {"completion": {"completionItem": {"documentationFormat": ["markdown"]}}}}}));
     let r = completion(&mut p, "lib/b.dart", "void f() {\n  som▮\n}\n");
     let absorb = item(&r, "somar(…)").clone();
     let resolved = p.request("completionItem/resolve", absorb);
     assert_eq!(resolved["result"]["documentation"], json!({"kind": "markdown", "value": "Soma dois."}));
-    // Sem `data`, o item volta como veio.
+    // Without `data`, the item comes back as it came.
     let resolved = p.request("completionItem/resolve", json!({"label": "x"}));
     assert_eq!(resolved["result"], json!({"label": "x"}));
 }
@@ -456,17 +459,17 @@ fn resolve_brings_documentation() {
 fn call_snippets_when_client_accepts() {
     let mut p = Project::new("completar-snippet");
     let class = "class A {\n  void met(int x, {String? nome, int? idade}) {}\n  void req({required int n}) {}\n  void nada() {}\n  int campo = 0;\n}\n";
-    // Sem suporte a snippets: só o nome.
+    // Without snippet support: only the name.
     let r = completion(&mut p, "lib/a.dart", &format!("{class}void f(A a) {{\n  a.me▮\n}}\n"));
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
     assert!(item(&r, "met(…)").get("insertTextFormat").is_none());
-    // Só com `snippetSupport`: o `dart.completeFunctionCalls` é desligado
-    // por padrão, e o item é só o nome (`dart language-server` 3.6.2).
+    // Only with `snippetSupport`: `dart.completeFunctionCalls` is off by
+    // default, and the item is only the name (`dart language-server` 3.6.2).
     p.restart(json!({"capabilities": {"workspace": {"configuration": true}, "textDocument": {"completion": {"completionItem": {"snippetSupport": true}}}}}));
     let r = completion(&mut p, "lib/b.dart", &format!("{class}void f(A a) {{\n  a.▮\n}}\n"));
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
-    // Com `completeFunctionCalls`: os parâmetros obrigatórios como paradas;
-    // uma só é a final (`$0`), como no servidor do Dart.
+    // With `completeFunctionCalls`: the required parameters as stops; only one
+    // is the final one (`$0`), as in the Dart server.
     p.configure(json!({"completeFunctionCalls": true}));
     let r = completion(&mut p, "lib/c.dart", &format!("{class}void f(A a) {{\n  a.▮\n}}\n"));
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met(${0:x})");
@@ -474,13 +477,13 @@ fn call_snippets_when_client_accepts() {
     assert_eq!(item(&r, "req(…)")["textEdit"]["newText"], "req(n: ${0:n})");
     assert_eq!(item(&r, "nada()")["textEdit"]["newText"], "nada()");
     assert_eq!(item(&r, "nada()")["insertTextFormat"], 2);
-    // Campo não é chamada.
+    // A field is not a call.
     assert_eq!(item(&r, "campo")["textEdit"]["newText"], "campo");
     assert!(item(&r, "campo").get("insertTextFormat").is_none());
-    // Parênteses já escritos: só o nome.
+    // Parentheses already written: only the name.
     let r = completion(&mut p, "lib/d.dart", &format!("{class}void f(A a) {{\n  a.me▮(1);\n}}\n"));
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
-    // `completeFunctionCalls: false` desliga.
+    // `completeFunctionCalls: false` turns it off.
     p.configure(json!({"completeFunctionCalls": false}));
     let r = completion(&mut p, "lib/e.dart", &format!("{class}void f(A a) {{\n  a.me▮\n}}\n"));
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
@@ -498,23 +501,23 @@ fn type_position_offers_only_types() {
     for forbidden in ["valor", "dobro(…)", "print(…)", "itens", "true", "null"] {
         assert!(!r_labels.contains(&forbidden.to_string()), "{forbidden} em {r_labels:?}");
     }
-    // Parâmetro de função: o `T` da classe não está em escopo.
+    // Function parameter: the class's `T` is not in scope.
     let r = completion(&mut p, "lib/b.dart", "int valor = 0;\nvoid f(▮ x) {}\n");
     let r_labels = labels(&r);
     assert!(r_labels.contains(&"int".to_string()) && !r_labels.contains(&"valor".to_string()) && !r_labels.contains(&"T".to_string()), "{r_labels:?}");
-    // `m.` no começo de uma declaração de topo: o servidor do Dart 3.6.2 o
-    // trata como o começo do membro (palavras de declaração e tipos, os do
-    // prefixo como `m.Random`), não como o nome de tipo prefixado.
+    // `m.` at the start of a top-level declaration: the Dart 3.6.2 server
+    // treats it as the start of the member (declaration keywords and types,
+    // those of the prefix as `m.Random`), not as a prefixed type name.
     let r = completion(&mut p, "lib/c.dart", "import 'dart:math' as m;\nm.▮ aleatorio;\n");
     let r_labels = labels(&r);
     assert!(r_labels.contains(&"m.Random".to_string()) && r_labels.contains(&"class".to_string()), "{r_labels:?}");
     assert!(!r_labels.contains(&"pi".to_string()) && !r_labels.contains(&"m.pi".to_string()), "{r_labels:?}");
-    // Tipo de local no corpo: tipos e palavras de comando, sem locais.
+    // Type of a local in the body: types and statement keywords, no locals.
     let r = completion(&mut p, "lib/d.dart", "void g(int local) {\n  Str▮ s = '';\n}\n");
     let r_labels = labels(&r);
     assert!(r_labels.contains(&"String".to_string()) && !r_labels.contains(&"local".to_string()), "{r_labels:?}");
-    // Não importado em posição de tipo (com `workspace.applyEdit`): só tipos
-    // (a classe, não a função).
+    // Not imported in a type position (with `workspace.applyEdit`): only types
+    // (the class, not the function).
     p.restart(json!({"capabilities": {"workspace": {"applyEdit": true}}}));
     p.write("lib/util.dart", "class Utilitario {}\nint utilidade() => 0;\n");
     let r = completion(&mut p, "lib/e.dart", "void f(Uti▮ u) {}\n");
@@ -527,12 +530,13 @@ fn fuzzy_and_relevance() {
     let mut p = Project::new("completar-relevancia");
     let class = "class X {\n  int vtabela = 0;\n  int valorTotal = 0;\n  int total = 0;\n}\n";
     let r = completion(&mut p, "lib/a.dart", &format!("{class}void f(X x) {{\n  x.vt▮\n}}\n"));
-    // Prefixo antes de iniciais de palavras; `total` não casa.
+    // Prefix before word initials; `total` does not match.
     assert_eq!(labels(&r), vec!["vtabela", "valorTotal"]);
     let r = completion(&mut p, "lib/b.dart", &format!("{CLASSES}void f(A a) {{\n  a.rtl▮\n}}\n"));
-    // O `FuzzyMatcher` (estilo `TEXT`) não casa `rtl` com `label` (score -1).
+    // The `FuzzyMatcher` (`TEXT` style) does not match `rtl` with `label`
+    // (score -1).
     assert!(labels(&r).is_empty(), "{:?}", labels(&r));
-    // Membros próprios antes dos herdados de `Object`.
+    // Own members before those inherited from `Object`.
     let r = completion(&mut p, "lib/c.dart", &format!("{CLASSES}void f(B b) {{\n  b.▮\n}}\n"));
     let r_labels = labels(&r);
     let pos = |n: &str| r_labels.iter().position(|x| x == n).unwrap();
@@ -541,16 +545,16 @@ fn fuzzy_and_relevance() {
 
 #[test]
 fn statics_and_constructors_after_class_name_mid_name() {
-    // O cursor dentro do nome já escrito (`A.v▮azio()`): os construtores e
-    // os estáticos da classe, não os membros de instância.
+    // The cursor inside the already written name (`A.v▮azio()`): the class's
+    // constructors and statics, not the instance members.
     let mut p = Project::new("completar-estatico-meio");
     let text = format!("{CLASSES}void f() {{\n  var x = A.v▮azio();\n  var y = A.contar();\n}}\n");
     let r = completion(&mut p, "lib/a.dart", &text);
     let names = labels(&r);
     assert!(names.iter().any(|n| n == "vazio()"), "{names:?}");
     assert!(!names.iter().any(|n| n == "toString"), "{names:?}");
-    // `A.c▮ontar()`: o estático (o receptor resolve para a classe mesmo com
-    // o nome trocado pelo sentinela).
+    // `A.c▮ontar()`: the static (the receiver resolves to the class even with
+    // the name replaced by the sentinel).
     let text = format!("{CLASSES}void f() {{\n  A.c▮ontar();\n}}\n");
     let names = labels(&completion(&mut p, "lib/b.dart", &text));
     assert!(names.iter().any(|n| n == "contar()"), "{names:?}");

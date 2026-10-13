@@ -1,15 +1,15 @@
-//! `definition`, `hover` e `references` pela identidade semântica
-//! (`crates/lsp/src/project.rs`), por JSON-RPC: matriz por forma (local,
-//! parâmetro, função local, membro herdado, campo genérico, getter,
-//! construtores, prefixo, enum, extensão, tipo, parâmetro de tipo, SDK,
-//! documentação), com comentários, partes e textos abertos ainda não salvos.
+//! `definition`, `hover` and `references` through semantic identity
+//! (`crates/lsp/src/project.rs`), over JSON-RPC: a matrix by shape (local,
+//! parameter, local function, inherited member, generic field, getter,
+//! constructors, prefix, enum, extension, type, type parameter, SDK,
+//! documentation), with comments, parts and open texts not saved yet.
 
 mod common;
 
 use common::Project;
 use serde_json::{Value, json};
 
-/// Linha e coluna UTF-16 do início da `n`-ésima ocorrência de `needle`.
+/// UTF-16 line and column of the start of the `n`-th occurrence of `needle`.
 fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
     let i = text
         .match_indices(needle)
@@ -40,7 +40,7 @@ fn request(
     p.in_position(method, rel, l, c, extra)["result"].clone()
 }
 
-/// (uri, início) da definição.
+/// (uri, start) of the definition.
 fn definition(p: &mut Project, rel: &str, text: &str, needle: &str, n: usize) -> (String, Value) {
     let r = request(
         p,
@@ -66,7 +66,7 @@ fn hover(p: &mut Project, rel: &str, text: &str, needle: &str, n: usize) -> Stri
         .to_string()
 }
 
-/// (uri relativa ao projeto, linha, coluna) de cada referência.
+/// (project-relative uri, line, column) of each reference.
 fn references(
     p: &mut Project,
     rel: &str,
@@ -151,7 +151,7 @@ void usar(Caixa<int> c, num n) {
 #[test]
 fn definition_by_shape() {
     let mut p = Project::new("nav-definicao");
-    // O modelo fica só no disco; o uso está aberto.
+    // The model stays only on disk; the use is open.
     p.write("lib/modelo.dart", MODEL);
     p.open("lib/uso.dart", USE);
     let model = p.uri("lib/modelo.dart");
@@ -161,26 +161,26 @@ fn definition_by_shape() {
         start(l, c)
     };
     let cases: &[(&str, usize, &str, &str, usize)] = &[
-        // (agulha no uso, ocorrência, arquivo esperado, agulha no destino, ocorrência)
-        // Membro herdado e sobrescrito: vai ao da classe do receptor.
+        // (needle at the use, occurrence, expected file, needle at the target, occurrence)
+        // Inherited and overridden member: goes to the receiver class's one.
         ("met(1", 0, "modelo", "met(int x", 1),
-        // Campo de classe genérica.
+        // Field of a generic class.
         ("valor + c", 0, "modelo", "valor;", 0),
-        // Getter (há uma função local homônima: não confunde).
+        // Getter (there is a homonymous local function: no confusion).
         ("dobro;", 0, "modelo", "dobro =>", 0),
-        // Função local.
+        // Local function.
         ("dobro(total", 0, "uso", "dobro(int v", 0),
         // Local.
         ("total));", 0, "uso", "total =", 0),
-        // Parâmetro promovido.
+        // Promoted parameter.
         ("n);", 0, "uso", "n) {", 0),
-        // Construtor nomeado e construtor escrito sem nome.
+        // Named constructor and constructor written without a name.
         ("vazia(3", 0, "modelo", "vazia(T", 0),
         ("Caixa(4", 0, "modelo", "Caixa(this", 0),
-        // Prefixo de import e elemento pelo prefixo.
+        // Import prefix and element through the prefix.
         ("m.contador", 0, "uso", "m;", 0),
         ("contador++", 0, "modelo", "contador =", 0),
-        // Constante de enum, getter de extensão, tipo anotado.
+        // Enum constant, extension getter, annotated type.
         ("azul", 0, "modelo", "azul", 0),
         ("triplo", 0, "modelo", "triplo =>", 0),
         ("Caixa<int>", 0, "modelo", "Caixa<T>", 0),
@@ -195,7 +195,7 @@ fn definition_by_shape() {
         assert_eq!(&uri, expected_uri, "{needle}");
         assert_eq!(pos, em(text, target, dn), "{needle}");
     }
-    // Do modelo: parâmetro de tipo e referência de documentação.
+    // From the model: type parameter and documentation reference.
     p.open("lib/modelo.dart", MODEL);
     let (uri, pos) = definition(&mut p, "lib/modelo.dart", MODEL, "T valor", 0);
     assert_eq!((uri, pos), (model.clone(), em(MODEL, "T> extends", 0)));
@@ -203,10 +203,10 @@ fn definition_by_shape() {
     assert_eq!((uri, pos), (model.clone(), em(MODEL, "x, {int y", 0)));
     let (uri, pos) = definition(&mut p, "lib/modelo.dart", MODEL, "T].", 0);
     assert_eq!((uri, pos), (model.clone(), em(MODEL, "T> extends", 0)));
-    // Elemento do SDK: o arquivo do SDK.
+    // SDK element: the SDK file.
     let (uri, _) = definition(&mut p, "lib/uso.dart", USE, "print(n", 0);
     assert!(uri.ends_with("sdk/lib/core/core.dart"), "{uri}");
-    // Palavra-chave e espaço: nada.
+    // Keyword and whitespace: nothing.
     assert_eq!(
         request(
             &mut p,
@@ -226,19 +226,19 @@ fn hover_documentation_like_compute_documentation() {
     let mut p = Project::new("nav-hover-doc");
     let text = "class Base {\n  /// Faz algo com [x].\n  void met(int x) {}\n  final String campo = '';\n}\nclass Filho extends Base {\n  /// O valor.\n  final int valor;\n  Filho(this.valor);\n  @override\n  void met(int x) {}\n  @override\n  String get campo => '';\n}\n";
     p.open("lib/a.dart", text);
-    // O parâmetro mostra a documentação do método dono, herdada.
+    // The parameter shows the documentation of the owning method, inherited.
     assert_eq!(hover(&mut p, "lib/a.dart", text, "x) {}", 1), "int x\nType: int\n\nFaz algo com [x].\n\nCopied from `Base`.");
-    // `this.x`: o tipo e a documentação do campo.
+    // `this.x`: the field's type and documentation.
     assert_eq!(hover(&mut p, "lib/a.dart", text, "valor);", 0), "int valor\nType: int\n\nO valor.");
-    // O getter que sobrescreve um campo: o acessor sintético não tem
-    // documentação.
+    // A getter that overrides a field: the synthetic accessor has no
+    // documentation.
     assert_eq!(hover(&mut p, "lib/a.dart", text, "campo =>", 0), "String get campo");
-    // O método lido pelo receptor é o `Member` substituído.
+    // The method read through the receiver is the substituted `Member`.
     let usage = "void f(List<String> l) {\n  l.add('a');\n}\n";
     p.open("lib/b.dart", usage);
     assert_eq!(hover(&mut p, "lib/b.dart", usage, "add(", 0), "void add(String value)\nType: void Function(String)");
-    // O nome da classe em `A.n(…)` mostra o construtor; a declaração de um
-    // parâmetro de tipo não tem hover; o alvo de `x += …` mostra o
+    // The class name in `A.n(…)` shows the constructor; the declaration of a
+    // type parameter has no hover; the target of `x += …` shows the
     // `writeType`.
     let usage = "class A<T> {\n  A.n(T v);\n}\nvoid g<V>(V v) {\n  var a = A.n(1);\n  num x = 1;\n  x += 2;\n  print([a, x]);\n}\n";
     p.open("lib/c.dart", usage);
@@ -256,19 +256,19 @@ fn hover_by_shape_with_documentation() {
     p.write("lib/modelo.dart", MODEL);
     p.open("lib/uso.dart", USE);
     let cases: &[(&str, usize, &str)] = &[
-        // A sobrescrita sem documentação herda a do membro sobrescrito.
+        // An override without documentation inherits the overridden member's.
         (
             "met(1",
             0,
-            // Três parâmetros: um por linha, como o `multiline` do analyzer;
-            // numa chamada, o tipo da invocação.
+            // Three parameters: one per line, like the analyzer's `multiline`; at a
+            // call, the invocation's type.
             "void met(\n  int x, {\n  int y = 0,\n  required String nome,\n})\nType: void Function(int, {required String nome, int y})\n\nFaz algo com [x].\n\nCopied from `Base`.",
         ),
         ("valor + c", 0, "T valor\nType: int\n\nO valor guardado."),
         ("dobro;", 0, "int get dobro\nType: int"),
         ("dobro(total", 0, "int dobro(int v)\nType: int Function(int)"),
         ("total));", 0, "int total\nType: int"),
-        // O tipo mostrado é o promovido; a declaração, a escrita.
+        // The displayed type is the promoted one; the declaration, the written one.
         ("n);", 0, "num n\nType: int"),
         ("azul", 0, "Cor azul\nType: Cor"),
         ("contador++", 0, "int contador\nType: int"),
@@ -287,9 +287,9 @@ fn hover_by_shape_with_documentation() {
         );
     }
     let constructor = hover(&mut p, "lib/uso.dart", USE, "vazia(3", 0);
-    // O `ConstructorMember`: os argumentos do tipo criado.
+    // The `ConstructorMember`: the arguments of the created type.
     assert_eq!(constructor, "(new) Caixa<int> Caixa.vazia(int v)");
-    // Markdown: bloco de código, tipo e documentação depois de `---`.
+    // Markdown: code block, type and documentation after `---`.
     p.restart(json!({"capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]}}}}));
     let r = request(
         &mut p,
@@ -304,11 +304,11 @@ fn hover_by_shape_with_documentation() {
         r["contents"]["value"],
         "```dart\nT valor\n```\nType: `int`\n\n*package:projeto/modelo.dart*\n\n---\nO valor guardado."
     );
-    // O intervalo é o do nome sob o cursor.
+    // The range is that of the name under the cursor.
     let (l, c) = location(USE, "valor + c", 0);
     assert_eq!(r["range"]["start"], start(l, c));
     assert_eq!(r["range"]["end"], start(l, c + 5));
-    // Prefixo e palavra-chave não têm hover.
+    // Prefix and keyword have no hover.
     assert_eq!(
         request(
             &mut p,
@@ -340,8 +340,8 @@ fn open_texts_and_parts() {
     let mut p = Project::new("nav-abertos");
     p.write("lib/modelo.dart", MODEL);
     p.open("lib/uso.dart", USE);
-    // O modelo aberto e alterado sem salvar: a definição e o hover seguem
-    // o buffer, não o disco.
+    // The model open and changed without saving: definition and hover follow
+    // the buffer, not the disk.
     let changed = MODEL.replace("int contador = 0;", "\n/// Quantos.\ndouble contador = 0;");
     p.open("lib/modelo.dart", &changed);
     p.write("lib/modelo.dart", MODEL);
@@ -352,7 +352,7 @@ fn open_texts_and_parts() {
         hover(&mut p, "lib/uso.dart", USE, "contador++", 0),
         "double contador\nType: double\n\nQuantos."
     );
-    // Parte e biblioteca dona.
+    // Part and owning library.
     let owning = "library partes;\npart 'parte.dart';\n/// Base comum.\nint base = 1;\nint dobro() => metade() * 4;\n";
     let part = "part of 'partes.dart';\nint metade() => base ~/ 2;\n";
     p.write("lib/partes.dart", owning);
@@ -377,17 +377,17 @@ fn references_without_false_positives_from_shadow_homonym_and_library() {
     let mut p = Project::new("nav-referencias");
     let a = "int f() => 1;\nvoid g() { f(); f(); }\n/// Veja [f].\nvoid h() {}\n";
     let b = "import 'a.dart';\nvoid x() => print(f());\n";
-    // Homônimo noutra biblioteca, que não importa `a.dart`.
+    // Homonym in another library, which does not import `a.dart`.
     let c = "int f() => 2;\nvoid y() => print(f());\n";
-    // Prefixo, `show` e um local homônimo que sombreia.
+    // Prefix, `show` and a homonymous local that shadows.
     let d = "import 'a.dart' as p;\nimport 'a.dart' show f;\nvoid z() { p.f(); int f = 0; print(f); }\n";
     p.write("lib/b.dart", b);
     p.write("lib/c.dart", c);
     p.write("lib/d.dart", d);
     p.open("lib/a.dart", a);
     let refs = references(&mut p, "lib/a.dart", a, "f()", 0, true);
-    // A ordem do servidor do Dart: os outros arquivos pelo caminho, o que
-    // declara e a declaração no fim.
+    // The Dart server's order: the other files by path, the declaring one and
+    // the declaration at the end.
     let expected: Vec<(String, u32, u32)> = vec![
         ("lib/b.dart".into(), 1, 18),
         ("lib/d.dart".into(), 1, 21),
@@ -398,16 +398,16 @@ fn references_without_false_positives_from_shadow_homonym_and_library() {
         ("lib/a.dart".into(), 0, 4),
     ];
     assert_eq!(refs, expected);
-    // Sem a declaração.
+    // Without the declaration.
     let sem = references(&mut p, "lib/a.dart", a, "f()", 0, false);
     assert_eq!(sem, expected[..expected.len() - 1].to_vec());
-    // A partir de um uso num arquivo fechado dá o mesmo conjunto.
+    // Starting from a use in a closed file gives the same set.
     p.open("lib/b.dart", b);
     assert_eq!(
         references(&mut p, "lib/b.dart", b, "f()", 0, true),
         expected
     );
-    // O homônimo de `c.dart` só vê a si mesmo.
+    // The homonym of `c.dart` only sees itself.
     p.open("lib/c.dart", c);
     assert_eq!(
         references(&mut p, "lib/c.dart", c, "f()", 1, true),
@@ -416,7 +416,7 @@ fn references_without_false_positives_from_shadow_homonym_and_library() {
             ("lib/c.dart".to_string(), 0, 4)
         ]
     );
-    // O local que sombreia só vê a si mesmo.
+    // The shadowing local only sees itself.
     p.open("lib/d.dart", d);
     assert_eq!(
         references(&mut p, "lib/d.dart", d, "f = 0", 0, true),
@@ -425,8 +425,8 @@ fn references_without_false_positives_from_shadow_homonym_and_library() {
             ("lib/d.dart".to_string(), 2, 22)
         ]
     );
-    // O prefixo: o uso e a declaração, que o servidor do Dart 3.6.2 dá no
-    // começo do arquivo (0:0).
+    // The prefix: the use and the declaration, which the Dart 3.6.2 server
+    // gives at the start of the file (0:0).
     assert_eq!(
         references(&mut p, "lib/d.dart", d, "p.f", 0, true),
         vec![
@@ -438,8 +438,8 @@ fn references_without_false_positives_from_shadow_homonym_and_library() {
 
 #[test]
 fn documentation_references_like_the_index() {
-    // `[A.n]` resolve para o construtor: o índice do analyzer não cita o
-    // `A` dela; `[A.+]` (operador) e `[A]` citam.
+    // `[A.n]` resolves to the constructor: the analyzer's index does not cite
+    // its `A`; `[A.+]` (operator) and `[A]` do.
     let mut p = Project::new("nav-referencias-doc");
     let a = "class A {\n  A.n();\n  A operator +(A o) => this;\n}\n/// [A.n], [A.+] e [A].\nvoid h() {}\n";
     p.open("lib/a.dart", a);
@@ -447,7 +447,7 @@ fn documentation_references_like_the_index() {
     assert!(refs.contains(&("lib/a.dart".to_string(), 4, 12)), "{refs:?}");
     assert!(refs.contains(&("lib/a.dart".to_string(), 4, 20)), "{refs:?}");
     assert!(!refs.contains(&("lib/a.dart".to_string(), 4, 5)), "{refs:?}");
-    // O construtor: do fim do prefixo ao fim.
+    // The constructor: from the end of the prefix to the end.
     let refs = references(&mut p, "lib/a.dart", a, "n();", 0, false);
     assert!(refs.contains(&("lib/a.dart".to_string(), 4, 6)), "{refs:?}");
 }
@@ -477,7 +477,7 @@ fn member_references_through_family_and_sdk() {
             ("lib/a.dart".to_string(), 0, 15),
         ]
     );
-    // Elemento do SDK: a declaração no SDK e os usos só no projeto.
+    // SDK element: the declaration in the SDK and the uses only in the project.
     let refs = references(&mut p, "lib/a.dart", a, "print", 0, true);
     assert_eq!(refs.len(), 2, "{refs:?}");
     assert!(refs[1].0.ends_with("sdk/lib/core/core.dart"), "{refs:?}");
@@ -493,7 +493,7 @@ fn workspace_symbols_include_closed_project_files() {
     );
     p.write("lib/outro.dart", "int nada = 0;\n");
     p.open("lib/aberto.dart", "void carregarDados() {}\n");
-    // Só os do projeto (o SDK e os pacotes também entram, depois).
+    // Only those of the project (the SDK and the packages also come in, after).
     let of_project = |r: &serde_json::Value| -> Vec<String> {
         r["result"]
             .as_array()
@@ -504,18 +504,18 @@ fn workspace_symbols_include_closed_project_files() {
             .collect()
     };
     let r = p.request("workspace/symbol", json!({"query": "carregar"}));
-    // Na ordem dos arquivos do projeto e, por arquivo, classes antes de
-    // funções; executáveis com o sufixo `()`.
+    // In the order of the project files and, per file, classes before
+    // functions; executables with the `()` suffix.
     assert_eq!(of_project(&r), vec!["carregarDados()", "CarregadorRemoto", "carregarTudo()"]);
-    // Aproximado: iniciais de palavras.
+    // Fuzzy: word initials.
     let r = p.request("workspace/symbol", json!({"query": "cR"}));
     assert_eq!(of_project(&r), vec!["CarregadorRemoto"]);
 }
 
-/// Num sistema de arquivos que não distingue caixa (macOS, Windows), o
-/// editor pode mandar a URI com outra caixa que a do disco: a unidade do
-/// documento continua achada (o caminho canônico em toda carga). Onde a
-/// caixa conta, o teste não se aplica.
+/// On a case-insensitive file system (macOS, Windows), the editor may send
+/// the URI with a different case than the disk's: the document's unit is
+/// still found (the canonical path in every load). Where case matters, the
+/// test does not apply.
 #[test]
 fn uri_with_different_case_than_disk() {
     let mut p = Project::new("nav-caixa");
@@ -531,7 +531,7 @@ fn uri_with_different_case_than_disk() {
         "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":text}
     }}));
     p.server.pump();
-    // O membro pelo tipo do receptor só sai da análise semântica.
+    // The member by receiver type only comes out of the semantic analysis.
     let (l, c) = location(text, "length", 0);
     let r = p.request("textDocument/hover", json!({"textDocument": {"uri": uri}, "position": {"line": l, "character": c + 1}}));
     assert!(r["result"]["contents"].to_string().contains("int get length"), "{r}");

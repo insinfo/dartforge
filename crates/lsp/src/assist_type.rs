@@ -1,7 +1,7 @@
-//! Assistências de anotação de tipo, portadas dos produtores do
-//! `analysis_server` 3.6.2 sobre a árvore no formato do analyzer.
+//! Type annotation assists, ported from the `analysis_server` 3.6.2
+//! producers over the analyzer-shaped tree.
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Remove type annotation` | `refactor.remove.typeAnnotation` | `RemoveTypeAnnotation.other` |
 //! | `Add type annotation` | `refactor.add.typeAnnotation` | `AddTypeAnnotation.bulkFixable` |
@@ -15,7 +15,7 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, ExprKind, StmtKind};
 use dartforge_types::{Type, TypeId};
 
-/// As espécies de `TypeAnnotation`.
+/// The kinds of `TypeAnnotation`.
 const TYPES: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
 
 impl Context<'_> {
@@ -29,14 +29,14 @@ impl Context<'_> {
         }
     }
 
-    /// O filho de `n` que é uma anotação de tipo.
+    /// The child of `n` that is a type annotation.
     fn type_child(&self, n: usize) -> Option<usize> {
         self.children(n).iter().copied().find(|&f| TYPES.contains(&self.kind(f)))
     }
 
-    /// `RemoveTypeAnnotation.other` (remove_type_annotation.dart): o primeiro
-    /// `DeclaredIdentifier`, `SimpleFormalParameter`, `SuperFormalParameter`
-    /// ou `VariableDeclarationList` entre o nó da seleção e os ancestrais.
+    /// `RemoveTypeAnnotation.other` (remove_type_annotation.dart): the first
+    /// `DeclaredIdentifier`, `SimpleFormalParameter`, `SuperFormalParameter` or
+    /// `VariableDeclarationList` among the selection node and its ancestors.
     pub(crate) fn remove_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let target = self.with_parents(no).find(|&k| {
@@ -45,8 +45,8 @@ impl Context<'_> {
         let edits = match self.kind(target) {
             "DeclaredIdentifier" => self.remove_from_declared_identifier(target)?,
             "SimpleFormalParameter" | "SuperFormalParameter" => {
-                // `_removeTypeAnnotation`: do tipo ao token seguinte; num
-                // `super.f(int a)`, também a lista de parâmetros.
+                // `_removeTypeAnnotation`: from the type to the next token; in a
+                // `super.f(int a)`, also the parameter list.
                 let ty = self.type_child(target)?;
                 let type_end = self.tree.nos[ty].fim;
                 let next = self.next_token(type_end)?.start;
@@ -63,8 +63,8 @@ impl Context<'_> {
         Some(self.type_action(uri, "Remove type annotation", "refactor.remove.typeAnnotation", edits))
     }
 
-    /// A palavra `final`/`const`/`var` da lista ou do identificador
-    /// declarado (o `keyword`), entre `start` e `limit`.
+    /// The `final`/`const`/`var` keyword of the list or of the declared
+    /// identifier (the `keyword`), between `start` and `limit`.
     fn declaration_word(&self, start: usize, limit: usize) -> Option<&str> {
         self.tokens
             .iter()
@@ -76,7 +76,7 @@ impl Context<'_> {
     /// `_removeFromDeclaredIdentifier`.
     fn remove_from_declared_identifier(&self, target: usize) -> Option<Vec<(Span, String)>> {
         let ty = self.type_child(target)?;
-        // O nome: o último token do nó.
+        // The name: the node's last token.
         let name = self.previous_token(self.tree.nos[target].fim)?;
         let word = self.declaration_word(self.tree.nos[target].inicio, self.tree.nos[ty].inicio);
         let range = Span { start: self.tree.nos[ty].inicio, end: name.start };
@@ -89,14 +89,14 @@ impl Context<'_> {
         let variables = self.kind_children(list, "VariableDeclaration");
         let first = *variables.first()?;
         let name = self.next_token(self.tree.nos[first].inicio)?;
-        // Declaração incompleta (nome sintético).
+        // Incomplete declaration (synthetic name).
         if variables.len() == 1 && name.start != self.tree.nos[first].inicio {
             return None;
         }
         if selection > name.end {
             return None;
         }
-        // Sem inicializador não há outra fonte para o tipo.
+        // Without an initializer there is no other source for the type.
         let mut initializer = *self.children(first).first()?;
         let mut arguments: Option<(String, usize)> = None;
         if self.kind(ty) == "NamedType"
@@ -109,7 +109,7 @@ impl Context<'_> {
             match self.kind(initializer) {
                 "ListLiteral" | "SetOrMapLiteral" => {
                     if !self.children(initializer).iter().any(|&f| self.kind(f) == "TypeArgumentList") {
-                        // O `leftBracket`.
+                        // The `leftBracket`.
                         let opens = self
                             .tokens
                             .iter()
@@ -127,8 +127,7 @@ impl Context<'_> {
                 _ => {}
             }
         }
-        // Um literal de conjunto ou mapa sem argumentos de tipo ficaria
-        // ambíguo.
+        // A set or map literal without type arguments would become ambiguous.
         if self.kind(initializer) == "SetOrMapLiteral"
             && !self.children(initializer).iter().any(|&f| self.kind(f) == "TypeArgumentList")
             && arguments.is_none()
@@ -146,10 +145,10 @@ impl Context<'_> {
 
     // -- AddTypeAnnotation -------------------------------------------------------
 
-    /// `AddTypeAnnotation.compute` (add_type_annotation.dart): o nó da
-    /// seleção como `SimpleFormalParameter`, `DeclaredVariablePattern` ou
-    /// literal tipado; senão o primeiro `VariableDeclarationList`,
-    /// `DeclaredIdentifier` ou `ForStatement` entre os ancestrais.
+    /// `AddTypeAnnotation.compute` (add_type_annotation.dart): the selection
+    /// node as a `SimpleFormalParameter`, `DeclaredVariablePattern` or typed
+    /// literal; otherwise the first `VariableDeclarationList`,
+    /// `DeclaredIdentifier` or `ForStatement` among the ancestors.
     pub(crate) fn add_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let change = match self.kind(no) {
@@ -164,8 +163,8 @@ impl Context<'_> {
                     "VariableDeclarationList" => self.declaration_list_type(target, start)?,
                     "DeclaredIdentifier" => self.declared_identifier_type(target)?,
                     _ => {
-                        // `ForStatement` com `ForEachPartsWithDeclaration`, o nó
-                        // antes do iterável.
+                        // A `ForStatement` with `ForEachPartsWithDeclaration`, the node before the
+                        // iterable.
                         let parts = self.children(target).iter().copied().find(|&f| self.kind(f) == "ForEachPartsWithDeclaration")?;
                         let declared = self.children(parts).iter().copied().find(|&f| self.kind(f) == "DeclaredIdentifier")?;
                         let iterable = *self.children(parts).last()?;
@@ -195,8 +194,8 @@ impl Context<'_> {
         })
     }
 
-    /// `_applyChange`: com `var`, o tipo no lugar dele; senão antes do nome
-    /// (`canWriteType` falso: nada).
+    /// `_applyChange`: with `var`, the type in its place; otherwise before the
+    /// name (`canWriteType` false: nothing).
     #[allow(clippy::type_complexity)]
     fn apply_type(&self, word: Option<Span>, name: Span, t: TypeId) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         let mut writer = crate::write_type::Writer::new(self, name.start);
@@ -208,7 +207,7 @@ impl Context<'_> {
         Some((vec![edit], writer.import))
     }
 
-    /// `InterfaceType` do analyzer: classe, `FutureOr`, tipo de extensão.
+    /// The analyzer's `InterfaceType`: class, `FutureOr`, extension type.
     fn is_interface_type(&self, t: TypeId) -> bool {
         matches!(self.p.query.table.get(t), Type::Interface { .. } | Type::FutureOr { .. } | Type::ExtensionType { .. })
     }
@@ -219,7 +218,7 @@ impl Context<'_> {
         if self.type_child(no).is_some() {
             return None;
         }
-        // O nome: o último token do nó.
+        // The name: the node's last token.
         let name = self.previous_token(self.tree.nos[no].fim)?;
         if !self.source[name.start..name.end].chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$') {
             return None;
@@ -231,13 +230,13 @@ impl Context<'_> {
         self.apply_type(None, name, t)
     }
 
-    /// O `PatternId` do nó de padrão (pelo intervalo).
+    /// The `PatternId` of the pattern node (by range).
     fn node_pattern(&self, no: usize) -> Option<ast::PatternId> {
         let s = self.tree.span(no);
         self.ast.patterns.iter().position(|p| p.span == s && matches!(p.kind, ast::PatternKind::Variable { .. })).map(|i| ast::PatternId(i as u32))
     }
 
-    /// `DeclaredVariablePattern`: o `matchedValueType`.
+    /// `DeclaredVariablePattern`: the `matchedValueType`.
     #[allow(clippy::type_complexity)]
     fn declared_pattern_type(&self, no: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         let pid = self.node_pattern(no)?;
@@ -251,7 +250,7 @@ impl Context<'_> {
         self.apply_type(word, name.span, t)
     }
 
-    /// `_typedLiteral`: `<arguments>` no `[`/`{`.
+    /// `_typedLiteral`: `<arguments>` at the `[`/`{`.
     #[allow(clippy::type_complexity)]
     fn literal_type(&self, no: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         let x = self.node_expr(no)?;
@@ -293,14 +292,14 @@ impl Context<'_> {
         self.apply_type(word, name, t)
     }
 
-    /// `_typeForVariable`: o tipo do inicializador; sem ele, num local de
-    /// bloco, o LUB dos tipos atribuídos nos comandos seguintes.
+    /// `_typeForVariable`: the initializer's type; without one, for a block
+    /// local, the LUB of the types assigned in the following statements.
     fn variable_type(&self, variable: usize) -> Option<TypeId> {
         let name = self.next_token(self.tree.nos[variable].inicio)?;
         if let Some(&start) = self.children(variable).first() {
             return self.node_expr(start).and_then(|x| self.bodies.get_type(x));
         }
-        // O comando de declaração e o bloco que o contém.
+        // The declaration statement and the block that contains it.
         let list = self.parent(variable)?;
         let command = self.parent(list)?;
         let block = self.parent(command)?;
@@ -329,8 +328,8 @@ impl Context<'_> {
         if rest.is_empty() {
             return Some(first);
         }
-        // `leastUpperBound` numa cópia da tabela: só vale um tipo que a
-        // tabela da consulta já tem (o escritor lê esta).
+        // `leastUpperBound` on a copy of the table: only a type the query's table
+        // already has is valid (the writer reads that table).
         let query = &self.p.query;
         let mut table = query.table.clone();
         let mut env = dartforge_types::subtyping::SubtypeEnv::new(&mut table, &query.outline.hierarchy, &query.core);
@@ -373,8 +372,8 @@ impl Context<'_> {
         self.apply_type(word, name, t)
     }
 
-    /// `ReplaceWithVar._findType`: a lista de declaração dá o tipo dela; senão
-    /// a anotação de tipo mais próxima.
+    /// `ReplaceWithVar._findType`: the declaration list gives its type;
+    /// otherwise the closest type annotation.
     fn type_to_swap(&self, no: usize) -> Option<usize> {
         const ANNOTATIONS: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
         if self.kind(no) == "VariableDeclarationList" {
@@ -383,8 +382,8 @@ impl Context<'_> {
         self.with_parents(no).find(|&k| ANNOTATIONS.contains(&self.kind(k)))
     }
 
-    /// O tipo declarado do local cujo nome começa em `name` (`dynamic` não
-    /// conta: `staticType is DynamicType`).
+    /// The declared type of the local whose name starts at `name` (`dynamic`
+    /// does not count: `staticType is DynamicType`).
     fn local_declared_type(&self, name: usize) -> Option<TypeId> {
         let t = *self.bodies.tipos_de_locais.get(&name)?;
         (!matches!(self.p.query.table.get(t), Type::Dynamic)).then_some(t)
@@ -392,7 +391,7 @@ impl Context<'_> {
 
     /// `_canConvertVariableDeclarationList`.
     fn list_swappable_to_var(&self, list: usize) -> bool {
-        // `node.type?.type`: sem anotação, nada.
+        // `node.type?.type`: without an annotation, nothing.
         if !self.children(list).iter().any(|&f| matches!(self.kind(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")) {
             return false;
         }
@@ -405,7 +404,7 @@ impl Context<'_> {
         })
     }
 
-    /// `_canReplaceWithVar`, a partir do pai do nó da seleção.
+    /// `_canReplaceWithVar`, from the parent of the selection node.
     fn swappable_to_var(&self, no: usize) -> bool {
         let Some(parent) = self.parent(no) else { return false };
         for k in self.with_parents(parent) {
@@ -420,7 +419,7 @@ impl Context<'_> {
                     let Some(&iterable) = children.last() else { return false };
                     let Some(name) = self.previous_token(self.tree.nos[variable].fim) else { return false };
                     let Some(declared) = self.local_declared_type(name.start) else { return false };
-                    // `loopVariable.type?.type`: sem anotação, nada.
+                    // `loopVariable.type?.type`: without an annotation, nothing.
                     if !self.children(variable).iter().any(|&f| matches!(self.kind(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")) {
                         return false;
                     }
@@ -438,15 +437,15 @@ impl Context<'_> {
         false
     }
 
-    /// Os argumentos de tipo (`TypeArgumentList`) filhos de `n`.
+    /// The type arguments (`TypeArgumentList`) that are children of `n`.
     fn type_arguments(&self, n: usize) -> Option<usize> {
         self.children(n).iter().copied().find(|&k| self.kind(k) == "TypeArgumentList")
     }
 
-    /// `ReplaceWithVar` (replace_with_var.dart): o tipo de uma declaração local
-    /// (comando, `for` ou `for-in`) igual ao do inicializador vira `var` (ou
-    /// some, com `final`/`const`), e os argumentos de tipo passam para o
-    /// literal ou a criação sem eles.
+    /// `ReplaceWithVar` (replace_with_var.dart): the type of a local declaration
+    /// (statement, `for` or `for-in`) equal to the initializer's becomes `var`
+    /// (or disappears, with `final`/`const`), and the type arguments move to
+    /// the literal or the creation without them.
     pub(crate) fn swap_to_var(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let ty = self.type_to_swap(no)?;
@@ -541,8 +540,8 @@ impl Context<'_> {
         Some(self.type_action(uri, "Replace type annotation with 'var'", "refactor.replace.withVar", edits))
     }
 
-    /// `_allParametersHaveTypes`: todo parâmetro (sem o valor padrão) é
-    /// simples com tipo ou função tipada.
+    /// `_allParametersHaveTypes`: every parameter (without the default value)
+    /// is simple with a type or a typed function.
     fn typed_parameters(&self, list: usize) -> bool {
         self.children(list).iter().all(|&p| {
             let p = if self.kind(p) == "DefaultFormalParameter" { self.children(p).first().copied().unwrap_or(p) } else { p };
@@ -555,9 +554,9 @@ impl Context<'_> {
     }
 
     /// `ConvertToGenericFunctionSyntax` (convert_to_generic_function_syntax.dart):
-    /// `typedef R F(P);` vira `typedef F = R Function(P);` e o parâmetro
-    /// `R f(P)` vira `R Function(P) f`; dentro de uma lista de parâmetros, só
-    /// o próprio parâmetro.
+    /// `typedef R F(P);` becomes `typedef F = R Function(P);` and the parameter
+    /// `R f(P)` becomes `R Function(P) f`; inside a parameter list, only the
+    /// parameter itself.
     pub(crate) fn convert_to_function_syntax(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let no = self.tree.localizar(start, end)?;
         let target = self.with_parents(no).find(|&k| matches!(self.kind(k), "FunctionTypeAlias" | "FunctionTypedFormalParameter" | "FormalParameterList"))?;
@@ -571,7 +570,7 @@ impl Context<'_> {
                 if !self.typed_parameters(list) {
                     return None;
                 }
-                // O nome: o token antes dos parâmetros de tipo ou da lista.
+                // The name: the token before the type parameters or the list.
                 let after_name = parameter_types.map_or(self.tree.nos[list].inicio, |t| self.tree.nos[t].inicio);
                 let name = self.previous_token(after_name)?;
                 let name_end = parameter_types.map_or(name.end, |t| self.tree.nos[t].fim);
@@ -630,5 +629,5 @@ impl Context<'_> {
     }
 }
 
-/// As espécies de `TypeAnnotation`, que podem ser o tipo de retorno.
+/// The kinds of `TypeAnnotation` that can be the return type.
 const RETURN_TYPES: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];

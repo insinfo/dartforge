@@ -1,7 +1,7 @@
-//! `textDocument/codeAction` pelas mensagens JSON-RPC: inserir `;`,
-//! importar a biblioteca de um nome indefinido, as correções dos códigos
-//! semânticos publicados (imediatos e tipados da versão vigente), a
-//! assistência de anotação de tipo e as edições versionadas.
+//! `textDocument/codeAction` through JSON-RPC messages: insert `;`, import
+//! the library of an undefined name, the fixes for the published semantic
+//! codes (immediate and typed ones of the current version), the type
+//! annotation assist and the versioned edits.
 
 mod common;
 
@@ -20,8 +20,8 @@ fn actions(p: &mut Project, relative: &str, de: (u32, u32), until: (u32, u32), e
         }
     }
     let r = p.request("textDocument/codeAction", params)["result"].clone();
-    // As ações de fonte (sempre oferecidas) e as criações para nomes
-    // indefinidos têm testes próprios (`tests/fixes.rs`); aqui ficam fora.
+    // The source actions (always offered) and the creations for undefined
+    // names have their own tests (`tests/fixes.rs`); they are left out here.
     let outside = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
@@ -65,18 +65,18 @@ fn insert_semicolon_on_published_diagnostic() {
     let r = actions(&mut p, "lib/a.dart", (1, 10), (1, 10), json!({}));
     assert_eq!(titles(&r), vec!["Insert ';'"]);
     assert_eq!(r[0]["kind"], "quickfix.insertSemicolon");
-    // O diagnóstico da ação é o mesmo que foi publicado.
+    // The action's diagnostic is the same one that was published.
     assert_eq!(r[0]["diagnostics"][0], diagnostic);
     assert_eq!(
         apply(&r[0]["edit"], &p.uri("lib/a.dart"), text),
         "void f() {\n  var x = 1;\n  print(x);\n}\n"
     );
-    // Fora do diagnóstico, nada.
+    // Outside the diagnostic, nothing.
     assert_eq!(
         actions(&mut p, "lib/a.dart", (0, 0), (0, 3), json!({})),
         json!([])
     );
-    // `only` que não inclui quickfix filtra tudo.
+    // An `only` that does not include quickfix filters everything.
     assert_eq!(
         actions(
             &mut p,
@@ -110,9 +110,9 @@ fn import_library_from_sdk_and_project() {
     let text = "import 'dart:core';\n\nvoid f() {\n  var r = Random();\n  Soma? s;\n  print(pi);\n  _privada();\n}\n";
     p.open("lib/a.dart", text);
     let uri = p.uri("lib/a.dart");
-    // Chamada a um nome indefinido: SDK (sem bibliotecas `dart:_`).
-    // (As correções valem para os diagnósticos da linha, como no Dart: o
-    // `r` não usado da mesma linha também aparece.)
+    // Call to an undefined name: SDK (without `dart:_` libraries).
+    // (The fixes apply to the diagnostics of the line, as in Dart: the unused
+    // `r` on the same line also shows up.)
     let r = actions(&mut p, "lib/a.dart", (3, 11), (3, 11), json!({}));
     let import = action(&r, "Import library 'dart:math'");
     assert_eq!(titles(&r).iter().filter(|t| t.starts_with("Import")).count(), 1);
@@ -121,10 +121,10 @@ fn import_library_from_sdk_and_project() {
         apply(&import["edit"], &uri, text),
         "import 'dart:core';\nimport 'dart:math';\n\nvoid f() {\n  var r = Random();\n  Soma? s;\n  print(pi);\n  _privada();\n}\n"
     );
-    // Tipo indefinido: biblioteca do projeto (parte não conta), relativa.
-    // (O `s` não usado da mesma linha também tem a sua correção.)
+    // Undefined type: project library (a part does not count), relative.
+    // (The unused `s` on the same line also gets its fix.)
     let r = actions(&mut p, "lib/a.dart", (4, 3), (4, 3), json!({}));
-    // As duas formas, como o `dart language-server` 3.6.2.
+    // Both forms, like `dart language-server` 3.6.2.
     assert_eq!(
         titles(&r).into_iter().filter(|t| t.starts_with("Import")).collect::<Vec<_>>(),
         vec!["Import library 'package:projeto/util/soma.dart'", "Import library 'util/soma.dart'"]
@@ -135,13 +135,13 @@ fn import_library_from_sdk_and_project() {
         apply(&import["edit"], &uri, text)
             .starts_with("import 'dart:core';\n\nimport 'util/soma.dart';\n")
     );
-    // Variável de topo do SDK declarada na biblioteca, não numa parte.
+    // SDK top-level variable declared in the library, not in a part.
     assert_eq!(
         titles(&actions(&mut p, "lib/a.dart", (5, 9), (5, 9), json!({}))),
         vec!["Import library 'dart:math'"]
     );
-    // Nome privado nunca é importável. Num nome definido da mesma linha,
-    // as correções são as dos diagnósticos da linha (o `pi`), como no Dart.
+    // A private name is never importable. On a defined name on the same line,
+    // the fixes are those of the line's diagnostics (the `pi`), as in Dart.
     assert_eq!(
         actions(&mut p, "lib/a.dart", (6, 4), (6, 4), json!({})),
         json!([])
@@ -167,7 +167,7 @@ fn import_from_outside_lib_uses_package_and_without_directives_inserts_at_top() 
         apply(&r[0]["edit"], &p.uri("bin/main.dart"), text),
         "import 'package:projeto/soma.dart';\n\nvoid main() {\n  print(somar(1, 2));\n}\n"
     );
-    // Depois de importada, a ação some.
+    // Once imported, the action disappears.
     let with_import =
         "import 'package:projeto/soma.dart';\n\nvoid main() {\n  print(somar(1, 2));\n}\n";
     p.change("bin/main.dart", 2, with_import);
@@ -180,14 +180,15 @@ fn import_from_outside_lib_uses_package_and_without_directives_inserts_at_top() 
 #[test]
 fn incomplete_code_still_imports() {
     let mut p = Project::with_literals("acoes-incompleto");
-    // O comando com `Random` está bem formado; outro, quebrado, não o impede.
+    // The statement with `Random` is well formed; another, broken one does not
+    // prevent it.
     let text = "void f() {\n  var r = Random();\n  r.\n}\n";
     p.open("lib/a.dart", text);
     let r = actions(&mut p, "lib/a.dart", (1, 11), (1, 11), json!({}));
     assert_eq!(titles(&r), vec!["Import library 'dart:math'"]);
 }
 
-/// Linha e coluna UTF-16 do início da `n`-ésima ocorrência de `needle`.
+/// UTF-16 line and column of the start of the `n`-th occurrence of `needle`.
 fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
     let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle:?}")).0;
     let before = &text[..i];
@@ -197,7 +198,7 @@ fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
     )
 }
 
-/// Abre, espera a publicação tipada e pede as ações em `needle`.
+/// Opens, waits for the typed publication and requests the actions at `needle`.
 fn actions_in(p: &mut Project, rel: &str, text: &str, needle: &str) -> Value {
     p.open(rel, text);
     p.server.await_diagnostics(std::time::Duration::from_secs(120));
@@ -205,7 +206,7 @@ fn actions_in(p: &mut Project, rel: &str, text: &str, needle: &str) -> Value {
     actions(p, rel, pos, pos, json!({}))
 }
 
-/// A ação de título `title`.
+/// The action titled `title`.
 fn action<'a>(r: &'a Value, title: &str) -> &'a Value {
     r.as_array()
         .unwrap()
@@ -226,7 +227,7 @@ fn removes_unused_local_and_its_assignments() {
         apply(&a["edit"], &p.uri("lib/a.dart"), text),
         "void f() {\n  var y = 2;\n  print(y);\n}\n"
     );
-    // Numa lista, só a variável.
+    // In a list, only the variable.
     let text = "void f() {\n  var a = 1, b = 2;\n  var c = 3, d = 4;\n  print(a + d);\n}\n";
     let r = actions_in(&mut p, "lib/b.dart", text, "b = 2");
     assert_eq!(
@@ -239,8 +240,8 @@ fn removes_unused_local_and_its_assignments() {
         apply(&action(&r, "Remove unused local variable")["edit"], &p.uri("lib/b.dart"), text),
         "void f() {\n  var a = 1, b = 2;\n  var d = 4;\n  print(a + d);\n}\n"
     );
-    // Usado: nada a remover dele (o `b` da mesma linha, não usado, tem a
-    // sua correção, como no Dart, que corrige os diagnósticos da linha).
+    // Used: nothing to remove from it (the unused `b` on the same line gets its
+    // fix, as in Dart, which fixes the diagnostics of the line).
     let pos = location(text, "a = 1", 0);
     let r = actions(&mut p, "lib/b.dart", pos, pos, json!({}));
     assert!(r.as_array().unwrap().iter().filter(|a| a["title"] == "Remove unused local variable").all(|a| a["diagnostics"][0]["range"]["start"]["character"] != pos.1));
@@ -266,7 +267,7 @@ fn fixes_for_published_typed_diagnostics() {
             "as int",
             "Remove unnecessary cast",
             "quickfix.remove.unnecessaryCast",
-            // Só o ` as int` sai; os parênteses ficam (servidor do Dart 3.6.2).
+            // Only the ` as int` goes away; the parentheses stay (Dart 3.6.2 server).
             "void f(int x) {\n  print((x).isEven);\n}\n",
         ),
         (
@@ -317,19 +318,19 @@ fn stale_version_typed_diagnostic_produces_no_fix() {
     let text = "void f(int x) {\n  print((x as int).isEven);\n}\n";
     let r = actions_in(&mut p, "lib/a.dart", text, "as int");
     assert!(titles(&r).contains(&"Remove unnecessary cast".to_string()));
-    // Nova versão, com a análise tipada suspensa: a publicação tipada da
-    // versão 1 não vale para a 2, mesmo com o mesmo texto no lugar.
+    // New version, with the typed analysis suspended: the typed publication of
+    // version 1 does not apply to version 2, even with the same text in place.
     p.server.pause_typed_analysis(true);
     p.change("lib/a.dart", 2, &format!("{text}// fim\n"));
     let pos = location(text, "as int", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert!(!titles(&r).contains(&"Remove unnecessary cast".to_string()), "{r}");
-    // Retomada, a publicação da versão 2 volta a valer.
+    // Once resumed, the publication of version 2 applies again.
     p.server.pause_typed_analysis(false);
     p.server.await_diagnostics(std::time::Duration::from_secs(120));
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert!(titles(&r).contains(&"Remove unnecessary cast".to_string()), "{r}");
-    // Fora do intervalo do diagnóstico, nada.
+    // Outside the diagnostic's range, nothing.
     assert!(!titles(&actions(&mut p, "lib/a.dart", (0, 0), (0, 4), json!({}))).contains(&"Remove unnecessary cast".to_string()));
 }
 
@@ -368,19 +369,19 @@ fn type_annotation_assist() {
     let pos = location(text, "lista =", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(apply(&action(&r, "Add type annotation")["edit"], &p.uri("lib/a.dart"), text), text.replace("var lista", "List<int> lista"));
-    // `dynamic` não se anota; no inicializador também não.
+    // `dynamic` is not annotated; nor in the initializer.
     let pos = location(text, "d;", 0);
     assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Add type annotation".to_string()));
     let pos = location(text, "'x'", 0);
     assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Add type annotation".to_string()));
-    // `context.only` com `quickfix` exclui a assistência; com `refactor`, só ela.
+    // `context.only` with `quickfix` excludes the assist; with `refactor`, only it.
     let pos = location(text, "nome =", 0);
     assert!(titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({"only": ["quickfix"]}))).iter().all(|t| t != "Add type annotation"));
     assert_eq!(titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({"only": ["refactor"]}))), vec!["Add type annotation"]);
 }
 
-/// L06: as correções do Dart 3.6.2 para mais códigos publicados, com os
-/// títulos e as edições do `analysis_server`.
+/// L06: the Dart 3.6.2 fixes for more published codes, with the titles and
+/// edits of `analysis_server`.
 #[test]
 fn fixes_for_final_field_abstract_condition_and_element() {
     let mut p = Project::with_literals("acoes-l06");
@@ -449,14 +450,15 @@ fn fixes_for_final_field_abstract_condition_and_element() {
         assert!(a["diagnostics"][0]["code"].is_string(), "{a}");
         assert_eq!(apply(&a["edit"], &p.uri(rel), text), expected, "{rel}");
     }
-    // Campo `final` que é escrito sem ser campo (local): nada de campo.
+    // A `final` field that is written without being a field (local): no field.
     let text = "void f() {\n  final int w = 1;\n  print(w);\n}\n";
     let r = actions_in(&mut p, "lib/local.dart", text, "w = 1");
     assert!(!titles(&r).iter().any(|t| t.starts_with("Make field")), "{r}");
 }
 
-/// L06: `Create file` para a URI relativa que não existe, só ao cliente que
-/// aceita a operação `create`; a parte nasce com o `part of`.
+/// L06: `Create file` for the relative URI that does not exist, only for a
+/// client that accepts the `create` operation; the part is born with the
+/// `part of`.
 #[test]
 fn create_file_for_missing_uri() {
     let capabilities = json!({
@@ -469,8 +471,8 @@ fn create_file_for_missing_uri() {
     let a = action(&r, "Create file 'novo.dart'");
     assert_eq!(a["kind"], "quickfix.create.file");
     let changes = a["edit"]["documentChanges"].as_array().expect("documentChanges");
-    // Como o `dart language-server` 3.6.2: o `create` (sem opções) e o
-    // conteúdo numa edição à parte.
+    // Like `dart language-server` 3.6.2: the `create` (without options) and the
+    // content in a separate edit.
     assert_eq!(changes[0], json!({"kind": "create", "uri": p.uri("lib/novo.dart")}));
     assert_eq!(changes.len(), 2, "{changes:?}");
     assert_eq!(changes[1]["edits"][0]["newText"], "// TODO Implement this library.");
@@ -481,7 +483,7 @@ fn create_file_for_missing_uri() {
     assert_eq!(changes[0]["uri"], p.uri("lib/parte.dart"));
     assert_eq!(changes[1]["edits"][0]["newText"], "part of 'a.dart';\n\n");
 
-    // Sem a operação `create` no cliente, a correção não é oferecida.
+    // Without the `create` operation in the client, the fix is not offered.
     let mut p = Project::with_literals("acoes-criar-sem");
     let r = actions_in(&mut p, "lib/a.dart", text, "'novo.dart'");
     assert!(!titles(&r).iter().any(|t| t.starts_with("Create file")), "{r}");
@@ -524,7 +526,7 @@ fn for_index_assist() {
 }
 "
     );
-    // Dentro do corpo, fora do cabeçalho, não.
+    // Inside the body, outside the header, no.
     let pos = location(text, "print", 0);
     assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to for-index loop".to_string()));
 }
@@ -634,7 +636,7 @@ fn replace_with_var_assist() {
     let pos = location(text, "int x", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(apply(&action(&r, "Replace type annotation with 'var'")["edit"], &p.uri("lib/a.dart"), text), text.replace("int x in", "var x in"));
-    // `num` com inicializador `int`: os tipos diferem.
+    // `num` with an `int` initializer: the types differ.
     let pos = location(text, "num n", 0);
     assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Replace type annotation with 'var'".to_string()));
 }
@@ -650,7 +652,7 @@ fn split_and_condition_assist() {
         apply(&a["edit"], &p.uri("lib/a.dart"), text),
         "void f(bool a, bool b) {\n  if (a) {\n    if (b) {\n      print(1);\n    }\n  }\n}\n"
     );
-    // Fora do operador, não.
+    // Outside the operator, no.
     let pos = location(text, "a &&", 0);
     assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Split && condition".to_string()));
 }
@@ -810,7 +812,7 @@ fn function_syntax_assist() {
     let pos = location(text, "h(String", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(apply(&action(&r, "Convert into 'Function' syntax")["edit"], &p.uri("lib/a.dart"), text), text.replace("int h(String s)", "int Function(String s) h"));
-    // `k(x)`: o parâmetro sem tipo impede.
+    // `k(x)`: the untyped parameter prevents it.
     let pos = location(text, "k(x)", 0);
     assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert into 'Function' syntax".to_string()));
 }
@@ -835,7 +837,7 @@ fn surround_with_assist() {
         "void f() {\n  try {\n    print(1);\n    print(2);\n  } on Exception catch (e) {\n    // TODO\n  }\n}\n"
     );
     assert!(!titles(&r).contains(&"Surround with 'setState'".to_string()));
-    // Sem seleção, nada.
+    // Without a selection, nothing.
     let pos = location(text, "print(1)", 0);
     assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).iter().any(|t| t.starts_with("Surround with")));
 }
@@ -989,7 +991,7 @@ fn flutter_assists_() {
     p.install_flutter();
     let text = "import 'package:flutter/widgets.dart';\n\nclass A extends StatelessWidget {\n  const A({super.key});\n  @override\n  Widget build(BuildContext context) {\n    return Center(child: Text('a'));\n  }\n}\n";
     let uri = p.uri("lib/a.dart");
-    // No `Text`: os embrulhos.
+    // On `Text`: the wrappers.
     let r = actions_in(&mut p, "lib/a.dart", text, "Text(");
     assert_eq!(apply(&action(&r, "Wrap with Center")["edit"], &uri, text), text.replace("child: Text('a')", "child: Center(child: Text('a'))"));
     assert_eq!(
@@ -999,13 +1001,13 @@ fn flutter_assists_() {
     assert_eq!(action(&r, "Wrap with widget...")["kind"], "refactor.flutter.wrap.generic");
     action(&r, "Wrap with Column");
     action(&r, "Wrap with Builder");
-    // No `Center`: remover (o filho fica no lugar).
+    // On `Center`: remove (the child stays in place).
     let r = actions_in(&mut p, "lib/a.dart", text, "Center(");
     assert_eq!(apply(&action(&r, "Remove this widget")["edit"], &uri, text), text.replace("Center(child: Text('a'))", "Text('a')"));
-    // No rótulo `child`: `children: [...]`.
+    // On the `child` label: `children: [...]`.
     let r = actions_in(&mut p, "lib/a.dart", text, "child:");
     assert_eq!(apply(&action(&r, "Convert to children:")["edit"], &uri, text), text.replace("child: Text('a')", "children: [Text('a')]"));
-    // Mover na lista de `children`.
+    // Move within the `children` list.
     let list = "import 'package:flutter/widgets.dart';\n\nWidget f() => Column(children: [Text('a'), Text('b')]);\n";
     let uri2 = p.uri("lib/b.dart");
     let r = actions_in(&mut p, "lib/b.dart", list, "Text('b')");
@@ -1028,7 +1030,7 @@ fn flutter_to_stateful() {
     );
 }
 
-/// Os casos de `flutter_convert_to_stateful_widget_test.dart` do 3.6.2.
+/// The cases of 3.6.2's `flutter_convert_to_stateful_widget_test.dart`.
 #[test]
 fn flutter_to_stateful_like_analysis_server() {
     let mut p = Project::with_literals("acoes-flutter-stateful-2");
@@ -1306,7 +1308,7 @@ class _MyWidgetState extends State<MyWidget> {
     }
 }
 
-/// Os casos de `flutter_convert_to_stateless_widget_test.dart` do 3.6.2
+/// The cases of 3.6.2's `flutter_convert_to_stateless_widget_test.dart`
 /// (`None`: `assertNoAssist`).
 #[test]
 fn flutter_to_stateless_like_analysis_server() {
@@ -2013,7 +2015,7 @@ class MyWidget<T> extends StatelessWidget {
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
 }
 
-/// Os casos de `flutter_convert_to_stateful_widget_test.dart` do 3.6.2
+/// The cases of 3.6.2's `flutter_convert_to_stateful_widget_test.dart`
 /// (`None`: `assertNoAssist`).
 #[test]
 fn flutter_to_stateful_full() {
@@ -2458,8 +2460,8 @@ class _MyWidgetState extends State<MyWidget> {
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
 }
 
-/// Os casos de `add_diagnostic_property_reference_test.dart` do 3.6.2 (o
-/// assist e os do fix, com o cursor no nome da propriedade).
+/// The cases of 3.6.2's `add_diagnostic_property_reference_test.dart` (the
+/// assist and those of the fix, with the cursor on the property name).
 #[test]
 fn diagnostic_reference_like_analysis_server() {
     let mut p = Project::with_literals("acoes-diagnostico");
@@ -2942,9 +2944,9 @@ class C extends Widget with Diagnosticable {
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
 }
 
-/// Cliente com `experimental.snippetTextEdit` e `documentChanges`: as ações
-/// com seleção ou grupos ligados saem como `SnippetTextEdit` (o
-/// `createWorkspaceEdit(..., allowSnippets: true)` do Dart, §13.8.1-G).
+/// Client with `experimental.snippetTextEdit` and `documentChanges`: the
+/// actions with a selection or linked groups come out as `SnippetTextEdit`
+/// (Dart's `createWorkspaceEdit(..., allowSnippets: true)`, §13.8.1-G).
 fn with_snippets(name: &str) -> Project {
     Project::with_capabilities(
         name,
@@ -2965,18 +2967,19 @@ fn snippets_in_assists() {
     let de = location(text, "print(1)", 0);
     let until = location(text, "\n}", 0);
     let r = actions(&mut p, "lib/a.dart", de, until, json!({}));
-    // Um grupo (`CONDITION`) e a seleção: `${1:condition}` e `$0`; o `$` do
-    // texto escapa.
+    // One group (`CONDITION`) and the selection: `${1:condition}` and `$0`; the
+    // text's `$` is escaped.
     let e = &action(&r, "Surround with 'if'")["edit"]["documentChanges"][0]["edits"][0];
     assert_eq!(e["insertTextFormat"], 2);
     assert_eq!(e["newText"], "  if (${1:condition}) {\n    print(1);\n    print(r'\\$x');\n  }$0\n");
-    // Vários grupos: numerados na ordem do texto.
+    // Several groups: numbered in text order.
     let e = &action(&r, "Surround with 'for'")["edit"]["documentChanges"][0]["edits"][0];
     assert!(e["newText"].as_str().unwrap().starts_with("  for (var ${1:v} = ${2:init}; ${3:condition}; ${4:increment}) {\n"), "{e}");
-    // `Surround with block` tem só texto: edição simples.
+    // `Surround with block` has only text: a plain edit.
     let e = &action(&r, "Surround with block")["edit"]["documentChanges"][0]["edits"][0];
     assert!(e.get("insertTextFormat").is_none(), "{e}");
-    // `Convert to block body`: a seleção antes da quebra que fecha o bloco.
+    // `Convert to block body`: the selection before the line break that closes
+    // the block.
     let pos = location(text, "g()", 0);
     let r = p.request(
         "textDocument/codeAction",

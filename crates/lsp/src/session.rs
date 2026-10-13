@@ -1,78 +1,78 @@
-//! Sessão semântica limitada: o último [`Project`] carregado é reaproveitado
-//! pelas consultas seguintes enquanto nada do que ele leu mudou.
+//! Bounded semantic session: the last loaded [`Project`] is reused by the
+//! following queries while nothing it read has changed.
 //!
-//! Sem ela, cada `hover`, `definition`, `references`, `prepareRename` +
-//! `rename` e `codeAction` recarrega o programa (as bibliotecas `dart:`
-//! dominam o custo) e infere os corpos de novo, mesmo quando o editor pede
-//! várias consultas sobre a mesma versão do texto (o VS Code pede
-//! `codeAction` a cada movimento do cursor, e `rename` vem depois de
-//! `prepareRename`). A política de memória continua explícita:
+//! Without it, every `hover`, `definition`, `references`, `prepareRename` +
+//! `rename` and `codeAction` reloads the program (the `dart:` libraries
+//! dominate the cost) and infers the bodies again, even when the editor
+//! sends several queries on the same text version (VS Code requests
+//! `codeAction` at every cursor move, and `rename` comes after
+//! `prepareRename`). The memory policy stays explicit:
 //!
-//! * **uma** entrada, no máximo: o programa retido é o de uma consulta, não
-//!   um cache por arquivo ou por versão;
-//! * a entrada cai (o `drop` é imediato) a cada `didOpen`, `didChange` ou
-//!   `didClose` — nenhuma árvore de uma versão velha fica presa;
-//! * antes de reaproveitar, a chave é conferida: a versão e o tamanho de
-//!   cada documento aberto, e a data e o tamanho de cada arquivo do disco
-//!   que entrou na carga, mais a lista de arquivos `.dart` do projeto (um
-//!   arquivo novo pode satisfazer um import);
-//! * só retém o programa cuja fonte somada cabe no orçamento
-//!   (`DARTFORGE_LSP_SESSAO_MIB`, em MiB de fonte; padrão
-//!   [`DEFAULT_BUDGET_MIB`]; `0` desliga a sessão). O custo vivo medido é
-//!   proporcional à fonte (`docs/LSP.md`, "Sessão semântica").
+//! * **one** entry, at most: the retained program is that of one query, not
+//!   a cache per file or per version;
+//! * the entry drops (the `drop` is immediate) at every `didOpen`,
+//!   `didChange` or `didClose` — no tree of an old version stays alive;
+//! * before reusing it, the key is checked: the version and size of each
+//!   open document, and the date and size of each disk file that took part
+//!   in the load, plus the list of the project's `.dart` files (a new file
+//!   may satisfy an import);
+//! * it only retains a program whose total source fits in the budget
+//!   (`DARTFORGE_LSP_SESSAO_MIB`, in MiB of source; default
+//!   [`DEFAULT_BUDGET_MIB`]; `0` turns the session off). The measured live
+//!   cost is proportional to the source (`docs/LSP.md`, "Sessão semântica").
 
 use crate::DocumentStore;
 use crate::project::{Project, project_files};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-/// Orçamento padrão, em MiB de fonte carregada (SDK incluído).
+/// Default budget, in MiB of loaded source (SDK included).
 pub(crate) const DEFAULT_BUDGET_MIB: usize = 8;
 
-/// Orçamento padrão da carga ampla das buscas não locais, em MiB de fonte
-/// (o SDK do analyzer tem ~8 MiB; os pacotes do projeto somam o resto).
+/// Default budget of the wide load of non-local searches, in MiB of source
+/// (the analyzer's SDK has ~8 MiB; the project's packages add the rest).
 pub(crate) const DEFAULT_WIDE_BUDGET_MIB: usize = 48;
 
-/// O que a entrada carregou.
+/// What the entry loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Scope {
-    /// Só a biblioteca do arquivo (definição, hover, ações).
+    /// Only the file's library (definition, hover, actions).
     Library(PathBuf),
-    /// Todas as bibliotecas do projeto com essa raiz (referências, renomear).
+    /// All libraries of the project with this root (references, rename).
     Project(PathBuf),
 }
 
-/// O que precisa continuar igual para a entrada valer.
+/// What must stay the same for the entry to be valid.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Key {
     scope: Scope,
-    /// (URI, versão, tamanho) de cada documento aberto, em ordem.
+    /// (URI, version, size) of each open document, in order.
     open: Vec<(String, i32, usize)>,
-    /// Arquivos lidos do disco na carga, com (data, tamanho).
+    /// Files read from disk during the load, with (date, size).
     disk: Vec<(PathBuf, Option<(SystemTime, u64)>)>,
-    /// Arquivos `.dart` do projeto no momento da carga.
+    /// `.dart` files of the project at load time.
     files: Vec<PathBuf>,
 }
 
-/// Contadores da sessão (medição e testes).
+/// Session counters (measurement and tests).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SessionStats {
-    /// Consultas atendidas pela entrada retida.
+    /// Queries served by the retained entry.
     pub reused: u64,
-    /// Consultas que carregaram o programa.
+    /// Queries that loaded the program.
     pub loaded: u64,
-    /// Entradas descartadas por mudança de texto ou do disco.
+    /// Entries discarded because of a change in the text or on disk.
     pub invalidated: u64,
-    /// Cargas não retidas por passar do orçamento.
+    /// Loads not retained for exceeding the budget.
     pub above_budget: u64,
-    /// Bytes de fonte da entrada retida agora (0 sem entrada).
+    /// Source bytes of the entry retained now (0 without an entry).
     pub retained_source: usize,
-    /// Edições de um documento aplicadas à entrada retida sem recarga (só
-    /// corpos mudaram, docs/LSP-ESPECIFICACAO.md §16.10 I4).
+    /// Edits of a document applied to the retained entry without reloading
+    /// (only bodies changed, docs/LSP-ESPECIFICACAO.md §16.10 I4).
     pub body_swaps: u64,
 }
 
-/// A sessão: no máximo um programa retido.
+/// The session: at most one retained program.
 pub(crate) struct Session {
     entry: Option<(Key, Project)>,
     budget: usize,
@@ -80,7 +80,7 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Sessão com o orçamento de `DARTFORGE_LSP_SESSAO_MIB` (ou o padrão).
+    /// Session with the budget from `DARTFORGE_LSP_SESSAO_MIB` (or the default).
     pub(crate) fn new() -> Self {
         let mib = std::env::var("DARTFORGE_LSP_SESSAO_MIB")
             .ok()
@@ -89,9 +89,9 @@ impl Session {
         Self::with_budget(mib)
     }
 
-    /// A sessão da carga ampla (o SDK inteiro e os pacotes), com o
-    /// orçamento de `DARTFORGE_LSP_AMPLO_MIB` (padrão
-    /// [`DEFAULT_WIDE_BUDGET_MIB`]; `0` volta a carregar a cada busca).
+    /// The session of the wide load (the whole SDK and the packages), with the
+    /// budget from `DARTFORGE_LSP_AMPLO_MIB` (default
+    /// [`DEFAULT_WIDE_BUDGET_MIB`]; `0` goes back to loading on every search).
     pub(crate) fn wide() -> Self {
         let mib = std::env::var("DARTFORGE_LSP_AMPLO_MIB")
             .ok()
@@ -100,7 +100,7 @@ impl Session {
         Self::with_budget(mib)
     }
 
-    /// Sessão com orçamento de `mib` MiB de fonte (`0`: nunca retém).
+    /// Session with a budget of `mib` MiB of source (`0`: never retains).
     pub(crate) fn with_budget(mib: usize) -> Self {
         Self {
             entry: None,
@@ -109,7 +109,7 @@ impl Session {
         }
     }
 
-    /// Descarta a entrada (um texto mudou). O programa cai aqui, não depois.
+    /// Discards the entry (a text changed). The program drops here, not later.
     pub(crate) fn invalidate(&mut self) {
         if self.entry.take().is_some() {
             self.stats.invalidated += 1;
@@ -117,35 +117,35 @@ impl Session {
         }
     }
 
-    /// `didChange` de `uri`: se a entrada retida tem a unidade e a edição só
-    /// mudou corpos (classe Corpo, docs/LSP-ESPECIFICACAO.md §16.6), troca a
-    /// unidade no lugar, recria as tabelas dela e a entrada continua valendo
-    /// (§16.10 I4); senão a entrada cai.
+    /// `didChange` of `uri`: if the retained entry has the unit and the edit
+    /// only changed bodies (class Body, docs/LSP-ESPECIFICACAO.md §16.6), swaps
+    /// the unit in place, rebuilds its tables and the entry stays valid (§16.10
+    /// I4); otherwise the entry drops.
     pub(crate) fn update(&mut self, documents: &DocumentStore, uri: &str) {
         if !self.swap(documents, uri) {
             self.invalidate();
         }
     }
 
-    /// `didOpen` de `uri`: a entrada continua valendo quando só esse
-    /// documento entrou na lista dos abertos e o texto dele é o que a carga
-    /// já leu do disco para a unidade (abrir um arquivo no editor não
-    /// recarrega o programa); senão cai.
+    /// `didOpen` of `uri`: the entry stays valid when only this document joined
+    /// the list of open ones and its text is what the load already read from
+    /// disk for the unit (opening a file in the editor does not reload the
+    /// program); otherwise it drops.
     pub(crate) fn open(&mut self, documents: &DocumentStore, uri: &str) {
         if !self.keep(documents, uri, documents.get(uri).map(str::to_string)) {
             self.invalidate();
         }
     }
 
-    /// `didClose` de `uri` (já fora de `documents`): a entrada continua
-    /// valendo quando o texto do disco é o que a unidade tem; senão cai.
+    /// `didClose` of `uri` (already out of `documents`): the entry stays valid
+    /// when the disk text is what the unit has; otherwise it drops.
     pub(crate) fn close(&mut self, documents: &DocumentStore, uri: &str) {
         let disk = crate::project::uri_file(uri).and_then(|c| std::fs::read_to_string(c).ok());
         if !self.keep(documents, uri, disk) {
             self.invalidate();
             return;
         }
-        // O arquivo passa a vir do disco: mudanças nele derrubam a entrada.
+        // The file now comes from disk: changes to it drop the entry.
         if let Some((key, project)) = self.entry.as_mut()
             && let Some(u) = project.uri_unit(uri)
             && let Some(p) = project.program().unit(u).path.clone()
@@ -157,8 +157,8 @@ impl Session {
         }
     }
 
-    /// A entrada retida vale com os abertos de agora se só `uri` entrou ou
-    /// saiu da lista e a unidade dele tem `text`.
+    /// The retained entry is valid with the current open documents if only
+    /// `uri` joined or left the list and its unit has `text`.
     fn keep(&mut self, documents: &DocumentStore, uri: &str, text: Option<String>) -> bool {
         let Some((key, project)) = self.entry.as_mut() else { return true };
         let Some(text) = text else { return false };
@@ -179,12 +179,12 @@ impl Session {
         let Some((key, project)) = self.entry.as_mut() else { return false };
         let Some(text) = documents.get(uri) else { return false };
         let new = open(documents);
-        // Só o documento editado pode ter mudado.
+        // Only the edited document may have changed.
         if new.len() != key.open.len() || new.iter().zip(key.open.iter()).any(|(a, b)| a.0 != b.0 || (a.0 != uri && a != b)) {
             return false;
         }
-        // Um documento fora da carga pode passar a ser dono de uma parte
-        // (`part`): recarrega.
+        // A document outside the load may become the owner of a part (`part`):
+        // reloads.
         let Some(u) = project.uri_unit(uri) else { return false };
         if project.program().unit(u).source != text {
             let inferred_bodies = project.libraries.contains(&project.program().unit(u).library);
@@ -204,10 +204,10 @@ impl Session {
         true
     }
 
-    /// O projeto para `scope`: o retido, se a chave ainda vale (uma entrada
-    /// de projeto inteiro também serve a uma consulta de biblioteca do mesmo
-    /// projeto), senão o que `load` devolve — retido se couber no
-    /// orçamento, ou devolvido só para esta consulta.
+    /// The project for `scope`: the retained one, if the key is still valid (a
+    /// whole-project entry also serves a library query of the same project),
+    /// otherwise what `load` returns — retained if it fits in the budget, or
+    /// returned only for this query.
     pub(crate) fn get(
         &mut self,
         scope: Scope,
@@ -237,7 +237,7 @@ impl Session {
             .map(|u| u.source.len())
             .sum();
         if self.budget == 0 || source > self.budget {
-            // Não cabe: vale só para esta consulta e cai com a resposta.
+            // It does not fit: valid only for this query and dropped with the response.
             self.stats.above_budget += 1;
             return Some(Use::Own(Box::new(project)));
         }
@@ -253,10 +253,10 @@ impl Session {
     }
 }
 
-/// Um projeto emprestado da sessão ou próprio da consulta (acima do
-/// orçamento), usado do mesmo jeito. Mutável porque algumas consultas
-/// (a ajuda de assinatura) internam tipos substituídos na tabela do
-/// programa; a tabela só cresce enquanto a versão vale e cai com ela.
+/// A project borrowed from the session or owned by the query (over the
+/// budget), used the same way. Mutable because some queries (signature
+/// help) intern substituted types in the program's table; the table only
+/// grows while the version is valid and drops with it.
 pub(crate) enum Use<'a> {
     Retained(&'a mut Project),
     Own(Box<Project>),
@@ -282,7 +282,7 @@ impl std::ops::DerefMut for Use<'_> {
     }
 }
 
-/// (URI, versão, tamanho) dos documentos abertos, em ordem.
+/// (URI, version, size) of the open documents, in order.
 fn open(documents: &DocumentStore) -> Vec<(String, i32, usize)> {
     let mut v: Vec<(String, i32, usize)> = documents
         .uris()
@@ -298,13 +298,13 @@ fn open(documents: &DocumentStore) -> Vec<(String, i32, usize)> {
     v
 }
 
-/// Data de modificação e tamanho de um arquivo.
+/// Modification date and size of a file.
 fn metadata(path: &Path) -> Option<(SystemTime, u64)> {
     let m = std::fs::metadata(path).ok()?;
     Some((m.modified().ok()?, m.len()))
 }
 
-/// Os arquivos que a carga leu do disco (os abertos vieram do editor).
+/// The files the load read from disk (the open ones came from the editor).
 fn read_files(
     project: &Project,
     documents: &DocumentStore,
@@ -329,7 +329,7 @@ fn read_files(
     v
 }
 
-/// O disco ainda está como na carga.
+/// The disk is still as it was at load time.
 fn disk_equal(key: &Key) -> bool {
     let root = match &key.scope {
         Scope::Project(r) => r.clone(),

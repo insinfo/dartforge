@@ -1,9 +1,9 @@
-//! Assistências do Flutter do `analysis_server` 3.6.2 sobre a árvore no
-//! formato do analyzer, com as utilidades de
-//! `utilities/extensions/flutter.dart` (o widget é reconhecido pela classe
-//! `Widget` de `package:flutter/src/widgets/framework.dart` nos supertipos).
+//! Flutter assists from `analysis_server` 3.6.2 over the analyzer-shaped
+//! tree, with the utilities of `utilities/extensions/flutter.dart` (a widget
+//! is recognized by the `Widget` class of
+//! `package:flutter/src/widgets/framework.dart` among the supertypes).
 //!
-//! | Título | Espécie | Produtor |
+//! | Title | Kind | Producer |
 //! |---|---|---|
 //! | `Convert to children:` | `refactor.flutter.convert.childToChildren` | `FlutterConvertToChildren` |
 //! | `Move widget down` / `Move widget up` | `refactor.flutter.move.down` / `.up` | `FlutterMoveDown`, `FlutterMoveUp` |
@@ -29,15 +29,14 @@ const URI_ASYNC: &str = "package:flutter/src/widgets/async.dart";
 const URI_WIDGETS: &str = "package:flutter/widgets.dart";
 
 impl Context<'_> {
-    /// `_isExactly`: a `ClassElement` de nome `name` declarada no arquivo
-    /// `uri`.
+    /// `_isExactly`: the `ClassElement` named `name` declared in file `uri`.
     pub(crate) fn flutter_exactly(&self, c: ClassId, name: &str, uri: &str) -> bool {
         let p = self.p.program();
         let k = p.class(c);
         matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && self.p.name(k.name) == name && k.decl.is_some_and(|d| p.unit(d.unit).uri == uri)
     }
 
-    /// `isWidget`: a classe `Widget` ou uma subclasse dela.
+    /// `isWidget`: the `Widget` class or a subclass of it.
     pub(crate) fn class_and_widget(&self, c: ClassId) -> bool {
         let p = self.p.program();
         if !matches!(p.class(c).kind, ClassKind::Class | ClassKind::MixinApplication) {
@@ -46,7 +45,7 @@ impl Context<'_> {
         self.flutter_exactly(c, "Widget", URI_FRAMEWORK) || self.p.supertypes(c).into_iter().any(|s| self.flutter_exactly(s, "Widget", URI_FRAMEWORK))
     }
 
-    /// A classe de um tipo de interface.
+    /// The class of an interface type.
     pub(crate) fn flutter_type_class(&self, t: TypeId) -> Option<ClassId> {
         match self.p.query.table.get(t) {
             Type::Interface { class, .. } => Some(*class),
@@ -59,7 +58,7 @@ impl Context<'_> {
         self.flutter_type_class(t).is_some_and(|c| self.class_and_widget(c))
     }
 
-    /// O `staticType` do nó de expressão.
+    /// The `staticType` of the expression node.
     pub(crate) fn flutter_node_type(&self, n: usize) -> Option<TypeId> {
         self.node_expr(n).and_then(|x| self.bodies.get_type(x))
     }
@@ -105,8 +104,7 @@ impl Context<'_> {
                 "ExpressionFunctionBody" | "NamedExpression" | "SwitchExpressionCase" if last => return Some(k),
                 "ForElement" if last => return Some(k),
                 "IfElement" => {
-                    // `thenElement`/`elseElement`: não a condição (nem o
-                    // padrão do `case`).
+                    // `thenElement`/`elseElement`: not the condition (nor the `case` pattern).
                     let condition = children.first() == Some(&k) || self.kind(k) == "CaseClause";
                     if !condition {
                         return Some(k);
@@ -142,12 +140,12 @@ impl Context<'_> {
         }
     }
 
-    /// A `ArgumentList` de uma invocação.
+    /// The `ArgumentList` of an invocation.
     fn flutter_argument_list(&self, invocation: usize) -> Option<usize> {
         self.children(invocation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")
     }
 
-    /// O nome do rótulo de uma `NamedExpression`.
+    /// The label name of a `NamedExpression`.
     pub(crate) fn named_label(&self, named: usize) -> Option<&str> {
         let label = *self.children(named).first()?;
         if self.kind(label) != "Label" {
@@ -156,20 +154,20 @@ impl Context<'_> {
         Some(self.node_text(*self.children(label).first()?))
     }
 
-    /// `childArgument`, `childrenArgument`, `builderArgument`…: o argumento
-    /// nomeado `name` da criação.
+    /// `childArgument`, `childrenArgument`, `builderArgument`…: the named
+    /// argument `name` of the creation.
     pub(crate) fn flutter_named_argument(&self, creation: usize, name: &str) -> Option<usize> {
         let list = self.flutter_argument_list(creation)?;
         self.children(list).iter().copied().find(|&a| self.kind(a) == "NamedExpression" && self.named_label(a) == Some(name))
     }
 
-    /// A expressão de uma `NamedExpression`.
+    /// The expression of a `NamedExpression`.
     pub(crate) fn named_expression(&self, named: usize) -> Option<usize> {
         self.children(named).last().copied().filter(|&e| self.kind(e) != "Label")
     }
 
-    /// `findArgumentNamed`: o identificador é o rótulo `name:` de um
-    /// argumento de uma criação de widget.
+    /// `findArgumentNamed`: the identifier is the `name:` label of an argument
+    /// of a widget creation.
     fn named_argument_in_label(&self, n: usize, name: &str) -> Option<usize> {
         if self.kind(n) != "SimpleIdentifier" || self.node_text(n) != name {
             return None;
@@ -180,8 +178,7 @@ impl Context<'_> {
         (self.kind(invocation) == "InstanceCreationExpression" && self.widget_creation(invocation)).then_some(named)
     }
 
-    /// `sessionHelper.getClass(uri, name)`: a classe exportada pela
-    /// biblioteca `uri`.
+    /// `sessionHelper.getClass(uri, name)`: the class exported by library `uri`.
     pub(crate) fn flutter_class(&self, uri: &str, name: &str) -> Option<ClassId> {
         let p = self.p.program();
         let lib = p.libraries.iter().position(|l| l.uri == uri)?;
@@ -192,9 +189,9 @@ impl Context<'_> {
         }
     }
 
-    /// [`Self::action_with_change`] com a seleção e os grupos ligados de `e`,
-    /// que é o texto da edição em `snippet` (as outras edições, de imports,
-    /// tiram a ação do caminho do snippet).
+    /// [`Self::action_with_change`] with the selection and the linked groups of
+    /// `e`, which is the text of the edit in `snippet` (the other edits, for
+    /// imports, take the action off the snippet path).
     fn linked_action(&self, title: &str, kind: &str, m: Change, snippet: Span, e: &crate::snippets::Write) -> Option<CodeAction> {
         let a = self.action_with_change(title, kind, m)?;
         Some(match a.edits.iter().position(|x| x.span == snippet) {
@@ -216,7 +213,7 @@ impl Context<'_> {
         })
     }
 
-    /// As assistências do Flutter no cursor.
+    /// The Flutter assists at the cursor.
     pub(crate) fn flutter_assists(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
         let Some(no) = self.tree.localizar(start, end) else { return Vec::new() };
         let mut v = Vec::new();
@@ -234,25 +231,25 @@ impl Context<'_> {
         v
     }
 
-    /// O nome declarado (`library a.b;`) da biblioteca da classe.
+    /// The declared name (`library a.b;`) of the class's library.
     fn class_library_name(&self, c: ClassId) -> String {
         let p = self.p.program();
         p.library(p.class(c).library).name.as_ref().map(|ns| ns.iter().map(|&s| self.p.name(s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
     }
 
-    /// O tipo e os supertipos (`[self, ...allSupertypes]`) têm a classe
-    /// `name` (pelo critério `accepts`).
+    /// The type and the supertypes (`[self, ...allSupertypes]`) have the class
+    /// `name` (by the `accepts` criterion).
     fn type_or_supertype(&self, t: TypeId, accepts: &dyn Fn(ClassId) -> bool) -> bool {
         let Some(c) = self.flutter_type_class(t) else { return false };
         accepts(c) || self.p.supertypes(c).into_iter().any(accepts)
     }
 
-    /// `AddDiagnosticPropertyReference` (o assist, sem o modo em lote).
+    /// `AddDiagnosticPropertyReference` (the assist, without the bulk mode).
     pub(crate) fn add_diagnostic_reference(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         let p = self.p.program();
         let query = &self.p.query;
         let no = self.tree.localizar(start, end)?;
-        // O nome e o tipo (`_getReturnType`: o getter declarado ou o campo).
+        // The name and the type (`_getReturnType`: the declared getter or the field).
         let (name, ty, written_type): (String, TypeId, Option<usize>) = match self.kind(no) {
             "MethodDeclaration" => {
                 let crate::arvore_analyzer::Marca::Funcao(fid) = self.tree.nos[no].marca else { return None };
@@ -378,7 +375,7 @@ impl Context<'_> {
                         (o, tx.line_prefix(o).to_string())
                     }
                 };
-                // O parâmetro `DiagnosticPropertiesBuilder x`.
+                // The `DiagnosticPropertiesBuilder x` parameter.
                 let list = self.children(method).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
                 let constructor = self.children(list).iter().copied().find_map(|q| {
                     if self.kind(q) != "SimpleFormalParameter" {
@@ -409,7 +406,7 @@ impl Context<'_> {
         }
         let label = self.parent(n).filter(|&p| self.kind(p) == "Label")?;
         let named = self.parent(label).filter(|&p| self.kind(p) == "NamedExpression")?;
-        // `node.element != null`: o rótulo resolve para o parâmetro.
+        // `node.element != null`: the label resolves to the parameter.
         let invocation = self.parent(named).and_then(|l| self.parent(l))?;
         let f = match self.node_expr(invocation).and_then(|x| self.bodies.get_resolved(x)) {
             Some(Resolved::Constructor(f)) | Some(Resolved::Element(Element::Function(f))) => *f,
@@ -500,12 +497,12 @@ impl Context<'_> {
             if self.kind(e) != "FunctionExpression" {
                 return None;
             }
-            // O primeiro parâmetro do builder sem uso no corpo.
+            // The builder's first parameter not used in the body.
             let list = self.children(e).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
             let parameter = *self.children(list).first()?;
             let name = self.previous_token(self.tree.nos[parameter].fim)?;
             let body = *self.children(e).last()?;
-            // `_UsageFinder`: um identificador do corpo que lê o parâmetro.
+            // `_UsageFinder`: an identifier of the body that reads the parameter.
             let used = self.tree.nos.iter().any(|no| {
                 no.especie == "SimpleIdentifier"
                     && no.inicio >= self.tree.nos[body].inicio
@@ -692,7 +689,7 @@ impl Context<'_> {
         self.action_with_change(title, kind, m)
     }
 
-    /// `FlutterWrapBuilder` e `FlutterWrapStreamBuilder`.
+    /// `FlutterWrapBuilder` and `FlutterWrapStreamBuilder`.
     fn flutter_wrap_builder(&self, uri: &str, n: usize, stream: bool) -> Option<CodeAction> {
         let widget = self.find_expression_widget(n)?;
         let t = self.flutter_node_type(widget)?;
@@ -740,7 +737,7 @@ impl Context<'_> {
         self.linked_action(title, kind, m, self.tree.span(widget), &marks)
     }
 
-    /// `FlutterWrapGeneric` (o produtor da lista de widgets).
+    /// `FlutterWrapGeneric` (the producer of the widget list).
     fn flutter_wrap_list(&self, uri: &str, n: usize) -> Option<CodeAction> {
         if self.kind(n) != "ListLiteral" {
             return None;
@@ -814,9 +811,9 @@ impl Context<'_> {
         self.action_with_change("Move child property to end of arguments", "refactor.sort.child.properties.last", m)
     }
 
-    /// `FlutterWrap`: o embrulho genérico e os de `Center`, `Container`,
-    /// `Padding`, `SizedBox` de um widget; `Column` e `Row` de um ou mais
-    /// widgets selecionados.
+    /// `FlutterWrap`: the generic wrapper and those of `Center`, `Container`,
+    /// `Padding`, `SizedBox` for one widget; `Column` and `Row` for one or more
+    /// selected widgets.
     fn flutter_wrap(&self, uri: &str, n: usize, start: usize, end: usize) -> Vec<CodeAction> {
         let mut v = Vec::new();
         if let Some(widget) = self.find_expression_widget(n)
@@ -882,8 +879,8 @@ impl Context<'_> {
             None => None,
         };
         let mut writer = crate::write_type::Writer::new(self, self.tree.nos[widget].inicio);
-        // Sem classe, os grupos `WIDGET` e `CHILD`; com ela, a seleção logo
-        // depois do `(` (`flutter_wrap.dart:302-345`).
+        // Without a class, the `WIDGET` and `CHILD` groups; with it, the selection
+        // right after the `(` (`flutter_wrap.dart:302-345`).
         let mut marks = crate::snippets::Write::default();
         match (class, name) {
             (Some(c), Some(x)) => {
