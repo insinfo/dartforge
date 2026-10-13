@@ -232,7 +232,7 @@ mod tests {
     fn plain_utf8_comes_out_without_copy() {
         let s = DartStr::from("café");
         assert_eq!(s.as_str(), Some("café"));
-        assert_eq!(s.utf16_len(), 3);
+        assert_eq!(s.utf16_len(), 4);
     }
 
     #[test]
