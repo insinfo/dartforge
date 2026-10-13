@@ -1,6 +1,6 @@
-//! O grafo de pacotes do `build_runner_core` 8.0.0
-//! (`package_graph/package_graph.dart`, `PackageGraph.forPath`) e os SCCs do
-//! `graphs` 2.3.2, que decidem a ordem dos pacotes e dos alvos.
+//! The package graph of `build_runner_core` 8.0.0
+//! (`package_graph/package_graph.dart`, `PackageGraph.forPath`) and the SCCs of
+//! `graphs` 2.3.2, which decide the order of packages and targets.
 use crate::config::{Pubspec, TipoDependencia, Travado, ler_lock};
 use dartforge_elements::config::PackageConfig;
 use std::collections::HashMap;
@@ -12,98 +12,98 @@ pub struct No {
     pub raiz: PathBuf,
     pub tipo: TipoDependencia,
     pub e_raiz: bool,
-    /// Dependências diretas, na ordem do oficial (nomes ordenados).
+    /// Direct dependencies, in the official order (sorted names).
     pub deps: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
 pub struct GrafoPacotes {
-    /// `allPackages`: os do `package_config.json` em ordem de nome e o
-    /// `$sdk` no fim.
+    /// `allPackages`: those of `package_config.json` in name order, and
+    /// `$sdk` at the end.
     pub nos: Vec<No>,
     pub raiz: usize,
     pub por_nome: HashMap<String, usize>,
-    /// Versões do `pubspec.lock`.
+    /// Versions from `pubspec.lock`.
     pub lock: HashMap<String, Travado>,
-    /// Diretório do `package_config.json` e do `pubspec.lock`.
+    /// Directory of `package_config.json` and `pubspec.lock`.
     pub dir_raiz: PathBuf,
 }
 
-/// Nome do pseudo-pacote do SDK.
+/// Name of the SDK pseudo-package.
 pub const SDK: &str = "$sdk";
 
 impl GrafoPacotes {
-    pub fn no(&self, nome: &str) -> Option<&No> {
-        self.por_nome.get(nome).map(|&i| &self.nos[i])
+    pub fn no(&self, name: &str) -> Option<&No> {
+        self.por_nome.get(name).map(|&i| &self.nos[i])
     }
 
-    /// O perfil de versão do projeto: o `build_config` e o `build_runner`
-    /// que o `pubspec.lock` resolveu ([`crate::perfil`]).
+    /// The project's version profile: the `build_config` and `build_runner`
+    /// that `pubspec.lock` resolved ([`crate::perfil`]).
     pub fn perfil(&self) -> crate::perfil::Perfil {
         let v = |p: &str| self.lock.get(p).map(|t| t.versao.as_str());
         crate::perfil::Perfil::das_versoes(v("build_config"), v("build_runner"))
     }
 
-    /// `PackageGraph.forPath(dir)`: `dir` tem o `pubspec.yaml` da raiz; o
-    /// `package_config.json` é o que `cfg` já leu.
+    /// `PackageGraph.forPath(dir)`: `dir` has the root's `pubspec.yaml`;
+    /// `package_config.json` is the one `cfg` already read.
     pub fn montar(
         dir: &Path,
         cfg: &PackageConfig,
         sdk: Option<&Path>,
     ) -> Result<GrafoPacotes, String> {
         let pubspec = Pubspec::ler(dir)?;
-        let nome_raiz = pubspec
+        let root_name = pubspec
             .nome
             .clone()
             .ok_or("The current package has no name, please add one to the pubspec.yaml.")?;
-        let dir_raiz = cfg
+        let root_dir = cfg
             .origin
             .as_ref()
             .and_then(|o| o.parent())
             .and_then(|d| d.parent())
             .map(Path::to_path_buf)
-            .ok_or("package_config.json sem origem")?;
-        let caminho_lock = dir_raiz.join("pubspec.lock");
-        let texto_lock = std::fs::read_to_string(&caminho_lock).map_err(|_| {
+            .ok_or("package_config.json without an origin")?;
+        let lock_path = root_dir.join("pubspec.lock");
+        let lock_text = std::fs::read_to_string(&lock_path).map_err(|_| {
             "Unable to generate package graph, no `pubspec.lock` found. This program must be ran from the root directory of your package.".to_string()
         })?;
         let lock: HashMap<String, Travado> =
-            ler_lock(&texto_lock, &caminho_lock.display().to_string())?
+            ler_lock(&lock_text, &lock_path.display().to_string())?
                 .into_iter()
                 .collect();
 
-        let mut nomes: Vec<&String> = cfg.packages.keys().collect();
-        nomes.sort();
-        let mut nos = Vec::with_capacity(nomes.len() + 1);
-        let mut por_nome = HashMap::new();
-        for nome in nomes {
-            let info = &cfg.packages[nome];
-            let raiz = info
+        let mut names: Vec<&String> = cfg.packages.keys().collect();
+        names.sort();
+        let mut nodes = Vec::with_capacity(names.len() + 1);
+        let mut by_name = HashMap::new();
+        for name in names {
+            let info = &cfg.packages[name];
+            let root = info
                 .root_uri
                 .to_file_path()
                 .map(dartforge_elements::config::sem_verbatim)
-                .map_err(|_| format!("rootUri inválido para {nome}"))?;
-            por_nome.insert(nome.clone(), nos.len());
-            nos.push(No {
-                nome: nome.clone(),
-                raiz,
+                .map_err(|_| format!("invalid rootUri for {name}"))?;
+            by_name.insert(name.clone(), nodes.len());
+            nodes.push(No {
+                nome: name.clone(),
+                raiz: root,
                 tipo: lock
-                    .get(nome)
+                    .get(name)
                     .map(|t| t.tipo)
                     .unwrap_or(TipoDependencia::Path),
-                e_raiz: *nome == nome_raiz,
+                e_raiz: *name == root_name,
                 deps: Vec::new(),
             });
         }
-        let raiz = *por_nome.get(&nome_raiz).ok_or_else(|| {
-            format!("Dependency {nome_raiz} not present, please run `dart pub get` or `flutter pub get` to fetch dependencies.")
+        let root = *by_name.get(&root_name).ok_or_else(|| {
+            format!("Dependency {root_name} not present, please run `dart pub get` or `flutter pub get` to fetch dependencies.")
         })?;
-        let achar = |n: &str, pai: &str, por_nome: &HashMap<String, usize>| {
-            por_nome.get(n).copied().ok_or_else(|| {
-                format!("Dependency {n} of {pai} not present, please run `dart pub get` or `flutter pub get` to fetch dependencies.")
+        let find = |n: &str, parent: &str, by_name: &HashMap<String, usize>| {
+            by_name.get(n).copied().ok_or_else(|| {
+                format!("Dependency {n} of {parent} not present, please run `dart pub get` or `flutter pub get` to fetch dependencies.")
             })
         };
-        // Raiz: dependencies ∪ dev_dependencies, ordenadas.
+        // Root: dependencies ∪ dev_dependencies, sorted.
         let mut d: Vec<String> = pubspec.dependencias.clone();
         for x in &pubspec.dev_dependencias {
             if !d.contains(x) {
@@ -111,26 +111,26 @@ impl GrafoPacotes {
             }
         }
         d.sort();
-        nos[raiz].deps = d
+        nodes[root].deps = d
             .iter()
-            .map(|n| achar(n, &nome_raiz, &por_nome))
+            .map(|n| find(n, &root_name, &by_name))
             .collect::<Result<_, _>>()?;
-        for i in 0..nos.len() {
-            if i == raiz {
+        for i in 0..nodes.len() {
+            if i == root {
                 continue;
             }
-            let p = Pubspec::ler(&nos[i].raiz)?;
+            let p = Pubspec::ler(&nodes[i].raiz)?;
             let mut d = p.dependencias.clone();
             d.sort();
             d.dedup();
-            let nome = nos[i].nome.clone();
-            nos[i].deps = d
+            let name = nodes[i].nome.clone();
+            nodes[i].deps = d
                 .iter()
-                .map(|n| achar(n, &nome, &por_nome))
+                .map(|n| find(n, &name, &by_name))
                 .collect::<Result<_, _>>()?;
         }
-        por_nome.insert(SDK.to_string(), nos.len());
-        nos.push(No {
+        by_name.insert(SDK.to_string(), nodes.len());
+        nodes.push(No {
             nome: SDK.to_string(),
             raiz: sdk.map(Path::to_path_buf).unwrap_or_default(),
             tipo: TipoDependencia::Hosted,
@@ -138,16 +138,16 @@ impl GrafoPacotes {
             deps: Vec::new(),
         });
         Ok(GrafoPacotes {
-            nos,
-            raiz,
-            por_nome,
+            nos: nodes,
+            raiz: root,
+            por_nome: by_name,
             lock,
-            dir_raiz,
+            dir_raiz: root_dir,
         })
     }
 
-    /// Ordem dos pacotes para o script de build: SCCs a partir da raiz,
-    /// dependências primeiro (`build_script_generate.dart:86-92`).
+    /// Package order for the build script: SCCs from the root, dependencies
+    /// first (`build_script_generate.dart:86-92`).
     pub fn ordem_do_script(&self) -> Vec<usize> {
         scc(&[self.raiz], |n| self.nos[n].deps.clone())
             .into_iter()
@@ -156,82 +156,82 @@ impl GrafoPacotes {
     }
 }
 
-/// `stronglyConnectedComponents` do `graphs` 2.3.2, na mesma ordem de
-/// visita (pilha explícita), para que componentes e empates saiam iguais.
-pub fn scc(inicio: &[usize], arestas: impl Fn(usize) -> Vec<usize>) -> Vec<Vec<usize>> {
-    let mut resultado = Vec::new();
-    let mut baixo: HashMap<usize, usize> = HashMap::new();
-    let mut indice: HashMap<usize, usize> = HashMap::new();
-    let mut na_pilha = std::collections::HashSet::new();
-    let mut proximo = 0usize;
-    let mut visitados: Vec<usize> = Vec::new();
-    // (nó, iterador: arestas e posição corrente), `None` = ainda não iniciado.
-    // O Dart monta `[for (node in nodes) _StackState(node)]` e tira do fim:
-    // o último nó é visitado primeiro. Reproduz exatamente isso.
-    let mut pilha: Vec<(usize, Option<(Vec<usize>, usize)>)> =
-        inicio.iter().map(|&n| (n, None)).collect();
-    'externo: while let Some((no, it)) = pilha.pop() {
+/// `stronglyConnectedComponents` of `graphs` 2.3.2, in the same visiting
+/// order (explicit stack), so that components and ties come out the same.
+pub fn scc(start: &[usize], edges: impl Fn(usize) -> Vec<usize>) -> Vec<Vec<usize>> {
+    let mut result = Vec::new();
+    let mut lowlink: HashMap<usize, usize> = HashMap::new();
+    let mut index: HashMap<usize, usize> = HashMap::new();
+    let mut on_stack = std::collections::HashSet::new();
+    let mut next = 0usize;
+    let mut visited: Vec<usize> = Vec::new();
+    // (node, iterator: edges and current position), `None` = not started yet.
+    // Dart builds `[for (node in nodes) _StackState(node)]` and pops from the
+    // end: the last node is visited first. This reproduces exactly that.
+    let mut stack: Vec<(usize, Option<(Vec<usize>, usize)>)> =
+        start.iter().map(|&n| (n, None)).collect();
+    'outer: while let Some((node, it)) = stack.pop() {
         let (mut it, mut low) = match it {
             None => {
-                if indice.contains_key(&no) {
+                if index.contains_key(&node) {
                     continue;
                 }
-                indice.insert(no, proximo);
-                baixo.insert(no, proximo);
-                let low = proximo;
-                proximo += 1;
-                let arestas = arestas(no);
-                if arestas.is_empty() {
-                    resultado.push(vec![no]);
+                index.insert(node, next);
+                lowlink.insert(node, next);
+                let low = next;
+                next += 1;
+                let edges = edges(node);
+                if edges.is_empty() {
+                    result.push(vec![node]);
                     continue;
                 }
-                visitados.push(no);
-                na_pilha.insert(no);
-                ((arestas, 0usize), low)
+                visited.push(node);
+                on_stack.insert(node);
+                ((edges, 0usize), low)
             }
-            Some((ar, pos)) => {
-                let atual = ar[pos];
-                let low = baixo[&no].min(baixo[&atual]);
-                ((ar, pos), low)
+            Some((es, pos)) => {
+                let current = es[pos];
+                let low = lowlink[&node].min(lowlink[&current]);
+                ((es, pos), low)
             }
         };
         loop {
-            let prox = it.0[it.1];
-            if !indice.contains_key(&prox) {
-                pilha.push((no, Some((it.0.clone(), it.1))));
-                pilha.push((prox, None));
-                continue 'externo;
-            } else if na_pilha.contains(&prox) {
-                low = low.min(indice[&prox]);
-                baixo.insert(no, low);
+            let succ = it.0[it.1];
+            if !index.contains_key(&succ) {
+                stack.push((node, Some((it.0.clone(), it.1))));
+                stack.push((succ, None));
+                continue 'outer;
+            } else if on_stack.contains(&succ) {
+                low = low.min(index[&succ]);
+                lowlink.insert(node, low);
             }
             it.1 += 1;
             if it.1 >= it.0.len() {
                 break;
             }
         }
-        if low == indice[&no] {
+        if low == index[&node] {
             let mut comp = Vec::new();
             loop {
-                let n = visitados.pop().expect("pilha de Tarjan vazia");
-                na_pilha.remove(&n);
+                let n = visited.pop().expect("empty Tarjan stack");
+                on_stack.remove(&n);
                 comp.push(n);
-                if n == no {
+                if n == node {
                     break;
                 }
             }
-            resultado.push(comp);
+            result.push(comp);
         }
     }
-    resultado
+    result
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn scc_dependencias_primeiro() {
+    fn scc_dependencies_first() {
         // 0 → 1 → 2, 0 → 2
         let g = [vec![1, 2], vec![2], vec![]];
         let r = scc(&[0], |n| g[n].clone());
@@ -239,7 +239,7 @@ mod testes {
     }
 
     #[test]
-    fn scc_ciclo() {
+    fn scc_cycle() {
         // 0 → 1 → 2 → 1
         let g = [vec![1], vec![2], vec![1]];
         let r = scc(&[0], |n| g[n].clone());
@@ -247,8 +247,8 @@ mod testes {
     }
 
     #[test]
-    fn scc_varios_inicios_na_ordem_do_dart() {
-        // Sem arestas: o Dart tira do fim da lista inicial.
+    fn scc_several_starts_in_dart_order() {
+        // No edges: Dart pops from the end of the initial list.
         let g: [Vec<usize>; 3] = [vec![], vec![], vec![]];
         let r = scc(&[0, 1, 2], |n| g[n].clone());
         assert_eq!(r, vec![vec![2], vec![1], vec![0]]);

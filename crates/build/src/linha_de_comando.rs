@@ -1,82 +1,84 @@
-//! As opções de linha de comando do `build_runner` que mudam o plano ou as
-//! saídas: `--define`, `--config` e `--build-filter`. Porte de
-//! `entrypoint/options.dart` (2.4.15) e `build_plan/build_options.dart`
-//! (2.16.1) — o `--define` e o `--config` são iguais nas duas; o
-//! `--build-filter` ganhou o esquema `asset:` no 2.14.0.
+//! The `build_runner` command-line options that change the plan or the
+//! outputs: `--define`, `--config` and `--build-filter`. Port of
+//! `entrypoint/options.dart` (2.4.15) and `build_plan/build_options.dart`
+//! (2.16.1) — `--define` and `--config` are the same in both; `--build-filter`
+//! gained the `asset:` scheme in 2.14.0.
 //!
-//! Precedência das opções de um builder (`createBuildPhases`): `defaults` <
-//! `dev_options`/`release_options` dos defaults < `options` do alvo <
-//! `dev_options`/`release_options` do alvo < `global_options` (com o
-//! `dev`/`release` dele) < `--define`, este fundido por chave sobre o global.
+//! Precedence of a builder's options (`createBuildPhases`): `defaults` <
+//! the defaults' `dev_options`/`release_options` < the target's `options` <
+//! the target's `dev_options`/`release_options` < `global_options` (with its
+//! `dev`/`release`) < `--define`, the latter merged key by key over the
+//! global ones.
 use crate::config::chave_builder_uso;
 use crate::glob::Glob;
 use crate::grafo::AssetId;
 use crate::valor::{Mapa, Valor, real_dart};
 
-/// Os `--define` já agrupados por builder (chave normalizada), na ordem em
-/// que apareceram.
+/// The `--define`s already grouped by builder (normalized key), in the order
+/// in which they appeared.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Definicoes(pub Vec<(String, Mapa)>);
 
 impl Definicoes {
-    /// `_parseBuilderConfigOverrides`: cada argumento é
-    /// `<builder>=<opção>=<valor>`; o resto depois do segundo `=` é o valor,
-    /// lido como JSON e, se não for JSON, como texto. A chave do builder é
-    /// normalizada com o pacote raiz (`:x` → `raiz:x`, `x` → `x:x`).
+    /// `_parseBuilderConfigOverrides`: each argument is
+    /// `<builder>=<option>=<value>`; the rest after the second `=` is the
+    /// value, read as JSON and, if it is not JSON, as a string. The builder
+    /// key is normalized with the root package (`:x` → `root:x`, `x` →
+    /// `x:x`).
     ///
     /// ```
     /// use dartforge_build::linha_de_comando::Definicoes;
-    /// let d = Definicoes::ler(&[":b=n=1", "p:b=t=a=b", "p:b=l=[1, 2.0]"], "p").unwrap();
+    /// let d = Definicoes::parse(&[":b=n=1", "p:b=t=a=b", "p:b=l=[1, 2.0]"], "p").unwrap();
     /// assert_eq!(d.0[0].0, "p:b");
     /// assert_eq!(d.0[0].1.texto_canonico(), r#"{"n": 1, "t": "a=b", "l": [1, 2.0]}"#);
-    /// assert!(Definicoes::ler(&["b=n"], "p").is_err());
-    /// assert!(Definicoes::ler(&["b=n=1", "b=n=2"], "p").is_err());
+    /// assert!(Definicoes::parse(&["b=n"], "p").is_err());
+    /// assert!(Definicoes::parse(&["b=n=1", "b=n=2"], "p").is_err());
     /// ```
     ///
-    /// # Erros
-    /// Menos de dois `=`, ou a mesma opção do mesmo builder duas vezes — as
-    /// mensagens do `build_runner`.
-    pub fn ler<S: AsRef<str>>(argumentos: &[S], raiz: &str) -> Result<Definicoes, String> {
+    /// # Errors
+    /// Fewer than two `=`, or the same option of the same builder twice —
+    /// `build_runner`'s messages.
+    pub fn parse<S: AsRef<str>>(arguments: &[S], root: &str) -> Result<Definicoes, String> {
         let mut d = Definicoes::default();
-        for a in argumentos {
+        for a in arguments {
             let a = a.as_ref();
-            let mut partes = a.splitn(3, '=');
-            let (Some(builder), Some(opcao), Some(valor)) =
-                (partes.next(), partes.next(), partes.next())
+            let mut parts = a.splitn(3, '=');
+            let (Some(builder), Some(option), Some(value)) =
+                (parts.next(), parts.next(), parts.next())
             else {
                 return Err(format!(
                     "Invalid argument (define): Expected at least 2 `=` signs, should be of the format like --define \"<builder_key>=<option>=<value>\": \"{a}\""
                 ));
             };
-            let chave = chave_builder_uso(builder, raiz);
-            let valor = json(valor).unwrap_or_else(|| Valor::Texto(valor.to_string()));
-            let i = match d.0.iter().position(|(k, _)| *k == chave) {
+            let key = chave_builder_uso(builder, root);
+            let value = json(value).unwrap_or_else(|| Valor::Texto(value.to_string()));
+            let i = match d.0.iter().position(|(k, _)| *k == key) {
                 Some(i) => i,
                 None => {
-                    d.0.push((chave.clone(), Mapa::default()));
+                    d.0.push((key.clone(), Mapa::default()));
                     d.0.len() - 1
                 }
             };
             let m = &mut d.0[i].1;
-            if m.obter(opcao).is_some() {
+            if m.obter(option).is_some() {
                 return Err(format!(
-                    "Invalid argument(s): Got duplicate overrides for the same builder option: {chave}={opcao}. Only one is allowed."
+                    "Invalid argument(s): Got duplicate overrides for the same builder option: {key}={option}. Only one is allowed."
                 ));
             }
-            m.inserir(Valor::Texto(opcao.to_string()), valor);
+            m.inserir(Valor::Texto(option.to_string()), value);
         }
         Ok(d)
     }
 
-    /// As opções definidas para o builder `chave`.
-    pub fn de(&self, chave: &str) -> Option<&Mapa> {
-        self.0.iter().find(|(k, _)| k == chave).map(|(_, m)| m)
+    /// The options defined for the builder `key`.
+    pub fn for_builder(&self, key: &str) -> Option<&Mapa> {
+        self.0.iter().find(|(k, _)| k == key).map(|(_, m)| m)
     }
 }
 
-/// `json.decode` do Dart: `None` se o texto não é JSON. Números com `.` ou
-/// expoente são `double`, os outros `int` (ou `double`, se não cabem em 64
-/// bits); objetos mantêm a ordem das chaves (a última repetida vence).
+/// Dart's `json.decode`: `None` if the text is not JSON. Numbers with `.` or
+/// an exponent are `double`, the others `int` (or `double`, if they do not
+/// fit in 64 bits); objects keep the key order (the last duplicate wins).
 ///
 /// ```
 /// use dartforge_build::linha_de_comando::json;
@@ -87,44 +89,44 @@ impl Definicoes {
 /// assert_eq!(json("{a: 1}"), None);
 /// assert_eq!(json("~"), None);
 /// ```
-pub fn json(texto: &str) -> Option<Valor> {
-    let b = texto.as_bytes();
+pub fn json(text: &str) -> Option<Valor> {
+    let b = text.as_bytes();
     let mut i = 0;
-    let v = valor_json(b, &mut i)?;
-    espacos(b, &mut i);
+    let v = json_value(b, &mut i)?;
+    skip_whitespace(b, &mut i);
     (i == b.len()).then_some(v)
 }
 
-fn espacos(b: &[u8], i: &mut usize) {
+fn skip_whitespace(b: &[u8], i: &mut usize) {
     while *i < b.len() && matches!(b[*i], b' ' | b'\t' | b'\n' | b'\r') {
         *i += 1;
     }
 }
 
-fn valor_json(b: &[u8], i: &mut usize) -> Option<Valor> {
-    espacos(b, i);
+fn json_value(b: &[u8], i: &mut usize) -> Option<Valor> {
+    skip_whitespace(b, i);
     match *b.get(*i)? {
         b'{' => {
             *i += 1;
             let mut m = Mapa::default();
-            espacos(b, i);
+            skip_whitespace(b, i);
             if b.get(*i) == Some(&b'}') {
                 *i += 1;
                 return Some(Valor::Mapa(m));
             }
             loop {
-                espacos(b, i);
-                let Valor::Texto(k) = texto_json(b, i)? else {
+                skip_whitespace(b, i);
+                let Valor::Texto(k) = json_string(b, i)? else {
                     return None;
                 };
-                espacos(b, i);
+                skip_whitespace(b, i);
                 if b.get(*i) != Some(&b':') {
                     return None;
                 }
                 *i += 1;
-                let v = valor_json(b, i)?;
+                let v = json_value(b, i)?;
                 m.inserir(Valor::Texto(k), v);
-                espacos(b, i);
+                skip_whitespace(b, i);
                 match b.get(*i)? {
                     b',' => *i += 1,
                     b'}' => {
@@ -138,14 +140,14 @@ fn valor_json(b: &[u8], i: &mut usize) -> Option<Valor> {
         b'[' => {
             *i += 1;
             let mut l = Vec::new();
-            espacos(b, i);
+            skip_whitespace(b, i);
             if b.get(*i) == Some(&b']') {
                 *i += 1;
                 return Some(Valor::Lista(l));
             }
             loop {
-                l.push(valor_json(b, i)?);
-                espacos(b, i);
+                l.push(json_value(b, i)?);
+                skip_whitespace(b, i);
                 match b.get(*i)? {
                     b',' => *i += 1,
                     b']' => {
@@ -156,11 +158,11 @@ fn valor_json(b: &[u8], i: &mut usize) -> Option<Valor> {
                 }
             }
         }
-        b'"' => texto_json(b, i),
+        b'"' => json_string(b, i),
         b't' => literal(b, i, "true", Valor::Bool(true)),
         b'f' => literal(b, i, "false", Valor::Bool(false)),
         b'n' => literal(b, i, "null", Valor::Nulo),
-        b'-' | b'0'..=b'9' => numero_json(b, i),
+        b'-' | b'0'..=b'9' => json_number(b, i),
         _ => None,
     }
 }
@@ -174,29 +176,29 @@ fn literal(b: &[u8], i: &mut usize, t: &str, v: Valor) -> Option<Valor> {
     }
 }
 
-fn numero_json(b: &[u8], i: &mut usize) -> Option<Valor> {
-    let inicio = *i;
+fn json_number(b: &[u8], i: &mut usize) -> Option<Valor> {
+    let start = *i;
     if b[*i] == b'-' {
         *i += 1;
     }
-    let digitos = |i: &mut usize| {
+    let digits = |i: &mut usize| {
         let d = *i;
         while *i < b.len() && b[*i].is_ascii_digit() {
             *i += 1;
         }
         *i > d
     };
-    // Inteiro: `0` ou um dígito não nulo seguido de dígitos.
+    // Integer: `0` or a non-zero digit followed by digits.
     if b.get(*i) == Some(&b'0') {
         *i += 1;
-    } else if !digitos(i) {
+    } else if !digits(i) {
         return None;
     }
     let mut real = false;
     if b.get(*i) == Some(&b'.') {
         *i += 1;
         real = true;
-        if !digitos(i) {
+        if !digits(i) {
             return None;
         }
     }
@@ -206,29 +208,29 @@ fn numero_json(b: &[u8], i: &mut usize) -> Option<Valor> {
         if matches!(b.get(*i), Some(b'+' | b'-')) {
             *i += 1;
         }
-        if !digitos(i) {
+        if !digits(i) {
             return None;
         }
     }
-    let t = std::str::from_utf8(&b[inicio..*i]).ok()?;
+    let t = std::str::from_utf8(&b[start..*i]).ok()?;
     if !real && let Ok(n) = t.parse::<i64>() {
         return Some(Valor::Int(n));
     }
     t.parse::<f64>().ok().map(|v| Valor::Real(real_dart(v)))
 }
 
-fn texto_json(b: &[u8], i: &mut usize) -> Option<Valor> {
+fn json_string(b: &[u8], i: &mut usize) -> Option<Valor> {
     if b.get(*i) != Some(&b'"') {
         return None;
     }
     *i += 1;
-    let mut unidades: Vec<u16> = Vec::new();
+    let mut units: Vec<u16> = Vec::new();
     loop {
         let c = *b.get(*i)?;
         match c {
             b'"' => {
                 *i += 1;
-                return Some(Valor::Texto(String::from_utf16_lossy(&unidades)));
+                return Some(Valor::Texto(String::from_utf16_lossy(&units)));
             }
             b'\\' => {
                 *i += 1;
@@ -250,53 +252,54 @@ fn texto_json(b: &[u8], i: &mut usize) -> Option<Valor> {
                     }
                     _ => return None,
                 };
-                unidades.push(u);
+                units.push(u);
             }
             0..=0x1f => return None,
             _ => {
-                // Um caractere UTF-8 inteiro.
-                let resto = std::str::from_utf8(&b[*i..]).ok().or_else(|| {
-                    let fim = (*i + 4).min(b.len());
-                    (*i + 1..=fim)
+                // A whole UTF-8 character.
+                let rest = std::str::from_utf8(&b[*i..]).ok().or_else(|| {
+                    let end = (*i + 4).min(b.len());
+                    (*i + 1..=end)
                         .rev()
                         .find_map(|f| std::str::from_utf8(&b[*i..f]).ok())
                 })?;
-                let ch = resto.chars().next()?;
+                let ch = rest.chars().next()?;
                 let mut buf = [0u16; 2];
-                unidades.extend_from_slice(ch.encode_utf16(&mut buf));
+                units.extend_from_slice(ch.encode_utf16(&mut buf));
                 *i += ch.len_utf8();
             }
         }
     }
 }
 
-/// As opções `--config`, `--define` e `--build-filter` de um projeto, lidas
-/// contra o `pubspec.yaml` (o nome do pacote raiz normaliza as chaves e os
-/// caminhos relativos) e o `pubspec.lock` (o perfil decide se `asset:` vale).
+/// A project's `--config`, `--define` and `--build-filter` options, read
+/// against `pubspec.yaml` (the root package's name normalizes the keys and the
+/// relative paths) and `pubspec.lock` (the profile decides whether `asset:` is
+/// accepted).
 #[derive(Debug, Clone, Default)]
 pub struct OpcoesDoBuild {
     pub config: Option<String>,
-    pub definicoes: Definicoes,
-    pub filtros: Vec<FiltroBuild>,
+    pub definitions: Definicoes,
+    pub filters: Vec<FiltroBuild>,
 }
 
 impl OpcoesDoBuild {
-    /// Lê as opções para o projeto em `raiz`.
+    /// Reads the options for the project in `root`.
     ///
-    /// # Erros
-    /// `pubspec.yaml`/`pubspec.lock` ilegíveis, `--define` malformado ou
-    /// `--build-filter` inválido.
+    /// # Errors
+    /// Unreadable `pubspec.yaml`/`pubspec.lock`, a malformed `--define` or an
+    /// invalid `--build-filter`.
     pub fn do_projeto<S: AsRef<str>>(
-        raiz: &std::path::Path,
+        root: &std::path::Path,
         config: Option<&str>,
         defines: &[S],
-        filtros: &[S],
+        filters: &[S],
     ) -> Result<OpcoesDoBuild, String> {
-        let pubspec = crate::config::Pubspec::ler(raiz)?;
-        let nome = pubspec
+        let pubspec = crate::config::Pubspec::ler(root)?;
+        let name = pubspec
             .nome
             .ok_or("The current package has no name, please add one to the pubspec.yaml.")?;
-        let perfil = match std::fs::read_to_string(raiz.join("pubspec.lock")) {
+        let profile = match std::fs::read_to_string(root.join("pubspec.lock")) {
             Ok(t) => {
                 let lock = crate::config::ler_lock(&t, "pubspec.lock")?;
                 let v = |p: &str| {
@@ -310,104 +313,103 @@ impl OpcoesDoBuild {
         };
         Ok(OpcoesDoBuild {
             config: config.map(str::to_string),
-            definicoes: Definicoes::ler(defines, &nome)?,
-            filtros: filtros
+            definitions: Definicoes::parse(defines, &name)?,
+            filters: filters
                 .iter()
-                .map(|f| FiltroBuild::do_argumento(f.as_ref(), &nome, perfil.filtro_asset()))
+                .map(|f| FiltroBuild::from_arg(f.as_ref(), &name, profile.filtro_asset()))
                 .collect::<Result<_, _>>()?,
         })
     }
 
-    /// Aplica às opções do motor.
-    pub fn aplicar(self, opcoes: &mut crate::motor::OpcoesMotor) {
-        opcoes.config = self.config;
-        opcoes.definicoes = self.definicoes;
-        opcoes.filtros = self.filtros;
+    /// Applies them to the engine options.
+    pub fn aplicar(self, options: &mut crate::motor::OpcoesMotor) {
+        options.config = self.config;
+        options.definicoes = self.definitions;
+        options.filtros = self.filters;
     }
 }
 
-/// `BuildFilter`: um glob de pacote e um de caminho.
+/// `BuildFilter`: a package glob and a path glob.
 #[derive(Debug, Clone)]
 pub struct FiltroBuild {
-    pub pacote: Glob,
-    pub caminho: Glob,
+    pub package: Glob,
+    pub path: Glob,
 }
 
 impl FiltroBuild {
-    /// `BuildFilter.fromArg`: caminho relativo (do pacote raiz), `package:`
-    /// (sob `lib/`) e, com `asset` (`build_runner` ≥ 2.14.0), `asset:` (o
-    /// pacote inteiro).
+    /// `BuildFilter.fromArg`: a relative path (from the root package),
+    /// `package:` (under `lib/`) and, with `asset` (`build_runner` ≥ 2.14.0),
+    /// `asset:` (the whole package).
     ///
     /// ```
     /// use dartforge_build::grafo::AssetId;
     /// use dartforge_build::linha_de_comando::FiltroBuild;
-    /// let f = FiltroBuild::do_argumento("package:a/*.dart", "raiz", false).unwrap();
+    /// let f = FiltroBuild::from_arg("package:a/*.dart", "root", false).unwrap();
     /// assert!(f.casa(&AssetId::novo("a", "lib/x.dart")));
-    /// let r = FiltroBuild::do_argumento("web/**", "raiz", false).unwrap();
-    /// assert!(r.casa(&AssetId::novo("raiz", "web/a/b.js")));
-    /// assert!(FiltroBuild::do_argumento("asset:a/web/x", "raiz", false).is_err());
-    /// assert!(FiltroBuild::do_argumento("asset:a/web/x", "raiz", true).is_ok());
+    /// let r = FiltroBuild::from_arg("web/**", "root", false).unwrap();
+    /// assert!(r.casa(&AssetId::novo("root", "web/a/b.js")));
+    /// assert!(FiltroBuild::from_arg("asset:a/web/x", "root", false).is_err());
+    /// assert!(FiltroBuild::from_arg("asset:a/web/x", "root", true).is_ok());
     /// ```
     ///
-    /// # Erros
-    /// Esquema não suportado ou glob inválido, com a mensagem do
-    /// `build_runner`.
-    pub fn do_argumento(arg: &str, raiz: &str, asset: bool) -> Result<FiltroBuild, String> {
-        let erro = |e: String| {
+    /// # Errors
+    /// Unsupported scheme or invalid glob, with `build_runner`'s message.
+    pub fn from_arg(arg: &str, root: &str, asset: bool) -> Result<FiltroBuild, String> {
+        let error = |e: String| {
             format!(
                 "Invalid argument (--build-filter): Not a valid build filter, must be either a relative path or `package:` uri.\n\n{e}: \"{arg}\""
             )
         };
-        // `Uri.parse`: esquema = letras, dígitos, `+`, `-`, `.` antes do
-        // primeiro `:`, começando por letra.
-        let esquema = arg.split_once(':').and_then(|(e, _)| {
+        // `Uri.parse`: scheme = letters, digits, `+`, `-`, `.` before the
+        // first `:`, starting with a letter.
+        let scheme = arg.split_once(':').and_then(|(e, _)| {
             (!e.is_empty()
                 && e.as_bytes()[0].is_ascii_alphabetic()
                 && e.bytes()
                     .all(|c| c.is_ascii_alphanumeric() || b"+-.".contains(&c)))
             .then_some(e)
         });
-        // O caminho da URI, sem consulta nem fragmento.
-        let caminho_da_uri = |resto: &str| -> String {
-            let fim = resto.find(['?', '#']).unwrap_or(resto.len());
-            resto[..fim].to_string()
+        // The URI's path, without query or fragment.
+        let uri_path = |rest: &str| -> String {
+            let end = rest.find(['?', '#']).unwrap_or(rest.len());
+            rest[..end].to_string()
         };
-        let (pacote, caminho) = match esquema.map(|e| e.to_ascii_lowercase()).as_deref() {
+        let (package, path) = match scheme.map(|e| e.to_ascii_lowercase()).as_deref() {
             Some("package") => {
-                let p = desescapar(&caminho_da_uri(&arg["package:".len()..]));
+                let p = unescape(&uri_path(&arg["package:".len()..]));
                 let mut seg = p.split('/');
-                let pacote = seg.next().unwrap_or_default().to_string();
-                let resto: Vec<&str> = seg.collect();
+                let package = seg.next().unwrap_or_default().to_string();
+                let rest: Vec<&str> = seg.collect();
                 let mut c = String::from("lib");
-                for s in resto {
+                for s in rest {
                     c.push('/');
                     c.push_str(s);
                 }
-                (pacote, c)
+                (package, c)
             }
             Some("asset") if asset => {
-                let p = desescapar(&caminho_da_uri(&arg["asset:".len()..]));
-                let (pacote, resto) = p.split_once('/').unwrap_or((p.as_str(), ""));
-                (pacote.to_string(), resto.to_string())
+                let p = unescape(&uri_path(&arg["asset:".len()..]));
+                let (package, rest) = p.split_once('/').unwrap_or((p.as_str(), ""));
+                (package.to_string(), rest.to_string())
             }
-            Some(e) => return Err(erro(format!("Unsupported scheme {e}"))),
-            None => (raiz.to_string(), caminho_escapado(&caminho_da_uri(arg))),
+            Some(e) => return Err(error(format!("Unsupported scheme {e}"))),
+            None => (root.to_string(), escaped_path(&uri_path(arg))),
         };
         Ok(FiltroBuild {
-            pacote: Glob::novo(&pacote).map_err(erro)?,
-            caminho: Glob::novo(&caminho).map_err(erro)?,
+            package: Glob::novo(&package).map_err(error)?,
+            path: Glob::novo(&path).map_err(error)?,
         })
     }
 
     /// `BuildFilter.matches`.
     pub fn casa(&self, id: &AssetId) -> bool {
-        self.pacote.casa(&id.pacote) && self.caminho.casa(&id.caminho)
+        self.package.casa(&id.pacote) && self.path.casa(&id.caminho)
     }
 }
 
-/// Os segmentos de caminho de uma URI com os escapes `%XX` desfeitos
-/// (`Uri.pathSegments`, juntados por `/`).
-fn desescapar(s: &str) -> String {
+/// The path segments of a URI with the `%XX` escapes undone
+/// (`Uri.pathSegments`, joined by `/`).
+fn unescape(s: &str) -> String {
     let b = s.as_bytes();
     let mut v = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -428,14 +430,14 @@ fn desescapar(s: &str) -> String {
     String::from_utf8_lossy(&v).into_owned()
 }
 
-/// `Uri.path` de uma referência relativa: o `Uri.parse` do Dart escapa o que
-/// não pode ficar num caminho (espaço, `{`, `}`, `[`, `]`, não ASCII…) e
-/// normaliza os `%XX` existentes (maiúsculas; o de um caractere não
-/// reservado vira o próprio caractere). O glob do filtro é feito desse texto,
-/// então `{a,b}` num caminho relativo não é alternativa, como no oficial.
-fn caminho_escapado(s: &str) -> String {
+/// `Uri.path` of a relative reference: Dart's `Uri.parse` escapes what cannot
+/// stay in a path (space, `{`, `}`, `[`, `]`, non-ASCII…) and normalizes the
+/// existing `%XX` (uppercase; that of an unreserved character becomes the
+/// character itself). The filter's glob is made from this text, so `{a,b}` in
+/// a relative path is not an alternation, as in the official implementation.
+fn escaped_path(s: &str) -> String {
     let b = s.as_bytes();
-    let permitido = |c: u8| c.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@/".contains(&c);
+    let allowed = |c: u8| c.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@/".contains(&c);
     let mut o = String::with_capacity(s.len());
     let mut i = 0;
     while i < b.len() {
@@ -453,7 +455,7 @@ fn caminho_escapado(s: &str) -> String {
                 o.push_str(&format!("%{:02X}", x));
             }
             i += 3;
-        } else if permitido(c) {
+        } else if allowed(c) {
             o.push(c as char);
             i += 1;
         } else {
@@ -465,11 +467,11 @@ fn caminho_escapado(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn json_como_o_dart() {
+    fn json_like_dart() {
         assert_eq!(json("true"), Some(Valor::Bool(true)));
         assert_eq!(json("null"), Some(Valor::Nulo));
         assert_eq!(json("-0.5"), Some(Valor::Real("-0.5".into())));
@@ -486,33 +488,33 @@ mod testes {
     }
 
     #[test]
-    fn define_normaliza_e_mantem_o_resto() {
-        let d = Definicoes::ler(&["x=a=1", "q|y=b=texto sem json"], "raiz").unwrap();
+    fn define_normalizes_and_keeps_the_rest() {
+        let d = Definicoes::parse(&["x=a=1", "q|y=b=text without json"], "root").unwrap();
         assert_eq!(d.0[0].0, "x:x");
         assert_eq!(d.0[1].0, "q:y");
         assert_eq!(
-            d.de("q:y").unwrap().texto_canonico(),
-            r#"{"b": "texto sem json"}"#
+            d.for_builder("q:y").unwrap().texto_canonico(),
+            r#"{"b": "text without json"}"#
         );
     }
 
     #[test]
-    fn filtro_com_escape_e_glob() {
-        // Relativo: o caminho é o `Uri.path`, escapado.
-        let f = FiltroBuild::do_argumento("lib/a b.*", "r", false).unwrap();
+    fn filter_with_escape_and_glob() {
+        // Relative: the path is the `Uri.path`, escaped.
+        let f = FiltroBuild::from_arg("lib/a b.*", "r", false).unwrap();
         assert!(f.casa(&AssetId::novo("r", "lib/a%20b.txt")));
         assert!(!f.casa(&AssetId::novo("r", "lib/a b.txt")));
         assert!(
-            !FiltroBuild::do_argumento("lib/{a,b}.txt", "r", false)
+            !FiltroBuild::from_arg("lib/{a,b}.txt", "r", false)
                 .unwrap()
                 .casa(&AssetId::novo("r", "lib/a.txt"))
         );
-        // `package:`: os segmentos, desescapados.
-        let p = FiltroBuild::do_argumento("package:r/a%20b.*", "r", false).unwrap();
+        // `package:`: the segments, unescaped.
+        let p = FiltroBuild::from_arg("package:r/a%20b.*", "r", false).unwrap();
         assert!(p.casa(&AssetId::novo("r", "lib/a b.txt")));
-        let g = FiltroBuild::do_argumento("package:{a,b}/**", "r", false).unwrap();
+        let g = FiltroBuild::from_arg("package:{a,b}/**", "r", false).unwrap();
         assert!(g.casa(&AssetId::novo("b", "lib/x/y.dart")));
         assert!(!g.casa(&AssetId::novo("b", "web/y.dart")));
-        assert!(FiltroBuild::do_argumento("http://x/y", "r", true).is_err());
+        assert!(FiltroBuild::from_arg("http://x/y", "r", true).is_err());
     }
 }

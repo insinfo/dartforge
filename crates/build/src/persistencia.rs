@@ -1,58 +1,59 @@
-//! Persistência do estado do motor entre processos (`docs/BUILD-MOTOR.md`
-//! §4.1): o equivalente do `asset_graph.json` do `build_runner`. Um processo
-//! novo reaproveita as ações cujas consultas continuam com o mesmo digest, em
-//! vez de executá-las de novo. **Só quando o usuário pede** (`--estado`,
-//! [`VARIAVEL`]): a regra governante 6 do `PLANO.md` proíbe contabilidade em
-//! disco que ninguém pediu.
+//! Persistence of the engine state across processes (`docs/BUILD-MOTOR.md`
+//! §4.1): the equivalent of `build_runner`'s `asset_graph.json`. A new
+//! process reuses the actions whose queries still have the same digest,
+//! instead of running them again. **Only when the user asks for it**
+//! (`--estado`, [`VARIAVEL`]): governing rule 6 of `PLANO.md` forbids on-disk
+//! bookkeeping that nobody asked for.
 //!
-//! O arquivo guarda, por ação, a chave da ação (fase, opções, entrada e
-//! saídas previstas), a origem, as consultas com os digests e o digest de
-//! cada saída; o conteúdo das saídas fica em `blobs/`, endereçado pelo
-//! blake3. Só entra o que dá para revalidar sem o processo anterior:
+//! The file stores, per action, the action key (phase, options, input and
+//! expected outputs), the origin, the queries with their digests and the
+//! digest of each output; the content of the outputs lives in `blobs/`,
+//! addressed by blake3. Only what can be revalidated without the previous
+//! process goes in:
 //!
-//! * consultas de arquivo (`Arquivo`, `Existe`, `Glob`, `GlobAtivos`) — uma
-//!   consulta semântica depende do banco da sessão, que um processo novo não
-//!   tem igual (numa passada única ele nem responde);
-//! * ações que não são de um gerador por pacote (a revalidação dele é a
-//!   rodada do pacote, que fica em memória);
-//! * nada pendente nem medido.
+//! * file queries (`Arquivo`, `Existe`, `Glob`, `GlobAtivos`) — a semantic
+//!   query depends on the session's database, which a new process does not
+//!   have in the same form (in a single pass it does not even answer);
+//! * actions that do not belong to a per-package generator (its
+//!   revalidation is the package round, which stays in memory);
+//! * nothing pending or measured.
 //!
-//! As entradas que a consulta não vê ficam na chave: a versão do motor, a
-//! identidade do executável (o código dos geradores nativos), o plano, as
-//! versões do lock e o modo (`--release`). Para uma ação do executor Dart, o
-//! código do builder — os arquivos do depfile do bootstrap fora dos pacotes
-//! `hosted`, pelo conteúdo.
+//! The inputs the queries do not see go into the key: the engine version,
+//! the executable's identity (the code of the native generators), the plan,
+//! the lock versions and the mode (`--release`). For an action of the Dart
+//! executor, the builder code — the bootstrap depfile's files outside the
+//! `hosted` packages, by content.
 use crate::consulta::{Consulta, Digest};
 use crate::grafo::AssetId;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Variável de ambiente que liga o estado em disco no `dev`, `serve` e
-/// `compile-js` (e no `dartforge build`, além do `--estado`).
+/// Environment variable that turns on the on-disk state in `dev`, `serve`
+/// and `compile-js` (and in `dartforge build`, besides `--estado`).
 pub const VARIAVEL: &str = "DARTFORGE_BUILD_ESTADO";
 
-/// O usuário pediu o estado em disco pelo ambiente (`DARTFORGE_BUILD_ESTADO`
-/// com valor não vazio e diferente de `0`)? Sem pedido nada vai ao disco:
-/// regra governante 6 do `PLANO.md` ("o disco só recebe o que o usuário
-/// pedir").
+/// Did the user ask for the on-disk state through the environment
+/// (`DARTFORGE_BUILD_ESTADO` with a non-empty value other than `0`)? Without a
+/// request nothing goes to disk: governing rule 6 of `PLANO.md` ("the disk
+/// only receives what the user asks for").
 pub fn pedido_no_ambiente() -> bool {
     std::env::var_os(VARIAVEL).is_some_and(|v| !v.is_empty() && v != "0")
 }
 
-/// Formato do arquivo; muda quando o conteúdo muda de forma.
-const FORMATO: u64 = 1;
+/// File format; it changes when the content changes shape.
+const FORMAT: u64 = 1;
 
-/// Diretório do estado de um projeto.
-pub fn diretorio(dir_raiz: &Path) -> PathBuf {
-    dir_raiz
+/// A project's state directory.
+pub fn diretorio(root_dir: &Path) -> PathBuf {
+    root_dir
         .join(".dart_tool")
         .join("dartforge")
         .join("build")
         .join("estado")
 }
 
-/// Quem produziu a ação salva.
+/// Who produced the saved action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrigemSalva {
     Nativo(String),
@@ -61,7 +62,7 @@ pub enum OrigemSalva {
     Omitida,
 }
 
-/// Uma ação salva.
+/// A saved action.
 #[derive(Debug, Clone)]
 pub struct AcaoSalva {
     pub chave: String,
@@ -73,265 +74,267 @@ pub struct AcaoSalva {
     pub apagados: Vec<AssetId>,
 }
 
-/// O estado salvo de um projeto.
+/// A project's saved state.
 #[derive(Debug, Clone, Default)]
 pub struct Estado {
-    /// Chave global (motor, executável, plano, lock, modo).
+    /// Global key (engine, executable, plan, lock, mode).
     pub chave: String,
-    /// O código dos builders Dart: arquivo e digest do conteúdo. `None`: não
-    /// há ação Dart salva.
+    /// The code of the Dart builders: file and digest of its content. `None`:
+    /// there is no saved Dart action.
     pub codigo_dart: Option<Vec<(PathBuf, Digest)>>,
     pub acoes: Vec<AcaoSalva>,
 }
 
-/// Identidade do executável que roda o motor: o código dos geradores
-/// nativos não está em nenhuma consulta. Caminho, tamanho e data do arquivo.
+/// Identity of the executable that runs the engine: the code of the native
+/// generators is not in any query. Path, size and date of the file.
 pub fn identidade_do_executavel() -> String {
     let Ok(exe) = std::env::current_exe() else {
         return "?".into();
     };
     let meta = std::fs::metadata(&exe).ok();
-    let tamanho = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-    let data = meta
+    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let date = meta
         .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("{}|{tamanho}|{data}", exe.display())
+    format!("{}|{size}|{date}", exe.display())
 }
 
 fn hex(d: &Digest) -> String {
     d.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn de_hex(s: &str) -> Option<Digest> {
+fn from_hex(s: &str) -> Option<Digest> {
     if s.len() != 64 {
         return None;
     }
     let mut d = [0u8; 32];
-    for (i, par) in d.iter_mut().enumerate() {
-        *par = u8::from_str_radix(s.get(2 * i..2 * i + 2)?, 16).ok()?;
+    for (i, byte) in d.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(s.get(2 * i..2 * i + 2)?, 16).ok()?;
     }
     Some(d)
 }
 
-fn texto(p: &Path) -> Option<String> {
+fn path_str(p: &Path) -> Option<String> {
     p.to_str().map(str::to_string)
 }
 
-/// Uma consulta persistível em JSON; `None` para as semânticas.
-fn consulta_json(c: &Consulta) -> Option<Value> {
+/// A query that can be persisted as JSON; `None` for the semantic ones.
+fn query_json(c: &Consulta) -> Option<Value> {
     Some(match c {
-        Consulta::Arquivo(p) => json!({"t": "arquivo", "p": texto(p)?}),
-        Consulta::Existe(p) => json!({"t": "existe", "p": texto(p)?}),
-        Consulta::Glob { dir, padrao } => json!({"t": "glob", "p": texto(dir)?, "padrao": padrao}),
+        Consulta::Arquivo(p) => json!({"t": "arquivo", "p": path_str(p)?}),
+        Consulta::Existe(p) => json!({"t": "existe", "p": path_str(p)?}),
+        Consulta::Glob { dir, padrao } => {
+            json!({"t": "glob", "p": path_str(dir)?, "padrao": padrao})
+        }
         Consulta::GlobAtivos {
             dir,
             padrao,
             candidatos,
         } => {
-            json!({"t": "glob_ativos", "p": texto(dir)?, "padrao": padrao, "candidatos": candidatos})
+            json!({"t": "glob_ativos", "p": path_str(dir)?, "padrao": padrao, "candidatos": candidatos})
         }
         _ => return None,
     })
 }
 
-fn consulta_de_json(v: &Value) -> Option<Consulta> {
+fn query_from_json(v: &Value) -> Option<Consulta> {
     let p = || v.get("p").and_then(Value::as_str).map(PathBuf::from);
-    let padrao = || v.get("padrao").and_then(Value::as_str).map(str::to_string);
+    let pattern = || v.get("padrao").and_then(Value::as_str).map(str::to_string);
     Some(match v.get("t")?.as_str()? {
         "arquivo" => Consulta::Arquivo(p()?),
         "existe" => Consulta::Existe(p()?),
         "glob" => Consulta::Glob {
             dir: p()?,
-            padrao: padrao()?,
+            padrao: pattern()?,
         },
         "glob_ativos" => {
-            let mut candidatos = Vec::new();
+            let mut candidates = Vec::new();
             for c in v.get("candidatos")?.as_array()? {
-                candidatos.push((c.get(0)?.as_str()?.to_string(), c.get(1)?.as_bool()?));
+                candidates.push((c.get(0)?.as_str()?.to_string(), c.get(1)?.as_bool()?));
             }
             Consulta::GlobAtivos {
                 dir: p()?,
-                padrao: padrao()?,
-                candidatos,
+                padrao: pattern()?,
+                candidatos: candidates,
             }
         }
         _ => return None,
     })
 }
 
-/// A consulta pode ser salva (é de arquivo)?
+/// Can the query be saved (is it a file query)?
 pub fn persistivel(c: &Consulta) -> bool {
-    consulta_json(c).is_some()
+    query_json(c).is_some()
 }
 
 fn ids(v: &[AssetId]) -> Value {
     Value::Array(v.iter().map(|id| Value::String(id.texto())).collect())
 }
 
-fn ids_de(v: Option<&Value>) -> Option<Vec<AssetId>> {
+fn ids_from(v: Option<&Value>) -> Option<Vec<AssetId>> {
     v?.as_array()?
         .iter()
         .map(|x| AssetId::de_texto(x.as_str()?))
         .collect()
 }
 
-fn acao_json(a: &AcaoSalva) -> Option<Value> {
-    let origem = match &a.origem {
+fn action_json(a: &AcaoSalva) -> Option<Value> {
+    let origin = match &a.origem {
         OrigemSalva::Nativo(n) => json!({"nativo": n}),
         OrigemSalva::Dart => json!("dart"),
         OrigemSalva::Apoio => json!("apoio"),
         OrigemSalva::Omitida => json!("omitida"),
     };
-    let mut consultas = Vec::with_capacity(a.consultas.len());
+    let mut queries = Vec::with_capacity(a.consultas.len());
     for (c, d) in &a.consultas {
-        let mut v = consulta_json(c)?;
+        let mut v = query_json(c)?;
         v["d"] = d
             .as_ref()
             .map(|d| Value::String(hex(d)))
             .unwrap_or(Value::Null);
-        consultas.push(v);
+        queries.push(v);
     }
-    let saidas: Vec<Value> = a
+    let outputs: Vec<Value> = a
         .saidas
         .iter()
         .map(|(id, d)| json!([id.texto(), d.as_ref().map(hex)]))
         .collect();
     Some(json!({
         "chave": a.chave,
-        "origem": origem,
+        "origem": origin,
         "motivo": a.motivo,
-        "consultas": consultas,
-        "saidas": saidas,
+        "consultas": queries,
+        "saidas": outputs,
         "do_apoio": ids(&a.do_apoio),
         "apagados": ids(&a.apagados),
     }))
 }
 
-fn acao_de_json(v: &Value) -> Option<AcaoSalva> {
-    let origem = match v.get("origem")? {
+fn action_from_json(v: &Value) -> Option<AcaoSalva> {
+    let origin = match v.get("origem")? {
         Value::String(s) if s == "dart" => OrigemSalva::Dart,
         Value::String(s) if s == "apoio" => OrigemSalva::Apoio,
         Value::String(s) if s == "omitida" => OrigemSalva::Omitida,
         o => OrigemSalva::Nativo(o.get("nativo")?.as_str()?.to_string()),
     };
-    let mut consultas = Vec::new();
+    let mut queries = Vec::new();
     for c in v.get("consultas")?.as_array()? {
         let d = match c.get("d")? {
             Value::Null => None,
-            d => Some(de_hex(d.as_str()?)?),
+            d => Some(from_hex(d.as_str()?)?),
         };
-        consultas.push((consulta_de_json(c)?, d));
+        queries.push((query_from_json(c)?, d));
     }
-    let mut saidas = Vec::new();
+    let mut outputs = Vec::new();
     for s in v.get("saidas")?.as_array()? {
         let id = AssetId::de_texto(s.get(0)?.as_str()?)?;
         let d = match s.get(1)? {
             Value::Null => None,
-            d => Some(de_hex(d.as_str()?)?),
+            d => Some(from_hex(d.as_str()?)?),
         };
-        saidas.push((id, d));
+        outputs.push((id, d));
     }
     Some(AcaoSalva {
         chave: v.get("chave")?.as_str()?.to_string(),
-        origem,
+        origem: origin,
         motivo: v.get("motivo").and_then(Value::as_str).map(str::to_string),
-        consultas,
-        saidas,
-        do_apoio: ids_de(v.get("do_apoio"))?,
-        apagados: ids_de(v.get("apagados"))?,
+        consultas: queries,
+        saidas: outputs,
+        do_apoio: ids_from(v.get("do_apoio"))?,
+        apagados: ids_from(v.get("apagados"))?,
     })
 }
 
-/// Lê o estado salvo. Arquivo ausente, de outro formato ou corrompido:
-/// `None` (o motor começa do zero, como sem estado).
+/// Reads the saved state. A missing file, one of another format or a
+/// corrupted one: `None` (the engine starts from scratch, as without state).
 pub fn ler(dir: &Path) -> Option<Estado> {
-    let texto = std::fs::read_to_string(dir.join("estado.json")).ok()?;
-    let v: Value = serde_json::from_str(&texto).ok()?;
-    if v.get("formato")?.as_u64()? != FORMATO {
+    let text = std::fs::read_to_string(dir.join("estado.json")).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    if v.get("formato")?.as_u64()? != FORMAT {
         return None;
     }
-    let codigo_dart = match v.get("codigo_dart")? {
+    let dart_code = match v.get("codigo_dart")? {
         Value::Null => None,
         c => {
             let mut l = Vec::new();
-            for par in c.as_array()? {
+            for pair in c.as_array()? {
                 l.push((
-                    PathBuf::from(par.get(0)?.as_str()?),
-                    de_hex(par.get(1)?.as_str()?)?,
+                    PathBuf::from(pair.get(0)?.as_str()?),
+                    from_hex(pair.get(1)?.as_str()?)?,
                 ));
             }
             Some(l)
         }
     };
-    let acoes = v
+    let actions = v
         .get("acoes")?
         .as_array()?
         .iter()
-        .map(acao_de_json)
+        .map(action_from_json)
         .collect::<Option<Vec<_>>>()?;
     Some(Estado {
         chave: v.get("chave")?.as_str()?.to_string(),
-        codigo_dart,
-        acoes,
+        codigo_dart: dart_code,
+        acoes: actions,
     })
 }
 
-/// Conteúdo de uma saída salva, conferido pelo digest.
+/// Content of a saved output, checked against its digest.
 pub fn ler_blob(dir: &Path, d: &Digest) -> Option<Arc<[u8]>> {
     let b = std::fs::read(dir.join("blobs").join(hex(d))).ok()?;
     (blake3::hash(&b).as_bytes() == d).then(|| Arc::from(b))
 }
 
-/// Grava o estado e os conteúdos novos, e apaga os blobs que nenhuma ação
-/// referencia mais. A gravação do JSON é atômica (arquivo temporário e
+/// Writes the state and the new contents, and deletes the blobs that no
+/// action references anymore. Writing the JSON is atomic (temporary file and
 /// `rename`).
 ///
-/// # Erros
+/// # Errors
 ///
-/// Falha de escrita no diretório do estado.
+/// Write failure in the state directory.
 pub fn gravar(
     dir: &Path,
-    estado: &Estado,
-    conteudos: &[(Digest, Arc<[u8]>)],
+    state: &Estado,
+    contents: &[(Digest, Arc<[u8]>)],
 ) -> Result<(), String> {
     let blobs = dir.join("blobs");
     std::fs::create_dir_all(&blobs).map_err(|e| format!("{}: {e}", blobs.display()))?;
-    let mut vivos = std::collections::HashSet::new();
-    for (d, b) in conteudos {
-        let nome = hex(d);
-        let p = blobs.join(&nome);
+    let mut live = std::collections::HashSet::new();
+    for (d, b) in contents {
+        let name = hex(d);
+        let p = blobs.join(&name);
         if !p.is_file() {
-            let tmp = blobs.join(format!("{nome}.tmp"));
+            let tmp = blobs.join(format!("{name}.tmp"));
             std::fs::write(&tmp, &b[..]).map_err(|e| format!("{}: {e}", tmp.display()))?;
             std::fs::rename(&tmp, &p).map_err(|e| format!("{}: {e}", p.display()))?;
         }
-        vivos.insert(nome);
+        live.insert(name);
     }
-    let acoes: Vec<Value> = estado.acoes.iter().filter_map(acao_json).collect();
-    let codigo = estado.codigo_dart.as_ref().map(|l| {
+    let actions: Vec<Value> = state.acoes.iter().filter_map(action_json).collect();
+    let code = state.codigo_dart.as_ref().map(|l| {
         Value::Array(
             l.iter()
-                .filter_map(|(p, d)| Some(json!([texto(p)?, hex(d)])))
+                .filter_map(|(p, d)| Some(json!([path_str(p)?, hex(d)])))
                 .collect(),
         )
     });
     let v = json!({
-        "formato": FORMATO,
-        "chave": estado.chave,
-        "codigo_dart": codigo,
-        "acoes": acoes,
+        "formato": FORMAT,
+        "chave": state.chave,
+        "codigo_dart": code,
+        "acoes": actions,
     });
-    let arq = dir.join("estado.json");
+    let file = dir.join("estado.json");
     let tmp = dir.join("estado.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec(&v).map_err(|e| e.to_string())?)
         .map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &arq).map_err(|e| format!("{}: {e}", arq.display()))?;
+    std::fs::rename(&tmp, &file).map_err(|e| format!("{}: {e}", file.display()))?;
     if let Ok(ls) = std::fs::read_dir(&blobs) {
         for e in ls.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
-            if !vivos.contains(&n) {
+            if !live.contains(&n) {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -340,15 +343,15 @@ pub fn gravar(
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn ida_e_volta_do_estado_e_blob_conferido() {
+    fn state_round_trip_and_checked_blob() {
         let dir = tempfile::tempdir().unwrap();
-        let conteudo: Arc<[u8]> = Arc::from(&b"saida"[..]);
-        let d = *blake3::hash(&conteudo).as_bytes();
-        let acao = AcaoSalva {
+        let content: Arc<[u8]> = Arc::from(&b"output"[..]);
+        let d = *blake3::hash(&content).as_bytes();
+        let action = AcaoSalva {
             chave: "k".into(),
             origem: OrigemSalva::Nativo("sass_builder:sass_builder".into()),
             motivo: None,
@@ -374,25 +377,25 @@ mod testes {
         let e = Estado {
             chave: "c".into(),
             codigo_dart: Some(vec![("/p/tool/b.dart".into(), d)]),
-            acoes: vec![acao],
+            acoes: vec![action],
         };
-        gravar(dir.path(), &e, &[(d, conteudo.clone())]).unwrap();
-        let lido = ler(dir.path()).unwrap();
-        assert_eq!(lido.chave, "c");
-        assert_eq!(lido.codigo_dart, e.codigo_dart);
-        assert_eq!(lido.acoes[0].consultas, e.acoes[0].consultas);
-        assert_eq!(lido.acoes[0].saidas, e.acoes[0].saidas);
-        assert_eq!(lido.acoes[0].origem, e.acoes[0].origem);
-        assert_eq!(lido.acoes[0].apagados, e.acoes[0].apagados);
-        assert_eq!(ler_blob(dir.path(), &d).as_deref(), Some(&b"saida"[..]));
-        // Blob adulterado não é aceito.
-        std::fs::write(dir.path().join("blobs").join(hex(&d)), b"outro").unwrap();
+        gravar(dir.path(), &e, &[(d, content.clone())]).unwrap();
+        let read = ler(dir.path()).unwrap();
+        assert_eq!(read.chave, "c");
+        assert_eq!(read.codigo_dart, e.codigo_dart);
+        assert_eq!(read.acoes[0].consultas, e.acoes[0].consultas);
+        assert_eq!(read.acoes[0].saidas, e.acoes[0].saidas);
+        assert_eq!(read.acoes[0].origem, e.acoes[0].origem);
+        assert_eq!(read.acoes[0].apagados, e.acoes[0].apagados);
+        assert_eq!(ler_blob(dir.path(), &d).as_deref(), Some(&b"output"[..]));
+        // A tampered blob is not accepted.
+        std::fs::write(dir.path().join("blobs").join(hex(&d)), b"other").unwrap();
         assert!(ler_blob(dir.path(), &d).is_none());
-        // Consulta semântica não é persistível.
+        // A semantic query cannot be persisted.
         assert!(!persistivel(&Consulta::ApiBiblioteca(
             "package:p/a.dart".into()
         )));
-        // Blob sem referência sai na próxima gravação.
+        // An unreferenced blob goes away on the next write.
         gravar(
             dir.path(),
             &Estado {

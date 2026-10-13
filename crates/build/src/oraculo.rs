@@ -1,12 +1,13 @@
-//! Leitura do `.dart_tool/build/entrypoint/build.dart` que o `build_runner`
-//! gerou — o oráculo do plano. Ele é **lido, nunca gerado** (rodar o
-//! `build_runner` no projeto do usuário não é permitido). Daqui sai a mesma
-//! forma canônica de `Aplicacao::texto_canonico`, para comparar linha a linha.
+//! Reading of the `.dart_tool/build/entrypoint/build.dart` that `build_runner`
+//! generated — the plan's oracle. It is **read, never generated** (running
+//! `build_runner` in the user's project is not allowed). From it comes the
+//! same canonical form as `Aplicacao::texto_canonico`, to compare line by
+//! line.
 //!
-//! A gramática é a que o `code_builder` + `dart_style` produzem nesse
-//! arquivo: chamadas com argumentos posicionais e nomeados, listas e mapas
-//! com argumentos de tipo opcionais e `const`, textos (`r'…'` e comuns),
-//! números, `true`/`false`/`null` e referências `_iN.nome`.
+//! The grammar is the one `code_builder` + `dart_style` produce in that file:
+//! calls with positional and named arguments, lists and maps with optional
+//! type arguments and `const`, strings (`r'…'` and regular ones), numbers,
+//! `true`/`false`/`null` and `_iN.name` references.
 use crate::config::InputSet;
 use crate::plano::{Aplicacao, Filtro};
 use crate::valor::{Mapa, Valor};
@@ -14,17 +15,17 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 enum Expr {
-    Chamada {
-        alvo: String,
+    Call {
+        target: String,
         pos: Vec<Expr>,
-        nom: Vec<(String, Expr)>,
+        named: Vec<(String, Expr)>,
     },
-    Lista(Vec<Expr>),
-    Mapa(Vec<(Expr, Expr)>),
-    Texto(String),
+    List(Vec<Expr>),
+    Map(Vec<(Expr, Expr)>),
+    Str(String),
     Num(String),
     Bool(bool),
-    Nulo,
+    Null,
     Ref(String),
 }
 
@@ -34,7 +35,7 @@ struct Lx<'a> {
 }
 
 impl Lx<'_> {
-    fn espacos(&mut self) {
+    fn skip_whitespace(&mut self) {
         loop {
             while self.i < self.s.len() && self.s[self.i].is_ascii_whitespace() {
                 self.i += 1;
@@ -55,28 +56,28 @@ impl Lx<'_> {
             break;
         }
     }
-    fn olha(&mut self, t: &str) -> bool {
-        self.espacos();
+    fn peek(&mut self, t: &str) -> bool {
+        self.skip_whitespace();
         self.s[self.i..].starts_with(t.as_bytes())
     }
-    fn toma(&mut self, t: &str) -> bool {
-        if self.olha(t) {
+    fn take(&mut self, t: &str) -> bool {
+        if self.peek(t) {
             self.i += t.len();
             true
         } else {
             false
         }
     }
-    fn exige(&mut self, t: &str) -> Result<(), String> {
-        if self.toma(t) {
+    fn expect(&mut self, t: &str) -> Result<(), String> {
+        if self.take(t) {
             Ok(())
         } else {
-            Err(format!("build.dart: esperava `{t}` na posição {}", self.i))
+            Err(format!("build.dart: expected `{t}` at position {}", self.i))
         }
     }
     fn ident(&mut self) -> Option<String> {
-        self.espacos();
-        let ini = self.i;
+        self.skip_whitespace();
+        let start = self.i;
         while self.i < self.s.len()
             && (self.s[self.i].is_ascii_alphanumeric()
                 || self.s[self.i] == b'_'
@@ -84,12 +85,12 @@ impl Lx<'_> {
         {
             self.i += 1;
         }
-        (self.i > ini).then(|| String::from_utf8_lossy(&self.s[ini..self.i]).to_string())
+        (self.i > start).then(|| String::from_utf8_lossy(&self.s[start..self.i]).to_string())
     }
 
-    /// `<...>` de argumentos de tipo: ignorado.
-    fn tipos(&mut self) {
-        if self.olha("<") {
+    /// `<...>` of type arguments: ignored.
+    fn type_args(&mut self) {
+        if self.peek("<") {
             let mut n = 0;
             while self.i < self.s.len() {
                 match self.s[self.i] {
@@ -108,17 +109,17 @@ impl Lx<'_> {
         }
     }
 
-    fn texto(&mut self) -> Result<Option<String>, String> {
-        self.espacos();
-        let cru = self.s[self.i..].starts_with(b"r'") || self.s[self.i..].starts_with(b"r\"");
-        if cru {
+    fn string(&mut self) -> Result<Option<String>, String> {
+        self.skip_whitespace();
+        let raw = self.s[self.i..].starts_with(b"r'") || self.s[self.i..].starts_with(b"r\"");
+        if raw {
             self.i += 1;
         }
         let Some(&q) = self.s.get(self.i) else {
             return Ok(None);
         };
         if q != b'\'' && q != b'"' {
-            if cru {
+            if raw {
                 self.i -= 1;
             }
             return Ok(None);
@@ -127,7 +128,7 @@ impl Lx<'_> {
         let mut v: Vec<u8> = Vec::new();
         while self.i < self.s.len() && self.s[self.i] != q {
             let c = self.s[self.i];
-            if c == b'\\' && !cru {
+            if c == b'\\' && !raw {
                 self.i += 1;
                 let e = self.s.get(self.i).copied().unwrap_or(b'\\');
                 v.push(match e {
@@ -143,51 +144,51 @@ impl Lx<'_> {
         }
         self.i += 1;
         let s = String::from_utf8(v).map_err(|e| e.to_string())?;
-        // Textos adjacentes se concatenam.
-        if let Some(mais) = self.texto()? {
-            return Ok(Some(s + &mais));
+        // Adjacent strings are concatenated.
+        if let Some(more) = self.string()? {
+            return Ok(Some(s + &more));
         }
         Ok(Some(s))
     }
 
     fn expr(&mut self) -> Result<Expr, String> {
-        self.toma("const ");
-        if let Some(t) = self.texto()? {
-            return Ok(Expr::Texto(t));
+        self.take("const ");
+        if let Some(t) = self.string()? {
+            return Ok(Expr::Str(t));
         }
-        self.espacos();
-        if self.olha("<") {
-            self.tipos();
+        self.skip_whitespace();
+        if self.peek("<") {
+            self.type_args();
         }
-        if self.toma("[") {
+        if self.take("[") {
             let mut v = Vec::new();
-            while !self.toma("]") {
+            while !self.take("]") {
                 v.push(self.expr()?);
-                if !self.toma(",") {
-                    self.exige("]")?;
+                if !self.take(",") {
+                    self.expect("]")?;
                     break;
                 }
             }
-            return Ok(Expr::Lista(v));
+            return Ok(Expr::List(v));
         }
-        if self.toma("{") {
+        if self.take("{") {
             let mut v = Vec::new();
-            while !self.toma("}") {
+            while !self.take("}") {
                 let k = self.expr()?;
-                self.exige(":")?;
+                self.expect(":")?;
                 let val = self.expr()?;
                 v.push((k, val));
-                if !self.toma(",") {
-                    self.exige("}")?;
+                if !self.take(",") {
+                    self.expect("}")?;
                     break;
                 }
             }
-            return Ok(Expr::Mapa(v));
+            return Ok(Expr::Map(v));
         }
-        self.espacos();
+        self.skip_whitespace();
         let c = self.s.get(self.i).copied().unwrap_or(0);
         if c.is_ascii_digit() || c == b'-' {
-            let ini = self.i;
+            let start = self.i;
             self.i += 1;
             while self.i < self.s.len()
                 && (self.s[self.i].is_ascii_alphanumeric()
@@ -196,195 +197,195 @@ impl Lx<'_> {
                 self.i += 1;
             }
             return Ok(Expr::Num(
-                String::from_utf8_lossy(&self.s[ini..self.i]).to_string(),
+                String::from_utf8_lossy(&self.s[start..self.i]).to_string(),
             ));
         }
-        let mut nome = self
+        let mut name = self
             .ident()
-            .ok_or_else(|| format!("build.dart: expressão inesperada na posição {}", self.i))?;
-        match nome.as_str() {
+            .ok_or_else(|| format!("build.dart: unexpected expression at position {}", self.i))?;
+        match name.as_str() {
             "true" => return Ok(Expr::Bool(true)),
             "false" => return Ok(Expr::Bool(false)),
-            "null" => return Ok(Expr::Nulo),
+            "null" => return Ok(Expr::Null),
             _ => {}
         }
-        while self.toma(".") {
-            nome.push('.');
-            nome.push_str(&self.ident().ok_or("build.dart: nome esperado")?);
+        while self.take(".") {
+            name.push('.');
+            name.push_str(&self.ident().ok_or("build.dart: expected a name")?);
         }
-        self.tipos();
-        if !self.toma("(") {
-            return Ok(Expr::Ref(nome));
+        self.type_args();
+        if !self.take("(") {
+            return Ok(Expr::Ref(name));
         }
-        let (mut pos, mut nom) = (Vec::new(), Vec::new());
-        while !self.toma(")") {
-            let volta = self.i;
-            let nomeado = self.ident().filter(|_| self.toma(":") && !self.olha(":"));
-            match nomeado {
-                Some(n) => nom.push((n, self.expr()?)),
+        let (mut pos, mut named) = (Vec::new(), Vec::new());
+        while !self.take(")") {
+            let back = self.i;
+            let named_arg = self.ident().filter(|_| self.take(":") && !self.peek(":"));
+            match named_arg {
+                Some(n) => named.push((n, self.expr()?)),
                 None => {
-                    self.i = volta;
+                    self.i = back;
                     pos.push(self.expr()?);
                 }
             }
-            if !self.toma(",") {
-                self.exige(")")?;
+            if !self.take(",") {
+                self.expect(")")?;
                 break;
             }
         }
-        Ok(Expr::Chamada {
-            alvo: nome,
+        Ok(Expr::Call {
+            target: name,
             pos,
-            nom,
+            named,
         })
     }
 }
 
-fn valor(e: &Expr) -> Result<Valor, String> {
+fn value(e: &Expr) -> Result<Valor, String> {
     Ok(match e {
-        Expr::Texto(t) => Valor::Texto(t.clone()),
+        Expr::Str(t) => Valor::Texto(t.clone()),
         Expr::Num(n) => match n.parse::<i64>() {
             Ok(i) if !n.contains('.') && !n.contains('e') => Valor::Int(i),
             _ => Valor::Real(n.clone()),
         },
         Expr::Bool(b) => Valor::Bool(*b),
-        Expr::Nulo => Valor::Nulo,
-        Expr::Lista(l) => Valor::Lista(l.iter().map(valor).collect::<Result<_, _>>()?),
-        Expr::Mapa(m) => {
+        Expr::Null => Valor::Nulo,
+        Expr::List(l) => Valor::Lista(l.iter().map(value).collect::<Result<_, _>>()?),
+        Expr::Map(m) => {
             let mut r = Mapa::default();
             for (k, v) in m {
-                r.inserir(valor(k)?, valor(v)?);
+                r.inserir(value(k)?, value(v)?);
             }
             Valor::Mapa(r)
         }
-        outro => return Err(format!("build.dart: valor de opção inesperado: {outro:?}")),
+        other => return Err(format!("build.dart: unexpected option value: {other:?}")),
     })
 }
 
-fn textos(e: &Expr) -> Result<Vec<String>, String> {
+fn strings(e: &Expr) -> Result<Vec<String>, String> {
     match e {
-        Expr::Lista(l) => l
+        Expr::List(l) => l
             .iter()
             .map(|x| match x {
-                Expr::Texto(t) => Ok(t.clone()),
-                o => Err(format!("build.dart: esperava texto, veio {o:?}")),
+                Expr::Str(t) => Ok(t.clone()),
+                o => Err(format!("build.dart: expected a string, got {o:?}")),
             })
             .collect(),
-        o => Err(format!("build.dart: esperava lista, veio {o:?}")),
+        o => Err(format!("build.dart: expected a list, got {o:?}")),
     }
 }
 
-fn opcoes(e: &Expr) -> Result<Mapa, String> {
+fn options(e: &Expr) -> Result<Mapa, String> {
     match e {
-        Expr::Chamada { pos, .. } if pos.len() == 1 => match valor(&pos[0])? {
+        Expr::Call { pos, .. } if pos.len() == 1 => match value(&pos[0])? {
             Valor::Mapa(m) => Ok(m),
-            o => Err(format!("build.dart: BuilderOptions sem mapa: {o:?}")),
+            o => Err(format!("build.dart: BuilderOptions without a map: {o:?}")),
         },
         o => Err(format!(
-            "build.dart: esperava BuilderOptions(...), veio {o:?}"
+            "build.dart: expected BuilderOptions(...), got {o:?}"
         )),
     }
 }
 
-fn metodo(alvo: &str) -> &str {
-    alvo.rsplit('.').next().unwrap_or(alvo)
+fn method(target: &str) -> &str {
+    target.rsplit('.').next().unwrap_or(target)
 }
 
-/// As aplicações do `build.dart`, na ordem, como `Aplicacao` (os campos que
-/// o script não traz ficam vazios).
-pub fn ler_build_dart(texto: &str) -> Result<Vec<Aplicacao>, String> {
+/// The applications of `build.dart`, in order, as `Aplicacao` (the fields the
+/// script does not carry are left empty).
+pub fn read_build_dart(text: &str) -> Result<Vec<Aplicacao>, String> {
     let mut lx = Lx {
-        s: texto.as_bytes(),
+        s: text.as_bytes(),
         i: 0,
     };
     // Imports: `import 'uri' as _iN;`
-    let mut prefixos: HashMap<String, String> = HashMap::new();
+    let mut prefixes: HashMap<String, String> = HashMap::new();
     loop {
-        lx.espacos();
-        if !lx.toma("import") {
+        lx.skip_whitespace();
+        if !lx.take("import") {
             break;
         }
-        let uri = lx.texto()?.ok_or("build.dart: import sem URI")?;
-        if lx.toma("as") {
-            let p = lx.ident().ok_or("build.dart: import sem prefixo")?;
-            prefixos.insert(p, uri);
+        let uri = lx.string()?.ok_or("build.dart: import without a URI")?;
+        if lx.take("as") {
+            let p = lx.ident().ok_or("build.dart: import without a prefix")?;
+            prefixes.insert(p, uri);
         }
-        lx.exige(";")?;
+        lx.expect(";")?;
     }
-    lx.exige("final")?;
+    lx.expect("final")?;
     lx.ident();
-    lx.exige("=")?;
-    let Expr::Lista(itens) = lx.expr()? else {
-        return Err("build.dart: `_builders` não é uma lista".into());
+    lx.expect("=")?;
+    let Expr::List(items) = lx.expr()? else {
+        return Err("build.dart: `_builders` is not a list".into());
     };
-    let resolver = |r: &str| -> String {
+    let resolve = |r: &str| -> String {
         match r.split_once('.') {
             Some((p, n)) => format!(
                 "{}#{n}",
-                prefixos.get(p).cloned().unwrap_or_else(|| p.to_string())
+                prefixes.get(p).cloned().unwrap_or_else(|| p.to_string())
             ),
             None => r.to_string(),
         }
     };
     let mut v = Vec::new();
-    for it in itens {
-        let Expr::Chamada { alvo, pos, nom } = it else {
-            return Err("build.dart: item de `_builders` não é chamada".into());
+    for it in items {
+        let Expr::Call { target, pos, named } = it else {
+            return Err("build.dart: `_builders` item is not a call".into());
         };
-        let e_pos = match metodo(&alvo) {
+        let is_post = match method(&target) {
             "apply" => false,
             "applyPostProcess" => true,
-            o => return Err(format!("build.dart: chamada inesperada `{o}`")),
+            o => return Err(format!("build.dart: unexpected call `{o}`")),
         };
-        let chave = match pos.first() {
-            Some(Expr::Texto(t)) => t.clone(),
-            _ => return Err("build.dart: aplicação sem chave".into()),
+        let key = match pos.first() {
+            Some(Expr::Str(t)) => t.clone(),
+            _ => return Err("build.dart: application without a key".into()),
         };
         let refs: Vec<String> = match pos.get(1) {
-            Some(Expr::Lista(l)) => l
+            Some(Expr::List(l)) => l
                 .iter()
                 .map(|x| match x {
-                    Expr::Ref(r) => Ok(resolver(r)),
-                    o => Err(format!("build.dart: fábrica inesperada {o:?}")),
+                    Expr::Ref(r) => Ok(resolve(r)),
+                    o => Err(format!("build.dart: unexpected factory {o:?}")),
                 })
                 .collect::<Result<_, _>>()?,
-            Some(Expr::Ref(r)) => vec![resolver(r)],
-            _ => return Err(format!("build.dart: `{chave}` sem fábricas")),
+            Some(Expr::Ref(r)) => vec![resolve(r)],
+            _ => return Err(format!("build.dart: `{key}` without factories")),
         };
         let import = refs
             .first()
             .and_then(|r| r.split_once('#'))
             .map(|(i, _)| i.to_string())
             .unwrap_or_default();
-        let fabricas: Vec<String> = refs
+        let factories: Vec<String> = refs
             .iter()
             .map(|r| r.split_once('#').map(|(_, n)| n).unwrap_or(r).to_string())
             .collect();
-        let filtro = if e_pos {
+        let filter = if is_post {
             Filtro::Nenhum
         } else {
             match pos.get(2) {
-                Some(Expr::Chamada { alvo, pos, .. }) => match metodo(alvo) {
+                Some(Expr::Call { target, pos, .. }) => match method(target) {
                     "toNoneByDefault" => Filtro::Nenhum,
                     "toAllPackages" => Filtro::Todos,
                     "toRoot" => Filtro::Raiz,
                     "toDependentsOf" => match pos.first() {
-                        Some(Expr::Texto(p)) => Filtro::DependentesDe(p.clone()),
-                        _ => return Err("build.dart: toDependentsOf sem pacote".into()),
+                        Some(Expr::Str(p)) => Filtro::DependentesDe(p.clone()),
+                        _ => return Err("build.dart: toDependentsOf without a package".into()),
                     },
-                    o => return Err(format!("build.dart: filtro inesperado `{o}`")),
+                    o => return Err(format!("build.dart: unexpected filter `{o}`")),
                 },
-                _ => return Err(format!("build.dart: `{chave}` sem filtro")),
+                _ => return Err(format!("build.dart: `{key}` without a filter")),
             }
         };
         let mut a = Aplicacao {
-            chave,
-            pos: e_pos,
+            chave: key,
+            pos: is_post,
             import,
-            fabricas,
-            filtro,
+            fabricas: factories,
+            filtro: filter,
             opcional: false,
-            oculta: e_pos,
+            oculta: is_post,
             generate_for_padrao: None,
             opcoes_padrao: Mapa::default(),
             opcoes_dev: Mapa::default(),
@@ -393,29 +394,29 @@ pub fn ler_build_dart(texto: &str) -> Result<Vec<Aplicacao>, String> {
             pacote: String::new(),
             extensoes_declaradas: Vec::new(),
         };
-        for (n, e) in &nom {
+        for (n, e) in &named {
             match n.as_str() {
                 "isOptional" => a.opcional = matches!(e, Expr::Bool(true)),
                 "hideOutput" => a.oculta = matches!(e, Expr::Bool(true)),
                 "defaultGenerateFor" => {
-                    let Expr::Chamada { nom, .. } = e else {
-                        return Err("build.dart: defaultGenerateFor não é InputSet".into());
+                    let Expr::Call { named, .. } = e else {
+                        return Err("build.dart: defaultGenerateFor is not an InputSet".into());
                     };
                     let mut s = InputSet::default();
-                    for (k, v) in nom {
+                    for (k, v) in named {
                         match k.as_str() {
-                            "include" => s.include = Some(textos(v)?),
-                            "exclude" => s.exclude = Some(textos(v)?),
+                            "include" => s.include = Some(strings(v)?),
+                            "exclude" => s.exclude = Some(strings(v)?),
                             o => return Err(format!("build.dart: InputSet.{o}")),
                         }
                     }
                     a.generate_for_padrao = Some(s);
                 }
-                "defaultOptions" => a.opcoes_padrao = opcoes(e)?,
-                "defaultDevOptions" => a.opcoes_dev = opcoes(e)?,
-                "defaultReleaseOptions" => a.opcoes_release = opcoes(e)?,
-                "appliesBuilders" => a.aplica = textos(e)?,
-                o => return Err(format!("build.dart: argumento nomeado inesperado `{o}`")),
+                "defaultOptions" => a.opcoes_padrao = options(e)?,
+                "defaultDevOptions" => a.opcoes_dev = options(e)?,
+                "defaultReleaseOptions" => a.opcoes_release = options(e)?,
+                "appliesBuilders" => a.aplica = strings(e)?,
+                o => return Err(format!("build.dart: unexpected named argument `{o}`")),
             }
         }
         v.push(a);
@@ -423,39 +424,39 @@ pub fn ler_build_dart(texto: &str) -> Result<Vec<Aplicacao>, String> {
     Ok(v)
 }
 
-/// Compara o plano com o `build.dart`: `Ok(())` se iguais, senão a lista
-/// das diferenças por linha (`-` oráculo, `+` motor).
-pub fn comparar(plano: &[Aplicacao], build_dart: &str) -> Result<Result<(), Vec<String>>, String> {
-    let oraculo: Vec<String> = ler_build_dart(build_dart)?
+/// Compares the plan with `build.dart`: `Ok(())` if they are equal, otherwise
+/// the list of differences per line (`-` oracle, `+` engine).
+pub fn comparar(plan: &[Aplicacao], build_dart: &str) -> Result<Result<(), Vec<String>>, String> {
+    let oracle: Vec<String> = read_build_dart(build_dart)?
         .iter()
         .map(Aplicacao::texto_canonico)
         .collect();
-    let nosso: Vec<String> = plano.iter().map(Aplicacao::texto_canonico).collect();
-    if oraculo == nosso {
+    let ours: Vec<String> = plan.iter().map(Aplicacao::texto_canonico).collect();
+    if oracle == ours {
         return Ok(Ok(()));
     }
-    let mut dif = Vec::new();
-    for i in 0..oraculo.len().max(nosso.len()) {
-        match (oraculo.get(i), nosso.get(i)) {
+    let mut diff = Vec::new();
+    for i in 0..oracle.len().max(ours.len()) {
+        match (oracle.get(i), ours.get(i)) {
             (Some(a), Some(b)) if a == b => {}
             (a, b) => {
                 if let Some(a) = a {
-                    dif.push(format!("- [{i}] {a}"));
+                    diff.push(format!("- [{i}] {a}"));
                 }
                 if let Some(b) = b {
-                    dif.push(format!("+ [{i}] {b}"));
+                    diff.push(format!("+ [{i}] {b}"));
                 }
             }
         }
     }
-    Ok(Err(dif))
+    Ok(Err(diff))
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    const TRECHO: &str = r#"// @dart=3.6
+    const EXCERPT: &str = r#"// @dart=3.6
 // ignore_for_file: directives_ordering
 import 'package:build_runner_core/build_runner_core.dart' as _i1;
 import 'package:source_gen/builder.dart' as _i2;
@@ -498,8 +499,8 @@ void main(
 "#;
 
     #[test]
-    fn le_o_build_dart() {
-        let v = ler_build_dart(TRECHO).unwrap();
+    fn reads_the_build_dart() {
+        let v = read_build_dart(EXCERPT).unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(
             v[1].texto_canonico(),
