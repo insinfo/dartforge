@@ -1,5 +1,31 @@
 # Estado do DartForge — 2026-10-13
 
+## Nativo A0: velocidade (2026-10-13, macOS arm64)
+
+Commits `d52fc252`, `61b2f129`, `98ac0751`, `143bface`, `1fef8307`,
+`e0a61865`, `587e3de0` e `docs/PLANO-TAMANHO-DESEMPENHO.md` §5.
+* Objeto recém-alocado segue sem barreira nem raiz nos inicializadores de
+  campo com índice constante.
+* Contexto da thread no macOS arm64 lido de uma chave `pthread`
+  (`TPIDRRO_EL0` + `dartforge_context_slot`, pela GOT, como o Go), sem
+  `tlv_get_addr`; as leituras dos chamados em linha se fundem.
+* `is` com cache no ponto de uso (`dartforge_rti_e_cache`; desligado sob
+  `DARTFORGE_EFFECTS=check` e com `DARTFORGE_NO_RTI_CACHE=1`); cache das
+  receitas RTI lido em linha.
+* A marcação do GC não procura anexos quando não há nenhum.
+
+Medido por ciclos do processo (máquina com carga 17–50; tempo de parede não
+confiável), `bench/performance` nosso/Dart: **0,963 → 0,877** (chamadas 0,77 →
+0,68, coleções 0,50 → 0,46, JSON 1,18 → 1,01, objetos em coleções 1,42 →
+1,04, objetos que escapam 2,40 → 2,10, textos 1,10 → 1,08). `bench/comparison`:
+fib 11–15 → 7–10 ms (Dart 10–13), árvores 35–48 → 26–35 (Dart 14–22). Tamanhos
+iguais ("olá" 3,22 MB; Dart 5,33). Validação: corpus nativo 125 + `33`
+conhecido em desenvolvimento e produção, ambos com GC stress, efeitos
+conferidos, ARC e preparado; `emit_native --lib` 478; runtime 226; JIT.
+Resta: promoção precoce do coletor (árvores 2,1× o Dart; 10% das coletas são
+completas), cabeçalho de 16 bytes (lista ligada 4,8×), `[]=` covariante por
+faixa de ids, mapa de `String` e interpolação.
+
 ## Analisador (rodada de 2026-10-13, macOS)
 
 | medida | antes | depois |
