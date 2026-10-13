@@ -664,9 +664,9 @@ impl Ctx<'_> {
         Ok(BuilderDefinition {
             key: normalized_key,
             package: self.package.to_string(),
-            factories: factories,
+            factories,
             import: self.string(&y["import"], at)?.unwrap_or_default(),
-            extensions: extensions,
+            extensions,
             auto_apply,
             required_inputs: self
                 .string_list(&y["required_inputs"], at)?
@@ -916,12 +916,12 @@ impl Ctx<'_> {
             package: self.package.to_string(),
             builders,
             post_process_builders: post,
-            targets: targets,
+            targets,
             global,
             additional_public: self
                 .string_list(&y["additional_public_assets"], "additional_public_assets")?
                 .unwrap_or_default(),
-            triggers: triggers,
+            triggers,
         })
     }
 }

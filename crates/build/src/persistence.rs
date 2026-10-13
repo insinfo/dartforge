@@ -157,7 +157,7 @@ fn query_from_json(v: &Value) -> Option<Query> {
             Query::ActiveGlobs {
                 dir: p()?,
                 pattern: pattern()?,
-                candidates: candidates,
+                candidates,
             }
         }
         _ => return None,
@@ -238,10 +238,10 @@ fn action_from_json(v: &Value) -> Option<SavedAction> {
     }
     Some(SavedAction {
         key: v.get("chave")?.as_str()?.to_string(),
-        origin: origin,
+        origin,
         reason: v.get("motivo").and_then(Value::as_str).map(str::to_string),
-        queries: queries,
-        outputs: outputs,
+        queries,
+        outputs,
         from_support: ids_from(v.get("do_apoio"))?,
         deleted_outputs: ids_from(v.get("apagados"))?,
     })
@@ -276,8 +276,8 @@ pub fn read(dir: &Path) -> Option<State> {
         .collect::<Option<Vec<_>>>()?;
     Some(State {
         key: v.get("chave")?.as_str()?.to_string(),
-        dart_code: dart_code,
-        actions: actions,
+        dart_code,
+        actions,
     })
 }
 

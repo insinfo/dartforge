@@ -198,7 +198,7 @@ pub fn from_source(
     options.insert(Value::Text("sourceMaps".into()), Value::Bool(source_maps));
     Some(Equivalent {
         key: "sass_builder:sass_builder",
-        options: options,
+        options,
     })
 }
 

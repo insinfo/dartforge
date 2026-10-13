@@ -294,10 +294,10 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
     }
     let mut options = EngineOptions {
         release,
-        workers: workers,
-        strict: strict,
+        workers,
+        strict,
         measure_unchecked: compare,
-        persist: persist,
+        persist,
         ..EngineOptions::default()
     };
     dartforge_build::command_line::BuildOptions::for_project(

@@ -252,7 +252,7 @@ impl<'a> Analysis<'a> {
         }
         let late = sdk.contains("dart.lateFields(") || emitted.modules.iter().any(|(_, t)| t.contains("dart.lateFields("));
         let bootstrap = own_sdk::bootstrap(&ctx, &dartx, late);
-        Ok(EmittedWithSdk { emitted: emitted, sdk, bootstrap })
+        Ok(EmittedWithSdk { emitted, sdk, bootstrap })
     }
 }
 

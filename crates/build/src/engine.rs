@@ -476,13 +476,13 @@ impl Engine {
         let action_count = graph.actions.len();
         let mut m = Engine {
             root: root.to_path_buf(),
-            package_graph: package_graph,
+            package_graph,
             configs,
-            plan: plan,
-            phases: phases,
-            targets: targets,
-            graph: graph,
-            options: options,
+            plan,
+            phases,
+            targets,
+            graph,
+            options,
             natives: Vec::new(),
             dart: std::sync::Mutex::new(Box::new(Unavailable::default())),
             dart_prepared: AtomicBool::new(false),
@@ -1180,7 +1180,7 @@ impl Engine {
                                         let redone_query = Query::ActiveGlobs {
                                             dir: dir.clone(),
                                             pattern: pattern.clone(),
-                                            candidates: candidates,
+                                            candidates,
                                         };
                                         let differs =
                                             query_digest(&redone_query, ctx.db, &memory) != *d;
@@ -1407,7 +1407,7 @@ impl Engine {
             generation: self.generation.clone(),
             altered_outputs: altered.into_iter().collect(),
             rel,
-            warnings: warnings,
+            warnings,
         })
     }
 
@@ -1442,7 +1442,7 @@ impl Engine {
             let f = &self.phases[fi];
             let key = self.plan.applications[f.application].key.clone();
             let request = ExtensionsRequest {
-                key: key,
+                key,
                 factory: f.factory.clone(),
                 options: f.options.clone(),
                 root: f.root,
@@ -1648,18 +1648,18 @@ impl Engine {
                 .collect();
             actions.push(crate::persistence::SavedAction {
                 key: self.action_key(a),
-                origin: origin,
+                origin,
                 reason: r.reason.clone(),
                 queries: r.queries.clone(),
-                outputs: outputs,
+                outputs,
                 from_support: r.from_fallback.clone(),
                 deleted_outputs: r.deleted_outputs.clone(),
             });
         }
         let state = crate::persistence::State {
             key: self.state_key(),
-            dart_code: dart_code,
-            actions: actions,
+            dart_code,
+            actions,
         };
         crate::persistence::write_state(
             &crate::persistence::directory(&self.package_graph.root_dir),
@@ -1744,8 +1744,8 @@ impl Engine {
             self.records[a] = Some(ActionRecord {
                 fingerprint,
                 queries: s.queries,
-                outputs: outputs,
-                origin: origin,
+                outputs,
+                origin,
                 reason: s.reason,
                 measured: Vec::new(),
                 from_fallback: s.from_support,
@@ -1786,7 +1786,7 @@ impl Engine {
                             &Query::ActiveGlobs {
                                 dir: dir.clone(),
                                 pattern: pattern.clone(),
-                                candidates: candidates,
+                                candidates,
                             },
                             database,
                             &memory,
@@ -1978,8 +1978,8 @@ impl Engine {
         queries.extend(service.queries);
         Ok(ActionRecord {
             fingerprint: [0; 32],
-            queries: queries,
-            outputs: outputs,
+            queries,
+            outputs,
             origin: Origin::Dart,
             reason: None,
             measured: Vec::new(),
@@ -1999,13 +1999,13 @@ impl Engine {
     ) -> ActionRecord {
         ActionRecord {
             fingerprint: [0; 32],
-            queries: queries,
+            queries,
             outputs: self.graph.actions[a]
                 .outputs
                 .iter()
                 .map(|s| (s.clone(), None))
                 .collect(),
-            origin: origin,
+            origin,
             reason: None,
             measured: Vec::new(),
             from_fallback: Vec::new(),
@@ -2120,7 +2120,7 @@ impl Engine {
             h.update(format!("{:?}", package.kind).as_bytes());
         }
         let script = BuilderScript {
-            applications: applications,
+            applications,
             cache_key: h.finalize().to_hex().to_string(),
         };
         match dart.prepare(&script) {
@@ -2248,7 +2248,7 @@ impl Engine {
         Ok(ActionRecord {
             fingerprint: [0; 32],
             queries: service.queries,
-            outputs: outputs,
+            outputs,
             origin: Origin::Dart,
             reason: None,
             measured: Vec::new(),
@@ -2353,7 +2353,7 @@ impl Engine {
         let request = NativeRequest {
             package: package.to_string(),
             package_root: node.root.clone(),
-            actions: actions,
+            actions,
             roots: self.package_roots(),
             versions: self.imitated_versions(generator.key()),
         };
@@ -2463,8 +2463,8 @@ impl Engine {
             }
             return ActionRecord {
                 fingerprint: [0; 32],
-                queries: queries,
-                outputs: outputs,
+                queries,
+                outputs,
                 origin: Origin::Native(generator.key()),
                 reason: None,
                 measured: Vec::new(),
@@ -2561,7 +2561,7 @@ impl Engine {
             {
                 ActionRecord {
                     fingerprint: [0; 32],
-                    queries: queries,
+                    queries,
                     outputs: action
                         .outputs
                         .iter()
@@ -2695,8 +2695,8 @@ impl Engine {
             );
             return ActionRecord {
                 fingerprint: [0; 32],
-                queries: queries,
-                outputs: outputs,
+                queries,
+                outputs,
                 origin: Origin::Pending,
                 reason: Some(m),
                 measured: Vec::new(),
@@ -2707,8 +2707,8 @@ impl Engine {
         }
         ActionRecord {
             fingerprint: [0; 32],
-            queries: queries,
-            outputs: outputs,
+            queries,
+            outputs,
             origin: Origin::Support,
             reason: dart_reason.map(|m| format!("build_runner fallback: {m}")),
             measured: Vec::new(),

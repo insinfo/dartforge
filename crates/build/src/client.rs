@@ -272,9 +272,9 @@ impl<C: Canal> BuildClient<C> {
             );
         }
         Ok(ActionResult {
-            outputs: outputs,
+            outputs,
             logs,
-            failed: failed,
+            failed,
             deleted_outputs: deleted,
         })
     }

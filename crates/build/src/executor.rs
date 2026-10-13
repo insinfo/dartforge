@@ -94,10 +94,10 @@ impl<'a> GeneratorCtx<'a> {
         memory: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
     ) -> Self {
         GeneratorCtx {
-            program: program,
+            program,
             changed_paths: changed,
             db: database,
-            memory: memory,
+            memory,
             queries: Vec::new(),
         }
     }
@@ -441,7 +441,7 @@ impl BuildStepService for ActionService<'_> {
                 Query::ActiveGlobs {
                     dir: node.root.clone(),
                     pattern: glob.to_string(),
-                    candidates: candidates,
+                    candidates,
                 },
                 Some(digest_bytes(
                     ids.iter()
@@ -662,8 +662,8 @@ mod service_tests {
             graph.generated.insert(
                 id.clone(),
                 GeneratedNode {
-                    action: action,
-                    phase: phase,
+                    action,
+                    phase,
                     hidden: false,
                 },
             );

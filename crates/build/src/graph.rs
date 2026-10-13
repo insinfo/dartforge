@@ -222,8 +222,8 @@ impl Graph {
             .map(|target| InputMatcher::new(&target.sources, Some(&default)))
             .collect::<Result<_, _>>()?;
         Ok(Some(SourceFilter {
-            targets: targets,
-            visible: visible,
+            targets,
+            visible,
         }))
     }
 
@@ -363,7 +363,7 @@ impl Graph {
                 g.actions.push(Action {
                     phase: fi,
                     input: id,
-                    outputs: outputs,
+                    outputs,
                     post_process: false,
                 });
             }

@@ -287,8 +287,8 @@ impl Configs {
         }
         Ok(Configs {
             by_package: per_package,
-            warnings: warnings,
-            triggers: triggers,
+            warnings,
+            triggers,
         })
     }
 }
@@ -461,8 +461,8 @@ impl Plan {
             });
         }
         Ok(Plan {
-            applications: applications,
-            warnings: warnings,
+            applications,
+            warnings,
         })
     }
 }
@@ -814,12 +814,12 @@ pub fn phases(
                         target: a.key.clone(),
                         target_sources: InputMatcher::new(&a.sources, None)?,
                         generate_for: InputMatcher::new(&generate_for, None)?,
-                        options: options,
+                        options,
                         root: graph.nodes[node.package].is_root,
                         optional: ap.optional,
                         hidden: ap.hidden,
                         post_process: ap.post_process,
-                        extensions: extensions,
+                        extensions,
                         post_inputs: None,
                         replaced_by: replaced,
                         equivalent: equivalent.map(|e| e.key),

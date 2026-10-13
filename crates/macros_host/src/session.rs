@@ -261,7 +261,7 @@ fn generate(
         let main = program.library(lib_id).units.first().and_then(|u| program.unit(*u).path.clone());
         let main = main.ok_or_else(|| format!("library {lib} has no file"))?;
         let path = dartforge_elements::load::caminho_da_augmentation_de_macro(&main);
-        texts.push(GeneratedText { library: lib, path: path, text: text });
+        texts.push(GeneratedText { library: lib, path, text });
     }
     let mut c = Construtor::nova();
     if let Some(b) = base {
@@ -650,9 +650,9 @@ fn run_session(
     Ok(Output {
         program,
         generation,
-        texts: texts,
+        texts,
         executed_macros: executed,
-        warnings: warnings,
+        warnings,
         expansions,
         measurement,
     })

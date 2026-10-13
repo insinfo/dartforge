@@ -21,12 +21,13 @@ dartforge-parity = { path = "../parity" }
 serde_json = "1"
 
 [features]
-# Backend nativo AOT (LLVM IR -> Clang), ABI e emit-native. Só o clang.exe.
+# Native AOT backend (LLVM IR -> Clang), ABI and emit-native. Only clang.exe.
 nativo = ["dep:dartforge-abi", "dep:dartforge-emit-native"]
-# `dartforge run` e `dartforge reload` pelo JIT ORCv2 (crates/jit). Separado de
-# `nativo` porque liga o executável à LLVM-C.dll da distribuição completa do
-# LLVM 22.1.8: sem a DLL no PATH, o dartforge.exe não inicia. Com o LLVM no
-# processo, o AOT também gera os objetos por ele (`llvm-embutido`), sem Clang.
+# `dartforge run` and `dartforge reload` through the ORCv2 JIT (crates/jit). Separate
+# from `nativo` because it links the executable to the LLVM-C.dll of the full
+# LLVM 22.1.8 distribution: without the DLL on PATH, dartforge.exe does not start. With
+# LLVM in the process, the AOT also generates the objects through it
+# (`llvm-embutido`), without Clang.
 jit = ["nativo", "dep:dartforge-jit", "dartforge-emit-native/llvm-embutido"]
 
 [[bin]]

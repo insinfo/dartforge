@@ -379,11 +379,11 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Application>, String> {
             }
         };
         let mut a = Application {
-            key: key,
+            key,
             post_process: is_post,
             import,
-            factories: factories,
-            filter: filter,
+            factories,
+            filter,
             optional: false,
             hidden: is_post,
             generate_for_pattern: None,

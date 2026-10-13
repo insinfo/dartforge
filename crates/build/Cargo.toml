@@ -11,7 +11,7 @@ workspace = true
 
 [features]
 default = ["nativos"]
-# Geradores nativos (ngdart e sass) pelo gerador_ng, só pela API pública.
+# Native generators (ngdart and sass) through ng_generator, via its public API only.
 nativos = ["dep:dartforge-ng-generator"]
 
 [dependencies]

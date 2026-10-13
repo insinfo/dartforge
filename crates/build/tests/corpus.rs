@@ -70,7 +70,7 @@ fn references(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
 fn engine(dir: &Path, workers: usize) -> Result<Engine, String> {
     let cfg = cfg_of(dir).ok_or("no package_config.json (run dart pub get)")?;
     let options = EngineOptions {
-        workers: workers,
+        workers,
         measure_unchecked: true,
         ..Default::default()
     };

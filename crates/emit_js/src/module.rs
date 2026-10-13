@@ -251,7 +251,7 @@ pub fn emit_with_cache(
     let entry = format!(
         "if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
     );
-    Ok(Emitted { modules: modules, entry: entry })
+    Ok(Emitted { modules, entry })
 }
 
 fn lib_main_is_async(ctx: &Ctx, lib: LibraryId) -> bool {

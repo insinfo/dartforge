@@ -86,7 +86,7 @@ impl PackageGraph {
             by_name.insert(name.clone(), nodes.len());
             nodes.push(PackageNode {
                 name: name.clone(),
-                root: root,
+                root,
                 kind: lock
                     .get(name)
                     .map(|t| t.kind)
@@ -138,11 +138,11 @@ impl PackageGraph {
             deps: Vec::new(),
         });
         Ok(PackageGraph {
-            nodes: nodes,
-            root: root,
-            by_name: by_name,
+            nodes,
+            root,
+            by_name,
             lock,
-            root_dir: root_dir,
+            root_dir,
         })
     }
 
