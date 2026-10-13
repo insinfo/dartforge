@@ -1,31 +1,30 @@
-// Runtime nativo: o `dart:ffi` (`runtime/lib/ffi.cc` e
-// `ffi_dynamic_library.cc` da VM, e o que o compilador dela gera para os
-// métodos reconhecidos).
+// Native runtime: `dart:ffi` (the VM's `runtime/lib/ffi.cc` and
+// `ffi_dynamic_library.cc`, and what its compiler generates for the recognized
+// methods).
 //
-// * `DynamicLibrary`: `dlopen`/`dlsym` (Unix) e `LoadLibraryW`/
-//   `GetProcAddress` (Windows); a biblioteca do processo procura em tudo o
-//   que está carregado.
-// * Os tipos nativos e os trampolins das assinaturas vêm do compilador
-//   (`lower/ffi.rs`), registrados na preparação de cada isolado; os ids de
-//   classe e os endereços são do programa, então as tabelas são globais.
-// * `asFunction` cria uma closure com o trampolim da assinatura nativa (a
-//   chave sai da RTI da assinatura) e o endereço no ambiente.
-// * As cargas e gravações (`_loadInt32`…) servem a uma base `Pointer`
-//   (memória nativa: sem verificação de limites, como em C) e a uma base
-//   `TypedData` do heap (a de uma `Struct` criada no Dart: com verificação).
-//   O acesso nativo é sempre desalinhado-seguro (`read_unaligned`).
+// * `DynamicLibrary`: `dlopen`/`dlsym` (Unix) and `LoadLibraryW`/`GetProcAddress`
+//   (Windows); the process library searches everything that is loaded.
+// * The native types and the signature trampolines come from the compiler
+//   (`lower/ffi.rs`), registered during each isolate's preparation; the class ids
+//   and the addresses belong to the program, so the tables are global.
+// * `asFunction` creates a closure with the native signature's trampoline (the key
+//   comes from the signature's RTI) and the address in the environment.
+// * Loads and stores (`_loadInt32`…) serve a `Pointer` base (native memory: no
+//   bounds checking, as in C) and a heap `TypedData` base (that of a `Struct`
+//   created in Dart: with checking). Native access is always unaligned-safe
+//   (`read_unaligned`).
 
-/// O `handle` da biblioteca do processo (`DynamicLibrary.process()`): nenhum
-/// handle do sistema o usa.
+/// The `handle` of the process library (`DynamicLibrary.process()`): no system
+/// handle uses it.
 const PROCESS_HANDLE: i64 = i64::MIN + 1;
 
-/// Classe RTI → letra do tipo C (`TipoC::letter` do compilador).
+/// RTI class → C type letter (the compiler's `TipoC::letter`).
 fn native_types() -> &'static std::sync::RwLock<crate::hash::HashMap<i64, char>> {
     static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<i64, char>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
-/// Chave da assinatura → entrada do trampolim.
+/// Signature key → trampoline entry.
 fn trampolines() -> &'static std::sync::RwLock<crate::hash::HashMap<String, usize>> {
     static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<String, usize>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
@@ -39,18 +38,17 @@ pub extern "C" fn dartforge_ffi_registrar_tipo(class: i64, letter: i64) {
 }
 
 /// # Safety
-/// `key` aponta para `n` bytes ASCII; `input` é a entrada uniforme do
-/// trampolim.
+/// `key` points to `n` ASCII bytes; `input` is the trampoline's uniform entry.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_registrar_trampolim(key: *const u8, n: i64, input: usize) {
-    // SAFETY: garantido por quem chama (constante do módulo).
+    // SAFETY: guaranteed by the caller (a module constant).
     let b = unsafe { std::slice::from_raw_parts(key, n as usize) };
     let key = String::from_utf8_lossy(b).into_owned();
     let mut t = trampolines().write().unwrap_or_else(|e| e.into_inner());
     t.entry(key).or_insert(input);
 }
 
-/// O tamanho de um tipo C pela letra.
+/// The size of a C type by its letter.
 fn letter_size(l: char) -> Option<i64> {
     Some(match l {
         'a' | 'h' | 'b' => 1,
@@ -61,7 +59,7 @@ fn letter_size(l: char) -> Option<i64> {
     })
 }
 
-/// O id RTI do tipo de um objeto `Type`.
+/// The RTI id of the type of a `Type` object.
 fn object_type_type(h: i64) -> Option<i64> {
     HEAP.with(|heap| match heap.borrow().object(h) {
         Some(o) if o.class_id == TYPE_CLASS => o.first().map(|f| f.0),
@@ -69,7 +67,7 @@ fn object_type_type(h: i64) -> Option<i64> {
     })
 }
 
-/// A letra do tipo C de um tipo RTI (uma classe de tipo nativo).
+/// The C type letter of an RTI type (a native type class).
 fn type_letter(t: i64) -> Result<char, String> {
     let class = RTI.with(|u| match u.borrow().tipo(t) {
         Type::Interface(c, _) => Some(*c),
@@ -82,8 +80,8 @@ fn type_letter(t: i64) -> Result<char, String> {
     })
 }
 
-/// A parte de um tipo na chave: a letra do tipo C, ou `S<rti>.` de uma
-/// struct/union por valor (registrada pelo programa).
+/// The part of a type in the key: the C type letter, or `S<rti>.` of a struct/union
+/// by value (registered by the program).
 fn key_part(t: i64, s: &mut String) -> Result<(), String> {
     if let Some(rti) = type_rti_class(t).filter(|&r| compound_from_rti(r).is_some()) {
         s.push_str(&format!("S{rti}."));
@@ -93,7 +91,7 @@ fn key_part(t: i64, s: &mut String) -> Result<(), String> {
     Ok(())
 }
 
-/// A chave (`lower/ffi.rs::chave_da_assinatura`) da assinatura nativa `ns`.
+/// The key (`lower/ffi.rs::chave_da_assinatura`) of the native signature `ns`.
 fn signature_key(ns: i64) -> Result<String, String> {
     let (ret, pos) = RTI.with(|u| match u.borrow().tipo(ns) {
         Type::Function { generics: 0, ret, pos, n_required, named } if named.is_empty() && *n_required == pos.len() => Ok((*ret, pos.clone())),
@@ -103,7 +101,7 @@ fn signature_key(ns: i64) -> Result<String, String> {
     key_part(ret, &mut s)?;
     s.push('_');
     for p in pos {
-        // `VarArgs<(T1, T2…)>`/`VarArgs<T>`: a marca e os tipos variádicos.
+        // `VarArgs<(T1, T2…)>`/`VarArgs<T>`: the marker and the variadic types.
         let variadic = RTI.with(|u| {
             let u = u.borrow();
             let Type::Interface(c, args) = u.tipo(p) else { return None };
@@ -135,7 +133,7 @@ fn throw_unsupported(msg: &str) {
     with_roots(&[e], || dartforge_exception_throw(e, 3));
 }
 
-/// `sizeOf<T>()`: o tamanho em bytes do tipo nativo `T` na ABI do alvo.
+/// `sizeOf<T>()`: the size in bytes of native type `T` in the target ABI.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_tamanho(tipo: i64) -> i64 {
     let Some(t) = object_type_type(tipo) else {
@@ -158,8 +156,8 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_tamanho(tipo: i64) -> i64 {
     }
 }
 
-/// `asFunction`: a closure que chama a função nativa em `address` pela
-/// assinatura `ns`, com o tipo Dart `df`.
+/// `asFunction`: the closure that calls the native function at `address` through
+/// signature `ns`, with the Dart type `df`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_funcao(address: i64, ns: i64, df: i64) -> i64 {
     let (Some(ns), Some(df)) = (object_type_type(ns), object_type_type(df)) else {
@@ -180,9 +178,9 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_funcao(address: i64, ns: i64, d
     };
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        // O contexto guarda os dois escalares (sem referência); a closure o
-        // guarda como `Ref`. O owner temporário é contado durante a alocação
-        // e soltado depois que a closure passa a guardar a aresta forte.
+        // The context keeps both scalars (without references); the closure keeps
+        // it as a `Ref`. The temporary owner is counted during the allocation and
+        // released after the closure starts holding the strong edge.
         let env = h.new_context(&[(address, false), (ns, false)]);
         let frame = h.push_owning_frame(1);
         h.set_root(frame, 0, env);
@@ -193,12 +191,12 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_funcao(address: i64, ns: i64, d
     })
 }
 
-/// O ambiente `[endereço, fn_signature]` da closure de um trampolim.
+/// The environment `[address, fn_signature]` of a trampoline's closure.
 fn closure_env(clo: i64) -> (i64, i64) {
     HEAP.with(|h| {
         let h = h.borrow();
         let Some(c) = h.closure(clo) else {
-            panic!("bug do compilador: trampolim FFI sem closure");
+            panic!("compiler bug: FFI trampoline without a closure");
         };
         let env = c.contexto.0;
         (h.capture(env, 0).0, h.capture(env, 1).0)
@@ -210,7 +208,7 @@ pub extern "C" fn dartforge_ffi_endereco_da_closure(clo: i64) -> i64 {
     closure_env(clo).0
 }
 
-/// O endereço de um `Pointer` (o campo `_endereco`).
+/// The address of a `Pointer` (the `_endereco` field).
 fn address_of(pointer: i64) -> Option<i64> {
     HEAP.with(|h| {
         let h = h.borrow();
@@ -235,7 +233,7 @@ pub extern "C" fn dartforge_ffi_endereco_do_ponteiro(pointer: i64) -> i64 {
     }
 }
 
-/// O `Pointer<X>` que uma chamada nativa devolve (`X` da assinatura).
+/// The `Pointer<X>` that a native call returns (`X` from the signature).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_ponteiro_de_retorno(address: i64, clo: i64) -> i64 {
     let (_, ns) = closure_env(clo);
@@ -245,30 +243,29 @@ pub extern "C" fn dartforge_ffi_ponteiro_de_retorno(address: i64, clo: i64) -> i
     }))
 }
 
-/// O `Pointer<X>` que uma chamada nativa devolve, sob ARC, com um owner do
-/// código.
+/// The `Pointer<X>` that a native call returns, under ARC, with a code owner.
 ///
-/// `clo` é emprestada pelo chamador. O ajudante Dart `_dartforgePonteiro`
-/// roda dentro de um escopo nativo: o token do retorno da porta Owned fica
-/// nele e é copiado para o owner do chamador antes de fechar. Uma exceção
-/// do ajudante fica pendente e o resultado é null, sem owner. Pode alocar,
-/// coletar e executar Dart.
+/// `clo` is borrowed by the caller. The Dart helper `_dartforgePonteiro` runs
+/// inside a native scope: the token of the Owned port's return stays in it and is
+/// copied into the caller's owner before closing. An exception from the helper
+/// stays pending and the result is null, without an owner. May allocate, collect
+/// and run Dart.
 ///
 /// # Panics
-/// Ajudante ausente, registro Owned incompatível ou escopo reentrante não
-/// fechado; aborta no limite C.
+/// Missing helper, an incompatible Owned registration or an unclosed reentrant
+/// scope; aborts at the C boundary.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ffi_ponteiro_de_retorno_owned_v1(address: i64, clo: i64) -> i64 {
     owner_in_native_scope(|| dartforge_ffi_ponteiro_de_retorno(address, clo))
 }
 
-/// Um `Pointer` Dart com o endereço e, se conhecido, o tipo `Pointer<X>`.
+/// A Dart `Pointer` with the address and, if known, the type `Pointer<X>`.
 fn new_pointer(address: i64, tipo: Option<i64>) -> i64 {
     let Some(f) = ajudante("_dartforgePonteiro") else {
-        panic!("bug do compilador: dart:ffi sem `_dartforgePonteiro` registrado");
+        panic!("compiler bug: dart:ffi without a registered `_dartforgePonteiro`");
     };
-    // SAFETY: registrada pela sobreposição de `dart:ffi` com a assinatura
-    // (`int`) → `Pointer`.
+    // SAFETY: registered by the `dart:ffi` overlay with the signature (`int`) →
+    // `Pointer`.
     let f = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     let p = f(address);
     if let Some(t) = tipo {
@@ -278,10 +275,10 @@ fn new_pointer(address: i64, tipo: Option<i64>) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// A memória: uma base `Pointer` ou `TypedData`.
+// Memory: a `Pointer` or `TypedData` base.
 
-/// Chama `f` com o endereço dos `n` bytes em `base + offset`. Numa
-/// base `TypedData`, fora dos limites lança `RangeError`.
+/// Calls `f` with the address of the `n` bytes at `base + offset`. On a `TypedData`
+/// base, out of bounds throws `RangeError`.
 fn with_memory<R>(base: i64, offset: i64, n: usize, f: impl FnOnce(*mut u8) -> R) -> Option<R> {
     let list = HEAP.with(|h| resolver(&h.borrow(), base));
     if let Some(t) = list {
@@ -291,8 +288,8 @@ fn with_memory<R>(base: i64, offset: i64, n: usize, f: impl FnOnce(*mut u8) -> R
             throw_range_error(offset, total as i64);
             return None;
         };
-        // Os bytes não se movem (§2.14): o endereço vale enquanto a base vive,
-        // e `f` não aloca no heap.
+        // The bytes do not move (§2.14): the address is valid while the base lives,
+        // and `f` does not allocate on the heap.
         return Some(f(t.data.wrapping_add(begin)));
     }
     let Some(address) = address_of(base) else {
@@ -308,16 +305,16 @@ fn throw_range_error(ix: i64, total: i64) {
     with_roots(&[e], || dartforge_exception_throw(e, 3));
 }
 
-// As cargas e gravações são funções explícitas (não geradas por macro):
-// `build.rs` lê os símbolos exportados do texto dos fragmentos.
+// The loads and stores are explicit functions (not generated by a macro):
+// `build.rs` reads the exported symbols from the fragments' text.
 fn load_native<T: Copy + Into<i128>>(base: i64, offset: i64) -> i64 {
-    // SAFETY: a memória nativa é a que o programa indicou (como em C); a do
-    // heap foi conferida contra os limites.
+    // SAFETY: native memory is what the program indicated (as in C); heap memory
+    // was checked against the bounds.
     with_memory(base, offset, std::mem::size_of::<T>(), |p| unsafe { std::ptr::read_unaligned(p.cast::<T>()) }.into() as i64).unwrap_or(0)
 }
 
 fn write_native<T: Copy>(base: i64, offset: i64, value: T) {
-    // SAFETY: como em `load_native`.
+    // SAFETY: as in `load_native`.
     with_memory(base, offset, std::mem::size_of::<T>(), |p| unsafe { std::ptr::write_unaligned(p.cast::<T>(), value) });
 }
 
@@ -403,30 +400,30 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_u64(base: i64, offset: i
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_f32(base: i64, offset: i64) -> f64 {
-    // SAFETY: como em `carga_e_gravacao!`.
+    // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 4, |p| f64::from(unsafe { std::ptr::read_unaligned(p.cast::<f32>()) })).unwrap_or(0.0)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_f32(base: i64, offset: i64, value: f64) {
-    // SAFETY: como em `carga_e_gravacao!`.
+    // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 4, |p| unsafe { std::ptr::write_unaligned(p.cast::<f32>(), value as f32) });
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_f64(base: i64, offset: i64) -> f64 {
-    // SAFETY: como em `carga_e_gravacao!`.
+    // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 8, |p| unsafe { std::ptr::read_unaligned(p.cast::<f64>()) }).unwrap_or(0.0)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_f64(base: i64, offset: i64, value: f64) {
-    // SAFETY: como em `carga_e_gravacao!`.
+    // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 8, |p| unsafe { std::ptr::write_unaligned(p.cast::<f64>(), value) });
 }
 
-/// A carga de um inteiro específico da ABI (`Long`, `Size`…): o tipo C que o
-/// compilador resolveu para o alvo.
+/// The load of an ABI-specific integer (`Long`, `Size`…): the C type that the
+/// compiler resolved for the target.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_abi(tipo: i64, base: i64, offset: i64) -> i64 {
     match object_type_type(tipo).map(type_letter) {
@@ -466,18 +463,18 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_abi(tipo: i64, base: i64
 pub extern "C" fn dartforge_nativo_DartForge_ffi_copiar(dest: i64, dest_offset: i64, origin: i64, source_offset: i64, n: i64) {
     let Ok(n) = usize::try_from(n) else { return };
     let mut buf = vec![0u8; n];
-    // SAFETY: como em `carga_e_gravacao!`; o buffer intermediário separa as
-    // duas bases (que podem ser a mesma lista do heap).
+    // SAFETY: as in `carga_e_gravacao!`; the intermediate buffer separates the two
+    // bases (which may be the same heap list).
     if with_memory(origin, source_offset, n, |p| unsafe { std::ptr::copy_nonoverlapping(p, buf.as_mut_ptr(), n) }).is_none() {
         return;
     }
     with_memory(dest, dest_offset, n, |p| unsafe { std::ptr::copy_nonoverlapping(buf.as_ptr(), p, n) });
 }
 
-/// `_abi()`: o índice do alvo em `Abi.values`.
+/// `_abi()`: the target's index in `Abi.values`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_abi() -> i64 {
-    // A ordem de `Abi.values` (`abi.dart`): androidArm … windowsX64.
+    // The order of `Abi.values` (`abi.dart`): androidArm … windowsX64.
     let arm = cfg!(target_arch = "aarch64");
     if cfg!(windows) {
         if arm { 19 } else { 21 }
@@ -507,21 +504,20 @@ mod dl {
         pub fn dlerror() -> *const std::ffi::c_char;
     }
     pub const RTLD_LAZY: i32 = 1;
-    /// `RTLD_DEFAULT`: `NULL` no Linux, `-2` no macOS.
+    /// `RTLD_DEFAULT`: `NULL` on Linux, `-2` on macOS.
     #[cfg(target_os = "linux")]
     pub const RTLD_DEFAULT: *mut std::ffi::c_void = std::ptr::null_mut();
     #[cfg(not(target_os = "linux"))]
     pub const RTLD_DEFAULT: *mut std::ffi::c_void = -2isize as *mut std::ffi::c_void;
 
-    /// A última mensagem do `dl*`.
+    /// The last `dl*` message.
     pub fn error() -> String {
-        // SAFETY: `dlerror` devolve nulo ou um texto válido até a próxima
-        // chamada.
+        // SAFETY: `dlerror` returns null or a string valid until the next call.
         let e = unsafe { dlerror() };
         if e.is_null() {
             return String::new();
         }
-        // SAFETY: texto terminado em NUL.
+        // SAFETY: NUL-terminated text.
         unsafe { std::ffi::CStr::from_ptr(e) }.to_string_lossy().into_owned()
     }
 }
@@ -539,13 +535,13 @@ mod dl {
         pub fn K32EnumProcessModules(p: usize, m: *mut usize, n: u32, needs: *mut u32) -> i32;
     }
 
-    /// Os módulos carregados no processo (`DynamicLibrary.process()`).
+    /// The modules loaded in the process (`DynamicLibrary.process()`).
     pub fn modulos() -> Vec<usize> {
         let mut n = 256u32;
         loop {
             let mut v = vec![0usize; n as usize];
             let mut needs = 0u32;
-            // SAFETY: o buffer tem `n` handles.
+            // SAFETY: the buffer has `n` handles.
             let ok = unsafe { K32EnumProcessModules(GetCurrentProcess(), v.as_mut_ptr(), n * std::mem::size_of::<usize>() as u32, &mut needs) } != 0;
             if !ok {
                 return Vec::new();
@@ -560,7 +556,7 @@ mod dl {
     }
 }
 
-/// `Ffi_dl_open(path)`: o handle, ou `ArgumentError` com o erro do sistema.
+/// `Ffi_dl_open(path)`: the handle, or `ArgumentError` with the system error.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Ffi_dl_open(file_path: i64) -> i64 {
     let text = HEAP.with(|h| h.borrow().text(file_path).map(|t| t.para_string()).unwrap_or_default());
@@ -569,7 +565,7 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_open(file_path: i64) -> i64 {
         let Ok(c) = std::ffi::CString::new(text.clone()) else {
             return throw_ffi_argument_error(format!("Failed to load dynamic library '{text}': invalid path"));
         };
-        // SAFETY: abre a biblioteca com um caminho C válido.
+        // SAFETY: opens the library with a valid C path.
         let h = unsafe { dl::dlopen(c.as_ptr(), dl::RTLD_LAZY) };
         if h.is_null() {
             return throw_ffi_argument_error(format!("Failed to load dynamic library '{text}': {}", dl::error()));
@@ -579,7 +575,7 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_open(file_path: i64) -> i64 {
     #[cfg(windows)]
     {
         let w: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-        // SAFETY: nome UTF-16 terminado em NUL.
+        // SAFETY: NUL-terminated UTF-16 name.
         let h = unsafe { dl::LoadLibraryW(w.as_ptr()) };
         if h == 0 {
             let code = unsafe { dl::GetLastError() };
@@ -598,22 +594,22 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_processLibrary() -> i64 {
 pub extern "C" fn dartforge_nativo_Ffi_dl_executableLibrary() -> i64 {
     #[cfg(unix)]
     {
-        // SAFETY: `dlopen(NULL)` é o executável.
+        // SAFETY: `dlopen(NULL)` is the executable.
         unsafe { dl::dlopen(std::ptr::null(), dl::RTLD_LAZY) as i64 }
     }
     #[cfg(windows)]
     {
-        // SAFETY: o módulo do executável.
+        // SAFETY: the executable's module.
         unsafe { dl::GetModuleHandleW(std::ptr::null()) as i64 }
     }
 }
 
-/// O endereço de `name` em `handle` (0 se não há).
+/// The address of `name` in `handle` (0 if there is none).
 fn search_for(handle: i64, name: &std::ffi::CStr) -> usize {
     #[cfg(unix)]
     {
         let h = if handle == PROCESS_HANDLE { dl::RTLD_DEFAULT } else { handle as *mut std::ffi::c_void };
-        // SAFETY: handle de `dlopen` (ou `RTLD_DEFAULT`) e nome C válido.
+        // SAFETY: a handle from `dlopen` (or `RTLD_DEFAULT`) and a valid C name.
         unsafe { dl::dlsym(h, name.as_ptr()) as usize }
     }
     #[cfg(windows)]
@@ -621,17 +617,17 @@ fn search_for(handle: i64, name: &std::ffi::CStr) -> usize {
         if handle == PROCESS_HANDLE {
             return dl::modulos()
                 .into_iter()
-                // SAFETY: módulo carregado e nome C válido.
+                // SAFETY: a loaded module and a valid C name.
                 .map(|m| unsafe { dl::GetProcAddress(m, name.as_ptr()) })
                 .find(|&p| p != 0)
                 .unwrap_or(0);
         }
-        // SAFETY: handle de `LoadLibraryW` e nome C válido.
+        // SAFETY: a handle from `LoadLibraryW` and a valid C name.
         unsafe { dl::GetProcAddress(handle as usize, name.as_ptr()) }
     }
 }
 
-/// `Ffi_dl_lookup(handle, symbolName)`: o endereço, ou `ArgumentError`.
+/// `Ffi_dl_lookup(handle, symbolName)`: the address, or `ArgumentError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Ffi_dl_lookup(handle: i64, name: i64) -> i64 {
     let text = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
@@ -662,22 +658,22 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_close(handle: i64) {
         return;
     }
     #[cfg(unix)]
-    // SAFETY: handle de `dlopen`.
+    // SAFETY: a handle from `dlopen`.
     unsafe {
         dl::dlclose(handle as *mut std::ffi::c_void);
     }
     #[cfg(windows)]
-    // SAFETY: handle de `LoadLibraryW`.
+    // SAFETY: a handle from `LoadLibraryW`.
     unsafe {
         dl::FreeLibrary(handle as usize);
     }
 }
 
 // ---------------------------------------------------------------------------
-// Structs e unions (`lower/ffi.rs`, «Structs e unions»).
+// Structs and unions (`lower/ffi.rs`, «Structs e unions»).
 
-/// Uma struct/union do programa: a classe no heap, onde ficam os campos de
-/// `_Compound` no objeto e a medida na ABI do alvo.
+/// A program struct/union: the heap class, where the `_Compound` fields live in the
+/// object, and its measure in the target ABI.
 #[derive(Clone, Copy)]
 struct FfiCompound {
     class: i64,
@@ -687,14 +683,14 @@ struct FfiCompound {
     size: i64,
 }
 
-/// Classe RTI → composto (os ids de classe são do programa, iguais em todo
-/// isolado).
+/// RTI class → compound (the class ids belong to the program, the same in every
+/// isolate).
 fn ffi_compounds() -> &'static std::sync::RwLock<crate::hash::HashMap<i64, FfiCompound>> {
     static C: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<i64, FfiCompound>>> = std::sync::OnceLock::new();
     C.get_or_init(Default::default)
 }
 
-/// Registra uma struct/union do programa (a preparação do isolado).
+/// Registers a program struct/union (the isolate's preparation).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_registrar_composto(
     rti: i64,
@@ -715,7 +711,7 @@ fn compound_from_rti(rti: i64) -> Option<FfiCompound> {
     ffi_compounds().read().unwrap_or_else(|e| e.into_inner()).get(&rti).copied()
 }
 
-/// A classe RTI de um tipo RTI `Interface`.
+/// The RTI class of an `Interface` RTI type.
 fn type_rti_class(t: i64) -> Option<i64> {
     RTI.with(|u| match u.borrow().tipo(t) {
         Type::Interface(c, _) => Some(*c),
@@ -723,8 +719,8 @@ fn type_rti_class(t: i64) -> Option<i64> {
     })
 }
 
-/// Uma instância da struct/union `rti` sobre a memória `base` +
-/// `offset` (o `S#fromTypedDataBase` do transformador da VM).
+/// An instance of struct/union `rti` over the memory at `base` + `offset` (the VM
+/// transformer's `S#fromTypedDataBase`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_composto(rti: i64, base: i64, offset: i64) -> i64 {
     let Some(c) = compound_from_rti(rti) else {
@@ -745,8 +741,8 @@ pub extern "C" fn dartforge_ffi_composto(rti: i64, base: i64, offset: i64) -> i6
     obj
 }
 
-/// `Pointer<S>.ref`/`[i]` (a sobreposição): a instância de `S` sobre
-/// `base` + `offset`, pelo objeto `Type` de `S`.
+/// `Pointer<S>.ref`/`[i]` (the overlay): the instance of `S` over `base` + `offset`,
+/// through the `Type` object of `S`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_composto_de_tipo(tipo: i64, base: i64, offset: i64) -> i64 {
     let Some(rti) = object_type_type(tipo).and_then(type_rti_class) else {
@@ -756,24 +752,23 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_composto_de_tipo(tipo: i64, bas
     dartforge_ffi_composto(rti, base, offset)
 }
 
-/// Um `Pointer` (tipo `Pointer<Never>`) com o endereço (campo `Pointer` de
-/// uma struct).
+/// A `Pointer` (type `Pointer<Never>`) with the address (a struct's `Pointer` field).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_ponteiro_novo(address: i64) -> i64 {
     new_pointer(address, None)
 }
 
-/// O endereço do símbolo nativo `name` (UTF-8), para um
-/// `external` com `@Native` (com cache: o `Ffi_GetFfiNativeResolver` da VM
-/// resolve uma vez por função). Símbolo ausente: `ArgumentError`, como a VM.
-/// A ABI reservada DartForge vem deste runtime, inclusive no SDK RTLD_LOCAL;
-/// símbolos estrangeiros continuam sendo procurados no processo.
+/// The address of the native symbol `name` (UTF-8), for an `external` with
+/// `@Native` (cached: the VM's `Ffi_GetFfiNativeResolver` resolves once per
+/// function). Missing symbol: `ArgumentError`, like the VM. The reserved DartForge
+/// ABI comes from this runtime, including in the RTLD_LOCAL SDK; foreign symbols
+/// are still looked up in the process.
 ///
 /// # Safety
-/// `name` aponta para `n` bytes legíveis.
+/// `name` points to `n` readable bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_simbolo_nativo(name: *const u8, n: i64) -> i64 {
-    // SAFETY: garantido por quem chama (uma constante do módulo).
+    // SAFETY: guaranteed by the caller (a module constant).
     let name = unsafe { std::slice::from_raw_parts(name, usize::try_from(n).unwrap_or(0)) };
     let name = String::from_utf8_lossy(name).into_owned();
     static CACHE: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<String, i64>>> = std::sync::OnceLock::new();
@@ -794,7 +789,7 @@ pub unsafe extern "C" fn dartforge_ffi_simbolo_nativo(name: *const u8, n: i64) -
     }
 }
 
-/// A seleção local precede o lookup estrangeiro para não cruzar heaps/TLS.
+/// Local selection comes before the foreign lookup so as not to cross heaps/TLS.
 fn resolve_native_address(name: &str, process: impl FnOnce(&std::ffi::CStr) -> usize) -> usize {
     endereco_nativo_do_runtime(name).unwrap_or_else(|| {
         std::ffi::CString::new(name).map_or(0, |c| process(&c))
@@ -824,18 +819,18 @@ mod tests_resolve_native {
 
     #[test]
     fn foreign_symbol_keeps_lookup_and_invalid_name_does_not_call_it() {
-        assert_eq!(resolve_native_address("simbolo_da_biblioteca_do_usuario", |c| {
-            assert_eq!(c.to_bytes(), b"simbolo_da_biblioteca_do_usuario");
+        assert_eq!(resolve_native_address("user_library_symbol", |c| {
+            assert_eq!(c.to_bytes(), b"user_library_symbol");
             0xbeef
         }), 0xbeef);
-        assert_eq!(resolve_native_address("ausente", |_| 0), 0);
-        assert_eq!(resolve_native_address("nome\0invalido", |_| panic!("nome inválido chegou ao lookup")), 0);
+        assert_eq!(resolve_native_address("missing", |_| 0), 0);
+        assert_eq!(resolve_native_address("invalid\0name", |_| panic!("an invalid name reached the lookup")), 0);
     }
 }
 
-/// `Pointer<X>.asTypedList(n)`: a lista tipada interna `class_id` (elementos
-/// `tipo`) sobre a memória nativa do ponteiro, sem cópia — escrever numa é
-/// escrever na outra.
+/// `Pointer<X>.asTypedList(n)`: the internal typed list `class_id` (elements
+/// `tipo`) over the pointer's native memory, without copying — writing into one is
+/// writing into the other.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, pointer: i64, n: i64) -> i64 {
     let Some(address) = address_of(pointer) else {
@@ -851,22 +846,22 @@ pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, pointer: i64
         throw_argument_error("asTypedList on nullptr");
         return 0;
     }
-    debug_assert_eq!(class_id, i64::from(crate::layout::cid::tipada(tipo)), "cid da lista tipada fora do contrato");
-    // A lista interna com `EXTERNAL` (§2.5): o comprimento e o endereço nativo.
+    debug_assert_eq!(class_id, i64::from(crate::layout::cid::tipada(tipo)), "typed list cid outside the contract");
+    // The internal list with `EXTERNAL` (§2.5): the length and the native address.
     HEAP.with(|h| h.borrow_mut().external_typed(tipo, address as usize as *mut u8, n as usize))
 }
 
-/// [`dartforge_typed_externo`] que registra a tabela de métodos da classe na
-/// primeira alocação (como `dartforge_typed_novo_t`).
+/// [`dartforge_typed_externo`] that registers the class's method table on the first
+/// allocation (like `dartforge_typed_novo_t`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_externo_t(class_id: i64, tipo: i64, pointer: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
     dartforge_registrar_tabela(class_id, f);
     dartforge_typed_externo(class_id, tipo, pointer, n)
 }
 
-/// O endereço dos bytes de uma struct/union (um argumento por valor): a
-/// base (`Pointer` ou `TypedData`) mais o deslocamento, conferido contra o
-/// tamanho numa base `TypedData`.
+/// The address of the bytes of a struct/union (an argument by value): the base
+/// (`Pointer` or `TypedData`) plus the offset, checked against the size on a
+/// `TypedData` base.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_endereco_do_composto(obj: i64) -> i64 {
     let data = HEAP.with(|h| match h.borrow().object(obj) {
@@ -885,8 +880,8 @@ pub extern "C" fn dartforge_ffi_endereco_do_composto(obj: i64) -> i64 {
     with_memory(base, offset, c.size as usize, |p| p as i64).unwrap_or(0)
 }
 
-/// Uma struct/union nova, sobre um `Uint8List` do tamanho dela (o valor que
-/// uma chamada nativa devolve por valor, como na VM).
+/// A new struct/union, over a `Uint8List` of its size (the value a native call
+/// returns by value, as in the VM).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_composto_novo(rti: i64) -> i64 {
     let Some(c) = compound_from_rti(rti) else {
@@ -897,8 +892,8 @@ pub extern "C" fn dartforge_ffi_composto_novo(rti: i64) -> i64 {
     with_roots(&[bytes], || dartforge_ffi_composto(rti, bytes, 0))
 }
 
-/// Uma struct/union nova (sobre `Uint8List`) com os bytes em `address` — o
-/// argumento por valor de um callback, copiado como na VM.
+/// A new struct/union (over a `Uint8List`) with the bytes at `address` — a
+/// callback's by-value argument, copied as in the VM.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_composto_copia(rti: i64, address: i64) -> i64 {
     let new = dartforge_ffi_composto_novo(rti);
@@ -908,34 +903,34 @@ pub extern "C" fn dartforge_ffi_composto_copia(rti: i64, address: i64) -> i64 {
     let n = compound_from_rti(rti).map_or(0, |c| c.size as usize);
     let dest = with_roots(&[new], || dartforge_ffi_endereco_do_composto(new));
     if dest != 0 && address != 0 {
-        // SAFETY: `address` tem os `n` bytes da struct (a entrada C ou uma
-        // mensagem); `dest`, os da struct nova.
+        // SAFETY: `address` has the struct's `n` bytes (the C entry or a message);
+        // `dest`, those of the new struct.
         unsafe { std::ptr::copy_nonoverlapping(address as usize as *const u8, dest as usize as *mut u8, n) };
     }
     new
 }
 
-/// Copia os `n` bytes da struct devolvida por um callback (em `origin`; 0 se
-/// a closure lançou) para o retorno da entrada C.
+/// Copies the `n` bytes of the struct returned by a callback (at `origin`; 0 if the
+/// closure threw) to the C entry's return.
 ///
 /// # Safety
-/// `dest` tem `n` bytes graváveis; `origin` é 0 ou tem `n` bytes.
+/// `dest` has `n` writable bytes; `origin` is 0 or has `n` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_copiar_composto(dest: *mut u8, origin: i64, n: i64) {
     if origin != 0 && n > 0 {
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe { std::ptr::copy_nonoverlapping(origin as usize as *const u8, dest, n as usize) };
     }
 }
 
 // ---------------------------------------------------------------------------
-// `Handle`: objetos Dart na fronteira nativa (os handles locais da VM).
+// `Handle`: Dart objects at the native boundary (the VM's local handles).
 //
-// Cada objeto passado vira uma célula (`Box<i64>` com o handle do objeto,
-// raiz do coletor pelo endereço dela) e o C recebe o endereço da célula. As
-// células pertencem ao escopo aberto em volta da chamada nativa e são soltas
-// quando ele fecha; um `Handle` que volta do C é conferido contra as células
-// vivas deste isolado (um ponteiro qualquer é `ArgumentError`).
+// Each object passed becomes a cell (a `Box<i64>` with the object's handle, a
+// collector root through its address) and C receives the cell's address. The
+// cells belong to the scope opened around the native call and are released when
+// it closes; a `Handle` that comes back from C is checked against this isolate's
+// live cells (any other pointer is an `ArgumentError`).
 
 thread_local! {
     static HANDLE_CELLS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
@@ -955,13 +950,13 @@ pub extern "C" fn dartforge_ffi_handles_fechar(scope: i64) {
     });
     for cell in released_list {
         HEAP.with(|h| h.borrow_mut().release_global_root(cell as i64));
-        // SAFETY: a célula foi criada por `dartforge_ffi_handle_novo` e sai
-        // do registro uma vez.
+        // SAFETY: the cell was created by `dartforge_ffi_handle_novo` and leaves the
+        // registry once.
         unsafe { drop(Box::from_raw(cell as *mut i64)) };
     }
 }
 
-/// O `Handle` de `obj`: o endereço de uma célula nova do escopo corrente.
+/// The `Handle` of `obj`: the address of a new cell of the current scope.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_handle_novo(obj: i64) -> i64 {
     let cell = Box::into_raw(Box::new(obj)) as usize;
@@ -970,7 +965,7 @@ pub extern "C" fn dartforge_ffi_handle_novo(obj: i64) -> i64 {
     cell as i64
 }
 
-/// O objeto de um `Handle` devolvido pelo C.
+/// The object of a `Handle` returned by C.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_objeto_do_handle(handle: i64) -> i64 {
     match live_object_of_handle(handle) {
@@ -982,10 +977,10 @@ pub extern "C" fn dartforge_ffi_objeto_do_handle(handle: i64) -> i64 {
     }
 }
 
-/// O objeto de `handle` se a célula está viva neste isolado; sem efeitos.
+/// The object of `handle` if the cell is alive in this isolate; without effects.
 fn live_object_of_handle(handle: i64) -> Option<i64> {
     let alive = HANDLE_CELLS.with(|c| c.borrow().iter().rev().any(|&x| x as i64 == handle));
-    // SAFETY: a célula está viva (registrada neste isolado).
+    // SAFETY: the cell is alive (registered in this isolate).
     alive.then(|| unsafe { *(handle as usize as *const i64) })
 }
 
@@ -993,12 +988,12 @@ fn throw_invalid_handle() {
     throw_argument_error("the native code returned a Handle that is not alive in this isolate");
 }
 
-/// O objeto do `Handle` devolvido por uma chamada nativa, fechando em
-/// seguida o escopo `scope` dos handles dela — também quando o `Handle` é
-/// inválido, caso em que a `ArgumentError` fica pendente e o resultado é
-/// null. Assim a saída excepcional não deixa células (e raízes) para trás.
+/// The object of the `Handle` returned by a native call, then closing its handle
+/// scope `scope` — also when the `Handle` is invalid, in which case the
+/// `ArgumentError` stays pending and the result is null. This way the exceptional
+/// exit leaves no cells (and roots) behind.
 ///
-/// Sob tracing, nada coleta entre ler a célula e devolver o objeto.
+/// Under tracing, nothing collects between reading the cell and returning the object.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_handles_fechar_com_objeto(scope: i64, handle: i64) -> i64 {
     let obj = live_object_of_handle(handle);
@@ -1009,12 +1004,12 @@ pub extern "C" fn dartforge_ffi_handles_fechar_com_objeto(scope: i64, handle: i6
     })
 }
 
-/// [`dartforge_ffi_handles_fechar_com_objeto`] sob ARC: o objeto ganha um
-/// owner do código antes de as células do escopo soltarem as suas raízes.
-/// Handle inválido: `ArgumentError` pendente, null e nenhum owner.
+/// [`dartforge_ffi_handles_fechar_com_objeto`] under ARC: the object gains a code
+/// owner before the scope's cells release their roots. Invalid handle: a pending
+/// `ArgumentError`, null and no owner.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(scope: i64, handle: i64) -> i64 {
-    // O owner antes de fechar os handles; o erro roda num escopo nativo.
+    // The owner before closing the handles; the error runs in a native scope.
     in_native_scope(|| {
         let obj = live_object_of_handle(handle);
         if let Some(o) = obj {
@@ -1028,9 +1023,9 @@ pub extern "C" fn dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(scope: i6
     })
 }
 
-/// [`dartforge_ffi_objeto_do_handle`] sob ARC, com um owner do código (o
-/// argumento `Handle` de um callback, cuja célula é do escopo de fora).
-/// Handle inválido: `ArgumentError` pendente, null e nenhum owner.
+/// [`dartforge_ffi_objeto_do_handle`] under ARC, with a code owner (the `Handle`
+/// argument of a callback, whose cell belongs to the outer scope).
+/// Invalid handle: a pending `ArgumentError`, null and no owner.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ffi_objeto_do_handle_owned_v1(handle: i64) -> i64 {
     in_native_scope(|| match live_object_of_handle(handle) {
