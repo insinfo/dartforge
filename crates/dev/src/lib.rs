@@ -322,7 +322,7 @@ impl Session {
             // message of `dartforge_elements` for an unreadable file.
             let stages = &self.stages;
             diags.retain(|d| {
-                let Some(rest) = d.message.strip_prefix("não foi possível ler ") else { return true };
+                let Some(rest) = d.message.strip_prefix("could not read ") else { return true };
                 let path = rest.rsplit_once(": ").map(|(c, _)| c).unwrap_or(rest);
                 !stages.iter().any(|e| e.expects(Path::new(path)))
             });

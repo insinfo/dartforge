@@ -1026,7 +1026,7 @@ fn load_unit(
         Ok(x) => x,
         Err(e) => {
             diagnostics.push(Diagnostic::new(
-                format!("não foi possível ler {}: {e}", path.display()),
+                format!("could not read {}: {e}", path.display()),
                 Span { start: 0, end: 0 },
             ));
             return None;
