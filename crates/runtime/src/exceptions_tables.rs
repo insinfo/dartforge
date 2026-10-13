@@ -1,7 +1,7 @@
 // Table-based exceptions (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): the
 // Rust → Dart ports and the unwinding personality.
 //
-// In `--excecoes=tabelas` mode a Dart function that throws without a local handler
+// In `--exceptions=tables` mode a Dart function that throws without a local handler
 // does not return with the pending exception: it unwinds the stack (`@df.throw`,
 // generated in IR) up to the `landingpad` of whoever catches it. Two rules keep
 // the runtime standing:
@@ -14,12 +14,12 @@
 // * **the exception itself stays where it always was**: the runtime's pending
 //   exception (`dartforge_exception_throw`). Unwinding only transfers control.
 //
-// In the default mode (`checagem`) no port is registered and the calls go directly,
+// In the default mode (`check`) no port is registered and the calls go directly,
 // as before; nobody references the personality.
 
 /// The ports registered by the program module (`@df.ports`), by the index
 /// `2 × arity + (1 if it returns a value)`. Process-wide: they are code addresses,
-/// the same in every isolate. 0 = no port (`checagem` mode).
+/// the same in every isolate. 0 = no port (`check` mode).
 static DART_PORTS: [std::sync::atomic::AtomicUsize; 16] = [
     std::sync::atomic::AtomicUsize::new(0),
     std::sync::atomic::AtomicUsize::new(0),
@@ -40,17 +40,17 @@ static DART_PORTS: [std::sync::atomic::AtomicUsize; 16] = [
 ];
 
 /// `dartforge_register_ports(table, n)`: the entry of a program compiled with
-/// `--excecoes=tabelas` hands over the ports before any Dart code runs.
+/// `--exceptions=tables` hands over the ports before any Dart code runs.
 ///
 /// # Safety
 /// `table` points to `n` function addresses (a module constant).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_register_ports(table: *const usize, n: i64) {
     TABLES_MODE.store(true, std::sync::atomic::Ordering::Release);
-    // The `sem_porta` sabotage (D9, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    // The `no_ports` sabotage (D9, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
     // §7.3): the runtime calls Dart directly, and a Dart exception crosses the Rust
     // frames.
-    if crate::heap::sabotage("sem_porta") {
+    if crate::heap::sabotage("no_ports") {
         return;
     }
     let n = usize::try_from(n).unwrap_or(0).min(DART_PORTS.len());
@@ -61,13 +61,13 @@ pub unsafe extern "C" fn dartforge_register_ports(table: *const usize, n: i64) {
     }
 }
 
-/// The program was compiled with `--excecoes=tabelas` (the entry registered the
-/// ports, or tried to: the `sem_porta` sabotage returns before registering).
+/// The program was compiled with `--exceptions=tables` (the entry registered the
+/// ports, or tried to: the `no_ports` sabotage returns before registering).
 static TABLES_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 thread_local! {
     /// The direct Rust → Dart calls in progress on this thread in `tables` mode
-    /// (only the `sem_porta` sabotage produces them): the address of a local of the
+    /// (only the `no_ports` sabotage produces them): the address of a local of the
     /// Rust frame of each one.
     static DIRECT_CALLS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
 }
@@ -97,7 +97,7 @@ fn landing_crosses_rust(frame: usize) -> bool {
     DIRECT_CALLS.with(|c| c.borrow().iter().any(|&m| m < frame))
 }
 
-/// The port with index `i`, or 0 in `checagem` mode.
+/// The port with index `i`, or 0 in `check` mode.
 #[inline]
 fn dart_port(i: usize) -> usize {
     DART_PORTS[i].load(std::sync::atomic::Ordering::Acquire)
@@ -571,7 +571,7 @@ unsafe fn seh_personality(rec: *mut u8, frame: *mut u8, dispatch: *mut u8) -> i3
     abort_unwinding("RtlUnwindEx returned")
 }
 
-/// The personality of the functions generated with `--excecoes=tabelas`
+/// The personality of the functions generated with `--exceptions=tables`
 /// (`personality ptr @dartforge_personality` in the IR). Only Windows x86-64 has
 /// the mode; on the other targets the emitter rejects it and nobody references this
 /// symbol.

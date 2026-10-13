@@ -39,11 +39,11 @@ pub const fn target_os() -> Os {
 
 /// The exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), through the variable
-/// `DARTFORGE_EXCEPTIONS` (the `--excecoes=` of `compile-native` sets it):
+/// `DARTFORGE_EXCEPTIONS` (the `--exceptions=` of `compile-native` sets it):
 ///
-/// * absent, empty or `checagem`: the exception is a pending state of the runtime that
+/// * absent, empty or `check`: the exception is a pending state of the runtime that
 ///   the caller checks after each call — the usual IR, byte for byte;
-/// * `tabelas`: a Dart call that throws unwinds the stack up to the
+/// * `tables`: a Dart call that throws unwinds the stack up to the
 ///   `landingpad` of whoever handles it (`optimize/tables.rs`), with the
 ///   runtime's personality (`dartforge_personality`). Only on Windows
 ///   x86-64, the only target with the personality written, and without the function
@@ -54,12 +54,12 @@ pub const fn target_os() -> Os {
 /// of the compiled SDK (`sdk_module::sdk_key`).
 ///
 /// # Errors
-/// An unknown value, or `tabelas` where the mode does not exist.
+/// An unknown value, or `tables` where the mode does not exist.
 pub fn table_exceptions() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_EXCEPTIONS").unwrap_or_default();
     match value.as_str() {
-        "" | "checagem" => Ok(false),
-        "tabelas" => {
+        "" | "check" => Ok(false),
+        "tables" => {
             // Windows x86-64 (SEH) and, through the runtime's Itanium
             // personality (Step 4, written and never run), Linux and macOS
             // on x86-64 and aarch64.
@@ -67,21 +67,21 @@ pub fn table_exceptions() -> Result<bool, String> {
             let itanium = cfg!(unix) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64"));
             if !(seh || itanium) {
                 return Err(
-                    "exceptions by tables (--excecoes=tabelas) only exist on Windows x86-64 and, on Linux and macOS, on x86-64 and aarch64".to_string()
+                    "exceptions by tables (--exceptions=tables) only exist on Windows x86-64 and, on Linux and macOS, on x86-64 and aarch64".to_string()
                 );
             }
             if std::env::var("DARTFORGE_CALL_TRACE").is_ok_and(|v| v == "1") {
-                return Err("exceptions by tables (--excecoes=tabelas) do not combine with DARTFORGE_CALL_TRACE=1".to_string());
+                return Err("exceptions by tables (--exceptions=tables) do not combine with DARTFORGE_CALL_TRACE=1".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_EXCEPTIONS={other}: the exception models are `checagem` and `tabelas`")),
+        other => Err(format!("DARTFORGE_EXCEPTIONS={other}: the exception models are `check` and `tables`")),
     }
 }
 
 /// The memory policy of the generated code (docs/ARC-CICLOS-ESPECIFICACAO.md
 /// §18.1, decision 1, and §24; docs/ARC-IMPLEMENTACAO.md), through the variable
-/// `DARTFORGE_MEMORY` (the `--memoria=` of `aot` and `compile-native` sets it):
+/// `DARTFORGE_MEMORY` (the `--memory=` of `aot` and `compile-native` sets it):
 ///
 /// * absent, empty or `tracing`: the usual tracing collector — the usual
 ///   IR, byte for byte;
@@ -113,18 +113,18 @@ pub fn arc_prepared() -> Result<bool, String> {
         return Ok(false);
     }
     if !arc_memory()? {
-        return Err("DARTFORGE_ARC_PREPARED=1 requires ARC memory (`--memoria=arc`)".into());
+        return Err("DARTFORGE_ARC_PREPARED=1 requires ARC memory (`--memory=arc`)".into());
     }
     Ok(true)
 }
 
 /// Where the collector roots live in the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), through the variable
-/// `DARTFORGE_ROOTS` (the `--raizes=` of `compile-native` sets it):
+/// `DARTFORGE_ROOTS` (the `--roots=` of `compile-native` sets it):
 ///
-/// * absent, empty or `sombra`: the roots frame of each function (the
+/// * absent, empty or `shadow`: the roots frame of each function (the
 ///   shadow stack) — the usual IR, byte for byte;
-/// * `mapas`: the SSA values live across a call come out in the LLVM stack
+/// * `maps`: the SSA values live across a call come out in the LLVM stack
 ///   maps (`rewrite-statepoints-for-gc`), and the collector finds them
 ///   by walking the native stack. On Windows x86-64 (the SEH walker,
 ///   `RtlVirtualUnwind`) and, since Step 4, on Linux and macOS on x86-64 and
@@ -136,35 +136,35 @@ pub fn arc_prepared() -> Result<bool, String> {
 /// of the compiled SDK.
 ///
 /// # Errors
-/// An unknown value, or `mapas` where the mode does not exist.
+/// An unknown value, or `maps` where the mode does not exist.
 pub fn roots_by_maps() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_ROOTS").unwrap_or_default();
     match value.as_str() {
-        "" | "sombra" => Ok(false),
-        "mapas" => {
+        "" | "shadow" => Ok(false),
+        "maps" => {
             let target_with_walker = (cfg!(windows) && cfg!(target_arch = "x86_64"))
                 || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
             if !target_with_walker {
                 return Err(
-                    "roots by maps (--raizes=mapas) exist on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string(),
+                    "roots by maps (--roots=maps) exist on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string(),
                 );
             }
             if !crate::generator::EMBEDDED_GENERATOR || std::env::var("DARTFORGE_GENERATOR").is_ok_and(|g| g == "clang") {
-                return Err("roots by maps (--raizes=mapas) require dartforge's embedded generator (Clang does not run the maps pass)".to_string());
+                return Err("roots by maps (--roots=maps) require dartforge's embedded generator (Clang does not run the maps pass)".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_ROOTS={other}: the roots modes are `sombra` and `mapas`")),
+        other => Err(format!("DARTFORGE_ROOTS={other}: the roots modes are `shadow` and `maps`")),
     }
 }
 
 /// The stack trace in the VM format (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-/// §13.14), through the variable `DARTFORGE_STACK_TRACE` (the `--rastro=` of
+/// §13.14), through the variable `DARTFORGE_STACK_TRACE` (the `--stack-trace=` of
 /// `compile-native` sets it):
 ///
-/// * absent, empty or `nenhum`: no table, the usual IR, and the text of the
+/// * absent, empty or `none`: no table, the usual IR, and the text of the
 ///   stack trace is today's;
-/// * `simbolico`: each call that may appear in a stack trace gets a label
+/// * `symbolic`: each call that may appear in a stack trace gets a label
 ///   before it and an entry in the `dfpcl` section (`llvm/stack_trace.rs`): the
 ///   address of the label, the function (name and url) and the line and column. The
 ///   runtime keeps the return addresses at the `throw` and symbolizes only when
@@ -175,20 +175,20 @@ pub fn roots_by_maps() -> Result<bool, String> {
 /// of the compiled SDK.
 ///
 /// # Errors
-/// An unknown value, or `simbolico` on a target without the walker.
+/// An unknown value, or `symbolic` on a target without the walker.
 pub fn symbolic_stack_trace() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_STACK_TRACE").unwrap_or_default();
     match value.as_str() {
-        "" | "nenhum" => Ok(false),
-        "simbolico" => {
+        "" | "none" => Ok(false),
+        "symbolic" => {
             let with_walker = (cfg!(windows) && cfg!(target_arch = "x86_64"))
                 || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
             if !with_walker {
-                return Err("the symbolic stack trace (--rastro=simbolico) exists on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string());
+                return Err("the symbolic stack trace (--stack-trace=symbolic) exists on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_STACK_TRACE={other}: the stack traces are `simbolico` and `nenhum`")),
+        other => Err(format!("DARTFORGE_STACK_TRACE={other}: the stack traces are `symbolic` and `none`")),
     }
 }
 
@@ -203,9 +203,9 @@ pub fn maps_budget() -> u64 {
 }
 
 /// The check build of the walk by maps (§15.2, E2.5):
-/// `DARTFORGE_ROOTS_CHECK=1` at compile time, with `--raizes=mapas`. Each
+/// `DARTFORGE_ROOTS_CHECK=1` at compile time, with `--roots=maps`. Each
 /// `gc` function also writes, before each collection point, its live values
-/// into slots of the shadow-stack frame; with `DARTFORGE_GC_WALK=conferir`
+/// into slots of the shadow-stack frame; with `DARTFORGE_GC_WALK=check`
 /// at run time, the runtime requires the walk by maps to have visited them.
 pub fn check_roots() -> bool {
     std::env::var("DARTFORGE_ROOTS_CHECK").is_ok_and(|v| v == "1")
@@ -216,15 +216,15 @@ pub fn check_roots() -> bool {
 /// test of maps mode must fail with its own; a test that does not fail
 /// with the sabotage does not count. Those of the emitter:
 ///
-/// * `folha:<extern>`: declares the extern `"gc-leaf-function"` even though it collects
+/// * `leaf:<extern>`: declares the extern `"gc-leaf-function"` even though it collects
 ///   (the map loses the records of the calls to it);
-/// * `pouso_sem_topo`: the landing pad of an `invoke` does not restore the top of the
+/// * `pad_without_top`: the landing pad of an `invoke` does not restore the top of the
 ///   shadow stack;
-/// * `sem_uso_ficticio`: the `"deopt"` operand of the collecting calls comes out empty
+/// * `no_fake_use`: the `"deopt"` operand of the collecting calls comes out empty
 ///   (the operands and the live values leave the map);
-/// * `quadro_sujo` (D5): the shadow-stack frame is born with 4098 in every
+/// * `dirty_frame` (D5): the shadow-stack frame is born with 4098 in every
 ///   slot instead of zero (a slot read before being written becomes an invalid root);
-/// * `bruto_no_mapa`: an even raw value (4098) live as a root in every
+/// * `raw_in_map`: an even raw value (4098) live as a root in every
 ///   `gc` function. The value has the shape of an object handle (remainder 2 mod 8,
 ///   `layout::e_objeto`) and points to no block: the handle validation
 ///   of the collector rejects it.
@@ -234,9 +234,9 @@ pub fn sabotage(name: &str) -> bool {
     std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').any(|s| s.trim() == name)
 }
 
-/// Extern `name` is in the `folha:<name>` sabotage.
+/// Extern `name` is in the `leaf:<name>` sabotage.
 pub fn sabotaged_leaf(name: &str) -> bool {
-    std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(name))
+    std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("leaf:") == Some(name))
 }
 
 /// The `target datalayout`/`target triple` header of the module.

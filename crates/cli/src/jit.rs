@@ -108,7 +108,7 @@ fn sdk_library(ir: &str) -> Result<Option<PathBuf>, String> {
 #[cfg(feature = "jit")]
 pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     crate::native::set_memory_policy("tracing")?;
-    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memoria=tracing|arc] <input.dart> [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [<main arguments>…]";
+    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memory=tracing|arc] <input.dart> [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [<main arguments>…]";
     let mut input: Option<PathBuf> = None;
     let mut ready_ir: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
@@ -131,12 +131,12 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--timings") => timings = true,
-            Some("--memoria") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--memoria requires tracing or arc")?;
+            Some("--memory") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--memory requires tracing or arc")?;
                 crate::native::set_memory_policy(value)?;
             }
-            Some(option) if option.starts_with("--memoria=") => {
-                crate::native::set_memory_policy(&option["--memoria=".len()..])?;
+            Some(option) if option.starts_with("--memory=") => {
+                crate::native::set_memory_policy(&option["--memory=".len()..])?;
             }
             _ => input = Some(PathBuf::from(a)),
         }
@@ -254,7 +254,7 @@ impl Drop for GenerationsDir {
     }
 }
 
-/// `dartforge reload <input.dart> [--sdk] [--packages] [--intervalo <ms>] [--uma-vez] [--timings] [--reiniciar]`
+/// `dartforge reload <input.dart> [--sdk] [--packages] [--interval <ms>] [--once] [--timings] [--restart]`
 ///
 /// **Stateful hot reload (default).** The program runs on its own thread of
 /// a `JitSession`; on each change to the `.dart` sources in the input's
@@ -270,14 +270,14 @@ impl Drop for GenerationsDir {
 /// apply over the live objects (a function's signature changed, a class
 /// gained fields or was renumbered) is rejected with the reason, and the
 /// program **restarts** with the new code: the watcher is a supervisor, and
-/// the session runs in a child process (`--filho`) that it recreates.
+/// the session runs in a child process (`--child`) that it recreates.
 ///
-/// `--reiniciar` is R0: a hot restart on each edit, without state, each
+/// `--restart` is R0: a hot restart on each edit, without state, each
 /// generation in its own process (`dartforge run --ir`).
 #[cfg(feature = "jit")]
 pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
     crate::native::set_memory_policy("tracing")?;
-    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings] [--reiniciar] [--memoria=tracing|arc]";
+    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--interval <ms>] [--once] [--timings] [--restart] [--memory=tracing|arc]";
     let mut input: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
@@ -292,27 +292,27 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
         match a.to_str() {
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--intervalo") => {
+            Some("--interval") => {
                 interval_ms = it
                     .next()
                     .and_then(|v| v.to_str())
                     .and_then(|v| v.parse().ok())
                     .filter(|v| (10..=10_000).contains(v))
-                    .ok_or("--intervalo requires milliseconds between 10 and 10000")?;
+                    .ok_or("--interval requires milliseconds between 10 and 10000")?;
             }
-            Some("--uma-vez") => once = true,
+            Some("--once") => once = true,
             Some("--timings") => timings = true,
-            Some("--memoria") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--memoria requires tracing or arc")?;
+            Some("--memory") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--memory requires tracing or arc")?;
                 crate::native::set_memory_policy(value)?;
             }
-            Some(option) if option.starts_with("--memoria=") => {
-                crate::native::set_memory_policy(&option["--memoria=".len()..])?;
+            Some(option) if option.starts_with("--memory=") => {
+                crate::native::set_memory_policy(&option["--memory=".len()..])?;
             }
-            Some("--reiniciar") => restart = true,
+            Some("--restart") => restart = true,
             // The old form of stateful hot reload, which is now the default.
-            Some("--preservar-estado") => {}
-            Some("--filho") => child = true,
+            Some("--preserve-state") => {}
+            Some("--child") => child = true,
             Some("--supervisor") => {
                 supervisor = Some(it.next().and_then(|v| v.to_str()).and_then(|v| v.parse().ok()).ok_or(usage)?);
             }
@@ -388,7 +388,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                     // The child also starts from tracing; it carries over the
                     // explicit selection to keep the same SDK variant in the cache.
                     command.arg("run")
-                        .arg(format!("--memoria={}", std::env::var("DARTFORGE_MEMORY").unwrap_or_else(|_| "tracing".into())))
+                        .arg(format!("--memory={}", std::env::var("DARTFORGE_MEMORY").unwrap_or_else(|_| "tracing".into())))
                         .arg("--ir").arg(&file);
                     if timings {
                         command.arg("--timings");
@@ -441,7 +441,7 @@ fn supervise(args: &[std::ffi::OsString]) -> Outcome {
         let mut child = std::process::Command::new(&own_exe)
             .arg("reload")
             .args(args)
-            .arg("--filho")
+            .arg("--child")
             .arg("--supervisor")
             .arg(port.to_string())
             .spawn()?;

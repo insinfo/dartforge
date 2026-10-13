@@ -10,9 +10,9 @@ pelas cópias. O registro `projetos.json` do corpus alternativo
 `<destino>/corpus` lista os pacotes para o `dartforge-parity projetos`:
 
     python scripts/parity-pub-cache.py E:/dftemp/analise/pub
-    dartforge-parity projetos --oraculo --corpus E:/dftemp/analise/pub/corpus
+    dartforge-parity projetos --oracle --corpus E:/dftemp/analise/pub/corpus
 
-(o `--oraculo` roda o `dart analyze` 3.6.2 de cada pacote; sem ele, o
+(o `--oracle` roda o `dart analyze` 3.6.2 de cada pacote; sem ele, o
 registro gravado é reaproveitado). Nada é escrito no pub-cache.
 """
 

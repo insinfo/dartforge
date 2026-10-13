@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! cargo run --release -p dartforge-types --example compare_types -- \
-//!     <ours.tsv> <oracle.tsv> [--exemplos N] [--grupo PATTERN]
+//!     <ours.tsv> <oracle.tsv> [--examples N] [--group PATTERN]
 //! ```
 //!
 //! A divergence is a **cause** when the expression diverges and no divergence
@@ -75,11 +75,11 @@ fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut nexamples = 3usize;
     let mut filter: Option<String> = None;
-    if let Some(i) = args.iter().position(|a| a == "--exemplos") {
+    if let Some(i) = args.iter().position(|a| a == "--examples") {
         nexamples = args[i + 1].parse().unwrap_or(3);
         args.drain(i..i + 2);
     }
-    if let Some(i) = args.iter().position(|a| a == "--grupo") {
+    if let Some(i) = args.iter().position(|a| a == "--group") {
         filter = Some(args[i + 1].clone());
         args.drain(i..i + 2);
     }

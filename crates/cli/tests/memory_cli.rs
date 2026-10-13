@@ -29,20 +29,20 @@ fn check(output: Output, expected: &str) {
 #[test]
 fn invalid_value_is_rejected_before_loading_the_source() {
     let mut cases = vec![
-        vec!["compile-native", "--memoria=wrong", "missing.dart"],
-        vec!["aot", "missing.dart", "missing.exe", "--memoria=wrong"],
+        vec!["compile-native", "--memory=wrong", "missing.dart"],
+        vec!["aot", "missing.dart", "missing.exe", "--memory=wrong"],
     ];
     if cfg!(feature = "jit") {
         cases.extend([
-            vec!["run", "--memoria=wrong", "missing.dart"],
-            vec!["reload", "missing.dart", "--memoria=wrong"],
+            vec!["run", "--memory=wrong", "missing.dart"],
+            vec!["reload", "missing.dart", "--memory=wrong"],
         ]);
     }
     for args in cases {
         let output = cli().args(&args).output().unwrap();
         assert!(!output.status.success());
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("--memoria=wrong: the memory policies"),
+            String::from_utf8_lossy(&output.stderr).contains("--memory=wrong: the memory policies"),
             "{args:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -70,7 +70,7 @@ fn aot_only_enables_arc_with_an_explicit_option() {
             .env("TEMP", &dir)
             .env("TMP", &dir);
         if arc {
-            cmd.arg("--memoria=arc");
+            cmd.arg("--memory=arc");
         }
         let output = cmd.output().unwrap();
         assert!(
@@ -97,9 +97,9 @@ fn jit_and_reload_select_the_policy_and_keep_the_program_arguments() {
         let mut run = cli();
         run.arg("run");
         if arc {
-            run.arg("--memoria=arc");
+            run.arg("--memory=arc");
         }
-        run.arg(&source).arg("--memoria=arc");
+        run.arg(&source).arg("--memory=arc");
         check(
             run.output().unwrap(),
             if arc {
@@ -110,12 +110,12 @@ fn jit_and_reload_select_the_policy_and_keep_the_program_arguments() {
         );
         for restart in [false, true] {
             let mut reload = cli();
-            reload.arg("reload").arg(&source).arg("--uma-vez");
+            reload.arg("reload").arg(&source).arg("--once");
             if arc {
-                reload.arg("--memoria=arc");
+                reload.arg("--memory=arc");
             }
             if restart {
-                reload.arg("--reiniciar");
+                reload.arg("--restart");
             }
             check(
                 reload.output().unwrap(),

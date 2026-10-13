@@ -23,7 +23,7 @@ printf 'programa\tmodo\tdev_s\tarquivo\t.text\t.rdata\t.pdata\t.dfgcm\n'
 for f in "$raiz"/bench/performance/*.dart; do
   nome=$(basename "$f" .dart)
   [ "$nome" = comum ] && continue
-  for modo in sombra mapas; do
+  for modo in shadow maps; do
     dev="$saida/$nome-$modo-dev.exe"
     exe="$saida/$nome-$modo.exe"
     ini=$(date +%s.%N)

@@ -1,7 +1,7 @@
 //! Debugging: shows how an SDK constructor was resolved.
 //! `cargo run -p dartforge-emit-js --example debug_ctor -- <file.dart> Class name`
 //!
-//! With `--tipos` instead of the class name, prints the declared and inferred types
+//! With `--types` instead of the class name, prints the declared and inferred types
 //! of the program's top-level variables.
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::model::{Element, FunctionRef};
@@ -12,7 +12,7 @@ use dartforge_intern::Interner;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let entry = std::path::PathBuf::from(&args[0]);
-    if args.get(1).map(|s| s.as_str()) == Some("--tipos") {
+    if args.get(1).map(|s| s.as_str()) == Some("--types") {
         types(&entry);
         return;
     }

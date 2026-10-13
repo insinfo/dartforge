@@ -87,7 +87,7 @@ pub fn compile(
         // Macros belong to language 3.6 (the experiment was dropped from the
         // following versions): the program's current version is the
         // target's, 3.6.
-        .arg("--versao-linguagem")
+        .arg("--language-version")
         .arg("3.6")
         .arg("--enable-experiment=macros")
         .output()

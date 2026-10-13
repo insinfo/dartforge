@@ -6,7 +6,7 @@
 //! ```text
 //! cargo run --release -p dartforge-types --example dump_types -- \
 //!     <input.dart> --packages <package_config.json> -o <output.tsv> \
-//!     [--arquivos <list.txt>] [--avisos <warnings.txt>] [--sdk <lib>]
+//!     [--files <list.txt>] [--warnings <warnings.txt>] [--sdk <lib>]
 //! ```
 //!
 //! Line: `path \t offset \t length \t node \t type \t resolution`.
@@ -32,8 +32,8 @@ fn main() {
         match a.as_str() {
             "--packages" => packages = it.next().map(PathBuf::from),
             "-o" => output = it.next().map(PathBuf::from),
-            "--arquivos" => files = it.next().map(PathBuf::from),
-            "--avisos" => warnings = it.next().map(PathBuf::from),
+            "--files" => files = it.next().map(PathBuf::from),
+            "--warnings" => warnings = it.next().map(PathBuf::from),
             "--sdk" => sdk_dir = it.next().map(PathBuf::from),
             _ => entry = Some(PathBuf::from(a)),
         }

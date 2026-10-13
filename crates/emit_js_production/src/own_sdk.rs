@@ -303,7 +303,7 @@ pub fn emit(a: &dartforge_emit_js::Analysis<'_>, op: Options) -> Result<(Emitted
         strip_unused(&mut e);
         return Ok((e, Some(report)));
     };
-    if std::env::var("DARTFORGE_JSPROD_SIGNATURES").is_ok_and(|v| v == "todas") {
+    if std::env::var("DARTFORGE_JSPROD_SIGNATURES").is_ok_and(|v| v == "all") {
         return Ok((first, Some(report)));
     }
     let texts = |e: &EmittedWithSdk| {

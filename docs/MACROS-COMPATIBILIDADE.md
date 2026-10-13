@@ -26,7 +26,7 @@ Dois caminhos produzem **o mesmo texto, byte a byte**:
 * **no DartForge JS**, o hospedeiro (`crates/macros_host`) executa a macro na
   VM Dart provisoriamente e recarrega o texto em memória como
   `<biblioteca>.macro.dart` (`elements/src/gerado.rs`). O executor nativo D4
-  (`macros_host::nativo`, `dartforge macros --nativo`,
+  (`macros_host::nativo`, `dartforge macros --native`,
   `DARTFORGE_MACROS_NATIVE`) produz o mesmo texto sem VM (MACROS-PROTOCOLO.md
   §3);
 * **na toolchain oficial**, um *builder* do `build_runner` roda **a mesma
@@ -40,7 +40,7 @@ pela nossa API também.
 ## 3. A materialização (implementada)
 
 ```
-dartforge macros <entrada.dart> --materializar [--forma 3.6|atual] --dart <dart> [--api packages/macros]
+dartforge macros <entrada.dart> --materialize [--shape 3.6|current] --dart <dart> [--api packages/macros]
 ```
 
 * roda o hospedeiro inteiro (detecção, as três fases com o programa
@@ -50,7 +50,7 @@ dartforge macros <entrada.dart> --materializar [--forma 3.6|atual] --dart <dart>
   a nossa API são gerados em `.dart_tool/dartforge/macros/`);
 * grava, para cada biblioteca com aplicação, `x.macro.dart` ao lado de
   `x.dart`, e diz a diretiva que a biblioteca precisa;
-* sem `--materializar`, imprime o texto.
+* sem `--materialize`, imprime o texto.
 
 Formato do arquivo por versão de SDK (o corpo é o mesmo; só muda o
 cabeçalho):
@@ -60,7 +60,7 @@ cabeçalho):
 | 3.6.2 | `augment library 'x.dart';` | `import augment 'x.macro.dart';` | `--enable-experiment=macros` |
 | 3.13.4 | `part of 'x.dart';` | `part 'x.macro.dart';` | `--enable-experiment=augmentations,enhanced-parts` |
 
-Medido: `dartforge macros --materializar` no `corpus/macros/410_json_codable`
+Medido: `dartforge macros --materialize` no `corpus/macros/410_json_codable`
 grava `lib/modelos.macro.dart` com o corpo **idêntico** ao texto do CFE 3.6.2
 (só o cabeçalho troca a URI `package:` pelo nome do arquivo); com
 `import augment 'modelos.macro.dart';` na biblioteca, o `dartforge
@@ -204,5 +204,5 @@ Um pacote `dartforge_macros_builder` para o `build_runner`:
   CFE) e grava na forma da versão do SDK do projeto.
 
 O teste de aceite do builder é o mesmo corpus: o `.macro.dart` gravado pelo
-`build_runner` tem de ser igual ao que `dartforge macros --materializar`
+`build_runner` tem de ser igual ao que `dartforge macros --materialize`
 grava, e ao `esperado/` do CFE.

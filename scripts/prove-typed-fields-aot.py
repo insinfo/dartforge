@@ -51,7 +51,7 @@ def main():
                 exe = saida / (caso + (".exe" if os.name == "nt" else ".bin"))
                 comando = [str(cli), "compile-native", str(entrada), "-o", str(exe)]
                 if arc:
-                    comando.append("--memoria=arc")
+                    comando.append("--memory=arc")
                 if otimizar:
                     comando.append("--optimize")
                 build = subprocess.run(comando, cwd=raiz, env=ambiente, capture_output=True)

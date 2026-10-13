@@ -130,7 +130,7 @@ Nesta ordem, com o objetivo escrito ao lado:
 
 5. **Verificação.** O corpus `corpus/js` roda igual, com o **mesmo
    stdout**, pelo perfil de produção. Acrescente ao `crates/differential`
-   um modo `--producao` que compare os três: VM, nosso desenvolvimento,
+   um modo `--production` que compare os três: VM, nosso desenvolvimento,
    nosso produção. E meça tamanho e tempo contra o `dart2js` nos dois
    projetos reais.
 

@@ -33,7 +33,7 @@ $ErrorActionPreference = "Stop"
 $Dir = (Resolve-Path $Dir).Path
 if ($Fluxo) {
   $fluxoJs = Join-Path $PSScriptRoot "flow.mjs"
-  $argumentos = @($fluxoJs, "--dir", $Dir, "--porta", "$Porta", "--rotulo", $Rotulo)
+  $argumentos = @($fluxoJs, "--dir", $Dir, "--port", "$Porta", "--rotulo", $Rotulo)
   if ($Web -ne "") { $argumentos += @("--web", $Web) }
   if ($Json -ne "") { $argumentos += @("--json", $Json) }
   if ($Ddc) { $argumentos += "--ddc" }

@@ -93,7 +93,7 @@ comparada (`instanceof`) não instanciada, e o enum de
 | `limitless_ui/example` | 4,10 MB | **4,03 MB** | 3,71 MB |
 | `new_sali/frontend` | 8,42 MB | **8,34 MB** (30 s; dart2js 68 s) | 7,62 MB |
 
-Corpus `--producao` e desenvolvimento 238/238. A varredura das 47 rotas do
+Corpus `--production` e desenvolvimento 238/238. A varredura das 47 rotas do
 `limitless_ui` no Chrome mostrou dois erros anteriores à rodada
 (`SafeElement|get#innerHtml` em 45 rotas e um `isA` não rebaixado na rota
 `typeahead`): o e2e 26/26 precisa ser refeito. Variáveis novas (`=0`
@@ -186,7 +186,7 @@ adaptadores `$c`); alocação (`arvores` 2,2–2,5× o Dart: varredura dos joven
 
 ## Retomada de 2026-10-12 (macOS arm64)
 
-ARC continua só com `--memoria=arc`; tracing é o padrão. §§27–34, a
+ARC continua só com `--memory=arc`; tracing é o padrão. §§27–34, a
 publicação da preparação ARC no CLI AOT/JIT e o gate ARC >= A0 **continuam
 incompletos**.
 
@@ -215,7 +215,7 @@ incompletos**.
 O `main` estava vermelho desde `aa05983e`, e ninguém tinha percebido:
 * Windows: `runtime/tests/ownership.rs` não listava `dartforge_value_class`
   e `dartforge_list_append`, auditadas no catálogo (75 ≠ 77).
-* Linux, macOS e Windows: `memory_cli` (AOT e JIT com `--memoria=arc`)
+* Linux, macOS e Windows: `memory_cli` (AOT e JIT com `--memory=arc`)
   entrava em pânico. Desde `a1edd273`, closures, chamadas tipadas e, depois,
   seletores exigiam portas certificadas sob ARC. Mas a CLI não prepara nem
   certifica os corpos. Agora `Module::arc_preparado` marca a publicação da
@@ -234,7 +234,7 @@ usam uma área única; as asserções não mudaram. Também foi removido um
 
 ### Preparação conjunta com o SDK da fonte
 
-`arc_audit_pipeline --memoria=arc --sdk-no-grupo --inventario-externs`
+`arc_audit_pipeline --memory=arc --sdk-in-group --externs-inventory`
 em `bench/performance/numerico.dart` passou, em ordem, por:
 * `Stopwatch.start` (`CallSeletor`): a mudança dos seletores preservada no
   fechamento foi validada, inclusive pela prova AOT ampliada.
@@ -252,7 +252,7 @@ em `bench/performance/numerico.dart` passou, em ordem, por:
   Ref declarada.
 * `dartforge_rti_init`: `dartforge_rti_init_table` passou de `1 1 0`
   para `0 0 0`. Isso foi confirmado pela análise estática (`folha_pura`) e
-  por execução AOT tracing com `DARTFORGE_EFFECTS=conferir`, normal e sob
+  por execução AOT tracing com `DARTFORGE_EFFECTS=check`, normal e sob
   GC stress (nome presente na tabela conferida, saída igual à do Dart). O
   parâmetro Rust passou a `*const i64`, como no vetor constante do módulo.
 * `df.ffi.v_lp$ent`: contratos de `dartforge_ffi_closure_address`
@@ -277,7 +277,7 @@ em `bench/performance/numerico.dart` passou, em ordem, por:
   (`dartforge_ffi_handles_close_with_object`; sob ARC, a variante Owned
   retém antes de soltar as células). `handles_abrir`, `handle_novo` e
   `handles_fechar` passaram de `1 1 0` para `0 0 0`, conferido por
-  execução com `DARTFORGE_EFFECTS=conferir` (29 pontos instrumentados no
+  execução com `DARTFORGE_EFFECTS=check` (29 pontos instrumentados no
   IR), normal e sob GC stress, tracing e ARC legado da CLI: saída igual à
   do `dart run` 3.6.2 (`target/prova-handles/`). Handle inválido: a VM não
   confere (comportamento indefinido); o DartForge lança `ArgumentError` e
@@ -343,7 +343,7 @@ avançou pelo `dart:core` (módulo 2). O que entrou:
   `exception_capturavel`, `args_casam`, `arg_indice`, natives de record,
   `string_igual_a`, `string_concat`, `to_string_bool/f64`, `rastro_texto`,
   `membro_recusado` (encerra o processo). Execução com
-  `DARTFORGE_EFFECTS=conferir` e GC stress, tracing e ARC legado
+  `DARTFORGE_EFFECTS=check` e GC stress, tracing e ARC legado
   (`target/prova-efeitos/`), instrumentou no programa `arg_indice`,
   `args_casam`, `capturavel`, `record_fieldAt/numFields`, `rti_e`,
   `string_concat` e `to_string_bool`, com saída igual à do Dart. As
@@ -393,7 +393,7 @@ testes unitários e de preparação.
 
 ### Publicação na CLI (`DARTFORGE_ARC_PREPARED=1`)
 
-Opção explícita, só com `--memoria=arc`; o padrão (tracing) e o ARC legado
+Opção explícita, só com `--memory=arc`; o padrão (tracing) e o ARC legado
 não mudam. Com ela:
 * SDK: `emitir_bibliotecas_do_sdk` baixa as 15 bibliotecas, prepara-as
   juntas (`preparar_arc_modulos_dart`) e certifica as portas do conjunto
@@ -429,7 +429,7 @@ não mudam. Com ela:
 
 Os quatro programas de prova (`prova-lote5`, `-ajudantes`, `-efeitos`,
 `-handles`) rodam com programa e SDK preparados, com e sem
-`DARTFORGE_EFFECTS=conferir`, com `DARTFORGE_ARC_CHECK=1`, normal e GC
+`DARTFORGE_EFFECTS=check`, com `DARTFORGE_ARC_CHECK=1`, normal e GC
 stress: 16 execuções iguais ao `dart run` 3.6.2 (`p6-*`).
 
 Corpus nativo (`corpus/native`, 130 programas) com a opção, contra o
@@ -461,7 +461,7 @@ era dobrado (`GetField` sobre `null`). O corpus fica com 125 de 126 iguais
 ao Dart, no preparado e no tracing; o `33` imprime `null` nos dois modos
 (anterior ao ARC, soquete Unix no macOS).
 
-Exceções por tabelas (`--excecoes=tabelas`) com a preparação publicada:
+Exceções por tabelas (`--exceptions=tables`) com a preparação publicada:
 
 * a preparação do programa importa os invokes e pousos materializados
   (`preparar_arc_modulo_tabelado`); antes partia de planos vazios e
@@ -476,9 +476,9 @@ Exceções por tabelas (`--excecoes=tabelas`) com a preparação publicada:
   para os phis das saídas.
 
 O corpus fica com 125 de 126 iguais também nesse modo
-(`scripts/native-corpus.sh tabelas`).
+(`scripts/native-corpus.sh tables`).
 
-Rastro simbólico (`--rastro=simbolico`) com a preparação:
+Rastro simbólico (`--stack-trace=symbolic`) com a preparação:
 `dartforge_stack_trace_enter` (borrow, sem retenção: o desenrolamento só lê o
 endereço enquanto o quadro que o empurrou está na pilha) e
 `dartforge_stack_trace_exit` ganham contrato. Um programa com lançamento
@@ -552,17 +552,17 @@ leituras de campo `final` emprestadas sem retain; depois §§27–34 e o gate AR
 | os mesmos em tracing e ARC legado, com `conferir`, normal/GC stress | 16 execuções, saída igual ao Dart (`r6-*`) |
 | provas AOT do CI (`prove-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
 | corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CHECK=1` | 125 de 126 iguais ao Dart (`corpus3-prep/resumo.tsv`) |
-| corpus nativo preparado com `--excecoes=tabelas` | 125 de 126 iguais (`corpus-tabelas/resumo.tsv`) |
-| quatro programas de prova, preparado com `--excecoes=tabelas`, `DARTFORGE_ARC_CHECK=1`, normal/GC stress | 8 execuções iguais ao Dart (`p7/`) |
+| corpus nativo preparado com `--exceptions=tables` | 125 de 126 iguais (`corpus-tabelas/resumo.tsv`) |
+| quatro programas de prova, preparado com `--exceptions=tables`, `DARTFORGE_ARC_CHECK=1`, normal/GC stress | 8 execuções iguais ao Dart (`p7/`) |
 | corpus nativo em tracing, mesmo binário | 125 de 126 iguais (`corpus3-tracing/resumo.tsv`; o `33` difere nos dois) |
 | marcas rebaixadas (`41`, `122`, `gc_d02`, `95` do corpus) com `conferir`, tracing/ARC legado/preparado, normal/GC stress | 24 execuções iguais (`corpus-conferir/`) |
 | quatro programas de prova, tracing/ARC legado/preparado, `conferir`, normal/GC stress | 24 execuções iguais (`r7-*`) |
 | runtime, todos os alvos incluindo ignorados | 227 + integrações + 83 doctests (`lote5-runtime.log`) |
-| `%` variável, setter `=>`, `late`, enums, `sync*`/`async`, captura escalar e por endereço, records, SIMD, `try`/`finally`, com e sem `DARTFORGE_EFFECTS=conferir`, tracing/ARC, normal/GC stress | 8 execuções, saída igual ao Dart (`prova-lote5/`) |
+| `%` variável, setter `=>`, `late`, enums, `sync*`/`async`, captura escalar e por endereço, records, SIMD, `try`/`finally`, com e sem `DARTFORGE_EFFECTS=check`, tracing/ARC, normal/GC stress | 8 execuções, saída igual ao Dart (`prova-lote5/`) |
 | programas anteriores (`ajudantes`, `efeitos`, `handles`) refeitos com conferir, tracing/ARC, normal/GC stress | 12 execuções, saída igual ao Dart (`r5-*`) |
 | `Handle` AOT, tracing/ARC, normal/GC stress, efeitos conferidos | 8 execuções, saída igual ao Dart (`prova-handles/`) |
 | listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
-| efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFFECTS=conferir`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
+| efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFFECTS=check`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
 | `memory_cli` (nativo), incluindo ignorados | 2 passaram (`arc-lote3-memoria-cli.log`) |
 | `prove-arc-aot.py arc_native_port_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
 | `memory_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
@@ -575,7 +575,7 @@ o resultado do CI destes commits deve ser conferido com `gh run list`.
 ## Fechamento de 2026-10-11
 
 Trabalho encerrado por pedido do proprietário. Não retomar automaticamente
-hoje. ARC somente com `--memoria=arc`; tracing permanece padrão. As §§27–34,
+hoje. ARC somente com `--memory=arc`; tracing permanece padrão. As §§27–34,
 a integração completa ao CLI AOT/JIT e o gate ARC >= A0 **não estão concluídos**.
 Este fechamento preserva também a mudança dos seletores ainda em validação.
 
@@ -676,7 +676,7 @@ medição posterior comprovando melhora; rodadas distintas não isolam mudanças
 
 Na retomada, concluir a bateria do emissor incluindo ignorados e executar
 `python scripts/prove-arc-aot.py arc_native_port_owned --debug`. Repetir
-`arc_audit_pipeline --memoria=arc --sdk-no-grupo --inventario-externs` em
+`arc_audit_pipeline --memory=arc --sdk-in-group --externs-inventory` em
 `bench/performance/numerico.dart` e resolver o próximo erro observado, sem
 afrouxar ownership, certificação ou guardas. Fechar preparação do SDK e
 publicação conjunta no CLI AOT/JIT; conferir portas, lifetimes, exceções,
@@ -703,7 +703,7 @@ Passou cargo doc --locked --workspace --no-deps --document-private-items
 com RUSTDOCFLAGS=-D warnings (53,58 s), log
 target/workspace-doc-links-correcao.log. Isso resolve a pendência de
 documentação descrita abaixo; não altera algoritmos de memória ou políticas.
-Clippy continua com as pendências registradas. ARC apenas --memoria=arc;
+Clippy continua com as pendências registradas. ARC apenas --memory=arc;
 tracing padrão. §§27–34 e gate ARC/A0 continuam incompletos/reprovados.
 
 Acessos a campos pelo módulo agora são resolvidos no mesmo ponto fixo de
@@ -724,7 +724,7 @@ separados. Passaram 322 testes unitários do emissor incluindo ignorados,
 e git diff --check passaram. Logs target/arc-campos-esquemas-{focado,suite}.log.
 Esquemas/inicializadores são premissas locais guardadas pelo módulo; seleção
 não prova não nulabilidade, vida, observadores/SDK ou política. Contexto
-implícito do emissor continua opaco. ARC apenas --memoria=arc; tracing padrão.
+implícito do emissor continua opaco. ARC apenas --memory=arc; tracing padrão.
 Sem nova medição/gate: ARC/A0=2,000274 anterior continua reprovado; §§27–34
 incompletos. Pendências de Clippy/documentação da etapa anterior permanecem.
 CI 38064260616: Linux/mensagens passaram; Windows/macOS ainda executam.
@@ -749,12 +749,12 @@ itens privados, também fora dos dois módulos alterados. Logs
 target/arc-cobertura-composta-{clippy,doc}.log; ambos terminaram em 101.
 Não resume escritas por campo/SDK, observadores ou vidas nem seleciona
 políticas/remove contagens. Análise pelo módulo só em ARC; tracing padrão,
-ARC apenas --memoria=arc. §§27–34 e gate completo continuam incompletos.
+ARC apenas --memory=arc. §§27–34 e gate completo continuam incompletos.
 CI 38064260616: Linux/mensagens passaram; Windows/macOS ainda executam.
 
 Comparação do trial deletion denso concluída: antes b706e0b0, depois
 687a7fd4; diferença de produção somente em arc.rs, benchmark inalterado.
-CLI release recompilada com jit; novo AOT otimizado com --memoria=arc.
+CLI release recompilada com jit; novo AOT otimizado com --memory=arc.
 Sete pares alternados, afinidade 0x4, ARC puro, 256 MiB, sem rastro,
 auditoria ou stress. Passaram 14 processos com resultados iguais e hashes
 inalterados. Auditoria reconstrói medianas do stdout sem aquecimento.
@@ -766,7 +766,7 @@ pares. A0/outros 30 kernels não reexecutados: ARC/A0=2,000274 anterior
 continua reprovado. Dados/scripts/logs/hashes em
 bench/results/2026-10-10-arc-trial-denso-windows. CLI SHA-256
 4daefc7bc235f40bd72a0b0aeabff2f49881f313b8615554c37372e632d7f418.
-ARC somente --memoria=arc; tracing padrão. §§27–34 continuam incompletos.
+ARC somente --memory=arc; tracing padrão. §§27–34 continuam incompletos.
 Commits até 687a7fd4 publicados em main após CI 38057171425 verde.
 Nova CI 38064260616 em execução; mensagens passaram. Evidência ainda local
 para preservar a rodada de CI ativa.
@@ -782,7 +782,7 @@ Passaram 190 testes unitários release do runtime (incluindo ignorados),
 DF_ARC_SEMENTES=1000 passou nos três oráculos de grafos aleatórios.
 Logs target/arc-trial-denso-{suite,oraculo}.log. Sem medição de desempenho
 dessa mudança; o agregado ARC/A0=2,000274 anterior continua reprovado.
-ARC somente com --memoria=arc; tracing permanece padrão. Integrar passes
+ARC somente com --memory=arc; tracing permanece padrão. Integrar passes
 ao fluxo normal significa executá-los quando ARC for explicitamente
 selecionado. C++ serve às fixtures de exceções estrangeiras; compilador e
 runtime são Rust. §§27–34 continuam incompletos. CI 38057171425 terminou
@@ -790,7 +790,7 @@ com sucesso em Windows, Linux, macOS arm64 e mensagens de commit.
 
 Comparação local da transferência de mortos concluída: antes 55beeb34,
 depois b706e0b0, diferença de produção restrita a arc.rs/heap.rs. CLI release
-recompilada; novo AOT --optimize com --memoria=arc. Sete pares alternados,
+recompilada; novo AOT --optimize com --memory=arc. Sete pares alternados,
 afinidade 0x4, sem rastro/auditoria/stress, ARC puro e heap 256 MiB.
 14 processos com resultados iguais; hashes dos dois executáveis e CLI
 inalterados. Auditoria posterior confere cobertura/ordem e reconstrói medianas
@@ -802,7 +802,7 @@ A0 e os outros 30 kernels não foram reexecutados. ARC/A0=2,000274 permanece
 o agregado anterior reprovado. Dados/manifesto/comparador em
 bench/results/2026-10-10-arc-transferencia-mortos-windows.
 CLI nova SHA-256 3a3c71197e2cc6cf1e2434f43d9a76ed1e5d1051f6a4d5a774f4042d6b2dabc3.
-ARC só --memoria=arc; tracing padrão. §§27–34 continuam incompletos.
+ARC só --memory=arc; tracing padrão. §§27–34 continuam incompletos.
 CI 38057171425: Windows/Linux/mensagens passaram; macOS continua nos testes
 JIT com ignorados. Mudança local para preservar a rodada publicada.
 
@@ -823,7 +823,7 @@ e 42 exemplos públicos; logs target/arc-transferencia-mortos-{focado,suite}.log
 Inclui fonte única AOT/JIT. git diff --check passou antes dos artefatos brutos.
 Sem comparação de tempo antes/depois da transferência; ARC/A0=2,000274 pertence
 ao produtor anterior 55beeb34. Gate reprovado; §§27–34 incompletos. ARC apenas
---memoria=arc, tracing padrão. CI 38057171425: Windows/Linux/mensagens passaram;
+--memory=arc, tracing padrão. CI 38057171425: Windows/Linux/mensagens passaram;
 macOS chegou aos testes JIT com ignorados. Mudança local sem interromper rodada.
 
 Medição ARC/A0 atualizada para 55beeb34: CLI release recompilada com LLVM
@@ -843,7 +843,7 @@ Evidência em bench/results/2026-10-10-modos-55beeb34-windows. Captura inicial
 de hashes ocorreu após duas execuções, no começo da fase de medição; os 18
 hashes permaneceram iguais no fechamento. Ponto de captura explícito no
 manifesto; não alegar captura anterior à primeira execução. ARC somente com
-parâmetro explícito --memoria=arc; tracing padrão. §§27–34 ainda incompletos.
+parâmetro explícito --memory=arc; tracing padrão. §§27–34 ainda incompletos.
 CI 38057171425: Windows/Linux/mensagens passaram; macOS continua nos testes
 emit_native com ignorados. Mudança local sem interromper essa rodada.
 
@@ -863,7 +863,7 @@ testes focados antes da ampliação do oráculo, depois 307 testes do emissor
 Logs target/arc-verificador-scc-{focado,suite,doc}.log. Rustfmt e git diff --check
 passaram; aviso preexistente de atribuir_slots não usado. Não verifica produtor
 de arestas, ciclo concreto, vida ou certificado de política; não conclui
-§§27–34 nem aprova gate ARC/A0. ARC só --memoria=arc; tracing padrão.
+§§27–34 nem aprova gate ARC/A0. ARC só --memory=arc; tracing padrão.
 CI 38057171425: Windows, Linux e mensagens passaram; macOS está nos testes
 emit_native com ignorados. Alteração local para preservar essa rodada.
 
@@ -880,7 +880,7 @@ manifesto com comandos/versões/hashes e três logs (AOT, 306 testes, 98 exemplo
 Artefatos anteriores de 12 casos permanecem preservados. Gerador Rust debug,
 Clang 22.1.8, SDK 3.6.2, executáveis O0/O2; não é medição de desempenho nem
 certificado global. Gate ARC/A0 reprovado; §§27–34 continuam incompletos.
-ARC só --memoria=arc; tracing padrão. CI 38057171425 ainda ativa no
+ARC só --memory=arc; tracing padrão. CI 38057171425 ainda ativa no
 Windows/macOS, Linux/mensagens passaram. Nenhum push para interromper a rodada.
 
 Contexto implícito por raízes entra na análise ARC e na guarda de cobertura
@@ -900,7 +900,7 @@ de análise e git diff --check passaram; llvm/mod.rs recebeu apenas extração
 local, sem reformatação geral. Aviso preexistente de atribuir_slots não usado.
 Não há nova prova AOT ou desempenho. Instrumentação, SDK/observadores, vidas
 e certificados continuam pendentes; não conclui §§27–34. Gate ARC/A0 reprovado.
-ARC só --memoria=arc; tracing padrão. CI 38057171425: Linux/mensagens passaram;
+ARC só --memory=arc; tracing padrão. CI 38057171425: Linux/mensagens passaram;
 Windows/macOS continuam ativos. Mudança local para preservar essa rodada.
 
 Análise nova registra fronteira de emissão implícita no próprio corpo:
@@ -919,7 +919,7 @@ target/arc-emissao-implicita-{focado,suite,doc}.log. Rustfmt dos quatro arquivos
 e git diff --check passaram; aviso preexistente de atribuir_slots não usado.
 Quadros por vivacidade, instrumentação, SDK/observadores e vidas continuam
 pendentes; não certifica política ou conclui §§27–34. Gate ARC/A0 não aprovado.
-ARC apenas --memoria=arc; tracing padrão. CI 38057171425: Linux/mensagens
+ARC apenas --memory=arc; tracing padrão. CI 38057171425: Linux/mensagens
 passaram; Windows está nos testes ignorados, macOS no cleanup de laços AOT.
 Mudança local para preservar a rodada publicada.
 
@@ -934,7 +934,7 @@ Passaram 303 testes do emissor (sete ignorados), 97 exemplos públicos e um
 exemplo de rejeição na compilação. Logs target/arc-tabela-chamador-{suite,doc}.log;
 há aviso preexistente de atribuir_slots não usado em llvm/raizes.rs.
 Não certifica cobertura de todos os efeitos implícitos nem vida/observadores;
-não remove contagens ou aprova o gate ARC/A0. ARC só com --memoria=arc;
+não remove contagens ou aprova o gate ARC/A0. ARC só com --memory=arc;
 tracing permanece padrão. CI 38057171425: Linux/mensagens passaram,
 Windows/macOS ainda ativos. Mudança local para preservar essa rodada.
 
@@ -954,7 +954,7 @@ profunda), 302 testes do emissor (sete ignorados), 97 exemplos públicos e um
 exemplo de rejeição na compilação. Logs
 target/arc-verificador-inclusao-{focado,suite,doc}.log. Rustfmt dos dois arquivos
 e git diff --check passaram. Não conclui §§27–34, não remove contagens nem
-aprova o gate ARC/A0. ARC só com --memoria=arc; tracing padrão.
+aprova o gate ARC/A0. ARC só com --memory=arc; tracing padrão.
 CI 38057171425: Linux/mensagens passaram; Windows/macOS ainda executam.
 Mudança local para preservar a rodada da revisão publicada b0ee6645.
 
@@ -976,7 +976,7 @@ públicos e um exemplo de rejeição na compilação. Logs
 target/arc-conversoes-opacas-{focado,suite,doc}.log. Rustfmt de hir.rs e
 git diff --check passaram. Cobertura global/implícita, verificador independente,
 observadores, vidas e políticas continuam pendentes; não conclui §§27–34 nem
-aprova o gate ARC/A0. ARC só com --memoria=arc; tracing permanece padrão.
+aprova o gate ARC/A0. ARC só com --memory=arc; tracing permanece padrão.
 CI 38057171425: Linux e mensagens passaram; Windows/macOS continuam ativos.
 Alteração local para preservar a rodada da revisão publicada b0ee6645.
 
@@ -999,7 +999,7 @@ emite NaoParticipa/AciclicoProvado, não forma grupo concreto e não seleciona
 política. Supergrafo de tipos/layouts completos, contexto/fluxo/forma,
 observadores, fronteiras globais e certificados continuam pendentes.
 Não conclui §29.1/S2 ou §§27–34; gate ARC/A0 segue não aprovado. ARC permanece
-exclusivo de --memoria=arc, tracing padrão. CI 38057171425 ainda executa nos
+exclusivo de --memory=arc, tracing padrão. CI 38057171425 ainda executa nos
 três alvos; mensagens passaram. Mudança local, sem cancelar a rodada publicada.
 
 PublicacoesHeapArc separa publicação somente pelo resultado de cobertura
@@ -1020,7 +1020,7 @@ Rustfmt dos quatro arquivos de análise e git diff --check passaram.
 Retenções interprocedurais, observadores, vidas, certificados e seleção de
 políticas continuam pendentes; nenhum retain/release foi eliminado. Não
 conclui §28.3/S1 ou §§27–34; gate ARC/A0 segue não aprovado. ARC permanece
-exclusivo de --memoria=arc; tracing padrão. CI 38057171425 ainda em execução
+exclusivo de --memory=arc; tracing padrão. CI 38057171425 ainda em execução
 nos três alvos; mensagens passaram. Alteração local, sem interromper a rodada.
 
 AnaliseHir agora expõe points-to e operações opacas apenas por consultas
@@ -1040,7 +1040,7 @@ exemplo de rejeição na compilação. Logs target/arc-premissas-modulo-{suite,d
 premissas. Rustfmt dos três arquivos de análise e git diff --check passaram.
 Verificador independente, exportação SDK, vidas/observadores, seleção de
 política e §§27–34 completos permanecem pendentes. Não altera ativação ARC:
-somente --memoria=arc; tracing permanece padrão. Gate ARC/A0 não aprovado.
+somente --memory=arc; tracing permanece padrão. Gate ARC/A0 não aprovado.
 CI 38057171425 da revisão publicada b0ee6645 continua em execução nos três
 alvos; mensagens passaram. Esta alteração permanece local para preservar a
 rodada em execução. Não considerar a CI ou o objetivo integral concluídos.
@@ -1067,7 +1067,7 @@ arquivos de análise e git diff --check passaram. Check Clippy integral ainda
 não aprovado pela limitação preexistente registrada abaixo.
 Escritas por caminho, cobertura de chamadas/callbacks/SDK, escape/retenção,
 observadores e certificados permanecem pendentes. Não conclui §28.3/S1 ou
-§§27–34. ARC só com --memoria=arc, tracing padrão; gate ARC/A0 segue reprovado.
+§§27–34. ARC só com --memory=arc, tracing padrão; gate ARC/A0 segue reprovado.
 
 CI 38051323600 terminou cancelada: Linux e mensagens passaram; Windows
 excedeu 60 min e macOS excedeu 90 min (check 114210866774). macOS aprovou todas
@@ -1102,7 +1102,7 @@ não aprovado: limitação preexistente registrada abaixo permanece.
 Ainda pendentes: efeitos/observadores, campos/globais/frescor, alvos dinâmicos
 RTA, vidas, resumos SDK e versões de layouts/pins/gerações JIT. Não conclui
 §28.3/S1 ou §§27–34; entrada continua explícita, sem seleção de política ou
-eliminação de contagens. ARC só com --memoria=arc; tracing permanece padrão.
+eliminação de contagens. ARC só com --memory=arc; tracing permanece padrão.
 Gate ARC/A0 segue não aprovado. CI 38051323600: Linux passou, Windows cancelado
 por prazo antigo; macOS continua nos testes JIT com ignorados. Mudança local.
 
@@ -1130,7 +1130,7 @@ Chamadas encadeadas/SCC recursivas, efeitos de campos/escape/observadores,
 resumos SDK e dependências de layouts/pins/gerações JIT continuam pendentes.
 Guarda de corpo é local, não formato de exportação versionada. Entrada de
 análise permanece explícita e só no módulo ARC; não seleciona política nem
-remove contagens. ARC só com --memoria=arc; tracing permanece padrão.
+remove contagens. ARC só com --memory=arc; tracing permanece padrão.
 Não conclui S0/S1, §§27–34 ou o gate de desempenho ARC/A0.
 
 ResumoHeapArc inicial em optimize/arc/analise/resumos.rs separa retorno
@@ -1150,7 +1150,7 @@ incluindo união Phi/parametros/null e instanciação, e 84 exemplos públicos.
 Logs target/arc-resumo-alias-{suite,focado,doc}.log. Consumo automático nas
 chamadas HIR, SCC recursivas, resumos de campos/escape/observadores,
 dependências SDK/JIT e exportação versionada ainda pendentes. ARC continua
-exclusivo de --memoria=arc; esta etapa não conclui S0/S1 ou o gate ARC/A0.
+exclusivo de --memory=arc; esta etapa não conclui S0/S1 ou o gate ARC/A0.
 
 CI 38051323600: Windows cancelado ao exceder limite do job de 1h,
 conforme anotação do check 114210866777. Não houve falha de teste nesse
@@ -1181,7 +1181,7 @@ target/arc-escape-transitivo-{suite,focado,doc}.log.
 Não certifica confinamento/região ou cobertura global: observadores,
 resumos interprocedurais, callbacks/async, vidas, esquemas/versionamento e
 certificados continuam pendentes. Nenhuma política ou ativação ARC foi
-alterada; somente --memoria=arc seleciona ARC. CI 38051323600 continua
+alterada; somente --memory=arc seleciona ARC. CI 38051323600 continua
 ativa: Linux passou, macOS executa testes do emissor com ignorados e
 Windows chegou aos ignorados após as matrizes nativas.
 
@@ -1206,7 +1206,7 @@ target/arc-points-to-modulo-{suite,fonte,doc}.log.
 Entrada ainda explícita, sem certificados/seleção de política: chamadas,
 efeitos transitivos, escape/observadores, resumos SDK, contextos e dependências
 de versão permanecem pendentes; não conclui S0/S1 nem o gate ARC/A0.
-ARC continua exclusivo de --memoria=arc. CI 38051323600 permanece ativa:
+ARC continua exclusivo de --memory=arc. CI 38051323600 permanece ativa:
 Linux passou; macOS chegou a unwind estrangeiro e Windows a keepalive pending.
 
 Lowering ARC registra origens nominais de alocações reconhecidas em
@@ -1252,7 +1252,7 @@ Logs target/arc-points-to-hir-{suite,focado,doc}.log.
 Produtor automático de origens/layouts, contratos SDK, escape/observadores,
 dependências de versão e integração no pipeline continuam pendentes.
 Esta análise explícita não certifica políticas nem ativa ARC: somente
---memoria=arc escolhe ARC na CLI. CI 38051323600 continua executando;
+--memory=arc escolhe ARC na CLI. CI 38051323600 continua executando;
 Linux passou, macOS passou retorno da fonte/instâncias zeradas/campos
 tipados e chegou a campos locais; Windows executa recarga JIT.
 
@@ -1274,7 +1274,7 @@ Restrição ausente não significa efeito ausente do programa: produtores
 HIR, valores iniciais, resumos SDK/callbacks, instanciação de placeholders,
 efeitos transitivos, escape/observadores e certificados ainda pendentes.
 Este solver consome fatos explícitos e não escolhe políticas nem altera
-a ativação exclusiva por --memoria=arc. Não concluir S0/S1 ou o gate ARC/A0.
+a ativação exclusiva por --memory=arc. Não concluir S0/S1 ou o gate ARC/A0.
 CI 38051323600: Linux terminou com sucesso; macOS passou pela seleção de
 memória e retorno da fonte e executa instâncias zeradas; Windows passou
 o teste geral e executa recarga JIT. Rodada ainda não concluída.
@@ -1297,7 +1297,7 @@ Regressões distinguem placeholders/contextos e recusam perda de aliases
 ao reduzir budget. Passaram 266 testes do emissor (sete ignorados) e
 63 exemplos públicos; logs target/arc-dominio-pontos-{suite,doc}.log.
 Este é o domínio usado pela futura worklist, não a conclusão de S0/S1,
-integração ao pipeline ou mudança da seleção explícita --memoria=arc.
+integração ao pipeline ou mudança da seleção explícita --memory=arc.
 CI 38051323600 continua ativa; macOS chegou à seleção de memória na CLI,
 Linux chegou aos testes JIT e Windows continua no passo test.
 
@@ -1315,7 +1315,7 @@ Passaram 263 testes do emissor (sete ignorados), 55 exemplos públicos e
 os 16 casos AOT da cadeia da fonte no Windows. Logs
 target/arc-scc-compartilhado-{suite,doc,aot}.log. Extração não certifica
 points-to, aciclicidade de instâncias, regiões/grupos ou o gate ARC/A0;
-seleção de ARC continua exclusiva de --memoria=arc. Mudança ainda local.
+seleção de ARC continua exclusiva de --memory=arc. Mudança ainda local.
 
 Prova arc_source_return ampliada para repassar(valor) chamar
 identidade(identidade(valor)), usando os dois corpos reais do lowering.
@@ -1343,7 +1343,7 @@ hospedeiro com outro heap/TLS. Resolvedor agora obtém símbolos do catálogo
 reservado na própria instância do runtime; símbolos estrangeiros continuam
 no lookup do processo. Seleção local é gerada para módulo Cargo e fonte
 avulsa do AOT a partir do mesmo catálogo, incluindo as condições Unix.
-Não altera ativação ARC: somente --memoria=arc escolhe essa política na CLI.
+Não altera ativação ARC: somente --memory=arc escolhe essa política na CLI.
 
 Regressões passaram: 184 testes do runtime (três ignorados), quatro de
 fonte única (incluindo resolver/cache para todo o catálogo), 42 exemplos
@@ -1437,14 +1437,14 @@ imprimiu 9223372036854775807. Logs target/arc-publicacao-tabelas-*. Isso
 valida a API explícita, sem certificar unwind Windows ou a integração
 automática completa da fonte/SDK.
 
-Contrato de ativação: ARC é opt-in por `--memoria=arc`; sem a opção,
+Contrato de ativação: ARC é opt-in por `--memory=arc`; sem a opção,
 tracing permanece padrão. Integração dos passes ao fluxo normal de
 compilação deve respeitar essa seleção. C++ aparece nas fixtures de
 exceções estrangeiras; compilador e runtime são implementados em Rust.
 
 Correção da seleção na CLI registrada em 4fe197ef: AOT/compile-native/run/
 reload partem de tracing, mesmo com DARTFORGE_MEMORY=arc herdado; somente
-a opção explícita escolhe ARC. run/reload agora reconhecem --memoria=arc.
+a opção explícita escolhe ARC. run/reload agora reconhecem --memory=arc.
 Em run a opção deve preceder o arquivo; depois dele é argumento de main.
 O reinício da recarga transporta a seleção para o filho e mantém a variante
 do SDK. Três testes passaram, incluindo oito execuções que consultam o modo
@@ -1496,7 +1496,7 @@ da biblioteca permanecem fora desta rodada local.
 
 Prova nativa reproduzível: scripts/prove-typed-fields-aot.py recebe uma
 CLI recompilada e executa a fixture campos_tipados_arc.dart em tracing
-sem --memoria e ARC explícito, com/sem otimização. Gera também uma variante
+sem --memory e ARC explícito, com/sem otimização. Gera também uma variante
 com padding até CAMPOS_EM_LINHA=4096: double/bool/Ref ficam na extensão.
 Oito casos aprovados no Windows, com GC_STRESS=1; ARC_CONFERIR=1 e
 ARC_BERCARIO=0 na execução. Verifica int máximo, -0.0, bool, identidade,
@@ -1547,7 +1547,7 @@ a matriz nas três plataformas, ainda não publicada. Não prova receivers
 recebidos por parâmetro, chamadas de SDK com resumos de heap, guardas late,
 fonte Dart completa, versões/pins, suspensão, certificados contra
 adulteração ou desempenho ARC≥A0. Integração ao pipeline padrão continua
-pendente e será exclusiva de --memoria=arc; tracing permanece o padrão.
+pendente e será exclusiva de --memory=arc; tracing permanece o padrão.
 
 Alocação Owned/inicialização de campos registrada no commit bee4dceb.
 Evidência Windows congelada em
@@ -1577,7 +1577,7 @@ CI nova preparada para essa matriz, ainda não publicada. Não certifica
 lowering Dart completo, origem de receivers para getters, guardas late/tipo,
 registro de métodos, construtores, versões/pins, suspensão ou desempenho.
 Não integra o passe ao pipeline padrão; ARC permanece exclusivo de
---memoria=arc e tracing continua o padrão.
+--memory=arc e tracing continua o padrão.
 
 Commits até b198aadd publicados em main após a aprovação de ed5897e9.
 CI 38038842350 e sem toolchain 38038842352 da fonte b198aadd estão em
@@ -1637,7 +1637,7 @@ manifestos nas três plataformas; essa revisão ainda não foi publicada.
 Na CI 38034929874 da fonte ed5897e9, Windows e Linux terminaram com sucesso;
 macOS ainda em execução. A etapa de campos passou nas três plataformas,
 mas essa execução não cobre o script novo nem pending/laços novos.
-ARC continua exclusivo de --memoria=arc; tracing permanece o padrão.
+ARC continua exclusivo de --memory=arc; tracing permanece o padrão.
 
 Preparação ARC agora insere cleanup de tokens mortos em arestas normais,
 incluindo arestas críticas, Switch e voltas de laços. Planejamento usa o
@@ -1664,7 +1664,7 @@ Isso não prova morte nativa em laços/junções gerais. Arestas excepcionais e
 pousos ainda exigem cleanup preparado; Finalizable, captura e suspensão
 exigem extensões de vida materializadas como usos na HIR. Produção dessas
 extensões, slots/regiões/pins, lowering completo e desempenho ARC≥A0
-continuam pendentes. ARC permanece exclusivo de --memoria=arc.
+continuam pendentes. ARC permanece exclusivo de --memory=arc.
 
 Keepalive de Phi agora prepara todas as origens emprestadas num mesmo lote,
 antes de reconstruir a classificação da junção. Evita rejeitar o estado
@@ -1679,7 +1679,7 @@ primeira promoção privada. Passaram 127 testes ARC, 235 testes do emissor
 (7 ignorados) e 52 exemplos de documentação; logs
 target/arc-keepalive-phi-{focado,suite,doc}.log. Não é prova nativa desses Phis,
 cleanup geral de laços/arestas nem integração do lowering. ARC continua
-exclusivo de --memoria=arc.
+exclusivo de --memory=arc.
 
 Prova AOT arc_keepalive_pending passou no Windows: ARC/tracing × O0/O2
 × sucesso/erro, oito execuções positivas e doze controles negativos. O
@@ -1700,7 +1700,7 @@ retomada para não cancelar a validação em curso de ed5897e9. Não certifica
 alocador de record no lowering (harness usa ABI legada com retain imediato),
 fonte Dart, suspensão/recarga ou unwind. Tracing mantém tokens explícitos
 somente no harness de comparação; ARC no produto continua exclusivo de
---memoria=arc.
+--memory=arc.
 
 Prova AOT arc_field_keepalive passou no Windows: ARC/tracing × O0/O2,
 quatro execuções positivas e oito controles negativos sem retenção ou sem
@@ -1734,7 +1734,7 @@ Passaram 126 testes ARC, 234 testes do emissor (7 ignorados) e 52 exemplos
 de documentação. Logs target/arc-keepalive-pending-{focado,suite,doc}.log.
 Não é prova AOT nem integração completa do lowering; regiões/slots,
 cleanup geral de laços/arestas, suspensão, Finalizable e versões/pins
-continuam pendentes. Preparação permanece exclusiva de --memoria=arc.
+continuam pendentes. Preparação permanece exclusiva de --memory=arc.
 
 Preparação ARC do módulo protege automaticamente resultados runtime Ref
 borrowed sem falha quando o checker detecta invalidação/reentrada. Retém na
@@ -1753,7 +1753,7 @@ resultado falível não recebem cópia antes da guarda; proteção somente na
 aresta normal, cleanup de laços/arestas gerais, regiões/slots, suspensão,
 Finalizable e versões/pins continuam pendentes. Isso não escolhe ABIs de
 campos no lowering nem integra ownership ao fluxo padrão; ARC permanece
-exclusivo de --memoria=arc. Não é nova prova AOT nem medição de desempenho.
+exclusivo de --memory=arc. Não é nova prova AOT nem medição de desempenho.
 Passaram 233 testes do emissor (7 ignorados), incluindo 125 testes ARC,
 e 52 exemplos de documentação. Logs target/arc-keepalive-{focado,suite,doc}.log.
 
@@ -1779,7 +1779,7 @@ junção, volta de laço, releitura, argumento de callback opaco e não publica�
 parcial. Não insere keepalive, não refina regiões/aliases de slots nem prova
 proveniência geral, layouts, versões/pins ou suspensão. Seleção das ABIs no
 lowering e integração no fluxo normal continuam pendentes, somente por
---memoria=arc. Sem nova prova AOT. Passaram 181 testes runtime (3 ignorados),
+--memory=arc. Sem nova prova AOT. Passaram 181 testes runtime (3 ignorados),
 2 testes do catálogo, 41 exemplos runtime, 229 testes do emissor (7 ignorados)
 e 52 exemplos do emissor. Logs target/arc-leitura-ref-runtime-{suite,doc}.log
 e target/arc-leitura-ref-emissor-{suite,doc}.log.
@@ -1800,7 +1800,7 @@ leitura escalar e dois drops; assinaturas falseadas e setter legado sem
 contrato são recusados sem publicação parcial. Preparação é idempotente e
 não altera tracing. Seleção no lowering, receiver/layout, guardas Dart de
 tipo/late, versões/pins e proteção de borrows continuam pendentes; não é
-integração no fluxo normal nem nova prova AOT. ARC só por --memoria=arc.
+integração no fluxo normal nem nova prova AOT. ARC só por --memory=arc.
 Passaram 180 testes runtime (3 ignorados), 2 testes do catálogo e 40 exemplos
 runtime; 225 testes do emissor (7 ignorados) e 52 exemplos de documentação.
 Logs target/arc-gravacao-runtime-{focado,suite,doc}.log e
@@ -1818,7 +1818,7 @@ assinatura incompatível ou alocador legado sem contrato são recusados sem
 publicação parcial. Preparação é idempotente e não altera tracing.
 Não escolhe a fábrica no lowering, não executa construtores/registra métodos
 nem certifica layouts/recarga; inicialização de campos e integração no fluxo
-normal continuam pendentes, sempre exclusivas de --memoria=arc.
+normal continuam pendentes, sempre exclusivas de --memory=arc.
 Sem nova prova AOT desta ABI. Passaram 178 testes runtime (3 ignorados),
 2 testes do catálogo e 38 exemplos runtime; 224 testes do emissor
 (7 ignorados) e 52 exemplos de documentação. Logs
@@ -1838,7 +1838,7 @@ de ownership quando não há funções. Isso não certifica forma física dos
 objetos do SDK, receiver, versões/pins ou integração de todos os corpos.
 Passaram 223 testes do emissor (7 ignorados) e 52 exemplos de documentação;
 logs target/arc-layouts-sdk-{suite,doc}.log. ARC só é ativado na CLI por
---memoria=arc; tracing continua o padrão.
+--memory=arc; tracing continua o padrão.
 
 Provas AOT da fonte f81c7d2b preservadas em
 bench/results/2026-10-10-unwind-boxing-unix-ci: 72 execuções Unix, 114
@@ -1858,7 +1858,7 @@ de campos e representações válidas, recusando dados obsoletos/ambíguos sem
 publicar alterações. Esses fatos declarados não provam receiver, forma física,
 versão/pins de recarga nem inicialização; a ABI escalar ainda não é escolhida
 pelo lowering. Integração padrão/borrows permanecem pendentes e exclusivos
-de --memoria=arc. Passaram 223 testes do emissor (7 ignorados), 52 exemplos
+de --memory=arc. Passaram 223 testes do emissor (7 ignorados), 52 exemplos
 de documentação e cargo check --locked -p dartforge-jit --all-targets;
 logs target/arc-layouts-{suite,doc,jit-check}.log.
 
@@ -1877,7 +1877,7 @@ prova AOT desta ABI; integração/layouts/borrows completos continuam pendentes.
 Passaram 176 testes runtime (3 ignorados), 2 testes do catálogo e 37 exemplos
 runtime; emissor: 221 testes (7 ignorados) e 52 exemplos de documentação.
 Logs target/arc-campo-runtime-{suite,doc}.log, target/arc-campo-ownership.log
-e target/arc-campo-emissor-{suite,doc}.log. ARC continua exclusivo de --memoria=arc.
+e target/arc-campo-emissor-{suite,doc}.log. ARC continua exclusivo de --memory=arc.
 
 Verificador ARC reconfere constantes, boxing bool, aritmética e conversões
 pelas mesmas regras do produtor, no módulo privado puros. Regressão reproduziu
@@ -1890,7 +1890,7 @@ cobertas exigem efeito vazio. Preserva diagnóstico de contrato ausente.
 Passaram 220 testes do emissor (7 ignorados) e 52 exemplos de documentação;
 logs target/arc-puras-verificador-{suite,doc}.log. Proveniência geral,
 domínio/estouro, demais operações e integração padrão continuam pendentes;
-preparação ARC permanece exclusiva de --memoria=arc.
+preparação ARC permanece exclusiva de --memory=arc.
 
 Verificador de tokens reconstrói os contratos dos locais escalares no corpo
 atual: não aceita só mapas produzidos antes de uma alteração de CFG/instruções.
@@ -1902,7 +1902,7 @@ leitura; verificação exige o inventário completo e valores gravados Trivial.
 Demais contratos/proveniência/borrows continuam obrigações separadas.
 Passaram 219 testes do emissor (7 ignorados) e 52 exemplos de documentação;
 logs target/arc-locais-verificador-{suite,doc}.log. Integração padrão pendente,
-sempre condicionada a --memoria=arc.
+sempre condicionada a --memory=arc.
 
 Produtor ARC de locais escalares privados cobre Alloca/Store/Load de
 I1/I8/I64/F64. Exige alloca Ptr na entrada, endereço usado só por leituras/
@@ -1926,7 +1926,7 @@ sequência bool/byte/palavra até boxing permanente, sem Owned ou pending.
 Emissão LLVM confere zext/trunc; não constitui prova AOT do código assíncrono.
 Passaram 212 testes do emissor (7 ignorados) e 52 exemplos de documentação;
 logs target/arc-larguras-{suite,doc}.log. Passe padrão ainda pendente e
-restrito a --memoria=arc; contratos de loads/campos e borrows exigem cobertura.
+restrito a --memory=arc; contratos de loads/campos e borrows exigem cobertura.
 
 CI 38025125587 na fonte f81c7d2b concluída com sucesso: Windows, Linux,
 macOS e mensagens. As provas AOT Unix de unwind passaram nos dois sistemas.
@@ -1944,7 +1944,7 @@ ausente/gerenciada, destino divergente e cadeia aritmética; emissão LLVM
 confere bitcast nas duas direções, sem nova prova AOT de payloads double.
 Passaram 211 testes do emissor (7 ignorados) e 52 exemplos de documentação;
 logs target/arc-bitcast-{suite,doc}.log. Integração padrão permanece pendente
-e será exclusiva de --memoria=arc; tracing continua sem essa preparação.
+e será exclusiva de --memory=arc; tracing continua sem essa preparação.
 
 CI 38021212710 concluída com sucesso na fonte 34198a54: Windows, Linux,
 macOS arm64 e mensagens verdes. Inclui as etapas completas com ignorados,
@@ -2025,7 +2025,7 @@ caixa Owned com drops em sucesso/erro, falta de saída excepcional e
 adulteração que tentava retirar pode_falhar/pending. Emissão textual LLVM
 confere chamada I1 e conversão u8; não é prova AOT nova.
 Log target/arc-unboxing-bool.log. Reentrada/borrows e integração padrão
-condicionada a --memoria=arc continuam pendentes.
+condicionada a --memory=arc continuam pendentes.
 Após unbox bool: 207 testes passaram (7 ignorados) e 49 exemplos de
 documentação passaram; logs target/arc-unboxing-bool-{suite,doc}.log.
 
@@ -2051,7 +2051,7 @@ a suíte completa com 206 testes (7 ignorados) e 85 exemplos de documentação.
 Logs target/arc-unbox-{contratos,runtime-catalogo,suite,doc}.log.
 
 Condição reafirmada pelo proprietário: integração de ownership no pipeline
-somente com --memoria=arc; tracing permanece o modo sem essa opção.
+somente com --memory=arc; tracing permanece o modo sem essa opção.
 A CLI já traduz a opção para DARTFORGE_MEMORY, consultada antes de preparar
 programa/SDK. O pipeline documenta essa condição; regressão cobre boxing
 double no tracing com exceções checagem/tabelas, sem fábricas Owned ou RC ARC.
@@ -2234,7 +2234,7 @@ Teste cobre tracing/ARC × estresse direto ligado/desligado, dois tokens,
 Conferência de efeitos também precisa de unwind: snapshot de profundidade na
 entrada e restauração no pouso abandonam externs atravessadas e suas proibições
 de coleta. Não conferem saída normal nem alteram pendência. Teste nested do
-runtime e corpo LLVM em DARTFORGE_EFFECTS=conferir passaram, objetos Linux O0/O2;
+runtime e corpo LLVM em DARTFORGE_EFFECTS=check passaram, objetos Linux O0/O2;
 35 doctests do runtime e dois testes do catálogo passaram. Logs
 `target/observacao-heap-*`, `target/efeitos-unwind-*`, `target/unwind-estrangeiro-*`.
 Fonte anterior 24efc32a passou também na prova de rastro explícito macOS;
@@ -2289,7 +2289,7 @@ originais, limpa a pendência, coleta e retém a captura do rastro novamente:
 ARC_CONFERIR confere sua validade após coleta. Oito variantes Windows
 simples/misto × ARC/tracing × normal/erro passaram com código zero e MAX+LF
 byte exato; dois caminhos ARC estritos também passaram. Geração com
-DARTFORGE_EFFECTS=conferir, execução ARC_CONFERIR=1, BER=0, GC_STRESS=1.
+DARTFORGE_EFFECTS=check, execução ARC_CONFERIR=1, BER=0, GC_STRESS=1.
 Logs/IR/stdout `target/rastro-aot-*`. CI Unix usa o mesmo exemplo e requer
 nova execução desta fonte. Não observa morte final em AOT nem identidade do
 objeto nativo de unwind; não cobre rastro implicitamente capturado da pilha,
@@ -2329,7 +2329,7 @@ troca de identidade imprime null e reprova stdout. Não observa identidade do
 objeto nativo de unwind, rastro ou morte final em AOT. Oito variantes Windows
 simples/misto × ARC/tracing × normal/erro passaram, código zero e MAX byte exato,
 sob ARC_CONFERIR=1, BER=0, GC_STRESS=1. Variante erro ARC misto também passou
-com DARTFORGE_EFFECTS=conferir na geração; CI ativa essa conferência para os
+com DARTFORGE_EFFECTS=check na geração; CI ativa essa conferência para os
 próximos oito casos Unix. Logs `target/ownership-excecao-owned-*` e
 `target/excecao-owned-*`. Execução Unix da leitura Owned ainda pendente.
 
@@ -2850,7 +2850,7 @@ Verificação local após a separação: suíte unitária completa de
 ignorados. Os três testes novos cobrem o CFG antes da publicação, a pendência
 recalculada após editar a continuação e um sítio invalidado entre etapas.
 O teste de emissão determinística também passou com
-`DARTFORGE_EXCEPTIONS=tabelas`. O corpus completo remoto ainda usa `719e94cc`,
+`DARTFORGE_EXCEPTIONS=tables`. O corpus completo remoto ainda usa `719e94cc`,
 anterior à separação do passe.
 Validação local do passe separado, código de `a80d1b84`: A1, A1 sob
 `--gc-stress`, B1 e B1 sob `--gc-stress`, todos 238/238 e código de saída 0.
@@ -2919,7 +2919,7 @@ as saídas. Os quatro testes do passe passaram, incluindo rejeição de função
 trocada; a consulta ainda não insere owners ou cleanups ARC.
 Na revisão `0d64636e`, a suíte completa do emissor passou: 106 testes,
 zero falhas, sete manuais ignorados. O teste `emitir_ir_e_deterministico`
-também passou com `DARTFORGE_EXCEPTIONS=tabelas`, em 33,39 s, emitindo o
+também passou com `DARTFORGE_EXCEPTIONS=tables`, em 33,39 s, emitindo o
 mesmo programa duas vezes sequencialmente e quatro em paralelo. O SDK
 `C:/tools/dartsdk-3.6.2/lib/libraries.json` estava presente: não foi o
 retorno antecipado por SDK ausente. Esse teste verifica o IR de `print(1)`;
@@ -4566,9 +4566,9 @@ microbenchmark só valem presos a um núcleo P).
 | **JIT** (`crates/jit`, `dartforge run`/`reload`) | 238/238 e JIT × AOT sem divergência nos três sistemas; recarga de estado e `io_regression` verdes | recarga com mudança de layout em todos os casos do R0 |
 | **Exceções por tabelas (A1)** | 238/238 (+ `--gc-stress`); o pouso pega-tudo do `$ent` saiu (`a4b5ac42`): A1/A0 = 1,001 | tamanho: +3,2% no `new_sali/backend` (meta −3%); segue opt-in |
 | **Raízes por mapas (B0/B1)** | forma nova por `"deopt"` (§14.12, abaixo): raiz no registrador preservado, sem derrame por chamada. Windows: corpus 238/238 em desenvolvimento com `--gc-stress` e as três conferências, e 238/238 em produção com o conferidor do RS4GC | testes dirigidos (`directed_maps`) caem num esgotamento de registradores do LLVM em `dart:convert` no modo de desenvolvimento (em curso); B1; Linux/macOS com a forma nova; o `bench/performance` inteiro; commit |
-| **ARC** (`--memoria=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,000274 em 55beeb34 (árvores 12,82×, lista ligada 5,28×); gate reprovado. Metadados por página já disponíveis; análise, provas, políticas e integração dos §§27–34 continuam incompletas. Evidência: `bench/results/2026-10-10-modos-55beeb34-windows` |
+| **ARC** (`--memory=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,000274 em 55beeb34 (árvores 12,82×, lista ligada 5,28×); gate reprovado. Metadados por página já disponíveis; análise, provas, políticas e integração dos §§27–34 continuam incompletas. Evidência: `bench/results/2026-10-10-modos-55beeb34-windows` |
 | **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
-| **JS produção** (`crates/emit_js_production`) | corpus `--producao` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
+| **JS produção** (`crates/emit_js_production`) | corpus `--production` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
 | **Analisador** (`crates/analysis`, `types`) | placar **22.965/23.012** (99,8%, posição exata), FP 0, posição errada 0, mensagem errada 10, FN 47 (2026-10-12, macOS); projetos reais sem diagnóstico a mais (10 projetos, 567 mutações; 209 pacotes do pub-cache sem FP de código publicado); CLI e LSP publicam **477** códigos de `verificados.txt` | os 47 FN e as 10 mensagens (variância, limites F, `Null?`); os 13 códigos com FP nos pacotes do pub-cache (`unchecked_use_of_nullable_value`, `unused_import`, `argument_type_not_assignable`…) fora de `verificados.txt`; caixa do caminho no macOS (o mesmo arquivo por dois caminhos de caixa diferente vira duas bibliotecas) |
 | **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; formatação (`formatting`, `rangeFormatting`, `onTypeFormatting`) pelo porte do `dart_style`, edições idênticas às do Dart; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% (títulos; o resto são erros -32001 do próprio Dart) e 100% (edição, com `SnippetTextEdit`; reprise macOS 2026-10-12); latência mediana de references/implementation 1,5/1,1 ms (Dart 1,2/0,6; eram 269/221 ms) | nomes declarados dos parâmetros de tipo de função nos `Create …` (`p1`); incremental I5–I6 (dependem do motor em `crates/types`/`parity`) |
 | **Geração de código e ngdart** (`crates/build`, `dartforge serve`) | builders pelo executor nativo; `limitless_ui` e `new_sali/frontend` pela nossa trilha | compilador de visões do ngdart (§2.0) |
@@ -4584,12 +4584,12 @@ microbenchmark só valem presos a um núcleo P).
 | Pacotes do pub-cache (209): FP / mensagem errada | 46 / 33 | **35 / 2** (nenhum de código publicado) |
 | Códigos em `verificados.txt` | 167 | **477** |
 
-Como medir nesta máquina: `DARTFORGE_PARITY_SAMPLES=100000 dartforge-parity placar --detalhes
---trabalhadores 8` (o corpus e o oráculo gravado estão no repositório); para os projetos reais, copiar
+Como medir nesta máquina: `DARTFORGE_PARITY_SAMPLES=100000 dartforge-parity placar --details
+--workers 8` (o corpus e o oráculo gravado estão no repositório); para os projetos reais, copiar
 `new_sali/{core,frontend,backend}`, `limitless_ui` e os de `2024/` para uma pasta própria (só `.dart`,
 `pubspec.*`, `analysis_options.yaml`), rodar `dart pub get` lá (os `package_config.json` dos originais
-apontam para o Windows) e `dartforge-parity projetos --oraculo --corpus <pasta com projetos.json>`
-(`--mutacoes 30 --regravar` para as mutações); os pacotes do pub-cache pelo
+apontam para o Windows) e `dartforge-parity projetos --oracle --corpus <pasta com projetos.json>`
+(`--mutations 30 --rerecord` para as mutações); os pacotes do pub-cache pelo
 `scripts/parity-pub-cache.py` (`PUB_CACHE=~/tools/dart/pub-cache`). `DARTFORGE_ORACLE_3_6` aponta
 o SDK 3.6.2. Achados: FP nos projetos reais por anotação de FFI por alias de `typedef`, constante
 privada usada só em `case`, anotação de diretiva, falso `top_level_cycle` de campos `late`; FP de
@@ -4690,17 +4690,17 @@ Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE
 | A1 (pilha-sombra + exceções por tabelas) | 238/238 (Pesado) | 238/238 (era 201/238: o lançamento passava por uma função Rust) | 238/238 |
 | B0 (mapas + checagem) | 238/238 (Pesado) | 238/238 | 238/238 |
 | B1 (mapas + tabelas) | 238/238 (Pesado) | 238/238 | 238/238 |
-| memória ARC (`--memoria=arc`, auditoria a cada sincronização) | 238/238; ciclos em toda sincronização 238/238; `--gc-stress` 238/238; JIT 238/238 | 238/238 | 238/238 |
+| memória ARC (`--memory=arc`, auditoria a cada sincronização) | 238/238; ciclos em toda sincronização 238/238; `--gc-stress` 238/238; JIT 238/238 | 238/238 | 238/238 |
 | `dart:io` (`corpus/native`) | 130/130 | 130/130 | 130/130 (era 129: a espera com prazo do laço de eventos passava do prazo; agora pelo `kevent`) |
 | builders pelo executor nativo | todos | — | — |
 
 * **ARC** (`docs/ARC-IMPLEMENTACAO.md`): o RC das ocorrências fortes entre objetos velhos, com as raízes
   adiadas e o berçário pela coleta menor; a gravação num velho conta na hora, o acesso cru tira uma foto;
   na completa, o ponto fixo global (§22.3: alcance pelas raízes com a regra condicional dos efêmeros, lote
-  único dos inalcançáveis); *trial deletion* lateral com `DARTFORGE_ARC_CYCLES=sempre`; reclamação pelas
+  único dos inalcançáveis); *trial deletion* lateral com `DARTFORGE_ARC_CYCLES=always`; reclamação pelas
   marcas do RC. Grafos aleatórios com semente contra um oráculo independente (3000 sementes por modo); a
   primeira rodada achou dois vazamentos, corrigidos (o zero que volta a subir não virava candidato; o ciclo
-  valor→portador de um efêmero ficava vivo pela chave). Opt-in por `--memoria=arc` no AOT e no JIT; o
+  valor→portador de um efêmero ficava vivo pela chave). Opt-in por `--memory=arc` no AOT e no JIT; o
   rastreamento continua o padrão, com o IR de sempre.
 * **Exceções por tabelas no Linux**: a primeira execução (A1/B1) parou em 37 programas; o lançamento passava
   por uma função Rust com a guarda de abortar na variante `panic=unwind` do runtime. O `@df.throw` chama o
@@ -4844,7 +4844,7 @@ como na tabela (o `resumo.py` voltou a contar lista vazia contra lista vazia no 
 
 **JS de produção (2026-10-06, `518e5388`).**
 * `this` repetido como local (§8.4 de `JS-PRODUCAO-TAMANHO.md`): `new_sali` 12.361.194 → 12.082.759
-  bytes, `limitless_ui` 6.946.316 → 6.693.718; corpus `--producao` 238/238, `limitless_ui` 26/26 no e2e,
+  bytes, `limitless_ui` 6.946.316 → 6.693.718; corpus `--production` 238/238, `limitless_ui` 26/26 no e2e,
   `new_sali` com o `flow.mjs` nos 11 passos sem erro.
 * `@pragma('dart2js:as:trust')`/`tryInline`: avaliados e **sem efeito no nosso contrato**. Os
   `as:trust` do SDK estão só nas bibliotecas do runtime do `dart2js` (`js_runtime`, `js_shared`), que
@@ -4992,7 +4992,7 @@ com o código.
 * Oráculos em `E:\dftemp`: `cmp.py` (corpus contra `dartforge analyze`), `oraculo_lsp.py`,
   `oraculo_multi.py`, `oraculo_diag.py` (publicações de diagnóstico), `lsp\dif_metodo.py`
   (diferenças por amostra de um método do oráculo do LSP).
-* Placar: `DARTFORGE_PARITY_SAMPLES=100000 ./target/release/dartforge-parity placar --detalhes`;
+* Placar: `DARTFORGE_PARITY_SAMPLES=100000 ./target/release/dartforge-parity placar --details`;
   projetos reais: `dartforge-parity projetos`.
 
 ---
@@ -5003,11 +5003,11 @@ com o código.
 
 | commit | o quê |
 | --- | --- |
-| `f6d11d9e`, `5325e977`, `2d2571ab`, `c47214be` | JS de produção: SDK próprio como padrão, mundo fechado incremental, `oxc_minifier`, nomes de propriedade minificados, rti só para tipos testados, parâmetros nomeados com chave curta, `--omitir-checagens`/`-O4` opcional, `assert` desligado por padrão (`--enable-asserts`) |
+| `f6d11d9e`, `5325e977`, `2d2571ab`, `c47214be` | JS de produção: SDK próprio como padrão, mundo fechado incremental, `oxc_minifier`, nomes de propriedade minificados, rti só para tipos testados, parâmetros nomeados com chave curta, `--omit-checks`/`-O4` opcional, `assert` desligado por padrão (`--enable-asserts`) |
 | `40e33061`, `fbeded9b` | Nativo: HIR em paralelo e poda da HIR; SDK de produção em ThinLTO, LTO `-O1` no programa em partes, corpo de objeto `memory(none)`, trampolins da FFI só das assinaturas pedidas (3.591 → 44), literais constantes grandes por tabela |
 | `36584c8e` | Parser: `part of` com experimento macros |
 | `bc0f9c7d` | `docs/ANALYZER-ESPECIFICACAO.md` (436 códigos com perda, achados T1–T8) e `docs/LSP-ESPECIFICACAO.md` |
-| este commit | `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` (chave `--raizes=sombra\|mapas` e `--excecoes=checagem\|tabelas`, etapas com critério de abandono) |
+| este commit | `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` (chave `--roots=shadow\|mapas` e `--exceptions=check\|tabelas`, etapas com critério de abandono) |
 
 CI verde em `fbeded9b`; placar do pub verde (232/244). Falhou o
 workflow "Sem toolchain do sistema" (Windows sem MSVC, passo "Ligar e
@@ -5335,7 +5335,7 @@ não tinha `.dart_tool` nesta máquina): **2, 119 e 183** diagnósticos
 nossos, os mesmos da base, **0 publicados** e 0 da regra nova. O
 `new_sali/frontend` sobe por falta dos gerados do `build_runner` aqui
 (`uri_has_not_been_generated` e a cascata). O comando `projetos` passou a
-imprimir as amostras com `--detalhes`.
+imprimir as amostras com `--details`.
 
 **Próximos alvos, pelo placar:** (1) os FN de tipo continuam os maiores
 (`type_argument_not_matching_bounds` 1.175, `use_of_void_result` 479,
@@ -5860,7 +5860,7 @@ local contra o `main` 6583c2b, mínimo de 3 por programa nos 223 do
 * **Hospedeiro** (`crates/macros_host`): detecção com custo zero, ordem do
   CFE, as três fases com recarga, modelo e consultas, montagem byte a byte,
   o serviço `macro.*` do `dfexec/1`, `Indisponivel` no produto.
-  `dartforge macros --materializar` grava a augmentation
+  `dartforge macros --materialize` grava a augmentation
   (docs/MACROS-COMPATIBILIDADE.md). Placar em MACROS-PROTOCOLO.md §8.
 * **Espera o executor nativo**: executar macros no `compile-js` (hoje: erro
   claro na anotação; `410_json_codable` em `corpus/macros/PENDENTES`).
@@ -5919,7 +5919,7 @@ estudada e o que ele ainda não faz estão em `docs/JS-PRODUCAO.md`.
 
 * **Corpus diferencial: 214/214**, com o **mesmo stdout da VM**, byte a
   byte — o mesmo placar do perfil de desenvolvimento.
-  `cargo run --release -p dartforge-differential -- --producao` compara os
+  `cargo run --release -p dartforge-differential -- --production` compara os
   três (VM × nosso desenvolvimento × nossa produção) e agrupa as falhas em
   duas listas, porque as causas são diferentes: falha do desenvolvimento é
   construto que falta no emissor, falha da produção é poda ou montagem.
@@ -5936,7 +5936,7 @@ estudada e o que ele ainda não faz estão em `docs/JS-PRODUCAO.md`.
   tipos de identidade distinta (`docs/PESQUISA-OTIMIZACAO.md` §3).
 * **Determinismo** por construção, com teste de unidade (duas montagens das
   mesmas entradas dão o mesmo arquivo byte a byte) e pelo modo
-  `dartforge-differential determinismo --producao --trabalhadores 1,4,8`,
+  `dartforge-differential determinismo --production --workers 1,4,8`,
   que o backend nativo trouxe e que o perfil de produção passa.
 
 Contra o oficial (`dart compile js -O4`, SDK 3.6.2), amostra do corpus por
@@ -5960,7 +5960,7 @@ nossa trilha, não otimizar mais.
 **antes** da emissão por um RTA sobre o modelo de elementos: seletor por
 nome, três níveis de classe e a fronteira com o `dart_sdk.js` por regra.
 Um verificador sempre ligado confere o texto emitido e fecha o ponto fixo
-mundo+texto. O modo stub (`--verificar-stub`) denuncia na execução qualquer
+mundo+texto. O modo stub (`--verify-stub`) denuncia na execução qualquer
 chamada a código podado. Sem filtro, o emissor é byte a byte o de antes
 (teste `identidade.rs` e o corpus inteiro contra o binário de `main`).
 
@@ -6155,12 +6155,12 @@ backend nativo comparando com a VM byte a byte:
 
 ```powershell
 cargo build --release -p dartforge-differential
-target\release\dartforge-differential.exe --nativo
+target\release\dartforge-differential.exe --native
 ```
 
 Limites ligados por padrão, porque sem eles o corpus nativo em paralelo
 tomou a memória da máquina: heap do runtime com teto de 256 MiB
-(`DARTFORGE_HEAP_MAX_MB`), `--jobs 2` no modo nativo, `--limite-exec` de
+(`DARTFORGE_HEAP_MAX_MB`), `--jobs 2` no modo nativo, `--exec-limit` de
 5 s para executar o binário, e 4 MiB de saída capturada por processo.
 
 O número saiu de 3/214 nesta sessão; o que mudou de fato foi a natureza do
@@ -6188,17 +6188,17 @@ pilha nativa. A justificativa e o custo no caminho feliz estão em
 `docs/NATIVO-PLANO.md`.
 
 **Determinismo verificado no corpus inteiro**: `dartforge-differential
-determinismo --nativo [--trabalhadores 1,4,8]` emite o LLVM IR de cada
+determinismo --native [--workers 1,4,8]` emite o LLVM IR de cada
 programa, sem Clang, ligação nem execução, e exige o mesmo resumo (FNV-1a
 de 128 bits) — ou o mesmo erro — programa a programa. Passa com 1, 4 e 8
 trabalhadores nos 214 programas (184 com IR, 30 com erro de carga), em
-**0,2–0,5 s por passada**. `--executar` mantém o caminho antigo (compilar,
+**0,2–0,5 s por passada**. `--run` mantém o caminho antigo (compilar,
 executar e comparar o relatório; o IR só com `DARTFORGE_KEEP_IR=1`). Ver §3.2.
 
 **Cache de objeto**: o `.obj` de cada programa fica em
 `native_cache/obj/` pela chave do IR + `clang --version` + bandeiras
 (`crates/emit_native/src/cache_objeto.rs`); o mesmo IR dá o mesmo objeto
-byte a byte. `compile-native --emit-ir` grava só o IR, `--resumo` imprime o
+byte a byte. `compile-native --emit-ir` grava só o IR, `--digest` imprime o
 resumo.
 
 ### 1.5.1 JIT — `dartforge run` e `dartforge reload` (R0)
@@ -6216,12 +6216,12 @@ o executável passa a exigir a `LLVM-C.dll` da distribuição completa no
   continuam (`crates/cli/src/jit.rs:237-256`; teste
   `crates/cli/tests/reload_state.rs`, no `ci.yml`). Edição que a recarga não
   sabe aplicar é recusada com o motivo e o programa reinicia; edição que não
-  compila mantém a geração em execução. `--reiniciar` é o R0 (reinício a
+  compila mantém a geração em execução. `--restart` é o R0 (reinício a
   quente sem estado, um processo por geração).
   *Histórico (até 2026-09-27):* aqui se lia que `reload` era só o R0 e que
   «o estado NÃO é preservado».
 * `dartforge-differential --jit` compara o JIT com a VM (mesmo placar do
-  `--nativo`); `--jit-aot` passa o MESMO IR também pelo AOT, lista todo
+  `--native`); `--jit-aot` passa o MESMO IR também pelo AOT, lista todo
   `JIT≠AOT` (é defeito) e mede os tempos. No CI é o job `jit` do `pesado.yml`.
 
 O runtime é **fonte única**: o mesmo `runtime_main.rs` vira a `.lib` do AOT e
@@ -6267,7 +6267,7 @@ antes de toda alocação.
   `corpus/js/` com 213 programas verificados na VM.
 * `docs/CONTRATO-DDC.md` — Dart e JS do `dartdevc` lado a lado para os 212.
 * Determinismo (`docs/PESQUISA-OTIMIZACAO.md` §11): `dartforge-differential
-  determinismo [--nativo] [--trabalhadores 1,4,8]` exige relatório idêntico
+  determinismo [--native] [--workers 1,4,8]` exige relatório idêntico
   com qualquer número de trabalhadores; no nativo, o mesmo LLVM IR de cada
   programa — se a ordem de conclusão mudar o IR, o cache de objeto por hash
   erra e o Clang roda à toa. Verificado idêntico com 1, 4 e 8; no nativo,
@@ -6301,7 +6301,7 @@ antes de toda alocação.
 
 ### 1.7 `dartforge serve` e o gerador do ngdart
 
-* `dartforge serve <entrada> -o <dir> [--web <dir>] [--porta N]` — servidor
+* `dartforge serve <entrada> -o <dir> [--web <dir>] [--port N]` — servidor
   HTTP próprio, cliente de recarga injetado na resposta do `index.html` (o
   arquivo no disco não é tocado) e canal WebSocket (RFC 6455) como o
   auto-refresh do webdev. Protocolo versionado em JSON (`ola`,
@@ -6391,9 +6391,9 @@ consultou se executa ou reaproveita; publica numa `Geracao` em memória.
 Executores, nesta ordem: **nativo** (Rust), **Dart** (`dfexec/1`; pela VM
 Dart quando pedido com `dartforge build --dart <exe>` ou
 `DARTFORGE_BUILD_DART`, indisponível sem isso), **apoio** (o que o `build_runner` deixou no disco, com aviso
-quando está mais velho que a fonte; erro com `dartforge build --estrito`).
+quando está mais velho que a fonte; erro com `dartforge build --strict`).
 
-* **Plano igual ao oficial**: a forma canônica de `dartforge build --plano`
+* **Plano igual ao oficial**: a forma canônica de `dartforge build --plan`
   é igual à do `.dart_tool/build/entrypoint/build.dart` (lido, nunca
   gerado) nos 9 casos do `corpus/builders` com builders, no
   `new_sali/frontend` e no `limitless_ui/example` (20 aplicações cada).
@@ -6416,7 +6416,7 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   `crates/build/tests/ng_transparencia.rs` — 60 saídas pelo motor iguais às
   do gerador chamado direto, 58 conferidas com o oráculo de `corpus/ngdart`,
   **0 diferentes**; incremental = do zero com edição de template e arquivo
-  novo. No `new_sali/frontend`, `dartforge build --comparar` (placar contra o
+  novo. No `new_sali/frontend`, `dartforge build --compare` (placar contra o
   apoio do `build_runner`): **151 iguais / 1.410 pendentes / 0 diferentes**
   (145 `.template.dart` e 6 `.css.shim.dart` nativos), e as contagens de
   saídas esperadas iguais às do `.dart_tool/build/generated` (773
@@ -6487,7 +6487,7 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
 
 Especificação e resultado da rodada de 2026-09-30:
 `docs/NGDART-COMPILADOR-DE-VISOES.md`. Medido pelo oráculo do
-`build_runner` (cópias em `E:\dftemp\ngdart`, `oraculo --todos`: o pacote e
+`build_runner` (cópias em `E:\dftemp\ngdart`, `oraculo --all`: o pacote e
 toda dependência com saída do ngdart, menos o próprio compilador, que o DDC
 nunca pede):
 
@@ -6510,7 +6510,7 @@ O Sass nativo ganhou o modo dart-sass 1.101.0–1.101.3 (os locks dos dois
 projetos), e o emissor JS as baixas de interop do `package:web` que o
 `ngx_dart` usa (construtor não-`external` de *extension type*,
 `Function.toJS`, `isA<T>()`; casos 236–238 do `corpus/js`). Pelo motor
-(`build --comparar`): new_sali 1561 saídas iguais / 0 / 0, limitless 937 /
+(`build --compare`): new_sali 1561 saídas iguais / 0 / 0, limitless 937 /
 0 / 0. `dartforge serve` em cópias sem `.dart_tool/build`: os dois abrem no
 Edge headless com 0 erros no console e o CSS servido.
 
@@ -6649,7 +6649,7 @@ de execução (RTI: `is List<int>` é diagnóstico) e `super` dentro de mixin.
 A tabela abaixo é a de antes da rodada 2.
 
 172 dos 222 programas do corpus (CI, run 35823269758), agrupados pelo
-relatório do harness (`--nativo`). A família de "handle" (71 de 214 no
+relatório do harness (`--native`). A família de "handle" (71 de 214 no
 começo — escalar usado como handle, null desreferenciado, raiz faltando)
 **zerou**, e a natureza do que falta mudou: quase tudo agora é construto
 que o backend declara não suportar, com o nome do construto no placar.
@@ -6759,12 +6759,12 @@ gratuitos, e os runners Windows têm 4 núcleos e 16 GB. Dois workflows:
 | --- | --- | --- | --- |
 | compilar | release de `dartforge-differential`, `dartforge`, `dartforge-jsprod`; completa o cache dos oráculos (`verificar`) | — | 2,2 min |
 | js (desenvolvimento) | `dartforge-differential --jobs 4` | **214/214** | 1,2 min (45 s) |
-| js (produção) | `--producao --jobs 4` | **214/214** e 214/214 | 2,3 min (1 min 48 s) |
-| nativo K/2 | `--nativo --jobs 4 --fragmento K/2` | 4/107 e 3/107 | 1,5 e 1,7 min (28 e 30 s) |
+| js (produção) | `--production --jobs 4` | **214/214** e 214/214 | 2,3 min (1 min 48 s) |
+| nativo K/2 | `--native --jobs 4 --shard K/2` | 4/107 e 3/107 | 1,5 e 1,7 min (28 e 30 s) |
 | nativo (placar consolidado) | soma os fragmentos e funde o agrupamento de falhas | **7/214** | 0,5 min |
-| determinismo (produção) | `determinismo --producao --trabalhadores 1,4,8` | idêntico | 7,5 min (7 min) |
-| determinismo (nativo, IR) | `determinismo --nativo --trabalhadores 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
-| moderno (3.7–3.13) | `--corpus corpus/moderno --producao --jobs 4`, com o SDK 3.13.4 instalado por zip (cache pela versão); `PENDENTES` pode falhar, pendente que passa reprova | ver §1.1.1 | — |
+| determinismo (produção) | `determinismo --production --workers 1,4,8` | idêntico | 7,5 min (7 min) |
+| determinismo (nativo, IR) | `determinismo --native --workers 1,4,8` | idêntico, 184 com IR | 0,6 min (5 s) |
+| moderno (3.7–3.13) | `--corpus corpus/moderno --production --jobs 4`, com o SDK 3.13.4 instalado por zip (cache pela versão); `PENDENTES` pode falhar, pendente que passa reprova | ver §1.1.1 | — |
 | **rodada inteira** | | | **9,8 min** |
 
 **Critério de cada job.** JS desenvolvimento e produção: código de saída do
@@ -6879,12 +6879,12 @@ seguindo `docs/PESQUISA-OTIMIZACAO.md` §11 (determinismo com 1, 4 e 8
 trabalhadores) e §6 (resumo e cache por módulo):
 
 1. **Determinismo não executa.** `dartforge-differential determinismo
-   --nativo` emite o LLVM IR de cada programa dentro do processo
+   --native` emite o LLVM IR de cada programa dentro do processo
    (`emitir_ir`, sem Clang, ligação nem execução) e compara, programa a
    programa, o resumo FNV-1a de 128 bits — ou a mensagem inteira do erro.
    Divergência lista todos os programas e grava o primeiro, emitido sozinho
    e `n` vezes em paralelo, em `target/diferencial/determinismo/`.
-   `--executar` mantém o caminho antigo. O relatório (uma linha
+   `--run` mantém o caminho antigo. O relatório (uma linha
    `<hash> <bytes> <nome>` por programa) não tem tempos nem caminhos: um
    `diff` de dois relatórios diz quais programas mudaram de IR.
 2. **Cache de objeto por programa** (`cache_objeto.rs`): mesma entrada,

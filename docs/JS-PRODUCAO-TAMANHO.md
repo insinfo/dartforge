@@ -284,7 +284,7 @@ trabalho, não substitui a medida.
 
 ## 5. Validação de cada passo
 
-1. `dartforge-differential --producao`: corpus/js 238/238 iguais à VM.
+1. `dartforge-differential --production`: corpus/js 238/238 iguais à VM.
 2. Testes de `mundo`, `emit_js`, `emit_js_production` e `elements`.
 3. `limitless_ui/example`: e2e 26/26.
 4. `new_sali/frontend`: `scripts/flow.mjs`, os 11 passos sem erro.
@@ -339,7 +339,7 @@ O que entrou:
 
 Validação deste estado:
 
-* corpus/js `--producao` 238/238;
+* corpus/js `--production` 238/238;
 * testes dos crates verdes;
 * `limitless_ui` 26/26 no e2e;
 * `new_sali` com o `flow.mjs` igual ao do bundle do `dart2js`: 11
@@ -424,7 +424,7 @@ de texto: é especificação nova, com o mesmo método.
 
 A ordem e as regras foram decididas pelo dono:
 
-* cada mudança tem a sua spec curta e é validada com o corpus `--producao`,
+* cada mudança tem a sua spec curta e é validada com o corpus `--production`,
   o e2e do `limitless_ui` e o `new_sali`;
 * o padrão mantém a semântica da VM, como o `dart2js -O2`;
 * o corte das checagens implícitas no estilo `-O4` só entra como opção
@@ -510,10 +510,10 @@ chave curta. Nenhum programa do corpus imprime um.
 Validação: corpus 238/238 (entre eles os quatro com `Function.apply`),
 `limitless_ui` 26/26, `new_sali` igual ao controle.
 
-### 8.3 `--omitir-checagens` (o `-O4` do dart2js), opcional e inseguro
+### 8.3 `--omit-checks` (o `-O4` do dart2js), opcional e inseguro
 
 O padrão continua com a semântica da VM, como o `dart2js -O2`. Com
-`--omitir-checagens` (ou `-O4`) saem as conversões implícitas de `dynamic`
+`--omit-checks` (ou `-O4`) saem as conversões implícitas de `dynamic`
 (`FnEmitter::coerce_to`) e as checagens de covariância de parâmetro
 (`sdk_proprio::verificacoes_de_covariancia`), como o `omitImplicitChecks`
 do `dart2js` (`options.dart:1102-1126`). Um programa com erro de tipo
@@ -525,7 +525,7 @@ Medido no `new_sali`:
 | configuração | bytes |
 | --- | ---: |
 | padrão (semântica da VM) | 12.356.255 |
-| `--omitir-checagens` | 12.286.128 |
+| `--omit-checks` | 12.286.128 |
 | `dart2js -O2` | 8.022.592 |
 | `dart2js -O4` | 7.616.039 |
 
@@ -559,7 +559,7 @@ O limiar foi medido: com `2k > 13` o `new_sali` sai com 12.103.052 bytes; com
 | `limitless_ui/example` | 6.946.316 | **6.693.718** |
 | `01_print` | 156.012 | **155.403** |
 
-Validação (2026-10-06): corpus `--producao` 238/238, `limitless_ui` 26/26 no
+Validação (2026-10-06): corpus `--production` 238/238, `limitless_ui` 26/26 no
 e2e, `new_sali` com o `flow.mjs` nos 11 passos sem erro, igual ao controle
 sem o passo.
 
@@ -603,7 +603,7 @@ como chave de JSON ou nome de coluna), os nomes das constantes de `enum`
   `defineLazy` não herdam; a flecha `() => ["root"]` das assinaturas
   estáticas herda).
 
-`DARTFORGE_JSPROD_STRINGS=todas` volta à regra antiga, e
+`DARTFORGE_JSPROD_STRINGS=all` volta à regra antiga, e
 `DARTFORGE_JSPROD_PROPS_WHY=a,b` diz por que cada nome fica.
 
 ### 9.2 Membros de biblioteca como variáveis
@@ -735,7 +735,7 @@ Medido antes de mexer, no corpus inteiro (237 programas que compilam;
 `dart compile js -O4` do SDK 3.6.2 de macOS), num `01_print` de 128.592 bytes
 (35.923 com gzip) contra 34.926 do `dart2js`. Num programa pequeno quase tudo
 é runtime, então esta rodada atacou o que o runtime carrega sem precisar. Cada
-passo foi medido sozinho, e o corpus `--producao` deu 238/238 depois de cada um.
+passo foi medido sozinho, e o corpus `--production` deu 238/238 depois de cada um.
 
 ### 10.1 Substituições de variável de tipo só as citadas
 
@@ -844,7 +844,7 @@ fontes (por isso o `limitless_ui` dá 3,71 MB, e não os 4,51 MB do
 *inline* faz algumas leituras a mais do arquivo), `dart2js` 68 s; `limitless_ui`
 9 → 12 s, `dart2js` 21 s.
 
-Validação: corpus `--producao` 238/238 (desenvolvimento 238/238), testes de
+Validação: corpus `--production` 238/238 (desenvolvimento 238/238), testes de
 `world`, `emit_js` e `emit_js_production`, e o `limitless_ui` percorrido no
 Chrome *headless* (47 rotas) com o mesmo comportamento do binário anterior.
 Essa varredura mostrou dois erros que **já existiam** antes desta rodada (o

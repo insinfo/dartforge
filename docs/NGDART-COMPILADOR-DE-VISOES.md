@@ -41,9 +41,9 @@ no `ngdart` 8 (e usa o `limitless_ui` 1.0.0-dev.34 hospedado, ainda no
 `ngdart` 8).
 
 Harness: `cargo run -p dartforge-ng-generator --example oraculo --
-<projeto> --todos --listar [--despejar <dir>]`. Nesta rodada ganhou:
+<projeto> --all --listar [--despejar <dir>]`. Nesta rodada ganhou:
 
-- `--todos`: gera e compara também cada dependência com saída oficial em
+- `--all`: gera e compara também cada dependência com saída oficial em
   `.dart_tool/build/generated/<pacote>/lib` (menos o próprio compilador:
   `ngcompiler`/`ngx_compiler`/`ngast`/`ngx_ast`, que o DDC nunca pede), e a
   carga do programa importa todas as bibliotecas delas;
@@ -411,7 +411,7 @@ coordenador:
   inteiro é o aproximado fora do `inspect` (o 1.101.4 trocou os três), o
   `if()` do CSS leva o valor pelo `toString`, e a gama do rec2020 é a da
   BT.2020 (o 1.102.0 trocou). Conferido pelo motor (`dartforge build
-  --comparar` nas cópias com oráculo): new_sali **1561 iguais / 0 / 0** (192
+  --compare` nas cópias com oráculo): new_sali **1561 iguais / 0 / 0** (192
   `.css`, 192 `.css.map`, 200 `.css.shim.dart`, 773 `.template.dart`…),
   limitless_ui/example **937 / 0 / 0** (99 `.css`, 99 `.css.map`, 531
   `.template.dart`, 2 `.i18n.dart`…).
@@ -445,11 +445,11 @@ Registrado, sem efeito no comportamento:
 - O programa do `dev`/`serve` enxerga as saídas `build_to: source` de fases
   posteriores ao ngdart (o `messages.i18n.dart`): o template sai com
   `interpolateString0` onde o oficial tem `interpolate0` — mesmo
-  comportamento, texto diferente (o `build`/`--comparar` oculta e bate).
+  comportamento, texto diferente (o `build`/`--compare` oculta e bate).
 
 ## E. Resultado
 
-Oráculo (`oraculo --todos`, 2026-09-30):
+Oráculo (`oraculo --all`, 2026-09-30):
 
 | projeto | antes (iguais / diferentes / pendentes) | depois |
 |---|---|---|

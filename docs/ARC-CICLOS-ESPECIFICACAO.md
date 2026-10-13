@@ -26,7 +26,7 @@ O mecanismo inclui
 recuperação residual de ciclos; ARC puro não cobre grafos Dart arbitrários.
 Imagens integralmente provadas podem dispensar o trial ordinário (§32.3).
 O modo experimental deve ser opt-in,
-com `--memoria arc` (também aceitar `--memoria=arc`), e coexistir com o modo tracing. Um programa só pode
+com `--memory arc` (também aceitar `--memory=arc`), e coexistir com o modo tracing. Um programa só pode
 ser aceito pelo compilador ARC se todas as suas arestas, raízes, transições nativas
 e mecanismos fracos tiverem semântica implementada; não converter uma falha do
 verificador em uma execução com vazamento ou uso após liberação.
@@ -612,7 +612,7 @@ números de linha que mudam.
 
 | Arquivo existente | Alteração exigida |
 | --- | --- |
-| `crates/cli/src/nativo.rs` | Nos parsers de `aot` e `run_compile_native`, reconhecer as duas formas de `--memoria`; validar valor e combinações antes de compilar o SDK. Usar `definir_modelo_de_excecoes` e `definir_modo_de_raizes` como referência de integração, não como razão para reler ambiente em cada passe. |
+| `crates/cli/src/nativo.rs` | Nos parsers de `aot` e `run_compile_native`, reconhecer as duas formas de `--memory`; validar valor e combinações antes de compilar o SDK. Usar `definir_modelo_de_excecoes` e `definir_modo_de_raizes` como referência de integração, não como razão para reler ambiente em cada passe. |
 | `crates/emit_native/src/alvo.rs`, `context.rs`, `hir.rs` | Criar `ModoMemoria { Tracing, Arc }`, ler a seleção uma vez e transportá-la no contexto/módulo. Registrar versão da ABI e configuração de raízes/exceções. |
 | `crates/emit_native/src/lib.rs`, `sdk_modulo.rs` | Ambos usam `optimize::preparar_para_emissao`, que define o modo de memória, otimiza e materializa as tabelas por último. Integrar a preparação excepcional, a inserção e a verificação ARC (§20) neste pipeline comum. |
 | `crates/emit_native/src/hir.rs` | Acrescentar ownership, origem de ponteiros, operações ARC, extensão de vida e saídas excepcionais explícitas (§20). |
@@ -1669,10 +1669,10 @@ engenharia em `docs/ARC-IMPLEMENTACAO.md` (§6, "ARC puro").
 | Entrega | Estado | Evidência |
 | --- | --- | --- |
 | E0 | parcial: o inventário de formas é o do `GrafoDoHeap` (bitmap da instância, `REFS`, corpo de fora, anexos, efêmeros e fracos), sem a tabela formal por construtor/escritor | auditoria por recontagem (`DARTFORGE_ARC_CHECK=1`) em toda drenagem |
-| E1 | feita: `--memoria arc`/`--memoria=arc` no AOT e no JIT; o modo entra na chave do SDK compilado; tracing segue padrão, com o IR de sempre | corpus 238/238 nos dois modos |
+| E1 | feita: `--memory arc`/`--memory=arc` no AOT e no JIT; o modo entra na chave do SDK compilado; tracing segue padrão, com o IR de sempre | corpus 238/238 nos dois modos |
 | E2 | **não iniciada**: não há owners na HIR (§20); a contagem é toda do runtime | — |
 | E3 | feita, com desvio: o RC conta **toda** gravação forte (também em jovem), pela barreira do runtime e, nas alocações em linha do código gerado, por `dartforge_arc_initial`; a escrita crua de um native tira uma foto, recontada na drenagem. As raízes não contam (RC adiado, Deutsch–Bobrow): a drenagem, no lugar da coleta menor, protege só o que as raízes veem; o jovem registrado sobrevive, o jovem que só as raízes veem é registrado, o resto morre sem varredura do heap e solta o que contava; os zeros cascateiam; o morto pelo RC volta ao alocador um a um (`soltar_morto`) | corpus 238/238 com auditoria, com `--gc-stress` e JIT × AOT 238/238 |
-| E4 | feita: *trial deletion* dos candidatos (§8) na drenagem completa, ou em toda drenagem com `DARTFORGE_ARC_CYCLES=sempre`; efêmeros pelo ponto fixo do §22.3 quando há algum; fracos e finalizadores despachados na drenagem | grafos aleatórios com semente contra oráculo independente (3000 sementes × 3 modos, `arc_grafos_aleatorios_*`); corpus 238/238 com ciclos em toda drenagem e auditoria |
+| E4 | feita: *trial deletion* dos candidatos (§8) na drenagem completa, ou em toda drenagem com `DARTFORGE_ARC_CYCLES=always`; efêmeros pelo ponto fixo do §22.3 quando há algum; fracos e finalizadores despachados na drenagem | grafos aleatórios com semente contra oráculo independente (3000 sementes × 3 modos, `arc_grafos_aleatorios_*`); corpus 238/238 com ciclos em toda drenagem e auditoria |
 | E5 | parcial: exceções, async, eventos, isolados e JIT passam no corpus; a matriz `tracing/arc × pendência/tabelas × debug/otimizado` não está no harness (as combinações rodam por variável de ambiente) | corpus nativo 238/238 em Windows; Linux e macOS 238/238 no modo anterior (berçário), ainda não com o ARC puro |
 | E6 | início: o filtro mínimo do §32 — objeto de corpo `BRUTO` (texto, caixa numérica, dados tipados) não tem aresta e não vira candidato a ciclo | — |
 
@@ -2476,7 +2476,7 @@ O comando de compilação pode expor **nova opção proposta**
 `--exigir-sem-coletor-de-ciclos`: ela verifica o certificado e falha explicando
 as obrigações não provadas; nunca força desativação insegura. A seleção normal
 é automática e compila com residual quando necessário. Não confundir essa
-opção com `--memoria arc` nem prometer um programa sem gerenciamento dinâmico.
+opção com `--memory arc` nem prometer um programa sem gerenciamento dinâmico.
 
 ### 32.4 Invalidação e transição antes da publicação
 

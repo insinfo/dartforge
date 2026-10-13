@@ -252,8 +252,8 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
-        Some("--memoria=arc") => true,
-        Some("--memoria=tracing") | None => false,
+        Some("--memory=arc") => true,
+        Some("--memory=tracing") | None => false,
         Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
@@ -263,15 +263,15 @@ fn main() -> Result<(), String> {
     };
     let mut control = args.next();
     let scenario = match control.as_deref() {
-        Some("--captura") => Scenario::Capture,
-        Some("--vizinho") => Scenario::Neighbor,
-        Some("--captura-vizinho") => Scenario::CaptureNeighbor,
-        Some("--argumento") => Scenario::Argument,
-        Some("--anulavel") => Scenario::Nullable,
-        Some("--misto") => Scenario::Mixed,
-        Some("--ciclo") => Scenario::Cycle,
-        Some("--celula") => Scenario::Cell,
-        Some("--contexto") => Scenario::Context,
+        Some("--capture") => Scenario::Capture,
+        Some("--neighbor") => Scenario::Neighbor,
+        Some("--capture-neighbor") => Scenario::CaptureNeighbor,
+        Some("--argument") => Scenario::Argument,
+        Some("--nullable") => Scenario::Nullable,
+        Some("--mixed") => Scenario::Mixed,
+        Some("--cycle") => Scenario::Cycle,
+        Some("--cell") => Scenario::Cell,
+        Some("--context") => Scenario::Context,
         Some("--global") => Scenario::Global,
         Some("--late") => Scenario::Late,
         _ => Scenario::Field,

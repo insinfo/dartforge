@@ -187,9 +187,9 @@ em bytes:
 
   | Corpus e perfil | Resultado |
   |---|---:|
-  | `corpus/native` em produção (`dartforge-differential --nativo --otimizar`, opção nova) | 93/93 |
-  | `corpus/native` com `--nativo` | 93/93 |
-  | `corpus/native` com `--nativo --gc-stress --limite-exec 60` | 93/93 |
+  | `corpus/native` em produção (`dartforge-differential --native --optimize`, opção nova) | 93/93 |
+  | `corpus/native` com `--native` | 93/93 |
+  | `corpus/native` com `--native --gc-stress --exec-limit 60` | 93/93 |
   | `corpus/native` com `--jit` | 93/93 |
   | `corpus/js` em produção | 235/235 |
 

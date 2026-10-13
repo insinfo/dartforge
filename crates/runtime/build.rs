@@ -44,7 +44,7 @@ const FRAGMENTS: &[&str] = &[
     // The Rust → Dart ports and the personality of table-based exceptions.
     "exceptions_tables",
     "stack_trace",
-    // `DARTFORGE_EFFECTS=conferir`: the effects table check.
+    // `DARTFORGE_EFFECTS=check`: the effects table check.
     "effects_check",
     "output",
     "strings",

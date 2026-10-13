@@ -617,7 +617,7 @@ fn const_alias(p: &dartforge_elements::model::Program, v: VariableId, a: &ast::A
     lib.declared.get(&n.sym).or_else(|| lib.scope.get(&n.sym)).and_then(|b| b.getter).and_then(as_variable)
 }
 
-/// No covariance checks with `--omitir-checagens`.
+/// No covariance checks with `--omit-checks`.
 fn checks_omitted(e: &FnEmitter) -> bool {
     e.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
 }

@@ -23,7 +23,7 @@ PROVAS = {
     ]),
     "arc_list_storage": ("prova-armazenamento-listas", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
-        ("--crescer", None), ("--crescer", "sem-retencao"), ("--crescer", "sem-liberar"),
+        ("--grow", None), ("--grow", "sem-retencao"), ("--grow", "sem-liberar"),
     ]),
     "arc_simd_boxes": ("prova-caixas-simd", False, [("normal", None), ("normal", "sem-liberar")]),
     "arc_typed_scalar_return": ("prova-retorno-tipado-escalar", False, [
@@ -49,22 +49,22 @@ PROVAS = {
     ]),
     "arc_field_allocation": ("prova-alocacao-campos", False, [
         ("normal", None), ("normal", "sem-drop-filho"), ("normal", "sem-owner-objeto"),
-        ("--quadro", None), ("--quadro", "sem-drop-filho"), ("--quadro", "sem-owner-objeto"),
-        ("--quadro", "sem-retencao-leitura"),
-        ("--tipada", None), ("--tipada", "sem-drop-filho"), ("--tipada", "sem-owner-objeto"),
-        ("--tipada", "sem-liberar-contexto"),
-        ("--tipada-erro", None), ("--tipada-erro", "sem-liberar-contexto"),
+        ("--frame", None), ("--frame", "sem-drop-filho"), ("--frame", "sem-owner-objeto"),
+        ("--frame", "sem-retencao-leitura"),
+        ("--typed", None), ("--typed", "sem-drop-filho"), ("--typed", "sem-owner-objeto"),
+        ("--typed", "sem-liberar-contexto"),
+        ("--typed-error", None), ("--typed-error", "sem-liberar-contexto"),
     ]),
     "arc_field_keepalive": ("prova-keepalive-campos", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
-        ("--vizinho", None), ("--vizinho", "sem-retencao"), ("--vizinho", "sem-liberar"),
-        ("--argumento", None), ("--argumento", "sem-retencao"), ("--argumento", "sem-liberar"),
-        ("--captura-vizinho", None), ("--captura-vizinho", "sem-retencao"), ("--captura-vizinho", "sem-liberar"),
-        ("--anulavel", None), ("--anulavel", "sem-retencao"), ("--anulavel", "sem-liberar"),
-        ("--misto", None), ("--misto", "sem-retencao"), ("--misto", "sem-liberar"),
-        ("--ciclo", None), ("--ciclo", "sem-retencao"), ("--ciclo", "sem-liberar"),
-        ("--celula", None), ("--celula", "sem-retencao"), ("--celula", "sem-liberar"),
-        ("--contexto", None), ("--contexto", "sem-retencao"), ("--contexto", "sem-liberar"),
+        ("--neighbor", None), ("--neighbor", "sem-retencao"), ("--neighbor", "sem-liberar"),
+        ("--argument", None), ("--argument", "sem-retencao"), ("--argument", "sem-liberar"),
+        ("--capture-neighbor", None), ("--capture-neighbor", "sem-retencao"), ("--capture-neighbor", "sem-liberar"),
+        ("--nullable", None), ("--nullable", "sem-retencao"), ("--nullable", "sem-liberar"),
+        ("--mixed", None), ("--mixed", "sem-retencao"), ("--mixed", "sem-liberar"),
+        ("--cycle", None), ("--cycle", "sem-retencao"), ("--cycle", "sem-liberar"),
+        ("--cell", None), ("--cell", "sem-retencao"), ("--cell", "sem-liberar"),
+        ("--context", None), ("--context", "sem-retencao"), ("--context", "sem-liberar"),
         ("--global", None), ("--global", "sem-retencao"), ("--global", "sem-liberar"),
         ("--late", None), ("--late", "sem-retencao"), ("--late", "sem-liberar"),
     ]),
@@ -141,7 +141,7 @@ def main():
                     comando += ["-p", "dartforge-emit-native"]
                     if args.features:
                         comando += ["--features", args.features]
-                    comando += ["--example", args.exemplo, "--", str(exe), f"--memoria={modo}", str(nivel)]
+                    comando += ["--example", args.exemplo, "--", str(exe), f"--memory={modo}", str(nivel)]
                     if tem_caminho or caminho.startswith("--"):
                         comando.append(caminho)
                     if controle:

@@ -422,7 +422,7 @@ impl LlvmEmitter<'_> {
         self.emit_owned_thunks();
         self.emit_scope_thunks();
         self.emit_stack_trace_names();
-        // `DARTFORGE_EFFECTS=conferir`: the names of the checked externs.
+        // `DARTFORGE_EFFECTS=check`: the names of the checked externs.
         for (k, s) in std::mem::take(&mut self.checked_externs).iter().enumerate() {
             writeln!(self.out, "@df.efn.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
         }

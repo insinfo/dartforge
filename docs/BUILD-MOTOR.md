@@ -51,9 +51,9 @@ Duas perguntas, nada mais: **quando** (plano, agenda, impressão) e
   (`import#nome`), filtro (`toNoneByDefault`, `toDependentsOf(p)`,
   `toAllPackages`, `toRoot`), `isOptional`, `hideOutput`,
   `defaultGenerateFor`, as três opções padrão e `appliesBuilders`.
-  `dartforge build --plano` imprime isso; o oráculo é o
+  `dartforge build --plan` imprime isso; o oráculo é o
   `.dart_tool/build/entrypoint/build.dart` lido (nunca gerado) — o
-  `tests/corpus.rs` e `--plano --comparar-com <build.dart>` comparam as
+  `tests/corpus.rs` e `--plan --comparar-com <build.dart>` comparam as
   duas formas canônicas.
 * **Fases** — `createBuildPhases` (`apply_builders.dart:196-349`): SCCs
   dos alvos (na ordem de inserção de `allModules`) × aplicações × fábricas
@@ -179,7 +179,7 @@ pub enum Consulta {
 
 O equivalente do `asset_graph.json`: `.dart_tool/dartforge/build/estado/`
 (`persistencia.rs`). **Só quando o usuário pede** — `dartforge build
---estado`, ou `DARTFORGE_BUILD_STATE=1` para `build`, `compile-js`, `dev` e
+--state`, ou `DARTFORGE_BUILD_STATE=1` para `build`, `compile-js`, `dev` e
 `serve` —, pela regra governante 6 do `PLANO.md` ("o disco só recebe o que o
 usuário pedir"). Sem pedido o motor continua só em memória (o D-B1 vale como
 padrão).
@@ -223,7 +223,7 @@ trabalhadores** — verificado pelo teste de determinismo.
 
 **Preguiça** (D-B6): saída `build_to: cache` só é calculada quando alguém a
 lê — o carregador (import), o servidor (pedido HTTP), outro builder, ou
-`--comparar`. Ações `isOptional` idem (é o `is_optional` do oficial). Com o
+`--compare`. Ações `isOptional` idem (é o `is_optional` do oficial). Com o
 executor Dart, as fases ocultas que ele executa entram mesmo na demanda do
 carregador: um builder posterior pode lê-las (o `combining_builder` lê as
 partes `.g.part` por glob) e o motor não interrompe uma ação Dart para
@@ -278,7 +278,7 @@ Por ação, na ordem, o primeiro que aceita:
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
-   `dev`/`serve`, **erro** com `dartforge build --estrito` (D-B5):
+   `dev`/`serve`, **erro** com `dartforge build --strict` (D-B5):
    `<builder>: <saída> pode estar desatualizado — <motivo da recusa ou falha>;
    rode 'dart run build_runner build'`.
 4. **Nenhum**: a ação fica **pendente** com motivo; o placar conta.
@@ -321,7 +321,7 @@ executor Dart, como o `build_runner_core` 8.0.0 os executa.
   mesmo aqui: ela sai da geração publicada (a `.g.part` que o
   `source_gen:part_cleanup` apaga). Numa **fonte** o DartForge não tem como
   escondê-la (o `serve` lê o disco e não há `build -o`): aviso, e erro com
-  `--estrito`. Teste: `pos_processador_pela_vm`.
+  `--strict`. Teste: `pos_processador_pela_vm`.
 
 ## 7. Sessão, `serve`, `compile-js`, `build`
 
@@ -338,11 +338,11 @@ executor Dart, como o `build_runner_core` 8.0.0 os executa.
   navegador é demanda).
 * `compile-js` usa o motor numa passada; `DARTFORGE_GENERATED` fica um ciclo
   como sinônimo (`build_runner` = só apoio; `ng` = padrão com motor).
-* `dartforge build [--release] [--plano] [--comparar] [--escrever-cache
-  <dir>] [--trabalhadores N] [--estrito] [--dart <exe>] [--estado]
+* `dartforge build [--release] [--plan] [--compare] [--write-cache
+  <dir>] [--workers N] [--strict] [--dart <exe>] [--state]
   [--define ...] [--config <nome>] [--build-filter <glob>]` (§2.1);
   `--dart` (ou `DARTFORGE_BUILD_DART`, que vale também para `dev`, `serve` e
-  `compile-js`) liga o executor de builders pela VM; `--estado` (ou
+  `compile-js`) liga o executor de builders pela VM; `--state` (ou
   `DARTFORGE_BUILD_STATE=1`, idem) liga o estado entre processos (§4.1).
 
 ## 8. Custo zero (regra governante, PLANO.md)

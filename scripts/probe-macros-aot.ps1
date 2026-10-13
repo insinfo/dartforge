@@ -18,7 +18,7 @@ try {
     & $dart pub get --enforce-lockfile
     if ($LASTEXITCODE -ne 0) { throw 'pub get do caso 411 falhou' }
     & $binario macros $entrada --dart $dart --api (Join-Path $raiz 'packages/macros') `
-        --versao-linguagem 3.6 --enable-experiment=macros > (Join-Path $trabalho 'macros.txt')
+        --language-version 3.6 --enable-experiment=macros > (Join-Path $trabalho 'macros.txt')
     if ($LASTEXITCODE -ne 0) { throw 'bootstrap do dfexec/1 não foi gerado' }
 }
 finally {
@@ -37,7 +37,7 @@ if ($LASTEXITCODE -eq 0 -or
 
 & $binario compile-native $bootstrap -o (Join-Path $trabalho 'executor.exe') `
     --packages $pacotes --sdk $env:DARTFORGE_SDK_LIB `
-    --versao-linguagem 3.6 --enable-experiment=macros *> $log
+    --language-version 3.6 --enable-experiment=macros *> $log
 $codigo = $LASTEXITCODE
 $linhas = @(Get-Content -LiteralPath $log -Encoding utf8)
 if ($linhas -match 'experiment_not_enabled_off_by_default') {

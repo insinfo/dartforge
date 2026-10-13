@@ -103,7 +103,7 @@ pub fn sass::compilar_com(fonte: &str, dir: Option<&Path>, estilo: Estilo)
 Hoje o Sass do `ng_generator` só é verificado depois do shim do ngdart
 (`sass.rs:14-17`), então o motor o trata como **não verificado**: publica o
 `.css` do apoio e só executa o nativo para medir (`dartforge build
---comparar`). Com `compilar_com` igual ao oficial nos dois estilos (o
+--compare`). Com `compilar_com` igual ao oficial nos dois estilos (o
 `corpus/builders/sass_builder` e `sass_builder_compressed` são o oráculo),
 o `.css` servido pelo `dartforge serve` passa a sair do nativo. O `.css.map`
 de desenvolvimento (D-B3: o mesmo que o oficial, em memória) precisa também

@@ -50,15 +50,15 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
 }
 
 #[cfg(feature = "native")]
-/// `--excecoes checagem|tabelas`: the exception model of the generated code
+/// `--exceptions check|tables`: the exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13). The emitter reads it from the
 /// `DARTFORGE_EXCEPTIONS` variable (`dartforge_emit_native::target::table_exceptions`),
 /// which is also part of the compiled SDK's key — the program and the SDK
 /// always come out in the same model; the option only sets it, for this process.
 #[allow(unsafe_code)]
 fn set_exception_model(value: &str) -> Result<(), String> {
-    if value != "checagem" && value != "tabelas" {
-        return Err(format!("--excecoes={value}: the exception models are `checagem` and `tabelas`"));
+    if value != "check" && value != "tables" {
+        return Err(format!("--exceptions={value}: the exception models are `check` and `tables`"));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -67,14 +67,14 @@ fn set_exception_model(value: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "native")]
-/// `--memoria tracing|arc`: the memory policy of the generated code
+/// `--memory tracing|arc`: the memory policy of the generated code
 /// (docs/ARC-CICLOS-ESPECIFICACAO.md §18.1 and §24; docs/ARC-IMPLEMENTACAO.md).
 /// Like [`set_exception_model`]: the emitter reads `DARTFORGE_MEMORY`, which
 /// is part of the compiled SDK's key.
 #[allow(unsafe_code)]
 pub(crate) fn set_memory_policy(value: &str) -> Result<(), String> {
     if value != "tracing" && value != "arc" {
-        return Err(format!("--memoria={value}: the memory policies are `tracing` and `arc`"));
+        return Err(format!("--memory={value}: the memory policies are `tracing` and `arc`"));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -83,13 +83,13 @@ pub(crate) fn set_memory_policy(value: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "native")]
-/// `--raizes sombra|mapas`: where the collector's roots live in the generated
+/// `--roots shadow|maps`: where the collector's roots live in the generated
 /// code (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8). Like
 /// [`set_exception_model`]: the emitter reads `DARTFORGE_ROOTS`.
 #[allow(unsafe_code)]
 fn set_roots_mode(value: &str) -> Result<(), String> {
-    if value != "sombra" && value != "mapas" {
-        return Err(format!("--raizes={value}: the root modes are `sombra` and `mapas`"));
+    if value != "shadow" && value != "maps" {
+        return Err(format!("--roots={value}: the root modes are `shadow` and `maps`"));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -98,15 +98,15 @@ fn set_roots_mode(value: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "native")]
-/// `--rastro simbolico|nenhum`: the stack trace in the VM's format
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14): `simbolico` emits the
+/// `--stack-trace symbolic|none`: the stack trace in the VM's format
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14): `symbolic` emits the
 /// address → (function, line, column) table and the `StackTrace` comes out
-/// with the Dart frames; `nenhum` (the default) emits no table. Like
+/// with the Dart frames; `none` (the default) emits no table. Like
 /// [`set_exception_model`]: the emitter reads `DARTFORGE_STACK_TRACE`.
 #[allow(unsafe_code)]
 fn set_stack_trace(value: &str) -> Result<(), String> {
-    if value != "simbolico" && value != "nenhum" {
-        return Err(format!("--rastro={value}: the stack traces are `simbolico` and `nenhum`"));
+    if value != "symbolic" && value != "none" {
+        return Err(format!("--stack-trace={value}: the stack traces are `symbolic` and `none`"));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -133,7 +133,7 @@ fn set_stack_trace(value: &str) -> Result<(), String> {
 pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     // The CLI option selects ARC; an inherited environment does not change the default.
     set_memory_policy("tracing")?;
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--excecoes checagem|tabelas] [--memoria tracing|arc] [--rastro simbolico|nenhum] [--sdk <lib>] [--packages <package_config.json>]";
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>]";
     if args.len() < 3 {
         return Err(usage.into());
     }
@@ -149,7 +149,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     while let Some(flag) = flags.next() {
         match flag.to_str() {
             Some("--optimize") => optimize = true,
-            Some("--depuracao") => debug = true,
+            Some("--debug") => debug = true,
             Some("--timings") => timings = true,
             Some("--cpu") => {
                 let name = flags.next().and_then(|v| v.to_str()).ok_or("--cpu requires the CPU name")?;
@@ -159,33 +159,33 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
             Some("--packages") => {
                 packages = Some(PathBuf::from(flags.next().ok_or("--packages requires a path")?))
             }
-            Some("--memoria") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--memoria requires tracing or arc")?;
+            Some("--memory") => {
+                let value = flags.next().and_then(|v| v.to_str()).ok_or("--memory requires tracing or arc")?;
                 set_memory_policy(value)?;
             }
-            Some(option) if option.starts_with("--memoria=") => {
-                set_memory_policy(&option["--memoria=".len()..])?;
+            Some(option) if option.starts_with("--memory=") => {
+                set_memory_policy(&option["--memory=".len()..])?;
             }
-            Some("--raizes") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--raizes requires sombra or mapas")?;
+            Some("--roots") => {
+                let value = flags.next().and_then(|v| v.to_str()).ok_or("--roots requires shadow or maps")?;
                 set_roots_mode(value)?;
             }
-            Some(option) if option.starts_with("--raizes=") => {
-                set_roots_mode(&option["--raizes=".len()..])?;
+            Some(option) if option.starts_with("--roots=") => {
+                set_roots_mode(&option["--roots=".len()..])?;
             }
-            Some("--excecoes") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--excecoes requires checagem or tabelas")?;
+            Some("--exceptions") => {
+                let value = flags.next().and_then(|v| v.to_str()).ok_or("--exceptions requires check or tables")?;
                 set_exception_model(value)?;
             }
-            Some(option) if option.starts_with("--excecoes=") => {
-                set_exception_model(&option["--excecoes=".len()..])?;
+            Some(option) if option.starts_with("--exceptions=") => {
+                set_exception_model(&option["--exceptions=".len()..])?;
             }
-            Some("--rastro") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--rastro requires simbolico or nenhum")?;
+            Some("--stack-trace") => {
+                let value = flags.next().and_then(|v| v.to_str()).ok_or("--stack-trace requires symbolic or none")?;
                 set_stack_trace(value)?;
             }
-            Some(option) if option.starts_with("--rastro=") => {
-                set_stack_trace(&option["--rastro=".len()..])?;
+            Some(option) if option.starts_with("--stack-trace=") => {
+                set_stack_trace(&option["--stack-trace=".len()..])?;
             }
             Some("--merge-identical-functions") | Some("--link-object") => {
                 return Err(format!(
@@ -233,23 +233,23 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     set_memory_policy("tracing")?;
     use dartforge_elements::sdk::LanguageOptions;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--excecoes checagem|tabelas] [--memoria tracing|arc] [--rastro simbolico|nenhum] [--versao-linguagem x.y] [--enable-experiment=a,b]
-       dartforge compile-native <input.dart> --emit-ir -o <output.ll> [--resumo] [...]
-       dartforge compile-native <input.dart> --resumo [...]
-  --depuracao  line tables for the native debugger (gdb, lldb, Visual Studio)
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--stack-trace symbolic|none] [--language-version x.y] [--enable-experiment=a,b]
+       dartforge compile-native <input.dart> --emit-ir -o <output.ll> [--digest] [...]
+       dartforge compile-native <input.dart> --digest [...]
+  --debug  line tables for the native debugger (gdb, lldb, Visual Studio)
   --cpu      target CPU: x86-64 (the baseline, SSE2), x86-64-v2, x86-64-v3, x86-64-v4 or native
              (the executable only runs on machines that have it)
-  --raizes   where the collector's roots live: sombra (the default: each function's
-             root frame) or mapas (LLVM stack maps, Windows x86-64 only)
-  --excecoes exception model of the generated code: checagem (the default: the pending
-             exception checked after each call) or tabelas (table-based unwinding,
+  --roots   where the collector's roots live: shadow (the default: each function's
+             root frame) or maps (LLVM stack maps, Windows x86-64 only)
+  --exceptions exception model of the generated code: check (the default: the pending
+             exception checked after each call) or tables (table-based unwinding,
              Windows x86-64 only; docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
-  --rastro   the StackTrace: nenhum (the default: today's fixed text) or simbolico (the
+  --stack-trace   the StackTrace: none (the default: today's fixed text) or symbolic (the
              Dart frames in the VM's format, `#0      f (url:line:column)`, through
              the address table the executable carries; §13.14)
   --emit-ir  writes the LLVM IR to -o, without Clang or linking
-  --resumo   prints `<32-digit hash>  <bytes>` of the LLVM IR (the same digest
-             as `dartforge-differential determinismo --nativo`), without Clang";
+  --digest   prints `<32-digit hash>  <bytes>` of the LLVM IR (the same digest
+             as `dartforge-differential determinismo --native`), without Clang";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
@@ -274,42 +274,42 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                 cpu = Some(dartforge_emit_native::generator::Cpu::from_name(name)?);
             }
             Some("--optimize") => optimize = true,
-            Some("--depuracao") => debug = true,
+            Some("--debug") => debug = true,
             Some("--emit-ir") => emit_ir = true,
-            Some("--resumo") => digest = true,
-            Some("--memoria") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--memoria requires tracing or arc")?;
+            Some("--digest") => digest = true,
+            Some("--memory") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--memory requires tracing or arc")?;
                 set_memory_policy(value)?;
             }
-            Some(option) if option.starts_with("--memoria=") => {
-                set_memory_policy(&option["--memoria=".len()..])?;
+            Some(option) if option.starts_with("--memory=") => {
+                set_memory_policy(&option["--memory=".len()..])?;
             }
-            Some("--raizes") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--raizes requires sombra or mapas")?;
+            Some("--roots") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--roots requires shadow or maps")?;
                 set_roots_mode(value)?;
             }
-            Some(option) if option.starts_with("--raizes=") => {
-                set_roots_mode(&option["--raizes=".len()..])?;
+            Some(option) if option.starts_with("--roots=") => {
+                set_roots_mode(&option["--roots=".len()..])?;
             }
-            Some("--excecoes") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--excecoes requires checagem or tabelas")?;
+            Some("--exceptions") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--exceptions requires check or tables")?;
                 set_exception_model(value)?;
             }
-            Some(option) if option.starts_with("--excecoes=") => {
-                set_exception_model(&option["--excecoes=".len()..])?;
+            Some(option) if option.starts_with("--exceptions=") => {
+                set_exception_model(&option["--exceptions=".len()..])?;
             }
-            Some("--rastro") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--rastro requires simbolico or nenhum")?;
+            Some("--stack-trace") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--stack-trace requires symbolic or none")?;
                 set_stack_trace(value)?;
             }
-            Some(option) if option.starts_with("--rastro=") => {
-                set_stack_trace(&option["--rastro=".len()..])?;
+            Some(option) if option.starts_with("--stack-trace=") => {
+                set_stack_trace(&option["--stack-trace=".len()..])?;
             }
-            Some("--versao-linguagem" | "--enable-experiment") => {
+            Some("--language-version" | "--enable-experiment") => {
                 let value = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
                 language.read_option(a.to_str().unwrap_or_default(), &mut std::iter::once(value))?;
             }
-            Some(option) if option.starts_with("--versao-linguagem=")
+            Some(option) if option.starts_with("--language-version=")
                 || option.starts_with("--enable-experiment=") => {
                 language.read_option(option, &mut std::iter::empty::<&str>())?;
             }
@@ -359,7 +359,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
 }
 
 #[cfg(feature = "native")]
-/// `compile-native --emit-ir` / `--resumo`: emission only, without Clang or
+/// `compile-native --emit-ir` / `--digest`: emission only, without Clang or
 /// linking — what the determinism test compares, and what changes when the
 /// emitter changes.
 fn emit_native_ir(

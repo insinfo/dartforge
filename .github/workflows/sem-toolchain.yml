@@ -1,5 +1,5 @@
 # A ligação nativa SEM o toolchain de C do sistema (docs/NATIVO.md §1.2;
-# PENDENCIAS N15 e N16): a distribuição do dartforge (`dartforge empacotar`)
+# PENDENCIAS N15 e N16): a distribuição do dartforge (`dartforge pack`)
 # liga e executa programas numa máquina sem o Visual Studio (MSVC) nem o
 # Windows SDK, e num Mac sem o Xcode nem as Command Line Tools.
 #
@@ -64,8 +64,8 @@ jobs:
         shell: pwsh
         run: |
           $dist = Join-Path $env:RUNNER_TEMP 'dist'
-          ./target/release/dartforge.exe empacotar $dist
-          if ($LASTEXITCODE -ne 0) { throw 'empacotar falhou' }
+          ./target/release/dartforge.exe pack $dist
+          if ($LASTEXITCODE -ne 0) { throw 'pack failed' }
           Get-ChildItem -Recurse (Join-Path $dist 'lib/sysroot'), (Join-Path $dist 'lib/llvm') | Select-Object FullName, Length | Format-Table -AutoSize
           "DIST=$dist" >> $env:GITHUB_ENV
       # A referência: as mesmas rodadas, pela mesma distribuição, ligadas
@@ -81,9 +81,9 @@ jobs:
           # Visual C++), na mesma build: a diferença medida é só a ligação.
           $env:DARTFORGE_LINK_WITH_CLANG = '1'
           New-Item -ItemType Directory -Force relatorios | Out-Null
-          foreach ($r in @(@('io', '--nativo --corpus corpus/native --jobs 2'),
-                           @('io-gc-stress', '--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120'),
-                           @('corpus', '--nativo --jobs 4'))) {
+          foreach ($r in @(@('io', '--native --corpus corpus/native --jobs 2'),
+                           @('io-gc-stress', '--native --corpus corpus/native --gc-stress --jobs 2 --exec-limit 120'),
+                           @('corpus', '--native --jobs 4'))) {
             $p = Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList $r[1] -RedirectStandardOutput "relatorios/ref-$($r[0]).txt" -RedirectStandardError "relatorios/ref-$($r[0]).err" -NoNewWindow -PassThru -Wait
             $texto = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8
             Write-Host "$($r[0]): código $($p.ExitCode); $($texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1)"
@@ -159,7 +159,7 @@ jobs:
           $esperado = "oi x,y`n[1, 4, 9]"
           Push-Location $d
           $env:DARTFORGE_SDK_FROM_SOURCE = '1'
-          foreach ($perfil in @(@('dev'), @('prod', '--optimize'), @('dbg', '--depuracao'))) {
+          foreach ($perfil in @(@('dev'), @('prod', '--optimize'), @('dbg', '--debug'))) {
             $bandeiras = @($perfil | Select-Object -Skip 1)
             & "$dist\bin\dartforge.exe" aot main.dart "$($perfil[0]).exe" @bandeiras
             if ($LASTEXITCODE -ne 0) { throw "aot $($perfil -join ' ') falhou" }
@@ -178,9 +178,9 @@ jobs:
           $env:DARTFORGE_BIN = "$dist\bin\dartforge.exe"
           New-Item -ItemType Directory -Force relatorios | Out-Null
           $rodadas = @(
-            @('io', '--nativo --corpus corpus/native --jobs 2'),
-            @('io-gc-stress', '--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120'),
-            @('corpus', '--nativo --jobs 4')
+            @('io', '--native --corpus corpus/native --jobs 2'),
+            @('io-gc-stress', '--native --corpus corpus/native --gc-stress --jobs 2 --exec-limit 120'),
+            @('corpus', '--native --jobs 4')
           )
           $falhou = $false
           function Falhas($arquivo) { @(Get-Content $arquivo -Encoding utf8 | Where-Object { $_ -match '^FALHA ' } | ForEach-Object { ($_ -split '\s+')[1] }) }
@@ -199,7 +199,7 @@ jobs:
               $passou = $false
               foreach ($i in 1, 2) {
                 $rr = "relatorios/repete-$($r[0])-$n-$i.txt"
-                Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList "$($r[1]) --filtro $n" -RedirectStandardOutput $rr -RedirectStandardError "$rr.err" -NoNewWindow -Wait
+                Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList "$($r[1]) --filter $n" -RedirectStandardOutput $rr -RedirectStandardError "$rr.err" -NoNewWindow -Wait
                 if ((Get-Content $rr -Encoding utf8 | Where-Object { $_ -match '^FALHA ' }).Count -eq 0) { $passou = $true }
               }
               if ($passou) { Write-Host "::warning::$($r[0]): $n falhou uma vez e passou ao repetir (intermitente)" }
@@ -252,7 +252,7 @@ jobs:
         run: |
           set -euo pipefail
           dist="$RUNNER_TEMP/dist"
-          ./target/release/dartforge empacotar "$dist"
+          ./target/release/dartforge pack "$dist"
           find "$dist/lib/sysroot" "$dist/lib/llvm" -type f | xargs ls -la
           echo "DIST=$dist" >> "$GITHUB_ENV"
       # A referência: o corpus/native com o toolchain presente (a árvore de
@@ -265,7 +265,7 @@ jobs:
         run: |
           set +e -uo pipefail
           mkdir -p relatorios
-          for r in "io:--nativo --corpus corpus/native --jobs 2" "io-gc-stress:--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
+          for r in "io:--native --corpus corpus/native --jobs 2" "io-gc-stress:--native --corpus corpus/native --gc-stress --jobs 2 --exec-limit 120" "corpus:--native --jobs 3"; do
             nome=${r%%:*}; args=${r#*:}
             c=0; DARTFORGE_HOME="$DIST" DARTFORGE_BIN="$DIST/bin/dartforge" ./target/release/dartforge-differential $args > "relatorios/ref-$nome.txt" 2>&1 || c=$?
             echo "$nome: código $c; $(grep -E '^DartForge Nativo: ' "relatorios/ref-$nome.txt" || true)"
@@ -293,7 +293,7 @@ jobs:
           d=$(mktemp -d)
           printf "import 'dart:isolate';\nFuture<void> main(List<String> a) async {\n  print('oi \${a.join(\",\")}');\n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));\n}\n" > "$d/main.dart"
           esperado=$'oi x,y\n[1, 4, 9]'
-          for perfil in "dev" "prod --optimize" "dbg --depuracao"; do
+          for perfil in "dev" "prod --optimize" "dbg --debug"; do
             set -- $perfil
             (cd "$d" && "${ambiente[@]}" DARTFORGE_SDK_FROM_SOURCE=1 "$dist/bin/dartforge" aot main.dart "$@") || { echo "::error::aot $perfil falhou"; exit 1; }
             [ "$("$d/$1" x y)" = "$esperado" ] || { echo "::error::$1: saída inesperada"; exit 1; }
@@ -301,7 +301,7 @@ jobs:
           done
           falhou=0
           falhas() { grep -E '^FALHA ' "$1" | awk '{print $2}' | sort -u; }
-          for r in "io:--nativo --corpus corpus/native --jobs 2" "io-gc-stress:--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
+          for r in "io:--native --corpus corpus/native --jobs 2" "io-gc-stress:--native --corpus corpus/native --gc-stress --jobs 2 --exec-limit 120" "corpus:--native --jobs 3"; do
             nome=${r%%:*}; args=${r#*:}
             # O código 1 (placar parcial) não encerra o passo: o que conta é
             # a comparação com a referência.
@@ -315,7 +315,7 @@ jobs:
               # Repete o programa duas vezes: passar em uma é intermitência.
               passou=0
               for i in 1 2; do
-                "${ambiente[@]}" ./target/release/dartforge-differential $args --filtro "$n" > "relatorios/repete-$nome-$n-$i.txt" 2>&1
+                "${ambiente[@]}" ./target/release/dartforge-differential $args --filter "$n" > "relatorios/repete-$nome-$n-$i.txt" 2>&1
                 grep -qE '^FALHA ' "relatorios/repete-$nome-$n-$i.txt" || passou=1
               done
               if [ $passou = 1 ]; then echo "::warning::$nome: $n falhou uma vez e passou ao repetir (intermitente)"

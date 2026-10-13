@@ -11,7 +11,7 @@
 //!   `ESPERADO.codigo` (the latter optional).
 //!
 //! Normalization replaces the project's absolute path with `<raiz>` (in both
-//! JSON spellings, with `\\` and with `/`). `--gravar` runs `dart` (the one on
+//! JSON spellings, with `\\` and with `/`). `--write` runs `dart` (the one on
 //! PATH, or `DARTFORGE_DART`) with the analyzer state in a temporary folder
 //! and re-records the expectations.
 //!
@@ -134,10 +134,10 @@ pub fn compare(dir: &Path) -> bool {
         for f in FORMATS {
             let Ok(expected) = std::fs::read_to_string(case.join(format!("ESPERADO.{f}.txt"))) else { continue };
             let expected = separators(&expected.replace("\r\n", "\n"));
-            // `--todos`: the whole output, without the publication rule (which
+            // `--all`: the whole output, without the publication rule (which
             // only leaves the verified codes in the CLI); what is compared here
             // is the format, the order, the paths and the summary.
-            let Some(actual) = run(&dartforge(), &["analyze", "--todos"], f, &args, &project, None) else {
+            let Some(actual) = run(&dartforge(), &["analyze", "--all"], f, &args, &project, None) else {
                 println!("{name} [{f}]: dartforge did not run");
                 all_ok = false;
                 continue;

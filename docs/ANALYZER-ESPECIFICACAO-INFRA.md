@@ -1617,7 +1617,7 @@ são aceitos.
 
 | aspecto | DartForge | divergência |
 |---|---|---|
-| opções | `--format=json`, `--format=default`, `--todos`; um alvo (`analisar.rs:23-36`) | faltam `--format=machine`, `--fatal-infos`, `--[no-]fatal-warnings`, `--packages`, `--sdk-path`, `--enable-experiment`, vários alvos; alvo inexistente não dá o erro de uso |
+| opções | `--format=json`, `--format=default`, `--all`; um alvo (`analisar.rs:23-36`) | faltam `--format=machine`, `--fatal-infos`, `--[no-]fatal-warnings`, `--packages`, `--sdk-path`, `--enable-experiment`, vários alvos; alvo inexistente não dá o erro de uso |
 | cabeçalho | `Analyzing <file_name do caminho absoluto>...` + linha em branco (`:80`) | o oficial usa o basename **como digitado** (`.` → `Analyzing ....`); a linha em branco pertence ao bloco de erros: com zero diagnósticos o oficial imprime `Analyzing x...` e logo `No issues found!`, **sem** linha em branco (sonda `s2`) — o DartForge imprime uma a mais |
 | linha de diagnóstico | `{:>7} - rel:linha:coluna - msg[ correção] - código` (`:89-97`) | igual ao oficial sem ANSI. Falta a versão com ANSI/`•` e a quebra por largura quando há terminal (decidir: paridade só no modo redirecionado) |
 | caminho relativo | relativo à **raiz do pacote** (`raiz_do_pacote`, `:10-20`, `:82-83`) | o oficial relativiza ao **alvo** (pasta alvo, ou pasta do arquivo alvo), e só usa o relativo se não for mais longo: `dart analyze lib` imprime `a.dart:…`, não `lib\a.dart:…` |
@@ -1628,7 +1628,7 @@ são aceitos.
 | JSON | compacto, mesma ordem de chaves (`json.rs:16-37`, `:168-171`), **sem** `\n` final (`print!`, `analisar.rs:78`) | o oficial termina com `\n`; falta `contextMessages`; o escape de strings do `serde_json` × `json.encode` do Dart é **não verificado** para caracteres de controle e substitutos soltos |
 | TODO | não emite | equivalente por enquanto (o oficial descarta TODO INFO); muda com `errors: todo: …` |
 | código de saída | 3 com erro, 2 com aviso, 0 (`:105-112`) | falta 1 (`--fatal-infos`), `--no-fatal-warnings` e 4 |
-| filtro de publicação | só sintaxe + `verificados.txt` (`--todos` desliga) | por definição não é paridade; ver Parte III, etapa 9 |
+| filtro de publicação | só sintaxe + `verificados.txt` (`--all` desliga) | por definição não é paridade; ver Parte III, etapa 9 |
 
 ## 6. Versão de linguagem e experimentos
 
@@ -4499,7 +4499,7 @@ comando**.
    `ESPERADO.<formato>.txt` por formato (`default`, `json`, `machine`), mais
    `ESPERADO.codigo` (o código de saída) e `ARGS` (os argumentos, um por linha,
    relativos à pasta).
-2. Gravação do oráculo: `dartforge-parity saida --gravar` roda
+2. Gravação do oráculo: `dartforge-parity saida --write` roda
    `dart analyze` do 3.6.2 com `ANALYZER_STATE_LOCATION_OVERRIDE` numa pasta
    temporária de E:, com stdout **redirecionado para arquivo** (sem terminal: é
    o modo sem ANSI da §5.4), e normaliza só o que depende da máquina: o
@@ -4515,12 +4515,12 @@ comando**.
 SDK: contra o esperado gravado) e reprova qualquer diferença de byte.
 
 **Estado em 2026-10-05 (escrito, não compilado).** `crates/parity/src/saida.rs` e o subcomando
-`dartforge-parity saida [DIR] [--gravar]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
+`dartforge-parity saida [DIR] [--write]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
 esperados; a comparação roda o `dartforge` ao lado do executável, normaliza o caminho do projeto para
 `<raiz>` e o separador de caminho dos dois lados (o CI é Windows e Linux), e relata a primeira linha
 diferente por caso e formato, mais o código de saída quando há `ESPERADO.codigo`. As sondas `s1`–`s7` foram
 copiadas por `scripts/copy_output_probes.py`. O `ESPERADO.codigo` sai na primeira regravação com
-`--gravar`. O passo entrou no job `analise` do `pesado.yml`.
+`--write`. O passo entrou no job `analise` do `pesado.yml`.
 
 ## III.2 Etapa 2 — Supressões
 
@@ -5130,7 +5130,7 @@ hoje, pelas contagens do script, é o da tabela de abertura da Parte II.
 
 **Critério final do documento:** para cada caso do harness da etapa 1 marcado
 `lints: não`, os três formatos e o código de saída são iguais aos do oráculo;
-e `dartforge analyze` sem `--todos` e com `--todos` dão a mesma saída (o
+e `dartforge analyze` sem `--all` e com `--all` dão a mesma saída (o
 filtro deixou de filtrar).
 
 ## III.10 O que este plano não cobre

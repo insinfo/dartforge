@@ -649,7 +649,7 @@ conjuntos de funções diferentes):
 
 1. **Mesmo SDK** (3.6.2, `C:/tools/dartsdk-3.6.2`), mesma fonte, mesmas
    bibliotecas. O programa passa no diferencial (`dartforge-differential
-   --nativo`) **antes** de ser medido.
+   --native`) **antes** de ser medido.
 2. **Mesma semântica ligada**: checagens de tipo sempre (não há como desligar
    no oficial); `assert` no mesmo estado dos dois lados (desligado por padrão
    no `compile exe`); estouro de pilha e `noSuchMethod` reais do nosso lado.

@@ -1,5 +1,5 @@
 //! J05: the native debugger stops at a `file.dart:line` of the executable
-//! compiled with `--depuracao` and shows the stack with the Dart names and lines.
+//! compiled with `--debug` and shows the stack with the Dart names and lines.
 //! Runs with `gdb` (Linux); without it, the test warns and passes.
 #![cfg(feature = "native")]
 
@@ -46,7 +46,7 @@ fn gdb_stops_at_the_dart_line_and_shows_the_stack() {
         .arg(&source)
         .arg("-o")
         .arg(&exe)
-        .arg("--depuracao")
+        .arg("--debug")
         .output()
         .expect("CLI");
     assert!(compilation.status.success(), "{}", String::from_utf8_lossy(&compilation.stderr));

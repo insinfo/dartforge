@@ -66,7 +66,7 @@ pub trait NativeGenerator: Send + Sync {
     fn by_package(&self) -> bool;
     /// Equality gate: `false` = the output is not yet verified byte for byte
     /// against the official one; the engine only uses it to measure
-    /// (`--comparar`) and publishes the fallback instead.
+    /// (`--compare`) and publishes the fallback instead.
     fn verified(&self) -> bool;
     fn generate(
         &self,

@@ -37,7 +37,7 @@ use std::collections::HashMap;
 /// The memory model is defined before the passes; the materialization of
 /// exceptions stays last, since its IDs describe the final HIR.
 /// The insertion of ARC owners is not part of this pipeline yet (§20).
-/// Its integration must stay conditioned on `arc_memory` (`--memoria=arc`):
+/// Its integration must stay conditioned on `arc_memory` (`--memory=arc`):
 /// tracing gets no Owned factories, ARC retains or releases.
 pub(crate) fn prepare_for_emission(module: &mut Module, arc_memory: bool, by_tables: bool) {
     module.arc_memory = arc_memory;
@@ -131,7 +131,7 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
     })
 }
 
-/// Switches the module to exceptions by tables (`--excecoes=tabelas`,
+/// Switches the module to exceptions by tables (`--exceptions=tables`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): the last pass over the HIR,
 /// after [`optimize`] and right before emission. Without it the module stays in the
 /// usual model (the pending state checked after each call).

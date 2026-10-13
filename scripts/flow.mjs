@@ -9,7 +9,7 @@
 // runtime do Dart lança, e imprime um relatório por passo.
 //
 // Uso:
-//   node scripts/flow.mjs --dir work/fe/out --web C:/.../frontend/web [--porta 8771]
+//   node scripts/flow.mjs --dir work/fe/out --web C:/.../frontend/web [--port 8771]
 //                          [--json relatorio.json] [--visivel] [--ddc]
 //
 // Sem dependências: o Node 22+ tem `WebSocket` global.

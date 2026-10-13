@@ -1,7 +1,7 @@
 //! AOT proof of Ref storage, compact writes and the owner before the edge replacement.
 //! The HIR body is prepared under ARC; tracing runs the same explicit protocol.
 //! Negative controls remove retention or release only after verification.
-//! `--crescer` forces growth and decompaction with a collection during the call.
+//! `--grow` forces growth and decompaction with a collection during the call.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, fmt::Write, path::PathBuf};
@@ -10,8 +10,8 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
-        Some("--memoria=arc") => true,
-        Some("--memoria=tracing") | None => false,
+        Some("--memory=arc") => true,
+        Some("--memory=tracing") | None => false,
         Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
@@ -20,7 +20,7 @@ fn main() -> Result<(), String> {
         Some(other) => return Err(format!("unknown level: {other}")),
     };
     let first_one = args.next();
-    let grow = first_one.as_deref() == Some("--crescer");
+    let grow = first_one.as_deref() == Some("--grow");
     let control = if grow { args.next() } else { first_one };
     if args.next().is_some() {
         return Err("argumentos excedentes".into());

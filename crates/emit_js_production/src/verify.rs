@@ -509,7 +509,7 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
     // never revives a setter — that is the precision the world works out.
     // The fix is per (type, selector): if the name only lives restricted to
     // the cones of other classes, the pruning here is the design of the
-    // restriction by receiver — and stub mode (`--verificar-stub`, exit 97)
+    // restriction by receiver — and stub mode (`--verify-stub`, exit 97)
     // reports it if it is wrong at run time. Only what the world says is
     // live everywhere (a gap: it should be live and is not) or what nobody
     // registered (a use the analysis did not see) comes back as an

@@ -97,7 +97,7 @@ jobs:
           raiz=$(mktemp -d)
           dist="$raiz/dartforge-$TAG-$NOME"
           exe=dartforge; [ "$RUNNER_OS" = Windows ] && exe=dartforge.exe
-          "./target/release/$exe" empacotar "$dist"
+          "./target/release/$exe" pack "$dist"
           du -sh "$dist"
           d=$(mktemp -d)
           printf "void main(List<String> a) {\n  print('oi \${a.join(\",\")}');\n  print([1, 2, 3].map((x) => x * x).toList());\n}\n" > "$d/main.dart"

@@ -174,12 +174,12 @@ Sem placar automático o número do corpus é medido no olho. O harness
 
 ```powershell
 cargo build --release -p dartforge-differential
-target\release\dartforge-differential.exe --nativo
+target\release\dartforge-differential.exe --native
 # um só programa:
-target\release\dartforge-differential.exe --nativo --filtro 76_erros
+target\release\dartforge-differential.exe --native --filter 76_erros
 ```
 
-No modo `--nativo` ele compara **`dart run --enable-asserts` contra o
+No modo `--native` ele compara **`dart run --enable-asserts` contra o
 executável nativo**, byte a byte no `stdout` (o `dartdevc` não participa: não
 há contrato de DDC a cumprir aqui). O oráculo Dart vem do mesmo cache por hash
 de conteúdo do modo JS, então a comparação custa só a compilação nativa.
@@ -199,7 +199,7 @@ relógio disparar. Três tetos, todos ligados por padrão:
 * **`--jobs` no modo nativo: 2 por padrão.** Cada programa é um processo com
   heap próprio; seis em paralelo multiplicam o estrago. Suba só depois que o
   backend estiver estável.
-* **`--limite-exec`: 5 s** para executar o binário, separado do `--limite` do
+* **`--exec-limit`: 5 s** para executar o binário, separado do `--limit` do
   oráculo `dart run` (que precisa de mais só para subir).
 
 O harness também guarda no máximo 4 MiB de `stdout`/`stderr` por processo, e
@@ -239,7 +239,7 @@ A ordem é a do brief, que é a que desbloqueia mais programas por unidade de
 trabalho:
 
 1. **Deixar compilando** o que o agente anterior deixou. *Feito* (§0).
-2. **Placar nativo reproduzível** — `--nativo` no harness, com os tetos de
+2. **Placar nativo reproduzível** — `--native` no harness, com os tetos de
    memória e tempo. *Feito* (§2).
 3. **Fechar o que o placar aponta no IR** — o emissor tem de produzir IR
    válido para todo o corpus antes de qualquer forma nova; enquanto o Clang
@@ -306,7 +306,7 @@ compilado, como "compilação do runtime nativo com rustc falhou". A
 verificação rápida é compilar um programa qualquer:
 
 ```powershell
-target\release\dartforge-differential.exe --nativo --filtro 01_print
+target\release\dartforge-differential.exe --native --filter 01_print
 ```
 
 ### 5.4 O emissor de LLVM precisa saber o tipo de cada valor
@@ -736,11 +736,11 @@ em paralelo.
   construtos do programa (todos, não só o primeiro), e o relatório termina com
   a seção **"construtos (todos os diagnósticos)"**: por construto, quantos
   programas o usam e quantas ocorrências somam, e a lista dos programas
-  bloqueados **só** por ele. O modo `determinismo --nativo` (só IR, segundos)
+  bloqueados **só** por ele. O modo `determinismo --native` (só IR, segundos)
   imprime a mesma seção. `dartforge_emit_native::construtos_do_erro` é o único
   leitor do formato, ao lado de quem o escreve.
 
-**A matriz exata (223 programas, `determinismo --nativo`, só IR).** 55
+**A matriz exata (223 programas, `determinismo --native`, só IR).** 55
 programas compilam; 165 têm diagnóstico de construto; 3 não carregam
 (`dart:js*`). São 871 construtos distintos — o nome do membro faz parte do
 construto (``chamada `where` ``, ``membro `hashCode` ``), e cada identificador
@@ -785,7 +785,7 @@ idêntico com 1, 4 e 8 trabalhadores, JS 223/223 nos dois perfis.
 
 A divisão do P0 é mecânica: nenhum comportamento mudou. Prova: o LLVM IR de
 cada programa do corpus é byte a byte o mesmo antes e depois
-(`dartforge-differential determinismo --nativo`, 223 programas, mesmo resumo
+(`dartforge-differential determinismo --native`, 223 programas, mesmo resumo
 FNV-128 programa a programa), e os itens do runtime são os mesmos (cada função,
 `thread_local!` e `use` movido inteiro, conferido por script).
 
@@ -1611,7 +1611,7 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   reservava pilha nova, e 300 000 voltas de `<int>[i, i + 1, i + 2]`
   estouravam a pilha (a queda aparecia no RTI, a primeira chamada funda).
 
-### 7.13 A distribuição (`dartforge empacotar`) e o SDK da fonte por padrão
+### 7.13 A distribuição (`dartforge pack`) e o SDK da fonte por padrão
 
 * **Leiaute** (`crates/elements/src/distribuicao.rs`): `bin/dartforge`,
   `lib/dartforge-distribuicao.json` (a marca), `lib/runtime/`,
@@ -1622,7 +1622,7 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   (`~/.cache/dartforge/nativo`, `~/Library/Caches/…`, `%LOCALAPPDATA%\…`).
   Os caminhos fixos da máquina de desenvolvimento saíram do código (o
   `scripts/env.ps1` os aponta por variável).
-* **`dartforge empacotar <destino>`** monta a distribuição a partir da árvore
+* **`dartforge pack <destino>`** monta a distribuição a partir da árvore
   que compilou o binário. Verificado no Linux x86-64 num ambiente limpo
   (`env -i PATH=/usr/bin:/bin`: sem Rust, sem LLVM, sem Dart): AOT de
   desenvolvimento e de produção (com TLS), `Isolate.run`, argumentos do
@@ -1631,7 +1631,7 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   Clang e sem GCC/`libc6-dev` na máquina: a distribuição leva um **sysroot
   de ligação** (`lib/sysroot/<triple>/`: `Scrt1.o`, `crti.o`,
   `crtbeginS.o`, `crtendS.o`, `crtn.o`, as `.so` da glibc e da libgcc,
-  `libc_nonshared.a`, `libgcc.a`, o carregador), copiado pelo `empacotar`
+  `libc_nonshared.a`, `libgcc.a`, o carregador), copiado pelo `pack`
   da máquina que monta a distribuição; numa árvore de desenvolvimento os
   mesmos arquivos vêm do sistema (`clang -print-file-name`). As `.so` são
   só entrada da ligação: o programa carrega as do sistema ao rodar. O
@@ -1648,8 +1648,8 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
 
 ### 7.14 Depuração nativa (J05)
 
-`dartforge compile-native <entrada.dart> -o <exe> --depuracao` (também
-`aot … --depuracao`) gera as tabelas de linha para o depurador nativo:
+`dartforge compile-native <entrada.dart> -o <exe> --debug` (também
+`aot … --debug`) gera as tabelas de linha para o depurador nativo:
 DWARF 5 no Linux, DWARF 4 no macOS, CodeView no Windows.
 
 * **Posições.** Com `CompileOptions::depuracao`, o contexto indexa as linhas
@@ -1671,7 +1671,7 @@ DWARF 5 no Linux, DWARF 4 no macOS, CodeView no Windows.
 * **HIR.** Função com posições não é embutida pelo inliner da HIR (o corpo
   copiado perderia a posição e o breakpoint nela não pararia).
 * **Ligação.** No Linux a ligação de desenvolvimento mantém as seções; a de
-  produção (`--optimize`) não tira os símbolos com `--depuracao`. No
+  produção (`--optimize`) não tira os símbolos com `--debug`. No
   Windows, `-g` na ligação (o `/DEBUG` do ligador: o PDB ao lado do
   executável). No macOS o mapa de depuração do executável aponta para o
   objeto do programa, que fica no cache de objetos.
@@ -2449,7 +2449,7 @@ tipada, a cópia byte a byte de `codeUnits` e o construtor que cresce com
 `setRange`, SIMD e visão SIMD, 2 000 listas com o coletor, `Isolate.run`,
 `ByteData`) igual à VM no AOT, no JIT e com `--gc-stress`; corpus nativo
 59/59 (com `--gc-stress`, o `40_listas_compactas` passa do prazo de 5 s sob a
-carga da máquina: 6,5 s com `--limite-exec 60`, igual à VM), `corpus/js` pelo
+carga da máquina: 6,5 s com `--exec-limit 60`, igual à VM), `corpus/js` pelo
 nativo 235/235, testes de `dartforge-emit-native` e `dartforge-runtime`
 verdes.
 
@@ -2629,7 +2629,7 @@ O perfil, sem `perf`: um amostrador em Python suspende a thread do isolado
 a cada ~1–4 ms e percorre a pilha com o `StackWalk64` da `dbghelp`. A
 simbolização usa o mapa do `lld-link` (`/map`, com os símbolos estáticos, por
 um invólucro do `lld-link` num diretório de ferramentas à parte) e a tabela
-de exportação das DLLs do sistema. O PDB de `--depuracao` não serve para
+de exportação das DLLs do sistema. O PDB de `--debug` não serve para
 isso: só tem os símbolos públicos do runtime (o SDK vem em cache, sem
 depuração), e as funções internas saíam com o nome da pública vizinha.
 
@@ -2705,7 +2705,7 @@ subclasses que fixam o argumento, sem tipo gravado; as coleções criadas em
 métodos genéricos, com `is`, `runtimeType` e a covariância do `add`/`[]=`;
 20 000 objetos; `Isolate.run`) é igual à VM no AOT, no JIT, com
 `--gc-stress` e no AOT `--optimize`. Corpus nativo 76/76 no AOT, no JIT e
-com `--gc-stress --limite-exec 60`. O `02_io_assincrono` só passa sem `HOME`
+com `--gc-stress --exec-limit 60`. O `02_io_assincrono` só passa sem `HOME`
 no ambiente: o oráculo em cache foi gravado sem ele; não tem relação com
 esta rodada. Testes de `dartforge-runtime` verdes, incluindo os 4 novos do
 alocador (`tests/alocador.rs`).
@@ -3110,7 +3110,7 @@ classe do receptor era ~2,9% do servidor em §9.10.
     usuário, a matriz objeto × alvo nas duas ordens;
   * `87_classe_do_slot_sob_coleta`: 240 mil listas fixas, imutáveis e expansíveis que morrem e
     têm os slots reusados, campos `late` de jovens que morrem, e `Isolate.run`.
-* **Resultado:** os três são iguais à VM no AOT, no JIT e com `--gc-stress --limite-exec 60`.
+* **Resultado:** os três são iguais à VM no AOT, no JIT e com `--gc-stress --exec-limit 60`.
   O corpus nativo passa 81/82 nos três modos. A falha é `78_simd_conversao_de_pistas`, da
   frente de SIMD, em andamento: o LLVM recusa o IR (`<4 x float>` gravado como `i64`), sem
   relação com esta rodada.
@@ -3154,7 +3154,7 @@ a saída da VM e a recarga (`crates/cli/tests/reload_state.rs`,
 `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`).
 
 Integrado em 2026-09-30, tudo verde: `corpus/native` (92 programas) no AOT, no
-JIT e no `--jit-aot` (JIT × AOT idênticos), com `--gc-stress --limite-exec 60`
+JIT e no `--jit-aot` (JIT × AOT idênticos), com `--gc-stress --exec-limit 60`
 sem e com `DARTFORGE_GC_VERIFY=1`, e no `aot --optimize` contra a VM;
 `corpus/js` no AOT (235); os testes do runtime, do emissor, do JIT e da CLI,
 inclusive os `#[ignore]` de fixture, recarga e JIT, e `cargo test --workspace`.
@@ -3384,7 +3384,7 @@ O que fica de fora: o `optsize` do SDK de produção (§1 de
 
 ### 13.3 Como validar
 
-`corpus/native` inteiro no AOT, no JIT e com `--gc-stress --limite-exec 60`;
+`corpus/native` inteiro no AOT, no JIT e com `--gc-stress --exec-limit 60`;
 `aot --optimize` dos programas afetados contra a VM; testes do runtime e do
 emissor. Programas novos a partir de 100: mapas e conjuntos de chave `int`
 (negativas, grandes, `_Mint`, colisões de padrão, remoção durante o
@@ -3424,7 +3424,7 @@ conferências de covariância caíram para 1,8%.
 **Correção:**
 
 * `corpus/native` inteiro igual à VM no AOT (95/95), no JIT (96/96), com
-  `--gc-stress --limite-exec 60` (95/95) e em produção, `--otimizar` (96/96).
+  `--gc-stress --exec-limit 60` (95/95) e em produção, `--optimize` (96/96).
   O 96º entrou de outra frente durante as rodadas.
 * Programas novos:
   * `100_mapas_conjuntos_chave_int`: extremos de 64 bits, `_Mint` calculado,
@@ -3576,7 +3576,7 @@ Depois, no servidor em repouso, o heap do sistema confirmado cai de 11,6 para
 foram escritas. No pico do `json`: 911 páginas (58 MB), 222 vazias guardadas (14
 MB) e nenhuma região grande morta à espera.
 
-**Pendente.** O `--gc-stress --limite-exec 60` do `corpus/native` passou
+**Pendente.** O `--gc-stress --exec-limit 60` do `corpus/native` passou
 95/96 com as outras frentes rodando em paralelo. O `91_textos_grandes_e_interpolacao`
 estourou os 60 s. Sozinho, ele passa em 22 s (23 s rodando o executável
 direto), e o `9*` passou inteiro com `DARTFORGE_GC_VERIFY=1`. As vazias

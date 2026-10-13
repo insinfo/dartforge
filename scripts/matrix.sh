@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mede a matriz de suporte (V02) neste sistema: cada corpus em cada perfil
-# pelo `dartforge-differential --matriz`, um TSV por corpus em
+# pelo `dartforge-differential --matrix`, um TSV por corpus em
 # `target/matriz/<sistema>/`, e depois `scripts/matrix.py` escreve a
 # `docs/MATRIZ.md` com todos os sistemas medidos que estiverem ali (os TSVs de
 # outro sistema — o artefato `matriz-<sistema>` do Pesado — entram copiados para
@@ -40,19 +40,19 @@ rodar() {
     corpus_nome=$1
     shift
     echo "== $corpus_nome: $*" >&2
-    "$D" --silencioso --matriz "$DIR/$corpus_nome.tsv" "$@" > "$DIR/$corpus_nome.$(echo "$*" | tr ' /' '__').log" 2>&1
+    "$D" --quiet --matrix "$DIR/$corpus_nome.tsv" "$@" > "$DIR/$corpus_nome.$(echo "$*" | tr ' /' '__').log" 2>&1
     echo "   código $?" >&2
 }
 
 if [ "$JS" = 1 ]; then
-    rodar js --producao --jobs 4
-    rodar moderno --corpus corpus/moderno --producao
+    rodar js --production --jobs 4
+    rodar moderno --corpus corpus/moderno --production
 fi
 if [ "$NATIVO" = 1 ]; then
     for c in js nativo; do
         corpus=corpus/$c
-        rodar "$c" --corpus "$corpus" --nativo
-        rodar "$c" --corpus "$corpus" --nativo --gc-stress
+        rodar "$c" --corpus "$corpus" --native
+        rodar "$c" --corpus "$corpus" --native --gc-stress
         rodar "$c" --corpus "$corpus" --jit
     done
 fi

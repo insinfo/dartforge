@@ -400,7 +400,7 @@ const FRAME_ORDERED: u64 = 1 << 62;
 /// grows downwards: each previous frame is at a higher address. A
 /// previous frame below the current one is a dead frame, of a function that already returned —
 /// the top an unwind failed to restore (the landing pad of
-/// `--excecoes=tabelas` without the top `store`, the sabotage `pouso_sem_topo`
+/// `--exceptions=tables` without the top `store`, the sabotage `pad_without_top`
 /// of §14.7) and that a new frame linked. Reading its slots would be reading
 /// garbage; the process exits with code 3. The check only holds between two
 /// frames with [`FRAME_ORDERED`]: with inlining (optimized code, the SDK),
@@ -436,7 +436,7 @@ fn visit_frames(mut f: impl FnMut(i64)) {
 // ---------------------------------------------------------------------------
 // Roots through stack maps (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
 //
-// With `--raizes=mapas` the values live across a call do not go to the
+// With `--roots=maps` the values live across a call do not go to the
 // shadow stack: LLVM (`rewrite-statepoints-for-gc`) leaves them in a callee-saved register
 // or in a slot of the native frame and describes, for each call, where
 // they are — the object's `.llvm_stackmaps` section (`.llvm_st` in the image). During
@@ -563,7 +563,7 @@ impl StackMap {
         find_one(offset).or_else(|| {
             // SAFETY: `ret` is a return address of this thread's
             // stack, a byte of mapped code.
-            let nop = cfg!(all(windows, target_arch = "x86_64")) && !sabotage("sem_nop") && unsafe { *(ret as *const u8) } == 0x90;
+            let nop = cfg!(all(windows, target_arch = "x86_64")) && !sabotage("no_nop") && unsafe { *(ret as *const u8) } == 0x90;
             if nop { find_one(offset + 1) } else { None }
         })
     }
@@ -593,10 +593,10 @@ pub fn has_stack_maps() -> bool {
 
 /// A test sabotage enabled (`DARTFORGE_SABOTAGE=a,b,…`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 and §14.7): each targeted
-/// test must fail with its own. The runtime's: `sem_nop` (the reader
+/// test must fail with its own. The runtime's: `no_nop` (the reader
 /// without the `nop` rule), `slack` (D8: the 4 KiB stack slack) and
-/// `sem_porta` (D9: the Rust → Dart ports are not registered) and
-/// `tipo_sem_raiz` (D12: the canonical `Type` object stays only in the cache).
+/// `no_ports` (D9: the Rust → Dart ports are not registered) and
+/// `unrooted_type` (D12: the canonical `Type` object stays only in the cache).
 pub fn sabotage(name: &str) -> bool {
     static ENABLED: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     ENABLED
@@ -605,13 +605,13 @@ pub fn sabotage(name: &str) -> bool {
         .any(|s| s == name)
 }
 
-/// `DARTFORGE_GC_WALK=conferir` (§3.6, E2.5): each collection checks that
+/// `DARTFORGE_GC_WALK=check` (§3.6, E2.5): each collection checks that
 /// the map-based walk visited the roots that the check build
 /// (`DARTFORGE_ROOTS_CHECK=1` at compile time) wrote on the shadow stack, and
 /// an anomaly of the walk aborts instead of just ending it.
 fn checked_walk() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SIM.get_or_init(|| std::env::var("DARTFORGE_GC_WALK").is_ok_and(|v| v == "conferir"))
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_GC_WALK").is_ok_and(|v| v == "check"))
 }
 
 /// Ends the process: a map the runtime cannot read is a lost
@@ -1015,7 +1015,7 @@ fn visit_frame(
 }
 
 /// An anomaly of the walk (SP that does not grow, outside the stack): ends the
-/// walk; with `DARTFORGE_GC_WALK=conferir`, aborts.
+/// walk; with `DARTFORGE_GC_WALK=check`, aborts.
 fn walk_anomaly(reason: &str) {
     if checked_walk() {
         map_rejected(&format!("stack walk anomaly: {reason}"));
@@ -1329,7 +1329,7 @@ fn visit_check_slots(mut f: impl FnMut(i64)) {
     }
 }
 
-/// `DARTFORGE_GC_WALK=conferir`: every root the check build
+/// `DARTFORGE_GC_WALK=check`: every root the check build
 /// wrote on the shadow stack must be among those the map-based walk
 /// visited (`from_maps`). A missing one is a root the map lost.
 #[allow(unsafe_code)]
@@ -1545,7 +1545,7 @@ pub struct Heap {
     /// The `Finalizer` actions whose value died, waiting for the event
     /// loop (roots until then).
     pub ready_finalizations: std::collections::VecDeque<i64>,
-    /// ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): enabled by the
+    /// ARC (`--memory=arc`, docs/ARC-IMPLEMENTACAO.md): enabled by the
     /// program at startup (`dartforge_memory_arc_v1`); `None` is the usual
     /// tracing collector.
     arc: Option<Box<HeapArc>>,
@@ -4537,7 +4537,7 @@ mod fixed_root_tests {
 pub static LAYOUT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 thread_local! {
-    /// `DARTFORGE_EFFECTS=conferir` (`effects_check.rs`): the externs running
+    /// `DARTFORGE_EFFECTS=check` (`effects_check.rs`): the externs running
     /// on this thread that the effects table marks `collects = 0`. With
     /// any of them, a collection is the wrong mark — the defect of a wrong roots
     /// map, only on our side — and ends the process saying which.
@@ -4916,8 +4916,8 @@ pub struct HeapArc {
     /// `DARTFORGE_ARC_CHECK=1`: after each synchronization, no
     /// reachable object dead and the RC of each live one equal to the recounted occurrences.
     check: bool,
-    /// `DARTFORGE_ARC_CYCLES=sempre`: the cycle round (*trial
-    /// deletion*) on every synchronization; `nunca`: neither it nor the full collection's
+    /// `DARTFORGE_ARC_CYCLES=always`: the cycle round (*trial
+    /// deletion*) on every synchronization; `never`: neither it nor the full collection's
     /// fixed point (the diagnostic); the default: the fixed point in the full collection.
     cycles: Option<bool>,
     /// Pure ARC (the default; docs/ARC-IMPLEMENTACAO.md §6): every reference
@@ -5230,8 +5230,8 @@ impl Heap {
             ephemerons: ArcEphemerons::default(),
             check: std::env::var("DARTFORGE_ARC_CHECK").is_ok_and(|v| v == "1"),
             cycles: match std::env::var("DARTFORGE_ARC_CYCLES").as_deref() {
-                Ok("sempre") => Some(true),
-                Ok("nunca") => Some(false),
+                Ok("always") => Some(true),
+                Ok("never") => Some(false),
                 _ => None,
             },
             pure: !std::env::var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
@@ -5362,7 +5362,7 @@ impl Heap {
     /// 3. the decrements: the snapshots and the replaced ephemeron entries;
     /// 4. the zeros die in cascade, except those seen by the roots (which
     ///    stay in the queue); in the full collection, the global fixed point
-    ///    ([`Heap::arc_fixpoint`]); with `DARTFORGE_ARC_CYCLES=sempre`, the
+    ///    ([`Heap::arc_fixpoint`]); with `DARTFORGE_ARC_CYCLES=always`, the
     ///    cycle round on every synchronization;
     /// 5. the side tables forget the dead (weak, ephemerons,
     ///    finalizers) until there are no new deaths;
@@ -5455,7 +5455,7 @@ impl Heap {
         for &h in &root_list {
             arc.state.add_candidate(h);
         }
-        // With `DARTFORGE_ARC_CYCLES=sempre`, the cycle round repeats on
+        // With `DARTFORGE_ARC_CYCLES=always`, the cycle round repeats on
         // each pass with new deaths: the discard (and the ephemeron that leaves with the
         // holder) releases survivors that may have been left in a cycle without a
         // root. In the full collection, the fixed point decides everyone's lifetime (§22.3).

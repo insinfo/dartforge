@@ -4,10 +4,10 @@
 //!
 //! ```text
 //! cargo run --release -p dartforge-parity --example probe_files -- <group> <relative file>...
-//! cargo run --release -p dartforge-parity --example probe_files -- --livre <dir> [<relative file>...]
+//! cargo run --release -p dartforge-parity --example probe_files -- --free <dir> [<relative file>...]
 //! ```
 //!
-//! With a corpus group, the oracle is the recorded one. With `--livre`, `<dir>`
+//! With a corpus group, the oracle is the recorded one. With `--free`, `<dir>`
 //! becomes a language 3.6 package (pubspec and package_config written on the
 //! spot) and the oracle is `dart analyze` 3.6.2 run now over the files (every
 //! `.dart` in the directory, if none is given): useful to check a minimal case
@@ -25,12 +25,12 @@ use std::path::{Path, PathBuf};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some((first, rest)) = args.split_first() else {
-        eprintln!("usage: probe_files <group> <file>... | --livre <dir> [<file>...]");
+        eprintln!("usage: probe_files <group> <file>... | --free <dir> [<file>...]");
         std::process::exit(2);
     };
-    let (dir, cfg, oracle, rels) = if first == "--livre" {
+    let (dir, cfg, oracle, rels) = if first == "--free" {
         let Some((d, rels)) = rest.split_first() else {
-            eprintln!("--livre needs the directory");
+            eprintln!("--free needs the directory");
             std::process::exit(2);
         };
         free(Path::new(d), rels)

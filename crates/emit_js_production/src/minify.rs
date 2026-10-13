@@ -357,7 +357,7 @@ const JS_WITH_NAMES: &[&str] = &["defineProperty", "getOwnPropertyDescriptor", "
 /// A program data *string* (a JSON key, a column name, a CSS class, the
 /// message of a `LateError`) does not reserve the name: in the DDC contract
 /// it never becomes a Dart member access without going through one of those
-/// places. `DARTFORGE_JSPROD_STRINGS=todas` goes back to the old rule (every
+/// places. `DARTFORGE_JSPROD_STRINGS=all` goes back to the old rule (every
 /// *string*).
 struct IdentifierStrings {
     names: std::collections::HashSet<String>,
@@ -494,7 +494,7 @@ pub(crate) fn marker_start(program: &oxc_ast::ast::Program<'_>) -> u32 {
         }
         None
     }
-    if std::env::var("DARTFORGE_JSPROD_STRINGS").is_ok_and(|v| v == "todas") {
+    if std::env::var("DARTFORGE_JSPROD_STRINGS").is_ok_and(|v| v == "all") {
         return u32::MAX;
     }
     find(&program.body).unwrap_or(u32::MAX)

@@ -21,7 +21,7 @@ Fontes normativas, por ordem de precedência quando divergem:
 | | decisão |
 | --- | --- |
 | **D1** | `dart:*` continua o do **3.6.2** (`dart_sdk.js` + `lib/` 3.6.2). API de biblioteca marcada `@Since` 3.7+ (por exemplo `Future.syncValue`, `int.oneBitCount`, `List.unmodifiableOf`) não existe aqui e dá diagnóstico de membro indefinido. Subir o runtime é passo posterior. |
-| **D2** | A versão **corrente** da ferramenta é **3.13**: é a de um arquivo sem marcador e fora de pacote, e o teto dos marcadores. `--versao-linguagem x.y` a troca (o harness passa a versão do programa). |
+| **D2** | A versão **corrente** da ferramenta é **3.13**: é a de um arquivo sem marcador e fora de pacote, e o teto dos marcadores. `--language-version x.y` a troca (o harness passa a versão do programa). |
 | **D3** | A API de macros é **reescrita por nós** seguindo a especificação, com a 1ª geração (`_macros` 0.3.3) como referência de forma, sem vendorizar `_macros`. O critério byte a byte contra a augmentation do CFE 3.6.2 continua. |
 | **D4** | O executor de macros é **auto-hospedado no nosso backend nativo**: a macro é compilada pelo `emit_native` e executada pelo nosso executor (JIT ORCv2 sobre o mesmo IR, `crates/jit`, ou AOT), num processo separado, falando `dfmacro/1` por stdio. Nada de Node, motor JS embutido ou runtime de terceiros. Tudo o que não depende do executor anda já. |
 | **D5** | Macros exigem `--enable-experiment=macros`, como o oficial; augmentations escritas à mão exigem `augmentations,enhanced-parts`. |
@@ -106,7 +106,7 @@ Implementação:
 | `parse_com(fonte, nomes, features)`; o `parse` de sempre é `parse_com(…, LibraryFeatures::atual())`; `Parser::exigir(f, span)` registra "o recurso 'x' exige a versão de linguagem X.Y" | `crates/frontend/src/parser/mod.rs` |
 | a versão de cada unidade, **antes do parse**, a partir da fonte já lida e do `package_config`; `Library::features` e `Unit::features` | `crates/elements/src/load.rs` (`Versao`, `features_da_unidade`), `model.rs` |
 | a que pacote pertence um arquivo (`root_dirs`, `pacote_da_biblioteca`) | `crates/elements/src/config.rs` |
-| a versão corrente e os experimentos: `SdkLayout::versao_corrente`/`experimentos`, `Linguagem::ler_opcao` (`--versao-linguagem x.y`, `--enable-experiment=a,b`) em `compile-js`, `dartforge-jsprod` e `CompileOptions::versao_linguagem` do nativo | `crates/elements/src/sdk.rs` |
+| a versão corrente e os experimentos: `SdkLayout::versao_corrente`/`experimentos`, `Linguagem::ler_opcao` (`--language-version x.y`, `--enable-experiment=a,b`) em `compile-js`, `dartforge-jsprod` e `CompileOptions::versao_linguagem` do nativo | `crates/elements/src/sdk.rs` |
 | SDK no piso; o cache do SDK leva `features.rs` na chave | `crates/elements/src/sdk_cache.rs` |
 | sessão residente: uma unidade guardada só é reaproveitada se a versão recalculada (marcador da fonte guardada + `package_config` de agora) for a mesma com que foi analisada; a versão entra nos dois hashes da biblioteca (mudar o `languageVersion` invalida sem mudar a fonte) | `crates/elements/src/unidades.rs` (via `load_unit`), `crates/dev/src/hashes.rs` |
 
@@ -329,7 +329,7 @@ corrigido lá e vale este.
 * Cabeçalhos do programa: `// @dart=x.y` (o marcador oficial, vale para os
   três executores), `// requer-dart: x.y` (a versão corrente que o programa
   exige: oráculo = menor SDK que cobre isso e o marcador; o DartForge recebe
-  `--versao-linguagem` com a versão desse SDK), `// erro-de-compilacao`
+  `--language-version` com a versão desse SDK), `// erro-de-compilacao`
   (negativo: os três têm de recusar; a saída comparável é "erro de compilação
   na linha L", L = linha do primeiro erro de cada um), `// experimentos: a,b`.
 * `corpus/js` fica intacto (3.6.2, versão 3.6). `corpus/moderno` tem um
@@ -394,7 +394,7 @@ produção, `PENDENTES` vazio.
 
 Sem regressão: `corpus/js` 223/223 em desenvolvimento e produção (o JS dos
 222 de antes sai **byte a byte igual** ao da base e7cb898 com
-`--versao-linguagem 3.6`); determinismo idêntico (produção e IR nativo);
+`--language-version 3.6`); determinismo idêntico (produção e IR nativo);
 nativo e JIT 82/223, os do `main`; SDK 426/426 e pub 1969/1969
 aceitos pelo parser.
 

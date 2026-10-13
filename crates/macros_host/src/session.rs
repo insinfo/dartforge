@@ -429,7 +429,7 @@ fn run_session(
 ) -> Result<Output, Vec<Diagnostic>> {
     // A library that already includes the materialized augmentation
     // (`import augment 'x.macro.dart'` or `part`, written by `dartforge macros
-    // --materializar`) does not run the macros again: like a `.g.dart` on disk.
+    // --materialize`) does not run the macros again: like a `.g.dart` on disk.
     let apps = pending_applications(&program, interner);
     if apps.is_empty() {
         return Ok(Output {

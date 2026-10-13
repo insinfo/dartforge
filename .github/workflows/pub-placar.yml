@@ -46,7 +46,7 @@ jobs:
       - name: Empacotar
         run: |
           set -euo pipefail
-          ./target/release/dartforge empacotar "$RUNNER_TEMP/dartforge"
+          ./target/release/dartforge pack "$RUNNER_TEMP/dartforge"
           tar -czf "$RUNNER_TEMP/dartforge.tar.gz" -C "$RUNNER_TEMP" dartforge
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -79,7 +79,7 @@ jobs:
           python3 scripts/pub-scoreboard.py \
             --dartforge "$RUNNER_TEMP/dartforge/bin/dartforge" --dart dart \
             --shard ${{ matrix.i }}/8 --trabalho "$RUNNER_TEMP/placar" \
-            --tempo-compilacao 900 --tempo-execucao 120 --filtro "$FILTRO"
+            --tempo-compilacao 900 --tempo-execucao 120 --filter "$FILTRO"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:

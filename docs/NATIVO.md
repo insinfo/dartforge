@@ -117,7 +117,7 @@ Nenhum sistema usa mais o driver do Clang para ligar: o `driver.rs` e o
 `sdk_modulo.rs` chamam o ligador do LLVM (o da distribuição, `lib/llvm/bin`,
 ou o ao lado do Clang numa árvore de desenvolvimento) com tudo explícito na
 linha de comando. O que o sistema exigiria vem do **sysroot de ligação**,
-`lib/sysroot/<triple>/` na distribuição (`dartforge empacotar`); numa árvore
+`lib/sysroot/<triple>/` na distribuição (`dartforge pack`); numa árvore
 de desenvolvimento, do sistema (Linux, macOS) ou do cache nativo (Windows).
 
 **Windows (N15): sem Visual Studio (MSVC) nem Windows SDK.** Duas saídas
@@ -169,7 +169,7 @@ texto: caminho de instalação e nomes exportados) são **gerados pelo
 dartforge** (`BIBLIOTECAS_DO_SISTEMA`, por arquitetura: o x86-64 usa as
 variantes `$INODE64`/`$NOCANCEL`), como as bibliotecas de importação do
 Windows: nada do SDK da Apple é copiado, porque a licença dele (Xcode and
-Apple SDKs Agreement) não autoriza redistribuí-lo. O `dartforge empacotar`
+Apple SDKs Agreement) não autoriza redistribuí-lo. O `dartforge pack`
 os escreve em `lib/sysroot/<triple>`; numa árvore de desenvolvimento vão
 para o cache nativo (`ligacao-macos/<arch>-<impressão>`), então toda ligação
 no macOS, com ou sem Xcode, usa os mesmos arquivos. A `libSystem` basta para

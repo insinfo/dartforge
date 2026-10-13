@@ -69,7 +69,7 @@ pub trait Liveness {
     fn named_table(&self) -> Option<String> {
         None
     }
-    /// `--omitir-checagens` (the `omitImplicitChecks` of `dart2js -O3/-O4`,
+    /// `--omit-checks` (the `omitImplicitChecks` of `dart2js -O3/-O4`,
     /// `options.dart:1102-1126`): implicit casts from `dynamic` and covariance
     /// checks are not emitted. **Unsafe**: a program with a type error keeps
     /// running instead of throwing `TypeError`.

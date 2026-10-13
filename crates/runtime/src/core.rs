@@ -116,14 +116,14 @@ pub fn finalize_program() -> i32 {
         });
         return 255;
     }
-    // `DARTFORGE_GC_STATS=1` writes the statistics; `=exigir` too, and returns 70
+    // `DARTFORGE_GC_STATS=1` writes the statistics; `=require` too, and returns 70
     // if the run did not exercise the collector: no collection, or an image with
     // roots by maps and no root read from a map
     // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5, the proof that it collected: a
     // test that never collected at the dangerous point must not pass).
     let statistics = std::env::var("DARTFORGE_GC_STATS").unwrap_or_default();
     let mut nothing_exercised = false;
-    if statistics == "1" || statistics == "exigir" {
+    if statistics == "1" || statistics == "require" {
         HEAP.with(|heap| {
             let s = heap.borrow().stats();
             let (frames, map_roots, checked) = crate::heap::walk_counts();
@@ -135,8 +135,8 @@ pub fn finalize_program() -> i32 {
             nothing_exercised = s.collections == 0 || (crate::heap::has_stack_maps() && map_roots == 0);
         });
     }
-    if statistics == "exigir" && nothing_exercised {
-        eprintln!("dartforge: DARTFORGE_GC_STATS=exigir and the run did not exercise the collector (no collection, or no root read from a map)");
+    if statistics == "require" && nothing_exercised {
+        eprintln!("dartforge: DARTFORGE_GC_STATS=require and the run did not exercise the collector (no collection, or no root read from a map)");
         return 70;
     }
     if std::env::var("DARTFORGE_GC_MEMORY").is_ok_and(|v| !v.is_empty() && v != "0") {
@@ -452,7 +452,7 @@ pub extern "C" fn dartforge_remember(h: i64) {
     heap_without_borrow(|heap| heap.remember_object(h));
 }
 
-/// Enables the ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): the entry of a
+/// Enables the ARC (`--memory=arc`, docs/ARC-IMPLEMENTACAO.md): the entry of a
 /// program compiled that way calls this function before any Dart code. The suffix
 /// is the version of the memory ABI (docs/ARC-CICLOS-ESPECIFICACAO.md §24): a
 /// runtime without it does not link with the program.

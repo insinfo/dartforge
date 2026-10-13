@@ -1,6 +1,6 @@
 //! Minimal cases of the rules ported in the 2026-09-30 parity round
 //! (docs/ANALISADOR-PARIDADE-PLANO.md). Each case was checked against
-//! `dart analyze` 3.6.2 with `examples/probe_files.rs --livre`: the
+//! `dart analyze` 3.6.2 with `examples/probe_files.rs --free`: the
 //! expectation below is what the oracle reported (code, line, column,
 //! length), and nothing beyond that may come out.
 

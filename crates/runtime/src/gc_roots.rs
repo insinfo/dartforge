@@ -45,7 +45,7 @@ fn thread_stack_limit() -> usize {
     let base = stack_base();
     // The `slack` sabotage (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3):
     // 4 KiB are not enough to build and throw the `StackOverflowError`.
-    let slack = if crate::heap::sabotage("folga") { 4 * 1024 } else { STACK_SLACK };
+    let slack = if crate::heap::sabotage("slack") { 4 * 1024 } else { STACK_SLACK };
     if base == 0 { 1 } else { base + slack }
 }
 
@@ -404,7 +404,7 @@ fn migrate_area(old_value: &GlobalsArea, new_area: &mut GlobalsArea) {
     });
 }
 
-/// Roots by stack maps (`--raizes=mapas`): a module with functions described by a
+/// Roots by stack maps (`--roots=maps`): a module with functions described by a
 /// map registers, at startup, the image it was linked into
 /// (`crate::heap::register_stack_map`; idempotent per image). Neither allocates on
 /// the collector's heap nor throws.

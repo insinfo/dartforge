@@ -2104,12 +2104,12 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 2. `cargo test --release -p dartforge-runtime -p dartforge-emit-native -p dartforge-jit -p dartforge-cli`
    (inclui `tests/hot_reload.rs`, `reload_state.rs`, `io_regression.rs`, `jit_program.rs`).
 3. Módulo `heap` com `DARTFORGE_GC_VERIFY=1`.
-4. `env -u HOME cargo run --release -p dartforge-differential -- --nativo --corpus corpus/native`
+4. `env -u HOME cargo run --release -p dartforge-differential -- --native --corpus corpus/native`
    (82 programas de hoje + 90–99).
 5. O mesmo com `--jit` e `--jit-aot`.
-6. O mesmo com `--nativo --gc-stress --limite-exec 60`, uma vez sem e uma com
+6. O mesmo com `--native --gc-stress --exec-limit 60`, uma vez sem e uma com
    `DARTFORGE_GC_VERIFY=1`.
-7. `--nativo --corpus corpus/js` (235 programas) e `--nativo --producao` (o `aot --optimize`).
+7. `--native --corpus corpus/js` (235 programas) e `--native --production` (o `aot --optimize`).
 8. `bench/performance/*.dart`, `bench/simd` e `bench/http/servidor.dart` com a saída igual à da VM.
 9. Recarga: um programa que guarda strings, listas compactas e gerais, closures, `double` em
    caixa e uma lista grande com cartões em globais, recarregado três vezes (`crates/cli/tests/
@@ -2128,7 +2128,7 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 | 96 | `96_listas_formas_e_cartoes.dart` | `List<int>`/`<double>`/`<bool>` compactas e a descompactação, `List<Object?>`, crescimento, `List.filled`/`generate`/`unmodifiable`/`of`, erros de lista fixa e imutável, `sublist`, `sort`; uma lista de 100 mil elementos velha recebendo objetos novos em pontos espalhados entre coletas (cartões) |
 | 97 | `97_mapas_conjuntos_grandes.dart` | `Map<String, int>` e `Set<int>` com 200 mil entradas, remoção e reinserção, iteração com modificação (erro), `const` mapas e conjuntos, `Map.unmodifiable` |
 | 98 | `98_tipadas_visoes_externas.dart` | listas tipadas de todos os tipos, visões e visões não modificáveis, `ByteData` com endian, `sublistView`, listas maiores que 16 KiB, SIMD em lista; `asTypedList` sobre `malloc` de `dart:ffi` (`DynamicLibrary.process()`, onde houver) |
-| 99 | `99_pressao_de_coleta.dart` | milhões de strings, listas e caixas curtas e longas, estruturas que sobrevivem e morrem por rodada, gravação velho→jovem em listas, mapas e closures; roda com `--gc-stress` e `DARTFORGE_GC_VERIFY=1` dentro de `--limite-exec 60` |
+| 99 | `99_pressao_de_coleta.dart` | milhões de strings, listas e caixas curtas e longas, estruturas que sobrevivem e morrem por rodada, gravação velho→jovem em listas, mapas e closures; roda com `--gc-stress` e `DARTFORGE_GC_VERIFY=1` dentro de `--exec-limit 60` |
 
 ### 5.4 Medições
 
@@ -2173,5 +2173,5 @@ alocação e coleta ~21%, classe do receptor ~12%, `malloc` 7–11% e consultas 
 | 12 | **Captura lida em representação diferente da gravada** (o `@df.env_ref` de hoje escondia isso) | `EnvGet`/`CellGet` no tipo gravado (P2) e o verificador da HIR recusando a divergência (P5) |
 | 13 | **Outras frentes na mesma árvore** (vetorização em `comandos.rs`/`tipados.rs`; classe do valor, cujo `Heap::classes`/`ClasseDoSlot` esta especificação apaga) | P4 começa depois da vetorização; o trabalho de classe do valor é absorvido (o cid no cabeçalho substitui o vetor) |
 | 14 | **Ponteiros do runtime para dentro de objetos** (FFI, TLS) atravessando alocação | regra de §2.14 (vale até a próxima alocação se o objeto não tem raiz); `com_raizes` onde o ponteiro atravessa alocação |
-| 15 | **`--gc-stress` mais lento** (todo valor passa a ser objeto do espaço, sem TLAB no estresse) | `--limite-exec 60`; o programa 99 dimensionado para caber |
+| 15 | **`--gc-stress` mais lento** (todo valor passa a ser objeto do espaço, sem TLAB no estresse) | `--exec-limit 60`; o programa 99 dimensionado para caber |
 | 16 | **Mensagem entre isolados** com anexo ou lista externa | casos especiais de §2.12 e o programa 93 |

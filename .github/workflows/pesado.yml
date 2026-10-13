@@ -155,7 +155,7 @@ jobs:
         shell: pwsh
         run: |
           $inicio = Get-Date
-          ./target/release/dartforge-differential.exe verificar --silencioso > verificar.txt
+          ./target/release/dartforge-differential.exe verificar --quiet > verificar.txt
           $codigo = $LASTEXITCODE
           Get-Content verificar.txt -Encoding utf8 | Select-Object -Last 5
           Write-Host ("código {0}; {1:N0} s" -f $codigo, ((Get-Date) - $inicio).TotalSeconds)
@@ -200,7 +200,7 @@ jobs:
         with:
           nome: producao
           titulo: JS produção — VM × desenvolvimento × produção (dartforge-jsprod)
-          args: --producao --jobs 4
+          args: --production --jobs 4
 
   # A galeria pública fornece 26 testes Puppeteer de comportamento real.
   # Revisão fixa: mudanças no oráculo não alteram silenciosamente o placar.
@@ -281,7 +281,7 @@ jobs:
         with:
           nome: moderno
           titulo: Moderno (3.7–3.13) — VM e DDC 3.13.4 × dartforge dev e produção
-          args: --corpus corpus/moderno --producao --jobs 4
+          args: --corpus corpus/moderno --production --jobs 4
           sdk-313: 'true'
 
   # Augmentations e macros (docs/AUGMENTATIONS.md, docs/MACROS-PROTOCOLO.md):
@@ -301,7 +301,7 @@ jobs:
         with:
           nome: macros
           titulo: Macros e augmentations — VM e DDC (3.6.2 e 3.13.4) × dartforge dev e produção
-          args: --corpus corpus/macros --producao --jobs 4
+          args: --corpus corpus/macros --production --jobs 4
           sdk-313: 'true'
           pub-get: corpus/macros
           preparar: ./scripts/prepare-macros-410.ps1
@@ -382,7 +382,7 @@ jobs:
         with:
           nome: nativo-${{ matrix.fragmento }}
           titulo: Nativo, fragmento ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
-          args: --nativo --jobs 4 --fragmento ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
+          args: --native --jobs 4 --shard ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
           nativo: 'true'
           # Placar abaixo de 214 é o estado do backend, não quebra do CI.
           aceitar-placar-parcial: 'true'
@@ -403,7 +403,7 @@ jobs:
         with:
           nome: nativo-io-windows
           titulo: dart:io nativo no Windows (corpus/native)
-          args: --nativo --corpus corpus/native --jobs 2
+          args: --native --corpus corpus/native --jobs 2
           nativo: 'true'
 
   # O portão G7 do contrato de raízes (docs/NATIVO-PLANO.md §6.5): o corpus
@@ -424,7 +424,7 @@ jobs:
         with:
           nome: nativo-gc-stress
           titulo: Nativo sob --gc-stress (coleta antes de toda alocação)
-          args: --nativo --gc-stress --jobs 4 --limite-exec 120
+          args: --native --gc-stress --jobs 4 --exec-limit 120
           nativo: 'true'
           aceitar-placar-parcial: 'true'
 
@@ -443,9 +443,9 @@ jobs:
       fail-fast: false
       matrix:
         modo:
-          - { id: A1, raizes: sombra, excecoes: tabelas }
-          - { id: B0, raizes: mapas, excecoes: checagem }
-          - { id: B1, raizes: mapas, excecoes: tabelas }
+          - { id: A1, raizes: shadow, excecoes: tables }
+          - { id: B0, raizes: maps, excecoes: check }
+          - { id: B1, raizes: maps, excecoes: tables }
         estresse: [false, true]
     env:
       DARTFORGE_ROOTS: ${{ matrix.modo.raizes }}
@@ -462,7 +462,7 @@ jobs:
         with:
           nome: nativo-${{ matrix.modo.id }}${{ matrix.estresse && '-gc-stress' || '' }}
           titulo: Nativo ${{ matrix.modo.id }} (raízes ${{ matrix.modo.raizes }}, exceções ${{ matrix.modo.excecoes }})${{ matrix.estresse && ' sob --gc-stress' || '' }}
-          args: --nativo --jobs 4 ${{ matrix.estresse && '--gc-stress --limite-exec 120' || '' }}
+          args: --native --jobs 4 ${{ matrix.estresse && '--gc-stress --exec-limit 120' || '' }}
           nativo: 'true'
           # O LLVM de desenvolvimento (LLVM-C.dll e as bibliotecas do
           # llvm-sys) para o harness com o gerador embutido.
@@ -483,7 +483,7 @@ jobs:
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test directed_maps -- --test-threads=1 --nocapture
 
   # A memória ARC (docs/ARC-IMPLEMENTACAO.md): o corpus nativo inteiro com
-  # --memoria=arc e a auditoria a cada sincronização (nenhum alcançável morto,
+  # --memory=arc e a auditoria a cada sincronização (nenhum alcançável morto,
   # RC igual às ocorrências recontadas), com e sem --gc-stress. O emissor lê o
   # modo do ambiente.
   nativo-arc:
@@ -505,7 +505,7 @@ jobs:
         with:
           nome: nativo-arc${{ matrix.estresse && '-gc-stress' || '' }}
           titulo: Nativo com memória ARC${{ matrix.estresse && ' sob --gc-stress' || ' (auditoria a cada sincronização)' }}
-          args: --nativo --jobs 4 ${{ matrix.estresse && '--gc-stress --limite-exec 120' || '' }}
+          args: --native --jobs 4 ${{ matrix.estresse && '--gc-stress --exec-limit 120' || '' }}
           nativo: 'true'
           aceitar-placar-parcial: 'true'
 
@@ -594,7 +594,7 @@ jobs:
         with:
           nome: sdk-fonte
           titulo: Nativo com o SDK da fonte (DARTFORGE_SDK_FROM_SOURCE=1)
-          args: --nativo --jobs 4
+          args: --native --jobs 4
           nativo: 'true'
           aceitar-placar-parcial: 'true'
       - name: Aridade de closure lança NoSuchMethodError da fonte
@@ -728,11 +728,11 @@ jobs:
           mkdir -p relatorios
           # O passo roda com `bash -e`: o código de cada rodada é lido sem
           # encerrar o passo, e o placar abaixo decide.
-          c=0; ./target/release/dartforge-differential --nativo --jobs 3 > relatorios/nativo.txt 2>&1 || c=$?
+          c=0; ./target/release/dartforge-differential --native --jobs 3 > relatorios/nativo.txt 2>&1 || c=$?
           echo "nativo: código $c"
           c=0; ./target/release/dartforge-differential --jit-aot --jobs 2 > relatorios/jit.txt 2>&1 || c=$?
           echo "jit: código $c"
-          c=0; ./target/release/dartforge-differential --nativo --corpus corpus/native --jobs 2 > relatorios/io.txt 2>&1 || c=$?
+          c=0; ./target/release/dartforge-differential --native --corpus corpus/native --jobs 2 > relatorios/io.txt 2>&1 || c=$?
           echo "io: código $c"
           # Os modos de raízes e exceções (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
           # §11, item 5: a personalidade Itanium e o percorredor de mapas, que
@@ -740,13 +740,13 @@ jobs:
           # com a auditoria). Informativos: o placar vai para o resumo e não
           # reprova o job.
           : > relatorios/modos.txt
-          for modo in "A1 sombra tabelas" "B0 mapas checagem" "B1 mapas tabelas"; do
+          for modo in "A1 shadow tables" "B0 maps check" "B1 maps tables"; do
             set -- $modo
-            c=0; DARTFORGE_ROOTS=$2 DARTFORGE_EXCEPTIONS=$3 ./target/release/dartforge-differential --nativo --jobs 3 > "relatorios/nativo-$1.txt" 2>&1 || c=$?
+            c=0; DARTFORGE_ROOTS=$2 DARTFORGE_EXCEPTIONS=$3 ./target/release/dartforge-differential --native --jobs 3 > "relatorios/nativo-$1.txt" 2>&1 || c=$?
             echo "$1: código $c"
             echo "$1 $(grep -E '^DartForge Nativo: ' "relatorios/nativo-$1.txt" || echo 'sem placar')" >> relatorios/modos.txt
           done
-          c=0; DARTFORGE_MEMORY=arc DARTFORGE_ARC_CHECK=1 ./target/release/dartforge-differential --nativo --jobs 3 > relatorios/nativo-arc.txt 2>&1 || c=$?
+          c=0; DARTFORGE_MEMORY=arc DARTFORGE_ARC_CHECK=1 ./target/release/dartforge-differential --native --jobs 3 > relatorios/nativo-arc.txt 2>&1 || c=$?
           echo "arc: código $c"
           echo "ARC $(grep -E '^DartForge Nativo: ' relatorios/nativo-arc.txt || echo 'sem placar')" >> relatorios/modos.txt
           io=$(grep -E '^DartForge Nativo: ' relatorios/io.txt || true)
@@ -806,12 +806,12 @@ jobs:
         with:
           nome: determinismo-producao
           titulo: Determinismo — produção, 1/4/8 trabalhadores
-          args: determinismo --producao --trabalhadores 1,4,8
+          args: determinismo --production --workers 1,4,8
           exige: '^determinismo: '
 
   # Determinismo do NATIVO pelo LLVM IR emitido de cada programa, sem Clang,
-  # ligação nem execução (crates/differential, `determinismo --nativo`; o modo
-  # antigo, que executa tudo, é `--executar`). Não precisa de Rust nem de LLVM.
+  # ligação nem execução (crates/differential, `determinismo --native`; o modo
+  # antigo, que executa tudo, é `--run`). Não precisa de Rust nem de LLVM.
   determinismo-nativo:
     name: determinismo (nativo, IR)
     needs: compilar
@@ -824,7 +824,7 @@ jobs:
         with:
           nome: determinismo-nativo
           titulo: Determinismo — nativo (LLVM IR por programa), 1/4/8 trabalhadores
-          args: determinismo --nativo --trabalhadores 1,4,8
+          args: determinismo --native --workers 1,4,8
           exige: '^determinismo \(IR\): '
   # Paridade de diagnósticos com o `dart analyze` (crates/parity, plano A1):
   # o nosso analisador sobre corpus/diagnosticos contra o oráculo GRAVADO em
@@ -848,7 +848,7 @@ jobs:
         with:
           name: binarios
           path: ${{ github.workspace }}
-      - name: dartforge-parity determinismo --trabalhadores 1,4,8
+      - name: dartforge-parity determinismo --workers 1,4,8
         id: rodar
         shell: pwsh
         run: |
@@ -856,7 +856,7 @@ jobs:
           New-Item -ItemType Directory -Force $dir | Out-Null
           $rel = Join-Path $dir 'relatorio.txt'
           $inicio = Get-Date
-          $p = Start-Process -FilePath target/release/dartforge-parity.exe -ArgumentList 'determinismo --trabalhadores 1,4,8 --detalhes' `
+          $p = Start-Process -FilePath target/release/dartforge-parity.exe -ArgumentList 'determinismo --workers 1,4,8 --details' `
             -RedirectStandardOutput $rel -RedirectStandardError (Join-Path $dir 'progresso.txt') -NoNewWindow -PassThru -Wait
           $codigo = $p.ExitCode
           $dur = (Get-Date) - $inicio

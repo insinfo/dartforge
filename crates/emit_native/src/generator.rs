@@ -222,7 +222,7 @@ impl Generator {
 
     /// Clang, for bitcode with the ThinLTO summary, when it exists;
     /// otherwise the usual generator ([`Generator::choose`]). The distribution without
-    /// the system toolchain (`dartforge empacotar`, N15/N16) does not ship
+    /// the system toolchain (`dartforge pack`, N15/N16) does not ship
     /// Clang: production uses the embedded generator, and `lld` does the full LTO
     /// (slower, the same program).
     pub fn clang_if_any(clang: &Path) -> Generator {
@@ -294,7 +294,7 @@ impl Generator {
                 // (`distributed_lto.rs`), which is the only path that takes
                 // that bitcode to the linker.
                 if ir.contains("gc \"statepoint-example\"") && generation.format != Format::Bitcode {
-                    return Err("roots by maps (--raizes=mapas) require dartforge's embedded generator, not Clang".to_string());
+                    return Err("roots by maps (--roots=maps) require dartforge's embedded generator, not Clang".to_string());
                 }
                 let ll = exit.with_extension("ll");
                 std::fs::write(&ll, ir).map_err(|e| format!("failed to write LLVM IR to {}: {e}", ll.display()))?;

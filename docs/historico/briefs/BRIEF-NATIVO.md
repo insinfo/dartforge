@@ -13,7 +13,7 @@ não encostar.
    A worktree `D:/Projects/dartforge-nativo` **já existe**, na branch
    `nativo-excecoes-aot`, com um commit de preservação (`wip: estado
    intermediário do backend nativo`) do agente anterior: harness
-   diferencial com `--nativo`, mexidas em `hir`/`llvm`/`lower` e no
+   diferencial com `--native`, mexidas em `hir`/`llvm`/`lower` e no
    runtime. **Esse estado não compila** —
    `crates/emit_native/src/lower/mod.rs` tem delimitador aberto na linha
    258. Comece por ler esse diff (`git show HEAD`), decidir o que

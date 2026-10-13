@@ -3,14 +3,14 @@
 O DartForge passa a ter dois perfis de execução nativa sobre **o mesmo LLVM IR**:
 
 Tracing é o padrão da CLI. Para compilar e executar fonte com ARC, use
-`dartforge run --memoria=arc entrada.dart` ou
-`dartforge reload entrada.dart --memoria=arc`. Um ambiente
+`dartforge run --memory=arc entrada.dart` ou
+`dartforge reload entrada.dart --memory=arc`. Um ambiente
 `DARTFORGE_MEMORY=arc` herdado não ativa ARC na CLI. Em `run`, opções depois
 do arquivo são argumentos de `main`; a opção de memória deve vir antes dele.
 
 | | Desenvolvimento (`crates/jit`) | Produção (`crates/emit_native`, feature `native`) |
 | --- | --- | --- |
-| Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--reiniciar]` | `dartforge aot <entrada.dart> <saida.exe>` |
+| Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--restart]` | `dartforge aot <entrada.dart> <saida.exe>` |
 | Geração de código | ORCv2 (`LLJIT`), em memória | Clang, em processo separado |
 | Runtime nativo | endereços das funções Rust publicados como símbolos absolutos | `rustc` compila `RUNTIME_MAIN` e o linker resolve os símbolos |
 | Artefato | nenhum | executável no disco |
@@ -27,7 +27,7 @@ divergir em resultado é defeito.
 > `dartforge-executar-ir`. Na CLI (`--features jit`): `dartforge run` e
 > `dartforge reload` faz hot reload ao vivo por padrão: publica cada geração no
 > programa em execução, no ponto seguro do laço de eventos, sem executar o
-> `main` de novo (ver «O laço pela linha de comando» abaixo); `--reiniciar` é o
+> `main` de novo (ver «O laço pela linha de comando» abaixo); `--restart` é o
 > R0 (reinício a quente sem estado, cada geração num processo
 > `dartforge run --ir`). No harness: `--jit` e
 > `--jit-aot`.
@@ -278,7 +278,7 @@ Pelas somas, Clang + ligação custam **6,9×** o JIT até executar, e o AOT tot
 
 Terceira rodada, com o contrato de representação do nativo e o runtime de fonte
 única (Pesado 35827208951): **222/222 idênticos, 0 divergentes**, e o placar
-contra a VM é **50/222 nos dois perfis**, igual ao do `--nativo`. Nela, 3
+contra a VM é **50/222 nos dois perfis**, igual ao do `--native`. Nela, 3
 programas não geram IR e nenhum estoura o tempo. Nos 54 que terminaram nos dois
 perfis, o JIT até executar levou 42,7 ms (p95 43,2) e o Clang + ligação
 165,2 ms (p95 182,1), medianas. Pelas somas, **8,1×** até executar e **8,6×**
@@ -497,14 +497,14 @@ Uma edição que a recarga não aplica sobre os objetos vivos — assinatura de 
 função alterada, classe com outro número de campos, id de classe que passou a
 ser de outra classe (classes inseridas ou reordenadas) — é recusada na etapa
 `contract` com o motivo, e o programa **reinicia** com o código novo: a sessão
-roda num processo filho (`--filho`) que o supervisor recria quando ele sai com
+roda num processo filho (`--child`) que o supervisor recria quando ele sai com
 o código 75. Uma função que sumiu do código novo não é recusa: ela mantém o
 corpo antigo, que só uma closure ou um tear-off antigo ainda alcança.
 
 `--timings` relata, por geração, a emissão, a recarga e a espera pelo ponto
-seguro (`HotReloadReport::safepoint_wait`). `--reiniciar` é o R0: cada edição
+seguro (`HotReloadReport::safepoint_wait`). `--restart` é o R0: cada edição
 recompila e recomeça `main` num processo novo (`dartforge run --ir`), sem
-estado. `--preservar-estado`, a forma antiga, é aceito e não muda nada.
+estado. `--preserve-state`, a forma antiga, é aceito e não muda nada.
 
 Custo medido (programa com timer e `async`, Linux x86-64): emissão ~90 ms e
 recarga ~35 ms (análise 7, ligação 24, espera do ponto seguro ~1). O registro
@@ -941,7 +941,7 @@ o endereço no próprio runtime que atende o programa. Isso mantém a mesma
 instância de heap/TLS quando o SDK está em uma biblioteca `RTLD_LOCAL` e o
 executável hospedeiro contém outro runtime. A seleção é gerada do catálogo
 para o módulo Cargo e para a fonte avulsa do AOT. Símbolos estrangeiros
-continuam sendo procurados no processo; a opção `--memoria=arc` conserva
+continuam sendo procurados no processo; a opção `--memory=arc` conserva
 seu papel de selecionar explicitamente a política de memória.
 
 Ambiente mínimo, medido num Linux x86-64 (o mesmo que o CI prepara):

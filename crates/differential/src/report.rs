@@ -19,7 +19,7 @@ use crate::corpus::Program;
 use crate::process::Output;
 
 /// Result of a program across the executors. `forge` is `None` with
-/// `--sem-forge`; `production` only exists with `--producao`.
+/// `--no-forge`; `production` only exists with `--production`.
 #[derive(Debug, Clone)]
 pub struct ProgramResult {
     pub program: Program,

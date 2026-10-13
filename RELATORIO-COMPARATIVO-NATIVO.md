@@ -134,7 +134,7 @@ Tempos em ms.
 | A0 sem `--optimize` | perfil de desenvolvimento (SDK em biblioteca dinâmica) | 123 KB | 20 | 85 | 288 | 160 | 359 | 89 MB | 0,58 s |
 | A1 | A0 com exceções por tabelas | 3,2 MB | 16 | 45 | 130 | 118 | 160 | 77 MB | 0,27 s |
 | B0 / B1 | raízes por mapas de pilha (sem/com tabelas) | 6,3 MB | 17 / 14 | **falha** | — | — | — | — | 0,30 s |
-| ARC | `--memoria arc` legado | 3,1 MB | 15 | 267 | 107 | 212 | 400 | 349 MB | 0,26 s |
+| ARC | `--memory arc` legado | 3,1 MB | 15 | 267 | 107 | 212 | 400 | 349 MB | 0,26 s |
 | ARCP | ARC com a preparação publicada | **16,8 MB** | 14 | 427 | 105 | 396 | 954 | 350 MB | 0,43 s |
 | ARCP + tabelas | ARCP com exceções por tabelas | 18,9 MB | 14 | 450 | 107 | 401 | 958 | 296 MB | 0,43 s |
 | JIT | `dartforge run` (a partida inclui compilar) | — | 18 | 68 | 237 | 106 | 230 | 188 MB | 1,46 s |

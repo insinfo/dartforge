@@ -113,7 +113,7 @@ pub struct Options {
     /// `--enable-asserts`: the program's `assert`s are emitted. Off by
     /// default, as in `dart2js` (`docs/JS-PRODUCAO-TAMANHO.md` §3.3).
     pub asserts: bool,
-    /// `--omitir-checagens`: no implicit `dynamic` conversions and no
+    /// `--omit-checks`: no implicit `dynamic` conversions and no
     /// covariance checks, like `dart2js -O4`. Unsafe.
     pub omit_checks: bool,
 }

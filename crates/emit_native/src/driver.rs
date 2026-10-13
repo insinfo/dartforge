@@ -143,7 +143,7 @@ pub fn compile_and_link(
     let generation = Generation { cpu: options.cpu, ..Generation::of_program(options.optimize, production && !without_lto) };
     if keep_ir {
         // The copy in `.df_tmp` only exists for those who asked for DARTFORGE_KEEP_IR
-        // (the harness's `determinismo --executar` reads those copies).
+        // (the harness's `determinismo --run` reads those copies).
         create_staging()?;
         std::fs::write(&ll_file, llvm_ir)
             .map_err(|e| format!("failed to write LLVM IR to {}: {e}", ll_file.display()))?;

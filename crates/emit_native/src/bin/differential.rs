@@ -4,7 +4,7 @@
 //! Usage:
 //!   cargo run -p dartforge-emit-native --bin differential
 //!   cargo run -p dartforge-emit-native --bin differential -- 01_print
-//!   cargo run -p dartforge-emit-native --bin differential --bloco 1
+//!   cargo run -p dartforge-emit-native --bin differential --block 1
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -159,7 +159,7 @@ fn list_programs(dir: &Path, filter: Option<&str>) -> Vec<Prog> {
     }
 
     if let Some(f) = filter {
-        if f.starts_with("--bloco") {
+        if f.starts_with("--block") {
             // Filter by block
         } else {
             progs.retain(|p| p.name.contains(f));

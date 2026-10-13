@@ -33,7 +33,7 @@ pub struct SdkLayout {
     /// The tool's **current** language version: that of a library without a
     /// marker and outside a package, and the ceiling of the markers
     /// (`docs/VERSOES-LINGUAGEM.md`, D2). Default 3.13; the CLI changes it with
-    /// `--version-linguagem`. The `dart:*` libraries always stay at the floor
+    /// `--language-version`. The `dart:*` libraries always stay at the floor
     /// ([`LanguageVersion::FLOOR`]), because they are those of SDK 3.6.2 (D1).
     pub current_version: LanguageVersion,
     /// `--enable-experiment=…`: they only apply to libraries without a marker
@@ -44,7 +44,7 @@ pub struct SdkLayout {
     pub replacements: HashMap<PathBuf, PathBuf>,
 }
 
-/// Command-line language options: `--version-linguagem x.y` (the current
+/// Command-line language options: `--language-version x.y` (the current
 /// version, D2) and `--enable-experiment=a,b`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LanguageOptions {
@@ -60,15 +60,15 @@ impl LanguageOptions {
     /// A version not in the `x.y` format, above the current one or below 2.12,
     /// and an unknown experiment.
     pub fn read_option<'a>(&mut self, arg: &str, rest: &mut impl Iterator<Item = &'a str>) -> Result<bool, String> {
-        if arg == "--versao-linguagem" || arg.starts_with("--versao-linguagem=") {
+        if arg == "--language-version" || arg.starts_with("--language-version=") {
             let value = match arg.split_once('=') {
                 Some((_, v)) => v.to_string(),
-                None => rest.next().ok_or("--versao-linguagem requires x.y")?.to_string(),
+                None => rest.next().ok_or("--language-version requires x.y")?.to_string(),
             };
-            let v = LanguageVersion::parse(&value).ok_or_else(|| format!("--versao-linguagem: '{value}' is not x.y"))?;
+            let v = LanguageVersion::parse(&value).ok_or_else(|| format!("--language-version: '{value}' is not x.y"))?;
             if v > LanguageVersion::CURRENT || v < LanguageVersion::MINIMUM {
                 return Err(format!(
-                    "--versao-linguagem {v}: outside the supported range ({} to {})",
+                    "--language-version {v}: outside the supported range ({} to {})",
                     LanguageVersion::MINIMUM,
                     LanguageVersion::CURRENT
                 ));

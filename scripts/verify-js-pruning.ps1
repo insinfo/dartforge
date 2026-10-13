@@ -65,9 +65,9 @@ $linhas = @()
 foreach ($item in $lista) {
   $dir = Join-Path $trabalho $item.Nome
   New-Item -ItemType Directory -Force $dir | Out-Null
-  $sem = Compilar $item (Join-Path $dir "sem.js") @("--sem-poda-usuario")
+  $sem = Compilar $item (Join-Path $dir "sem.js") @("--no-user-prune")
   $com = Compilar $item (Join-Path $dir "com.js") @()
-  $stub = Compilar $item (Join-Path $dir "stub.js") @("--verificar-stub")
+  $stub = Compilar $item (Join-Path $dir "stub.js") @("--verify-stub")
   if (-not ($sem.Ok -and $com.Ok -and $stub.Ok)) {
     Write-Host "FALHA de compilação: $($item.Nome)`n$($com.Log)`n$($stub.Log)"
     $falhas++; continue

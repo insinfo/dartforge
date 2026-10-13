@@ -1,13 +1,13 @@
 //! `dartforge-parity`: diagnostic parity scoreboard against `dart analyze`.
 //!
 //! ```text
-//! dartforge-parity placar [--grupo G]... [--trabalhadores N] [--lote N] [--detalhes]
-//! dartforge-parity determinismo [--trabalhadores 1,4,8] [--grupo G]...
-//! dartforge-parity oraculo [--grupo G]...          (re-records; needs dart)
-//! dartforge-parity sintaxe-nova [--grupo G]...     (3.13.4 on files with syntax 3.6.2 does not know)
-//! dartforge-parity gerar-corpus [--referencias DIR] [--pub-cache DIR]
-//! dartforge-parity projetos [--oraculo] [--mutacoes N] [--regravar] [--trabalhadores N] [--lote N]
-//! dartforge-parity saida [DIR] [--gravar]          (whole `analyze` output, three formats)
+//! dartforge-parity placar [--group G]... [--workers N] [--batch N] [--details]
+//! dartforge-parity determinismo [--workers 1,4,8] [--group G]...
+//! dartforge-parity oraculo [--group G]...          (re-records; needs dart)
+//! dartforge-parity sintaxe-nova [--group G]...     (3.13.4 on files with syntax 3.6.2 does not know)
+//! dartforge-parity gerar-corpus [--references DIR] [--pub-cache DIR]
+//! dartforge-parity projetos [--oracle] [--mutations N] [--rerecord] [--workers N] [--batch N]
+//! dartforge-parity saida [DIR] [--write]          (whole `analyze` output, three formats)
 //! ```
 //!
 //! Exit code: 0 complete report; 1 oracle missing/out of date or
@@ -107,17 +107,17 @@ fn read_args() -> Option<Args> {
     };
     while let Some(x) = it.next() {
         match x.as_str() {
-            "--grupo" => a.groups.push(it.next()?),
-            "--trabalhadores" => {
+            "--group" => a.groups.push(it.next()?),
+            "--workers" => {
                 a.workers = it.next()?.split(',').map(|n| n.trim().parse().ok()).collect::<Option<Vec<_>>>()?
             }
-            "--lote" => a.batch = it.next()?.parse().ok()?,
-            "--detalhes" => a.details = true,
-            "--referencias" => a.references = PathBuf::from(it.next()?),
+            "--batch" => a.batch = it.next()?.parse().ok()?,
+            "--details" => a.details = true,
+            "--references" => a.references = PathBuf::from(it.next()?),
             "--pub-cache" => a.pub_cache = PathBuf::from(it.next()?),
-            "--oraculo" => a.oracle = true,
-            "--mutacoes" => a.mutations = it.next()?.parse().ok()?,
-            "--regravar" => a.rerecord = true,
+            "--oracle" => a.oracle = true,
+            "--mutations" => a.mutations = it.next()?.parse().ok()?,
+            "--rerecord" => a.rerecord = true,
             "--corpus" => a.corpus = PathBuf::from(it.next()?),
             _ => return None,
         }
@@ -132,9 +132,9 @@ fn main() -> ExitCode {
         dartforge_parity::silence_panics();
         return child_batch(&raw[1..]);
     }
-    // `exit_detector [DIR] [--gravar]`: the project parity harness (III.1).
+    // `exit_detector [DIR] [--write]`: the project parity harness (III.1).
     if raw.first().is_some_and(|c| c == "saida") {
-        let write = raw.iter().any(|x| x == "--gravar");
+        let write = raw.iter().any(|x| x == "--write");
         let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::corpus_root().join("saida-analyze"));
         let ok = if write { dartforge_parity::output::record(&dir) } else { dartforge_parity::output::compare(&dir) };
         return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
@@ -202,7 +202,7 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
         let (oracle, meta) = match oracle::read(&dir) {
             Ok(x) => x,
             Err(e) => {
-                let _ = writeln!(body, "group {name}: NO RECORDED ORACLE ({e}) — run `dartforge-parity oraculo --grupo {name}`");
+                let _ = writeln!(body, "group {name}: NO RECORDED ORACLE ({e}) — run `dartforge-parity oraculo --group {name}`");
                 ok = false;
                 continue;
             }

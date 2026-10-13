@@ -43,12 +43,12 @@ def compiladores():
     c = {}
     if df:
         variantes = [
-            ("A0", [], {}), ("A0-dev", None, {}), ("A1", ["--excecoes", "tabelas"], {}),
-            ("B0", [], {"DARTFORGE_ROOTS": "mapas"}),
-            ("B1", ["--excecoes", "tabelas"], {"DARTFORGE_ROOTS": "mapas"}),
-            ("ARC", ["--memoria", "arc"], {}),
-            ("ARCP", ["--memoria", "arc"], {"DARTFORGE_ARC_PREPARED": "1"}),
-            ("ARCP-tab", ["--memoria", "arc", "--excecoes", "tabelas"], {"DARTFORGE_ARC_PREPARED": "1"}),
+            ("A0", [], {}), ("A0-dev", None, {}), ("A1", ["--exceptions", "tables"], {}),
+            ("B0", [], {"DARTFORGE_ROOTS": "maps"}),
+            ("B1", ["--exceptions", "tables"], {"DARTFORGE_ROOTS": "maps"}),
+            ("ARC", ["--memory", "arc"], {}),
+            ("ARCP", ["--memory", "arc"], {"DARTFORGE_ARC_PREPARED": "1"}),
+            ("ARCP-tab", ["--memory", "arc", "--exceptions", "tables"], {"DARTFORGE_ARC_PREPARED": "1"}),
         ]
         # As raízes por mapas exigem o gerador embutido (a CLI com `jit`).
         jit = ferramenta("DARTFORGE_JIT", "dartforge-jit")

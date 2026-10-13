@@ -34,10 +34,10 @@ def servidores(saida):
     exe = lambda nome: os.path.join(saida, f"srv-{nome}")
     s = {}
     for modo, cli, extra, amb in [
-        ("A0", df, [], {}), ("A1", df, ["--excecoes", "tabelas"], {}),
-        ("B1", jit, ["--excecoes", "tabelas"], {"DARTFORGE_ROOTS": "mapas"}),
-        ("ARC", df, ["--memoria", "arc"], {}),
-        ("ARCP", df, ["--memoria", "arc"], {"DARTFORGE_ARC_PREPARED": "1"}),
+        ("A0", df, [], {}), ("A1", df, ["--exceptions", "tables"], {}),
+        ("B1", jit, ["--exceptions", "tables"], {"DARTFORGE_ROOTS": "maps"}),
+        ("ARC", df, ["--memory", "arc"], {}),
+        ("ARCP", df, ["--memory", "arc"], {"DARTFORGE_ARC_PREPARED": "1"}),
     ]:
         if cli:
             nome = f"dartforge-{modo}"

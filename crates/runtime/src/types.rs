@@ -1500,10 +1500,10 @@ pub extern "C" fn dartforge_rti_object_type(t: i64) -> i64 {
         let h = heap.new_object(TYPE_CLASS, &[(t, false)]);
         // Permanent root in an id that the program globals (non-negative)
         // and the event loop (small negatives) do not use. The sabotage
-        // `tipo_sem_raiz` (D12, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+        // `unrooted_type` (D12, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
         // §7.3) removes the registration: the cache then keeps a handle that
         // collection frees.
-        if !crate::heap::sabotage("tipo_sem_raiz") {
+        if !crate::heap::sabotage("unrooted_type") {
             heap.set_global_root(-(1_i64 << 40) - t, h);
         }
         h

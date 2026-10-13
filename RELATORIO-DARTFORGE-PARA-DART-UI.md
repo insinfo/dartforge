@@ -232,7 +232,7 @@ final cb = SyncNativeCallable<Bool Function(Pointer)>(handler, exceptionalReturn
     - `GarbageCollector.collectWhenIdle()` coleta no ocioso.
     - O coletor do DartForge só roda em pontos de alocação e em gatilhos que o
       runtime controla (`heap.rs`, `coletar_automatico`).
-  - **Com o ARC (`--memoria arc`):** objetos acíclicos morrem quando o último
+  - **Com o ARC (`--memory arc`):** objetos acíclicos morrem quando o último
     dono solta, sem varredura. O lixo de quadro vira custo distribuído, sem
     pausa. O ARC ainda está 2,7× (legado) e 5,2× (preparado) mais lento que o
     tracing no agregado (`ESTADO.md`); é trabalho em curso.
@@ -287,10 +287,10 @@ pelo DartForge, contra a VM.
 ### P12. Diagnóstico de falhas FFI em AOT — já resolve em parte
 
 - **O que já existe:**
-  - o executável do DartForge é nativo comum, com DWARF (`--depuracao`) e
+  - o executável do DartForge é nativo comum, com DWARF (`--debug`) e
     símbolos (`DARTFORGE_KEEP_SYMBOLS=1`);
   - o LLDB e o `sample` veem nomes Dart;
-  - o rastro simbólico (`--rastro=simbolico`) dá a pilha Dart nas exceções.
+  - o rastro simbólico (`--stack-trace=symbolic`) dá a pilha Dart nas exceções.
 - **A fazer (runtime):**
   - registrar a última chamada FFI ativa por thread e imprimi-la no `SIGSEGV`;
   - timeline de quadros em AOT, que hoje o dart_ui não tem.

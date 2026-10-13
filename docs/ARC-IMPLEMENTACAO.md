@@ -7,7 +7,7 @@ alvo; aqui fica só o que o código faz hoje.
 
 ## 1. Seleção
 
-`--memoria tracing|arc` (ou `--memoria=`) em `aot`, `compile-native`, `run`
+`--memory tracing|arc` (ou `--memory=`) em `aot`, `compile-native`, `run`
 e `reload`. Em `run`, a opção deve preceder o arquivo; argumentos depois
 dele pertencem ao programa. Cada comando parte de tracing e somente a
 opção explícita seleciona ARC, mesmo com `DARTFORGE_MEMORY=arc` herdado.
@@ -47,7 +47,7 @@ execução. Esta seção registra o primeiro desenho, ainda selecionável com
 | Código gerado | No ARC, `SetField`, o `dartforge_object_set` especializado, `CellSet` e os ajudantes de lista (`@df.list_write_ref`, `@df.list_write_data`) não gravam em linha: chamam o runtime, que conta e aplica a barreira (§18.1, decisão 6). A alocação continua em linha (o objeto nasce jovem). | `llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/caixas_ir.rs` |
 | Raízes | **Adiadas**: a pilha-sombra (ou os mapas), os quadros do runtime, os globais, os literais e as demais raízes de `Heap::raizes` não contam. Elas protegem os zeros que veem na sincronização: o zero protegido fica na fila (a tabela de contagem zero). | `heap.rs`, `arc.rs` (`drenar_zeros`) |
 | Morte | Só na sincronização (fim da coleta menor), nunca dentro de uma gravação: o runtime mantém o contrato de raízes do rastreamento. O descarte rompe as arestas e solta os destinos fora do conjunto (§19.4). | `arc.rs` (`descartar`) |
-| Ciclos | Na completa, o ponto fixo global (§22.3): `L` é o alcance pelas raízes reais com a regra condicional dos efêmeros, e todo registrado vivo fora de `L` morre num lote só, inclusive o de RC positivo só por ciclos. A *trial deletion* lateral sem tocar o RC real (§22.1) fica para `DARTFORGE_ARC_CYCLES=sempre`, em toda sincronização e repetida a cada volta com morte nova. Candidatos: quem desceu a um RC positivo, quem desceu a zero e voltou a subir antes da drenagem (o autociclo `x[i] = x` depois de soltar a última ocorrência de fora) e quem uma raiz vê. As raízes não geram decremento ao sumir, então o sobrevivente protegido só por elas volta a ser candidato. | `heap.rs` (`ponto_fixo_arc`), `arc.rs` (`coletar_ciclos`, `candidatar`, `drenar_zeros`) |
+| Ciclos | Na completa, o ponto fixo global (§22.3): `L` é o alcance pelas raízes reais com a regra condicional dos efêmeros, e todo registrado vivo fora de `L` morre num lote só, inclusive o de RC positivo só por ciclos. A *trial deletion* lateral sem tocar o RC real (§22.1) fica para `DARTFORGE_ARC_CYCLES=always`, em toda sincronização e repetida a cada volta com morte nova. Candidatos: quem desceu a um RC positivo, quem desceu a zero e voltou a subir antes da drenagem (o autociclo `x[i] = x` depois de soltar a última ocorrência de fora) e quem uma raiz vê. As raízes não geram decremento ao sumir, então o sobrevivente protegido só por elas volta a ser candidato. | `heap.rs` (`ponto_fixo_arc`), `arc.rs` (`coletar_ciclos`, `candidatar`, `drenar_zeros`) |
 | Efêmeros | Entre as completas, cada entrada contada é uma ocorrência do valor atribuída à chave no grafo: segura o valor enquanto a chave vive, mesmo com o portador já inalcançável (retenção, nunca morte antes da hora). A morte da chave rompe a entrada; a do portador a solta. No ponto fixo o portador conta: a entrada de portador fora de `L` sai da contagem antes do lote (sem isso, o ciclo valor→portador ficava vivo pela chave). | `heap.rs` (`EfemerosDoArc`, `ponto_fixo_arc`) |
 | Fracas e finalizadores | As tabelas laterais esquecem os mortos na sincronização (fracas zeradas, anexos e finalizáveis disparados), em laço até não haver morte nova. | `heap.rs` (`sincronizar_arc`) |
 | Reclamação | Na completa: as marcas passam a ser os vivos do RC (não a marcação por rastreamento) e a varredura completa devolve os blocos dos mortos (§19.4). Até lá o morto fica com as arestas zeradas e sem metadados. | `heap.rs` (`reclamar_arc`) |
@@ -75,7 +75,7 @@ zeros pelas raízes vira só auditoria.
 | Variável | Efeito |
 | --- | --- |
 | `DARTFORGE_ARC_CHECK=1` | depois de cada sincronização, nenhum objeto alcançável das raízes sem RC vivo (com o pai, a posição e os metadados no pânico) e o RC de cada vivo igual às ocorrências recontadas (§20.3, modo auditor) |
-| `DARTFORGE_ARC_CYCLES=sempre` ou `nunca` | a *trial deletion* em toda sincronização (além do ponto fixo da completa), ou nem ela nem o ponto fixo |
+| `DARTFORGE_ARC_CYCLES=always` ou `nunca` | a *trial deletion* em toda sincronização (além do ponto fixo da completa), ou nem ela nem o ponto fixo |
 | `DARTFORGE_ARC_TRACE=1` | uma linha por evento: sincronização (promovidos, lembrados, fotos), registro, retain, release, morte |
 | `DARTFORGE_GC_TRACE=1` | a linha `[arc]` de cada sincronização: promovidos, contados, retains, releases, mortos pelo RC e por ciclo, rodadas, examinados, candidatos |
 
@@ -108,11 +108,11 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
 
   | Rodada | Resultado |
   | --- | --- |
-  | `--nativo`, `DARTFORGE_ARC_CHECK=1` | 238/238 |
-  | `--nativo`, `DARTFORGE_ARC_CYCLES=sempre`, `DARTFORGE_ARC_CHECK=1` | 238/238 |
-  | `--nativo --gc-stress` | 238/238 |
+  | `--native`, `DARTFORGE_ARC_CHECK=1` | 238/238 |
+  | `--native`, `DARTFORGE_ARC_CYCLES=always`, `DARTFORGE_ARC_CHECK=1` | 238/238 |
+  | `--native --gc-stress` | 238/238 |
   | `--jit-aot`, `DARTFORGE_ARC_CHECK=1` | 238/238, JIT × AOT sem divergência |
-  | Depois do ponto fixo (2026-10-08): `--nativo` com auditoria, `--gc-stress`, `DARTFORGE_ARC_CYCLES=sempre` com auditoria | 238/238 nos três |
+  | Depois do ponto fixo (2026-10-08): `--native` com auditoria, `--gc-stress`, `DARTFORGE_ARC_CYCLES=always` com auditoria | 238/238 nos três |
 
   O job `nativo-arc` do `pesado.yml` roda o corpus com a auditoria e com o
   `--gc-stress`.
@@ -137,7 +137,7 @@ o padrão do modo `arc`, ninguém percorre o heap para decidir vida:
 
 Validação (Windows x86-64): os grafos aleatórios da §4 nos três modos (3000
 sementes cada); o corpus nativo com a auditoria (238/238), com
-`--gc-stress` (238/238), com `DARTFORGE_ARC_CYCLES=sempre` e a auditoria
+`--gc-stress` (238/238), com `DARTFORGE_ARC_CYCLES=always` e a auditoria
 (238/238) e no JIT × AOT (238/238 idênticos); `dart:io` 127/130 (as duas
 do ambiente desta máquina, `02` e `03`, e o `91`, que estoura os 5 s com
 quatro tarefas em paralelo). O `--gc-stress` achou o caminho que faltava: o

@@ -1,6 +1,6 @@
 # O harness diferencial com o gerador de objetos embutido (a feature
 # `embedded-llvm`), para os jobs dos modos de raízes e de exceções do Pesado
-# (`nativo-modos`): as raízes por mapas (`--raizes=mapas`, B0 e B1) exigem o
+# (`nativo-modos`): as raízes por mapas (`--roots=maps`, B0 e B1) exigem o
 # gerador embutido, porque o Clang não roda o passe dos mapas. O
 # `dartforge-differential` do artefato `binarios` é compilado sem ele (os
 # outros jobs do harness não têm o LLVM de desenvolvimento no PATH); aqui ele

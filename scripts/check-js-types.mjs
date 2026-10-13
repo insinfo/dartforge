@@ -6,7 +6,7 @@
 // analyzer no mesmo intervalo) ou nenhum.
 //
 // Uso:
-//   node scripts/check-js-types.mjs <divergencias.tsv> <oraculo.tsv> [--exemplos N]
+//   node scripts/check-js-types.mjs <divergencias.tsv> <oraculo.tsv> [--examples N]
 //
 // Os intervalos da conferência são em bytes UTF-8; os do analyzer, em
 // unidades UTF-16: a conversão lê a fonte de cada arquivo.
@@ -15,11 +15,11 @@ import { readFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 if (args.length < 2) {
-  console.error('uso: node scripts/check-js-types.mjs <divergencias.tsv> <oraculo.tsv> [--exemplos N]');
+  console.error('uso: node scripts/check-js-types.mjs <divergencias.tsv> <oraculo.tsv> [--examples N]');
   process.exit(64);
 }
 const [divPath, oracPath] = args;
-const iEx = args.indexOf('--exemplos');
+const iEx = args.indexOf('--examples');
 const exemplos = iEx >= 0 ? Number(args[iEx + 1]) : 0;
 
 // Oráculo: `caminho \t offset \t comprimento \t nó \t tipo \t elemento`.

@@ -478,13 +478,13 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.update(b"\0");
     // The symbolic stack trace adds the labels and the table (`llvm/stack_trace.rs`);
     // the default does not enter.
-    if std::env::var("DARTFORGE_STACK_TRACE").is_ok_and(|v| v == "simbolico") {
-        h.update(b"rastro=simbolico\0");
+    if std::env::var("DARTFORGE_STACK_TRACE").is_ok_and(|v| v == "symbolic") {
+        h.update(b"stack_trace=symbolic\0");
     }
     // The exception model changes the code (`optimize/tables.rs`). The default
     // does not enter the key: the usual SDK keeps the usual key.
-    if std::env::var("DARTFORGE_EXCEPTIONS").is_ok_and(|v| v == "tabelas") {
-        h.update(b"excecoes=tabelas\0");
+    if std::env::var("DARTFORGE_EXCEPTIONS").is_ok_and(|v| v == "tables") {
+        h.update(b"exceptions=tables\0");
     }
     // ARC memory changes the code (the stores through the runtime, the activation at the
     // entry); the default does not enter. The version is that of the memory ABI.
@@ -497,25 +497,25 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         h.update(b"arc=preparado_v1\0");
     }
     // The roots mode changes the code (`llvm/mod.rs`); the default does not enter.
-    if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "mapas") {
+    if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "maps") {
         // `_v2`: with the unwind table on Unix (`with_uwtable`).
-        h.update(b"raizes=mapas_v2\0");
+        h.update(b"roots=maps_v2\0");
         // The budget ceiling decides which functions come out with a map, and the
         // checking build adds slots to the frame.
         h.update(crate::target::maps_budget().to_string().as_bytes());
-        h.update(if crate::target::check_roots() { b"conferir\0" } else { b"\0\0\0\0\0\0\0\0\0" });
+        h.update(if crate::target::check_roots() { b"check\0" } else { b"\0\0\0\0\0\0" });
     }
     // The test sabotages change the code (`target::sabotage`).
     if let Ok(s) = std::env::var("DARTFORGE_SABOTAGE")
         && !s.is_empty()
     {
-        h.update(b"sabotagem=");
+        h.update(b"sabotage=");
         h.update(s.as_bytes());
         h.update(b"\0");
     }
     // The check of the effects table instruments the calls to the externs.
     if crate::llvm::externs::check_effects() {
-        h.update(b"efeitos=conferir\0");
+        h.update(b"effects=check\0");
     }
     // The measurement switches of the emitter (`DARTFORGE_NO_…`, which turn off an
     // optimization to compare before and after) change the code.

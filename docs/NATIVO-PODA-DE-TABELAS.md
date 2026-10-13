@@ -176,7 +176,7 @@ Ficam de fora, sem mudança:
 * **JIT e recarga:** a geração nova do programa pode chamar qualquer seletor; o JIT usa a DLL de
   desenvolvimento, com as tabelas inteiras nos módulos do SDK, e `dartforge_publish_generation`
   substitui tabelas do programa. Podar ali exigiria reconstruir o SDK a cada recarga.
-* **`--nativo` sem `--optimize` e a DLL do SDK:** a ligação rápida contra a DLL; a DLL é uma só
+* **`--native` sem `--optimize` e a DLL do SDK:** a ligação rápida contra a DLL; a DLL é uma só
   para todo programa.
 
 ### 3.9 Formas de entrada sob demanda
@@ -297,8 +297,8 @@ desliga.
   usados estão, e que a saída é a esperada; o harness compara com a VM.
 * Testes de unidade do `poda.rs`: leitura do IR (locais, seletores, tipados, tabelas), resumo ida e
   volta, ponto fixo e montagem em módulos pequenos.
-* O corpus nativo inteiro em `aot --optimize` contra a VM; `--nativo`, `--jit`,
-  `--nativo --gc-stress --limite-exec 60`; o corpus JS pelo AOT; `cargo test --workspace`.
+* O corpus nativo inteiro em `aot --optimize` contra a VM; `--native`, `--jit`,
+  `--native --gc-stress --exec-limit 60`; o corpus JS pelo AOT; `cargo test --workspace`.
 * Tamanho (hello, t0, servidor, json, blend), tempo de ligação e desempenho (json, blend) antes e
   depois.
 

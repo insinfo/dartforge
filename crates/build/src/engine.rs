@@ -10,7 +10,7 @@
 //!   invalidates nobody (output cutoff).
 //! * Laziness (D-B6): under [`Demand::Loader`] only the outputs the
 //!   loader can import (`.dart`) and the `build_to: source` ones are
-//!   computed; the rest (a served `.css`, `--comparar`) goes through
+//!   computed; the rest (a served `.css`, `--compare`) goes through
 //!   [`Engine::materialize`] or [`Demand::Everything`]. With the Dart executor,
 //!   the hidden phases it runs are included too (a later builder may read
 //!   them); only the optional ones stay lazy.
@@ -38,14 +38,14 @@ use std::time::{Duration, Instant};
 pub struct EngineOptions {
     pub release: bool,
     pub workers: usize,
-    /// A stale fallback becomes an error (D-B5, `dartforge build --estrito`).
+    /// A stale fallback becomes an error (D-B5, `dartforge build --strict`).
     pub strict: bool,
     /// Also runs the native generators that are not verified yet, only to
-    /// measure them (`--comparar`).
+    /// measure them (`--compare`).
     pub measure_unchecked: bool,
     /// Reads and writes the state across processes in
     /// `.dart_tool/dartforge/build/estado` (§4.1). Off by default: only when
-    /// the user asks for it (`dartforge build --estado`,
+    /// the user asks for it (`dartforge build --state`,
     /// `DARTFORGE_BUILD_STATE=1`), per governing rule 6 of `PLANO.md`.
     pub persist: bool,
     /// `--config <name>`: `build.<name>.yaml` in place of the root's
@@ -141,7 +141,7 @@ pub struct ActionRecord {
 pub enum Demand {
     /// What the loader can import (`.dart`) and the `source` outputs.
     Loader,
-    /// Everything (`dartforge build`, `--comparar`).
+    /// Everything (`dartforge build`, `--compare`).
     Everything,
 }
 

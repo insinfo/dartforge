@@ -310,11 +310,11 @@ fn main() -> Result<(), String> {
             let mut sdk_in_group = false;
             let mut externs_inventory = false;
             for argument in std::env::args_os().skip(1) {
-                if argument == "--memoria=arc" {
+                if argument == "--memory=arc" {
                     selected_arc = true;
-                } else if argument == "--sdk-no-grupo" {
+                } else if argument == "--sdk-in-group" {
                     sdk_in_group = true;
-                } else if argument == "--inventario-externs" {
+                } else if argument == "--externs-inventory" {
                     externs_inventory = true;
                 } else {
                     entries.push(argument);
@@ -323,7 +323,7 @@ fn main() -> Result<(), String> {
             // The explicit selection of the diagnostics must match the memory
             // key used by the cache/compilation of the SDK libraries.
             if !selected_arc || !dartforge_emit_native::target::arc_memory()? {
-                return Err("the audit requires --memoria=arc and DARTFORGE_MEMORY=arc".into());
+                return Err("the audit requires --memory=arc and DARTFORGE_MEMORY=arc".into());
             }
             if entries.is_empty() {
                 return Err("informe os arquivos Dart a auditar".into());

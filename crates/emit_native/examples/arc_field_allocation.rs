@@ -183,8 +183,8 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let exit = PathBuf::from(args.next().ok_or("provide the executable")?);
     let arc = match args.next().as_deref() {
-        Some("--memoria=arc") => true,
-        Some("--memoria=tracing") | None => false,
+        Some("--memory=arc") => true,
+        Some("--memory=tracing") | None => false,
         Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {
@@ -193,9 +193,9 @@ fn main() -> Result<(), String> {
         Some(other) => return Err(format!("unknown level: {other}")),
     };
     let mut control = args.next();
-    let frame = control.as_deref() == Some("--quadro");
-    let typed_error = control.as_deref() == Some("--tipada-erro");
-    let typed = control.as_deref() == Some("--tipada") || typed_error;
+    let frame = control.as_deref() == Some("--frame");
+    let typed_error = control.as_deref() == Some("--typed-error");
+    let typed = control.as_deref() == Some("--typed") || typed_error;
     if frame || typed { control = args.next(); }
     if args.next().is_some() { return Err("argumentos excedentes".into()); }
     let mut m = module(frame, typed)?;

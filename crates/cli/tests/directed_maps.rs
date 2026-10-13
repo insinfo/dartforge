@@ -3,15 +3,15 @@
 //!
 //! Each case is a program from `corpus/native/gc_*` (which the differential
 //! harness also runs against the VM) with the output computed by hand. It is
-//! compiled with `--raizes=mapas` and run with `--gc-stress`, poisoning with
-//! quarantine and the proof that it collected (`DARTFORGE_GC_STATS=exigir`:
+//! compiled with `--roots=maps` and run with `--gc-stress`, poisoning with
+//! quarantine and the proof that it collected (`DARTFORGE_GC_STATS=require`:
 //! without a collection, or without a root read from a map, the executable
 //! exits with 70). Then, with its sabotage, the case **has to fail** — at
 //! compilation, at run time or in the output —; a case that passes with the
 //! sabotage proves nothing.
 //!
 //! Also: the checking build (`DARTFORGE_ROOTS_CHECK=1` with
-//! `DARTFORGE_GC_WALK=conferir`, E2.5) and the seed-scheduled collection
+//! `DARTFORGE_GC_WALK=check`, E2.5) and the seed-scheduled collection
 //! (`DARTFORGE_GC_SCHEDULE`).
 //!
 //! Heavy (one compilation per case and per sabotage): runs with
@@ -25,9 +25,9 @@ use std::process::{Command, Output};
 struct Case {
     file: &'static str,
     expected: &'static str,
-    /// Compile with `--excecoes=tabelas`.
+    /// Compile with `--exceptions=tables`.
     tables: bool,
-    /// Compile with the roots on the shadow stack (`--raizes=sombra`): the case
+    /// Compile with the roots on the shadow stack (`--roots=shadow`): the case
     /// whose sabotage targets the shadow stack frame (D5).
     shadow: bool,
     /// The emitter's sabotage (`DARTFORGE_SABOTAGE` at compile time).
@@ -41,7 +41,7 @@ const CASES: &[Case] = &[
         file: "gc_d01_argumento_vivo.dart",
         expected: "18335 1999000 2000\n",
         tables: false, shadow: false,
-        emitter_sabotage: Some("sem_uso_ficticio"),
+        emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
     // D7: the fake leaf, in the same program.
@@ -49,7 +49,7 @@ const CASES: &[Case] = &[
         file: "gc_d01_argumento_vivo.dart",
         expected: "18335 1999000 2000\n",
         tables: false, shadow: false,
-        emitter_sabotage: Some("folha:dartforge_string_concat"),
+        emitter_sabotage: Some("leaf:dartforge_string_concat"),
         runtime_sabotage: None,
     },
     // §14.7: the reader without the `nop` rule (only Windows x64 has it). D1
@@ -59,13 +59,13 @@ const CASES: &[Case] = &[
         expected: "double\nString\n",
         tables: false, shadow: false,
         emitter_sabotage: None,
-        runtime_sabotage: if cfg!(windows) { Some("sem_nop") } else { None },
+        runtime_sabotage: if cfg!(windows) { Some("no_nop") } else { None },
     },
     Case {
         file: "gc_d02_muitos_vivos.dart",
         expected: "4320 h-49 2.0\n",
         tables: false, shadow: false,
-        emitter_sabotage: Some("sem_uso_ficticio"),
+        emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
     // The landing pad without restoring the shadow stack top (§14.7,
@@ -75,21 +75,21 @@ const CASES: &[Case] = &[
         file: "gc_d03_excecao_profunda.dart",
         expected: "32255\n",
         tables: true, shadow: true,
-        emitter_sabotage: Some("pouso_sem_topo"),
+        emitter_sabotage: Some("pad_without_top"),
         runtime_sabotage: None,
     },
     Case {
         file: "gc_d04_finally.dart",
         expected: "336 10 1566\n",
         tables: true, shadow: false,
-        emitter_sabotage: Some("sem_uso_ficticio"),
+        emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
     Case {
         file: "gc_d06_valores_brutos.dart",
         expected: "249750.0 999000 3890 1248750.0\n",
         tables: false, shadow: false,
-        emitter_sabotage: Some("bruto_no_mapa"),
+        emitter_sabotage: Some("raw_in_map"),
         runtime_sabotage: None,
     },
     Case { file: "gc_d10_closures_async.dart", expected: "4050\n", tables: false, shadow: false, emitter_sabotage: None, runtime_sabotage: None },
@@ -97,7 +97,7 @@ const CASES: &[Case] = &[
         file: "gc_d11_campos_de_objeto_morto.dart",
         expected: "26800\n",
         tables: false, shadow: false,
-        emitter_sabotage: Some("sem_uso_ficticio"),
+        emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
     Case {
@@ -116,7 +116,7 @@ const CASES: &[Case] = &[
         expected: "1729 140\n",
         tables: false,
         shadow: true,
-        emitter_sabotage: Some("quadro_sujo"),
+        emitter_sabotage: Some("dirty_frame"),
         runtime_sabotage: None,
     },
     // D5 also with the maps (the `phi` with the null entry, the `async` continuation).
@@ -125,7 +125,7 @@ const CASES: &[Case] = &[
         expected: "1729 140\n",
         tables: false,
         shadow: false,
-        emitter_sabotage: Some("sem_uso_ficticio"),
+        emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
     // D8: the caught `StackOverflowError`, in both exception models; with the
@@ -136,7 +136,7 @@ const CASES: &[Case] = &[
         tables: false,
         shadow: false,
         emitter_sabotage: None,
-        runtime_sabotage: Some("folga"),
+        runtime_sabotage: Some("slack"),
     },
     Case {
         file: "gc_d08_estouro_de_pilha.dart",
@@ -144,7 +144,7 @@ const CASES: &[Case] = &[
         tables: true,
         shadow: false,
         emitter_sabotage: None,
-        runtime_sabotage: Some("folga"),
+        runtime_sabotage: Some("slack"),
     },
     // D12: the runtime's static caches with a handle are roots.
     Case {
@@ -153,7 +153,7 @@ const CASES: &[Case] = &[
         tables: false,
         shadow: false,
         emitter_sabotage: None,
-        runtime_sabotage: Some("tipo_sem_raiz"),
+        runtime_sabotage: Some("unrooted_type"),
     },
     // D9: the exception that leaves a Dart function the runtime called;
     // without the gates, it crosses the Rust frames.
@@ -163,7 +163,7 @@ const CASES: &[Case] = &[
         tables: true,
         shadow: false,
         emitter_sabotage: None,
-        runtime_sabotage: Some("sem_porta"),
+        runtime_sabotage: Some("no_ports"),
     },
     // D9: `Isolate.exit` inside `finally`, with the exception coming from the
     // gate still in flight; the isolate's exit is not catchable.
@@ -173,7 +173,7 @@ const CASES: &[Case] = &[
         tables: true,
         shadow: false,
         emitter_sabotage: None,
-        runtime_sabotage: Some("sem_porta"),
+        runtime_sabotage: Some("no_ports"),
     },
     // D9: the throwing FFI callback, called by libc's `qsort` (a C frame) and
     // by Dart itself through the native pointer. Without the landing pad at
@@ -183,7 +183,7 @@ const CASES: &[Case] = &[
         expected: "[1, 1, 2, 3, 3, 3, 5, 8, 8, 9] 0 14 2000\n",
         tables: true,
         shadow: false,
-        emitter_sabotage: Some("callback_sem_pouso"),
+        emitter_sabotage: Some("callback_without_pad"),
         runtime_sabotage: None,
     },
 ];
@@ -232,9 +232,9 @@ fn work_dir(name: &str) -> WorkDir {
 fn compile(file: &str, tables: bool, shadow: bool, env: &[(&str, &str)], output: &Path) -> Result<(), String> {
     let mut c = Command::new(env!("CARGO_BIN_EXE_dartforge"));
     c.arg("compile-native").arg(source(file)).arg("-o").arg(output);
-    c.arg(if shadow { "--raizes=sombra" } else { "--raizes=mapas" });
+    c.arg(if shadow { "--roots=shadow" } else { "--roots=maps" });
     if tables {
-        c.arg("--excecoes=tabelas");
+        c.arg("--exceptions=tables");
     }
     c.env_remove("DARTFORGE_SABOTAGE").env_remove("DARTFORGE_ROOTS_CHECK");
     if shadow {
@@ -258,7 +258,7 @@ fn run_with(exe: &Path, stress: bool, env: &[(&str, &str)]) -> Output {
     if stress {
         c.env("DARTFORGE_GC_STRESS", "1");
     }
-    c.env("DARTFORGE_GC_STATS", "exigir").env("DARTFORGE_GC_POISON", "1");
+    c.env("DARTFORGE_GC_STATS", "require").env("DARTFORGE_GC_POISON", "1");
     c.env_remove("DARTFORGE_SABOTAGE").env_remove("DARTFORGE_GC_WALK").env_remove("DARTFORGE_GC_SCHEDULE");
     for (k, v) in env {
         c.env(k, v);
@@ -293,7 +293,7 @@ fn targeted_cases_pass_and_fail_with_the_sabotage() {
         let r = run(&exe, &[]);
         let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
         assert!(right_output(&r, case.expected), "{}: wrong output ({}):\n{}\n{stderr}", case.file, r.status, String::from_utf8_lossy(&r.stdout));
-        // The proof that it collected and read roots from maps (`exigir`
+        // The proof that it collected and read roots from maps (`require`
         // already exits with 70 without it; here the check is explicit).
         assert!(statistic(&stderr, "collections").is_some_and(|n| n > 0), "{}: no collection:\n{stderr}", case.file);
         assert!(
@@ -330,7 +330,7 @@ fn walk_checked_against_the_shadow_stack() {
         let exe = dir.join(format!("conf{}", std::env::consts::EXE_SUFFIX));
         compile(case.file, case.tables, false, &[("DARTFORGE_ROOTS_CHECK", "1")], &exe)
             .unwrap_or_else(|e| panic!("{}: did not compile:\n{e}", case.file));
-        let r = run(&exe, &[("DARTFORGE_GC_WALK", "conferir")]);
+        let r = run(&exe, &[("DARTFORGE_GC_WALK", "check")]);
         let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
         assert!(right_output(&r, case.expected), "{}: the check failed ({}):\n{stderr}", case.file, r.status);
         assert!(statistic(&stderr, "checked_roots").is_some_and(|n| n > 0), "{}: no root checked:\n{stderr}", case.file);
@@ -338,9 +338,9 @@ fn walk_checked_against_the_shadow_stack() {
 }
 
 /// D7 per extern (§7.3, §7.5): with the effects table check
-/// (`DARTFORGE_EFFECTS=conferir`), each extern marked as a leaf runs watched,
+/// (`DARTFORGE_EFFECTS=check`), each extern marked as a leaf runs watched,
 /// and a collection inside it ends the process naming it. D1 passes; with the
-/// fake leaf (`folha:dartforge_string_concat`), it fails, and the message
+/// fake leaf (`leaf:dartforge_string_concat`), it fails, and the message
 /// names the extern.
 #[test]
 fn leaf_that_collects_is_found_by_name() {
@@ -350,11 +350,11 @@ fn leaf_that_collects_is_found_by_name() {
     let dir = work_dir("efeitos");
     let case = &CASES[0];
     let exe = dir.join(format!("efeitos{}", std::env::consts::EXE_SUFFIX));
-    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "conferir")], &exe).unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "check")], &exe).unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     let r = run(&exe, &[]);
     assert!(right_output(&r, case.expected), "with the check: {}", String::from_utf8_lossy(&r.stderr));
     let sab = dir.join(format!("efeitos-sab{}", std::env::consts::EXE_SUFFIX));
-    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "conferir"), ("DARTFORGE_SABOTAGE", "folha:dartforge_string_concat")], &sab)
+    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "check"), ("DARTFORGE_SABOTAGE", "leaf:dartforge_string_concat")], &sab)
         .unwrap_or_else(|e| panic!("did not compile with the sabotage:\n{e}"));
     let r = run(&sab, &[]);
     let stderr = String::from_utf8_lossy(&r.stderr).into_owned();

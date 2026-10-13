@@ -36,18 +36,18 @@ reais (§3.11).
 
 ## 1. Ferramentas
 
-* `dartforge-parity placar [--lote N] [--detalhes]` — o placar. Com
-  `DARTFORGE_PARITY_SAMPLES=100000`, `--detalhes` lista **todas** as
+* `dartforge-parity placar [--batch N] [--details]` — o placar. Com
+  `DARTFORGE_PARITY_SAMPLES=100000`, `--details` lista **todas** as
   divergências (base dos agrupamentos abaixo).
 * `crates/parity/examples/sonda_arquivos.rs` (novo) — compara arquivo a
   arquivo, diagnóstico a diagnóstico (`=` acerto, `~` mensagem, `-` FN, `+`
-  FP), num grupo do corpus ou, com `--livre <dir>`, contra o `dart analyze`
+  FP), num grupo do corpus ou, com `--free <dir>`, contra o `dart analyze`
   3.6.2 rodado na hora sobre um diretório de rascunho. Todo caso mínimo deste
   plano foi conferido assim antes de virar regra.
 * `scripts/parity-pub-cache.py` (novo) — prepara os pacotes do pub-cache
   como projetos reais (a última versão de cada, sem Flutter, linguagem ≥ 2.12;
   `lib/` copiado; um `package_config` com todos) e o registro para
-  `dartforge-parity projetos --oraculo --corpus <dir>/corpus`. Nesta
+  `dartforge-parity projetos --oracle --corpus <dir>/corpus`. Nesta
   máquina: 209 pacotes.
 
 ## 2. Onde está a perda (agrupamento por causa raiz)
@@ -387,7 +387,7 @@ publicação, publicação idêntica à do `dartforge analyze`. Testes do crate
 
 **Testes novos.** `crates/parity/tests/regras_do_analyzer.rs`: 18
 diagnósticos de sete arquivos mínimos, cada um conferido contra o `dart
-analyze` 3.6.2 (`sonda_arquivos --livre`); `duplicatas::declaracoes_de_mesmo_nome_juntam_os_membros`.
+analyze` 3.6.2 (`sonda_arquivos --free`); `duplicatas::declaracoes_de_mesmo_nome_juntam_os_membros`.
 
 **Não feito nesta rodada** (registrado, com a regra em §3): C9 (alias de
 `typedef` e `Never?` na exibição, mudança de representação comum aos
@@ -620,7 +620,7 @@ antes/depois e regras em `docs/LSP.md` ("Paridade com o servidor do Dart").
 
 **Testes.** `crates/parity/tests/regras_do_analyzer.rs` ganhou quatro
 arquivos conferidos contra o `dart analyze` 3.6.2 (`sonda_arquivos
---livre`): 17 diagnósticos de exaustividade, 6 de inferência/limites/C9, 4
+--free`): 17 diagnósticos de exaustividade, 6 de inferência/limites/C9, 4
 de parâmetros opcionais e um arquivo sem nenhum (os usos que não contam como
 não usados). `cargo test -p dartforge-types -p dartforge-analysis -p
 dartforge-parity` verde.

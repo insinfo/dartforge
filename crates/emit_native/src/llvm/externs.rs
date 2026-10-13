@@ -1117,7 +1117,7 @@ pub fn effects_of(name: &str) -> Effects {
         .unwrap_or(CONSERVATIVE)
 }
 
-/// The compilation checks the effects table (`DARTFORGE_EFFECTS=conferir`):
+/// The compilation checks the effects table (`DARTFORGE_EFFECTS=check`):
 /// each call to an extern marked as not collecting or not throwing goes between
 /// `dartforge_effects_before` and `dartforge_effects_after`, and the runtime
 /// terminates the process, naming it, if the extern collects or leaves a
@@ -1125,7 +1125,7 @@ pub fn effects_of(name: &str) -> Effects {
 /// that is how a mark goes from 1 to 0.
 pub fn check_effects() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("DARTFORGE_EFFECTS").is_ok_and(|v| v == "conferir"))
+    *ENABLED.get_or_init(|| std::env::var("DARTFORGE_EFFECTS").is_ok_and(|v| v == "check"))
 }
 
 /// The marks that the check of `name` carries to the runtime: bit 0, does not collect;
@@ -1140,7 +1140,7 @@ pub fn marks_to_check(name: &str) -> i64 {
         return 0;
     }
     let e = effects_of(name);
-    // The sabotaged leaf (`folha:<name>`, D7 of §7.3) is checked as a
+    // The sabotaged leaf (`leaf:<name>`, D7 of §7.3) is checked as a
     // leaf: a collection inside it terminates the process, naming it.
     let allocates = e.allocates && !crate::target::sabotaged_leaf(name);
     i64::from(!allocates && !e.calls_dart) | (i64::from(!e.throws && !e.calls_dart) << 1)

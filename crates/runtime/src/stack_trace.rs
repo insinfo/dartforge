@@ -1,6 +1,6 @@
 // The stack trace in the VM's format (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
 // §13.14): the address → (function, line, column) table that each image compiled
-// with `--rastro=simbolico` registers at startup, the return addresses stored at
+// with `--stack-trace=symbolic` registers at startup, the return addresses stored at
 // `throw` and the symbolization, done only when the text is requested (`toString`,
 // the uncaught exception).
 //
@@ -198,7 +198,7 @@ thread_local! {
 }
 
 /// The registration of an image's stack-trace table: the module compiled with
-/// `--rastro=simbolico` calls this at startup with the start and the end of the
+/// `--stack-trace=symbolic` calls this at startup with the start and the end of the
 /// section (`dfpcl`; the `.dfpcl$a`/`$z` sentinels in COFF). Idempotent per
 /// section; neither allocates on the collector's heap nor throws.
 ///

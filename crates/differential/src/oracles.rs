@@ -5,7 +5,7 @@
 //! features (`corpus/moderno`). Each program goes to the smallest SDK whose
 //! version covers its `// requer-dart:`; the DDC column uses **that** SDK's
 //! `dartdevc` linked to **its** `dart_sdk.js`. DartForge still links the 3.6.2
-//! `dart_sdk.js` (D1) and receives a `--versao-linguagem` equal to the
+//! `dart_sdk.js` (D1) and receives a `--language-version` equal to the
 //! required version.
 //!
 //! Some texts here are compared or cached (the rejection line of negative
@@ -91,7 +91,7 @@ pub struct Environment {
     /// program running natively finishes in milliseconds — if it takes long,
     /// it is stuck in a loop. And an infinite loop in native code does not
     /// only cost time: while it spins, it allocates, and several in parallel
-    /// take the machine's memory. Short by default; `--limite-exec` adjusts it.
+    /// take the machine's memory. Short by default; `--exec-limit` adjusts it.
     pub native_timeout: Duration,
     /// Directories prepended to `dartforge`'s `PATH` (the `LLVM-C.dll`; see `scripts/env.ps1`).
     pub extra_path: Vec<PathBuf>,
@@ -480,9 +480,9 @@ pub fn required_version(program: &Program) -> LanguageVersion {
     program.marker.map_or(program.requires, |m| m.max(program.requires))
 }
 
-/// `--versao-linguagem x.y` and, if any, `--enable-experiment=…` for DartForge.
+/// `--language-version x.y` and, if any, `--enable-experiment=…` for DartForge.
 fn language_args(env: &Environment, program: &Program) -> Vec<String> {
-    let mut a = vec!["--versao-linguagem".to_string(), program_version(env, program).to_string()];
+    let mut a = vec!["--language-version".to_string(), program_version(env, program).to_string()];
     a.extend(experiments_arg(program));
     a
 }
@@ -779,7 +779,7 @@ fn compile_error_output(e: &str) -> Output {
 /// code, program by program. Each side's times are kept in the result.
 ///
 /// The emission error comes out with the same `[compile-native]` prefix as in
-/// `--nativo` mode: it is the same emitter, and the scoreboards of both modes
+/// `--native` mode: it is the same emitter, and the scoreboards of both modes
 /// must group the failures by the same keys.
 pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot: bool) -> (Output, crate::report::JitRun) {
     use crate::report::{AotFromSameIr, JitRun};
@@ -787,7 +787,7 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
     let ir = match dartforge_native_ir_jit(program) {
         Ok(ir) => ir,
         Err(e) => {
-            // A rejected negative program: the same rejection as `--nativo`.
+            // A rejected negative program: the same rejection as `--native`.
             let output = if program.compile_error {
                 let source = std::fs::read_to_string(&program.entry).unwrap_or_default();
                 rejection(forge_error_line(&e, &source))
@@ -811,7 +811,7 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
     // scoreboard would report JIT≠AOT for nothing.
     let limit = env.native_timeout + JIT_CODEGEN_SLACK;
     let start = std::time::Instant::now();
-    // `--gc-stress` applies to both profiles, as in `--nativo`.
+    // `--gc-stress` applies to both profiles, as in `--native`.
     let mut env_vars: Vec<(&str, String)> = Vec::new();
     if env.gc_stress {
         env_vars.push(("DARTFORGE_GC_STRESS", "1".to_string()));
@@ -841,7 +841,7 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
     let jit_run_time = split_executor_timings(&mut jit);
     // Code 70 is the executor rejecting the IR (verifier, unknown external,
     // target): the equivalent of Clang rejecting the module in AOT, and it
-    // comes out in the same shape `--nativo` gives that case.
+    // comes out in the same shape `--native` gives that case.
     if jit.code == JIT_FAILURE_CODE && jit.stdout.is_empty() {
         let first = jit.first_stderr_line().to_string();
         jit = Output { stdout: String::new(), stderr: format!("[compile-native] {first}

@@ -199,11 +199,11 @@ pub struct LlvmEmitter<'a> {
     /// model (the pending flag checked after each call), and the IR is
     /// then the usual one, byte for byte.
     tab: Option<&'a FunctionTables>,
-    /// `DARTFORGE_EFFECTS=conferir` ([`externs::check_effects`]): the names
+    /// `DARTFORGE_EFFECTS=check` ([`externs::check_effects`]): the names
     /// of the externs checked in this module, in order of first use (the
     /// index is that of the global `@df.efn.<k>` with the text).
     checked_externs: Vec<String>,
-    /// Roots by stack maps (`--raizes=mapas`,
+    /// Roots by stack maps (`--roots=maps`,
     /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12): the `Ref` SSA values
     /// live across a collection point do not go into the frame of the
     /// shadow stack; each call that may collect carries, in the
@@ -222,7 +222,7 @@ pub struct LlvmEmitter<'a> {
     /// ([`Self::c_call_text`]); they go into the module after the functions.
     variadic_set: Vec<String>,
     /// The checking build of the walk (`DARTFORGE_ROOTS_CHECK=1`
-    /// with `--raizes=mapas`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
+    /// with `--roots=maps`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
     /// E2.5): in a `gc` function, the first of the check slots at the end
     /// of the roots frame and how many there are. Before each collection point they
     /// receive exactly the values live at it (zero in the others), and the
@@ -283,7 +283,7 @@ impl<'a> LlvmEmitter<'a> {
             slot_hashes: Vec::new(),
             previous_area: None,
             lean_area: false,
-            // The positions serve the line tables only with `--depuracao`; without
+            // The positions serve the line tables only with `--debug`; without
             // it, they belong only to the symbolic stack trace (`vm_stack_trace`).
             debug_info: (module.dwarf && module.functions.iter().any(|f| f.debug_info.is_some())).then(debug_info::DebugInfo::new_one),
             function_by_symbol: {
@@ -987,7 +987,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }}{cleanup} catch ptr null", block.id.0).unwrap();
                 }
                 let top = if self.has_frame { "%gcq" } else { "%topo0" };
-                if !crate::target::sabotage("pouso_sem_topo") {
+                if !crate::target::sabotage("pad_without_top") {
                     writeln!(self.out, "  store ptr {top}, ptr %ctxtopo, align 8").unwrap();
                 }
                 if externs::check_effects() {
@@ -1086,10 +1086,10 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
                 }
                 let header = self.frame_header(n);
-                // The `quadro_sujo` sabotage (D5, §7.3): the slots are born with a
+                // The `dirty_frame` sabotage (D5, §7.3): the slots are born with a
                 // handle value that points to no block; a slot
                 // read before being written falls into handle validation.
-                let slots = if n > 0 && crate::target::sabotage("quadro_sujo") {
+                let slots = if n > 0 && crate::target::sabotage("dirty_frame") {
                     format!("[{}]", vec!["i64 4098"; n].join(", "))
                 } else {
                     "zeroinitializer".to_string()
@@ -1123,9 +1123,9 @@ impl<'a> LlvmEmitter<'a> {
                     let params: Vec<ValueId> = func.params.iter().map(|p| p.0).filter(|v| self.rooted_set.contains(v)).collect();
                     self.attach_deopt_with(block_start, &params, false);
                 }
-                // The `bruto_no_mapa` sabotage: a value that the optimizer does not
+                // The `raw_in_map` sabotage: a value that the optimizer does not
                 // fold (the volatile load) put in the map as a root.
-                if !self.rooted_set.is_empty() && crate::target::sabotage("bruto_no_mapa") {
+                if !self.rooted_set.is_empty() && crate::target::sabotage("raw_in_map") {
                     self.out.push_str(
                         "  %dfsab = alloca i64, align 8\n  store volatile i64 4098, ptr %dfsab, align 8\n  %dfsabv = load volatile i64, ptr %dfsab, align 8\n",
                     );
@@ -1646,7 +1646,7 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         let joined = args_formatted.join(", ");
                         let r = ret_ty.llvm_ir();
-                        // `DARTFORGE_EFFECTS=conferir`: the extern marked as not
+                        // `DARTFORGE_EFFECTS=check`: the extern marked as not
                         // collecting or not throwing runs watched by the runtime.
                         let marks = if externs::check_effects() { externs::marks_to_check(name) } else { 0 };
                         if marks != 0 {
@@ -2111,14 +2111,14 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// [`Self::attach_deopt`]; `sabotageable` says whether the value of the
-    /// `bruto_no_mapa` sabotage (defined after the prologue) already exists here.
+    /// `raw_in_map` sabotage (defined after the prologue) already exists here.
     fn attach_deopt_with(&mut self, start: usize, live_set: &[ValueId], sabotageable: bool) {
-        let mut operands: Vec<String> = if crate::target::sabotage("sem_uso_ficticio") {
+        let mut operands: Vec<String> = if crate::target::sabotage("no_fake_use") {
             Vec::new()
         } else {
             live_set.iter().map(|x| format!("i64 %v{}", x.0)).collect()
         };
-        if sabotageable && crate::target::sabotage("bruto_no_mapa") {
+        if sabotageable && crate::target::sabotage("raw_in_map") {
             operands.push("i64 %dfsabv".to_string());
         }
         let beam = format!("\"deopt\"({})", operands.join(", "));
@@ -3167,8 +3167,8 @@ impl<'a> LlvmEmitter<'a> {
             let r = ret_type.as_str();
             // Exceptions by tables: the entry lands the unwinding of the body
             // (below) — C code is not crossed. The
-            // `callback_sem_pouso` sabotage (D9 of §7.3) removes the landing pad.
-            let by_tables = self.module.table_exceptions && !crate::target::sabotage("callback_sem_pouso");
+            // `callback_without_pad` sabotage (D9 of §7.3) removes the landing pad.
+            let by_tables = self.module.table_exceptions && !crate::target::sabotage("callback_without_pad");
             let personality = if by_tables { " personality ptr @dartforge_personality" } else { "" };
             writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentry.{i}({}){personality} {{", decls.join(", "))
                 .unwrap();
@@ -4090,7 +4090,7 @@ fn roots_in_callee() -> bool {
 /// Roots by maps: the call of the line may collect — the indirect one, and the
 /// direct one to a function that is neither an LLVM intrinsic nor a leaf (the extern that
 /// the effects table marks as neither collecting nor calling Dart, except for the
-/// `folha:<name>` sabotage, which treats it as a leaf; the helpers of
+/// `leaf:<name>` sabotage, which treats it as a leaf; the helpers of
 /// [`MAP_LEAVES`]). A name outside the tables (the Dart function, the
 /// helper that allocates) collects.
 fn collecting_call(line: &str) -> bool {

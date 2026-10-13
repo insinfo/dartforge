@@ -503,7 +503,7 @@ lá é 97% do arquivo.
 
 ## 11. Verificação
 
-1. `cargo run --release -p dartforge-differential -- --producao`: o corpus
+1. `cargo run --release -p dartforge-differential -- --production`: o corpus
    inteiro com o mesmo `stdout` da VM, byte a byte.
 2. Os testes do crate (`identidade.rs` garante que sem o modo SDK nada muda).
 3. `limitless_ui/example` e `new_sali/frontend` no navegador, pelo
@@ -519,14 +519,14 @@ lá é 97% do arquivo.
 
 O SDK próprio é o **padrão** do `dartforge-jsprod`. `--sdk-ddc` (ou
 `DARTFORGE_JSPROD_SDK=ddc`) volta ao `dart_sdk.js` podado, e
-`--verificar-stub` também usa o caminho antigo: o *stub* não existe no SDK
+`--verify-stub` também usa o caminho antigo: o *stub* não existe no SDK
 próprio.
 
 ### 12.1 Verificação
 
 | item | resultado |
 | --- | --- |
-| `dartforge-differential --producao`, SDK próprio | **238/238** iguais à VM |
+| `dartforge-differential --production`, SDK próprio | **238/238** iguais à VM |
 | o mesmo com `--sdk-ddc` | 238/238 |
 | testes de `emit_js_production`, `mundo`, `emit_js`, `elements`, `types` | verdes |
 | `limitless_ui/example` em produção, suíte `ui_test/e2e` (Puppeteer) | **26/26** |

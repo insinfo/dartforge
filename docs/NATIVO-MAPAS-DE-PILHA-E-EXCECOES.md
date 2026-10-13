@@ -19,10 +19,10 @@ afirmado por documento ou por terceiros e não conferido. O §11 junta o que nã
 
 1. **Duas dimensões independentes.** Elas formam quatro combinações:
 
-   | | `--excecoes=checagem` | `--excecoes=tabelas` |
+   | | `--exceptions=check` | `--exceptions=tables` |
    |---|---|---|
-   | `--raizes=sombra` | **A0**, o modelo atual (padrão, oráculo) | **A1**, Etapa 1 |
-   | `--raizes=mapas` | **B0** | **B1** |
+   | `--roots=shadow` | **A0**, o modelo atual (padrão, oráculo) | **A1**, Etapa 1 |
+   | `--roots=maps` | **B0** | **B1** |
 
    Cada dimensão tem o modo atual como padrão. O modo atual nunca sai do código: ele é a referência, o
    fallback por alvo e por função, e o oráculo de comparação (§5).
@@ -265,7 +265,7 @@ Cada contrato vale nas quatro combinações e tem pelo menos um teste no §7.
   * `endereco_de_campo`.
 
   No modo sombra elas emitem o IR de hoje, byte a byte.
-* **Critério de pronto da Etapa 2.0:** com `--raizes=sombra`, o IR é idêntico ao de antes (os resumos de
+* **Critério de pronto da Etapa 2.0:** com `--roots=shadow`, o IR é idêntico ao de antes (os resumos de
   determinismo e as chaves de cache continuam valendo, como `EN/alvo.rs:8-10` exige).
 
 ### 3.3 O que o emissor marca
@@ -454,7 +454,7 @@ A Etapa 2 mede as duas ordens no mesmo programa (E2.3) antes de fixar uma.
 | Windows arm64 | não há percorredor no Perry (`gc_map.rs:1382-1396`). Duas saídas: a ABI garante a cadeia `x29` ("must point to the previous {x29, x30} pair", learn.microsoft.com, arm64-windows-abi-conventions), confirmada no `t11.ll` (`stp x29,x30,[sp,#8]; add x29,sp,#8`); ou `RtlVirtualUnwind` com o `CONTEXT` do arm64. O `.llvm_stackmaps` sai no COFF arm64 (`t1`, `t2b`) | **fallback: sombra** até alguém escrever e testar |
 | JIT (todos) | §3.8 | fallback: sombra até a Etapa 4 |
 
-* **Dois percorredores e uma conferência.** Com `DARTFORGE_GC_WALK=conferir`, o percurso pelo
+* **Dois percorredores e uma conferência.** Com `DARTFORGE_GC_WALK=check`, o percurso pelo
   desenrolador e o percurso rápido (cadeia de FP, onde houver) têm de visitar **o mesmo** conjunto de slots.
   Se diferirem, pânico. É a única checagem que pega um percorredor que pula quadros (`stack_maps.rs:651-662`).
 * **Custo.** O percurso pelo desenrolador custa por quadro e por coleta. As coletas menores são frequentes
@@ -721,12 +721,12 @@ Uma função assim não leva `gc "statepoint-example"`. Ela grava os slots como 
 
 ### 5.2 Nível 2: a compilação de cada programa (CLI)
 
-* **Opções.** `dartforge compile-native|aot … --raizes=sombra|mapas --excecoes=checagem|tabelas`. Elas
+* **Opções.** `dartforge compile-native|aot … --roots=shadow|maps --exceptions=check|tables`. Elas
   entram no mesmo laço de opções de `crates/cli/src/nativo.rs:60-200`.
 * **Padrão:** `sombra` e `checagem`.
 * **Variáveis de ambiente** para medir sem mudar scripts: `DARTFORGE_ROOTS` e `DARTFORGE_EXCEPTIONS`. A
   opção da CLI vence.
-* **O diferencial** (`crates/differential/src/main.rs`) ganha `--raizes` e `--excecoes`, e os perfis
+* **O diferencial** (`crates/differential/src/main.rs`) ganha `--roots` e `--exceptions`, e os perfis
   `aot-mapas`, `aot-tabelas` e `aot-mapas-tabelas`, com e sem `--gc-stress`.
 * **Por alvo,** uma opção pedida num alvo sem suporte é **erro** ("raízes por mapas não suportadas em
   aarch64-pc-windows-msvc"), não fallback. O fallback **por função** do §3.7 continua automático e é
@@ -889,7 +889,7 @@ Itanium (Linux e macOS, x86-64 e aarch64) está escrito:
   quadro Rust fica entre o lançamento e o pouso, a regra das portas (§13);
 * `crates/emit_native/src/sdk_modulo.rs` (`com_uwtable`) e `lib.rs`: `uwtable` em toda função do
   programa e do SDK, para o desenrolador atravessar os quadros sem pouso;
-* `crates/emit_native/src/alvo.rs`: `--excecoes=tabelas` deixa de ser recusado nesses alvos.
+* `crates/emit_native/src/alvo.rs`: `--exceptions=tables` deixa de ser recusado nesses alvos.
 
 **Não verificado:** a codificação dos call sites no Mach-O; a ligação com o desenrolador do sistema no
 macOS; e tudo o que só a execução mostra. O runtime passou a ser compilado com
@@ -905,7 +905,7 @@ o alvo = ele fica em sombra/checagem.
 
 ### 7.1 As quatro combinações no corpus inteiro
 
-* O CI pesado (`pesado.yml`) roda `dartforge-differential --nativo` em A0, A1, B0 e B1, cada uma também com
+* O CI pesado (`pesado.yml`) roda `dartforge-differential --native` em A0, A1, B0 e B1, cada uma também com
   `--gc-stress`.
 * Saída byte a byte igual à da VM. Qualquer diferença entre combinações é defeito, mesmo que as duas
   pareçam "certas".
@@ -990,7 +990,7 @@ teste que não falha com a sabotagem não conta.
     `RT/heap.rs:620-623`), em vez de ler um objeto novo por acaso;
   * o Perry achou que profundidade 4 dá falsos verdes e usa 800 (`gc-rooting-invariant.md:473-476`).
     Começar com 1 000 blocos.
-* **Percurso conferido** (`DARTFORGE_GC_WALK=conferir`, §3.6).
+* **Percurso conferido** (`DARTFORGE_GC_WALK=check`, §3.6).
 * **Prova de que coletou.** Todo teste do §7.3 lê, no fim, `dartforge_gc_stats()`: coletas,
   quadros percorridos e raízes de mapa visitadas. Ele **falha** se:
   * coletas = 0;
@@ -1623,7 +1623,7 @@ dartforge_native_Function_apply 1       1       1
 
 **Como a tabela é conferida** (a análise por nome não basta para confiar):
 
-1. `DARTFORGE_EFFECTS=conferir` no runtime de teste: cada extern marcada `coleta = 0` roda com a
+1. `DARTFORGE_EFFECTS=check` no runtime de teste: cada extern marcada `coleta = 0` roda com a
    coleta **proibida** (um contador no `Heap`; alocar com ele ligado aborta dizendo o nome da extern),
    e cada extern marcada `lanca = 0` confere, na saída, que a pendência não mudou.
 2. O corpus nativo e o e2e do `new_sali/backend` rodam uma vez assim no Pesado.
@@ -1902,17 +1902,17 @@ O que a implementação precisa, em qualquer dos quatro modos:
    raízes) e guardar só os endereços de retorno, num vetor do objeto de rastro. Simbolizar só quando o
    texto for pedido (`toString`). Em `sombra`/`checagem` no Windows x64 o percorredor é o mesmo
    (`RtlVirtualUnwind`); ele não depende dos mapas.
-3. **Opção de omitir**: `--rastro=simbolico|nenhum`. Em `nenhum`, a tabela não é emitida e o texto é o
+3. **Opção de omitir**: `--stack-trace=symbolic|none`. Em `nenhum`, a tabela não é emitida e o texto é o
    de hoje.
 
 Não medido: o tamanho da tabela no `new_sali/backend`. É a primeira medida do passo.
 
-**Estado em 2026-10-05 (escrito, não compilado).** O rastro existe com `--rastro=simbolico`
-(`DARTFORGE_STACK_TRACE=simbolico`; `alvo::rastro_simbolico`), nos quatro modos de raízes e exceções, no
+**Estado em 2026-10-05 (escrito, não compilado).** O rastro existe com `--stack-trace=symbolic`
+(`DARTFORGE_STACK_TRACE=symbolic`; `alvo::rastro_simbolico`), nos quatro modos de raízes e exceções, no
 Windows x86-64 e no Linux e no macOS em x86-64 e aarch64. O padrão continua `nenhum`, com o IR de sempre
 byte a byte e o texto de hoje: o padrão só muda depois da medida do tamanho e de um teste que rode.
 
-*Posições.* As posições do J05 passam a valer sem o `--depuracao` quando o rastro está ligado
+*Posições.* As posições do J05 passam a valer sem o `--debug` quando o rastro está ligado
 (`Context::depuracao` indexa as linhas; `Context::dwarf` e `hir::Module::dwarf` dizem se viram tabelas
 de linha). Cada expressão que chama marca a posição que a VM dá a ela, o `fileOffset` do front_end
 (`offsetForToken(selector.token)`): o nome chamado em `f()`, `o.m()` e `o.p`; o operador em `a + b`,
@@ -1970,7 +1970,7 @@ entrada; a ida e volta é conferida. O rótulo acha a função pelo símbolo de 
 assinatura `DFPC`. `DARTFORGE_STACK_TRACE_RAW=1` deixa a forma de 12 bytes (a medida); o Mach-O não é
 convertido. Não medido: o tamanho das duas formas no `new_sali/backend`.
 
-**A tabela no JIT (2026-10-05, escrito, não compilado).** Com `DARTFORGE_STACK_TRACE=simbolico` o JIT
+**A tabela no JIT (2026-10-05, escrito, não compilado).** Com `DARTFORGE_STACK_TRACE=symbolic` o JIT
 emite os rótulos e a seção como o AOT, sem os símbolos do ligador e sem a chamada de registro
 (`LlvmEmitter::com_rastro_no_jit`); a sessão (`crates/jit/src/ffi.rs`) usa a camada RTDyld com o
 gerenciador de memória próprio também sem os mapas, acha cada seção `.dfpcl$m`/`dfpcl`/`__dfpcl`
@@ -2058,7 +2058,7 @@ porta registrada chamam direto, como antes.
 
 | peça | onde | passo |
 |---|---|---|
-| a chave: `--excecoes=checagem\|tabelas` em `compile-native` e `aot`, e a variável `DARTFORGE_EXCEPTIONS` | `crates/cli/src/nativo.rs` (`definir_modelo_de_excecoes`), `EN/alvo.rs` (`excecoes_por_tabelas`) | E1.0 |
+| a chave: `--exceptions=check\|tabelas` em `compile-native` e `aot`, e a variável `DARTFORGE_EXCEPTIONS` | `crates/cli/src/nativo.rs` (`definir_modelo_de_excecoes`), `EN/alvo.rs` (`excecoes_por_tabelas`) | E1.0 |
 | recusa por alvo (só Windows x86-64), recusa com `DARTFORGE_CALL_TRACE=1`, recusa no JIT | `EN/alvo.rs`, `EN/lib.rs` (`emitir_ir_interno`) | E1.0 |
 | o modo na chave do SDK compilado (o padrão não entra na chave) | `EN/sdk_modulo.rs` (`chave_do_sdk`) | E1.0 |
 | o passe sobre a HIR já otimizada: sítios, pousos, saídas por exceção | `EN/optimize/tabelas.rs`, `EN/hir.rs` (`TabelasDaFuncao`, `SaidaPorExcecao`, `Module::tabelas`) | E1.2 |
@@ -2111,7 +2111,7 @@ porta registrada chamam direto, como antes.
 * **E1.1** está escrito: `crates/runtime/efeitos.tsv` (uma linha por extern, conferida pelo `build.rs`
   do runtime e lida pelo emissor), a conferência da pendência só depois da extern que lança
   (`emit_call_with_check`; `DARTFORGE_NO_EFFECTS_IN_CHECK=1` volta atrás) e o modo
-  `DARTFORGE_EFFECTS=conferir` (`RT/efeitos_conferir.rs`). As marcas são as que o emissor já supunha:
+  `DARTFORGE_EFFECTS=check` (`RT/efeitos_conferir.rs`). As marcas são as que o emissor já supunha:
   nenhuma passou de 1 para 0, porque isso exige a execução que a confere (§13.8).
 * No modo `tabelas`, a limpeza da pendência onde ela está comprovadamente limpa sai
   (`EN/optimize/tabelas.rs`), e a função que chama código Dart continua conferindo a pilha no prólogo
@@ -2124,7 +2124,7 @@ porta registrada chamam direto, como antes.
   (`aot-tabelas`, `aot-mapas`, `aot-mapas-tabelas`, com `-gc-stress`); **estado em 2026-10-05 (escrito,
   não executado)**: o job `nativo-modos` do `pesado.yml` roda A1, B0 e B1, cada uma com e sem
   `--gc-stress`, no corpus nativo inteiro (§7.1); A0 são os jobs `nativo` e `nativo-gc-stress`.
-* **O rastro no formato da VM** (§13.14): escrito em 2026-10-05, atrás de `--rastro=simbolico`
+* **O rastro no formato da VM** (§13.14): escrito em 2026-10-05, atrás de `--stack-trace=symbolic`
   (veja o estado no §13.14).
 * **Linux e macOS** (a personalidade Itanium do §13.11): Etapa 4.
 
@@ -2141,7 +2141,7 @@ x86-64, LLVM 22.1.8):
 | `corpus/native` em A0, em A1 e em A1 com `--gc-stress` | 129/129, 127/129 e 127/129 |
 
 As duas diferenças do `corpus/native` (`02_io_assincrono`, `03_processos`) são do ambiente, iguais em A0:
-o cache do oráculo foi gravado com outro `HOME` e outro `TEMP`; sem o cache (`--sem-cache`) as duas batem.
+o cache do oráculo foi gravado com outro `HOME` e outro `TEMP`; sem o cache (`--no-cache`) as duas batem.
 
 Dois defeitos apareceram e foram consertados:
 
@@ -2170,7 +2170,7 @@ O tempo de geração de objetos não é comparável nesta medida: em A0 parte do
 para 71 s, pelo passe `optimize::excecoes_por_tabelas`.
 
 **Decisão.** Pelo critério de abandono da Etapa 1 (§6: o `.text` + `.xdata` + LSDA do backend em A1
-não cai pelo menos 3%), a Etapa 1 fica **arquivada**: o código permanece atrás de `--excecoes=tabelas`,
+não cai pelo menos 3%), a Etapa 1 fica **arquivada**: o código permanece atrás de `--exceptions=tables`,
 sem custo para o padrão, que continua `checagem` com o E1.1. O e2e do backend em A1 e o
 `bench/performance` não foram rodados, porque o critério de tamanho já decide. A Etapa 2 segue em B0;
 B1 deixa de ser candidato a padrão.
@@ -2197,7 +2197,7 @@ em produção, todos os modos recompilados, 7 execuções alternadas presas a um
 | A1 (pilha-sombra + tabelas) | **0,986** | `fib` 0,79, `closures` 0,92, `reviver` 0,93 | `ordenar_objetos` 1,07 (140), `formas` 1,04 (5,0) |
 | B0 (mapas + checagem) | **0,972** | `closures` 0,75, `soma_ponto` 0,90, `decode_medio` 0,91 | `mapa_str_objeto` 1,09 (25), `lista_leitura` 1,07 (2,3) |
 | B1 (mapas + tabelas) | **0,961** | `closures` 0,81, `fib` 0,86, `decode_medio` 0,87, `arvores` 0,87 | `lista_objetos` 1,08 (31) |
-| ARC (`--memoria=arc`) | 2,812 | numérico e listas ≈ 1 | `lista_ligada` 19,9, `arvores` 17,2 (ver `docs/ARC-IMPLEMENTACAO.md`) |
+| ARC (`--memory=arc`) | 2,812 | numérico e listas ≈ 1 | `lista_ligada` 19,9, `arvores` 17,2 (ver `docs/ARC-IMPLEMENTACAO.md`) |
 | A0 contra `dart compile exe` | 1,242 | `lista_sort` 0,30, `soma_ponto` 0,15 | `lista_ligada` 3,00, `utf8_bytes` 2,49 |
 
 Sem exceção lançada, os três modos ficam abaixo de A0, como devem: A1 pela conferência da pendência que
@@ -2241,7 +2241,7 @@ Regras, cada uma exercitada no `x7` ou no `x9`:
 O emissor faz isso por **funções de conversão** (passo E2.0 do §6): cada ponto de `EN/llvm/*.rs` que
 hoje escreve `i64` para um `Ref` chama `ctx.tipo_ref()`, `ctx.smi(v)`, `ctx.campo(h, k)` etc., que no
 modo sombra devolvem exatamente o texto de hoje. O critério do passo é **IR idêntico byte a byte** no
-modo sombra, conferido pelo determinismo do corpus (`dartforge-differential determinismo --nativo`).
+modo sombra, conferido pelo determinismo do corpus (`dartforge-differential determinismo --native`).
 
 ### 14.2 O pipeline
 
@@ -2486,7 +2486,7 @@ recarga.
 
 | peça | onde |
 |---|---|
-| a chave `--raizes=sombra\|mapas` e `DARTFORGE_ROOTS`; recusa fora do Windows x86-64, sem o gerador embutido e no JIT; o modo na chave do SDK | `crates/cli/src/nativo.rs`, `EN/alvo.rs` (`raizes_por_mapas`), `EN/lib.rs`, `EN/sdk_modulo.rs` |
+| a chave `--roots=shadow\|mapas` e `DARTFORGE_ROOTS`; recusa fora do Windows x86-64, sem o gerador embutido e no JIT; o modo na chave do SDK | `crates/cli/src/nativo.rs`, `EN/alvo.rs` (`raizes_por_mapas`), `EN/lib.rs`, `EN/sdk_modulo.rs` |
 | a vivacidade por ponto de coleta, por fim de bloco e por entrada de bloco | `EN/llvm/raizes.rs` (`analisar`, `Raizes`) |
 | `-ni:1` no datalayout, `gc "statepoint-example"`, `%raiz<v>`, `llvm.fake.use`, `"gc-leaf-function"` nas externs que não coletam e em cinco ajudantes `@df.*`, `landingpad token cleanup` nas funções `gc` | `EN/llvm/mod.rs` (`raiz_no_mapa`, `manter_vivos`, `ajudantes_folha`) |
 | o passe depois do pipeline, com o verificador, e o gerador de código nunca em `-O0` nas funções `gc` | `crates/llvm/src/lib.rs` (`gerar`, `MARCA_DE_GC`) |
@@ -2529,7 +2529,7 @@ recarga.
 
 ### 14.9 Etapa 3, E3.1: o ThinLTO distribuído (2026-10-04, escrito sem compilar)
 
-A produção em partes com `--raizes=mapas` deixou de ser recusada e passou a ter caminho próprio.
+A produção em partes com `--roots=maps` deixou de ser recusada e passou a ter caminho próprio.
 
 | peça | onde |
 |---|---|
@@ -2562,10 +2562,10 @@ padrão). A decodificação preguiçosa foi escrita em 2026-10-05 (§14.10).
 | peça | onde |
 |---|---|
 | o orçamento `vivos × pontos de coleta` por função (§3.4): acima do teto a função fica inteira na pilha-sombra, sem `gc` (o quadro residual do §3.7); `DARTFORGE_MAPS_BUDGET=<n>` (padrão 250 000, na chave do SDK); `DARTFORGE_MAPS_REPORT=1` lista as funções fora | `EN/llvm/mod.rs` (`emit_function`), `EN/alvo.rs` (`orcamento_dos_mapas`) |
-| o build de conferência do E2.5: com `DARTFORGE_ROOTS_CHECK=1` na compilação, cada função `gc` ganha, no fim do quadro da pilha-sombra, um slot por vivo do maior ponto de coleta, gravados com **exatamente** os vivos de cada ponto antes dele (zero nos demais); o campo `n` do quadro leva o número deles nos bits 40 em diante. Com `DARTFORGE_GC_WALK=conferir` na execução, cada coleta exige que toda raiz desses slots esteja entre as que o percurso por mapas visitou, e uma anomalia do percurso aborta | `EN/llvm/mod.rs` (`gravar_conferencia`, `cabecalho_do_quadro`), `RT/heap.rs` (`conferir_percurso`, `visitar_slots_de_conferencia`) |
-| as sabotagens (`DARTFORGE_SABOTAGE`, na chave do SDK): `folha:<extern>`, `pouso_sem_topo`, `sem_uso_ficticio`, `bruto_no_mapa` no emissor; `sem_nop` no runtime | `EN/alvo.rs` (`sabotagem`), `EN/llvm/mod.rs`, `RT/heap.rs` |
+| o build de conferência do E2.5: com `DARTFORGE_ROOTS_CHECK=1` na compilação, cada função `gc` ganha, no fim do quadro da pilha-sombra, um slot por vivo do maior ponto de coleta, gravados com **exatamente** os vivos de cada ponto antes dele (zero nos demais); o campo `n` do quadro leva o número deles nos bits 40 em diante. Com `DARTFORGE_GC_WALK=check` na execução, cada coleta exige que toda raiz desses slots esteja entre as que o percurso por mapas visitou, e uma anomalia do percurso aborta | `EN/llvm/mod.rs` (`gravar_conferencia`, `cabecalho_do_quadro`), `RT/heap.rs` (`conferir_percurso`, `visitar_slots_de_conferencia`) |
+| as sabotagens (`DARTFORGE_SABOTAGE`, na chave do SDK): `leaf:<extern>`, `pad_without_top`, `no_fake_use`, `raw_in_map` no emissor; `no_nop` no runtime | `EN/alvo.rs` (`sabotagem`), `EN/llvm/mod.rs`, `RT/heap.rs` |
 | a recusa do conversor e do leitor para constante par não nula como raiz (§3.5) | `EN/gcmap.rs`, `RT/heap.rs` (`decodificar_funcao`) |
-| os instrumentos do §7.5: a prova de que coletou (`dartforge_gc_stats`, e `DARTFORGE_GC_STATS=exigir`, que sai com 70 sem coleta ou sem raiz lida de mapa), a coleta agendada por semente (`DARTFORGE_GC_SCHEDULE=<semente>,<taxa>`) e o veneno com quarentena (`DARTFORGE_GC_POISON=1` ou `=<n>` blocos) | `RT/gc_raizes.rs`, `RT/nucleo.rs`, `RT/heap.rs` (`Agenda`), `RT/espaco.rs` (`Quarentena`) |
+| os instrumentos do §7.5: a prova de que coletou (`dartforge_gc_stats`, e `DARTFORGE_GC_STATS=require`, que sai com 70 sem coleta ou sem raiz lida de mapa), a coleta agendada por semente (`DARTFORGE_GC_SCHEDULE=<semente>,<taxa>`) e o veneno com quarentena (`DARTFORGE_GC_POISON=1` ou `=<n>` blocos) | `RT/gc_raizes.rs`, `RT/nucleo.rs`, `RT/heap.rs` (`Agenda`), `RT/espaco.rs` (`Quarentena`) |
 | os testes dirigidos D1, D2, D3, D4, D6, D7, D10, D11, D13 e D14, cada um com a saída calculada e, quando o §7.3 dá uma sabotagem implementável, o teste que exige a falha com ela; a conferência do E2.5 e a agenda | `corpus/native/gc_d*.dart`, `crates/cli/tests/directed_maps.rs` (com `DARTFORGE_MAPS_TESTS=1`) |
 
 Do veneno: o bloco morto recebe a palavra `0xDFDF_DFDF_DFDF_DFDE` (o estado lido é `0xDE`, que a
@@ -2575,11 +2575,11 @@ O veneno liga a validação de handle.
 
 Não ficou: D5 (a sabotagem `undef` no lugar de `null` não existe no emissor), D8 e D9 (as sabotagens
 "reduzir a folga" e "chamar Dart sem a porta"), D12 (o registro dos caches do runtime), e o contador por
-extern do D7 (o D7 usa a sabotagem `folha:` sobre o D1). **Estado em 2026-10-05:** o D7 por extern está
-escrito sobre a conferência da tabela de efeitos (`DARTFORGE_EFFECTS=conferir`, `RT/efeitos_conferir.rs`):
+extern do D7 (o D7 usa a sabotagem `leaf:` sobre o D1). **Estado em 2026-10-05:** o D7 por extern está
+escrito sobre a conferência da tabela de efeitos (`DARTFORGE_EFFECTS=check`, `RT/efeitos_conferir.rs`):
 a folha sabotada passa a ser conferida como folha (`externs::marcas_a_conferir`), e o teste
 `folha_que_coleta_e_achada_pelo_nome` exige que o D1 passe com a conferência e que, com
-`folha:dartforge_string_concat`, o processo caia dizendo o nome da extern. O verificador do IR do §7.4 antes do RS4GC
+`leaf:dartforge_string_concat`, o processo caia dizendo o nome da extern. O verificador do IR do §7.4 antes do RS4GC
 está em `EN/llvm/verificar_mapas.rs` (chamado em `EN/lib.rs` e `EN/sdk_modulo.rs` em todo módulo do modo
 mapas): a conversão para `ptr addrspace(1)` só na forma `%raiz<v>`, nenhum `undef`/`poison` desse tipo,
 nenhum `ptr addrspace(1)` gravado em memória, e toda extern `"gc-leaf-function"` sem coletar nem chamar
@@ -2624,7 +2624,7 @@ teste); que o `.no_dead_strip` sobrevive à LTO do `ld64.lld`; que `lto<On>` val
 roda nos módulos do ThinLTO; que o `ld.lld --thinlto-index-only` aceita a linha de ligação inteira do
 Linux; a codificação do `dfgcm` contra o `--icf=safe`; e tudo o que só a execução mostra.
 
-**Etapa 4, o JIT (§3.8).** Com `DARTFORGE_ROOTS=mapas`, a sessão do `LLJIT` (`crates/jit/src/ffi.rs`):
+**Etapa 4, o JIT (§3.8).** Com `DARTFORGE_ROOTS=maps`, a sessão do `LLJIT` (`crates/jit/src/ffi.rs`):
 
 * gera código com `CodeGenLevelLess` (nunca o FastISel do `-O0`);
 * roda `rewrite-statepoints-for-gc,verify` em cada módulo pela camada de transformação de IR, e no
@@ -2669,10 +2669,10 @@ com as saídas calculadas à mão, e as sabotagens:
 
 | caso | modo | sabotagem | onde |
 |---|---|---|---|
-| D5 | `sombra` | `quadro_sujo`: o quadro nasce com 4098 (forma de handle, nenhum bloco) em vez de zero | `EN/llvm/mod.rs`, a abertura do quadro |
-| D5 | `mapas` | `sem_uso_ficticio` | — |
-| D8 | `mapas`, `checagem` e `tabelas` | `folga` (runtime): a folga da pilha de 4 KiB em vez de 256 KiB | `RT/gc_raizes.rs`, `limite_da_pilha_da_thread` |
-| D9 | `mapas`, `tabelas` | `sem_porta` (runtime): as portas não são registradas e o runtime chama Dart direto | `RT/excecoes_tabelas.rs`, `dartforge_register_ports` |
+| D5 | `sombra` | `dirty_frame`: o quadro nasce com 4098 (forma de handle, nenhum bloco) em vez de zero | `EN/llvm/mod.rs`, a abertura do quadro |
+| D5 | `mapas` | `no_fake_use` | — |
+| D8 | `mapas`, `checagem` e `tabelas` | `slack` (runtime): a folga da pilha de 4 KiB em vez de 256 KiB | `RT/gc_raizes.rs`, `limite_da_pilha_da_thread` |
+| D9 | `mapas`, `tabelas` | `no_ports` (runtime): as portas não são registradas e o runtime chama Dart direto | `RT/excecoes_tabelas.rs`, `dartforge_register_ports` |
 
 O D9 usa `Function.apply`, que o runtime faz pela porta `dart_r3` (`RT/closures.rs`): a exceção do
 closure sai certamente por um quadro Rust. O `then` que lança fica no programa, mas o tratador da
@@ -2683,15 +2683,15 @@ desde 2026-10-05 sem biblioteca C própria: `gc_d09_callback_ffi.dart` (saída
 `[1, 1, 2, 3, 3, 3, 5, 8, 8, 9] 0 14 2000`, calculada à mão) passa ao `qsort` da libc um comparador que
 aloca e lança quando os dois valores são iguais (o retorno excepcional 0 diz "iguais", e a ordem final
 não depende de quais pares o `qsort` compara) e chama pelo ponteiro nativo um callback que lança; a
-sabotagem `callback_sem_pouso` (emissor, `EN/llvm/mod.rs`, `emit_callbacks_ffi`) tira o pouso da
+sabotagem `callback_without_pad` (emissor, `EN/llvm/mod.rs`, `emit_callbacks_ffi`) tira o pouso da
 entrada do callback no modo `tabelas`, e a exceção atravessa o quadro C até o `main`. O `Isolate.exit` dentro de `finally` está escrito desde 2026-10-05
 (`gc_d09_isolate_exit_em_finally.dart`, saída `870`, calculada à mão: a soma de `0² + … + k² + k`
-para `k` de 0 a 9; mesma sabotagem `sem_porta`).
+para `k` de 0 a 9; mesma sabotagem `no_ports`).
 
 O D12 (cache estático do runtime como raiz): `gc_d12_cache_do_runtime.dart` (saída `1000 1000 4000`)
 pede a cada volta o objeto `Type` canônico (`OBJETOS_TIPO`, raiz global permanente) e o texto de um
 caractere (`UM_CARACTERE`, literal permanente), sem que o programa os segure entre as voltas. A
-sabotagem `tipo_sem_raiz` (runtime, `RT/tipos.rs`) tira o registro da raiz: a volta seguinte recebe
+sabotagem `unrooted_type` (runtime, `RT/tipos.rs`) tira o registro da raiz: a volta seguinte recebe
 do cache um handle de bloco liberado, que o veneno e a validação de handle recusam. Os demais caches
 com handle levantados (`LITERAIS_POR_ENDERECO`, `DESPACHANTE`, `ATUAL` de `portas.rs`,
 `CURRENT_STACK_TRACE`) seguem a mesma regra e não têm sabotagem própria.
@@ -2715,7 +2715,7 @@ Defeitos achados ao rodar, todos consertados:
   por um intermediário `@df.vararg.<k>` de assinatura fixa, fora da estratégia de coleta;
 * o conferidor do RS4GC não reconhecia a raiz pelo `phi` do laço (a raiz relocada a cada volta,
   inclusive `phi` em ciclo) nem as outras raízes do mesmo valor depois do *inlining*;
-* a moldura de `DARTFORGE_EFFECTS=conferir` virava statepoint (não é folha na tabela);
+* a moldura de `DARTFORGE_EFFECTS=check` virava statepoint (não é folha na tabela);
 * o conferidor da sombra tratava todo ajudante `df.*` como ponto de coleta e pedia slot para os
   parâmetros (raízes de quem chama, C1), também pelo `phi`;
 * a conferência do percurso contava `Smi` como raiz;
@@ -2757,7 +2757,7 @@ O tempo de compilação de desenvolvimento (objetos frios, SDK em cache) vai de 
 
 **Decisão.** Pelos critérios de abandono da Etapa 2 (§6: o `.text` dos programas do `bench/performance`
 em B0 não ficou menor que em A0 com o mapa incluído, e o tempo de desenvolvimento passou de 1,5×), as
-raízes por mapas ficam **arquivadas como experimentais**: o código continua atrás de `--raizes=mapas`,
+raízes por mapas ficam **arquivadas como experimentais**: o código continua atrás de `--roots=maps`,
 corrigido e com os testes dirigidos verdes, sem custo para o padrão (pilha-sombra). As Etapas 3 e 4 não
 seguem enquanto o saldo de tamanho for este.
 
@@ -2831,7 +2831,7 @@ operando o mantém vivo nela — o contrato C1), e os três registros saem com `
    `"deopt"()` em toda chamada que coleta ainda sem operando: as dos ajudantes `@df.*`, da entrada, das
    funções fora do orçamento (cujas raízes estão no quadro). No modo mapas toda função é `gc`.
 3. **Quem coleta** (`chamada_que_coleta`): a chamada indireta; a direta que não é intrínseco `llvm.*`,
-   nem extern que a tabela de efeitos marca sem coletar nem chamar Dart (a sabotagem `folha:<nome>` a
+   nem extern que a tabela de efeitos marca sem coletar nem chamar Dart (a sabotagem `leaf:<nome>` a
    trata como folha), nem um dos ajudantes folha (`df.body`, `df.barrier`, `df.element_barrier`,
    `df.is_object`, `df.young_child`), `df.throw` ou a moldura da conferência dos efeitos. Um nome fora
    das tabelas (a função Dart) coleta.
@@ -2866,7 +2866,7 @@ operando o mantém vivo nela — o contrato C1), e os três registros saem com `
     chamada que coleta, fora dos intermediários, com `"deopt"`; folhas pela tabela. `crates/llvm/
     conferir_rs4gc.rs` (depois): um nome é `Ref` quando está no `"deopt"` de algum statepoint da função;
     um `Ref` usado depois de um statepoint do mesmo bloco, ou passado como argumento a ele, tem de estar
-    no `"deopt"` dele. As sabotagens: `sem_uso_ficticio` deixa os `"deopt"` vazios; `bruto_no_mapa` põe
+    no `"deopt"` dele. As sabotagens: `no_fake_use` deixa os `"deopt"` vazios; `raw_in_map` põe
     em todos o valor volátil 4098.
 11. **O prólogo.** As chamadas que a função emite antes da primeira instrução (a área do módulo,
     `df.get_area`; o estouro de pilha; as conversões dos parâmetros) também coletam, com os
@@ -2877,7 +2877,7 @@ operando o mantém vivo nela — o contrato C1), e os três registros saem com `
     da linha seguinte): o fecho e o verificador olham toda linha entre o `define` e o `}`, não só as
     indentadas. Sem isso, a chamada a `dartforge_selector` de dentro do `@df.selector` copiado saía sem
     as raízes de quem chamou — o conferidor do RS4GC a achou em `dart:mirrors`.
-13. **A conferência do percurso** (`DARTFORGE_GC_WALK=conferir`) não cobra o objeto estático
+13. **A conferência do percurso** (`DARTFORGE_GC_WALK=check`) não cobra o objeto estático
     (`PERMANENTE`): a regra 5 o tira do `"deopt"` de propósito.
 14. **O conferidor e os canônicos.** Um `Ref` reaproveitado pelo otimizador por cima de um statepoint
     sem estar no `"deopt"` dele é acusado, salvo o valor que é sempre um objeto estático: a carga
@@ -2917,11 +2917,11 @@ dos commits. Nenhum passo muda o padrão (`sombra` + `checagem`).
 **E1.0 — a chave e o marcador de ABI.**
 
 * `EN/context.rs`: `pub enum ModoExcecoes { Checagem, Tabelas }` no `Context`; `EN/lib.rs`: a opção;
-  `crates/cli/src/nativo.rs`: `--excecoes=checagem|tabelas`.
+  `crates/cli/src/nativo.rs`: `--exceptions=check|tables`.
 * `EN/alvo.rs`: recusa por alvo (só `x86_64-pc-windows-msvc` aceita `tabelas` na Etapa 1; os outros dão
-  erro com a mensagem "`--excecoes=tabelas` ainda não existe para <alvo>").
+  erro com a mensagem "`--exceptions=tables` ainda não existe para <alvo>").
 * `EN/cache_objeto.rs`, `EN/sdk_modulo.rs`: o modo entra na chave do cache.
-* Teste: `compile-native --excecoes=tabelas --emit-ir` num alvo recusado dá o erro; no aceito, por
+* Teste: `compile-native --exceptions=tables --emit-ir` num alvo recusado dá o erro; no aceito, por
   enquanto, IR idêntico ao de `checagem` (nada usa a chave ainda).
 
 **E1.1 — a tabela de efeitos, ainda em `checagem`.**
@@ -2931,8 +2931,8 @@ dos commits. Nenhum passo muda o padrão (`sombra` + `checagem`).
   emissor.
 * `EN/lower/fn_builder.rs:940-992` (`emit_call_with_check`): só emite a leitura da pendência quando o
   destino é função Dart ou extern com `lanca = 1`.
-* `RT/`: o modo `DARTFORGE_EFFECTS=conferir` (§13.8).
-* Teste: o corpus nativo inteiro com `DARTFORGE_EFFECTS=conferir`; a sabotagem do §13.8.
+* `RT/`: o modo `DARTFORGE_EFFECTS=check` (§13.8).
+* Teste: o corpus nativo inteiro com `DARTFORGE_EFFECTS=check`; a sabotagem do §13.8.
 * Medida: número de leituras da pendência no IR do `new_sali/backend` antes e depois; `.text` antes e
   depois. É a medida que fica mesmo se a Etapa 1 for abandonada.
 
@@ -3004,7 +3004,7 @@ Nota: o §6 previa o mapa v0 "sem compactação" primeiro; como o DFGM v1 já ro
 ir direto a ele.
 
 **E2.5 — o percorredor.** `RT/gc_mapas.rs` (§14.5, §14.6), `RT/gc_raizes.rs` (a fonte "quadros do
-código gerado" passa a ser o percorredor em `mapas`). `DARTFORGE_GC_WALK=conferir` não tem segundo
+código gerado" passa a ser o percorredor em `mapas`). `DARTFORGE_GC_WALK=check` não tem segundo
 percorredor no Windows x64; lá a conferência é contra a **pilha-sombra**: um build de teste que emite as
 duas coisas (mapa e slots) e exige que o conjunto de handles visitados pelos mapas contenha o dos slots.
 

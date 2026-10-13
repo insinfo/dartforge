@@ -5,7 +5,7 @@
 //! line per diagnostic.
 //!
 //! Publishes only what the rule of plan §2.3 allows: syntax always, and the
-//! semantic codes in `crates/analysis/verificados.txt`. `--todos` also shows
+//! semantic codes in `crates/analysis/verificados.txt`. `--all` also shows
 //! the unverified ones (for debugging, never for the editor).
 //!
 //! Rewritten on 2026-10-04 without compiling or running.
@@ -87,7 +87,7 @@ fn escape_for_machine(s: &str) -> String {
 
 pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     let usage = "usage: dartforge analyze [--format=default|json|machine] [--fatal-infos] [--[no-]fatal-warnings] \
-                 [--packages=<file>] [--todos] [<directory|file>...]";
+                 [--packages=<file>] [--all] [<directory|file>...]";
     let mut format = Format::Default;
     let mut all = false;
     let mut fatal_infos = false;
@@ -99,7 +99,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
             Some("--format=json") => format = Format::Json,
             Some("--format=default") => format = Format::Default,
             Some("--format=machine") => format = Format::Machine,
-            Some("--todos") => all = true,
+            Some("--all") => all = true,
             Some("--fatal-infos") => fatal_infos = true,
             Some("--no-fatal-infos") => fatal_infos = false,
             Some("--fatal-warnings") => fatal_warnings = true,

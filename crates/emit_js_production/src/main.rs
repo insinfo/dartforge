@@ -10,8 +10,8 @@ use dartforge_emit_js_production::{Options, compile};
 
 const USAGE: &str = "usage: dartforge-jsprod <input.dart> -o <output.js> \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <file>] \
-[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--sem-minificar] [--verificar-stub] [--sdk-proprio|--sdk-ddc] [--enable-asserts] [--omitir-checagens|-O4] \
-[--versao-linguagem x.y] [--enable-experiment=a,b]";
+[--no-prune] [--no-members] [--no-user-prune] [--no-minify] [--verify-stub] [--own-sdk|--sdk-ddc] [--enable-asserts] [--omit-checks|-O4] \
+[--language-version x.y] [--enable-experiment=a,b]";
 
 fn main() {
     if let Err(e) = run() {
@@ -40,16 +40,16 @@ fn run() -> Result<(), String> {
             "--sdk" => sdk = Some(next(&mut i)?),
             "--packages" => packages = Some(next(&mut i)?),
             "--dart-sdk-js" => dart_sdk_js = Some(next(&mut i)?),
-            "--sem-poda" => op.prune_sdk = false,
-            "--sem-membros" => op.per_member = false,
-            "--sem-poda-usuario" => op.prune_user = false,
-            "--sem-minificar" => op.minify = false,
-            "--sdk-proprio" => op.own_sdk = true,
+            "--no-prune" => op.prune_sdk = false,
+            "--no-members" => op.per_member = false,
+            "--no-user-prune" => op.prune_user = false,
+            "--no-minify" => op.minify = false,
+            "--own-sdk" => op.own_sdk = true,
             "--sdk-ddc" => op.own_sdk = false,
             "--enable-asserts" => op.asserts = true,
             // The `omitImplicitChecks` of `dart2js -O4`: unsafe (see `Options`).
-            "--omitir-checagens" | "-O4" => op.omit_checks = true,
-            "--verificar-stub" => {
+            "--omit-checks" | "-O4" => op.omit_checks = true,
+            "--verify-stub" => {
                 op.stub = true;
                 op.own_sdk = false;
             }
@@ -57,7 +57,7 @@ fn run() -> Result<(), String> {
                 println!("{USAGE}");
                 return Ok(());
             }
-            other if other.starts_with("--versao-linguagem") || other.starts_with("--enable-experiment") => {
+            other if other.starts_with("--language-version") || other.starts_with("--enable-experiment") => {
                 let mut rest = args[i + 1..].iter().map(String::as_str);
                 let before = rest.len();
                 language.read_option(other, &mut rest)?;

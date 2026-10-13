@@ -3,10 +3,10 @@
 exceções do backend nativo (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §6, §8):
 
     A0  pilha-sombra + checagem   (o padrão)
-    A1  pilha-sombra + tabelas    (`--excecoes tabelas`)
-    B0  mapas        + checagem   (`DARTFORGE_ROOTS=mapas`)
+    A1  pilha-sombra + tabelas    (`--exceptions tables`)
+    B0  mapas        + checagem   (`DARTFORGE_ROOTS=maps`)
     B1  mapas        + tabelas
-    ARC  pilha-sombra + checagem, `--memoria arc` (ARC legado)
+    ARC  pilha-sombra + checagem, `--memory arc` (ARC legado)
     ARCP o mesmo com a preparação publicada (`DARTFORGE_ARC_PREPARED=1`)
 
 e o `dart compile exe` como referência. Todos em produção (`aot --optimize`).
@@ -59,7 +59,7 @@ def compilar(saida, nome, fonte, modo, raizes, excecoes, memoria):
     env.pop("DARTFORGE_ARC_PREPARED", None)
     if modo == "ARCP":
         env["DARTFORGE_ARC_PREPARED"] = "1"
-    cmd = [DF, "aot", fonte, exe, "--optimize", "--excecoes", excecoes, "--memoria", memoria]
+    cmd = [DF, "aot", fonte, exe, "--optimize", "--exceptions", excecoes, "--memory", memoria]
     t0 = time.perf_counter()
     r = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
     dt = time.perf_counter() - t0

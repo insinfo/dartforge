@@ -77,7 +77,7 @@ acrescenta antes uma linha `#totais`.
         tools/oraculo_tipos/oraculo.dart $PWD/corpus/js /tmp/arquivos.txt /tmp/oraculo.tsv
 
     # 3. juiz: quem acerta, por categoria
-    node scripts/check-js-types.mjs /tmp/div.tsv /tmp/oraculo.tsv --exemplos 3
+    node scripts/check-js-types.mjs /tmp/div.tsv /tmp/oraculo.tsv --examples 3
 
 `emitir_corpus` grava um arquivo por programa (todos os módulos em ordem):
 `diff -r` entre duas execuções mostra qualquer mudança na emissão. Com

@@ -8,7 +8,7 @@
 //!   between;
 //! * `// requer-dart: x.y` — the **current** version the program requires:
 //!   the oracle is the smallest configured SDK with version ≥ x.y, and
-//!   DartForge receives `--versao-linguagem x.y`. Without it, 3.6 (the floor;
+//!   DartForge receives `--language-version x.y`. Without it, 3.6 (the floor;
 //!   `corpus/js`);
 //! * `// erro-of-compilacao` — negative program: the VM, DDC and DartForge
 //!   must **reject it**, and the report compares the line of the first error;
@@ -204,9 +204,9 @@ pub fn list(dir: &Path, filter: Option<&str>) -> Vec<Program> {
 }
 
 
-/// Parses `K/N` (shard K of N, counted from 1) — the argument of `--fragmento`.
+/// Parses `K/N` (shard K of N, counted from 1) — the argument of `--shard`.
 pub fn parse_shard(text: &str) -> Result<(usize, usize), String> {
-    let error = || format!("--fragmento expects K/N with 1 <= K <= N, got `{text}`");
+    let error = || format!("--shard expects K/N with 1 <= K <= N, got `{text}`");
     let (k, n) = text.split_once('/').ok_or_else(error)?;
     let k: usize = k.trim().parse().map_err(|_| error())?;
     let n: usize = n.trim().parse().map_err(|_| error())?;

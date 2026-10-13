@@ -227,9 +227,9 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
-        Some("--memoria=arc") => true,
-        Some("--memoria=tracing") => false,
-        _ => return Err("provide --memoria=arc or --memoria=tracing".into()),
+        Some("--memory=arc") => true,
+        Some("--memory=tracing") => false,
+        _ => return Err("provide --memory=arc or --memory=tracing".into()),
     };
     let optimize = match args.next().as_deref() {
         Some("0") => false,
@@ -237,9 +237,9 @@ fn main() -> Result<(), String> {
         _ => return Err("provide 0 or 2".into()),
     };
     let tables = match args.next().as_deref() {
-        Some("checagem") => false,
-        Some("tabelas") => true,
-        _ => return Err("provide checagem or tabelas".into()),
+        Some("check") => false,
+        Some("tables") => true,
+        _ => return Err("provide check or tables".into()),
     };
     let control = args.next();
     if args.next().is_some() {

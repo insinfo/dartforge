@@ -134,9 +134,9 @@ pub fn with_generator<R>(
     r
 }
 
-/// `dartforge build [<input.dart>] [--raiz <dir>] [--packages <cfg>] [--plano]
-/// [--comparar] [--release] [--estrito] [--trabalhadores N]
-/// [--escrever-cache <dir>] [--dart <exe>] [--estado]`. With `--estado` (or
+/// `dartforge build [<input.dart>] [--root <dir>] [--packages <cfg>] [--plan]
+/// [--compare] [--release] [--strict] [--workers N]
+/// [--write-cache <dir>] [--dart <exe>] [--state]`. With `--state` (or
 /// `DARTFORGE_BUILD_STATE=1`) the engine's state is saved in
 /// `.dart_tool/dartforge/build/state` and reused by the next process;
 /// without asking, nothing goes to disk (governing rule 6). With `--dart` (or
@@ -155,7 +155,7 @@ pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::
 }
 
 fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
-    let usage = "usage: dartforge build [<input.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--aceitar-pendentes] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado] [--define <builder>=<option>=<value>] [--config <name>] [--build-filter <glob>]";
+    let usage = "usage: dartforge build [<input.dart>] [--root <dir>] [--packages <cfg>] [--sdk <lib>] [--plan] [--compare] [--release] [--strict] [--accept-pending] [--workers N] [--write-cache <dir>] [--dart <exe>] [--state] [--define <builder>=<option>=<value>] [--config <name>] [--build-filter <glob>]";
     let (mut input, mut root, mut packages, mut sdk, mut cache) = (None, None, None, None, None);
     let mut dart = dartforge_build::vm::dart_from_env();
     let (mut plan, mut compare, mut release, mut strict) = (false, false, false, false);
@@ -181,20 +181,20 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             it.next().map(PathBuf::from).ok_or(usage)
         };
         match a.to_str() {
-            Some("--raiz") => root = Some(next(&mut it)?),
+            Some("--root") => root = Some(next(&mut it)?),
             Some("--packages") => packages = Some(next(&mut it)?),
             Some("--sdk") => sdk = Some(next(&mut it)?),
-            Some("--escrever-cache") => cache = Some(next(&mut it)?),
+            Some("--write-cache") => cache = Some(next(&mut it)?),
             Some("--dart") => dart = Some(next(&mut it)?),
-            Some("--plano") => plan = true,
-            Some("--comparar") => compare = true,
+            Some("--plan") => plan = true,
+            Some("--compare") => compare = true,
             Some("--release") => release = true,
-            Some("--estrito") => strict = true,
+            Some("--strict") => strict = true,
             // Finishes successfully even with outputs that DartForge did not
             // produce (scoreboard, transition); without it, that is a failure
             // (DF-BUILD-007).
-            Some("--aceitar-pendentes") => accept_pending = true,
-            Some("--estado") => persist = true,
+            Some("--accept-pending") => accept_pending = true,
+            Some("--state") => persist = true,
             Some(o @ ("--define" | "--config" | "--build-filter")) => {
                 let v = it
                     .next()
@@ -207,13 +207,13 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
                     _ => filters.push(v),
                 }
             }
-            Some("--trabalhadores") => {
+            Some("--workers") => {
                 workers = it
                     .next()
                     .and_then(|v| v.to_str())
                     .and_then(|v| v.parse().ok())
                     .filter(|&n: &usize| n >= 1)
-                    .ok_or("--trabalhadores requires a number ≥ 1")?;
+                    .ok_or("--workers requires a number ≥ 1")?;
             }
             _ if input.is_none() && !a.to_string_lossy().starts_with("--") => {
                 input = Some(PathBuf::from(a))
@@ -381,15 +381,15 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
     }
     // Outputs that no DartForge executor produced — pending, or read from
     // what `build_runner` left on disk (fallback): without
-    // `--aceitar-pendentes`, the command fails instead of announcing success
-    // (DF-BUILD-006/007). With `--comparar`, the scoreboard comes out first.
+    // `--accept-pending`, the command fails instead of announcing success
+    // (DF-BUILD-006/007). With `--compare`, the scoreboard comes out first.
     // A fallback without content (the official one wrote nothing for that
     // input) delivers no outside output, and only shows up in the report.
     let pending: usize =
         up.rel.pending_by_reason.values().sum::<usize>() + up.rel.support_with_output;
     let pending_failure = (pending > 0 && !accept_pending).then(|| {
         format!(
-            "{pending} action(s) without a DartForge producer ({} with output read from the build_runner fallback); use --aceitar-pendentes to accept",
+            "{pending} action(s) without a DartForge producer ({} with output read from the build_runner fallback); use --accept-pending to accept",
             up.rel.support_with_output
         )
     });

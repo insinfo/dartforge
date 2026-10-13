@@ -371,7 +371,7 @@ Custo medido:
 * `limitless_ui/example`: 574 ms de 14 s;
 * corpus: menos de 1 ms.
 
-**Modo *stub*** (`--verificar-stub` ou `DARTFORGE_JSPROD_VERIFY=stub`): o
+**Modo *stub*** (`--verify-stub` ou `DARTFORGE_JSPROD_VERIFY=stub`): o
 que o mundo diz morto vira `dart_podado("uri::C.m")`, que escreve
 `DARTFORGE-PODADO:` no stderr e sai com 97. É uma chamada a código podado
 pega na execução, com o nome.
@@ -383,7 +383,7 @@ compara as três execuções.
 * `DARTFORGE_JSPROD_WHY=Nome` imprime a cadeia de causas até a raiz;
 * `DARTFORGE_JSPROD_CHECK=1` roda a conferência a seco
   (`checkEnqueuerConsistency`);
-* `--sem-poda-usuario` desliga a etapa.
+* `--no-user-prune` desliga a etapa.
 
 ## 2. Despacho
 
@@ -531,7 +531,7 @@ possível.
 
 **Estado em 2026-09-27 (etapa 7, parcial): compactação sem renomear.**
 `crates/emit_js_production/src/minificar.rs`, ligada por padrão
-(`--sem-minificar` desliga): tira comentários e o espaço que não separa
+(`--no-minify` desliga): tira comentários e o espaço que não separa
 tokens, mantém toda quebra de linha (a inserção automática de ponto e
 vírgula depende dela) e copia cadeias, *template literals* e regex byte a
 byte. Não muda nome nenhum, então nenhuma fuga da §3.2 entra em jogo. Medido
@@ -542,12 +542,12 @@ byte. Não muda nome nenhum, então nenhuma fuga da §3.2 entra em jogo. Medido
 | `01_print` | 1.564.373 → 1.369.664 (−12,4%) | 189.750 → 176.422 (−7,0%) |
 | `40_classes_basico` | 1.574.696 → 1.379.359 (−12,4%) | 191.208 → 177.852 (−7,0%) |
 | `120_convert_json` | 1.769.753 → 1.551.514 (−12,3%) | 215.465 → 200.550 (−6,9%) |
-| runtime inteiro (`--sem-poda`) | 7.089.142 → 6.264.543 (−11,6%) | 838.855 → 786.993 (−6,2%) |
+| runtime inteiro (`--no-prune`) | 7.089.142 → 6.264.543 (−11,6%) | 838.855 → 786.993 (−6,2%) |
 
 Mesma saída no Node com e sem compactação; o runtime inteiro compactado
 passa no `node --check` e executa; `corpus/js` 229/229 e `corpus/moderno`
 22/26 (+4 pendentes) no perfil de produção com ela ligada, e o
-`determinismo --producao` idêntico com 1, 4 e 8 trabalhadores.
+`determinismo --production` idêntico com 1, 4 e 8 trabalhadores.
 
 A renomeação (locais pelo escopo, propriedades pelo mapeamento com a lista
 de fugas) **não** foi feita: exige um analisador de JS com escopos sobre o
@@ -694,7 +694,7 @@ brief não a pede.
 Nada entra sem passar por aqui.
 
 1. **`corpus/js` inteiro, mesmo `stdout` byte a byte.** `crates/differential`
-   ganha `--producao`: um quarto executor, ao lado de `dart run`,
+   ganha `--production`: um quarto executor, ao lado de `dart run`,
    `dartdevc`+Node e do nosso desenvolvimento. O relatório compara
    **VM × desenvolvimento × produção** e falha se qualquer um divergir. O
    placar de produção vai para o `ESTADO.md`.
@@ -735,7 +735,7 @@ Nada entra sem passar por aqui.
    o perfil de produção entra nele:
 
    ```
-   dartforge-differential determinismo --producao --trabalhadores 1,4,8
+   dartforge-differential determinismo --production --workers 1,4,8
    ```
 
    Verificado: saída idêntica com 1, 4 e 8. Duas peças do relatório
@@ -760,7 +760,7 @@ Nada entra sem passar por aqui.
    teste aceita o conjunto, não uma implementação.
 
 7. **Relatório de poda, não só um número.** `docs/PESQUISA-OTIMIZACAO.md`
-   §10 pede que a saída explique o resultado. O `--sem-poda`/`--sem-membros`
+   §10 pede que a saída explique o resultado. O `--no-prune`/`--no-members`
    e o `DARTFORGE_JSPROD_WHO`/`_CAMINHO`/`_GATILHO` já são a metade
    diagnóstica disso; falta a metade narrativa:
 
@@ -783,7 +783,7 @@ Por quanto cada passo destrava, com o corpus como placar em cada um.
 | --- | --- | --- | --- |
 | 1 | **Bundle de arquivo único** — remover `import`/`export`, IIFE por módulo, ordem topológica, `dart_sdk.js` embutido, `main()` no fim. | tudo o que vem depois: passa a existir **um** programa para analisar. Sozinho já troca N+1 arquivos por 1. | corpus 214/214, tamanho ainda ~7 MB |
 | 2 | **Alcance no `dart_sdk.js` por declaração** — segmentação, classificação, referências (inclusive receitas rti), ponto fixo, poda. | o único eixo de tamanho que existe hoje. | corpus 214/214, ~1,5 MB |
-| 3 | **`--producao` no `crates/differential`** — VM × desenvolvimento × produção, e o auto-teste de alcance. | torna 1 e 2 verificáveis em vez de plausíveis. Vem aqui, e não no fim, porque as etapas seguintes sem ele são tentativa e erro. | o próprio placar |
+| 3 | **`--production` no `crates/differential`** — VM × desenvolvimento × produção, e o auto-teste de alcance. | torna 1 e 2 verificáveis em vez de plausíveis. Vem aqui, e não no fim, porque as etapas seguintes sem ele são tentativa e erro. | o próprio placar |
 | 4 | **Granularidade por membro** — classe partida por membro, seletores vivos, ponto fixo de duas condições. | ~30% a mais de poda; e é a mesma regra que o mundo fechado sobre elementos vai usar. | corpus 214/214, ~1,0 MB |
 | 5 | **Mundo fechado sobre a nossa trilha** — o ponto fixo da §1.1 sobre `Program`/`OutlineTypes`, podando classes e membros do usuário e dos pacotes antes de emitir. | pouco no corpus (programas pequenos); **muito** nos projetos reais, onde hoje se emitem 48 MB. | corpus 214/214 + `limitless_ui` 26/26 |
 | 6 | **Despacho direto por alvo único** — as três guardas de `locateSingleMember` mais a de aridade. | velocidade, e tamanho pela queda dos sítios `dart.dsend`. | corpus 214/214 |
@@ -815,7 +815,7 @@ entra no caminho do `serve`.
 
 ## 6.0 O placar, medido
 
-`cargo run --release -p dartforge-differential -- --producao`:
+`cargo run --release -p dartforge-differential -- --production`:
 
 ```
 DartForge desenvolvimento: 214/214 ok
@@ -867,7 +867,7 @@ projetos do proprietário, não a poda do runtime.
 
 Os 7 testes do `new_sali/core` que rodam na web, todos com a **mesma saída
 do `dart run`**, com o ponto fixo fechado numa rodada e nenhum stub
-executado. "Antes" é o mesmo binário com `--sem-poda-usuario`, que é byte a
+executado. "Antes" é o mesmo binário com `--no-user-prune`, que é byte a
 byte o binário de `main`:
 
 | teste | antes | depois | compilação |
@@ -957,4 +957,4 @@ adivinhar. Cada um virou teste de regressão:
 Crate novo `crates/emit_js_production`, com o binário `dartforge-jsprod`
 (`crates/cli/src/main.rs` é de outro agente e não é tocado). Em
 `crates/emit_js` **só se acrescenta**, porque o `dartforge serve` depende
-do que já existe. `crates/differential` ganha o modo `--producao`.
+do que já existe. `crates/differential` ganha o modo `--production`.

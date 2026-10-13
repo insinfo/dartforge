@@ -47,7 +47,7 @@ fn module(ty: Type, value: Constant, abi: i64) -> Result<Module, String> {
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let exit = PathBuf::from(args.next().ok_or("provide the executable")?);
-    let arc = match args.next().as_deref() { Some("--memoria=arc") => true, Some("--memoria=tracing") | None => false, _ => return Err("invalid mode".into()) };
+    let arc = match args.next().as_deref() { Some("--memory=arc") => true, Some("--memory=tracing") | None => false, _ => return Err("invalid mode".into()) };
     let optimize = match args.next().as_deref() { Some("2") => true, Some("0") | None => false, _ => return Err("invalid level".into()) };
     let (ty, value, abi, check) = match args.next().as_deref() {
         Some("--int") => (Type::I64, Constant::Int(i64::MIN), 7, "  %ok = icmp eq i64 %valor, -9223372036854775808\n"),

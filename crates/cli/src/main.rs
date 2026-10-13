@@ -15,10 +15,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
-       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]\n       dartforge aot|abi-info ...  (build with --features native)
+            "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--interval <ms>] [--once]
+       dartforge serve <input.dart> -o <dir> [--web <dir>] [--port N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--root <dir>] [--plan] [--compare] [--release] [--strict] [--workers N] [--write-cache <dir>] [--dart <exe>] [--state]\n       dartforge aot|abi-info ...  (build with --features native)
        dartforge run|reload <input.dart> ...  (build with --features jit)
-       dartforge empacotar <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--todos] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge macros <input.dart> [--materializar] [--forma 3.6|atual] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
+       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
         );
         return Ok(());
     }
@@ -47,11 +47,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "aot" {
         return native::aot(&args);
     }
-    if args[0] == "empacotar" {
+    if args[0] == "pack" {
         #[cfg(feature = "native")]
         return pack::run(&args[1..]);
         #[cfg(not(feature = "native"))]
-        return Err("empacotar: build with --features native".into());
+        return Err("pack: build with --features native".into());
     }
     Err(format!("unknown command: {}", args[0].to_string_lossy()).into())
 }
@@ -82,7 +82,7 @@ fn main() -> ExitCode {
 
 /// `compile-js`: the whole pipeline and the writing of the ES modules into the given directory.
 fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--versao-linguagem x.y] [--enable-experiment=a,b]";
+    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--language-version x.y] [--enable-experiment=a,b]";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
@@ -158,9 +158,9 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
 /// changed (PLANO.md, "o compilador residente").
 fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::error::Error>> {
     let usage = if serve {
-        "usage: dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>]"
+        "usage: dartforge serve <input.dart> -o <dir> [--web <dir>] [--port N] [--packages <cfg>] [--sdk <lib>] [--interval <ms>]"
     } else {
-        "usage: dartforge dev <input.dart> -o <dir> [--packages <package_config.json>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]"
+        "usage: dartforge dev <input.dart> -o <dir> [--packages <package_config.json>] [--sdk <lib>] [--interval <ms>] [--once]"
     };
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
@@ -176,22 +176,22 @@ fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::
             Some("-o") => out = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--intervalo") => {
+            Some("--interval") => {
                 interval_ms = it
                     .next()
                     .and_then(|v| v.to_str())
                     .and_then(|v| v.parse().ok())
                     .filter(|v| (10..=10_000).contains(v))
-                    .ok_or("--intervalo requires milliseconds between 10 and 10000")?;
+                    .ok_or("--interval requires milliseconds between 10 and 10000")?;
             }
-            Some("--uma-vez") => once = true,
+            Some("--once") => once = true,
             Some("--web") => web = Some(PathBuf::from(it.next().ok_or(usage)?)),
-            Some("--porta") => {
+            Some("--port") => {
                 port = it
                     .next()
                     .and_then(|v| v.to_str())
                     .and_then(|v| v.parse().ok())
-                    .ok_or("--porta requires a number")?;
+                    .ok_or("--port requires a number")?;
             }
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),

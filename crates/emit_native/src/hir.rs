@@ -1024,14 +1024,14 @@ pub enum DartEntryVector {
 /// Complete HIR module representing a compilable Dart program.
 #[derive(Debug, Default, Clone)]
 pub struct Module {
-    /// J05: the positions of the functions become line tables (`--depuracao`).
+    /// J05: the positions of the functions become line tables (`--debug`).
     /// Without this, any positions there are belong only to the symbolic stack trace (§13.14).
     pub dwarf: bool,
-    /// The exceptions of the module are by tables (`--excecoes=tabelas`): the
+    /// The exceptions of the module are by tables (`--exceptions=tables`): the
     /// `optimize::tables` pass ran and [`Module::tables`] holds. False: the usual
     /// model (pending flag checked after each call).
     pub table_exceptions: bool,
-    /// The memory of the module is ARC (`--memoria=arc`, `target::arc_memory`): the
+    /// The memory of the module is ARC (`--memory=arc`, `target::arc_memory`): the
     /// entry turns ARC on in the runtime and the reference stores into an object
     /// that may be old go through the runtime (docs/ARC-IMPLEMENTACAO.md).
     pub arc_memory: bool,

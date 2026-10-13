@@ -79,8 +79,8 @@ fn cli_preserves_static_after_editing_the_same_dart_file() {
     edit(&fixtures.join("reload_state_v1.dart"), &input);
 
     let mut command = cli_with_sdk();
-    command.arg("reload").arg(&input).arg("--preservar-estado")
-        .arg("--intervalo").arg("50")
+    command.arg("reload").arg(&input).arg("--preserve-state")
+        .arg("--interval").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
@@ -137,8 +137,8 @@ fn cli_preserves_unified_space_state_across_three_reloads() {
     edit(&fixtures.join("reload_espaco_v1.dart"), &input);
 
     let mut command = cli_with_sdk();
-    command.arg("reload").arg(&input).arg("--preservar-estado")
-        .arg("--intervalo").arg("50")
+    command.arg("reload").arg(&input).arg("--preserve-state")
+        .arg("--interval").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
@@ -189,7 +189,7 @@ fn cli_reloads_the_running_program() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("reload").arg(&input)
-        .arg("--intervalo").arg("50")
+        .arg("--interval").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
@@ -245,7 +245,7 @@ fn cli_reloads_with_an_inserted_class() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("reload").arg(&input)
-        .arg("--intervalo").arg("50")
+        .arg("--interval").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
@@ -305,7 +305,7 @@ fn cli_class_that_disappears_and_returns_keeps_its_id() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("reload").arg(&input)
-        .arg("--intervalo").arg("50")
+        .arg("--interval").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
@@ -361,7 +361,7 @@ fn cli_reloads_with_changed_fields() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("reload").arg(&input)
-        .arg("--intervalo").arg("50")
+        .arg("--interval").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
@@ -421,7 +421,7 @@ fn cli_reloads_with_a_changed_signature() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("reload").arg(&input)
-        .arg("--intervalo").arg("50")
+        .arg("--interval").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();

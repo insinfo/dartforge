@@ -158,8 +158,8 @@ The `jit` feature needs the full LLVM distribution (`LLVM_SYS_221_PREFIX`, in
 
     cargo test --locked --workspace
     cargo run --release -p dartforge-differential               # JS corpus against the VM and dartdevc
-    cargo run --release -p dartforge-differential -- --producao
-    cargo run --release -p dartforge-differential -- --nativo --corpus corpus/native
+    cargo run --release -p dartforge-differential -- --production
+    cargo run --release -p dartforge-differential -- --native --corpus corpus/native
     pwsh scripts/ci.ps1 -Frente <name> -Acompanhar            # full CI (ci.yml + pesado.yml)
 
 What runs in CI and what is left out: `ESTADO.md` §1.6 and §3.

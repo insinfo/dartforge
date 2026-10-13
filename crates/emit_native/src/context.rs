@@ -36,7 +36,7 @@ pub struct Context<'a> {
     root: Option<std::path::PathBuf>,
     /// This context lowers an SDK library into a separate object.
     pub sdk_library: bool,
-    /// Produces ownership facts only for the --memoria=arc policy.
+    /// Produces ownership facts only for the --memory=arc policy.
     pub arc_memory: bool,
     /// Per library: the body of its functions is compiled (the program's;
     /// with [`Context::with_source_sdk`], also those of the source SDK).
@@ -69,7 +69,7 @@ pub struct Context<'a> {
     /// Also turned on by the symbolic stack trace (§13.14), which uses the positions without
     /// DWARF.
     pub debug_info: Option<Vec<Vec<u32>>>,
-    /// J05: the positions become line tables of the debugger (`--depuracao`);
+    /// J05: the positions become line tables of the debugger (`--debug`);
     /// without this, only the symbolic stack trace uses them.
     pub dwarf: bool,
     /// The symbolic stack trace (§13.14) is on: the lowering marks the functions

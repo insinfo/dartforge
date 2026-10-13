@@ -140,7 +140,7 @@ A medição compara, expressão a expressão, o tipo estático nosso com o do
 `package:analyzer` 6.11 (o que o próprio `new_sali` resolve):
 
     # nosso despejo (ordenado por arquivo/offset/comprimento, offsets UTF-16)
-    cargo run --release -p dartforge-types --example despejo_tipos --         C:/MyDartProjects/new_sali/frontend/web/main.dart         --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         -o fe.tsv --arquivos fe_arquivos.txt --avisos fe_avisos.txt
+    cargo run --release -p dartforge-types --example despejo_tipos --         C:/MyDartProjects/new_sali/frontend/web/main.dart         --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         -o fe.tsv --files fe_arquivos.txt --warnings fe_avisos.txt
     # oráculo: compilado uma vez (não recompila o analyzer a cada rodada)
     dart compile exe --packages=C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         tools/oraculo_tipos/oraculo.dart -o oraculo.exe
     oraculo.exe C:/MyDartProjects/new_sali/frontend fe_arquivos.txt fe_oraculo.tsv

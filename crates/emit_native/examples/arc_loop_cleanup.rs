@@ -166,8 +166,8 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = match args.next().as_deref() {
-        Some("--memoria=arc") => true,
-        Some("--memoria=tracing") | None => false,
+        Some("--memory=arc") => true,
+        Some("--memory=tracing") | None => false,
         Some(other) => return Err(format!("unknown mode: {other}")),
     };
     let optimize = match args.next().as_deref() {

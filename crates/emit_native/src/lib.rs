@@ -42,7 +42,7 @@ pub struct CompileOptions<'a> {
     pub packages: Option<&'a Path>,
     pub timings: bool,
     pub optimize: bool,
-    /// Current language version (`--versao-linguagem`, docs/VERSOES-LINGUAGEM.md);
+    /// Current language version (`--language-version`, docs/VERSOES-LINGUAGEM.md);
     /// `None` = the tool's (3.13).
     pub language_version: Option<dartforge_frontend::LanguageVersion>,
     /// Experiments requested explicitly for libraries at the current version.
@@ -203,7 +203,7 @@ pub fn error_constructs(text: &str) -> Vec<String> {
 /// Loads, analyzes and lowers a program down to LLVM IR, without Clang or linking.
 ///
 /// It is the part of [`compile`] that is ours: the determinism test of the harness
-/// compares only this (`dartforge-differential determinismo --nativo`), and
+/// compares only this (`dartforge-differential determinismo --native`), and
 /// `compile-native --emit-ir` writes this. Loading diagnostics go into the
 /// error message, and not to stderr, so that they do not interleave when several
 /// emissions run in the same process. The first line is the first
@@ -278,7 +278,7 @@ fn emit_ir_internal(
     // the unwind tables with the system.
     let table_exceptions = target::table_exceptions()?;
     if table_exceptions && !prune {
-        return Err("exceptions by tables (DARTFORGE_EXCEPTIONS=tabelas) do not exist in the JIT: use compile-native".to_string());
+        return Err("exceptions by tables (DARTFORGE_EXCEPTIONS=tables) do not exist in the JIT: use compile-native".to_string());
     }
     // The roots mode (`target::roots_by_maps`). In the JIT (the only one that emits
     // without pruning) the map of each object is found and registered by the
@@ -304,7 +304,7 @@ fn emit_ir_internal(
     // The `vm` section with the `native_sdk/` overlay (P5a): the libraries of
     // `SOURCE_LIBRARIES` are its own, linked as cached objects
     // (`sdk_module::compiled_sdk`). `mut`: the
-    // current language version may come from `--versao-linguagem` (modern
+    // current language version may come from `--language-version` (modern
     // Dart, P2).
     let mut sdk = sdk_module::load_native_sdk(&sdk_dir)
         .map_err(|e| format!("failed to load the VM SDK: {e}"))?;

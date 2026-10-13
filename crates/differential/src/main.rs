@@ -16,41 +16,41 @@ use dartforge_differential::{
 };
 
 const USAGE: &str = "usage:
-  dartforge-differential [--nativo [--gc-stress] [--otimizar]] [--producao] [--corpus DIR] [--filtro TEXT] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEC] [--limite-exec SEC] [--silencioso]
+  dartforge-differential [--native [--gc-stress] [--optimize]] [--production] [--corpus DIR] [--filter TEXT] [--no-forge] [--no-cache] [--jobs N] [--limit SEC] [--exec-limit SEC] [--quiet]
       runs dart run × [ddc+node or native] × dartforge on each program and prints the report
       (two oracle SDKs: DARTFORGE_DART_SDK, the 3.6.2 floor, and DARTFORGE_DART_SDK_3_13;
       each program goes to the smallest SDK that covers its `// requer-dart: x.y` and
-      `// @dart=x.y`, and DartForge receives the same --versao-linguagem; `// erro-de-compilacao`
+      `// @dart=x.y`, and DartForge receives the same --language-version; `// erro-de-compilacao`
       marks a negative program; `PENDENTES` in the corpus directory lists what still fails
       because of an unimplemented feature — docs/VERSOES-LINGUAGEM.md §5)
       (--gc-stress: the native executable runs with DARTFORGE_GC_STRESS=1, collecting before
       every allocation — a program only passes if it also passes this way; docs/NATIVO-PLANO.md G7)
-      (--otimizar: the native executable is the production one, `aot --optimize` — LTO and
+      (--optimize: the native executable is the production one, `aot --optimize` — LTO and
       method-table pruning; docs/NATIVO-PODA-DE-TABELAS.md)
       (exit code 0 if all match; 1 if any fails)
-      --fragmento K/N runs only shard K of N of the corpus (index % N == K-1;
+      --shard K/N runs only shard K of N of the corpus (index % N == K-1;
       works in every mode — it is how CI splits the native corpus across machines)
-      --producao adds the fourth executor: the production profile
+      --production adds the fourth executor: the production profile
       (dartforge-jsprod, single pruned file) — the report then compares
       VM × our development × our production (docs/JS-PRODUCAO.md)
       --jit runs the native backend through the ORCv2 JIT (dartforge-executar-ir, next
       to this binary or in DARTFORGE_RUN_IR) instead of AOT; --jit-aot
       also runs the AOT of the SAME IR, lists every program where the two
       diverge (JIT≠AOT) and measures the time of each profile (docs/JIT.md)
-      --matriz FILE appends to FILE (TSV) the state of each program in the
+      --matrix FILE appends to FILE (TSV) the state of each program in the
       profile — suportado, recusado, divergente, não medido (supported, rejected,
-      divergent, not measured); the profile is `--perfil NAME`, otherwise aot,
-      aot-gc-stress, jit or js-dev (and js-prod with --producao). scripts/matrix.py
+      divergent, not measured); the profile is `--profile NAME`, otherwise aot,
+      aot-gc-stress, jit or js-dev (and js-prod with --production). scripts/matrix.py
       merges the files into docs/MATRIZ.md (V02)
   dartforge-differential contrato [--corpus DIR] [-o FILE]
       compiles each program with dartdevc and writes docs/CONTRATO-DDC.md
-  dartforge-differential verificar [--corpus DIR] [--filtro TEXT]
+  dartforge-differential verificar [--corpus DIR] [--filter TEXT]
       only the oracles: each program must run under dart run and match ddc+node
-  dartforge-differential determinismo [--nativo [--executar]] [--producao] [--filtro TEXT] [--trabalhadores 1,4,8]
+  dartforge-differential determinismo [--native [--run]] [--production] [--filter TEXT] [--workers 1,4,8]
       runs the same corpus with each number of workers and requires an
-      identical report. With --nativo it compares the LLVM IR emitted for each
+      identical report. With --native it compares the LLVM IR emitted for each
       program, without Clang, linking or running (DARTFORGE_IR_PARALLEL_MAX limits
-      the concurrent emissions; default 2); --executar goes back to compiling and
+      the concurrent emissions; default 2); --run goes back to compiling and
       running everything and comparing the report (and the IR, with DARTFORGE_KEEP_IR=1)";
 
 /// Digest of all the emitted LLVM IR, to compare runs.
@@ -112,7 +112,7 @@ fn print_first_difference(a: &str, b: &str) {
 /// the cache misses and Clang runs for nothing. The executable is a function
 /// of the IR, of the Clang version and of the runtime `.lib`; what can change
 /// with the completion order is our code, and it shows up entirely in the IR.
-/// The executable's correctness is the business of `--nativo` without
+/// The executable's correctness is the business of `--native` without
 /// `determinismo` (ESTADO.md §3.2).
 fn ir_determinism(env: &Environment, programs: &[Program], workers: &[usize]) {
     let limiter = Limiter::from_env();
@@ -210,11 +210,11 @@ fn main() {
                 "verificar" => "verify",
                 _ => "determinism",
             },
-            "--trabalhadores" => {
+            "--workers" => {
                 i += 1;
                 workers = args[i]
                     .split(',')
-                    .map(|n| n.trim().parse().expect("--trabalhadores 1,4,8"))
+                    .map(|n| n.trim().parse().expect("--workers 1,4,8"))
                     .collect();
             }
             "--corpus" => {
@@ -224,22 +224,22 @@ fn main() {
                 // found from there.
                 corpus = std::path::absolute(&args[i]).unwrap_or_else(|_| PathBuf::from(&args[i]));
             }
-            "--filtro" => {
+            "--filter" => {
                 i += 1;
                 filter = Some(args[i].clone());
             }
-            "--fragmento" => {
+            "--shard" => {
                 i += 1;
                 shard = Some(corpus::parse_shard(&args[i]).unwrap_or_else(|e| {
                     eprintln!("{e}");
                     std::process::exit(2)
                 }));
             }
-            "--matriz" => {
+            "--matrix" => {
                 i += 1;
                 matrix = Some(PathBuf::from(&args[i]));
             }
-            "--perfil" => {
+            "--profile" => {
                 i += 1;
                 profile = Some(args[i].clone());
             }
@@ -251,27 +251,27 @@ fn main() {
                 i += 1;
                 op.threads = args[i].parse().expect("--jobs N");
             }
-            "--limite" => {
+            "--limit" => {
                 i += 1;
-                env.timeout = Duration::from_secs(args[i].parse().expect("--limite SEC"));
+                env.timeout = Duration::from_secs(args[i].parse().expect("--limit SEC"));
             }
-            "--limite-exec" => {
+            "--exec-limit" => {
                 i += 1;
                 env.native_timeout =
-                    Duration::from_secs(args[i].parse().expect("--limite-exec SEC"));
+                    Duration::from_secs(args[i].parse().expect("--exec-limit SEC"));
             }
-            "--sem-forge" => op.with_forge = false,
-            "--nativo" => op.native = true,
+            "--no-forge" => op.with_forge = false,
+            "--native" => op.native = true,
             // JIT: the same native mode (VM as the reference), run by
             // dartforge-executar-ir; --jit-aot also links the AOT of the same IR.
             "--jit" => (op.native, op.jit) = (true, true),
             "--jit-aot" => (op.native, op.jit, op.jit_aot) = (true, true, true),
             "--gc-stress" => env.gc_stress = true,
-            "--otimizar" => env.optimize = true,
-            "--executar" => execute = true,
-            "--producao" => op.with_production = true,
-            "--sem-cache" => env.use_cache = false,
-            "--silencioso" => quiet = true,
+            "--optimize" => env.optimize = true,
+            "--run" => execute = true,
+            "--production" => op.with_production = true,
+            "--no-cache" => env.use_cache = false,
+            "--quiet" => quiet = true,
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return;
@@ -310,7 +310,7 @@ fn main() {
         }
         "determinism" if op.native && !execute => ir_determinism(&env, &programs, &workers),
         "determinism" => {
-            // Without `--nativo`, or with `--executar`: the whole report.
+            // Without `--native`, or with `--run`: the whole report.
             // mold's determinism test (PESQUISA-OTIMIZACAO §11): the same
             // input and the same configuration must give the same output with
             // any number of workers. Here that applies to the report and, in
@@ -411,11 +411,11 @@ fn main() {
                 // TSV read by `scripts/matrix.py` and stay as they are.
                 let suffix = {
                     let mut m = String::new();
-                    if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "mapas") {
-                        m.push_str("-mapas");
+                    if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "maps") {
+                        m.push_str("-maps");
                     }
-                    if std::env::var("DARTFORGE_EXCEPTIONS").is_ok_and(|v| v == "tabelas") {
-                        m.push_str("-tabelas");
+                    if std::env::var("DARTFORGE_EXCEPTIONS").is_ok_and(|v| v == "tables") {
+                        m.push_str("-tables");
                     }
                     m
                 };

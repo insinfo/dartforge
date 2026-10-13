@@ -100,7 +100,7 @@ impl Default for Unavailable {
         Unavailable(
             "DartForge does not run macros yet: the executor is the native backend (docs/MACROS-PROTOCOLO.md §3), which \
              does not compile what the macro API uses yet; to materialize the augmentation, use `dartforge macros \
-             --materializar --dart <dart executable>`"
+             --materialize --dart <dart executable>`"
                 .into(),
         )
     }

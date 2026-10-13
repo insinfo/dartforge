@@ -18,7 +18,7 @@ pub struct Adapter<'m> {
     pub constants: Option<&'m dartforge_world::Constants<'m>>,
     /// Short keys for named parameters (`named_args.rs`).
     pub named_args: Option<&'m crate::named_args::NamedArgs>,
-    /// `--omitir-checagens`.
+    /// `--omit-checks`.
     pub omit_checks: bool,
 }
 

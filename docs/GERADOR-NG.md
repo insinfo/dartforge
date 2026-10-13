@@ -313,7 +313,7 @@ em `*` (o `View.queryChangeDetectorRefs` antes do `return` do
 `mapNestedViews`) e consultas estáticas e dinâmicas no mesmo componente:
 227 conferidos.
 
-Placar do `limitless_ui/example` (2026-09-27, `dartforge build --comparar`
+Placar do `limitless_ui/example` (2026-09-27, `dartforge build --compare`
 contra o `build_runner` oficial da revisão `9e38173`): 427 `.template.dart`
 iguais, 103 recusados e **2 diferentes**, mais 1 `.css.shim.dart`
 diferente. Os quatro defeitos achados viraram sondas (j18–j22, oráculo
@@ -648,7 +648,7 @@ modo de compatibilidade com o dart-sass 1.66.0 (`crates/sass/README.md`),
 **70/70 iguais**, e o estágio A do ngdart as lê da memória do motor. Os 42 `.template.dart` pendentes são a próxima
 fila (formas de `@HostBinding` de diretiva, injeção anotada, atributo
 interpolado renomeado…).
-limitless_ui/example (Linux, `build --comparar`, que agora lista cada
+limitless_ui/example (Linux, `build --compare`, que agora lista cada
 pendente com o motivo): **950 iguais / 0 pendentes / 0 diferentes** —
 `.template.dart` **532/0/0**, os 2 `.i18n.dart` (gerador nativo do
 `i18n`), `.css` e `.css.map` do Sass 102/102 cada,

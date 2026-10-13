@@ -1,58 +1,58 @@
 #!/usr/bin/env bash
-# Roda corpus/native contra o `dart run`, vários programas ao mesmo tempo.
+# Runs corpus/native against `dart run`, several programs at a time.
 #
-#   scripts/native-corpus.sh [tracing|arc|preparado|tabelas] [jobs] [filtro]
+#   scripts/native-corpus.sh [tracing|arc|prepared|tables] [jobs] [filter]
 #
-# `preparado` liga DARTFORGE_ARC_PREPARED=1 (programa e SDK preparados);
-# `tabelas` é o mesmo com --excecoes=tabelas.
-# As saídas de referência do Dart ficam em target/corpus-dart/ e só são
-# refeitas quando o .dart muda. O resumo vai para target/corpus-<modo>/resumo.tsv.
-# Usa target/release/dartforge (ou DARTFORGE_BIN) e o ambiente atual
-# (DARTFORGE_CLANG, LLVM no PATH etc.).
+# `prepared` sets DARTFORGE_ARC_PREPARED=1 (program and SDK prepared);
+# `tables` is the same with --exceptions=tables.
+# The Dart reference outputs live in target/corpus-dart/ and are only
+# redone when the .dart changes. The summary goes to target/corpus-<mode>/summary.tsv.
+# Uses target/release/dartforge (or DARTFORGE_BIN) and the current environment
+# (DARTFORGE_CLANG, LLVM on PATH etc.).
 set -u
-modo=${1:-preparado}
+mode=${1:-prepared}
 jobs=${2:-6}
-filtro=${3:-}
-raiz=$(cd "$(dirname "$0")/.." && pwd)
-bin=${DARTFORGE_BIN:-$raiz/target/release/dartforge}
-ref=$raiz/target/corpus-dart
-dest=$raiz/target/corpus-$modo
+filter=${3:-}
+root=$(cd "$(dirname "$0")/.." && pwd)
+bin=${DARTFORGE_BIN:-$root/target/release/dartforge}
+ref=$root/target/corpus-dart
+dest=$root/target/corpus-$mode
 mkdir -p "$ref" "$dest"
 
-um() {
+one() {
   f=$1
   n=$(basename "$f" .dart)
   dir=$(dirname "$f")
-  # A referência do Dart, refeita só se o programa mudou.
+  # The Dart reference, redone only if the program changed.
   if [ ! -f "$ref/$n.out" ] || [ "$f" -nt "$ref/$n.out" ]; then
     (cd "$dir" && timeout 60 dart run "$f" > "$ref/$n.out" 2>&1 < /dev/null)
   fi
   extra=()
-  memoria=""
-  case $modo in
-    arc) extra=(--memoria=arc); memoria=arc ;;
-    preparado) extra=(--memoria=arc); memoria=arc; export DARTFORGE_ARC_PREPARED=1 ;;
-    tabelas) extra=(--memoria=arc --excecoes=tabelas); memoria=arc; export DARTFORGE_ARC_PREPARED=1 ;;
+  memory=""
+  case $mode in
+    arc) extra=(--memory=arc); memory=arc ;;
+    prepared) extra=(--memory=arc); memory=arc; export DARTFORGE_ARC_PREPARED=1 ;;
+    tables) extra=(--memory=arc --exceptions=tables); memory=arc; export DARTFORGE_ARC_PREPARED=1 ;;
   esac
-  # `${extra[@]+…}`: o bash 3.2 do macOS recusa o vetor vazio sob `set -u`.
+  # `${extra[@]+…}`: macOS's bash 3.2 rejects the empty array under `set -u`.
   if ! "$bin" compile-native "$f" -o "$dest/$n" ${extra[@]+"${extra[@]}"} > "$dest/$n.build.log" 2>&1; then
     printf "%s\tbuild\t%s\n" "$n" "$(tail -1 "$dest/$n.build.log" | cut -c1-200)"
     return
   fi
-  (cd "$dir" && DARTFORGE_MEMORY=$memoria DARTFORGE_ARC_CHECK=1 timeout 60 "$dest/$n" > "$dest/$n.out" 2>&1 < /dev/null)
+  (cd "$dir" && DARTFORGE_MEMORY=$memory DARTFORGE_ARC_CHECK=1 timeout 60 "$dest/$n" > "$dest/$n.out" 2>&1 < /dev/null)
   c=$?
-  if cmp -s "$dest/$n.out" "$ref/$n.out"; then r=igual; else r=diferente; fi
+  if cmp -s "$dest/$n.out" "$ref/$n.out"; then r=equal; else r=different; fi
   printf "%s\t%s\texit=%s\n" "$n" "$r" "$c"
 }
-export -f um
-export modo bin ref dest
+export -f one
+export mode bin ref dest
 
-# Um programa primeiro: monta o SDK do perfil (cache) sem corrida entre jobs.
-programas=$(ls "$raiz"/corpus/native/*.dart | grep -- "$filtro")
-primeiro=$(echo "$programas" | head -1)
+# One program first: builds the profile's SDK (cache) without a race between jobs.
+programs=$(ls "$root"/corpus/native/*.dart | grep -- "$filter")
+first=$(echo "$programs" | head -1)
 {
-  um "$primeiro"
-  echo "$programas" | tail -n +2 | xargs -P "$jobs" -I{} bash -c 'um "$@"' _ {}
-} | sort > "$dest/resumo.tsv"
-cut -f2 "$dest/resumo.tsv" | sort | uniq -c
-grep -v "	igual	" "$dest/resumo.tsv" | cut -c1-200
+  one "$first"
+  echo "$programs" | tail -n +2 | xargs -P "$jobs" -I{} bash -c 'one "$@"' _ {}
+} | sort > "$dest/summary.tsv"
+cut -f2 "$dest/summary.tsv" | sort | uniq -c
+grep -v "	equal	" "$dest/summary.tsv" | cut -c1-200

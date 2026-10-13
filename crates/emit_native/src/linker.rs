@@ -5,7 +5,7 @@
 //! require: the startup objects (`Scrt1.o`, `crti.o`, `crtbeginS.o`…), the
 //! dynamic loader and the system libraries. Here those files come
 //! from a **link sysroot** ([`SysrootLinux`]): the distribution one
-//! (`lib/sysroot/<triple>/`, copied by `dartforge empacotar` from the machine
+//! (`lib/sysroot/<triple>/`, copied by `dartforge pack` from the machine
 //! that assembled the distribution), or, in a development tree, the
 //! system ones, located through `clang -print-file-name`. The shared libraries
 //! of the sysroot are only link inputs (the symbols and the
@@ -108,7 +108,7 @@ impl SysrootLinux {
         &self.files[i]
     }
 
-    /// Copies the files to `dest` (`dartforge empacotar`).
+    /// Copies the files to `dest` (`dartforge pack`).
     pub fn copy_to(&self, dest: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
         for (name, of) in SYSROOT_FILES.iter().zip(&self.files) {

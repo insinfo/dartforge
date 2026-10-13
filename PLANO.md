@@ -1177,7 +1177,7 @@ Cada frente tem o seu oráculo, e nenhuma anda sem ele:
 |---|---|
 | JS de desenvolvimento e de produção | `corpus/js` contra a VM, byte a byte |
 | gerador do ngdart | `corpus/ngdart` e os arquivos que o `build_runner` gerou nos projetos reais |
-| AOT e JIT | `corpus/js` contra a VM, pelo harness `--nativo` |
+| AOT e JIT | `corpus/js` contra a VM, pelo harness `--native` |
 | folhas de estilo | a saída do `sass_builder` e do `shadow_css`, normalizada |
 | analisador (diagnósticos) | `dart analyze` gravado em `corpus/diagnosticos`: 3.6.2 nas bibliotecas 3.6, e 3.13.4 **sobre a mesma biblioteca 3.6** nos arquivos com sintaxe que o 3.6.2 não conhece (`sintaxe-nova.json`) — a referência é a versão corrente da ferramenta (3.13), não um SDK que ignora o recurso |
 
@@ -1674,7 +1674,7 @@ Registrados para não se perderem; nenhum entra antes das suas pré-condições.
   permite, inclusive os do próprio `async`). Depende do contrato R/E/N/G do
   nativo, de `async`/closures nativos e de `WeakReference`/`Expando`/
   `Finalizer` já corretos no tracing; seria comparado ao tracing no mesmo
-  corpus, atrás de `--memoria tracing|arc`.
+  corpus, atrás de `--memory tracing|arc`.
 * **SIMD no backend nativo** — `docs/SIMD-NATIVO.md`. `Float32x4`/`Int32x4`/
   `Float64x2` como vetores LLVM, com o caminho vetorial completo (operadores,
   máscaras e acesso às listas SIMD) sem encaixotar no laço. Depois de

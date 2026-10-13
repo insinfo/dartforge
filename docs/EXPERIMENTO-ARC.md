@@ -116,7 +116,7 @@ concorrente:
   pela convenção owned/guaranteed; o verificador de HIR é o mesmo lugar onde
   entraria o verificador de ownership.
 * Com um contrato só, os dois gerenciadores podem coexistir atrás de uma
-  opção (`--memoria tracing|arc`) e ser comparados no mesmo corpus.
+  opção (`--memory tracing|arc`) e ser comparados no mesmo corpus.
 
 ## 7. Pré-condições para iniciar
 
@@ -133,7 +133,7 @@ concorrente:
 
 ## 8. Como seria provado
 
-* O **mesmo corpus diferencial** nativo, com `--memoria arc`: saída byte a
+* O **mesmo corpus diferencial** nativo, com `--memory arc`: saída byte a
   byte igual à VM, inclusive com `--gc-stress` equivalente (forçar coleta de
   ciclos a cada alocação).
 * Casos novos de corpus: ciclos diretos e via closure/`async`, `WeakReference`

@@ -1,4 +1,4 @@
-//! `dartforge empacotar <destination>`: assembles the dartforge distribution —
+//! `dartforge pack <destination>`: assembles the dartforge distribution —
 //! the executable and everything it needs at run time, in the layout of
 //! `dartforge_elements::distribution` — from the development tree that built
 //! this binary. Whoever receives the distribution does not install Rust,
@@ -21,7 +21,7 @@ type Outcome = Result<(), Box<dyn std::error::Error>>;
 
 pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     let [destination] = args else {
-        return Err("usage: dartforge empacotar <destination>".into());
+        return Err("usage: dartforge pack <destination>".into());
     };
     let destination = PathBuf::from(destination);
     if destination.exists() && std::fs::read_dir(&destination)?.next().is_some() {

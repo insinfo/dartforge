@@ -2,7 +2,7 @@
 //! §4.1): the equivalent of `build_runner`'s `asset_graph.json`. A new
 //! process reuses the actions whose queries still have the same digest,
 //! instead of running them again. **Only when the user asks for it**
-//! (`--estado`, [`ENV_VAR`]): governing rule 6 of `PLANO.md` forbids on-disk
+//! (`--state`, [`ENV_VAR`]): governing rule 6 of `PLANO.md` forbids on-disk
 //! bookkeeping that nobody asked for.
 //!
 //! The file stores, per action, the action key (phase, options, input and
@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Environment variable that turns on the on-disk state in `dev`, `serve`
-/// and `compile-js` (and in `dartforge build`, besides `--estado`).
+/// and `compile-js` (and in `dartforge build`, besides `--state`).
 pub const ENV_VAR: &str = "DARTFORGE_BUILD_STATE";
 
 /// Did the user ask for the on-disk state through the environment

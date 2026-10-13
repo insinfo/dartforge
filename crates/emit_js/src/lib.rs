@@ -561,11 +561,11 @@ pub fn compile_with_options<R>(
     // it. `DARTFORGE_GENERATED` stays for one cycle as a synonym:
     // `build_runner` = support only (what `build_runner` already wrote — this is
     // how we verify that reading from memory gives the same JS as reading from
-    // disk), `ng` = the engine (the default when there is a generator), `nenhum` =
+    // disk), `ng` = the engine (the default when there is a generator), `none` =
     // off.
     let mode = std::env::var("DARTFORGE_GENERATED").ok();
     let generated = match (mode.as_deref(), generator) {
-        (Some("nenhum"), _) => None,
+        (Some("none"), _) => None,
         (Some("ng"), None) => {
             return Err("DARTFORGE_GENERATED=ng requires the build engine: the project does not use build_runner".into());
         }
