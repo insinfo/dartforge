@@ -6775,7 +6775,7 @@ seja o tamanho do corpus, sem número fixo. Nativo: placar abaixo do total
 código 0. Cada job escreve placar, tempo, memória livre mínima e o
 agrupamento de falhas no resumo da rodada (`$GITHUB_STEP_SUMMARY`), deixa
 o placar numa anotação (aparece em `gh run view`) e sobe o relatório
-completo como artefato `relatorio-<job>` (14 dias).
+completo como artefato `report-<job>` (14 dias).
 
 **Convenção: uma branch `ci/<frente>` por frente de trabalho** (`ci/nativo`,
 `ci/ngdart`, `ci/verificacao`, `ci/infra`…). Empurrar para ela roda o

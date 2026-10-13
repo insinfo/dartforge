@@ -643,7 +643,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 
 // ---------------------------------------------------------------- production
 
-/// The **production profile**: `dartforge-jsprod file -o dir/saida.js` and
+/// The **production profile**: `dartforge-jsprod file -o dir/output.js` and
 /// then `node dir/output.js`. A single file, with `dart_sdk.js` pruned by the
 /// closed world (`docs/JS-PRODUCAO.md`).
 ///
