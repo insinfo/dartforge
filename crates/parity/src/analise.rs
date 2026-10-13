@@ -644,7 +644,7 @@ impl Motor {
             let new_syntax = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::Referencia::V3_13;
             let paths: Vec<String> = ids.iter().map(|u| program.caminho_da_unidade(*u)).collect();
             let mut found: Vec<(usize, Diagnostic, u16)> =
-                with_phase(phase::ERROR_VERIFIER, dartforge_analysis::duplicatas::duplicatas_com_caminhos(&units, &paths, &interner, wildcard, !new_syntax)).collect();
+                with_phase(phase::ERROR_VERIFIER, dartforge_analysis::duplicatas::duplicates_with_paths(&units, &paths, &interner, wildcard, !new_syntax)).collect();
             found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::enums::sem_constantes(&units)));
             // `finais_nao_inicializados` comes after body inference (the type
             // of a field without a type comes from it).
