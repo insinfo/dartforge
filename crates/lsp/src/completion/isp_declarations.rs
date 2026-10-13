@@ -107,7 +107,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn mark(&mut self, before: usize, score: f64, identifier: bool) {
         let method = self.super_method.clone();
         for i in &mut self.collector.items[before..] {
-            i.of_pass = true;
+            i.from_pass = true;
             if identifier {
                 i.identifier = true;
             }
@@ -289,8 +289,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// the inheritance distance is from `reference`.
     pub(super) fn item_member(&mut self, f: FunctionElementId, ty: TypeId, reference: Option<ClassId>, score: f64, identifier: bool) {
         let before = self.collector.items.len();
-        let of_object = self.query.core.object_class.is_some() && self.query.program.function(f).class == self.query.core.object_class;
-        let g = if of_object { group::OBJECT_MEMBER } else { group::MEMBER };
+        let from_object = self.query.core.object_class.is_some() && self.query.program.function(f).class == self.query.core.object_class;
+        let g = if from_object { group::OBJECT_MEMBER } else { group::MEMBER };
         self.collector.receiver = reference;
         self.collector.function(&*self.query, g, f, ty);
         self.collector.receiver = None;
@@ -2523,7 +2523,7 @@ fn declared(q: &Query, c: ClassId, include_abstract: bool) -> Vec<(Key, Function
     v.into_iter().map(|f| (key(q, f), f)).collect()
 }
 
-fn of_object(p: &dartforge_elements::model::Program, object: Option<ClassId>, f: FunctionElementId) -> bool {
+fn from_object(p: &dartforge_elements::model::Program, object: Option<ClassId>, f: FunctionElementId) -> bool {
     object.is_some() && p.function(f).class.map(|c| p.dono_da_classe(c)) == object
 }
 
@@ -2653,7 +2653,7 @@ fn interface_of(
                     }
                 }
                 for (k, f) in im.implemented.entries() {
-                    if p.function(f).abstract_ || of_object(p, object, f) {
+                    if p.function(f).abstract_ || from_object(p, object, f) {
                         continue;
                     }
                     implemented.insert(k, f);
@@ -2682,7 +2682,7 @@ fn interface_of(
             } else {
                 let nsm = implemented.entries().find(|(k, _)| q.name(k.0) == "noSuchMethod").map(|(_, f)| f);
                 if let Some(n) = nsm
-                    && !of_object(p, object, n)
+                    && !from_object(p, object, n)
                 {
                     for (k, f) in map.entries() {
                         if !implemented.contains(&k) || super_forwarded.contains(&k) {

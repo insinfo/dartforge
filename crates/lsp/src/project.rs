@@ -538,7 +538,7 @@ impl Project {
     }
 
     /// The library belongs to the project (and not to the SDK or an external package).
-    pub(crate) fn of_project(&self, lib: LibraryId) -> bool {
+    pub(crate) fn in_project(&self, lib: LibraryId) -> bool {
         let l = self.program().library(lib);
         !l.is_sdk
             && l.units.iter().all(|u| {
@@ -3066,7 +3066,7 @@ impl Project {
     /// An error when `lib` does not belong to the project (rename only touches
     /// the project).
     fn refuse_external_one(&self, lib: LibraryId, name: &str) -> Result<(), String> {
-        if self.of_project(lib) {
+        if self.in_project(lib) {
             return Ok(());
         }
         let uri = &self.program().library(lib).uri;

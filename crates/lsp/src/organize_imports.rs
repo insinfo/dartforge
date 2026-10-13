@@ -64,16 +64,16 @@ fn language_version(comment: &str) -> bool {
 }
 
 /// `IgnoreInfo.ignoreMatcher`: `^//+[ ]*ignore:`.
-fn of_ignore(comment: &str) -> bool {
+fn is_ignore_comment(comment: &str) -> bool {
     comment.starts_with("//") && comment.trim_start_matches('/').trim_start_matches(' ').starts_with("ignore:")
 }
 
 /// The documentation block of a gap: the last sequence of consecutive
 /// documentation comments (start and end).
 fn documentation_block(cs: &[Comment]) -> Option<(usize, usize)> {
-    let last = cs.iter().rposition(|c| c.of_documentation)?;
+    let last = cs.iter().rposition(|c| c.is_documentation)?;
     let mut first = last;
-    while first > 0 && cs[first - 1].of_documentation {
+    while first > 0 && cs[first - 1].is_documentation {
         first -= 1;
     }
     Some((cs[first].start, cs[last].end))
@@ -103,7 +103,7 @@ fn comment_above(code: &str, cs: &[Comment], pseudo: bool, previous_end: Option<
     let c = cs.get(k)?;
     // The first comment of the file is a header, unless it is an `ignore:`.
     if previous_end.is_none() && k == 0 {
-        return of_ignore(&code[c.start..c.end]).then_some(c.start);
+        return is_ignore_comment(&code[c.start..c.end]).then_some(c.start);
     }
     if pseudo {
         return (line(directive) == line(c.start) + 1).then_some(c.start);
@@ -294,7 +294,7 @@ mod tests {
     fn special_comments() {
         assert!(language_version("// @dart = 2.12"));
         assert!(!language_version("// @dart"));
-        assert!(of_ignore("// ignore: unused_import"));
-        assert!(!of_ignore("// ignore_for_file: unused_import"));
+        assert!(is_ignore_comment("// ignore: unused_import"));
+        assert!(!is_ignore_comment("// ignore_for_file: unused_import"));
     }
 }

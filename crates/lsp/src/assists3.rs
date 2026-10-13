@@ -121,12 +121,12 @@ impl Project {
         let is_block = |s: StmtId| matches!(a.stmt(s).kind, StmtKind::Block(_));
 
         // The innermost `if` containing the cursor.
-        let the_if = a
+        let if_stmt = a
             .stmts
             .iter()
             .filter(|s| matches!(s.kind, StmtKind::If { .. }) && s.span.start <= offset && offset <= s.span.end)
             .min_by_key(|s| s.span.end - s.span.start);
-        if let Some(s) = the_if
+        if let Some(s) = if_stmt
             && let StmtKind::If { condition, case_pattern, then, else_, .. } = &s.kind
         {
             let cond = a.expr(*condition).span;
@@ -164,7 +164,7 @@ impl Project {
                     && let StmtKind::If { condition: internal_cond, then: body, else_: None, .. } = &a.stmt(internal).kind
                 {
                     // `shouldWrapParenthesisBeforeAnd`: a binary expression looser than `&&`.
-                    let to_is = |x: ExprId| {
+                    let for_and = |x: ExprId| {
                         let sp = a.expr(x).span;
                         let t = source.get(sp.start..sp.end).unwrap_or("");
                         if matches!(a.expr(x).kind, ExprKind::Binary { op: BinaryOp::Or | BinaryOp::IfNull, .. }) { format!("({t})") } else { t.to_string() }
@@ -186,7 +186,7 @@ impl Project {
                             new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
                     }
-                    let joined = format!("{} && {}", to_is(*condition), to_is(*internal_cond));
+                    let joined = format!("{} && {}", for_and(*condition), for_and(*internal_cond));
                     output.push(action(
                         uri,
                         "Join 'if' statement with inner 'if' statement",
@@ -251,13 +251,13 @@ impl Project {
         };
 
         // The innermost `if` containing the cursor.
-        let the_if = a
+        let if_stmt = a
             .stmts
             .iter()
             .enumerate()
             .filter(|(_, s)| matches!(s.kind, StmtKind::If { .. }) && s.span.start <= offset && offset <= s.span.end)
             .min_by_key(|(_, s)| s.span.end - s.span.start);
-        if let Some((index, s)) = the_if
+        if let Some((index, s)) = if_stmt
             && let StmtKind::If { condition, case_pattern, then, else_, .. } = &s.kind
         {
             let id = StmtId(index as u32);
@@ -273,7 +273,7 @@ impl Project {
                 if let Some(external) = external
                     && let StmtKind::If { condition: external_cond, .. } = &external.kind
                 {
-                    let to_is = |x: ExprId| {
+                    let for_and = |x: ExprId| {
                         let t = expression_text(x);
                         if matches!(a.expr(x).kind, ExprKind::Binary { op: BinaryOp::Or | BinaryOp::IfNull, .. }) { format!("({t})") } else { t.to_string() }
                     };
@@ -291,7 +291,7 @@ impl Project {
                             new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
                     }
-                    let joined = format!("{} && {}", to_is(*external_cond), to_is(*condition));
+                    let joined = format!("{} && {}", for_and(*external_cond), for_and(*condition));
                     output.push(action(
                         uri,
                         "Join 'if' statement with outer 'if' statement",

@@ -897,14 +897,14 @@ impl Project {
                     let target = cx.children(parent).first().copied().filter(|&a| a != node);
                     (target, Box::new(|m| m == Member::Method))
                 } else {
-                    let le = in_read_context(cx, node);
+                    let reads = in_read_context(cx, node);
                     let writes = in_write_context(cx, node);
                     (
                         qualified_target(cx, node),
                         Box::new(move |m| match m {
-                            Member::Getter => le,
+                            Member::Getter => reads,
                             Member::Setter => writes,
-                            Member::Field { getter, setter } => (le && getter) || (writes && setter),
+                            Member::Field { getter, setter } => (reads && getter) || (writes && setter),
                             _ => false,
                         }),
                     )

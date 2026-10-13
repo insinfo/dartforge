@@ -304,7 +304,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             _ => (ty, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
         };
         let parameters_ast = self.member_parameters(f);
-        let mut writer = crate::write_type::Writer::of_query(&*self.query, lib, Some(c), None);
+        let mut writer = crate::write_type::Writer::from_query(&*self.query, lib, Some(c), None);
         writer.copied = Some(f);
         let mut s = String::from("@override\n  ");
         let mut display = String::new();

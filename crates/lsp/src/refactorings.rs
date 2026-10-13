@@ -534,8 +534,8 @@ impl<'p> Context<'p> {
     /// The element's file is under an analyzed root (`workspace.containsElement`).
     pub(crate) fn in_workspace(&self, e: Elem) -> bool {
         match e {
-            Elem::Function(f) => self.p.of_project(self.p.program().function(f).library),
-            Elem::LocalFunction(_) => self.p.of_project(self.p.program().unit(self.unit).library),
+            Elem::Function(f) => self.p.in_project(self.p.program().function(f).library),
+            Elem::LocalFunction(_) => self.p.in_project(self.p.program().unit(self.unit).library),
             _ => false,
         }
     }
@@ -1185,7 +1185,7 @@ impl<'p> Context<'p> {
         if !create_files {
             return None;
         }
-        let candidates = self.members_a_move(o, l)?;
+        let candidates = self.members_to_move(o, l)?;
         let prog = self.p.program();
         // The title and the default file.
         let count: usize = candidates
@@ -1212,7 +1212,7 @@ impl<'p> Context<'p> {
 
     /// `_membersToMove()`: the declarations (with the name) of the single group,
     /// in insertion order.
-    pub(crate) fn members_a_move(&self, o: usize, l: usize) -> Option<Vec<(ast::DeclId, Option<String>)>> {
+    pub(crate) fn members_to_move(&self, o: usize, l: usize) -> Option<Vec<(ast::DeclId, Option<String>)>> {
         let end = o + l;
         let coverage = self.coverage(o, l)?;
         // `_selectedNodes`.

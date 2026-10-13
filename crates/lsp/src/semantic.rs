@@ -264,11 +264,11 @@ pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&Do
     // alone.
     let owning = owning_library(&path, text, documents);
     let generation = generator.concluir(1).ok()?;
-    let chave = dartforge_elements::gerado::chave(&path);
+    let key = dartforge_elements::gerado::chave(&path);
     for entry in owning.iter().chain([&path]) {
         let mut names = Interner::new();
         let (program, _) = load_lenient_gerados(entry, sdk, None, &mut names, None, None, Some(generation.clone()));
-        let unit = program.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave));
+        let unit = program.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&key));
         if let Some(unit) = unit {
             return Some((program, names, UnitId(unit as u32)));
         }

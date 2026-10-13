@@ -228,7 +228,7 @@ impl Ctx<'_> {
     }
 
     /// `_newFunctionOutline` and `_newMethodOutline`.
-    fn function(&self, f: FunctionId, span: Span, metadata: &[Annotation], common_kind: &str, of_method: bool) -> Option<Value> {
+    fn function(&self, f: FunctionId, span: Span, metadata: &[Annotation], common_kind: &str, for_method: bool) -> Option<Value> {
         let func = self.ast.function(f);
         let name = func.name?;
         let kind = match func.kind {
@@ -238,7 +238,7 @@ impl Ctx<'_> {
         };
         let parameters = self.parameter_list(name.span.end).map(|s| self.snippet(s));
         // A function without a list (getter) has `''`; a method, null.
-        let parameters = if of_method { parameters } else { Some(parameters.unwrap_or("")) };
+        let parameters = if for_method { parameters } else { Some(parameters.unwrap_or("")) };
         let of_type = self.type_parameters(name.span.end).map(|s| self.snippet(s));
         let element = self.element(kind, self.names.resolve(name.sym), Some(name.span), parameters, of_type, Some(self.ty(func.return_type)));
         Some(self.node(element, span, metadata, self.of_body(span)))
@@ -288,7 +288,7 @@ impl Ctx<'_> {
 }
 
 /// The `Outline` of the text unit `text` (the `<unit>` node with the children).
-pub(crate) fn of_document(text: &str) -> Value {
+pub(crate) fn for_document(text: &str) -> Value {
     let mut names = Interner::new();
     let parsed = dartforge_frontend::parser::parse(text, &mut names);
     let a = &parsed.ast;
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn class_with_documentation_and_annotation() {
         let source = "/// Doc.\n@a\nclass A<T> {\n  int x = 1, y;\n  A.n(int p);\n  void m() {}\n}\nvoid f(int a) {}\n";
-        let root = of_document(source);
+        let root = for_document(source);
         assert_eq!(root["element"]["kind"], "COMPILATION_UNIT");
         let class = &root["children"][0];
         assert_eq!(class["element"]["name"], "A");

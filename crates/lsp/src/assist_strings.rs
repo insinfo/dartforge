@@ -26,9 +26,9 @@ fn quotes_of(text: &str) -> Quotes {
 }
 
 impl Context<'_> {
-    /// `_ConvertQuotes.compute`: `of_double` converts from double to single
+    /// `_ConvertQuotes.compute`: `from_double_quotes` converts from double to single
     /// quotes (`ConvertToSingleQuotes`); otherwise from single to double.
-    fn convert_quotes(&self, uri: &str, start: usize, end: usize, of_double: bool) -> Option<Change> {
+    fn convert_quotes(&self, uri: &str, start: usize, end: usize, from_double_quotes: bool) -> Option<Change> {
         let node = self.tree.localizar(start, end)?;
         let mut m = Change::default();
         // The producer's `token` (`_tokenAt(node, selectionOffset)`).
@@ -39,8 +39,8 @@ impl Context<'_> {
                 token = Some(span);
                 let text = &self.source[span.start..span.end];
                 let a = quotes_of(text);
-                if if of_double { !a.simple } else { a.simple } {
-                    let new = match (a.multiline, of_double) {
+                if if from_double_quotes { !a.simple } else { a.simple } {
+                    let new = match (a.multiline, from_double_quotes) {
                         (true, true) => "'''",
                         (true, false) => "\"\"\"",
                         (false, true) => "'",
@@ -49,7 +49,7 @@ impl Context<'_> {
                     let size = if a.multiline { 3 } else { 1 };
                     // `_addBackslash`: before each unescaped new quote (the loop starts at
                     // index 1 of the token text).
-                    let quote = if of_double { b'\'' } else { b'"' };
+                    let quote = if from_double_quotes { b'\'' } else { b'"' };
                     let b = text.as_bytes();
                     let mut i = 1;
                     while i + 1 < b.len() {
@@ -72,8 +72,8 @@ impl Context<'_> {
                 } else {
                     self.children(node).iter().map(|&k| self.tree.span(k)).find(|s| s.start <= start && start <= s.end)
                 };
-                if if of_double { !a.simple } else { a.simple } {
-                    let new = match (a.multiline, of_double) {
+                if if from_double_quotes { !a.simple } else { a.simple } {
+                    let new = match (a.multiline, from_double_quotes) {
                         (true, true) => "'''",
                         (true, false) => "\"\"\"",
                         (false, true) => "'",
@@ -96,7 +96,7 @@ impl Context<'_> {
         }
         // `_removeBackslash(token)`: the `\` before the old quote.
         if let Some(t) = token {
-            let quote = if of_double { b'"' } else { b'\'' };
+            let quote = if from_double_quotes { b'"' } else { b'\'' };
             let b = &self.source.as_bytes()[t.start..t.end];
             let mut i = 0;
             while i + 1 < b.len() {
@@ -113,11 +113,11 @@ impl Context<'_> {
     /// `ConvertToSingleQuotes` and `ConvertToDoubleQuotes` (convert_quotes.dart).
     pub(crate) fn convert_text_quotes(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
-        for (of_double, title, kind) in [
+        for (from_double_quotes, title, kind) in [
             (false, "Convert to double quoted string", "refactor.convert.toDoubleQuotedString"),
             (true, "Convert to single quoted string", "refactor.convert.toSingleQuotedString"),
         ] {
-            if let Some(m) = self.convert_quotes(uri, start, end, of_double) {
+            if let Some(m) = self.convert_quotes(uri, start, end, from_double_quotes) {
                 output.push(CodeAction {
                     title: title.into(),
                     kind: kind.into(),

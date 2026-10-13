@@ -223,10 +223,10 @@ impl Project {
         {
             return Some(CallElem::Local(cx.unit, i as u32));
         }
-        self.of_resolution(cx.bodies.get_resolved(x)?)
+        self.from_resolution(cx.bodies.get_resolved(x)?)
     }
 
-    fn of_resolution(&self, r: &Resolved) -> Option<CallElem> {
+    fn from_resolution(&self, r: &Resolved) -> Option<CallElem> {
         Some(match r {
             Resolved::Element(Element::Function(f)) | Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Constructor(f) => {
                 CallElem::Function(*f)
@@ -273,7 +273,7 @@ impl Project {
                     Marca::Operador(x) => x,
                     _ => cx.node_expr(n)?,
                 };
-                self.of_resolution(cx.bodies.get_resolved(x)?)
+                self.from_resolution(cx.bodies.get_resolved(x)?)
             }
             _ => None,
         }

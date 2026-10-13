@@ -707,7 +707,7 @@ impl<A: Analyzer> Server<A> {
                 outputs.push(json!({
                     "jsonrpc": "2.0",
                     "method": "dart/textDocument/publishOutline",
-                    "params": {"uri": r.uri, "outline": crate::outline::of_document(text)},
+                    "params": {"uri": r.uri, "outline": crate::outline::for_document(text)},
                 }));
             }
             self.typed_published.insert(r.uri, (version, r.diagnostics));
@@ -971,13 +971,13 @@ impl<A: Analyzer> Server<A> {
             // The workspace folders changed: the analysis roots and those of the
             // configuration request follow (the `changeNotifications`).
             "workspace/didChangeWorkspaceFolders" => {
-                let of_uri = |v: &Value| v.as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
+                let file_path_of = |v: &Value| v.as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
                 let list = |k: &str| message.pointer(&format!("/params/event/{k}")).and_then(Value::as_array).cloned().unwrap_or_default();
                 for f in list("removed") {
                     if let Some(u) = f["uri"].as_str() {
                         self.folders.retain(|p| p != u);
                     }
-                    if let Some(p) = of_uri(&f["uri"]) {
+                    if let Some(p) = file_path_of(&f["uri"]) {
                         self.roots.retain(|r| *r != p);
                     }
                 }
@@ -987,7 +987,7 @@ impl<A: Analyzer> Server<A> {
                     {
                         self.folders.push(u.to_string());
                     }
-                    if let Some(p) = of_uri(&f["uri"])
+                    if let Some(p) = file_path_of(&f["uri"])
                         && p.is_dir()
                         && !self.roots.contains(&p)
                     {
@@ -1145,7 +1145,7 @@ impl<A: Analyzer> Server<A> {
                     && message.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
                 self.completion_not_imported = message.pointer("/params/initializationOptions/suggestFromUnimportedLibraries").and_then(Value::as_bool) != Some(false)
                     && message.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
-                self.completion_capabilities = crate::completion_item::Capabilities::of_initialize(message.pointer("/params/capabilities").unwrap_or(&Value::Null));
+                self.completion_capabilities = crate::completion_item::Capabilities::from_initialize(message.pointer("/params/capabilities").unwrap_or(&Value::Null));
                 self.documentation_markdown = message
                     .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
                     .and_then(Value::as_array)
@@ -3319,7 +3319,7 @@ fn utf16_starts(text: &str) -> Vec<usize> {
 
 fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {
     let Some(params) = params else { return Vec::new() };
-    let of_uri = |v: &Value| {
+    let file_path_of = |v: &Value| {
         v.as_str()
             .and_then(|u| url::Url::parse(u).ok())
             .and_then(|u| u.to_file_path().ok())
@@ -3327,10 +3327,10 @@ fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {
     let mut roots: Vec<std::path::PathBuf> = params
         .get("workspaceFolders")
         .and_then(Value::as_array)
-        .map(|l| l.iter().filter_map(|f| of_uri(&f["uri"])).collect())
+        .map(|l| l.iter().filter_map(|f| file_path_of(&f["uri"])).collect())
         .unwrap_or_default();
     if roots.is_empty() {
-        roots.extend(params.get("rootUri").and_then(of_uri));
+        roots.extend(params.get("rootUri").and_then(file_path_of));
     }
     if roots.is_empty() {
         roots.extend(params.get("rootPath").and_then(Value::as_str).map(std::path::PathBuf::from));

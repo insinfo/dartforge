@@ -626,7 +626,7 @@ impl Context<'_> {
         let mut stack = vec![body];
         while let Some(k) = stack.pop() {
             if self.kind(k) == "SimpleIdentifier" {
-                let of_parameter = match self.tree.nos[k].marca {
+                let marks_parameter = match self.tree.nos[k].marca {
                     crate::arvore_analyzer::Marca::Expr(x) => match self.bodies.get_resolved(x) {
                         Some(Resolved::Parameter { name, .. }) => self.p.name(*name) == name_text,
                         Some(Resolved::Local(_)) => self.bodies.declaracao_local(x) == Some(name_.start),
@@ -634,7 +634,7 @@ impl Context<'_> {
                     },
                     _ => false,
                 };
-                if of_parameter {
+                if marks_parameter {
                     refs.push(self.tree.nos[k].inicio);
                 } else if !self.qualified(k) {
                     others.insert(self.node_text(k).to_string());

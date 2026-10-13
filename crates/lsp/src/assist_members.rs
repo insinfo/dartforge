@@ -408,8 +408,8 @@ impl Context<'_> {
         let ty = self.children(list).iter().copied().find(|&k| TYPES.contains(&self.kind(k)));
         let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
         let up_to_name = variables.first().map_or(self.tree.nos[list].fim, |&v| self.tree.nos[v].inicio);
-        let of_list = words(self.tree.nos[list].inicio, up_to_name);
-        let word = of_list.iter().find(|w| matches!(**w, "var" | "final" | "const")).copied();
+        let from_list = words(self.tree.nos[list].inicio, up_to_name);
+        let word = from_list.iter().find(|w| matches!(**w, "var" | "final" | "const")).copied();
         if word.is_none() && ty.is_none() {
             return None;
         }

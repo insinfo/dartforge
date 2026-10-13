@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::utf16::LineTable;
 
-pub(super) fn of_document(text: &str, features: LibraryFeatures) -> Vec<Value> {
+pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> {
     let mut names = Interner::new();
     let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
     let lines = LineTable::build(text);
@@ -47,11 +47,11 @@ pub(super) fn of_document(text: &str, features: LibraryFeatures) -> Vec<Value> {
             // (5); `typedef A = int;` is TYPE_ALIAS, which Dart's
             // `elementKindToSymbolKind` does not handle and comes out as 19.
             DeclKind::Typedef(t) => {
-                let of_function = match &t.kind {
+                let is_function_alias = match &t.kind {
                     TypedefKind::Legacy { .. } => true,
                     TypedefKind::Alias(ty) => matches!(parsed.ast.ty(*ty).kind, TypeKind::Function { .. }),
                 };
-                (Some(t.name), if of_function { 5 } else { 19 }, None)
+                (Some(t.name), if is_function_alias { 5 } else { 19 }, None)
             }
             DeclKind::Function(f) => {
                 let func = parsed.ast.function(*f);

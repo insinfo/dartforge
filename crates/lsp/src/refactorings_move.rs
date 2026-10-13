@@ -725,7 +725,7 @@ pub(crate) fn uris_imports(cx: &Context<'_>, m: &mut Change, uris: &[String]) {
 pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, target_: &str) -> RefactoringResult {
     let p = cx.p;
     let prog = p.program();
-    let Some(members) = cx.members_a_move(offset, length) else { return R::Failure(None) };
+    let Some(members) = cx.members_to_move(offset, length) else { return R::Failure(None) };
     let Ok(target_url) = url::Url::parse(target_) else {
         return R::InternalError(format!("FormatException: Invalid URI: {target_}"));
     };

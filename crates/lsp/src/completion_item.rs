@@ -28,7 +28,7 @@ pub(crate) struct Capabilities {
 }
 
 impl Capabilities {
-    pub(crate) fn of_initialize(c: &Value) -> Capabilities {
+    pub(crate) fn from_initialize(c: &Value) -> Capabilities {
         let item = c.pointer("/textDocument/completion/completionItem");
         let b = |p: &str| item.and_then(|i| i.pointer(p)).and_then(Value::as_bool).unwrap_or(false);
         let patterns: Vec<String> = c

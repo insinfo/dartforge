@@ -199,7 +199,7 @@ fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
 }
 
 /// Opens, waits for the typed publication and requests the actions at `needle`.
-fn actions_in(p: &mut Project, rel: &str, text: &str, needle: &str) -> Value {
+fn actions_at(p: &mut Project, rel: &str, text: &str, needle: &str) -> Value {
     p.open(rel, text);
     p.server.await_diagnostics(std::time::Duration::from_secs(120));
     let pos = location(text, needle, 0);
@@ -219,7 +219,7 @@ fn action<'a>(r: &'a Value, title: &str) -> &'a Value {
 fn removes_unused_local_and_its_assignments() {
     let mut p = Project::with_literals("acoes-local");
     let text = "void f() {\n  var x = 1;\n  var y = 2;\n  x = 3;\n  print(y);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "x = 1");
+    let r = actions_at(&mut p, "lib/a.dart", text, "x = 1");
     let a = action(&r, "Remove unused local variable");
     assert_eq!(a["kind"], "quickfix.remove.unusedLocalVariable");
     assert_eq!(a["diagnostics"][0]["code"], "unused_local_variable");
@@ -229,7 +229,7 @@ fn removes_unused_local_and_its_assignments() {
     );
     // In a list, only the variable.
     let text = "void f() {\n  var a = 1, b = 2;\n  var c = 3, d = 4;\n  print(a + d);\n}\n";
-    let r = actions_in(&mut p, "lib/b.dart", text, "b = 2");
+    let r = actions_at(&mut p, "lib/b.dart", text, "b = 2");
     assert_eq!(
         apply(&action(&r, "Remove unused local variable")["edit"], &p.uri("lib/b.dart"), text),
         "void f() {\n  var a = 1;\n  var c = 3, d = 4;\n  print(a + d);\n}\n"
@@ -251,7 +251,7 @@ fn removes_unused_local_and_its_assignments() {
 fn removes_unused_local_function() {
     let mut p = Project::with_literals("acoes-elemento");
     let text = "void f() {\n  int g() => 1;\n  print(2);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "g()");
+    let r = actions_at(&mut p, "lib/a.dart", text, "g()");
     let a = action(&r, "Remove unused element");
     assert_eq!(a["kind"], "quickfix.remove.unusedElement");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), "void f() {\n  print(2);\n}\n");
@@ -304,7 +304,7 @@ fn fixes_for_published_typed_diagnostics() {
         ),
     ];
     for &(rel, text, needle, title, kind, expected) in cases {
-        let r = actions_in(&mut p, rel, text, needle);
+        let r = actions_at(&mut p, rel, text, needle);
         let a = action(&r, title);
         assert_eq!(a["kind"], kind, "{rel}");
         assert!(a["diagnostics"][0]["code"].is_string(), "{a}");
@@ -316,7 +316,7 @@ fn fixes_for_published_typed_diagnostics() {
 fn stale_version_typed_diagnostic_produces_no_fix() {
     let mut p = Project::with_literals("acoes-versao");
     let text = "void f(int x) {\n  print((x as int).isEven);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "as int");
+    let r = actions_at(&mut p, "lib/a.dart", text, "as int");
     assert!(titles(&r).contains(&"Remove unnecessary cast".to_string()));
     // New version, with the typed analysis suspended: the typed publication of
     // version 1 does not apply to version 2, even with the same text in place.
@@ -356,7 +356,7 @@ fn versioned_edit_when_client_accepts() {
 fn type_annotation_assist() {
     let mut p = Project::with_literals("acoes-tipo");
     let text = "void f() {\n  var nome = 'x';\n  final n = 1;\n  var d;\n  var lista = <int>[n];\n  print([nome, n, d, lista]);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "nome =");
+    let r = actions_at(&mut p, "lib/a.dart", text, "nome =");
     let a = action(&r, "Add type annotation");
     assert_eq!(a["kind"], "refactor.add.typeAnnotation");
     assert_eq!(
@@ -444,7 +444,7 @@ fn fixes_for_final_field_abstract_condition_and_element() {
         ),
     ];
     for &(rel, text, needle, title, kind, expected) in cases {
-        let r = actions_in(&mut p, rel, text, needle);
+        let r = actions_at(&mut p, rel, text, needle);
         let a = action(&r, title);
         assert_eq!(a["kind"], kind, "{rel}");
         assert!(a["diagnostics"][0]["code"].is_string(), "{a}");
@@ -452,7 +452,7 @@ fn fixes_for_final_field_abstract_condition_and_element() {
     }
     // A `final` field that is written without being a field (local): no field.
     let text = "void f() {\n  final int w = 1;\n  print(w);\n}\n";
-    let r = actions_in(&mut p, "lib/local.dart", text, "w = 1");
+    let r = actions_at(&mut p, "lib/local.dart", text, "w = 1");
     assert!(!titles(&r).iter().any(|t| t.starts_with("Make field")), "{r}");
 }
 
@@ -467,7 +467,7 @@ fn create_file_for_missing_uri() {
     });
     let mut p = Project::with_capabilities("acoes-criar", capabilities);
     let text = "import 'novo.dart';\npart 'parte.dart';\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "'novo.dart'");
+    let r = actions_at(&mut p, "lib/a.dart", text, "'novo.dart'");
     let a = action(&r, "Create file 'novo.dart'");
     assert_eq!(a["kind"], "quickfix.create.file");
     let changes = a["edit"]["documentChanges"].as_array().expect("documentChanges");
@@ -485,7 +485,7 @@ fn create_file_for_missing_uri() {
 
     // Without the `create` operation in the client, the fix is not offered.
     let mut p = Project::with_literals("actions-create-without");
-    let r = actions_in(&mut p, "lib/a.dart", text, "'novo.dart'");
+    let r = actions_at(&mut p, "lib/a.dart", text, "'novo.dart'");
     assert!(!titles(&r).iter().any(|t| t.starts_with("Create file")), "{r}");
 }
 
@@ -498,7 +498,7 @@ fn show_combinator_assist_on_import() {
     let mut p = Project::with_literals("acoes-show");
     p.write("lib/b.dart", "int um = 1;\nclass B {}\nvoid g() {}\nextension E on int {\n  int get dobro => this * 2;\n}\nvoid naoUsada() {}\n");
     let text = "import 'b.dart';\n\nvoid f() {\n  B();\n  g();\n  print(um + 1.dobro);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "b.dart'");
+    let r = actions_at(&mut p, "lib/a.dart", text, "b.dart'");
     let a = action(&r, "Add explicit 'show' combinator");
     assert_eq!(a["kind"], "refactor.add.showCombinator");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'b.dart';", "'b.dart' show B, E, g, um;"));
@@ -513,7 +513,7 @@ fn for_index_assist() {
   }
 }
 ";
-    let r = actions_in(&mut p, "lib/a.dart", text, "for (");
+    let r = actions_at(&mut p, "lib/a.dart", text, "for (");
     let a = action(&r, "Convert to for-index loop");
     assert_eq!(a["kind"], "refactor.convert.forEachToForIndex");
     assert_eq!(
@@ -540,7 +540,7 @@ fn conditional_to_if_else_assist() {
   return c ? x : 5;
 }
 ";
-    let r = actions_in(&mut p, "lib/a.dart", text, "var x");
+    let r = actions_at(&mut p, "lib/a.dart", text, "var x");
     let a = action(&r, "Replace conditional with 'if-else'");
     assert_eq!(a["kind"], "refactor.convert.conditionalToIfElse");
     assert_eq!(
@@ -593,7 +593,7 @@ fn conditional_to_if_else_assist() {
 fn quotes_assist() {
     let mut p = Project::with_literals("acoes-aspas");
     let text = "void f(int n) {\n  print('it\\'s \"x\"');\n  print(\"a $n b\");\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "it");
+    let r = actions_at(&mut p, "lib/a.dart", text, "it");
     let a = action(&r, "Convert to double quoted string");
     assert_eq!(a["kind"], "refactor.convert.toDoubleQuotedString");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'it\\'s \"x\"'", "\"it's \\\"x\\\"\""));
@@ -607,7 +607,7 @@ fn quotes_assist() {
 fn is_not_empty_and_int_literal_assists() {
     let mut p = Project::with_literals("acoes-isnotempty");
     let text = "class C {\n  bool get isEmpty => true;\n  bool get isNotEmpty => false;\n}\nclass D {\n  bool get isEmpty => true;\n}\nvoid f(C c, D d) {\n  print(!c.isEmpty);\n  print(!d.isEmpty);\n  print(1_000.0 + 2e3 + 1.5);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "isEmpty);\n  print(!d");
+    let r = actions_at(&mut p, "lib/a.dart", text, "isEmpty);\n  print(!d");
     let a = action(&r, "Convert to 'isNotEmpty'");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("!c.isEmpty", "c.isNotEmpty"));
     let pos = location(text, "isEmpty);\n  print(1", 0);
@@ -626,7 +626,7 @@ fn is_not_empty_and_int_literal_assists() {
 fn replace_with_var_assist() {
     let mut p = Project::with_literals("acoes-var");
     let text = "void f(List<int> l) {\n  List<int> a = [1];\n  final String s = 'x';\n  for (int x in l) {\n    print([a, s, x]);\n  }\n  num n = 1;\n  print(n);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "List<int> a");
+    let r = actions_at(&mut p, "lib/a.dart", text, "List<int> a");
     let a = action(&r, "Replace type annotation with 'var'");
     assert_eq!(a["kind"], "refactor.replace.withVar");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("List<int> a = [1]", "var a = <int>[1]"));
@@ -645,7 +645,7 @@ fn replace_with_var_assist() {
 fn split_and_condition_assist() {
     let mut p = Project::with_literals("acoes-split-and");
     let text = "void f(bool a, bool b) {\n  if (a && b) {\n    print(1);\n  }\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "&&");
+    let r = actions_at(&mut p, "lib/a.dart", text, "&&");
     let a = action(&r, "Split && condition");
     assert_eq!(a["kind"], "refactor.splitIfConjunction");
     assert_eq!(
@@ -661,7 +661,7 @@ fn split_and_condition_assist() {
 fn return_type_assist() {
     let mut p = Project::with_literals("acoes-retorno");
     let text = "f() => 1;\nclass C {\n  get g => 'x';\n}\nh(bool b) async {\n  if (b) return 1;\n  return 2;\n}\nk() {}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "f()");
+    let r = actions_at(&mut p, "lib/a.dart", text, "f()");
     let a = action(&r, "Add return type");
     assert_eq!(a["kind"], "refactor.add.returnType");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("f() =>", "int f() =>"));
@@ -679,7 +679,7 @@ fn return_type_assist() {
 fn null_aware_assist() {
     let mut p = Project::with_literals("acoes-null-aware");
     let text = "class A {\n  int get n => 1;\n  int m() => 2;\n}\nvoid f(A? a) {\n  print(a == null ? null : a.n);\n  print(a != null ? a.m() : null);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "? null");
+    let r = actions_at(&mut p, "lib/a.dart", text, "? null");
     let a = action(&r, "Convert to use '?.'");
     assert_eq!(a["kind"], "refactor.convert.toNullAware");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("a == null ? null : a.n", "a?.n"));
@@ -692,7 +692,7 @@ fn null_aware_assist() {
 fn multiline_and_spread_assists() {
     let mut p = Project::with_literals("acoes-spread");
     let text = "void f(List<int> a, List<int>? b) {\n  print('ab');\n  print([1]..addAll(a));\n  print(<int>[]..addAll(b ?? []));\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "ab'");
+    let r = actions_at(&mut p, "lib/a.dart", text, "ab'");
     let a = action(&r, "Convert to multiline string");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'ab'", "'''\nab'''"));
     let pos = location(text, "addAll(a)", 0);
@@ -707,7 +707,7 @@ fn multiline_and_spread_assists() {
 fn element_and_documentation_assists() {
     let mut p = Project::with_literals("acoes-doc");
     let text = "/// Um.\n/// Dois.\nvoid f(bool c) {\n  print([1]..add(2));\n  print([c ? 1 : 2]);\n}\n\n/** Tres. */\nvoid g() {}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "Um.");
+    let r = actions_at(&mut p, "lib/a.dart", text, "Um.");
     let a = action(&r, "Convert to block documentation comment");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("/// Um.\n/// Dois.", "/**\n * Um.\n * Dois.\n */"));
     let pos = location(text, "Tres", 0);
@@ -729,7 +729,7 @@ fn import_uri_assists() {
     p.write("lib/src/b.dart", "int b = 1;\n");
     p.write("lib/c.dart", "int c = 2;\n");
     let text = "import 'src/b.dart';\nimport 'package:projeto/c.dart';\n\nvoid f() => print([b, c]);\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "src/b");
+    let r = actions_at(&mut p, "lib/a.dart", text, "src/b");
     let a = action(&r, "Convert to 'package:' import");
     assert_eq!(a["kind"], "refactor.convert.relativeToPackageImport");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'src/b.dart'", "'package:projeto/src/b.dart'"));
@@ -744,7 +744,7 @@ fn import_uri_assists() {
 fn map_literal_assist() {
     let mut p = Project::with_literals("acoes-mapa");
     let text = "void f() {\n  var a = Map<String, int>();\n  Map<int, int> b = Map();\n  print([a, b]);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "Map<String");
+    let r = actions_at(&mut p, "lib/a.dart", text, "Map<String");
     let a = action(&r, "Convert to map literal");
     assert_eq!(a["kind"], "refactor.convert.toMapLiteral");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("Map<String, int>()", "<String, int>{}"));
@@ -757,7 +757,7 @@ fn map_literal_assist() {
 fn set_literal_assist() {
     let mut p = Project::with_literals("acoes-conjunto");
     let text = "void f() {\n  var a = Set<int>();\n  var b = Set.of([1, 2]);\n  Set<int> c = Set();\n  var d = Set();\n  print([a, b, c, d]);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "Set<int>()");
+    let r = actions_at(&mut p, "lib/a.dart", text, "Set<int>()");
     let a = action(&r, "Convert to set literal");
     assert_eq!(a["kind"], "refactor.convert.toSetLiteral");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("Set<int>()", "<int>{}"));
@@ -776,7 +776,7 @@ fn set_literal_assist() {
 fn encapsulate_field_assist() {
     let mut p = Project::with_literals("acoes-encapsular");
     let text = "class A {\n  int x = 0;\n  A(this.x);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "x = 0");
+    let r = actions_at(&mut p, "lib/a.dart", text, "x = 0");
     let a = action(&r, "Encapsulate field");
     assert_eq!(a["kind"], "refactor.encapsulateField");
     assert_eq!(
@@ -789,7 +789,7 @@ fn encapsulate_field_assist() {
 fn field_parameter_and_shadow_assists() {
     let mut p = Project::with_literals("acoes-campo");
     let text = "class A {\n  int x;\n  num? y;\n  A(int v) : x = v;\n  void f() {\n    if (y is int) {\n      print(y);\n    }\n  }\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "v) :");
+    let r = actions_at(&mut p, "lib/a.dart", text, "v) :");
     let a = action(&r, "Convert to field formal parameter");
     assert_eq!(a["kind"], "refactor.convert.toConstructorFieldParameter");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("A(int v) : x = v;", "A(this.x);"));
@@ -805,7 +805,7 @@ fn field_parameter_and_shadow_assists() {
 fn function_syntax_assist() {
     let mut p = Project::with_literals("acoes-funcao");
     let text = "typedef int F<T>(T x);\nvoid g(int h(String s), void k(x)) {}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "F<T>");
+    let r = actions_at(&mut p, "lib/a.dart", text, "F<T>");
     let a = action(&r, "Convert into 'Function' syntax");
     assert_eq!(a["kind"], "refactor.convert.toGenericFunctionSyntax");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("typedef int F<T>(T x);", "typedef F<T> = int Function(T x);"));
@@ -846,7 +846,7 @@ fn surround_with_assist() {
 fn destructure_assist() {
     let mut p = Project::with_literals("acoes-desestruturar");
     let text = "class P {\n  int x = 1;\n  int y = 2;\n}\nvoid f((int, {String n}) r, P q) {\n  var a = r;\n  var b = q;\n  print(b.x + b.y);\n  print(a);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "a = r");
+    let r = actions_at(&mut p, "lib/a.dart", text, "a = r");
     let a = action(&r, "Destructure variable assignment");
     assert_eq!(a["kind"], "refactor.destructureLocalVariableAssignment");
     assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("var a = r;", "var ($1, :n) = r;"));
@@ -862,7 +862,7 @@ fn destructure_assist() {
 fn if_case_assist() {
     let mut p = Project::with_literals("acoes-if-case");
     let text = "Object? g() => null;\nvoid f() {\n  final v = g();\n  if (v is int) {\n    print(v);\n  }\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "if (v");
+    let r = actions_at(&mut p, "lib/a.dart", text, "if (v");
     let a = action(&r, "Convert to 'if-case' statement");
     assert_eq!(a["kind"], "refactor.convert.ifCaseStatement");
     assert_eq!(
@@ -875,7 +875,7 @@ fn if_case_assist() {
 fn if_case_chain_assist() {
     let mut p = Project::with_literals("acoes-cadeia");
     let text = "void f(Object o) {\n  switch (o) {\n    case int x when x > 0:\n      print(x);\n    case String _:\n    case double _:\n      print(1);\n      break;\n    default:\n      print(2);\n  }\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "switch");
+    let r = actions_at(&mut p, "lib/a.dart", text, "switch");
     let a = action(&r, "Convert to 'if-case' statement chain");
     assert_eq!(a["kind"], "refactor.convert.ifCaseStatementChain");
     assert_eq!(
@@ -888,7 +888,7 @@ fn if_case_chain_assist() {
 fn switch_statement_assist() {
     let mut p = Project::with_literals("acoes-switch");
     let text = "int f(Object o, int n) {\n  if (o is int) {\n    print(1);\n  } else if (o is String) {\n    print(2);\n  } else {\n    print(3);\n  }\n  return switch (n) {\n    1 => 10,\n    _ => 20,\n  };\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "if (o");
+    let r = actions_at(&mut p, "lib/a.dart", text, "if (o");
     let a = action(&r, "Convert to switch statement");
     assert_eq!(a["kind"], "refactor.convert.switchStatement");
     assert_eq!(
@@ -910,7 +910,7 @@ fn switch_statement_assist() {
 fn for_to_map_assist() {
     let mut p = Project::with_literals("acoes-for-mapa");
     let text = "void f(List<int> l) {\n  print(Map<int, int>.fromIterable(l, key: (k) => k, value: (v) => v + 1));\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "fromIterable");
+    let r = actions_at(&mut p, "lib/a.dart", text, "fromIterable");
     let a = action(&r, "Convert to a 'for' element");
     assert_eq!(a["kind"], "refactor.convert.toForElement");
     assert_eq!(
@@ -923,7 +923,7 @@ fn for_to_map_assist() {
 fn super_parameters_assist() {
     let mut p = Project::with_literals("acoes-super");
     let text = "class A {\n  A(int x, {int y = 0});\n}\nclass B extends A {\n  B(int x, {int y = 0}) : super(x, y: y);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "B(int");
+    let r = actions_at(&mut p, "lib/a.dart", text, "B(int");
     let a = action(&r, "Convert to using super parameters");
     assert_eq!(a["kind"], "refactor.convert.toSuperParameters");
     assert_eq!(
@@ -936,7 +936,7 @@ fn super_parameters_assist() {
 fn class_to_enum_assist() {
     let mut p = Project::with_literals("acoes-enum");
     let text = "class _E {\n  static const _E c0 = _E(0, 'a');\n  static const _E c1 = _E(1, 'b');\n\n  final int index;\n\n  final String code;\n\n  const _E(this.index, this.code);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "_E {");
+    let r = actions_at(&mut p, "lib/a.dart", text, "_E {");
     let a = action(&r, "Convert class to an enum");
     assert_eq!(a["kind"], "refactor.convert.classToEnum");
     assert_eq!(
@@ -944,10 +944,10 @@ fn class_to_enum_assist() {
         "enum _E {\n  c0('a'),\n  c1('b');\n\n  final String code;\n\n  const _E(this.code);\n}\n"
     );
     let text = "class _E {\n  static const _E c0 = _E();\n  static const _E c1 = _E();\n}\nvoid f() {}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "_E {");
+    let r = actions_at(&mut p, "lib/a.dart", text, "_E {");
     assert!(r.as_array().unwrap().iter().all(|a| a["title"] != "Convert class to an enum"));
     let text = "class _E {\n  static const a = _E._('a');\n  static const b = _E._('b');\n  final String s;\n  const _E._(this.s);\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "_E {");
+    let r = actions_at(&mut p, "lib/a.dart", text, "_E {");
     assert_eq!(
         apply(&action(&r, "Convert class to an enum")["edit"], &p.uri("lib/a.dart"), text),
         "enum _E {\n  a._('a'),\n  b._('b');\n\n  final String s;\n  const _E._(this.s);\n}\n"
@@ -958,7 +958,7 @@ fn class_to_enum_assist() {
 fn switch_expression_assist() {
     let mut p = Project::with_literals("acoes-switch-expr");
     let text = "int f(bool b) {\n  switch (b) {\n    case true:\n      return 1;\n    case false:\n      return 0;\n  }\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "switch (b)");
+    let r = actions_at(&mut p, "lib/a.dart", text, "switch (b)");
     let a = action(&r, "Convert to switch expression");
     assert_eq!(a["kind"], "refactor.convert.switchExpression");
     assert_eq!(
@@ -966,19 +966,19 @@ fn switch_expression_assist() {
         "int f(bool b) {\n  return switch (b) {\n    true => 1,\n    false => 0\n  };\n}\n"
     );
     let text = "void f(String s) {\n  switch (s) {\n    case 'foo':\n      print('foo');\n    case 'bar':\n      print('bar');\n    default:\n      throw 'unrecognized';\n  }\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "(s)");
+    let r = actions_at(&mut p, "lib/a.dart", text, "(s)");
     assert_eq!(
         apply(&action(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), text),
         "void f(String s) {\n  print(switch (s) {\n    'foo' => 'foo',\n    'bar' => 'bar',\n    _ => throw 'unrecognized'\n  });\n}\n"
     );
     let text = "String f(String s) {\n  var name = '';\n  switch (s) {\n    case 'foo':\n      name = 'foo';\n    case 'bar':\n      name = 'bar';\n    default:\n      throw 'unrecognized';\n  }\n  return name;\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "(s)");
+    let r = actions_at(&mut p, "lib/a.dart", text, "(s)");
     assert_eq!(
         apply(&action(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), text),
         "String f(String s) {\n  var name = '';\n  name = switch (s) {\n    'foo' => 'foo',\n    'bar' => 'bar',\n    _ => throw 'unrecognized'\n  };\n  return name;\n}\n"
     );
     let text = "int f(String name) {\n  switch (name) {\n    case 'red':\n      return 1;\n  }\n  throw 'Only'\n    ' supports'\n    ' red';\n}\n";
-    let r = actions_in(&mut p, "lib/a.dart", text, "switch (name)");
+    let r = actions_at(&mut p, "lib/a.dart", text, "switch (name)");
     assert_eq!(
         apply(&action(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), text),
         "int f(String name) {\n  return switch (name) {\n    'red' => 1,\n    _ => throw 'Only'\n      ' supports'\n      ' red',\n  };\n}\n"
@@ -992,7 +992,7 @@ fn flutter_assists_() {
     let text = "import 'package:flutter/widgets.dart';\n\nclass A extends StatelessWidget {\n  const A({super.key});\n  @override\n  Widget build(BuildContext context) {\n    return Center(child: Text('a'));\n  }\n}\n";
     let uri = p.uri("lib/a.dart");
     // On `Text`: the wrappers.
-    let r = actions_in(&mut p, "lib/a.dart", text, "Text(");
+    let r = actions_at(&mut p, "lib/a.dart", text, "Text(");
     assert_eq!(apply(&action(&r, "Wrap with Center")["edit"], &uri, text), text.replace("child: Text('a')", "child: Center(child: Text('a'))"));
     assert_eq!(
         apply(&action(&r, "Wrap with Padding")["edit"], &uri, text),
@@ -1002,15 +1002,15 @@ fn flutter_assists_() {
     action(&r, "Wrap with Column");
     action(&r, "Wrap with Builder");
     // On `Center`: remove (the child stays in place).
-    let r = actions_in(&mut p, "lib/a.dart", text, "Center(");
+    let r = actions_at(&mut p, "lib/a.dart", text, "Center(");
     assert_eq!(apply(&action(&r, "Remove this widget")["edit"], &uri, text), text.replace("Center(child: Text('a'))", "Text('a')"));
     // On the `child` label: `children: [...]`.
-    let r = actions_in(&mut p, "lib/a.dart", text, "child:");
+    let r = actions_at(&mut p, "lib/a.dart", text, "child:");
     assert_eq!(apply(&action(&r, "Convert to children:")["edit"], &uri, text), text.replace("child: Text('a')", "children: [Text('a')]"));
     // Move within the `children` list.
     let list = "import 'package:flutter/widgets.dart';\n\nWidget f() => Column(children: [Text('a'), Text('b')]);\n";
     let uri2 = p.uri("lib/b.dart");
-    let r = actions_in(&mut p, "lib/b.dart", list, "Text('b')");
+    let r = actions_at(&mut p, "lib/b.dart", list, "Text('b')");
     assert_eq!(apply(&action(&r, "Move widget up")["edit"], &uri2, list), list.replace("[Text('a'), Text('b')]", "[Text('b'), Text('a')]"));
     assert!(r.as_array().unwrap().iter().all(|a| a["title"] != "Move widget down"));
 }
@@ -1021,7 +1021,7 @@ fn flutter_to_stateful() {
     p.install_flutter();
     let text = "import 'package:flutter/widgets.dart';\n\nclass A extends StatelessWidget {\n  const A({super.key, required this.titulo});\n\n  final String titulo;\n\n  @override\n  Widget build(BuildContext context) {\n    return Text(titulo);\n  }\n}\n";
     let uri = p.uri("lib/a.dart");
-    let r = actions_in(&mut p, "lib/a.dart", text, "A extends");
+    let r = actions_at(&mut p, "lib/a.dart", text, "A extends");
     let a = action(&r, "Convert to StatefulWidget");
     assert_eq!(a["kind"], "refactor.flutter.convert.toStatefulWidget");
     assert_eq!(
@@ -1303,7 +1303,7 @@ class _MyWidgetState extends State<MyWidget> {
     for (i, (name, before, after)) in cases.iter().enumerate() {
         let rel = format!("lib/s{i}.dart");
         let uri = p.uri(&rel);
-        let r = actions_in(&mut p, &rel, before, "MyWidget extends");
+        let r = actions_at(&mut p, &rel, before, "MyWidget extends");
         assert_eq!(apply(&action(&r, "Convert to StatefulWidget")["edit"], &uri, before), *after, "{name}");
     }
 }
@@ -1999,7 +1999,7 @@ class MyWidget<T> extends StatelessWidget {
     for (i, (name, before, needle, after)) in cases.iter().enumerate() {
         let rel = format!("lib/s{i}.dart");
         let uri = p.uri(&rel);
-        let r = actions_in(&mut p, &rel, before, needle);
+        let r = actions_at(&mut p, &rel, before, needle);
         let found = r.as_array().unwrap().iter().find(|a| a["title"] == "Convert to StatelessWidget").cloned();
         match (after, found) {
             (None, None) => {}
@@ -2444,7 +2444,7 @@ class _MyWidgetState extends State<MyWidget> {
     for (i, (name, before, needle, after)) in cases.iter().enumerate() {
         let rel = format!("lib/s{i}.dart");
         let uri = p.uri(&rel);
-        let r = actions_in(&mut p, &rel, before, needle);
+        let r = actions_at(&mut p, &rel, before, needle);
         let found = r.as_array().unwrap().iter().find(|a| a["title"] == "Convert to StatefulWidget").cloned();
         match (after, found) {
             (None, None) => {}
@@ -2928,7 +2928,7 @@ class C extends Widget with Diagnosticable {
     for (i, (name, before, needle, after)) in cases.iter().enumerate() {
         let rel = format!("lib/d{i}.dart");
         let uri = p.uri(&rel);
-        let r = actions_in(&mut p, &rel, before, needle);
+        let r = actions_at(&mut p, &rel, before, needle);
         let found = r.as_array().unwrap().iter().find(|a| a["title"] == "Add a debug reference to this property").cloned();
         match (after, found) {
             (None, None) => {}

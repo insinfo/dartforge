@@ -216,17 +216,17 @@ impl Project {
                     Some(v) => v,
                     None => {
                         let k = text.strip_prefix("shade")?.parse::<i64>().ok()?;
-                        self.of_palette(&value, k)?
+                        self.from_palette(&value, k)?
                     }
                 }
             }
-            Member::Index(k) => self.of_palette(&value, k)?,
+            Member::Index(k) => self.from_palette(&value, k)?,
         };
         self.value_color(&value)
     }
 
     /// `_getSwatchColor`: the entry with key `k` of the `_swatch` field.
-    fn of_palette(&self, v: &Valor, k: i64) -> Option<Valor> {
+    fn from_palette(&self, v: &Valor, k: i64) -> Option<Valor> {
         let symbol = self.query.names.lookup("_swatch")?;
         let palette = field(v, symbol)?;
         let Estado::Mapa { entradas: entries, .. } = &palette.estado else { return None };

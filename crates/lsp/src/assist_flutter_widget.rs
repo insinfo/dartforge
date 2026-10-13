@@ -576,11 +576,11 @@ impl Context<'_> {
                         Marca::Funcao(f) => self.ast.function(f).name.map(|x| self.p.name(x.sym) == "createState"),
                         _ => None,
                     }) == Some(true);
-                    let of_widget = class.and_then(|c| match self.tree.nos[c].marca {
+                    let widget_class = class.and_then(|c| match self.tree.nos[c].marca {
                         Marca::Decl(d) => self.declaration_class(self.unit, d),
                         _ => None,
                     }) == Some(widget);
-                    if !create_state_node || !of_widget {
+                    if !create_state_node || !widget_class {
                         return true;
                     }
                 }

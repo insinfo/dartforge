@@ -61,7 +61,7 @@ impl<'a, 'p> Writer<'a, 'p> {
 
     /// The writer over the completion query: the request's library, and the
     /// class and executable that contain the point (`_EnclosingElementFinder`).
-    pub(crate) fn of_query(
+    pub(crate) fn from_query(
         query: &'a crate::query::Query,
         library: LibraryId,
         class: Option<ClassId>,

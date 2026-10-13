@@ -42,7 +42,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let end = completion.encode_utf16().count();
         let item = self.collector.push(group::WORD, kind::WORD_KEY, completion.clone(), completion.clone(), None);
         item.rel.word = Some(is_static(&completion));
-        item.of_pass = true;
+        item.from_pass = true;
         if selection != end {
             item.selection = Some((selection, 0));
         }

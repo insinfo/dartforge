@@ -100,7 +100,7 @@ pub(crate) struct Comment {
     pub(crate) start: usize,
     pub(crate) end: usize,
     /// `///` or `/** */`.
-    pub(crate) of_documentation: bool,
+    pub(crate) is_documentation: bool,
 }
 
 /// The comments of `text[from..until]`, which has only whitespace and comments.
@@ -112,8 +112,8 @@ pub(crate) fn comments(text: &str, from: usize, until: usize) -> Vec<Comment> {
         if b[i] == b'/' && b[i + 1] == b'/' {
             let end = text[i..until].find('\n').map_or(until, |k| i + k);
             let end_without_cr = if end > i && b[end - 1] == b'\r' { end - 1 } else { end };
-            let of_documentation = b.get(i + 2) == Some(&b'/') && b.get(i + 3) != Some(&b'/');
-            output.push(Comment { start: i, end: end_without_cr, of_documentation });
+            let is_documentation = b.get(i + 2) == Some(&b'/') && b.get(i + 3) != Some(&b'/');
+            output.push(Comment { start: i, end: end_without_cr, is_documentation });
             i = end;
         } else if b[i] == b'/' && b[i + 1] == b'*' {
             let mut level = 1;
@@ -129,8 +129,8 @@ pub(crate) fn comments(text: &str, from: usize, until: usize) -> Vec<Comment> {
                     j += 1;
                 }
             }
-            let of_documentation = b.get(i + 2) == Some(&b'*') && b.get(i + 3) != Some(&b'/');
-            output.push(Comment { start: i, end: j.min(until), of_documentation });
+            let is_documentation = b.get(i + 2) == Some(&b'*') && b.get(i + 3) != Some(&b'/');
+            output.push(Comment { start: i, end: j.min(until), is_documentation });
             i = j;
         } else {
             i += 1;
@@ -188,9 +188,9 @@ fn with_comments(text: &str, node: Span, previous: Option<usize>) -> (usize, usi
 /// The start of a node's documentation comment: the last sequence of
 /// consecutive `///` lines, or the last `/** */` block, of the gap.
 fn documentation_start(cs: &[Comment]) -> Option<usize> {
-    let last = cs.iter().rposition(|c| c.of_documentation)?;
+    let last = cs.iter().rposition(|c| c.is_documentation)?;
     let mut first = last;
-    while first > 0 && cs[first - 1].of_documentation {
+    while first > 0 && cs[first - 1].is_documentation {
         first -= 1;
     }
     Some(cs[first].start)

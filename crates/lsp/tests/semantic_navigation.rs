@@ -494,7 +494,7 @@ fn workspace_symbols_include_closed_project_files() {
     p.write("lib/outro.dart", "int nada = 0;\n");
     p.open("lib/aberto.dart", "void carregarDados() {}\n");
     // Only those of the project (the SDK and the packages also come in, after).
-    let of_project = |r: &serde_json::Value| -> Vec<String> {
+    let in_project = |r: &serde_json::Value| -> Vec<String> {
         r["result"]
             .as_array()
             .unwrap()
@@ -506,10 +506,10 @@ fn workspace_symbols_include_closed_project_files() {
     let r = p.request("workspace/symbol", json!({"query": "carregar"}));
     // In the order of the project files and, per file, classes before
     // functions; executables with the `()` suffix.
-    assert_eq!(of_project(&r), vec!["carregarDados()", "CarregadorRemoto", "carregarTudo()"]);
+    assert_eq!(in_project(&r), vec!["carregarDados()", "CarregadorRemoto", "carregarTudo()"]);
     // Fuzzy: word initials.
     let r = p.request("workspace/symbol", json!({"query": "cR"}));
-    assert_eq!(of_project(&r), vec!["CarregadorRemoto"]);
+    assert_eq!(in_project(&r), vec!["CarregadorRemoto"]);
 }
 
 /// On a case-insensitive file system (macOS, Windows), the editor may send

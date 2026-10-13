@@ -610,7 +610,7 @@ fn missing_overrides(project: &mut Project, c: ClassId, unit: UnitId, decl: ast:
             text.push_str("\n\n  ");
         }
         let base = text.len();
-        groups.extend(marks.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
+        groups.extend(marks.into_iter().map(|(r, n, suggestions)| (base + r, n, suggestions)));
         text.push_str(&s);
     }
     if last.is_none() && single_line {
@@ -855,7 +855,7 @@ fn parameter_list(project: &mut Project, f: FunctionElementId, map: Option<&Hash
                 text.push_str(opens);
             }
             let base = text.len();
-            all.extend(marks.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
+            all.extend(marks.into_iter().map(|(r, n, suggestions)| (base + r, n, suggestions)));
             text.push_str(&s);
         }
         text.push_str(closes);

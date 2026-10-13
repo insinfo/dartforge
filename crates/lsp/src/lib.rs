@@ -162,7 +162,7 @@ pub struct References {
 impl References {
     /// The syntactic form (declaration first, then the uses, all in the same
     /// document) as [`References`].
-    fn of_list(uri: &str, spans: Vec<dartforge_diagnostics::Span>) -> Self {
+    fn from_list(uri: &str, spans: Vec<dartforge_diagnostics::Span>) -> Self {
         let mut spans = spans.into_iter().map(|s| (uri.to_string(), s));
         let declaration = spans.next();
         Self { declaration, uses: spans.collect() }
@@ -536,7 +536,7 @@ pub trait Analyzer {
     fn references_in(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<References> {
         let text = documents.get(uri)?;
         let spans = self.references(uri, text, offset)?;
-        Some(References::of_list(uri, spans))
+        Some(References::from_list(uri, spans))
     }
 
     /// Signature help in the argument list containing `offset`
@@ -789,7 +789,7 @@ impl Analyzer for SyntacticAnalyzer {
 
     fn symbols(&mut self, uri: &str, text: &str) -> Vec<serde_json::Value> {
         let features = self.features(uri, text);
-        symbols::of_document(text, features)
+        symbols::for_document(text, features)
     }
 
     fn definition(&mut self, uri: &str, text: &str, offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {

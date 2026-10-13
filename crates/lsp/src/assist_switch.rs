@@ -73,8 +73,8 @@ impl Context<'_> {
     }
 
     /// `_buildCases`.
-    fn if_cases(&self, se: usize) -> Option<Vec<Case>> {
-        let children = self.children(se);
+    fn if_cases(&self, if_node: usize) -> Option<Vec<Case>> {
+        let children = self.children(if_node);
         let condition = *children.first()?;
         let branches: Vec<usize> = children.iter().copied().filter(|&k| self.is_command(k)).collect();
         let then = *branches.first()?;
@@ -119,15 +119,15 @@ impl Context<'_> {
         if !self.with_patterns() {
             return None;
         }
-        let se = self.tree.localizar(start, end)?;
-        if self.kind(se) != "IfStatement" {
+        let if_node = self.tree.localizar(start, end)?;
+        if self.kind(if_node) != "IfStatement" {
             return None;
         }
-        let cases = self.if_cases(se)?;
+        let cases = self.if_cases(if_node)?;
         let expression = cases.first()?.expression.clone()?;
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let indent = tx.line_prefix(self.tree.nos[se].inicio).to_string();
+        let indent = tx.line_prefix(self.tree.nos[if_node].inicio).to_string();
         let case_indent = format!("{indent}{ONE_INDENT}");
         let mut s = format!("switch ({expression}) {{{eol}");
         for (i, c) in cases.iter().enumerate() {
@@ -146,7 +146,7 @@ impl Context<'_> {
         Some(CodeAction {
             title: "Convert to switch statement".into(),
             kind: "refactor.convert.switchStatement".into(),
-            edits: vec![crate::Edit { uri: uri.to_string(), span: self.tree.span(se), text: s }],
+            edits: vec![crate::Edit { uri: uri.to_string(), span: self.tree.span(if_node), text: s }],
             diagnostic: None,
             create_file: None, linked: Default::default(),
         })

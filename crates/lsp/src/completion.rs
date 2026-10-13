@@ -137,7 +137,7 @@ pub struct CompletionItem {
     pub display: Option<String>,
     /// The item came from the `InScopeCompletionPass` (the order and the
     /// `matcherScore` are its own).
-    pub(crate) of_pass: bool,
+    pub(crate) from_pass: bool,
     /// `CompletionSuggestionKind.IDENTIFIER` on an executable (tear-off,
     /// redirection): the label shows the parameters, the insertion adds no
     /// parentheses.
@@ -681,7 +681,7 @@ impl Collector {
             score: 0.0,
             selection: None,
             display: None,
-            of_pass: false,
+            from_pass: false,
             identifier: false,
             match_: None,
             replace_empty: false,
@@ -999,7 +999,7 @@ impl Collector {
                 item.origin = Some((origin, d.start));
                 item.rel.not_imported = true;
                 item.rel.kind = Some(rel);
-                item.of_pass = true;
+                item.from_pass = true;
                 if function {
                     item.call = Some(if d.without_parameters { Call::Parameters(Vec::new()) } else { Call::Unknown });
                 }
