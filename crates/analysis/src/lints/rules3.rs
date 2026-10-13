@@ -1,23 +1,23 @@
-//! O terceiro lote de regras de lint que só olham a árvore e o texto
+//! The third batch of lint rules that only look at the tree and the text
 //! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8): `unnecessary_new`,
 //! `prefer_typing_uninitialized_variables`, `always_declare_return_types`,
-//! `library_names`, `slash_for_doc_comments` e
+//! `library_names`, `slash_for_doc_comments` and
 //! `unnecessary_brace_in_string_interps`.
 //!
-//! Escritas com os emissores do `main` do SDK abertos e depois conferidas
-//! contra os da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter`, extraído
-//! da tag em 2026-10-05). Nenhuma das seis difere na regra.
-//! Diferenças conhecidas:
-//! `always_declare_return_types` isenta os métodos `test_*`/`solo_test_*`
-//! quando a unidade que define a biblioteca está no `test/` do pacote (a
-//! pasta do `pubspec.yaml` mais próximo; pede a semântica da unidade);
-//! `slash_for_doc_comments` acha o comentário de documentação de cada
-//! declaração como o `_findComment` do parser (`findDartDoc` depois da
-//! metadata, e senão antes de cada anotação, da última para a primeira),
-//! com os comentários varridos da fonte (`dartforge_frontend::comentarios`),
-//! nas declarações que o original visita (não o tipo de extensão), e o
-//! primeiro comentário antes da função local.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written with the emitters of the SDK's `main` open and then checked
+//! against those of 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter`,
+//! extracted from the tag on 2026-10-05). None of the six differs in the rule.
+//! Known differences:
+//! `always_declare_return_types` exempts the `test_*`/`solo_test_*` methods
+//! when the unit that defines the library is in the package's `test/` (the
+//! folder of the nearest `pubspec.yaml`; it needs the unit's semantics);
+//! `slash_for_doc_comments` finds each declaration's documentation comment
+//! like the parser's `_findComment` (`findDartDoc` after the metadata, and
+//! otherwise before each annotation, from the last to the first), with the
+//! comments scanned from the source (`dartforge_frontend::comentarios`), on
+//! the declarations the original visits (not the extension type), and the
+//! first comment before a local function.
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -31,63 +31,63 @@ use dartforge_frontend::ast::{
 use dartforge_intern::Interner;
 
 /// `isLowerCaseUnderScoreWithDots`: `^_?[_a-z\d]*(?:\.[a-z][_a-z\d]*)*$`.
-pub fn e_nome_de_biblioteca(nome: &str) -> bool {
-    let do_miolo = |x: char| x == '_' || x.is_ascii_lowercase() || x.is_ascii_digit();
-    let mut partes = nome.split('.');
-    let primeira = partes.next().unwrap_or("");
-    primeira.chars().all(do_miolo) && partes.all(|p| p.chars().next().is_some_and(|x| x.is_ascii_lowercase()) && p.chars().all(do_miolo))
+pub fn is_library_name(name: &str) -> bool {
+    let inner_char = |x: char| x == '_' || x.is_ascii_lowercase() || x.is_ascii_digit();
+    let mut parts = name.split('.');
+    let first = parts.next().unwrap_or("");
+    first.chars().all(inner_char) && parts.all(|p| p.chars().next().is_some_and(|x| x.is_ascii_lowercase()) && p.chars().all(inner_char))
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let fonte = u.fonte;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.fonte;
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
-    // `unnecessary_new`: na palavra `new`.
-    if ligada("unnecessary_new") {
+    // `unnecessary_new`: at the word `new`.
+    if enabled("unnecessary_new") {
         for e in a.exprs.iter() {
-            if matches!(e.kind, ExprKind::InstanceCreation { keyword: Some(CreationKeyword::New), .. }) && fonte.get(e.span.start..).is_some_and(|t| t.starts_with("new")) {
-                relatar(&c::UNNECESSARY_NEW, Span { start: e.span.start, end: e.span.start + 3 }, &[]);
+            if matches!(e.kind, ExprKind::InstanceCreation { keyword: Some(CreationKeyword::New), .. }) && source.get(e.span.start..).is_some_and(|t| t.starts_with("new")) {
+                report(&c::UNNECESSARY_NEW, Span { start: e.span.start, end: e.span.start + 3 }, &[]);
             }
         }
     }
-    // `prefer_typing_uninitialized_variables`: lista sem tipo com variável
-    // sem inicializador.
-    if ligada("prefer_typing_uninitialized_variables") {
-        let mut checar = |lista: &VariableList, de_campo: bool| {
-            if lista.ty.is_some() {
+    // `prefer_typing_uninitialized_variables`: an untyped list with a
+    // variable without an initializer.
+    if enabled("prefer_typing_uninitialized_variables") {
+        let mut check = |list: &VariableList, of_field: bool| {
+            if list.ty.is_some() {
                 return;
             }
             let code =
-                if de_campo { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_FIELD } else { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_LOCAL_VARIABLE };
-            for v in lista.variables.iter().filter(|v| v.initializer.is_none()) {
-                relatar(code, v.name.span, &[]);
+                if of_field { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_FIELD } else { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_LOCAL_VARIABLE };
+            for v in list.variables.iter().filter(|v| v.initializer.is_none()) {
+                report(code, v.name.span, &[]);
             }
         };
         for d in a.decls.iter().filter(|d| !d.augment) {
             if let DeclKind::Variables(l) = &d.kind {
-                checar(l, false);
+                check(l, false);
             }
         }
         for m in a.members.iter().filter(|m| !m.augment) {
             if let MemberKind::Field(l) = &m.kind {
-                checar(l, true);
+                check(l, true);
             }
         }
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => checar(l, false),
+                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => check(l, false),
                 _ => {}
             }
         }
     }
     // `always_declare_return_types`.
-    if ligada("always_declare_return_types") {
-        let de_metodo: Vec<FunctionId> = a
+    if enabled("always_declare_return_types") {
+        let method_fns: Vec<FunctionId> = a
             .members
             .iter()
             .filter_map(|m| match &m.kind {
@@ -95,7 +95,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 _ => None,
             })
             .collect();
-        let aumentados: Vec<FunctionId> = a
+        let augmented: Vec<FunctionId> = a
             .members
             .iter()
             .filter(|m| m.augment)
@@ -110,56 +110,56 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             .collect();
         for (i, f) in a.functions.iter().enumerate() {
             let id = FunctionId(i as u32);
-            let Some(nome) = f.name else { continue };
-            if f.return_type.is_some() || f.kind == FunctionKind::Setter || aumentados.contains(&id) {
+            let Some(name) = f.name else { continue };
+            if f.return_type.is_some() || f.kind == FunctionKind::Setter || augmented.contains(&id) {
                 continue;
             }
-            let texto = interner.resolve(nome.sym);
-            if de_metodo.contains(&id) {
-                let de_teste = (texto.starts_with("test_") || texto.starts_with("solo_test_")) && sem.is_some_and(super::in_package_test);
-                if texto != "[]=" && !de_teste {
-                    relatar(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_METHODS, nome.span, &[texto]);
+            let text = interner.resolve(name.sym);
+            if method_fns.contains(&id) {
+                let is_test = (text.starts_with("test_") || text.starts_with("solo_test_")) && sem.is_some_and(super::in_package_test);
+                if text != "[]=" && !is_test {
+                    report(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_METHODS, name.span, &[text]);
                 }
             } else {
-                relatar(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS, nome.span, &[texto]);
+                report(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS, name.span, &[text]);
             }
         }
-        // O `typedef` da forma antiga sem tipo de retorno.
+        // The old-style `typedef` without a return type.
         for d in a.decls.iter() {
             if let DeclKind::Typedef(x) = &d.kind
                 && matches!(x.kind, TypedefKind::Legacy { return_type: None, .. })
             {
-                relatar(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS, x.name.span, &[interner.resolve(x.name.sym)]);
+                report(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS, x.name.span, &[interner.resolve(x.name.sym)]);
             }
         }
     }
     // `library_names`.
-    if ligada("library_names") {
+    if enabled("library_names") {
         for d in u.unit.directives.iter() {
             if let DirectiveKind::Library { name } = &d.kind
-                && let (Some(p), Some(ult)) = (name.first(), name.last())
+                && let (Some(p), Some(last)) = (name.first(), name.last())
             {
-                let texto = name.iter().map(|n| interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
-                if !e_nome_de_biblioteca(&texto) {
-                    relatar(&c::LIBRARY_NAMES, Span { start: p.span.start, end: ult.span.end }, &[texto.as_str()]);
+                let text = name.iter().map(|n| interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
+                if !is_library_name(&text) {
+                    report(&c::LIBRARY_NAMES, Span { start: p.span.start, end: last.span.end }, &[text.as_str()]);
                 }
             }
         }
     }
-    // `slash_for_doc_comments`: `/** … */` como documentação.
-    if ligada("slash_for_doc_comments") {
-        let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
+    // `slash_for_doc_comments`: `/** … */` as documentation.
+    if enabled("slash_for_doc_comments") {
+        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
         // `_findComment(metadata, tokenAfterMetadata)`.
-        let doc = |metadata: &[dartforge_frontend::ast::Annotation], inicio: usize| {
-            let depois = match metadata.last() {
-                Some(m) => dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), m.span.end),
-                None => inicio,
+        let doc = |metadata: &[dartforge_frontend::ast::Annotation], start: usize| {
+            let after = match metadata.last() {
+                Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+                None => start,
             };
-            comentarios.dart_doc(fonte, depois).or_else(|| metadata.iter().rev().find_map(|m| comentarios.dart_doc(fonte, m.span.start)))
+            comments.dart_doc(source, after).or_else(|| metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start)))
         };
         let mut docs: Vec<Span> = Vec::new();
-        if let Some(primeira) = u.unit.directives.first() {
-            docs.extend(doc(&primeira.metadata, primeira.span.start));
+        if let Some(first) = u.unit.directives.first() {
+            docs.extend(doc(&first.metadata, first.span.start));
         }
         for d in a.decls.iter() {
             if matches!(d.kind, DeclKind::ExtensionType(_)) {
@@ -175,7 +175,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         for m in a.members.iter() {
             docs.extend(doc(&m.metadata, m.span.start));
         }
-        let mut locais: Vec<Span> = Vec::new();
+        let mut locals: Vec<Span> = Vec::new();
         for (i, s) in a.stmts.iter().enumerate() {
             if !matches!(s.kind, StmtKind::Function(_)) {
                 continue;
@@ -187,45 +187,45 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 .map(|(_, m)| &m[..])
                 .unwrap_or(&[]);
             docs.extend(doc(metadata, s.span.start));
-            // `visitFunctionDeclarationStatement`: o primeiro comentário
-            // antes do comando.
-            if let Some(primeiro) = comentarios.antes_de(fonte, s.span.start).first()
-                && fonte[primeiro.start..primeiro.end].starts_with("/**")
+            // `visitFunctionDeclarationStatement`: the first comment before
+            // the statement.
+            if let Some(first) = comments.antes_de(source, s.span.start).first()
+                && source[first.start..first.end].starts_with("/**")
             {
-                locais.push(*primeiro);
+                locals.push(*first);
             }
         }
         // `isJavaStyle`.
-        docs.retain(|s| fonte[s.start..s.end].starts_with("/**"));
-        docs.extend(locais);
+        docs.retain(|s| source[s.start..s.end].starts_with("/**"));
+        docs.extend(locals);
         docs.sort_by_key(|s| (s.start, s.end));
         docs.dedup();
         for span in docs {
-            relatar(&c::SLASH_FOR_DOC_COMMENTS, span, &[]);
+            report(&c::SLASH_FOR_DOC_COMMENTS, span, &[]);
         }
     }
-    // `unnecessary_brace_in_string_interps`: `${nome}` e `${this}` quando o
-    // que vem depois não continuaria o identificador.
-    if ligada("unnecessary_brace_in_string_interps") {
-        let b = fonte.as_bytes();
+    // `unnecessary_brace_in_string_interps`: `${name}` and `${this}` when
+    // what follows would not continue the identifier.
+    if enabled("unnecessary_brace_in_string_interps") {
+        let b = source.as_bytes();
         for e in a.exprs.iter() {
             let ExprKind::String(lit) = &e.kind else { continue };
-            for parte in lit.parts.iter() {
-                let StringPart::Interpolation(x) = parte else { continue };
-                let dentro = a.expr(*x);
-                let simples = match &dentro.kind {
+            for part in lit.parts.iter() {
+                let StringPart::Interpolation(x) = part else { continue };
+                let inner = a.expr(*x);
+                let simple = match &inner.kind {
                     ExprKind::Identifier(n) => !interner.resolve(n.sym).contains('$'),
                     ExprKind::This => true,
                     _ => false,
                 };
-                let (ini, fim) = (dentro.span.start, dentro.span.end);
-                // Escrita exatamente como `${x}`.
-                if !simples || ini < 2 || b.get(ini - 1) != Some(&b'{') || b.get(ini - 2) != Some(&b'$') || b.get(fim) != Some(&b'}') {
+                let (start, end) = (inner.span.start, inner.span.end);
+                // Written exactly as `${x}`.
+                if !simple || start < 2 || b.get(start - 1) != Some(&b'{') || b.get(start - 2) != Some(&b'$') || b.get(end) != Some(&b'}') {
                     continue;
                 }
-                let continua = b.get(fim + 1).is_some_and(|x| x.is_ascii_alphanumeric() || *x == b'_' || *x == b'$');
-                if !continua {
-                    relatar(&c::UNNECESSARY_BRACE_IN_STRING_INTERPS, Span { start: ini - 2, end: fim + 1 }, &[]);
+                let continues = b.get(end + 1).is_some_and(|x| x.is_ascii_alphanumeric() || *x == b'_' || *x == b'$');
+                if !continues {
+                    report(&c::UNNECESSARY_BRACE_IN_STRING_INTERPS, Span { start: start - 2, end: end + 1 }, &[]);
                 }
             }
         }
@@ -234,39 +234,39 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn achados(fonte: &str) -> Vec<(&'static str, String)> {
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut relatos = run(u, &nomes, &|_| true, None);
-        relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
+    fn findings(source: &str) -> Vec<(&'static str, String)> {
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let mut reports = run(u, &names, &|_| true, None);
+        reports.sort_by_key(|r| (r.span.start, r.span.end));
+        reports.into_iter().map(|r| (r.code.unico, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
-    fn nomes_de_biblioteca() {
-        assert!(e_nome_de_biblioteca("a.b_c") && e_nome_de_biblioteca("_a") && e_nome_de_biblioteca(""));
-        assert!(!e_nome_de_biblioteca("A.b") && !e_nome_de_biblioteca("a.1b"));
-        assert_eq!(achados("library Minha.lib;\n"), vec![("library_names", "Minha.lib".to_string())]);
+    fn library_names() {
+        assert!(is_library_name("a.b_c") && is_library_name("_a") && is_library_name(""));
+        assert!(!is_library_name("A.b") && !is_library_name("a.1b"));
+        assert_eq!(findings("library My.lib;\n"), vec![("library_names", "My.lib".to_string())]);
     }
 
     #[test]
-    fn declaracoes() {
-        assert_eq!(achados("int g() => 1;\nf() {}\n"), vec![("always_declare_return_types_of_functions", "f".to_string())]);
+    fn declarations() {
+        assert_eq!(findings("int g() => 1;\nf() {}\n"), vec![("always_declare_return_types_of_functions", "f".to_string())]);
         assert_eq!(
-            achados("class A {\n  var x;\n  m() {}\n  operator []=(int i, int v) {}\n}\n"),
+            findings("class A {\n  var x;\n  m() {}\n  operator []=(int i, int v) {}\n}\n"),
             vec![("prefer_typing_uninitialized_variables_for_field", "x".to_string()), ("always_declare_return_types_of_methods", "m".to_string())]
         );
-        assert_eq!(achados("int y = 0;\nvar z;\n"), vec![("prefer_typing_uninitialized_variables_for_local_variable", "z".to_string())]);
-        assert_eq!(achados("/** doc */\nclass A {}\n/// ok\nclass B {}\n"), vec![("slash_for_doc_comments", "/** doc */".to_string())]);
+        assert_eq!(findings("int y = 0;\nvar z;\n"), vec![("prefer_typing_uninitialized_variables_for_local_variable", "z".to_string())]);
+        assert_eq!(findings("/** doc */\nclass A {}\n/// ok\nclass B {}\n"), vec![("slash_for_doc_comments", "/** doc */".to_string())]);
     }
 
     #[test]
-    fn expressoes() {
-        assert_eq!(achados("class A {}\nvar a = new A();\n"), vec![("unnecessary_new", "new".to_string())]);
-        assert_eq!(achados("String f(int x) => '${x} e ${x}y e ${x + 1}';\n"), vec![("unnecessary_brace_in_string_interps", "${x}".to_string())]);
+    fn expressions() {
+        assert_eq!(findings("class A {}\nvar a = new A();\n"), vec![("unnecessary_new", "new".to_string())]);
+        assert_eq!(findings("String f(int x) => '${x} and ${x}y and ${x + 1}';\n"), vec![("unnecessary_brace_in_string_interps", "${x}".to_string())]);
     }
 }
