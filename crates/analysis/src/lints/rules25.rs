@@ -216,7 +216,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         }
                         let Some(n) = f.name else { continue };
                         let tipo = f.return_type.and_then(|t| s.outline.tipos_escritos.get(&(s.unit, t)).copied());
-                        if interner.resolve(n.sym).starts_with('_') || herdado(n.sym) || tipo.is_some_and(|t| super::rules20::propriedade_de_widget(s, interner, t, 0)) {
+                        if interner.resolve(n.sym).starts_with('_') || herdado(n.sym) || tipo.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
                             continue;
                         }
                         propriedades.push(n);
@@ -228,7 +228,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         for (index, v) in l.variables.iter().enumerate() {
                             let r = dartforge_elements::model::VariableRef::Field { unit: s.unit, member: mid, index };
                             let tipo = program.variables.iter().position(|y| y.node == r).and_then(|i| s.outline.variables.get(i)).and_then(|d| d.declared_type.or(d.inferred));
-                            if interner.resolve(v.name.sym).starts_with('_') || herdado(v.name.sym) || tipo.is_some_and(|t| super::rules20::propriedade_de_widget(s, interner, t, 0)) {
+                            if interner.resolve(v.name.sym).starts_with('_') || herdado(v.name.sym) || tipo.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
                                 continue;
                             }
                             propriedades.push(v.name);

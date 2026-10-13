@@ -1,23 +1,23 @@
-//! O vigésimo lote de regras de lint (docs/ANALYZER-ESPECIFICACAO-INFRA.md
-//! §8), escritas direto dos emissores da 3.6.2
+//! The twentieth batch of lint rules (docs/ANALYZER-ESPECIFICACAO-INFRA.md
+//! §8), written directly from the 3.6.2 emitters
 //! (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
 //!
-//! * `document_ignores`: o comentário `// ignore:`/`// ignore_for_file:`
-//!   (os `ignoreComments`) com elementos e sem texto livre depois deles
-//!   (`IgnoredDiagnosticComment`), sem comentário `//` na linha de cima.
-//! * `sort_child_properties_last`: o `child:`/`children:` de um widget com
-//!   argumentos nomeados que não são closures depois dele.
-//! * `test_types_in_equals`: `outro as T` no `operator ==` com o parâmetro.
-//! * `matching_super_parameters`: os `super.x` posicionais com o nome
-//!   diferente do parâmetro do construtor da superclasse.
+//! * `document_ignores`: the `// ignore:`/`// ignore_for_file:` comment (the
+//!   `ignoreComments`) with elements and no free text after them
+//!   (`IgnoredDiagnosticComment`), without a `//` comment on the line above.
+//! * `sort_child_properties_last`: the `child:`/`children:` of a widget with
+//!   named arguments that are not closures after it.
+//! * `test_types_in_equals`: `other as T` in `operator ==` with the parameter.
+//! * `matching_super_parameters`: the positional `super.x`s with a name
+//!   different from the superclass constructor's parameter.
 //! * `unnecessary_null_aware_operator_on_extension_on_nullable`: `?.`/`?[`
-//!   que chama membro de extensão sobre tipo anulável.
-//! * `avoid_slow_async_io`: os métodos assíncronos de `File`, `Directory` e
-//!   `FileSystemEntity` do `dart:io`.
-//! * `tighten_type_of_initializing_formals`: o `assert(x != null)` de um
-//!   `this.x`/`super.x` anulável.
+//!   that calls an extension member on a nullable type.
+//! * `avoid_slow_async_io`: the async methods of `dart:io`'s `File`,
+//!   `Directory` and `FileSystemEntity`.
+//! * `tighten_type_of_initializing_formals`: the `assert(x != null)` of a
+//!   nullable `this.x`/`super.x`.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -41,36 +41,36 @@ fn is_nullable(table: &TypeTable, t: TypeId) -> bool {
     }
 }
 
-fn nome_da_biblioteca(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
+fn library_name(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
 /// `isSameAs`.
-fn mesma(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, nome: &str, lib: &str) -> bool {
+fn is_same_class(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, name: &str, lib: &str) -> bool {
     let k = s.program.class(c);
-    interner.resolve(k.name) == nome && nome_da_biblioteca(s, interner, k.library).as_deref() == Some(lib)
+    interner.resolve(k.name) == name && library_name(s, interner, k.library).as_deref() == Some(lib)
 }
 
-/// `extendsClass`: a cadeia de superclasses.
-fn estende(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, nome: &str, lib: &str) -> bool {
+/// `extendsClass`: the superclass chain.
+fn extends_class(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, name: &str, lib: &str) -> bool {
     let Type::Interface { class, .. } = s.table.get(t) else { return false };
-    let mut vistos = std::collections::HashSet::new();
-    let mut atual = Some(*class);
-    while let Some(x) = atual {
-        if !vistos.insert(x) {
+    let mut seen = std::collections::HashSet::new();
+    let mut current = Some(*class);
+    while let Some(x) = current {
+        if !seen.insert(x) {
             return false;
         }
-        if mesma(s, interner, x, nome, lib) {
+        if is_same_class(s, interner, x, name, lib) {
             return true;
         }
-        atual = s.program.class(x).supertype_class;
+        current = s.program.class(x).supertype_class;
     }
     false
 }
 
 /// `isWidgetProperty`.
-pub(super) fn propriedade_de_widget(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, prof: u32) -> bool {
-    if prof > 8 {
+pub(super) fn is_widget_property(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, depth: u32) -> bool {
+    if depth > 8 {
         return false;
     }
     if super::flutter::is_widget_type(s, interner, t) {
@@ -81,26 +81,26 @@ pub(super) fn propriedade_de_widget(s: &super::Semantics<'_>, interner: &Interne
         x = s.table.param(*param).bound;
     }
     let Type::Interface { class, args, .. } = s.table.get(x) else { return false };
-    let colecoes = [("List", "dart.core"), ("Map", "dart.core"), ("LinkedHashMap", "dart.collection"), ("Set", "dart.core"), ("LinkedHashSet", "dart.collection")];
-    let e_colecao = |c: ClassId| colecoes.iter().any(|(n, l)| mesma(s, interner, c, n, l));
-    let implementa = e_colecao(*class) || (s.program.class(*class).decl.is_some() && s.outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.keys().any(|k| e_colecao(*k))));
-    if !implementa {
+    let collections = [("List", "dart.core"), ("Map", "dart.core"), ("LinkedHashMap", "dart.collection"), ("Set", "dart.core"), ("LinkedHashSet", "dart.collection")];
+    let is_collection = |c: ClassId| collections.iter().any(|(n, l)| is_same_class(s, interner, c, n, l));
+    let implements = is_collection(*class) || (s.program.class(*class).decl.is_some() && s.outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.keys().any(|k| is_collection(*k))));
+    if !implements {
         return false;
     }
     let params = s.outline.classes.get(class.0 as usize).map(|d| d.type_params.len()).unwrap_or(0);
-    params == 1 && args.first().is_some_and(|a| propriedade_de_widget(s, interner, *a, prof + 1))
+    params == 1 && args.first().is_some_and(|a| is_widget_property(s, interner, *a, depth + 1))
 }
 
-/// Os elementos de um comentário `ignore` (`ignoredElements`): `(há
-/// elementos, o último é texto livre)`.
-fn elementos_de_ignore(lexema: &str) -> (bool, bool) {
-    let b = lexema.as_bytes();
+/// The elements of an `ignore` comment (`ignoredElements`): `(there are
+/// elements, the last one is free text)`.
+fn ignore_elements(lexeme: &str) -> (bool, bool) {
+    let b = lexeme.as_bytes();
     let n = b.len();
-    let Some(dp) = lexema.find(':') else { return (false, false) };
+    let Some(dp) = lexeme.find(':') else { return (false, false) };
     let mut i = dp + 1;
-    let branco = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r');
-    let espaco = |c: u8| matches!(c, b' ' | b'\t');
-    let palavra = |i: &mut usize| {
+    let is_blank = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r');
+    let is_space = |c: u8| matches!(c, b' ' | b'\t');
+    let word = |i: &mut usize| {
         if *i < n && b[*i].is_ascii_alphabetic() {
             *i += 1;
             while *i < n && (b[*i].is_ascii_alphanumeric() || b[*i] == b'_') {
@@ -108,87 +108,87 @@ fn elementos_de_ignore(lexema: &str) -> (bool, bool) {
             }
         }
     };
-    let mut tem = false;
+    let mut has = false;
     loop {
-        while i < n && branco(b[i]) {
+        while i < n && is_blank(b[i]) {
             i += 1;
         }
         if i == n {
-            return (tem, false);
+            return (has, false);
         }
-        let ini = i;
-        palavra(&mut i);
-        if ini == i {
-            return (tem, tem);
+        let start = i;
+        word(&mut i);
+        if start == i {
+            return (has, has);
         }
-        if lexema[ini..i].eq_ignore_ascii_case("type") {
-            while i < n && branco(b[i]) {
+        if lexeme[start..i].eq_ignore_ascii_case("type") {
+            while i < n && is_blank(b[i]) {
                 i += 1;
             }
             if i == n || b[i] != b'=' {
-                return (tem, false);
+                return (has, false);
             }
             i += 1;
-            while i < n && branco(b[i]) {
+            while i < n && is_blank(b[i]) {
                 i += 1;
             }
             if i == n {
-                return (tem, false);
+                return (has, false);
             }
-            let tini = i;
-            palavra(&mut i);
-            if tini == i {
-                return (tem, tem);
+            let text_start = i;
+            word(&mut i);
+            if text_start == i {
+                return (has, has);
             }
-            if i < n && !espaco(b[i]) && b[i] != b',' {
-                return (tem, tem);
+            if i < n && !is_space(b[i]) && b[i] != b',' {
+                return (has, has);
             }
-            tem = true;
+            has = true;
         } else {
-            if i < n && !espaco(b[i]) && b[i] != b',' {
-                return (tem, tem);
+            if i < n && !is_space(b[i]) && b[i] != b',' {
+                return (has, has);
             }
-            tem = true;
+            has = true;
         }
         if i == n {
-            return (tem, false);
+            return (has, false);
         }
-        while i < n && branco(b[i]) {
+        while i < n && is_blank(b[i]) {
             i += 1;
         }
         if i == n {
-            return (tem, false);
+            return (has, false);
         }
         if b[i] != b',' {
-            return (tem, true);
+            return (has, true);
         }
         i += 1;
         if i == n {
-            return (tem, false);
+            return (has, false);
         }
     }
 }
 
-/// O token `?.` ou `?` depois de `alvo`.
-fn token_null_aware(fonte: &str, fim_do_alvo: usize, tamanho: usize) -> Span {
-    let i = dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), fim_do_alvo);
-    Span { start: i, end: (i + tamanho).min(fonte.len()) }
+/// The `?.` or `?` token after `target_end`.
+fn token_null_aware(source: &str, target_end: usize, len: usize) -> Span {
+    let i = dartforge_frontend::fonte::pular_brancos(source.as_bytes(), target_end);
+    Span { start: i, end: (i + len).min(source.len()) }
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let fonte = u.fonte;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.fonte;
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `document_ignores`.
-    if ligada("document_ignores") {
-        let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
-        let mut inicios = vec![0usize];
-        let bs = fonte.as_bytes();
+    if enabled("document_ignores") {
+        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+        let mut line_starts = vec![0usize];
+        let bs = source.as_bytes();
         let mut i = 0;
         while i < bs.len() {
             match bs[i] {
@@ -196,32 +196,32 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     if bs.get(i + 1) == Some(&b'\n') {
                         i += 1;
                     }
-                    inicios.push(i + 1);
+                    line_starts.push(i + 1);
                 }
-                b'\n' => inicios.push(i + 1),
+                b'\n' => line_starts.push(i + 1),
                 _ => {}
             }
             i += 1;
         }
-        for sp in comentarios.todos() {
-            let lexema = &fonte[sp.start..sp.end];
-            // `//+[ ]*ignore:` ou `//[ ]*ignore_for_file:` no começo.
-            let depois = lexema.trim_start_matches('/');
-            let barras = lexema.len() - depois.len();
-            let corpo = depois.trim_start_matches(' ');
-            let e_ignore = barras >= 2 && corpo.starts_with("ignore:");
-            let e_arquivo = barras == 2 && corpo.starts_with("ignore_for_file:");
-            if !e_ignore && !e_arquivo {
+        for sp in comments.todos() {
+            let lexeme = &source[sp.start..sp.end];
+            // `//+[ ]*ignore:` or `//[ ]*ignore_for_file:` at the start.
+            let after = lexeme.trim_start_matches('/');
+            let slashes = lexeme.len() - after.len();
+            let body = after.trim_start_matches(' ');
+            let is_ignore = slashes >= 2 && body.starts_with("ignore:");
+            let is_file_ignore = slashes == 2 && body.starts_with("ignore_for_file:");
+            if !is_ignore && !is_file_ignore {
                 continue;
             }
-            let (tem, ultimo_livre) = elementos_de_ignore(lexema);
-            if !tem || ultimo_livre {
+            let (has, last_is_free_text) = ignore_elements(lexeme);
+            if !has || last_is_free_text {
                 continue;
             }
-            let linha = inicios.partition_point(|&x| x <= sp.start);
-            if linha > 1 {
-                let anterior = inicios[linha - 2];
-                let mut o = anterior;
+            let line = line_starts.partition_point(|&x| x <= sp.start);
+            if line > 1 {
+                let previous = line_starts[line - 2];
+                let mut o = previous;
                 while o < bs.len() && matches!(bs[o], b' ' | b'\t') {
                     o += 1;
                 }
@@ -229,7 +229,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     continue;
                 }
             }
-            relatar(&c::DOCUMENT_IGNORES, *sp, &[]);
+            report(&c::DOCUMENT_IGNORES, *sp, &[]);
         }
     }
 
@@ -238,7 +238,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     let table = s.table;
 
     // `sort_child_properties_last`.
-    if ligada("sort_child_properties_last") {
+    if enabled("sort_child_properties_last") {
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             if !matches!(s.body.get_resolved(id), Some(Resolved::Constructor(_))) {
@@ -251,41 +251,41 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => &**arguments,
                 _ => continue,
             };
-            let e_filho = |x: &dartforge_frontend::ast::Argument| {
+            let is_child = |x: &dartforge_frontend::ast::Argument| {
                 x.name.is_some_and(|n| matches!(interner.resolve(n.sym), "child" | "children"))
-                    && s.body.get_type(x.value).is_some_and(|t| propriedade_de_widget(s, interner, t, 0))
+                    && s.body.get_type(x.value).is_some_and(|t| is_widget_property(s, interner, t, 0))
             };
             let n = args.args.len();
-            if n < 2 || e_filho(&args.args[n - 1]) || args.args.iter().filter(|x| e_filho(x)).count() != 1 {
+            if n < 2 || is_child(&args.args[n - 1]) || args.args.iter().filter(|x| is_child(x)).count() != 1 {
                 continue;
             }
-            let depois: Vec<&dartforge_frontend::ast::Argument> = args.args.iter().rev().take_while(|x| !e_filho(x)).collect();
-            let so_closures = depois.iter().all(|x| x.name.is_none() || matches!(a.expr(x.value).kind, ExprKind::FunctionExpression(_)));
-            if !so_closures {
-                let filho = args.args.iter().find(|x| e_filho(x)).expect("um filho");
-                let nome = filho.name.expect("nomeado");
-                relatar(&c::SORT_CHILD_PROPERTIES_LAST, Span { start: nome.span.start, end: a.expr(filho.value).span.end }, &[interner.resolve(nome.sym)]);
+            let after: Vec<&dartforge_frontend::ast::Argument> = args.args.iter().rev().take_while(|x| !is_child(x)).collect();
+            let only_closures = after.iter().all(|x| x.name.is_none() || matches!(a.expr(x.value).kind, ExprKind::FunctionExpression(_)));
+            if !only_closures {
+                let child = args.args.iter().find(|x| is_child(x)).expect("a child");
+                let name = child.name.expect("named");
+                report(&c::SORT_CHILD_PROPERTIES_LAST, Span { start: name.span.start, end: a.expr(child.value).span.end }, &[interner.resolve(name.sym)]);
             }
         }
     }
 
     // `test_types_in_equals`.
-    if ligada("test_types_in_equals") {
-        // Os `operator ==` de um parâmetro, com o nome do tipo da declaração.
-        let mut iguais: Vec<(Span, dartforge_intern::SymbolId, String)> = Vec::new();
+    if enabled("test_types_in_equals") {
+        // The one-parameter `operator ==`s, with the declaration's type name.
+        let mut equals_ops: Vec<(Span, dartforge_intern::SymbolId, String)> = Vec::new();
         for d in a.decls.iter() {
-            let (membros, nome_tipo) = match &d.kind {
+            let (members, type_name) = match &d.kind {
                 DeclKind::Class(x) => (&x.members, interner.resolve(x.name.sym).to_string()),
                 DeclKind::Enum(x) => (&x.members, interner.resolve(x.name.sym).to_string()),
                 DeclKind::Mixin(x) => (&x.members, interner.resolve(x.name.sym).to_string()),
-                DeclKind::Extension(x) => (&x.members, dartforge_frontend::fonte::de_tipo(a, fonte, interner, x.on)),
+                DeclKind::Extension(x) => (&x.members, dartforge_frontend::fonte::de_tipo(a, source, interner, x.on)),
                 DeclKind::ExtensionType(x) => (&x.members, {
                     let _ = x;
                     "unknown".to_string()
                 }),
                 _ => continue,
             };
-            for &mid in membros {
+            for &mid in members {
                 let MemberKind::Method(f) = &a.member(mid).kind else { continue };
                 let f = a.function(*f);
                 if f.kind != dartforge_frontend::ast::FunctionKind::Operator || f.name.is_none_or(|n| interner.resolve(n.sym) != "==") {
@@ -294,14 +294,14 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 let Some(ps) = &f.parameters else { continue };
                 let [p] = &ps[..] else { continue };
                 let Some(pn) = p.name else { continue };
-                iguais.push((f.span, pn.sym, nome_tipo.clone()));
+                equals_ops.push((f.span, pn.sym, type_name.clone()));
             }
         }
         for e in a.exprs.iter() {
             let ExprKind::As { value, .. } = &e.kind else { continue };
             let ExprKind::Identifier(n) = &a.expr(*value).kind else { continue };
-            // O método mais próximo que contém a expressão.
-            let metodo = a
+            // The nearest method that contains the expression.
+            let method = a
                 .members
                 .iter()
                 .filter_map(|m| match &m.kind {
@@ -310,55 +310,55 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 })
                 .filter(|sp| sp.start <= e.span.start && e.span.end <= sp.end)
                 .min_by_key(|sp| sp.end - sp.start);
-            let Some(metodo) = metodo else { continue };
-            if let Some((_, p, nome)) = iguais.iter().find(|(sp, _, _)| *sp == metodo)
+            let Some(method) = method else { continue };
+            if let Some((_, p, name)) = equals_ops.iter().find(|(sp, _, _)| *sp == method)
                 && *p == n.sym
             {
-                relatar(&c::TEST_TYPES_IN_EQUALS, e.span, &[nome.as_str()]);
+                report(&c::TEST_TYPES_IN_EQUALS, e.span, &[name.as_str()]);
             }
         }
     }
 
     // `matching_super_parameters`.
-    if ligada("matching_super_parameters") {
+    if enabled("matching_super_parameters") {
         for (k, d) in a.decls.iter().enumerate() {
-            let (membros, e_classe) = match &d.kind {
+            let (members, is_class) = match &d.kind {
                 DeclKind::Class(x) => (&x.members, true),
                 DeclKind::Enum(x) => (&x.members, false),
                 DeclKind::ExtensionType(x) => (&x.members, false),
                 _ => continue,
             };
-            let classe = (0..program.classes.len())
+            let class_id = (0..program.classes.len())
                 .map(|i| ClassId(i as u32))
                 .find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl.0 as usize == k));
-            for &mid in membros {
+            for &mid in members {
                 let MemberKind::Constructor(kc) = &a.member(mid).kind else { continue };
-                let posicionais: Vec<&dartforge_frontend::ast::Parameter> = kc.parameters.iter().filter(|p| p.super_ && p.kind != ParameterKind::Named).collect();
-                if posicionais.is_empty() {
+                let positional: Vec<&dartforge_frontend::ast::Parameter> = kc.parameters.iter().filter(|p| p.super_ && p.kind != ParameterKind::Named).collect();
+                if positional.is_empty() {
                     continue;
                 }
-                let chamada = kc.initializers.iter().find_map(|i| match i {
+                let super_call = kc.initializers.iter().find_map(|i| match i {
                     Initializer::Super { constructor, .. } => Some(*constructor),
                     _ => None,
                 });
-                let Some(sup) = classe.and_then(|c| program.class(c).supertype_class) else { continue };
-                let construtor = match chamada {
-                    Some(nome) => nome.map(|n| n.sym).or_else(|| interner.lookup("")).and_then(|ch| program.class(sup).constructors.get(&ch).copied()),
-                    None if e_classe => interner.lookup("").and_then(|ch| program.class(sup).constructors.get(&ch).copied()),
+                let Some(sup) = class_id.and_then(|c| program.class(c).supertype_class) else { continue };
+                let constructor = match super_call {
+                    Some(name) => name.map(|n| n.sym).or_else(|| interner.lookup("")).and_then(|ch| program.class(sup).constructors.get(&ch).copied()),
+                    None if is_class => interner.lookup("").and_then(|ch| program.class(sup).constructors.get(&ch).copied()),
                     None => None,
                 };
-                let Some(fsup) = construtor else { continue };
+                let Some(fsup) = constructor else { continue };
                 let FunctionRef::Constructor { unit, member } = program.function(fsup).node else { continue };
                 let MemberKind::Constructor(ks) = &program.unit(unit).ast.member(member).kind else { continue };
-                let do_super: Vec<String> = ks.parameters.iter().filter(|p| p.kind != ParameterKind::Named).filter_map(|p| p.name.map(|n| interner.resolve(n.sym).to_string())).collect();
-                if do_super.len() < posicionais.len() {
+                let super_names: Vec<String> = ks.parameters.iter().filter(|p| p.kind != ParameterKind::Named).filter_map(|p| p.name.map(|n| interner.resolve(n.sym).to_string())).collect();
+                if super_names.len() < positional.len() {
                     continue;
                 }
-                for (p, nome_sup) in posicionais.iter().zip(do_super.iter()) {
+                for (p, super_name) in positional.iter().zip(super_names.iter()) {
                     let Some(n) = p.name else { continue };
-                    let nome = interner.resolve(n.sym);
-                    if nome != nome_sup {
-                        relatar(&c::MATCHING_SUPER_PARAMETERS, p.span, &[nome, nome_sup.as_str()]);
+                    let name = interner.resolve(n.sym);
+                    if name != super_name {
+                        report(&c::MATCHING_SUPER_PARAMETERS, p.span, &[name, super_name.as_str()]);
                     }
                 }
             }
@@ -366,36 +366,36 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     }
 
     // `unnecessary_null_aware_operator_on_extension_on_nullable`.
-    if ligada("unnecessary_null_aware_operator_on_extension_on_nullable") {
-        let extensao_anulavel = |e: ExprId| -> bool {
+    if enabled("unnecessary_null_aware_operator_on_extension_on_nullable") {
+        let is_nullable_extension = |e: ExprId| -> bool {
             match s.body.get_resolved(e) {
                 Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|x| is_nullable(table, x.on)),
                 _ => false,
             }
         };
-        let mut alvos_de_atribuicao: std::collections::HashMap<ExprId, ExprId> = std::collections::HashMap::new();
+        let mut assignment_targets: std::collections::HashMap<ExprId, ExprId> = std::collections::HashMap::new();
         for (k, e) in a.exprs.iter().enumerate() {
             if let ExprKind::Assign { target, .. } = &e.kind {
                 let mut t = *target;
                 while let ExprKind::Parenthesized(x) = &a.expr(t).kind {
                     t = *x;
                 }
-                alvos_de_atribuicao.insert(t, ExprId(k as u32));
+                assignment_targets.insert(t, ExprId(k as u32));
             }
         }
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             match &e.kind {
                 ExprKind::Index { target, null_aware: true, .. } => {
-                    let elemento = alvos_de_atribuicao.get(&id).copied().unwrap_or(id);
-                    if extensao_anulavel(elemento) || extensao_anulavel(id) {
-                        relatar(&c::UNNECESSARY_NULL_AWARE_OPERATOR_ON_EXTENSION_ON_NULLABLE, token_null_aware(fonte, a.expr(*target).span.end, 1), &[]);
+                    let element = assignment_targets.get(&id).copied().unwrap_or(id);
+                    if is_nullable_extension(element) || is_nullable_extension(id) {
+                        report(&c::UNNECESSARY_NULL_AWARE_OPERATOR_ON_EXTENSION_ON_NULLABLE, token_null_aware(source, a.expr(*target).span.end, 1), &[]);
                     }
                 }
                 ExprKind::Property { target, null_aware: true, .. } => {
-                    let elemento = alvos_de_atribuicao.get(&id).copied().unwrap_or(id);
-                    if extensao_anulavel(elemento) || extensao_anulavel(id) {
-                        relatar(&c::UNNECESSARY_NULL_AWARE_OPERATOR_ON_EXTENSION_ON_NULLABLE, token_null_aware(fonte, a.expr(*target).span.end, 2), &[]);
+                    let element = assignment_targets.get(&id).copied().unwrap_or(id);
+                    if is_nullable_extension(element) || is_nullable_extension(id) {
+                        report(&c::UNNECESSARY_NULL_AWARE_OPERATOR_ON_EXTENSION_ON_NULLABLE, token_null_aware(source, a.expr(*target).span.end, 2), &[]);
                     }
                 }
                 _ => {}
@@ -404,46 +404,46 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     }
 
     // `avoid_slow_async_io`.
-    if ligada("avoid_slow_async_io") {
+    if enabled("avoid_slow_async_io") {
         for e in a.exprs.iter() {
             let ExprKind::Call { target, arguments } = &e.kind else { continue };
-            let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind else { continue };
-            let metodo = interner.resolve(name.sym);
+            let ExprKind::Property { target: recv, name, .. } = &a.expr(*target).kind else { continue };
+            let method = interner.resolve(name.sym);
             if arguments.args.is_empty() {
-                let Some(t) = s.body.get_type(*alvo) else { continue };
-                let arquivo = estende(s, interner, t, "File", "dart.io") && matches!(metodo, "lastModified" | "exists" | "stat");
-                let diretorio = estende(s, interner, t, "Directory", "dart.io") && matches!(metodo, "exists" | "stat");
-                if arquivo {
-                    relatar(&c::AVOID_SLOW_ASYNC_IO, e.span, &[]);
+                let Some(t) = s.body.get_type(*recv) else { continue };
+                let is_file = extends_class(s, interner, t, "File", "dart.io") && matches!(method, "lastModified" | "exists" | "stat");
+                let is_directory = extends_class(s, interner, t, "Directory", "dart.io") && matches!(method, "exists" | "stat");
+                if is_file {
+                    report(&c::AVOID_SLOW_ASYNC_IO, e.span, &[]);
                 }
-                if diretorio {
-                    relatar(&c::AVOID_SLOW_ASYNC_IO, e.span, &[]);
+                if is_directory {
+                    report(&c::AVOID_SLOW_ASYNC_IO, e.span, &[]);
                 }
-            } else if matches!(a.expr(*alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                && let Some(Resolved::Element(Element::Class(cl))) = s.body.get_resolved(*alvo)
+            } else if matches!(a.expr(*recv).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+                && let Some(Resolved::Element(Element::Class(cl))) = s.body.get_resolved(*recv)
                 && interner.resolve(program.class(*cl).name) == "FileSystemEntity"
-                && matches!(metodo, "isDirectory" | "isFile" | "isLink" | "type")
+                && matches!(method, "isDirectory" | "isFile" | "isLink" | "type")
             {
-                relatar(&c::AVOID_SLOW_ASYNC_IO, e.span, &[]);
+                report(&c::AVOID_SLOW_ASYNC_IO, e.span, &[]);
             }
         }
     }
 
     // `tighten_type_of_initializing_formals`.
-    if ligada("tighten_type_of_initializing_formals") {
+    if enabled("tighten_type_of_initializing_formals") {
         for m in a.members.iter() {
             let MemberKind::Constructor(kc) = &m.kind else { continue };
             for i in kc.initializers.iter() {
                 let Initializer::Assert { condition, .. } = i else { continue };
                 let ExprKind::Binary { op: BinaryOp::NotEq, left, right } = &a.expr(*condition).kind else { continue };
-                let identificador = if matches!(a.expr(*right).kind, ExprKind::Null) {
+                let ident = if matches!(a.expr(*right).kind, ExprKind::Null) {
                     Some(*left)
                 } else if matches!(a.expr(*left).kind, ExprKind::Null) {
                     Some(*right)
                 } else {
                     None
                 };
-                let Some(x) = identificador else { continue };
+                let Some(x) = ident else { continue };
                 let ExprKind::Identifier(n) = &a.expr(x).kind else { continue };
                 if !s.body.get_type(x).is_some_and(|t| is_nullable(table, t)) {
                     continue;
@@ -454,7 +454,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 if let Some(p) = kc.parameters.iter().find(|p| p.name.is_some_and(|q| q.sym == n.sym))
                     && (p.this_ || p.super_)
                 {
-                    relatar(&c::TIGHTEN_TYPE_OF_INITIALIZING_FORMALS, p.span, &[]);
+                    report(&c::TIGHTEN_TYPE_OF_INITIALIZING_FORMALS, p.span, &[]);
                 }
             }
         }
