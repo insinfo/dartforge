@@ -1,32 +1,32 @@
-//! O vigésimo primeiro lote de regras de lint
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), pela
-//! semântica da unidade:
+//! The twenty-first batch of lint rules (docs/ANALYZER-ESPECIFICACAO-INFRA.md
+//! §8), written directly from the 3.6.2 emitters
+//! (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), through the
+//! unit's semantics:
 //!
-//! * `omit_obvious_local_variable_types`: o tipo escrito de uma lista de
-//!   locais (também a do `for`) com inicializadores de tipo óbvio
-//!   (`super::obvious`) iguais a ele, e o da variável do `for-in` igual ao tipo
-//!   dos elementos de um iterável óbvio.
-//! * `prefer_constructors_over_static_methods`: o método estático (sem
-//!   parâmetros de tipo) que devolve o `thisType` de uma classe não
-//!   genérica e cuja última criação visitada no corpo é desse tipo.
-//! * `invalid_case_patterns`: as expressões de `case` antigas (biblioteca
-//!   antes da 3.0) que viram outra coisa como padrão.
-//! * `avoid_null_checks_in_equality_operators`: `== null`, `??` e `?.` sobre
-//!   o parâmetro anulável do `operator ==`.
-//! * `sized_box_shrink_expand`: `SizedBox(width: 0, height: 0)` e com
+//! * `omit_obvious_local_variable_types`: the written type of a list of
+//!   locals (also a `for`'s) whose initializers have an obvious type
+//!   (`super::obvious`) equal to it, and that of a `for-in` variable equal to
+//!   the element type of an obvious iterable.
+//! * `prefer_constructors_over_static_methods`: a static method (without type
+//!   parameters) that returns the `thisType` of a non-generic class and whose
+//!   last visited creation in the body is of that type.
+//! * `invalid_case_patterns`: old `case` expressions (library before 3.0) that
+//!   become something else as a pattern.
+//! * `avoid_null_checks_in_equality_operators`: `== null`, `??` and `?.` on
+//!   the nullable parameter of `operator ==`.
+//! * `sized_box_shrink_expand`: `SizedBox(width: 0, height: 0)` and with
 //!   `double.infinity`.
-//! * `implicit_reopen`: a classe que reabre sem `@reopen` uma superclasse
-//!   `final`/`interface` da biblioteca.
-//! * `noop_primitive_operations`: o literal vazio no meio de strings
-//!   adjacentes, o `toString()` interpolado ou passado ao `print`, e as
-//!   conversões que não mudam o valor.
-//! * `unawaited_futures`: o `Future` descartado num corpo assíncrono
-//!   (instrução, seção de cascata, interpolação).
-//! * `avoid_returning_this`: o método que só devolve `this` (o tipo da
-//!   própria classe).
+//! * `implicit_reopen`: a class that reopens, without `@reopen`, a `final`/
+//!   `interface` superclass of the library.
+//! * `noop_primitive_operations`: the empty literal in the middle of adjacent
+//!   strings, the interpolated `toString()` or one passed to `print`, and the
+//!   conversions that do not change the value.
+//! * `unawaited_futures`: a `Future` discarded in an async body (statement,
+//!   cascade section, interpolation).
+//! * `avoid_returning_this`: a method that only returns `this` (the class's
+//!   own type).
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -42,138 +42,138 @@ use dartforge_intern::Interner;
 use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::{Type, TypeId, TypeTable};
 
-fn sem_parenteses(a: &Ast, mut e: ExprId) -> ExprId {
+fn unparenthesized(a: &Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
     e
 }
 
-fn nao_anulavel(table: &TypeTable, t: TypeId) -> bool {
+fn is_non_nullable(table: &TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => false,
-        Type::Intersection { bound, .. } => nao_anulavel(table, *bound),
-        Type::TypeParameter { param, nullable } => !*nullable && nao_anulavel(table, table.param(*param).bound),
-        Type::FutureOr { arg, nullable } => !*nullable && nao_anulavel(table, *arg),
+        Type::Intersection { bound, .. } => is_non_nullable(table, *bound),
+        Type::TypeParameter { param, nullable } => !*nullable && is_non_nullable(table, table.param(*param).bound),
+        Type::FutureOr { arg, nullable } => !*nullable && is_non_nullable(table, *arg),
         Type::Interface { nullable, .. } | Type::ExtensionType { nullable, .. } => !*nullable,
         Type::Function { nullable, .. } | Type::Record { nullable, .. } => !*nullable,
         Type::Never => true,
     }
 }
 
-fn nome_da_biblioteca(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
+fn library_name(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
-fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
     (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
-/// O tipo é a classe `nome` do `dart:core`/`dart:async` (o elemento).
-fn e_classe(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, nome: &str, lib: &str) -> bool {
+/// The type is the class `name` of `dart:core`/`dart:async` (the element).
+fn is_class_named(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, name: &str, lib: &str) -> bool {
     match s.table.get(t) {
         Type::Interface { class, .. } => {
             let k = s.program.class(*class);
-            interner.resolve(k.name) == nome && nome_da_biblioteca(s, interner, k.library).as_deref() == Some(lib)
+            interner.resolve(k.name) == name && library_name(s, interner, k.library).as_deref() == Some(lib)
         }
         _ => false,
     }
 }
 
-/// O corpo de função mais interno que contém `sp` é assíncrono.
-fn em_corpo_assincrono(a: &Ast, sp: Span) -> bool {
-    let mut melhor: Option<(usize, bool)> = None;
+/// The innermost function body that contains `sp` is async.
+fn in_async_body(a: &Ast, sp: Span) -> bool {
+    let mut best: Option<(usize, bool)> = None;
     for f in a.functions.iter() {
-        let corpo = match &f.body {
+        let body = match &f.body {
             FunctionBody::Block(b) => a.stmt(*b).span,
             FunctionBody::Expression(e) => a.expr(*e).span,
             _ => continue,
         };
-        if corpo.start <= sp.start && sp.end <= corpo.end {
-            let tam = corpo.end - corpo.start;
-            if melhor.is_none_or(|(t, _)| tam < t) {
-                melhor = Some((tam, matches!(f.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar)));
+        if body.start <= sp.start && sp.end <= body.end {
+            let len = body.end - body.start;
+            if best.is_none_or(|(t, _)| len < t) {
+                best = Some((len, matches!(f.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar)));
             }
         }
     }
-    // Um corpo de construtor mais interno não é assíncrono.
+    // An innermost constructor body is not async.
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind
             && let FunctionBody::Block(b) = &k.body
         {
-            let corpo = a.stmt(*b).span;
-            if corpo.start <= sp.start && sp.end <= corpo.end {
-                let tam = corpo.end - corpo.start;
-                if melhor.is_none_or(|(t, _)| tam < t) {
-                    melhor = Some((tam, false));
+            let body = a.stmt(*b).span;
+            if body.start <= sp.start && sp.end <= body.end {
+                let len = body.end - body.start;
+                if best.is_none_or(|(t, _)| len < t) {
+                    best = Some((len, false));
                 }
             }
         }
     }
-    melhor.is_some_and(|(_, x)| x)
+    best.is_some_and(|(_, x)| x)
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let fonte = u.fonte;
+    let source = u.fonte;
     let program = s.program;
     let table = s.table;
     let lib = program.unit(s.unit).library;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `omit_obvious_local_variable_types`.
-    if ligada("omit_obvious_local_variable_types") {
-        let mut listas: Vec<&dartforge_frontend::ast::VariableList> = Vec::new();
+    if enabled("omit_obvious_local_variable_types") {
+        let mut lists: Vec<&dartforge_frontend::ast::VariableList> = Vec::new();
         for st in a.stmts.iter() {
             match &st.kind {
-                StmtKind::Variables(l) => listas.push(l),
-                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => listas.push(l),
+                StmtKind::Variables(l) => lists.push(l),
+                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => lists.push(l),
                 StmtKind::ForIn { target: ForInTarget::Declared { ty: Some(ty), .. }, iterable, .. } => {
                     let Some(&tl) = s.body.tipos_de_anotacoes.get(ty) else { continue };
                     if matches!(table.get(tl), Type::Dynamic) || !super::obvious::has_obvious_type(s, interner, a, *iterable) {
                         continue;
                     }
                     if super::obvious::iterable_element_type(s, interner, s.body.get_type(*iterable)) == Some(tl) {
-                        relatar(&c::OMIT_OBVIOUS_LOCAL_VARIABLE_TYPES, a.ty(*ty).span, &[]);
+                        report(&c::OMIT_OBVIOUS_LOCAL_VARIABLE_TYPES, a.ty(*ty).span, &[]);
                     }
                 }
                 _ => {}
             }
         }
-        for l in listas {
+        for l in lists {
             let Some(ty) = l.ty else { continue };
             let Some(&tl) = s.body.tipos_de_anotacoes.get(&ty) else { continue };
             if matches!(table.get(tl), Type::Null) {
                 continue;
             }
-            let todas = l.variables.iter().all(|v| match v.initializer {
+            let all_obvious = l.variables.iter().all(|v| match v.initializer {
                 Some(i) => super::obvious::has_obvious_type(s, interner, a, i) && s.body.get_type(i) == Some(tl),
                 None => false,
             });
-            if todas {
-                relatar(&c::OMIT_OBVIOUS_LOCAL_VARIABLE_TYPES, a.ty(ty).span, &[]);
+            if all_obvious {
+                report(&c::OMIT_OBVIOUS_LOCAL_VARIABLE_TYPES, a.ty(ty).span, &[]);
             }
         }
     }
 
     // `prefer_constructors_over_static_methods`.
-    if ligada("prefer_constructors_over_static_methods") {
+    if enabled("prefer_constructors_over_static_methods") {
         for (k, d) in a.decls.iter().enumerate() {
-            let (membros, sem_tps) = match &d.kind {
+            let (members, no_type_params) = match &d.kind {
                 DeclKind::Class(x) => (&x.members, x.type_params.is_empty()),
                 DeclKind::ExtensionType(x) => (&x.members, x.type_params.is_empty()),
                 _ => continue,
             };
-            if !sem_tps {
+            if !no_type_params {
                 continue;
             }
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            for &mid in membros {
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
+            for &mid in members {
                 let MemberKind::Method(fid) = &a.member(mid).kind else { continue };
                 let f = a.function(*fid);
                 if !f.static_ || !f.type_params.is_empty() {
@@ -181,61 +181,61 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
                 let Some(rt) = f.return_type else { continue };
                 let Some(&tr) = s.outline.tipos_escritos.get(&(s.unit, rt)) else { continue };
-                let e_this = match table.get(tr) {
-                    Type::Interface { class, nullable: false, .. } => *class == classe,
-                    Type::ExtensionType { decl, nullable: false, .. } => *decl == classe,
+                let is_this = match table.get(tr) {
+                    Type::Interface { class, nullable: false, .. } => *class == class_id,
+                    Type::ExtensionType { decl, nullable: false, .. } => *decl == class_id,
                     _ => false,
                 };
-                if !e_this {
+                if !is_this {
                     continue;
                 }
-                let corpo = match &f.body {
+                let body = match &f.body {
                     FunctionBody::Block(b) => a.stmt(*b).span,
                     FunctionBody::Expression(e) => a.expr(*e).span,
                     _ => continue,
                 };
-                // As criações do corpo em pré-ordem; a que casa não deixa
-                // visitar as de dentro dela; vale a última visitada.
-                let mut criacoes: Vec<ExprId> = (0..a.exprs.len())
+                // The body's creations in pre-order; the matching one does not
+                // let the ones inside it be visited; the last visited counts.
+                let mut creations: Vec<ExprId> = (0..a.exprs.len())
                     .map(|i| ExprId(i as u32))
                     .filter(|e| {
                         let sp = a.expr(*e).span;
-                        sp.start >= corpo.start && sp.end <= corpo.end && matches!(s.body.get_resolved(*e), Some(Resolved::Constructor(_)))
+                        sp.start >= body.start && sp.end <= body.end && matches!(s.body.get_resolved(*e), Some(Resolved::Constructor(_)))
                     })
                     .collect();
-                criacoes.sort_by_key(|e| (a.expr(*e).span.start, usize::MAX - a.expr(*e).span.end));
-                let mut achou = false;
-                let mut pular: Option<Span> = None;
-                for e in criacoes {
+                creations.sort_by_key(|e| (a.expr(*e).span.start, usize::MAX - a.expr(*e).span.end));
+                let mut found = false;
+                let mut skip: Option<Span> = None;
+                for e in creations {
                     let sp = a.expr(e).span;
-                    if pular.is_some_and(|p| sp.start >= p.start && sp.end <= p.end) {
+                    if skip.is_some_and(|p| sp.start >= p.start && sp.end <= p.end) {
                         continue;
                     }
-                    achou = s.body.get_type(e) == Some(tr);
-                    if achou {
-                        pular = Some(sp);
+                    found = s.body.get_type(e) == Some(tr);
+                    if found {
+                        skip = Some(sp);
                     }
                 }
-                if achou && let Some(n) = f.name {
-                    relatar(&c::PREFER_CONSTRUCTORS_OVER_STATIC_METHODS, n.span, &[]);
+                if found && let Some(n) = f.name {
+                    report(&c::PREFER_CONSTRUCTORS_OVER_STATIC_METHODS, n.span, &[]);
                 }
             }
         }
     }
 
-    // `invalid_case_patterns`: só antes da 3.0 (sem `patterns`).
-    if ligada("invalid_case_patterns") && program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0) {
+    // `invalid_case_patterns`: only before 3.0 (without `patterns`).
+    if enabled("invalid_case_patterns") && program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0) {
         for st in a.stmts.iter() {
             let StmtKind::Switch { cases, .. } = &st.kind else { continue };
-            for caso in cases.iter() {
-                let Some(p) = caso.pattern else { continue };
+            for case in cases.iter() {
+                let Some(p) = case.pattern else { continue };
                 let PatternKind::Constant(e) = &a.pattern(p).kind else { continue };
-                let x = sem_parenteses(a, *e);
-                let relata = match &a.expr(x).kind {
+                let x = unparenthesized(a, *e);
+                let reported = match &a.expr(x).kind {
                     ExprKind::SetOrMap { const_, .. } | ExprKind::List { const_, .. } => !*const_,
                     ExprKind::Call { target, .. } => {
-                        // A criação sem `const` (constante pelo contexto) ou
-                        // o `identical` do `dart:core`.
+                        // A creation without `const` (constant by context) or
+                        // `dart:core`'s `identical`.
                         if matches!(s.body.get_resolved(x), Some(Resolved::Constructor(_))) {
                             true
                         } else {
@@ -246,7 +246,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot, operand } => !matches!(a.expr(*operand).kind, ExprKind::Int(_)),
                     ExprKind::Binary { .. } | ExprKind::Conditional { .. } | ExprKind::Is { .. } => true,
                     ExprKind::Property { target, name, .. } => {
-                        // `PropertyAccess` (não `a.b` com `a` identificador).
+                        // `PropertyAccess` (not `a.b` with `a` an identifier).
                         !matches!(a.expr(*target).kind, ExprKind::Identifier(_))
                             && interner.resolve(name.sym) == "length"
                             && match s.body.get_resolved(x) {
@@ -258,15 +258,15 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     ExprKind::Identifier(n) => interner.resolve(n.sym) == "_",
                     _ => false,
                 };
-                if relata {
-                    relatar(&c::INVALID_CASE_PATTERNS, a.expr(x).span, &[]);
+                if reported {
+                    report(&c::INVALID_CASE_PATTERNS, a.expr(x).span, &[]);
                 }
             }
         }
     }
 
     // `avoid_null_checks_in_equality_operators`.
-    if ligada("avoid_null_checks_in_equality_operators") {
+    if enabled("avoid_null_checks_in_equality_operators") {
         for m in a.members.iter() {
             let MemberKind::Method(fid) = &m.kind else { continue };
             let f = a.function(*fid);
@@ -276,7 +276,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let Some(ps) = &f.parameters else { continue };
             let [p] = &ps[..] else { continue };
             let Some(pn) = p.name else { continue };
-            // O tipo declarado do parâmetro precisa ter `?`.
+            // The parameter's declared type must have `?`.
             let is_nullable = match p.ty {
                 Some(t) => a.ty(t).nullable,
                 None => true,
@@ -284,42 +284,42 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if !is_nullable {
                 continue;
             }
-            let corpo = match &f.body {
+            let body = match &f.body {
                 FunctionBody::Block(b) => a.stmt(*b).span,
                 FunctionBody::Expression(e) => a.expr(*e).span,
                 _ => continue,
             };
-            let e_o_parametro = |e: ExprId| {
-                let e = sem_parenteses(a, e);
+            let is_the_param = |e: ExprId| {
+                let e = unparenthesized(a, e);
                 matches!(&a.expr(e).kind, ExprKind::Identifier(n) if n.sym == pn.sym) && matches!(s.body.get_resolved(e), Some(Resolved::Parameter { .. }))
             };
-            let e_nulo = |e: ExprId| matches!(a.expr(sem_parenteses(a, e)).kind, ExprKind::Null);
+            let is_null = |e: ExprId| matches!(a.expr(unparenthesized(a, e)).kind, ExprKind::Null);
             for e in a.exprs.iter() {
-                if e.span.start < corpo.start || e.span.end > corpo.end {
+                if e.span.start < body.start || e.span.end > body.end {
                     continue;
                 }
-                let relata = match &e.kind {
-                    ExprKind::Binary { op: BinaryOp::Eq | BinaryOp::NotEq, left, right } => (e_nulo(*left) && e_o_parametro(*right)) || (e_nulo(*right) && e_o_parametro(*left)),
-                    ExprKind::Binary { op: BinaryOp::IfNull, left, .. } => e_o_parametro(*left),
-                    ExprKind::Property { target, null_aware: true, .. } => e_o_parametro(*target),
+                let reported = match &e.kind {
+                    ExprKind::Binary { op: BinaryOp::Eq | BinaryOp::NotEq, left, right } => (is_null(*left) && is_the_param(*right)) || (is_null(*right) && is_the_param(*left)),
+                    ExprKind::Binary { op: BinaryOp::IfNull, left, .. } => is_the_param(*left),
+                    ExprKind::Property { target, null_aware: true, .. } => is_the_param(*target),
                     _ => false,
                 };
-                if relata {
-                    // `x?.m()`: o nó é a invocação inteira.
+                if reported {
+                    // `x?.m()`: the node is the whole invocation.
                     let mut sp = e.span;
                     if let ExprKind::Property { .. } = &e.kind
-                        && let Some(pai) = a.exprs.iter().find(|y| matches!(&y.kind, ExprKind::Call { target, .. } if a.expr(*target).span == e.span))
+                        && let Some(parent) = a.exprs.iter().find(|y| matches!(&y.kind, ExprKind::Call { target, .. } if a.expr(*target).span == e.span))
                     {
-                        sp = pai.span;
+                        sp = parent.span;
                     }
-                    relatar(&c::AVOID_NULL_CHECKS_IN_EQUALITY_OPERATORS, sp, &[]);
+                    report(&c::AVOID_NULL_CHECKS_IN_EQUALITY_OPERATORS, sp, &[]);
                 }
             }
         }
     }
 
     // `sized_box_shrink_expand`.
-    if ligada("sized_box_shrink_expand") {
+    if enabled("sized_box_shrink_expand") {
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let Some(Resolved::Constructor(f)) = s.body.get_resolved(id) else { continue };
@@ -336,10 +336,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if args.args.iter().any(|x| x.name.is_none()) {
                 continue;
             }
-            let valor = |x: ExprId| -> Option<f64> {
+            let value_of = |x: ExprId| -> Option<f64> {
                 match &a.expr(x).kind {
                     ExprKind::Int(sp) => {
-                        let t: String = fonte[sp.start..sp.end].chars().filter(|c| *c != '_').collect();
+                        let t: String = source[sp.start..sp.end].chars().filter(|c| *c != '_').collect();
                         if t.starts_with('-') {
                             return None;
                         }
@@ -349,7 +349,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         }
                     }
                     ExprKind::Double(sp) => {
-                        let t: String = fonte[sp.start..sp.end].chars().filter(|c| *c != '_').collect();
+                        let t: String = source[sp.start..sp.end].chars().filter(|c| *c != '_').collect();
                         if t.starts_with('-') { None } else { t.parse::<f64>().ok() }
                     }
                     ExprKind::Property { target, name, .. } => match &a.expr(*target).kind {
@@ -359,32 +359,32 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     _ => None,
                 }
             };
-            let (mut largura, mut altura): (Option<f64>, Option<f64>) = (None, None);
+            let (mut width, mut height): (Option<f64>, Option<f64>) = (None, None);
             for x in args.args.iter() {
                 match interner.resolve(x.name.expect("nomeado").sym) {
-                    "width" => largura = valor(x.value),
-                    "height" => altura = valor(x.value),
+                    "width" => width = value_of(x.value),
+                    "height" => height = value_of(x.value),
                     _ => {}
                 }
             }
-            let nome = match &e.kind {
+            let name = match &e.kind {
                 ExprKind::InstanceCreation { ty, .. } => a.ty(*ty).span,
                 ExprKind::Call { target, .. } => a.expr(*target).span,
                 _ => e.span,
             };
-            if largura == Some(0.0) && altura == Some(0.0) {
-                relatar(&c::SIZED_BOX_SHRINK_EXPAND, nome, &["shrink"]);
-            } else if largura == Some(f64::INFINITY) && altura == Some(f64::INFINITY) {
-                relatar(&c::SIZED_BOX_SHRINK_EXPAND, nome, &["expand"]);
+            if width == Some(0.0) && height == Some(0.0) {
+                report(&c::SIZED_BOX_SHRINK_EXPAND, name, &["shrink"]);
+            } else if width == Some(f64::INFINITY) && height == Some(f64::INFINITY) {
+                report(&c::SIZED_BOX_SHRINK_EXPAND, name, &["expand"]);
             }
         }
     }
 
     // `implicit_reopen`.
-    if ligada("implicit_reopen") {
+    if enabled("implicit_reopen") {
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
             if d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "reopen")) {
                 continue;
             }
@@ -392,12 +392,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if m.sealed || m.mixin {
                 continue;
             }
-            let Some(sup) = program.class(classe).supertype_class else { continue };
+            let Some(sup) = program.class(class_id).supertype_class else { continue };
             let ks = program.class(sup);
             if ks.kind != ClassKind::Class || ks.library != lib {
                 continue;
             }
-            let razao = if m.base {
+            let reason = if m.base {
                 if ks.modifiers.final_ {
                     Some("final")
                 } else if ks.modifiers.interface {
@@ -410,18 +410,18 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             } else {
                 None
             };
-            if let Some(r) = razao {
-                relatar(&c::IMPLICIT_REOPEN, x.name.span, &["class", interner.resolve(x.name.sym), interner.resolve(ks.name), r]);
+            if let Some(r) = reason {
+                report(&c::IMPLICIT_REOPEN, x.name.span, &["class", interner.resolve(x.name.sym), interner.resolve(ks.name), r]);
             }
         }
     }
 
     // `noop_primitive_operations`.
-    if ligada("noop_primitive_operations") {
-        let to_string_vazio = |e: ExprId| -> Option<Span> {
+    if enabled("noop_primitive_operations") {
+        let empty_to_string = |e: ExprId| -> Option<Span> {
             let ExprKind::Call { target, arguments } = &a.expr(e).kind else { return None };
-            let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind else { return None };
-            if matches!(a.expr(*alvo).kind, ExprKind::Super) || interner.resolve(name.sym) != "toString" || !arguments.args.is_empty() {
+            let ExprKind::Property { target: recv, name, .. } = &a.expr(*target).kind else { return None };
+            if matches!(a.expr(*recv).kind, ExprKind::Super) || interner.resolve(name.sym) != "toString" || !arguments.args.is_empty() {
                 return None;
             }
             Some(name.span)
@@ -429,50 +429,50 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         for e in a.exprs.iter() {
             match &e.kind {
                 ExprKind::String(l) => {
-                    // As strings adjacentes: os literais do meio vazios.
-                    let literais = super::strings::literals(fonte, l.span);
-                    if literais.len() > 2 {
-                        for lit in &literais[1..literais.len() - 1] {
-                            if !lit.is_interpolated() && lit.text(fonte).is_empty() {
-                                relatar(&c::NOOP_PRIMITIVE_OPERATIONS, lit.span, &[]);
+                    // Adjacent strings: the empty literals in the middle.
+                    let literals = super::strings::literals(source, l.span);
+                    if literals.len() > 2 {
+                        for lit in &literals[1..literals.len() - 1] {
+                            if !lit.is_interpolated() && lit.text(source).is_empty() {
+                                report(&c::NOOP_PRIMITIVE_OPERATIONS, lit.span, &[]);
                             }
                         }
                     }
                     for p in l.parts.iter() {
                         if let StringPart::Interpolation(x) = p
-                            && let Some(sp) = to_string_vazio(*x)
+                            && let Some(sp) = empty_to_string(*x)
                         {
-                            relatar(&c::NOOP_PRIMITIVE_OPERATIONS, sp, &[]);
+                            report(&c::NOOP_PRIMITIVE_OPERATIONS, sp, &[]);
                         }
                     }
                 }
                 ExprKind::Call { target, arguments } => {
-                    let (alvo, nome) = match &a.expr(*target).kind {
+                    let (recv, name) = match &a.expr(*target).kind {
                         ExprKind::Property { target: t, name, .. } => (Some(*t), *name),
                         ExprKind::Identifier(n) => (None, *n),
                         _ => continue,
                     };
-                    let metodo = interner.resolve(nome.sym);
-                    let tipo = alvo.filter(|t| !matches!(a.expr(*t).kind, ExprKind::CascadeTarget)).and_then(|t| s.body.get_type(t));
-                    match tipo {
+                    let method = interner.resolve(name.sym);
+                    let ty = recv.filter(|t| !matches!(a.expr(*t).kind, ExprKind::CascadeTarget)).and_then(|t| s.body.get_type(t));
+                    match ty {
                         None => {
                             // `print(x.toString())`.
-                            let e_print = matches!(s.body.get_resolved(*target), Some(Resolved::Element(Element::Function(f))) if interner.resolve(program.function(*f).name) == "print" && program.library(program.function(*f).library).uri == "dart:core");
-                            if alvo.is_none()
-                                && e_print
+                            let is_print = matches!(s.body.get_resolved(*target), Some(Resolved::Element(Element::Function(f))) if interner.resolve(program.function(*f).name) == "print" && program.library(program.function(*f).library).uri == "dart:core");
+                            if recv.is_none()
+                                && is_print
                                 && let [x] = &arguments.args[..]
-                                && let Some(sp) = to_string_vazio(x.value)
+                                && let Some(sp) = empty_to_string(x.value)
                             {
-                                relatar(&c::NOOP_PRIMITIVE_OPERATIONS, sp, &[]);
+                                report(&c::NOOP_PRIMITIVE_OPERATIONS, sp, &[]);
                             }
                         }
                         Some(t) => {
-                            if e_classe(s, interner, t, "String", "dart.core") && metodo == "toString" && nao_anulavel(table, t) {
-                                relatar(&c::NOOP_PRIMITIVE_OPERATIONS, nome.span, &[]);
-                            } else if e_classe(s, interner, t, "int", "dart.core") && matches!(metodo, "toInt" | "round" | "ceil" | "floor" | "truncate") {
-                                relatar(&c::NOOP_PRIMITIVE_OPERATIONS, nome.span, &[]);
-                            } else if e_classe(s, interner, t, "double", "dart.core") && metodo == "toDouble" {
-                                relatar(&c::NOOP_PRIMITIVE_OPERATIONS, nome.span, &[]);
+                            if is_class_named(s, interner, t, "String", "dart.core") && method == "toString" && is_non_nullable(table, t) {
+                                report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
+                            } else if is_class_named(s, interner, t, "int", "dart.core") && matches!(method, "toInt" | "round" | "ceil" | "floor" | "truncate") {
+                                report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
+                            } else if is_class_named(s, interner, t, "double", "dart.core") && method == "toDouble" {
+                                report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
                             }
                         }
                     }
@@ -483,13 +483,13 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     }
 
     // `unawaited_futures`.
-    if ligada("unawaited_futures") {
-        let e_future = |t: TypeId| e_classe(s, interner, t, "Future", "dart.async");
-        let implementa_future = |t: TypeId| match table.get(t) {
+    if enabled("unawaited_futures") {
+        let is_future = |t: TypeId| is_class_named(s, interner, t, "Future", "dart.async");
+        let implements_future = |t: TypeId| match table.get(t) {
             Type::Interface { class, .. } => {
                 let f = |k: ClassId| {
                     let x = program.class(k);
-                    interner.resolve(x.name) == "Future" && nome_da_biblioteca(s, interner, x.library).as_deref() == Some("dart.async")
+                    interner.resolve(x.name) == "Future" && library_name(s, interner, x.library).as_deref() == Some("dart.async")
                 };
                 f(*class) || (program.class(*class).decl.is_some() && s.outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.keys().any(|k| f(*k))))
             }
@@ -501,19 +501,19 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 continue;
             }
             let Some(t) = s.body.get_type(*e) else { continue };
-            if !implementa_future(t) {
+            if !implements_future(t) {
                 continue;
             }
-            // `Future.delayed(d, f)` e o `putIfAbsent` de `Map`.
-            let atrasado = matches!(s.body.get_resolved(*e), Some(Resolved::Constructor(f)) if interner.resolve(program.function(*f).name) == "delayed")
-                && e_future(t)
+            // `Future.delayed(d, f)` and `Map`'s `putIfAbsent`.
+            let delayed = matches!(s.body.get_resolved(*e), Some(Resolved::Constructor(f)) if interner.resolve(program.function(*f).name) == "delayed")
+                && is_future(t)
                 && matches!(&a.expr(*e).kind, ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } if arguments.args.len() == 2);
             let put_if_absent = match &a.expr(*e).kind {
                 ExprKind::Call { target, .. } => match &a.expr(*target).kind {
                     ExprKind::Property { name, .. } if interner.resolve(name.sym) == "putIfAbsent" => match s.body.get_resolved(*target) {
                         Some(Resolved::Member { class, .. }) => {
                             let k = program.class(*class);
-                            interner.resolve(k.name) == "Map" && nome_da_biblioteca(s, interner, k.library).as_deref() == Some("dart.core")
+                            interner.resolve(k.name) == "Map" && library_name(s, interner, k.library).as_deref() == Some("dart.core")
                         }
                         _ => false,
                     },
@@ -521,65 +521,65 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 },
                 _ => false,
             };
-            if atrasado || put_if_absent {
+            if delayed || put_if_absent {
                 continue;
             }
-            if em_corpo_assincrono(a, st.span) {
-                relatar(&c::UNAWAITED_FUTURES, st.span, &[]);
+            if in_async_body(a, st.span) {
+                report(&c::UNAWAITED_FUTURES, st.span, &[]);
             }
         }
-        let visitar = |x: ExprId, relatar: &mut dyn FnMut(Span)| {
+        let visit = |x: ExprId, report: &mut dyn FnMut(Span)| {
             if matches!(a.expr(x).kind, ExprKind::Assign { .. }) {
                 return;
             }
-            if s.body.get_type(x).is_some_and(e_future) && em_corpo_assincrono(a, a.expr(x).span) {
-                relatar(a.expr(x).span);
+            if s.body.get_type(x).is_some_and(is_future) && in_async_body(a, a.expr(x).span) {
+                report(a.expr(x).span);
             }
         };
-        let mut achados: Vec<Span> = Vec::new();
+        let mut findings: Vec<Span> = Vec::new();
         for e in a.exprs.iter() {
             match &e.kind {
                 ExprKind::Cascade { sections, .. } => {
                     for &sec in sections.iter() {
-                        visitar(sec, &mut |sp| achados.push(sp));
+                        visit(sec, &mut |sp| findings.push(sp));
                     }
                 }
                 ExprKind::String(l) => {
                     for p in l.parts.iter() {
                         if let StringPart::Interpolation(x) = p {
-                            visitar(*x, &mut |sp| achados.push(sp));
+                            visit(*x, &mut |sp| findings.push(sp));
                         }
                     }
                 }
                 _ => {}
             }
         }
-        for sp in achados {
-            relatar(&c::UNAWAITED_FUTURES, sp, &[]);
+        for sp in findings {
+            report(&c::UNAWAITED_FUTURES, sp, &[]);
         }
     }
 
     // `avoid_returning_this`.
-    if ligada("avoid_returning_this") {
+    if enabled("avoid_returning_this") {
         for (k, d) in a.decls.iter().enumerate() {
-            let membros = match &d.kind {
+            let members = match &d.kind {
                 DeclKind::Class(x) => &x.members,
                 DeclKind::Enum(x) => &x.members,
                 DeclKind::Mixin(x) => &x.members,
                 _ => continue,
             };
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            for &mid in membros {
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
+            for &mid in members {
                 let MemberKind::Method(fid) = &a.member(mid).kind else { continue };
                 let f = a.function(*fid);
                 if f.kind == dartforge_frontend::ast::FunctionKind::Operator {
                     continue;
                 }
                 let Some(n) = f.name else { continue };
-                // `isOverride`: algum supertipo tem membro da mesma espécie.
-                let chave = if f.kind == dartforge_frontend::ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", interner.resolve(n.sym))) } else { Some(n.sym) };
-                let sobrescreve = chave.is_some_and(|ch| {
-                    s.outline.hierarchy.get(classe).is_some_and(|h| {
+                // `isOverride`: some supertype has a member of the same kind.
+                let key = if f.kind == dartforge_frontend::ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", interner.resolve(n.sym))) } else { Some(n.sym) };
+                let overrides = key.is_some_and(|ch| {
+                    s.outline.hierarchy.get(class_id).is_some_and(|h| {
                         h.supertypes.keys().any(|sc| {
                             program.class(*sc).instance_members.get(&ch).is_some_and(|g| {
                                 let gk = program.function(*g).kind;
@@ -592,47 +592,47 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         })
                     })
                 });
-                if sobrescreve {
+                if overrides {
                     continue;
                 }
-                // O tipo de retorno do elemento é a própria classe.
-                let retorno = (0..program.functions.len()).find_map(|i| match program.functions[i].node {
+                // The element's return type is the class itself.
+                let ret = (0..program.functions.len()).find_map(|i| match program.functions[i].node {
                     dartforge_elements::model::FunctionRef::Function { unit, function } if unit == s.unit && function == *fid => s.outline.functions.get(i).map(|d| d.return_type),
                     _ => None,
                 });
-                let e_propria = retorno.is_some_and(|t| matches!(table.get(t), Type::Interface { class, .. } if *class == classe));
-                if !e_propria {
+                let is_own_class = ret.is_some_and(|t| matches!(table.get(t), Type::Interface { class, .. } if *class == class_id));
+                if !is_own_class {
                     continue;
                 }
                 match &f.body {
                     FunctionBody::Block(b) => {
-                        let corpo = a.stmt(*b).span;
-                        // As funções aninhadas não contam.
-                        let aninhadas: Vec<Span> = a.functions.iter().filter(|g| g.span.start >= corpo.start && g.span.end <= corpo.end).map(|g| g.span).collect();
-                        let mut retornos: Vec<Span> = Vec::new();
-                        let mut outro = false;
-                        let mut stmts: Vec<&dartforge_frontend::ast::Stmt> = a.stmts.iter().filter(|x| x.span.start >= corpo.start && x.span.end <= corpo.end).collect();
+                        let body = a.stmt(*b).span;
+                        // Nested functions do not count.
+                        let nested: Vec<Span> = a.functions.iter().filter(|g| g.span.start >= body.start && g.span.end <= body.end).map(|g| g.span).collect();
+                        let mut returns: Vec<Span> = Vec::new();
+                        let mut other = false;
+                        let mut stmts: Vec<&dartforge_frontend::ast::Stmt> = a.stmts.iter().filter(|x| x.span.start >= body.start && x.span.end <= body.end).collect();
                         stmts.sort_by_key(|x| x.span.start);
                         for x in stmts {
                             let StmtKind::Return(v) = &x.kind else { continue };
-                            if aninhadas.iter().any(|g| x.span.start >= g.start && x.span.end <= g.end) {
+                            if nested.iter().any(|g| x.span.start >= g.start && x.span.end <= g.end) {
                                 continue;
                             }
                             match v {
-                                Some(e) if matches!(a.expr(*e).kind, ExprKind::This) => retornos.push(a.expr(*e).span),
+                                Some(e) if matches!(a.expr(*e).kind, ExprKind::This) => returns.push(a.expr(*e).span),
                                 _ => {
-                                    outro = true;
+                                    other = true;
                                     break;
                                 }
                             }
                         }
-                        if !outro && let Some(&primeiro) = retornos.first() {
-                            relatar(&c::AVOID_RETURNING_THIS, primeiro, &[]);
+                        if !other && let Some(&first) = returns.first() {
+                            report(&c::AVOID_RETURNING_THIS, first, &[]);
                         }
                     }
                     FunctionBody::Expression(e) => {
                         if matches!(a.expr(*e).kind, ExprKind::This) {
-                            relatar(&c::AVOID_RETURNING_THIS, n.span, &[]);
+                            report(&c::AVOID_RETURNING_THIS, n.span, &[]);
                         }
                     }
                     _ => {}
