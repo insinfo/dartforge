@@ -14,7 +14,7 @@
 //! A name is a `Ref` when it appears in the `"deopt"` of some statepoint of the
 //! function (the `i64` does not say whether it is a reference). Excluded are the
 //! value of an `!invariant.load` load, or of the context's canonical `true`/`false`
-//! objects (offsets 360 and 368, `layout::contexto`; the optimization that merges
+//! objects (offsets 360 and 368, `layout::context`; the optimization that merges
 //! the loads drops the metadata), and a `phi` of only those, like a loop's
 //! `.lcssa`: the canonical objects are statics of the runtime image, never
 //! collected, and the optimizer reuses the load across calls, as it should. The
@@ -143,8 +143,8 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
                 .filter_map(|pair| {
                     let mut x = pair.split(',');
                     let value = x.next()?.trim().strip_prefix('%')?;
-                    let de = x.next()?.trim().trim_end_matches(']').trim().strip_prefix('%')?;
-                    Some((value, de))
+                    let of = x.next()?.trim().trim_end_matches(']').trim().strip_prefix('%')?;
+                    Some((value, of))
                 })
                 .collect();
             phis.push((d, block, entries));
@@ -156,14 +156,14 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
             if invariants.contains(d) || entries.is_empty() {
                 continue;
             }
-            let canonical_one = |value: &str, de: &str| {
+            let canonical_one = |value: &str, of: &str| {
                 invariants.contains(value)
-                    || branches.get(de).is_some_and(|(c, v)| {
+                    || branches.get(of).is_some_and(|(c, v)| {
                         v == block
                             && equal.get(c).is_some_and(|(a, b)| (*a == value && invariants.contains(b)) || (*b == value && invariants.contains(a)))
                     })
             };
-            if entries.iter().all(|(value, de)| canonical_one(value, de)) {
+            if entries.iter().all(|(value, of)| canonical_one(value, of)) {
                 invariants.insert(d);
             }
         }

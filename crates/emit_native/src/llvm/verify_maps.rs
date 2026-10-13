@@ -57,7 +57,7 @@ pub fn verify(ir: &str) -> Result<(), String> {
             && !name.starts_with("llvm.")
         {
             let ef = crate::llvm::externs::effects_of(name);
-            if (ef.allocates || ef.calls_dart) && !crate::alvo::sabotaged_leaf(name) {
+            if (ef.allocates || ef.calls_dart) && !crate::target::sabotaged_leaf(name) {
                 return error("leaf (`gc-leaf-function`) that collects according to the effects table");
             }
         }

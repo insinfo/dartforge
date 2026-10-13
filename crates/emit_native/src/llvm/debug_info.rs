@@ -122,11 +122,11 @@ impl DebugInfo {
             "distinct !DICompileUnit(language: DW_LANG_C99, file: !{file}, producer: \"dartforge\", \
              isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)"
         );
-        let version = self.new(match crate::alvo::sistema() {
-            crate::alvo::Sistema::Windows => "!{i32 2, !\"CodeView\", i32 1}".to_string(),
+        let version = self.new(match crate::target::target_os() {
+            crate::target::Os::Windows => "!{i32 2, !\"CodeView\", i32 1}".to_string(),
             // Xcode's `dsymutil` and `lldb` read DWARF 4 without caveats.
-            crate::alvo::Sistema::MacOs => "!{i32 7, !\"Dwarf Version\", i32 4}".to_string(),
-            crate::alvo::Sistema::Linux => "!{i32 7, !\"Dwarf Version\", i32 5}".to_string(),
+            crate::target::Os::MacOs => "!{i32 7, !\"Dwarf Version\", i32 4}".to_string(),
+            crate::target::Os::Linux => "!{i32 7, !\"Dwarf Version\", i32 5}".to_string(),
         });
         let format = self.new("!{i32 2, !\"Debug Info Version\", i32 3}".to_string());
         out.push_str("\n; Informação de depuração (J05)\n");

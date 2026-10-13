@@ -46,9 +46,9 @@ impl LlvmEmitter<'_> {
                     if !existing_blocks.contains(&origin.0) {
                         continue;
                     }
-                    let de = self.types.get(v).copied().unwrap_or(Type::I64);
+                    let of = self.types.get(v).copied().unwrap_or(Type::I64);
                     let equal =
-                        de.llvm_ir() == ty.llvm_ir() && (de == Type::F64) == (*ty == Type::F64);
+                        of.llvm_ir() == ty.llvm_ir() && (of == Type::F64) == (*ty == Type::F64);
                     if equal {
                         continue;
                     }
@@ -60,7 +60,7 @@ impl LlvmEmitter<'_> {
                     }
                     let name = format!("%p{}", self.next_coercion);
                     self.next_coercion += 1;
-                    self.conv_phi.push((origin.0, name, de, *v, *ty));
+                    self.conv_phi.push((origin.0, name, of, *v, *ty));
                 }
             }
         }

@@ -73,7 +73,7 @@ mod tests {
             .spawn(|| {
                 let dir = tempfile::tempdir().unwrap();
                 let entry = dir.path().join("main.dart");
-                let imports = crate::sdk_modulo::SOURCE_LIBRARIES
+                let imports = crate::sdk_module::SOURCE_LIBRARIES
                     .iter()
                     .map(|lib| format!("import 'dart:{lib}';\n"))
                     .collect::<String>();
@@ -111,7 +111,7 @@ void main() { Base().exercitar(Object()); }
                     ),
                 )
                 .unwrap();
-                let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+                let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
                 let mut interner = Interner::new();
                 let (program, diags) =
                     dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
@@ -244,9 +244,9 @@ void main() { Base().exercitar(Object()); }
                         .find(|f| f.name == "identidade")
                         .unwrap();
                     assert!(module.dart_ref_returns.contains(&identity.symbol));
-                    let resumo = crate::optimize::arc::analysis::summaries::extract(identity, 8).unwrap();
-                    assert_eq!(resumo.fields(), crate::optimize::arc::analysis::summaries::ArcHeapFields::Preserved);
-                    assert!(matches!(resumo.ret(),
+                    let summary = crate::optimize::arc::analysis::summaries::extract(identity, 8).unwrap();
+                    assert_eq!(summary.fields(), crate::optimize::arc::analysis::summaries::ArcHeapFields::Preserved);
+                    assert!(matches!(summary.ret(),
                         crate::optimize::arc::analysis::summaries::ArcHeapReturn::Aliases { parameters, .. }
                             if !parameters.is_empty() && parameters.iter().all(|&p| identity.params[p].2 == Type::Ref)));
                     assert!(
@@ -293,7 +293,7 @@ void main() { Base().exercitar(Object()); }
                     let Some(name_str) = lib.uri.strip_prefix("dart:") else {
                         continue;
                     };
-                    if !crate::sdk_modulo::SOURCE_LIBRARIES.contains(&name_str) {
+                    if !crate::sdk_module::SOURCE_LIBRARIES.contains(&name_str) {
                         continue;
                     }
                     audited += 1;
@@ -324,7 +324,7 @@ void main() { Base().exercitar(Object()); }
                     );
                     ctx.te = std::mem::take(&mut sdk_ctx.te);
                 }
-                assert_eq!(audited, crate::sdk_modulo::SOURCE_LIBRARIES.len());
+                assert_eq!(audited, crate::sdk_module::SOURCE_LIBRARIES.len());
             })
             .unwrap()
             .join()

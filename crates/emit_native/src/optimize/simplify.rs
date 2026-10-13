@@ -110,7 +110,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
                     // The undone box: `Unbox(Box(x))` is `x` (the `int`, the
                     // `double` and the `bool` come back exact; nothing throws).
                     Instruction::Unbox { op: Operand::Val(b), to } => match boxes.get(b) {
-                        Some((x, de)) if de == to || (matches!(de, Type::I1 | Type::I8) && matches!(to, Type::I1)) => {
+                        Some((x, of)) if of == to || (matches!(of, Type::I1 | Type::I8) && matches!(to, Type::I1)) => {
                             Some(x.clone())
                         }
                         _ => None,
@@ -131,16 +131,16 @@ pub fn fold_constants(func: &mut Function) -> bool {
         // replacement points to a value defined earlier.
         let keys: Vec<ValueId> = values.keys().copied().collect();
         for k in keys {
-            let mut alvo = values[&k].clone();
+            let mut target = values[&k].clone();
             let mut steps = 0;
-            while let Operand::Val(x) = &alvo
+            while let Operand::Val(x) = &target
                 && let Some(next) = values.get(x)
                 && steps < values.len()
             {
-                alvo = next.clone();
+                target = next.clone();
                 steps += 1;
             }
-            values.insert(k, alvo);
+            values.insert(k, target);
         }
         let mut changed_here = false;
         if !values.is_empty() {
@@ -224,11 +224,11 @@ pub fn join_blocks(func: &mut Function) -> bool {
                 *preds.entry(s).or_default() += 1;
             }
         }
-        let alvo = func.blocks.iter().enumerate().find_map(|(i, b)| match b.terminator {
+        let target = func.blocks.iter().enumerate().find_map(|(i, b)| match b.terminator {
             Terminator::Branch(s) if s != b.id && s.0 != 0 && preds.get(&s) == Some(&1) => Some((i, s)),
             _ => None,
         });
-        let Some((i, s)) = alvo else { return changed };
+        let Some((i, s)) = target else { return changed };
         let j = func.blocks.iter().position(|b| b.id == s).expect("sucessor existe");
         let mut child = func.blocks.remove(j);
         let i = if j < i { i - 1 } else { i };

@@ -1,9 +1,9 @@
 //! The core lists in the unified space (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.3).
 //!
 //! `_List` (cid 8) and `_ImmutableList` (9) are `REFS` (the length in word 0, the
-//! `Ref` elements after it; cards in large ones) or `BRUTO` with the compact form in
-//! `flags` (`ELEMENTO_INT`/`_DOUBLE`/`_BOOL`); `_GrowableList` (10) is an
-//! `INSTANCIA` with two fields: the length (raw) and the storage (`_List`, `Ref`),
+//! `Ref` elements after it; cards in large ones) or `RAW` with the compact form in
+//! `flags` (`ELEMENT_INT`/`_DOUBLE`/`_BOOL`); `_GrowableList` (10) is an
+//! `INSTANCE` with two fields: the length (raw) and the storage (`_List`, `Ref`),
 //! like the VM's `GrowableObjectArray` (`raw_object.h:3561-3572`).
 //!
 //! Rules of this view:
@@ -50,25 +50,25 @@ pub enum Element {
 }
 
 impl Element {
-    /// The `flags` bits (`FORMA` and `ELEMENTO`) of a storage in this shape.
+    /// The `flags` bits (`FORMAT` and `ELEMENT`) of a storage in this shape.
     pub const fn flags(self) -> u8 {
         match self {
             Element::General => flags::REFS,
-            Element::Int => flags::BRUTO | flags::ELEMENTO_INT,
-            Element::Double => flags::BRUTO | flags::ELEMENTO_DOUBLE,
-            Element::Bool => flags::BRUTO | flags::ELEMENTO_BOOL,
+            Element::Int => flags::RAW | flags::ELEMENT_INT,
+            Element::Double => flags::RAW | flags::ELEMENT_DOUBLE,
+            Element::Bool => flags::RAW | flags::ELEMENT_BOOL,
         }
     }
 
     /// The shape of a storage from its `flags` bits.
     pub const fn from_flags(f: u8) -> Element {
-        if f & flags::FORMA != flags::BRUTO {
+        if f & flags::FORMAT != flags::RAW {
             return Element::General;
         }
-        match f & flags::ELEMENTO {
-            flags::ELEMENTO_INT => Element::Int,
-            flags::ELEMENTO_DOUBLE => Element::Double,
-            flags::ELEMENTO_BOOL => Element::Bool,
+        match f & flags::ELEMENT {
+            flags::ELEMENT_INT => Element::Int,
+            flags::ELEMENT_DOUBLE => Element::Double,
+            flags::ELEMENT_BOOL => Element::Bool,
             _ => Element::General,
         }
     }
@@ -160,17 +160,17 @@ impl Heap {
         assert!(cid::is_fixed_list(cid), "runtime bug: new_list with cid {cid}");
         let mut f = e.flags();
         if layout::has_cards(len) {
-            f |= flags::CARTOES;
+            f |= flags::CARDS;
         }
         let h = self.allocate(cid, layout::list_words(len), f);
         self.words_mut(h)[0] = len as i64;
         h
     }
 
-    /// A `_GrowableList` of `len` zeroed elements and a storage of `capacidade`
+    /// A `_GrowableList` of `len` zeroed elements and a storage of `capacity`
     /// (at least `len`).
-    pub fn new_growable(&mut self, len: usize, capacidade: usize, e: Element) -> Ref {
-        let data = self.new_list(cid::LIST, capacidade.max(len), e);
+    pub fn new_growable(&mut self, len: usize, capacity: usize, e: Element) -> Ref {
+        let data = self.new_list(cid::LIST, capacity.max(len), e);
         let h = self.list_with_roots(&[data], |heap| heap.allocate_instance(cid::GROWABLE_LIST, 2));
         self.set_field(h, 0, len as i64, false);
         self.set_field(h, 1, data, true);
@@ -179,8 +179,8 @@ impl Heap {
 
     /// Is `h` a core list (cid 8, 9 or 10)? No panic for null, a `Smi` or a dead
     /// object.
-    pub fn e_lista(&self, h: Ref) -> bool {
-        layout::is_object(h) && self.is_live_object(h) && cid::e_lista(self.header(h).class_id)
+    pub fn is_list(&self, h: Ref) -> bool {
+        layout::is_object(h) && self.is_live_object(h) && cid::is_list(self.header(h).class_id)
     }
 
     /// The length.
@@ -247,7 +247,7 @@ impl Heap {
     }
 
     /// Appends to the end of a `_GrowableList` (grows if needed: the next capacity
-    /// is `(capacidade * 2) | 3`, the VM's `_nextCapacity`,
+    /// is `(capacity * 2) | 3`, the VM's `_nextCapacity`,
     /// `growable_array.dart:385`). May collect.
     pub fn list_push(&mut self, h: Ref, v: Value) {
         assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: list_push on a fixed list");
@@ -288,16 +288,16 @@ impl Heap {
         self.set_field(h, 1, data, true);
     }
 
-    /// Ensures storage for `capacidade` elements in a `_GrowableList`: a new storage,
+    /// Ensures storage for `capacity` elements in a `_GrowableList`: a new storage,
     /// of the same shape, with the elements up to the length. Nothing if the capacity
     /// is already enough. May collect.
-    pub fn list_reserve(&mut self, h: Ref, capacidade: usize) {
+    pub fn list_reserve(&mut self, h: Ref, capacity: usize) {
         assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: reserve on a fixed list");
-        if capacidade <= self.list_capacity(h) {
+        if capacity <= self.list_capacity(h) {
             return;
         }
         let shape = self.list_shape(h);
-        let new = self.list_with_roots(&[h], |heap| heap.new_list(cid::LIST, capacidade, shape));
+        let new = self.list_with_roots(&[h], |heap| heap.new_list(cid::LIST, capacity, shape));
         let n = self.list_len(h);
         let old_gen = self.list_data(h);
         // The new one is young and nobody else sees it: raw copy, no barrier.
@@ -333,18 +333,18 @@ impl Heap {
         self.list_compact(h, e);
     }
 
-    /// Copies `n` elements from `de[start..]` to `to[dest..]` (with a barrier; `to`
+    /// Copies `n` elements from `of[start..]` to `to[dest..]` (with a barrier; `to`
     /// decompacts if an element does not fit its shape). The ranges are within the
-    /// lengths; `de` and `to` may be the same list (the copy is `memmove`'s). May
+    /// lengths; `of` and `to` may be the same list (the copy is `memmove`'s). May
     /// collect.
-    pub fn list_copy(&mut self, de: Ref, start: usize, to: Ref, dest: usize, n: usize) {
+    pub fn list_copy(&mut self, of: Ref, start: usize, to: Ref, dest: usize, n: usize) {
         if n == 0 {
             return;
         }
-        let (nd, np) = (self.list_len(de), self.list_len(to));
+        let (nd, np) = (self.list_len(of), self.list_len(to));
         assert!(start + n <= nd && dest + n <= np, "runtime bug: copy outside the lists");
-        let (fd, fp) = (self.list_shape(de), self.list_shape(to));
-        let (ad, ap) = (self.list_data(de), self.list_data(to));
+        let (fd, fp) = (self.list_shape(of), self.list_shape(to));
+        let (ad, ap) = (self.list_data(of), self.list_data(to));
         if fd == fp {
             let source: Vec<i64> = self.words(ad)[1 + start..1 + start + n].to_vec();
             if fp == Element::General {
@@ -357,8 +357,8 @@ impl Heap {
         // Different shapes: element by element, with whatever boxes and
         // decompaction of the destination are needed. The values come out first
         // (the source may be the destination itself, which decompaction swaps).
-        let value_list: Vec<Value> = (0..n).map(|k| self.list_get(de, start + k)).collect();
-        self.list_with_roots(&[de, to], |heap| {
+        let value_list: Vec<Value> = (0..n).map(|k| self.list_get(of, start + k)).collect();
+        self.list_with_roots(&[of, to], |heap| {
             for (k, v) in value_list.into_iter().enumerate() {
                 heap.list_write_to_storage(to, dest + k, v);
             }
@@ -410,7 +410,7 @@ impl Heap {
     /// The cid of a core list; panics (N4) if `h` is not one.
     fn list_cid(&self, h: Ref) -> i32 {
         let c = self.class(h);
-        assert!(cid::e_lista(c), "runtime bug: core list expected (cid {c}, handle {h})");
+        assert!(cid::is_list(c), "runtime bug: core list expected (cid {c}, handle {h})");
         c
     }
 
@@ -500,7 +500,7 @@ impl Heap {
         }
         // From here to the end, no allocation: the body of `h` changes format.
         let refs: Vec<i64> = self.words(general)[1..1 + n].to_vec();
-        self.set_flags(h, flags::FORMA | flags::ELEMENTO, Element::General.flags());
+        self.set_flags(h, flags::FORMAT | flags::ELEMENT, Element::General.flags());
         self.write_refs(h, 1, &refs);
     }
 
@@ -526,7 +526,7 @@ impl Heap {
                 None => bits.push(0),
             }
         }
-        self.set_flags(a, flags::FORMA | flags::ELEMENTO, e.flags());
+        self.set_flags(a, flags::FORMAT | flags::ELEMENT, e.flags());
         self.words_mut(a)[1..1 + cap].copy_from_slice(&bits);
     }
 
@@ -551,7 +551,7 @@ mod tests_lists {
     fn lists_flags_and_codes_round_trip() {
         for e in [Element::General, Element::Int, Element::Double, Element::Bool] {
             assert_eq!(Element::from_flags(e.flags()), e);
-            assert_eq!(Element::from_flags(e.flags() | flags::CARTOES), e);
+            assert_eq!(Element::from_flags(e.flags() | flags::CARDS), e);
             assert_eq!(Element::from_code(e.code()), Some(e));
         }
         assert_eq!(Element::from_code(4), None);

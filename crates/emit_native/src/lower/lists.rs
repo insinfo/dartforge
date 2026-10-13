@@ -40,7 +40,7 @@ mod arc_tests {
             let entry = dir.path().join("main.dart");
             std::fs::write(&entry,
                 "void inteiros(List<int> l, int v) { l.add(v); } void reais(List<double> l, double v) { l.add(v); } void booleanos(List<bool> l, bool v) { l.add(v); } void main() { inteiros(<int>[], 1); reais(<double>[], -0.0); booleanos(<bool>[], true); }\n").unwrap();
-            let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
             assert!(diags.is_empty(), "{diags:?}");
@@ -91,7 +91,7 @@ mod arc_tests {
     }
 }
 
-/// The `FORMA`/`ELEMENTO` bits (`@df.list_shape`) of general storage.
+/// The `FORMAT`/`ELEMENT` bits (`@df.list_shape`) of general storage.
 const SHAPE_GENERAL: i64 = flags::REFS as i64;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -161,7 +161,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.list_helper("df.list_storage", vec![(l, Type::Ref)], ty)
     }
 
-    /// The `FORMA`/`ELEMENTO` bits of storage `a` (`@df.list_shape`), in `I64`.
+    /// The `FORMAT`/`ELEMENT` bits of storage `a` (`@df.list_shape`), in `I64`.
     pub(super) fn list_shape_inline(&mut self, a: Operand) -> Operand {
         if self.ctx.arc_memory {
             return self.list_helper("dartforge_arc_list_shape_v1", vec![(a, Type::Ref)], Type::I64);
@@ -285,7 +285,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// The `add` of a scalar into a `_GrowableList` whose storage is compact
-    /// of shape `shape` (`flags::ELEMENTO_*` with `BRUTO`) and has room: the
+    /// of shape `shape` (`flags::ELEMENTO_*` with `RAW`) and has room: the
     /// words written directly (`bits`, in representation `ty`) and the
     /// length plus one. Returns `(done, full)`: the blocks where the write
     /// ended and where the list was full (the shape matched). The caller has already
@@ -320,7 +320,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.list_helper("dartforge_arc_list_write_bits_v1",
                 vec![(a, Type::Ref), (len.clone(), Type::I64), (bits, Type::I64), (c(i64::from(shape)), Type::I64)], Type::Void);
         } else {
-            let base = self.emit(Instruction::Add(a, c(layout::desl::ELEMENTOS as i64 - layout::DESLOCAMENTO_DO_HANDLE)), Type::I64);
+            let base = self.emit(Instruction::Add(a, c(layout::offsets::ELEMENTS as i64 - layout::HANDLE_OFFSET)), Type::I64);
             self.emit(Instruction::NativeWrite { address: base, index: len.clone(), ty, value }, Type::Void);
         }
         let new = self.emit(Instruction::Add(len, c(1)), Type::I64);

@@ -28,7 +28,7 @@ fn state(m: &Module) -> String {
             &m.functions,
             &m.tables,
             m.arc_memory,
-            m.excecoes_por_tabelas
+            m.table_exceptions
         ),
         (
             &m.dart_scalar_parameters,
@@ -97,13 +97,13 @@ pub(super) fn check_typed(
             let [
                 (Operand::Constant(Constant::Function(uniform)), Type::I64),
                 (_, Type::Ref),
-                (alvo, Type::I64),
+                (target, Type::I64),
                 (Operand::Constant(Constant::Int(abi)), Type::I64),
             ] = args.as_slice() else { return Err(error()); };
             if *ty != Type::Ref || *ret_ty != Type::Ref
                 || !m.arc_uniform_returns.contains(uniform)
             { return Err(error()); }
-            match alvo {
+            match target {
                 Operand::Constant(Constant::Int(0)) if *abi == 0 => continue,
                 Operand::Constant(Constant::Function(s)) => {
                     let body = functions.get(s).ok_or_else(error)?;
@@ -329,7 +329,7 @@ pub(super) fn certify(
         let p = ps
             .get(&f.symbol)
             .ok_or_else(|| format!("ARC ports: missing plan {}", f.symbol))?;
-        if m.excecoes_por_tabelas {
+        if m.table_exceptions {
             if m.tables.get(index) != Some(&p.tables) {
                 return Err(format!(
                     "ARC ports: divergent emitted tables in {}",
@@ -551,7 +551,7 @@ mod tests {
             );
         }
         if tables {
-            crate::optimize::excecoes_por_tabelas(&mut m);
+            crate::optimize::table_exceptions(&mut m);
         }
         let mut p = HashMap::from([
             ("folha".into(), DartFunctionPlan::default()),

@@ -51,8 +51,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `compact_hash.dart`). The VM's external classes (`cidExternal*`) do not
     /// exist here: the field stays as it is (0, which no object has).
     fn runtime_class_id(&self, ast: &ast::Ast, e: ExprId) -> Option<i64> {
-        use dartforge_runtime::layout::{cid, PRIMEIRO_CID_LIVRE};
-        use dartforge_runtime::tipadas::tipo;
+        use dartforge_runtime::layout::{cid, FIRST_FREE_CID};
+        use dartforge_runtime::typed_lists::ty;
         let ExprKind::Property { name, null_aware: false, .. } = &ast.expr(e).kind else { return None };
         let Some(dartforge_types::resolved::Resolved::Member { class, .. }) = self.ctx.get_resolved(self.unit_id, e) else {
             return None;
@@ -66,12 +66,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "cidImmutableArray" => cid::IMMUTABLE_LIST,
             "cidOneByteString" => cid::ONE_BYTE_STRING,
             "cidTwoByteString" => cid::TWO_BYTE_STRING,
-            "cidUint8ArrayView" => cid::visao(tipo::UINT8, false),
-            "cidUint8Array" => cid::tipada(tipo::UINT8),
-            "cidInt8ArrayView" => cid::visao(tipo::INT8, false),
-            "cidInt8Array" => cid::tipada(tipo::INT8),
-            "cidUint8ClampedArray" => cid::tipada(tipo::UINT8_CLAMPED),
-            "numPredefinedCids" => return Some(PRIMEIRO_CID_LIVRE),
+            "cidUint8ArrayView" => cid::view(ty::UINT8, false),
+            "cidUint8Array" => cid::typed(ty::UINT8),
+            "cidInt8ArrayView" => cid::view(ty::INT8, false),
+            "cidInt8Array" => cid::typed(ty::INT8),
+            "cidUint8ClampedArray" => cid::typed(ty::UINT8_CLAMPED),
+            "numPredefinedCids" => return Some(FIRST_FREE_CID),
             _ => return None,
         };
         Some(i64::from(id))
@@ -206,9 +206,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         };
         let (expected, shape) = match t {
-            Type::I64 => (self.ctx.core.int_class, flags::BRUTO | flags::ELEMENTO_INT),
-            Type::F64 => (self.ctx.core.double_class, flags::BRUTO | flags::ELEMENTO_DOUBLE),
-            _ => (self.ctx.core.bool_class, flags::BRUTO | flags::ELEMENTO_BOOL),
+            Type::I64 => (self.ctx.core.int_class, flags::RAW | flags::ELEMENT_INT),
+            Type::F64 => (self.ctx.core.double_class, flags::RAW | flags::ELEMENT_DOUBLE),
+            _ => (self.ctx.core.bool_class, flags::RAW | flags::ELEMENT_BOOL),
         };
         if Some(*class) != expected {
             return None;

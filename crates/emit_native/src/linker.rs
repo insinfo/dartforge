@@ -42,7 +42,7 @@ pub const SYSROOT_FILES: &[&str] = &[
 const LOADER: &str = if cfg!(target_arch = "aarch64") { "ld-linux-aarch64.so.1" } else { "ld-linux-x86-64.so.2" };
 
 /// The sysroot triple of this host.
-pub fn triple_do_sysroot() -> &'static str {
+pub fn sysroot_triple() -> &'static str {
     if cfg!(target_arch = "aarch64") { "aarch64-linux-gnu" } else { "x86_64-linux-gnu" }
 }
 
@@ -66,10 +66,10 @@ impl SysrootLinux {
     pub fn locate(clang: &Path) -> Result<&'static SysrootLinux, String> {
         static S: std::sync::OnceLock<Result<SysrootLinux, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
-            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", triple_do_sysroot())) {
+            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", sysroot_triple())) {
                 return Self::from_dir(&dir);
             }
-            Self::do_sistema(clang)
+            Self::from_system(clang)
         })
         .as_ref()
         .map_err(Clone::clone)
@@ -84,7 +84,7 @@ impl SysrootLinux {
     }
 
     /// The files that the Clang driver would use (`-print-file-name`).
-    pub fn do_sistema(clang: &Path) -> Result<SysrootLinux, String> {
+    pub fn from_system(clang: &Path) -> Result<SysrootLinux, String> {
         let mut files = Vec::new();
         for a in SYSROOT_FILES {
             let exit = Command::new(clang)
@@ -109,10 +109,10 @@ impl SysrootLinux {
     }
 
     /// Copies the files to `dest` (`dartforge empacotar`).
-    pub fn copiar_para(&self, dest: &Path) -> Result<(), String> {
+    pub fn copy_to(&self, dest: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-        for (name, de) in SYSROOT_FILES.iter().zip(&self.files) {
-            std::fs::copy(de, dest.join(name)).map_err(|e| format!("copiar {}: {e}", de.display()))?;
+        for (name, of) in SYSROOT_FILES.iter().zip(&self.files) {
+            std::fs::copy(of, dest.join(name)).map_err(|e| format!("copiar {}: {e}", of.display()))?;
         }
         Ok(())
     }
@@ -187,7 +187,7 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
             // load time — in a shared library, the exported functions
             // now bind to themselves (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md,
             // Step 4).
-            if crate::alvo::raizes_por_mapas().unwrap_or(false) {
+            if crate::target::roots_by_maps().unwrap_or(false) {
                 cmd.arg("-Bsymbolic-functions");
             }
         }
@@ -222,7 +222,7 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
         cmd.arg("--gc-sections");
         // Safe ICF: merges only identical functions whose address nobody
         // takes (`.llvm_addrsig`), so the `==` of tear-offs stays correct
-        // (`ligador_windows.rs`, corpus/native 80).
+        // (`linker_windows.rs`, corpus/native 80).
         cmd.arg("--icf=safe");
         // `DARTFORGE_MANTER_SIMBOLOS=1`: the symbol table stays (profiling).
         if !keep_symbols() && !l.keep_debug_info {

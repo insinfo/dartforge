@@ -173,9 +173,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Lowers the receiver of a link keeping the current `?.` chain (N3).
-    pub fn lower_target(&mut self, ast: &ast::Ast, alvo: ExprId) -> Operand {
+    pub fn lower_target(&mut self, ast: &ast::Ast, target: ExprId) -> Operand {
         self.continue_chain = true;
-        self.lower_expr(ast, alvo)
+        self.lower_expr(ast, target)
     }
 
     /// `?.`: if the receiver is null, the whole chain is null (N3).
@@ -1111,9 +1111,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     .is_some_and(|k| k >= 1);
                 if positional_arg || !self.shapes_with_field(prop_name).is_empty() {
                     let name_str = prop_name.to_string();
-                    let alvo = *target;
+                    let target = *target;
                     let t2 = target_op.clone();
-                    let mut rest = |s: &mut Self| s.property_without_member(t2.clone(), alvo, &name_str, expr_id, span);
+                    let mut rest = |s: &mut Self| s.property_without_member(t2.clone(), target, &name_str, expr_id, span);
                     if let Some(op) = self.read_record_field(target_op.clone(), prop_name, &mut rest) {
                         return op;
                     }

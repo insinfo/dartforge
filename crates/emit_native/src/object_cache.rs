@@ -23,7 +23,7 @@
 //! runner, with `analyzer`) stays in the cache until the next pruning after that.
 
 use crate::cache::native_cache_dir;
-use crate::resumo::Fnv128;
+use crate::summary::Fnv128;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};

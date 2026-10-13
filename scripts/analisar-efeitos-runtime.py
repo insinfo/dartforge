@@ -197,23 +197,23 @@ def chamadas(f):
 grafo = {f.id: chamadas(f) for f in funcs}
 
 # ---------------------------------------------------------------- sementes
-SEM_COLETA = {"alocar_bloco", "alocar_lento", "antes_de_alocar", "coletar", "coletar_automatico"}
+SEM_COLETA = {"allocate_block", "allocate_slow", "before_allocate", "run_collection", "collect_automatic"}
 RE_COLETA_DIRETA = re.compile(r"borrow_mut\(\)\s*\.\s*collect\(\)")
-SEM_LANCA = {"definir_excecao"}
+SEM_LANCA = {"set_exception"}
 RE_PONTEIRO = re.compile(r'extern\s+"C"\s+fn\s*\(')
-RE_AJUDANTE = re.compile(r"\b(ajudante|ajudante_de_io|ajudante_de_isolado)\s*\(|\bPARA_TEXTO\b")
-DECLARA_AJUDANTE = {"ajudante", "ajudante_de_io", "ajudante_de_isolado", "dartforge_register_helper", "dartforge_init"}
+RE_AJUDANTE = re.compile(r"\b(helper|io_helper|isolate_helper)\s*\(|\bTO_STRING\b")
+DECLARA_AJUDANTE = {"helper", "io_helper", "isolate_helper", "dartforge_register_helper", "dartforge_init"}
 # ponteiros `extern "C" fn` que sao codigo C (finalizadores nativos, APIs do SO), nao Dart
-PONTEIRO_C = {("heap.rs", "encerrar_finalizadores"), ("heap.rs", "coletar")}
-ARQ_C = {"io_observador.rs", "io_windows_eventos.rs", "ffi_api_nativa.rs"}
+PONTEIRO_C = {("heap.rs", "shutdown_finalizers"), ("heap.rs", "run_collection")}
+ARQ_C = {"io_watcher.rs", "io_windows_events.rs", "ffi_native_api.rs"}
 # ponteiro de funcao GERADA que so devolve uma tabela (nao e Dart do usuario)
 RE_TABELA = re.compile(r'extern\s+"C"\s+fn\s*\(\s*\)\s*->\s*\*const\s+i64')
 coleta, lanca, dart = {}, {}, {}
 # niveis de "roda Dart": usuario (codigo Dart arbitrario) > sdk (funcao da sobreposicao do SDK
 # registrada por dartforge_register_helper: construtor de erro/objeto) > tabela (getter gerado)
-AJUDANTE_USUARIO = {"invocar_no_such_method", "refazer_indices_copiados", "finalizar_programa", "relatar_erro_nao_tratado", "rodar_isolado"}
+AJUDANTE_USUARIO = {"invoke_no_such_method", "redo_copied_indices", "finalize_program", "report_unhandled_error", "run_isolate"}
 # guardam/enfileiram o ponteiro sem chamar, ou chamam codigo C do proprio runtime
-PONTEIRO_NAO_CHAMADO = {"dartforge_register_isolates", "dartforge_request_at_safepoint", "parar_neste_isolado", "dartforge_init"}
+PONTEIRO_NAO_CHAMADO = {"dartforge_register_isolates", "dartforge_request_at_safepoint", "stop_this_isolate", "dartforge_init"}
 sementes = []
 for f in funcs:
     if f.nome in SEM_COLETA and f.arq == "heap.rs":

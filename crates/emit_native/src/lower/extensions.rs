@@ -108,10 +108,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// type arguments of a generic extension come from the static type of the
     /// receiver, so there is one entry per (member, receiver type).
     fn extension_tearoff(&mut self, recv: Operand, fid: usize, receiver: Option<TypeId>, span: Span) -> Operand {
-        let alvo = super::symbol_of(self.ctx, fid);
+        let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = match receiver {
-            Some(t) if self.generic_extension(fid) => format!("{alvo}$tearx{}", t.0),
-            _ => format!("{alvo}$tearx"),
+            Some(t) if self.generic_extension(fid) => format!("{target}$tearx{}", t.0),
+            _ => format!("{target}$tearx"),
         };
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());

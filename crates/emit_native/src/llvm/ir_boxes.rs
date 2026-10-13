@@ -8,14 +8,14 @@
 //! read/written by offset from the handle (`h = block + 2`, so the
 //! word `b + k` is at `h + k − 2`):
 //!
-//! * `_Mint`/`_Double` (`BRUTO`, w = 1): the value at `h+14`;
+//! * `_Mint`/`_Double` (`RAW`, w = 1): the value at `h+14`;
 //! * `bool`: the statics of the active runtime, read from the `Context` (offsets
 //!   360 and 368, `layout::context::VERDADEIRO`/`FALSO`; §4.10 item 9);
-//! * `_Celula` (`INSTANCIA`, 1 field): the value at `h+14`, the map bit (`h+6`)
+//! * `_Celula` (`INSTANCE`, 1 field): the value at `h+14`, the map bit (`h+6`)
 //!   according to the written representation;
-//! * `_Contexto` (`INSTANCIA`, k fields): captures at `h+14+8i`, each one in the
+//! * `_Contexto` (`INSTANCE`, k fields): captures at `h+14+8i`, each one in the
 //!   representation of the type of the variable (the same one `EnvGet` reads it with);
-//! * `_Closure` (`INSTANCIA`, 4 fields): code `h+14`, context `h+22` (`Ref`,
+//! * `_Closure` (`INSTANCE`, 4 fields): code `h+14`, context `h+22` (`Ref`,
 //!   the only map bit), typed body `h+30`, ABI `h+38`;
 //! * positional `_Record` (`REFS`, w = 1 + k): k at `h+14`, fields at `h+22+8i`.
 //!
@@ -23,19 +23,19 @@
 
 use super::LlvmEmitter;
 use crate::hir::*;
-use dartforge_runtime::layout::{self, cid, estado, flags};
+use dartforge_runtime::layout::{self, cid, state, flags};
 use std::fmt::Write;
 
 #[cfg(test)]
-/// The header (word 0) of a `_Mint`: `JOVEM | BRUTO << 8 | 1 << 16 | 3 << 32`.
-const CAB_MINT: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 1, cid::MINT);
+/// The header (word 0) of a `_Mint`: `YOUNG | RAW << 8 | 1 << 16 | 3 << 32`.
+const CAB_MINT: u64 = layout::header_word(state::YOUNG, flags::RAW, 1, cid::MINT);
 /// That of a `_Double`.
 #[cfg(test)]
-const CAB_DOUBLE: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 1, cid::DOUBLE);
+const CAB_DOUBLE: u64 = layout::header_word(state::YOUNG, flags::RAW, 1, cid::DOUBLE);
 /// That of a `_Celula` (1 field).
-const CAB_CELL: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::INSTANCIA, 1, cid::CELULA);
+const CAB_CELL: u64 = layout::header_word(state::YOUNG, flags::INSTANCE, 1, cid::CELL);
 /// That of a `_Closure` (4 fields).
-const CAB_CLOSURE: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::INSTANCIA, 4, cid::CLOSURE);
+const CAB_CLOSURE: u64 = layout::header_word(state::YOUNG, flags::INSTANCE, 4, cid::CLOSURE);
 
 /// The P2 helpers (§3.5), printed in the prelude of each module by
 /// `emit_runtime_decls`. The header constants are written out in
@@ -299,7 +299,7 @@ impl LlvmEmitter<'_> {
     /// Writes `value` (IR text, `i64`) into the word at offset `off`
     /// (from the block) of object `%bp<v>`; `suffix` makes the name unique.
     fn store_word(&mut self, v: u32, suffix: &str, off: usize, value: &str) {
-        let d = off as i64 - layout::DESLOCAMENTO_DO_HANDLE;
+        let d = off as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %bg{v}_{suffix} = getelementptr inbounds i8, ptr %bp{v}, i64 {d}").unwrap();
         writeln!(self.out, "  store i64 {value}, ptr %bg{v}_{suffix}, align 8").unwrap();
     }
@@ -310,7 +310,7 @@ impl LlvmEmitter<'_> {
             // Word 1 of the header comes zeroed from the allocation.
             return;
         }
-        let d = layout::desl::MAPA as i64 - layout::DESLOCAMENTO_DO_HANDLE;
+        let d = layout::offsets::MAP as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %bm{v} = getelementptr inbounds i8, ptr %bp{v}, i64 {d}").unwrap();
         writeln!(self.out, "  store i32 {}, ptr %bm{v}, align 4", map as i32).unwrap();
     }
@@ -356,7 +356,7 @@ impl LlvmEmitter<'_> {
             // boxed yet): the runtime boxes with the right roots.
             let total = n * 2;
             for (i, (elem, _)) in elements.iter().enumerate() {
-                let tag = self.tag_de(elem);
+                let tag = self.tag_of(elem);
                 let sop = self.coerce(elem, Type::I64);
                 writeln!(self.out, "  %rb{v}_{i} = getelementptr [{total} x i64], ptr %rec_buf_{v}, i64 0, i64 {}", i * 2).unwrap();
                 writeln!(self.out, "  store i64 {sop}, ptr %rb{v}_{i}").unwrap();
@@ -376,12 +376,12 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %v{v} = call i64 @dartforge_record_from_refs(ptr %rec_buf_{v}, i64 {n})").unwrap();
             return;
         }
-        let hdr = layout::palavra_do_cabecalho(estado::JOVEM, flags::REFS, w, cid::RECORD);
+        let hdr = layout::header_word(state::YOUNG, flags::REFS, w, cid::RECORD);
         let values: Vec<String> = elements.iter().map(|(e, _)| self.coerce(e, Type::Ref)).collect();
         self.allocate_block(v, hdr, w);
-        self.store_word(v, "n", layout::desl::RECORD_FORMA, &n.to_string());
+        self.store_word(v, "n", layout::offsets::RECORD_SHAPE, &n.to_string());
         for (i, s) in values.iter().enumerate() {
-            self.store_word(v, &i.to_string(), layout::desl::RECORD_CAMPOS + 8 * i, s);
+            self.store_word(v, &i.to_string(), layout::offsets::RECORD_FIELDS + 8 * i, s);
         }
         if n > 0 {
             self.count_initial_in_arc(v);
@@ -392,8 +392,8 @@ impl LlvmEmitter<'_> {
     pub(super) fn emit_alloc_cell(&mut self, v: u32, value: &Operand) {
         let is_ref = self.type_of(value) == Type::Ref;
         let s = self.coerce(value, Type::I64);
-        self.allocate_block(v, CAB_CELL, layout::palavras_de_instancia(1));
-        self.store_word(v, "c", layout::desl::CORPO, &s);
+        self.allocate_block(v, CAB_CELL, layout::instance_words(1));
+        self.store_word(v, "c", layout::offsets::BODY, &s);
         self.store_map(v, u32::from(is_ref));
         if is_ref {
             self.count_initial_in_arc(v);
@@ -412,7 +412,7 @@ impl LlvmEmitter<'_> {
     /// The read of a cell in representation `ty` (the one it was written with).
     pub(super) fn emit_cell_get(&mut self, v: u32, cell: &Operand, ty: Type) {
         let c = self.coerce(cell, Type::Ref);
-        let d = layout::desl::CORPO as i64 - layout::DESLOCAMENTO_DO_HANDLE;
+        let d = layout::offsets::BODY as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %cgp{v} = inttoptr i64 {c} to ptr").unwrap();
         writeln!(self.out, "  %cgg{v} = getelementptr inbounds i8, ptr %cgp{v}, i64 {d}").unwrap();
         writeln!(self.out, "  %u{v} = load i64, ptr %cgg{v}, align 8").unwrap();
@@ -427,13 +427,13 @@ impl LlvmEmitter<'_> {
         let c = self.coerce(cell, Type::Ref);
         let s = self.coerce(value, Type::I64);
         // Under ARC the write goes to the runtime, which counts the replacement (field 0 of the
-        // cell, a one-field `INSTANCIA`).
+        // cell, a one-field `INSTANCE`).
         if self.module.arc_memory {
             writeln!(self.out, "  call void @dartforge_object_set(i64 {c}, i64 0, i64 {s}, i8 {})", u8::from(is_ref)).unwrap();
             return;
         }
-        let d = layout::desl::CORPO as i64 - layout::DESLOCAMENTO_DO_HANDLE;
-        let dm = layout::desl::MAPA as i64 - layout::DESLOCAMENTO_DO_HANDLE;
+        let d = layout::offsets::BODY as i64 - layout::HANDLE_OFFSET;
+        let dm = layout::offsets::MAP as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %csp{k} = inttoptr i64 {c} to ptr").unwrap();
         writeln!(self.out, "  %csg{k} = getelementptr inbounds i8, ptr %csp{k}, i64 {d}").unwrap();
         writeln!(self.out, "  store i64 {s}, ptr %csg{k}, align 8").unwrap();
@@ -462,24 +462,24 @@ impl LlvmEmitter<'_> {
         }
         let refs: Vec<bool> = values.iter().map(|val| self.type_of(val) == Type::Ref).collect();
         let bits: Vec<String> = values.iter().map(|val| self.coerce(val, Type::I64)).collect();
-        let w = layout::palavras_de_instancia(n);
+        let w = layout::instance_words(n);
         if w <= layout::TLAB_N {
-            let hdr = layout::palavra_do_cabecalho(estado::JOVEM, flags::INSTANCIA, n, cid::CONTEXTO);
+            let hdr = layout::header_word(state::YOUNG, flags::INSTANCE, n, cid::CONTEXT);
             self.allocate_block(v, hdr, w);
         } else {
-            // A large context: the runtime (the `n` of an `INSTANCIA` is the number
+            // A large context: the runtime (the `n` of an `INSTANCE` is the number
             // of fields, not the words of the body).
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_object_new(i64 {}, i64 {n})", cid::CONTEXTO).unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_object_new(i64 {}, i64 {n})", cid::CONTEXT).unwrap();
             writeln!(self.out, "  %bp{v} = inttoptr i64 %v{v} to ptr").unwrap();
         }
         for (i, s) in bits.iter().enumerate() {
-            self.store_word(v, &i.to_string(), layout::desl::CORPO + 8 * i, s);
+            self.store_word(v, &i.to_string(), layout::offsets::BODY + 8 * i, s);
         }
         let map = refs.iter().take(32).enumerate().fold(0u32, |m, (i, &r)| m | (u32::from(r) << i));
         self.store_map(v, map);
         let has_ref = refs.iter().any(|&r| r);
         // The extension of the map (fields 32..), in the words after the fields.
-        for j in 0..layout::palavras_do_mapa(n) {
+        for j in 0..layout::map_words(n) {
             let word = refs
                 .iter()
                 .enumerate()
@@ -487,7 +487,7 @@ impl LlvmEmitter<'_> {
                 .take(64)
                 .fold(0u64, |m, (i, &r)| m | (u64::from(r) << ((i - 32) % 64)));
             if word != 0 {
-                let off = layout::desl::CORPO + 8 * (layout::capacidade(n) + j);
+                let off = layout::offsets::BODY + 8 * (layout::capacity(n) + j);
                 self.store_word(v, &format!("m{j}"), off, &(word as i64).to_string());
             }
         }
@@ -500,7 +500,7 @@ impl LlvmEmitter<'_> {
     /// was written with (the lowering guarantees it; §4.4 and risk 12).
     pub(super) fn emit_env_get(&mut self, v: u32, env: &Operand, index: usize, ty: Type) {
         let e = self.coerce(env, Type::Ref);
-        let d = (layout::desl::CORPO + 8 * index) as i64 - layout::DESLOCAMENTO_DO_HANDLE;
+        let d = (layout::offsets::BODY + 8 * index) as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %ep{v} = inttoptr i64 {e} to ptr").unwrap();
         writeln!(self.out, "  %eg{v} = getelementptr inbounds i8, ptr %ep{v}, i64 {d}").unwrap();
         writeln!(self.out, "  %u{v} = load i64, ptr %eg{v}, align 8").unwrap();
@@ -510,11 +510,11 @@ impl LlvmEmitter<'_> {
     /// An inline `_Closure`: code, context (`Ref`), typed body and ABI.
     fn emit_inline_closure(&mut self, v: u32, code: &str, env: &Operand, typed: &str, abi: i64) {
         let e = self.coerce(env, Type::Ref);
-        self.allocate_block(v, CAB_CLOSURE, layout::palavras_de_instancia(4));
-        self.store_word(v, "k", layout::desl::CLOSURE_CODIGO, code);
-        self.store_word(v, "e", layout::desl::CLOSURE_CONTEXTO, &e);
-        self.store_word(v, "t", layout::desl::CLOSURE_TIPADO, typed);
-        self.store_word(v, "a", layout::desl::CLOSURE_ABI, &abi.to_string());
+        self.allocate_block(v, CAB_CLOSURE, layout::instance_words(4));
+        self.store_word(v, "k", layout::offsets::CLOSURE_CODE, code);
+        self.store_word(v, "e", layout::offsets::CLOSURE_CONTEXT, &e);
+        self.store_word(v, "t", layout::offsets::CLOSURE_TYPED, typed);
+        self.store_word(v, "a", layout::offsets::CLOSURE_ABI, &abi.to_string());
         // Only the context is a reference.
         self.store_map(v, 0b10);
         self.count_initial_in_arc(v);
@@ -559,13 +559,13 @@ mod tests {
         assert!(HELPERS.contains(&format!("@df.allocate(i64 {}, i64 1)", CAB_DOUBLE as i64)));
         // The mask of `e_objeto` (7 | MIN) and the offsets of the value and of the class.
         assert!(HELPERS.contains(&format!("and i64 %r, {}", 7 | i64::MIN)));
-        assert_eq!(layout::desl::VALOR as i64 - layout::DESLOCAMENTO_DO_HANDLE, 14);
-        assert_eq!(layout::desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE, 2);
+        assert_eq!(layout::offsets::VALUE as i64 - layout::HANDLE_OFFSET, 14);
+        assert_eq!(layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET, 2);
         assert_eq!((cid::MINT, cid::DOUBLE), (3, 4));
         for (name, _, _) in HELPER_EFFECTS {
             assert!(HELPERS.contains(&format!("@{name}(")), "{name} without a definition");
         }
-        assert_eq!(CAB_CELL >> 32, cid::CELULA as u64);
+        assert_eq!(CAB_CELL >> 32, cid::CELL as u64);
         assert_eq!(CAB_CLOSURE >> 16 & 0xFFFF, 4);
     }
 }

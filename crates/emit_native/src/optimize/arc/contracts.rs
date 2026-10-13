@@ -6,7 +6,7 @@ use super::{
     TokenEffect, Ownership, ScopePlan, TokenPlan, verify_scopes, verify_tokens,
 };
 use crate::hir::*;
-use dartforge_runtime::ownership::{Contrato, ModoParametro, ModoResultado};
+use dartforge_runtime::ownership::{Contract, ParamMode, ResultMode};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Contracts of the prelude `@df.*` helpers that the lowering calls through
@@ -21,31 +21,31 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// `@df.core_shape`) are scalars whose accesses `derived_set.rs` holds with
 /// `@df.keep_alive(list)`; `@df.word_ref` (a `Ref` read from the
 /// storage) stays out: under ARC the lowering uses the Owned read.
-pub const HELPER_CONTRACTS: &[Contrato] = &[
-    Contrato { nome: "df.bit_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.smi_value", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.identical", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.core_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.core_len_writable", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.string_write", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar, ModoParametro::Scalar], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.string_hash", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.string_equals", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.string_equals_object", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.string_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.string_code_unit", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+pub const HELPER_CONTRACTS: &[Contract] = &[
+    Contract { name: "df.bit_smi", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.smi_value", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.identical", parameters: &[ParamMode::Borrow, ParamMode::Borrow], result: ResultMode::ScalarI1, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.core_len", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.core_len_writable", parameters: &[ParamMode::Borrow, ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.string_write", parameters: &[ParamMode::Borrow, ParamMode::Scalar, ParamMode::Scalar], result: ResultMode::Void, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.string_hash", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.string_equals", parameters: &[ParamMode::Borrow, ParamMode::Borrow], result: ResultMode::ScalarI1, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.string_equals_object", parameters: &[ParamMode::Borrow, ParamMode::Borrow], result: ResultMode::ScalarI1, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.string_len", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.string_code_unit", parameters: &[ParamMode::Borrow, ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
     // `num` in Ref as double: the path that is not Smi/Mint unboxes through the
     // runtime (a pending TypeError), as the marks of the helper say.
-    Contrato { nome: "df.num_to_double", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarF64, retencao_persistente: false, invalida_borrows: true, pode_falhar: true, chama_dart: false },
-    Contrato { nome: "df.typed_base", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::BorrowArg(0), retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.typed_bytes", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.typed_cid", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.typed_offset", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.typed_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.typed_data", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.core_storage", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.core_shape", parametros: &[ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.keep_alive", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.typed_len_writable", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contract { name: "df.num_to_double", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarF64, persistent_retention: false, invalidates_borrows: true, may_fail: true, calls_dart: false },
+    Contract { name: "df.typed_base", parameters: &[ParamMode::Borrow], result: ResultMode::BorrowArg(0), persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.typed_bytes", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.typed_cid", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.typed_offset", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.typed_len", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.typed_data", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.core_storage", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.core_shape", parameters: &[ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.keep_alive", parameters: &[ParamMode::Borrow], result: ResultMode::Void, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract { name: "df.typed_len_writable", parameters: &[ParamMode::Borrow, ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
 ];
 
 /// The ownership contract of `name`: that of an IR helper
@@ -60,7 +60,7 @@ pub const HELPER_CONTRACTS: &[Contrato] = &[
 /// assert!(contract("dartforge_arc_list_len_v1").is_ok());
 /// assert!(contract("df.word_ref").is_err());
 /// ```
-pub fn contract(name_str: &str) -> Result<&'static Contrato, &'static str> {
+pub fn contract(name_str: &str) -> Result<&'static Contract, &'static str> {
     if let Some(base) = name_str.strip_prefix(super::NATIVE_SCOPE_PREFIX) {
         return contract(base);
     }
@@ -71,12 +71,12 @@ pub fn contract(name_str: &str) -> Result<&'static Contrato, &'static str> {
         return Ok(&GENERIC_OWNED[usize::from(e.throws || e.calls_dart) * 2 + usize::from(e.calls_dart)]);
     }
     #[cfg(test)]
-    if let Some(c) = TEST_CONTRACTS.iter().find(|c| c.nome == name_str) {
+    if let Some(c) = TEST_CONTRACTS.iter().find(|c| c.name == name_str) {
         return Ok(c);
     }
-    match HELPER_CONTRACTS.iter().find(|c| c.nome == name_str) {
+    match HELPER_CONTRACTS.iter().find(|c| c.name == name_str) {
         Some(c) => Ok(c),
-        None => dartforge_runtime::ownership::contrato(name_str),
+        None => dartforge_runtime::ownership::contract(name_str),
     }
 }
 
@@ -84,21 +84,21 @@ pub fn contract(name_str: &str) -> Result<&'static Contrato, &'static str> {
 /// keeps supporting: a result borrowed from argument 0 that only
 /// exists on the normal exit.
 #[cfg(test)]
-pub(super) const TEST_CONTRACTS: &[Contrato] = &[Contrato {
-    nome: "df.test.fallible_field",
-    parametros: &[ModoParametro::Borrow, ModoParametro::Scalar],
-    resultado: ModoResultado::BorrowArg(0),
-    retencao_persistente: false,
-    invalida_borrows: false,
-    pode_falhar: true,
-    chama_dart: false,
+pub(super) const TEST_CONTRACTS: &[Contract] = &[Contract {
+    name: "df.test.fallible_field",
+    parameters: &[ParamMode::Borrow, ParamMode::Scalar],
+    result: ResultMode::BorrowArg(0),
+    persistent_retention: false,
+    invalidates_borrows: false,
+    may_fail: true,
+    calls_dart: false,
 }];
 
 /// The marks of the generic Owned thunks, by (may fail, calls Dart).
-const GENERIC_OWNED: [Contrato; 4] = {
-    const fn c(may_fail: bool, calls_dart: bool) -> Contrato {
-        Contrato { nome: "df.arc.owned.*", parametros: &[], resultado: ModoResultado::Owned,
-            retencao_persistente: true, invalida_borrows: true, pode_falhar: may_fail, chama_dart: calls_dart }
+const GENERIC_OWNED: [Contract; 4] = {
+    const fn c(may_fail: bool, calls_dart: bool) -> Contract {
+        Contract { name: "df.arc.owned.*", parameters: &[], result: ResultMode::Owned,
+            persistent_retention: true, invalidates_borrows: true, may_fail: may_fail, calls_dart: calls_dart }
     }
     [c(false, false), c(false, true), c(true, false), c(true, true)]
 };
@@ -303,11 +303,11 @@ fn insert_dart_exits(
             super::tokens::cleanup_exits(&new_one, &new_classes, tables, &new_plan)?;
         for b in &mut new_one.blocks {
             if let Some(remaining) = exits.get(&b.id) {
-                for de in remaining {
+                for of in remaining {
                     b.instructions.push((
                         id()?,
                         Instruction::ArcDrop {
-                            value: Operand::Val(*de),
+                            value: Operand::Val(*of),
                         },
                         Type::Void,
                     ));
@@ -645,8 +645,8 @@ fn produce_phi(
                 } => Some(value),
                 _ => None,
             };
-            if let Some(Operand::Val(de)) = op {
-                require_owned.insert(*de);
+            if let Some(Operand::Val(of)) = op {
+                require_owned.insert(*of);
             }
             if classes.get(v) == Some(&Ownership::Owned) {
                 require_owned.insert(*v);
@@ -663,8 +663,8 @@ fn produce_phi(
         for v in require_owned.clone() {
             if let Some(Instruction::Phi { incoming, .. }) = defs.get(&v) {
                 require_owned.extend(incoming.iter().filter_map(|(_, op)| {
-                    if let Operand::Val(de) = op {
-                        Some(*de)
+                    if let Operand::Val(of) = op {
+                        Some(*of)
                     } else {
                         None
                     }
@@ -692,10 +692,10 @@ fn produce_phi(
         for (_, op) in incoming {
             match op {
                 Operand::Constant(Constant::Null) => anchor = true,
-                Operand::Val(de) if types.get(de) == Some(&Type::Ref)
-                    && classes.get(de) == Some(&Ownership::Trivial) => anchor = true,
-                Operand::Val(de) if free_set.contains(de) => {
-                    trivial_parents.entry(*de).or_default().push(*v);
+                Operand::Val(of) if types.get(of) == Some(&Type::Ref)
+                    && classes.get(of) == Some(&Ownership::Trivial) => anchor = true,
+                Operand::Val(of) if free_set.contains(of) => {
+                    trivial_parents.entry(*of).or_default().push(*v);
                 },
                 _ => compatible = false,
             }
@@ -731,19 +731,19 @@ fn produce_phi(
             let compatible_ones = !incoming.is_empty()
                 && incoming.iter().all(|(_, op)| match op {
                     Operand::Constant(Constant::Null) => true,
-                    Operand::Val(de) if types.get(de) == Some(&Type::Ref) => {
-                        match classes.get(de) {
+                    Operand::Val(of) if types.get(of) == Some(&Type::Ref) => {
+                        match classes.get(of) {
                             Some(c @ Ownership::Borrowed { .. }) => {
                                 if let Some((_, previous)) = &origin {
                                     previous == c
                                 } else {
-                                    origin = Some((*de, c.clone()));
+                                    origin = Some((*of, c.clone()));
                                     true
                                 }
                             }
                             Some(Ownership::Trivial) => true,
                             None if matches!(
-                                defs.get(de),
+                                defs.get(of),
                                 Some(Instruction::Phi { ty: Type::Ref, .. })
                             ) =>
                             {
@@ -754,7 +754,7 @@ fn produce_phi(
                     }
                     _ => false,
                 });
-            if compatible_ones && let Some((de, mut class)) = origin {
+            if compatible_ones && let Some((of, mut class)) = origin {
                 borrowed_set.insert(*v, class.clone());
                 // Local values do not declare Caller directly: they keep
                 // the dependency on the parameter that sustains that borrow.
@@ -764,7 +764,7 @@ fn produce_phi(
                 } = class
                 {
                     class = Ownership::Borrowed {
-                        owner: OwnerOrigin::Value(de),
+                        owner: OwnerOrigin::Value(of),
                         scope,
                     };
                 }
@@ -784,8 +784,8 @@ fn produce_phi(
         };
         if incoming.iter().any(|(_, op)| match op {
             Operand::Constant(Constant::Null) => false,
-            Operand::Val(de) if types.get(de) == Some(&Type::Ref) => !classes
-                .get(de)
+            Operand::Val(of) if types.get(of) == Some(&Type::Ref) => !classes
+                .get(of)
                 .is_some_and(|c| *c == Ownership::Trivial || c == origin || c == &classes[v]),
             _ => true,
         }) {
@@ -832,12 +832,12 @@ fn produce_phi(
                         Operand::Constant(Constant::Bool(_)) if *ty == Type::I1 => anchor = true,
                         Operand::Constant(Constant::Int(_)) if matches!(ty, Type::I64 | Type::I8) => anchor = true,
                         Operand::Constant(Constant::Double(_)) if *ty == Type::F64 => anchor = true,
-                        Operand::Val(de) if types.get(de) == Some(ty) && scalars.contains(de) => {
-                            scalar_parents.entry(*de).or_default().push(*v);
+                        Operand::Val(of) if types.get(of) == Some(ty) && scalars.contains(of) => {
+                            scalar_parents.entry(*of).or_default().push(*v);
                         }
-                        Operand::Val(de)
-                            if types.get(de) == Some(ty)
-                                && classes.get(de) == Some(&Ownership::Trivial) =>
+                        Operand::Val(of)
+                            if types.get(of) == Some(ty)
+                                && classes.get(of) == Some(&Ownership::Trivial) =>
                         {
                             anchor = true
                         }
@@ -875,7 +875,7 @@ fn produce_phi(
         }
         classes.insert(v, Ownership::Trivial);
     }
-    let mut pais: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
+    let mut parents: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
     let mut queue = VecDeque::new();
     for v in &order {
         let Instruction::Phi { incoming, .. } = defs[v] else {
@@ -894,19 +894,19 @@ fn produce_phi(
                         anchor = true;
                         break;
                     }
-                    Operand::Val(de) if types.get(de) != Some(&Type::Ref) => {
+                    Operand::Val(of) if types.get(of) != Some(&Type::Ref) => {
                         return Err(format!(
                             "Phi v{}: entry v{} has no Ref representation",
-                            v.0, de.0
+                            v.0, of.0
                         ));
                     }
-                    Operand::Val(de) if candidates.contains(de) => {
-                        pais.entry(*de).or_default().push(*v);
+                    Operand::Val(of) if candidates.contains(of) => {
+                        parents.entry(*of).or_default().push(*v);
                         break;
                     }
-                    Operand::Val(de) if classes.get(de) == Some(&Ownership::Owned) => {
-                        if let Some(Instruction::ArcMove { value }) = defs.get(de) {
-                            if !moves.insert(*de) {
+                    Operand::Val(of) if classes.get(of) == Some(&Ownership::Owned) => {
+                        if let Some(Instruction::ArcMove { value }) = defs.get(of) {
+                            if !moves.insert(*of) {
                                 return Err(format!("Phi v{}: cycle of moves without an origin", v.0));
                             }
                             op = value;
@@ -931,7 +931,7 @@ fn produce_phi(
     let mut founded = HashSet::new();
     while let Some(v) = queue.pop_front() {
         if founded.insert(v) {
-            if let Some(dependents) = pais.get(&v) {
+            if let Some(dependents) = parents.get(&v) {
                 queue.extend(dependents);
             }
         }
@@ -1133,7 +1133,7 @@ fn produce(
         }
         // The C call with a compound by value: the compounds go and come back by
         // address (the destination), a scalar like the other arguments.
-        if include_arc && let Instruction::CompositeNativeCall { alvo, args, ret, dest, .. } = inst {
+        if include_arc && let Instruction::CompositeNativeCall { target, args, ret, dest, .. } = inst {
             let scalar = |op: &Operand| match op {
                 Operand::Val(arg) => types.get(arg).is_some_and(|t| *t != Type::Ref && *t != Type::Void),
                 Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => true,
@@ -1143,7 +1143,7 @@ fn produce(
                 crate::hir::NativeType::Prim(tc) => tc.hir_type(),
                 _ => Type::Void,
             };
-            if *ty != expected || !scalar(alvo) || !args.iter().all(|(op, _)| scalar(op))
+            if *ty != expected || !scalar(target) || !args.iter().all(|(op, _)| scalar(op))
                 || dest.as_ref().is_some_and(|d| !scalar(d)) {
                 return Err(format!("v{}: compound native call without an audited scalar ABI", v.0));
             }
@@ -1157,7 +1157,7 @@ fn produce(
             }
             contracts.insert(*v, c);
         }
-        if include_arc && let Instruction::NativeCall { alvo, args, ret } = inst {
+        if include_arc && let Instruction::NativeCall { target, args, ret } = inst {
             // Only scalars cross the C ABI (the HIR converts Pointer into an
             // address). A Dart callback may reenter, but the C exit clears
             // the pending flag (`dartforge_ffi_callback_exit`): nothing stays pending.
@@ -1166,7 +1166,7 @@ fn produce(
                 Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => true,
                 _ => false,
             };
-            if *ty != ret.hir_type() || *ty == Type::Ref || !scalar(alvo)
+            if *ty != ret.hir_type() || *ty == Type::Ref || !scalar(target)
                 || !args.iter().all(|(op, _)| scalar(op)) {
                 return Err(format!("v{}: native call without an audited scalar ABI", v.0));
             }
@@ -1356,12 +1356,12 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
     if name == "dartforge_arc_retain" {
         return Err("direct retain requires ArcCopy with an owned SSA result".into());
     }
-    if c.parametros.len() != args.len() {
+    if c.parameters.len() != args.len() {
         return Err(format!("{name}: arity incompatible with ownership.tsv"));
     }
-    let (ty, result) = match c.resultado {
-        ModoResultado::Owned => (Type::Ref, Ownership::Owned),
-        ModoResultado::BorrowArg(n) => (
+    let (ty, result) = match c.result {
+        ResultMode::Owned => (Type::Ref, Ownership::Owned),
+        ResultMode::BorrowArg(n) => (
             Type::Ref,
             match args[n].0 {
                 Operand::Val(v) => Ownership::Borrowed {
@@ -1376,11 +1376,11 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
                 }
             },
         ),
-        ModoResultado::ScalarI64 => (Type::I64, Ownership::Trivial),
-        ModoResultado::ScalarF64 => (Type::F64, Ownership::Trivial),
-        ModoResultado::ScalarI8 => (Type::I8, Ownership::Trivial),
-        ModoResultado::ScalarI1 => (Type::I1, Ownership::Trivial),
-        ModoResultado::Void => (Type::Void, Ownership::Trivial),
+        ResultMode::ScalarI64 => (Type::I64, Ownership::Trivial),
+        ResultMode::ScalarF64 => (Type::F64, Ownership::Trivial),
+        ResultMode::ScalarI8 => (Type::I8, Ownership::Trivial),
+        ResultMode::ScalarI1 => (Type::I1, Ownership::Trivial),
+        ResultMode::Void => (Type::Void, Ownership::Trivial),
     };
     if *ret_ty != ty {
         return Err(format!(
@@ -1388,11 +1388,11 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
         ));
     }
     let mut effect = TokenEffect {
-        may_fail: c.pode_falhar,
+        may_fail: c.may_fail,
         ..Default::default()
     };
-    for (n, (mode, (op, ty))) in c.parametros.iter().zip(args).enumerate() {
-        if *mode == ModoParametro::TabelaEstatica {
+    for (n, (mode, (op, ty))) in c.parameters.iter().zip(args).enumerate() {
+        if *mode == ParamMode::StaticTable {
             // The LLVM selection uses only the registered thunk of the module. The
             // generic producer does not have that provenance: an arbitrary Ptr or function
             // address does not prove the absence of Dart/GC/exceptions.
@@ -1400,35 +1400,35 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
         }
         let reference = matches!(
             mode,
-            ModoParametro::Borrow
-                | ModoParametro::Consume
-                | ModoParametro::ConsumeSuccess
-                | ModoParametro::ConsumeError
+            ParamMode::Borrow
+                | ParamMode::Consume
+                | ParamMode::ConsumeSuccess
+                | ParamMode::ConsumeError
         );
         let expected = if reference {
             Type::Ref
-        } else if matches!(mode, ModoParametro::VetorEstatico | ModoParametro::EnderecoNative) {
+        } else if matches!(mode, ParamMode::StaticVector | ParamMode::NativeAddress) {
             Type::Ptr
-        } else if *mode == ModoParametro::ScalarF64 {
+        } else if *mode == ParamMode::ScalarF64 {
             Type::F64
-        } else if *mode == ModoParametro::ScalarI8 {
+        } else if *mode == ParamMode::ScalarI8 {
             Type::I8
         } else {
             Type::I64
         };
-        if *ty != expected || (matches!(mode, ModoParametro::VetorEstatico | ModoParametro::EnderecoNative) && !matches!(op, Operand::Val(_))) {
+        if *ty != expected || (matches!(mode, ParamMode::StaticVector | ParamMode::NativeAddress) && !matches!(op, Operand::Val(_))) {
             return Err(format!("{name}: type of argument {n} incompatible"));
         }
         if reference {
             match op {
                 Operand::Val(v) => {
-                    if *mode == ModoParametro::Consume {
+                    if *mode == ParamMode::Consume {
                         effect.always.push(*v);
                     }
-                    if *mode == ModoParametro::ConsumeSuccess {
+                    if *mode == ParamMode::ConsumeSuccess {
                         effect.success.push(*v);
                     }
-                    if *mode == ModoParametro::ConsumeError {
+                    if *mode == ParamMode::ConsumeError {
                         effect.error.push(*v);
                     }
                 }
@@ -1438,13 +1438,13 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
         } else if let Operand::Constant(k) = op {
             // A function address only has meaning in a native parameter;
             // the I64 annotation does not turn bool/double/literal into an integer.
-            let compatible = if *mode == ModoParametro::ScalarF64 {
+            let compatible = if *mode == ParamMode::ScalarF64 {
                 matches!(k, Constant::Double(_))
-            } else if *mode == ModoParametro::ScalarI8 {
+            } else if *mode == ParamMode::ScalarI8 {
                 matches!(k, Constant::Int(0..=255) | Constant::Bool(_))
             } else {
                 matches!(k, Constant::Int(_))
-                    || (*mode == ModoParametro::Native && matches!(k, Constant::Function(_)))
+                    || (*mode == ParamMode::Native && matches!(k, Constant::Function(_)))
             };
             if !compatible {
                 return Err(format!(
@@ -1456,9 +1456,9 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
     Ok(RuntimeCallContract {
         effect,
         result,
-        persistent_retention: c.retencao_persistente,
-        invalidates_borrows: c.invalida_borrows,
-        calls_dart: c.chama_dart,
+        persistent_retention: c.persistent_retention,
+        invalidates_borrows: c.invalidates_borrows,
+        calls_dart: c.calls_dart,
     })
 }
 
@@ -1470,16 +1470,16 @@ mod tests {
     fn helpers_agree_with_effects() {
         let mut names = HashSet::new();
         for c in HELPER_CONTRACTS {
-            assert!(names.insert(c.nome), "repeated {}", c.nome);
-            assert!(c.nome.starts_with("df."), "{}", c.nome);
-            assert!(dartforge_runtime::ownership::contrato(c.nome).is_err(), "{} also in the runtime", c.nome);
+            assert!(names.insert(c.name), "repeated {}", c.name);
+            assert!(c.name.starts_with("df."), "{}", c.name);
+            assert!(dartforge_runtime::ownership::contract(c.name).is_err(), "{} also in the runtime", c.name);
             // The contract follows the marks of the helper: fails if it throws, invalidates
             // borrows if it allocates, never retains.
-            let e = crate::llvm::externs::effects_of(c.nome);
-            assert_eq!((c.pode_falhar, c.chama_dart), (e.throws || e.calls_dart, e.calls_dart), "{}: {e:?}", c.nome);
-            assert!(!e.allocates || c.invalida_borrows, "{}: {e:?}", c.nome);
-            assert!(!c.retencao_persistente, "{}", c.nome);
-            assert!(c.parametros.iter().all(|m| matches!(m, ModoParametro::Borrow | ModoParametro::Scalar)));
+            let e = crate::llvm::externs::effects_of(c.name);
+            assert_eq!((c.may_fail, c.calls_dart), (e.throws || e.calls_dart, e.calls_dart), "{}: {e:?}", c.name);
+            assert!(!e.allocates || c.invalidates_borrows, "{}: {e:?}", c.name);
+            assert!(!c.persistent_retention, "{}", c.name);
+            assert!(c.parameters.iter().all(|m| matches!(m, ParamMode::Borrow | ParamMode::Scalar)));
         }
         // The Ref read from the storage and whatever allocates stay without a contract.
         for name_str in ["df.word_ref", "df.string_allocate"] {
@@ -1585,7 +1585,7 @@ mod tests {
         ));
         let mut module = Module::new();
         module.arc_memory = true;
-        module.excecoes_por_tabelas = true;
+        module.table_exceptions = true;
         module.functions.push(f.clone());
         module.tables.push(tables.clone());
         let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();

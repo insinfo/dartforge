@@ -10,18 +10,18 @@
 pub const HEADER: &[u8; 4] = b"\0DFZ";
 
 /// From this size on the compiler compresses the table.
-pub const LIMIAR: usize = 16 * 1024;
+pub const THRESHOLD: usize = 16 * 1024;
 
 /// The compressed form of `text` (the compiler).
 ///
 /// ```
-/// use dartforge_runtime::tabela_rti::{comprimir, decompress, HEADER};
+/// use dartforge_runtime::rti_table::{compress, decompress, HEADER};
 /// let text = b"C1 0 Null\nB1 dart:core Null\n".repeat(100);
-/// let z = comprimir(&text);
+/// let z = compress(&text);
 /// assert!(z.starts_with(HEADER) && z.len() < text.len());
 /// assert_eq!(decompress(&z), text);
 /// ```
-pub fn comprimir(text: &[u8]) -> Vec<u8> {
+pub fn compress(text: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() / 4 + 64);
     out.extend_from_slice(HEADER);
     out.extend_from_slice(&u32::try_from(text.len()).expect("RTI table above 4 GB").to_le_bytes());
@@ -29,14 +29,14 @@ pub fn comprimir(text: &[u8]) -> Vec<u8> {
     loop {
         out.reserve(64 * 1024);
         let read_so_far = usize::try_from(z.total_in()).expect("tamanho");
-        let estado = z.compress_vec(&text[read_so_far..], &mut out, flate2::FlushCompress::Finish).expect("zlib");
-        if estado == flate2::Status::StreamEnd {
+        let state = z.compress_vec(&text[read_so_far..], &mut out, flate2::FlushCompress::Finish).expect("zlib");
+        if state == flate2::Status::StreamEnd {
             return out;
         }
     }
 }
 
-/// The text of a table compressed by [`comprimir`].
+/// The text of a table compressed by [`compress`].
 ///
 /// # Panics
 ///
@@ -46,8 +46,8 @@ pub fn decompress(data: &[u8]) -> Vec<u8> {
     let size = u32::from_le_bytes(data[4..8].try_into().expect("RTI table header")) as usize;
     let mut text = Vec::with_capacity(size);
     let mut z = flate2::Decompress::new(true);
-    let estado = z.decompress_vec(&data[8..], &mut text, flate2::FlushDecompress::Finish).expect("compressed RTI table");
-    assert!(estado == flate2::Status::StreamEnd && text.len() == size, "incomplete compressed RTI table");
+    let state = z.decompress_vec(&data[8..], &mut text, flate2::FlushDecompress::Finish).expect("compressed RTI table");
+    assert!(state == flate2::Status::StreamEnd && text.len() == size, "incomplete compressed RTI table");
     text
 }
 

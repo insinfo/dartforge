@@ -11,7 +11,7 @@
 //!   `clang -x ir -c` of before.
 //!
 //! What a generation is asked for is a [`Generation`]; the key of the caches
-//! (program object, source SDK) carries the [`Gerador::identity`] and the
+//! (program object, source SDK) carries the [`Generator::identity`] and the
 //! [`Generation::description`], so objects from one generator never serve the other.
 //!
 //! Without `-ffunction-sections`: in production the `lld` LTO already emits each
@@ -57,7 +57,7 @@ impl Generation {
 
     /// The description that goes into the cache keys.
     pub fn description(&self) -> String {
-        // The pipeline swapped for measurement (`dartforge_llvm::gerar`) changes the
+        // The pipeline swapped for measurement (`dartforge_llvm::generate`) changes the
         // object: it goes into the key.
         let pipeline = match std::env::var("DARTFORGE_PIPELINE_OBJETO") {
             Ok(p) if self.optimize && self.format == Format::Object && !p.is_empty() => format!(" {p}"),
@@ -96,9 +96,9 @@ impl Generation {
     pub fn args_clang(&self) -> Vec<&'static str> {
         let mut args = vec!["-x", "ir", "-c", self.clang_level()];
         // In COFF, zero the TimeDateStamp: the object is a function of the key.
-        args.extend(crate::alvo::object_flags());
+        args.extend(crate::target::object_flags());
         if self.shared {
-            args.extend(crate::alvo::shared_object_flags());
+            args.extend(crate::target::shared_object_flags());
         }
         if self.format == Format::Bitcode {
             args.push("-flto=thin");
@@ -132,7 +132,7 @@ pub enum Cpu {
 
 impl Cpu {
     /// The CPU of `--cpu <name>`.
-    pub fn do_nome(name: &str) -> Result<Cpu, String> {
+    pub fn from_name(name: &str) -> Result<Cpu, String> {
         let x86 = cfg!(target_arch = "x86_64");
         match name {
             "native" => Ok(Cpu::Native),
@@ -197,11 +197,11 @@ fn machine_resources() -> String {
 
 /// Whether this build has the embedded generator (and does not need Clang to generate
 /// objects).
-pub const GERADOR_EMBUTIDO: bool = cfg!(feature = "llvm-embutido");
+pub const EMBEDDED_GENERATOR: bool = cfg!(feature = "llvm-embutido");
 
 /// The generator of a compilation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Gerador {
+pub enum Generator {
     /// The LLVM linked into dartforge.
     #[cfg(feature = "llvm-embutido")]
     Builtin,
@@ -209,27 +209,27 @@ pub enum Gerador {
     Clang(PathBuf),
 }
 
-impl Gerador {
+impl Generator {
     /// The generator of this build and this environment: the embedded one when the build
     /// has it, unless `DARTFORGE_GERADOR=clang`; otherwise `clang`.
-    pub fn escolher(clang: &Path) -> Gerador {
+    pub fn choose(clang: &Path) -> Generator {
         #[cfg(feature = "llvm-embutido")]
         if std::env::var("DARTFORGE_GERADOR").map_or(true, |g| g != "clang") {
-            return Gerador::Builtin;
+            return Generator::Builtin;
         }
-        Gerador::Clang(clang.to_path_buf())
+        Generator::Clang(clang.to_path_buf())
     }
 
     /// Clang, for bitcode with the ThinLTO summary, when it exists;
-    /// otherwise the usual generator ([`Gerador::escolher`]). The distribution without
+    /// otherwise the usual generator ([`Generator::choose`]). The distribution without
     /// the system toolchain (`dartforge empacotar`, N15/N16) does not ship
     /// Clang: production uses the embedded generator, and `lld` does the full LTO
     /// (slower, the same program).
-    pub fn clang_if_any(clang: &Path) -> Gerador {
+    pub fn clang_if_any(clang: &Path) -> Generator {
         if crate::object_cache::clang_identity(clang).is_ok() {
-            Gerador::Clang(clang.to_path_buf())
+            Generator::Clang(clang.to_path_buf())
         } else {
-            Gerador::escolher(clang)
+            Generator::choose(clang)
         }
     }
 
@@ -238,15 +238,15 @@ impl Gerador {
     /// does the full LTO, split into parallel partitions during code
     /// generation.
     pub fn thin_bitcode(&self) -> bool {
-        matches!(self, Gerador::Clang(_))
+        matches!(self, Generator::Clang(_))
     }
 
     /// The identity for the cache keys (version, target).
     pub fn identity(&self) -> Result<String, String> {
         match self {
             #[cfg(feature = "llvm-embutido")]
-            Gerador::Builtin => dartforge_llvm::identidade(),
-            Gerador::Clang(clang) => crate::object_cache::clang_identity(clang),
+            Generator::Builtin => dartforge_llvm::identity(),
+            Generator::Clang(clang) => crate::object_cache::clang_identity(clang),
         }
     }
 
@@ -255,27 +255,27 @@ impl Gerador {
     /// `source_filename` and the `.file` of the object do not carry the path of
     /// whoever compiled (with the cache, the name is the hash, and the same IR gives the same
     /// object byte for byte).
-    pub fn gerar(&self, ir: &str, generation: Generation, exit: &Path) -> Result<(), String> {
+    pub fn generate(&self, ir: &str, generation: Generation, exit: &Path) -> Result<(), String> {
         match self {
             #[cfg(feature = "llvm-embutido")]
-            Gerador::Builtin => {
+            Generator::Builtin => {
                 let name = exit.file_stem().unwrap_or_default().to_string_lossy();
-                let options = dartforge_llvm::Opcoes {
-                    otimizar: generation.optimize,
-                    formato: match generation.format {
-                        Format::Object => dartforge_llvm::Formato::Objeto,
-                        Format::Bitcode => dartforge_llvm::Formato::Bitcode,
+                let options = dartforge_llvm::Options {
+                    optimize: generation.optimize,
+                    format: match generation.format {
+                        Format::Object => dartforge_llvm::Format::Object,
+                        Format::Bitcode => dartforge_llvm::Format::Bitcode,
                     },
                     cpu: generation.cpu.map(Cpu::name),
                 };
                 #[allow(unused_mut)]
-                let mut bytes = dartforge_llvm::gerar(&name, ir, &options)?;
+                let mut bytes = dartforge_llvm::generate(&name, ir, &options)?;
                 // Roots by maps: the stack map of the object, from the LLVM
                 // format (~98 bytes per record) to the compact one (`gcmap.rs`).
                 // `DARTFORGE_SEM_MAPA_COMPACTO=1` leaves the LLVM one in COFF
                 // (measurement); in ELF the conversion is mandatory, and Mach-O stays
                 // in the LLVM format.
-                if generation.format == Format::Object && ir.contains(dartforge_llvm::MARCA_DE_GC) && crate::gcmap::convert_here() {
+                if generation.format == Format::Object && ir.contains(dartforge_llvm::GC_MARK) && crate::gcmap::convert_here() {
                     crate::gcmap::convert(&mut bytes)?;
                 }
                 // The symbolic stack trace: the 12-byte-per-entry table becomes
@@ -285,7 +285,7 @@ impl Gerador {
                 }
                 std::fs::write(exit, bytes).map_err(|e| format!("failed to write {}: {e}", exit.display()))
             }
-            Gerador::Clang(clang) => {
+            Generator::Clang(clang) => {
                 // Roots by maps: `clang -x ir` does not run
                 // `rewrite-statepoints-for-gc`, and the object would come out without a map —
                 // roots silently lost.
@@ -350,9 +350,9 @@ mod tests {
     #[test]
     fn embedded_generates_object() {
         let dir = tempfile::tempdir().unwrap();
-        let obj = dir.path().join(format!("x.{}", crate::alvo::ext_object()));
-        let ir = format!("{}define i64 @f() {{\n  ret i64 7\n}}\n", crate::alvo::cabecalho_ir());
-        Gerador::Builtin.gerar(&ir, Generation::of_program(true, false), &obj).unwrap();
+        let obj = dir.path().join(format!("x.{}", crate::target::ext_object()));
+        let ir = format!("{}define i64 @f() {{\n  ret i64 7\n}}\n", crate::target::ir_header());
+        Generator::Builtin.generate(&ir, Generation::of_program(true, false), &obj).unwrap();
         assert!(std::fs::metadata(&obj).unwrap().len() > 0);
     }
 }

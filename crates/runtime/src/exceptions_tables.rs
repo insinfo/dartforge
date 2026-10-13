@@ -20,7 +20,7 @@
 /// The ports registered by the program module (`@df.ports`), by the index
 /// `2 × arity + (1 if it returns a value)`. Process-wide: they are code addresses,
 /// the same in every isolate. 0 = no port (`checagem` mode).
-static PORTAS_DART: [std::sync::atomic::AtomicUsize; 16] = [
+static DART_PORTS: [std::sync::atomic::AtomicUsize; 16] = [
     std::sync::atomic::AtomicUsize::new(0),
     std::sync::atomic::AtomicUsize::new(0),
     std::sync::atomic::AtomicUsize::new(0),
@@ -39,13 +39,13 @@ static PORTAS_DART: [std::sync::atomic::AtomicUsize; 16] = [
     std::sync::atomic::AtomicUsize::new(0),
 ];
 
-/// `dartforge_register_ports(tabela, n)`: the entry of a program compiled with
+/// `dartforge_register_ports(table, n)`: the entry of a program compiled with
 /// `--excecoes=tabelas` hands over the ports before any Dart code runs.
 ///
 /// # Safety
-/// `tabela` points to `n` function addresses (a module constant).
+/// `table` points to `n` function addresses (a module constant).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_register_ports(tabela: *const usize, n: i64) {
+pub unsafe extern "C" fn dartforge_register_ports(table: *const usize, n: i64) {
     TABLES_MODE.store(true, std::sync::atomic::Ordering::Release);
     // The `sem_porta` sabotage (D9, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
     // §7.3): the runtime calls Dart directly, and a Dart exception crosses the Rust
@@ -53,10 +53,10 @@ pub unsafe extern "C" fn dartforge_register_ports(tabela: *const usize, n: i64) 
     if crate::heap::sabotage("sem_porta") {
         return;
     }
-    let n = usize::try_from(n).unwrap_or(0).min(PORTAS_DART.len());
-    for (i, port) in PORTAS_DART.iter().enumerate().take(n) {
+    let n = usize::try_from(n).unwrap_or(0).min(DART_PORTS.len());
+    for (i, port) in DART_PORTS.iter().enumerate().take(n) {
         // SAFETY: guaranteed by the caller (a constant vector with `n` addresses).
-        let address = unsafe { *tabela.add(i) };
+        let address = unsafe { *table.add(i) };
         port.store(address, std::sync::atomic::Ordering::Release);
     }
 }
@@ -100,7 +100,7 @@ fn landing_crosses_rust(frame: usize) -> bool {
 /// The port with index `i`, or 0 in `checagem` mode.
 #[inline]
 fn dart_port(i: usize) -> usize {
-    PORTAS_DART[i].load(std::sync::atomic::Ordering::Acquire)
+    DART_PORTS[i].load(std::sync::atomic::Ordering::Acquire)
 }
 
 // The runtime's calls to Dart code, by signature: `dart_r<n>` returns the value
@@ -437,13 +437,13 @@ unsafe fn read_sleb128(p: &mut *const u8) -> i64 {
 /// Finds the cleanup and the first catch-all selector in a valid chain. The site
 /// index is a byte offset, not the catch's selector.
 #[cfg(any(unix, test))]
-unsafe fn itanium_actions(tabela: *const u8, ix: u64) -> (bool, i32) {
+unsafe fn itanium_actions(table: *const u8, ix: u64) -> (bool, i32) {
     if ix == 0 { return (true, 0); }
     let mut cleanup_pad = false;
     let mut selector = 0;
     // SAFETY: the index and the links belong to the valid LSDA provided by the system.
     unsafe {
-        let mut p = tabela.add((ix - 1) as usize);
+        let mut p = table.add((ix - 1) as usize);
         loop {
             let filter_obj = read_sleb128(&mut p);
             if filter_obj == 0 { cleanup_pad = true; }
@@ -489,7 +489,7 @@ struct SehRuntimeFunction {
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[allow(dead_code)]
 #[repr(C)]
-struct ContextoDeDespachoSeh {
+struct SehDispatchContext {
     control_pc: u64,
     image_base: u64,
     function_entry: *const SehRuntimeFunction,
@@ -535,7 +535,7 @@ unsafe fn seh_personality(rec: *mut u8, frame: *mut u8, dispatch: *mut u8) -> i3
     /// `ExceptionContinueSearch`.
     const CONTINUE_SEARCH: i32 = 1;
     let rec = rec.cast::<SehExceptionRecord>();
-    let dispatch = dispatch.cast::<ContextoDeDespachoSeh>();
+    let dispatch = dispatch.cast::<SehDispatchContext>();
     // SAFETY: the pointers are the dispatcher's; the LSDA is that of the function
     // whose frame is being examined.
     unsafe {
@@ -580,8 +580,8 @@ unsafe fn seh_personality(rec: *mut u8, frame: *mut u8, dispatch: *mut u8) -> i3
 /// Only the system exception dispatcher calls it.
 #[cfg(not(unix))]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_personality(rec: *mut u8, frame: *mut u8, contexto: *mut u8, dispatch: *mut u8) -> i32 {
-    let _ = contexto;
+pub unsafe extern "C" fn dartforge_personality(rec: *mut u8, frame: *mut u8, context: *mut u8, dispatch: *mut u8) -> i32 {
+    let _ = context;
     #[cfg(all(windows, target_arch = "x86_64"))]
     {
         // SAFETY: the arguments are those of the system dispatcher.
@@ -603,11 +603,11 @@ pub unsafe extern "C" fn dartforge_personality(rec: *mut u8, frame: *mut u8, con
 #[cfg(unix)]
 unsafe extern "C" {
     fn _Unwind_RaiseException(object: *mut UnwindObject) -> i32;
-    fn _Unwind_GetIPInfo(contexto: *mut u8, before_instruction: *mut i32) -> usize;
-    fn _Unwind_GetRegionStart(contexto: *mut u8) -> usize;
-    fn _Unwind_GetLanguageSpecificData(contexto: *mut u8) -> *const u8;
-    fn _Unwind_SetGR(contexto: *mut u8, register: i32, value: usize);
-    fn _Unwind_SetIP(contexto: *mut u8, value: usize);
+    fn _Unwind_GetIPInfo(context: *mut u8, before_instruction: *mut i32) -> usize;
+    fn _Unwind_GetRegionStart(context: *mut u8) -> usize;
+    fn _Unwind_GetLanguageSpecificData(context: *mut u8) -> *const u8;
+    fn _Unwind_SetGR(context: *mut u8, register: i32, value: usize);
+    fn _Unwind_SetIP(context: *mut u8, value: usize);
 }
 
 /// The class of this runtime's exceptions (`exception_class`): the eight characters
@@ -673,9 +673,9 @@ pub extern "C" fn dartforge_unwind_failed(reason: i32) -> ! {
 /// Only the system unwinder calls it.
 #[cfg(unix)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_personality(version: i32, actions: i32, class: u64, _object: *mut u8, contexto: *mut u8) -> i32 {
+pub unsafe extern "C" fn dartforge_personality(version: i32, actions: i32, class: u64, _object: *mut u8, context: *mut u8) -> i32 {
     // SAFETY: the dispatcher's contract, preserving the legacy protocol.
-    unsafe { itanium_personality(version, actions, class, _object, contexto, false) }
+    unsafe { itanium_personality(version, actions, class, _object, context, false) }
 }
 
 /// Itanium personality for cleanup and catch-all, including mixed landing pads.
@@ -706,10 +706,10 @@ pub unsafe extern "C" fn dartforge_personality(version: i32, actions: i32, class
 #[cfg(unix)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_personality_cleanup_itanium(
-    version: i32, actions: i32, class: u64, object: *mut u8, contexto: *mut u8,
+    version: i32, actions: i32, class: u64, object: *mut u8, context: *mut u8,
 ) -> i32 {
     // SAFETY: the dispatcher's contract for sites of the cleanup protocol.
-    unsafe { itanium_personality(version, actions, class, object, contexto, true) }
+    unsafe { itanium_personality(version, actions, class, object, context, true) }
 }
 
 /// Decision of the phases, independent of the target's APIs and registers.
@@ -742,7 +742,7 @@ fn itanium_decision(version: i32, actions: i32, ours: bool, landing: u64, cleanu
 
 #[cfg(unix)]
 unsafe fn itanium_personality(
-    version: i32, actions: i32, class: u64, object: *mut u8, contexto: *mut u8, cleanup: bool,
+    version: i32, actions: i32, class: u64, object: *mut u8, context: *mut u8, cleanup: bool,
 ) -> i32 {
     // Validates the version/class before accessing the context, as in the legacy
     // protocol. Cleanup also needs to track foreign exceptions.
@@ -752,12 +752,12 @@ unsafe fn itanium_personality(
     // SAFETY: context and LSDA handed over by the system unwinder.
     unsafe {
         let mut before: i32 = 0;
-        let ip = _Unwind_GetIPInfo(contexto, &mut before) as u64;
+        let ip = _Unwind_GetIPInfo(context, &mut before) as u64;
         let ip = if before == 0 { ip.wrapping_sub(1) } else { ip };
-        let start = _Unwind_GetRegionStart(contexto) as u64;
-        let (landing, action, tabela) = site_and_action_table(_Unwind_GetLanguageSpecificData(contexto), ip.wrapping_sub(start));
+        let start = _Unwind_GetRegionStart(context) as u64;
+        let (landing, action, table) = site_and_action_table(_Unwind_GetLanguageSpecificData(context), ip.wrapping_sub(start));
         let (cleanup_pad, selector) = if cleanup && landing != 0 {
-            itanium_actions(tabela, action)
+            itanium_actions(table, action)
         } else { (action == 0, if action != 0 { 1 } else { 0 }) };
         let decision = itanium_decision(version, actions, ours, landing, cleanup_pad, selector, cleanup);
         if decision != 7 { return decision; }
@@ -765,9 +765,9 @@ unsafe fn itanium_personality(
         // chosen as the handler also runs cleanup, with the catch's selector, before
         // branching to the handler or resuming the exception.
         let handles = ours && actions & 4 != 0 && actions & 8 == 0 && selector > 0;
-        _Unwind_SetGR(contexto, 0, if cleanup { object as usize } else { 0 });
-        _Unwind_SetGR(contexto, 1, if cleanup && handles { selector as usize } else { 0 });
-        _Unwind_SetIP(contexto, (start + landing) as usize);
+        _Unwind_SetGR(context, 0, if cleanup { object as usize } else { 0 });
+        _Unwind_SetGR(context, 1, if cleanup && handles { selector as usize } else { 0 });
+        _Unwind_SetIP(context, (start + landing) as usize);
         decision
     }
 }

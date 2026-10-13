@@ -155,11 +155,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The extension type creation that the call `target(…)` performs: `E(…)`,
     /// `E.name(…)` (also with a prefix); the type and the name of the constructor.
-    pub fn creation_te(&self, ast: &ast::Ast, alvo: ExprId) -> Option<(ClassId, SymbolId)> {
-        if let Some(c) = self.named_extension_type(ast, alvo) {
+    pub fn creation_te(&self, ast: &ast::Ast, target: ExprId) -> Option<(ClassId, SymbolId)> {
+        if let Some(c) = self.named_extension_type(ast, target) {
             return Some((c, self.ctx.interner.lookup("")?));
         }
-        let ExprKind::Property { target, name, null_aware: false } = &ast.expr(alvo).kind else { return None };
+        let ExprKind::Property { target, name, null_aware: false } = &ast.expr(target).kind else { return None };
         let c = self.named_extension_type(ast, *target)?;
         let is_constructor = primary_name(self.ctx, c) == Some(name.sym)
             || self.ctx.program.classes[c.0 as usize].constructors.contains_key(&name.sym);

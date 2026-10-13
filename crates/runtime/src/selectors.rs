@@ -22,7 +22,7 @@ thread_local! {
 }
 
 /// The positions of the table of 32 runtime classes that the emitter writes
-/// (`sdk_modulo::cids_do_runtime`, `@df.cids`). With the fixed cids
+/// (`sdk_module::cids_do_runtime`, `@df.cids`). With the fixed cids
 /// (docs/NATIVO-ESPACO-UNIFICADO.md §2.4) the table is only the ABI check of
 /// [`dartforge_register_cids`]; the positions remain for whoever still asks for
 /// the cid through them.
@@ -74,24 +74,24 @@ const FIXED_CIDS_BY_POSITION: [i32; 32] = {
         cid::IMMUTABLE_LIST,
         cid::CLOSURE,
         cid::RECORD,
-        cid::PRIMEIRA_TIPADA + 1,  // _Uint8List
-        cid::PRIMEIRA_VISAO + 1,   // _Uint8ArrayView
-        cid::PRIMEIRA_TIPADA + 7,  // _Int64List
+        cid::FIRST_TYPED + 1,  // _Uint8List
+        cid::FIRST_VIEW + 1,   // _Uint8ArrayView
+        cid::FIRST_TYPED + 7,  // _Int64List
         cid::FLOAT32X4,
         cid::INT32X4,
         cid::FLOAT64X2,
-        cid::PRIMEIRA_TIPADA,      // _Int8List
-        cid::PRIMEIRA_TIPADA + 2,  // _Uint8ClampedList
-        cid::PRIMEIRA_TIPADA + 3,  // _Int16List
-        cid::PRIMEIRA_TIPADA + 4,  // _Uint16List
-        cid::PRIMEIRA_TIPADA + 5,  // _Int32List
-        cid::PRIMEIRA_TIPADA + 6,  // _Uint32List
-        cid::PRIMEIRA_TIPADA + 8,  // _Uint64List
-        cid::PRIMEIRA_TIPADA + 9,  // _Float32List
-        cid::PRIMEIRA_TIPADA + 10, // _Float64List
-        cid::PRIMEIRA_TIPADA + 12, // _Int32x4List
-        cid::PRIMEIRA_TIPADA + 11, // _Float32x4List
-        cid::PRIMEIRA_TIPADA + 13, // _Float64x2List
+        cid::FIRST_TYPED,      // _Int8List
+        cid::FIRST_TYPED + 2,  // _Uint8ClampedList
+        cid::FIRST_TYPED + 3,  // _Int16List
+        cid::FIRST_TYPED + 4,  // _Uint16List
+        cid::FIRST_TYPED + 5,  // _Int32List
+        cid::FIRST_TYPED + 6,  // _Uint32List
+        cid::FIRST_TYPED + 8,  // _Uint64List
+        cid::FIRST_TYPED + 9,  // _Float32List
+        cid::FIRST_TYPED + 10, // _Float64List
+        cid::FIRST_TYPED + 12, // _Int32x4List
+        cid::FIRST_TYPED + 11, // _Float32x4List
+        cid::FIRST_TYPED + 13, // _Float64x2List
         cid::SEND_PORT,
         cid::CAPABILITY,
     ]
@@ -101,11 +101,11 @@ const _: () = {
     // The named positions match the table.
     assert!(FIXED_CIDS_BY_POSITION[CID_NULL] == crate::layout::cid::NULL);
     assert!(FIXED_CIDS_BY_POSITION[CID_SMI] == crate::layout::cid::SMI);
-    assert!(FIXED_CIDS_BY_POSITION[CID_UINT8_LIST] == crate::layout::cid::tipada(1));
-    assert!(FIXED_CIDS_BY_POSITION[CID_UINT8_VIEW] == crate::layout::cid::visao(1, false));
-    assert!(FIXED_CIDS_BY_POSITION[CID_INT64_LIST] == crate::layout::cid::tipada(7));
-    assert!(FIXED_CIDS_BY_POSITION[CID_INT8_LIST] == crate::layout::cid::tipada(0));
-    assert!(FIXED_CIDS_BY_POSITION[CID_FLOAT64X2_LIST] == crate::layout::cid::tipada(13));
+    assert!(FIXED_CIDS_BY_POSITION[CID_UINT8_LIST] == crate::layout::cid::typed(1));
+    assert!(FIXED_CIDS_BY_POSITION[CID_UINT8_VIEW] == crate::layout::cid::view(1, false));
+    assert!(FIXED_CIDS_BY_POSITION[CID_INT64_LIST] == crate::layout::cid::typed(7));
+    assert!(FIXED_CIDS_BY_POSITION[CID_INT8_LIST] == crate::layout::cid::typed(0));
+    assert!(FIXED_CIDS_BY_POSITION[CID_FLOAT64X2_LIST] == crate::layout::cid::typed(13));
     assert!(FIXED_CIDS_BY_POSITION[CID_SEND_PORT] == crate::layout::cid::SEND_PORT);
     assert!(FIXED_CIDS_BY_POSITION[CID_CAPABILITY] == crate::layout::cid::CAPABILITY);
     assert!(CID_MINT + CID_DOUBLE + CID_BOOL + CID_ONE_BYTE_STRING + CID_TWO_BYTE_STRING > 0);
@@ -149,8 +149,8 @@ pub extern "C" fn dartforge_register_table(cid: i64, f: extern "C" fn() -> *cons
     let t = f();
     // SAFETY: the table is a module constant: cid, n and the n pairs (from the
     // third word on), copied here.
-    let tabela = unsafe { copy_table(t.add(2), *t.add(1) as usize) };
-    METHODS.with(|m| m.borrow_mut().insert(cid, tabela));
+    let table = unsafe { copy_table(t.add(2), *t.add(1) as usize) };
+    METHODS.with(|m| m.borrow_mut().insert(cid, table));
     mark_registered(cid);
 }
 
@@ -162,7 +162,7 @@ const REGISTERED_UP_TO: usize = 1 << 16;
 /// Publishes [`REGISTERED`] in the thread context (the inline allocation of
 /// `dartforge_object_new_t` checks the registration there, `llvm/mod.rs`).
 fn publish_registered(r: &[bool]) {
-    crate::heap::CONTEXTO.with(|c| {
+    crate::heap::CONTEXT.with(|c| {
         c.registered.set(r.as_ptr().cast());
         c.n_registered.set(r.len());
     });
@@ -220,7 +220,7 @@ pub extern "C" fn dartforge_publish_generation(
     REPUBLISHING.with(|r| r.set(true));
     // While the registrations are redone, every allocation goes through the
     // runtime, which registers again (`dartforge_object_new_t`).
-    crate::heap::CONTEXTO.with(|c| c.n_registered.set(0));
+    crate::heap::CONTEXT.with(|c| c.n_registered.set(0));
     if let Some(f) = register {
         f();
     }
@@ -249,7 +249,7 @@ pub extern "C" fn dartforge_object_new_t(cid: i64, fields: i64, f: extern "C" fn
 /// The module's ABI check (docs/NATIVO-ESPACO-UNIFICADO.md §2.4, §3.6): the
 /// runtime classes have fixed cids, and a module compiled with a numbering other
 /// than this runtime's cannot run on it. `ids` is the module's table: the cids of
-/// `layout::cid::DO_SDK` in order, or the 32 positions of
+/// `layout::cid::SDK_CLASSES` in order, or the 32 positions of
 /// [`FIXED_CIDS_BY_POSITION`] (a class that the loaded SDK does not have comes as
 /// -1). If different: the process aborts with the message.
 ///
@@ -259,8 +259,8 @@ pub extern "C" fn dartforge_object_new_t(cid: i64, fields: i64, f: extern "C" fn
 pub unsafe extern "C" fn dartforge_register_cids(ids: *const i64, n: i64) {
     // SAFETY: the emitter passes a module constant with `n` words.
     let v = unsafe { std::slice::from_raw_parts(ids, usize::try_from(n).unwrap_or(0)) };
-    let expected: Vec<i64> = if v.len() == crate::layout::cid::DO_SDK.len() {
-        crate::layout::cid::DO_SDK.iter().map(|&(c, _, _)| i64::from(c)).collect()
+    let expected: Vec<i64> = if v.len() == crate::layout::cid::SDK_CLASSES.len() {
+        crate::layout::cid::SDK_CLASSES.iter().map(|&(c, _, _)| i64::from(c)).collect()
     } else {
         FIXED_CIDS_BY_POSITION.iter().map(|&c| i64::from(c)).collect()
     };
@@ -321,9 +321,9 @@ fn name_hash(name: &str) -> i64 {
 /// `NoSuchMethodError`; a class may override it and return a value).
 extern "C" fn dartforge_nsm_selector(recv: i64, args: *const i64, desc: *const i64) -> i64 {
     let text = MISSING_SELECTOR.with(|s| s.borrow().clone());
-    let (tipo, name) = text.split_once(':').unwrap_or(("c", text.as_str()));
+    let (ty, name) = text.split_once(':').unwrap_or(("c", text.as_str()));
     let name = name.split_once('@').map_or(name, |(n, _)| n);
-    let code = match tipo {
+    let code = match ty {
         "g" => 1,
         "s" => 2,
         _ => 0,
@@ -332,21 +332,21 @@ extern "C" fn dartforge_nsm_selector(recv: i64, args: *const i64, desc: *const i
     // selector always carries the type tuple after the arguments (0 without type
     // arguments).
     let (value_list, hashes, tuple) = unsafe {
-        let (npos, nnom) = (*desc as usize, *desc.add(1) as usize);
+        let (npos, n_named) = (*desc as usize, *desc.add(1) as usize);
         (
-            std::slice::from_raw_parts(args, npos + nnom).to_vec(),
-            std::slice::from_raw_parts(desc.add(2), nnom).to_vec(),
-            *args.add(npos + nnom),
+            std::slice::from_raw_parts(args, npos + n_named).to_vec(),
+            std::slice::from_raw_parts(desc.add(2), n_named).to_vec(),
+            *args.add(npos + n_named),
         )
     };
     let npos = value_list.len() - hashes.len();
     let names: Vec<String> = {
-        let tabela = argument_names().read().unwrap_or_else(|e| e.into_inner());
-        hashes.iter().map(|h| tabela.get(h).cloned().unwrap_or_default()).collect()
+        let table = argument_names().read().unwrap_or_else(|e| e.into_inner());
+        hashes.iter().map(|h| table.get(h).cloned().unwrap_or_default()).collect()
     };
     let n = with_roots(&[recv], || HEAP.with(|h| h.borrow_mut().allocate_str(name)));
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    if let Some(r) = with_roots(&[n], || invocar_no_such_method(recv, code, n, &value_list, npos, &names, tuple)) {
+    if let Some(r) = with_roots(&[n], || invoke_no_such_method(recv, code, n, &value_list, npos, &names, tuple)) {
         return r;
     }
     let error = with_roots(&[n], || dartforge_no_such_method_error_new(n));
@@ -368,8 +368,8 @@ fn tuple_arguments(tuple: i64) -> Vec<i64> {
 /// `receiver_obj.noSuchMethod(Invocation)` through `_dartforgeNoSuchMethod`
 /// (`code`: 0 method, 1 getter, 2 setter): `value_list` are the positionals and
 /// then the named ones, in the order of `names`. `None` without the SDK from source.
-fn invocar_no_such_method(recv: i64, code: i64, name: i64, value_list: &[i64], npos: usize, names: &[&str], tuple: i64) -> Option<i64> {
-    let f = ajudante("_dartforgeNoSuchMethod")?;
+fn invoke_no_such_method(recv: i64, code: i64, name: i64, value_list: &[i64], npos: usize, names: &[&str], tuple: i64) -> Option<i64> {
+    let f = helper("_dartforgeNoSuchMethod")?;
     let types = tuple_arguments(tuple);
     // Everything allocated here stays in a root frame until the call (each
     // allocation may collect).
@@ -386,8 +386,8 @@ fn invocar_no_such_method(recv: i64, code: i64, name: i64, value_list: &[i64], n
         root_it(v);
     }
     let pos = root_it(dart_fixed_list(&value_list[..npos]));
-    let textos: Vec<i64> = names.iter().map(|t| root_it(HEAP.with(|h| h.borrow_mut().allocate_str(t)))).collect();
-    let names = root_it(dart_fixed_list(&textos));
+    let text: Vec<i64> = names.iter().map(|t| root_it(HEAP.with(|h| h.borrow_mut().allocate_str(t)))).collect();
+    let names = root_it(dart_fixed_list(&text));
     let vals = root_it(dart_fixed_list(&value_list[npos..]));
     let objects: Vec<i64> = types.iter().map(|&t| root_it(dartforge_rti_object_type(t))).collect();
     let types = root_it(dart_fixed_list(&objects));
@@ -401,11 +401,11 @@ fn invocar_no_such_method(recv: i64, code: i64, name: i64, value_list: &[i64], n
 
 /// The `noSuchMethod` forwarder that the compiler generates in the table of a class
 /// with its own `noSuchMethod`, for an interface member without an implementation:
-/// `env` has the `npos` positionals, the `nnom` named ones (all of them, with the
+/// `env` has the `npos` positionals, the `n_named` named ones (all of them, with the
 /// defaults) and then their names, in declaration order.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_forward_nsm(recv: i64, code: i64, name: i64, env: i64, npos: i64, nnom: i64, tuple: i64) -> i64 {
-    let (npos, nnom) = (npos as usize, nnom as usize);
+pub extern "C" fn dartforge_forward_nsm(recv: i64, code: i64, name: i64, env: i64, npos: i64, n_named: i64, tuple: i64) -> i64 {
+    let (npos, n_named) = (npos as usize, n_named as usize);
     // The forwarder's `_Contexto` (`lower/sdk_fonte.rs`, `gerar_encaminhador_nsm`)
     // keeps all the values as `Ref` (boxed by the compiler) and then the names.
     // Without any argument the context is `null` (an empty `AllocEnv` does not
@@ -418,7 +418,7 @@ pub extern "C" fn dartforge_forward_nsm(recv: i64, code: i64, name: i64, env: i6
         let n = h.object(env).map_or(0, |o| o.len());
         (0..n).map(|i| h.capture(env, i).0).collect()
     });
-    if fields.len() != npos + 2 * nnom {
+    if fields.len() != npos + 2 * n_named {
         return 0;
     }
     let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(3));
@@ -426,13 +426,13 @@ pub extern "C" fn dartforge_forward_nsm(recv: i64, code: i64, name: i64, env: i6
     root_it(0, recv);
     root_it(1, name);
     root_it(2, env);
-    let value_list: Vec<i64> = fields[..npos + nnom].to_vec();
+    let value_list: Vec<i64> = fields[..npos + n_named].to_vec();
     let names: Vec<String> = HEAP.with(|h| {
         let h = h.borrow();
-        fields[npos + nnom..].iter().map(|&t| h.text(t).map(|t| t.para_string()).unwrap_or_default()).collect()
+        fields[npos + n_named..].iter().map(|&t| h.text(t).map(|t| t.to_dart_string()).unwrap_or_default()).collect()
     });
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    let r = invocar_no_such_method(recv, code, name, &value_list, npos, &names, tuple).unwrap_or(0);
+    let r = invoke_no_such_method(recv, code, name, &value_list, npos, &names, tuple).unwrap_or(0);
     HEAP.with(|h| h.borrow_mut().pop_frame(frame));
     r
 }
@@ -460,8 +460,8 @@ pub unsafe extern "C" fn dartforge_selector(cache: *mut i64, recv: i64, hash: i6
     let bytes = unsafe { std::slice::from_raw_parts(name, len as usize) };
     let typed_one = bytes.first() == Some(&b't');
     if found_item.is_none() && typed_one {
-        let sem_t = String::from_utf8_lossy(&bytes[1..]);
-        found_item = class_method(cid, name_hash(&sem_t));
+        let without_t = String::from_utf8_lossy(&bytes[1..]);
+        found_item = class_method(cid, name_hash(&without_t));
     }
     match found_item {
         Some(f) => {
@@ -489,7 +489,7 @@ pub unsafe extern "C" fn dartforge_selector(cache: *mut i64, recv: i64, hash: i6
 /// the reason, and the process exits with 254 (the harness's "compile error" code).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_member_rejected(text: i64) {
-    let t = HEAP.with(|heap| heap.borrow().text(text).map(|t| t.para_string()).unwrap_or_default());
+    let t = HEAP.with(|heap| heap.borrow().text(text).map(|t| t.to_dart_string()).unwrap_or_default());
     use std::io::Write;
     let _ = std::io::stdout().flush();
     let _ = writeln!(std::io::stderr().lock(), "error: SDK member not supported by the native backend: {t}");
@@ -565,7 +565,7 @@ pub unsafe extern "C" fn dartforge_set_migration(data: *const i64, n: i64) {
         let Some(origin) = v.get(i + 2..i + 2 + len) else { break };
         // The runtime classes (cid < 128) have a fixed layout, the same in every
         // generation: a plan that changes them is rejected (§2.13).
-        if class < crate::layout::PRIMEIRO_CID_LIVRE {
+        if class < crate::layout::FIRST_FREE_CID {
             use std::io::Write;
             let _ = writeln!(std::io::stderr().lock(), "error: migration rejected for the runtime class {class}");
         } else {

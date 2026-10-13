@@ -1,11 +1,11 @@
 //! The object space (docs/NATIVO-ESPACO-UNIFICADO.md §2.6–§2.8 and §3.2).
 //!
 //! Every heap block lives here: a 16-byte [`crate::layout::Header`] followed by the body,
-//! in 8-byte words. Pages of [`crate::layout::PAGINA`] bytes hold blocks of a
+//! in 8-byte words. Pages of [`crate::layout::PAGE`] bytes hold blocks of a
 //! single **size class** (`layout::size_class`: the exact ones from 1 to 64
 //! words and 24 medium ones up to 2014 words, each filling the page); a larger
 //! body has its own **large region**, rounded to 4 KiB and aligned to
-//! [`crate::layout::PAGINA`] (`VirtualAlloc`/`mmap`), freed already by the minor collection that finds it
+//! [`crate::layout::PAGE`] (`VirtualAlloc`/`mmap`), freed already by the minor collection that finds it
 //! dead, into a per-size cache with a ceiling. Pages come from chunks
 //! reserved from the system and only take memory where written; freed ones go back
 //! to the system except for a small hot cache (docs/NATIVO-PLANO.md §14).
@@ -17,7 +17,7 @@
 //! Immix's). The collector does not move: an object's address is fixed while it lives.
 //!
 //! The collector walks the body by the **format** in `flags` (§2.3), without looking at the
-//! class: `INSTANCIA` by the reference map, `BRUTO` nothing, `REFS` the words
+//! class: `INSTANCE` by the reference map, `RAW` nothing, `REFS` the words
 //! `1..=word 0`. Large `REFS` have **cards** (1 bit per 32 elements,
 //! after the last element): the minor collection walks only the elements of the dirty
 //! cards of a remembered object. A block with an **attachment** (`ATTACHMENT`) keeps at `b+16`
@@ -30,20 +30,20 @@
 #![allow(unsafe_code)]
 
 use crate::layout::{
-    PAGE_HEAD, Header, DESLOCAMENTO_DO_HANDLE, ELEMENTOS_POR_CARTAO, ELEMENTOS_POR_PALAVRA_DE_CARTAO,
-    LARGEST_CLASS, N_CLASSES, PAGINA, bytes_do_bloco, capacidade, size_class, is_object, class_words,
-    palavras_do_mapa,
+    PAGE_HEAD, Header, HANDLE_OFFSET, ELEMENTS_PER_CARD, ELEMENTS_PER_CARD_WORD,
+    LARGEST_CLASS, N_CLASSES, PAGE, block_bytes, capacity, size_class, is_object, class_words,
+    map_words,
 };
 
-const LIVRE: u8 = crate::layout::estado::LIVRE;
-const JOVEM: u8 = crate::layout::estado::JOVEM;
-const VELHO: u8 = crate::layout::estado::VELHO;
-const REMEMBERED: u8 = crate::layout::estado::REMEMBERED;
-const FORA: u8 = crate::layout::flags::FORA;
-const FORMA: u8 = crate::layout::flags::FORMA;
-const INSTANCIA: u8 = crate::layout::flags::INSTANCIA;
+const FREE: u8 = crate::layout::state::FREE;
+const YOUNG: u8 = crate::layout::state::YOUNG;
+const OLD: u8 = crate::layout::state::OLD;
+const REMEMBERED: u8 = crate::layout::state::REMEMBERED;
+const OUT_OF_LINE: u8 = crate::layout::flags::OUT_OF_LINE;
+const FORMAT: u8 = crate::layout::flags::FORMAT;
+const INSTANCE: u8 = crate::layout::flags::INSTANCE;
 const REFS: u8 = crate::layout::flags::REFS;
-const CARTOES: u8 = crate::layout::flags::CARTOES;
+const CARDS: u8 = crate::layout::flags::CARDS;
 
 /// The class of the large regions in the per-class vectors (index 0, which no
 /// size class uses).
@@ -77,18 +77,18 @@ struct Quarantine {
     ring: std::collections::VecDeque<(usize, *mut u8)>,
     /// The ring's blocks, so the full sweep does not return them.
     pinned_set: crate::hash::HashSet<usize>,
-    capacidade: usize,
+    capacity: usize,
 }
 
 impl Quarantine {
     fn from_env() -> Option<Self> {
         let v = std::env::var("DARTFORGE_GC_VENENO").ok()?;
-        let capacidade = match v.trim() {
+        let capacity = match v.trim() {
             "" | "0" => return None,
             "1" => 1000,
             n => n.parse::<usize>().ok().filter(|&n| n > 0)?,
         };
-        Some(Quarantine { ring: std::collections::VecDeque::new(), pinned_set: crate::hash::HashSet::default(), capacidade })
+        Some(Quarantine { ring: std::collections::VecDeque::new(), pinned_set: crate::hash::HashSet::default(), capacity })
     }
 
     /// Poisons the block `b` of `size` bytes and puts it in the ring.
@@ -116,8 +116,8 @@ impl Quarantine {
             return true;
         }
         // SAFETY: the function contract.
-        let estado = unsafe { *b };
-        if estado == LIVRE || estado == POISON_STATE {
+        let state = unsafe { *b };
+        if state == FREE || state == POISON_STATE {
             return false;
         }
         // SAFETY: the function contract.
@@ -129,7 +129,7 @@ impl Quarantine {
     /// the ring (they stay poisoned until handed out, which zeroes them).
     fn released_set(&mut self) -> Vec<(usize, *mut u8)> {
         let mut v = Vec::new();
-        while self.ring.len() > self.capacidade {
+        while self.ring.len() > self.capacity {
             let (class, b) = self.ring.pop_front().expect("ring beyond capacity");
             self.pinned_set.remove(&(b as usize));
             v.push((class, b));
@@ -144,9 +144,9 @@ impl Quarantine {
 #[inline]
 pub(crate) fn mark_bit(b: *const Header) -> (*mut u64, u64) {
     let a = b as usize;
-    let base = a & !(PAGINA - 1);
-    let desl = a - base;
-    ((base + (desl >> 9) * 8) as *mut u64, 1u64 << ((desl >> 3) & 63))
+    let base = a & !(PAGE - 1);
+    let offsets = a - base;
+    ((base + (offsets >> 9) * 8) as *mut u64, 1u64 << ((offsets >> 3) & 63))
 }
 
 /// Was block `b` marked (by the full collection in progress, or by the minor one that
@@ -187,23 +187,23 @@ pub(crate) unsafe fn unmark_block(b: *const Header) {
 
 // ─── The body of a block ───────────────────────────────────────────────────
 
-/// Bytes of an `INSTANCIA` block (or out-of-line body) of `n` fields.
+/// Bytes of an `INSTANCE` block (or out-of-line body) of `n` fields.
 #[inline]
 pub const fn block_size(n: usize) -> usize {
-    bytes_do_bloco(capacidade(n) + palavras_do_mapa(n))
+    block_bytes(capacity(n) + map_words(n))
 }
 
-/// The body format of block `b` (`flags & FORMA`).
+/// The body format of block `b` (`flags & FORMAT`).
 ///
 /// # Safety
 /// `b` points to a readable header.
 #[inline]
 pub(crate) unsafe fn shape(b: *const Header) -> u8 {
     // SAFETY: the function contract.
-    unsafe { (*b).flags & FORMA }
+    unsafe { (*b).flags & FORMAT }
 }
 
-/// The body of an `INSTANCIA` object (the block itself, or the out-of-line body).
+/// The body of an `INSTANCE` object (the block itself, or the out-of-line body).
 ///
 /// # Safety
 /// `b` is the header of a live block.
@@ -211,7 +211,7 @@ pub(crate) unsafe fn shape(b: *const Header) -> u8 {
 pub(crate) unsafe fn body(b: *mut Header) -> *mut Header {
     // SAFETY: the function contract; with FORA, the first field is the address.
     unsafe {
-        if (*b).flags & FORA != 0 { *fields_of(b).cast::<*mut Header>() } else { b }
+        if (*b).flags & OUT_OF_LINE != 0 { *fields_of(b).cast::<*mut Header>() } else { b }
     }
 }
 
@@ -221,7 +221,7 @@ pub(crate) fn fields_of(c: *mut Header) -> *mut i64 {
     c.wrapping_add(1).cast()
 }
 
-/// Is field `i` of an `INSTANCIA` body a reference?
+/// Is field `i` of an `INSTANCE` body a reference?
 ///
 /// # Safety
 /// `c` is a valid body and `i < n`.
@@ -232,13 +232,13 @@ pub(crate) unsafe fn is_reference(c: *const Header, i: usize) -> bool {
         if i < 32 {
             (*c).map >> i & 1 != 0
         } else {
-            let ext = fields_of(c.cast_mut()).add(capacidade(usize::from((*c).n))).cast::<u64>();
+            let ext = fields_of(c.cast_mut()).add(capacity(usize::from((*c).n))).cast::<u64>();
             *ext.add((i - 32) / 64) >> ((i - 32) % 64) & 1 != 0
         }
     }
 }
 
-/// Sets or clears the reference bit of field `i` of an `INSTANCIA` body.
+/// Sets or clears the reference bit of field `i` of an `INSTANCE` body.
 ///
 /// # Safety
 /// `c` is a valid body and `i < n`.
@@ -249,23 +249,23 @@ pub(crate) unsafe fn mark_reference(c: *mut Header, i: usize, is_ref_kind: bool)
         if i < 32 {
             if is_ref_kind { (*c).map |= 1 << i } else { (*c).map &= !(1 << i) }
         } else {
-            let w = fields_of(c).add(capacidade(usize::from((*c).n))).cast::<u64>().add((i - 32) / 64);
+            let w = fields_of(c).add(capacity(usize::from((*c).n))).cast::<u64>().add((i - 32) / 64);
             let bit = 1u64 << ((i - 32) % 64);
             if is_ref_kind { *w |= bit } else { *w &= !bit }
         }
     }
 }
 
-/// Pushes the reference fields of an `INSTANCIA` body; returns how many fields
-/// it has. `map` is only a reference map in `INSTANCIA` (§2.3).
+/// Pushes the reference fields of an `INSTANCE` body; returns how many fields
+/// it has. `map` is only a reference map in `INSTANCE` (§2.3).
 ///
 /// # Safety
-/// `c` is a valid `INSTANCIA` body.
+/// `c` is a valid `INSTANCE` body.
 #[inline]
 pub(crate) unsafe fn push_references(c: *const Header, stack: &mut Vec<i64>) -> usize {
     // SAFETY: the function contract.
     unsafe {
-        debug_assert!(shape(c) == INSTANCIA, "map read as a reference map in a body that is not INSTANCIA");
+        debug_assert!(shape(c) == INSTANCE, "map read as a reference map in a body that is not INSTANCIA");
         let n = usize::from((*c).n);
         let fields = fields_of(c.cast_mut());
         let mut m = (*c).map;
@@ -275,8 +275,8 @@ pub(crate) unsafe fn push_references(c: *const Header, stack: &mut Vec<i64>) -> 
             m &= m - 1;
         }
         if n > 32 {
-            let ext = fields.add(capacidade(n)).cast::<u64>();
-            for w in 0..palavras_do_mapa(n) {
+            let ext = fields.add(capacity(n)).cast::<u64>();
+            for w in 0..map_words(n) {
                 let mut m = *ext.add(w);
                 while m != 0 {
                     let i = 32 + w * 64 + m.trailing_zeros() as usize;
@@ -301,7 +301,7 @@ pub(crate) unsafe fn body_refs(b: *const Header, words: usize) -> usize {
     usize::try_from(n).unwrap_or(0).min(words.saturating_sub(1))
 }
 
-/// The card words of a `REFS` body with `CARTOES` of `len` elements
+/// The card words of a `REFS` body with `CARDS` of `len` elements
 /// (after the last element: `b + 24 + 8·len`).
 #[inline]
 pub(crate) fn cards_of(b: *mut Header, len: usize) -> *mut u64 {
@@ -309,24 +309,24 @@ pub(crate) fn cards_of(b: *mut Header, len: usize) -> *mut u64 {
 }
 
 /// Dirties the card of element `i` (element index, from 0) of a list
-/// with `CARTOES` of `len` elements.
+/// with `CARDS` of `len` elements.
 ///
 /// # Safety
-/// `b` is a `REFS` block with `CARTOES` and `i < len`.
+/// `b` is a `REFS` block with `CARDS` and `i < len`.
 #[inline]
 pub(crate) unsafe fn dirty_card(b: *mut Header, len: usize, i: usize) {
-    let p = cards_of(b, len).wrapping_add(i / ELEMENTOS_POR_PALAVRA_DE_CARTAO);
+    let p = cards_of(b, len).wrapping_add(i / ELEMENTS_PER_CARD_WORD);
     // SAFETY: the function contract.
-    unsafe { *p |= 1u64 << ((i / ELEMENTOS_POR_CARTAO) & 63) };
+    unsafe { *p |= 1u64 << ((i / ELEMENTS_PER_CARD) & 63) };
 }
 
 /// Dirties all cards (the explicit barrier of whoever wrote from outside).
 ///
 /// # Safety
-/// `b` is a `REFS` block with `CARTOES` of `len` elements.
+/// `b` is a `REFS` block with `CARDS` of `len` elements.
 pub(crate) unsafe fn dirty_all_cards(b: *mut Header, len: usize) {
     let c = cards_of(b, len);
-    for w in 0..len.div_ceil(ELEMENTOS_POR_PALAVRA_DE_CARTAO) {
+    for w in 0..len.div_ceil(ELEMENTS_PER_CARD_WORD) {
         // SAFETY: the function contract.
         unsafe { *c.add(w) = u64::MAX };
     }
@@ -351,42 +351,42 @@ pub(crate) unsafe fn push_refs(b: *const Header, n: usize, stack: &mut Vec<i64>)
 }
 
 /// Pushes the `Ref`s of the elements of the dirty cards of a `REFS` list with
-/// `CARTOES` of `len` elements and clears the cards; returns how many elements
+/// `CARDS` of `len` elements and clears the cards; returns how many elements
 /// it walked.
 ///
 /// # Safety
-/// `b` is a `REFS` block with `CARTOES` of `len` elements.
+/// `b` is a `REFS` block with `CARDS` of `len` elements.
 pub(crate) unsafe fn push_dirty_cards(b: *mut Header, len: usize, stack: &mut Vec<i64>) -> usize {
     let c = cards_of(b, len);
     let elements = fields_of(b).wrapping_add(1);
     let mut work = 0;
-    for w in 0..len.div_ceil(ELEMENTOS_POR_PALAVRA_DE_CARTAO) {
+    for w in 0..len.div_ceil(ELEMENTS_PER_CARD_WORD) {
         // SAFETY: the function contract.
         let mut m = unsafe { std::ptr::replace(c.add(w), 0) };
         while m != 0 {
             let k = w * 64 + m.trailing_zeros() as usize;
-            let (de, until) = (k * ELEMENTOS_POR_CARTAO, ((k + 1) * ELEMENTOS_POR_CARTAO).min(len));
-            for i in de..until {
+            let (of, until) = (k * ELEMENTS_PER_CARD, ((k + 1) * ELEMENTS_PER_CARD).min(len));
+            for i in of..until {
                 // SAFETY: `i < len`.
                 let r = unsafe { *elements.add(i) };
                 if r != 0 && r & 1 == 0 {
                     stack.push(r);
                 }
             }
-            work += until.saturating_sub(de);
+            work += until.saturating_sub(of);
             m &= m - 1;
         }
     }
     work
 }
 
-/// Clears the cards of a `REFS` list with `CARTOES` of `len` elements.
+/// Clears the cards of a `REFS` list with `CARDS` of `len` elements.
 ///
 /// # Safety
-/// `b` is a `REFS` block with `CARTOES` of `len` elements.
+/// `b` is a `REFS` block with `CARDS` of `len` elements.
 pub(crate) unsafe fn clear_cards(b: *mut Header, len: usize) {
     // SAFETY: the function contract.
-    unsafe { std::ptr::write_bytes(cards_of(b, len), 0, len.div_ceil(ELEMENTOS_POR_PALAVRA_DE_CARTAO)) };
+    unsafe { std::ptr::write_bytes(cards_of(b, len), 0, len.div_ceil(ELEMENTS_PER_CARD_WORD)) };
 }
 
 /// An out-of-line body of `n` zeroed fields (the system allocator).
@@ -420,7 +420,7 @@ pub(crate) unsafe fn release_out_of_line_body(c: *mut Header) {
 /// and the block, rounded to [`REGION_GRANULARITY`].
 #[inline]
 pub(crate) const fn region_bytes(words: usize) -> usize {
-    (PAGE_HEAD + bytes_do_bloco(words)).next_multiple_of(REGION_GRANULARITY)
+    (PAGE_HEAD + block_bytes(words)).next_multiple_of(REGION_GRANULARITY)
 }
 
 /// Bytes that an allocation of a body of `words` words takes: the class
@@ -428,7 +428,7 @@ pub(crate) const fn region_bytes(words: usize) -> usize {
 #[inline]
 pub(crate) const fn allocation_bytes(words: usize) -> usize {
     match size_class(words) {
-        Some(c) => bytes_do_bloco(class_words(c)),
+        Some(c) => block_bytes(class_words(c)),
         None => region_bytes(words),
     }
 }
@@ -440,7 +440,7 @@ pub(crate) const fn allocation_bytes(words: usize) -> usize {
 #[derive(Debug)]
 pub(crate) struct Page {
     base: *mut u8,
-    /// Allocated bytes (`PAGINA`, or those of the large region).
+    /// Allocated bytes (`PAGE`, or those of the large region).
     bytes: usize,
     /// The size class, or [`LARGE`].
     class: usize,
@@ -465,8 +465,8 @@ impl Page {
     /// The page of blocks of class `class` (body of `words` words) at
     /// `base` (`bytes` bytes).
     fn formatted(base: *mut u8, bytes: usize, class: usize, words: usize) -> Self {
-        let size = bytes_do_bloco(words);
-        let blocks = if class == LARGE { 1 } else { (PAGINA - PAGE_HEAD) / size };
+        let size = block_bytes(words);
+        let blocks = if class == LARGE { 1 } else { (PAGE - PAGE_HEAD) / size };
         let in_words = u32::try_from(size / 8).unwrap_or(1);
         let offset = in_words.trailing_zeros();
         let inverse = odd_inverse(in_words >> offset);
@@ -477,20 +477,20 @@ impl Page {
         self.base.wrapping_add(PAGE_HEAD)
     }
     fn size(&self) -> usize {
-        bytes_do_bloco(self.words)
+        block_bytes(self.words)
     }
     fn block(&self, i: usize) -> *mut Header {
         self.start().wrapping_add(i * self.size()).cast()
     }
-    /// The index of the block that starts `desl` bytes after the base, if one
+    /// The index of the block that starts `offsets` bytes after the base, if one
     /// starts there.
     #[inline]
-    fn ix(&self, desl: usize) -> Option<usize> {
-        if desl & 7 != 0 || desl >= self.bytes || desl < PAGE_HEAD || self.empty {
+    fn ix(&self, offsets: usize) -> Option<usize> {
+        if offsets & 7 != 0 || offsets >= self.bytes || offsets < PAGE_HEAD || self.empty {
             return None;
         }
-        let desl = desl - PAGE_HEAD;
-        let words = (desl >> 3) as u32;
+        let offsets = offsets - PAGE_HEAD;
+        let words = (offsets >> 3) as u32;
         let mask = (1u32 << self.offset) - 1;
         if words & mask != 0 {
             return None;
@@ -523,7 +523,7 @@ impl PageMap {
     const BITS: usize = 16;
     #[inline]
     fn key(base: usize) -> (usize, usize) {
-        let k = base >> PAGINA.trailing_zeros();
+        let k = base >> PAGE.trailing_zeros();
         (k >> Self::BITS, k & ((1 << Self::BITS) - 1))
     }
     #[inline]
@@ -554,7 +554,7 @@ impl PageMap {
 
 // ─── System memory ─────────────────────────────────────────────────────────
 
-/// The reservation of the object space pages of [`PAGINA`] bytes
+/// The reservation of the object space pages of [`PAGE`] bytes
 /// (docs/NATIVO-PLANO.md §14): chunks of [`PAGES_PER_CHUNK`] pages
 /// reserved from the system at once, on all platforms, and the pages
 /// freed by collection. A new page comes zeroed from the system and only enters
@@ -671,17 +671,17 @@ mod mapping {
 }
 
 /// System memory: the large regions (reserved and committed at
-/// once, zeroed, aligned to [`PAGINA`], with the system's page
+/// once, zeroed, aligned to [`PAGE`], with the system's page
 /// granularity — a 20 KiB object takes 24 KiB; the rest of the aligned address range
 /// is not committed) and the page chunks of the [`PageReserve`]
 /// (reserved, committed page by page on Windows).
 mod system {
-    use super::PAGINA;
+    use super::PAGE;
 
     #[cfg(windows)]
     unsafe extern "system" {
-        fn VirtualAlloc(address: *mut u8, bytes: usize, tipo: u32, protection: u32) -> *mut u8;
-        fn VirtualFree(address: *mut u8, bytes: usize, tipo: u32) -> i32;
+        fn VirtualAlloc(address: *mut u8, bytes: usize, ty: u32, protection: u32) -> *mut u8;
+        fn VirtualFree(address: *mut u8, bytes: usize, ty: u32) -> i32;
     }
     #[cfg(windows)]
     const MEM_COMMIT: u32 = 0x1000;
@@ -694,25 +694,25 @@ mod system {
     #[cfg(windows)]
     const PAGE_READWRITE: u32 = 0x04;
 
-    /// `VirtualAlloc` of `bytes` with `tipo`; aborts when out of memory.
+    /// `VirtualAlloc` of `bytes` with `ty`; aborts when out of memory.
     #[cfg(windows)]
-    fn virtual_alloc(address: *mut u8, bytes: usize, tipo: u32) -> *mut u8 {
+    fn virtual_alloc(address: *mut u8, bytes: usize, ty: u32) -> *mut u8 {
         // SAFETY: new reservation (null `address`) or commit inside a
         // reservation of this module.
-        let p = unsafe { VirtualAlloc(address, bytes, tipo, PAGE_READWRITE) };
+        let p = unsafe { VirtualAlloc(address, bytes, ty, PAGE_READWRITE) };
         if p.is_null() {
-            std::alloc::handle_alloc_error(std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout"));
+            std::alloc::handle_alloc_error(std::alloc::Layout::from_size_align(bytes, PAGE).expect("layout"));
         }
         p
     }
 
-    /// Zeroed `bytes` aligned to [`PAGINA`], committed.
+    /// Zeroed `bytes` aligned to [`PAGE`], committed.
     #[cfg(windows)]
     pub fn reserve_space(bytes: usize) -> *mut u8 {
         // The Windows allocation granularity (64 KiB) gives the alignment
         // of a page of the space.
         let p = virtual_alloc(std::ptr::null_mut(), bytes, MEM_RESERVE | MEM_COMMIT);
-        assert!(p as usize % PAGINA == 0, "VirtualAlloc without the 64 KiB alignment");
+        assert!(p as usize % PAGE == 0, "VirtualAlloc without the 64 KiB alignment");
         p
     }
     /// Returns `[p, p + bytes)` to the system.
@@ -724,12 +724,12 @@ mod system {
         // SAFETY: the function contract.
         unsafe { VirtualFree(p, 0, MEM_RELEASE) };
     }
-    /// A chunk of `bytes` aligned to [`PAGINA`] for pages: on Windows only
+    /// A chunk of `bytes` aligned to [`PAGE`] for pages: on Windows only
     /// reserved ([`confirm`] each page before use).
     #[cfg(windows)]
     pub fn reserve_chunk(bytes: usize) -> *mut u8 {
         let p = virtual_alloc(std::ptr::null_mut(), bytes, MEM_RESERVE);
-        assert!(p as usize % PAGINA == 0, "VirtualAlloc without the 64 KiB alignment");
+        assert!(p as usize % PAGE == 0, "VirtualAlloc without the 64 KiB alignment");
         p
     }
     /// Commits `[p, p + bytes)` of a chunk (zeroed if it was not
@@ -749,10 +749,10 @@ mod system {
         unsafe { VirtualFree(p, bytes, MEM_DECOMMIT) };
     }
 
-    /// Zeroed `bytes` aligned to [`PAGINA`].
+    /// Zeroed `bytes` aligned to [`PAGE`].
     #[cfg(unix)]
     pub fn reserve_space(bytes: usize) -> *mut u8 {
-        super::mapping::map_pages(bytes, PAGINA)
+        super::mapping::map_pages(bytes, PAGE)
     }
     /// Returns `[p, p + bytes)` to the system.
     ///
@@ -763,11 +763,11 @@ mod system {
         // SAFETY: the function contract.
         unsafe { super::mapping::unmap(p, bytes) };
     }
-    /// A chunk of `bytes` aligned to [`PAGINA`] for pages (`mmap` only
+    /// A chunk of `bytes` aligned to [`PAGE`] for pages (`mmap` only
     /// takes memory where written).
     #[cfg(unix)]
     pub fn reserve_chunk(bytes: usize) -> *mut u8 {
-        super::mapping::map_pages(bytes, PAGINA)
+        super::mapping::map_pages(bytes, PAGE)
     }
     /// Nothing to commit on Unix.
     #[cfg(unix)]
@@ -783,10 +783,10 @@ mod system {
         unsafe { super::mapping::discard(p, bytes) };
     }
 
-    /// Zeroed `bytes` aligned to [`PAGINA`].
+    /// Zeroed `bytes` aligned to [`PAGE`].
     #[cfg(not(any(windows, unix)))]
     pub fn reserve_space(bytes: usize) -> *mut u8 {
-        let layout = std::alloc::Layout::from_size_align(bytes, PAGINA).expect("region layout");
+        let layout = std::alloc::Layout::from_size_align(bytes, PAGE).expect("region layout");
         // SAFETY: layout of non-zero size.
         let p = unsafe { std::alloc::alloc_zeroed(layout) };
         if p.is_null() {
@@ -801,9 +801,9 @@ mod system {
     #[cfg(not(any(windows, unix)))]
     pub unsafe fn free(p: *mut u8, bytes: usize) {
         // SAFETY: the function contract.
-        unsafe { std::alloc::dealloc(p, std::alloc::Layout::from_size_align(bytes, PAGINA).expect("region layout")) };
+        unsafe { std::alloc::dealloc(p, std::alloc::Layout::from_size_align(bytes, PAGE).expect("region layout")) };
     }
-    /// A chunk of zeroed `bytes` aligned to [`PAGINA`].
+    /// A chunk of zeroed `bytes` aligned to [`PAGE`].
     #[cfg(not(any(windows, unix)))]
     pub fn reserve_chunk(bytes: usize) -> *mut u8 {
         reserve_space(bytes)
@@ -823,25 +823,25 @@ mod system {
 }
 
 impl PageReserve {
-    /// A zeroed page of [`PAGINA`] bytes, aligned to [`PAGINA`].
+    /// A zeroed page of [`PAGE`] bytes, aligned to [`PAGE`].
     fn request_fn(&mut self) -> *mut u8 {
         if let Some(p) = self.dirty.pop() {
             self.stopped = self.stopped.min(self.dirty.len());
             // SAFETY: page of the reserve, unused.
-            unsafe { std::ptr::write_bytes(p, 0, PAGINA) };
+            unsafe { std::ptr::write_bytes(p, 0, PAGE) };
             return p;
         }
         if self.free_list.is_empty() {
-            let bytes = PAGINA * PAGES_PER_CHUNK;
+            let bytes = PAGE * PAGES_PER_CHUNK;
             let start = system::reserve_chunk(bytes);
             self.chunks.push((start, bytes));
             // Those with low addresses go first (`pop`).
             for i in (0..PAGES_PER_CHUNK).rev() {
-                self.free_list.push(start.wrapping_add(i * PAGINA));
+                self.free_list.push(start.wrapping_add(i * PAGE));
             }
         }
         let p = self.free_list.pop().expect("new chunk without pages");
-        system::confirm(p, PAGINA);
+        system::confirm(p, PAGE);
         p
     }
     /// Returns page `p` (without live objects) to the reserve, dirty.
@@ -857,7 +857,7 @@ impl PageReserve {
         let k = self.stopped.max(self.dirty.len().saturating_sub(HOT_PAGES)).min(self.dirty.len());
         for p in self.dirty.drain(..k) {
             // SAFETY: page of a chunk, unused.
-            unsafe { system::discard(p, PAGINA) };
+            unsafe { system::discard(p, PAGE) };
             self.free_list.push(p);
         }
         self.stopped = self.dirty.len();
@@ -893,7 +893,7 @@ struct LargeRegions {
 }
 
 impl LargeRegions {
-    /// A zeroed region of `bytes` bytes, aligned to [`PAGINA`].
+    /// A zeroed region of `bytes` bytes, aligned to [`PAGE`].
     fn request_fn(&mut self, bytes: usize) -> *mut u8 {
         if let Some(i) = self.released_list.iter().rposition(|&(b, _)| b == bytes) {
             let (_, p) = self.released_list.remove(i);
@@ -997,7 +997,7 @@ pub struct ObjectSpace {
     /// The recent peak of occupied blocks of each class, which decays on each full
     /// collection.
     peak: Vec<usize>,
-    /// The objects with an out-of-line body ([`FORA`]).
+    /// The objects with an out-of-line body ([`OUT_OF_LINE`]).
     pub(crate) with_out_of_line: Vec<*mut Header>,
     /// Whether each class's region came from a free range (garbage of the dead) or from
     /// a zeroed page.
@@ -1012,7 +1012,7 @@ pub struct ObjectSpace {
     pub(crate) marked_set: usize,
     /// The quarantine of the dead (`DARTFORGE_GC_VENENO`); `None` without it.
     quarantine: Option<Quarantine>,
-    /// Where the pages of [`PAGINA`] bytes come from.
+    /// Where the pages of [`PAGE`] bytes come from.
     reserve: PageReserve,
     /// The cache of freed large regions.
     large_ones: LargeRegions,
@@ -1073,7 +1073,7 @@ impl ObjectSpace {
             return i;
         }
         let base = self.reserve.request_fn();
-        self.new_page(Page::formatted(base, PAGINA, class, words))
+        self.new_page(Page::formatted(base, PAGE, class, words))
     }
 
     /// A zeroed large region for a body of `words` words. Returns the
@@ -1125,7 +1125,7 @@ impl ObjectSpace {
     /// Free ranges keep the garbage of the dead (the sweep does not touch them): the
     /// handed-out range is zeroed here, right before the program uses it.
     fn take_from_region(&mut self, class: usize, k: usize) -> (*mut u8, usize) {
-        let size = bytes_do_bloco(class_words(class));
+        let size = block_bytes(class_words(class));
         let (mut cursor, mut end) = self.region[class];
         if (end as usize).saturating_sub(cursor as usize) < size {
             (cursor, end) = match self.free_list[class].pop() {
@@ -1155,7 +1155,7 @@ impl ObjectSpace {
     pub(crate) fn take_range(&mut self, class: usize, k: usize) -> (*mut u8, usize) {
         debug_assert!(class != LARGE && class <= LARGEST_CLASS && k > 0);
         let (start, j) = self.take_from_region(class, k);
-        self.ranges.push((start, start.wrapping_add(j * bytes_do_bloco(class_words(class))), class));
+        self.ranges.push((start, start.wrapping_add(j * block_bytes(class_words(class))), class));
         self.demand[class] += j;
         self.handed_out += j;
         self.in_use[class] += j;
@@ -1166,7 +1166,7 @@ impl ObjectSpace {
     /// last TLAB range): back to the region, if it continues from there; otherwise, to the
     /// free ranges. The handed-out range shrinks accordingly.
     pub(crate) fn return_range(&mut self, class: usize, start: *mut u8, end: *mut u8) {
-        let k = (end as usize - start as usize) / bytes_do_bloco(class_words(class));
+        let k = (end as usize - start as usize) / block_bytes(class_words(class));
         self.handed_out -= k;
         self.in_use[class] -= k;
         if let Some(f) = self.ranges.iter_mut().rev().find(|f| f.2 == class && f.1 == end) {
@@ -1181,7 +1181,7 @@ impl ObjectSpace {
 
     /// Returns the dead blocks `[start, end)` of the class to the free ranges, without
     /// touching them — under `--gc-stress` and with verification, zeroed right away (the
-    /// [`LIVRE`] state lets the stale handle be caught, N4).
+    /// [`FREE`] state lets the stale handle be caught, N4).
     ///
     /// # Safety
     /// `[start, end)` are blocks of the class of a page of this space, without
@@ -1190,7 +1190,7 @@ impl ObjectSpace {
         // With poison, each block enters the quarantine; what exceeded its capacity
         // goes back to the free list.
         if let Some(q) = self.quarantine.as_mut() {
-            let size = bytes_do_bloco(class_words(class));
+            let size = block_bytes(class_words(class));
             let mut b = start;
             while b < end {
                 // SAFETY: the function contract.
@@ -1198,7 +1198,7 @@ impl ObjectSpace {
                 b = b.wrapping_add(size);
             }
             for (c, b) in q.released_set() {
-                let t = bytes_do_bloco(class_words(c));
+                let t = block_bytes(class_words(c));
                 self.free_list[c].push((b, b.wrapping_add(t)));
             }
             return;
@@ -1214,10 +1214,10 @@ impl ObjectSpace {
     /// removed range enters the final interval; it neither sorts nor walks the
     /// other free ones. Never merges different classes or pages.
     fn insert_free_range(&mut self, class: usize, mut start: *mut u8, mut end: *mut u8) {
-        let page = start as usize & !(PAGINA - 1);
+        let page = start as usize & !(PAGE - 1);
         let free_list = &mut self.free_list[class];
         while let Some(&(a, b)) = free_list.last() {
-            if a as usize & !(PAGINA - 1) != page {
+            if a as usize & !(PAGE - 1) != page {
                 break;
             }
             if b == start {
@@ -1237,8 +1237,8 @@ impl ObjectSpace {
     pub(crate) fn remember(&mut self, b: *mut Header) {
         // SAFETY: block of the space.
         unsafe {
-            if (*b).estado == VELHO {
-                (*b).estado = REMEMBERED;
+            if (*b).state == OLD {
+                (*b).state = REMEMBERED;
                 self.remembered.push(b);
             }
         }
@@ -1314,7 +1314,7 @@ impl ObjectSpace {
             }
         }
         for &(start, end, class) in &self.ranges {
-            let size = bytes_do_bloco(class_words(class));
+            let size = block_bytes(class_words(class));
             let mut p = start;
             while p < end {
                 // SAFETY: block of the range, in a live page.
@@ -1328,21 +1328,21 @@ impl ObjectSpace {
 
     /// Visits each block handed out since the last collection and still occupied
     /// (those one by one and those of the TLAB ranges; a block of the range the TLAB
-    /// did not hand out is zeroed, [`LIVRE`]).
+    /// did not hand out is zeroed, [`FREE`]).
     pub(crate) fn young_handed_out(&self, f: &mut dyn FnMut(*mut Header)) {
         for &(b, _) in &self.young_set {
             // SAFETY: block handed out since the last collection, in a live page.
-            if unsafe { (*b).estado } == JOVEM {
+            if unsafe { (*b).state } == YOUNG {
                 f(b);
             }
         }
         for &(start, end, class) in &self.ranges {
-            let size = bytes_do_bloco(class_words(class));
+            let size = block_bytes(class_words(class));
             let mut p = start;
             while p < end {
                 let b: *mut Header = p.cast();
                 // SAFETY: block of the range, in a live page.
-                if unsafe { (*b).estado } == JOVEM {
+                if unsafe { (*b).state } == YOUNG {
                     f(b);
                 }
                 p = p.wrapping_add(size);
@@ -1362,7 +1362,7 @@ impl ObjectSpace {
         let mut released_set = 0;
         // SAFETY: the function contract.
         unsafe {
-            if (*b).flags & FORA != 0 {
+            if (*b).flags & OUT_OF_LINE != 0 {
                 released_set += block_size(usize::from((*body(b)).n));
                 self.with_out_of_line.retain(|&x| x != b);
                 Self::release_body(b);
@@ -1374,7 +1374,7 @@ impl ObjectSpace {
             }
             unmark_block(b);
         }
-        let Some(i) = self.map.get(b as usize & !(PAGINA - 1)) else { return released_set };
+        let Some(i) = self.map.get(b as usize & !(PAGE - 1)) else { return released_set };
         let class = self.pages[i].class;
         self.live_set -= 1;
         if class == LARGE {
@@ -1382,7 +1382,7 @@ impl ObjectSpace {
             released_set += p.bytes;
             self.large_ones.give_back(p.base, p.bytes);
         } else {
-            let size = bytes_do_bloco(class_words(class));
+            let size = block_bytes(class_words(class));
             released_set += size;
             self.in_use[class] -= 1;
             let start = b.cast::<u8>();
@@ -1396,8 +1396,8 @@ impl ObjectSpace {
     /// block, the bytes of each and how many fit (the per-page ARC
     /// metadata table, `arc::Geometry`). `None` outside the space.
     pub(crate) fn geometry(&self, h: i64) -> Option<(u64, u64, u32)> {
-        let a = (h - DESLOCAMENTO_DO_HANDLE) as usize;
-        let i = self.map.get(a & !(PAGINA - 1))?;
+        let a = (h - HANDLE_OFFSET) as usize;
+        let i = self.map.get(a & !(PAGE - 1))?;
         let p = &self.pages[i];
         if p.empty {
             return None;
@@ -1422,13 +1422,13 @@ impl ObjectSpace {
                     // (Julia's sweep of large objects, `sweep_big`): until the
                     // full collection, it would be memory that no trigger
                     // counts (docs/NATIVO-PLANO.md §14.2).
-                    if let Some(i) = self.map.get(b as usize & !(PAGINA - 1)) {
+                    if let Some(i) = self.map.get(b as usize & !(PAGE - 1)) {
                         let p = self.remove_page(i);
                         released_set += p.bytes;
                         self.large_ones.give_back(p.base, p.bytes);
                     }
                 } else {
-                    let size = bytes_do_bloco(class_words(class));
+                    let size = block_bytes(class_words(class));
                     released_set += size;
                     self.in_use[class] -= 1;
                     let start = b.cast::<u8>();
@@ -1442,7 +1442,7 @@ impl ObjectSpace {
         // All handed-out blocks marked: no dead in the ranges.
         let all_live = self.marked_set >= self.handed_out;
         for &(start, end, class) in if all_live { &ranges[..0] } else { &ranges[..] } {
-            let size = bytes_do_bloco(class_words(class));
+            let size = block_bytes(class_words(class));
             let mut chunk: *mut u8 = std::ptr::null_mut();
             let mut dead_in_range = 0;
             let mut p = start;
@@ -1474,7 +1474,7 @@ impl ObjectSpace {
         self.ranges.clear();
         for b in std::mem::take(&mut self.remembered) {
             // SAFETY: remembered block, old.
-            unsafe { (*b).estado = VELHO };
+            unsafe { (*b).state = OLD };
         }
         self.live_set -= dead_set;
         self.handed_out = 0;
@@ -1493,15 +1493,15 @@ impl ObjectSpace {
     unsafe fn release_body(b: *mut Header) {
         // SAFETY: the function contract.
         unsafe {
-            if (*b).flags & FORA != 0 {
+            if (*b).flags & OUT_OF_LINE != 0 {
                 release_out_of_line_body(body(b));
-                (*b).flags &= !FORA;
+                (*b).flags &= !OUT_OF_LINE;
             }
         }
     }
 
     /// A new block with a body of `words` zeroed words, class `cid`,
-    /// `flags` and `n` in the header (saturated at `u16::MAX`), state `JOVEM`: the
+    /// `flags` and `n` in the header (saturated at `u16::MAX`), state `YOUNG`: the
     /// handle.
     #[inline]
     pub(crate) fn allocate(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> i64 {
@@ -1520,19 +1520,19 @@ impl ObjectSpace {
         self.handed_out += 1;
         // SAFETY: free block just taken, zeroed.
         unsafe {
-            (*b).estado = JOVEM;
+            (*b).state = YOUNG;
             (*b).flags = flags;
             (*b).n = u16::try_from(n).unwrap_or(u16::MAX);
             (*b).class_id = cid;
-            // Large object that is neither a string nor `INSTANCIA` (`map` unused,
+            // Large object that is neither a string nor `INSTANCE` (`map` unused,
             // §2.3): `map` keeps the body words, so that
             // `body_words` does not go to the page map on every read.
-            if n > usize::from(u16::MAX) && flags & crate::layout::flags::FORMA != INSTANCIA && !crate::layout::cid::is_string(cid) {
+            if n > usize::from(u16::MAX) && flags & crate::layout::flags::FORMAT != INSTANCE && !crate::layout::cid::is_string(cid) {
                 (*b).map = u32::try_from(words).unwrap_or(0);
             }
         }
         self.live_set += 1;
-        b as i64 + DESLOCAMENTO_DO_HANDLE
+        b as i64 + HANDLE_OFFSET
     }
 
     /// The block of handle `h`, if `h` is that of a block of some page of this
@@ -1542,8 +1542,8 @@ impl ObjectSpace {
         if !is_object(h) {
             return None;
         }
-        let b = (h - DESLOCAMENTO_DO_HANDLE) as usize;
-        let base = b & !(PAGINA - 1);
+        let b = (h - HANDLE_OFFSET) as usize;
+        let base = b & !(PAGE - 1);
         let p = &self.pages[self.map.get(base)?];
         p.ix(b - base).map(|i| p.block(i))
     }
@@ -1553,7 +1553,7 @@ impl ObjectSpace {
     pub(crate) fn occupied_block(&self, h: i64) -> bool {
         let Some(b) = self.block_of(h) else { return false; };
         let address = b as usize;
-        let page = &self.pages[self.map.get(address & !(PAGINA - 1)).unwrap()];
+        let page = &self.pages[self.map.get(address & !(PAGE - 1)).unwrap()];
         if page.class != LARGE {
             let c = page.class;
             if self.free_list[c].iter().any(|&(start, end)|
@@ -1566,18 +1566,18 @@ impl ObjectSpace {
             }
         }
         // SAFETY: block located by this space's page index.
-        let estado = unsafe { (*b).estado };
-        estado != LIVRE && estado != POISON_STATE
+        let state = unsafe { (*b).state };
+        state != FREE && state != POISON_STATE
     }
 
     /// Does the address of handle `h` fall in a page of this space (live or empty)?
     /// Distinguishes the handle of a collected object from a scalar used as a handle.
     pub(crate) fn in_page(&self, h: i64) -> bool {
-        let b = (h - DESLOCAMENTO_DO_HANDLE) as usize;
-        self.map.get(b & !(PAGINA - 1)).is_some()
+        let b = (h - HANDLE_OFFSET) as usize;
+        self.map.get(b & !(PAGE - 1)).is_some()
     }
 
-    /// The body words of block `b` (live, of this page): in `INSTANCIA`, those
+    /// The body words of block `b` (live, of this page): in `INSTANCE`, those
     /// of the fields and the map; in the others, those of the header, or those of the large region
     /// when `n` saturated.
     ///
@@ -1588,8 +1588,8 @@ impl ObjectSpace {
         // SAFETY: the function contract.
         unsafe {
             let n = usize::from((*b).n);
-            if shape(b) == INSTANCIA {
-                return crate::layout::palavras_de_instancia(n);
+            if shape(b) == INSTANCE {
+                return crate::layout::instance_words(n);
             }
             if n != usize::from(u16::MAX) {
                 return n;
@@ -1607,7 +1607,7 @@ impl ObjectSpace {
     #[cold]
     #[inline(never)]
     fn region_words(&self, b: *const Header) -> usize {
-        self.map.get(b as usize & !(PAGINA - 1)).map_or(0, |i| self.pages[i].words)
+        self.map.get(b as usize & !(PAGE - 1)).map_or(0, |i| self.pages[i].words)
     }
 
     /// Pushes the references of the body of `b` by format, without touching cards
@@ -1619,7 +1619,7 @@ impl ObjectSpace {
         // SAFETY: the function contract.
         unsafe {
             match shape(b) {
-                INSTANCIA => push_references(body(b), stack),
+                INSTANCE => push_references(body(b), stack),
                 REFS => {
                     let n = body_refs(b, self.body_words(b));
                     push_refs(b, n, stack)
@@ -1629,8 +1629,8 @@ impl ObjectSpace {
         }
     }
 
-    /// Pushes the references of a remembered object in the minor collection: `INSTANCIA` by the
-    /// map; `REFS` with `CARTOES`, only the elements of the dirty cards (and
+    /// Pushes the references of a remembered object in the minor collection: `INSTANCE` by the
+    /// map; `REFS` with `CARDS`, only the elements of the dirty cards (and
     /// clears them); `REFS` without cards, all. Returns the positions walked.
     ///
     /// # Safety
@@ -1638,7 +1638,7 @@ impl ObjectSpace {
     pub(crate) unsafe fn push_remembered(&self, b: *mut Header, stack: &mut Vec<i64>) -> usize {
         // SAFETY: the function contract.
         unsafe {
-            if shape(b) == REFS && (*b).flags & CARTOES != 0 {
+            if shape(b) == REFS && (*b).flags & CARDS != 0 {
                 let n = body_refs(b, self.body_words(b));
                 return push_dirty_cards(b, n, stack);
             }
@@ -1667,16 +1667,16 @@ impl ObjectSpace {
             *r = (std::ptr::null_mut(), std::ptr::null_mut());
         }
         self.release_dead_out_of_line();
-        // Per page: the run `[de, until)` of `free_ranges` with its free
+        // Per page: the run `[of, until)` of `free_ranges` with its free
         // ranges and the live ones.
         let mut fragments: Vec<(usize, usize, usize)> = Vec::with_capacity(self.pages.len());
         let mut free_ranges: Vec<(*mut u8, *mut u8)> = Vec::new();
         let mut class_live = vec![0usize; N_CLASSES];
         let mut class_free_lists = vec![0usize; N_CLASSES];
         for p in &self.pages {
-            let de = free_ranges.len();
+            let of = free_ranges.len();
             if p.empty {
-                fragments.push((de, de, 0));
+                fragments.push((of, of, 0));
                 continue;
             }
             let size = p.size();
@@ -1710,9 +1710,9 @@ impl ObjectSpace {
                 free_ranges.push((free_ptr, q));
             }
             if live_in_page + pinned_in_page == 0 || p.class == LARGE {
-                free_ranges.truncate(de);
+                free_ranges.truncate(of);
             } else if self.clear_dead {
-                for &(start, end) in &free_ranges[de..] {
+                for &(start, end) in &free_ranges[of..] {
                     // SAFETY: blocks without live objects of the page.
                     unsafe { std::ptr::write_bytes(start, 0, end as usize - start as usize) };
                 }
@@ -1726,7 +1726,7 @@ impl ObjectSpace {
                 class_free_lists[p.class] += p.blocks - live_in_page - pinned_in_page;
             }
             // The third field decides whether the page stays: the held ones keep it.
-            fragments.push((de, free_ranges.len(), live_in_page + pinned_in_page));
+            fragments.push((of, free_ranges.len(), live_in_page + pinned_in_page));
         }
         live_bytes += self.out_of_line_bytes() + self.attachment_bytes;
         let dead_set = self.live_set.saturating_sub(live_set);
@@ -1761,8 +1761,8 @@ impl ObjectSpace {
             }
             // The slack: what survived, what was allocated since the last collection
             // (the demand of the next cycle), the recent peak and two pages.
-            let folga = class_live[p.class].max(self.demand[p.class]).max(self.peak[p.class]).max(2 * p.blocks);
-            if class_free_lists[p.class] >= folga + p.blocks {
+            let slack = class_live[p.class].max(self.demand[p.class]).max(self.peak[p.class]).max(2 * p.blocks);
+            if class_free_lists[p.class] >= slack + p.blocks {
                 class_free_lists[p.class] -= p.blocks;
                 released_one[i] = true;
             }
@@ -1779,12 +1779,12 @@ impl ObjectSpace {
                 self.release_page(&p);
                 continue;
             }
-            let (de, until, live_in_page) = fragments[i];
+            let (of, until, live_in_page) = fragments[i];
             if live_in_page == 0 {
                 p.empty = true;
                 self.empties_list.push(self.pages.len());
             } else if p.class != LARGE {
-                self.free_list[p.class].extend_from_slice(&free_ranges[de..until]);
+                self.free_list[p.class].extend_from_slice(&free_ranges[of..until]);
             }
             self.map.insert_entry(p.base as usize, self.pages.len());
             self.pages.push(p);
@@ -1796,7 +1796,7 @@ impl ObjectSpace {
         // The quarantine: what exceeded the capacity goes back to the free list.
         if let Some(q) = self.quarantine.as_mut() {
             for (c, b) in q.released_set() {
-                let t = bytes_do_bloco(class_words(c));
+                let t = block_bytes(class_words(c));
                 self.free_list[c].push((b, b.wrapping_add(t)));
             }
         }
@@ -1817,7 +1817,7 @@ impl ObjectSpace {
     }
 
     /// Zeroes the free ranges and the dirty rest of the regions: after that, every block
-    /// without an object has the [`LIVRE`] state.
+    /// without an object has the [`FREE`] state.
     fn clear_free(&mut self) {
         for ranges in &self.free_list {
             for &(start, end) in ranges {
@@ -1840,8 +1840,8 @@ impl ObjectSpace {
             for j in 0..p.blocks {
                 let b = p.block(j);
                 // SAFETY: block of the page.
-                let estado = unsafe { (*b).estado };
-                if estado != LIVRE && estado != POISON_STATE {
+                let state = unsafe { (*b).state };
+                if state != FREE && state != POISON_STATE {
                     f(b);
                 }
             }
@@ -1877,7 +1877,7 @@ impl ObjectSpace {
                 large_ones += 1;
                 large_bytes += p.bytes;
                 // SAFETY: the region's block, readable.
-                if unsafe { (*p.block(0)).estado } == LIVRE {
+                if unsafe { (*p.block(0)).state } == FREE {
                     dead_large += 1;
                     dead_large_bytes += p.bytes;
                 }
@@ -1893,8 +1893,8 @@ impl ObjectSpace {
             if k == 0 {
                 continue;
             }
-            let size = bytes_do_bloco(class_words(c));
-            let per_page = (PAGINA - PAGE_HEAD) / size;
+            let size = block_bytes(class_words(c));
+            let per_page = (PAGE - PAGE_HEAD) / size;
             let occupied = self.in_use[c];
             total_pages += k;
             total_occupied += occupied * size;
@@ -1907,9 +1907,9 @@ impl ObjectSpace {
         let _ = writeln!(
             s,
             "[memory] class pages: {total_pages} ({} KiB), occupied {} KiB ({}%), classes with a page: {}",
-            kib(total_pages * PAGINA),
+            kib(total_pages * PAGE),
             kib(total_occupied),
-            total_occupied * 100 / (total_pages * PAGINA).max(1),
+            total_occupied * 100 / (total_pages * PAGE).max(1),
             line_list.len()
         );
         for l in line_list {
@@ -1918,10 +1918,10 @@ impl ObjectSpace {
         let _ = writeln!(
             s,
             "[memory] kept empty pages: {empties_list} ({} KiB); reserve: {} free, {} dirty ({} KiB dirty)",
-            kib(empties_list * PAGINA),
+            kib(empties_list * PAGE),
             self.reserve.free_list.len(),
             self.reserve.dirty.len(),
-            kib(self.reserve.dirty.len() * PAGINA)
+            kib(self.reserve.dirty.len() * PAGE)
         );
         let _ = writeln!(
             s,
@@ -2013,7 +2013,7 @@ impl Drop for ObjectSpace {
             unsafe { (a.release)(a.ptr) };
         }
         for p in std::mem::take(&mut self.pages) {
-            // Those of `PAGINA` bytes leave with the reserve (its `Drop`); the
+            // Those of `PAGE` bytes leave with the reserve (its `Drop`); the
             // large regions, directly to the system.
             if p.class == LARGE {
                 // SAFETY: region from `system::reserve_space`, unused.
@@ -2035,9 +2035,9 @@ mod tests_ranges {
             let mut e = ObjectSpace::new(true);
             e.quarantine = None;
             let class = size_class(2).unwrap();
-            let size = bytes_do_bloco(class_words(class));
+            let size = block_bytes(class_words(class));
             let blocks: Vec<_> = (0..4).map(|_| {
-                let h = e.allocate(129, 2, INSTANCIA, 2);
+                let h = e.allocate(129, 2, INSTANCE, 2);
                 e.block_of(h).unwrap()
             }).collect();
             e.young_set.clear();
@@ -2065,7 +2065,7 @@ mod tests_ranges {
         e.quarantine = None;
         let class = size_class(2).unwrap();
         let blocks: Vec<_> = (0..3).map(|_| {
-            let h = e.allocate(129, 2, INSTANCIA, 2);
+            let h = e.allocate(129, 2, INSTANCE, 2);
             e.block_of(h).unwrap()
         }).collect();
         e.young_set.clear();
@@ -2088,11 +2088,11 @@ mod tests_ranges {
         e.quarantine = Some(Quarantine {
             ring: std::collections::VecDeque::new(),
             pinned_set: crate::hash::HashSet::default(),
-            capacidade: 1,
+            capacity: 1,
         });
         let class = size_class(2).unwrap();
         let blocks: Vec<_> = (0..3).map(|_| {
-            let h = e.allocate(129, 2, INSTANCIA, 2);
+            let h = e.allocate(129, 2, INSTANCE, 2);
             e.block_of(h).unwrap()
         }).collect();
         e.young_set.clear();
@@ -2111,6 +2111,6 @@ mod tests_ranges {
         assert_eq!(n, 1);
         assert_eq!(second, blocks[0].cast());
         // SAFETY: the last block stays poisoned, outside the free ranges.
-        unsafe { assert_eq!((*blocks[2]).estado, POISON_STATE) };
+        unsafe { assert_eq!((*blocks[2]).state, POISON_STATE) };
     }
 }

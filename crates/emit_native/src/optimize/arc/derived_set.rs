@@ -100,7 +100,7 @@ fn barrier(inst: &Instruction) -> bool {
             let base = name.strip_prefix(super::NATIVE_SCOPE_PREFIX).unwrap_or(name);
             name != KEEP_ALIVE
                 && !matches!(base, "dartforge_safepoint" | "dartforge_exception_clear")
-                && super::contract(name).map_or(true, |c| c.invalida_borrows || c.chama_dart)
+                && super::contract(name).map_or(true, |c| c.invalidates_borrows || c.calls_dart)
         }
         Instruction::CallStatic { .. }
         | Instruction::CallSelector { .. }

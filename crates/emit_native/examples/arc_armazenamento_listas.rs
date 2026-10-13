@@ -124,8 +124,8 @@ fn main() -> Result<(), String> {
         .iter()
         .find_map(|(v, i, _)| match i {
             Instruction::ArcCopy {
-                value: Operand::Val(de),
-            } if *v == ValueId(4) => Some(de.0),
+                value: Operand::Val(of),
+            } if *v == ValueId(4) => Some(of.0),
             _ => None,
         })
         .ok_or("missing storage copy")?;

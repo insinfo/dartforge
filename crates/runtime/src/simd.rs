@@ -2,7 +2,7 @@
 // and `Float64x2` (the VM's `runtime/lib/simd128.cc`) — and access to them in
 // typed lists (`_getFloat32x4`…).
 //
-// A SIMD value is a `BRUTO` block of two words with the lanes (`tipadas.rs`,
+// A SIMD value is a `RAW` block of two words with the lanes (`typed_lists.rs`,
 // docs/NATIVO-ESPACO-UNIFICADO.md §2.5), with the fixed cid `_Float32x4`,
 // `_Int32x4` or `_Float64x2` (19–21): immutable, compared by identity as in the
 // VM, and with the lanes in host endianness, as in the `Float32x4List` lists.
@@ -566,7 +566,7 @@ pub extern "C" fn dartforge_native_DartForge_typed_index_simd(this: i64, i: i64)
     let mut b = [0u8; 16];
     // SAFETY: `p` is element `i < len` (16 bytes) of the live list.
     unsafe { std::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 16) };
-    match t.tipo {
+    match t.ty {
         TYPE_INT32X4 => simd_new(CID_INT32X4, TYPE_INT32X4, b),
         TYPE_FLOAT64X2 => simd_new(CID_FLOAT64X2, TYPE_FLOAT64X2, b),
         _ => simd_new(CID_FLOAT32X4, TYPE_FLOAT32X4, b),

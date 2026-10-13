@@ -47,7 +47,7 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                 let name = b"dartforge_rti_recipe";
                 // SAFETY: constant name. Bit 0 forbids collection, bit 1 a new pending exception.
                 unsafe { dartforge_effects_before(name.as_ptr(), name.len() as i64, 3); }
-                let tipo = dartforge_rti_recipe(text);
+                let ty = dartforge_rti_recipe(text);
                 dartforge_effects_after();
                 assert_eq!(dartforge_effects_level(), 0);
                 assert_eq!(dartforge_exception_pending(), u8::from(pending));
@@ -56,14 +56,14 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                     assert_eq!(dartforge_stack_trace_get(), trace);
                     dartforge_exception_clear();
                 }
-                if let Some(id) = previous { assert_eq!(tipo, id); }
-                previous = Some(tipo);
+                if let Some(id) = previous { assert_eq!(ty, id); }
+                previous = Some(ty);
                 assert_eq!(dartforge_arc_observe_heap_v1(text), 3);
                 dartforge_arc_release(text);
                 dartforge_arc_collect();
                 assert_eq!(dartforge_arc_observe_heap_v1(text), 0, "recipe {recipe}; pending {pending}");
                 // The canonical ID stays valid without retaining the recipe string.
-                assert_eq!(dartforge_rti_subtype(tipo, tipo), 1);
+                assert_eq!(dartforge_rti_subtype(ty, ty), 1);
             }
         }
     });
@@ -83,11 +83,11 @@ fn set_rti_preserves_owner_pending_and_elements_on_decompact() {
         // SAFETY: word vector alive and complete for the compact list.
         let list = unsafe { dartforge_list_new(value_list.as_ptr(), 2, 8, 1) };
         dartforge_arc_retain(list);
-        let define = |tipo| {
+        let define = |ty| {
             let name = b"dartforge_rti_set";
             // SAFETY: live constant name, with its exact length.
             unsafe { dartforge_effects_before(name.as_ptr(), name.len() as i64, 2); }
-            dartforge_rti_set(list, tipo);
+            dartforge_rti_set(list, ty);
             dartforge_effects_after();
             assert_eq!(dartforge_effects_level(), 0);
         };

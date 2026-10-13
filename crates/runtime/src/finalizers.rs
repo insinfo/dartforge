@@ -82,7 +82,7 @@ fn finish_finalization(frame: i64) {
 
 /// End of the isolate: the still-attached `NativeFinalizer`s run.
 pub fn shutdown_isolate_finalizers() {
-    HEAP.with(|h| h.borrow_mut().encerrar_finalizadores());
+    HEAP.with(|h| h.borrow_mut().shutdown_finalizers());
 }
 
 #[cfg(test)]
@@ -141,7 +141,7 @@ mod tests_finalization_owner {
     extern "C" fn shut_down_during_callback(closure: i64) -> i64 {
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
-            h.encerrar_finalizadores();
+            h.shutdown_finalizers();
             h.collect();
             assert!(h.is_live_object(closure), "the active callback survives removal from the queue");
         });

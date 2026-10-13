@@ -460,9 +460,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.instantiate_evaluated_with_rti(ctor, &[(None, source)], span, Some(object), None)
     }
 
-    /// The canonical constant that `gerar` produces, through the getter `value_symbol`
+    /// The canonical constant that `generate` produces, through the getter `value_symbol`
     /// + `.get` (created on the first read; `collection`: it becomes immutable).
-    pub fn generated_constant(&mut self, value_symbol: &str, collection: bool, gerar: impl FnOnce(&mut Self) -> Operand) -> Operand {
+    pub fn generated_constant(&mut self, value_symbol: &str, collection: bool, generate: impl FnOnce(&mut Self) -> Operand) -> Operand {
         let getter = format!("{value_symbol}.get");
         if !self.done_entries.contains(&getter) {
             self.done_entries.insert(getter.clone());
@@ -476,14 +476,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.extra_globals.push((root, Type::Ref, value_symbol.to_string()));
             let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "const".to_string(), Type::Ref);
             g.in_const_context = true;
-            g.lower_canonical_getter(value_symbol, root, collection, gerar);
+            g.lower_canonical_getter(value_symbol, root, collection, generate);
             self.extra_globals.extend(std::mem::take(&mut g.extra_globals));
             self.absorb(g);
         }
         self.emit_call_with_check(Instruction::CallStatic { symbol: getter, args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
     }
 
-    fn lower_canonical_getter(&mut self, value: &str, root: u32, collection: bool, gerar: impl FnOnce(&mut Self) -> Operand) {
+    fn lower_canonical_getter(&mut self, value: &str, root: u32, collection: bool, generate: impl FnOnce(&mut Self) -> Operand) {
         let flag = format!("{value}$ok");
         let ok = self.emit(
             Instruction::LoadGlobal {
@@ -513,7 +513,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.terminate(Terminator::Return(Some(v)));
         self.set_block(b_init);
-        let v = gerar(self);
+        let v = generate(self);
         let v = self.coerce(v, Type::Ref);
         // The constant list becomes a NEW `_ImmutableList` (the class does not change
         // after publication, docs/NATIVO-ESPACO-UNIFICADO.md §2.16): the value

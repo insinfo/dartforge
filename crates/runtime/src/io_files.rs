@@ -108,7 +108,7 @@ impl OsError {
     }
 
     /// The error of a `std` operation (which carries the system code).
-    fn de(e: &std::io::Error) -> OsError {
+    fn of(e: &std::io::Error) -> OsError {
         match e.raw_os_error() {
             Some(c) => OsError::from_code(c),
             None => OsError { code: -1, message: e.to_string() },
@@ -123,7 +123,7 @@ impl OsError {
     /// Dart's `OSError` (`DartUtils::NewDartOSError`), through the `dart:io`
     /// overlay's function.
     fn to_dart(&self) -> i64 {
-        let Some(f) = ajudante("_dartforgeOSError") else {
+        let Some(f) = helper("_dartforgeOSError") else {
             panic!("compiler bug: dart:io without a registered `_dartforgeOSError`");
         };
         // SAFETY: registered by the overlay's `dart:io` library with the signature
@@ -146,7 +146,7 @@ impl OsError {
 
 impl From<std::io::Error> for OsError {
     fn from(e: std::io::Error) -> OsError {
-        OsError::de(&e)
+        OsError::of(&e)
     }
 }
 
@@ -169,12 +169,12 @@ fn dart_string_from_bytes(b: &[u8]) -> i64 {
     allocate_str(&String::from_utf8_lossy(b))
 }
 
-/// An internal typed list of `tipo` with the bytes (the length in elements is
+/// An internal typed list of `ty` with the bytes (the length in elements is
 /// `bytes.len() / size`).
-fn dart_typed_from_bytes(tipo: u8, bytes: &[u8]) -> i64 {
+fn dart_typed_from_bytes(ty: u8, bytes: &[u8]) -> i64 {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let l = h.new_typed(tipo, bytes.len() / tamanho_do_elemento(tipo));
+        let l = h.new_typed(ty, bytes.len() / element_size(ty));
         if let Some(b) = h.typed_bytes_mut(l) {
             b.copy_from_slice(bytes);
         }
@@ -248,7 +248,7 @@ fn typed_list_bytes(h: i64) -> Option<Vec<u8>> {
 /// The bytes of a core list of integers, each truncated to 8 bits (the VM's
 /// `Dart_ListGetAsBytes`); empty if `h` is not a core list.
 fn bytes_from_value_list(heap: &Heap, h: i64) -> Vec<u8> {
-    if !heap.e_lista(h) {
+    if !heap.is_list(h) {
         return Vec::new();
     }
     (0..heap.list_len(h))
@@ -368,7 +368,7 @@ impl NativeFile {
     ///
     /// # Safety
     /// `p` came from [`NativeFile::new`] and the reference still exists.
-    unsafe fn de<'a>(p: i64) -> &'a NativeFile {
+    unsafe fn of<'a>(p: i64) -> &'a NativeFile {
         // SAFETY: guaranteed by the caller.
         unsafe { &*(p as *const NativeFile) }
     }
@@ -404,7 +404,7 @@ impl NativeFile {
     }
 
     /// Operates on the file through `std::fs::File`, without transferring the descriptor.
-    fn com<R>(&self, f: impl FnOnce(&mut std::fs::File) -> std::io::Result<R>) -> IoResult<R> {
+    fn with_file<R>(&self, f: impl FnOnce(&mut std::fs::File) -> std::io::Result<R>) -> IoResult<R> {
         let d = self.descriptor();
         if d == CLOSED_DESCRIPTOR {
             return Err(OsError::from_code(os_code::INVALID));
@@ -416,7 +416,7 @@ impl NativeFile {
     /// `File::Read`: one read (repeated only on interruption by a signal).
     fn do_read(&self, dest: &mut [u8]) -> IoResult<usize> {
         use std::io::Read;
-        self.com(|f| loop {
+        self.with_file(|f| loop {
             match f.read(dest) {
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 r => return r,
@@ -432,28 +432,28 @@ impl NativeFile {
             // buffered goes out first, so that the order is the program's.
             let _ = std::io::stdout().flush();
         }
-        self.com(|f| f.write_all(data))
+        self.with_file(|f| f.write_all(data))
     }
 
     fn cur_position(&self) -> IoResult<i64> {
         use std::io::Seek;
-        self.com(|f| f.stream_position()).map(|p| p as i64)
+        self.with_file(|f| f.stream_position()).map(|p| p as i64)
     }
 
     fn set_position(&self, p: i64) -> IoResult<()> {
         use std::io::Seek;
-        self.com(|f| f.seek(std::io::SeekFrom::Start(p as u64))).map(|_| ())
+        self.with_file(|f| f.seek(std::io::SeekFrom::Start(p as u64))).map(|_| ())
     }
 
     fn truncate_file(&self, n: i64) -> IoResult<()> {
         if n < 0 {
             return Err(OsError::from_code(os_code::INVALID));
         }
-        self.com(|f| f.set_len(n as u64))
+        self.with_file(|f| f.set_len(n as u64))
     }
 
     fn size(&self) -> IoResult<i64> {
-        self.com(|f| f.metadata()).map(|m| m.len() as i64)
+        self.with_file(|f| f.metadata()).map(|m| m.len() as i64)
     }
 
     /// `File::Flush`: `fsync` (Unix; `std`'s `sync_all` on macOS would be
@@ -467,19 +467,19 @@ impl NativeFile {
             let d = self.descriptor();
             // SAFETY: `d` is an open descriptor of this file.
             if unsafe { fsync(d as i32) } == -1 {
-                return Err(OsError::de(&std::io::Error::last_os_error()));
+                return Err(OsError::of(&std::io::Error::last_os_error()));
             }
             Ok(())
         }
         #[cfg(windows)]
         {
-            self.com(|f| f.sync_all())
+            self.with_file(|f| f.sync_all())
         }
     }
 
     /// `File::Lock`: `fcntl(F_SETLK[W])` on Unix, `LockFileEx` on Windows.
-    fn lock_file(&self, tipo: i64, start: i64, end: i64) -> IoResult<()> {
-        lock_descriptor(self.descriptor(), tipo, start, end)
+    fn lock_file(&self, ty: i64, start: i64, end: i64) -> IoResult<()> {
+        lock_descriptor(self.descriptor(), ty, start, end)
     }
 
     /// `File::Close`: closes the descriptor. Standard output is not closed: it
@@ -548,7 +548,7 @@ fn is_stdout(d: i64) -> bool {
 fn close_descriptor(d: i64) {
     unsafe extern "C" {
         fn open(file_path: *const std::ffi::c_char, flags: i32, ...) -> i32;
-        fn dup2(de: i32, to: i32) -> i32;
+        fn dup2(of: i32, to: i32) -> i32;
         fn close(fd: i32) -> i32;
     }
     if d == 1 {
@@ -593,7 +593,7 @@ fn default_descriptor(fd: i64) -> i64 {
 }
 
 #[cfg(all(unix, target_os = "linux"))]
-fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
+fn lock_descriptor(d: i64, ty: i64, start: i64, end: i64) -> IoResult<()> {
     #[repr(C)]
     struct Flock {
         l_type: i16,
@@ -607,18 +607,18 @@ fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
     const F_UNLCK: i16 = 2;
     const F_SETLK: i32 = 6;
     const F_SETLKW: i32 = 7;
-    let l_type = match tipo {
+    let l_type = match ty {
         LOCK_UNLOCK => F_UNLCK,
         LOCK_SHARED | LOCK_SHARED_BLOCKING => F_RDLCK,
         LOCK_EXCLUSIVE | LOCK_EXCLUSIVE_BLOCKING => F_WRLCK,
         _ => return Err(OsError::invalid_argument()),
     };
     let fl = Flock { l_type, l_whence: 0, l_start: start, l_len: if end == -1 { 0 } else { end - start }, l_pid: 0 };
-    let cmd = if matches!(tipo, LOCK_SHARED_BLOCKING | LOCK_EXCLUSIVE_BLOCKING) { F_SETLKW } else { F_SETLK };
+    let cmd = if matches!(ty, LOCK_SHARED_BLOCKING | LOCK_EXCLUSIVE_BLOCKING) { F_SETLKW } else { F_SETLK };
     fcntl_lock(d, cmd, &fl as *const Flock as *const std::ffi::c_void)
 }
 #[cfg(all(unix, not(target_os = "linux")))]
-fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
+fn lock_descriptor(d: i64, ty: i64, start: i64, end: i64) -> IoResult<()> {
     #[repr(C)]
     struct Flock {
         l_start: i64,
@@ -632,14 +632,14 @@ fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
     const F_WRLCK: i16 = 3;
     const F_SETLK: i32 = 8;
     const F_SETLKW: i32 = 9;
-    let l_type = match tipo {
+    let l_type = match ty {
         LOCK_UNLOCK => F_UNLCK,
         LOCK_SHARED | LOCK_SHARED_BLOCKING => F_RDLCK,
         LOCK_EXCLUSIVE | LOCK_EXCLUSIVE_BLOCKING => F_WRLCK,
         _ => return Err(OsError::invalid_argument()),
     };
     let fl = Flock { l_start: start, l_len: if end == -1 { 0 } else { end - start }, l_pid: 0, l_type, l_whence: 0 };
-    let cmd = if matches!(tipo, LOCK_SHARED_BLOCKING | LOCK_EXCLUSIVE_BLOCKING) { F_SETLKW } else { F_SETLK };
+    let cmd = if matches!(ty, LOCK_SHARED_BLOCKING | LOCK_EXCLUSIVE_BLOCKING) { F_SETLKW } else { F_SETLK };
     fcntl_lock(d, cmd, &fl as *const Flock as *const std::ffi::c_void)
 }
 #[cfg(unix)]
@@ -654,12 +654,12 @@ fn fcntl_lock(d: i64, cmd: i32, fl: *const std::ffi::c_void) -> IoResult<()> {
         }
         let e = std::io::Error::last_os_error();
         if e.kind() != std::io::ErrorKind::Interrupted {
-            return Err(OsError::de(&e));
+            return Err(OsError::of(&e));
         }
     }
 }
 #[cfg(windows)]
-fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
+fn lock_descriptor(d: i64, ty: i64, start: i64, end: i64) -> IoResult<()> {
     #[repr(C)]
     struct Overlapped {
         internal: usize,
@@ -687,7 +687,7 @@ fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
     let (low, high) = (length as u32, (length >> 32) as u32);
     // SAFETY: `h` is the file's open HANDLE; `o` lives during the call.
     let ok = unsafe {
-        match tipo {
+        match ty {
             LOCK_UNLOCK => UnlockFileEx(h, 0, low, high, &mut o),
             LOCK_SHARED => LockFileEx(h, LOCKFILE_FAIL_IMMEDIATELY, 0, low, high, &mut o),
             LOCK_SHARED_BLOCKING => LockFileEx(h, 0, 0, low, high, &mut o),
@@ -697,7 +697,7 @@ fn lock_descriptor(d: i64, tipo: i64, start: i64, end: i64) -> IoResult<()> {
         }
     };
     if ok == 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok(())
 }
@@ -765,8 +765,8 @@ fn path_type(p: &std::path::Path, follow_links_flag: bool) -> i64 {
 }
 
 /// The `SetErrno` of `file_linux.cc`: the error of an unexpected type.
-fn type_error(tipo: i64) -> OsError {
-    OsError::from_code(match tipo {
+fn type_error(ty: i64) -> OsError {
+    OsError::from_code(match ty {
         TYPE_DIRECTORY => os_code::IS_DIRECTORY,
         TYPE_NOT_FOUND => os_code::NOT_FOUND,
         _ => os_code::INVALID,
@@ -774,8 +774,8 @@ fn type_error(tipo: i64) -> OsError {
 }
 
 /// A regular file, socket or pipe: what `Delete`/`Rename`/`Copy` accept.
-fn is_file_type(tipo: i64) -> bool {
-    matches!(tipo, TYPE_FILE | TYPE_SOCKET | TYPE_PIPE)
+fn is_file_type(ty: i64) -> bool {
+    matches!(ty, TYPE_FILE | TYPE_SOCKET | TYPE_PIPE)
 }
 
 /// `File::Open`: only regular files, character devices and pipes; append mode
@@ -882,18 +882,18 @@ fn create_link(name: &std::path::Path, target: &std::path::Path) -> IoResult<()>
 
 /// `File::Delete`.
 fn delete_file(p: &std::path::Path) -> IoResult<()> {
-    let tipo = path_type(p, true);
-    if !is_file_type(tipo) {
-        return Err(type_error(tipo));
+    let ty = path_type(p, true);
+    if !is_file_type(ty) {
+        return Err(type_error(ty));
     }
     Ok(std::fs::remove_file(p)?)
 }
 
 /// `File::DeleteLink`.
 fn delete_link(p: &std::path::Path) -> IoResult<()> {
-    let tipo = path_type(p, false);
-    if tipo != TYPE_LINK {
-        return Err(type_error(tipo));
+    let ty = path_type(p, false);
+    if ty != TYPE_LINK {
+        return Err(type_error(ty));
     }
     #[cfg(windows)]
     if std::fs::metadata(p).is_ok_and(|m| m.is_dir()) {
@@ -903,31 +903,31 @@ fn delete_link(p: &std::path::Path) -> IoResult<()> {
 }
 
 /// `File::Rename`.
-fn rename_file(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
-    let tipo = path_type(de, true);
-    if !is_file_type(tipo) {
-        return Err(type_error(tipo));
+fn rename_file(of: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
+    let ty = path_type(of, true);
+    if !is_file_type(ty) {
+        return Err(type_error(ty));
     }
-    Ok(std::fs::rename(de, to)?)
+    Ok(std::fs::rename(of, to)?)
 }
 
 /// `File::RenameLink`.
-fn rename_link(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
-    let tipo = path_type(de, false);
-    if tipo != TYPE_LINK {
-        return Err(type_error(tipo));
+fn rename_link(of: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
+    let ty = path_type(of, false);
+    if ty != TYPE_LINK {
+        return Err(type_error(ty));
     }
-    Ok(std::fs::rename(de, to)?)
+    Ok(std::fs::rename(of, to)?)
 }
 
 /// `File::Copy`: the destination is created with the source's mode; if the copy
 /// fails, the partial destination is deleted.
-fn copy_file(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
-    let tipo = path_type(de, true);
-    if !is_file_type(tipo) {
-        return Err(type_error(tipo));
+fn copy_file(of: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
+    let ty = path_type(of, true);
+    if !is_file_type(ty) {
+        return Err(type_error(ty));
     }
-    let mut origin = std::fs::File::open(de)?;
+    let mut origin = std::fs::File::open(of)?;
     let mut o = std::fs::OpenOptions::new();
     o.write(true).truncate(true).create(true);
     #[cfg(unix)]
@@ -941,7 +941,7 @@ fn copy_file(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
     if let Err(e) = std::io::copy(&mut origin, &mut dest) {
         drop(dest);
         let _ = std::fs::remove_file(to);
-        return Err(OsError::de(&e));
+        return Err(OsError::of(&e));
     }
     Ok(())
 }
@@ -990,7 +990,7 @@ fn last_accessed(p: &std::path::Path) -> IoResult<i64> {
 /// other.
 fn change_instants(p: &std::path::Path, access: Option<i64>, modification: Option<i64>) -> IoResult<()> {
     let m = file_metadata(p)?;
-    let tempos = std::fs::FileTimes::new()
+    let times = std::fs::FileTimes::new()
         .set_accessed(access.map_or_else(|| m.accessed(), |ms| Ok(instant_from_millis(ms)))?)
         .set_modified(modification.map_or_else(|| m.modified(), |ms| Ok(instant_from_millis(ms)))?);
     let mut o = std::fs::OpenOptions::new();
@@ -1001,19 +1001,19 @@ fn change_instants(p: &std::path::Path, access: Option<i64>, modification: Optio
         use std::os::windows::fs::OpenOptionsExt;
         o.access_mode(0x100 /* FILE_WRITE_ATTRIBUTES */);
     }
-    Ok(o.open(p)?.set_times(tempos)?)
+    Ok(o.open(p)?.set_times(times)?)
 }
 
 /// `File::Stat`: `[type, creation, modification, access, mode, size]`.
 fn statistics(p: &std::path::Path) -> IoResult<[i64; 6]> {
     let m = std::fs::metadata(p)?;
-    let tipo = metadata_kind(&m);
+    let ty = metadata_kind(&m);
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         let ms = |s: i64, ns: i64| s * 1000 + ns / 1_000_000;
         Ok([
-            tipo,
+            ty,
             ms(m.ctime(), m.ctime_nsec()),
             ms(m.mtime(), m.mtime_nsec()),
             ms(m.atime(), m.atime_nsec()),
@@ -1028,7 +1028,7 @@ fn statistics(p: &std::path::Path) -> IoResult<[i64; 6]> {
         let read_write = if m.permissions().readonly() { 0o444 } else { 0o666 };
         let mode = if m.is_dir() { 0o040000 | read_write | 0o111 } else { 0o100000 | read_write };
         let ms = |t: std::io::Result<std::time::SystemTime>| t.map_or(0, millis_of);
-        Ok([tipo, ms(m.created()), ms(m.modified()), ms(m.accessed()), mode, m.len() as i64])
+        Ok([ty, ms(m.created()), ms(m.modified()), ms(m.accessed()), mode, m.len() as i64])
     }
 }
 
@@ -1071,7 +1071,7 @@ fn identical(a: &std::path::Path, b: &std::path::Path) -> IoResult<bool> {
     #[derive(Default)]
     struct InfoKind {
         attributes: u32,
-        tempos: [u32; 6],
+        times: [u32; 6],
         volume: u32,
         size_high: u32,
         size_low: u32,
@@ -1083,7 +1083,7 @@ fn identical(a: &std::path::Path, b: &std::path::Path) -> IoResult<bool> {
     unsafe extern "system" {
         fn GetFileInformationByHandle(h: *mut std::ffi::c_void, i: *mut InfoKind) -> i32;
     }
-    fn identidade(p: &std::path::Path) -> IoResult<(u32, u32, u32)> {
+    fn identity(p: &std::path::Path) -> IoResult<(u32, u32, u32)> {
         use std::os::windows::fs::OpenOptionsExt;
         use std::os::windows::io::AsRawHandle;
         // FILE_FLAG_BACKUP_SEMANTICS opens directories; without following the link.
@@ -1091,11 +1091,11 @@ fn identical(a: &std::path::Path, b: &std::path::Path) -> IoResult<bool> {
         let mut i = InfoKind::default();
         // SAFETY: the handle is valid while `f` lives.
         if unsafe { GetFileInformationByHandle(f.as_raw_handle(), &mut i) } == 0 {
-            return Err(OsError::de(&std::io::Error::last_os_error()));
+            return Err(OsError::of(&std::io::Error::last_os_error()));
         }
         Ok((i.volume, i.index_high, i.index_low))
     }
-    Ok(identidade(a)? == identidade(b)?)
+    Ok(identity(a)? == identity(b)?)
 }
 
 /// `File::GetStdioHandleType`: 0 terminal, 1 pipe, 2 file, 3 socket, 4 other.
@@ -1285,7 +1285,7 @@ fn receiver_file<'a>(this: i64) -> Option<&'a NativeFile> {
     }
     // SAFETY: the field holds the object's reference, alive until `close` or the
     // object's collection.
-    Some(unsafe { NativeFile::de(p) })
+    Some(unsafe { NativeFile::of(p) })
 }
 
 /// `File_SetPointer`: the object becomes the owner of the reference of `p`.
@@ -1318,7 +1318,7 @@ pub extern "C" fn dartforge_native_File_Close(this: i64) -> i64 {
         return -1;
     }
     // SAFETY: the object's reference is alive.
-    unsafe { NativeFile::de(p) }.do_close();
+    unsafe { NativeFile::of(p) }.do_close();
     remove_finalizer(this);
     NativeFile::free(p);
     write_native_field(this, 0);
@@ -1357,7 +1357,7 @@ pub extern "C" fn dartforge_native_File_Read(this: i64, n: i64) -> i64 {
         Ok(read_list) => {
             buf.truncate(read_list);
             let base = dart_bytes(buf);
-            let cid = crate::layout::cid::visao(TYPE_UINT8, false);
+            let cid = crate::layout::cid::view(TYPE_UINT8, false);
             with_roots(&[base], || dartforge_view_new(i64::from(cid), i64::from(TYPE_UINT8), base, 0, read_list as i64))
         }
         Err(e) => e.to_dart(),
@@ -1388,7 +1388,7 @@ fn write_bytes_to_list(list: i64, start: usize, bytes: &[u8]) {
         if let Some(t) = resolver(&heap, list) {
             // Only byte lists arrive here (`_ensureFastAndSerializable…` in the
             // patches); another width writes one byte per element.
-            let step = tamanho_do_elemento(t.tipo);
+            let step = element_size(t.ty);
             if let Some(dest) = heap.typed_bytes_mut(list) {
                 for (i, &b) in bytes.iter().enumerate() {
                     let pos = (start + i) * step;
@@ -1448,12 +1448,12 @@ pub extern "C" fn dartforge_native_File_Flush(this: i64) -> i64 {
 
 /// `File_Lock(type, start, end)`: `true` or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_File_Lock(this: i64, tipo: i64, start: i64, end: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Lock(this: i64, ty: i64, start: i64, end: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
-    if !(LOCK_UNLOCK..=LOCK_EXCLUSIVE_BLOCKING).contains(&tipo) || start < 0 || (end != -1 && end <= start) {
+    if !(LOCK_UNLOCK..=LOCK_EXCLUSIVE_BLOCKING).contains(&ty) || start < 0 || (end != -1 && end <= start) {
         return OsError::invalid_argument().to_dart();
     }
-    dart_true_or_error(a.lock_file(tipo, start, end))
+    dart_true_or_error(a.lock_file(ty, start, end))
 }
 
 // ---------------------------------------------------------------------------

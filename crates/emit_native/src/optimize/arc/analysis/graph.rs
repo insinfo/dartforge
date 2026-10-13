@@ -615,9 +615,9 @@ mod tests {
         m.arc_memory = false;
         assert!(g.check_in_module(&m, "f").is_err());
         m.arc_memory = true;
-        m.excecoes_por_tabelas = true;
+        m.table_exceptions = true;
         assert!(g.check_in_module(&m, "f").is_err());
-        m.excecoes_por_tabelas = false;
+        m.table_exceptions = false;
         m.arc_field_layouts.insert(1, vec![Type::I64]);
         assert!(g.check_in_module(&m, "f").is_err());
         m.arc_field_layouts.insert(1, vec![Type::Ref]);

@@ -95,7 +95,7 @@ fn module(tables: bool, certify: bool) -> Result<Module, String> {
         m.dart_vector_parameters["entrada_uniforme"].clone(),
     );
     if tables {
-        optimize::excecoes_por_tabelas(&mut m);
+        optimize::table_exceptions(&mut m);
     }
     let mut plans = HashMap::from([
         ("ajudante_nsm".into(), DartFunctionPlan::default()),

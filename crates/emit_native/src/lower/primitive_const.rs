@@ -115,18 +115,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(Primitive::Int(r))
             }
             ExprKind::Identifier(_) | ExprKind::Property { .. } => {
-                let alvo = match self.ctx.get_resolved(unit, e)? {
+                let target = match self.ctx.get_resolved(unit, e)? {
                     Resolved::Element(Element::Variable(v)) => *v,
                     Resolved::Member { member: MemberRef::Variable(v), .. } => *v,
                     Resolved::Member { member: MemberRef::Function(f), .. }
                     | Resolved::Element(Element::Function(f)) => self.ctx.program.functions[f.0 as usize].variable?,
                     _ => return None,
                 };
-                let var = &self.ctx.program.variables[alvo.0 as usize];
+                let var = &self.ctx.program.variables[target.0 as usize];
                 if !(var.static_ || var.class.is_none()) {
                     return None;
                 }
-                self.primitive_const_value(alvo, prof + 1)
+                self.primitive_const_value(target, prof + 1)
             }
             _ => None,
         }

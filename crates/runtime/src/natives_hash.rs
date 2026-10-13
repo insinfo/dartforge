@@ -35,7 +35,7 @@
 // any read of the body. A write into `_data` applies generated code's element
 // barrier (`@df.element_barrier`). Nothing here allocates, throws or calls Dart.
 
-use crate::layout::{Header, DESLOCAMENTO_DO_HANDLE};
+use crate::layout::{Header, HANDLE_OFFSET};
 
 /// The header of object `h` (`is_object(h)`; also valid for the statics).
 ///
@@ -44,13 +44,13 @@ use crate::layout::{Header, DESLOCAMENTO_DO_HANDLE};
 #[inline(always)]
 unsafe fn raw_header<'a>(h: i64) -> &'a Header {
     // SAFETY: the function's contract (the block starts at `h - 2`).
-    unsafe { &*((h - DESLOCAMENTO_DO_HANDLE) as *const Header) }
+    unsafe { &*((h - HANDLE_OFFSET) as *const Header) }
 }
 
-/// The address of offset `d` (from `layout::desl`, relative to the block) of `h`.
+/// The address of offset `d` (from `layout::offsets`, relative to the block) of `h`.
 #[inline(always)]
 fn in_block(h: i64, d: usize) -> *mut u8 {
-    (h - DESLOCAMENTO_DO_HANDLE + d as i64) as *mut u8
+    (h - HANDLE_OFFSET + d as i64) as *mut u8
 }
 
 /// The 8-byte word at offset `d` of `h`'s block.
@@ -73,19 +73,19 @@ struct Index {
 impl Index {
     /// The `_index`, if `h` is an internal `_Uint32List` (cid 28, without `EXTERNAL`).
     #[inline(always)]
-    fn de(h: i64) -> Option<Index> {
-        use crate::layout::{cid, desl, is_object, flags};
+    fn of(h: i64) -> Option<Index> {
+        use crate::layout::{cid, offsets, is_object, flags};
         if !is_object(h) {
             return None;
         }
         // SAFETY: live object (generated code passed the `_index` field).
         let c = unsafe { raw_header(h) };
-        if c.class_id != cid::tipada(crate::tipadas::tipo::UINT32) || c.flags & flags::EXTERNAL != 0 {
+        if c.class_id != cid::typed(crate::typed_lists::ty::UINT32) || c.flags & flags::EXTERNAL != 0 {
             return None;
         }
         // SAFETY: every typed list has the length at `b+16` and the data pointer
         // at `b+24` (§2.5 of the specification).
-        let (size, p) = unsafe { (raw_word(h, desl::COMPRIMENTO) as usize, raw_word(h, desl::DADOS) as *mut u32) };
+        let (size, p) = unsafe { (raw_word(h, offsets::LENGTH) as usize, raw_word(h, offsets::DATA) as *mut u32) };
         Some(Index { p, size })
     }
 
@@ -116,28 +116,28 @@ impl Data {
     /// The entries of `h`, if it is a general `_List` (writing) or a general
     /// `_List`/`_ImmutableList` (reading).
     #[inline(always)]
-    fn de(h: i64, write_value: bool) -> Option<Data> {
-        use crate::layout::{cid, desl, is_object, estado, flags};
+    fn of(h: i64, write_value: bool) -> Option<Data> {
+        use crate::layout::{cid, offsets, is_object, state, flags};
         if !is_object(h) {
             return None;
         }
         // SAFETY: live object.
         let c = unsafe { raw_header(h) };
-        let serve = if write_value { c.class_id == cid::LIST && c.estado != estado::PERMANENTE } else { cid::is_fixed_list(c.class_id) };
-        if !serve || c.flags & (flags::FORMA | flags::ELEMENTO) != flags::REFS {
+        let serve = if write_value { c.class_id == cid::LIST && c.state != state::PERMANENT } else { cid::is_fixed_list(c.class_id) };
+        if !serve || c.flags & (flags::FORMAT | flags::ELEMENT) != flags::REFS {
             return None;
         }
         // SAFETY: `REFS` `_List`: the length in word 0 of the body, the elements
         // from word 1 on.
-        let len = unsafe { raw_word(h, desl::COMPRIMENTO) } as usize;
-        Some(Data { h, p: in_block(h, desl::ELEMENTOS).cast(), len })
+        let len = unsafe { raw_word(h, offsets::LENGTH) } as usize;
+        Some(Data { h, p: in_block(h, offsets::ELEMENTS).cast(), len })
     }
 
     /// The data of a general `_GrowableList` (the JSON listener's stack): the
     /// storage cut at the length.
     #[inline(always)]
     fn from_growable(h: i64) -> Option<Data> {
-        use crate::layout::{cid, desl, is_object};
+        use crate::layout::{cid, offsets, is_object};
         if !is_object(h) {
             return None;
         }
@@ -146,8 +146,8 @@ impl Data {
             return None;
         }
         // SAFETY: `_GrowableList`: length in field 0, storage in field 1.
-        let (len, a) = unsafe { (raw_word(h, desl::COMPRIMENTO) as usize, raw_word(h, desl::EXPANSIVEL_DADOS)) };
-        let mut d = Data::de(a, false)?;
+        let (len, a) = unsafe { (raw_word(h, offsets::LENGTH) as usize, raw_word(h, offsets::GROWABLE_DATA)) };
+        let mut d = Data::of(a, false)?;
         if len > d.len {
             return None;
         }
@@ -167,22 +167,22 @@ impl Data {
     /// card dirtied, if it has cards, and the old object is remembered.
     #[inline(always)]
     fn write_value(self, i: usize, v: i64) {
-        use crate::layout::{estado, flags};
+        use crate::layout::{state, flags};
         debug_assert!(i < self.len);
-        // SAFETY: `i < len`; a writable `_List` (checked in `de`).
+        // SAFETY: `i < len`; a writable `_List` (checked in `of`).
         let old = unsafe { std::mem::replace(&mut *self.p.add(i), v) };
         if arc_enabled() {
             arc_raw_write(self.h, old, v);
         }
         // SAFETY: live object.
         let c = unsafe { raw_header(self.h) };
-        let e = c.estado;
-        if (e == estado::VELHO || e == estado::REMEMBERED) && young_child(v) {
-            if c.flags & flags::CARTOES != 0 {
-                // SAFETY: a `REFS` block with `CARTOES` of `len` elements, `i < len`.
-                unsafe { crate::space::dirty_card((self.h - DESLOCAMENTO_DO_HANDLE) as *mut Header, self.len, i) };
+        let e = c.state;
+        if (e == state::OLD || e == state::REMEMBERED) && young_child(v) {
+            if c.flags & flags::CARDS != 0 {
+                // SAFETY: a `REFS` block with `CARDS` of `len` elements, `i < len`.
+                unsafe { crate::space::dirty_card((self.h - HANDLE_OFFSET) as *mut Header, self.len, i) };
             }
-            if e == estado::VELHO {
+            if e == state::OLD {
                 dartforge_remember(self.h);
             }
         }
@@ -193,7 +193,7 @@ impl Data {
 #[inline(always)]
 fn young_child(v: i64) -> bool {
     // SAFETY: live object.
-    crate::layout::is_object(v) && unsafe { raw_header(v) }.estado == crate::layout::estado::JOVEM
+    crate::layout::is_object(v) && unsafe { raw_header(v) }.state == crate::layout::state::YOUNG
 }
 
 /// A key that the runtime compares and hashes by itself.
@@ -201,7 +201,7 @@ fn young_child(v: i64) -> bool {
 enum HashKey {
     Int(i64),
     /// The string's handle.
-    Texto(i64),
+    Text(i64),
 }
 
 /// What the key's `==` says about an entry.
@@ -222,13 +222,13 @@ enum Probe {
 /// The `int` of a `Smi` or `_Mint`.
 #[inline(always)]
 fn integer(k: i64) -> Option<i64> {
-    use crate::layout::{cid, desl, is_object, smi};
+    use crate::layout::{cid, offsets, is_object, smi};
     if smi::is_smi(k) {
         return Some(smi::value(k));
     }
     // SAFETY: live object; the `_Mint` box has the value at `b+16`.
     if is_object(k) && unsafe { raw_header(k) }.class_id == cid::MINT {
-        return Some(unsafe { raw_word(k, desl::VALOR) });
+        return Some(unsafe { raw_word(k, offsets::VALUE) });
     }
     None
 }
@@ -236,15 +236,15 @@ fn integer(k: i64) -> Option<i64> {
 /// The code units of a string: one-byte (`_OneByteString`) or two-byte.
 #[derive(Clone, Copy)]
 enum Units {
-    Um(*const u8, usize),
-    Dois(*const u16, usize),
+    OneByte(*const u8, usize),
+    TwoByte(*const u16, usize),
 }
 
 impl Units {
     /// The units of `h`, if it is a string.
     #[inline(always)]
-    fn de(h: i64) -> Option<Units> {
-        use crate::layout::{cid, desl, is_object};
+    fn of(h: i64) -> Option<Units> {
+        use crate::layout::{cid, offsets, is_object};
         if !is_object(h) {
             return None;
         }
@@ -254,14 +254,14 @@ impl Units {
             return None;
         }
         // SAFETY: string: the length at `b+16`, the units at `b+24`.
-        let len = unsafe { raw_word(h, desl::COMPRIMENTO) } as usize;
-        let p = in_block(h, desl::UNIDADES);
-        Some(if c == cid::ONE_BYTE_STRING { Units::Um(p, len) } else { Units::Dois(p.cast(), len) })
+        let len = unsafe { raw_word(h, offsets::LENGTH) } as usize;
+        let p = in_block(h, offsets::UNITS);
+        Some(if c == cid::ONE_BYTE_STRING { Units::OneByte(p, len) } else { Units::TwoByte(p.cast(), len) })
     }
 
     fn len(self) -> usize {
         match self {
-            Units::Um(_, n) | Units::Dois(_, n) => n,
+            Units::OneByte(_, n) | Units::TwoByte(_, n) => n,
         }
     }
 
@@ -271,8 +271,8 @@ impl Units {
         // SAFETY: `i < len` (the caller checks).
         unsafe {
             match self {
-                Units::Um(p, _) => u16::from(*p.add(i)),
-                Units::Dois(p, _) => *p.add(i),
+                Units::OneByte(p, _) => u16::from(*p.add(i)),
+                Units::TwoByte(p, _) => *p.add(i),
             }
         }
     }
@@ -285,21 +285,21 @@ impl Units {
         // SAFETY: both slices have `len` units of their type.
         unsafe {
             match (self, other) {
-                (Units::Um(a, n), Units::Um(b, _)) => std::slice::from_raw_parts(a, n) == std::slice::from_raw_parts(b, n),
-                (Units::Dois(a, n), Units::Dois(b, _)) => std::slice::from_raw_parts(a, n) == std::slice::from_raw_parts(b, n),
+                (Units::OneByte(a, n), Units::OneByte(b, _)) => std::slice::from_raw_parts(a, n) == std::slice::from_raw_parts(b, n),
+                (Units::TwoByte(a, n), Units::TwoByte(b, _)) => std::slice::from_raw_parts(a, n) == std::slice::from_raw_parts(b, n),
                 _ => (0..self.len()).all(|i| self.at(i) == other.at(i)),
             }
         }
     }
 }
 
-/// The `hashCode` of string `h` (that of `Heap::hash_de_texto`): the header's, or
+/// The `hashCode` of string `h` (that of `Heap::string_hash`): the header's, or
 /// computed and written into it on the first query (except for a static string,
 /// which already carries it and lives in read-only memory).
 #[inline(always)]
 fn raw_string_hash(h: i64, u: Units) -> u32 {
-    use crate::layout::{desl, estado};
-    let p = in_block(h, desl::HASH_DO_TEXTO).cast::<u32>();
+    use crate::layout::{offsets, state};
+    let p = in_block(h, offsets::STRING_HASH).cast::<u32>();
     // SAFETY: `map` of a live string's header; the heap belongs to this thread.
     let current = unsafe { *p };
     if current != 0 {
@@ -307,11 +307,11 @@ fn raw_string_hash(h: i64, u: Units) -> u32 {
     }
     let x = match u {
         // SAFETY: the string's units.
-        Units::Um(q, n) => crate::layout::hash_de_texto(unsafe { std::slice::from_raw_parts(q, n) }.iter().map(|&b| u16::from(b))),
-        Units::Dois(q, n) => crate::layout::hash_de_texto(unsafe { std::slice::from_raw_parts(q, n) }.iter().copied()),
+        Units::OneByte(q, n) => crate::layout::string_hash(unsafe { std::slice::from_raw_parts(q, n) }.iter().map(|&b| u16::from(b))),
+        Units::TwoByte(q, n) => crate::layout::string_hash(unsafe { std::slice::from_raw_parts(q, n) }.iter().copied()),
     };
     // SAFETY: as above; the state is byte 0 of the block.
-    if unsafe { raw_header(h) }.estado != estado::PERMANENTE {
+    if unsafe { raw_header(h) }.state != state::PERMANENT {
         unsafe { *p = x };
     }
     x
@@ -325,8 +325,8 @@ fn hash_key(k: i64) -> Option<(HashKey, i64)> {
     if let Some(v) = integer(k) {
         return Some((HashKey::Int(v), dartforge_native_DartForge_int_hashCode(v)));
     }
-    let u = Units::de(k)?;
-    Some((HashKey::Texto(k), i64::from(raw_string_hash(k, u))))
+    let u = Units::of(k)?;
+    Some((HashKey::Text(k), i64::from(raw_string_hash(k, u))))
 }
 
 /// `key == entry` (the `==` of `int` or of `String`), with the `Ref` entry.
@@ -349,19 +349,19 @@ fn compare_key(key: HashKey, input: i64) -> Comparison {
                 _ => Comparison::Different,
             }
         }
-        HashKey::Texto(h) => {
+        HashKey::Text(h) => {
             if input == h {
                 return Comparison::Equal;
             }
-            let (Some(a), Some(b)) = (Units::de(h), Units::de(input)) else {
+            let (Some(a), Some(b)) = (Units::of(h), Units::of(input)) else {
                 return Comparison::Different;
             };
             // The already computed hashes differ: different units.
             // SAFETY: `map` of two live strings, only read.
             let (ha, hb) = unsafe {
                 (
-                    *in_block(h, crate::layout::desl::HASH_DO_TEXTO).cast::<u32>(),
-                    *in_block(input, crate::layout::desl::HASH_DO_TEXTO).cast::<u32>(),
+                    *in_block(h, crate::layout::offsets::STRING_HASH).cast::<u32>(),
+                    *in_block(input, crate::layout::offsets::STRING_HASH).cast::<u32>(),
                 )
             };
             if ha != 0 && hb != 0 && ha != hb {
@@ -478,7 +478,7 @@ fn set_add(ix: Index, data: Data, mask: i64, used_count: i64, key: i64) -> i64 {
 /// Dart).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_hash_map_store(ix: i64, data: i64, mask: i64, used_count: i64, key: i64, value: i64) -> i64 {
-    match (Index::de(ix), Data::de(data, true)) {
+    match (Index::of(ix), Data::of(data, true)) {
         (Some(i), Some(d)) => map_write(i, d, mask, used_count, key, value),
         _ => -1,
     }
@@ -489,7 +489,7 @@ pub extern "C" fn dartforge_native_DartForge_hash_map_store(ix: i64, data: i64, 
 /// value) when Dart has to search.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_hash_map_lookup(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
-    let (Some(ind), Some(el), Some((k, hash))) = (Index::de(ix), Data::de(data, false), hash_key(key)) else {
+    let (Some(ind), Some(el), Some((k, hash))) = (Index::of(ix), Data::of(data, false), hash_key(key)) else {
         return ix;
     };
     match probe(ind, el, mask, k, hash, 2) {
@@ -503,7 +503,7 @@ pub extern "C" fn dartforge_native_DartForge_hash_map_lookup(ix: i64, data: i64,
 /// key was already there), or -1 when Dart has to do the operation.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_hash_set_add(ix: i64, data: i64, mask: i64, used_count: i64, key: i64) -> i64 {
-    match (Index::de(ix), Data::de(data, true)) {
+    match (Index::of(ix), Data::of(data, true)) {
         (Some(i), Some(d)) => set_add(i, d, mask, used_count, key),
         _ => -1,
     }
@@ -513,7 +513,7 @@ pub extern "C" fn dartforge_native_DartForge_hash_set_add(ix: i64, data: i64, ma
 /// or `data` when it is missing, or `ix` when Dart has to search.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_hash_set_lookup(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
-    let (Some(ind), Some(el), Some((k, hash))) = (Index::de(ix), Data::de(data, false), hash_key(key)) else {
+    let (Some(ind), Some(el), Some((k, hash))) = (Index::of(ix), Data::of(data, false), hash_key(key)) else {
         return ix;
     };
     match probe(ind, el, mask, k, hash, 1) {
@@ -534,22 +534,22 @@ fn batch(cur_position: usize, used_count: i64) -> i64 {
 /// of `_rehash`) or a general `_GrowableList` (the JSON listener's stack).
 #[inline(always)]
 fn entries(pair_list: i64) -> Option<Data> {
-    Data::de(pair_list, false).or_else(|| Data::from_growable(pair_list))
+    Data::of(pair_list, false).or_else(|| Data::from_growable(pair_list))
 }
 
 /// The `_Map` batch (docs/NATIVO-PLANO.md §13.2, items 2 and 3): `map[k] = v` for
-/// each pair `(pair_list[i], pair_list[i + 1])`, `i` from `de` to `until` in steps
+/// each pair `(pair_list[i], pair_list[i + 1])`, `i` from `of` to `until` in steps
 /// of 2, in order, as `_set` would do. With `skip_removed`, a pair whose key is the
 /// list itself (`_HashBase._isDeleted` of the old `_data`) is skipped. Stops at the
 /// first pair the runtime cannot write (a key of another type, `int` against
 /// `double`, a full table) and returns [`batch`]: Dart writes that pair and calls
 /// again from the next one.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_hash_map_fill(ix: i64, data: i64, mask: i64, used_count: i64, pair_list: i64, de: i64, until: i64, skip_removed: u8) -> i64 {
-    let (Some(ind), Some(d), Some(p)) = (Index::de(ix), Data::de(data, true), entries(pair_list)) else {
-        return batch(de.max(0) as usize, used_count);
+pub extern "C" fn dartforge_native_DartForge_hash_map_fill(ix: i64, data: i64, mask: i64, used_count: i64, pair_list: i64, of: i64, until: i64, skip_removed: u8) -> i64 {
+    let (Some(ind), Some(d), Some(p)) = (Index::of(ix), Data::of(data, true), entries(pair_list)) else {
+        return batch(of.max(0) as usize, used_count);
     };
-    let (mut i, until) = (de.max(0) as usize, (until.max(0) as usize).min(p.len));
+    let (mut i, until) = (of.max(0) as usize, (until.max(0) as usize).min(p.len));
     let mut u = used_count;
     while i + 1 < until {
         let k = p.do_read(i);
@@ -565,15 +565,15 @@ pub extern "C" fn dartforge_native_DartForge_hash_map_fill(ix: i64, data: i64, m
     batch(i, u)
 }
 
-/// The `_Set` batch (the `_init` of `_rehash`): `add(olds_set[i])` for `i` from `de`
+/// The `_Set` batch (the `_init` of `_rehash`): `add(olds_set[i])` for `i` from `of`
 /// to `until`, skipping the removed ones (the key that is the list itself). Stops at
 /// the first element the runtime cannot insert and returns [`batch`].
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_hash_set_fill(ix: i64, data: i64, mask: i64, used_count: i64, olds_set: i64, de: i64, until: i64) -> i64 {
-    let (Some(ind), Some(d), Some(p)) = (Index::de(ix), Data::de(data, true), entries(olds_set)) else {
-        return batch(de.max(0) as usize, used_count);
+pub extern "C" fn dartforge_native_DartForge_hash_set_fill(ix: i64, data: i64, mask: i64, used_count: i64, olds_set: i64, of: i64, until: i64) -> i64 {
+    let (Some(ind), Some(d), Some(p)) = (Index::of(ix), Data::of(data, true), entries(olds_set)) else {
+        return batch(of.max(0) as usize, used_count);
     };
-    let (mut i, until) = (de.max(0) as usize, (until.max(0) as usize).min(p.len));
+    let (mut i, until) = (of.max(0) as usize, (until.max(0) as usize).min(p.len));
     let mut u = used_count;
     while i < until {
         let k = p.do_read(i);

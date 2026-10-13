@@ -1,6 +1,6 @@
 //! Boxes, closures and records in the lowering (P2, docs/NATIVO-ESPACO-UNIFICADO.md
 //! §3.8 and §4.4): the external members done inline and the read of the fields of
-//! a `_Closure` (`INSTANCIA`: code, context, typed body, ABI — §2.5).
+//! a `_Closure` (`INSTANCE`: code, context, typed body, ABI — §2.5).
 //!
 //! The closure fields are read by `dartforge_object_get` with a constant
 //! index, which the emitter expands inline (the word `b+16+8i`; null and
@@ -11,9 +11,9 @@ use crate::hir::*;
 
 /// The context field (or the value of the direct environment) of a `_Closure`;
 /// field 0 is the code (the uniform entry).
-pub(super) const CLOSURE_CONTEXTO: i64 = 1;
+pub(super) const CLOSURE_CONTEXT: i64 = 1;
 /// The field of the typed body.
-pub(super) const CLOSURE_TIPADO: i64 = 2;
+pub(super) const CLOSURE_TYPED: i64 = 2;
 /// The field of the ABI of the typed body.
 pub(super) const CLOSURE_ABI: i64 = 3;
 
@@ -44,7 +44,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ret_ty: Type::Ref,
             }, Type::Ref)
         } else {
-            self.object_word(clo, CLOSURE_CONTEXTO, Type::Ref)
+            self.object_word(clo, CLOSURE_CONTEXT, Type::Ref)
         }
     }
 
@@ -114,7 +114,7 @@ mod context_tests {
             let entry = dir.path().join("main.dart");
             std::fs::write(&entry,
                 "int topo() => 7; int Function() criar(int valor) => () => valor; const List<int> valores = [1, 2]; void main() { valores; criar(42)(); topo(); }\n").unwrap();
-            let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
             assert!(diags.is_empty(), "{diags:?}");

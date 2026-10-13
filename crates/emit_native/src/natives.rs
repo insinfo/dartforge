@@ -966,11 +966,11 @@ mod inventory {
         let externals = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(|| {
-                let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+                let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
                 let tmp = tempfile::tempdir().unwrap();
                 let entry = tmp.path().join("main.dart");
                 let mut source = String::new();
-                for b in crate::sdk_modulo::SOURCE_LIBRARIES {
+                for b in crate::sdk_module::SOURCE_LIBRARIES {
                     source.push_str(&format!("import 'dart:{b}';\n"));
                 }
                 source.push_str("void main() {}\n");
@@ -978,7 +978,7 @@ mod inventory {
                 let mut interner = dartforge_intern::Interner::new();
                 let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
                 assert!(diags.is_empty(), "{diags:?}");
-                inventory(&program, &interner, crate::sdk_modulo::SOURCE_LIBRARIES)
+                inventory(&program, &interner, crate::sdk_module::SOURCE_LIBRARIES)
             })
             .unwrap()
             .join()

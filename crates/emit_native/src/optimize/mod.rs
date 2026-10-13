@@ -135,7 +135,7 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): the last pass over the HIR,
 /// after [`optimize`] and right before emission. Without it the module stays in the
 /// usual model (the pending state checked after each call).
-pub fn excecoes_por_tabelas(module: &mut Module) {
+pub fn table_exceptions(module: &mut Module) {
     tables::apply(module);
 }
 

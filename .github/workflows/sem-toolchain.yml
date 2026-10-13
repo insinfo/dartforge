@@ -21,7 +21,7 @@ on:
       - 'crates/emit_native/**'
       - 'crates/runtime/**'
       - 'crates/llvm/src/**'
-      - 'crates/cli/src/empacotar.rs'
+      - 'crates/cli/src/pack.rs'
       - 'crates/elements/src/distribution.rs'
       - 'corpus/native/**'
       - '.github/workflows/sem-toolchain.yml'
@@ -59,7 +59,7 @@ jobs:
       # As importações contra as DLLs do System32 do runner, e programas C
       # (executável e DLL) ligados só com o lld-link e executados.
       - name: Testes do ligador do Windows
-        run: cargo test --locked --release -p dartforge-emit-native --lib ligador_windows -- --include-ignored
+        run: cargo test --locked --release -p dartforge-emit-native --lib linker_windows -- --include-ignored
       - name: Montar a distribuição
         shell: pwsh
         run: |

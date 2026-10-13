@@ -80,7 +80,7 @@ fn callback_requires_isolate_thread(address: usize) -> bool {
 thread_local! {
     /// This isolate's `fromFunction`s: (key, site, function code, exceptional) →
     /// function pointer.
-    static PERSISTENTES: RefCell<crate::hash::HashMap<(String, i64, i64, i64), usize>> = RefCell::new(crate::hash::HashMap::default());
+    static PERSISTENT: RefCell<crate::hash::HashMap<(String, i64, i64, i64), usize>> = RefCell::new(crate::hash::HashMap::default());
 }
 
 /// # Safety
@@ -101,7 +101,7 @@ mod executable_memory {
     pub const SLICE_SIZE: usize = 64;
     const REGION_SIZE: usize = 64 * 1024;
 
-    static LIVRES: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+    static FREE_SLOTS: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
 
     #[cfg(unix)]
     unsafe extern "C" {
@@ -115,7 +115,7 @@ mod executable_memory {
     #[cfg(windows)]
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn VirtualAlloc(addr: *mut u8, len: usize, tipo: u32, protection: u32) -> *mut u8;
+        fn VirtualAlloc(addr: *mut u8, len: usize, ty: u32, protection: u32) -> *mut u8;
         fn FlushInstructionCache(process: usize, addr: *const u8, len: usize) -> i32;
         fn GetCurrentProcess() -> usize;
     }
@@ -149,7 +149,7 @@ mod executable_memory {
     }
 
     pub fn allocate() -> Option<usize> {
-        let mut free_list = LIVRES.lock().unwrap_or_else(|e| e.into_inner());
+        let mut free_list = FREE_SLOTS.lock().unwrap_or_else(|e| e.into_inner());
         if free_list.is_empty() {
             let base = map_pages()?;
             free_list.extend((0..REGION_SIZE / SLICE_SIZE).rev().map(|i| base + i * SLICE_SIZE));
@@ -158,7 +158,7 @@ mod executable_memory {
     }
 
     pub fn free(p: usize) {
-        LIVRES.lock().unwrap_or_else(|e| e.into_inner()).push(p);
+        FREE_SLOTS.lock().unwrap_or_else(|e| e.into_inner()).push(p);
     }
 
     /// Writes at `p` the trampoline that loads `ctx` into the `nest` register and
@@ -225,18 +225,18 @@ mod executable_memory {
         // SAFETY: EL0 cache maintenance (`dc cvau`/`ic ivau`), like compiler-rt's
         // `__clear_cache`, line by line over the slice.
         unsafe {
-            const LINHA: usize = 64;
-            let begin = p & !(LINHA - 1);
+            const LINE: usize = 64;
+            let begin = p & !(LINE - 1);
             let mut a = begin;
             while a < p + SLICE_SIZE {
                 std::arch::asm!("dc cvau, {0}", in(reg) a);
-                a += LINHA;
+                a += LINE;
             }
             std::arch::asm!("dsb ish");
             a = begin;
             while a < p + SLICE_SIZE {
                 std::arch::asm!("ic ivau, {0}", in(reg) a);
-                a += LINHA;
+                a += LINE;
             }
             std::arch::asm!("dsb ish", "isb");
         };
@@ -367,7 +367,7 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64,
     // `fromFunction`: `port` is the call site (one trampoline per site).
     let persistent = (mode == MODE_PERSISTENT).then(|| (key.clone(), port, closure_code(function), exceptional));
     if let Some(k) = &persistent
-        && let Some(f) = PERSISTENTES.with(|p| p.borrow().get(k).copied())
+        && let Some(f) = PERSISTENT.with(|p| p.borrow().get(k).copied())
     {
         return f as i64;
     }
@@ -390,7 +390,7 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64,
                 HEAP.with(|h| h.borrow_mut().set_global_root(root, function));
             }
             if let Some(k) = persistent {
-                PERSISTENTES.with(|p| p.borrow_mut().insert(k, f));
+                PERSISTENT.with(|p| p.borrow_mut().insert(k, f));
             }
             f as i64
         }
@@ -472,11 +472,11 @@ pub unsafe extern "C" fn dartforge_ffi_callback_closure(ctx: i64) -> i64 {
 pub unsafe extern "C" fn dartforge_ffi_callback_pointer(ctx: i64, i: i64, address: i64) -> i64 {
     // SAFETY: guaranteed by the caller.
     let ns = unsafe { (*(ctx as *const CallbackContext)).fn_signature };
-    let tipo = RTI.with(|u| match u.borrow().tipo(ns) {
+    let ty = RTI.with(|u| match u.borrow().ty(ns) {
         Type::Function { pos, .. } => pos.get(i as usize).copied(),
         _ => None,
     });
-    new_pointer(address, tipo)
+    new_pointer(address, ty)
 }
 
 /// The callback's closure under ARC, with a code owner.
@@ -575,7 +575,7 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_args(message: i64) -> 
     // The elements of the message (a core list), in the `Ref` position.
     let items: Vec<crate::heap::Value> = HEAP.with(|h| {
         let h = h.borrow();
-        if !h.e_lista(message) {
+        if !h.is_list(message) {
             return Vec::new();
         }
         (0..h.list_len(message)).map(|i| h.list_get(message, i)).collect()
@@ -591,7 +591,7 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_args(message: i64) -> 
         let c = &*(ctx as *const CallbackContext);
         (c.key.clone(), c.fn_signature)
     };
-    let types: Vec<i64> = RTI.with(|u| match u.borrow().tipo(ns) {
+    let types: Vec<i64> = RTI.with(|u| match u.borrow().ty(ns) {
         Type::Function { pos, .. } => pos.to_vec(),
         _ => Vec::new(),
     });
@@ -659,7 +659,7 @@ mod tests_owned_callback {
 }
 
 #[cfg(test)]
-mod finalizador_callback_tests {
+mod finalizer_callback_tests {
     use super::*;
 
     #[test]

@@ -36,7 +36,7 @@ use dartforge_types::table::{Type as T, TypeId, TypeParamId, TypeParamOwner};
 use std::collections::{BTreeSet, HashMap};
 
 /// Heap class id of the `Type` object (`types.rs`, the type class constant).
-pub const CLASSE_TIPO: i64 = 0x3FFF_FF01;
+pub const TYPE_CLASS: i64 = 0x3FFF_FF01;
 
 /// The class `name` of `dart:core`.
 fn core_class(ctx: &Context, name_str: &str) -> Option<ClassId> {
@@ -372,12 +372,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 r.variables |= sub.variables;
                                 strings.push(sub.text.clone());
                             }
-                            let mut alvo = self.type_recipe_with(self.ctx.erase(this), &params, &strings);
-                            r.variables |= alvo.variables;
-                            if a.nullable && !alvo.text.ends_with('?') {
-                                alvo.text.push('?');
+                            let mut target = self.type_recipe_with(self.ctx.erase(this), &params, &strings);
+                            r.variables |= target.variables;
+                            if a.nullable && !target.text.ends_with('?') {
+                                target.text.push('?');
                             }
-                            r.text.push_str(&alvo.text);
+                            r.text.push_str(&target.text);
                             return Some(());
                         }
                         Element::Class(c) => {
@@ -409,12 +409,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 strings.push(sub.text.clone());
                             }
                             r.variables |= sub.variables;
-                            let mut alvo = self.type_recipe_with(data.target_type, &data.type_params, &strings);
-                            r.variables |= alvo.variables;
+                            let mut target = self.type_recipe_with(data.target_type, &data.type_params, &strings);
+                            r.variables |= target.variables;
                             if a.nullable {
-                                alvo.text.push('?');
+                                target.text.push('?');
                             }
-                            r.text.push_str(&alvo.text);
+                            r.text.push_str(&target.text);
                             return Some(());
                         }
                         _ => return None,
@@ -1364,9 +1364,9 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
                 }
             }
         }
-        module.method_tables.push((CLASSE_TIPO as u32, "df.mt.$type".to_string(), methods));
+        module.method_tables.push((TYPE_CLASS as u32, "df.mt.$type".to_string(), methods));
         module.classes.push(ClassDef {
-            id: CLASSE_TIPO as u32,
+            id: TYPE_CLASS as u32,
             name: "_Type".to_string(),
             field_count: 1,
             vtable: Vec::new(),
@@ -1376,7 +1376,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         // program. The RTI knows its type, but the nominal tests of the source
         // use the separate table of `dartforge_is_subclass`.
         if let Some(ty) = core_class(ctx, "Type").and_then(|c| ctx.class_id_of(c)) {
-            module.subtyping_edges.push((CLASSE_TIPO as u32, ty));
+            module.subtyping_edges.push((TYPE_CLASS as u32, ty));
         }
     }
     let mut cited: BTreeSet<i64> = BTreeSet::new();
@@ -1497,7 +1497,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         (1010, "ConcurrentModificationError"),
         (1011, "TypeError"),
         (1012, "NoSuchMethodError"),
-        (CLASSE_TIPO, "Type"),
+        (TYPE_CLASS, "Type"),
     ] {
         let Some(core_lib) = ctx.program.core else { continue };
         let Some(sym) = ctx.interner.lookup(name_str) else { continue };
@@ -1507,7 +1507,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     // The large table goes compressed (`dartforge_runtime::rti_table`): 1.37
     // MB of text in new_sali/backend, ~260 KB compressed.
     let bytes = table.into_bytes();
-    let bytes = if bytes.len() >= dartforge_runtime::tabela_rti::LIMIAR { dartforge_runtime::tabela_rti::comprimir(&bytes) } else { bytes };
+    let bytes = if bytes.len() >= dartforge_runtime::rti_table::THRESHOLD { dartforge_runtime::rti_table::compress(&bytes) } else { bytes };
     // The bytes packed into words (little-endian, like all the targets).
     let words: Vec<i64> = bytes
         .chunks(8)

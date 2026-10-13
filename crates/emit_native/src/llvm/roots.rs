@@ -180,7 +180,7 @@ pub fn analyze_with(
     // The pass over a block: starting from what is live at the exit, visits each
     // instruction (what is live after it, the definition, the uses) and returns what is
     // live at the entry of the block (after the `phi`s, which are not uses).
-    let passar = |b: usize,
+    let walk_block = |b: usize,
                   exit: Set,
                   visit: &mut dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set)|
      -> Set {
@@ -224,7 +224,7 @@ pub fn analyze_with(
         let mut changed = false;
         for b in (0..nb).rev() {
             let exit = live_at_exit_set(b, &entry);
-            let e = passar(b, exit, &mut |_, _, _, _, _| {});
+            let e = walk_block(b, exit, &mut |_, _, _, _, _| {});
             if e != entry[b] {
                 entry[b] = e;
                 changed = true;
@@ -251,7 +251,7 @@ pub fn analyze_with(
     let mut points: Vec<(Option<ValueId>, usize, Set)> = Vec::new();
     for b in 0..nb {
         let exit = live_at_exit_set(b, &entry);
-        let e = passar(b, exit, &mut |inst, who, d, after, before| {
+        let e = walk_block(b, exit, &mut |inst, who, d, after, before| {
             let collection = inst.is_none_or(|i| may_collect(i));
             if collection {
                 let roots = match inst {

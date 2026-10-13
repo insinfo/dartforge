@@ -1,14 +1,14 @@
 //! Boxes, cells, contexts, closures and records of the unified space (P2,
 //! docs/NATIVO-ESPACO-UNIFICADO.md §2.5, §2.10 and §3.3).
 //!
-//! * `_Mint` (cid 3) and `_Double` (cid 4): `BRUTO` blocks of one word, the value
+//! * `_Mint` (cid 3) and `_Double` (cid 4): `RAW` blocks of one word, the value
 //!   at `b+16`. The form is canonical: an `int` that fits in a `Smi` never becomes
 //!   a `_Mint`.
 //! * `bool` (cid 5): only the runtime's two statics (`dartforge_false`,
-//!   `dartforge_true`, state `PERMANENTE`); the handle is the address + 2.
-//! * `_Celula` (14): `INSTANCIA` with one field, the map bit set by the write.
-//! * `_Contexto` (13): `INSTANCIA` with the captures, each bit set by the write.
-//! * `_Closure` (11): `INSTANCIA` with four fields — code (raw), context (`Ref`:
+//!   `dartforge_true`, state `PERMANENT`); the handle is the address + 2.
+//! * `_Celula` (14): `INSTANCE` with one field, the map bit set by the write.
+//! * `_Contexto` (13): `INSTANCE` with the captures, each bit set by the write.
+//! * `_Closure` (11): `INSTANCE` with four fields — code (raw), context (`Ref`:
 //!   the `_Contexto`, or the captured value in the "direct environment"), typed
 //!   body (raw) and ABI (raw); map `0b10`.
 //! * Positional `_Record` (12): `REFS`, word 0 is the number of fields (raw) and
@@ -19,20 +19,20 @@
 //! before the next allocation.
 
 use crate::heap::{Field, Heap, Value};
-use crate::layout::{DESLOCAMENTO_DO_HANDLE, Ref, cid, is_object, flags, smi};
+use crate::layout::{HANDLE_OFFSET, Ref, cid, is_object, flags, smi};
 
 /// The view of a `_Closure`: the code, the context (or the captured value in the
 /// "direct environment"), the typed body and the ABI.
 #[derive(Clone, Copy, Debug)]
 pub struct ClosureRef {
     pub code: i64,
-    pub contexto: Field,
+    pub context: Field,
     pub typed_one: i64,
     pub abi: i64,
 }
 
 /// Fields of a `_Closure` (the layout order, §2.5).
-const CAMPOS_DA_CLOSURE: usize = 4;
+const CLOSURE_FIELDS: usize = 4;
 
 impl Heap {
     /// Runs `f` with owning copies of `refs` in a temporary runtime frame (those
@@ -55,10 +55,10 @@ impl Heap {
 
     /// The `int` `v` in a `Ref` position: a `Smi` if it fits, otherwise a new `_Mint`.
     pub fn box_int(&mut self, v: i64) -> Ref {
-        match smi::de(v) {
+        match smi::of(v) {
             Some(r) => r,
             None => {
-                let h = self.allocate(cid::MINT, 1, flags::BRUTO);
+                let h = self.allocate(cid::MINT, 1, flags::RAW);
                 self.words_mut(h)[0] = v;
                 h
             }
@@ -66,7 +66,7 @@ impl Heap {
     }
     /// A new `_Double` with `v`.
     pub fn box_double(&mut self, v: f64) -> Ref {
-        let h = self.allocate(cid::DOUBLE, 1, flags::BRUTO);
+        let h = self.allocate(cid::DOUBLE, 1, flags::RAW);
         self.words_mut(h)[0] = v.to_bits() as i64;
         h
     }
@@ -77,7 +77,7 @@ impl Heap {
         } else {
             std::ptr::addr_of!(crate::heap::dartforge_false)
         };
-        block as i64 + DESLOCAMENTO_DO_HANDLE
+        block as i64 + HANDLE_OFFSET
     }
     /// The value in a `Ref` position (boxes what needs boxing).
     pub fn to_ref(&mut self, v: Value) -> Ref {
@@ -154,7 +154,7 @@ impl Heap {
     pub fn new_cell(&mut self, value: Field) -> Ref {
         let root = value.1.then_some(value.0);
         self.with_rooted_refs(root, |heap| {
-            let h = heap.allocate_instance(cid::CELULA, 1);
+            let h = heap.allocate_instance(cid::CELL, 1);
             heap.set_field(h, 0, value.0, value.1);
             h
         })
@@ -162,7 +162,7 @@ impl Heap {
     /// The value of the `_Celula` `h`.
     pub fn cell(&self, h: Ref) -> Field {
         let o = self.object(h).expect("cell expected");
-        debug_assert_eq!(o.class_id, i64::from(cid::CELULA), "cell expected");
+        debug_assert_eq!(o.class_id, i64::from(cid::CELL), "cell expected");
         o.field(0)
     }
     /// Writes into the `_Celula` `h` (with a barrier).
@@ -173,7 +173,7 @@ impl Heap {
     pub fn new_context(&mut self, captures: &[Field]) -> Ref {
         let roots = captures.iter().filter(|c| c.1).map(|c| c.0).collect::<Vec<_>>();
         self.with_rooted_refs(roots, |heap| {
-            let h = heap.allocate_instance(cid::CONTEXTO, captures.len());
+            let h = heap.allocate_instance(cid::CONTEXT, captures.len());
             for (i, &(bits, is_ref_kind)) in captures.iter().enumerate() {
                 heap.set_field(h, i, bits, is_ref_kind);
             }
@@ -183,16 +183,16 @@ impl Heap {
     /// Capture `i` of the `_Contexto` `h`.
     pub fn capture(&self, h: Ref, i: usize) -> Field {
         let o = self.object(h).expect("context expected");
-        debug_assert_eq!(o.class_id, i64::from(cid::CONTEXTO), "context expected");
+        debug_assert_eq!(o.class_id, i64::from(cid::CONTEXT), "context expected");
         o.field(i)
     }
     /// A new `_Closure`.
-    pub fn new_closure(&mut self, code: i64, contexto: Field, typed_one: i64, abi: i64) -> Ref {
-        let root = contexto.1.then_some(contexto.0);
+    pub fn new_closure(&mut self, code: i64, context: Field, typed_one: i64, abi: i64) -> Ref {
+        let root = context.1.then_some(context.0);
         self.with_rooted_refs(root, |heap| {
-            let h = heap.allocate_instance(cid::CLOSURE, CAMPOS_DA_CLOSURE);
+            let h = heap.allocate_instance(cid::CLOSURE, CLOSURE_FIELDS);
             heap.set_field(h, 0, code, false);
-            heap.set_field(h, 1, contexto.0, contexto.1);
+            heap.set_field(h, 1, context.0, context.1);
             heap.set_field(h, 2, typed_one, false);
             heap.set_field(h, 3, abi, false);
             h
@@ -204,7 +204,7 @@ impl Heap {
             return None;
         }
         let o = self.object(h)?;
-        Some(ClosureRef { code: o.field(0).0, contexto: o.field(1), typed_one: o.field(2).0, abi: o.field(3).0 })
+        Some(ClosureRef { code: o.field(0).0, context: o.field(1), typed_one: o.field(2).0, abi: o.field(3).0 })
     }
     /// The canonical tear-off of the top-level function `code` (`tearoffs`
     /// table): a closure without context and without typed body, the same one

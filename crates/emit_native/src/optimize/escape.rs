@@ -48,7 +48,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
             if let Instruction::CallRuntime { name, args, .. } = inst
                 && name == "dartforge_object_new"
                 && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
-                    if *c >= dartforge_runtime::layout::PRIMEIRO_CID_LIVRE)
+                    if *c >= dartforge_runtime::layout::FIRST_FREE_CID)
             {
                 candidates.insert(*v, Vec::new());
             }

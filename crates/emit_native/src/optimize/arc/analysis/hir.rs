@@ -225,11 +225,11 @@ pub(crate) fn analyze_with_summaries(
     summaries: &HashMap<String, (&Function, super::summaries::ArcHeapSummary)>,
     select_by_schema: bool,
 ) -> Result<HirAnalysis, String> {
-    for (sym_name, (body, resumo)) in summaries {
+    for (sym_name, (body, summary)) in summaries {
         if sym_name != &body.symbol {
             return Err("points-to: incompatible summary symbol".into());
         }
-        resumo.check(body)?;
+        summary.check(body)?;
     }
     let mut body_dependencies = HashMap::new();
     super::super::ssa::verify(f)?;
@@ -317,17 +317,17 @@ pub(crate) fn analyze_with_summaries(
             return Err("HIR points-to: conflicting schemas for the same origin".into());
         }
     }
-    for (_, resumo) in summaries.values() {
+    for (_, summary) in summaries.values() {
         let mut paths = Vec::new();
-        if let Some(returns) = &resumo.return_paths.paths {
+        if let Some(returns) = &summary.return_paths.paths {
             paths.extend(returns.iter());
         }
         if let super::writes::PublicationInclusions::Known(publications) =
-            &resumo.publication_inclusions
+            &summary.publication_inclusions
         {
             paths.extend(publications.values().filter_map(Option::as_ref).flatten());
         }
-        if let Some(writes) = resumo.write_inclusions.positive_set() {
+        if let Some(writes) = summary.write_inclusions.positive_set() {
             for write in writes {
                 paths.extend([&write.object, &write.value]);
             }
@@ -447,7 +447,7 @@ pub(crate) fn analyze_with_summaries(
                 args,
                 ret_ty,
             } if summaries.contains_key(symbol) => {
-                let (callee, resumo) = &summaries[symbol];
+                let (callee, summary) = &summaries[symbol];
                 if args.len() != callee.params.len() {
                     return Err(format!("points-to: aridade de {symbol}"));
                 }
@@ -457,7 +457,7 @@ pub(crate) fn analyze_with_summaries(
                         .iter()
                         .zip(&callee.params)
                         .all(|(o, (_, _, t))| super::summaries::exact_argument(o, *t, &types));
-                if let Some(paths) = &resumo.return_paths.paths
+                if let Some(paths) = &summary.return_paths.paths
                     && exact_abi
                     && *ty == Type::Ref
                     && *ret_ty == Type::Ref
@@ -479,7 +479,7 @@ pub(crate) fn analyze_with_summaries(
                 body_dependencies.insert(symbol.clone(), body_signature(callee));
                 if exact_abi
                     && let super::writes::PublicationInclusions::Known(globals) =
-                        &resumo.publication_inclusions
+                        &summary.publication_inclusions
                 {
                     for (sym_name, paths) in globals {
                         if let Some(paths) = paths {
@@ -502,7 +502,7 @@ pub(crate) fn analyze_with_summaries(
                         }
                     }
                 }
-                if exact_abi && let Some(writes) = resumo.write_inclusions.positive_set() {
+                if exact_abi && let Some(writes) = summary.write_inclusions.positive_set() {
                     for write in writes {
                         let obj_ref = materialize_summary(
                             &write.object,
@@ -534,11 +534,11 @@ pub(crate) fn analyze_with_summaries(
                 // Field coverage is separate from the normal alias. Conversions
                 // of arguments may allocate/reenter before the covered body.
                 if !exact_abi
-                    || resumo.publications() != super::summaries::ArcHeapPublications::ResultOnly
+                    || summary.publications() != super::summaries::ArcHeapPublications::ResultOnly
                 {
                     unknown_set.push(*v);
                 }
-                if !exact_abi || resumo.fields() != super::summaries::ArcHeapFields::Preserved {
+                if !exact_abi || summary.fields() != super::summaries::ArcHeapFields::Preserved {
                     for field in &field_list {
                         rs.push(Constraint::UnknownField {
                             field: field.clone(),
@@ -775,13 +775,13 @@ pub(crate) struct ArcTableState {
 }
 
 pub(crate) fn table_state(m: &Module, idx_value: usize) -> ArcTableState {
-    let table = if m.excecoes_por_tabelas {
+    let table = if m.table_exceptions {
         m.tables.get(idx_value)
     } else {
         None
     };
     ArcTableState {
-        tables_mode: m.excecoes_por_tabelas,
+        tables_mode: m.table_exceptions,
         table: table.cloned(),
     }
 }

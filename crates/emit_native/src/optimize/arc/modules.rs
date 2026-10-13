@@ -92,7 +92,7 @@ pub fn prepare_arc_dart_modules(
     };
     if modules.iter().any(|m| {
         m.arc_memory != first_one.arc_memory
-            || m.excecoes_por_tabelas != first_one.excecoes_por_tabelas
+            || m.table_exceptions != first_one.table_exceptions
     }) {
         return Err("ARC modules: incompatible memory/exception modes".into());
     }
@@ -101,7 +101,7 @@ pub fn prepare_arc_dart_modules(
     }
     let mut set = Module::new();
     set.arc_memory = true;
-    set.excecoes_por_tabelas = first_one.excecoes_por_tabelas;
+    set.table_exceptions = first_one.table_exceptions;
     let mut new_set = HashMap::new();
     let mut definitions: HashMap<String, (usize, usize)> = HashMap::new();
     let mut variants: HashMap<String, Vec<String>> = HashMap::new();
@@ -144,7 +144,7 @@ pub fn prepare_arc_dart_modules(
                 return Err(format!("ARC modules: fact outside the module of {s}"));
             }
         }
-        if set.excecoes_por_tabelas && m.functions.len() != m.tables.len() {
+        if set.table_exceptions && m.functions.len() != m.tables.len() {
             return Err("ARC modules: incomplete local exceptional inventory".into());
         }
         let mut area = HashMap::new();
@@ -233,7 +233,7 @@ pub fn prepare_arc_dart_modules(
             f.symbol = private.clone();
             remap_area(&mut f, &area)?;
             let mut plan = p[symbol].clone();
-            if set.excecoes_por_tabelas {
+            if set.table_exceptions {
                 let t = &m.tables[function_index];
                 if plan.tables != FunctionTables::default() && plan.tables != *t {
                     return Err(format!(
@@ -277,7 +277,7 @@ pub fn prepare_arc_dart_modules(
             new_set.insert(private, plan);
             indices.push(set.functions.len());
             set.functions.push(f);
-            if set.excecoes_por_tabelas {
+            if set.table_exceptions {
                 set.tables.push(
                     new_set[&set.functions.last().unwrap().symbol]
                         .tables
@@ -287,7 +287,7 @@ pub fn prepare_arc_dart_modules(
         }
         distribution.push((indices, area));
     }
-    if set.excecoes_por_tabelas {
+    if set.table_exceptions {
         produce_module_arc_tables(&set, &mut new_set)?;
     }
     let names_before: Vec<_> = set.functions.iter().map(|f| f.symbol.clone()).collect();
@@ -341,7 +341,7 @@ pub fn prepare_arc_dart_modules(
         m.functions = fs;
         m.arc_prepared = true;
         super::slot_plans::remap_facts(m, &facts);
-        if m.excecoes_por_tabelas {
+        if m.table_exceptions {
             m.tables = m
                 .functions
                 .iter()
@@ -704,7 +704,7 @@ mod tests {
                 }
                 10 => {
                     for m in &mut ms {
-                        m.excecoes_por_tabelas = true;
+                        m.table_exceptions = true;
                         m.tables.push(FunctionTables::default());
                     }
                 }
@@ -958,10 +958,10 @@ mod tests {
                     modules[1].functions[0].blocks[0].terminator =
                         Terminator::Return(Some(Operand::Constant(Constant::Int(42))))
                 }
-                12 => modules[1].excecoes_por_tabelas = true,
+                12 => modules[1].table_exceptions = true,
                 13 | 14 => {
                     for m in &mut modules {
-                        m.excecoes_por_tabelas = true;
+                        m.table_exceptions = true;
                         m.tables.push(FunctionTables::default());
                     }
                     if case == 14 {

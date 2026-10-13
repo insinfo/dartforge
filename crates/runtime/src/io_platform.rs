@@ -16,7 +16,7 @@ fn system_random_bytes(dest: &mut [u8]) -> IoResult<()> {
     for block in dest.chunks_mut(256) {
         // SAFETY: `block` is a writable chunk of up to 256 bytes.
         if unsafe { getentropy(block.as_mut_ptr().cast(), block.len()) } != 0 {
-            return Err(OsError::de(&std::io::Error::last_os_error()));
+            return Err(OsError::of(&std::io::Error::last_os_error()));
         }
     }
     Ok(())
@@ -66,23 +66,23 @@ pub extern "C" fn dartforge_native_Crypto_GetRandomBytes(n: i64) -> i64 {
 /// current directory). Without `dart:io`, nothing.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_prepare_embedder() {
-    let Some(iniciar) = ajudante("_dartforgeIniciarIo") else {
+    let Some(start) = helper("_dartforgeIniciarIo") else {
         return;
     };
     prepare_process_signals();
     // SAFETY: registered by the overlay's `dart:io` library with the signature
     // (`String`) → `Object`.
-    let iniciar = { let dart_target: usize = iniciar; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
+    let start = { let dart_target: usize = start; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     // The script: what the host set (the `.dart` the JIT runs, like `dart run`),
     // otherwise the executable's `argv[0]` (the AOT, like the VM).
     let defined = program_script().lock().unwrap_or_else(|e| e.into_inner()).clone();
     let script = defined.unwrap_or_else(|| std::env::args_os().next().map(|a| path_bytes_of(std::path::Path::new(&a))).unwrap_or_default());
     let script = dart_string_from_bytes(&script);
-    let hook = with_roots(&[script], || iniciar(script));
+    let hook = with_roots(&[script], || start(script));
     if dartforge_exception_pending() != 0 {
         return;
     }
-    if let Some(define) = ajudante("_dartforgeDefinirUriBase") {
+    if let Some(define) = helper("_dartforgeDefinirUriBase") {
         // SAFETY: registered by the overlay's `dart:core` library with the
         // signature (`Uri Function()`) → `void`.
         let define = { let dart_target: usize = define; move |a0: i64| { dart_v1(dart_target, a0) } };
@@ -176,7 +176,7 @@ fn processor_count() -> i64 {
         maximum: *mut std::ffi::c_void,
         mask: usize,
         processors: u32,
-        tipo: u32,
+        ty: u32,
         granularity: u32,
         level: u16,
         revision: u16,
@@ -206,7 +206,7 @@ fn system_version() -> IoResult<String> {
     let mut u = Utsname { fields: [[0; 65]; 6] };
     // SAFETY: `u` has the size of Linux's `struct utsname`.
     if unsafe { uname(&mut u) } != 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     let field = |i: usize| {
         let c = &u.fields[i];
@@ -223,11 +223,11 @@ fn system_version() -> IoResult<String> {
         let mut n = 0usize;
         // SAFETY: first the size, then the value into a buffer of that size.
         if unsafe { sysctlbyname(name_str.as_ptr(), std::ptr::null_mut(), &mut n, std::ptr::null_mut(), 0) } != 0 {
-            return Err(OsError::de(&std::io::Error::last_os_error()));
+            return Err(OsError::of(&std::io::Error::last_os_error()));
         }
         let mut b = vec![0u8; n];
         if unsafe { sysctlbyname(name_str.as_ptr(), b.as_mut_ptr().cast(), &mut n, std::ptr::null_mut(), 0) } != 0 {
-            return Err(OsError::de(&std::io::Error::last_os_error()));
+            return Err(OsError::of(&std::io::Error::last_os_error()));
         }
         b.truncate(b.iter().position(|&c| c == 0).unwrap_or(n));
         Ok(String::from_utf8_lossy(&b).into_owned())
@@ -243,7 +243,7 @@ fn system_version() -> IoResult<String> {
             sub: *const u16,
             value: *const u16,
             flags: u32,
-            tipo: *mut u32,
+            ty: *mut u32,
             data: *mut std::ffi::c_void,
             n: *mut u32,
         ) -> i32;
@@ -288,7 +288,7 @@ fn host_name() -> IoResult<String> {
     let mut b = [0u8; 256];
     // SAFETY: the buffer has 256 bytes.
     if unsafe { gethostname(b.as_mut_ptr().cast(), b.len()) } != 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
     Ok(String::from_utf8_lossy(&b[..end]).into_owned())
@@ -373,7 +373,7 @@ fn locale_name() -> IoResult<String> {
     // SAFETY: the buffer has `LOCALE_NAME_MAX_LENGTH` units.
     let n = unsafe { GetUserDefaultLocaleName(b.as_mut_ptr(), b.len() as i32) };
     if n == 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok(String::from_utf16_lossy(&b[..(n as usize).saturating_sub(1)]))
 }
@@ -394,19 +394,19 @@ fn environment_variables() -> Vec<String> {
     out
 }
 
-/// A fixed-length `_List` with the strings; `tipada`: `List<String>` (the VM's
+/// A fixed-length `_List` with the strings; `typed`: `List<String>` (the VM's
 /// `Dart_NewListOfTypeFilled`), otherwise `List<dynamic>`.
-fn dart_string_list(textos: &[String], tipada: bool) -> i64 {
-    let list = dart_fixed_list(&vec![0; textos.len()]);
+fn dart_string_list(text: &[String], typed: bool) -> i64 {
+    let list = dart_fixed_list(&vec![0; text.len()]);
     with_roots(&[list], || {
-        for (i, t) in textos.iter().enumerate() {
+        for (i, t) in text.iter().enumerate() {
             let s = allocate_str(t);
             HEAP.with(|h| h.borrow_mut().list_set(list, i, crate::heap::Value::Ref(s)));
         }
-        if tipada {
+        if typed {
             let cid = HEAP.with(|h| h.borrow().class(list));
-            if let Some(tipo) = string_list_type(Some(i64::from(cid))) {
-                HEAP.with(|h| h.borrow_mut().set_metadata(list, tipo + 1));
+            if let Some(ty) = string_list_type(Some(i64::from(cid))) {
+                HEAP.with(|h| h.borrow_mut().set_metadata(list, ty + 1));
             }
         }
     });
@@ -640,7 +640,7 @@ fn terminal_attributes(fd: i64) -> IoResult<Termios> {
     let mut t = Termios([0; 128]);
     // SAFETY: `t` is larger than the `struct termios` of any platform.
     if unsafe { tcgetattr(fd as i32, &mut t) } != 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok(t)
 }
@@ -658,7 +658,7 @@ fn change_terminal_mode(fd: i64, m: TerminalMode, enabled_flag: bool) -> IoResul
     t.write_lflag(if enabled_flag { f | bit } else { f & !bit });
     // SAFETY: `t` came from `tcgetattr` (TCSANOW = 0).
     if unsafe { tcsetattr(fd as i32, 0, &t) } != 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok(())
 }
@@ -690,7 +690,7 @@ fn terminal_size(fd: i64) -> IoResult<(i64, i64)> {
     if r == 0 && (w.columns != 0 || w.line_list != 0) {
         return Ok((i64::from(w.columns), i64::from(w.line_list)));
     }
-    Err(OsError::de(&std::io::Error::last_os_error()))
+    Err(OsError::of(&std::io::Error::last_os_error()))
 }
 
 #[cfg(unix)]
@@ -703,7 +703,7 @@ fn read_stdin_byte(fd: i64) -> IoResult<i64> {
             Ok(0) => return Ok(-1),
             Ok(_) => return Ok(i64::from(b[0])),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(OsError::de(&e)),
+            Err(e) => return Err(OsError::of(&e)),
         }
     }
 }
@@ -725,7 +725,7 @@ fn console_mode(fd: i64) -> IoResult<u32> {
     let mut m = 0u32;
     // SAFETY: queries the mode of a process handle.
     if unsafe { GetConsoleMode(default_handle_of(fd), &mut m) } == 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok(m)
 }
@@ -751,7 +751,7 @@ fn change_terminal_mode(_fd: i64, m: TerminalMode, enabled_flag: bool) -> IoResu
     let new = if enabled_flag { current | bit } else { current & !bit };
     // SAFETY: changes the mode of a process handle.
     if unsafe { SetConsoleMode(default_handle_of(0), new) } == 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok(())
 }
@@ -780,7 +780,7 @@ fn terminal_size(fd: i64) -> IoResult<(i64, i64)> {
     // SAFETY: the structure is plain data; the function fills it.
     let mut i: Info = unsafe { std::mem::zeroed() };
     if unsafe { GetConsoleScreenBufferInfo(default_handle_of(if fd == 1 { 1 } else { 2 }), &mut i) } == 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     let [left, top, right, base] = i.window;
     Ok((i64::from(right - left + 1), i64::from(base - top + 1)))
@@ -795,7 +795,7 @@ fn read_stdin_byte(_fd: i64) -> IoResult<i64> {
         Ok(0) => Ok(-1),
         Ok(_) => Ok(i64::from(b[0])),
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(-1),
-        Err(e) => Err(OsError::de(&e)),
+        Err(e) => Err(OsError::of(&e)),
     }
 }
 

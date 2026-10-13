@@ -127,7 +127,7 @@ mod tests {
             let entry = dir.path().join("main.dart");
             std::fs::write(&entry,
                 "void main() { var x = 1; void local() { x = x + 1; } if (false) { local(); } }\n").unwrap();
-            let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
             let mut interner = Interner::new();
             let (program, ds) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
             assert!(ds.is_empty(), "{ds:?}");
@@ -155,7 +155,7 @@ mod tests {
         }).unwrap().join().unwrap();
     }
 
-    fn f(s: &str, alvo: Option<&str>) -> Function {
+    fn f(s: &str, target: Option<&str>) -> Function {
         Function {
             symbol: s.into(),
             name: s.into(),
@@ -164,7 +164,7 @@ mod tests {
             debug_info: None,
             blocks: vec![BasicBlock {
                 id: BlockId(0),
-                instructions: alvo
+                instructions: target
                     .into_iter()
                     .map(|a| {
                         (

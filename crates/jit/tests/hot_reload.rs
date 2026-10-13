@@ -38,7 +38,7 @@ fn library_with_two_exports(dir: &std::path::Path, names: &[&str]) -> std::path:
     let status = std::process::Command::new(clang)
         .args(["-x", "ir", "-shared", "-fPIC"])
         .arg(&ll)
-        .args(dartforge_emit_native::alvo::argumentos_de_ligacao())
+        .args(dartforge_emit_native::target::link_arguments())
         .arg("-o")
         .arg(&dll)
         .status()
@@ -412,10 +412,10 @@ fn reload_publishes_new_dll_external() {
     std::fs::create_dir_all(&dir.0).unwrap();
     let dll = library_with_two_exports(&dir.0, &["GetTickCount", "GetCurrentProcessId"]);
 
-    let ir = |nome: &str, fixed_return: bool| format!("\
-declare i32 @{nome}()
+    let ir = |name: &str, fixed_return: bool| format!("\
+declare i32 @{name}()
 define i64 @df_fn_0() {{
-  %valor = call i32 @{nome}()
+  %valor = call i32 @{name}()
   %largo = zext i32 %valor to i64
   {}
 }}
@@ -480,12 +480,12 @@ fn changed_signature_gets_new_entry() {
 #[test]
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn unchanged_function_stays_in_live_implementation() {
-    let ir = |value: i64, auxiliar: i64| {
+    let ir = |value: i64, helper: i64| {
         format!(
             "define i64 @df_fn_0() {{\n  %r = call i64 @df_fn_1()\n  ret i64 %r\n}}\n\
              define i64 @df_fn_1() {{\n  ret i64 {value}\n}}\n\
              define i64 @df_fn_2() {{\n  %s = call i64 @auxiliar()\n  ret i64 %s\n}}\n\
-             define internal i64 @auxiliar() {{\n  ret i64 {auxiliar}\n}}\n"
+             define internal i64 @auxiliar() {{\n  ret i64 {helper}\n}}\n"
         )
     };
     let mut session = JitSession::new().expect("session");

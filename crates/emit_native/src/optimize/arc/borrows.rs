@@ -87,10 +87,10 @@ fn first_invalid(
             Instruction::CallRuntime { name, .. } => {
                 match super::contract(name) {
                     Ok(c) => {
-                        if c.chama_dart {
+                        if c.calls_dart {
                             reentries.insert(*v);
                         }
-                        c.invalida_borrows
+                        c.invalidates_borrows
                     }
                     Err(_) => {
                         reentries.insert(*v);

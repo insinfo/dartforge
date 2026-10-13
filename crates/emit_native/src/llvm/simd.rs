@@ -153,8 +153,8 @@ impl LlvmEmitter<'_> {
                 let x = a(self, 0);
                 writeln!(w, "  %sz{v} = icmp ne {kt} {x}, zeroinitializer").unwrap();
                 writeln!(w, "  %sb{v} = bitcast <{n} x i1> %sz{v} to i{n}").unwrap();
-                let (p, alvo) = if op == OpSimd::Any { ("ne", "0") } else { ("eq", "-1") };
-                writeln!(w, "  {r} = icmp {p} i{n} %sb{v}, {alvo}").unwrap();
+                let (p, target) = if op == OpSimd::Any { ("ne", "0") } else { ("eq", "-1") };
+                writeln!(w, "  {r} = icmp {p} i{n} %sb{v}, {target}").unwrap();
             }
             OpSimd::Neg => {
                 let x = a(self, 0);

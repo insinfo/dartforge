@@ -117,9 +117,9 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
     }).map(|b| b.id).collect();
     // A handler (a block with instructions, target of guards and of other
     // paths): each guard gets an empty trampoline up to it, split below.
-    let guards_of = |alvo: BlockId, f: &Function| -> Vec<BlockId> {
-        predecessors.get(&alvo).into_iter().flatten().copied()
-            .filter(|p| f.blocks.iter().find(|b| b.id == *p).and_then(guard) == Some(alvo))
+    let guards_of = |target: BlockId, f: &Function| -> Vec<BlockId> {
+        predecessors.get(&target).into_iter().flatten().copied()
+            .filter(|p| f.blocks.iter().find(|b| b.id == *p).and_then(guard) == Some(target))
             .collect()
     };
     let handlers: Vec<BlockId> = f.blocks.iter().filter(|b| {
@@ -140,16 +140,16 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
         .chain(plan.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
         .max().map_or(0, |b| u64::from(b) + 1);
     let mut copies = 0;
-    for alvo in targets {
-        let ps = predecessors[&alvo].clone();
+    for target in targets {
+        let ps = predecessors[&target].clone();
         // The first guard keeps the original; the others get copies.
         let mut guards: Vec<BlockId> = ps.iter().copied().filter(|p| {
-            f.blocks.iter().find(|b| b.id == *p).and_then(guard) == Some(alvo)
+            f.blocks.iter().find(|b| b.id == *p).and_then(guard) == Some(target)
         }).collect();
         if guards.len() == ps.len() {
             guards.remove(0);
         }
-        let original = f.blocks.iter().find(|b| b.id == alvo).expect("alvo existe").clone();
+        let original = f.blocks.iter().find(|b| b.id == target).expect("alvo existe").clone();
         for p in guards {
             let id = BlockId(u32::try_from(block).map_err(|_| "block IDs exhausted while splitting exits")?);
             block += 1;
@@ -173,17 +173,17 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
             if let Terminator::Branch(dest) = terminator {
                 for (_, inst, _) in f.blocks.iter_mut().filter(|b| b.id == dest).flat_map(|b| &mut b.instructions) {
                     if let Instruction::Phi { incoming, .. } = inst
-                        && let Some(op) = incoming.iter().find(|(de, _)| *de == alvo).map(|(_, op)| op.clone())
+                        && let Some(op) = incoming.iter().find(|(of, _)| *of == target).map(|(_, op)| op.clone())
                     {
                         incoming.push((id, op));
                     }
                 }
             }
             f.blocks.push(BasicBlock { id, instructions: instructions, terminator: terminator });
-            if let Some(class) = plan.tables.exits.get(&alvo).cloned() {
+            if let Some(class) = plan.tables.exits.get(&target).cloned() {
                 plan.tables.exits.insert(id, class);
             }
-            if let Some(events) = plan.scopes.exits.get(&alvo).cloned() {
+            if let Some(events) = plan.scopes.exits.get(&target).cloned() {
                 plan.scopes.exits.insert(id, events);
             }
             let b = f.blocks.iter_mut().find(|b| b.id == p).expect("guarda existe");
@@ -192,7 +192,7 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
             }
             // The recorded pending exit of the guard's call follows the copy.
             if let Some((call, _, _)) = b.instructions.len().checked_sub(3).map(|k| &b.instructions[k])
-                && plan.tokens.pendings.get(call) == Some(&alvo)
+                && plan.tokens.pendings.get(call) == Some(&target)
             {
                 plan.tokens.pendings.insert(*call, id);
             }
@@ -205,8 +205,8 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
             block += 1;
             for (_, inst, _) in f.blocks.iter_mut().filter(|b| b.id == handler).flat_map(|b| &mut b.instructions) {
                 if let Instruction::Phi { incoming, .. } = inst {
-                    for (de, _) in incoming.iter_mut().filter(|(de, _)| *de == p) {
-                        *de = id;
+                    for (of, _) in incoming.iter_mut().filter(|(of, _)| *of == p) {
+                        *of = id;
                     }
                 }
             }

@@ -127,7 +127,7 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
         globals.insert(format!("{name_str}$ok"), Type::I8);
     }
     let mut pending_set = HashMap::new();
-    let mut pais: HashMap<String, Vec<String>> = HashMap::new();
+    let mut parents: HashMap<String, Vec<String>> = HashMap::new();
     let mut queue = std::collections::VecDeque::new();
     for f in &m.functions {
         if !f.params.is_empty() || f.return_ty != Type::I64
@@ -170,12 +170,12 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
         if !closed { continue; }
         if dependencies.is_empty() { queue.push_back(f.symbol.clone()); }
         pending_set.insert(f.symbol.clone(), dependencies.len());
-        for dep in dependencies { pais.entry(dep).or_default().push(f.symbol.clone()); }
+        for dep in dependencies { parents.entry(dep).or_default().push(f.symbol.clone()); }
     }
     let mut safe_set = HashSet::new();
     while let Some(s) = queue.pop_front() {
         if !safe_set.insert(s.clone()) { continue; }
-        if let Some(callers) = pais.get(&s) {
+        if let Some(callers) = parents.get(&s) {
             for caller in callers {
                 let n = pending_set.get_mut(caller).unwrap();
                 *n -= 1;

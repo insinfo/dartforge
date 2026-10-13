@@ -135,7 +135,7 @@ fn memo_slot(a: i64, b: i64, c: i64) -> usize {
 /// no key (its type comes from the fields). `None` also for what is not a
 /// valid value.
 fn value_key(h: i64) -> Option<i64> {
-    use crate::layout::{DESLOCAMENTO_DO_HANDLE, cid};
+    use crate::layout::{HANDLE_OFFSET, cid};
     if h == 0 {
         return Some(-16 - i64::from(cid::NULL));
     }
@@ -150,7 +150,7 @@ fn value_key(h: i64) -> Option<i64> {
     // SAFETY: the handle of a live object (the value the generated code
     // passed) points to its block header.
     #[allow(unsafe_code)]
-    let c = unsafe { *((h - DESLOCAMENTO_DO_HANDLE) as *const crate::layout::Header) };
+    let c = unsafe { *((h - HANDLE_OFFSET) as *const crate::layout::Header) };
     if c.metadata != 0 {
         return Some(i64::from(c.metadata));
     }
@@ -281,7 +281,7 @@ impl MessageTypes {
         if let Some(&i) = self.ix.get(&id) {
             return i;
         }
-        let t = RTI.with(|u| u.borrow().tipo(id).clone());
+        let t = RTI.with(|u| u.borrow().ty(id).clone());
         let local = t.with_children(|child| self.export(child));
         let i = self.types.len() as i64;
         self.types.push(local);
@@ -390,12 +390,12 @@ impl Universe {
         }
     }
 
-    fn tipo(&self, id: i64) -> &Type {
+    fn ty(&self, id: i64) -> &Type {
         self.get_value(id).expect("invalid type")
     }
 
     fn is_top(&self, id: i64) -> bool {
-        match self.tipo(id) {
+        match self.ty(id) {
             Type::Dynamic | Type::Void => true,
             Type::Nullable(x) => self.e_object(*x),
             Type::FutureOr(x) => self.is_top(*x),
@@ -418,12 +418,12 @@ impl Universe {
     }
 
     fn e_object(&self, id: i64) -> bool {
-        matches!(self.tipo(id), Type::Interface(c, a) if *c == self.rt.object && a.is_empty())
+        matches!(self.ty(id), Type::Interface(c, a) if *c == self.rt.object && a.is_empty())
     }
 
     /// Normalized `T?` (specification, "Type normalization").
     fn nullable(&mut self, t: i64) -> i64 {
-        match self.tipo(t).clone() {
+        match self.ty(t).clone() {
             Type::Dynamic | Type::Void | Type::Null | Type::Nullable(_) => t,
             Type::Never => T_NULL,
             Type::FutureOr(x) if self.is_nullable(x) => t,
@@ -432,7 +432,7 @@ impl Universe {
     }
 
     fn is_nullable(&self, t: i64) -> bool {
-        match self.tipo(t) {
+        match self.ty(t) {
             Type::Dynamic | Type::Void | Type::Null | Type::Nullable(_) => true,
             Type::FutureOr(x) => self.is_nullable(*x),
             _ => false,
@@ -444,7 +444,7 @@ impl Universe {
         if self.is_top(t) || self.e_object(t) {
             return t;
         }
-        match self.tipo(t) {
+        match self.ty(t) {
             Type::Never => self.interface(self.rt.future, vec![T_NEVER]),
             Type::Null => {
                 let f = self.interface(self.rt.future, vec![T_NULL]);
@@ -486,7 +486,7 @@ impl Universe {
 
     /// Replaces the recipe variables with the environment types.
     fn substitute(&mut self, t: i64, class: &[i64], function: &[i64]) -> i64 {
-        match self.tipo(t).clone() {
+        match self.ty(t).clone() {
             Type::ClassParam(i) => class.get(i).copied().unwrap_or(T_DYNAMIC),
             Type::FunctionParam(i) => function.get(i).copied().unwrap_or(T_DYNAMIC),
             Type::Interface(c, args) => {
@@ -537,7 +537,7 @@ impl Universe {
         }
         let model = self.rules.get(&class)?.iter().find(|(c, _)| *c == target)?.1;
         let s = self.substitute(model, args, &[]);
-        match self.tipo(s) {
+        match self.ty(s) {
             Type::Interface(_, a) => Some(a.clone()),
             _ => None,
         }
@@ -559,8 +559,8 @@ impl Universe {
         if self.is_top(t) {
             return true;
         }
-        let ts = self.tipo(s).clone();
-        let tt = self.tipo(t).clone();
+        let ts = self.ty(s).clone();
+        let tt = self.ty(t).clone();
         if matches!(ts, Type::Never) {
             return true;
         }
@@ -651,7 +651,7 @@ impl Universe {
 
     /// The text of a type, like the VM's `Type.toString()`.
     fn text(&self, t: i64) -> String {
-        match self.tipo(t) {
+        match self.ty(t) {
             Type::Dynamic => "dynamic".to_string(),
             Type::Void => "void".to_string(),
             Type::Never => "Never".to_string(),
@@ -768,7 +768,7 @@ impl Reader<'_> {
             return v;
         }
         loop {
-            v.push(self.tipo(u));
+            v.push(self.ty(u));
             if self.peek() == Some(',') {
                 self.i += 1;
             } else {
@@ -776,7 +776,7 @@ impl Reader<'_> {
             }
         }
     }
-    fn tipo(&mut self, u: &mut Universe) -> i64 {
+    fn ty(&mut self, u: &mut Universe) -> i64 {
         let mut t = match self.take() {
             'D' => T_DYNAMIC,
             'V' => T_VOID,
@@ -794,7 +794,7 @@ impl Reader<'_> {
             }
             'O' => {
                 self.wait_for('<');
-                let x = self.tipo(u);
+                let x = self.ty(u);
                 self.wait_for('>');
                 u.future_or(x)
             }
@@ -814,7 +814,7 @@ impl Reader<'_> {
                 self.wait_for('<');
                 let generics = self.number() as usize;
                 self.wait_for(';');
-                let ret = self.tipo(u);
+                let ret = self.ty(u);
                 self.wait_for(';');
                 let n_required = self.number() as usize;
                 self.wait_for(';');
@@ -824,7 +824,7 @@ impl Reader<'_> {
                 while self.peek() != Some('>') {
                     let n = self.name();
                     self.wait_for(':');
-                    let x = self.tipo(u);
+                    let x = self.ty(u);
                     let req = self.peek() == Some('!');
                     if req {
                         self.i += 1;
@@ -846,7 +846,7 @@ impl Reader<'_> {
                 while self.peek() != Some('>') {
                     let n = self.name();
                     self.wait_for(':');
-                    let x = self.tipo(u);
+                    let x = self.ty(u);
                     named.push((n, x));
                     if self.peek() == Some(',') {
                         self.i += 1;
@@ -916,7 +916,7 @@ fn ref_type(u: &mut Universe, h: i64) -> i64 {
             cid::RECORD => Shape::Record(heap.record(h).map(<[i64]>::to_vec).unwrap_or_default()),
             // The runtime's internal classes (context, cell, accumulator,
             // `RegExp` program) never reach the program as values.
-            cid::CONTEXTO | cid::CELULA | cid::STRING_ACCUMULATOR | cid::REGEXP_PROGRAM => Shape::Raw(u.rt.object),
+            cid::CONTEXT | cid::CELL | cid::STRING_ACCUMULATOR | cid::REGEXP_PROGRAM => Shape::Raw(u.rt.object),
             // List without a stored type (literal with dynamic `E`, runtime
             // list), typed list, object: the concrete class
             // (`_GrowableList`, `_List`, `_ImmutableList`…), as in the VM —
@@ -947,7 +947,7 @@ pub(crate) fn tuple_list_type(tuple: i64, concrete_class: Option<i64>) -> Option
         if class == 0 {
             return None;
         }
-        let args = match u.tipo(tuple) {
+        let args = match u.ty(tuple) {
             Type::Tuple(args) => args.clone(),
             _ => vec![T_DYNAMIC],
         };
@@ -1018,7 +1018,7 @@ pub(crate) fn type_list_shape(meta: i64) -> crate::lists::Element {
 /// without allocating; a list that does not fit the compact shape yet stays general.
 /// None of this is observable.
 pub(crate) fn adjust_list_shape(heap: &mut Heap, h: i64) {
-    if !crate::layout::is_object(h) || !heap.e_lista(h) {
+    if !crate::layout::is_object(h) || !heap.is_list(h) {
         return;
     }
     let meta = heap.metadata(h);
@@ -1068,7 +1068,7 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
             return None;
         }
         let origin = ref_type(&mut u, origin);
-        let args = match u.tipo(origin) {
+        let args = match u.ty(origin) {
             Type::Interface(_, args) => args.clone(),
             _ => vec![T_DYNAMIC],
         };
@@ -1082,7 +1082,7 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
 /// per registration — `C<id> <parameters> <name>` (the class name),
 /// `R<id> <recipe>` (a supertype rule) and `F<shape> <id>` (the class of
 /// a runtime shape) —, read in order. The large table comes compressed
-/// (`tabela_rti`).
+/// (`rti_table`).
 ///
 /// # Safety
 /// `data` points to the words of the module's constant vector, with at least
@@ -1092,13 +1092,13 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
 pub unsafe extern "C" fn dartforge_rti_init_table(data: *const i64, len: i64) {
     // SAFETY: guaranteed by the caller (a module constant).
     let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
-    let bytes = if bytes.starts_with(crate::tabela_rti::HEADER) { crate::tabela_rti::decompressed(bytes) } else { bytes };
+    let bytes = if bytes.starts_with(crate::rti_table::HEADER) { crate::rti_table::decompressed(bytes) } else { bytes };
     let text = std::str::from_utf8(bytes).expect("RTI table in UTF-8");
     for line in text.lines() {
-        let (tipo, rest) = line.split_at(1);
+        let (ty, rest) = line.split_at(1);
         let (a, b) = rest.split_once(' ').expect("RTI registration");
         let id: i64 = a.parse().expect("RTI id");
-        match tipo {
+        match ty {
             "C" => {
                 let (n, name) = b.split_once(' ').unwrap_or((b, ""));
                 let n: usize = n.parse().unwrap_or(0);
@@ -1129,7 +1129,7 @@ pub unsafe extern "C" fn dartforge_rti_init_table(data: *const i64, len: i64) {
 pub extern "C" fn dartforge_rti_rule(class: i64, model: i64) {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
-        let sup = match u.tipo(model) {
+        let sup = match u.ty(model) {
             Type::Interface(c, _) => *c,
             _ => return,
         };
@@ -1182,21 +1182,21 @@ pub extern "C" fn dartforge_rti_runtime_class(shape: i64, class: i64) {
 /// result).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_recipe(text: i64) -> i64 {
-    let unidades: Vec<u16> = HEAP.with(|h| h.borrow().text(text).map(|t| t.unidades().collect()).unwrap_or_default());
-    units_recipe(unidades)
+    let units: Vec<u16> = HEAP.with(|h| h.borrow().text(text).map(|t| t.units().collect()).unwrap_or_default());
+    units_recipe(units)
 }
 
 /// The recipe (in UTF-16) read and interned.
-fn units_recipe(unidades: Vec<u16>) -> i64 {
+fn units_recipe(units: Vec<u16>) -> i64 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
-        if let Some(&t) = u.recipes.get(&unidades) {
+        if let Some(&t) = u.recipes.get(&units) {
             return t;
         }
-        let mut l = Reader { u: &unidades, i: 0 };
-        let t = l.tipo(&mut u);
-        assert!(l.i == unidades.len(), "type recipe with leftover");
-        u.recipes.insert(unidades, t);
+        let mut l = Reader { u: &units, i: 0 };
+        let t = l.ty(&mut u);
+        assert!(l.i == units.len(), "type recipe with leftover");
+        u.recipes.insert(units, t);
         t
     })
 }
@@ -1236,12 +1236,12 @@ pub extern "C" fn dartforge_rti_eval(model: i64, this: i64, class: i64, tuple: i
             }
             return r;
         }
-        let class_args: Vec<i64> = match u.tipo(this_type).clone() {
+        let class_args: Vec<i64> = match u.ty(this_type).clone() {
             Type::Interface(c, a) if this != 0 => u.as_supertype(c, &a, class).unwrap_or_default(),
             _ => Vec::new(),
         };
         let function_args: Vec<i64> = if tuple > 0 {
-            match u.tipo(tuple) {
+            match u.ty(tuple) {
                 Type::Tuple(a) => a.clone(),
                 _ => Vec::new(),
             }
@@ -1287,7 +1287,7 @@ pub unsafe extern "C" fn dartforge_rti_eval_cache(cache: *mut i64, model: i64, t
 
 /// Stores the type of a generic object (in the header `metadata`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_set(obj: i64, tipo: i64) {
+pub extern "C" fn dartforge_rti_set(obj: i64, ty: i64) {
     if !crate::layout::is_object(obj) {
         return;
     }
@@ -1296,58 +1296,58 @@ pub extern "C" fn dartforge_rti_set(obj: i64, tipo: i64) {
     // classes (and of their mixins) evaluate `P<i>` from the receiver.
     // The class and the metadata in the block header (`layout::Header`), without
     // consulting the heap — as the generated code reads them.
-    let header = (obj - crate::layout::DESLOCAMENTO_DO_HANDLE) as *mut crate::layout::Header;
+    let header = (obj - crate::layout::HANDLE_OFFSET) as *mut crate::layout::Header;
     // SAFETY: the handle of a live object points to its header.
     #[allow(unsafe_code)]
-    let (estado, cid) = unsafe { ((*header).estado, (*header).class_id) };
-    // An image static (`PERMANENTE`) is read-only and has no type to
+    let (state, cid) = unsafe { ((*header).state, (*header).class_id) };
+    // An image static (`PERMANENT`) is read-only and has no type to
     // store (string literals and the `bool` boxes).
-    if estado == crate::layout::estado::PERMANENTE {
+    if state == crate::layout::state::PERMANENT {
         return;
     }
     let concrete_class = Some(i64::from(cid));
-    let tipo = if let Some(class) = concrete_class {
+    let ty = if let Some(class) = concrete_class {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
             // Only the collection interface of another class changes; the common case
             // (the object's own class: `Future<T>`, `_Map<K, V>`…) leaves
             // without copying the type. Only that case enters the memo, read before.
-            let slot = memo_slot(class, tipo, 1);
+            let slot = memo_slot(class, ty, 1);
             if let Some(&[mc, mt, r]) = u.memo_set.get(slot)
                 && mc == class
-                && mt == tipo
+                && mt == ty
             {
                 return r;
             }
-            let (c, args) = match u.tipo(tipo) {
+            let (c, args) = match u.ty(ty) {
                 Type::Interface(c, args) if *c != class && [u.rt.list, u.rt.map, u.rt.set].contains(c) => {
                     (*c, args.clone())
                 }
-                _ => return tipo,
+                _ => return ty,
             };
             let r = if u.as_supertype(class, &args, c).as_deref() == Some(args.as_slice()) {
                 u.intern(Type::Interface(class, args))
             } else {
-                tipo
+                ty
             };
             if u.memo_set.is_empty() {
                 // An empty slot never matches: no requested type is -1.
                 u.memo_set = vec![[0, -1, 0]; MEMO_N];
             }
-            u.memo_set[slot] = [class, tipo, r];
+            u.memo_set[slot] = [class, ty, r];
             r
         })
     } else {
-        tipo
+        ty
     };
     // The metadata (`id + 1`) is not a reference: no barrier.
     // SAFETY: as above; the header belongs to the object and only this thread writes it.
     #[allow(unsafe_code)]
     unsafe {
-        (*header).metadata = u32::try_from(tipo + 1).expect("metadata beyond 32 bits");
+        (*header).metadata = u32::try_from(ty + 1).expect("metadata beyond 32 bits");
     }
     // An `<int>[…]` literal (N14): the compact list.
-    if crate::layout::cid::e_lista(cid) {
+    if crate::layout::cid::is_list(cid) {
         HEAP.with(|h| adjust_list_shape(&mut h.borrow_mut(), obj));
     }
 }
@@ -1358,14 +1358,14 @@ pub extern "C" fn dartforge_rti_set(obj: i64, tipo: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_named_record(obj: i64, npos: i64, names: i64) {
     let npos = usize::try_from(npos).expect("invalid number of positional fields");
-    let names = HEAP.with(|h| h.borrow().text(names).map(|t| t.para_string()).unwrap_or_default());
+    let names = HEAP.with(|h| h.borrow().text(names).map(|t| t.to_dart_string()).unwrap_or_default());
     let fields = HEAP.with(|h| {
         let h = h.borrow();
         h.object(obj).expect("named record expected").to_vec()
     });
     let names: Vec<&str> = names.split(',').collect();
     assert_eq!(fields.len(), npos + names.len(), "shape of the named record");
-    let tipo = RTI.with(|u| {
+    let ty = RTI.with(|u| {
         let mut u = u.borrow_mut();
         let mut fields: Vec<i64> = fields.into_iter().map(|(bits, is_ref)| {
             assert!(is_ref, "record field without reference");
@@ -1374,7 +1374,7 @@ pub extern "C" fn dartforge_rti_named_record(obj: i64, npos: i64, names: i64) {
         let named = names.into_iter().zip(fields.drain(npos..)).map(|(n, t)| (n.to_string(), t)).collect();
         u.intern(Type::Record { pos: fields, named })
     });
-    dartforge_rti_set(obj, tipo);
+    dartforge_rti_set(obj, ty);
 }
 
 /// Text with type arguments for the default `toString` of a value
@@ -1384,7 +1384,7 @@ pub(crate) fn text_with_arguments(v: i64) -> Option<String> {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
         let t = ref_type(&mut u, v);
-        let has_args = matches!(u.tipo(t), Type::Interface(_, args) if !args.is_empty());
+        let has_args = matches!(u.ty(t), Type::Interface(_, args) if !args.is_empty());
         has_args.then(|| u.text(t))
     })
 }
@@ -1444,13 +1444,13 @@ pub extern "C" fn dartforge_rti_as(v: i64, t: i64) {
 /// a `dynamic` (no suffix), 2 the parameter `name` (a `String`) on entry
 /// to a dynamic or covariant call (" of 'name'").
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_as_with_context(v: i64, t: i64, contexto: i64, name: i64) {
+pub extern "C" fn dartforge_rti_as_with_context(v: i64, t: i64, context: i64, name: i64) {
     // The suffix is only built on failure: a passing check (almost
     // all of them) allocates nothing.
-    let suffix = || match contexto {
+    let suffix = || match context {
         0 => " in type cast".to_string(),
         1 => String::new(),
-        _ => format!(" of '{}'", HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default())),
+        _ => format!(" of '{}'", HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()).unwrap_or_default())),
     };
     let failure = RTI.with(|u| {
         let mut u = u.borrow_mut();
@@ -1567,7 +1567,7 @@ pub extern "C" fn dartforge_arc_rti_string_owned_v1(t: i64) -> i64 {
 /// `TypeError` with the message. In the source SDK, the exception must be the real
 /// `_TypeError` class for `e is TypeError` and `toString` dispatch.
 fn dartforge_type_error_with_message(message: i64) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroDeTipo") {
+    if let Some(f) = helper("_dartforgeErroDeTipo") {
         // SAFETY: the helper registered by `dart:core` receives a String and
         // returns the concrete `_TypeError` instance.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
@@ -1593,7 +1593,7 @@ mod tests_arc_borrowed_evaluation {
             dartforge_arc_write_field_scalar_v1(object, 0, 42);
             dartforge_arc_write_field_ref_v1(object, 1, child);
             dartforge_rti_set(object, recipe("C32001<C200>"));
-            let refs = [child, 0, crate::layout::smi::de(7).unwrap()];
+            let refs = [child, 0, crate::layout::smi::of(7).unwrap()];
             // SAFETY: live vector of three Refs held by the caller.
             let rec = unsafe { dartforge_record_from_refs(refs.as_ptr(), refs.len() as i64) };
             dartforge_arc_retain(rec);
@@ -1608,7 +1608,7 @@ mod tests_arc_borrowed_evaluation {
                 assert_eq!(dartforge_rti_eval(parameter, object, 32001, 0), expected);
                 assert_eq!(dartforge_rti_eval(method, 0, 0, tuple), expected_method);
                 assert_eq!(dartforge_rti_eval(parameter, rec, 32001, 0), T_DYNAMIC);
-                assert_eq!(dartforge_rti_eval(parameter, crate::layout::smi::de(7).unwrap(), 32001, 0), T_DYNAMIC);
+                assert_eq!(dartforge_rti_eval(parameter, crate::layout::smi::of(7).unwrap(), 32001, 0), T_DYNAMIC);
             }
             HEAP.with(|h| {
                 let h = h.borrow();

@@ -3,7 +3,7 @@
 use super::*;
 
 const TARGET: &str = "dartforge_arc_typed_target_v1";
-const CONTEXTO: &str = "dartforge_arc_closure_context_v1";
+const CONTEXT: &str = "dartforge_arc_closure_context_v1";
 
 fn definition<'a>(f: &'a Function, op: &Operand) -> Option<&'a Instruction> {
     let Operand::Val(v) = op else { return None };
@@ -18,7 +18,7 @@ fn context(f: &Function, op: &Operand) -> Option<Operand> {
         if !seen_set.insert(*v) { return None; }
         match definition(f, &op)? {
             Instruction::ArcCopy { value } | Instruction::ArcMove { value } => op = value.clone(),
-            Instruction::CallRuntime { name, args, ret_ty: Type::Ref } if name == CONTEXTO => {
+            Instruction::CallRuntime { name, args, ret_ty: Type::Ref } if name == CONTEXT => {
                 let [(closure, Type::Ref)] = args.as_slice() else { return None };
                 return Some(closure.clone());
             }
@@ -33,11 +33,11 @@ fn signature(args: &[(Operand, Type)], ret: Type) -> Option<i64> {
 }
 
 pub(super) fn check(f: &Function, inst: &Instruction, ty: Type) -> Result<bool, String> {
-    let Instruction::TypedCall { alvo, args, ret } = inst else { return Ok(false) };
+    let Instruction::TypedCall { target, args, ret } = inst else { return Ok(false) };
     let error = || format!("ARC typed call in {}: PC, context, signature or return without verified provenance", f.symbol);
     let abi = signature(args, *ret).ok_or_else(error)?;
     if ty != *ret { return Err(error()); }
-    let Some(Instruction::CallRuntime { name, args: origin, ret_ty: Type::I64 }) = definition(f, alvo)
+    let Some(Instruction::CallRuntime { name, args: origin, ret_ty: Type::I64 }) = definition(f, target)
         else { return Err(error()) };
     let [(closure, Type::Ref), (Operand::Constant(Constant::Int(code)), Type::I64)] = origin.as_slice()
         else { return Err(error()) };
@@ -67,7 +67,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
     let mut targets = HashMap::new();
     let mut closures = Vec::new();
     for (_, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-        let Instruction::TypedCall { alvo, args, ret } = inst else { continue };
+        let Instruction::TypedCall { target, args, ret } = inst else { continue };
         if check(f, inst, *ty).unwrap_or(false) {
             let closure = context(f, &args[0].0).unwrap();
             if !closures.contains(&closure) { closures.push(closure); }
@@ -75,8 +75,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         }
         let error = || format!("ARC typed call in {}: legacy read without covered PC/context/ABI", f.symbol);
         let abi = signature(args, *ret).ok_or_else(error)?;
-        let Operand::Val(v) = alvo else { return Err(error()) };
-        let Some(Instruction::CallRuntime { name, args: origin, ret_ty: Type::I64 }) = definition(f, alvo)
+        let Operand::Val(v) = target else { return Err(error()) };
+        let Some(Instruction::CallRuntime { name, args: origin, ret_ty: Type::I64 }) = definition(f, target)
             else { return Err(error()) };
         let [(closure, Type::Ref), (Operand::Constant(Constant::Int(2)), Type::I64)] = origin.as_slice()
             else { return Err(error()) };
@@ -150,10 +150,10 @@ mod tests {
                     (ValueId(2), Instruction::CallRuntime { name: "dartforge_object_get".into(), args: vec![
                         (Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(2)), Type::I64),
                     ], ret_ty: Type::I64 }, Type::I64),
-                    (ValueId(3), Instruction::CallRuntime { name: CONTEXTO.into(), args: vec![
+                    (ValueId(3), Instruction::CallRuntime { name: CONTEXT.into(), args: vec![
                         (Operand::Val(ValueId(0)), Type::Ref),
                     ], ret_ty: Type::Ref }, Type::Ref),
-                    (ValueId(4), Instruction::TypedCall { alvo: Operand::Val(ValueId(2)), args: vec![
+                    (ValueId(4), Instruction::TypedCall { target: Operand::Val(ValueId(2)), args: vec![
                         (Operand::Val(ValueId(3)), Type::Ref), (Operand::Val(ValueId(1)), Type::Ref),
                     ], ret: Type::Ref }, Type::Ref),
                     (ValueId(5), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
@@ -191,7 +191,7 @@ mod tests {
                 1 | 6 => m.functions[0].blocks[0].instructions[1].1 = Instruction::CallRuntime {
                     name: TARGET.into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref),
                         (Operand::Constant(Constant::Int(if case == 1 { 31 } else { 41 })), Type::I64)], ret_ty: Type::I64 },
-                2 => if let Instruction::TypedCall { alvo, .. } = &mut m.functions[0].blocks[0].instructions[3].1 { *alvo = Operand::Constant(Constant::Int(123)); },
+                2 => if let Instruction::TypedCall { target, .. } = &mut m.functions[0].blocks[0].instructions[3].1 { *target = Operand::Constant(Constant::Int(123)); },
                 3 => if let Instruction::CallRuntime { args, .. } = &mut m.functions[0].blocks[0].instructions[2].1 { args[0].0 = Operand::Val(ValueId(8)); },
                 4 => if let Instruction::TypedCall { ret, .. } = &mut m.functions[0].blocks[0].instructions[3].1 { *ret = Type::I64; },
                 5 => { m.functions[0].blocks[0].instructions.truncate(4); m.functions[0].blocks[0].terminator = Terminator::Branch(BlockId(2)); },

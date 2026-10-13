@@ -146,8 +146,8 @@ impl<'x, 'a> Walk<'x, 'a> {
             Some(d) => {
                 let crossed = self.stack[(d.prof as usize).min(self.stack.len())..].to_vec();
                 if let Some(&f) = self.local_functions.get(&d.offset) {
-                    let alvo = !writes && self.call_target == Some(e);
-                    self.refs.push((f, alvo, crossed.clone()));
+                    let target = !writes && self.call_target == Some(e);
+                    self.refs.push((f, target, crossed.clone()));
                     // The name of a direct function is not a variable.
                     if self.directs.as_ref().is_some_and(|s| s.contains(&f)) {
                         return;
@@ -412,8 +412,8 @@ impl<'x, 'a> Walk<'x, 'a> {
         }
     }
 
-    fn for_in_target(&mut self, alvo: &ForInTarget) {
-        match alvo {
+    fn for_in_target(&mut self, target: &ForInTarget) {
+        match target {
             ForInTarget::Declared { name, .. } => self.declare(*name),
             ForInTarget::Pattern { pattern, .. } => self.pattern(*pattern, true),
             ForInTarget::Expression(e) => self.assignment_target(*e),
@@ -724,9 +724,9 @@ pub fn analyze_with(
             p.local_functions.values().copied().filter(|f| !p.discarded_set.contains(f)).collect();
         loop {
             let before = directs.len();
-            for (f, alvo, crossed) in &p.refs {
+            for (f, target, crossed) in &p.refs {
                 if directs.contains(f)
-                    && !(*alvo && crossed.iter().all(|g| g.is_some_and(|g| directs.contains(&g))))
+                    && !(*target && crossed.iter().all(|g| g.is_some_and(|g| directs.contains(&g))))
                 {
                     directs.remove(f);
                 }

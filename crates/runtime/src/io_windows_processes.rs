@@ -46,7 +46,7 @@ mod windows_processes {
     const CTRL_CLOSE_EVENT: u32 = 2;
 
     #[repr(C)]
-    struct AtributosDeSeguranca {
+    struct SecurityAttributes {
         size: u32,
         descriptor: *mut c_void,
         inherit: i32,
@@ -54,7 +54,7 @@ mod windows_processes {
 
     /// `STARTUPINFOW`.
     #[repr(C)]
-    struct InfoDeInicio {
+    struct StartupInfo {
         cb: u32,
         reserved: *mut u16,
         desktop: *mut u16,
@@ -70,23 +70,23 @@ mod windows_processes {
         show: u16,
         reserved2_size: u16,
         reserved2: *mut u8,
-        input: Bruto,
-        output: Bruto,
-        error: Bruto,
+        input: RawHandle,
+        output: RawHandle,
+        error: RawHandle,
     }
 
     /// `STARTUPINFOEXW`.
     #[repr(C)]
     struct StartupInfoEx {
-        base: InfoDeInicio,
+        base: StartupInfo,
         attributes: *mut c_void,
     }
 
     /// `PROCESS_INFORMATION`.
     #[repr(C)]
     struct ProcessInfo {
-        process: Bruto,
-        thread: Bruto,
+        process: RawHandle,
+        thread: RawHandle,
         pid: u32,
         tid: u32,
     }
@@ -96,8 +96,8 @@ mod windows_processes {
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn CreateNamedPipeW(name: *const u16, opening: u32, mode: u32, instances: u32, output: u32, input: u32, wait_entry: u32, seg: *const AtributosDeSeguranca) -> Bruto;
-        fn CreateFileW(name: *const u16, access: u32, share: u32, seg: *const AtributosDeSeguranca, disposition: u32, flag_bits: u32, model: Bruto) -> Bruto;
+        fn CreateNamedPipeW(name: *const u16, opening: u32, mode: u32, instances: u32, output: u32, input: u32, wait_entry: u32, seg: *const SecurityAttributes) -> RawHandle;
+        fn CreateFileW(name: *const u16, access: u32, share: u32, seg: *const SecurityAttributes, disposition: u32, flag_bits: u32, model: RawHandle) -> RawHandle;
         fn InitializeProcThreadAttributeList(list: *mut c_void, n: u32, flag_bits: u32, size: *mut usize) -> i32;
         fn UpdateProcThreadAttribute(list: *mut c_void, flag_bits: u32, attribute: usize, value: *const c_void, size: usize, previous: *mut c_void, ret: *mut usize) -> i32;
         fn DeleteProcThreadAttributeList(list: *mut c_void);
@@ -110,17 +110,17 @@ mod windows_processes {
             flag_bits: u32,
             env: *const c_void,
             directory: *const u16,
-            start: *const InfoDeInicio,
+            start: *const StartupInfo,
             info: *mut ProcessInfo,
         ) -> i32;
-        fn RegisterWaitForSingleObject(wait_entry: *mut Bruto, object: Bruto, ret: WaitReturn, contexto: *mut c_void, ms: u32, flag_bits: u32) -> i32;
-        fn UnregisterWait(wait_entry: Bruto) -> i32;
-        fn GetExitCodeProcess(process: Bruto, code: *mut u32) -> i32;
-        fn TerminateProcess(process: Bruto, code: u32) -> i32;
-        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Bruto;
-        fn CreateEventW(seg: *const c_void, manual: i32, initial: i32, name: *const u16) -> Bruto;
-        fn WaitForMultipleObjects(n: u32, handles: *const Bruto, all_items: i32, ms: u32) -> u32;
-        fn GetOverlappedResult(h: Bruto, ov: *mut OverlappedOp, n: *mut u32, wait_for: i32) -> i32;
+        fn RegisterWaitForSingleObject(wait_entry: *mut RawHandle, object: RawHandle, ret: WaitReturn, context: *mut c_void, ms: u32, flag_bits: u32) -> i32;
+        fn UnregisterWait(wait_entry: RawHandle) -> i32;
+        fn GetExitCodeProcess(process: RawHandle, code: *mut u32) -> i32;
+        fn TerminateProcess(process: RawHandle, code: u32) -> i32;
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> RawHandle;
+        fn CreateEventW(seg: *const c_void, manual: i32, initial: i32, name: *const u16) -> RawHandle;
+        fn WaitForMultipleObjects(n: u32, handles: *const RawHandle, all_items: i32, ms: u32) -> u32;
+        fn GetOverlappedResult(h: RawHandle, ov: *mut OverlappedOp, n: *mut u32, wait_for: i32) -> i32;
         fn SetConsoleCtrlHandler(handler: Option<ConsoleHandler>, add: i32) -> i32;
         fn GetCurrentProcessId() -> u32;
     }
@@ -137,20 +137,20 @@ mod windows_processes {
     /// The handles of a start, closed if it fails (or if they are not handed to
     /// anyone).
     #[derive(Default)]
-    struct Stored(Vec<Bruto>);
+    struct Stored(Vec<RawHandle>);
 
     impl Stored {
-        fn store(&mut self, hs: &[Bruto]) {
+        fn store(&mut self, hs: &[RawHandle]) {
             self.0.extend(hs.iter().copied().filter(|&h| h != INVALID));
         }
 
         /// The handle passes to the caller.
-        fn deliver(&mut self, h: Bruto) -> Bruto {
+        fn deliver(&mut self, h: RawHandle) -> RawHandle {
             self.0.retain(|&x| x != h);
             h
         }
 
-        fn do_close(&mut self, h: Bruto) {
+        fn do_close(&mut self, h: RawHandle) {
             if h != INVALID {
                 self.deliver(h);
                 // SAFETY: a handle of this start, closed once.
@@ -193,9 +193,9 @@ mod windows_processes {
     }
 
     /// `CreateProcessPipe`: `[read_side, write_side]`.
-    fn create_pipe(usage: PipeUse) -> IoResult<[Bruto; 2]> {
+    fn create_pipe(usage: PipeUse) -> IoResult<[RawHandle; 2]> {
         let name = pipe_name();
-        let inheritable = AtributosDeSeguranca { size: std::mem::size_of::<AtributosDeSeguranca>() as u32, descriptor: std::ptr::null_mut(), inherit: 1 };
+        let inheritable = SecurityAttributes { size: std::mem::size_of::<SecurityAttributes>() as u32, descriptor: std::ptr::null_mut(), inherit: 1 };
         let parent_writes = usage == PipeUse::ChildInput;
         let opening = if parent_writes { PIPE_ACCESS_OUTBOUND } else { PIPE_ACCESS_INBOUND } | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE;
         // SAFETY: creates the pipe server with the unique name.
@@ -221,8 +221,8 @@ mod windows_processes {
     }
 
     /// `OpenNul`: the inheritable `NUL` (the I/O of detached processes).
-    fn open_nul() -> IoResult<Bruto> {
-        let inheritable = AtributosDeSeguranca { size: std::mem::size_of::<AtributosDeSeguranca>() as u32, descriptor: std::ptr::null_mut(), inherit: 1 };
+    fn open_nul() -> IoResult<RawHandle> {
+        let inheritable = SecurityAttributes { size: std::mem::size_of::<SecurityAttributes>() as u32, descriptor: std::ptr::null_mut(), inherit: 1 };
         let name: Vec<u16> = "NUL".encode_utf16().chain(std::iter::once(0)).collect();
         // SAFETY: opens the null device.
         let h = unsafe { CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, &inheritable, OPEN_EXISTING, 0, 0) };
@@ -233,7 +233,7 @@ mod windows_processes {
     struct AttributeList(Vec<u64>);
 
     impl AttributeList {
-        fn with_handles(handles: &[Bruto; 3]) -> IoResult<AttributeList> {
+        fn with_handles(handles: &[RawHandle; 3]) -> IoResult<AttributeList> {
             let mut size = 0usize;
             // SAFETY: queries the size (fails with ERROR_INSUFFICIENT_BUFFER, as
             // expected).
@@ -387,7 +387,7 @@ mod windows_processes {
         }
         let mut r = StartedProcess { pid: i64::from(info.pid), input: -1, output: -1, error: -1, end: -1 };
         if mode != MODE_DETACHED {
-            let file = |g: &mut Stored, h: Bruto| descriptor_of(Handle::new(HandleKind::File, g.deliver(h)));
+            let file = |g: &mut Stored, h: RawHandle| descriptor_of(Handle::new(HandleKind::File, g.deliver(h)));
             if mode_with_stdio(mode) {
                 r.input = file(&mut g, input[1]);
                 r.output = file(&mut g, output[0]);
@@ -404,10 +404,10 @@ mod windows_processes {
     // The tracked processes (`ProcessInfoList`).
 
     struct LiveProcess {
-        process: Bruto,
-        wait_entry: Bruto,
+        process: RawHandle,
+        wait_entry: RawHandle,
         /// The write side of the exit code pipe.
-        pipe: Bruto,
+        pipe: RawHandle,
     }
 
     fn live_processes() -> std::sync::MutexGuard<'static, crate::hash::HashMap<u32, LiveProcess>> {
@@ -418,7 +418,7 @@ mod windows_processes {
     /// `ProcessInfoList::AddProcess`: the system pool calls [`process_exited`]
     /// when the child exits. The lock covers the registration, so that the
     /// callback finds the process even if it has already exited.
-    fn register_process(pid: u32, process: Bruto, pipe: Bruto) {
+    fn register_process(pid: u32, process: RawHandle, pipe: RawHandle) {
         let mut live_set = live_processes();
         let mut wait_entry = 0;
         // SAFETY: waits for the process handle, once, on the system pool.
@@ -429,11 +429,11 @@ mod windows_processes {
     }
 
     /// `ExitCodeCallback`: writes `[code, negative]` into the exit pipe.
-    unsafe extern "system" fn process_exited(contexto: *mut c_void, expired: u8) {
+    unsafe extern "system" fn process_exited(context: *mut c_void, expired: u8) {
         if expired != 0 {
             return;
         }
-        let pid = contexto as usize as u32;
+        let pid = context as usize as u32;
         let Some(p) = live_processes().remove(&pid) else { return };
         // SAFETY: the wait belongs to this process; inside the callback it can
         // only be undone without blocking.
@@ -458,7 +458,7 @@ mod windows_processes {
 
     /// `Process::Kill`: `TerminateProcess` with code -1 (the signal does not
     /// apply).
-    pub(super) fn kill_process(pid: i64, _sinal: i64) -> bool {
+    pub(super) fn kill_process(pid: i64, _signal: i64) -> bool {
         let Ok(pid) = u32::try_from(pid) else { return false };
         {
             let live_set = live_processes();
@@ -486,8 +486,8 @@ mod windows_processes {
     /// An overlapped read with an event (bypassing the completion port: bit 0 of
     /// the event diverts it) until the end of the pipe.
     struct WaitRead {
-        handle: Bruto,
-        event: Bruto,
+        handle: RawHandle,
+        event: RawHandle,
         overlapped: Box<OverlappedOp>,
         buffer: Vec<u8>,
         data: Vec<u8>,
@@ -497,7 +497,7 @@ mod windows_processes {
     impl WaitRead {
         /// The reader becomes the owner of `handle` (closed also if creation
         /// fails).
-        fn new_area(handle: Bruto) -> IoResult<WaitRead> {
+        fn new_area(handle: RawHandle) -> IoResult<WaitRead> {
             // SAFETY: an auto-reset event, signaled so that the first read
             // starts.
             let event = unsafe { CreateEventW(std::ptr::null(), 0, 1, std::ptr::null()) };
@@ -562,9 +562,9 @@ mod windows_processes {
     }
 
     /// Takes the handle out of a pipe handle object: it no longer closes it.
-    fn take_handle(fd: i64) -> IoResult<Bruto> {
+    fn take_handle(fd: i64) -> IoResult<RawHandle> {
         let m = handle_of(fd).ok_or_else(invalid_handle)?;
-        m.estado().take_handle();
+        m.state().take_handle();
         Ok(m.raw)
     }
 
@@ -579,7 +579,7 @@ mod windows_processes {
         }
         let mut live_set: Vec<usize> = vec![0, 1, 2];
         while !live_set.is_empty() {
-            let events: Vec<Bruto> = live_set.iter().map(|&i| readers[i].event).collect();
+            let events: Vec<RawHandle> = live_set.iter().map(|&i| readers[i].event).collect();
             // SAFETY: the events of the live readers.
             let r = unsafe { WaitForMultipleObjects(events.len() as u32, events.as_ptr(), 0, INFINITE) };
             let k = r.wrapping_sub(WAIT_OBJECT_0) as usize;

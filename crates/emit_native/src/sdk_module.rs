@@ -12,7 +12,7 @@
 //! inference diagnostics in the bodies of those libraries, which must be
 //! zero before the lowering compiles them.
 
-use crate::gerador::{Format, Generation, Gerador};
+use crate::generator::{Format, Generation, Generator};
 use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
@@ -43,7 +43,7 @@ pub const SOURCE_LIBRARIES: &[&str] =
 
 /// Overlay directory: `DARTFORGE_SDK_NATIVO`, otherwise the `native_sdk/`
 /// of the repository that compiled this binary.
-pub fn dir_sobreposicao() -> PathBuf {
+pub fn overlay_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_NATIVO") {
         return PathBuf::from(d);
     }
@@ -55,7 +55,7 @@ pub fn dir_sobreposicao() -> PathBuf {
 
 /// The native SDK: the `vm` section of `lib_dir` with the overlay.
 pub fn load_native_sdk(lib_dir: &Path) -> Result<SdkLayout, String> {
-    SdkLayout::load_with_overlay(lib_dir, &dir_sobreposicao(), OVERLAY_TARGET)
+    SdkLayout::load_with_overlay(lib_dir, &overlay_dir(), OVERLAY_TARGET)
 }
 
 /// Inference diagnostics in the bodies of an SDK library.
@@ -305,14 +305,14 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &libs);
     let base = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies);
     let base = base.with_source_sdk();
-    // The SDK comes out in the exception model of the program (`alvo::excecoes_por_tabelas`).
-    let excecoes_por_tabelas = crate::alvo::excecoes_por_tabelas()?;
-    let raizes_por_mapas = crate::alvo::raizes_por_mapas()?;
-    // The SDK comes out in the memory policy of the program (`alvo::arc_memory`).
-    let arc_memory = crate::alvo::arc_memory()?;
+    // The SDK comes out in the exception model of the program (`target::table_exceptions`).
+    let table_exceptions = crate::target::table_exceptions()?;
+    let roots_by_maps = crate::target::roots_by_maps()?;
+    // The SDK comes out in the memory policy of the program (`target::arc_memory`).
+    let arc_memory = crate::target::arc_memory()?;
     // The symbolic stack trace (§13.14): the positions of the SDK functions and the table.
-    let symbolic_stack_trace = crate::alvo::symbolic_stack_trace()?;
-    let arc_prepared = crate::alvo::arc_prepared()?;
+    let symbolic_stack_trace = crate::target::symbolic_stack_trace()?;
+    let arc_prepared = crate::target::arc_prepared()?;
     let mut modules = Vec::new();
     for lib in libs {
         let uri = program.library(lib).uri.clone();
@@ -335,7 +335,7 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         }
         // The HIR optimizer (`optimize/`) also in the SDK: that is where the
         // code of `List`, `Map`, `String`… that programs call the most lives.
-        crate::optimize::prepare_for_emission(&mut module, arc_memory, excecoes_por_tabelas);
+        crate::optimize::prepare_for_emission(&mut module, arc_memory, table_exceptions);
         modules.push((uri, module));
     }
     // The published ARC preparation: the libraries together (the SDK does not call the
@@ -364,10 +364,10 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
             // also serves the JIT, which migrates objects on reload.
             .with_body_without_outside(production)
             .with_tables_at_link(production)
-            .with_roots_by_maps(raizes_por_mapas)
+            .with_roots_by_maps(roots_by_maps)
             .with_stack_trace(symbolic_stack_trace)
             .emit_all();
-        if raizes_por_mapas {
+        if roots_by_maps {
             crate::llvm::verify_maps::verify(&ir).map_err(|e| format!("{uri}: {e}"))?;
         } else if crate::llvm::verify_shadow::linked() {
             crate::llvm::verify_shadow::verify(&ir).map_err(|e| format!("{uri}: {e}"))?;
@@ -375,10 +375,10 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         let ir = if production { with_optsize(&ir) } else { ir };
         // Unwind table with exceptions by tables and with roots by
         // maps (the collector's walk; see `lib.rs`).
-        let ir = if (excecoes_por_tabelas || raizes_por_mapas) && cfg!(unix) { with_uwtable(&ir) } else { ir };
-        let ir = if cfg!(unix) && !excecoes_por_tabelas && !raizes_por_mapas { with_nounwind(&ir) } else { ir };
+        let ir = if (table_exceptions || roots_by_maps) && cfg!(unix) { with_uwtable(&ir) } else { ir };
+        let ir = if cfg!(unix) && !table_exceptions && !roots_by_maps { with_nounwind(&ir) } else { ir };
         // Only on Unix (macOS measured; Windows not).
-        let ir = if cfg!(unix) && production && !excecoes_por_tabelas && !raizes_por_mapas && !arc_memory {
+        let ir = if cfg!(unix) && production && !table_exceptions && !roots_by_maps && !arc_memory {
             with_context_in_tls(&ir, ContextInTls::Free, "df.ctx.tls")
         } else {
             ir
@@ -464,7 +464,7 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         join(&lib_dir.join(d), &mut files);
     }
     files.push(lib_dir.join("libraries.json"));
-    let overlay = dir_sobreposicao();
+    let overlay = overlay_dir();
     join(&overlay, &mut files);
     files.sort();
     let mut h = blake3::Hasher::new();
@@ -493,7 +493,7 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     }
     // The published ARC preparation changes the bodies (tokens, cleanup); the
     // prepared program only links with this SDK.
-    if crate::alvo::arc_prepared().unwrap_or(false) {
+    if crate::target::arc_prepared().unwrap_or(false) {
         h.update(b"arc=preparado_v1\0");
     }
     // The roots mode changes the code (`llvm/mod.rs`); the default does not enter.
@@ -502,10 +502,10 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         h.update(b"raizes=mapas_v2\0");
         // The budget ceiling decides which functions come out with a map, and the
         // checking build adds slots to the frame.
-        h.update(crate::alvo::maps_budget().to_string().as_bytes());
-        h.update(if crate::alvo::check_roots() { b"conferir\0" } else { b"\0\0\0\0\0\0\0\0\0" });
+        h.update(crate::target::maps_budget().to_string().as_bytes());
+        h.update(if crate::target::check_roots() { b"conferir\0" } else { b"\0\0\0\0\0\0\0\0\0" });
     }
-    // The test sabotages change the code (`alvo::sabotage`).
+    // The test sabotages change the code (`target::sabotage`).
     if let Ok(s) = std::env::var("DARTFORGE_SABOTAGEM")
         && !s.is_empty()
     {
@@ -558,8 +558,8 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
 /// production with LTO).
 ///
 /// ```
-/// use dartforge_emit_native::gerador::Format;
-/// use dartforge_emit_native::sdk_modulo::{SdkProfile, sdk_generation};
+/// use dartforge_emit_native::generator::Format;
+/// use dartforge_emit_native::sdk_module::{SdkProfile, sdk_generation};
 /// assert_eq!(sdk_generation(SdkProfile::Production).format, Format::Bitcode);
 /// assert!(!sdk_generation(SdkProfile::Development).optimize);
 /// ```
@@ -581,8 +581,8 @@ pub enum SdkProfile {
 
 /// The source SDK DLL (development profile) for the installed SDK and
 /// the usual Clang: it is what the JIT loads (`crates/jit`, `DARTFORGE_SDK_DLL`).
-pub fn dll_do_sdk_da_fonte() -> Result<PathBuf, String> {
-    let dir = crate::sdk_do_dart()?;
+pub fn source_sdk_dll() -> Result<PathBuf, String> {
+    let dir = crate::dart_sdk()?;
     let clang = crate::driver::NativeDriverOptions::default().clang;
     Ok(compiled_sdk(&dir, &clang)?.dll)
 }
@@ -603,18 +603,18 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     // module, in one thread, before the parts (docs/NATIVO-PRODUCAO-GRANDE.md).
     // `DARTFORGE_GERADOR` chooses by hand. Without Clang (the distribution without the
     // system toolchain), the embedded generator.
-    let gerador = if profile == SdkProfile::Production && std::env::var_os("DARTFORGE_GERADOR").is_none() {
-        Gerador::clang_if_any(clang)
+    let generator = if profile == SdkProfile::Production && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+        Generator::clang_if_any(clang)
     } else {
-        Gerador::escolher(clang)
+        Generator::choose(clang)
     };
     let generation = sdk_generation(profile);
-    let key = sdk_key(lib_dir, &gerador.identity()?, &[generation.description().as_str()]);
+    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str()]);
     let root = crate::cache::native_cache_dir().join("sdk");
     let dir = root.join(&key);
     let dll_name = format!("dfsdk_{}", &key[..16]);
-    let dll_file = crate::alvo::shared_name(&dll_name);
-    let ext_obj = crate::alvo::ext_object();
+    let dll_file = crate::target::shared_name(&dll_name);
+    let ext_obj = crate::target::ext_object();
     let ready = |d: &Path, cold| CompiledSdk {
         objects: SOURCE_LIBRARIES.iter().map(|b| d.join(format!("{b}.{ext_obj}"))).collect(),
         // Both profiles: production prunes at link time (`pruning::assemble`), and
@@ -623,7 +623,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         dll: d.join(&dll_file),
         // On Windows it links against the import library; on ELF and on
         // Mach-O, against the shared library itself.
-        import: if crate::alvo::sistema() == crate::alvo::Sistema::Windows {
+        import: if crate::target::target_os() == crate::target::Os::Windows {
             d.join(format!("{dll_name}.lib"))
         } else {
             d.join(&dll_file)
@@ -637,7 +637,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         }
         return Ok(ready(&dir, None));
     }
-    let runtime_dll = crate::cache::RuntimeCache::para_dll()?;
+    let runtime_dll = crate::cache::RuntimeCache::for_dll()?;
     let t0 = std::time::Instant::now();
     let tmp = root.join(format!("{key}.tmp.{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -656,7 +656,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         defined_symbols(&lib.ir, &mut exported);
     }
     exported.extend(
-        dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()),
+        dartforge_runtime::symbols::NAMES.iter().filter(|n| **n != "main").map(|n| n.to_string()),
     );
     let mut def = format!("LIBRARY {dll_name}.dll\nEXPORTS\n");
     for s in &exported {
@@ -664,20 +664,20 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     }
     std::fs::write(tmp.join("exportados.def"), def).map_err(|e| e.to_string())?;
     let keep_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
-    let mut resumo = String::new();
+    let mut summary = String::new();
     for (b, lib) in SOURCE_LIBRARIES.iter().zip(&libs) {
         if keep_ir {
             std::fs::write(tmp.join(format!("{b}.ll")), &lib.ir).map_err(|e| e.to_string())?;
         }
         for (s, m) in &lib.rejected {
-            resumo.push_str(&format!("{}\t{s}\t{m}\n", lib.uri));
+            summary.push_str(&format!("{}\t{s}\t{m}\n", lib.uri));
         }
         // The pruning summary: from the IR that becomes the bitcode (production) or the object
         // of the DLL (development).
         let pruning = crate::pruning::summarize(&lib.ir, &lib.uri, &lib.tables);
         std::fs::write(tmp.join(format!("{b}.poda")), pruning.to_text()).map_err(|e| e.to_string())?;
     }
-    std::fs::write(tmp.join("recusados.tsv"), resumo).map_err(|e| e.to_string())?;
+    std::fs::write(tmp.join("recusados.tsv"), summary).map_err(|e| e.to_string())?;
     // Each library in a generator, at most 4 at the same time (the memory of
     // a large LLVM module is the measure, not the cores).
     let queue = std::sync::Mutex::new(SOURCE_LIBRARIES.iter().zip(&libs).collect::<Vec<_>>());
@@ -688,7 +688,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
             // module overflow the default stack of a Rust thread.
             let r = std::thread::Builder::new().stack_size(64 << 20).spawn_scoped(s, || loop {
                 let Some((b, lib)) = queue.lock().unwrap().pop() else { break };
-                if let Err(e) = gerador.gerar(&lib.ir, generation, &tmp.join(format!("{b}.{ext_obj}"))) {
+                if let Err(e) = generator.generate(&lib.ir, generation, &tmp.join(format!("{b}.{ext_obj}"))) {
                     errors.lock().unwrap().push(format!("dart:{b}: {e}"));
                 }
             });
@@ -705,17 +705,17 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     // executable.
     if profile == SdkProfile::Production {
         // Nothing to link: the bitcode enters the link of each executable.
-    } else if crate::alvo::sistema() == crate::alvo::Sistema::Linux {
-        // `ld.lld` directly with the link sysroot (`ligador.rs`).
+    } else if crate::target::target_os() == crate::target::Os::Linux {
+        // `ld.lld` directly with the link sysroot (`linker.rs`).
         let exported: Vec<String> =
-            dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
+            dartforge_runtime::symbols::NAMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
         let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
         entries.push(runtime_dll.lib_path.clone());
-        crate::ligador::link(
-            &crate::ligador::ld_lld(clang),
-            crate::ligador::SysrootLinux::locate(clang)?,
-            &crate::ligador::Linkage {
-                product: crate::ligador::Product::Shared { soname: &dll_file, exported: &exported },
+        crate::linker::link(
+            &crate::linker::ld_lld(clang),
+            crate::linker::SysrootLinux::locate(clang)?,
+            &crate::linker::Linkage {
+                product: crate::linker::Product::Shared { soname: &dll_file, exported: &exported },
                 entries,
                 origin_rpath: false,
                 lto: false,
@@ -726,7 +726,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
             },
         )
         .map_err(|e| format!("linking the source SDK DLL failed: {e}"))?;
-    } else if crate::alvo::sistema() == crate::alvo::Sistema::Windows && crate::driver::link_with_clang() {
+    } else if crate::target::target_os() == crate::target::Os::Windows && crate::driver::link_with_clang() {
         // The link from before N15 (the Clang driver, `link.exe` and the
         // Visual C++ CRT), only for comparison (`DARTFORGE_LIGAR_COM_CLANG`).
         let exit = std::process::Command::new(clang)
@@ -735,7 +735,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
             .args(SOURCE_LIBRARIES.iter().map(|b| format!("{b}.{ext_obj}")))
             .arg(&runtime_dll.lib_path)
             .arg("-Wl,/DEF:exportados.def")
-            .args(crate::alvo::argumentos_de_ligacao())
+            .args(crate::target::link_arguments())
             .arg("-o")
             .arg(&dll_file)
             .output()
@@ -745,11 +745,11 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
             let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
             return Err(format!("linking the source SDK DLL failed ({}):\n{}", exit.status, lines.join("\n")));
         }
-    } else if crate::alvo::sistema() == crate::alvo::Sistema::Windows {
+    } else if crate::target::target_os() == crate::target::Os::Windows {
         // `lld-link` directly, with the import libraries and dartforge's minimal
-        // CRT (`ligador_windows.rs`); the `.def` exports the
+        // CRT (`linker_windows.rs`); the `.def` exports the
         // runtime and the SDK, and the import library comes out next to the DLL.
-        use crate::ligador_windows as lw;
+        use crate::linker_windows as lw;
         let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
         entries.push(runtime_dll.lib_path.clone());
         lw::link(
@@ -767,12 +767,12 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         )
         .map_err(|e| format!("linking the source SDK DLL failed: {e}"))?;
     } else {
-        // `ld64.lld` directly with the `.tbd`s of the sysroot (`ligador_macos.rs`):
+        // `ld64.lld` directly with the `.tbd`s of the sysroot (`linker_macos.rs`):
         // each runtime name enters as undefined, so that the linker brings
         // from the `staticlib` also what the SDK does not use (the program does).
-        use crate::ligador_macos as lm;
+        use crate::linker_macos as lm;
         let exported: Vec<String> =
-            dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
+            dartforge_runtime::symbols::NAMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
         let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
         entries.push(runtime_dll.lib_path.clone());
         let install_name = format!("@rpath/{dll_file}");
@@ -911,7 +911,7 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
 /// inlines into the program follows the attributes of the caller.
 ///
 /// ```
-/// use dartforge_emit_native::sdk_modulo::with_optsize;
+/// use dartforge_emit_native::sdk_module::with_optsize;
 /// let ir = "define i64 @f(i64 %x) comdat {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline {\n";
 /// assert_eq!(
 ///     with_optsize(ir),
@@ -942,7 +942,7 @@ pub fn with_uwtable(ir: &str) -> String {
 /// cross the frames and do not go through here.
 ///
 /// ```
-/// use dartforge_emit_native::sdk_modulo::with_nounwind;
+/// use dartforge_emit_native::sdk_module::with_nounwind;
 /// let ir = "define i64 @f(i64 %x) {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline nounwind {\n";
 /// assert_eq!(
 ///     with_nounwind(ir),
@@ -974,7 +974,7 @@ pub enum ContextInTls {
 /// `bench/comparison` spent 1/3 of the time in the runtime function.
 ///
 /// ```
-/// use dartforge_emit_native::sdk_modulo::{with_context_in_tls, ContextInTls};
+/// use dartforge_emit_native::sdk_module::{with_context_in_tls, ContextInTls};
 /// let ir = "define i64 @f() {\n  %ctx = call ptr @dartforge_context()\n  ret i64 0\n}\n";
 /// let new_ir = with_context_in_tls(ir, ContextInTls::Inline, "df.ctx.tls");
 /// assert!(new_ir.contains("%ctx = call ptr @df.context()") && new_ir.contains("@df.ctx.tls = internal thread_local global ptr null"));
@@ -1180,8 +1180,8 @@ mod tests {
             .spawn(move || {
 
                 let optimize = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
-                let options = crate::CompileOptions { sdk: Some(crate::sdk_tests()), packages: None, timings: true, optimize: optimize, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-                crate::compilar(&entry, &exit, &options).map(|_| exit)
+                let options = crate::CompileOptions { sdk: Some(crate::sdk_tests()), packages: None, timings: true, optimize: optimize, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                crate::compile(&entry, &exit, &options).map(|_| exit)
             })
             .unwrap()
             .join()
@@ -1200,7 +1200,7 @@ mod tests {
     /// DLL (docs/NATIVO-PLANO.md §7.9).
     #[test]
     #[ignore = "compiles the source SDK (slow when cold); runs in CI"]
-    fn producao_e_um_executavel_autocontido() {
+    fn production_is_a_self_contained_executable() {
         // The installed SDK (in CI, that of `DART_HOME`); without it, the test is only
         // skipped outside CI — in CI, absence is a failure, not an empty success.
         let sdk_dir = crate::sdk_tests().to_path_buf();
@@ -1211,13 +1211,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let entry = dir.path().join("main.dart");
         std::fs::write(&entry, "void main() {\n  print('oi');\n  print([1, 2, 3].map((x) => x * 2).toList());\n  print({'a': 1});\n}\n").unwrap();
-        let exe = dir.path().join(crate::alvo::executable_name("prog"));
+        let exe = dir.path().join(crate::target::executable_name("prog"));
         let (e2, x2) = (entry.clone(), exe.clone());
         let r = std::thread::Builder::new()
             .stack_size(256 << 20)
             .spawn(move || {
 
-                let options = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+                let options = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 crate::compile_with(&e2, &x2, &options)
             })
             .unwrap()
@@ -1225,7 +1225,7 @@ mod tests {
             .unwrap();
         r.expect("compile in production");
         let alone = tempfile::tempdir().unwrap();
-        let copy_inst = alone.path().join(crate::alvo::executable_name("prog"));
+        let copy_inst = alone.path().join(crate::target::executable_name("prog"));
         std::fs::copy(&exe, &copy_inst).unwrap();
         let only_one: Vec<_> = std::fs::read_dir(alone.path()).unwrap().collect();
         assert_eq!(only_one.len(), 1, "the folder has only the executable");
@@ -1250,13 +1250,13 @@ mod tests {
         }
         let entry = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/native/81_poda_de_tabelas.dart");
         let dir = tempfile::tempdir().unwrap();
-        let exe = dir.path().join(crate::alvo::executable_name("poda"));
-        crate::ligador::request_link_maps();
+        let exe = dir.path().join(crate::target::executable_name("poda"));
+        crate::linker::request_link_maps();
         let (e2, x2) = (entry.clone(), exe.clone());
         std::thread::Builder::new()
             .stack_size(256 << 20)
             .spawn(move || {
-                let options = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+                let options = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 crate::compile_with(&e2, &x2, &options)
             })
             .unwrap()
@@ -1297,7 +1297,7 @@ mod tests {
         crate::sdk_tests();
         // Without replacing the panic hook of the process: a silent hook
         // here (as it was) silenced the panic of ALL the tests that run together
-        // — in the macOS job, `producao_e_um_executavel_autocontido` and
+        // — in the macOS job, `production_is_a_self_contained_executable` and
         // `pruning_removes_unused_members` failed without any message. The
         // lowering panics caught by `catch_unwind` only make noise.
         let members = std::thread::Builder::new()

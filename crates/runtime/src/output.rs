@@ -29,7 +29,7 @@ pub extern "C" fn dartforge_print_f64(value: f64) {
 /// `Builtin_PrintString`: UTF-8 with a lone surrogate replaced by U+FFFD
 /// (`Dart_CopyUTF8EncodingOfString` → `Utf8::Encode`), written as bytes (NUL
 /// included).
-fn print_string(t: crate::textos::TextoRef<'_>) {
+fn print_string(t: crate::text::TextRef<'_>) {
     use std::io::Write;
     let mut bytes = t.to_vm_utf8();
     bytes.push(b'\n');
@@ -45,7 +45,7 @@ pub extern "C" fn dartforge_print_handle(handle: i64) {
         return;
     }
     let t = HEAP.with(|heap| describe_string(&heap.borrow(), handle));
-    print_string(t.vista());
+    print_string(t.view());
 }
 
 /// `double` as the VM prints it (`1.0`, `0.5`, `NaN`, `Infinity`).
@@ -64,7 +64,7 @@ pub extern "C" fn dartforge_print_string(handle: i64) {
         let heap = heap.borrow();
         match heap.text(handle) {
             Some(t) => print_string(t),
-            None => print_string(describe_string(&heap, handle).vista()),
+            None => print_string(describe_string(&heap, handle).view()),
         }
     });
 }
@@ -76,7 +76,7 @@ fn registered_name(cid: i32) -> Option<String> {
 
 /// The string of a `Ref` field of an object (`None` for a scalar, null or a
 /// non-string).
-fn field_string(heap: &Heap, field: Option<crate::heap::Field>) -> Option<Texto> {
+fn field_string(heap: &Heap, field: Option<crate::heap::Field>) -> Option<Text> {
     match field? {
         (b, true) if b != 0 => heap.text(b).map(|t| t.to_string_fn()),
         _ => None,
@@ -109,7 +109,7 @@ fn safe_to_string(heap: &Heap, handle: i64, output: &mut StringMut) {
         cid::ONE_BYTE_STRING | cid::TWO_BYTE_STRING => {
             let text = heap.text(handle).expect("string viva");
             output.push('"');
-            for u in text.unidades() {
+            for u in text.units() {
                 match u {
                     0x0A => output.push_str("\\n"),
                     0x0D => output.push_str("\\r"),
@@ -142,7 +142,7 @@ fn safe_to_string(heap: &Heap, handle: i64, output: &mut StringMut) {
 /// [`describe_string`] as a Rust `String`, for messages (a lone surrogate becomes
 /// U+FFFD).
 fn describe_handle(heap: &Heap, handle: i64) -> String {
-    describe_string(heap, handle).para_string()
+    describe_string(heap, handle).to_dart_string()
 }
 
 /// Describes a handle (the `toString` of runtime values), in UTF-16 code units:
@@ -151,7 +151,7 @@ fn describe_handle(heap: &Heap, handle: i64) -> String {
 ///
 /// Depth limited to 4 and to 101 elements, like the SDK 3.6.2 abbreviation for
 /// iterables; the exact form is the subset's, not the SDK's.
-fn describe_string(heap: &Heap, handle: i64) -> Texto {
+fn describe_string(heap: &Heap, handle: i64) -> Text {
     let mut output = StringMut::new();
     describe_value(heap, crate::heap::Value::Ref(handle), 4, &mut output);
     output.end()
@@ -210,7 +210,7 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     let class = heap.class(r);
     match class {
         cid::ONE_BYTE_STRING | cid::TWO_BYTE_STRING => {
-            output.0.extend(heap.text(r).expect("string viva").unidades());
+            output.0.extend(heap.text(r).expect("string viva").units());
         }
         cid::LIST | cid::IMMUTABLE_LIST | cid::GROWABLE_LIST => {
             // Up to the 102nd: after the 101st it only matters that there are more (the ellipsis).
@@ -233,7 +233,7 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
         cid::MINT => output.push_str(&heap.int_of(r).unwrap_or(0).to_string()),
         cid::DOUBLE => output.push_str(&format_double(heap.double_of(r).unwrap_or(0.0))),
         cid::BOOL => output.push_str(if heap.bool_of(r) == Some(true) { "true" } else { "false" }),
-        cid::CLOSURE | cid::CONTEXTO | cid::CELULA | cid::STRING_ACCUMULATOR | cid::REGEXP_PROGRAM => {
+        cid::CLOSURE | cid::CONTEXT | cid::CELL | cid::STRING_ACCUMULATOR | cid::REGEXP_PROGRAM => {
             output.push_str("Instance");
         }
         c if cid::is_typed(c) || cid::is_simd(c) => {
@@ -246,7 +246,7 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     }
 }
 
-/// The description of an `INSTANCIA` object of the program or the SDK: the class
+/// The description of an `INSTANCE` object of the program or the SDK: the class
 /// name, and the VM's text for the runtime's error classes (ids 1000–1013 and the
 /// `dart:core` ones registered by name).
 fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
@@ -312,7 +312,7 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     } else if name == "StateError" {
         match fields.first() {
             Some((b, _)) if *b != 0 => {
-                let m = text(0).unwrap_or_else(Texto::empty);
+                let m = text(0).unwrap_or_else(Text::empty);
                 output.push_str(&format!("Bad state: {m}"));
             }
             _ => output.push_str("Bad state"),
@@ -329,7 +329,7 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
                     None => {
                         let mut tmp = StringMut::new();
                         describe_ref(heap, v_bits, depth - 1, &mut tmp);
-                        tmp.end().para_string()
+                        tmp.end().to_dart_string()
                     }
                 },
                 Some(&(v_bits, false)) => v_bits.to_string(),
@@ -394,7 +394,7 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     } else if name == "UnsupportedError" {
         match fields.first() {
             Some((b, _)) if *b != 0 => {
-                let m = text(0).unwrap_or_else(Texto::empty);
+                let m = text(0).unwrap_or_else(Text::empty);
                 output.push_str(&format!("Unsupported operation: {m}"));
             }
             _ => output.push_str("Unsupported operation"),
@@ -402,7 +402,7 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     } else if name == "UnimplementedError" {
         match fields.first() {
             Some((b, _)) if *b != 0 => {
-                let m = text(0).unwrap_or_else(Texto::empty);
+                let m = text(0).unwrap_or_else(Text::empty);
                 if m.is_empty() {
                     output.push_str("UnimplementedError");
                 } else {
@@ -522,8 +522,8 @@ pub extern "C" fn dartforge_to_string_i64(value: i64) -> i64 {
     }
     let d = buf.len() - i;
     text[k..k + d].copy_from_slice(&buf[i..]);
-    // The digits are already in one-byte form: no need to go through `Texto`.
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Um(&text[..k + d])))
+    // The digits are already in one-byte form: no need to go through `Text`.
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(&text[..k + d])))
 }
 
 /// Converts a double to a managed heap string.
@@ -552,6 +552,6 @@ pub extern "C" fn dartforge_to_string_handle(handle: i64) -> i64 {
         }
         let text = describe_string(&heap_ref, handle);
         drop(heap_ref);
-        heap.borrow_mut().allocate_string(text.vista())
+        heap.borrow_mut().allocate_string(text.view())
     })
 }

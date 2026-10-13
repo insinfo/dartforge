@@ -81,9 +81,9 @@ fn check(
 
 /// Rebuilds the path of the discovery tree only on error, without keeping
 /// a copy of every prefix in each block.
-fn path(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
+fn path(f: &Function, parents: &[Option<usize>], mut b: usize) -> Vec<u32> {
     let mut path = vec![f.blocks[b].id.0];
-    while let Some(p) = pais[b] {
+    while let Some(p) = parents[b] {
         b = p;
         path.push(f.blocks[b].id.0);
     }
@@ -93,13 +93,13 @@ fn path(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
 
 fn error_in_flow(
     f: &Function,
-    pais: &[Option<usize>],
+    parents: &[Option<usize>],
     b: usize,
     edge: Option<usize>,
     point: String,
     reason: String,
 ) -> String {
-    let mut path = path(f, pais, b);
+    let mut path = path(f, parents, b);
     if let Some(s) = edge {
         path.push(f.blocks[s].id.0);
     }
@@ -192,14 +192,14 @@ fn analyze(
     }
     let mut edges: Vec<_> = plan.edges.keys().copied().collect();
     edges.sort_by_key(|(a, b)| (a.0, b.0));
-    for (de, to) in edges {
+    for (of, to) in edges {
         if !pos
-            .get(&de)
+            .get(&of)
             .zip(pos.get(&to))
             .is_some_and(|(&a, &b)| cfg.successors[a].contains(&b))
         {
             return Err(error(
-                format!("b{} -> b{}", de.0, to.0),
+                format!("b{} -> b{}", of.0, to.0),
                 "limit without an edge".into(),
             ));
         }
@@ -211,7 +211,7 @@ fn analyze(
         return Ok(stacks);
     }
     let mut entries: Vec<Option<Vec<u32>>> = vec![None; f.blocks.len()];
-    let mut pais = vec![None; f.blocks.len()];
+    let mut parents = vec![None; f.blocks.len()];
     entries[0] = Some(vec![0]);
     let mut queue = VecDeque::from([0]);
     while let Some(i) = queue.pop_front() {
@@ -220,12 +220,12 @@ fn analyze(
         let point = |v: ValueId| format!("b{} v{}", b.id.0, v.0);
         for (v, inst, _) in &b.instructions {
             change(&mut stack, plan.before.get(v).map_or(&[], Vec::as_slice))
-                .map_err(|m| error_in_flow(f, &pais, i, None, point(*v), m))?;
+                .map_err(|m| error_in_flow(f, &parents, i, None, point(*v), m))?;
             if classes.is_none() && matches!(inst, Instruction::CallStatic { .. }) {
                 stacks.insert(*v, stack.clone());
             }
             check_value(*v, &stack)
-                .map_err(|m| error_in_flow(f, &pais, i, None, point(*v), m))?;
+                .map_err(|m| error_in_flow(f, &parents, i, None, point(*v), m))?;
             if !matches!(inst, Instruction::Phi { .. }) {
                 let mut invalid = None;
                 operands(inst, &mut |o| {
@@ -236,7 +236,7 @@ fn analyze(
                     }
                 });
                 if let Some(m) = invalid {
-                    return Err(error_in_flow(f, &pais, i, None, point(*v), m));
+                    return Err(error_in_flow(f, &parents, i, None, point(*v), m));
                 }
             }
         }
@@ -244,7 +244,7 @@ fn analyze(
             &mut stack,
             plan.exits.get(&b.id).map_or(&[], Vec::as_slice),
         )
-        .map_err(|m| error_in_flow(f, &pais, i, None, format!("b{} exit", b.id.0), m))?;
+        .map_err(|m| error_in_flow(f, &parents, i, None, format!("b{} exit", b.id.0), m))?;
         let mut invalid = None;
         terminator_operands(&b.terminator, &mut |o| {
             if invalid.is_none()
@@ -256,7 +256,7 @@ fn analyze(
         if let Some(m) = invalid {
             return Err(error_in_flow(
                 f,
-                &pais,
+                &parents,
                 i,
                 None,
                 format!("b{} terminator", b.id.0),
@@ -266,7 +266,7 @@ fn analyze(
         if cfg.successors[i].is_empty() && stack != [0] {
             return Err(error_in_flow(
                 f,
-                &pais,
+                &parents,
                 i,
                 None,
                 format!("b{} exit", b.id.0),
@@ -284,15 +284,15 @@ fn analyze(
                     .get(&(b.id, dest.id))
                     .map_or(&[], Vec::as_slice),
             )
-            .map_err(|m| error_in_flow(f, &pais, i, Some(s), point.clone(), m))?;
+            .map_err(|m| error_in_flow(f, &parents, i, Some(s), point.clone(), m))?;
             for (_, inst, _) in &dest.instructions {
                 if let Instruction::Phi { incoming, .. } = inst {
-                    for (de, o) in incoming {
-                        if *de == b.id
+                    for (of, o) in incoming {
+                        if *of == b.id
                             && let Operand::Val(v) = o
                         {
                             check_value(*v, &next_one).map_err(|m| {
-                                error_in_flow(f, &pais, i, Some(s), point.clone(), m)
+                                error_in_flow(f, &parents, i, Some(s), point.clone(), m)
                             })?;
                         }
                     }
@@ -302,19 +302,19 @@ fn analyze(
                 Some(previous) if *previous != next_one => {
                     return Err(error_in_flow(
                         f,
-                        &pais,
+                        &parents,
                         i,
                         Some(s),
                         point,
                         format!(
                             "join with different scopes {previous:?} and {next_one:?}; previous path {:?}",
-                            path(f, &pais, s)
+                            path(f, &parents, s)
                         ),
                     ));
                 }
                 Some(_) => {}
                 None => {
-                    pais[s] = Some(i);
+                    parents[s] = Some(i);
                     entries[s] = Some(next_one);
                     queue.push_back(s);
                 }

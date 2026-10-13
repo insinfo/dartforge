@@ -8,7 +8,7 @@
 //! pay for it.
 //!
 //! Both commands consume the **same** LLVM IR that `dartforge aot` hands to
-//! Clang (`dartforge_emit_native::emitir_ir`). See `docs/JIT.md`.
+//! Clang (`dartforge_emit_native::emit_ir`). See `docs/JIT.md`.
 #![cfg_attr(not(feature = "jit"), allow(unused))]
 use std::path::{Path, PathBuf};
 
@@ -38,7 +38,7 @@ fn emit(
     input: &Path,
     sdk: Option<&Path>,
     packages: Option<&Path>,
-) -> Result<dartforge_emit_native::IrEmitido, String> {
+) -> Result<dartforge_emit_native::EmittedIr, String> {
     emit_generation(input, sdk, packages, None)
 }
 
@@ -50,7 +50,7 @@ fn emit_generation(
     sdk: Option<&Path>,
     packages: Option<&Path>,
     previous: Option<std::sync::Arc<String>>,
-) -> Result<dartforge_emit_native::IrEmitido, String> {
+) -> Result<dartforge_emit_native::EmittedIr, String> {
     let (input, sdk, packages) = (input.to_path_buf(), sdk.map(Path::to_path_buf), packages.map(Path::to_path_buf));
     std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -63,13 +63,13 @@ fn emit_generation(
                     packages: packages.as_deref(),
                     timings: false,
                     optimize: false,
-                    versao_linguagem: None,
-                    experimentos: Vec::new(),
-                    depuracao: false,
-                    gerador: generator,
+                    language_version: None,
+                    experiments: Vec::new(),
+                    debug: false,
+                    generator: generator,
                     cpu: None,
                 };
-                dartforge_emit_native::emitir_ir_recarregavel(&input, &options, previous.as_deref().map(String::as_str))
+                dartforge_emit_native::emit_reloadable_ir(&input, &options, previous.as_deref().map(String::as_str))
             })
         })
         .map_err(|e| e.to_string())?
@@ -82,13 +82,13 @@ fn emit_generation(
 /// missing); `None` when the IR does not use the source-built SDK.
 #[cfg(feature = "jit")]
 fn sdk_library(ir: &str) -> Result<Option<PathBuf>, String> {
-    if !dartforge_jit::ir_usa_sdk_da_fonte(ir) {
+    if !dartforge_jit::ir_uses_source_sdk(ir) {
         return Ok(None);
     }
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_DLL") {
         return Ok(Some(PathBuf::from(d)));
     }
-    dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().map(Some)
+    dartforge_emit_native::sdk_module::source_sdk_dll().map(Some)
 }
 
 /// `dartforge run [--sdk <lib>] [--packages <cfg>] [--timings] <input.dart>
@@ -141,15 +141,15 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
             _ => input = Some(PathBuf::from(a)),
         }
     }
-    dartforge_jit::definir_argumentos(program_args);
+    dartforge_jit::set_arguments(program_args);
     if let Some(input) = &input {
-        dartforge_jit::definir_script(input);
+        dartforge_jit::set_script(input);
     }
     let (ir, emission) = match (input, ready_ir) {
         (Some(input), None) => {
             let ir = emit(&input, sdk.as_deref(), packages.as_deref())?;
-            let times = ir.tempos;
-            (ir.texto, Some(times))
+            let times = ir.times;
+            (ir.text, Some(times))
         }
         (None, Some(file)) => (
             std::fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?,
@@ -158,7 +158,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         _ => return Err(usage.into()),
     };
     let sdk_dll = sdk_library(&ir)?;
-    let report = dartforge_jit::run_ir_com(&ir, sdk_dll.as_deref())?;
+    let report = dartforge_jit::run_ir_with(&ir, sdk_dll.as_deref())?;
     use std::io::Write;
     let _ = std::io::stdout().flush();
     if timings {
@@ -262,7 +262,7 @@ impl Drop for GenerationsDir {
 /// at the main isolate's safepoint — between two event loop events —,
 /// without running `main` again: heap, statics, timers, ports and
 /// connections carry on, and the next event already calls the new code
-/// (`dartforge_jit::ProgramaVivo`). If the program has already finished, the
+/// (`dartforge_jit::LiveProgram`). If the program has already finished, the
 /// new generation is published and `main` runs again on the same state.
 ///
 /// An edit that does not compile brings nothing down: the diagnostic is shown
@@ -321,7 +321,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
         }
     }
     let input = input.ok_or(usage)?;
-    dartforge_jit::definir_script(&input);
+    dartforge_jit::set_script(&input);
     if !restart {
         if child {
             if let Some(port) = supervisor {
@@ -372,7 +372,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                     }
                     generation += 1;
                     let file = temp.0.join(format!("generation-{generation}.ll"));
-                    std::fs::write(&file, &ir.texto)?;
+                    std::fs::write(&file, &ir.text)?;
                     eprintln!(
                         "[reload] generation {generation}: hot restart — state is NOT preserved \
                          (the program starts over from main; stateful hot reload does not exist yet)"
@@ -381,7 +381,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                         eprintln!(
                             "[reload] generation {generation}: IR emission {:.1} ms ({} bytes)",
                             emission.as_secs_f64() * 1000.0,
-                            ir.texto.len()
+                            ir.text.len()
                         );
                     }
                     let mut command = std::process::Command::new(&own_exe);
@@ -519,8 +519,8 @@ fn live_reload(
             last = Some(now);
             match emit(input, sdk, packages) {
                 Ok(ir) => {
-                    let sdk_dll = sdk_library(&ir.texto)?;
-                    let session = dartforge_jit::JitSession::new_for_ir_com(&ir.texto, sdk_dll.as_deref())?;
+                    let sdk_dll = sdk_library(&ir.text)?;
+                    let session = dartforge_jit::JitSession::new_for_ir_with(&ir.text, sdk_dll.as_deref())?;
                     break (session, ir);
                 }
                 Err(error) if once => return Err(error.into()),
@@ -532,17 +532,17 @@ fn live_reload(
         }
         std::thread::sleep(interval);
     };
-    let from_source = session.usa_sdk_da_fonte();
-    let mut live_ir = std::sync::Arc::new(ir.texto);
-    let result = session.com_programa_vivo(|live| -> Result<i32, Box<dyn std::error::Error>> {
-        live.ao_esperar_ponto_seguro(|| {
+    let from_source = session.uses_source_sdk();
+    let mut live_ir = std::sync::Arc::new(ir.text);
+    let result = session.with_live_program(|live| -> Result<i32, Box<dyn std::error::Error>> {
+        live.on_safepoint_wait(|| {
             eprintln!("[reload] waiting for the program to reach a safepoint (between two events)…");
         });
-        let report = live.publicar("app", &live_ir)?;
+        let report = live.publish("app", &live_ir)?;
         eprintln!("[reload] generation {}: state preserved in the same session", report.generation);
-        live.executar_main()?;
+        live.run_main()?;
         loop {
-            if let Some(end) = live.terminou() {
+            if let Some(end) = live.finished() {
                 if once {
                     return Ok(end.exit_code);
                 }
@@ -562,15 +562,15 @@ fn live_reload(
                     }
                 };
                 let emission = start.elapsed();
-                let times = ir.tempos;
-                if dartforge_jit::ir_usa_sdk_da_fonte(&ir.texto) != from_source {
+                let times = ir.times;
+                if dartforge_jit::ir_uses_source_sdk(&ir.text) != from_source {
                     eprintln!("[reload] the edit changed the program's runtime profile");
                     request_restart();
                 }
-                let running = live.executando();
-                match live.publicar("app", &ir.texto) {
+                let running = live.running();
+                match live.publish("app", &ir.text) {
                     Ok(report) => {
-                        live_ir = std::sync::Arc::new(ir.texto);
+                        live_ir = std::sync::Arc::new(ir.text);
                         if running {
                             eprintln!(
                                 "[reload] generation {}: published into the running program (state preserved)",
@@ -604,10 +604,10 @@ fn live_reload(
                                 report.retained_generations
                             );
                         }
-                        if !live.executando() {
+                        if !live.running() {
                             // The program had ended: it runs again, on the
                             // same state.
-                            live.executar_main()?;
+                            live.run_main()?;
                         }
                     }
                     Err(error) if matches!(error.stage, "contract" | "poisoned") => {

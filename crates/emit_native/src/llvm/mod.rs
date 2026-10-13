@@ -19,9 +19,9 @@ mod ir_typed;
 
 use dartforge_runtime::layout;
 /// Largest field index read inline (the layout contract).
-const INLINE_FIELDS: usize = layout::CAMPOS_EM_LINHA;
+const INLINE_FIELDS: usize = layout::INLINE_FIELDS;
 /// The largest body, in words, with inline allocation (the TLAB of `w` words,
-/// `layout::contexto::tlab_cursor(w)`): an object of up to `TLAB_N` fields.
+/// `layout::context::tlab_cursor(w)`): an object of up to `TLAB_N` fields.
 const TLAB_N: i64 = layout::TLAB_N as i64;
 /// The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
 const OBJECT_MASK: i64 = 7 | i64::MIN;
@@ -155,7 +155,7 @@ pub struct LlvmEmitter<'a> {
     /// large program.
     compact_selector: bool,
     /// `optsize` on each function of the module (the large program in production;
-    /// the production SDK already has it, `sdk_modulo::with_optsize`).
+    /// the production SDK already has it, `sdk_module::with_optsize`).
     optimize_size: bool,
     /// The objects freshly allocated in this HIR block, with no collection point
     /// since the allocation (`emit_field_addresses`): the body is in the
@@ -331,7 +331,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// The symbolic stack trace (§13.14): the labels before the calls and the
-    /// table of the image (`alvo::symbolic_stack_trace`; in the JIT, with
+    /// table of the image (`target::symbolic_stack_trace`; in the JIT, with
     /// [`LlvmEmitter::with_stack_trace_in_jit`]).
     pub fn with_stack_trace(mut self, yes: bool) -> Self {
         self.vm_stack_trace = yes.then(stack_trace::StackTrace::new);
@@ -343,10 +343,10 @@ impl<'a> LlvmEmitter<'a> {
     /// headers); the bounds of the `dfgcm` section that `ld.lld` defines; on
     /// Mach-O, those of LLVM's `__llvm_stackmaps`.
     fn maps_registration_call() -> &'static str {
-        match crate::alvo::sistema() {
-            crate::alvo::Sistema::Windows => "  call void @dartforge_register_map(ptr @__ImageBase)\n",
-            crate::alvo::Sistema::Linux => "  call void @dartforge_register_map_section(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n",
-            crate::alvo::Sistema::MacOs => {
+        match crate::target::target_os() {
+            crate::target::Os::Windows => "  call void @dartforge_register_map(ptr @__ImageBase)\n",
+            crate::target::Os::Linux => "  call void @dartforge_register_map_section(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n",
+            crate::target::Os::MacOs => {
                 "  call void @dartforge_register_map_llvm(ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\", ptr @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\")\n"
             }
         }
@@ -401,7 +401,7 @@ impl<'a> LlvmEmitter<'a> {
         self
     }
 
-    /// No object will have an outside body (the `FORA` bit, which only the reload migration
+    /// No object will have an outside body (the `OUT_OF_LINE` bit, which only the reload migration
     /// of the JIT creates — `runtime/src/heap.rs`, `swap_fields`): AOT
     /// and the production SDK. With this, the field of the `this` of a method is read
     /// directly from the block ([`Self::direct_body`]).
@@ -476,7 +476,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// The whole module. A module with diagnostics does not get here:
-    /// `emitir_ir` returns the error before (N1).
+    /// `emit_ir` returns the error before (N1).
     ///
     /// ```
     /// use dartforge_emit_native::{hir::Module, llvm::LlvmEmitter};
@@ -517,14 +517,14 @@ impl<'a> LlvmEmitter<'a> {
 
         // 5. Compiled functions
         let module = self.module;
-        if module.excecoes_por_tabelas {
+        if module.table_exceptions {
             assert!(
                 module.tables.len() == module.functions.len(),
                 "bug do compilador: as funções do módulo mudaram depois do passe das exceções por tabelas"
             );
         }
         for (k, func) in module.functions.iter().enumerate() {
-            self.tab = if module.excecoes_por_tabelas { module.tables.get(k) } else { None };
+            self.tab = if module.table_exceptions { module.tables.get(k) } else { None };
             self.emit_function(func);
         }
         self.tab = None;
@@ -608,7 +608,7 @@ impl<'a> LlvmEmitter<'a> {
         if self.maps {
             self.out = empty_deopt(&self.out);
         }
-        if self.maps && !self.maps_in_jit && self.gc_functions > 0 && crate::alvo::sistema() == crate::alvo::Sistema::MacOs {
+        if self.maps && !self.maps_in_jit && self.gc_functions > 0 && crate::target::target_os() == crate::target::Os::MacOs {
             self.out.push_str("module asm \".no_dead_strip __LLVM_StackMaps\"\n");
         }
     }
@@ -648,9 +648,9 @@ impl<'a> LlvmEmitter<'a> {
         if self.maps && !self.maps_in_jit {
             // `-ni:1`: `addrspace(1)` is of non-integral pointers — the
             // optimizer does not fabricate `ptrtoint`/`inttoptr` with the roots.
-            self.out.push_str(&crate::alvo::cabecalho_ir().replacen("-S128\"", "-S128-ni:1\"", 1));
+            self.out.push_str(&crate::target::ir_header().replacen("-S128\"", "-S128-ni:1\"", 1));
         } else {
-            self.out.push_str(crate::alvo::cabecalho_ir());
+            self.out.push_str(crate::target::ir_header());
         }
         // The ids of the program classes, for the next generation of a
         // JIT reload (J03, `context::ir_ids`).
@@ -678,8 +678,8 @@ impl<'a> LlvmEmitter<'a> {
             // Roots by maps: the extern that does not collect is a leaf — the call
             // to it does not become a collection point (nor an entry in the map).
             if self.maps {
-                let ef = externs::effects_of(e.nome());
-                if (!ef.allocates && !ef.calls_dart) || crate::alvo::sabotaged_leaf(e.nome()) {
+                let ef = externs::effects_of(e.name());
+                if (!ef.allocates && !ef.calls_dart) || crate::target::sabotaged_leaf(e.name()) {
                     self.out.push_str(" \"gc-leaf-function\"");
                 }
             }
@@ -694,12 +694,12 @@ impl<'a> LlvmEmitter<'a> {
             // base of the PE image (the runtime finds `.dfgcm` and `.llvm_st` through the
             // headers); the bounds of the `dfgcm` section that `ld.lld` defines;
             // on Mach-O, those of LLVM's `__llvm_stackmaps`.
-            self.out.push_str(match crate::alvo::sistema() {
-                crate::alvo::Sistema::Windows => "declare void @dartforge_register_map(ptr)\n@__ImageBase = external constant i8\n",
-                crate::alvo::Sistema::Linux => {
+            self.out.push_str(match crate::target::target_os() {
+                crate::target::Os::Windows => "declare void @dartforge_register_map(ptr)\n@__ImageBase = external constant i8\n",
+                crate::target::Os::Linux => {
                     "declare void @dartforge_register_map_section(ptr, ptr)\n@__start_dfgcm = external hidden global i8\n@__stop_dfgcm = external hidden global i8\n"
                 }
-                crate::alvo::Sistema::MacOs => {
+                crate::target::Os::MacOs => {
                     "declare void @dartforge_register_map_llvm(ptr, ptr)\n\
                      @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n\
                      @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n"
@@ -750,7 +750,7 @@ impl<'a> LlvmEmitter<'a> {
                  declare void @llvm.stackrestore.p0(ptr)\n",
             );
         }
-        if self.module.excecoes_por_tabelas {
+        if self.module.table_exceptions {
             self.out.push_str(if cfg!(windows) { EXCEPTIONS_BY_TABLES } else { EXCEPTIONS_BY_TABLES_ITANIUM });
         }
         if externs::check_effects() {
@@ -881,7 +881,7 @@ impl<'a> LlvmEmitter<'a> {
         // the whole function stays on the shadow stack, as a residual frame
         // (§3.7): without `gc`, with the usual slots.
         let cost = analysis.rooted_set.len() as u64 * (analysis.live_at.len() + analysis.live_at_end.len()) as u64;
-        let within_budget = cost <= crate::alvo::maps_budget();
+        let within_budget = cost <= crate::target::maps_budget();
         if self.maps && !within_budget && std::env::var_os("DARTFORGE_RELATORIO_MAPAS").is_some() {
             eprintln!("dartforge: {} outside the maps budget ({cost}): shadow stack", func.symbol);
         }
@@ -898,7 +898,7 @@ impl<'a> LlvmEmitter<'a> {
         self.function_roots = analysis;
         // Roots by maps: every function is `gc` — the
         // `rewrite-statepoints-for-gc` turns its calls that may
-        // collect into statepoints (`crates/llvm`, `gerar`), each one with the
+        // collect into statepoints (`crates/llvm`, `generate`), each one with the
         // `"deopt"` operand of the values live at it (§14.12): empty in a function without
         // roots in the map (those outside the budget are in the frame), but
         // present, so that the inliner joins to it the live values of its callers.
@@ -909,7 +909,7 @@ impl<'a> LlvmEmitter<'a> {
         // The checking build: as many extra slots as the largest
         // set of live values at a collection point.
         self.check = None;
-        if !self.rooted_set.is_empty() && crate::alvo::check_roots() {
+        if !self.rooted_set.is_empty() && crate::target::check_roots() {
             let k = self
                 .function_roots
                 .live_at
@@ -987,7 +987,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }}{cleanup} catch ptr null", block.id.0).unwrap();
                 }
                 let top = if self.has_frame { "%gcq" } else { "%topo0" };
-                if !crate::alvo::sabotage("pouso_sem_topo") {
+                if !crate::target::sabotage("pouso_sem_topo") {
                     writeln!(self.out, "  store ptr {top}, ptr %ctxtopo, align 8").unwrap();
                 }
                 if externs::check_effects() {
@@ -1044,7 +1044,7 @@ impl<'a> LlvmEmitter<'a> {
                 // The marker of the stack check
                 // (`emit_stack_check`), for the same reason: after
                 // `df.get_area` (or the inline context,
-                // `sdk_modulo::with_context_in_tls`) it became a dynamic
+                // `sdk_module::with_context_in_tls`) it became a dynamic
                 // allocation, with the frame pointer and the `sp` adjustment on each
                 // call.
                 if self.has_ctx {
@@ -1089,7 +1089,7 @@ impl<'a> LlvmEmitter<'a> {
                 // The `quadro_sujo` sabotage (D5, §7.3): the slots are born with a
                 // handle value that points to no block; a slot
                 // read before being written falls into handle validation.
-                let slots = if n > 0 && crate::alvo::sabotage("quadro_sujo") {
+                let slots = if n > 0 && crate::target::sabotage("quadro_sujo") {
                     format!("[{}]", vec!["i64 4098"; n].join(", "))
                 } else {
                     "zeroinitializer".to_string()
@@ -1125,7 +1125,7 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 // The `bruto_no_mapa` sabotage: a value that the optimizer does not
                 // fold (the volatile load) put in the map as a root.
-                if !self.rooted_set.is_empty() && crate::alvo::sabotage("bruto_no_mapa") {
+                if !self.rooted_set.is_empty() && crate::target::sabotage("bruto_no_mapa") {
                     self.out.push_str(
                         "  %dfsab = alloca i64, align 8\n  store volatile i64 4098, ptr %dfsab, align 8\n  %dfsabv = load volatile i64, ptr %dfsab, align 8\n",
                     );
@@ -1436,13 +1436,13 @@ impl<'a> LlvmEmitter<'a> {
                             // Function of another module (source SDK): the type of the
                             // operand, which the lowering already coerced to the
                             // representation of the parameter.
-                            let alvo = target_func
+                            let target = target_func
                                 .and_then(|f| f.params.get(idx))
                                 .map_or_else(|| self.type_of(a), |p| p.2);
-                            let alvo = if alvo == Type::Void { Type::I64 } else { alvo };
-                            let s = self.coerce(a, alvo);
-                            args_str.push(format!("{} {s}", alvo.llvm_ir()));
-                            args_types.push(alvo);
+                            let target = if target == Type::Void { Type::I64 } else { target };
+                            let s = self.coerce(a, target);
+                            args_str.push(format!("{} {s}", target.llvm_ir()));
+                            args_types.push(target);
                         }
                         if target_func.is_none() {
                             self.annotate_external(symbol, *ret_ty, &args_types);
@@ -1668,12 +1668,12 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  call void @dartforge_effects_after()").unwrap();
                         }
                     }
-                    Instruction::NativeCall { alvo, args, ret } => {
+                    Instruction::NativeCall { target, args, ret } => {
                         // The C call: each argument converted to the C type
                         // (narrow ones with the ABI extension), the return
                         // extended back explicitly (Windows x64
                         // does not guarantee the high bits of a narrow return).
-                        let a = self.coerce(alvo, Type::I64);
+                        let a = self.coerce(target, Type::I64);
                         writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
                         let mut parts = Vec::with_capacity(args.len());
                         for (i, (op, tc)) in args.iter().enumerate() {
@@ -1741,8 +1741,8 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %gg{v} = getelementptr {t}, ptr %gp{v}, i64 {i}").unwrap();
                         writeln!(self.out, "  store {t} {x}, ptr %gg{v}, align 1").unwrap();
                     }
-                    Instruction::CompositeNativeCall { alvo, args, ret, dest, variadic_flag } => {
-                        self.composite_native_call(v, alvo, args, ret, dest.as_ref(), *variadic_flag);
+                    Instruction::CompositeNativeCall { target, args, ret, dest, variadic_flag } => {
+                        self.composite_native_call(v, target, args, ret, dest.as_ref(), *variadic_flag);
                     }
                     Instruction::AllocList { elements } => self.emit_alloc_list(v, elements),
                     Instruction::AllocRecord { elements } => self.emit_alloc_record(v, elements),
@@ -1904,10 +1904,10 @@ impl<'a> LlvmEmitter<'a> {
                 self.store_check(&live_set);
             }
             let end_start = self.out.len();
-            for (b, name_str, de, v, to_repr) in self.conv_phi.clone() {
+            for (b, name_str, of, v, to_repr) in self.conv_phi.clone() {
                 if b == block.id.0 {
                     let origin = format!("%v{}", v.0);
-                    self.emit_named_conversion(&name_str, de, &origin, to_repr);
+                    self.emit_named_conversion(&name_str, of, &origin, to_repr);
                 }
             }
             // Roots by maps: the collection point at the end of the block (the
@@ -2113,12 +2113,12 @@ impl<'a> LlvmEmitter<'a> {
     /// [`Self::attach_deopt`]; `sabotageable` says whether the value of the
     /// `bruto_no_mapa` sabotage (defined after the prologue) already exists here.
     fn attach_deopt_with(&mut self, start: usize, live_set: &[ValueId], sabotageable: bool) {
-        let mut operands: Vec<String> = if crate::alvo::sabotage("sem_uso_ficticio") {
+        let mut operands: Vec<String> = if crate::target::sabotage("sem_uso_ficticio") {
             Vec::new()
         } else {
             live_set.iter().map(|x| format!("i64 %v{}", x.0)).collect()
         };
-        if sabotageable && crate::alvo::sabotage("bruto_no_mapa") {
+        if sabotageable && crate::target::sabotage("bruto_no_mapa") {
             operands.push("i64 %dfsabv".to_string());
         }
         let beam = format!("\"deopt\"({})", operands.join(", "));
@@ -2275,7 +2275,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// ABI tag (bits, tag) of a value by its representation (E1).
-    fn tag_de(&self, op: &Operand) -> u8 {
+    fn tag_of(&self, op: &Operand) -> u8 {
         match self.type_of(op) {
             Type::I64 => 1,
             Type::I1 | Type::I8 => 2,
@@ -2297,11 +2297,11 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::AllocClosureTyped { code_symbol, env, typed, abi, direct } => {
                 self.emit_alloc_typed_closure(v, code_symbol, env, typed, *abi, *direct);
             }
-            Instruction::TypedCall { alvo, args, ret } => {
+            Instruction::TypedCall { target, args, ret } => {
                 // The call is the same in both regimes; the predicate only checks
                 // the certificate when the bodies were prepared.
                 self.arc_uniform_abi();
-                let a = self.coerce(alvo, Type::I64);
+                let a = self.coerce(target, Type::I64);
                 let mut parts = Vec::with_capacity(args.len());
                 for (x, t) in args {
                     let s = self.coerce(x, *t);
@@ -2698,7 +2698,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_entry(&mut self) {
-        if self.module.excecoes_por_tabelas {
+        if self.module.table_exceptions {
             self.emit_ports();
         }
         if self.module.sdk_mode {
@@ -2751,7 +2751,7 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "  call void @df.register.program()").unwrap();
             // RTI and the event loop, as in the usual entry (below).
             if let Some(start) = &self.module.start_rti {
-                writeln!(self.out, "  {}", entry_call(self.module.excecoes_por_tabelas, start, &[])).unwrap();
+                writeln!(self.out, "  {}", entry_call(self.module.table_exceptions, start, &[])).unwrap();
             }
             // What the VM's embedder prepares before `main` (the script of
             // `dart:io`, `Uri.base`), already with the libraries registered.
@@ -2796,7 +2796,7 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             // Exceptions by tables: the ports through which the runtime calls
             // Dart code, delivered before any Dart code runs.
-            if self.module.excecoes_por_tabelas {
+            if self.module.table_exceptions {
                 writeln!(self.out, "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})").unwrap();
             }
             let call = self.module.call_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
@@ -2829,7 +2829,7 @@ impl<'a> LlvmEmitter<'a> {
         self.start_arc();
         // Exceptions by tables: the ports through which the runtime calls
         // Dart code, delivered before any Dart code runs.
-        if self.module.excecoes_por_tabelas {
+        if self.module.table_exceptions {
             writeln!(self.out, "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})").unwrap();
         }
         // Registra classes
@@ -2861,7 +2861,7 @@ impl<'a> LlvmEmitter<'a> {
 
         // RTI: the type universe (cited classes and supertype rules).
         if let Some(start) = &self.module.start_rti {
-            writeln!(self.out, "  {}", entry_call(self.module.excecoes_por_tabelas, start, &[])).unwrap();
+            writeln!(self.out, "  {}", entry_call(self.module.table_exceptions, start, &[])).unwrap();
         }
         self.call_main();
         // P6: microtasks and timers after `main` (runtime, `events.rs`).
@@ -2942,7 +2942,7 @@ impl<'a> LlvmEmitter<'a> {
     fn composite_native_call(
         &mut self,
         v: u32,
-        alvo: &Operand,
+        target: &Operand,
         args: &[(Operand, NativeType)],
         ret: &NativeType,
         dest: Option<&Operand>,
@@ -2951,7 +2951,7 @@ impl<'a> LlvmEmitter<'a> {
         use c_abi::{ArgPassing, RetPassing};
         let conv = c_abi::Convention::of_target();
         let mut regs = c_abi::Registers::new_set();
-        let a = self.coerce(alvo, Type::I64);
+        let a = self.coerce(target, Type::I64);
         writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
         writeln!(self.out, "  %pilha{v} = call ptr @llvm.stacksave.p0()").unwrap();
         // Return first: an `sret` takes the first integer register.
@@ -3168,7 +3168,7 @@ impl<'a> LlvmEmitter<'a> {
             // Exceptions by tables: the entry lands the unwinding of the body
             // (below) — C code is not crossed. The
             // `callback_sem_pouso` sabotage (D9 of §7.3) removes the landing pad.
-            let by_tables = self.module.excecoes_por_tabelas && !crate::alvo::sabotage("callback_sem_pouso");
+            let by_tables = self.module.table_exceptions && !crate::target::sabotage("callback_sem_pouso");
             let personality = if by_tables { " personality ptr @dartforge_personality" } else { "" };
             writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentry.{i}({}){personality} {{", decls.join(", "))
                 .unwrap();
@@ -3348,7 +3348,7 @@ impl<'a> LlvmEmitter<'a> {
 
     fn call_main(&mut self) {
         let Some(entry) = self.module.entry_symbol.clone() else { return };
-        let by_tables = self.module.excecoes_por_tabelas;
+        let by_tables = self.module.table_exceptions;
         let n = self.module.entry_params.min(2);
         if n == 0 {
             writeln!(self.out, "  {}", entry_call(by_tables, &entry, &[])).unwrap();
@@ -3477,7 +3477,7 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_stack_check(&mut self, func: &Function) {
         let by_tables = self.tab.is_some();
         let o = &mut self.out;
-        writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::LIMITE_DA_PILHA).unwrap();
+        writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::STACK_LIMIT).unwrap();
         writeln!(o, "  %pilhal = load ptr, ptr %pilhalp, align 8").unwrap();
         writeln!(o, "  %pilhab = icmp ult ptr %pilhaq, %pilhal").unwrap();
         writeln!(o, "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)").unwrap();
@@ -3516,7 +3516,7 @@ impl<'a> LlvmEmitter<'a> {
     /// `h - 2`; anything else — null, a `Smi`, a runtime value — uses
     /// `EMPTY_OBJECT` (the pointer in `Context::empties`, offset 40 of the
     /// context), zeroed fields, as `dartforge_object_fields` gave. With the
-    /// `FORA` bit in the `flags`, the body is the address kept in the first
+    /// `OUT_OF_LINE` bit in the `flags`, the body is the address kept in the first
     /// field (the object that changed its number of fields): a select, without a
     /// branch. No call.
     /// The operand is an object freshly allocated in this block, without a collection
@@ -3539,7 +3539,7 @@ impl<'a> LlvmEmitter<'a> {
             return self.emit_field_addresses(v, only);
         }
         let o = &mut self.out;
-        writeln!(o, "  %fxa{v} = add i64 {only}, -{}", layout::DESLOCAMENTO_DO_HANDLE).unwrap();
+        writeln!(o, "  %fxa{v} = add i64 {only}, -{}", layout::HANDLE_OFFSET).unwrap();
         writeln!(o, "  %fcb{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
         writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
     }
@@ -3646,26 +3646,26 @@ impl<'a> LlvmEmitter<'a> {
         }
         // The TLAB is by words of the body: `n ≤ TLAB_N` fields take
         // `max(n, 1)` words (no map extension).
-        let w = layout::palavras_de_instancia(n as usize);
-        let size = layout::bytes_do_bloco(w);
+        let w = layout::instance_words(n as usize);
+        let size = layout::block_bytes(w);
         if self.out_of_line_allocation {
             // Production of the large program: the same computation, in a call to
             // `@df.new_instance` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
-            let header = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
+            let header = layout::header_word(layout::state::YOUNG, layout::flags::INSTANCE, n as usize, c as i32);
             let t = table.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
             writeln!(
                 self.out,
                 "  %v{v} = call i64 @df.new_instance(ptr %ctx, i64 {}, i64 {size}, i64 {}, i64 {c}, i64 {n}, ptr {t})",
-                layout::contexto::tlab_cursor(w),
+                layout::context::tlab_cursor(w),
                 header as i64
             )
             .unwrap();
             return;
         }
         let o = &mut self.out;
-        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::tlab_cursor(w)).unwrap();
+        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::tlab_cursor(w)).unwrap();
         writeln!(o, "  %tb{v} = load ptr, ptr %ta{v}, align 8").unwrap();
-        writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::tlab_fim(w)).unwrap();
+        writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::tlab_end(w)).unwrap();
         writeln!(o, "  %tf{v} = load ptr, ptr %tfa{v}, align 8").unwrap();
         writeln!(o, "  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {size}").unwrap();
         writeln!(o, "  %tz{v} = icmp ugt ptr %tnx{v}, %tf{v}").unwrap();
@@ -3692,7 +3692,7 @@ impl<'a> LlvmEmitter<'a> {
         // the fields zeroed and the next of the list in the first field: the
         // cursor is advanced, the first field is zeroed and the header
         // word is written (young state, no flags, `n`, the class).
-        let header = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
+        let header = layout::header_word(layout::state::YOUNG, layout::flags::INSTANCE, n as usize, c as i32);
         writeln!(o, "ao{v}.rapido:").unwrap();
         writeln!(o, "  store ptr %tnx{v}, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 16").unwrap();
@@ -3891,8 +3891,8 @@ impl<'a> LlvmEmitter<'a> {
             return false;
         }
         let Instruction::CallStatic { symbol, args, .. } = inst else { return false };
-        let alvo = self.function_by_symbol.get(symbol.as_str()).copied();
-        if alvo.is_none() && !symbol.starts_with("df.dart$3a") {
+        let target = self.function_by_symbol.get(symbol.as_str()).copied();
+        if target.is_none() && !symbol.starts_with("df.dart$3a") {
             return false;
         }
         args.iter().enumerate().all(|(i, a)| {
@@ -3900,7 +3900,7 @@ impl<'a> LlvmEmitter<'a> {
                 return false;
             }
             let t = self.type_of(a);
-            match alvo.and_then(|f| f.params.get(i)).map(|p| p.2) {
+            match target.and_then(|f| f.params.get(i)).map(|p| p.2) {
                 Some(p) => p == t || (p != Type::Ref && t != Type::Ref && p != Type::Void),
                 None => true,
             }
@@ -3937,9 +3937,9 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Rewrites a constant directly in the requested type, without an instruction.
     /// Returns None when the operand is not a constant.
-    fn constant_in_type(&self, op: &Operand, alvo: Type) -> Option<String> {
+    fn constant_in_type(&self, op: &Operand, target: Type) -> Option<String> {
         let Operand::Constant(c) = op else { return None };
-        let s = match (c, alvo) {
+        let s = match (c, target) {
             (Constant::String(_) | Constant::StringWtf8(_), _) => panic!("string must be loaded via Instruction::Const"),
             (Constant::Function(f), Type::I64) => format!("ptrtoint (ptr @{f} to i64)"),
             (Constant::Function(_), _) => panic!("function address only as i64"),
@@ -3972,25 +3972,25 @@ impl<'a> LlvmEmitter<'a> {
     /// numeric conversion, so a double occupying an i64 slot can only be the
     /// bit pattern — that is how Const(Double) is emitted and how doubles
     /// cross the runtime.
-    fn coerce(&mut self, op: &Operand, alvo: Type) -> String {
-        if alvo == Type::Void {
+    fn coerce(&mut self, op: &Operand, target: Type) -> String {
+        if target == Type::Void {
             return self.operand_str(op);
         }
-        if let Some(s) = self.constant_in_type(op, alvo) {
+        if let Some(s) = self.constant_in_type(op, target) {
             return s;
         }
         let mut current = self.type_of(op);
         let mut text = self.operand_str(op);
-        if current.llvm_ir() == alvo.llvm_ir() && (current == Type::F64) == (alvo == Type::F64) {
+        if current.llvm_ir() == target.llvm_ir() && (current == Type::F64) == (target == Type::F64) {
             return text;
         }
         // double becomes i64 (and vice versa) always through the bits; smaller widths
         // go through i64 first because bitcast requires the same size.
-        if current == Type::F64 && alvo != Type::F64 {
+        if current == Type::F64 && target != Type::F64 {
             text = self.emit_conversion("bitcast", Type::F64, &text, Type::I64);
             current = Type::I64;
         }
-        if alvo == Type::F64 {
+        if target == Type::F64 {
             if current != Type::I64 && current != Type::Ref {
                 text = self.emit_conversion("zext", current, &text, Type::I64);
                 current = Type::I64;
@@ -4000,10 +4000,10 @@ impl<'a> LlvmEmitter<'a> {
             }
             return text;
         }
-        if Self::width(current) < Self::width(alvo) {
-            self.emit_conversion("zext", current, &text, alvo)
-        } else if Self::width(current) > Self::width(alvo) {
-            self.emit_conversion("trunc", current, &text, alvo)
+        if Self::width(current) < Self::width(target) {
+            self.emit_conversion("zext", current, &text, target)
+        } else if Self::width(current) > Self::width(target) {
+            self.emit_conversion("trunc", current, &text, target)
         } else {
             text
         }
@@ -4011,8 +4011,8 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Same conversion, but writing into a name chosen by the caller
     /// (used by the phi entries, which need a stable name).
-    fn emit_named_conversion(&mut self, name_str: &str, de: Type, origin: &str, to_repr: Type) {
-        let mut current = de;
+    fn emit_named_conversion(&mut self, name_str: &str, of: Type, origin: &str, to_repr: Type) {
+        let mut current = of;
         let mut text = origin.to_string();
         if current == Type::F64 && to_repr != Type::F64 && Self::width(to_repr) != 64 {
             text = self.emit_conversion("bitcast", Type::F64, &text, Type::I64);
@@ -4032,10 +4032,10 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "  {name_str} = {op} {} {text} to {}", current.llvm_ir(), to_repr.llvm_ir()).unwrap();
     }
 
-    fn emit_conversion(&mut self, op: &str, de: Type, text: &str, to_repr: Type) -> String {
+    fn emit_conversion(&mut self, op: &str, of: Type, text: &str, to_repr: Type) -> String {
         let c = self.next_coercion;
         self.next_coercion += 1;
-        writeln!(self.out, "  %c{c} = {op} {} {text} to {}", de.llvm_ir(), to_repr.llvm_ir()).unwrap();
+        writeln!(self.out, "  %c{c} = {op} {} {text} to {}", of.llvm_ir(), to_repr.llvm_ir()).unwrap();
         format!("%c{c}")
     }
 
@@ -4098,7 +4098,7 @@ fn collecting_call(line: &str) -> bool {
         None => false,
         Some(None) => true,
         Some(Some(name_str)) => {
-            if name_str.starts_with("llvm.") || MAP_LEAVES.contains(&name_str) || crate::alvo::sabotaged_leaf(name_str) {
+            if name_str.starts_with("llvm.") || MAP_LEAVES.contains(&name_str) || crate::target::sabotaged_leaf(name_str) {
                 return false;
             }
             let ef = externs::effects_of(name_str);
@@ -4164,9 +4164,9 @@ fn leaf_helpers(text: &str) -> String {
     const LEAVES: &[&str] = &["@df.body(", "@df.barrier(", "@df.element_barrier(", "@df.is_object(", "@df.young_child("];
     let mut exit = String::with_capacity(text.len() + 256);
     for line in text.split_inclusive('\n') {
-        let alvo = line.starts_with("define internal ") && LEAVES.iter().any(|f| line.contains(f));
+        let target = line.starts_with("define internal ") && LEAVES.iter().any(|f| line.contains(f));
         match line.rfind(" {") {
-            Some(i) if alvo => {
+            Some(i) if target => {
                 exit.push_str(&line[..i]);
                 exit.push_str(" \"gc-leaf-function\"");
                 exit.push_str(&line[i..]);
@@ -4179,7 +4179,7 @@ fn leaf_helpers(text: &str) -> String {
 
 /// How many Rust → Dart ports the program module defines
 /// ([`LlvmEmitter::emit_ports`]): arities 0 to 7, without and with a value. The
-/// runtime has the same number (`PORTAS_DART`, `exceptions_tables.rs`).
+/// runtime has the same number (`DART_PORTS`, `exceptions_tables.rs`).
 const N_PORTS: usize = 16;
 
 /// What every module declares with exceptions by tables
@@ -4320,14 +4320,14 @@ lenta:\n\
 ///
 /// With the source SDK, `null` and the `Smi` also come out without the runtime: their
 /// classes (`Null`, `_Smi`) are those of the `cids` table of the module
-/// (`sdk_modulo::runtime_cids`, the one the runtime receives at startup).
+/// (`sdk_module::runtime_cids`, the one the runtime receives at startup).
 fn value_class(cids: &[i64]) -> String {
     let text = VALUE_CLASS
         .replace("@@MASCARA@@", &OBJECT_MASK.to_string())
-        .replace("@@CLASSE@@", &(layout::desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE).to_string())
-        .replace("@@SUBTIPOS@@", &layout::contexto::SUBTIPOS.to_string())
-        .replace("@@N_SUBTIPOS@@", &layout::contexto::N_SUBTIPOS.to_string())
-        .replace("@@LARGURA@@", &layout::contexto::LARGURA_SUBTIPOS.to_string());
+        .replace("@@CLASSE@@", &(layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET).to_string())
+        .replace("@@SUBTIPOS@@", &layout::context::SUBTYPES.to_string())
+        .replace("@@N_SUBTIPOS@@", &layout::context::N_SUBTYPES.to_string())
+        .replace("@@LARGURA@@", &layout::context::SUBTYPES_WIDTH.to_string());
     // Without the source SDK (the legacy path), `null` and the `Smi` go to the runtime.
     if !matches!(cids, [n, s, ..] if *n >= 0 && *s >= 0) {
         return text.replace("@@RAPIDOS@@", "");
@@ -4506,9 +4506,9 @@ fn out_of_line(text: &str, names: &[String]) -> String {
     }
     let mut exit = String::with_capacity(text.len());
     for line in text.split_inclusive('\n') {
-        let alvo = line.starts_with("define internal ")
+        let target = line.starts_with("define internal ")
             && names.iter().any(|n| line.contains(&format!("@df.{n}(")));
-        if alvo {
+        if target {
             exit.push_str(&line.replacen(" alwaysinline", " noinline", 1));
         } else {
             exit.push_str(line);
@@ -4525,7 +4525,7 @@ fn out_of_line(text: &str, names: &[String]) -> String {
 /// * `@df.barrier(o, v)`: old `o` receiving a young child → `dartforge_remember`
 ///   (weight 1:9 on the slow branch, like Julia's barrier);
 /// * `@df.element_barrier(o, i, v)`: the same with cards (`o` old or
-///   remembered with `CARTOES`: dirties the card of element `i`);
+///   remembered with `CARDS`: dirties the card of element `i`);
 /// * `@df.allocate(header, w)`: the TLAB of `w ≤ TLAB_N` words (the cursor
 ///   advances `16 + 8w` and writes word 0); exhausted or a larger `w`,
 ///   `dartforge_allocate(cid, w, header >> 8)`.
@@ -4572,8 +4572,8 @@ fn body_helper(per_call: bool, production: bool) -> String {
 }
 
 fn space_helpers() -> String {
-    use layout::{contexto, desl, estado, flags};
-    let d = |x: usize| x as i64 - layout::DESLOCAMENTO_DO_HANDLE;
+    use layout::{context, offsets, state, flags};
+    let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;
     format!(
         "define internal i1 @df.is_object(i64 %h) alwaysinline {{\n\
   %m = and i64 %h, {mask}\n\
@@ -4688,19 +4688,19 @@ lento:\n\
   ret i64 %r\n\
 }}\n",
         mask = OBJECT_MASK,
-        state_h = d(desl::ESTADO),
-        flags_h = d(desl::FLAGS),
-        length_h = d(desl::COMPRIMENTO),
-        elements_h = d(desl::ELEMENTOS),
-        young = estado::JOVEM,
-        old_one = estado::VELHO,
-        cards = flags::CARTOES,
-        log_word = layout::ELEMENTOS_POR_PALAVRA_DE_CARTAO.trailing_zeros(),
-        log_card = layout::ELEMENTOS_POR_CARTAO.trailing_zeros(),
+        state_h = d(offsets::STATE),
+        flags_h = d(offsets::FLAGS),
+        length_h = d(offsets::LENGTH),
+        elements_h = d(offsets::ELEMENTS),
+        young = state::YOUNG,
+        old_one = state::OLD,
+        cards = flags::CARDS,
+        log_word = layout::ELEMENTS_PER_CARD_WORD.trailing_zeros(),
+        log_card = layout::ELEMENTS_PER_CARD.trailing_zeros(),
         tlab_n = layout::TLAB_N,
-        tlab = contexto::TLAB,
-        header = layout::TAMANHO_DO_CABECALHO,
-        offset = layout::DESLOCAMENTO_DO_HANDLE,
+        tlab = context::TLAB,
+        header = layout::HEADER_SIZE,
+        offset = layout::HANDLE_OFFSET,
     )
 }
 

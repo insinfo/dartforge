@@ -395,11 +395,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// representation of the parameter. It is the check the VM does at the entry
     /// of the method; here the call is direct, so it goes at the call
     /// site, per implementation.
-    pub(super) fn check_target_covariants(&mut self, alvo: usize, recv: &Operand, evaluated: &[Evaluated]) {
-        if !super::user_function(self.ctx, alvo) {
+    pub(super) fn check_target_covariants(&mut self, target: usize, recv: &Operand, evaluated: &[Evaluated]) {
+        if !super::user_function(self.ctx, target) {
             return;
         }
-        let Some(o) = self.ctx.outline.functions.get(alvo) else { return };
+        let Some(o) = self.ctx.outline.functions.get(target) else { return };
         if !o.type_params.is_empty() {
             return;
         }
@@ -412,7 +412,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 positionals.next()
             };
             let Some(v) = v else { continue };
-            if top(self.ctx, p.ty) || !covariant_parameter(self.ctx, alvo, i) || self.is_terminated() {
+            if top(self.ctx, p.ty) || !covariant_parameter(self.ctx, target, i) || self.is_terminated() {
                 continue;
             }
             // An unboxed scalar in the representation of the parameter already belongs to it.
@@ -423,7 +423,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let r = self.coerce(recv.clone(), Type::Ref);
             let saved = (
                 self.this_param.replace(r),
-                std::mem::replace(&mut self.enclosing_class, self.ctx.program.functions[alvo].class),
+                std::mem::replace(&mut self.enclosing_class, self.ctx.program.functions[target].class),
                 std::mem::replace(&mut self.class_by_tuple, false),
                 self.type_tuple.take(),
             );

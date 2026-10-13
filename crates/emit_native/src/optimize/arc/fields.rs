@@ -378,7 +378,7 @@ pub(super) fn prepare(
                     let o = origin(&args[0].0, &origins);
                     !o.unknown && !o.sites.is_empty() && o.sites.iter().all(|s|
                         i32::try_from(classes[s]).ok().is_some_and(|cid|
-                            !dartforge_runtime::layout::cid::e_lista(cid)))
+                            !dartforge_runtime::layout::cid::is_list(cid)))
                 };
                 if !safe && !safe_field && !define_instance {
                     // A native bits setter does not certify the logical
@@ -450,7 +450,7 @@ pub(super) fn prepare(
                     if classes.contains_key(v) && !parameters.contains(v) {
                         fresh_set.insert(*v);
                     } else if let Instruction::ArcCopy { value } | Instruction::ArcMove { value } = inst
-                        && matches!(value, Operand::Val(de) if fresh_set.contains(de)) {
+                        && matches!(value, Operand::Val(of) if fresh_set.contains(of)) {
                         fresh_set.insert(*v);
                     }
                     invalid_set.extend(exposures[v].intersection(&parameters).copied());

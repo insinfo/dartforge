@@ -21,11 +21,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         sections: &[ExprId],
         null_aware: bool,
     ) -> Operand {
-        let alvo = self.lower_expr(ast, target);
-        let saved = self.current_cascade_target.replace(alvo.clone());
-        if null_aware && self.operand_type(&alvo) == Type::Ref {
+        let target = self.lower_expr(ast, target);
+        let saved = self.current_cascade_target.replace(target.clone());
+        if null_aware && self.operand_type(&target) == Type::Ref {
             let null = self.emit(
-                Instruction::ICmp(ICmpOp::Eq, alvo.clone(), Operand::Constant(Constant::Int(0))),
+                Instruction::ICmp(ICmpOp::Eq, target.clone(), Operand::Constant(Constant::Int(0))),
                 Type::I1,
             );
             let b_sections = self.new_block();
@@ -47,6 +47,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         self.current_cascade_target = saved;
-        alvo
+        target
     }
 }

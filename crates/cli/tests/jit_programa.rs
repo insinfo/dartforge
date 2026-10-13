@@ -9,7 +9,7 @@ use std::process::Command;
 #[ignore = "compiles the source-built SDK DLL; run in the sdk-fonte job of the Pesado workflow"]
 fn script_and_spawn_uri_in_the_jit() {
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jit_script.dart");
-    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("source-built SDK DLL");
+    let dll = dartforge_emit_native::sdk_module::source_sdk_dll().expect("source-built SDK DLL");
     let output = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("run")
         .arg(&fixture)

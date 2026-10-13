@@ -30,8 +30,8 @@
 //! (the dozens of parts of a large program) was not measured.
 
 use crate::object_cache::{self, ObjectCache};
-use crate::gerador::Cpu;
-use crate::ligador_windows as lw;
+use crate::generator::Cpu;
+use crate::linker_windows as lw;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -114,9 +114,9 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
     // 1. The indices: the whole link, only up to symbol resolution.
     // `lld-link` (Windows) and `ld.lld` (Linux) accept the mode; `ld64.lld`
     // does not (on macOS production with maps uses the linker's LTO with the
-    // maps pass, `ligador_macos.rs`).
-    let (fictitious_exit, mut statement) = match crate::alvo::sistema() {
-        crate::alvo::Sistema::Windows => {
+    // maps pass, `linker_macos.rs`).
+    let (fictitious_exit, mut statement) = match crate::target::target_os() {
+        crate::target::Os::Windows => {
             let sysroot = lw::SysrootWindows::locate(p.clang)?;
             let lld = lw::lld_link(p.clang);
             let fictitious_exit = p.staging.join("indice-thinlto.exe");
@@ -137,15 +137,15 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             c.args(&args);
             (fictitious_exit, c)
         }
-        crate::alvo::Sistema::Linux => {
-            let sysroot = crate::ligador::SysrootLinux::locate(p.clang)?;
-            let ld = crate::ligador::ld_lld(p.clang);
+        crate::target::Os::Linux => {
+            let sysroot = crate::linker::SysrootLinux::locate(p.clang)?;
+            let ld = crate::linker::ld_lld(p.clang);
             let fictitious_exit = p.staging.join("indice-thinlto");
-            let mut c = crate::ligador::statement(
+            let mut c = crate::linker::statement(
                 &ld,
                 sysroot,
-                &crate::ligador::Linkage {
-                    product: crate::ligador::Product::Executable,
+                &crate::linker::Linkage {
+                    product: crate::linker::Product::Executable,
                     entries: p.entries.to_vec(),
                     origin_rpath: false,
                     lto: true,
@@ -158,7 +158,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             c.arg("--thinlto-index-only");
             (fictitious_exit, c)
         }
-        crate::alvo::Sistema::MacOs => {
+        crate::target::Os::MacOs => {
             return Err("distributed ThinLTO does not exist on macOS (ld64.lld does not split the indices)".to_string());
         }
     };
@@ -167,7 +167,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         return Err(failure_of("the linker (ThinLTO indices)", &exit));
     }
     // 2 and 3. The ThinLTO backend of each bitcode and the closing with the maps.
-    let identity = format!("{}|{}", dartforge_llvm::identidade()?, object_cache::clang_identity(p.clang)?);
+    let identity = format!("{}|{}", dartforge_llvm::identity()?, object_cache::clang_identity(p.clang)?);
     let level = format!("-O{}", crate::driver::lto_level());
     let cpu_description = p.cpu.map_or(String::new(), Cpu::description);
     let convert_map = crate::gcmap::convert_here();
@@ -203,7 +203,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         let bitcode = std::fs::read(&pos).map_err(|e| format!("{}: {e}", pos.display()))?;
         let name = format!("parte{i}");
         let close = |dest: &Path| -> Result<(), String> {
-            let (mut object, with_maps) = dartforge_llvm::gerar_de_bitcode(&name, &bitcode, p.cpu.map(Cpu::name))?;
+            let (mut object, with_maps) = dartforge_llvm::generate_from_bitcode(&name, &bitcode, p.cpu.map(Cpu::name))?;
             if with_maps && convert_map {
                 crate::gcmap::convert(&mut object)?;
             }
@@ -222,7 +222,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
                 c.get_or_create(key, close).map(|(o, _)| o)
             }
             None => {
-                let o = p.staging.join(format!("parte{i}.{}", crate::alvo::ext_object()));
+                let o = p.staging.join(format!("parte{i}.{}", crate::target::ext_object()));
                 close(&o).map(|()| o)
             }
         };

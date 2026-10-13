@@ -2,8 +2,8 @@
 // and the `String` externs of the "by name" lowering.
 //
 // Strings are `_OneByteString`/`_TwoByteString` blocks of the object space
-// (`textos.rs`, docs/NATIVO-ESPACO-UNIFICADO.md §2.5): read through the view
-// (`Heap::text`, a `TextoRef` borrowed from the block, without copying) and
+// (`text.rs`, docs/NATIVO-ESPACO-UNIFICADO.md §2.5): read through the view
+// (`Heap::text`, a `TextRef` borrowed from the block, without copying) and
 // created in one allocation in canonical form. Every index, length and search
 // here is in code units, as in `dart:core`; nothing goes through a Rust `String`
 // (which would lose lone surrogates).
@@ -15,8 +15,8 @@
 
 /// Allocates a string with the units of `t` (canonical form). The caller roots
 /// the result.
-fn allocate_string(t: Texto) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(t.vista()))
+fn allocate_string(t: Text) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(t.view()))
 }
 
 /// Allocates a string from text the runtime formatted (valid UTF-8).
@@ -27,7 +27,7 @@ fn allocate_str(s: &str) -> i64 {
 /// Borrows the view of string `handle`, without copying. `f` must not allocate on
 /// the heap (the borrow is open); whoever allocates the result does so afterwards.
 /// A value that is not a string is a compiler bug (N4).
-fn with_string<R>(handle: i64, f: impl FnOnce(crate::textos::TextoRef<'_>) -> R) -> R {
+fn with_string<R>(handle: i64, f: impl FnOnce(crate::text::TextRef<'_>) -> R) -> R {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.text(handle) {
@@ -39,12 +39,12 @@ fn with_string<R>(handle: i64, f: impl FnOnce(crate::textos::TextoRef<'_>) -> R)
 
 /// The construction copy of a string's units (for the algorithms that allocate in
 /// the middle). Not a string: `None`.
-fn string_copy(handle: i64) -> Option<Texto> {
-    HEAP.with(|heap| heap.borrow().text(handle).map(crate::textos::TextoRef::to_string_fn))
+fn string_copy(handle: i64) -> Option<Text> {
+    HEAP.with(|heap| heap.borrow().text(handle).map(crate::text::TextRef::to_string_fn))
 }
 
 /// The copy of a string; a value that is not a string is a compiler bug (N4).
-fn copied_string(handle: i64) -> Texto {
+fn copied_string(handle: i64) -> Text {
     with_string(handle, |t| t.to_string_fn())
 }
 
@@ -106,8 +106,8 @@ pub unsafe extern "C" fn dartforge_string_new(ptr: *const u8, len: i64) -> i64 {
     if let Some(h) = found_item {
         return h;
     }
-    let t = Texto::de_wtf8(bytes);
-    let h = HEAP.with(|heap| heap.borrow_mut().string_literal(t.vista()));
+    let t = Text::from_wtf8(bytes);
+    let h = HEAP.with(|heap| heap.borrow_mut().string_literal(t.view()));
     LITERALS_BY_ADDRESS.with(|m| m.borrow_mut().insert(key, (bytes.into(), h)));
     h
 }
@@ -210,9 +210,9 @@ unsafe fn join_typed(part_list: *const i64, n: i64, owned: bool) -> i64 {
         let mut heap = heap.borrow_mut();
         let frame = owned.then(|| {
             assert!(part_list.chunks_exact(2).all(|p| matches!(p[0], 0 | 1)), "invalid part kind");
-            let textos: Vec<i64> = part_list.chunks_exact(2).filter(|p| p[0] == 0).map(|p| p[1]).collect();
-            let frame = heap.push_owning_frame(textos.len());
-            for (k, &t) in textos.iter().enumerate() { heap.set_root(frame, k, t); }
+            let text: Vec<i64> = part_list.chunks_exact(2).filter(|p| p[0] == 0).map(|p| p[1]).collect();
+            let frame = heap.push_owning_frame(text.len());
+            for (k, &t) in text.iter().enumerate() { heap.set_root(frame, k, t); }
             frame
         });
         let mut buf = [0u8; 20];
@@ -231,10 +231,10 @@ unsafe fn join_typed(part_list: *const i64, n: i64, owned: bool) -> i64 {
         for p in part_list.chunks_exact(2) {
             if p[0] == 1 {
                 let i = write_decimal(&mut buf, p[1]);
-                heap.write_string(r, pos, crate::textos::TextoRef::Um(&buf[i..]));
+                heap.write_string(r, pos, crate::text::TextRef::OneByte(&buf[i..]));
                 pos += buf.len() - i;
             } else {
-                let k = heap.text(p[1]).map_or(0, crate::textos::TextoRef::len);
+                let k = heap.text(p[1]).map_or(0, crate::text::TextRef::len);
                 heap.copy_string(r, pos, p[1], 0, k);
                 pos += k;
             }
@@ -268,7 +268,7 @@ fn int_list(value_list: Vec<i64>) -> i64 {
 
 /// The search pattern: a string or a `RegExp` (the compiled program, cid 16).
 enum Pattern {
-    Texto(Texto),
+    Text(Text),
     RegExp(i64),
 }
 
@@ -276,7 +276,7 @@ fn pattern_of(handle: i64) -> Option<Pattern> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         if let Some(t) = heap.text(handle) {
-            return Some(Pattern::Texto(t.to_string_fn()));
+            return Some(Pattern::Text(t.to_string_fn()));
         }
         (crate::layout::is_object(handle) && heap.class(handle) == crate::layout::cid::REGEXP_PROGRAM)
             .then_some(Pattern::RegExp(handle))
@@ -284,11 +284,11 @@ fn pattern_of(handle: i64) -> Option<Pattern> {
 }
 
 /// Next occurrence of the pattern from `since`: (start, length).
-fn next_item(target: &Texto, pattern: &Pattern, since: usize) -> Option<(usize, usize)> {
+fn next_item(target: &Text, pattern: &Pattern, since: usize) -> Option<(usize, usize)> {
     match pattern {
-        Pattern::Texto(p) => target.search_for(p, since).map(|i| (i, p.len())),
+        Pattern::Text(p) => target.search_for(p, since).map(|i| (i, p.len())),
         Pattern::RegExp(p) => {
-            let caps = regexp_match_at(*p, &target.para_vec(), since, false)?;
+            let caps = regexp_match_at(*p, &target.to_vec(), since, false)?;
             Some((caps[0] as usize, (caps[1] - caps[0]) as usize))
         }
     }
@@ -308,7 +308,7 @@ pub extern "C" fn dartforge_string_index_of(handle: i64, pat_handle: i64, start:
 
 /// A part of a list of pieces: the `bool` before the text (the match mark of
 /// `splitMapJoin`) and the text.
-type Chunk = (Option<bool>, Texto);
+type Chunk = (Option<bool>, Text);
 
 /// A growable list with the pieces, in order, allocating each one with the list
 /// already rooted (G6: a collection in the middle sees the previous pieces through
@@ -322,7 +322,7 @@ fn chunk_list(items: Vec<Chunk>) -> i64 {
                 if let Some(b) = before {
                     h.list_push(list, crate::heap::Value::Bool(b));
                 }
-                let x = h.allocate_string(text.vista());
+                let x = h.allocate_string(text.view());
                 h.list_push(list, crate::heap::Value::Ref(x));
             });
         }
@@ -334,7 +334,7 @@ fn chunk_list(items: Vec<Chunk>) -> i64 {
 /// after an empty match the search restarts one unit ahead
 /// (`_StringAllMatchesIterator.moveNext`, "Empty match, don't start at same
 /// location again"). An empty string pattern matches at `0..=length`.
-fn occurrences(target: &Texto, pattern: &Pattern) -> Vec<(usize, usize)> {
+fn occurrences(target: &Text, pattern: &Pattern) -> Vec<(usize, usize)> {
     let mut v = Vec::new();
     let mut i = 0;
     while i <= target.len() {
@@ -346,7 +346,7 @@ fn occurrences(target: &Texto, pattern: &Pattern) -> Vec<(usize, usize)> {
 }
 
 fn empty_pattern(p: &Pattern) -> bool {
-    matches!(p, Pattern::Texto(t) if t.is_empty())
+    matches!(p, Pattern::Text(t) if t.is_empty())
 }
 
 /// `_StringBase`'s `padLeft`/`padRight`: `delta = width - length`; with nothing to
@@ -354,7 +354,7 @@ fn empty_pattern(p: &Pattern) -> bool {
 /// (it is not cut).
 fn fill(handle: i64, width: i64, pad_handle: i64, left: bool) -> i64 {
     let t = copied_string(handle);
-    let pad = string_copy(pad_handle).unwrap_or_else(|| Texto::de_str(" "));
+    let pad = string_copy(pad_handle).unwrap_or_else(|| Text::from_rust_str(" "));
     let delta = width - t.len() as i64;
     if delta <= 0 || pad.is_empty() {
         return handle;
@@ -380,7 +380,7 @@ fn fill(handle: i64, width: i64, pad_handle: i64, left: bool) -> i64 {
 fn transform(handle: i64, uppercase: bool) -> i64 {
     let new = with_string(handle, |t| {
         // Pure ASCII: the single-pass path, without the Unicode table.
-        if let crate::textos::TextoRef::Um(b) = t
+        if let crate::text::TextRef::OneByte(b) = t
             && b.is_ascii()
         {
             let changes_flag = if uppercase { b.iter().any(u8::is_ascii_lowercase) } else { b.iter().any(u8::is_ascii_uppercase) };
@@ -388,7 +388,7 @@ fn transform(handle: i64, uppercase: bool) -> i64 {
                 return None;
             }
             let v: Vec<u8> = b.iter().map(|c| if uppercase { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
-            return Some(Texto::Um(v));
+            return Some(Text::OneByte(v));
         }
         let mut u = Vec::with_capacity(t.len());
         let mut changed = false;
@@ -402,9 +402,9 @@ fn transform(handle: i64, uppercase: bool) -> i64 {
                 }
             });
             changed |= new != p;
-            crate::textos::push_point(&mut u, new);
+            crate::text::push_point(&mut u, new);
         }
-        changed.then(|| Texto::from_units(u))
+        changed.then(|| Text::from_units(u))
     });
     match new {
         Some(t) => allocate_string(t),
@@ -447,7 +447,7 @@ fn is_dart_whitespace(u: u16) -> bool {
 }
 
 /// The range without Dart whitespace at the requested ends.
-fn trimmed_range(t: crate::textos::TextoRef<'_>, left: bool, right: bool) -> (usize, usize) {
+fn trimmed_range(t: crate::text::TextRef<'_>, left: bool, right: bool) -> (usize, usize) {
     let n = t.len();
     let mut a = 0;
     if left {
@@ -477,7 +477,7 @@ fn trim_free(handle: i64, left: bool, right: bool) -> i64 {
 fn string_to_parse(handle: i64) -> String {
     with_string(handle, |t| {
         let (a, b) = trimmed_range(t, true, true);
-        t.piece(a, b).para_string()
+        t.piece(a, b).to_dart_string()
     })
 }
 
@@ -495,9 +495,9 @@ mod tests_owned_join {
             let frame = HEAP.with(|h| h.borrow_mut().push_owning_frame(2));
             let one = HEAP.with(|h| h.borrow_mut().allocate_str("part without owner"));
             HEAP.with(|h| h.borrow_mut().set_root(frame, 0, one));
-            let dois = allocate_string(Texto::from_units(vec![0xD800, 0x41]));
+            let two = allocate_string(Text::from_units(vec![0xD800, 0x41]));
             HEAP.with(|h| h.borrow_mut().pop_frame(frame));
-            let part_list = [0, one, 1, i64::MIN, 0, dois, 1, 0];
+            let part_list = [0, one, 1, i64::MIN, 0, two, 1, 0];
             let r = unsafe { dartforge_arc_string_join_owned_v1(part_list.as_ptr(), 4) };
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observe_heap_v1(r), 3);

@@ -24,9 +24,9 @@ mod io_windows {
     use std::sync::Arc;
 
     /// A system `HANDLE` or `SOCKET`.
-    pub(super) type Bruto = usize;
+    pub(super) type RawHandle = usize;
     /// `INVALID_HANDLE_VALUE` and `INVALID_SOCKET`.
-    pub(super) const INVALID: Bruto = usize::MAX;
+    pub(super) const INVALID: RawHandle = usize::MAX;
 
     pub(super) const ERROR_BROKEN_PIPE: u32 = 109;
     pub(super) const ERROR_IO_PENDING: u32 = 997;
@@ -107,18 +107,18 @@ mod io_windows {
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn CreateIoCompletionPort(file: Bruto, existing: usize, key: usize, threads: u32) -> usize;
+        fn CreateIoCompletionPort(file: RawHandle, existing: usize, key: usize, threads: u32) -> usize;
         fn GetQueuedCompletionStatus(port: usize, bytes: *mut u32, key: *mut usize, ov: *mut *mut OverlappedOp, wait_entry: u32) -> i32;
         fn PostQueuedCompletionStatus(port: usize, bytes: u32, key: usize, ov: *mut OverlappedOp) -> i32;
-        pub(super) fn CloseHandle(h: Bruto) -> i32;
-        pub(super) fn ReadFile(h: Bruto, b: *mut u8, n: u32, read_list: *mut u32, ov: *mut OverlappedOp) -> i32;
-        pub(super) fn WriteFile(h: Bruto, b: *const u8, n: u32, written: *mut u32, ov: *mut OverlappedOp) -> i32;
-        fn CancelIoEx(h: Bruto, ov: *mut OverlappedOp) -> i32;
+        pub(super) fn CloseHandle(h: RawHandle) -> i32;
+        pub(super) fn ReadFile(h: RawHandle, b: *mut u8, n: u32, read_list: *mut u32, ov: *mut OverlappedOp) -> i32;
+        pub(super) fn WriteFile(h: RawHandle, b: *const u8, n: u32, written: *mut u32, ov: *mut OverlappedOp) -> i32;
+        fn CancelIoEx(h: RawHandle, ov: *mut OverlappedOp) -> i32;
         pub(super) fn GetLastError() -> u32;
-        pub(super) fn GetFileType(h: Bruto) -> u32;
-        fn GetStdHandle(which: u32) -> Bruto;
+        pub(super) fn GetFileType(h: RawHandle) -> u32;
+        fn GetStdHandle(which: u32) -> RawHandle;
         fn ReadDirectoryChangesW(
-            directory: Bruto,
+            directory: RawHandle,
             b: *mut u8,
             n: u32,
             subtree: i32,
@@ -134,30 +134,30 @@ mod io_windows {
         fn WSAStartup(version: u16, data: *mut u8) -> i32;
         pub(super) fn WSAGetLastError() -> i32;
         pub(super) fn WSASetLastError(e: i32);
-        fn WSASocketW(family: i32, tipo: i32, protocol: i32, info: *const c_void, group: u32, flag_bits: u32) -> Bruto;
-        pub(super) fn closesocket(s: Bruto) -> i32;
-        fn shutdown(s: Bruto, como: i32) -> i32;
-        pub(super) fn bind(s: Bruto, e: *const u8, n: i32) -> i32;
-        pub(super) fn listen(s: Bruto, queue: i32) -> i32;
-        pub(super) fn setsockopt(s: Bruto, level: i32, option: i32, v: *const u8, n: i32) -> i32;
-        pub(super) fn getsockopt(s: Bruto, level: i32, option: i32, v: *mut u8, n: *mut i32) -> i32;
-        pub(super) fn getsockname(s: Bruto, e: *mut u8, n: *mut i32) -> i32;
-        pub(super) fn getpeername(s: Bruto, e: *mut u8, n: *mut i32) -> i32;
-        fn WSARecv(s: Bruto, b: *mut BufferWsa, n: u32, received_list: *mut u32, flag_bits: *mut u32, ov: *mut OverlappedOp, routine: usize) -> i32;
-        fn WSASend(s: Bruto, b: *mut BufferWsa, n: u32, sent: *mut u32, flag_bits: u32, ov: *mut OverlappedOp, routine: usize) -> i32;
+        fn WSASocketW(family: i32, ty: i32, protocol: i32, info: *const c_void, group: u32, flag_bits: u32) -> RawHandle;
+        pub(super) fn closesocket(s: RawHandle) -> i32;
+        fn shutdown(s: RawHandle, how: i32) -> i32;
+        pub(super) fn bind(s: RawHandle, e: *const u8, n: i32) -> i32;
+        pub(super) fn listen(s: RawHandle, queue: i32) -> i32;
+        pub(super) fn setsockopt(s: RawHandle, level: i32, option: i32, v: *const u8, n: i32) -> i32;
+        pub(super) fn getsockopt(s: RawHandle, level: i32, option: i32, v: *mut u8, n: *mut i32) -> i32;
+        pub(super) fn getsockname(s: RawHandle, e: *mut u8, n: *mut i32) -> i32;
+        pub(super) fn getpeername(s: RawHandle, e: *mut u8, n: *mut i32) -> i32;
+        fn WSARecv(s: RawHandle, b: *mut BufferWsa, n: u32, received_list: *mut u32, flag_bits: *mut u32, ov: *mut OverlappedOp, routine: usize) -> i32;
+        fn WSASend(s: RawHandle, b: *mut BufferWsa, n: u32, sent: *mut u32, flag_bits: u32, ov: *mut OverlappedOp, routine: usize) -> i32;
         fn WSARecvFrom(
-            s: Bruto,
+            s: RawHandle,
             b: *mut BufferWsa,
             n: u32,
             received_list: *mut u32,
             flag_bits: *mut u32,
-            de: *mut u8,
+            of: *mut u8,
             from_n: *mut i32,
             ov: *mut OverlappedOp,
             routine: usize,
         ) -> i32;
-        fn WSASendTo(s: Bruto, b: *mut BufferWsa, n: u32, sent: *mut u32, flag_bits: u32, to: *const u8, para_n: i32, ov: *mut OverlappedOp, routine: usize) -> i32;
-        fn WSAIoctl(s: Bruto, code: u32, ent: *const c_void, ent_n: u32, sai: *mut c_void, sai_n: u32, bytes: *mut u32, ov: *mut OverlappedOp, routine: usize) -> i32;
+        fn WSASendTo(s: RawHandle, b: *mut BufferWsa, n: u32, sent: *mut u32, flag_bits: u32, to: *const u8, to_len: i32, ov: *mut OverlappedOp, routine: usize) -> i32;
+        fn WSAIoctl(s: RawHandle, code: u32, ent: *const c_void, ent_n: u32, out: *mut c_void, out_len: u32, bytes: *mut u32, ov: *mut OverlappedOp, routine: usize) -> i32;
     }
 
     // -----------------------------------------------------------------------
@@ -175,9 +175,9 @@ mod io_windows {
         });
     }
 
-    type FnAcceptEx = unsafe extern "system" fn(Bruto, Bruto, *mut u8, u32, u32, u32, *mut u32, *mut OverlappedOp) -> i32;
-    type FnConnectEx = unsafe extern "system" fn(Bruto, *const u8, i32, *const u8, u32, *mut u32, *mut OverlappedOp) -> i32;
-    type FnDisconnectEx = unsafe extern "system" fn(Bruto, *mut OverlappedOp, u32, u32) -> i32;
+    type FnAcceptEx = unsafe extern "system" fn(RawHandle, RawHandle, *mut u8, u32, u32, u32, *mut u32, *mut OverlappedOp) -> i32;
+    type FnConnectEx = unsafe extern "system" fn(RawHandle, *const u8, i32, *const u8, u32, *mut u32, *mut OverlappedOp) -> i32;
+    type FnDisconnectEx = unsafe extern "system" fn(RawHandle, *mut OverlappedOp, u32, u32) -> i32;
     type FnGetAcceptExSockaddrs = unsafe extern "system" fn(*mut u8, u32, u32, u32, *mut *mut u8, *mut i32, *mut *mut u8, *mut i32);
 
     /// The Winsock extension functions (`InitializeSocketExtensions`).
@@ -256,11 +256,11 @@ mod io_windows {
     }
 
     /// An overlapped socket that children do not inherit.
-    pub(super) fn new_socket(family: u16, tipo: i32, protocol: i32) -> IoResult<Bruto> {
+    pub(super) fn new_socket(family: u16, ty: i32, protocol: i32) -> IoResult<RawHandle> {
         start_winsock();
         // SAFETY: creates a socket.
         let s = unsafe {
-            WSASocketW(i32::from(family), tipo, protocol, std::ptr::null(), 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT)
+            WSASocketW(i32::from(family), ty, protocol, std::ptr::null(), 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT)
         };
         if s == INVALID {
             return Err(OsError::from_code(unsafe { WSAGetLastError() }));
@@ -288,7 +288,7 @@ mod io_windows {
     #[repr(C)]
     struct Operation {
         overlapped: OverlappedOp,
-        tipo: OperationKind,
+        ty: OperationKind,
         handle: Option<Arc<Handle>>,
         data: Vec<u8>,
         /// The next byte to read and how many there are (reads).
@@ -300,16 +300,16 @@ mod io_windows {
         address: [u8; 128],
         address_size: i32,
         /// The socket that `AcceptEx` fills.
-        client: Bruto,
+        client: RawHandle,
     }
 
     impl Operation {
-        fn new_area(tipo: OperationKind, m: &Arc<Handle>, capacidade: usize) -> Box<Operation> {
+        fn new_area(ty: OperationKind, m: &Arc<Handle>, capacity: usize) -> Box<Operation> {
             Box::new(Operation {
                 overlapped: OverlappedOp::default(),
-                tipo,
+                ty,
                 handle: Some(Arc::clone(m)),
-                data: vec![0; capacidade],
+                data: vec![0; capacity],
                 ix: 0,
                 size: 0,
                 buffer_wsa: BufferWsa { size: 0, data: std::ptr::null_mut() },
@@ -380,13 +380,13 @@ mod io_windows {
 
     /// The VM's `Handle`.
     pub(super) struct Handle {
-        pub(super) tipo: HandleKind,
-        pub(super) raw: Bruto,
+        pub(super) ty: HandleKind,
+        pub(super) raw: RawHandle,
         overlapped: bool,
         /// Watched directory: the `ReadDirectoryChangesW` filter
         /// (`FILE_NOTIFY_CHANGE_*`) and whether the subtree is included.
         watch: (u32, bool),
-        estado: std::sync::Mutex<State>,
+        state: std::sync::Mutex<State>,
         /// Wakes the synchronous read thread (standard input).
         read_request: std::sync::Condvar,
     }
@@ -430,24 +430,24 @@ mod io_windows {
     impl Handle {
         /// Creates the handle object of `raw`, associated with the completion port
         /// when it does overlapped I/O.
-        pub(super) fn new(tipo: HandleKind, raw: Bruto) -> Arc<Handle> {
-            Handle::new_with(tipo, raw, (0, false))
+        pub(super) fn new(ty: HandleKind, raw: RawHandle) -> Arc<Handle> {
+            Handle::new_with(ty, raw, (0, false))
         }
 
-        fn new_with(tipo: HandleKind, raw: Bruto, watch: (u32, bool)) -> Arc<Handle> {
-            let overlapped = tipo != HandleKind::Pattern;
+        fn new_with(ty: HandleKind, raw: RawHandle, watch: (u32, bool)) -> Arc<Handle> {
+            let overlapped = ty != HandleKind::Pattern;
             let m = Arc::new(Handle {
-                tipo,
+                ty,
                 raw,
                 overlapped,
                 watch,
-                estado: std::sync::Mutex::new(State {
+                state: std::sync::Mutex::new(State {
                     closing: false,
                     read_closed: false,
                     write_closed: false,
                     error: false,
                     is_open: true,
-                    info: DescriptorInfo::new(tipo == HandleKind::Listen),
+                    info: DescriptorInfo::new(ty == HandleKind::Listen),
                     ready_flag: None,
                     pending_read: false,
                     pending_write: false,
@@ -473,18 +473,18 @@ mod io_windows {
             m
         }
 
-        pub(super) fn estado(&self) -> std::sync::MutexGuard<'_, State> {
-            self.estado.lock().unwrap_or_else(|e| e.into_inner())
+        pub(super) fn state(&self) -> std::sync::MutexGuard<'_, State> {
+            self.state.lock().unwrap_or_else(|e| e.into_inner())
         }
 
         fn is_socket(&self) -> bool {
-            matches!(self.tipo, HandleKind::Client | HandleKind::Listen | HandleKind::Datagram)
+            matches!(self.ty, HandleKind::Client | HandleKind::Listen | HandleKind::Datagram)
         }
     }
 
     impl Drop for Handle {
         fn drop(&mut self) {
-            let e = self.estado.get_mut().unwrap_or_else(|e| e.into_inner());
+            let e = self.state.get_mut().unwrap_or_else(|e| e.into_inner());
             if e.is_open {
                 // SAFETY: the system object belongs to this handle object, which
                 // has not closed it.
@@ -592,7 +592,7 @@ mod io_windows {
 
     /// `IsClosed` of each type.
     fn is_closed(m: &Handle, e: &State) -> bool {
-        match m.tipo {
+        match m.ty {
             HandleKind::Listen => e.closing && e.pending_accepts == 0,
             HandleKind::Client => e.connected && e.disconnected && !e.pending_read && !e.pending_write,
             _ => e.closing && !e.pending_read && !e.pending_write,
@@ -618,7 +618,7 @@ mod io_windows {
     /// `IssueReadLocked`: keeps a read in progress while Dart has no data to
     /// consume.
     fn issue_read(m: &Arc<Handle>, e: &mut State) -> bool {
-        match m.tipo {
+        match m.ty {
             HandleKind::Datagram => return issue_receive(m, e),
             HandleKind::Listen => return false,
             _ => {}
@@ -643,14 +643,14 @@ mod io_windows {
             m.read_request.notify_one();
             return true;
         }
-        let ok = if m.tipo == HandleKind::Client {
+        let ok = if m.ty == HandleKind::Client {
             let b = op.buffer_wsa();
             let f: *mut u32 = &mut op.flag_bits;
             let ov = op.clean_overlapped();
             // SAFETY: the operation (buffer, flags, `OVERLAPPED`) lives until the
             // completion.
             unsafe { WSARecv(m.raw, b, 1, std::ptr::null_mut(), f, ov, 0) == 0 }
-        } else if m.tipo == HandleKind::Directory {
+        } else if m.ty == HandleKind::Directory {
             // `DirectoryWatchHandle::IssueReadLocked`: the `FILE_NOTIFY_INFORMATION`
             // records arrive in the operation's buffer.
             let (filter_obj, subtree) = m.watch;
@@ -676,7 +676,7 @@ mod io_windows {
         // The VM's `DirectoryWatchHandle::IssueReadLocked` returns the failure
         // without notifying Dart (a file in place of the directory, for example,
         // gets no events); the other handle objects notify.
-        if m.tipo != HandleKind::Directory {
+        if m.ty != HandleKind::Directory {
             issue_failure(m, e, code);
         }
         false
@@ -690,12 +690,12 @@ mod io_windows {
         let mut op = Operation::new_area(OperationKind::Receive, m, MAX_DATAGRAM_SIZE);
         let b = op.buffer_wsa();
         let f: *mut u32 = &mut op.flag_bits;
-        let de = op.address.as_mut_ptr();
+        let of = op.address.as_mut_ptr();
         let from_n: *mut i32 = &mut op.address_size;
         let ov = op.clean_overlapped();
         e.pending_read = true;
         // SAFETY: the operation lives until the completion.
-        let ok = unsafe { WSARecvFrom(m.raw, b, 1, std::ptr::null_mut(), f, de, from_n, ov, 0) == 0 };
+        let ok = unsafe { WSARecvFrom(m.raw, b, 1, std::ptr::null_mut(), f, of, from_n, ov, 0) == 0 };
         let code = last_system_error();
         if ok || code == ERROR_IO_PENDING {
             op.issued();
@@ -758,7 +758,7 @@ mod io_windows {
 
     /// `ListenSocket::StartAccept`: `false` with the error in `last_error`.
     pub(super) fn start_accepting(m: &Arc<Handle>) -> bool {
-        let mut e = m.estado();
+        let mut e = m.state();
         (0..ACCEPTS_ISSUED).all(|_| issue_accept(m, &mut e))
     }
 
@@ -827,7 +827,7 @@ mod io_windows {
             return;
         }
         e.closing = true;
-        match m.tipo {
+        match m.ty {
             HandleKind::File | HandleKind::Pattern | HandleKind::Directory => {
                 if e.is_open {
                     // SAFETY: the handle belongs to this handle object; the pending
@@ -836,7 +836,7 @@ mod io_windows {
                     unsafe { CloseHandle(m.raw) };
                     e.is_open = false;
                 }
-                if m.tipo == HandleKind::Pattern {
+                if m.ty == HandleKind::Pattern {
                     m.read_request.notify_all();
                     let mut g = stdin_entry();
                     if g.as_ref().is_some_and(|x| std::ptr::eq(Arc::as_ptr(x), Arc::as_ptr(m))) {
@@ -851,7 +851,7 @@ mod io_windows {
                     e.is_open = false;
                 }
                 for c in std::mem::take(&mut e.accepted_list) {
-                    let mut ce = c.estado();
+                    let mut ce = c.state();
                     close_handle(&c, &mut ce);
                     notify_destroy_if_closed(&c, &mut ce);
                 }
@@ -875,8 +875,8 @@ mod io_windows {
 
     /// Closes a handle object that no Dart object got to use.
     pub(super) fn discard(m: &Arc<Handle>) {
-        let mut e = m.estado();
-        match m.tipo {
+        let mut e = m.state();
+        match m.ty {
             HandleKind::Client => {
                 // Never connected: closes right away, without `DisconnectEx`.
                 e.closing = true;
@@ -892,7 +892,7 @@ mod io_windows {
         let port = event_handler().port;
         loop {
             let mut op = {
-                let mut e = m.estado();
+                let mut e = m.state();
                 loop {
                     if let Some(op) = e.sync_read.take() {
                         break op;
@@ -949,7 +949,7 @@ mod io_windows {
 
     /// `Handle::Available`.
     pub(super) fn available(s: &NativeSocket) -> i64 {
-        socket_handle(s).map_or(0, |m| m.estado().ready_flag.as_ref().map_or(0, |p| p.remaining() as i64))
+        socket_handle(s).map_or(0, |m| m.state().ready_flag.as_ref().map_or(0, |p| p.remaining() as i64))
     }
 
     /// `Handle::Read`: what has already arrived; draining the buffer issues the next
@@ -960,7 +960,7 @@ mod io_windows {
     }
 
     fn read_from_handle(m: &Arc<Handle>, dest: &mut [u8]) -> IoResult<usize> {
-        let mut e = m.estado();
+        let mut e = m.state();
         let Some(p) = e.ready_flag.as_mut() else { return Ok(0) };
         let n = p.do_read(dest);
         if p.remaining() == 0 {
@@ -996,10 +996,10 @@ mod io_windows {
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED)
             .open(file_path)
-            .map_err(|e| OsError::de(&e))?;
-        let m = Handle::new_with(HandleKind::Directory, file.into_raw_handle() as Bruto, (filter_obj, recursive));
+            .map_err(|e| OsError::of(&e))?;
+        let m = Handle::new_with(HandleKind::Directory, file.into_raw_handle() as RawHandle, (filter_obj, recursive));
         {
-            let mut e = m.estado();
+            let mut e = m.state();
             issue_read(&m, &mut e);
         }
         Ok(descriptor_of(m))
@@ -1010,7 +1010,7 @@ mod io_windows {
     /// which Dart closes right after.
     pub(super) fn stop_watch(d: i64) {
         if let Some(m) = handle_of(d) {
-            let mut e = m.estado();
+            let mut e = m.state();
             close_handle(&m, &mut e);
             notify_destroy_if_closed(&m, &mut e);
         }
@@ -1020,7 +1020,7 @@ mod io_windows {
     /// (`Available` and `Read`; draining issues the next read).
     pub(super) fn directory_events(d: i64) -> IoResult<Vec<u8>> {
         let Some(m) = handle_of(d) else { return Ok(Vec::new()) };
-        let available = m.estado().ready_flag.as_ref().map_or(0, |p| p.remaining());
+        let available = m.state().ready_flag.as_ref().map_or(0, |p| p.remaining());
         let mut buf = vec![0u8; available];
         let n = read_from_handle(&m, &mut buf)?;
         buf.truncate(n);
@@ -1030,7 +1030,7 @@ mod io_windows {
     /// `Handle::Write`: copies up to 64 KiB and issues the write; 0 while another
     /// one is in progress.
     pub(super) fn write_to_handle(m: &Arc<Handle>, data: &[u8]) -> IoResult<usize> {
-        let mut e = m.estado();
+        let mut e = m.state();
         if e.pending_write || is_closed(m, &e) {
             return Ok(0);
         }
@@ -1049,7 +1049,7 @@ mod io_windows {
         op.data = data[..n].to_vec();
         op.size = n;
         e.pending_write = true;
-        let ok = if m.tipo == HandleKind::Client {
+        let ok = if m.ty == HandleKind::Client {
             let b = op.buffer_wsa();
             let ov = op.clean_overlapped();
             // SAFETY: the operation lives until the completion.
@@ -1080,14 +1080,14 @@ mod io_windows {
 
     /// `SocketBase::HasPendingWrite`.
     pub(super) fn pending_write(s: &NativeSocket) -> bool {
-        socket_handle(s).is_some_and(|m| m.estado().pending_write)
+        socket_handle(s).is_some_and(|m| m.state().pending_write)
     }
 
     /// `ServerSocket::Accept`: the next accepted connection (its descriptor) or -1;
     /// replenishes the issued `AcceptEx`s.
     pub(super) fn accept_conn(fd: i64) -> i64 {
         let Some(m) = handle_of(fd) else { return -1 };
-        let mut e = m.estado();
+        let mut e = m.state();
         let r = e.accepted_list.pop_front();
         if !e.closing && e.pending_accepts < ACCEPTS_ISSUED {
             issue_accept(&m, &mut e);
@@ -1097,14 +1097,14 @@ mod io_windows {
 
     /// `SocketBase::AvailableDatagram`.
     pub(super) fn has_datagram(fd: i64) -> bool {
-        handle_of(fd).is_some_and(|m| m.estado().ready_flag.is_some())
+        handle_of(fd).is_some_and(|m| m.state().ready_flag.is_some())
     }
 
     /// `Handle::RecvFrom`: the received datagram (the whole buffer comes out, like
     /// `recvfrom`) and the source.
     pub(super) fn receive_datagram(fd: i64, maximum: usize) -> IoResult<Option<(Vec<u8>, OsAddress)>> {
         let Some(m) = handle_of(fd) else { return Ok(None) };
-        let mut e = m.estado();
+        let mut e = m.state();
         let Some(op) = e.ready_flag.take() else { return Ok(None) };
         let n = op.remaining().min(maximum);
         let data = op.data[op.ix..op.ix + n].to_vec();
@@ -1119,7 +1119,7 @@ mod io_windows {
     /// `Handle::SendTo`.
     pub(super) fn send_datagram(fd: i64, data: &[u8], dest: &OsAddress) -> IoResult<usize> {
         let Some(m) = handle_of(fd) else { return Err(invalid_handle()) };
-        let mut e = m.estado();
+        let mut e = m.state();
         if e.pending_write || is_closed(&m, &e) {
             return Ok(0);
         }
@@ -1168,7 +1168,7 @@ mod io_windows {
 
     impl EventHandler {
         /// `SendData`: the command goes through the completion port.
-        pub(super) fn enviar(&self, c: EventCommand) {
+        pub(super) fn send(&self, c: EventCommand) {
             let p = Box::into_raw(Box::new(c));
             // SAFETY: the loop receives the pointer with the command key and takes
             // it back.
@@ -1189,7 +1189,7 @@ mod io_windows {
                 continue;
             }
             if key == COMMAND_KEY {
-                // SAFETY: posted by `enviar` with an `EventCommand`.
+                // SAFETY: posted by `send` with an `EventCommand`.
                 let c = unsafe { Box::from_raw(ov.cast::<EventCommand>()) };
                 handle_command(*c);
             } else {
@@ -1214,8 +1214,8 @@ mod io_windows {
         } else {
             -1
         };
-        let mut e = m.estado();
-        match op.tipo {
+        let mut e = m.state();
+        match op.ty {
             OperationKind::Accept => finish_accept(&m, &mut e, op),
             OperationKind::Read => {
                 op.size = bytes.max(0) as usize;
@@ -1280,7 +1280,7 @@ mod io_windows {
             let listener = m.raw;
             // SAFETY: inherits the listening socket's context.
             let r = unsafe {
-                setsockopt(op.client, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (&listener as *const Bruto).cast(), std::mem::size_of::<Bruto>() as i32)
+                setsockopt(op.client, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (&listener as *const RawHandle).cast(), std::mem::size_of::<RawHandle>() as i32)
             };
             if r == 0 {
                 let client = std::mem::replace(&mut op.client, INVALID);
@@ -1303,7 +1303,7 @@ mod io_windows {
                 };
                 let c = Handle::new(HandleKind::Client, client);
                 {
-                    let mut ce = c.estado();
+                    let mut ce = c.state();
                     ce.connected = true;
                     if !remote.is_null() {
                         ce.remote = Some(OsAddress::from_pointer(remote, n_remote.max(0) as u32));
@@ -1331,43 +1331,43 @@ mod io_windows {
         }
         // SAFETY: the object keeps the reference while the descriptor is valid.
         let m = unsafe { retained_handle(fd) };
-        let mut e = m.estado();
+        let mut e = m.state();
         if is_command(c.data, COMMAND_RETURN_TOKENS) {
             e.info.return_tokens(c.port, c.data & ((1 << COMMAND_CLOSE) - 1));
         } else if is_command(c.data, COMMAND_MASK) {
             let events = c.data & EVENTS_MASK;
             e.info.set_port_and_mask(c.port, events);
-            if m.tipo == HandleKind::Listen {
+            if m.ty == HandleKind::Listen {
                 dispatch_accepts(&mut e);
             } else {
-                if e.info.mask() & IN_MASK != 0 && (m.tipo != HandleKind::Client || e.connected) {
+                if e.info.mask() & IN_MASK != 0 && (m.ty != HandleKind::Client || e.connected) {
                     issue_read(&m, &mut e);
                 }
                 // Ready to write if nothing is in progress (the client, after it
                 // has connected).
-                if events & OUT_MASK != 0 && !e.pending_write && (m.tipo != HandleKind::Client || e.connected) {
+                if events & OUT_MASK != 0 && !e.pending_write && (m.ty != HandleKind::Client || e.connected) {
                     dispatch_events(&mut e, OUT_MASK);
                 }
-                let has_data = e.ready_flag.as_ref().is_some_and(|p| p.remaining() > 0 || m.tipo == HandleKind::Datagram);
+                let has_data = e.ready_flag.as_ref().is_some_and(|p| p.remaining() > 0 || m.ty == HandleKind::Datagram);
                 if events & IN_MASK != 0 && has_data {
                     dispatch_events(&mut e, IN_MASK);
                 }
             }
         } else if is_command(c.data, COMMAND_SHUTDOWN_READ) {
-            if m.tipo == HandleKind::Client {
+            if m.ty == HandleKind::Client {
                 // SAFETY: an open socket of this handle object.
                 unsafe { shutdown(m.raw, SD_RECEIVE) };
                 e.read_closed = true;
             }
         } else if is_command(c.data, COMMAND_SHUTDOWN_WRITE) {
-            if m.tipo == HandleKind::Client {
+            if m.ty == HandleKind::Client {
                 // SAFETY: an open socket of this handle object.
                 unsafe { shutdown(m.raw, SD_SEND) };
                 e.write_closed = true;
             }
         } else if is_command(c.data, COMMAND_CLOSE) {
             let mut do_close = true;
-            if m.tipo == HandleKind::Listen && !listen_record().do_close(c.sock) {
+            if m.ty == HandleKind::Listen && !listen_record().do_close(c.sock) {
                 // Other objects listen on the same system socket: this one leaves,
                 // and the socket stays.
                 do_close = false;

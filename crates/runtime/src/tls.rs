@@ -256,7 +256,7 @@ type Verification = std::sync::Arc<std::sync::Mutex<PendingVerification>>;
 struct DartVerifier {
     webpki: Option<std::sync::Arc<rustls::client::WebPkiServerVerifier>>,
     provider: std::sync::Arc<rustls::crypto::CryptoProvider>,
-    estado: Verification,
+    state: Verification,
 }
 
 impl std::fmt::Debug for PendingVerification {
@@ -298,10 +298,10 @@ impl rustls::client::danger::ServerCertVerifier for DartVerifier {
             None => Err(rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)),
         };
         if let Err(e) = result {
-            let mut estado = self.estado.lock().unwrap_or_else(|e| e.into_inner());
-            if !estado.accepted {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if !state.accepted {
                 let self_signed = intermediates.is_empty() && x509_self_signed(leaf);
-                estado.pending = Some((leaf.clone().into_owned(), certificate_reason(&e, self_signed)));
+                state.pending = Some((leaf.clone().into_owned(), certificate_reason(&e, self_signed)));
             }
         }
         Ok(rustls::client::danger::ServerCertVerified::assertion())
@@ -419,7 +419,7 @@ pub extern "C" fn dartforge_native_DartForge_tls_filter_pending_keys(this: i64) 
 pub extern "C" fn dartforge_native_DartForge_tls_filter_connect(
     this: i64,
     host: i64,
-    contexto: i64,
+    context: i64,
     tls_server: u8,
     request_certificate: u8,
     require_certificate: u8,
@@ -428,8 +428,8 @@ pub extern "C" fn dartforge_native_DartForge_tls_filter_connect(
     let Some(f) = object_filter(this) else { return allocate_str("SecureSocket destroyed") };
     let host = String::from_utf8_lossy(&utf8_of_string(host)).into_owned();
     let protocols = protocols_of(&typed_list_bytes(protocols).unwrap_or_default());
-    let Some(contexto) = object_context(contexto) else { return allocate_str("SecurityContext without native state") };
-    let mut c = contexto.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(context) = object_context(context) else { return allocate_str("SecurityContext without native state") };
+    let mut c = context.lock().unwrap_or_else(|e| e.into_inner());
     let r = if tls_server != 0 {
         connect_server(f, &mut c, request_certificate != 0, require_certificate != 0, protocols)
     } else {
@@ -453,7 +453,7 @@ fn connect_client(f: &mut TlsFilter, c: &mut TlsContext, host: &str, protocols: 
                 .map_err(|e| e.to_string())?,
         )
     };
-    let verifier = DartVerifier { webpki, provider: provider.clone(), estado: f.verification.clone() };
+    let verifier = DartVerifier { webpki, provider: provider.clone(), state: f.verification.clone() };
     let base = rustls::ClientConfig::builder_with_provider(provider)
         .with_protocol_versions(c.versions())
         .map_err(|e| e.to_string())?
@@ -597,10 +597,10 @@ const RING_ENCRYPTED_TO_WRITE: usize = 3;
 /// receives a chunk and returns how much it consumed.
 fn ring_consume(buf: &[u8], start: &mut usize, end: usize, f: &mut dyn FnMut(&[u8]) -> usize) {
     let size = buf.len();
-    let mut chunk = |de: usize, until: usize| {
+    let mut chunk = |of: usize, until: usize| {
         let mut done = 0;
-        while de + done < until {
-            let n = f(&buf[de + done..until]);
+        while of + done < until {
+            let n = f(&buf[of + done..until]);
             if n == 0 {
                 break;
             }
@@ -623,10 +623,10 @@ fn ring_consume(buf: &[u8], start: &mut usize, end: usize, f: &mut dyn FnMut(&[u
 /// byte always stays free, so that full ≠ empty).
 fn ring_fill(buf: &mut [u8], start: usize, end: &mut usize, f: &mut dyn FnMut(&mut [u8]) -> usize) {
     let size = buf.len();
-    let mut chunk = |buf: &mut [u8], de: usize, until: usize| {
+    let mut chunk = |buf: &mut [u8], of: usize, until: usize| {
         let mut done = 0;
-        while de + done < until {
-            let n = f(&mut buf[de + done..until]);
+        while of + done < until {
+            let n = f(&mut buf[of + done..until]);
             if n == 0 {
                 break;
             }
@@ -766,7 +766,7 @@ fn process_rings(f: &mut TlsFilter, in_handshake: bool, rings: &mut [&mut [u8]; 
 /// The list lives while the slice is used, nothing allocates on the heap in that
 /// time, and there is no other live slice of the same bytes.
 unsafe fn typed_bytes_mut_of<'a>(h: i64) -> &'a mut [u8] {
-    match HEAP.with(|heap| heap.borrow().tipada(h)) {
+    match HEAP.with(|heap| heap.borrow().typed(h)) {
         // SAFETY: by this function's contract.
         Some(t) if !t.unmodifiable => unsafe { t.slice_mut() },
         _ => &mut [],
@@ -998,7 +998,7 @@ fn oid_name(oid: &[u8]) -> String {
 /// in UTC.
 fn x509_instant((tag, t): (u8, &[u8])) -> Option<i64> {
     let s = std::str::from_utf8(t).ok()?;
-    let digits = |de: usize, n: usize| -> Option<i64> { s.get(de..de + n)?.parse().ok() };
+    let digits = |of: usize, n: usize| -> Option<i64> { s.get(of..of + n)?.parse().ok() };
     let (year, rest) = if tag == 0x17 {
         let a = digits(0, 2)?;
         (if a < 50 { 2000 + a } else { 1900 + a }, 2)

@@ -81,7 +81,7 @@ pub fn analyze_in_module(
     analysis
         .table_dependencies
         .insert(sym_name.to_string(), table_state(m, positions[sym_name]));
-    let table = if m.excecoes_por_tabelas {
+    let table = if m.table_exceptions {
         m.tables.get(positions[sym_name])
     } else {
         None
@@ -89,7 +89,7 @@ pub fn analyze_in_module(
     // A context implies CheckStackOverflow in the prologue, even if the whole explicit
     // HIR has coverage. Landing pads/exits/cleanup also insert paths
     // without a heap contract here. Do not invent a ValueId for these effects.
-    analysis.opaque_implicit_emission = (m.excecoes_por_tabelas && table.is_none())
+    analysis.opaque_implicit_emission = (m.table_exceptions && table.is_none())
         || crate::llvm::LlvmEmitter::requires_explicit_context(f, table)
         || crate::llvm::LlvmEmitter::may_require_context_for_roots(f)
         || table.is_some_and(|t| {
@@ -543,10 +543,10 @@ mod tests {
         g.check_in_module(&m, "captura").unwrap();
         // Neither the scalar bit nor a missing index become a precise null reference.
         for index in [0, 2] {
-            if let Instruction::EnvGet { index: alvo, .. } =
+            if let Instruction::EnvGet { index: target, .. } =
                 &mut m.functions[0].blocks[0].instructions[4].1
             {
-                *alvo = index;
+                *target = index;
             }
             let a = analyze_in_module(&m, "captura", 8).unwrap().unwrap();
             assert!(a.value(ValueId(4)).unwrap().nodes().is_none());
@@ -577,7 +577,7 @@ mod tests {
             let mut m = Module::new();
             m.arc_memory = true;
             m.arc_field_layouts.insert(1, vec![]);
-            let forward = |name: &str, alvo: &str| Function {
+            let forward = |name: &str, target: &str| Function {
                 symbol: name.into(),
                 name: name.into(),
                 debug_info: None,
@@ -588,7 +588,7 @@ mod tests {
                     instructions: vec![(
                         ValueId(1),
                         Instruction::CallStatic {
-                            symbol: alvo.into(),
+                            symbol: target.into(),
                             args: vec![Operand::Val(ValueId(0))],
                             ret_ty: Type::Ref,
                         },
@@ -722,7 +722,7 @@ mod tests {
         m.arc_memory = true;
         m.arc_field_layouts.insert(1, vec![Type::Ref]);
         m.arc_field_layouts.insert(2, vec![]);
-        let forward = |name: &str, alvo: &str| Function {
+        let forward = |name: &str, target: &str| Function {
             symbol: name.into(),
             name: name.into(),
             debug_info: None,
@@ -733,7 +733,7 @@ mod tests {
                 instructions: vec![(
                     ValueId(1),
                     Instruction::CallStatic {
-                        symbol: alvo.into(),
+                        symbol: target.into(),
                         args: vec![Operand::Val(ValueId(0))],
                         ret_ty: Type::Ref,
                     },
@@ -916,7 +916,7 @@ mod tests {
         m.arc_memory = true;
         m.arc_field_layouts.insert(1, vec![]);
         m.globals.push((0, Type::Ref, "g".into()));
-        let wrapper = |name: &str, alvo: &str| Function {
+        let wrapper = |name: &str, target: &str| Function {
             symbol: name.into(),
             name: name.into(),
             debug_info: None,
@@ -927,7 +927,7 @@ mod tests {
                 instructions: vec![(
                     ValueId(0),
                     Instruction::CallStatic {
-                        symbol: alvo.into(),
+                        symbol: target.into(),
                         args: vec![],
                         ret_ty: Type::Void,
                     },
@@ -1648,7 +1648,7 @@ mod tests {
         use super::super::{escape::*, graph::build_local_in_module};
         let mut m = Module::new();
         m.arc_memory = true;
-        m.excecoes_por_tabelas = true;
+        m.table_exceptions = true;
         m.functions.push(Function {
             symbol: "f".into(),
             name: "f".into(),
@@ -1704,7 +1704,7 @@ mod tests {
     fn own_body_table_invalidates_callless_consumption_and_follows_symbol() {
         let mut m = Module::new();
         m.arc_memory = true;
-        m.excecoes_por_tabelas = true;
+        m.table_exceptions = true;
         for s in ["f", "g"] {
             m.functions.push(Function {
                 symbol: s.into(),
@@ -1732,7 +1732,7 @@ mod tests {
         assert!(super::super::escape::compute_in_module(&m, "f", &a).is_ok());
         m.tables[1].checks_stack = true;
         assert!(super::super::escape::compute_in_module(&m, "f", &a).is_err());
-        m.excecoes_por_tabelas = false;
+        m.table_exceptions = false;
         assert!(super::super::escape::compute_in_module(&m, "f", &a).is_err());
     }
 
@@ -1831,7 +1831,7 @@ mod tests {
         m.functions[0].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(3))));
         // Emission metadata may introduce an implicit call, even
         // without a change of the HIR body; they must invalidate the previous consumption.
-        m.excecoes_por_tabelas = true;
+        m.table_exceptions = true;
         m.tables = vec![FunctionTables::default(); 2];
         assert!(super::super::escape::compute_in_module(&m, "caller", &a).is_err());
         let with_tables = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
@@ -1849,7 +1849,7 @@ mod tests {
                 .nodes()
                 .is_none()
         );
-        m.excecoes_por_tabelas = false;
+        m.table_exceptions = false;
         m.tables.clear();
         let leaf = m.functions[1].clone();
         // A normal alias does not erase an explicit write.

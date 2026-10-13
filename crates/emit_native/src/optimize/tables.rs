@@ -83,7 +83,7 @@ impl ExceptionPlan {
 
 /// Exposes landing pads and continuations in the CFG without publishing tables to the emitter.
 pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
-    assert!(!module.excecoes_por_tabelas, "bug do compilador: CFG excepcional já materializado");
+    assert!(!module.table_exceptions, "bug do compilador: CFG excepcional já materializado");
     let nl = do_not_throw(module);
     // Without a proof of absence of owners, ARC needs a local exit
     // to insert cleanup even when there is no catch/finally in the source.
@@ -91,7 +91,7 @@ pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
     // Published ARC preparation: closures and selectors go through the uniform
     // invocation of the runtime, whose ports return the pending exception; they keep
     // the check, without an invoke.
-    let uniforms = !(module.arc_memory && crate::alvo::arc_prepared().unwrap_or(false));
+    let uniforms = !(module.arc_memory && crate::target::arc_prepared().unwrap_or(false));
     let mut functions = Vec::with_capacity(module.functions.len());
     for f in &mut module.functions {
         let sites = if super::valid(f) { from_function(f, &nl, preserve_cleanup, uniforms) } else { FunctionTables::default() };
@@ -123,7 +123,7 @@ pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
         tables.push(t);
     }
     module.tables = tables;
-    module.excecoes_por_tabelas = true;
+    module.table_exceptions = true;
 }
 
 /// Does the instruction call Dart code that may unwind?
@@ -200,8 +200,8 @@ fn site_check(b: &BasicBlock, i: usize) -> Option<Check> {
 /// there. Without this, every `$ent` got a landing pad that catches everything and returns the
 /// pending state, and the dynamic call in tables mode cost more than in the
 /// check mode.
-fn pure_exit(f: &Function, pos: &HashMap<BlockId, usize>, de: BlockId) -> bool {
-    let mut current = de;
+fn pure_exit(f: &Function, pos: &HashMap<BlockId, usize>, of: BlockId) -> bool {
+    let mut current = of;
     for _ in 0..64 {
         let Some(&k) = pos.get(&current) else { return false };
         let b = &f.blocks[k];
@@ -508,7 +508,7 @@ enum Pending {
 
 /// What an instruction does with the pending state.
 enum Effect {
-    Nada,
+    Nothing,
     /// May leave the exception pending (and never clears it).
     MayLink,
     Cleans,
@@ -525,32 +525,32 @@ fn effect(inst: &Instruction, nl: &HashSet<String>) -> Effect {
             "dartforge_exception_pending"
             | "dartforge_exception_peek_ref"
             | "dartforge_exception_catchable"
-            | "dartforge_stack_trace_get" => Effect::Nada,
+            | "dartforge_stack_trace_get" => Effect::Nothing,
             _ => {
                 let e = effects_of(name);
-                if e.throws || e.calls_dart { Effect::MayLink } else { Effect::Nada }
+                if e.throws || e.calls_dart { Effect::MayLink } else { Effect::Nothing }
             }
         },
         // A Dart function that returns returns without a pending exception (one that
         // throws unwinds); a runtime symbol follows the pending state.
         Instruction::CallStatic { symbol, .. } => {
-            if symbol.starts_with("dartforge_") && !nl.contains(symbol) { Effect::MayLink } else { Effect::Nada }
+            if symbol.starts_with("dartforge_") && !nl.contains(symbol) { Effect::MayLink } else { Effect::Nothing }
         }
-        Instruction::TypedCall { .. } => Effect::Nada,
+        Instruction::TypedCall { .. } => Effect::Nothing,
         // Emitted as LLVM instructions, without a call: they do not touch the
         // pending state (`effects::instruction_throws` counts them through their surroundings).
         Instruction::SDiv(..) | Instruction::SRem(..) | Instruction::DoubleToInt(_) | Instruction::CheckNotNull(_) => {
-            Effect::Nada
+            Effect::Nothing
         }
         another => {
-            if instruction_throws(another, nl) { Effect::MayLink } else { Effect::Nada }
+            if instruction_throws(another, nl) { Effect::MayLink } else { Effect::Nothing }
         }
     }
 }
 
 fn after(e: Pending, ef: &Effect) -> Pending {
     match ef {
-        Effect::Nada => e,
+        Effect::Nothing => e,
         Effect::Cleans => Pending::Cleans,
         Effect::Links => Pending::Linked,
         Effect::MayLink => {
@@ -571,7 +571,7 @@ fn walk(b: &BasicBlock, entry: Pending, nl: &HashSet<String>) -> (Pending, Optio
             continue;
         }
         let ef = effect(inst, nl);
-        if !matches!(ef, Effect::Nada) {
+        if !matches!(ef, Effect::Nothing) {
             check = None;
         }
         e = after(e, &ef);
@@ -627,12 +627,12 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
             Some((pending, clean)) => vec![(pending, Pending::Linked), (clean, Pending::Cleans)],
             None => successors(&b.terminator).into_iter().map(|s| (s, exit)).collect(),
         };
-        for (alvo, state) in edges {
+        for (target, state) in edges {
             // The landing pad is only reached by unwinding: always set.
-            if t.landing_pads.contains(&alvo) {
+            if t.landing_pads.contains(&target) {
                 continue;
             }
-            let Some(&j) = pos.get(&alvo) else { continue };
+            let Some(&j) = pos.get(&target) else { continue };
             let new = join(entry[j], state);
             if entry[j] != Some(new) {
                 entry[j] = Some(new);
@@ -733,7 +733,7 @@ mod tests {
     fn prepares_edges_without_publishing_tables() {
         let mut m = module();
         let plan = prepare(&mut m);
-        assert!(!m.excecoes_por_tabelas && m.tables.is_empty());
+        assert!(!m.table_exceptions && m.tables.is_empty());
         let t = plan.function_sites(0, &m.functions[0]);
         let landing_pad = t.invocations[&ValueId(0)];
         assert!(t.exits.is_empty());

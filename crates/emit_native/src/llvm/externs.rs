@@ -48,7 +48,7 @@ pub struct Extern {
 
 impl Extern {
     /// The name of the symbol (`dartforge_…`), between the `@` and the `(`.
-    pub fn nome(&self) -> &'static str {
+    pub fn name(&self) -> &'static str {
         let ini = self.decl.find('@').map_or(0, |i| i + 1);
         let end = self.decl[ini..]
             .find('(')
@@ -1107,7 +1107,7 @@ pub fn effects_of(name: &str) -> Effects {
     // keeps them equal.
     TABLE
         .get_or_init(|| {
-            dartforge_runtime::efeitos::EFEITOS
+            dartforge_runtime::effects::EFFECTS
                 .iter()
                 .map(|&(n, allocates, throws, calls_dart)| (n, Effects { allocates, throws, calls_dart }))
                 .collect()
@@ -1131,7 +1131,7 @@ pub fn check_effects() -> bool {
 /// The marks that the check of `name` carries to the runtime: bit 0, does not collect;
 /// bit 1, does not throw. 0 = nothing to check (or it is not an extern of the table).
 pub fn marks_to_check(name: &str) -> i64 {
-    if !dartforge_runtime::efeitos::EFEITOS.iter().any(|(n, ..)| *n == name)
+    if !dartforge_runtime::effects::EFFECTS.iter().any(|(n, ..)| *n == name)
         || name == "dartforge_effects_before"
         || name == "dartforge_effects_after"
         || name == "dartforge_effects_level"
@@ -1142,7 +1142,7 @@ pub fn marks_to_check(name: &str) -> i64 {
     let e = effects_of(name);
     // The sabotaged leaf (`folha:<name>`, D7 of §7.3) is checked as a
     // leaf: a collection inside it terminates the process, naming it.
-    let allocates = e.allocates && !crate::alvo::sabotaged_leaf(name);
+    let allocates = e.allocates && !crate::target::sabotaged_leaf(name);
     i64::from(!allocates && !e.calls_dart) | (i64::from(!e.throws && !e.calls_dart) << 1)
 }
 
@@ -1152,7 +1152,7 @@ mod tests {
 
     #[test]
     fn unique_well_formed_names() {
-        let mut names: Vec<&str> = EXTERNS.iter().map(Extern::nome).collect();
+        let mut names: Vec<&str> = EXTERNS.iter().map(Extern::name).collect();
         assert!(
             names.iter().all(|n| n.starts_with("dartforge_")),
             "{names:?}"
@@ -1166,14 +1166,14 @@ mod tests {
     #[test]
     fn runtime_table_agrees_with_declarations() {
         for e in EXTERNS {
-            let t = effects_of(e.nome());
+            let t = effects_of(e.name());
             assert_eq!(
                 (t.allocates, t.throws),
                 (e.effects.allocates, e.effects.throws),
                 "{}: the mark next to the declaration differs from that of crates/runtime/effects.tsv",
-                e.nome()
+                e.name()
             );
-            assert!(!e.effects.calls_dart || t.calls_dart, "{}: runs Dart in the declaration and not in the table", e.nome());
+            assert!(!e.effects.calls_dart || t.calls_dart, "{}: runs Dart in the declaration and not in the table", e.name());
         }
     }
 

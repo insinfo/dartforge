@@ -167,9 +167,9 @@ pub(super) fn prepare(
     for b in &mut f.blocks {
         for (_, inst, _) in &mut b.instructions {
             if let Instruction::Phi { incoming, .. } = inst {
-                for (de, _) in incoming {
-                    if let Some(new) = finals.get(de) {
-                        *de = *new;
+                for (of, _) in incoming {
+                    if let Some(new) = finals.get(of) {
+                        *of = *new;
                     }
                 }
             }
@@ -177,7 +177,7 @@ pub(super) fn prepare(
     }
     plan.scopes.edges = std::mem::take(&mut plan.scopes.edges)
         .into_iter()
-        .map(|((de, to), events)| ((*finals.get(&de).unwrap_or(&de), to), events))
+        .map(|((of, to), events)| ((*finals.get(&of).unwrap_or(&of), to), events))
         .collect();
     for (origin, final_) in finals {
         if let Some(events) = plan.scopes.exits.remove(&origin) {
@@ -333,10 +333,10 @@ mod tests {
         let Instruction::Phi { incoming, .. } = &functions[0].blocks[1].instructions[0].1 else {
             panic!("Phi removido");
         };
-        let de = incoming[0].0;
-        assert_ne!(de, BlockId(0));
+        let of = incoming[0].0;
+        assert_ne!(of, BlockId(0));
         assert_eq!(
-            plans["caller"].scopes.edges[&(de, BlockId(9))],
+            plans["caller"].scopes.edges[&(of, BlockId(9))],
             vec![ScopeChange::Close(7)]
         );
         assert!(
@@ -480,7 +480,7 @@ mod tests {
             assert_eq!(p.tokens.pendings[&ValueId(2)], BlockId(2));
             assert!(p.tables.invocations.is_empty());
             assert!(p.tables.landing_pads.is_empty());
-            assert!(!m.excecoes_por_tabelas);
+            assert!(!m.table_exceptions);
             assert!(m.tables.is_empty());
             let caller = m.functions.iter().find(|f| f.symbol == "caller").unwrap();
             assert!(matches!(&caller.blocks[0].terminator,

@@ -78,16 +78,16 @@ pub(super) fn inlining_with_origins(
         let found = func.blocks.iter().enumerate().find_map(|(bi, b)| {
             b.instructions.iter().enumerate().find_map(|(ii, (_, inst, ty))| {
                 let Instruction::CallStatic { symbol, args, .. } = inst else { return None };
-                let (alvo, _) = copies.get(symbol)?;
-                if *symbol == func.symbol || alvo.params.len() != args.len() {
+                let (target, _) = copies.get(symbol)?;
+                if *symbol == func.symbol || target.params.len() != args.len() {
                     return None;
                 }
-                let arguments_ok = alvo.params.iter().zip(args).all(|((_, _, tp), a)| {
+                let arguments_ok = target.params.iter().zip(args).all(|((_, _, tp), a)| {
                     operand_type(a, &types).is_some_and(|ta| ta == *tp || (compatible(*tp, ta) && *tp != Type::Ref))
                 });
-                let target_types = function_types(alvo);
+                let target_types = function_types(target);
                 let return_ok = *ty == Type::Void
-                    || alvo.blocks.iter().all(|b| match &b.terminator {
+                    || target.blocks.iter().all(|b| match &b.terminator {
                         Terminator::Return(Some(r)) => operand_type(r, &target_types)
                             .is_some_and(|tr| tr == *ty || (compatible(*ty, tr) && *ty != Type::Ref)),
                         Terminator::Return(None) => *ty == Type::Ref,
@@ -114,15 +114,15 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
         _ => unreachable!("expected static call"),
     };
     let (sym_name, args) = args;
-    let (alvo, throws) = &copies[&sym_name];
+    let (target, throws) = &copies[&sym_name];
     let throws = *throws;
 
     // New ids for the values and blocks of the copy.
     let mut values: HashMap<ValueId, Operand> = HashMap::new();
-    for ((p, _, _), a) in alvo.params.iter().zip(&args) {
+    for ((p, _, _), a) in target.params.iter().zip(&args) {
         values.insert(*p, a.clone());
     }
-    for b in &alvo.blocks {
+    for b in &target.blocks {
         for (v, _, _) in &b.instructions {
             next_v += 1;
             values.insert(*v, Operand::Val(ValueId(next_v)));
@@ -139,7 +139,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
     }
     sites.remove(&call);
     let mut blocks: HashMap<BlockId, BlockId> = HashMap::new();
-    for b in &alvo.blocks {
+    for b in &target.blocks {
         next_b += 1;
         blocks.insert(b.id, BlockId(next_b));
     }
@@ -150,7 +150,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
     // Splits the block of the call.
     let after: Vec<(ValueId, Instruction, Type)> = func.blocks[bi].instructions.split_off(ii + 1);
     func.blocks[bi].instructions.pop();
-    let terminator = std::mem::replace(&mut func.blocks[bi].terminator, Terminator::Branch(blocks[&alvo.blocks[0].id]));
+    let terminator = std::mem::replace(&mut func.blocks[bi].terminator, Terminator::Branch(blocks[&target.blocks[0].id]));
     // The successors of the original block now come from the continuation.
     for s in super::cfg::successors(&terminator) {
         if let Some(b) = func.blocks.iter_mut().find(|b| b.id == s) {
@@ -168,7 +168,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
 
     let mut returns: Vec<(BlockId, Operand)> = Vec::new();
     let mut new_set: Vec<BasicBlock> = Vec::new();
-    for b in &alvo.blocks {
+    for b in &target.blocks {
         let id = blocks[&b.id];
         let mut instructions = Vec::with_capacity(b.instructions.len());
         for (v, inst, t) in &b.instructions {
@@ -214,14 +214,14 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
     // file is that of this function). A caller without positions (the uniform
     // entry of a closure) gets a hidden debug info: only the copied
     // frames appear.
-    if let Some(da) = alvo.debug_info.as_deref()
-        && (func.debug_info.is_some() || crate::alvo::symbolic_stack_trace().unwrap_or(false))
+    if let Some(dinfo) = target.debug_info.as_deref()
+        && (func.debug_info.is_some() || crate::target::symbolic_stack_trace().unwrap_or(false))
     {
         let dc = func.debug_info.get_or_insert_with(|| {
             Box::new(FunctionDebugInfo {
-                file: da.file.clone(),
-                url: da.url.clone(),
-                line: da.line,
+                file: dinfo.file.clone(),
+                url: dinfo.url.clone(),
+                line: dinfo.line,
                 marks: stack_trace_marks::HIDDEN,
                 ..Default::default()
             })
@@ -231,14 +231,14 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
             None => (dc.positions.get(&call).copied().unwrap_or((dc.line, 0)), None),
         };
         let k = dc.embedded_set.len() as u32;
-        dc.embedded_set.push(Embedded { name: alvo.stack_trace_name(), url: da.url.clone(), call: call_position, parent, marks: da.marks });
-        for e in &da.embedded_set {
+        dc.embedded_set.push(Embedded { name: target.stack_trace_name(), url: dinfo.url.clone(), call: call_position, parent, marks: dinfo.marks });
+        for e in &dinfo.embedded_set {
             dc.embedded_set.push(Embedded { parent: Some(e.parent.map_or(k, |p| k + 1 + p)), ..e.clone() });
         }
-        for b in &alvo.blocks {
+        for b in &target.blocks {
             for (v, _, _) in &b.instructions {
                 let Some(Operand::Val(new)) = values.get(v) else { continue };
-                let p = match (da.embedded_positions.get(v), da.positions.get(v)) {
+                let p = match (dinfo.embedded_positions.get(v), dinfo.positions.get(v)) {
                     (Some(&(l, c, j)), _) => (l, c, k + 1 + j),
                     (None, Some(&(l, c))) => (l, c, k),
                     (None, None) => continue,

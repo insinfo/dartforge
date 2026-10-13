@@ -1,5 +1,5 @@
 //! The compiler fingerprint that goes into the cache key of the source SDK
-//! (P5c, `src/sdk_modulo.rs`): the blake3 of the sources of whatever decides the
+//! (P5c, `src/sdk_module.rs`): the blake3 of the sources of whatever decides the
 //! code of an SDK library — the lowering and the emitter (this crate), the
 //! inference (`types`), the element model (`elements`) and the front end.
 //! A change in any of them invalidates the cached SDK objects; the
@@ -90,19 +90,19 @@ fn precompile_runtime() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace = root.join("../..");
     let exit = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
-    let alvo = std::env::var("TARGET").expect("TARGET");
-    let windows = alvo.contains("windows");
+    let target = std::env::var("TARGET").expect("TARGET");
+    let windows = target.contains("windows");
     let skip = std::env::var("DARTFORGE_RUNTIME_SEM_PRECOMPILAR").is_ok_and(|v| v == "1");
     // macOS: the C code of the dependencies (zlib, `ring`) targets the same minimum that
-    // `ld64.lld` declares in the executable (`ligador_macos.rs`); without this,
+    // `ld64.lld` declares in the executable (`linker_macos.rs`); without this,
     // `cc` uses the one from the machine's SDK (26.x), and the program could call what
     // an older macOS does not have.
     println!("cargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
-    let macos_minimum = alvo.contains("apple-darwin").then(|| {
+    let macos_minimum = target.contains("apple-darwin").then(|| {
         std::env::var("MACOSX_DEPLOYMENT_TARGET")
             .ok()
             .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| if alvo.starts_with("aarch64") { "11.0" } else { "10.12" }.to_string())
+            .unwrap_or_else(|| if target.starts_with("aarch64") { "11.0" } else { "10.12" }.to_string())
     });
 
     let mut sources = Vec::new();
@@ -127,7 +127,7 @@ fn precompile_runtime() {
     ] {
         let mut h = blake3::Hasher::new();
         h.update(b"dartforge-runtime-cargo\0");
-        h.update(alvo.as_bytes());
+        h.update(target.as_bytes());
         h.update(b"\0");
         h.update(feature.as_bytes());
         h.update(b"\0");
@@ -163,7 +163,7 @@ fn precompile_runtime() {
             .arg("--locked")
             .arg("--manifest-path")
             .arg(workspace.join("Cargo.toml"))
-            .args(["-p", "dartforge-runtime-static", "--features", feature, "--target", &alvo])
+            .args(["-p", "dartforge-runtime-static", "--features", feature, "--target", &target])
             .args(profile)
             .arg("--target-dir")
             .arg(&target_dir);
@@ -189,7 +189,7 @@ fn precompile_runtime() {
         // the unwinding of exceptions by tables cross the runtime
         // frames; without the table, the unwinder stops at the first of them
         // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.6).
-        if alvo.contains("linux") || alvo.contains("apple") {
+        if target.contains("linux") || target.contains("apple") {
             flags.push_str("\x1f-Cforce-unwind-tables=yes");
         }
         cmd.env("CARGO_ENCODED_RUSTFLAGS", flags).env_remove("RUSTFLAGS");
@@ -197,8 +197,8 @@ fn precompile_runtime() {
             cmd.env("MACOSX_DEPLOYMENT_TARGET", m);
         }
         let status = cmd.status().expect("run the build's cargo");
-        assert!(status.success(), "the runtime compilation ({feature}) for {alvo} failed");
-        let produced = target_dir.join(&alvo).join("release").join(cargo_file);
+        assert!(status.success(), "the runtime compilation ({feature}) for {target} failed");
+        let produced = target_dir.join(&target).join("release").join(cargo_file);
         let tmp = exit.join(format!("{name}.tmp"));
         std::fs::copy(&produced, &tmp).unwrap_or_else(|e| panic!("copiar {}: {e}", produced.display()));
         std::fs::rename(&tmp, &lib).expect("publish the precompiled runtime");

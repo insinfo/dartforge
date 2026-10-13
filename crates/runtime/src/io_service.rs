@@ -48,7 +48,7 @@ fn service_pool() -> &'static ServicePool {
 
 impl ServicePool {
     /// Enqueues a request and wakes (or creates) a thread for it.
-    fn enviar(&'static self, request: Graph) {
+    fn send(&'static self, request: Graph) {
         use std::sync::atomic::Ordering;
         self.queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(request);
         if self.idle.load(Ordering::Acquire) == 0 && self.threads.load(Ordering::Acquire) < MAX_SERVICE_THREADS {
@@ -89,7 +89,7 @@ fn serve_io_request(g: Graph) {
         return;
     };
     let Some(port) = (match port {
-        Portable::Objeto(fields) => fields.first().and_then(Portable::int),
+        Portable::Object(fields) => fields.first().and_then(Portable::int),
         _ => None,
     }) else {
         return;
@@ -298,8 +298,8 @@ fn answer_path_request(request: i64, d: &[Portable]) -> Option<Portable> {
 /// thread pool.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_IOService_NewServicePort() -> i64 {
-    let id = open_native_port(std::sync::Arc::new(|_port, graph| service_pool().enviar(graph)));
-    let Some(f) = ajudante("_dartforgeSendPort") else {
+    let id = open_native_port(std::sync::Arc::new(|_port, graph| service_pool().send(graph)));
+    let Some(f) = helper("_dartforgeSendPort") else {
         panic!("compiler bug: dart:isolate without a registered `_dartforgeSendPort`");
     };
     // SAFETY: registered by the overlay's `dart:isolate` library with the

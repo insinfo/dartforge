@@ -1,7 +1,7 @@
 // Native runtime: the Winsock layer of the `dart:io` sockets (the VM's
 // `socket_win.cc` and `socket_base_win.cc`), with the same names as the Unix layer
 // (`io_sockets_unix.rs`) that the natives in `io_sockets.rs` call. The
-// "descriptor" is the [`Handle`] of `io_windows_eventos.rs`.
+// "descriptor" is the [`Handle`] of `io_windows_events.rs`.
 //
 // Windows has no Unix domain sockets in `dart:io` (the VM answers with an
 // `OSError`); name resolution uses the Unicode functions (`GetAddrInfoW`,
@@ -40,7 +40,7 @@ mod windows_only {
 
     /// `ADDRINFOW` (on Windows, `ai_canonname` comes before `ai_addr`).
     #[repr(C)]
-    struct InfoDeEndereco {
+    struct WinAddrInfo {
         ai_flags: i32,
         ai_family: i32,
         ai_socktype: i32,
@@ -48,7 +48,7 @@ mod windows_only {
         ai_addrlen: usize,
         ai_canonname: *mut u16,
         ai_addr: *const u8,
-        ai_next: *mut InfoDeEndereco,
+        ai_next: *mut WinAddrInfo,
     }
 
     /// The beginning of `IP_ADAPTER_ADDRESSES_LH` (up to `Ipv6IfIndex`).
@@ -69,7 +69,7 @@ mod windows_only {
         physical_address_size: u32,
         flag_bits: u32,
         mtu: u32,
-        tipo: u32,
+        ty: u32,
         operational_state: u32,
         ipv6_index: u32,
     }
@@ -86,8 +86,8 @@ mod windows_only {
 
     #[link(name = "ws2_32")]
     unsafe extern "system" {
-        fn GetAddrInfoW(no: *const u16, service: *const u16, hints: *const InfoDeEndereco, res: *mut *mut InfoDeEndereco) -> i32;
-        fn FreeAddrInfoW(res: *mut InfoDeEndereco);
+        fn GetAddrInfoW(no: *const u16, service: *const u16, hints: *const WinAddrInfo, res: *mut *mut WinAddrInfo) -> i32;
+        fn FreeAddrInfoW(res: *mut WinAddrInfo);
         fn GetNameInfoW(e: *const u8, n: i32, host: *mut u16, hn: u32, serv: *mut u16, sn: u32, flag_bits: i32) -> i32;
         fn InetPtonW(family: i32, text: *const u16, dest: *mut u8) -> i32;
     }
@@ -177,7 +177,7 @@ mod windows_only {
             self.family() == AF_INET6
         }
 
-        pub(super) fn tipo(&self) -> i64 {
+        pub(super) fn ty(&self) -> i64 {
             if self.is_ipv6() { TYPE_IPV6 } else { TYPE_IPV4 }
         }
 
@@ -231,20 +231,20 @@ mod windows_only {
     }
 
     /// Closes `s` preserving the current error.
-    fn close_with_error(s: Bruto) -> OsError {
+    fn close_with_error(s: RawHandle) -> OsError {
         let e = last_error();
         // SAFETY: the socket belongs to the caller and was not handed to anyone.
         unsafe { closesocket(s) };
         e
     }
 
-    fn set_int_option(s: Bruto, level: i32, option: i32, value: i32) -> bool {
+    fn set_int_option(s: RawHandle, level: i32, option: i32, value: i32) -> bool {
         // SAFETY: `value` lives during the call.
         unsafe { setsockopt(s, level, option, (&value as *const i32).cast(), 4) == 0 }
     }
 
     /// An integer option; the multicast ones may come in one byte.
-    fn get_int_option(s: Bruto, level: i32, option: i32) -> Option<i64> {
+    fn get_int_option(s: RawHandle, level: i32, option: i32) -> Option<i64> {
         let mut v = [0u8; 4];
         let mut n = 4i32;
         // SAFETY: `v` has 4 bytes; the system says how many it used.
@@ -261,7 +261,7 @@ mod windows_only {
 
     /// The `SOCKET` of a descriptor, with the error in `WSAGetLastError` if the
     /// socket was already closed (the natives read the error from there).
-    fn raw_socket(fd: i64) -> Option<Bruto> {
+    fn raw_socket(fd: i64) -> Option<RawHandle> {
         match sock(fd) {
             Ok(m) => Some(m.raw),
             Err(_) => {
@@ -335,7 +335,7 @@ mod windows_only {
             return Err(close_with_error(s));
         }
         let m = Handle::new(HandleKind::Listen, s);
-        m.estado().family = e.family();
+        m.state().family = e.family();
         if !start_accepting(&m) {
             discard(&m);
             return Err(OsError { code: -1, message: "Failed to start accept".to_string() });
@@ -367,7 +367,7 @@ mod windows_only {
         Ok(descriptor_of(Handle::new(HandleKind::Datagram, s)))
     }
 
-    fn socket_port(s: Bruto) -> i64 {
+    fn socket_port(s: RawHandle) -> i64 {
         let mut e = OsAddress::empty();
         let mut n = 128i32;
         // SAFETY: `e` has 128 bytes.
@@ -386,8 +386,8 @@ mod windows_only {
     /// `getpeername`.
     pub(super) fn remote_peer(fd: i64) -> IoResult<(OsAddress, i64)> {
         let m = sock(fd)?;
-        if m.tipo == HandleKind::Client {
-            if let Some(e) = m.estado().remote.clone() {
+        if m.ty == HandleKind::Client {
+            if let Some(e) = m.state().remote.clone() {
                 let port = e.port();
                 return Ok((e, port));
             }
@@ -405,7 +405,7 @@ mod windows_only {
 
     /// `SocketBase::GetError`: the handle's last error.
     pub(super) fn pending_error(fd: i64) -> i32 {
-        sock(fd).map_or(6, |m| m.estado().last_error as i32)
+        sock(fd).map_or(6, |m| m.state().last_error as i32)
     }
 
     /// `SocketBase::GetType` (`GetFileType`).
@@ -495,15 +495,15 @@ mod windows_only {
     // Names and interfaces.
 
     /// `SocketBase::LookupAddress` (first with `AI_ADDRCONFIG`).
-    pub(super) fn resolve_name(host: &str, tipo: i64) -> IoResult<Vec<OsAddress>> {
+    pub(super) fn resolve_name(host: &str, ty: i64) -> IoResult<Vec<OsAddress>> {
         start_winsock();
         let name = wide(host);
-        let family = match tipo {
+        let family = match ty {
             TYPE_IPV4 => i32::from(AF_INET),
             TYPE_IPV6 => i32::from(AF_INET6),
             _ => 0,
         };
-        let mut hints = InfoDeEndereco {
+        let mut hints = WinAddrInfo {
             ai_flags: AI_ADDRCONFIG,
             ai_family: family,
             ai_socktype: SOCK_STREAM,
@@ -513,7 +513,7 @@ mod windows_only {
             ai_addr: std::ptr::null(),
             ai_next: std::ptr::null_mut(),
         };
-        let mut res: *mut InfoDeEndereco = std::ptr::null_mut();
+        let mut res: *mut WinAddrInfo = std::ptr::null_mut();
         // SAFETY: `name`, `hints` and `res` live during the calls.
         let mut status = unsafe { GetAddrInfoW(name.as_ptr(), std::ptr::null(), &hints, &mut res) };
         if status != 0 {
@@ -554,12 +554,12 @@ mod windows_only {
 
     /// `SocketBase::ListInterfaces` (`GetAdaptersAddresses`, without anycast,
     /// multicast and DNS): (address, friendly name, index).
-    pub(super) fn list_interfaces(tipo: i64) -> IoResult<Vec<(OsAddress, String, i64)>> {
+    pub(super) fn list_interfaces(ty: i64) -> IoResult<Vec<(OsAddress, String, i64)>> {
         start_winsock();
         const GAA_FLAG_SKIP_ANYCAST: u32 = 0x2;
         const GAA_FLAG_SKIP_MULTICAST: u32 = 0x4;
         const GAA_FLAG_SKIP_DNS_SERVER: u32 = 0x8;
-        let family = match tipo {
+        let family = match ty {
             TYPE_IPV4 => u32::from(AF_INET),
             TYPE_IPV6 => u32::from(AF_INET6),
             _ => 0,

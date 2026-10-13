@@ -1,4 +1,4 @@
-//! J05: the line tables of the native debugger (`CompileOptions::depuracao`,
+//! J05: the line tables of the native debugger (`CompileOptions::debug`,
 //! `llvm/debug_info.rs`), checked in the IR. Without Clang: emission only.
 
 use dartforge_emit_native::{CompileOptions, emit_ir_with};
@@ -46,13 +46,13 @@ fn ir(debug_info: bool) -> Option<String> {
                 packages: None,
                 timings: false,
                 optimize: false,
-                versao_linguagem: None,
-                experimentos: Vec::new(),
-                depuracao: debug_info,
-                gerador: None,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: debug_info,
+                generator: None,
                 cpu: None,
             };
-            emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("did not compile:\n{e}")).texto
+            emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("did not compile:\n{e}")).text
         })
         .unwrap()
         .join()

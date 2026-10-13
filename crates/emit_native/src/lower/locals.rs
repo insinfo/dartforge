@@ -669,7 +669,7 @@ void main() {}
 "#,
                 )
                 .unwrap();
-                let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+                let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
                 let mut interner = Interner::new();
                 let (program, diags) =
                     dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);

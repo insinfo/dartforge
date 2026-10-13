@@ -41,7 +41,7 @@ fn mode_with_stdio(mode: i64) -> bool {
 fn list_strings(list: i64) -> Option<Vec<Vec<u8>>> {
     HEAP.with(|h| {
         let h = h.borrow();
-        if !h.e_lista(list) {
+        if !h.is_list(list) {
             return None;
         }
         let n = h.list_len(list);
@@ -59,7 +59,7 @@ fn list_strings(list: i64) -> Option<Vec<Vec<u8>>> {
 /// Writes the start error into the `_ProcessStartStatus` (the VM's
 /// `Dart_SetField`), through the overlay's function.
 fn start_failure(status: i64, code: i64, message: &str) {
-    let Some(f) = ajudante("_dartforgeFalhaAoIniciar") else {
+    let Some(f) = helper("_dartforgeFalhaAoIniciar") else {
         panic!("compiler bug: dart:io without a registered `_dartforgeFalhaAoIniciar`");
     };
     // SAFETY: registered by the `dart:io` overlay with the signature
@@ -86,7 +86,7 @@ struct StartedProcess {
 unsafe extern "C" {
     fn fork() -> i32;
     fn execvp(file: *const std::ffi::c_char, argv: *const *const std::ffi::c_char) -> i32;
-    fn dup2(de: i32, to: i32) -> i32;
+    fn dup2(of: i32, to: i32) -> i32;
     fn chdir(file_path: *const std::ffi::c_char) -> i32;
     fn setsid() -> i32;
     fn getpid() -> i32;
@@ -156,7 +156,7 @@ fn cloexec_pipe() -> IoResult<[i32; 2]> {
     let mut fds = [-1i32; 2];
     // SAFETY: `fds` has two integers.
     if unsafe { pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     close_on_exec(fds[0]);
     close_on_exec(fds[1]);
@@ -209,7 +209,7 @@ fn read_blocking(fd: i32, dest: &mut [u8]) -> isize {
 /// thread that waits for them (`ExitCodeHandler`).
 #[cfg(unix)]
 struct ChildWait {
-    estado: std::sync::Mutex<WaitState>,
+    state: std::sync::Mutex<WaitState>,
     sig_num: std::sync::Condvar,
 }
 
@@ -224,15 +224,15 @@ struct WaitState {
 #[cfg(unix)]
 fn child_wait() -> &'static ChildWait {
     static E: std::sync::OnceLock<ChildWait> = std::sync::OnceLock::new();
-    E.get_or_init(|| ChildWait { estado: std::sync::Mutex::new(WaitState::default()), sig_num: std::sync::Condvar::new() })
+    E.get_or_init(|| ChildWait { state: std::sync::Mutex::new(WaitState::default()), sig_num: std::sync::Condvar::new() })
 }
 
 #[cfg(unix)]
 impl ChildWait {
     /// Registers a child and makes sure the waiting thread exists.
-    fn register(&'static self, pid: i32, fd_de_saida: i32) {
-        let mut e = self.estado.lock().unwrap_or_else(|x| x.into_inner());
-        e.active.insert(pid, fd_de_saida);
+    fn register(&'static self, pid: i32, output_fd: i32) {
+        let mut e = self.state.lock().unwrap_or_else(|x| x.into_inner());
+        e.active.insert(pid, output_fd);
         self.sig_num.notify_all();
         if e.running {
             return;
@@ -248,7 +248,7 @@ impl ChildWait {
     fn wait_for(&self) {
         loop {
             {
-                let mut e = self.estado.lock().unwrap_or_else(|x| x.into_inner());
+                let mut e = self.state.lock().unwrap_or_else(|x| x.into_inner());
                 while e.active.is_empty() {
                     e = self.sig_num.wait(e).unwrap_or_else(|x| x.into_inner());
                 }
@@ -273,7 +273,7 @@ impl ChildWait {
                 code = termination;
                 negative = 1;
             }
-            let fd = self.estado.lock().unwrap_or_else(|x| x.into_inner()).active.remove(&pid);
+            let fd = self.state.lock().unwrap_or_else(|x| x.into_inner()).active.remove(&pid);
             if let Some(fd) = fd {
                 let mut msg = [0u8; 8];
                 msg[..4].copy_from_slice(&code.to_ne_bytes());
@@ -360,7 +360,7 @@ fn start_process(
     // already built.
     let pid = unsafe { fork() };
     if pid < 0 {
-        let e = OsError::de(&std::io::Error::last_os_error());
+        let e = OsError::of(&std::io::Error::last_os_error());
         close_all(&pipes);
         return Err(e);
     }
@@ -476,7 +476,7 @@ fn start_process(
         }
     };
     if write_blocking(read_input[1], b"1") != 1 {
-        let e = OsError::de(&std::io::Error::last_os_error());
+        let e = OsError::of(&std::io::Error::last_os_error());
         shutdown_end(end);
         close_all(&pipes);
         return Err(e);
@@ -620,7 +620,7 @@ fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64,
             if r < 0 && current_errno() == 4 {
                 continue;
             }
-            let e = OsError::de(&std::io::Error::last_os_error());
+            let e = OsError::of(&std::io::Error::last_os_error());
             close_live(&live_set);
             return Err(e);
         }
@@ -628,7 +628,7 @@ fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64,
         for f in &fds {
             let fd = i64::from(f.fd);
             if f.revents & (POLLNVAL | POLLERR) != 0 {
-                let e = OsError::de(&std::io::Error::last_os_error());
+                let e = OsError::of(&std::io::Error::last_os_error());
                 close_live(&live_set);
                 return Err(e);
             }
@@ -636,7 +636,7 @@ fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64,
                 let available = available_bytes(fd).max(0) as usize;
                 if fd == end {
                     if available == 8 && read_blocking(f.fd, &mut code) != 8 {
-                        let e = OsError::de(&std::io::Error::last_os_error());
+                        let e = OsError::of(&std::io::Error::last_os_error());
                         close_live(&live_set);
                         return Err(e);
                     }
@@ -841,7 +841,7 @@ fn subscribe_signal(sig_num: i64) -> IoResult<i64> {
     }
     let fds = cloexec_pipe()?;
     if !(set_nonblocking(fds[0]) && set_nonblocking(fds[1])) {
-        let e = OsError::de(&std::io::Error::last_os_error());
+        let e = OsError::of(&std::io::Error::last_os_error());
         // SAFETY: the descriptors were just created.
         unsafe {
             close(fds[0]);
@@ -974,7 +974,7 @@ fn resident_memory() -> IoResult<i64> {
 fn max_resident_memory() -> IoResult<i64> {
     #[repr(C)]
     struct Usage {
-        tempos: [i64; 4],
+        times: [i64; 4],
         maxrss: std::ffi::c_long,
         rest: [std::ffi::c_long; 13],
     }
@@ -984,7 +984,7 @@ fn max_resident_memory() -> IoResult<i64> {
     // SAFETY: the structure is plain data; the function fills it (RUSAGE_SELF = 0).
     let mut u: Usage = unsafe { std::mem::zeroed() };
     if unsafe { getrusage(0, &mut u) } < 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok(if cfg!(target_os = "linux") { u.maxrss as i64 * 1024 } else { u.maxrss as i64 })
 }
@@ -1008,7 +1008,7 @@ fn memory_counters() -> IoResult<(i64, i64)> {
     let mut c = Counters { cb: std::mem::size_of::<Counters>() as u32, ..Default::default() };
     // SAFETY: `c` has the reported size.
     if unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) } == 0 {
-        return Err(OsError::de(&std::io::Error::last_os_error()));
+        return Err(OsError::of(&std::io::Error::last_os_error()));
     }
     Ok((c.current as i64, c.peak as i64))
 }

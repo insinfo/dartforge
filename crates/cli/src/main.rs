@@ -2,7 +2,7 @@
 use std::{env, path::PathBuf, process::ExitCode};
 mod analyze;
 #[cfg(feature = "nativo")]
-mod empacotar;
+mod pack;
 mod engine;
 mod format;
 mod jit;
@@ -49,7 +49,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args[0] == "empacotar" {
         #[cfg(feature = "nativo")]
-        return empacotar::run(&args[1..]);
+        return pack::run(&args[1..]);
         #[cfg(not(feature = "nativo"))]
         return Err("empacotar: build with --features nativo".into());
     }

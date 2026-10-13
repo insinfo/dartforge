@@ -108,7 +108,7 @@ fn division_by_zero() -> i64 {
 fn concat_lists(a: i64, b: i64) -> Option<i64> {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        if !heap.e_lista(a) || !heap.e_lista(b) {
+        if !heap.is_list(a) || !heap.is_list(b) {
             return None;
         }
         // Owning copies of `a`, `b` and of the output protect the allocation
@@ -129,9 +129,9 @@ fn concat_lists(a: i64, b: i64) -> Option<i64> {
             let v = heap.list_get(b, i);
             heap.list_set(new_area, len_a + i, v);
         }
-        let tipo = heap.metadata(a);
-        if tipo != 0 {
-            heap.set_metadata(new_area, tipo);
+        let ty = heap.metadata(a);
+        if ty != 0 {
+            heap.set_metadata(new_area, ty);
         }
         heap.pop_frame(frame);
         Some(new_area)
@@ -243,7 +243,7 @@ fn iterable_element(h: i64, i: i64) -> Option<crate::heap::Value> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         let i = usize::try_from(i).ok()?;
-        (heap.e_lista(h) && i < heap.list_len(h)).then(|| heap.list_get(h, i))
+        (heap.is_list(h) && i < heap.list_len(h)).then(|| heap.list_get(h, i))
     })
 }
 

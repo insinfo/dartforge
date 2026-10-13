@@ -40,15 +40,15 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     // The precompiled runtime (the three variants).
     for r in [
         dartforge_emit_native::cache::RuntimeCache::get_or_compile()?,
-        dartforge_emit_native::cache::RuntimeCache::para_dll()?,
-        dartforge_emit_native::cache::RuntimeCache::para_producao()?,
+        dartforge_emit_native::cache::RuntimeCache::for_dll()?,
+        dartforge_emit_native::cache::RuntimeCache::for_production()?,
     ] {
         copy(&r.lib_path, &lib.join("runtime").join(r.lib_path.file_name().ok_or("runtime without a name")?))?;
     }
 
     // The overlay and the Dart SDK.
-    copy_tree(&dartforge_emit_native::sdk_modulo::dir_sobreposicao(), &lib.join("native_sdk"))?;
-    let sdk = dartforge_emit_native::sdk_do_dart()?;
+    copy_tree(&dartforge_emit_native::sdk_module::overlay_dir(), &lib.join("native_sdk"))?;
+    let sdk = dartforge_emit_native::dart_sdk()?;
     copy_tree(&sdk, &lib.join("dart-sdk").join("lib"))?;
     if let Some(root) = sdk.parent()
         && root.join("version").is_file()
@@ -67,25 +67,25 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     let clang = locate(&clang).ok_or_else(|| format!("Clang not found ({})", clang.display()))?;
     let llvm_dir = clang.parent().ok_or("Clang without a directory")?.to_path_buf();
     let llvm_bin = lib.join("llvm").join("bin");
-    use dartforge_emit_native::alvo::{Sistema, sistema};
-    match sistema() {
-        Sistema::Linux => {
-            let sysroot = dartforge_emit_native::ligador::SysrootLinux::do_sistema(&clang)?;
-            sysroot.copiar_para(&lib.join("sysroot").join(dartforge_emit_native::ligador::triple_do_sysroot()))?;
+    use dartforge_emit_native::target::{Os, target_os};
+    match target_os() {
+        Os::Linux => {
+            let sysroot = dartforge_emit_native::linker::SysrootLinux::from_system(&clang)?;
+            sysroot.copy_to(&lib.join("sysroot").join(dartforge_emit_native::linker::sysroot_triple()))?;
         }
-        Sistema::Windows => {
-            use dartforge_emit_native::ligador_windows as lw;
-            let generator = dartforge_emit_native::gerador::Gerador::escolher(&clang);
-            lw::gerar(&lib.join("sysroot").join(lw::TRIPLE), &lw::CompiladorDaCrt::Gerador(&generator))?;
+        Os::Windows => {
+            use dartforge_emit_native::linker_windows as lw;
+            let generator = dartforge_emit_native::generator::Generator::choose(&clang);
+            lw::generate(&lib.join("sysroot").join(lw::TRIPLE), &lw::CrtCompiler::Generator(&generator))?;
         }
-        Sistema::MacOs => {
-            use dartforge_emit_native::ligador_macos as lm;
-            let arch = lm::Arquitetura::do_hospedeiro();
-            lm::gerar(&lib.join("sysroot").join(arch.triple_do_sysroot()), arch)?;
+        Os::MacOs => {
+            use dartforge_emit_native::linker_macos as lm;
+            let arch = lm::Arch::host();
+            lm::generate(&lib.join("sysroot").join(arch.sysroot_triple()), arch)?;
         }
     }
-    if !dartforge_emit_native::gerador::GERADOR_EMBUTIDO {
-        copy(&clang, &llvm_bin.join(dartforge_emit_native::alvo::nome_clang()))?;
+    if !dartforge_emit_native::generator::EMBEDDED_GENERATOR {
+        copy(&clang, &llvm_bin.join(dartforge_emit_native::target::clang_name()))?;
     }
     let lld = if cfg!(windows) {
         "lld-link.exe"

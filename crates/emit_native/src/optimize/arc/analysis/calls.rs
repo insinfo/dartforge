@@ -121,16 +121,16 @@ pub(super) fn solve<'a>(
         .iter()
         .enumerate()
         .map(|(v, &f)| {
-            let mut resumo = extract_with_calls(f, limit, false, |s| {
+            let mut summary = extract_with_calls(f, limit, false, |s| {
                 ids.get(s).map(|&w| (bodies[w], &returns[w]))
             })?;
             let index = positions[f.symbol.as_str()];
-            let table = if m.excecoes_por_tabelas {
+            let table = if m.table_exceptions {
                 m.tables.get(index)
             } else {
                 None
             };
-            if (m.excecoes_por_tabelas && table.is_none())
+            if (m.table_exceptions && table.is_none())
                 || crate::llvm::LlvmEmitter::requires_explicit_context(f, table)
                 || crate::llvm::LlvmEmitter::may_require_context_for_roots(f)
                 || table.is_some_and(|t| {
@@ -141,10 +141,10 @@ pub(super) fn solve<'a>(
                 })
             {
                 opaque_context[v] = true;
-                resumo.invalidate_coverage();
+                summary.invalidate_coverage();
             }
-            debug_assert_eq!(resumo.ret(), &returns[v]);
-            Ok(resumo)
+            debug_assert_eq!(summary.ret(), &returns[v]);
+            Ok(summary)
         })
         .collect::<Result<_, String>>()?;
     // The initial state is unknown at the calls. Only promote when
@@ -238,17 +238,17 @@ pub(super) fn solve<'a>(
             }
         }
     }
-    for (((resumo, inclusions), ret), publications) in
+    for (((summary, inclusions), ret), publications) in
         summaries.iter_mut().zip(writes).zip(paths).zip(globals)
     {
-        resumo.write_inclusions = inclusions;
-        resumo.return_paths = ret;
-        resumo.publication_inclusions = publications;
+        summary.write_inclusions = inclusions;
+        summary.return_paths = ret;
+        summary.publication_inclusions = publications;
     }
     Ok(bodies
         .into_iter()
         .zip(summaries)
-        .map(|(f, resumo)| (f.symbol.clone(), (f, resumo)))
+        .map(|(f, summary)| (f.symbol.clone(), (f, summary)))
         .collect())
 }
 
@@ -321,7 +321,7 @@ fn join_set(dest: &mut ArcHeapReturn, origin: &ArcHeapReturn, limit: usize) -> b
 mod tests {
     use super::*;
 
-    fn scalar(name: &str, alvo: Option<&str>) -> Function {
+    fn scalar(name: &str, target: Option<&str>) -> Function {
         Function {
             symbol: name.into(),
             name: name.into(),
@@ -330,7 +330,7 @@ mod tests {
             return_ty: Type::I64,
             blocks: vec![BasicBlock {
                 id: BlockId(0),
-                instructions: alvo
+                instructions: target
                     .into_iter()
                     .map(|symbol| {
                         (
@@ -344,7 +344,7 @@ mod tests {
                         )
                     })
                     .collect(),
-                terminator: Terminator::Return(Some(Operand::Val(ValueId(if alvo.is_some() {
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(if target.is_some() {
                     1
                 } else {
                     0
@@ -357,19 +357,19 @@ mod tests {
     fn composite_coverage_deep_chain_and_body_order() {
         let mut m = Module::new();
         for v in 0..1000 {
-            let alvo = (v < 999).then(|| format!("f{}", v + 1));
-            m.functions.push(scalar(&format!("f{v}"), alvo.as_deref()));
+            let target = (v < 999).then(|| format!("f{}", v + 1));
+            m.functions.push(scalar(&format!("f{v}"), target.as_deref()));
         }
         for _ in 0..2 {
             let r = solve(&m, &HashSet::from(["f0"]), 8).unwrap();
             assert_eq!(r.len(), 1000);
-            for (_, resumo) in r.values() {
+            for (_, summary) in r.values() {
                 assert_eq!(
-                    resumo.fields(),
+                    summary.fields(),
                     super::super::summaries::ArcHeapFields::Preserved
                 );
                 assert_eq!(
-                    resumo.publications(),
+                    summary.publications(),
                     super::super::summaries::ArcHeapPublications::ResultOnly
                 );
             }
@@ -423,7 +423,7 @@ mod tests {
         use super::super::summaries::*;
         let mut m = Module::new();
         m.functions = vec![scalar("f", Some("g")), scalar("g", None)];
-        m.excecoes_por_tabelas = true;
+        m.table_exceptions = true;
         for tables in [
             vec![],
             vec![
@@ -541,8 +541,8 @@ mod tests {
         });
         super::super::origins::register(&mut m, 0, true);
         for v in 0..64 {
-            let alvo = (v < 63).then(|| format!("f{}", v + 1));
-            m.functions.push(scalar(&format!("f{v}"), alvo.as_deref()));
+            let target = (v < 63).then(|| format!("f{}", v + 1));
+            m.functions.push(scalar(&format!("f{v}"), target.as_deref()));
         }
         m.functions[64].blocks[0].instructions.push((
             ValueId(1),
@@ -555,10 +555,10 @@ mod tests {
         m.functions[64].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
         for _ in 0..2 {
             let r = solve(&m, &HashSet::from(["f0"]), 8).unwrap();
-            for (_, resumo) in r.values() {
-                assert_eq!(resumo.fields(), ArcHeapFields::Preserved);
-                assert_eq!(resumo.publications(), ArcHeapPublications::ResultOnly);
-                assert_eq!(resumo.ret(), &ArcHeapReturn::UnknownValue);
+            for (_, summary) in r.values() {
+                assert_eq!(summary.fields(), ArcHeapFields::Preserved);
+                assert_eq!(summary.publications(), ArcHeapPublications::ResultOnly);
+                assert_eq!(summary.ret(), &ArcHeapReturn::UnknownValue);
             }
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
             assert_eq!(a.value(ValueId(0)), a.value(ValueId(3)));
@@ -774,9 +774,9 @@ mod tests {
             &["f".into()],
         ));
         let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
-        for (_, resumo) in r.values() {
+        for (_, summary) in r.values() {
             assert_eq!(
-                resumo.ret(),
+                summary.ret(),
                 &ArcHeapReturn::Aliases {
                     parameters: BTreeSet::new(),
                     null: true

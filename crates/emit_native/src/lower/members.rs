@@ -625,7 +625,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "TypeError" => 1011,
             "NoSuchMethodError" => 1012,
             // The `Type` object of the RTI (`rti.rs`, the type class constant).
-            "Type" => super::rti::CLASSE_TIPO,
+            "Type" => super::rti::TYPE_CLASS,
             _ => return None,
         })
     }
@@ -791,10 +791,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, current.clone(), Operand::Constant(Constant::Null)), Type::I1);
                 let b_join = self.new_block();
                 let b_getter = self.new_block();
-                let de = self.current_block;
+                let of = self.current_block;
                 self.terminate(Terminator::CondBranch { cond: non_null, then_block: b_join, else_block: b_getter });
                 self.set_block(b_getter);
-                (current, de, b_join)
+                (current, of, b_join)
             });
             let v = self.emit_call_with_check(
                 Instruction::CallStatic {
@@ -804,13 +804,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 self.field_repr(vid),
             );
-            let Some((current, de, b_join)) = fast else { return v };
+            let Some((current, of, b_join)) = fast else { return v };
             let incoming = if self.is_terminated() {
-                vec![(de, current)]
+                vec![(of, current)]
             } else {
                 let b = self.current_block;
                 self.terminate(Terminator::Branch(b_join));
-                vec![(de, current), (b, v)]
+                vec![(of, current), (b, v)]
             };
             self.set_block(b_join);
             return self.emit(Instruction::Phi { incoming, ty: Type::Ref }, Type::Ref);
@@ -1092,15 +1092,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // has no default of its own and takes that of the corresponding parameter of the
         // target (specification, "Redirecting Factory Constructors"; the CFE
         // copies the defaults of the effective target).
-        if let Some(alvo) = self.redirected_target(fid) {
-            let target_params = &self.ctx.outline.functions.get(alvo)?.parameters;
+        if let Some(target) = self.redirected_target(fid) {
+            let target_params = &self.ctx.outline.functions.get(target)?.parameters;
             let j = if p.kind == ParameterKind::Named {
                 target_params.iter().position(|sp| sp.kind == ParameterKind::Named && sp.external_name == p.name.map(|n| n.sym))?
             } else {
                 // The positional ones come before the named ones, in the same order.
                 i
             };
-            return self.default_value(alvo, j);
+            return self.default_value(target, j);
         }
         if !p.super_ {
             return None;
@@ -1109,7 +1109,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // superclass constructor.
         let (sup_fid, explicit_positionals) = self.super_constructor_of(fid)?;
         let sup_params = &self.ctx.outline.functions.get(sup_fid)?.parameters;
-        let alvo = if p.kind == ParameterKind::Named {
+        let target = if p.kind == ParameterKind::Named {
             sup_params
                 .iter()
                 .position(|sp| sp.external_name == p.name.map(|n| n.sym))?
@@ -1126,7 +1126,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .collect();
             *positionals.get(explicit_positionals + k)?
         };
-        self.default_value(sup_fid, alvo)
+        self.default_value(sup_fid, target)
     }
 
     /// The constructor to which the factory `fid` redirects
@@ -1140,9 +1140,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let r = c.redirect.as_ref()?;
         let saved = self.unit_id;
         self.unit_id = unit;
-        let alvo = self.type_constructor(ast.ty(r.ty), r.constructor.map(|n| n.sym));
+        let target = self.type_constructor(ast.ty(r.ty), r.constructor.map(|n| n.sym));
         self.unit_id = saved;
-        alvo.map(|f| f.0 as usize).filter(|&a| a != fid)
+        target.map(|f| f.0 as usize).filter(|&a| a != fid)
     }
 
     /// Superclass constructor called by a constructor (explicit in the
@@ -1245,7 +1245,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         this: Option<Operand>,
         args: Vec<Operand>,
     ) -> Operand {
-        if let Some((alvo, shape)) = self.redirected_ffi_call(fid) {
+        if let Some((target, shape)) = self.redirected_ffi_call(fid) {
             // `Pointer.fromFunction`, `NativeCallable.*`, `Struct.create`: the
             // helper of the overlay has the same parameters
             // (`lower/ffi.rs`).
@@ -1265,7 +1265,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     args.push(Operand::Constant(Constant::Int((h >> 1) as i64)));
                 }
             }
-            let r = self.call_direct(alvo, this, args);
+            let r = self.call_direct(target, this, args);
             self.armed_tuple = saved;
             return r;
         }
@@ -1423,10 +1423,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         if distinct.len() == 1 {
-            let alvo = distinct[0];
-            self.check_target_covariants(alvo, &recv, evaluated);
-            let args = self.match_args(alvo, evaluated);
-            let r = self.call_direct(alvo, Some(recv), args);
+            let target = distinct[0];
+            self.check_target_covariants(target, &recv, evaluated);
+            let args = self.match_args(target, evaluated);
+            let r = self.call_direct(target, Some(recv), args);
             return if ret == Type::Void {
                 r
             } else {
@@ -1687,14 +1687,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         obj
     }
 
-    /// The forwarding constructors of the mixin applications from `de` to
+    /// The forwarding constructors of the mixin applications from `of` to
     /// `until` (exclusive): each one initializes the fields of its mixins, from the
     /// last to the first, before the superclass constructor.
-    fn initialize_application_mixins(&mut self, obj: Operand, de: ClassId, until: ClassId) {
+    fn initialize_application_mixins(&mut self, obj: Operand, of: ClassId, until: ClassId) {
         let saved = self.this_param.replace(obj);
         let saved_finalizable = self.finalizable_this;
-        self.finalizable_this = self.ctx.classify_finalizable_class(de);
-        let mut c = de;
+        self.finalizable_this = self.ctx.classify_finalizable_class(of);
+        let mut c = of;
         while c != until {
             let class_ref = &self.ctx.program.classes[c.0 as usize];
             let mixins = class_ref.mixin_classes.clone();
@@ -1882,7 +1882,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let class_ref = &self.ctx.program.classes[cid.0 as usize];
 
         // `: this(…)` delegates everything to the other constructor.
-        if let Some((alvo, args, span)) = ctor.initializers.iter().find_map(|i| match i {
+        if let Some((target, args, span)) = ctor.initializers.iter().find_map(|i| match i {
             ast::Initializer::Redirect {
                 constructor,
                 arguments,
@@ -1893,7 +1893,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let Some(empty) = self.ctx.interner.lookup("") else {
                 return;
             };
-            let s = alvo.map(|n| n.sym).unwrap_or(empty);
+            let s = target.map(|n| n.sym).unwrap_or(empty);
             let Some(&tf) = class_ref.constructors.get(&s) else {
                 self.unsupported("construtor redirecionado não encontrado", span);
                 return;
@@ -2339,7 +2339,7 @@ mod arc_mixin_field_tests {
             let entry = dir.path().join("main.dart");
             std::fs::write(&entry,
                 "class C { late Object? ref; late final int inteiro; late bool booleano; late double real; late int preparado = 1; Object? ler() => ref; int inicializado() => preparado; void trocar() { ref = null; inteiro = 0; booleano = false; real = 0.0; } } void main() { C().trocar(); }\n").unwrap();
-            let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
             assert!(diags.is_empty(), "{diags:?}");
@@ -2428,7 +2428,7 @@ mod arc_mixin_field_tests {
             let dir = tempfile::tempdir().unwrap();
             let entry = dir.path().join("main.dart");
             std::fs::write(&entry, "mixin M { Object? campo; int contador = 0; Object? ler() => campo; void trocar(Object? valor) { campo = valor; contador += 1; } } class Base { int a = 0; int b = 0; } class A with M {} class B extends Base with M {} void main() { A().trocar(1); B().trocar(2); A().ler(); B().ler(); }\n").unwrap();
-            let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
             assert!(diags.is_empty(), "{diags:?}");

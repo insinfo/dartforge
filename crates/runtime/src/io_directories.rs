@@ -14,7 +14,7 @@ fn directory_exists(p: &std::path::Path) -> IoResult<bool> {
     match std::fs::metadata(p) {
         Ok(m) => Ok(m.is_dir()),
         Err(e) => match e.kind() {
-            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::OutOfMemory => Err(OsError::de(&e)),
+            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::OutOfMemory => Err(OsError::of(&e)),
             _ => Ok(false),
         },
     }
@@ -28,10 +28,10 @@ fn create_directory(p: &std::path::Path) -> IoResult<()> {
             if directory_exists(p)? {
                 Ok(())
             } else {
-                Err(OsError::de(&e))
+                Err(OsError::of(&e))
             }
         }
-        Err(e) => Err(OsError::de(&e)),
+        Err(e) => Err(OsError::of(&e)),
     }
 }
 
@@ -48,7 +48,7 @@ fn create_temp_directory(prefix: &[u8]) -> IoResult<Vec<u8>> {
         match std::fs::create_dir(path_from_bytes(&name)) {
             Ok(()) => return Ok(name),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(OsError::de(&e)),
+            Err(e) => return Err(OsError::of(&e)),
         }
     }
 }
@@ -104,11 +104,11 @@ fn delete_recursively(p: &std::path::Path) -> IoResult<()> {
 }
 
 /// `Directory::Rename`: the source must be a directory.
-fn rename_directory(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
-    if !directory_exists(de)? {
+fn rename_directory(of: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
+    if !directory_exists(of)? {
         return Err(OsError::from_code(os_code::NOT_A_DIRECTORY));
     }
-    Ok(std::fs::rename(de, to)?)
+    Ok(std::fs::rename(of, to)?)
 }
 
 /// `Directory::Current`.
@@ -200,7 +200,7 @@ impl Listing {
                             file_path.truncate(file_path.len() - PATH_SEPARATOR.len());
                         }
                         self.stack.pop();
-                        return ListingEntry::Error(OsError::de(&e), file_path);
+                        return ListingEntry::Error(OsError::of(&e), file_path);
                     }
                 }
             }
@@ -213,17 +213,17 @@ impl Listing {
                 }
                 Some(Err(e)) => {
                     self.stack.pop();
-                    return ListingEntry::Error(OsError::de(&e), prefix);
+                    return ListingEntry::Error(OsError::of(&e), prefix);
                 }
                 Some(Ok(e)) => e,
             };
             let mut file_path = prefix;
             file_path.extend_from_slice(&path_bytes_of(std::path::Path::new(&input.file_name())));
-            let tipo = match self.classify(&input, &file_path) {
+            let ty = match self.classify(&input, &file_path) {
                 Ok(t) => t,
                 Err(e) => return ListingEntry::Error(e, file_path),
             };
-            if tipo == LIST_DIRECTORY && self.recursive {
+            if ty == LIST_DIRECTORY && self.recursive {
                 let level = self.stack.last().expect("current level");
                 let mut links = level.links.clone();
                 if let Ok(m) = std::fs::symlink_metadata(path_from_bytes(&file_path)) {
@@ -237,7 +237,7 @@ impl Listing {
                 sub.extend_from_slice(PATH_SEPARATOR.as_bytes());
                 self.stack.push(ListingLevel { reader: None, prefix: sub, links });
             }
-            return ListingEntry::Item(tipo, file_path);
+            return ListingEntry::Item(ty, file_path);
         }
     }
 
@@ -348,7 +348,7 @@ pub extern "C" fn dartforge_native_Directory_FillWithDirectoryListing(
     recursive: u8,
     follow_links_flag: u8,
 ) {
-    let (Some(input), Some(error)) = (ajudante("_dartforgeEntradaDeListagem"), ajudante("_dartforgeErroDeListagem")) else {
+    let (Some(input), Some(error)) = (helper("_dartforgeEntradaDeListagem"), helper("_dartforgeErroDeListagem")) else {
         panic!("compiler bug: dart:io without the overlay's listing functions");
     };
     // SAFETY: registered by the overlay's `dart:io` library with these
@@ -359,9 +359,9 @@ pub extern "C" fn dartforge_native_Directory_FillWithDirectoryListing(
     loop {
         match listing.next_item() {
             ListingEntry::End => return,
-            ListingEntry::Item(tipo, file_path) => {
+            ListingEntry::Item(ty, file_path) => {
                 let bytes = dart_bytes(file_path);
-                with_roots(&[bytes], || input(list, tipo, bytes));
+                with_roots(&[bytes], || input(list, ty, bytes));
                 if dartforge_exception_pending() != 0 {
                     return;
                 }
@@ -423,8 +423,8 @@ impl AsyncListing {
         }
         while out.len() < limit {
             match l.next_item() {
-                ListingEntry::Item(tipo, file_path) => {
-                    out.push(Portable::Int(tipo));
+                ListingEntry::Item(ty, file_path) => {
+                    out.push(Portable::Int(ty));
                     out.push(Portable::Bytes(file_path));
                 }
                 ListingEntry::Error(e, file_path) => {

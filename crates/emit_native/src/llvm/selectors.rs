@@ -208,7 +208,7 @@ impl LlvmEmitter<'_> {
         // §2.11): each module with statics registers that of the image it was
         // linked into (the executable, the SDK DLL); the registration is idempotent.
         if self.static_objects {
-            let (globals, start, end) = crate::alvo::image_markers();
+            let (globals, start, end) = crate::target::image_markers();
             self.out.push_str(&globals);
             writeln!(body, "  call void @dartforge_register_image(ptr {start}, ptr {end})").unwrap();
         }
@@ -348,7 +348,7 @@ impl LlvmEmitter<'_> {
         if !shared {
             return ("", String::new());
         }
-        if !crate::alvo::has_comdat() {
+        if !crate::target::has_comdat() {
             // Mach-O: the `linkonce_odr` definition is already weak, without a `comdat`.
             return ("linkonce_odr ", String::new());
         }

@@ -52,7 +52,7 @@ pub(super) fn produce_addresses(
         m.functions.iter().map(|f| (f.symbol.as_str(), f)).collect();
     // (direct function, position of the Ptr parameter) → type of the pointed local.
     let mut types: HashMap<(&str, usize), Type> = HashMap::new();
-    let ptr_de = |sym_name: &str, i: usize| {
+    let ptr_of = |sym_name: &str, i: usize| {
         directs.contains(sym_name)
             && by_symbol.get(sym_name).is_some_and(|g| g.params.get(i).is_some_and(|p| p.2 == Type::Ptr))
     };
@@ -109,7 +109,7 @@ pub(super) fn produce_addresses(
                     Instruction::CallStatic { symbol, args, .. } if directs.contains(symbol) => {
                         for (j, a) in args.iter().enumerate() {
                             let Operand::Val(a) = a else { continue };
-                            if !ptr_de(symbol, j) {
+                            if !ptr_of(symbol, j) {
                                 continue;
                             }
                             // The caller yields a local of known type; a

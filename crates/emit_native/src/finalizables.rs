@@ -71,14 +71,14 @@ mod tests {
     fn identity_supertypes_nullability_futureor_and_extension() {
         let mut table = TypeTable::new();
         let marker = ClassId(0);
-        let alvo = table.intern(Type::Interface {
+        let target = table.intern(Type::Interface {
             class: marker,
             args: Box::new([]),
             nullable: false,
         });
         let mut hierarchy = ClassHierarchy::new(3);
         let mut sub = ClassHierarchyData::default();
-        sub.supertypes.insert(marker, alvo);
+        sub.supertypes.insert(marker, target);
         hierarchy.set(ClassId(1), sub);
         hierarchy.set(ClassId(2), ClassHierarchyData::default());
         for class in [marker, ClassId(1), ClassId(2)] {
@@ -127,7 +127,7 @@ mod tests {
         let mut table = TypeTable::new();
         let mut interner = Interner::new();
         let marker = ClassId(0);
-        let alvo = table.intern(Type::Interface {
+        let target = table.intern(Type::Interface {
             class: marker,
             args: Box::new([]),
             nullable: false,
@@ -135,7 +135,7 @@ mod tests {
         let param = table.alloc_type_param(
             interner.intern("T"),
             TypeParamOwner::GenericFunctionType,
-            alvo,
+            target,
             Variance::Unspecified,
         );
         let t = table.intern(Type::TypeParameter {
@@ -147,7 +147,7 @@ mod tests {
             classify(&table, &hierarchy, Some(marker), t),
             Some(true)
         );
-        let promoted = table.intern(Type::Intersection { param, bound: alvo });
+        let promoted = table.intern(Type::Intersection { param, bound: target });
         assert_eq!(
             classify(&table, &hierarchy, Some(marker), promoted),
             Some(true)

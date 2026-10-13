@@ -59,7 +59,7 @@
 //! `  ; df.pos <line> <column>` markers.
 //! Written without compiling or running (2026-10-05).
 
-use crate::alvo::Sistema;
+use crate::target::Os;
 use crate::hir::{FunctionDebugInfo, Function, stack_trace_marks};
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -128,8 +128,8 @@ pub(super) fn call_target(line: &str) -> Option<Option<&str>> {
 /// Whether the call to `target` gets a label: the indirect one and the direct one that may throw
 /// or call Dart code (the Dart function, the extern the effects table
 /// marks); never an intrinsic.
-fn labelable(alvo: Option<&str>) -> bool {
-    match alvo {
+fn labelable(target: Option<&str>) -> bool {
+    match target {
         None => true,
         Some(name) if name.starts_with("llvm.") => false,
         Some(name) => {
@@ -143,10 +143,10 @@ fn labelable(alvo: Option<&str>) -> bool {
 /// line break, `\22` the quote and `$$` the dollar sign), with the `42:` label before it
 /// when `with_label`. In Mach-O, each entry has its `l…` symbol.
 fn model(entries: &[Entry], with_label: bool) -> String {
-    let (section, macho) = match crate::alvo::sistema() {
-        Sistema::Windows => (".pushsection \\22.dfpcl$$m\\22,\\22dr\\22", false),
-        Sistema::Linux => (".pushsection dfpcl,\\22aR?\\22,%progbits", false),
-        Sistema::MacOs => (".pushsection __DATA,__dfpcl,regular,no_dead_strip", true),
+    let (section, macho) = match crate::target::target_os() {
+        Os::Windows => (".pushsection \\22.dfpcl$$m\\22,\\22dr\\22", false),
+        Os::Linux => (".pushsection dfpcl,\\22aR?\\22,%progbits", false),
+        Os::MacOs => (".pushsection __DATA,__dfpcl,regular,no_dead_strip", true),
     };
     let mut s = String::new();
     if with_label {
@@ -194,7 +194,7 @@ fn with_noinline(line: &str) -> String {
 /// The linkage of the stack trace constants: in Mach-O, local symbols (the
 /// aarch64 writer does not relocate a subtraction with a temporary symbol).
 fn linkage() -> &'static str {
-    if crate::alvo::sistema() == Sistema::MacOs { "internal" } else { "private" }
+    if crate::target::target_os() == Os::MacOs { "internal" } else { "private" }
 }
 
 impl StackTrace {
@@ -346,19 +346,19 @@ impl StackTrace {
                     writeln!(exit, "{g}").unwrap();
                 }
             }
-            let alvo = call_target(line);
+            let target = call_target(line);
             if shared {
                 // `noinline` at the end of the call (before any metadata
                 // or `invoke` label, which these functions do not have).
-                if alvo.is_some_and(|a| a.is_none_or(|n| !n.starts_with("llvm."))) && !line.contains(", !") && !line.contains(" to label ") {
+                if target.is_some_and(|a| a.is_none_or(|n| !n.starts_with("llvm."))) && !line.contains(", !") && !line.contains(" to label ") {
                     writeln!(exit, "{}", with_noinline(line)).unwrap();
                 } else {
                     writeln!(exit, "{line}").unwrap();
                 }
                 continue;
             }
-            if let Some(alvo) = alvo
-                && labelable(alvo)
+            if let Some(target) = target
+                && labelable(target)
             {
                 let chain = self.chain(func, d, current, context);
                 let operands: Vec<String> = chain.iter().map(|(k, _)| format!("ptr @df.pcf.{k}")).collect();
@@ -369,7 +369,7 @@ impl StackTrace {
                     .collect();
                 writeln!(exit, "{}", group_asm(&entries, &operands, true)).unwrap();
                 // LLVM inlining would erase the frame of the called Dart function.
-                if alvo.is_some_and(|n| n.starts_with("df.")) && !line.contains(" noinline") {
+                if target.is_some_and(|n| n.starts_with("df.")) && !line.contains(" noinline") {
                     writeln!(exit, "{}", with_noinline(line)).unwrap();
                     continue;
                 }
@@ -394,22 +394,22 @@ impl StackTrace {
 /// one copy per image); in ELF, the linker symbols, with an anchor that
 /// guarantees the section; in Mach-O, the linker ones.
 pub(super) fn markers() -> (&'static str, &'static str, &'static str) {
-    match crate::alvo::sistema() {
-        Sistema::Windows => (
+    match crate::target::target_os() {
+        Os::Windows => (
             "$df.pcl.a = comdat any\n$df.pcl.z = comdat any\n\
              @df.pcl.a = linkonce_odr hidden constant [3 x i32] zeroinitializer, section \".dfpcl$a\", comdat, align 4\n\
              @df.pcl.z = linkonce_odr hidden constant [3 x i32] zeroinitializer, section \".dfpcl$z\", comdat, align 4\n",
             "@df.pcl.a",
             "@df.pcl.z",
         ),
-        Sistema::Linux => (
+        Os::Linux => (
             "$df.pcl.anchor = comdat any\n\
              @df.pcl.anchor = linkonce_odr hidden constant [3 x i32] zeroinitializer, section \"dfpcl\", comdat, align 4\n\
              @__start_dfpcl = external hidden global i8\n@__stop_dfpcl = external hidden global i8\n",
             "@__start_dfpcl",
             "@__stop_dfpcl",
         ),
-        Sistema::MacOs => (
+        Os::MacOs => (
             "@\"\\01section$start$__DATA$__dfpcl\" = external hidden global i8\n\
              @\"\\01section$end$__DATA$__dfpcl\" = external hidden global i8\n",
             "@\"\\01section$start$__DATA$__dfpcl\"",

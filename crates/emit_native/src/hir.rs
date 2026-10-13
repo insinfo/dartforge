@@ -374,12 +374,12 @@ pub enum Instruction {
         /// (`lower/closures.rs`, direct environment): it is not an environment.
         direct: bool,
     },
-    /// Call of the typed body of a closure: `alvo` is the address (`I64`,
+    /// Call of the typed body of a closure: `target` is the address (`I64`,
     /// from `dartforge_closure_typed`), the arguments go in the HIR
     /// representations (the first is the environment) and the result comes back in `ret`. The
     /// exception leaves through the pending flag, as in a Dart call.
     TypedCall {
-        alvo: Operand,
+        target: Operand,
         args: Vec<(Operand, Type)>,
         ret: Type,
     },
@@ -565,13 +565,13 @@ pub enum Instruction {
         args: Operand,
         desc: Operand,
     },
-    /// Call to a native (C) function at address `alvo` (`i64`), with the
+    /// Call to a native (C) function at address `target` (`i64`), with the
     /// C ABI of the target (`dart:ffi`, `lower/ffi.rs`). The arguments come in the
     /// HIR representation — integers and pointers `I64`, floating point
     /// `F64`, `bool` `I1` — and are converted to the C type; the result comes back
     /// the same way (integers extended to 64 bits by the sign of the C type).
     NativeCall {
-        alvo: Operand,
+        target: Operand,
         args: Vec<(Operand, CType)>,
         ret: CType,
     },
@@ -596,7 +596,7 @@ pub enum Instruction {
     /// written to `dest` (the result of the instruction is then `Void`). The
     /// emitter applies the C ABI of the target (`llvm/c_abi.rs`).
     CompositeNativeCall {
-        alvo: Operand,
+        target: Operand,
         args: Vec<(Operand, NativeType)>,
         ret: NativeType,
         dest: Option<Operand>,
@@ -770,7 +770,7 @@ pub struct Function {
     pub return_ty: Type,
     pub blocks: Vec<BasicBlock>,
     /// The source positions, when the compilation asks for debug
-    /// information (`CompileOptions::depuracao`, J05).
+    /// information (`CompileOptions::debug`, J05).
     pub debug_info: Option<Box<FunctionDebugInfo>>,
 }
 
@@ -1030,12 +1030,12 @@ pub struct Module {
     /// The exceptions of the module are by tables (`--excecoes=tabelas`): the
     /// `optimize::tables` pass ran and [`Module::tables`] holds. False: the usual
     /// model (pending flag checked after each call).
-    pub excecoes_por_tabelas: bool,
-    /// The memory of the module is ARC (`--memoria=arc`, `alvo::arc_memory`): the
+    pub table_exceptions: bool,
+    /// The memory of the module is ARC (`--memoria=arc`, `target::arc_memory`): the
     /// entry turns ARC on in the runtime and the reference stores into an object
     /// that may be old go through the runtime (docs/ARC-IMPLEMENTACAO.md).
     pub arc_memory: bool,
-    /// With [`Module::excecoes_por_tabelas`], the decision of the pass for each
+    /// With [`Module::table_exceptions`], the decision of the pass for each
     /// function, in the order of [`Module::functions`].
     pub tables: Vec<FunctionTables>,
     /// `dart:ffi`: (RTI id of the class, letter of the C type) of each native type

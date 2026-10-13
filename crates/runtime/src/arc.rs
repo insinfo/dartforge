@@ -42,7 +42,7 @@ pub struct MetaArc {
     pub generation: u64,
     /// Owners plus strong occurrences; does not include weak ones.
     pub rc: u64,
-    pub estado: ArcState,
+    pub state: ArcState,
     /// Is (or was) in the queue of cycle candidates since the last round.
     pub candidate: bool,
     /// An ephemeron value (or its closure) protected between rounds (§22.2): a zero
@@ -169,7 +169,7 @@ impl ArcPage {
     /// no division or remainder on the query path.
     #[inline]
     fn ix(&self, h: Ref) -> Option<usize> {
-        let d = (h.wrapping_sub(crate::layout::DESLOCAMENTO_DO_HANDLE) as u64).checked_sub(self.geometry.first)?;
+        let d = (h.wrapping_sub(crate::layout::HANDLE_OFFSET) as u64).checked_sub(self.geometry.first)?;
         let i = d.wrapping_mul(self.inverse).rotate_right(self.offset);
         (i < u64::from(self.geometry.blocks)).then_some(i as usize)
     }
@@ -189,8 +189,8 @@ struct Table {
     n: usize,
 }
 
-/// `PAGINA` = 64 KiB; a radix map region covers 2¹⁶ pages.
-const BITS_DA_PAGINA: u32 = 16;
+/// `PAGE` = 64 KiB; a radix map region covers 2¹⁶ pages.
+const PAGE_BITS: u32 = 16;
 const REGION_BITS: u32 = 16;
 
 // A private location, valid only while no objects are registered/reclaimed. Draining
@@ -205,7 +205,7 @@ enum MetadataLocation {
 impl Table {
     #[inline]
     fn key(h: Ref) -> (u64, usize) {
-        let k = (h as u64) >> BITS_DA_PAGINA;
+        let k = (h as u64) >> PAGE_BITS;
         (k >> REGION_BITS, (k & ((1 << REGION_BITS) - 1)) as usize)
     }
 
@@ -339,7 +339,7 @@ impl Table {
             .flat_map(|pg| {
                 let g = pg.geometry;
                 pg.metas.iter().enumerate().filter_map(move |(i, m)| {
-                    m.as_ref().map(|m| ((g.first + i as u64 * g.size) as Ref + crate::layout::DESLOCAMENTO_DO_HANDLE, m))
+                    m.as_ref().map(|m| ((g.first + i as u64 * g.size) as Ref + crate::layout::HANDLE_OFFSET, m))
                 })
             })
             .chain(self.loose.iter().map(|(&h, m)| (h, m)))
@@ -359,7 +359,7 @@ impl std::ops::Index<&Ref> for Table {
 
 /// The ARC state of an isolate (§19.1).
 #[derive(Default)]
-pub struct EstadoDoArc {
+pub struct ArcHeapState {
     objects: Table,
     candidates: Vec<ArcId>,
     zeros: Vec<ArcId>,
@@ -377,16 +377,16 @@ pub struct EstadoDoArc {
     /// One line on stderr per event (registration, retain, release, death): the
     /// diagnostic of `DARTFORGE_ARC_TRACO=1`.
     pub trace_log: bool,
-    /// Does the object have no reference position at all (in the heap, the `BRUTO`
+    /// Does the object have no reference position at all (in the heap, the `RAW`
     /// body: string, numeric box, typed data)? Without an outgoing edge it is never
     /// in a cycle, and it does not enter the candidates (the minimal filter of §32).
     /// `None` (the core tests): any object may.
     pub without_edges: Option<fn(Ref) -> bool>,
 }
 
-impl EstadoDoArc {
+impl ArcHeapState {
     pub fn new() -> Self {
-        EstadoDoArc { next_generation: 1, ..Default::default() }
+        ArcHeapState { next_generation: 1, ..Default::default() }
     }
 
     /// The metadata of `h`, if managed.
@@ -406,7 +406,7 @@ impl EstadoDoArc {
     pub fn register(&mut self, h: Ref) -> Result<ArcId, ArcError> {
         debug_assert!(e_handle(h));
         if let Some(m) = self.objects.get(&h)
-            && m.estado != ArcState::Dead
+            && m.state != ArcState::Dead
         {
             return Err(ArcError::AlreadyRegistered(h));
         }
@@ -415,7 +415,7 @@ impl EstadoDoArc {
         self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
         self.objects.insert(
             h,
-            MetaArc { generation, rc: 1, estado: ArcState::Building, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false },
+            MetaArc { generation, rc: 1, state: ArcState::Building, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false },
             None,
         );
         self.statistics.registered_set += 1;
@@ -429,21 +429,21 @@ impl EstadoDoArc {
     /// The monotonic generation was exhausted; no registration is published then.
     ///
     /// ```
-    /// use dartforge_runtime::arc::EstadoDoArc;
-    /// let mut arc = EstadoDoArc::new();
+    /// use dartforge_runtime::arc::ArcHeapState;
+    /// let mut arc = ArcHeapState::new();
     /// arc.register_immortal(2);
     /// assert!(arc.meta(2).unwrap().immortal);
     /// ```
     pub fn register_immortal(&mut self, h: Ref) {
         let generation = self.next_generation;
         self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
-        self.objects.insert(h, MetaArc { generation, rc: 0, estado: ArcState::Live, candidate: false, conditionally_protected: false, immortal: true, deferred: false, side_edges: false }, None);
+        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, conditionally_protected: false, immortal: true, deferred: false, side_edges: false }, None);
     }
 
     /// Registers an object that already exists and starts being counted (the young
     /// object promoted by the minor collection, the live ones at activation):
     /// `rc=0`, `Live`; the caller counts the occurrences that reach it and then
-    /// calls [`EstadoDoArc::review`].
+    /// calls [`ArcHeapState::review`].
     pub fn register_live(&mut self, h: Ref) -> ArcId {
         self.register_live_at(h, None)
     }
@@ -452,10 +452,10 @@ impl EstadoDoArc {
     /// metadata goes to the per-page table, without a hash.
     ///
     /// ```
-    /// use dartforge_runtime::arc::{EstadoDoArc, Geometry};
-    /// let mut arc = EstadoDoArc::new();
+    /// use dartforge_runtime::arc::{ArcHeapState, Geometry};
+    /// let mut arc = ArcHeapState::new();
     /// let first = 0x1_0000_0400;
-    /// let h = first as i64 + dartforge_runtime::layout::DESLOCAMENTO_DO_HANDLE;
+    /// let h = first as i64 + dartforge_runtime::layout::HANDLE_OFFSET;
     /// arc.register_live_at(h, Some(Geometry { first, size: 24, blocks: 2 }));
     /// assert_eq!(arc.meta(h).unwrap().rc, 0);
     /// ```
@@ -471,7 +471,7 @@ impl EstadoDoArc {
         if self.trace_log {
             eprintln!("[arc-trace] register {h} already={}", self.objects.contains_key(&h));
         }
-        self.objects.insert(h, MetaArc { generation, rc: 0, estado: ArcState::Live, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false }, geometry);
+        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false }, geometry);
         self.statistics.registered_set += 1;
         ArcId { handle: h, generation }
     }
@@ -481,7 +481,7 @@ impl EstadoDoArc {
     pub fn review(&mut self, h: Ref) {
         if let Some(m) = self.objects.get(&h)
             && m.rc == 0
-            && m.estado == ArcState::Live
+            && m.state == ArcState::Live
             && !m.immortal
         {
             self.zeros.push(ArcId { handle: h, generation: m.generation });
@@ -490,17 +490,17 @@ impl EstadoDoArc {
 
     /// Object `h` is counted and alive (neither dead nor being discarded).
     pub fn alive(&self, h: Ref) -> bool {
-        self.objects.get(&h).is_some_and(|m| matches!(m.estado, ArcState::Live | ArcState::Building))
+        self.objects.get(&h).is_some_and(|m| matches!(m.state, ArcState::Live | ArcState::Building))
     }
 
     /// Object `h` has died (logically) and waits for the reclaimer.
     pub fn dead(&self, h: Ref) -> bool {
-        self.objects.get(&h).is_some_and(|m| m.estado == ArcState::Dead)
+        self.objects.get(&h).is_some_and(|m| m.state == ArcState::Dead)
     }
 
     /// The counted handles still alive.
     pub fn live_set(&self) -> impl Iterator<Item = Ref> + '_ {
-        self.objects.iter().filter(|(_, m)| matches!(m.estado, ArcState::Live | ArcState::Building)).map(|(h, _)| h)
+        self.objects.iter().filter(|(_, m)| matches!(m.state, ArcState::Live | ArcState::Building)).map(|(h, _)| h)
     }
 
     /// Puts the live `h` among the candidates of the next cycle round: an object that
@@ -511,7 +511,7 @@ impl EstadoDoArc {
         if let Some(m) = self.objects.get_mut(&h)
             && !m.candidate
             && !m.immortal
-            && m.estado == ArcState::Live
+            && m.state == ArcState::Live
             && (m.side_edges || !without_edges.is_some_and(|f| f(h)))
         {
             m.candidate = true;
@@ -533,7 +533,7 @@ impl EstadoDoArc {
     pub fn decide_young(&mut self, h: Ref) -> bool {
         let without_edges = self.without_edges;
         let Some(m) = self.objects.get_mut(&h) else { return false };
-        if m.immortal || m.estado != ArcState::Live {
+        if m.immortal || m.state != ArcState::Live {
             return true;
         }
         let id = ArcId { handle: h, generation: m.generation };
@@ -555,9 +555,9 @@ impl EstadoDoArc {
     /// Construction finished: the construction owner becomes the result.
     pub fn finish_construction(&mut self, h: Ref) {
         if let Some(m) = self.objects.get_mut(&h)
-            && m.estado == ArcState::Building
+            && m.state == ArcState::Building
         {
-            m.estado = ArcState::Live;
+            m.state = ArcState::Live;
         }
     }
 
@@ -577,8 +577,8 @@ impl EstadoDoArc {
         if m.immortal {
             return Ok(true);
         }
-        if matches!(m.estado, ArcState::Collecting | ArcState::Dead) {
-            return Err(ArcError::InvalidState(h, m.estado));
+        if matches!(m.state, ArcState::Collecting | ArcState::Dead) {
+            return Err(ArcError::InvalidState(h, m.state));
         }
         m.rc = m.rc.checked_add(1).ok_or(ArcError::Overflow(h))?;
         self.statistics.retains += 1;
@@ -598,8 +598,8 @@ impl EstadoDoArc {
         if m.immortal {
             return Ok(());
         }
-        if matches!(m.estado, ArcState::Collecting | ArcState::Dead) {
-            return Err(ArcError::InvalidState(h, m.estado));
+        if matches!(m.state, ArcState::Collecting | ArcState::Dead) {
+            return Err(ArcError::InvalidState(h, m.state));
         }
         if m.rc == 0 {
             return Err(ArcError::RcZero(h));
@@ -660,7 +660,7 @@ impl EstadoDoArc {
             self.statistics.seen_zeros += 1;
             let local = self.objects.locate(id.handle);
             let Some(m) = self.objects.in_local(local).filter(|m| m.generation == id.generation) else { continue };
-            if m.estado == ArcState::Live && m.rc > 0 {
+            if m.state == ArcState::Live && m.rc > 0 {
                 // It went down to zero and back up before the drain: the new
                 // occurrence may close a rootless cycle (the self-cycle `x[i] = x`
                 // after releasing the last outside one), so it is a candidate like
@@ -668,7 +668,7 @@ impl EstadoDoArc {
                 self.add_candidate(id.handle);
                 continue;
             }
-            if m.estado != ArcState::Live || m.rc != 0 || m.conditionally_protected || m.immortal {
+            if m.state != ArcState::Live || m.rc != 0 || m.conditionally_protected || m.immortal {
                 continue;
             }
             if protected(id.handle) {
@@ -743,7 +743,7 @@ impl EstadoDoArc {
                 None => self.objects.get_mut(&u),
             };
             if let Some(m) = m {
-                m.estado = ArcState::Collecting;
+                m.state = ArcState::Collecting;
             }
         }
         // The set's exits, once per occurrence (the vector is reused between
@@ -783,7 +783,7 @@ impl EstadoDoArc {
                 None => self.objects.get_mut(&u),
             };
             if let Some(m) = m {
-                m.estado = ArcState::Dead;
+                m.state = ArcState::Dead;
                 m.rc = 0;
                 m.candidate = false;
             }
@@ -809,7 +809,7 @@ impl EstadoDoArc {
         for id in candidates {
             let Some(m) = self.objects.get_mut(&id.handle).filter(|m| m.generation == id.generation) else { continue };
             m.candidate = false;
-            if m.estado == ArcState::Live && m.rc > 0 && !m.immortal {
+            if m.state == ArcState::Live && m.rc > 0 && !m.immortal {
                 if protected(id.handle) {
                     self.add_candidate(id.handle);
                 } else {
@@ -831,7 +831,7 @@ impl EstadoDoArc {
         while let Some(x) = stack.pop() {
             let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else { continue };
             let Some(m) = self.objects.get(&x) else { continue };
-            if m.immortal || m.estado == ArcState::Dead {
+            if m.immortal || m.state == ArcState::Dead {
                 continue;
             }
             if protected(x) {
@@ -864,7 +864,7 @@ impl EstadoDoArc {
         let mut stack: Vec<usize> = Vec::new();
         for (ix, &x) in r.iter().enumerate() {
             let m = &self.objects[&x];
-            if trial[ix] > 0 || m.estado == ArcState::Building || m.conditionally_protected || protected(x) {
+            if trial[ix] > 0 || m.state == ArcState::Building || m.conditionally_protected || protected(x) {
                 live_set[ix] = true;
                 stack.push(ix);
             }
@@ -915,7 +915,7 @@ impl EstadoDoArc {
     pub(crate) fn transfer_dead(&mut self, dest: &mut Vec<Ref>) -> usize {
         let amount = self.dead_set.len();
         for h in &self.dead_set {
-            if self.objects.get(h).is_some_and(|m| m.estado == ArcState::Dead) {
+            if self.objects.get(h).is_some_and(|m| m.state == ArcState::Dead) {
                 self.objects.remove(h);
             }
         }
@@ -938,7 +938,7 @@ impl EstadoDoArc {
             }
         }
         for (h, m) in self.objects.iter() {
-            if m.estado == ArcState::Dead {
+            if m.state == ArcState::Dead {
                 continue;
             }
             graph.edges(h, &mut |v| {
@@ -948,7 +948,7 @@ impl EstadoDoArc {
             });
         }
         for (h, m) in self.objects.iter() {
-            if m.immortal || m.estado == ArcState::Dead {
+            if m.immortal || m.state == ArcState::Dead {
                 continue;
             }
             let recounted = count.get(&h).copied().unwrap_or(0);
@@ -966,7 +966,7 @@ mod tests_mod {
 
     #[test]
     fn immortal_does_not_reuse_generation_after_exhaustion() {
-        let mut arc = EstadoDoArc::new();
+        let mut arc = ArcHeapState::new();
         arc.next_generation = u64::MAX - 1;
         arc.register_immortal(2);
         assert_eq!(arc.meta(2).unwrap().generation, u64::MAX - 1);
@@ -981,18 +981,18 @@ mod tests_mod {
 
     #[test]
     fn index_by_inverse_checks_every_class_byte() {
-        use crate::layout::{PAGE_HEAD, DESLOCAMENTO_DO_HANDLE, N_CLASSES, PAGINA, bytes_do_bloco, class_words};
+        use crate::layout::{PAGE_HEAD, HANDLE_OFFSET, N_CLASSES, PAGE, block_bytes, class_words};
         let first = (1u64 << 32) + PAGE_HEAD as u64;
         for class in 1..N_CLASSES {
-            let size = bytes_do_bloco(class_words(class)) as u64;
-            let blocks = ((PAGINA - PAGE_HEAD) as u64 / size) as u32;
+            let size = block_bytes(class_words(class)) as u64;
+            let blocks = ((PAGE - PAGE_HEAD) as u64 / size) as u32;
             let page = ArcPage::new_area(Geometry { first, size, blocks });
-            assert_eq!(page.ix(first as Ref + DESLOCAMENTO_DO_HANDLE - 1), None);
-            for d in 0..=PAGINA as u64 {
+            assert_eq!(page.ix(first as Ref + HANDLE_OFFSET - 1), None);
+            for d in 0..=PAGE as u64 {
                 // A deliberate oracle through the original division: every start,
                 // interior and byte beyond the last block.
                 let expected = (d % size == 0 && d / size < u64::from(blocks)).then_some((d / size) as usize);
-                let h = (first + d) as Ref + DESLOCAMENTO_DO_HANDLE;
+                let h = (first + d) as Ref + HANDLE_OFFSET;
                 assert_eq!(page.ix(h), expected, "class {class}, offset {d}");
             }
         }
@@ -1003,7 +1003,7 @@ mod tests_mod {
         for size in [1, 2, 3, 24, (1u64 << 32) - 1, 1u64 << 32, (1u64 << 63) - 1, 1u64 << 63, u64::MAX] {
             let blocks = (u64::MAX / size).min(7) as u32;
             let page = ArcPage::new_area(Geometry { first: 0, size, blocks });
-            let query = |d: u64| page.ix(d.wrapping_add(crate::layout::DESLOCAMENTO_DO_HANDLE as u64) as Ref);
+            let query = |d: u64| page.ix(d.wrapping_add(crate::layout::HANDLE_OFFSET as u64) as Ref);
             for i in 0..u64::from(blocks) {
                 let d = i * size;
                 assert_eq!(query(d), Some(i as usize), "size {size}, index {i}");
@@ -1021,8 +1021,8 @@ mod tests_mod {
     #[test]
     fn reformatted_page_updates_inverse_and_preserves_metadata() {
         let first = (1u64 << 32) + 1024;
-        let h = (first + 48) as Ref + crate::layout::DESLOCAMENTO_DO_HANDLE;
-        let mut a = EstadoDoArc::new();
+        let h = (first + 48) as Ref + crate::layout::HANDLE_OFFSET;
+        let mut a = ArcHeapState::new();
         a.register_live_at(h, Some(Geometry { first, size: 24, blocks: 4 }));
         a.review(h);
         a.drain_zeros(&mut Graph::default(), usize::MAX, &|_| false).unwrap();
@@ -1050,24 +1050,24 @@ mod tests_mod {
     }
 
     /// Allocates `h` (rc=1 of the construction owner) and finishes it.
-    fn new(a: &mut EstadoDoArc, h: Ref) {
+    fn new(a: &mut ArcHeapState, h: Ref) {
         a.register(h).unwrap();
         a.finish_construction(h);
     }
 
     /// `u.field = v`: the target gains the occurrence.
-    fn enable(a: &mut EstadoDoArc, g: &mut Graph, u: Ref, v: Ref) {
+    fn enable(a: &mut ArcHeapState, g: &mut Graph, u: Ref, v: Ref) {
         a.retain_ref(v).unwrap();
         g.0.entry(u).or_default().push(v);
     }
 
-    fn dead(a: &EstadoDoArc, h: Ref) -> bool {
-        a.meta(h).is_none_or(|m| m.estado == ArcState::Dead)
+    fn dead(a: &ArcHeapState, h: Ref) -> bool {
+        a.meta(h).is_none_or(|m| m.state == ArcState::Dead)
     }
 
     #[test]
     fn null_and_smi_are_not_counted() {
-        let mut a = EstadoDoArc::new();
+        let mut a = ArcHeapState::new();
         a.retain_ref(0).unwrap();
         a.retain_ref(7).unwrap();
         a.release(7).unwrap();
@@ -1076,7 +1076,7 @@ mod tests_mod {
 
     #[test]
     fn transferred_dead_preserve_cascade_and_rounds_without_copying_first_buffer() {
-        let mut a = EstadoDoArc::new();
+        let mut a = ArcHeapState::new();
         let mut g = Graph::default();
         new(&mut a, 2);
         new(&mut a, 4);
@@ -1107,7 +1107,7 @@ mod tests_mod {
 
     #[test]
     fn side_edge_prevents_refless_body_filter() {
-        let mut a = EstadoDoArc::new();
+        let mut a = ArcHeapState::new();
         a.without_edges = Some(|_| true);
         let mut g = Graph::default();
         a.register_live(2);
@@ -1128,7 +1128,7 @@ mod tests_mod {
 
     #[test]
     fn acyclic_chain_dies_in_cascade_when_root_is_released() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         for h in [2, 4, 6] {
             new(&mut a, h);
         }
@@ -1147,7 +1147,7 @@ mod tests_mod {
 
     #[test]
     fn occurrence_multiplicity() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         new(&mut a, 2);
         new(&mut a, 4);
         // Two positions of list 2 point to 4: they count twice.
@@ -1163,7 +1163,7 @@ mod tests_mod {
 
     #[test]
     fn isolated_cycle_dies_only_by_cycle_collection() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         new(&mut a, 2);
         new(&mut a, 4);
         enable(&mut a, &mut g, 2, 4);
@@ -1179,7 +1179,7 @@ mod tests_mod {
 
     #[test]
     fn retain_if_registered_tells_absence_without_hiding_errors() {
-        let mut a = EstadoDoArc::new();
+        let mut a = ArcHeapState::new();
         for h in [0, 1, 3] { assert_eq!(a.retain_if_registered(h), Ok(true)); }
         assert_eq!(a.retain_if_registered(2), Ok(false));
         assert_eq!(a.retain_ref(2), Ok(()));
@@ -1194,9 +1194,9 @@ mod tests_mod {
         assert_eq!(a.retain_if_registered(2), Err(ArcError::Overflow(2)));
         assert_eq!(a.meta(2).unwrap().rc, u64::MAX);
         assert_eq!(a.statistics.retains, 1);
-        for estado in [ArcState::Collecting, ArcState::Dead] {
-            a.objects.get_mut(&2).unwrap().estado = estado;
-            assert_eq!(a.retain_if_registered(2), Err(ArcError::InvalidState(2, estado)));
+        for state in [ArcState::Collecting, ArcState::Dead] {
+            a.objects.get_mut(&2).unwrap().state = state;
+            assert_eq!(a.retain_if_registered(2), Err(ArcError::InvalidState(2, state)));
             assert_eq!(a.statistics.retains, 1);
         }
         a.register_immortal(4);
@@ -1207,7 +1207,7 @@ mod tests_mod {
 
     #[test]
     fn dense_survival_preserves_converging_paths_and_repeated_edges() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         let (x, y, z, w, root) = (2, 0x1_0002, 0x2_0002, 0x3_0002, 0x4_0002);
         for h in [x, y, z, w, root] { new(&mut a, h); }
         enable(&mut a, &mut g, root, x);
@@ -1238,7 +1238,7 @@ mod tests_mod {
 
     #[test]
     fn dense_trial_preserves_multiplicity_and_external_entry_in_sparse_handles() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         let (x, y, root) = (2, 0x1_0002, 0x4_0002);
         for h in [x, y, root] { new(&mut a, h); }
         enable(&mut a, &mut g, x, y);
@@ -1259,7 +1259,7 @@ mod tests_mod {
 
     #[test]
     fn dense_negative_trial_identifies_handle_and_aborts_before_discard() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         let (x, y) = (2, 0x1_0002);
         new(&mut a, x);
         new(&mut a, y);
@@ -1272,7 +1272,7 @@ mod tests_mod {
         assert_eq!(g.0, before);
         for h in [x, y] {
             assert_eq!(a.meta(h).unwrap().rc, 1);
-            assert_eq!(a.meta(h).unwrap().estado, ArcState::Live);
+            assert_eq!(a.meta(h).unwrap().state, ArcState::Live);
         }
         assert!(a.take_dead().is_empty());
         // Fixing the inventory and requeuing must neither inherit indices/trial from
@@ -1287,7 +1287,7 @@ mod tests_mod {
 
     #[test]
     fn successive_cycles_inherit_neither_survivors_nor_reclaimed_generations() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         let (x, y) = (2, 0x1_0002);
         for h in [x, y] { new(&mut a, h); }
         enable(&mut a, &mut g, x, y);
@@ -1316,7 +1316,7 @@ mod tests_mod {
 
     #[test]
     fn cycle_with_external_reference_survives_and_collection_keeps_rc() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         for h in [2, 4, 6] {
             new(&mut a, h);
         }
@@ -1339,7 +1339,7 @@ mod tests_mod {
 
     #[test]
     fn cycle_holding_an_acyclic_releases_both() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         for h in [2, 4, 8] {
             new(&mut a, h);
         }
@@ -1356,7 +1356,7 @@ mod tests_mod {
 
     #[test]
     fn under_construction_and_protected_do_not_die() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         a.register(2).unwrap();
         // Under construction: a zero RC does not discard.
         a.release(2).unwrap();
@@ -1371,10 +1371,10 @@ mod tests_mod {
 
     #[test]
     fn protected_root_does_not_expand_trial_and_keeps_candidate() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         for h in [2, 4, 6, 8] { new(&mut a, h); }
-        for (de, to) in [(2, 4), (4, 2), (4, 6), (6, 8), (8, 6)] {
-            enable(&mut a, &mut g, de, to);
+        for (of, to) in [(2, 4), (4, 2), (4, 6), (6, 8), (8, 6)] {
+            enable(&mut a, &mut g, of, to);
         }
         for h in [2, 4, 6, 8] { a.release(h).unwrap(); }
         let root = |h| h == 2;
@@ -1389,7 +1389,7 @@ mod tests_mod {
 
     #[test]
     fn observational_root_holds_zero_and_cycle() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         new(&mut a, 2);
         new(&mut a, 4);
         enable(&mut a, &mut g, 2, 4);
@@ -1417,7 +1417,7 @@ mod tests_mod {
 
     #[test]
     fn release_with_zero_rc_is_an_error_and_overflow_too() {
-        let mut a = EstadoDoArc::new();
+        let mut a = ArcHeapState::new();
         new(&mut a, 2);
         a.release(2).unwrap();
         assert_eq!(a.release(2), Err(ArcError::RcZero(2)));
@@ -1425,7 +1425,7 @@ mod tests_mod {
 
     #[test]
     fn stale_queue_entry_is_ignored_by_generation() {
-        let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         new(&mut a, 2);
         a.release(2).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
@@ -1439,7 +1439,7 @@ mod tests_mod {
 
     #[test]
     fn audit_finds_wrong_rc() {
-        let (mut a, g) = (EstadoDoArc::new(), Graph::default());
+        let (mut a, g) = (ArcHeapState::new(), Graph::default());
         new(&mut a, 2);
         a.retain_ref(2).unwrap();
         assert!(matches!(a.audit(&g, &[2]), Err(ArcError::Audit { handle: 2, rc: 2, recounted: 1 })));
@@ -1447,20 +1447,20 @@ mod tests_mod {
 
     #[test]
     fn bounded_cascade_preserves_root_multiplicity_and_generation_in_reformatted_page() {
-        use crate::layout::DESLOCAMENTO_DO_HANDLE;
+        use crate::layout::HANDLE_OFFSET;
         for paged in [false, true] {
             let first = (1u64 << 32) + 1024;
-            let h1 = first as Ref + DESLOCAMENTO_DO_HANDLE;
+            let h1 = first as Ref + HANDLE_OFFSET;
             let h2 = h1 + 24;
             let h3 = 2; // Hash fallback, even when the others use a page.
             let geometry = paged.then_some(Geometry { first, size: 24, blocks: 4 });
-            let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
+            let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
             let id1 = a.register_live_at(h1, geometry);
             let id2 = a.register_live_at(h2, geometry);
             a.register_live(h3);
             for h in [h1, h2, h3] { a.retain_ref(h).unwrap(); }
-            for (de, to) in [(h1, h2), (h1, h2), (h1, h3), (h2, h3)] {
-                enable(&mut a, &mut g, de, to);
+            for (of, to) in [(h1, h2), (h1, h2), (h1, h3), (h2, h3)] {
+                enable(&mut a, &mut g, of, to);
             }
             for h in [h2, h3, h1] { a.release(h).unwrap(); }
             let root = |h| h == h2;

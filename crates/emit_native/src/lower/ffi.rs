@@ -43,10 +43,10 @@ use dartforge_types::TypeId;
 /// `@AbiSpecificIntegerMapping` annotations).
 fn target_abi() -> &'static str {
     let arm = cfg!(target_arch = "aarch64");
-    match crate::alvo::sistema() {
-        crate::alvo::Sistema::Windows => if arm { "windowsArm64" } else { "windowsX64" },
-        crate::alvo::Sistema::Linux => if arm { "linuxArm64" } else { "linuxX64" },
-        crate::alvo::Sistema::MacOs => if arm { "macosArm64" } else { "macosX64" },
+    match crate::target::target_os() {
+        crate::target::Os::Windows => if arm { "windowsArm64" } else { "windowsX64" },
+        crate::target::Os::Linux => if arm { "linuxArm64" } else { "linuxX64" },
+        crate::target::Os::MacOs => if arm { "macosArm64" } else { "macosX64" },
     }
 }
 
@@ -261,7 +261,7 @@ fn abi_mapping(ctx: &Context, c: ClassId) -> Option<CType> {
     let decl = ctx.program.classes[c.0 as usize].decl?;
     let unit = ctx.program.unit(decl.unit);
     let a = &unit.ast;
-    let alvo = target_abi();
+    let target = target_abi();
     for an in a.decls[decl.decl.0 as usize].metadata.iter() {
         if an.name.last().map(|n| ctx.interner.resolve(n.sym)) != Some("AbiSpecificIntegerMapping") {
             continue;
@@ -276,7 +276,7 @@ fn abi_mapping(ctx: &Context, c: ClassId) -> Option<CType> {
                 ast::ExprKind::Property { name, .. } => ctx.interner.resolve(name.sym),
                 _ => continue,
             };
-            if map_key != alvo {
+            if map_key != target {
                 continue;
             }
             let cls = match &a.exprs[value.0 as usize].kind {
@@ -567,7 +567,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(values) = self.unpack(&infos, args, desc) else {
             return;
         };
-        let alvo = self.emit_call_with_check(
+        let target = self.emit_call_with_check(
             Instruction::CallRuntime {
                 name: "dartforge_ffi_closure_address".to_string(),
                 args: vec![(clo.clone(), Type::Ref)],
@@ -575,7 +575,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         );
-        let result = self.signature_native_call(alvo, &values, a, Some(clo));
+        let result = self.signature_native_call(target, &values, a, Some(clo));
         self.terminate(Terminator::Return(Some(result)));
     }
 }
@@ -1377,7 +1377,7 @@ fn annotation_signature(
                 return Err(format!("`{name_str}` is not a typedef"));
             };
             match &decl.kind {
-                ast::TypedefKind::Alias(alvo) => annotation_signature(ctx, types, &u.ast, *alvo, td.library, depth + 1),
+                ast::TypedefKind::Alias(target) => annotation_signature(ctx, types, &u.ast, *target, td.library, depth + 1),
                 ast::TypedefKind::Legacy { return_type, parameters } => from_params(&u.ast, td.library, *return_type, parameters),
             }
         }
@@ -1407,23 +1407,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let symbol = annotation_symbol(self.ctx, ast, an)
             .unwrap_or_else(|| self.ctx.symbol_name(self.ctx.program.functions[fid].name).as_bytes().to_vec());
         let _ = source;
-        let alvo = self.symbol_address(&symbol);
+        let target = self.symbol_address(&symbol);
         if args.len() != signature.params.len() {
             return Some(self.unsupported("@Native com aridade diferente da assinatura nativa", span));
         }
         let dart_ret = self.return_repr(fid);
-        let r = self.signature_native_call(alvo, args, &signature, None);
+        let r = self.signature_native_call(target, args, &signature, None);
         Some(if dart_ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, dart_ret) })
     }
 
-    /// The native call of `alvo` with the Dart values `args` through the
+    /// The native call of `target` with the Dart values `args` through the
     /// signature: pointers and structs by their addresses, the return back
     /// as a Dart value (`Pointer`, a new struct over `Uint8List`, a primitive)
     /// — what the `asFunction` trampoline and the body of an `@Native` do.
     /// `closure`: the trampoline's, for the type of the returned `Pointer`.
     fn signature_native_call(
         &mut self,
-        alvo: Operand,
+        target: Operand,
         args: &[Operand],
         a: &NativeSignature,
         closure: Option<Operand>,
@@ -1493,7 +1493,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         if let Some((new, dest)) = returned_struct {
             self.emit(
-                Instruction::CompositeNativeCall { alvo, args: natives, ret: a.ret.clone(), dest: Some(dest), variadic_flag: a.variadic_flag },
+                Instruction::CompositeNativeCall { target, args: natives, ret: a.ret.clone(), dest: Some(dest), variadic_flag: a.variadic_flag },
                 Type::Void,
             );
             close(self);
@@ -1508,10 +1508,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     NativeType::Composite(_) => unreachable!(),
                 })
                 .collect();
-            self.emit(Instruction::NativeCall { alvo, args: prims, ret }, ret.hir_type())
+            self.emit(Instruction::NativeCall { target, args: prims, ret }, ret.hir_type())
         } else {
             self.emit(
-                Instruction::CompositeNativeCall { alvo, args: natives, ret: a.ret.clone(), dest: None, variadic_flag: a.variadic_flag },
+                Instruction::CompositeNativeCall { target, args: natives, ret: a.ret.clone(), dest: None, variadic_flag: a.variadic_flag },
                 ret.hir_type(),
             )
         };

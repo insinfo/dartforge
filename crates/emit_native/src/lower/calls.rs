@@ -616,9 +616,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `prefix.name` with `prefix` from an `import … as prefix`: the element.
     /// `target` is the prefix of an `import … deferred as`.
-    fn deferred_prefix(&self, ast: &ast::Ast, alvo: ExprId) -> bool {
-        let ExprKind::Identifier(p) = &ast.expr(alvo).kind else { return false };
-        if !matches!(self.ctx.get_resolved(self.unit_id, alvo), Some(Resolved::Prefix(_)) | None)
+    fn deferred_prefix(&self, ast: &ast::Ast, target: ExprId) -> bool {
+        let ExprKind::Identifier(p) = &ast.expr(target).kind else { return false };
+        if !matches!(self.ctx.get_resolved(self.unit_id, target), Some(Resolved::Prefix(_)) | None)
             || self.lookup_local(p.sym).is_some()
         {
             return false;
@@ -631,9 +631,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// literal `C` (or `p.C`), or an alias `typedef A = C<…>` (specification
     /// §15 "Type Aliases": `A.x` is the static member `x` of `C`; the type
     /// arguments of the alias do not count for static members).
-    pub fn static_target_class(&self, alvo: ExprId) -> Option<dartforge_elements::model::ClassId> {
+    pub fn static_target_class(&self, target: ExprId) -> Option<dartforge_elements::model::ClassId> {
         use dartforge_elements::model::Element;
-        match self.ctx.get_resolved(self.unit_id, alvo)? {
+        match self.ctx.get_resolved(self.unit_id, target)? {
             Resolved::Element(Element::Class(c)) => Some(*c),
             Resolved::Element(Element::Typedef(td)) => {
                 let data = self.ctx.outline.typedefs.get(td.0 as usize)?;
@@ -649,13 +649,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn prefixed_element(
         &self,
         ast: &ast::Ast,
-        alvo: ExprId,
+        target: ExprId,
         name: dartforge_intern::SymbolId,
     ) -> Option<dartforge_elements::model::Element> {
-        let ExprKind::Identifier(p) = &ast.expr(alvo).kind else {
+        let ExprKind::Identifier(p) = &ast.expr(target).kind else {
             return None;
         };
-        match self.ctx.get_resolved(self.unit_id, alvo) {
+        match self.ctx.get_resolved(self.unit_id, target) {
             Some(Resolved::Prefix(_)) | None => {}
             _ => return None,
         }

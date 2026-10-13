@@ -43,14 +43,14 @@ impl RuntimeCache {
 
     /// The runtime variant that goes into the DLL of the source SDK (P5c): without the
     /// C `main` (cfg `dartforge_runtime_dll`); the `main` is the executable's.
-    pub fn para_dll() -> Result<Self, String> {
+    pub fn for_dll() -> Result<Self, String> {
         precompiled_runtime(env!("DARTFORGE_RUNTIME_DLL")).map(|lib_path| Self { lib_path })
     }
 
-    /// The variant of [`RuntimeCache::para_dll`] that the production executable
+    /// The variant of [`RuntimeCache::for_dll`] that the production executable
     /// with the source SDK links statically: compiled with `panic=abort`
     /// (`build.rs`, `ABORT`). The DLL one, which the JIT also loads, unwinds.
-    pub fn para_producao() -> Result<Self, String> {
+    pub fn for_production() -> Result<Self, String> {
         precompiled_runtime(env!("DARTFORGE_RUNTIME_PRODUCAO")).map(|lib_path| Self { lib_path })
     }
 }

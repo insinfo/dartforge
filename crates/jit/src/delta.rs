@@ -55,7 +55,7 @@ enum Type {
 #[derive(Debug)]
 struct Item<'a> {
     name: String,
-    tipo: Type,
+    ty: Type,
     text: &'a str,
 }
 
@@ -119,11 +119,11 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
             None
         };
         match item {
-            Some((name, tipo, end)) => {
+            Some((name, ty, end)) => {
                 if start_pass < pos {
                     m.fragments.push(Err(&ir[start_pass..pos]));
                 }
-                let key = match tipo {
+                let key = match ty {
                     Type::Comdat => format!("${name}"),
                     _ => name.clone(),
                 };
@@ -131,7 +131,7 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
                     return None;
                 }
                 m.fragments.push(Ok(m.items.len()));
-                m.items.push(Item { name, tipo, text: &ir[pos..end] });
+                m.items.push(Item { name, ty, text: &ir[pos..end] });
                 pos = end;
                 start_pass = pos;
             }
@@ -232,7 +232,7 @@ fn closure_set(m: &IrModule, i: usize) -> (BTreeSet<usize>, BTreeSet<String>, bo
                 continue;
             }
             let Some(&j) = m.by_name.get(&r) else { continue };
-            match m.items[j].tipo {
+            match m.items[j].ty {
                 Type::Function { local: false } => {
                     if j != i {
                         program.insert(r);
@@ -283,11 +283,11 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
     let fn_signatures: HashMap<&str, String> = m
         .items
         .iter()
-        .filter(|it| it.tipo == Type::Function { local: false })
+        .filter(|it| it.ty == Type::Function { local: false })
         .filter_map(|it| Some((it.name.as_str(), fn_signature(it.text)?)))
         .collect();
     for (i, item) in m.items.iter().enumerate() {
-        if item.tipo != (Type::Function { local: false }) {
+        if item.ty != (Type::Function { local: false }) {
             continue;
         }
         let fn_signature = fn_signatures.get(item.name.as_str())?.clone();
@@ -321,7 +321,7 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
         .items
         .iter()
         .enumerate()
-        .filter(|(i, it)| match it.tipo {
+        .filter(|(i, it)| match it.ty {
             Type::Function { local: false } => !kept_fns.contains(i),
             Type::Global { .. } => !it.text.split_whitespace().nth(2).is_some_and(|p| p == "private" || p == "internal"),
             _ => false,
@@ -339,7 +339,7 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
     }
     // Comdat with only the defined member.
     for (i, it) in m.items.iter().enumerate() {
-        if it.tipo == Type::Comdat
+        if it.ty == Type::Comdat
             && m.by_name.get(&it.name).is_some_and(|&f| live_set.contains(&f))
         {
             live_set.insert(i);

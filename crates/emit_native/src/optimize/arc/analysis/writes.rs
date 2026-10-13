@@ -1132,9 +1132,9 @@ mod tests {
                     value: SummaryPath::root(1),
                 }]))
             );
-            for (_, resumo) in r.values() {
-                assert_eq!(resumo.fields(), ArcHeapFields::UnknownSet);
-                assert_eq!(resumo.publications(), ArcHeapPublications::UnknownValues);
+            for (_, summary) in r.values() {
+                assert_eq!(summary.fields(), ArcHeapFields::UnknownSet);
+                assert_eq!(summary.publications(), ArcHeapPublications::UnknownValues);
             }
             // The stateless field API stays conservative.
             assert_eq!(r["wrapper"].1.ret(), &ArcHeapReturn::UnknownValue);
@@ -1665,10 +1665,10 @@ mod tests {
                 m.functions.reverse();
             }
             let r = super::super::calls::solve(&m, &HashSet::from(["f"]), 8).unwrap();
-            for (_, resumo) in r.values() {
-                assert_eq!(resumo.write_inclusions, expected_set(&[(0, 1), (1, 0)]));
-                assert_eq!(resumo.fields(), ArcHeapFields::UnknownSet);
-                assert_eq!(resumo.publications(), ArcHeapPublications::UnknownValues);
+            for (_, summary) in r.values() {
+                assert_eq!(summary.write_inclusions, expected_set(&[(0, 1), (1, 0)]));
+                assert_eq!(summary.fields(), ArcHeapFields::UnknownSet);
+                assert_eq!(summary.publications(), ArcHeapPublications::UnknownValues);
             }
             let r = super::super::calls::solve(&m, &HashSet::from(["f"]), 1).unwrap();
             assert!(
@@ -1690,13 +1690,13 @@ mod tests {
         let WriteInclusions::Known(positive_set) = expected_set(&[(0, 1), (1, 0)]) else {
             unreachable!()
         };
-        for (_, resumo) in r.values() {
+        for (_, summary) in r.values() {
             assert_eq!(
-                resumo.write_inclusions,
+                summary.write_inclusions,
                 WriteInclusions::Partial(positive_set.clone())
             );
-            assert_eq!(resumo.fields(), ArcHeapFields::UnknownSet);
-            assert_eq!(resumo.publications(), ArcHeapPublications::UnknownValues);
+            assert_eq!(summary.fields(), ArcHeapFields::UnknownSet);
+            assert_eq!(summary.publications(), ArcHeapPublications::UnknownValues);
         }
     }
 }

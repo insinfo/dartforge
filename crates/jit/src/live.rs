@@ -37,16 +37,16 @@ use crate::{ENTRY_SYMBOL, EntryReport, HotReloadReport, JitError, JitSession, PR
 enum Command {
     /// Runs the program through its entry (`main` of the SDK from source or
     /// `dartforge_entry` of the embedded runtime) and answers with the exit code.
-    Executar { address: u64, from_source: bool },
+    ExecuteMain { address: u64, from_source: bool },
     /// Runs a task (publication with the program stopped) and confirms.
     Run(Task, mpsc::Sender<()>),
 }
 
 /// A program running in the session, with its thread.
 ///
-/// Obtained through [`JitSession::com_programa_vivo`], which guarantees that the
+/// Obtained through [`JitSession::with_live_program`], which guarantees that the
 /// program thread ends before the session (and its code) stops existing.
-pub struct ProgramaVivo<'s> {
+pub struct LiveProgram<'s> {
     session: &'s mut JitSession,
     commands: mpsc::Sender<Command>,
     results: mpsc::Receiver<(i32, Duration)>,
@@ -57,7 +57,7 @@ pub struct ProgramaVivo<'s> {
 }
 
 impl JitSession {
-    /// Opens the program thread and hands the [`ProgramaVivo`] to `body`.
+    /// Opens the program thread and hands the [`LiveProgram`] to `body`.
     ///
     /// When `body` ends, the thread ends after the running program ends (its
     /// `main` and its event loop): the session is only released with none of its
@@ -65,9 +65,9 @@ impl JitSession {
     ///
     /// # Errors
     /// `execute` if the program thread cannot be created.
-    pub fn com_programa_vivo<R>(
+    pub fn with_live_program<R>(
         &mut self,
-        body: impl FnOnce(&mut ProgramaVivo<'_>) -> R,
+        body: impl FnOnce(&mut LiveProgram<'_>) -> R,
     ) -> Result<R, JitError> {
         std::thread::scope(|scope| {
             let (commands, received_list) = mpsc::channel::<Command>();
@@ -80,7 +80,7 @@ impl JitSession {
                 .spawn_scoped(scope, move || {
                     for command in received_list {
                         match command {
-                            Command::Executar { address, from_source } => {
+                            Command::ExecuteMain { address, from_source } => {
                                 let start = Instant::now();
                                 let code = if from_source {
                                     ffi::call_source_main(address)
@@ -98,7 +98,7 @@ impl JitSession {
                     }
                 })
                 .map_err(|error| JitError::new("execute", "could not create the program thread", error.to_string()))?;
-            let mut alive = ProgramaVivo { session: self, commands, results, busy, on_wait: Box::new(|| {}) };
+            let mut alive = LiveProgram { session: self, commands, results, busy, on_wait: Box::new(|| {}) };
             Ok(body(&mut alive))
             // `alive` goes out of scope here: without the command sender, the
             // thread ends when the running program ends.
@@ -106,7 +106,7 @@ impl JitSession {
     }
 }
 
-impl<'s> ProgramaVivo<'s> {
+impl<'s> LiveProgram<'s> {
     /// The session, for queries.
     pub fn session(&self) -> &JitSession {
         self.session
@@ -114,12 +114,12 @@ impl<'s> ProgramaVivo<'s> {
 
     /// Sets what to do when publication waits more than 2 s for the safepoint
     /// (the main isolate is in a long synchronous stretch).
-    pub fn ao_esperar_ponto_seguro(&mut self, f: impl FnMut() + 's) {
+    pub fn on_safepoint_wait(&mut self, f: impl FnMut() + 's) {
         self.on_wait = Box::new(f);
     }
 
     /// The program is running (its `main` or its event loop).
-    pub fn executando(&self) -> bool {
+    pub fn running(&self) -> bool {
         self.busy.load(Ordering::Acquire)
     }
 
@@ -130,8 +130,8 @@ impl<'s> ProgramaVivo<'s> {
     /// # Errors
     /// Those of [`JitSession::hot_reload`]; the running version stays published
     /// in all of them.
-    pub fn publicar(&mut self, name: &str, ir: &str) -> Result<HotReloadReport, JitError> {
-        if self.session.generation(name).is_none() && !self.executando() {
+    pub fn publish(&mut self, name: &str, ir: &str) -> Result<HotReloadReport, JitError> {
+        if self.session.generation(name).is_none() && !self.running() {
             return self.session.add_reloadable_module(name, ir);
         }
         let runtime = match self.session.sdk_dll.clone() {
@@ -139,7 +139,7 @@ impl<'s> ProgramaVivo<'s> {
                 .map_err(|detail| JitError::new("contract", "the session's runtime does not publish generations", detail))?,
             None => ffi::ReloadRuntime::embedded(),
         };
-        let ProgramaVivo { session, commands, busy, on_wait, .. } = self;
+        let LiveProgram { session, commands, busy, on_wait, .. } = self;
         let mut at_safepoint = |task: Task| run_in_program(task, &runtime, commands, busy, on_wait.as_mut());
         session.hot_reload_at_safepoint(name, ir, &mut at_safepoint)
     }
@@ -149,11 +149,11 @@ impl<'s> ProgramaVivo<'s> {
     /// # Errors
     /// `execute` if the program is already running; `lookup` if no generation
     /// published the entry.
-    pub fn executar_main(&mut self) -> Result<(), JitError> {
-        if self.executando() {
+    pub fn run_main(&mut self) -> Result<(), JitError> {
+        if self.running() {
             return Err(JitError::new("execute", "the program is already running", String::new()));
         }
-        let from_source = self.session.usa_sdk_da_fonte();
+        let from_source = self.session.uses_source_sdk();
         let input = self.session.stable_entry(if from_source { "main" } else { ENTRY_SYMBOL })?;
         let expected_one = if from_source { "i32 ()" } else { "void ()" };
         if input.signature() != expected_one {
@@ -165,12 +165,12 @@ impl<'s> ProgramaVivo<'s> {
         }
         self.busy.store(true, Ordering::Release);
         self.commands
-            .send(Command::Executar { address: input.address, from_source })
+            .send(Command::ExecuteMain { address: input.address, from_source })
             .map_err(|_| JitError::new("execute", "the program thread has ended", String::new()))
     }
 
     /// The end of the program, if it has already ended (without waiting).
-    pub fn terminou(&mut self) -> Option<EntryReport> {
+    pub fn finished(&mut self) -> Option<EntryReport> {
         let (exit_code, execute) = self.results.try_recv().ok()?;
         Some(EntryReport { lookup: Duration::ZERO, execute, total: execute, exit_code })
     }

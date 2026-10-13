@@ -76,7 +76,7 @@ fn copy(
     if phis.is_empty() {
         return Ok(0);
     }
-    let owned = |de: &ValueId| !phis.contains_key(de) && classes.get(de) == Some(&Ownership::Owned);
+    let owned = |of: &ValueId| !phis.contains_key(of) && classes.get(of) == Some(&Ownership::Owned);
     // Also the returned Phi: the Owned convention of the return goes through it.
     let returned_set: HashSet<ValueId> = f.blocks.iter().filter_map(|b| match &b.terminator {
         Terminator::Return(Some(Operand::Val(v))) if phis.contains_key(v) => Some(*v),
@@ -94,23 +94,23 @@ fn copy(
         for (v, (_, entries)) in &phis {
             let mut current = roots.get(v).cloned().unwrap_or_default();
             let before = current.len();
-            let mut join = |c: Ownership, de: ValueId| if !current.iter().any(|(x, _)| *x == c) { current.push((c, de)) };
+            let mut join = |c: Ownership, of: ValueId| if !current.iter().any(|(x, _)| *x == c) { current.push((c, of)) };
             for (_, op) in entries.iter() {
-                let Operand::Val(de) = op else { continue };
-                if phis.contains_key(de) {
+                let Operand::Val(of) = op else { continue };
+                if phis.contains_key(of) {
                     // With two or more, the inner Phi needs an owner and so does this
                     // one (an entry that needs one); propagating all of them is enough.
-                    let internals = roots.get(de).cloned().unwrap_or_default();
+                    let internals = roots.get(of).cloned().unwrap_or_default();
                     for (c, origin) in internals {
-                        let c = match (c, roots[de].len()) {
+                        let c = match (c, roots[of].len()) {
                             (Ownership::Borrowed { owner: OwnerOrigin::Caller, scope }, 1) =>
                                 Ownership::Borrowed { owner: OwnerOrigin::Value(origin), scope },
                             (c, _) => c,
                         };
-                        join(c, *de);
+                        join(c, *of);
                     }
-                } else if let Some(c @ Ownership::Borrowed { .. }) = classes.get(de) {
-                    join(*c, *de);
+                } else if let Some(c @ Ownership::Borrowed { .. }) = classes.get(of) {
+                    join(*c, *of);
                 }
             }
             if current.len() != before || !roots.contains_key(v) {
@@ -126,9 +126,9 @@ fn copy(
     // borrow root) follows the keepalive design (a borrow until the
     // copy of the return); only one with trivial entries (literals, including through
     // Phis of only those) or owners needs the copies here.
-    let borrowed = |op: &Operand| matches!(op, Operand::Val(de)
-        if matches!(classes.get(de), Some(Ownership::Borrowed { .. }))
-            || roots.get(de).is_some_and(|r| !r.is_empty()));
+    let borrowed = |op: &Operand| matches!(op, Operand::Val(of)
+        if matches!(classes.get(of), Some(Ownership::Borrowed { .. }))
+            || roots.get(of).is_some_and(|r| !r.is_empty()));
     // The owner of a borrow must dominate the Phi (ARC003): the loop that
     // carries an alias of a value defined after the header needs its
     // own owner. Phis of the same block are simultaneous.
@@ -162,7 +162,7 @@ fn copy(
             || roots.get(v).is_some_and(|r| r.len() > 1)
             || roots.get(v).into_iter().flatten().any(|(c, _)| matches!(c,
                 Ownership::Borrowed { owner: OwnerOrigin::Value(o), .. } if !dominates(*o, phis[v].0)))
-            || entries.iter().any(|(_, op)| matches!(op, Operand::Val(de) if owned(de))))
+            || entries.iter().any(|(_, op)| matches!(op, Operand::Val(of) if owned(of))))
         .map(|(v, _)| *v)
         .collect();
     loop {
@@ -170,7 +170,7 @@ fn copy(
             .iter()
             .filter(|(v, (_, entries))| {
                 !need.contains(v)
-                    && entries.iter().any(|(_, op)| matches!(op, Operand::Val(de) if need.contains(de)))
+                    && entries.iter().any(|(_, op)| matches!(op, Operand::Val(of) if need.contains(of)))
             })
             .map(|(v, _)| *v)
             .collect();
@@ -198,12 +198,12 @@ fn copy(
     let successors: HashMap<BlockId, Vec<BlockId>> = f.blocks.iter().map(|b| (b.id, super::super::cfg::successors(&b.terminator))).collect();
     let definition: HashMap<ValueId, BlockId> = f.blocks.iter()
         .flat_map(|b| b.instructions.iter().map(move |(v, _, _)| (*v, b.id))).collect();
-    // `de` live at the entry of the Phi's block: a use reachable from there without
+    // `of` live at the entry of the Phi's block: a use reachable from there without
     // going through its (re)definition — in a loop, what comes after the
     // definition is already the value of the next iteration.
-    let used_after = |de: &ValueId, block: BlockId| {
-        let Some(bs) = uses.get(de) else { return false };
-        let def = definition.get(de).copied();
+    let used_after = |of: &ValueId, block: BlockId| {
+        let Some(bs) = uses.get(of) else { return false };
+        let def = definition.get(of).copied();
         let mut seen_set = HashSet::from([block]);
         let mut queue = vec![block];
         while let Some(b) = queue.pop() {
@@ -239,12 +239,12 @@ fn copy(
                 // iteration (parallel copy): it gets a copy before the join.
                 // An owned Phi still read after the join does not give up
                 // its token either.
-                Operand::Val(de) if phis.contains_key(de) => !need.contains(de) || (phis[de].0 == block && *de != v)
-                    || used_after(de, block),
-                Operand::Val(de) => classes.get(de) != Some(&Ownership::Owned) || used_after(de, block),
+                Operand::Val(of) if phis.contains_key(of) => !need.contains(of) || (phis[of].0 == block && *of != v)
+                    || used_after(of, block),
+                Operand::Val(of) => classes.get(of) != Some(&Ownership::Owned) || used_after(of, block),
                 _ => false,
             };
-            let copy = copy || matches!(op, Operand::Val(de) if !taken.insert((*pred, *de)));
+            let copy = copy || matches!(op, Operand::Val(of) if !taken.insert((*pred, *of)));
             let admissible = !p.tables.landing_pads.contains(&block)
                 && !pending_set.contains(&block)
                 && !p.scopes.edges.contains_key(&(*pred, block))
@@ -304,12 +304,12 @@ fn copy(
             _ => unreachable!("checked terminator"),
         }
         // All the Phis of the block now arrive through the new edge.
-        let alvo = f.blocks.iter_mut().find(|b| b.id == block).expect("block of the Phi");
-        for (v, i, _) in &mut alvo.instructions {
+        let target = f.blocks.iter_mut().find(|b| b.id == block).expect("block of the Phi");
+        for (v, i, _) in &mut target.instructions {
             if let Instruction::Phi { incoming, .. } = i {
-                for (de, op) in incoming.iter_mut() {
-                    if *de == pred {
-                        *de = edge;
+                for (of, op) in incoming.iter_mut() {
+                    if *of == pred {
+                        *of = edge;
                         if let Some(copy_inst) = swaps.get(v) {
                             *op = Operand::Val(*copy_inst);
                         }

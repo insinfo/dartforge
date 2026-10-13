@@ -4,12 +4,12 @@
 // The natives of `runtime/lib/string.cc`, the string `Internal_*` ones
 // (`internal_patch.dart`) and the overlay's `DartForge_string_*`/`DartForge_sb_*`
 // (`native_sdk/core/string_patch.dart`, `string_buffer_patch.dart`) on top of the
-// object space's strings (`textos.rs`): reading through the block's borrowed view,
+// object space's strings (`text.rs`): reading through the block's borrowed view,
 // creation in one allocation in canonical form. The receiver is the string's
 // `Ref`; an `int` arrives as an `i64`. The table that lowering consults is
 // `crates/emit_native/src/nativos.rs`; generated code does the hottest ones
 // (`length`, `codeUnitAt`, `hashCode`, `allocate*`/`writeInto*`, `==`) inline
-// (`lower/textos.rs`) and only falls back here on the slow path.
+// (`lower/text.rs`) and only falls back here on the slow path.
 
 /// `String_getLength`.
 #[unsafe(no_mangle)]
@@ -19,7 +19,7 @@ pub extern "C" fn dartforge_native_String_getLength(this: i64) -> i64 {
 
 /// `_StringBase.codeUnitAt(i)` (a VM intrinsic), with the index check: out of
 /// range, `RangeError.range(i, 0, length - 1, "length")`. The slow path of
-/// `@df.string_code_unit` (`lower/textos.rs`).
+/// `@df.string_code_unit` (`lower/text.rs`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_string_codeUnitAt(this: i64, ix: i64) -> i64 {
     let r = with_string(this, |t| {
@@ -61,11 +61,11 @@ pub extern "C" fn dartforge_native_String_charAt(this: i64, ix: i64) -> i64 {
         if cache != 0 {
             return cache;
         }
-        let h = HEAP.with(|heap| heap.borrow_mut().string_literal(crate::textos::TextoRef::Um(&[u as u8])));
+        let h = HEAP.with(|heap| heap.borrow_mut().string_literal(crate::text::TextRef::OneByte(&[u as u8])));
         ONE_CHAR.with(|c| c.borrow_mut()[u as usize] = h);
         return h;
     }
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Dois(&[u])))
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::TwoByte(&[u])))
 }
 
 /// `String_concat` (`+`): one allocation, the units copied from both blocks.
@@ -75,7 +75,7 @@ pub extern "C" fn dartforge_native_String_concat(this: i64, other_one: i64) -> i
 }
 
 /// `String_getHashCode`: the VM's `StringHasher`, computed once per string and
-/// stored in the header (`Heap::hash_de_texto`). The slow path of `@df.string_hash`.
+/// stored in the header (`Heap::string_hash`). The slow path of `@df.string_hash`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_String_getHashCode(this: i64) -> i64 {
     dartforge_string_hash(this)
@@ -114,7 +114,7 @@ pub extern "C" fn dartforge_native_Internal_allocateOneByteString(n: i64) -> i64
 }
 
 /// `Internal_allocateTwoByteString`: a `_TwoByteString` of `n` zero units. It stays
-/// `Dois` even if it only receives Latin-1 units, as in the VM; equality is by
+/// `TwoByte` even if it only receives Latin-1 units, as in the VM; equality is by
 /// units, so this only costs space.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Internal_allocateTwoByteString(n: i64) -> i64 {
@@ -198,7 +198,7 @@ pub extern "C" fn dartforge_native_DartForge_string_split_by_code(this: i64, lis
     let ranges: Vec<(usize, usize)> = with_string(this, |t| {
         let mut v = Vec::new();
         let mut start = 0;
-        for (i, u) in t.unidades().enumerate() {
+        for (i, u) in t.units().enumerate() {
             if i64::from(u) == code {
                 v.push((start, i));
                 start = i + 1;
@@ -226,7 +226,7 @@ pub extern "C" fn dartforge_native_DartForge_string_equals(this: i64, other_one:
 /// The whole `_StringBase.==` (the VM's `String_equality` intrinsic): `identical`,
 /// the `other is String` test and the units. What is not an object (`null`, `Smi`)
 /// differs without consulting the heap. The slow path of `@df.string_equals_object`
-/// (`lower/textos.rs`).
+/// (`lower/text.rs`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_string_equals_object(this: i64, other_one: i64) -> u8 {
     if this == other_one {
@@ -280,24 +280,24 @@ pub extern "C" fn dartforge_native_String_concatRange(list: i64, start: i64, end
 /// typed list (the `Uint16List` of `String.fromCharCodes`), the way the VM natives
 /// read `TypedData`. An element that is not an `int` becomes -1.
 fn string_list_codes(list: i64, start: i64, end: i64) -> Vec<i64> {
-    use crate::tipadas::tipo;
+    use crate::typed_lists::ty;
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        if let Some(t) = heap.tipada(list) {
+        if let Some(t) = heap.typed(list) {
             // SAFETY: the list is alive (the caller has it) and nothing allocates here.
             let b = unsafe { t.piece() };
-            let s = crate::tipadas::tamanho_do_elemento(t.tipo);
+            let s = crate::typed_lists::element_size(t.ty);
             let (i, f) = (start.max(0) as usize, (end.max(0) as usize).min(t.len));
             return (i..f.max(i))
                 .map(|k| {
                     let o = k * s;
-                    match t.tipo {
-                        tipo::INT8 => i64::from(b[o] as i8),
-                        tipo::INT16 => i64::from(i16::from_ne_bytes([b[o], b[o + 1]])),
-                        tipo::UINT16 => i64::from(u16::from_ne_bytes([b[o], b[o + 1]])),
-                        tipo::INT32 => i64::from(i32::from_ne_bytes(b[o..o + 4].try_into().unwrap())),
-                        tipo::UINT32 => i64::from(u32::from_ne_bytes(b[o..o + 4].try_into().unwrap())),
-                        tipo::INT64 | tipo::UINT64 => i64::from_ne_bytes(b[o..o + 8].try_into().unwrap()),
+                    match t.ty {
+                        ty::INT8 => i64::from(b[o] as i8),
+                        ty::INT16 => i64::from(i16::from_ne_bytes([b[o], b[o + 1]])),
+                        ty::UINT16 => i64::from(u16::from_ne_bytes([b[o], b[o + 1]])),
+                        ty::INT32 => i64::from(i32::from_ne_bytes(b[o..o + 4].try_into().unwrap())),
+                        ty::UINT32 => i64::from(u32::from_ne_bytes(b[o..o + 4].try_into().unwrap())),
+                        ty::INT64 | ty::UINT64 => i64::from_ne_bytes(b[o..o + 8].try_into().unwrap()),
                         _ => i64::from(b[o]),
                     }
                 })
@@ -312,14 +312,14 @@ fn string_list_codes(list: i64, start: i64, end: i64) -> Vec<i64> {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_OneByteString_allocateFromOneByteList(list: i64, start: i64, end: i64) -> i64 {
     let u: Vec<u8> = string_list_codes(list, start, end).into_iter().map(|c| (c & 0xFF) as u8).collect();
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Um(&u)))
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(&u)))
 }
 
 /// `_TwoByteString._allocateFromTwoByteList(list, start, end)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_TwoByteString_allocateFromTwoByteList(list: i64, start: i64, end: i64) -> i64 {
     let u: Vec<u16> = string_list_codes(list, start, end).into_iter().map(|c| (c & 0xFFFF) as u16).collect();
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Dois(&u)))
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::TwoByte(&u)))
 }
 
 /// `_StringBase._createFromCodePoints(list, start, end)`: code points (those above
@@ -335,9 +335,9 @@ pub extern "C" fn dartforge_native_StringBase_createFromCodePoints(list: i64, st
             dartforge_exception_throw(e, 3);
             return 0;
         }
-        crate::textos::push_point(&mut u, c as u32);
+        crate::text::push_point(&mut u, c as u32);
     }
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Dois(&u)))
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::TwoByte(&u)))
 }
 
 /// `_StringBase._joinReplaceAllResult(base, matches, length, oneByte)`: the slices
@@ -357,7 +357,7 @@ pub extern "C" fn dartforge_native_StringBase_joinReplaceAllResult(base: i64, pa
             let x = heap.list_get(part_list, i);
             match x {
                 crate::heap::Value::Ref(r) if crate::layout::is_object(r) && heap.is_string(r) => {
-                    let k = heap.text(r).map_or(0, crate::textos::TextoRef::len);
+                    let k = heap.text(r).map_or(0, crate::text::TextRef::len);
                     v.push((r, 0, k));
                 }
                 _ => {
@@ -397,7 +397,7 @@ pub extern "C" fn dartforge_native_StringBase_joinReplaceAllResult(base: i64, pa
 
 // ─── The `StringBuffer` accumulator (`_AcumuladorDeTexto`, cid 15) ──────────
 //
-// A one-word `BRUTO`+`ATTACHMENT` block: the pointer of a `Box<Vec<u16>>` with the
+// A one-word `RAW`+`ATTACHMENT` block: the pointer of a `Box<Vec<u16>>` with the
 // written units, which the collector releases (`release_accumulator`) when the
 // block dies (§2.8). Only `StringBuffer` sees it
 // (`native_sdk/core/string_buffer_patch.dart`).
@@ -412,18 +412,18 @@ unsafe fn release_accumulator(p: *mut u8) {
     drop(unsafe { Box::from_raw(p.cast::<Vec<u16>>()) });
 }
 
-/// A new accumulator with the units `unidades` (the empty `StringBuffer`, or the
+/// A new accumulator with the units `units` (the empty `StringBuffer`, or the
 /// copy of an accumulator that arrives in a message from another isolate, §2.12).
-fn new_accumulator_with(unidades: Vec<u16>) -> i64 {
+fn new_accumulator_with(units: Vec<u16>) -> i64 {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let h = heap.allocate(
             crate::layout::cid::STRING_ACCUMULATOR,
             1,
-            crate::layout::flags::BRUTO | crate::layout::flags::ATTACHMENT,
+            crate::layout::flags::RAW | crate::layout::flags::ATTACHMENT,
         );
-        let bytes = std::mem::size_of::<Vec<u16>>() + 2 * unidades.capacity();
-        let p = Box::into_raw(Box::new(unidades)).cast::<u8>();
+        let bytes = std::mem::size_of::<Vec<u16>>() + 2 * units.capacity();
+        let p = Box::into_raw(Box::new(units)).cast::<u8>();
         // SAFETY: `release_accumulator` is the only release of `p`.
         unsafe { heap.attach(h, release_accumulator, p, bytes) };
         h
@@ -444,15 +444,15 @@ fn accumulator_vec(heap: &Heap, h: i64) -> *mut Vec<u16> {
 
 /// Appends the units of `t` (which does not come from a block that may die here)
 /// to the accumulator `accumulator`.
-fn append_to_accumulator(accumulator: i64, t: crate::textos::TextoRef<'_>) {
+fn append_to_accumulator(accumulator: i64, t: crate::text::TextRef<'_>) {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         let v = accumulator_vec(&heap, accumulator);
         // SAFETY: the attachment's `Vec` lives outside the heap; nothing else borrows it.
         let v = unsafe { &mut *v };
         match t {
-            crate::textos::TextoRef::Um(b) => v.extend(b.iter().map(|&x| u16::from(x))),
-            crate::textos::TextoRef::Dois(u) => v.extend_from_slice(u),
+            crate::text::TextRef::OneByte(b) => v.extend(b.iter().map(|&x| u16::from(x))),
+            crate::text::TextRef::TwoByte(u) => v.extend_from_slice(u),
         }
     });
 }
@@ -489,8 +489,8 @@ pub extern "C" fn dartforge_native_DartForge_sb_write_if_string(accumulator: i64
         // SAFETY: the attachment's `Vec` lives outside the heap; nothing else borrows it.
         let v = unsafe { &mut *v };
         match t {
-            crate::textos::TextoRef::Um(b) => v.extend(b.iter().map(|&x| u16::from(x))),
-            crate::textos::TextoRef::Dois(u) => v.extend_from_slice(u),
+            crate::text::TextRef::OneByte(b) => v.extend(b.iter().map(|&x| u16::from(x))),
+            crate::text::TextRef::TwoByte(u) => v.extend_from_slice(u),
         }
         t.len() as i64
     })
@@ -505,7 +505,7 @@ pub extern "C" fn dartforge_native_DartForge_sb_write_char_code(accumulator: i64
         let heap = heap.borrow();
         // SAFETY: the attachment's `Vec` lives outside the heap; nothing else borrows it.
         let v = unsafe { &mut *accumulator_vec(&heap, accumulator) };
-        crate::textos::push_point(v, code as u32);
+        crate::text::push_point(v, code as u32);
     });
 }
 
@@ -520,7 +520,7 @@ pub extern "C" fn dartforge_native_DartForge_sb_to_string(accumulator: i64) -> i
         // accumulator's death, and the accumulator is rooted by the caller during
         // the allocation.
         let u: &[u16] = unsafe { &*v };
-        heap.allocate_string(crate::textos::TextoRef::Dois(u))
+        heap.allocate_string(crate::text::TextRef::TwoByte(u))
     })
 }
 
@@ -535,7 +535,7 @@ pub extern "C" fn dartforge_native_DartForge_sb_to_string(accumulator: i64) -> i
 pub extern "C" fn dartforge_native_DartForge_string_from_char_codes(list: i64, start: i64, end: i64) -> i64 {
     let bytes = HEAP.with(|heap| {
         let heap = heap.borrow();
-        if !crate::layout::is_object(list) || !heap.e_lista(list) {
+        if !crate::layout::is_object(list) || !heap.is_list(list) {
             return None;
         }
         let (i, f) = (usize::try_from(start).ok()?, usize::try_from(end).ok()?);
@@ -554,18 +554,18 @@ pub extern "C" fn dartforge_native_DartForge_string_from_char_codes(list: i64, s
         }
         Some(v)
     });
-    bytes.map_or(0, |b| HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Um(&b))))
+    bytes.map_or(0, |b| HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(&b))))
 }
 
 // ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ────────────────────
 
-/// A new string of `len` zeroed units (`dois` ≠ 0: `_TwoByteString`): the slow
+/// A new string of `len` zeroed units (`two` ≠ 0: `_TwoByteString`): the slow
 /// path of `@df.string_allocate` (above 16 words, or an exhausted TLAB). Does not
 /// throw.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_allocate(len: i64, dois: i64) -> i64 {
+pub extern "C" fn dartforge_string_allocate(len: i64, two: i64) -> i64 {
     let len = usize::try_from(len).unwrap_or(0);
-    HEAP.with(|heap| heap.borrow_mut().new_string(len, dois != 0))
+    HEAP.with(|heap| heap.borrow_mut().new_string(len, two != 0))
 }
 
 /// [`dartforge_string_allocate`] under ARC: the new string (zeroed units, not yet
@@ -578,11 +578,11 @@ pub extern "C" fn dartforge_string_allocate(len: i64, dois: i64) -> i64 {
 /// dartforge_arc_release(s);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_string_allocate_owned_v1(len: i64, dois: i64) -> i64 {
+pub extern "C" fn dartforge_arc_string_allocate_owned_v1(len: i64, two: i64) -> i64 {
     let len = usize::try_from(len).unwrap_or(0);
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let s = heap.new_string(len, dois != 0);
+        let s = heap.new_string(len, two != 0);
         heap.retain_code_owner(s);
         s
     })
@@ -594,7 +594,7 @@ pub extern "C" fn dartforge_arc_string_allocate_owned_v1(len: i64, dois: i64) ->
 pub extern "C" fn dartforge_string_hash(s: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        match heap.hash_de_texto(s) {
+        match heap.string_hash(s) {
             Some(x) => i64::from(x),
             None => panic!("compiler bug: string hashCode on a value that is not a string\nhandle {s}"),
         }

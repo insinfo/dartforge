@@ -52,7 +52,7 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
 #[cfg(feature = "nativo")]
 /// `--excecoes checagem|tabelas`: the exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13). The emitter reads it from the
-/// `DARTFORGE_EXCECOES` variable (`dartforge_emit_native::alvo::excecoes_por_tabelas`),
+/// `DARTFORGE_EXCECOES` variable (`dartforge_emit_native::target::table_exceptions`),
 /// which is also part of the compiled SDK's key — the program and the SDK
 /// always come out in the same model; the option only sets it, for this process.
 #[allow(unsafe_code)]
@@ -144,7 +144,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     let mut timings = false;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
-    let mut cpu: Option<dartforge_emit_native::gerador::Cpu> = None;
+    let mut cpu: Option<dartforge_emit_native::generator::Cpu> = None;
     let mut flags = args[3..].iter();
     while let Some(flag) = flags.next() {
         match flag.to_str() {
@@ -153,7 +153,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
             Some("--timings") => timings = true,
             Some("--cpu") => {
                 let name = flags.next().and_then(|v| v.to_str()).ok_or("--cpu requires the CPU name")?;
-                cpu = Some(dartforge_emit_native::gerador::Cpu::do_nome(name)?);
+                cpu = Some(dartforge_emit_native::generator::Cpu::from_name(name)?);
             }
             Some("--sdk") => sdk = Some(PathBuf::from(flags.next().ok_or("--sdk requires a path")?)),
             Some("--packages") => {
@@ -214,13 +214,13 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
                     packages: packages.as_deref(),
                     timings,
                     optimize,
-                    versao_linguagem: None,
-                    experimentos: Vec::new(),
-                    depuracao: debug,
-                    gerador: generator,
+                    language_version: None,
+                    experiments: Vec::new(),
+                    debug: debug,
+                    generator: generator,
                     cpu,
                 };
-                dartforge_emit_native::compilar(&input, &output, &options).map_err(|e| e.to_string())
+                dartforge_emit_native::compile(&input, &output, &options).map_err(|e| e.to_string())
             })
         })
         .map_err(|e| e.to_string())?
@@ -254,7 +254,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
-    let mut cpu: Option<dartforge_emit_native::gerador::Cpu> = None;
+    let mut cpu: Option<dartforge_emit_native::generator::Cpu> = None;
     let mut timings = false;
     let mut optimize = false;
     let mut debug = false;
@@ -271,7 +271,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--timings") => timings = true,
             Some("--cpu") => {
                 let name = it.next().and_then(|v| v.to_str()).ok_or("--cpu requires the CPU name")?;
-                cpu = Some(dartforge_emit_native::gerador::Cpu::do_nome(name)?);
+                cpu = Some(dartforge_emit_native::generator::Cpu::from_name(name)?);
             }
             Some("--optimize") => optimize = true,
             Some("--depuracao") => debug = true,
@@ -342,13 +342,13 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                     packages: p2.as_deref(),
                     timings,
                     optimize,
-                    versao_linguagem: language.current_version,
-                    experimentos: language.experiments,
-                    depuracao: debug,
-                    gerador: generator,
+                    language_version: language.current_version,
+                    experiments: language.experiments,
+                    debug: debug,
+                    generator: generator,
                     cpu,
                 };
-                dartforge_emit_native::compilar(&i2, &o2, &options).map_err(|e| e.to_string())
+                dartforge_emit_native::compile(&i2, &o2, &options).map_err(|e| e.to_string())
             })
         })
         .map_err(|e| e.to_string())?
@@ -383,26 +383,26 @@ fn emit_native_ir(
                 packages: packages.as_deref(),
                 timings,
                 optimize,
-                versao_linguagem: language.current_version,
-                experimentos: language.experiments,
-                depuracao: debug,
-                gerador: None,
+                language_version: language.current_version,
+                experiments: language.experiments,
+                debug: debug,
+                generator: None,
                 cpu: None,
             };
-            dartforge_emit_native::emitir_ir(&input, &options)
+            dartforge_emit_native::emit_ir(&input, &options)
         })
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "the LLVM IR emission aborted".to_string())??;
     if timings {
         eprintln!("--- Native Emission Timings ---");
-        ir.imprimir_tempos();
+        ir.print_times();
     }
     if let Some(out) = out {
-        fs::write(&out, &ir.texto).map_err(|e| format!("failed to write {}: {e}", out.display()))?;
+        fs::write(&out, &ir.text).map_err(|e| format!("failed to write {}: {e}", out.display()))?;
     }
     if digest {
-        let r = dartforge_emit_native::resumo::ResumoIr::de(&ir.texto);
+        let r = dartforge_emit_native::summary::IrSummary::of(&ir.text);
         println!("{}  {}", r.hex(), r.bytes);
     }
     Ok(())

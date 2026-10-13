@@ -6,7 +6,7 @@
 // its events, with reference counting. Dart asks the handler, through
 // `EventHandler_SendData`, to watch the descriptor (a read/write mask), return
 // tokens or close; the handler is a thread with epoll (Linux), kqueue (macOS) or an
-// I/O completion port (Windows, in `io_windows_eventos.rs`) that posts to the
+// I/O completion port (Windows, in `io_windows_events.rs`) that posts to the
 // socket's port the mask of the ready events (`kInEvent`, `kOutEvent`,
 // `kCloseEvent`, `kErrorEvent`, `kDestroyedEvent`) — like the VM, including the
 // token-based flow control (`TokenCounter`) and the listening sockets shared
@@ -66,7 +66,7 @@ impl NativeSocket {
 
     /// # Safety
     /// `p` came from [`NativeSocket::new`] and the reference still exists.
-    unsafe fn de<'a>(p: i64) -> &'a NativeSocket {
+    unsafe fn of<'a>(p: i64) -> &'a NativeSocket {
         // SAFETY: guaranteed by the caller.
         unsafe { &*(p as *const NativeSocket) }
     }
@@ -164,7 +164,7 @@ fn finalize_signal_socket(pair: usize) {
 
 fn finalize_stdio_socket(pair: usize) {
     // SAFETY: the object's reference still exists; it is released here.
-    unsafe { NativeSocket::de(pair as i64) }.release_descriptor();
+    unsafe { NativeSocket::of(pair as i64) }.release_descriptor();
     NativeSocket::free(pair as i64);
 }
 
@@ -172,8 +172,8 @@ fn finalize_stdio_socket(pair: usize) {
 /// reference passes to the command, which releases it.
 fn close_collected_socket(p: i64, data: i64) {
     // SAFETY: the collected object's reference still exists.
-    let port = unsafe { NativeSocket::de(p) }.port.load(std::sync::atomic::Ordering::Acquire);
-    event_handler().enviar(EventCommand { sock: p, port, data });
+    let port = unsafe { NativeSocket::of(p) }.port.load(std::sync::atomic::Ordering::Acquire);
+    event_handler().send(EventCommand { sock: p, port, data });
 }
 
 /// `Socket::SetSocketIdNativeField`: creates the socket of `descriptor` in the
@@ -203,7 +203,7 @@ fn object_socket<'a>(object: i64) -> Option<&'a NativeSocket> {
         return None;
     }
     // SAFETY: the object's reference lives until it is collected.
-    Some(unsafe { NativeSocket::de(p) })
+    Some(unsafe { NativeSocket::of(p) })
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +404,7 @@ struct EventCommand {
 
 /// The handler thread and its request queue; one byte in the interrupt pipe wakes
 /// it. On Windows the request goes through the completion port
-/// (`io_windows_eventos.rs`).
+/// (`io_windows_events.rs`).
 struct EventHandler {
     #[cfg(unix)]
     requests: std::sync::Mutex<Vec<EventCommand>>,
@@ -421,7 +421,7 @@ fn event_handler() -> &'static EventHandler {
 
 #[cfg(unix)]
 impl EventHandler {
-    fn enviar(&self, c: EventCommand) {
+    fn send(&self, c: EventCommand) {
         self.requests.lock().unwrap_or_else(|e| e.into_inner()).push(c);
         self.wake();
     }
@@ -442,7 +442,7 @@ unsafe extern "C" {
     fn pipe(fds: *mut i32) -> i32;
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
     fn read(fd: i32, b: *mut std::ffi::c_void, n: usize) -> isize;
-    fn shutdown(fd: i32, como: i32) -> i32;
+    fn shutdown(fd: i32, how: i32) -> i32;
 }
 
 #[cfg(unix)]
@@ -750,7 +750,7 @@ impl Poll {
 #[cfg(all(unix, not(target_os = "linux")))]
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct EventoKqueue {
+struct KqueueEvent {
     ident: usize,
     filter_obj: i16,
     flag_bits: u16,
@@ -762,7 +762,7 @@ struct EventoKqueue {
 #[cfg(all(unix, not(target_os = "linux")))]
 unsafe extern "C" {
     fn kqueue() -> i32;
-    fn kevent(kq: i32, changes: *const EventoKqueue, nm: i32, events: *mut EventoKqueue, ne: i32, wait_entry: *const std::ffi::c_void) -> i32;
+    fn kevent(kq: i32, changes: *const KqueueEvent, nm: i32, events: *mut KqueueEvent, ne: i32, wait_entry: *const std::ffi::c_void) -> i32;
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
@@ -782,8 +782,8 @@ impl Poll {
     const EV_EOF: u16 = 0x8000;
     const EV_ERROR: u16 = 0x4000;
 
-    fn event(fd: i64, filter_obj: i16, flag_bits: u16) -> EventoKqueue {
-        EventoKqueue { ident: fd as usize, filter_obj, flag_bits, fd_flags: 0, data: 0, udata: (fd + 1) as usize as *mut std::ffi::c_void }
+    fn event(fd: i64, filter_obj: i16, flag_bits: u16) -> KqueueEvent {
+        KqueueEvent { ident: fd as usize, filter_obj, flag_bits, fd_flags: 0, data: 0, udata: (fd + 1) as usize as *mut std::ffi::c_void }
     }
 
     fn new_area(interrupt: i32) -> Poll {
@@ -865,7 +865,7 @@ impl Poll {
     }
 
     /// `GetEvents` of `eventhandler_macos.cc`.
-    fn dart_mask(ev: &EventoKqueue, listening: bool) -> i64 {
+    fn dart_mask(ev: &KqueueEvent, listening: bool) -> i64 {
         let eof = ev.flag_bits & Self::EV_EOF != 0;
         if listening {
             let mut m = 0;
@@ -970,9 +970,9 @@ pub extern "C" fn dartforge_native_EventHandler_SendData(sender: i64, port: i64,
         return;
     }
     // SAFETY: the object's reference is alive.
-    unsafe { NativeSocket::de(p) }.port.store(port, std::sync::atomic::Ordering::Release);
+    unsafe { NativeSocket::of(p) }.port.store(port, std::sync::atomic::Ordering::Release);
     NativeSocket::retain_ref(p);
-    event_handler().enviar(EventCommand { sock: p, port, data });
+    event_handler().send(EventCommand { sock: p, port, data });
 }
 
 #[unsafe(no_mangle)]

@@ -3,14 +3,14 @@
 
 /// The text the AOT compiles contains, unchanged, the files this crate compiles
 /// as `heap` and `abi`: `heap.rs` and then all the fragments concatenated in the
-/// order of `FRAGMENTOS`.
+/// order of `FRAGMENTS`.
 #[test]
 fn aot_compiles_the_same_files() {
     let text = dartforge_runtime::RUNTIME_MAIN;
     assert!(text.contains(include_str!("../src/heap.rs")));
     let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut concatenated = String::new();
-    for f in dartforge_runtime::simbolos::FRAGMENTOS {
+    for f in dartforge_runtime::symbols::FRAGMENTS {
         concatenated.push_str(
             &std::fs::read_to_string(src.join(format!("{f}.rs"))).expect("read fragment"),
         );
@@ -21,15 +21,15 @@ fn aot_compiles_the_same_files() {
 /// The generated table has unique names, real addresses and no C `main`.
 #[test]
 fn the_table_covers_runtime_symbols() {
-    let tabela = dartforge_runtime::simbolos::tabela();
-    assert_eq!(tabela.len(), dartforge_runtime::simbolos::NOMES.len());
-    assert!(tabela.len() > 100, "{}", tabela.len());
-    let mut names: Vec<&str> = tabela.iter().map(|(n, _)| *n).collect();
+    let table = dartforge_runtime::symbols::table();
+    assert_eq!(table.len(), dartforge_runtime::symbols::NAMES.len());
+    assert!(table.len() > 100, "{}", table.len());
+    let mut names: Vec<&str> = table.iter().map(|(n, _)| *n).collect();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), tabela.len());
+    assert_eq!(names.len(), table.len());
     assert!(
-        tabela
+        table
             .iter()
             .all(|(n, a)| n.starts_with("dartforge_") && *a != 0)
     );
@@ -48,7 +48,7 @@ fn the_table_covers_runtime_symbols() {
 #[test]
 #[allow(unsafe_code)] // The proof calls the ABI whose contract requires valid bytes.
 fn native_resolver_and_its_cache_keep_this_runtimes_addresses() {
-    for (name, expected) in dartforge_runtime::simbolos::tabela() {
+    for (name, expected) in dartforge_runtime::symbols::table() {
         for _ in 0..2 {
             // SAFETY: the name is a static UTF-8 string and lives during the call.
             let address = unsafe {

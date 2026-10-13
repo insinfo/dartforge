@@ -114,7 +114,7 @@ fn ms(d: Duration) -> f64 {
 /// (i) creating the session; (ii) loading a module and generating code until the entry
 /// is resolved, from the IR and from the cached object; (iii) a trivial execution
 /// in an already warmed-up session. The «emitter IR» module is that of a small Dart
-/// program, emitted by `dartforge_emit_native::emitir_ir`.
+/// program, emitted by `dartforge_emit_native::emit_ir`.
 #[test]
 #[ignore = "measurement: requires LLVM-C.dll and the Dart 3.6.2 SDK; run with --nocapture"]
 fn persistent_session_measurement() {
@@ -142,21 +142,21 @@ fn persistent_session_measurement() {
     let emitted = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+            let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
             // With the source SDK (the emitter's only mode since the unified
             // space): the program imports the runtime and the SDK from the shared
-            // library, which the session loads (`JitSession::new_for_ir_com`).
-            dartforge_emit_native::emitir_ir_recarregavel(&source, &options, None).unwrap().texto
+            // library, which the session loads (`JitSession::new_for_ir_with`).
+            dartforge_emit_native::emit_reloadable_ir(&source, &options, None).unwrap().text
         })
         .unwrap()
         .join()
         .unwrap();
     drop(dir);
-    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("source SDK library");
+    let dll = dartforge_emit_native::sdk_module::source_sdk_dll().expect("source SDK library");
     // The IR session: the embedded runtime for the trivial one, the SDK library
     // for the emitted one; and execution through each profile's entry.
-    let new_session = |ir: &str| JitSession::new_for_ir_com(ir, Some(&dll)).unwrap();
-    let execute_fn = |s: &JitSession| if s.usa_sdk_da_fonte() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
+    let new_session = |ir: &str| JitSession::new_for_ir_with(ir, Some(&dll)).unwrap();
+    let execute_fn = |s: &JitSession| if s.uses_source_sdk() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
 
     for (label_name, ir) in [("trivial", TRIVIAL), ("IR do emissor", emitted.as_str())] {
         let (p50, p95) = measure(n, || {

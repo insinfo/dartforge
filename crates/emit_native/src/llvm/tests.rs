@@ -27,7 +27,7 @@ fn owned_factory_preserves_method_table_registration() {
 
 #[test]
 fn typed_fields_keep_inline_llvm_type_and_extension() {
-    let limit = dartforge_runtime::layout::CAMPOS_EM_LINHA;
+    let limit = dartforge_runtime::layout::INLINE_FIELDS;
     for index in [0, limit] {
         for (ty, llvm_ty, conversion) in [
             (Type::Ref, "i64", None), (Type::I64, "i64", None),
@@ -371,7 +371,7 @@ fn wtf8_literal_preserves_lone_surrogate_in_ir() {
 
 /// §2.11: in AOT (`static_objects`), the literal is a static object of the
 /// module — a `_TwoByteString` (cid 7) with the lone surrogate as a code unit, the
-/// header `PERMANENTE | BRUTO | w | cid` and the VM hash —, with no call nor
+/// header `PERMANENT | RAW | w | cid` and the VM hash —, with no call nor
 /// cache at the use site.
 #[test]
 fn static_literal_in_aot() {
@@ -398,14 +398,14 @@ fn static_literal_in_aot() {
     // The name of the global is `@"df.s.<blake3>"` (quoted: it has dots).
     assert!(ir.contains("df.s."), "{ir}");
     assert!(ir.contains("linkonce_odr"), "{ir}");
-    let header = layout::palavra_do_cabecalho(
-        layout::estado::PERMANENTE,
-        layout::flags::BRUTO,
-        layout::palavras_de_texto(1, true),
+    let header = layout::header_word(
+        layout::state::PERMANENT,
+        layout::flags::RAW,
+        layout::string_words(1, true),
         layout::cid::TWO_BYTE_STRING,
     );
     assert!(ir.contains(&format!("i64 {}", header as i64)), "header {header:#x}: {ir}");
-    let hash = layout::hash_de_texto([0xD83Du16]);
+    let hash = layout::string_hash([0xD83Du16]);
     assert!(ir.contains(&format!("i64 {hash}")), "hash {hash}: {ir}");
 }
 
@@ -807,8 +807,8 @@ fn check_cleanup_objects(ir: &str) {
         declare void @falha()
         {ir}"#);
     for optimize in [false, true] {
-        let object = dartforge_llvm::gerar("cleanup-retoma", &complete, &dartforge_llvm::Opcoes {
-            otimizar: optimize, formato: dartforge_llvm::Formato::Objeto, cpu: None,
+        let object = dartforge_llvm::generate("cleanup-retoma", &complete, &dartforge_llvm::Options {
+            optimize: optimize, format: dartforge_llvm::Format::Object, cpu: None,
         }).unwrap_or_else(|error| panic!("{error}\n{complete}"));
         assert!(!object.is_empty());
     }

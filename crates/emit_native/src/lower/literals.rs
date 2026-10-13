@@ -67,16 +67,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (`dartforge_list_append`, the value in a `Ref` position), without the
     /// dispatch nor the covariance check, which the static type of the
     /// element already guarantees. The set uses the `add` of `_Set`.
-    fn append(&mut self, alvo: Operand, typ: Collection, v: Operand) {
+    fn append(&mut self, target: Operand, typ: Collection, v: Operand) {
         if typ == Collection::Set {
-            self.call_by_name(alvo, super::sdk_source::AccessKind::Call, "add", &[(None, v)]);
+            self.call_by_name(target, super::sdk_source::AccessKind::Call, "add", &[(None, v)]);
             return;
         }
         let v = self.coerce(v, Type::Ref);
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_list_append".to_string(),
-                args: vec![(alvo, Type::Ref), (v, Type::Ref)],
+                args: vec![(target, Type::Ref), (v, Type::Ref)],
                 ret_ty: Type::Ref,
             },
             Type::Ref,
@@ -84,8 +84,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Appends an entry to the map (the `[]=` of `_Map`).
-    fn append_entry(&mut self, alvo: Operand, k: Operand, v: Operand) {
-        self.call_by_name(alvo, super::sdk_source::AccessKind::Call, "[]=", &[(None, k), (None, v)]);
+    fn append_entry(&mut self, target: Operand, k: Operand, v: Operand) {
+        self.call_by_name(target, super::sdk_source::AccessKind::Call, "[]=", &[(None, k), (None, v)]);
     }
 
     /// A collection literal with control elements (or a set literal).
@@ -96,20 +96,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         elements: &[CollectionElement],
         span: Span,
     ) -> Operand {
-        let alvo = self.empty_collection(typ);
-        if self.fill_from_table(ast, alvo.clone(), typ, elements) {
-            return alvo;
+        let target = self.empty_collection(typ);
+        if self.fill_from_table(ast, target.clone(), typ, elements) {
+            return target;
         }
-        if self.fill_in_chunks(ast, alvo.clone(), typ, elements, span) {
-            return alvo;
+        if self.fill_in_chunks(ast, target.clone(), typ, elements, span) {
+            return target;
         }
-        if self.fill_map_at_once(ast, alvo.clone(), typ, elements) {
-            return alvo;
+        if self.fill_map_at_once(ast, target.clone(), typ, elements) {
+            return target;
         }
         for el in elements {
-            self.collection_element(ast, alvo.clone(), typ, el, span);
+            self.collection_element(ast, target.clone(), typ, el, span);
         }
-        alvo
+        target
     }
 
     /// A large literal of only strings, bools and null (the name and entity
@@ -131,7 +131,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// constant values (`{'a': C(1), …}`) did one `[]=` by selector per
     /// entry — 30 MB of IR in 234 getters in new_sali/backend
     /// (docs/NATIVO-PRODUCAO-GRANDE.md §6.5).
-    fn fill_from_table(&mut self, ast: &ast::Ast, alvo: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
+    fn fill_from_table(&mut self, ast: &ast::Ast, target: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
         const MINIMUM: usize = 8;
         if elements.len() < MINIMUM {
             return false;
@@ -252,7 +252,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             )
         };
-        let evaluated: Vec<super::members::Evaluated> = vec![(None, alvo), (None, values)];
+        let evaluated: Vec<super::members::Evaluated> = vec![(None, target), (None, values)];
         let args = self.match_args(fid, &evaluated);
         self.call_direct(fid, None, args);
         true
@@ -269,7 +269,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// selector lookup, the indirect call and the exception check for each
     /// one: the `toMap`/`toJson` of a real backend are made of that. Outside
     /// ARC, which builds the list through the Owned factory (`ir_lists.rs`).
-    fn fill_map_at_once(&mut self, ast: &ast::Ast, alvo: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
+    fn fill_map_at_once(&mut self, ast: &ast::Ast, target: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
         // Up to `LITERAL_CHUNK` entries: the values stay alive (and
         // rooted) until the list, in the frame.
         if typ != Collection::Map || elements.len() < 2 || elements.len() > LITERAL_CHUNK || self.ctx.arc_memory {
@@ -295,7 +295,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         let list = self.emit(Instruction::AllocList { elements: values }, Type::Ref);
-        let evaluated: Vec<super::members::Evaluated> = vec![(None, alvo), (None, list)];
+        let evaluated: Vec<super::members::Evaluated> = vec![(None, target), (None, list)];
         let args = self.match_args(fid, &evaluated);
         self.call_direct(fid, None, args);
         true
@@ -327,7 +327,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn fill_in_chunks(
         &mut self,
         ast: &ast::Ast,
-        alvo: Operand,
+        target: Operand,
         typ: Collection,
         elements: &[CollectionElement],
         span: Span,
@@ -348,7 +348,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !constants {
             return false;
         }
-        let alvo = self.coerce(alvo, Type::Ref);
+        let target = self.coerce(target, Type::Ref);
         for (i, chunk) in elements.chunks(LITERAL_CHUNK).enumerate() {
             let symbol = format!("{}$lit{}_{i}", self.func.symbol, span.start);
             let mut g = FnBuilder::new(self.ctx, self.unit_id, symbol.clone(), "literal".to_string(), Type::Ref);
@@ -370,7 +370,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorb(g);
             self.emit_call_with_check(
-                Instruction::CallStatic { symbol: symbol, args: vec![alvo.clone()], ret_ty: Type::Ref },
+                Instruction::CallStatic { symbol: symbol, args: vec![target.clone()], ret_ty: Type::Ref },
                 Type::Ref,
             );
         }
@@ -433,7 +433,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn collection_element(
         &mut self,
         ast: &ast::Ast,
-        alvo: Operand,
+        target: Operand,
         typ: Collection,
         el: &CollectionElement,
         span: Span,
@@ -445,11 +445,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.unsupported("expressão num literal de mapa", span);
                     return;
                 }
-                self.append(alvo, typ, v);
+                self.append(target, typ, v);
             }
             CollectionElement::NullAwareExpression(e) => {
                 let v = self.lower_expr(ast, *e);
-                self.if_non_null(v, |s, v| s.append(alvo.clone(), typ, v));
+                self.if_non_null(v, |s, v| s.append(target.clone(), typ, v));
             }
             CollectionElement::MapEntry {
                 key,
@@ -463,7 +463,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let k = self.lower_expr(ast, *key);
                 let v = self.lower_expr(ast, *value);
-                self.append_entry(alvo, k, v);
+                self.append_entry(target, k, v);
             }
             CollectionElement::Spread { value, null_aware } => {
                 // In a constant context, `...c` of a `const` whose
@@ -486,7 +486,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                     let saved = std::mem::replace(&mut self.unit_id, unit_ref);
                     for el in element_list.iter() {
-                        self.collection_element(ast_c, alvo.clone(), typ, el, span);
+                        self.collection_element(ast_c, target.clone(), typ, el, span);
                     }
                     self.unit_id = saved;
                     return;
@@ -495,7 +495,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let source = self.coerce(source, Type::Ref);
                 // `...e` is the `addAll` of the collection (§17.9.1).
                 let spread = |s: &mut Self, f: Operand| {
-                    s.call_by_name(alvo.clone(), super::sdk_source::AccessKind::Call, "addAll", &[(None, f)]);
+                    s.call_by_name(target.clone(), super::sdk_source::AccessKind::Call, "addAll", &[(None, f)]);
                 };
                 if *null_aware {
                     self.if_non_null(source, spread);
@@ -540,12 +540,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     });
                     self.set_block(b_then);
                 }
-                self.collection_element(ast, alvo.clone(), typ, then, span);
+                self.collection_element(ast, target.clone(), typ, then, span);
                 self.close_scope();
                 self.terminate(Terminator::Branch(end));
                 self.set_block(b_else);
                 if let Some(e) = else_ {
-                    self.collection_element(ast, alvo, typ, e, span);
+                    self.collection_element(ast, target, typ, e, span);
                 }
                 self.terminate(Terminator::Branch(end));
                 self.set_block(end);
@@ -597,7 +597,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.set_block(fn_body);
                 self.emit_safepoint();
-                self.collection_element(ast, alvo, typ, body, span);
+                self.collection_element(ast, target, typ, body, span);
                 if let Some(ForInit::Variables(list)) = init {
                     for var in list.variables.iter() {
                         self.renew_cell(var.name.sym);
@@ -611,7 +611,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.close_scope();
             }
             CollectionElement::ForIn {
-                target,
+                target: for_target,
                 iterable,
                 body,
                 ..
@@ -621,8 +621,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let fn_body: &CollectionElement = body;
                 self.iterate_source(source, &mut |s: &mut Self, x: Operand| {
                     s.open_scope();
-                    s.bind_for_in_target(ast, target, x, *iterable, span);
-                    s.collection_element(ast, alvo.clone(), typ, fn_body, span);
+                    s.bind_for_in_target(ast, for_target, x, *iterable, span);
+                    s.collection_element(ast, target.clone(), typ, fn_body, span);
                     s.close_scope();
                 });
             }

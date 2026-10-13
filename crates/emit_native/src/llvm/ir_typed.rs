@@ -222,33 +222,33 @@ impl LlvmEmitter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use dartforge_runtime::layout::{self, desl, flags};
+    use dartforge_runtime::layout::{self, offsets, flags};
 
     /// The constants written by hand in [`super::HELPERS`] are those of the contract.
     #[test]
     fn contract_offsets() {
-        let h = |b: usize| b as i64 - layout::DESLOCAMENTO_DO_HANDLE;
-        assert_eq!(h(desl::COMPRIMENTO), 14);
-        assert_eq!(h(desl::DADOS), 22);
-        assert_eq!(h(desl::CLASSE), 2);
-        assert_eq!(h(desl::BASE_DA_VISAO), 30);
-        assert_eq!(h(desl::DESLOCAMENTO_DA_VISAO), 38);
-        assert_eq!(h(desl::EXPANSIVEL_DADOS), 22);
-        assert_eq!(h(desl::ELEMENTOS), 22);
-        assert_eq!(h(desl::VALOR), 14);
-        assert_eq!(h(desl::FLAGS), -1);
-        assert_eq!(flags::FORMA | flags::ELEMENTO, 102);
-        assert_eq!(layout::cid::PRIMEIRA_TIPADA, 22);
-        assert_eq!(layout::cid::PRIMEIRA_VISAO, 36);
+        let h = |b: usize| b as i64 - layout::HANDLE_OFFSET;
+        assert_eq!(h(offsets::LENGTH), 14);
+        assert_eq!(h(offsets::DATA), 22);
+        assert_eq!(h(offsets::CLASS), 2);
+        assert_eq!(h(offsets::VIEW_BASE), 30);
+        assert_eq!(h(offsets::VIEW_OFFSET), 38);
+        assert_eq!(h(offsets::GROWABLE_DATA), 22);
+        assert_eq!(h(offsets::ELEMENTS), 22);
+        assert_eq!(h(offsets::VALUE), 14);
+        assert_eq!(h(offsets::FLAGS), -1);
+        assert_eq!(flags::FORMAT | flags::ELEMENT, 102);
+        assert_eq!(layout::cid::FIRST_TYPED, 22);
+        assert_eq!(layout::cid::FIRST_VIEW, 36);
         assert_eq!(layout::cid::BYTE_DATA_VIEW, 64);
         assert_eq!(layout::cid::GROWABLE_LIST, 10);
         assert_eq!(layout::cid::LIST, 8);
         // Word 0 of the header of a SIMD value, without the cid.
-        assert_eq!(layout::palavra_do_cabecalho(layout::estado::JOVEM, flags::BRUTO, 2, 0), 131_585);
+        assert_eq!(layout::header_word(layout::state::YOUNG, flags::RAW, 2, 0), 131_585);
         // The `log2` table of the element size per type (4 bits per type).
         let mut table = 0u64;
         for t in 0..=14u8 {
-            let lg = dartforge_runtime::tipadas::tamanho_do_elemento(t).trailing_zeros() as u64;
+            let lg = dartforge_runtime::typed_lists::element_size(t).trailing_zeros() as u64;
             table |= lg << (4 * t);
         }
         assert_eq!(table, 19_214_116_860_268_544);

@@ -231,9 +231,9 @@ pub(super) fn prepare(
             let (class_id, fields, synthetic): (u32, &[Operand], bool) = match inst {
                 Instruction::AllocObject { class_id, fields } => (*class_id, fields,
                     *class_id == crate::lower::async_sm::ASYNC_FRAME_ID && !layouts.contains_key(class_id)),
-                Instruction::AllocCell { value } => (dartforge_runtime::layout::cid::CELULA as u32,
+                Instruction::AllocCell { value } => (dartforge_runtime::layout::cid::CELL as u32,
                     std::slice::from_ref(value), true),
-                Instruction::AllocEnv { values } => (dartforge_runtime::layout::cid::CONTEXTO as u32,
+                Instruction::AllocEnv { values } => (dartforge_runtime::layout::cid::CONTEXT as u32,
                     values, true),
                 _ => { instructions.push((*v, inst.clone(), *ty)); continue; }
             };

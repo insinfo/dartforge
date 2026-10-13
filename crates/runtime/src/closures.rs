@@ -10,7 +10,7 @@
 
 /// The `Field` of a `(bits, tag)` pair of the old ABI: only tag 3 is a reference;
 /// `bool` is 0/1 and `double`, its bits.
-fn campo_de_par(bits: i64, tag: u8) -> crate::heap::Field {
+fn pair_field(bits: i64, tag: u8) -> crate::heap::Field {
     match tag {
         1 | 4 => (bits, false),
         2 => (i64::from(bits != 0), false),
@@ -74,7 +74,7 @@ static CLOSURE_NONE: [i64; 4] = [0; 4];
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_header(h: i64) -> i64 {
     heap_without_borrow(|heap| match heap.closure(h) {
-        Some(_) => h + (crate::layout::desl::CORPO as i64 - crate::layout::DESLOCAMENTO_DO_HANDLE),
+        Some(_) => h + (crate::layout::offsets::BODY as i64 - crate::layout::HANDLE_OFFSET),
         None => CLOSURE_NONE.as_ptr() as i64,
     })
 }
@@ -139,17 +139,17 @@ pub extern "C" fn dartforge_rti_tuple_join(from_outside: i64, n_outside: i64, ow
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_args_match(desc: *const i64, sig: *const i64) -> u8 {
     // SAFETY: headers of the emitter's constant vectors.
-    let (npos, nnom) = unsafe { (*desc, *desc.add(1)) };
-    let (required_count, total, snom) = unsafe { (*sig, *sig.add(1), *sig.add(2)) };
+    let (npos, n_named) = unsafe { (*desc, *desc.add(1)) };
+    let (required_count, total, sig_named) = unsafe { (*sig, *sig.add(1), *sig.add(2)) };
     if npos < required_count || npos > total {
         return 0;
     }
-    let nnom = usize::try_from(nnom).unwrap_or(0);
-    let snom = usize::try_from(snom).unwrap_or(0);
+    let n_named = usize::try_from(n_named).unwrap_or(0);
+    let sig_named = usize::try_from(sig_named).unwrap_or(0);
     // SAFETY: the sizes come from the headers.
-    let passed = unsafe { std::slice::from_raw_parts(desc.add(2), nnom) };
-    let name_list = unsafe { std::slice::from_raw_parts(sig.add(3), snom) };
-    let required = unsafe { std::slice::from_raw_parts(sig.add(3 + snom), snom) };
+    let passed = unsafe { std::slice::from_raw_parts(desc.add(2), n_named) };
+    let name_list = unsafe { std::slice::from_raw_parts(sig.add(3), sig_named) };
+    let required = unsafe { std::slice::from_raw_parts(sig.add(3 + sig_named), sig_named) };
     if passed.iter().any(|h| !name_list.contains(h)) {
         return 0;
     }
@@ -169,8 +169,8 @@ pub unsafe extern "C" fn dartforge_args_match(desc: *const i64, sig: *const i64)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arg_index(desc: *const i64, hash: i64) -> i64 {
     // SAFETY: header and names of the constant descriptor.
-    let nnom = usize::try_from(unsafe { *desc.add(1) }).unwrap_or(0);
-    let passed = unsafe { std::slice::from_raw_parts(desc.add(2), nnom) };
+    let n_named = usize::try_from(unsafe { *desc.add(1) }).unwrap_or(0);
+    let passed = unsafe { std::slice::from_raw_parts(desc.add(2), n_named) };
     passed
         .iter()
         .position(|h| *h == hash)
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn dartforge_arg_index(desc: *const i64, hash: i64) -> i64
 fn list_length(h: i64) -> usize {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        if heap.e_lista(h) { heap.list_len(h) } else { 0 }
+        if heap.is_list(h) { heap.list_len(h) } else { 0 }
     })
 }
 
@@ -207,7 +207,7 @@ pub extern "C" fn dartforge_native_Function_apply(arguments: i64, names: i64) ->
             let name_list: Vec<Option<String>> = (0..named)
                 .map(|i| {
                     let v = heap.list_get_ref(names, i);
-                    heap.text(v).map(|t| t.para_string())
+                    heap.text(v).map(|t| t.to_dart_string())
                 })
                 .collect();
             (function, args, name_list)
@@ -248,7 +248,7 @@ mod function_apply_tests {
                 && *desc.add(2) == hash("c") && *desc.add(3) == hash("b")
                 && *args.add(1) == 0 && *args.add(2) == 0
         };
-        let value_alive = HEAP.with(|heap| heap.borrow().text(unsafe { *args }).is_some_and(|t| t.para_string() == "valor"));
+        let value_alive = HEAP.with(|heap| heap.borrow().text(unsafe { *args }).is_some_and(|t| t.to_dart_string() == "valor"));
         i64::from(matches && value_alive)
     }
 

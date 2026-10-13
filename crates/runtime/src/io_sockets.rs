@@ -11,7 +11,7 @@
 // The natives do not depend on the system: the system layer (`OsAddress`,
 // `create_connection`, `read_from`, `resolve_name`…) has the same names in
 // `io_sockets_unix.rs` (Linux and macOS) and in `io_windows_sockets.rs` (Winsock,
-// on top of the completion port of `io_windows_eventos.rs`).
+// on top of the completion port of `io_windows_events.rs`).
 
 /// `SocketAddress::TYPE_*`.
 const TYPE_IPV4: i64 = 0;
@@ -309,14 +309,14 @@ pub extern "C" fn dartforge_native_Socket_GetRemotePeer(this: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     match remote_peer(s.descriptor()) {
         Ok((e, port)) => {
-            let tipo = e.tipo();
+            let ty = e.ty();
             let text = allocate_str(&e.text());
             let input = with_roots(&[text], || {
-                if tipo == TYPE_UNIX {
-                    dart_fixed_list(&[dart_int(tipo), text])
+                if ty == TYPE_UNIX {
+                    dart_fixed_list(&[dart_int(ty), text])
                 } else {
                     let ip = dart_bytes(e.ip());
-                    with_roots(&[ip], || dart_fixed_list(&[dart_int(tipo), text, ip]))
+                    with_roots(&[ip], || dart_fixed_list(&[dart_int(ty), text, ip]))
                 }
             });
             with_roots(&[input], || dart_fixed_list(&[input, dart_int(port)]))
@@ -537,7 +537,7 @@ pub extern "C" fn dartforge_native_RawSocketOption_GetOptionValue(key: i64) -> i
 /// `Socket_Fatal(msg)`: an unrecoverable `dart:io` error (the VM aborts).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Socket_Fatal(msg: i64) {
-    let text = if msg == 0 { String::from("(null)") } else { HEAP.with(|h| h.borrow().text(msg).map(|t| t.para_string()).unwrap_or_default()) };
+    let text = if msg == 0 { String::from("(null)") } else { HEAP.with(|h| h.borrow().text(msg).map(|t| t.to_dart_string()).unwrap_or_default()) };
     eprintln!("Fatal error in dart:io (socket): {text}");
     std::process::abort();
 }
@@ -617,7 +617,7 @@ fn socket_recvfrom(this: i64, owned: bool) -> i64 {
             return 0;
         }
     };
-    let Some(f) = ajudante("_dartforgeDatagrama") else {
+    let Some(f) = helper("_dartforgeDatagrama") else {
         panic!("compiler bug: dart:io without a registered `_dartforgeDatagrama`");
     };
     // SAFETY: registered by the `dart:io` overlay with the signature (`Uint8List`,
@@ -635,7 +635,7 @@ fn socket_recvfrom(this: i64, owned: bool) -> i64 {
     let data = dart_bytes(buf);
     let text = with_roots(&[data], || allocate_str(&e.text()));
     let ip = with_roots(&[data, text], || dart_bytes(e.ip()));
-    with_roots(&[data, text, ip], || g(data, text, ip, e.port(), e.tipo()))
+    with_roots(&[data, text, ip], || g(data, text, ip, e.port(), e.ty()))
 }
 
 /// `Socket_SendTo(buffer, offset, bytes, address, port)`: the bytes sent (0 if the
@@ -665,7 +665,7 @@ pub extern "C" fn dartforge_native_Socket_SendTo(this: i64, buffer: i64, start: 
 /// `InternetAddress_Parse(address)`: the bytes of the numeric address, or `null`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_InternetAddress_Parse(text: i64) -> i64 {
-    let t = HEAP.with(|h| h.borrow().text(text).map(|t| t.para_string()).unwrap_or_default());
+    let t = HEAP.with(|h| h.borrow().text(text).map(|t| t.to_dart_string()).unwrap_or_default());
     parse_address(&t).map_or(0, dart_bytes)
 }
 
@@ -683,7 +683,7 @@ pub extern "C" fn dartforge_native_InternetAddress_RawAddrToString(addr: i64) ->
 /// IPv6 with `%interface`, or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_InternetAddress_ParseScopedLinkLocalAddress(text: i64) -> i64 {
-    let t = HEAP.with(|h| h.borrow().text(text).map(|t| t.para_string()).unwrap_or_default());
+    let t = HEAP.with(|h| h.borrow().text(text).map(|t| t.to_dart_string()).unwrap_or_default());
     match resolve_name(&t, TYPE_IPV6) {
         Ok(v) if !v.is_empty() => dart_int(v[0].scope()),
         Ok(_) => OsError::from_code(os_code::INVALID).to_dart(),
@@ -696,13 +696,13 @@ pub extern "C" fn dartforge_native_InternetAddress_ParseScopedLinkLocalAddress(t
 
 /// `Socket::LookupRequest(host, type)`: `[0, [type, text, bytes, scope]…]`.
 fn resolve_request(d: &[Portable]) -> Portable {
-    let (Some(host), Some(tipo)) = (d.first().and_then(Portable::str), d.get(1).and_then(Portable::int)) else {
+    let (Some(host), Some(ty)) = (d.first().and_then(Portable::str), d.get(1).and_then(Portable::int)) else {
         return invalid_argument();
     };
-    response(resolve_name(host, tipo), |v| {
+    response(resolve_name(host, ty), |v| {
         let mut l = vec![Portable::Int(0)];
         for e in v {
-            l.push(Portable::List(vec![Portable::Int(e.tipo()), Portable::Str(e.text()), Portable::Bytes(e.ip()), Portable::Int(e.scope())]));
+            l.push(Portable::List(vec![Portable::Int(e.ty()), Portable::Str(e.text()), Portable::Bytes(e.ip()), Portable::Int(e.scope())]));
         }
         Portable::List(l)
     })
@@ -710,13 +710,13 @@ fn resolve_request(d: &[Portable]) -> Portable {
 
 /// `Socket::ListInterfacesRequest(type)`: `[0, [type, text, bytes, name, index]…]`.
 fn interfaces_request(d: &[Portable]) -> Portable {
-    let Some(tipo) = d.first().and_then(Portable::int) else {
+    let Some(ty) = d.first().and_then(Portable::int) else {
         return invalid_argument();
     };
-    response(list_interfaces(tipo), |v| {
+    response(list_interfaces(ty), |v| {
         let mut l = vec![Portable::Int(0)];
         for (e, name, ix) in v {
-            l.push(Portable::List(vec![Portable::Int(e.tipo()), Portable::Str(e.text()), Portable::Bytes(e.ip()), Portable::Str(name), Portable::Int(ix)]));
+            l.push(Portable::List(vec![Portable::Int(e.ty()), Portable::Str(e.text()), Portable::Bytes(e.ip()), Portable::Str(name), Portable::Int(ix)]));
         }
         Portable::List(l)
     })
@@ -762,23 +762,23 @@ fn io_error(e: &std::io::Error) -> i64 {
 
 /// `[type, text, bytes]` of an IP.
 fn dart_ip_address(ip: std::net::IpAddr) -> i64 {
-    let (tipo, bytes) = match ip {
+    let (ty, bytes) = match ip {
         std::net::IpAddr::V4(a) => (TYPE_IPV4, a.octets().to_vec()),
         std::net::IpAddr::V6(a) => (TYPE_IPV6, a.octets().to_vec()),
     };
     let text = allocate_str(&ip.to_string());
     with_roots(&[text], || {
         let b = dart_bytes(bytes);
-        with_roots(&[b], || dart_fixed_list(&[dart_int(tipo), text, b]))
+        with_roots(&[b], || dart_fixed_list(&[dart_int(ty), text, b]))
     })
 }
 
 /// `SynchronousSocket_LookupRequest(host, type)`: `[[type, text, bytes]…]` or the
 /// `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_SynchronousSocket_LookupRequest(host: i64, tipo: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_LookupRequest(host: i64, ty: i64) -> i64 {
     let host = String::from_utf8_lossy(&utf8_of_string(host)).into_owned();
-    match resolve_name(&host, tipo) {
+    match resolve_name(&host, ty) {
         Ok(v) => {
             let mut items = Vec::with_capacity(v.len());
             let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(v.len().max(1)));
@@ -786,7 +786,7 @@ pub extern "C" fn dartforge_native_SynchronousSocket_LookupRequest(host: i64, ti
                 let text = allocate_str(&e.text());
                 let item = with_roots(&[text], || {
                     let b = dart_bytes(e.ip());
-                    with_roots(&[b], || dart_fixed_list(&[dart_int(e.tipo()), text, b]))
+                    with_roots(&[b], || dart_fixed_list(&[dart_int(e.ty()), text, b]))
                 });
                 HEAP.with(|h| h.borrow_mut().set_root(frame, i, item));
                 items.push(item);
@@ -964,8 +964,8 @@ pub extern "C" fn dartforge_native_SynchronousSocket_ShutdownWrite(this: i64) {
 
 /// The registered Dart function `name` (from the `dart:io` overlay).
 #[cfg(unix)]
-fn ajudante_de_io(name: &str) -> usize {
-    ajudante(name).unwrap_or_else(|| panic!("compiler bug: dart:io without a registered `{name}`"))
+fn io_helper(name: &str) -> usize {
+    helper(name).unwrap_or_else(|| panic!("compiler bug: dart:io without a registered `{name}`"))
 }
 
 /// The `int` of an element of a `List<dynamic>` (scalar or box).
@@ -996,9 +996,9 @@ pub extern "C" fn dartforge_native_SocketControlMessage_fromHandles(resources: i
     #[cfg(unix)]
     {
         // SAFETY: `(List<ResourceHandle>, int, int) → Object`.
-        let f = { let dart_target: usize = ajudante_de_io("_dartforgeMensagemDeRecursos"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
-        let (level, tipo) = resource_level_and_type();
-        f(resources, level, tipo)
+        let f = { let dart_target: usize = io_helper("_dartforgeMensagemDeRecursos"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let (level, ty) = resource_level_and_type();
+        f(resources, level, ty)
     }
     #[cfg(windows)]
     {
@@ -1014,9 +1014,9 @@ pub extern "C" fn dartforge_native_SocketControlMessageImpl_extractHandles(this:
     #[cfg(unix)]
     {
         // SAFETY: `(Object, int, int) → List<ResourceHandle>`.
-        let f = { let dart_target: usize = ajudante_de_io("_dartforgeRecursosDaMensagem"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
-        let (level, tipo) = resource_level_and_type();
-        f(this, level, tipo)
+        let f = { let dart_target: usize = io_helper("_dartforgeRecursosDaMensagem"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let (level, ty) = resource_level_and_type();
+        f(this, level, ty)
     }
     #[cfg(windows)]
     {
@@ -1045,7 +1045,7 @@ pub extern "C" fn dartforge_native_Socket_SendMessage(this: i64, buffer: i64, st
                 _ => (0, false),
             };
             match (int_from_list(controls, i), int_from_list(controls, i + 1), typed_list_bytes(data_ref)) {
-                (Some(level), Some(tipo), Some(d)) if data_and_ref => messages.push((level, tipo, d)),
+                (Some(level), Some(ty), Some(d)) if data_and_ref => messages.push((level, ty, d)),
                 _ => {
                     throw_argument_error("Invalid control message");
                     return 0;
@@ -1083,9 +1083,9 @@ pub extern "C" fn dartforge_native_Socket_ReceiveMessage(this: i64, n: i64) -> i
             }
         };
         let mut items: Vec<i64> = Vec::with_capacity(messages.len() * 3 + 1);
-        for (level, tipo, d) in messages {
+        for (level, ty, d) in messages {
             let b = with_roots(&items, || dart_bytes(d));
-            items.extend([dart_int(level), dart_int(tipo), b]);
+            items.extend([dart_int(level), dart_int(ty), b]);
         }
         let b = with_roots(&items, || dart_bytes(data));
         items.push(b);
@@ -1106,8 +1106,8 @@ pub extern "C" fn dartforge_native_ResourceHandleImpl_toFile(this: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int` and `(int) → RandomAccessFile`.
-        let descriptor = { let dart_target: usize = ajudante_de_io("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
-        let file = { let dart_target: usize = ajudante_de_io("_dartforgeArquivoDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
+        let descriptor = { let dart_target: usize = io_helper("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
+        let file = { let dart_target: usize = io_helper("_dartforgeArquivoDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         file(NativeFile::new(descriptor(this)))
     }
     #[cfg(windows)]
@@ -1125,16 +1125,16 @@ pub extern "C" fn dartforge_native_ResourceHandleImpl_toRawSocket(this: i64) -> 
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int`.
-        let descriptor = { let dart_target: usize = ajudante_de_io("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
+        let descriptor = { let dart_target: usize = io_helper("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         let fd = descriptor(this);
         match local_address(fd) {
             Ok(e) => {
-                let tipo = e.tipo();
+                let ty = e.ty();
                 let text = e.text();
-                let raw = if tipo == TYPE_UNIX { text.clone().into_bytes() } else { e.ip() };
+                let raw = if ty == TYPE_UNIX { text.clone().into_bytes() } else { e.ip() };
                 let t = allocate_str(&text);
                 let b = with_roots(&[t], || dart_bytes(raw));
-                with_roots(&[t, b], || dart_fixed_list(&[dart_int(tipo), t, b, dart_int(fd)]))
+                with_roots(&[t, b], || dart_fixed_list(&[dart_int(ty), t, b, dart_int(fd)]))
             }
             Err(e) => {
                 throw_os_error(&e);

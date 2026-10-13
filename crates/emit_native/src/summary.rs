@@ -41,14 +41,14 @@ pub fn fnv1a_128(data: &[u8]) -> u128 {
 
 /// Digest of an emitted LLVM IR: the hash and the size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ResumoIr {
+pub struct IrSummary {
     pub hash: u128,
     pub bytes: usize,
 }
 
-impl ResumoIr {
-    pub fn de(text: &str) -> ResumoIr {
-        ResumoIr { hash: fnv1a_128(text.as_bytes()), bytes: text.len() }
+impl IrSummary {
+    pub fn of(text: &str) -> IrSummary {
+        IrSummary { hash: fnv1a_128(text.as_bytes()), bytes: text.len() }
     }
 
     /// The hash as 32 hexadecimal digits.
@@ -74,8 +74,8 @@ mod tests {
     }
 
     #[test]
-    fn resumo() {
-        let r = ResumoIr::de("a");
+    fn summary() {
+        let r = IrSummary::of("a");
         assert_eq!(r.hex(), "d228cb696f1a8caf78912b704e4a8964");
         assert_eq!(r.bytes, 1);
     }

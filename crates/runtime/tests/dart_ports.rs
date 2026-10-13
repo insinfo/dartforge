@@ -17,11 +17,11 @@ use std::path::Path;
 /// (file, chunk of the line, reason).
 const ALLOWED: &[(&str, &str, &str)] = &[
     ("arc_native_ports.rs", "let test_body: extern \"C\" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(target as usize) };", "cfg(test) only: the target is checked equal to the static extern C Rust body, which only retains the reference and neither throws nor calls Dart"),
-    ("ffi_api_nativa.rs", "let f: HandleFinalizer = unsafe { std::mem::transmute(f) };", "the C `Dart_HandleFinalizer` of the native API caller"),
-    ("ffi_api_nativa.rs", "let handler: NativePortHandler = unsafe { std::mem::transmute(handler) };", "the C `Dart_NativeMessageHandler`"),
+    ("ffi_native_api.rs", "let f: HandleFinalizer = unsafe { std::mem::transmute(f) };", "the C `Dart_HandleFinalizer` of the native API caller"),
+    ("ffi_native_api.rs", "let handler: NativePortHandler = unsafe { std::mem::transmute(handler) };", "the C `Dart_NativeMessageHandler`"),
     ("heap.rs", "let f: extern \"C\" fn(usize) = unsafe { std::mem::transmute(f) };", "the C `NativeFinalizerFunction` of `dart:ffi`"),
-    ("io_observador.rs", "std::mem::transmute::<*mut c_void, _>(s(c\"FSEvent", "CoreServices functions found at run time"),
-    ("io_windows_eventos.rs", "std::mem::transmute::<usize, Fn", "the Winsock extensions (`AcceptEx`, `ConnectEx`…) found through `WSAIoctl`"),
+    ("io_watcher.rs", "std::mem::transmute::<*mut c_void, _>(s(c\"FSEvent", "CoreServices functions found at run time"),
+    ("io_windows_events.rs", "std::mem::transmute::<usize, Fn", "the Winsock extensions (`AcceptEx`, `ConnectEx`…) found through `WSAIoctl`"),
     ("isolates.rs", "let call: extern \"C\" fn(i64) -> i64 = unsafe { std::mem::transmute(call) };", "the address goes on to the event loop, which calls through the port (`dart_r1`)"),
     ("ports.rs", "std::mem::transmute::<usize, extern \"C\" fn()>(p)", "the trampolines of the generation published by the JIT, which has no table-based exceptions"),
 ];

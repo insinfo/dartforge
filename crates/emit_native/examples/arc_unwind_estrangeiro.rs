@@ -185,7 +185,7 @@ fn module(with_frames: bool, resume: bool) -> Result<Module, String> {
     ]);
     let mut m = Module::new();
     m.functions = vec![caller, leaf];
-    m.excecoes_por_tabelas = true;
+    m.table_exceptions = true;
     m.entry_symbol = Some("prova_owner_estrangeiro".into());
     assert_eq!(
         insert_arc_dart_functions(&mut m.functions, &mut plans)?,
@@ -207,7 +207,7 @@ fn module(with_frames: bool, resume: bool) -> Result<Module, String> {
 fn main() -> Result<(), String> {
     use dartforge_emit_native::{
         cache::RuntimeCache,
-        gerador::{Generation, Gerador},
+        generator::{Generation, Generator},
     };
     use std::{path::PathBuf, process::Command};
     let exit = PathBuf::from(
@@ -228,7 +228,7 @@ fn main() -> Result<(), String> {
     ir = ir.replace("@dartforge_print_handle(", "@prova_print_estrangeira(");
     std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     let obj = exit.with_extension("o");
-    Gerador::escolher(&PathBuf::from("clang")).gerar(
+    Generator::choose(&PathBuf::from("clang")).generate(
         &ir,
         Generation::of_program(std::env::args().nth(2).as_deref() != Some("0"), false),
         &obj,
@@ -239,7 +239,7 @@ fn main() -> Result<(), String> {
         include_str!("../tests/fixtures/arc_unwind_estrangeiro.cpp"),
     )
     .map_err(|e| e.to_string())?;
-    let runtime = RuntimeCache::para_producao()?;
+    let runtime = RuntimeCache::for_production()?;
     let cxx = std::env::var_os("CXX").unwrap_or_else(|| "c++".into());
     #[cfg(not(target_os = "macos"))]
     let library = runtime.lib_path.clone();
@@ -257,7 +257,7 @@ fn main() -> Result<(), String> {
             .arg(&runtime.lib_path)
             .args(["-Xlinker", "-install_name", "-Xlinker"])
             .arg(&dylib)
-            .args(dartforge_emit_native::alvo::system_libraries())
+            .args(dartforge_emit_native::target::system_libraries())
             .arg("-o")
             .arg(&dylib);
         std::fs::write(
@@ -281,7 +281,7 @@ fn main() -> Result<(), String> {
         .arg(&library)
         .arg("-o")
         .arg(&exit);
-    cmd.args(dartforge_emit_native::alvo::system_libraries());
+    cmd.args(dartforge_emit_native::target::system_libraries());
     std::fs::write(exit.with_extension("ligacao.txt"), format!("{cmd:?}\n"))
         .map_err(|e| e.to_string())?;
     let result = cmd.output().map_err(|e| e.to_string())?;

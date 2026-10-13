@@ -137,8 +137,8 @@ fn on_edge(
     for (v, inst, _) in &f.blocks[dest].instructions {
         if let Instruction::Phi { incoming, .. } = inst {
             live_set.remove(v);
-            for (de, op) in incoming {
-                if *de == f.blocks[origin].id {
+            for (of, op) in incoming {
+                if *of == f.blocks[origin].id {
                     uses(op, references, &mut live_set);
                 }
             }

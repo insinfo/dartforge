@@ -6,14 +6,14 @@
 //! ok`, `Pendentes (PENDENTES): …`, `DDC×VM: …`), the failure-group headings
 //! (`Falhas por primeira linha do stderr …`), the `--jit-aot` section
 //! (`JIT × AOT: …`, `JIT≠AOT `, `Tempos pós-IR`, `  JIT `/`  AOT `,
-//! `  razão `, `  tempo esgotado nos dois`) and the IR report footer
+//! `  razão `, `  tempo esgotado nos two`) and the IR report footer
 //! (`N programas: …`). Those texts stay in Portuguese, byte for byte, until
 //! the CI scripts are migrated with them.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use dartforge_emit_native::resumo::ResumoIr;
+use dartforge_emit_native::summary::IrSummary;
 
 use crate::corpus::Program;
 use crate::process::Output;
@@ -306,7 +306,7 @@ pub fn format_report(results: &[ProgramResult]) -> String {
                 let _ = writeln!(out, "       stderr: {key}");
                 groups.entry(key).or_default().push(name.clone());
                 if native {
-                    let cs = dartforge_emit_native::construtos_do_erro(&forge.stderr);
+                    let cs = dartforge_emit_native::error_constructs(&forge.stderr);
                     if !cs.is_empty() {
                         let _ = writeln!(out, "       constructs: {}", describe_constructs(&cs));
                         constructs.push((name.as_str(), cs));
@@ -592,7 +592,7 @@ pub struct ProgramIr {
     pub name: String,
     /// The IR summary, or the whole emission error message — an error is a
     /// result too, and it too must be the same with any number of workers.
-    pub result: Result<ResumoIr, String>,
+    pub result: Result<IrSummary, String>,
 }
 
 /// One line per program, in corpus order: `<hash> <bytes> <name>` or
@@ -612,7 +612,7 @@ pub fn format_ir_report(programs: &[ProgramIr]) -> String {
             Err(e) => {
                 let key = truncate(&failure_key(&Output { stdout: String::new(), stderr: e.clone(), code: 1 }), 120);
                 let _ = writeln!(out, "ERROR {}: {key}", p.name);
-                let cs = dartforge_emit_native::construtos_do_erro(e);
+                let cs = dartforge_emit_native::error_constructs(e);
                 if !cs.is_empty() {
                     constructs.push((p.name.as_str(), cs));
                 }
@@ -643,7 +643,7 @@ pub fn ir_differences(a: &[ProgramIr], b: &[ProgramIr]) -> Vec<String> {
     out
 }
 
-fn describe_ir(r: &Result<ResumoIr, String>) -> String {
+fn describe_ir(r: &Result<IrSummary, String>) -> String {
     match r {
         Ok(r) => format!("{} ({} bytes)", r.hex(), r.bytes),
         Err(e) => format!("error «{}»", truncate(e.lines().next().unwrap_or(""), 80)),
@@ -698,7 +698,7 @@ mod tests {
     }
 
     fn ir(name: &str, result: Result<&str, &str>) -> ProgramIr {
-        ProgramIr { name: name.into(), result: result.map(ResumoIr::de).map_err(str::to_string) }
+        ProgramIr { name: name.into(), result: result.map(IrSummary::of).map_err(str::to_string) }
     }
 
     #[test]
@@ -710,7 +710,7 @@ mod tests {
         ];
         let t = format_ir_report(&r);
         let lines: Vec<&str> = t.lines().collect();
-        let a = ResumoIr::de("define void @dart_main()");
+        let a = IrSummary::of("define void @dart_main()");
         assert_eq!(lines[0], format!("{}        24 01_a", a.hex()));
         assert_eq!(lines[1], "ERROR 02_b: [emit-ir] the thread aborted: index out of range");
         assert_eq!(lines[2], "6c62272e07bb014262b821756295c58d         0 10_c");
@@ -752,7 +752,7 @@ mod tests {
     fn native_report_lists_the_failure_constructs() {
         let p = Program::test("a");
         // The stderr of the native emitter (other crate): its text is what
-        // `construtos_do_erro` parses, so it stays in Portuguese.
+        // `error_constructs` parses, so it stays in Portuguese.
         let error = "[compile-native] erro de compilação: não suportado no backend nativo: closure\n\
                     erro de compilação: não suportado no backend nativo: closure\n  \
                     não suportado no backend nativo: closure (a.dart:1:1)\n  \

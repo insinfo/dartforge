@@ -17,7 +17,7 @@ struct ArcReturnScope {
 #[derive(Default)]
 struct ArcNativePorts {
     entries: HashMap<(usize, usize), ArcReturnRecord>,
-    tipadas: HashMap<(usize, i64), i64>,
+    typed_lists: HashMap<(usize, i64), i64>,
 }
 
 // The base-5 ABI omits the initial Ref context; it encodes arguments and return.
@@ -48,7 +48,7 @@ fn arc_typed_target(
         return Err("typed body/ABI incompatible with the physical map");
     }
     let code_usize = usize::try_from(code as u64).map_err(|_| "invalid typed address")?;
-    if !ports.tipadas.contains_key(&(code_usize, abi)) {
+    if !ports.typed_lists.contains_key(&(code_usize, abi)) {
         return Err("typed body without an ARC registration of this ABI");
     }
     Ok(code)
@@ -58,14 +58,14 @@ impl ArcNativePorts {
     fn register_typed(&mut self, code: usize, abi: i64) -> Result<i64, &'static str> {
         check_arc_typed_abi(abi)?;
         if code == 0 { return Err("null typed body"); }
-        Ok(*self.tipadas.entry((code, abi)).or_insert_with(new_arc_port_id))
+        Ok(*self.typed_lists.entry((code, abi)).or_insert_with(new_arc_port_id))
     }
 
     fn remove_typed(&mut self, code: usize, abi: i64, version: i64) -> Result<(), &'static str> {
-        if self.tipadas.get(&(code, abi)) != Some(&version) {
+        if self.typed_lists.get(&(code, abi)) != Some(&version) {
             return Err("missing typed registration or stale version");
         }
-        self.tipadas.remove(&(code, abi));
+        self.typed_lists.remove(&(code, abi));
         Ok(())
     }
     fn register(&mut self, code: usize, arity: usize) -> Result<i64, &'static str> {
@@ -131,8 +131,8 @@ impl ArcPortScopes {
 }
 
 fn new_arc_port_id() -> i64 {
-    static PROXIMO: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-    PROXIMO
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+    NEXT
         .fetch_update(
             std::sync::atomic::Ordering::Relaxed,
             std::sync::atomic::Ordering::Relaxed,
@@ -704,7 +704,7 @@ fn arc_discard_port(guard: ArcPortGuard, result: i64) {
 }
 
 #[cfg(test)]
-mod testes_portas_arc {
+mod arc_port_tests {
     use super::*;
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -757,7 +757,7 @@ mod testes_portas_arc {
             let pc = body as *const () as usize as i64;
             let v = unsafe { dartforge_arc_register_typed_v1(pc, 31) };
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let env = dartforge_arc_object_owned_v1(i64::from(crate::layout::cid::CONTEXTO), 1);
+            let env = dartforge_arc_object_owned_v1(i64::from(crate::layout::cid::CONTEXT), 1);
             dartforge_arc_write_field_ref_v1(env, 0, child);
             let c = dartforge_arc_closure_owned_v1(0, env, pc, 31);
             dartforge_arc_release(env);
@@ -778,17 +778,17 @@ mod testes_portas_arc {
         }
     }
 
-    thread_local! { static ULTIMO: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
+    thread_local! { static LAST: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
 
     #[test]
     fn owned_datagram_escapes_scope_and_pending_creates_no_owner() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        extern "C" fn datagram(data: i64, text: i64, ip: i64, port: i64, tipo: i64) -> i64 {
+        extern "C" fn datagram(data: i64, text: i64, ip: i64, port: i64, ty: i64) -> i64 {
             assert_eq!(typed_list_bytes(data).unwrap(), [1, 2, 3]);
             let r = dartforge_arc_object_owned_v1(500, 5);
             for (i, v) in [(0, data), (1, text), (2, ip)] { dartforge_arc_write_field_ref_v1(r, i, v); }
             dartforge_arc_write_field_scalar_v1(r, 3, port);
-            dartforge_arc_write_field_scalar_v1(r, 4, tipo);
+            dartforge_arc_write_field_scalar_v1(r, 4, ty);
             r
         }
         extern "C" fn error(_: i64, _: i64, _: i64, _: i64, _: i64) -> i64 {
@@ -812,7 +812,7 @@ mod testes_portas_arc {
             assert_eq!(dartforge_exception_pending(), 0);
             let p = native_field(socket);
             NativeSocket::retain_ref(p);
-            event_handler().enviar(EventCommand { sock: p, port: 0,
+            event_handler().send(EventCommand { sock: p, port: 0,
                 data: (1 << COMMAND_MASK) | (1 << EVENT_IN) });
             let emitter = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
             for (pc, pending) in [(datagram as *const () as usize, false), (error as *const () as usize, true)] {
@@ -850,17 +850,17 @@ mod testes_portas_arc {
 
     extern "C" fn new() -> i64 {
         let x = dartforge_arc_box_int_owned_v1(i64::MAX);
-        ULTIMO.with(|u| u.set(x));
+        LAST.with(|u| u.set(x));
         x
     }
     extern "C" fn one(x: i64) -> i64 {
         dartforge_arc_retain(x);
         x
     }
-    extern "C" fn dois(x: i64, _: i64) -> i64 {
+    extern "C" fn two(x: i64, _: i64) -> i64 {
         one(x)
     }
-    extern "C" fn tres(x: i64, _: i64, _: i64) -> i64 {
+    extern "C" fn three(x: i64, _: i64, _: i64) -> i64 {
         one(x)
     }
     extern "C" fn four(x: i64, _: i64, _: i64, _: i64) -> i64 {
@@ -889,8 +889,8 @@ mod testes_portas_arc {
             let fs = [
                 (new as *const () as usize, 0),
                 (one as *const () as usize, 1),
-                (dois as *const () as usize, 2),
-                (tres as *const () as usize, 3),
+                (two as *const () as usize, 2),
+                (three as *const () as usize, 3),
                 (four as *const () as usize, 4),
                 (five as *const () as usize, 5),
                 (seven as *const () as usize, 7),
@@ -1090,7 +1090,7 @@ mod testes_portas_arc {
             assert_ne!(dartforge_exception_pending(), 0);
             ARC_NATIVE_PORTS.with(|p| assert!(p.borrow().scopes.is_empty()));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observe_heap_v1(ULTIMO.with(|u| u.get())), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(LAST.with(|u| u.get())), 0);
             assert_ne!(dartforge_exception_pending(), 0);
             dartforge_exception_clear();
             dartforge_arc_take_return_owned_v1(f as i64, v);
@@ -1102,7 +1102,7 @@ mod testes_portas_arc {
     fn uniform_does_not_infer_generic_callback_contract_and_rejects_upgrade() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            let f = tres as *const () as usize;
+            let f = three as *const () as usize;
             assert!(arc_invoke_uniform(f, 0, 0, 0).is_err());
             let v = register(f, 3);
             assert!(arc_invoke_uniform(f, 0, 0, 0).is_err());
@@ -1165,7 +1165,7 @@ mod testes_portas_arc {
             let e = dartforge_arc_native_scope_open_v1();
             let recv = dartforge_arc_box_int_owned_v1(i64::MAX - 1);
             let name = HEAP.with(|h| h.borrow_mut().allocate_str("missing"));
-            let x = invocar_no_such_method(recv, 0, name, &[], 0, &[], 0).unwrap();
+            let x = invoke_no_such_method(recv, 0, name, &[], 0, &[], 0).unwrap();
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observe_heap_v1(x), 3);
             assert_eq!(dartforge_unbox_int(x), i64::MAX);
@@ -1220,13 +1220,13 @@ mod testes_portas_arc {
             let fs = [
                 (new as *const () as usize, 0),
                 (one as *const () as usize, 1),
-                (dois as *const () as usize, 2),
-                (tres as *const () as usize, 3),
+                (two as *const () as usize, 2),
+                (three as *const () as usize, 3),
             ];
             let entries: Vec<_> = fs.iter().map(|&(f, n)| (f, register(f, n))).collect();
             let e = dartforge_arc_native_scope_open_v1();
             dart_v0(fs[0].0);
-            let y = ULTIMO.with(|u| u.get());
+            let y = LAST.with(|u| u.get());
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observe_heap_v1(y), 0);
             let x = new();

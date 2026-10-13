@@ -1,7 +1,7 @@
 //! Diagnostics of the ARC preparation over complete modules lowered from source.
 //! Publishes no bodies nor emits a program with partially changed conventions.
 
-use dartforge_emit_native::{context::Context, driver, optimize, optimize::arc::*, sdk_modulo};
+use dartforge_emit_native::{context::Context, driver, optimize, optimize::arc::*, sdk_module};
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
 use std::{collections::{BTreeMap, HashMap}, path::Path};
@@ -31,7 +31,7 @@ fn inventory_externs(modules: &[dartforge_emit_native::hir::Module]) {
 fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<(), String> {
     let lib = std::env::var_os("DARTFORGE_SDK_LIB").ok_or("defina DARTFORGE_SDK_LIB")?;
     let sdk_dir = Path::new(&lib);
-    let sdk = sdk_modulo::load_native_sdk(sdk_dir)?;
+    let sdk = sdk_module::load_native_sdk(sdk_dir)?;
     let mut interner = Interner::new();
     let (program, diags) =
         dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
@@ -61,30 +61,30 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     ctx.world = dartforge_emit_native::native_world::compute(
         &program, &interner, &types, &outline, &bodies,
     );
-    let ctx = ctx.with_source_sdk_and_ids(sdk_modulo::sdk_class_ids(sdk_dir)?);
+    let ctx = ctx.with_source_sdk_and_ids(sdk_module::sdk_class_ids(sdk_dir)?);
     let mut m = dartforge_emit_native::lower::lower_program(&ctx);
     m.program_ids = ctx.program_ids();
     m.program_fields = ctx.program_fields();
-    m.sdk_records = sdk_modulo::sdk_records();
-    m.runtime_cids = sdk_modulo::runtime_cids(&ctx);
+    m.sdk_records = sdk_module::sdk_records();
+    m.runtime_cids = sdk_module::runtime_cids(&ctx);
     if !m.errors.is_empty() {
         return Err(format!("lowering: {:?}", m.errors));
     }
     if !sdk_in_group {
         let clang = driver::NativeDriverOptions::default().clang;
-        let compiled_sdk = sdk_modulo::compiled_sdk_in_profile(
+        let compiled_sdk = sdk_module::compiled_sdk_in_profile(
             sdk_dir,
             &clang,
-            sdk_modulo::SdkProfile::Production,
+            sdk_module::SdkProfile::Production,
         )?;
         let summaries = dartforge_emit_native::pruning::read_summaries(&compiled_sdk.summaries)?;
         let refs = summaries.iter().map(|r| r.as_ref()).collect::<Vec<_>>();
         dartforge_emit_native::pruning::prune_hir(&mut m, &refs);
     }
     optimize::optimize(&mut m);
-    let by_tables = dartforge_emit_native::alvo::excecoes_por_tabelas()?;
+    let by_tables = dartforge_emit_native::target::table_exceptions()?;
     if by_tables {
-        optimize::excecoes_por_tabelas(&mut m);
+        optimize::table_exceptions(&mut m);
     }
     if sdk_in_group {
         let mut modules = vec![m];
@@ -225,13 +225,13 @@ fn lower_sdk_for_audit(
 ) -> Result<Vec<dartforge_emit_native::hir::Module>, String> {
     let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
     let entry = tmp.path().join("main.dart");
-    let mut source: String = sdk_modulo::SOURCE_LIBRARIES
+    let mut source: String = sdk_module::SOURCE_LIBRARIES
         .iter()
         .map(|b| format!("import 'dart:{b}';\n"))
         .collect();
     source.push_str("void main() {}\n");
     std::fs::write(&entry, source).map_err(|e| e.to_string())?;
-    let sdk = sdk_modulo::load_native_sdk(sdk_dir)?;
+    let sdk = sdk_module::load_native_sdk(sdk_dir)?;
     let mut interner = Interner::new();
     let (program, diags) =
         dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
@@ -242,7 +242,7 @@ fn lower_sdk_for_audit(
     let core = CoreTypes::init(&mut types, &program, &interner);
     let (mut outline, _) =
         dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
-    let libs: Vec<_> = sdk_modulo::SOURCE_LIBRARIES
+    let libs: Vec<_> = sdk_module::SOURCE_LIBRARIES
         .iter()
         .filter_map(|b| {
             let uri = format!("dart:{b}");
@@ -253,7 +253,7 @@ fn lower_sdk_for_audit(
                 .map(|i| dartforge_elements::model::LibraryId(i as u32))
         })
         .collect();
-    if libs.len() != sdk_modulo::SOURCE_LIBRARIES.len() {
+    if libs.len() != sdk_module::SOURCE_LIBRARIES.len() {
         return Err("bibliotecas SDK incompletas".into());
     }
     let (bodies, _) = dartforge_types::infer_library_bodies(
@@ -264,7 +264,7 @@ fn lower_sdk_for_audit(
         &mut outline,
         &libs,
     );
-    let ids = sdk_modulo::sdk_class_ids(sdk_dir)?;
+    let ids = sdk_module::sdk_class_ids(sdk_dir)?;
     let mut modules = Vec::new();
     for lib in libs {
         let mut ctx = Context::new(&program, &interner, &types, &core, &outline, &bodies)
@@ -273,7 +273,7 @@ fn lower_sdk_for_audit(
         ctx.arc_memory = true;
         let mut m = dartforge_emit_native::lower::lower_program(&ctx);
         m.sdk_library = true;
-        m.runtime_cids = sdk_modulo::runtime_cids(&ctx);
+        m.runtime_cids = sdk_module::runtime_cids(&ctx);
         if !m.errors.is_empty() {
             return Err(format!(
                 "lowering SDK {}: {:?}",
@@ -282,7 +282,7 @@ fn lower_sdk_for_audit(
             ));
         }
         optimize::optimize(&mut m);
-        if by_tables { optimize::excecoes_por_tabelas(&mut m); }
+        if by_tables { optimize::table_exceptions(&mut m); }
         println!(
             "SDK {}: {} funções",
             program.library(lib).uri,
@@ -322,7 +322,7 @@ fn main() -> Result<(), String> {
             }
             // The explicit selection of the diagnostics must match the memory
             // key used by the cache/compilation of the SDK libraries.
-            if !selected_arc || !dartforge_emit_native::alvo::arc_memory()? {
+            if !selected_arc || !dartforge_emit_native::target::arc_memory()? {
                 return Err("the audit requires --memoria=arc and DARTFORGE_MEMORIA=arc".into());
             }
             if entries.is_empty() {

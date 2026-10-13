@@ -749,7 +749,7 @@ fn reload_cycle_measurement() {
     let mut analysis = Vec::new();
     let mut emission = Vec::new();
     let mut parse = Vec::new();
-    let mut contrato = Vec::new();
+    let mut contract = Vec::new();
     let mut addition = Vec::new();
     let mut trampolines = Vec::new();
     let mut linkage = Vec::new();
@@ -774,7 +774,7 @@ fn reload_cycle_measurement() {
         analysis.push(analysis_time);
         emission.push(emission_time);
         parse.push(report_data.parse_ir);
-        contrato.push(report_data.contract);
+        contract.push(report_data.contract);
         addition.push(report_data.add_module);
         trampolines.push(report_data.stubs);
         linkage.push(report_data.link);
@@ -795,7 +795,7 @@ fn reload_cycle_measurement() {
         ("analysis of the new Dart", &mut analysis),
         ("IR generation", &mut emission),
         ("IR parsing (parse-ir)", &mut parse),
-        ("contract check", &mut contrato),
+        ("contract check", &mut contract),
         ("adding the module to the JIT", &mut addition),
         ("publishing the trampolines", &mut trampolines),
         ("in-memory linking", &mut linkage),

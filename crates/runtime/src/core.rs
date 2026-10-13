@@ -1,6 +1,6 @@
 // Native runtime, core: the `main` entry, per-thread state (heap, class names and
 // subtypes), objects, equality, boxes and records. The fragments
-// `crates/runtime/src/*.rs` listed in `FRAGMENTOS` (`crates/runtime/build.rs`) are
+// `crates/runtime/src/*.rs` listed in `FRAGMENTS` (`crates/runtime/build.rs`) are
 // concatenated into a single Rust program; this is the first one.
 
 // Standalone harness: managed handles and a C ABI with explicit roots.
@@ -21,7 +21,7 @@ unsafe extern "C" {
 pub extern "C" fn main() -> i32 {
     // SAFETY: the object was emitted for this ABI and linked by the same native driver.
     unsafe { dartforge_entry() };
-    let code = finalizar_programa();
+    let code = finalize_program();
     if code != 0 {
         std::process::exit(code);
     }
@@ -34,7 +34,7 @@ pub extern "C" fn main() -> i32 {
 /// `dartforge_entry`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C" fn(i64) -> i64) -> i32 {
-    PARA_TEXTO.with(|p| p.set(Some(to_string_fn)));
+    TO_STRING.with(|p| p.set(Some(to_string_fn)));
     // The main isolate uses the allocator's free lists (`allocator.rs`).
     enable_allocation_cache();
     if debug() {
@@ -51,7 +51,7 @@ pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C
     mark_main_isolate();
     input();
     unmark_main_isolate();
-    let code = finalizar_programa();
+    let code = finalize_program();
     if code != 0 {
         std::process::exit(code);
     }
@@ -67,7 +67,7 @@ pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C
 /// with the code (the `main` above, in AOT; the runner, in the JIT). It does not
 /// call `exit` here: it is the only stretch of the runtime that both profiles
 /// drive, and it is written only once.
-pub fn finalizar_programa() -> i32 {
+pub fn finalize_program() -> i32 {
     // The main isolate has ended: the attached `NativeFinalizer`s run.
     shutdown_isolate_finalizers();
     // `Isolate.exit` on the main isolate: it ended, without an error.
@@ -85,13 +85,13 @@ pub fn finalizar_programa() -> i32 {
             let detail = match tag {
                 1 => format!("{bits}"),
                 2 => format!("{}", bits != 0),
-                _ => match PARA_TEXTO.with(|p| p.get()) {
+                _ => match TO_STRING.with(|p| p.get()) {
                     // SDK from source: the Dart `toString()` of the thrown object.
                     Some(f) => {
                         drop(heap);
                         take_exception();
                         let t = with_roots(&[bits], || dart_r1(f as usize, bits));
-                        let s = HEAP.with(|h| h.borrow().text(t).map(|text| text.para_string()));
+                        let s = HEAP.with(|h| h.borrow().text(t).map(|text| text.to_dart_string()));
                         // `toString()` also failed: the runtime's description (the
                         // object's class).
                         s.unwrap_or_else(|| {
@@ -145,14 +145,14 @@ pub fn finalizar_programa() -> i32 {
     global_exit_code()
 }
 
-use crate::heap::{CONTEXTO, Heap, Texto, StringMut};
+use crate::heap::{CONTEXT, Heap, Text, StringMut};
 use std::cell::RefCell;
 use crate::hash::{HashMap, HashSet};
 
 thread_local! {
     /// SDK from source: the Dart `toString()` of a value (the program's
     /// `dartforge_dispatch_toString`), for the uncaught exception.
-    static PARA_TEXTO: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
+    static TO_STRING: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
     static HEAP: RefCell<Heap> = RefCell::new(Heap::for_isolate(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::default());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::default());
@@ -201,7 +201,7 @@ impl SubtypeMaps {
     /// Discards all maps (the graph changed) and removes the pointers from the
     /// context.
     fn discard(&mut self) {
-        crate::heap::CONTEXTO.with(|c| {
+        crate::heap::CONTEXT.with(|c| {
             c.n_subtypes.set(0);
             c.subtype_width.set(0);
             c.subtypes.set(std::ptr::null());
@@ -246,7 +246,7 @@ impl SubtypeMaps {
             self.maps = (0..self.width).map(|_| None).collect();
             self.pointers = vec![std::ptr::null(); self.width];
             let (p, n, l) = (self.pointers.as_ptr(), self.pointers.len(), self.width);
-            crate::heap::CONTEXTO.with(|ctx| {
+            crate::heap::CONTEXT.with(|ctx| {
                 if !crate::heap::inline_class() {
                     return;
                 }
@@ -426,7 +426,7 @@ pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
         let h = heap.allocate_instance(cid, n);
         // The next allocation of this size comes inline, from the TLAB (without
         // collecting here: `h` has no root yet).
-        heap.refill_tlab(crate::layout::palavras_de_instancia(n));
+        heap.refill_tlab(crate::layout::instance_words(n));
         h
     })
 }
@@ -434,7 +434,7 @@ pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
 // (`llvm/mod.rs`, `GetField`/`SetField`): 8-byte words after the block's header
 // (`heap::Header`), with the reference map in the header.
 
-use crate::heap::{CAMPOS_EM_LINHA, EMPTY_OBJECT};
+use crate::heap::{INLINE_FIELDS, EMPTY_OBJECT};
 
 /// The address of the fields (8-byte words) of object `h`; for something that is
 /// not an object, the zeroed fields of [`EMPTY_OBJECT`]. Generated code no longer
@@ -459,19 +459,19 @@ pub extern "C" fn dartforge_remember(h: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_memory_arc_v1() {
     HEAP.with(|heap| heap.borrow_mut().enable_arc());
-    MEMORIA_ARC.with(|m| m.set(true));
+    ARC_MEMORY.with(|m| m.set(true));
 }
 
 thread_local! {
     /// The ARC is enabled on this isolate: the cheap question of the natives that
     /// write references without the `Heap` (`natives_hash.rs`, `natives_lists.rs`).
-    static MEMORIA_ARC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static ARC_MEMORY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// The ARC is enabled on this isolate.
 #[inline(always)]
 fn arc_enabled() -> bool {
-    MEMORIA_ARC.with(std::cell::Cell::get)
+    ARC_MEMORY.with(std::cell::Cell::get)
 }
 
 /// A native's raw write (without the `Heap`) replaced `old` with `new` in a strong
@@ -880,8 +880,8 @@ pub extern "C" fn dartforge_native_Identical_comparison(a: i64, b: i64) -> u8 {
 /// direct environment or with another context has no receiver (it is only equal to
 /// itself).
 fn tearoff_receiver(heap: &Heap, c: &crate::boxes::ClosureRef) -> Option<i64> {
-    let (ctx, is_ref_kind) = c.contexto;
-    if !is_ref_kind || !crate::heap::is_object(ctx) || heap.class(ctx) != crate::layout::cid::CONTEXTO {
+    let (ctx, is_ref_kind) = c.context;
+    if !is_ref_kind || !crate::heap::is_object(ctx) || heap.class(ctx) != crate::layout::cid::CONTEXT {
         return None;
     }
     let o = heap.object(ctx)?;
@@ -976,7 +976,7 @@ pub extern "C" fn dartforge_native_Object_getHash(o: i64) -> i64 {
             return 2011;
         }
         if heap.is_string(o) {
-            return heap.hash_de_texto(o).map_or(0, i64::from);
+            return heap.string_hash(o).map_or(0, i64::from);
         }
         heap.identity_hash(o).unwrap_or((o >> 3) & 0x3fff_ffff)
     })

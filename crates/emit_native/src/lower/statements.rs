@@ -307,12 +307,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // `List<double>`, `List<bool>`; general for the others), and
                     // read it at emission; a list of another shape goes to the usual
                     // iterations, which check the shape at each access.
-                    Some(Counted::CoreList { alvo, local }) => {
-                        let shape = match self.indexable(self.ctx.get_type(self.unit_id, alvo)) {
+                    Some(Counted::CoreList { target, local }) => {
+                        let shape = match self.indexable(self.ctx.get_type(self.unit_id, target)) {
                             Some(super::typed_items::Indexable::Core { write_op: Some(t) }) => super::typed_items::shape_code(t),
                             _ => super::typed_items::SHAPE_GENERAL,
                         };
-                        let list = self.lower_expr(ast, alvo);
+                        let list = self.lower_expr(ast, target);
                         let list = self.coerce(list, Type::Ref);
                         // The length (0 for whatever is not a runtime list) and,
                         // once the class is checked, its storage and shape
@@ -1106,7 +1106,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // The length of a typed list stays in `0..=2^60` (it fits in
             // addressable memory); the step does not make it overflow.
             ExprKind::Property { target, name, null_aware: false } if self.ctx.symbol_name(name.sym) == "length" => {
-                let alvo = self.indexable(self.ctx.get_type(self.unit_id, *target));
+                let indexable = self.indexable(self.ctx.get_type(self.unit_id, *target));
                 // N13: `List<E>` only ends by itself if the length does not change
                 // during the iterations — no callee in the body — and the list belongs to the
                 // runtime, which only execution tells (the iterations are duplicated).
@@ -1116,17 +1116,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && strict
                     && step <= 1 << 60
                     && fixed_local(*target)
-                    && matches!(alvo, Some(super::typed_items::Indexable::Core { .. }))
+                    && matches!(indexable, Some(super::typed_items::Indexable::Core { .. }))
                     && let ExprKind::Identifier(n) = &ast.expr(*target).kind
                     && self.lookup_local(n.sym).is_some_and(|l| matches!(l.mode, super::locals::Mode::Memory(_)))
                     && self.body_without_calls(ast, body, n.sym, i)
                 {
-                    return Some(Counted::CoreList { alvo: *target, local: n.sym });
+                    return Some(Counted::CoreList { target: *target, local: n.sym });
                 }
                 increasing
                     && step <= 1 << 60
                     && fixed_local(*target)
-                    && matches!(alvo, Some(super::typed_items::Indexable::Typed(_) | super::typed_items::Indexable::Simd { .. }))
+                    && matches!(indexable, Some(super::typed_items::Indexable::Typed(_) | super::typed_items::Indexable::Simd { .. }))
             }
             _ => false,
         };
@@ -1182,8 +1182,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut accesses = Vec::new();
         self.indexed_accesses_stmt(ast, body, i, &mut accesses);
         let mut lists: Vec<LoopList> = Vec::new();
-        for (alvo, write) in accesses {
-            let ExprKind::Identifier(n) = &ast.expr(alvo).kind else { continue };
+        for (target, write) in accesses {
+            let ExprKind::Identifier(n) = &ast.expr(target).kind else { continue };
             if stored_set.contains(&n.sym) {
                 continue;
             }
@@ -1194,7 +1194,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // The type of the access is the declared one of the local (not a promotion,
             // which may only hold inside the body): the list already has that type
             // before the iterations.
-            let ty = self.ctx.get_type(self.unit_id, alvo);
+            let ty = self.ctx.get_type(self.unit_id, target);
             let Some(off) = local.offset else { continue };
             if ty.is_none() || self.ctx.local_type(self.unit_id, off) != ty {
                 continue;
@@ -1204,7 +1204,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             match lists.iter_mut().find(|l| l.local == n.sym) {
                 Some(l) => l.write |= write,
-                None => lists.push(LoopList { alvo, local: n.sym, write }),
+                None => lists.push(LoopList { target, local: n.sym, write }),
             }
         }
         (!lists.is_empty()).then_some(TypedRoundTrips { counter: i, limit, lists })
@@ -1361,7 +1361,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: ok, then_block: next, else_block: general });
         for l in &t.lists {
             self.set_block(next);
-            let ix = self.indexable(self.ctx.get_type(self.unit_id, l.alvo)).expect("checked typed list");
+            let ix = self.indexable(self.ctx.get_type(self.unit_id, l.target)).expect("checked typed list");
             let Some(super::locals::Mode::Memory(key)) = self.lookup_local(l.local).map(|x| x.mode) else {
                 unreachable!("list of the versioned loop in an `alloca`")
             };
@@ -1398,7 +1398,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 #[derive(Debug, Clone)]
 pub(super) enum Counted {
     Simple,
-    CoreList { alvo: ExprId, local: SymbolId },
+    CoreList { target: ExprId, local: SymbolId },
     TypedSet(TypedRoundTrips),
 }
 
@@ -1416,7 +1416,7 @@ pub(super) struct TypedRoundTrips {
 #[derive(Debug, Clone)]
 struct LoopList {
     /// An access to it (the identifier): the static type.
-    alvo: ExprId,
+    target: ExprId,
     local: SymbolId,
     /// Algum acesso grava.
     write: bool,

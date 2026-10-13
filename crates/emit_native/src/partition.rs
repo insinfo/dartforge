@@ -20,7 +20,7 @@
 //!   two private copies do not see each other;
 //! * a mutable `internal global` (the `@df.area_id`, the index of the module's
 //!   global area, and the thread-local variable of the context,
-//!   `sdk_modulo::with_context_in_tls`): one copy per part would break the
+//!   `sdk_module::with_context_in_tls`): one copy per part would break the
 //!   state — it gets external linkage in part 0 and is declared in the
 //!   others (the thread-local one, `thread_local`);
 //! * `declare`, the header (`target`, `source_filename`), attributes and
@@ -110,8 +110,8 @@ fn references<'a>(text: &'a str, exit: &mut Vec<&'a str>) {
     }
 }
 
-fn memchr_at(b: &[u8], c: u8, de: usize) -> Option<usize> {
-    b.get(de..)?.iter().position(|x| *x == c).map(|p| p + de)
+fn memchr_at(b: &[u8], c: u8, of: usize) -> Option<usize> {
+    b.get(of..)?.iter().position(|x| *x == c).map(|p| p + of)
 }
 
 /// The first line of a text, with the line break.
@@ -242,7 +242,7 @@ fn declaration(item: &Item) -> String {
             let r = r.trim_start().trim_start_matches('=').trim_start();
             let (word, after) = global_head(r);
             let ty = type_at_start(after);
-            // The thread-local variable (`@df.ctx.tls`, `sdk_modulo::with_context_in_tls`)
+            // The thread-local variable (`@df.ctx.tls`, `sdk_module::with_context_in_tls`)
             // stays thread-local in the declaration.
             let tls = if r[..r.len() - after.len()].split_whitespace().any(|w| w == "thread_local") { "thread_local " } else { "" };
             format!("@{} = external {tls}{word} {ty}\n", item.name)
@@ -327,7 +327,7 @@ pub struct Plan<'a> {
     m: Module<'a>,
     parts: Vec<Vec<usize>>,
     declared_set: HashMap<&'a str, &'a str>,
-    alvo: usize,
+    target: usize,
 }
 
 impl<'a> Plan<'a> {
@@ -344,7 +344,7 @@ impl<'a> Plan<'a> {
     /// The text of part `p`.
     pub fn part(&self, p: usize) -> String {
         let m = &self.m;
-        let alvo = self.alvo;
+        let target = self.target;
         let declared_set = &self.declared_set;
         let items = &self.parts[p];
         // The closure: the items of the part, the locals they cite (copied), and
@@ -378,7 +378,7 @@ impl<'a> Plan<'a> {
                 }
             }
         }
-        let mut text = String::with_capacity(alvo + alvo / 4);
+        let mut text = String::with_capacity(target + target / 4);
         for l in &m.header {
             text.push_str(l);
         }
@@ -427,7 +427,7 @@ impl<'a> Plan<'a> {
 }
 
 /// Plans the split of the module into parts of ~`target` bytes.
-pub fn make_plan(ir: &str, alvo: usize) -> Plan<'_> {
+pub fn make_plan(ir: &str, target: usize) -> Plan<'_> {
     let m = read(ir);
     // The items with external linkage, grouped by library in the order in
     // which they appear; the groups, in parts of ~`target` bytes.
@@ -448,7 +448,7 @@ pub fn make_plan(ir: &str, alvo: usize) -> Plan<'_> {
     for g in &group_order {
         for &i in &by_group[g] {
             let t = m.items[i].text.len();
-            if size > 0 && size + t > alvo {
+            if size > 0 && size + t > target {
                 parts.push(Vec::new());
                 size = 0;
             }
@@ -463,16 +463,16 @@ pub fn make_plan(ir: &str, alvo: usize) -> Plan<'_> {
         }
     }
     let declared_set: HashMap<&str, &str> = m.declarations.iter().copied().collect();
-    Plan { m, parts, declared_set, alvo }
+    Plan { m, parts, declared_set, target }
 }
 
 /// Splits the module into parts of ~`target` bytes (all at once; the tests).
 /// A module smaller than `target` comes back whole, as it is.
-pub fn split(ir: &str, alvo: usize) -> Vec<String> {
-    if ir.len() <= alvo {
+pub fn split(ir: &str, target: usize) -> Vec<String> {
+    if ir.len() <= target {
         return vec![ir.to_string()];
     }
-    let plan = make_plan(ir, alvo);
+    let plan = make_plan(ir, target);
     (0..plan.len()).map(|p| plan.part(p)).collect()
 }
 
@@ -523,7 +523,7 @@ b0:\n\
         assert!(p[0].contains("; df.class"));
     }
 
-    /// The thread-local variable of the context (`sdk_modulo::with_context_in_tls`)
+    /// The thread-local variable of the context (`sdk_module::with_context_in_tls`)
     /// is state: one definition, and the declaration in the other parts stays
     /// `thread_local`.
     #[test]

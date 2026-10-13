@@ -38,7 +38,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The triple of the objects (the same header as the IR of the program, `alvo.rs`).
+/// The triple of the objects (the same header as the IR of the program, `target.rs`).
 pub const TRIPLE: &str = "x86_64-pc-windows-msvc";
 
 /// The imported functions, by DLL. Only names exported by the system since
@@ -655,7 +655,7 @@ fn ar_header(name: &str, size: usize) -> Vec<u8> {
 /// function.
 ///
 /// ```
-/// use dartforge_emit_native::ligador_windows::import_library;
+/// use dartforge_emit_native::linker_windows::import_library;
 /// let lib = import_library("kernel32.dll", &["ExitProcess"]);
 /// assert!(lib.starts_with(b"!<arch>\n/"));
 /// assert!(lib.windows(18).any(|j| j == b"__imp_ExitProcess\0"));
@@ -706,8 +706,8 @@ pub fn import_library(dll: &str, names: &[&str]) -> Vec<u8> {
 
 /// Who compiles the minimal CRT: the generator of the program, or a Clang with
 /// `--target` (`dartforge empacotar` and the tests outside Windows).
-pub enum CompiladorDaCrt<'a> {
-    Gerador(&'a crate::gerador::Gerador),
+pub enum CrtCompiler<'a> {
+    Generator(&'a crate::generator::Generator),
     ClangWithTarget(&'a Path),
 }
 
@@ -716,7 +716,7 @@ pub enum CompiladorDaCrt<'a> {
 /// # Errors
 ///
 /// A write failure in the directory or a failure of the IR compiler.
-pub fn gerar(dir: &Path, compiler: &CompiladorDaCrt<'_>) -> Result<(), String> {
+pub fn generate(dir: &Path, compiler: &CrtCompiler<'_>) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (dll, names) in IMPORTS {
         let path = dir.join(import_name(dll));
@@ -726,8 +726,8 @@ pub fn gerar(dir: &Path, compiler: &CompiladorDaCrt<'_>) -> Result<(), String> {
         let ir = crt_ir(body);
         let obj = dir.join(file);
         match compiler {
-            CompiladorDaCrt::Gerador(g) => g.gerar(&ir, crate::gerador::Generation::of_program(false, false), &obj)?,
-            CompiladorDaCrt::ClangWithTarget(clang) => {
+            CrtCompiler::Generator(g) => g.generate(&ir, crate::generator::Generation::of_program(false, false), &obj)?,
+            CrtCompiler::ClangWithTarget(clang) => {
                 let ll = obj.with_extension("ll");
                 std::fs::write(&ll, &ir).map_err(|e| format!("{}: {e}", ll.display()))?;
                 let exit = Command::new(clang)
@@ -779,7 +779,7 @@ impl SysrootWindows {
     ///
     /// # Errors
     ///
-    /// The generation failed (see [`gerar`]).
+    /// The generation failed (see [`generate`]).
     pub fn locate(clang: &Path) -> Result<&'static SysrootWindows, String> {
         static S: std::sync::OnceLock<Result<SysrootWindows, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
@@ -788,8 +788,8 @@ impl SysrootWindows {
             {
                 return Ok(SysrootWindows { dir });
             }
-            let gerador = crate::gerador::Gerador::escolher(clang);
-            let key = format!("{}-{}", printing(), &blake3::hash(gerador.identity()?.as_bytes()).to_hex()[..8]);
+            let generator = crate::generator::Generator::choose(clang);
+            let key = format!("{}-{}", printing(), &blake3::hash(generator.identity()?.as_bytes()).to_hex()[..8]);
             let root = crate::cache::native_cache_dir().join("ligacao-windows");
             let dir = root.join(&key);
             if dir.join("pronto").is_file() {
@@ -797,7 +797,7 @@ impl SysrootWindows {
             }
             let tmp = root.join(format!("{key}.tmp.{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&tmp);
-            gerar(&tmp, &CompiladorDaCrt::Gerador(&gerador))?;
+            generate(&tmp, &CrtCompiler::Generator(&generator))?;
             std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
             if std::fs::rename(&tmp, &dir).is_err() {
                 let _ = std::fs::remove_dir_all(&tmp);
@@ -892,7 +892,7 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
     }
     if l.prune {
         a.push("/opt:ref".into());
-        if let Some(m) = crate::ligador::link_map(l.exit) {
+        if let Some(m) = crate::linker::link_map(l.exit) {
             let mut o = std::ffi::OsString::from("/map:");
             o.push(m.as_os_str());
             a.push(o);
@@ -1037,10 +1037,10 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn imports_exist_in_system() {
-        let sistema = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
+        let target_os = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
         let mut missing_set = Vec::new();
         for (dll, names) in IMPORTS {
-            let exp = exported(&sistema.join(dll));
+            let exp = exported(&target_os.join(dll));
             for n in *names {
                 if !exp.iter().any(|e| e == n) {
                     missing_set.push(format!("{dll}!{n}"));
@@ -1063,7 +1063,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
         let sys = d.join("sysroot");
-        gerar(&sys, &CompiladorDaCrt::ClangWithTarget(&clang)).unwrap();
+        generate(&sys, &CrtCompiler::ClangWithTarget(&clang)).unwrap();
         let sysroot = SysrootWindows::from_dir(sys);
         let common = r#"
 __declspec(dllimport) void* __stdcall GetStdHandle(unsigned);
@@ -1072,7 +1072,7 @@ double pow(double, double);
 int atexit(void (*)(void));
 static void escrever(const char* s) { unsigned n = 0, t = 0; while (s[t]) t++; WriteFile(GetStdHandle((unsigned)-11), s, t, &n, 0); }
 "#;
-        let compilar = |name: &str, source: &str| -> PathBuf {
+        let compile = |name: &str, source: &str| -> PathBuf {
             let c = d.join(format!("{name}.c"));
             std::fs::write(&c, format!("{common}{source}")).unwrap();
             let obj = d.join(format!("{name}.obj"));
@@ -1086,7 +1086,7 @@ static void escrever(const char* s) { unsigned n = 0, t = 0; while (s[t]) t++; W
             assert!(st.success(), "Clang did not compile {name}.c");
             obj
         };
-        let p = compilar(
+        let p = compile(
             "p",
             r#"
 static __declspec(thread) int por_thread = 41;
@@ -1121,7 +1121,7 @@ int main(void) {
             .unwrap();
         };
         link_exe(vec![p], &exe);
-        let dll_obj = compilar(
+        let dll_obj = compile(
             "b",
             r#"
 static __declspec(thread) int t = 5;
@@ -1138,7 +1138,7 @@ int df_value(void) { static int registrado; if (!registrado) { registrado = 1; a
         )
         .unwrap();
         assert!(d.join("b.lib").is_file(), "the DLL import library");
-        let q = compilar("q", "int df_value(void);\nint main(void) { if (df_value() == 6) escrever(\"dll ok\\n\"); return 0; }\n");
+        let q = compile("q", "int df_value(void);\nint main(void) { if (df_value() == 6) escrever(\"dll ok\\n\"); return 0; }\n");
         let exe_dll = d.join("q.exe");
         link_exe(vec![q, d.join("b.lib")], &exe_dll);
         let wine = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|p| p.join("wine")).find(|w| w.is_file());

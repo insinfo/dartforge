@@ -9,7 +9,7 @@
 //! | --- | --- | --- |
 //! | Code generation | Clang `-O0`, in a separate process | in-memory ORCv2, `CodeGenLevelNone`, CPU `x86-64` |
 //! | Runtime | `rustc` compiles `runtime_main.rs` and the linker resolves | the same source, compiled into `dartforge_runtime::abi`; addresses published as absolute symbols |
-//! | `main` | the harness's C `main` calls `@dartforge_entry` and `finalizar_programa` | the session calls `@dartforge_entry` on its own thread, and then the same `finalizar_programa` |
+//! | `main` | the harness's C `main` calls `@dartforge_entry` and `finalize_program` | the session calls `@dartforge_entry` on its own thread, and then the same `finalize_program` |
 //! | Output | executable on disk | nothing on disk |
 //!
 //! The complete contract — where each symbol comes from, the pre-check of
@@ -18,7 +18,7 @@
 //! # Program termination
 //!
 //! An uncaught exception comes back as `exit_code` 255 ([`EntryReport`]), through the same
-//! `finalizar_programa` that the AOT `main` runs. During execution, the runtime
+//! `finalize_program` that the AOT `main` runs. During execution, the runtime
 //! ends the **process** with `process::exit` in the same cases in which the
 //! AOT executable ends: non-null assertion and heap ceiling (255, like the VM). An internal runtime error aborts. Inside
 //! `dartforge run` this is the right behaviour — the process ends with the
@@ -58,7 +58,7 @@ mod reload;
 mod live;
 
 pub use reload::{HotReloadReport, StableEntry};
-pub use live::ProgramaVivo;
+pub use live::LiveProgram;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -73,10 +73,10 @@ pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 /// Identifies the contract of the `main` emitted for the source SDK. A mere
 /// `df.register.*` declaration may also appear in IR that does not call the
 /// DLL's runtime; the decision depends on the actual call to `dartforge_init`.
-pub fn ir_usa_sdk_da_fonte(ir: &str) -> bool {
+pub fn ir_uses_source_sdk(ir: &str) -> bool {
     let main = ir.lines().any(|line| line.trim_start().starts_with("define i32 @main()"));
-    let iniciar = ir.lines().any(|line| line.contains("call i32 @dartforge_init(ptr @dartforge_entry,"));
-    main && iniciar
+    let start = ir.lines().any(|line| line.contains("call i32 @dartforge_init(ptr @dartforge_entry,"));
+    main && start
 }
 
 /// Names of the native runtime that the session publishes for the generated code.
@@ -166,11 +166,11 @@ pub struct ModuleReport {
 pub struct EntryReport {
     /// Symbol resolution, including the on-demand compilation of the module.
     pub lookup: Duration,
-    /// Program execution: the entry and `finalizar_programa`.
+    /// Program execution: the entry and `finalize_program`.
     pub execute: Duration,
     /// Complete call of [`JitSession::run_entry`].
     pub total: Duration,
-    /// Code that `finalizar_programa` returned: 0, or 255 for an uncaught
+    /// Code that `finalize_program` returned: 0, or 255 for an uncaught
     /// exception. Non-null assertion and heap ceiling end the process
     /// before getting here (see the top of the crate).
     pub exit_code: i32,
@@ -342,13 +342,13 @@ impl JitSession {
     /// Opens a session with the right runtime for the emitted IR. Programs with
     /// the source SDK use `DARTFORGE_SDK_DLL` and only publish the requested exports.
     pub fn new_for_ir(ir: &str) -> Result<Self, JitError> {
-        Self::new_for_ir_com(ir, None)
+        Self::new_for_ir_with(ir, None)
     }
 
     /// [`JitSession::new_for_ir`] with the source SDK library given explicitly;
     /// `None` falls back to `DARTFORGE_SDK_DLL`.
-    pub fn new_for_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<Self, JitError> {
-        if !ir_usa_sdk_da_fonte(ir) {
+    pub fn new_for_ir_with(ir: &str, sdk: Option<&std::path::Path>) -> Result<Self, JitError> {
+        if !ir_uses_source_sdk(ir) {
             return Self::new();
         }
         let dll = sdk.map(|p| p.as_os_str().to_owned()).or_else(|| std::env::var_os("DARTFORGE_SDK_DLL")).ok_or_else(|| {
@@ -367,7 +367,7 @@ impl JitSession {
     }
 
     /// This session's runtime comes from the source SDK DLL.
-    pub fn usa_sdk_da_fonte(&self) -> bool {
+    pub fn uses_source_sdk(&self) -> bool {
         self.sdk_dll.is_some()
     }
 
@@ -681,7 +681,7 @@ impl JitSession {
         let lookup = phase.elapsed();
         let phase = Instant::now();
         entry.call_void(self)?;
-        let exit_code = dartforge_runtime::abi::finalizar_programa();
+        let exit_code = dartforge_runtime::abi::finalize_program();
         let execute = phase.elapsed();
         Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
@@ -802,28 +802,28 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 /// The arguments that the program's `main(List<String> args)` receives: the
 /// JIT process is not the program, so its command line does not
 /// apply (the AOT uses the executable's).
-pub fn definir_argumentos(arguments: Vec<String>) {
+pub fn set_arguments(arguments: Vec<String>) {
     *program_arguments().lock().unwrap_or_else(|e| e.into_inner()) = arguments.clone();
     dartforge_runtime::abi::set_main_arguments(arguments);
 }
 
 /// The program's `Platform.script`: the `.dart` the JIT runs (like `dart
 /// run`), not the process executable.
-pub fn definir_script(file_path: &std::path::Path) {
+pub fn set_script(file_path: &std::path::Path) {
     let absolute_path = std::path::absolute(file_path).unwrap_or_else(|_| file_path.to_path_buf());
     let bytes = absolute_path.as_os_str().as_encoded_bytes().to_vec();
     *program_script().lock().unwrap_or_else(|e| e.into_inner()) = Some(bytes.clone());
     dartforge_runtime::abi::set_program_script(bytes);
 }
 
-/// The script of [`definir_script`], which a session with the source SDK passes on
+/// The script of [`set_script`], which a session with the source SDK passes on
 /// to its library's runtime.
 fn program_script() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
     static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
     &S
 }
 
-/// The arguments of [`definir_argumentos`], which a session with the source SDK
+/// The arguments of [`set_arguments`], which a session with the source SDK
 /// passes on to its library's runtime.
 fn program_arguments() -> &'static std::sync::Mutex<Vec<String>> {
     static A: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
@@ -844,7 +844,7 @@ fn program_arguments() -> &'static std::sync::Mutex<Vec<String>> {
 /// Propagates the failures of [`JitSession::new`], [`JitSession::add_ir_module`] and
 /// [`JitSession::run_entry`].
 pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
-    run_ir_com(ir, None)
+    run_ir_with(ir, None)
 }
 
 /// [`run_ir`] with the source SDK library given explicitly (`None`:
@@ -852,13 +852,13 @@ pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
 ///
 /// # Errors
 /// The same as [`run_ir`].
-pub fn run_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport, JitError> {
+pub fn run_ir_with(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport, JitError> {
     let started = Instant::now();
     let phase = Instant::now();
-    let mut session = JitSession::new_for_ir_com(ir, sdk)?;
+    let mut session = JitSession::new_for_ir_with(ir, sdk)?;
     let session_time = phase.elapsed();
     let module = session.add_program_module("dartforge", ir)?;
-    let entry = if session.usa_sdk_da_fonte() { session.run_main()? } else { session.run_entry()? };
+    let entry = if session.uses_source_sdk() { session.run_main()? } else { session.run_entry()? };
     drop(session);
     Ok(JitReport {
         session: session_time,
@@ -874,10 +874,10 @@ mod tests {
     #[test]
     fn registry_declaration_does_not_change_runtime_profile() {
         let without_sdk = "declare void @df.register.fake()\ndefine void @dartforge_entry() { ret void }\n";
-        assert!(!ir_usa_sdk_da_fonte(without_sdk));
+        assert!(!ir_uses_source_sdk(without_sdk));
         let with_sdk = "declare void @df.register.core()\ndefine void @dartforge_entry() { ret void }\n\
             define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
-        assert!(ir_usa_sdk_da_fonte(with_sdk));
+        assert!(ir_uses_source_sdk(with_sdk));
     }
     /// The error message identifies the stage and preserves the LLVM text.
     #[test]
@@ -958,14 +958,14 @@ fn normalize_target(triple: &str) -> NormalizedTarget {
     NormalizedTarget { architecture, vendor, system, env }
 }
 
-/// Whether code emitted for `modulo` runs in the `LLJIT` of `jit`: same
+/// Whether code emitted for `module` runs in the `LLJIT` of `jit`: same
 /// architecture, same system and same ABI. Spelling-only differences
 /// (`x86_64-unknown-linux-gnu` × `x86_64-pc-linux-gnu`,
 /// `arm64-apple-darwin` × `arm64-apple-macosx15.7.3`) are accepted; another
 /// architecture, another system or another environment (`gnu` × `musl`, `msvc` ×
 /// `gnu`) are not.
-fn compatible_targets(modulo: &str, jit: &str) -> bool {
-    let (a, b) = (normalize_target(modulo), normalize_target(jit));
+fn compatible_targets(module: &str, jit: &str) -> bool {
+    let (a, b) = (normalize_target(module), normalize_target(jit));
     let vendor_ok = match (&a.vendor, &b.vendor) {
         (Some(x), Some(y)) => x == y,
         _ => true,

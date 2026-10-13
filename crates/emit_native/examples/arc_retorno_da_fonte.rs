@@ -19,7 +19,7 @@ fn module(entry: &Path) -> Result<Module, String> {
     )
     .map_err(|e| e.to_string())?;
     let lib = std::env::var_os("DARTFORGE_SDK_LIB").ok_or("defina DARTFORGE_SDK_LIB")?;
-    let sdk = dartforge_emit_native::sdk_modulo::load_native_sdk(Path::new(&lib))?;
+    let sdk = dartforge_emit_native::sdk_module::load_native_sdk(Path::new(&lib))?;
     let mut interner = Interner::new();
     let (program, diags) =
         dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
@@ -79,7 +79,7 @@ fn module(entry: &Path) -> Result<Module, String> {
         }
     }
     optimize::optimize(&mut m);
-    optimize::excecoes_por_tabelas(&mut m);
+    optimize::table_exceptions(&mut m);
     let mut plans: HashMap<_, _> = m
         .functions
         .iter()
@@ -181,7 +181,7 @@ passou:
     ir.push_str("  call void @prova_retorno_da_fonte()\n  ret void\n}\n");
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");
     if let Some(control) = args.next() {
-        let alvo = match control.as_str() {
+        let target = match control.as_str() {
             "sem-retencao" => "  call void @dartforge_arc_retain(i64 %v0)\n".to_string(),
             "sem-drop-retorno" => "  call void @dartforge_arc_release(i64 %retorno)\n".to_string(),
             "sem-drop-intermediario" => {
@@ -208,10 +208,10 @@ passou:
             }
             _ => return Err(format!("unknown control: {control}")),
         };
-        if ir.matches(&alvo).count() != 1 {
+        if ir.matches(&target).count() != 1 {
             return Err("control without a single target".into());
         }
-        ir = ir.replace(&alvo, "");
+        ir = ir.replace(&target, "");
     }
     std::fs::write(exit.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(

@@ -265,7 +265,7 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
 /// Encodes the DFGM v2 blob with the given `flags` and `target`; also returns
 /// the position, in the blob, of the address field of each function (where
 /// the relocation goes).
-fn encode(functions: &[Function], flags: u16, alvo: u8) -> (Vec<u8>, Vec<u32>) {
+fn encode(functions: &[Function], flags: u16, target: u8) -> (Vec<u8>, Vec<u32>) {
     let mut flow: Vec<u8> = Vec::new();
     let mut starts: Vec<u32> = Vec::with_capacity(functions.len());
     for (_, frame, records) in functions {
@@ -304,7 +304,7 @@ fn encode(functions: &[Function], flags: u16, alvo: u8) -> (Vec<u8>, Vec<u32>) {
     let header = 16 + 8 * functions.len();
     let mut blob: Vec<u8> = Vec::with_capacity(header + flow.len());
     blob.extend_from_slice(b"DFGM");
-    blob.extend_from_slice(&[VERSION, alvo]);
+    blob.extend_from_slice(&[VERSION, target]);
     blob.extend_from_slice(&flags.to_le_bytes());
     blob.extend_from_slice(&((header + flow.len()) as u32).to_le_bytes());
     blob.extend_from_slice(&(functions.len() as u32).to_le_bytes());
@@ -469,7 +469,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     if object[4] != 2 || object[5] != 1 {
         return Err("ELF object with roots by maps that is not 64-bit little-endian".to_string());
     }
-    let (alvo, sp, fp, preserved, absolute, relative) = match u16_at(object, 0x12)? {
+    let (target, sp, fp, preserved, absolute, relative) = match u16_at(object, 0x12)? {
         ELF_X86_64 => (1u8, REG_SP, REG_FP, PRESERVED_SYSV, R_X86_64_64, R_X86_64_PC32),
         ELF_AARCH64 => (2u8, REG_SP_AARCH64, REG_FP_AARCH64, PRESERVED_AARCH64, R_AARCH64_ABS64, R_AARCH64_PREL32),
         another => return Err(format!("ELF object of machine {another}: roots by maps only exist on x86-64 and aarch64")),
@@ -534,7 +534,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         originals.push((info >> 32, u64_at(object, e + 16)?));
     }
     let functions = decode_v3(&sec, &symbol_in, sp, fp, preserved)?;
-    let (blob, fields) = encode(&functions, RELATIVE_FLAG, alvo);
+    let (blob, fields) = encode(&functions, RELATIVE_FLAG, target);
     let back = decode(&blob)?;
     let equal = back.len() == functions.len()
         && back.iter().zip(&functions).all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
@@ -569,10 +569,10 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
 /// (mandatory, [`convert_elf`]); in COFF except for the measurement
 /// `DARTFORGE_SEM_MAPA_COMPACTO=1`; in Mach-O never.
 pub fn convert_here() -> bool {
-    match crate::alvo::sistema() {
-        crate::alvo::Sistema::Linux => true,
-        crate::alvo::Sistema::Windows => !std::env::var_os("DARTFORGE_SEM_MAPA_COMPACTO").is_some_and(|v| !v.is_empty() && v != "0"),
-        crate::alvo::Sistema::MacOs => false,
+    match crate::target::target_os() {
+        crate::target::Os::Linux => true,
+        crate::target::Os::Windows => !std::env::var_os("DARTFORGE_SEM_MAPA_COMPACTO").is_some_and(|v| !v.is_empty() && v != "0"),
+        crate::target::Os::MacOs => false,
     }
 }
 

@@ -17,7 +17,7 @@
 // closure without arguments through the uniform convention and returns with the
 // pending exception, if any). An exception that leaves a microtask or a timer was
 // not handled by the `Zone` (the source's `_rootHandleError` rethrows it in an
-// `Error.throwWithStackTrace`): the loop stops and `finalizar_programa` reports
+// `Error.throwWithStackTrace`): the loop stops and `finalize_program` reports
 // it, as the VM does with "Unhandled exception".
 //
 // The stored closures are collector roots while they wait: each one takes a heap

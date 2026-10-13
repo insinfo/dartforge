@@ -641,20 +641,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// literal `1` in a `double` context); the `double` bits that come from the
     /// heap use an explicit `Bitcast`, never this function.
     pub fn coerce(&mut self, op: Operand, to: Type) -> Operand {
-        let de = self.operand_type(&op);
-        if de == to
+        let of = self.operand_type(&op);
+        if of == to
             || matches!(to, Type::Void | Type::Ptr)
-            || matches!(de, Type::Void | Type::Ptr)
+            || matches!(of, Type::Void | Type::Ptr)
         {
             return op;
         }
-        match (de, to) {
+        match (of, to) {
             // The SIMD vector and the box of the static type (`lower/simd.rs`): the
             // non-nullable static type guarantees the right box.
             (k, Type::Ref) if k.is_vector() => self.emit(Instruction::Box { op, from: k }, Type::Ref),
             (Type::Ref, k) if k.is_vector() => self.emit(Instruction::Unbox { op, to: k }, k),
             (Type::I64 | Type::F64 | Type::I1, Type::Ref) => {
-                self.emit(Instruction::Box { op, from: de }, Type::Ref)
+                self.emit(Instruction::Box { op, from: of }, Type::Ref)
             }
             (Type::I8, Type::Ref) => {
                 let b = self.emit(
@@ -739,7 +739,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let i = self.emit(
                     Instruction::ZExt {
                         op,
-                        from: de,
+                        from: of,
                         to: Type::I64,
                     },
                     Type::I64,

@@ -26,7 +26,7 @@ fn main() -> Result<(), String> {
     };
     let mut module = Module::new();
     module.arc_memory = arc;
-    module.excecoes_por_tabelas = true;
+    module.table_exceptions = true;
     module.entry_symbol = Some("prova_guardas".into());
     module.functions.push(Function {
         symbol: "prova_guardas".into(),

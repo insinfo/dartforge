@@ -82,7 +82,7 @@ fn main() {
 
 /// LLVM components that dartforge uses: the JIT (`orcjit`) and the AOT's object
 /// and bitcode generation (`native`, `passes`, `bitwriter`).
-const COMPONENTES: [&str; 5] = ["orcjit", "native", "irreader", "passes", "bitwriter"];
+const COMPONENTS: [&str; 5] = ["orcjit", "native", "irreader", "passes", "bitwriter"];
 
 /// Runs the `llvm-config` of the chosen prefix (never the one on `PATH`, which may
 /// belong to another installation) and returns its output.
@@ -111,7 +111,7 @@ fn llvm_config(prefix: &Path, args: &[&str]) -> Result<String, String> {
 fn link_shared(prefix: &Path) -> Result<(), String> {
     require_files(prefix, "--link-shared")?;
     let mut args = vec!["--link-shared", "--libs"];
-    args.extend(COMPONENTES);
+    args.extend(COMPONENTS);
     let libs = llvm_config(prefix, &args)?;
     let system = llvm_config(prefix, &["--link-shared", "--system-libs"]).unwrap_or_default();
     for lib in libs.split_whitespace().chain(system.split_whitespace()) {
@@ -136,7 +136,7 @@ fn link_shared(prefix: &Path) -> Result<(), String> {
 fn link_static(prefix: &Path) -> Result<(), String> {
     require_files(prefix, "--link-static")?;
     let mut args = vec!["--link-static", "--libs"];
-    args.extend(COMPONENTES);
+    args.extend(COMPONENTS);
     let libs = llvm_config(prefix, &args)?;
     for lib in libs.split_whitespace() {
         if let Some(name) = lib.strip_prefix("-l") {
@@ -180,12 +180,12 @@ fn link_static(prefix: &Path) -> Result<(), String> {
 }
 
 /// Checks, before emitting any directive, that the library files of the
-/// [`COMPONENTES`] exist in the requested mode: through the exit code of
+/// [`COMPONENTS`] exist in the requested mode: through the exit code of
 /// `llvm-config <modo> --libfiles` (and not through the message text) and the
 /// presence of each listed file.
 fn require_files(prefix: &Path, mode: &str) -> Result<(), String> {
     let mut args = vec![mode, "--libfiles"];
-    args.extend(COMPONENTES);
+    args.extend(COMPONENTS);
     let files = llvm_config(prefix, &args)?;
     if let Some(missing) = files.split_whitespace().find(|a| !Path::new(a).is_file()) {
         return Err(format!("{missing} does not exist"));
@@ -219,9 +219,9 @@ const FALLBACK_PREFIX: &str = if cfg!(windows) {
     "/usr/lib/llvm-22"
 };
 
-/// The system shared library `lib<nome>`, when the `.a` that the LLVM package
-/// declares does not exist here: `lib<nome>.so` if the development package is
-/// installed, otherwise the runtime version (`lib<nome>.so.1`) by its literal
+/// The system shared library `lib<name>`, when the `.a` that the LLVM package
+/// declares does not exist here: `lib<name>.so` if the development package is
+/// installed, otherwise the runtime version (`lib<name>.so.1`) by its literal
 /// name.
 fn shared_system_library(name: &str) -> Option<String> {
     let dirs = ["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/local/lib", "/lib/x86_64-linux-gnu"];

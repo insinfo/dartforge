@@ -139,7 +139,7 @@ fn module(frame: bool, typed: bool) -> Result<Module, String> {
                 (ValueId(2), Instruction::CallRuntime { name: "dartforge_arc_closure_context_v1".into(), args: vec![
                     (Operand::Val(ValueId(0)), Type::Ref),
                 ], ret_ty: Type::Ref }, Type::Ref),
-                (ValueId(3), Instruction::TypedCall { alvo: Operand::Val(ValueId(1)), args: vec![
+                (ValueId(3), Instruction::TypedCall { target: Operand::Val(ValueId(1)), args: vec![
                     (Operand::Val(ValueId(2)), Type::Ref), (Operand::Constant(Constant::Double(-0.0)), Type::F64),
                     (Operand::Constant(Constant::Int(85)), Type::I64), (Operand::Val(ValueId(7)), Type::I1),
                 ], ret: Type::Ref }, Type::Ref),
@@ -277,8 +277,8 @@ passou:
     if frame {
         // The header reserves four Refs and the RTI tuple; the scalars of this
         // fixture are in the tail. The heap observes the real map of the instance.
-        for (de, to) in [(1, 6), (2, 7), (3, 8)] {
-            ir = ir.replace(&format!("i64 %obj, i64 {de})"), &format!("i64 %obj, i64 {to})"));
+        for (of, to) in [(1, 6), (2, 7), (3, 8)] {
+            ir = ir.replace(&format!("i64 %obj, i64 {of})"), &format!("i64 %obj, i64 {to})"));
         }
         ir = ir.replace("%aok = icmp eq i64 %a, 85", "%aok = icmp eq i64 %a, 0");
         ir = ir.replace("%ref = call i64 @dartforge_arc_read_field_ref_v1(i64 %obj, i64 39)",

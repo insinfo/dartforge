@@ -57,8 +57,8 @@ macro_rules! visit {
                 Instruction::AllocEnv { values } => values.$name_t().for_each(|a| f(a)),
                 Instruction::ConcatStrings { parts } => parts.$name_t().for_each(|a| f(a)),
                 Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => f(env),
-                Instruction::TypedCall { alvo, args, .. } => {
-                    f(alvo);
+                Instruction::TypedCall { target, args, .. } => {
+                    f(target);
                     args.$name_t().for_each(|(a, _)| f(a));
                 }
                 Instruction::Load { ptr, .. } => f(ptr),
@@ -126,8 +126,8 @@ macro_rules! visit {
                     f(args);
                     f(desc);
                 }
-                Instruction::NativeCall { alvo, args, .. } => {
-                    f(alvo);
+                Instruction::NativeCall { target, args, .. } => {
+                    f(target);
                     args.$name_t().for_each(|(a, _)| f(a));
                 }
                 Instruction::NativeLoad { address, index: idx_value, .. } => {
@@ -139,8 +139,8 @@ macro_rules! visit {
                     f(idx_value);
                     f(val_ref);
                 }
-                Instruction::CompositeNativeCall { alvo, args, dest, .. } => {
-                    f(alvo);
+                Instruction::CompositeNativeCall { target, args, dest, .. } => {
+                    f(target);
                     args.$name_t().for_each(|(a, _)| f(a));
                     dest.$name_t().for_each(|a| f(a));
                 }

@@ -138,7 +138,7 @@ pub(super) fn prepare(
     if changed {
         m.arc_aot_ports = None;
     }
-    if m.excecoes_por_tabelas {
+    if m.table_exceptions {
         m.tables = m
             .functions
             .iter()

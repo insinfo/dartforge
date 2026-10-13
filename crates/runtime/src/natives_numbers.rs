@@ -86,14 +86,14 @@ pub extern "C" fn dartforge_native_Integer_bitXorFromInteger(this: i64, other_on
 /// Shift with the VM's rule (`ShiftOperationHelper` and `Integer::ShiftOp`): a
 /// negative amount throws `ArgumentError`; an amount ≥ 64 gives 0 (`<<`, `>>>`) or
 /// the sign (`>>`).
-fn shift(value: i64, amount: i64, tipo: u8) -> i64 {
+fn shift(value: i64, amount: i64, ty: u8) -> i64 {
     if amount < 0 {
         let err = dartforge_argument_error_value(amount, 0, 0, 0);
         dartforge_exception_throw(err, 3);
         return 0;
     }
     let large = amount >= 64;
-    match tipo {
+    match ty {
         0 => if large { 0 } else { value.wrapping_shl(amount as u32) },
         1 => if large { if value < 0 { -1 } else { 0 } } else { value >> amount },
         _ => if large { 0 } else { ((value as u64) >> amount) as i64 },
@@ -413,7 +413,7 @@ fn vm_double_string_old(d: f64) -> String {
 pub extern "C" fn dartforge_native_Double_toString(this: f64) -> i64 {
     let mut buf = [0u8; VM_DOUBLE_SIZE];
     let n = write_vm_double(this, &mut buf);
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Um(&buf[..n])))
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(&buf[..n])))
 }
 
 /// The overlay's `_Double._bitsDe(d)` (`double.dart`): the bits of the `double`,
@@ -539,7 +539,7 @@ pub extern "C" fn dartforge_native_Double_parse(text: i64, start: i64, end: i64)
             }
             return Ok(f - i);
         }
-        Err(Some(t.piece(i, f).para_string()))
+        Err(Some(t.piece(i, f).to_dart_string()))
     });
     let long;
     let t: &str = match read_so_far {
@@ -621,7 +621,7 @@ pub extern "C" fn dartforge_native_DartForge_math_pow(base: f64, exponent: f64) 
 }
 
 #[cfg(test)]
-mod testes_modulo_double {
+mod double_modulo_tests {
     use super::dartforge_native_DartForge_double_modulo as modulo;
 
     #[test]
@@ -657,7 +657,7 @@ mod tests_native_numbers {
     }
 
     #[test]
-    fn double_to_string_e_o_da_vm() {
+    fn double_to_string_is_the_vms() {
         let cases: [(f64, &str); 27] = [
             (0.0, "0.0"),
             (-0.0, "-0.0"),
@@ -965,7 +965,7 @@ pub extern "C" fn dartforge_native_Double_toStringAsPrecision(this: f64, precisi
 }
 
 #[cfg(test)]
-mod testes_to_string_as {
+mod to_string_as_tests {
     //! The expected values are those of the VM 3.6.2 (measured): `toStringAsFixed(0)`,
     //! `(2)`, `(5)`, `toStringAsExponential(3)`, `toStringAsPrecision(4)`.
     use super::*;

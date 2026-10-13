@@ -11,7 +11,7 @@
 
 /// The systems supported by the native backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sistema {
+pub enum Os {
     /// COFF, MSVC ABI, `.obj`/`.lib`/`.dll`/`.exe`.
     Windows,
     /// ELF, `.o`/`.a`/`.so`, executable without extension.
@@ -23,17 +23,17 @@ pub enum Sistema {
 /// The system of the current process.
 ///
 /// ```
-/// use dartforge_emit_native::alvo::{Sistema, sistema};
-/// let s = sistema();
-/// assert_eq!(s == Sistema::Windows, cfg!(windows));
+/// use dartforge_emit_native::target::{Os, target_os};
+/// let s = target_os();
+/// assert_eq!(s == Os::Windows, cfg!(windows));
 /// ```
-pub const fn sistema() -> Sistema {
+pub const fn target_os() -> Os {
     if cfg!(windows) {
-        Sistema::Windows
+        Os::Windows
     } else if cfg!(target_os = "macos") {
-        Sistema::MacOs
+        Os::MacOs
     } else {
-        Sistema::Linux
+        Os::Linux
     }
 }
 
@@ -51,11 +51,11 @@ pub const fn sistema() -> Sistema {
 ///   unwinding skips the exits).
 ///
 /// The program and the SDK have to come out in the same model: the variable goes into the key
-/// of the compiled SDK (`sdk_modulo::sdk_key`).
+/// of the compiled SDK (`sdk_module::sdk_key`).
 ///
 /// # Errors
 /// An unknown value, or `tabelas` where the mode does not exist.
-pub fn excecoes_por_tabelas() -> Result<bool, String> {
+pub fn table_exceptions() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_EXCECOES").unwrap_or_default();
     match value.as_str() {
         "" | "checagem" => Ok(false),
@@ -137,7 +137,7 @@ pub fn arc_prepared() -> Result<bool, String> {
 ///
 /// # Errors
 /// An unknown value, or `mapas` where the mode does not exist.
-pub fn raizes_por_mapas() -> Result<bool, String> {
+pub fn roots_by_maps() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_RAIZES").unwrap_or_default();
     match value.as_str() {
         "" | "sombra" => Ok(false),
@@ -149,7 +149,7 @@ pub fn raizes_por_mapas() -> Result<bool, String> {
                     "roots by maps (--raizes=mapas) exist on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string(),
                 );
             }
-            if !crate::gerador::GERADOR_EMBUTIDO || std::env::var("DARTFORGE_GERADOR").is_ok_and(|g| g == "clang") {
+            if !crate::generator::EMBEDDED_GENERATOR || std::env::var("DARTFORGE_GERADOR").is_ok_and(|g| g == "clang") {
                 return Err("roots by maps (--raizes=mapas) require dartforge's embedded generator (Clang does not run the maps pass)".to_string());
             }
             Ok(true)
@@ -246,12 +246,12 @@ pub fn sabotaged_leaf(name: &str) -> bool {
 /// hosts (macOS, Linux aarch64) the module comes out without a header and Clang and
 /// `LLJIT` impose the host's: the macOS triple carries the system version
 /// (`arm64-apple-darwin24.1.0`), which does not fit in a constant.
-pub fn cabecalho_ir() -> &'static str {
-    match sistema() {
-        Sistema::Windows => {
+pub fn ir_header() -> &'static str {
+    match target_os() {
+        Os::Windows => {
             "target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\ntarget triple = \"x86_64-pc-windows-msvc\"\n\n"
         }
-        Sistema::Linux if cfg!(target_arch = "x86_64") => {
+        Os::Linux if cfg!(target_arch = "x86_64") => {
             "target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\ntarget triple = \"x86_64-unknown-linux-gnu\"\n\n"
         }
         _ => "",
@@ -264,10 +264,10 @@ pub fn cabecalho_ir() -> &'static str {
 /// C identifier name, so that the linker defines `__start_dfimg`/`__stop_dfimg`) and
 /// `__DATA_CONST,__dfimg` in Mach-O.
 pub const fn image_section() -> &'static str {
-    match sistema() {
-        Sistema::Windows => ".dfimg$m",
-        Sistema::Linux => "dfimg",
-        Sistema::MacOs => "__DATA_CONST,__dfimg",
+    match target_os() {
+        Os::Windows => ".dfimg$m",
+        Os::Linux => "dfimg",
+        Os::MacOs => "__DATA_CONST,__dfimg",
     }
 }
 
@@ -278,8 +278,8 @@ pub const fn image_section() -> &'static str {
 /// in ELF and Mach-O the linker defines the section start and end symbols — the
 /// anchor guarantees that the section exists even without any literal.
 pub fn image_markers() -> (String, &'static str, &'static str) {
-    match sistema() {
-        Sistema::Windows => (
+    match target_os() {
+        Os::Windows => (
             "$df.img.a = comdat any\n$df.img.z = comdat any\n\
              @df.img.a = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \".dfimg$a\", comdat, align 8\n\
              @df.img.z = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \".dfimg$z\", comdat, align 8\n"
@@ -287,7 +287,7 @@ pub fn image_markers() -> (String, &'static str, &'static str) {
             "@df.img.a",
             "@df.img.z",
         ),
-        Sistema::Linux => (
+        Os::Linux => (
             "$df.img.anchor = comdat any\n\
              @df.img.anchor = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"dfimg\", comdat, align 8\n\
              @__start_dfimg = external hidden global i8\n@__stop_dfimg = external hidden global i8\n"
@@ -295,7 +295,7 @@ pub fn image_markers() -> (String, &'static str, &'static str) {
             "@__start_dfimg",
             "@__stop_dfimg",
         ),
-        Sistema::MacOs => (
+        Os::MacOs => (
             "@df.img.anchor = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"__DATA_CONST,__dfimg\", align 8\n\
              @\"\\01section$start$__DATA_CONST$__dfimg\" = external hidden global i8\n\
              @\"\\01section$end$__DATA_CONST$__dfimg\" = external hidden global i8\n"
@@ -309,21 +309,21 @@ pub fn image_markers() -> (String, &'static str, &'static str) {
 /// Whether the object format has `comdat`. Mach-O does not: there a
 /// `linkonce_odr` definition alone becomes a weak symbol, and the linker keeps one.
 pub const fn has_comdat() -> bool {
-    !matches!(sistema(), Sistema::MacOs)
+    !matches!(target_os(), Os::MacOs)
 }
 
 /// Extension of the object (without the dot).
 pub const fn ext_object() -> &'static str {
-    match sistema() {
-        Sistema::Windows => "obj",
+    match target_os() {
+        Os::Windows => "obj",
         _ => "o",
     }
 }
 
 /// Extension of the static library (without the dot).
 pub const fn static_ext() -> &'static str {
-    match sistema() {
-        Sistema::Windows => "lib",
+    match target_os() {
+        Os::Windows => "lib",
         _ => "a",
     }
 }
@@ -332,29 +332,29 @@ pub const fn static_ext() -> &'static str {
 /// `libbase.so`, `libbase.dylib`).
 ///
 /// ```
-/// let n = dartforge_emit_native::alvo::shared_name("dfsdk_0");
+/// let n = dartforge_emit_native::target::shared_name("dfsdk_0");
 /// assert!(n.contains("dfsdk_0"));
 /// ```
 pub fn shared_name(base: &str) -> String {
-    match sistema() {
-        Sistema::Windows => format!("{base}.dll"),
-        Sistema::Linux => format!("lib{base}.so"),
-        Sistema::MacOs => format!("lib{base}.dylib"),
+    match target_os() {
+        Os::Windows => format!("{base}.dll"),
+        Os::Linux => format!("lib{base}.so"),
+        Os::MacOs => format!("lib{base}.dylib"),
     }
 }
 
 /// Name of the executable `base` (`base.exe` on Windows, `base` on the others).
 pub fn executable_name(base: &str) -> String {
-    match sistema() {
-        Sistema::Windows => format!("{base}.exe"),
+    match target_os() {
+        Os::Windows => format!("{base}.exe"),
         _ => base.to_string(),
     }
 }
 
 /// Name of Clang in the `bin` folder of an LLVM distribution.
-pub const fn nome_clang() -> &'static str {
-    match sistema() {
-        Sistema::Windows => "clang.exe",
+pub const fn clang_name() -> &'static str {
+    match target_os() {
+        Os::Windows => "clang.exe",
         _ => "clang",
     }
 }
@@ -366,8 +366,8 @@ pub const fn nome_clang() -> &'static str {
 /// (measured), and the object was no longer a function of the key. ELF and Mach-O have no
 /// timestamp.
 pub const fn object_flags() -> &'static [&'static str] {
-    match sistema() {
-        Sistema::Windows => &["-mno-incremental-linker-compatible"],
+    match target_os() {
+        Os::Windows => &["-mno-incremental-linker-compatible"],
         _ => &[],
     }
 }
@@ -375,8 +375,8 @@ pub const fn object_flags() -> &'static [&'static str] {
 /// Clang flags for the objects that go into the shared library
 /// of the SDK: position-independent code outside Windows.
 pub const fn shared_object_flags() -> &'static [&'static str] {
-    match sistema() {
-        Sistema::Windows => &[],
+    match target_os() {
+        Os::Windows => &[],
         _ => &["-fPIC"],
     }
 }
@@ -386,29 +386,29 @@ pub const fn shared_object_flags() -> &'static [&'static str] {
 ///
 /// It is the list `rustc --print native-static-libs` prints for each
 /// host. The AOT link no longer goes through the Clang driver (each
-/// system has its own linker: `ligador.rs`, `ligador_windows.rs`,
-/// `ligador_macos.rs`); the list serves whoever links through Clang in a
+/// system has its own linker: `linker.rs`, `linker_windows.rs`,
+/// `linker_macos.rs`); the list serves whoever links through Clang in a
 /// development tree (the JIT tests).
 pub const fn system_libraries() -> &'static [&'static str] {
-    match sistema() {
+    match target_os() {
         // `crypt32`: the system certificate store (the TLS
         // roots, `tls.rs`).
-        Sistema::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lcrypt32", "-lkernel32"],
-        Sistema::Linux => &["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"],
+        Os::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lcrypt32", "-lkernel32"],
+        Os::Linux => &["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"],
         // `CoreFoundation`: `Platform.localeName` (io_plataforma.rs);
         // `Security`: the system keychain (the TLS roots, `tls.rs`).
-        Sistema::MacOs => &["-lSystem", "-lc", "-lm", "-liconv", "-framework", "CoreFoundation", "-framework", "Security"],
+        Os::MacOs => &["-lSystem", "-lc", "-lm", "-liconv", "-framework", "CoreFoundation", "-framework", "Security"],
     }
 }
 
 /// The root of the macOS SDK in a development tree: the `SDKROOT` of the
 /// environment or the SDK that `xcrun` points to (queried once). The
 /// distribution does not use it: it carries the `.tbd` files in the link sysroot
-/// (`ligador_macos.rs`). `None` outside macOS or without Xcode.
+/// (`linker_macos.rs`). `None` outside macOS or without Xcode.
 pub fn macos_sdk_root() -> Option<&'static std::path::Path> {
     static ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
     ROOT.get_or_init(|| {
-        if sistema() != Sistema::MacOs {
+        if target_os() != Os::MacOs {
             return None;
         }
         if let Some(r) = std::env::var_os("SDKROOT").filter(|r| !r.is_empty()) {
@@ -426,7 +426,7 @@ pub fn macos_sdk_root() -> Option<&'static std::path::Path> {
 /// (executable, SDK DLL, runtime): the system libraries and, on
 /// macOS, the SDK root (`-isysroot`), without which neither Apple's `ld`
 /// called by LLVM's Clang nor `ld64.lld` finds `-lSystem`.
-pub fn argumentos_de_ligacao() -> Vec<std::ffi::OsString> {
+pub fn link_arguments() -> Vec<std::ffi::OsString> {
     let mut v: Vec<std::ffi::OsString> = Vec::new();
     if let Some(root) = macos_sdk_root() {
         v.push("-isysroot".into());

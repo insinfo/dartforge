@@ -269,17 +269,17 @@ pub extern "C" fn dartforge_register_stack_trace_tearoff(input: *const u8, kind:
     }
 }
 
-/// Pushes onto the stack-trace stack the frame of an `async` body (`tipo` 0) or the
-/// `_FutureListener.handleValue` listener (`tipo` 1) at the function's entry;
+/// Pushes onto the stack-trace stack the frame of an `async` body (`ty` 0) or the
+/// `_FutureListener.handleValue` listener (`ty` 1) at the function's entry;
 /// returns the depth, which the exit passes to [`dartforge_stack_trace_exit`].
 #[unsafe(no_mangle)]
 #[inline(never)]
-pub extern "C" fn dartforge_stack_trace_enter(tipo: i64, value: i64) -> i64 {
+pub extern "C" fn dartforge_stack_trace_enter(ty: i64, value: i64) -> i64 {
     let mark = std::hint::black_box(0u8);
     let address = std::hint::black_box(std::ptr::addr_of!(mark)) as usize;
     TRACE_STACK.with(|p| {
         let mut p = p.borrow_mut();
-        p.push((tipo, value, address));
+        p.push((ty, value, address));
         p.len() as i64
     })
 }
@@ -400,10 +400,10 @@ fn closure_link(ix: &TraceIndex, heap: &crate::heap::Heap, c: i64) -> Option<Opt
     let f = ix.function(clo.code as usize)?;
     let value = if record_marks(f.rec) & ASYNC_BODY_MARK != 0 {
         // The body's closure: the frame at position 0 of the environment.
-        heap.object(clo.contexto.0)?.get(0)?
+        heap.object(clo.context.0)?.get(0)?
     } else {
         let (cur_position, direct, cell) = f.link?;
-        let v = if direct { clo.contexto } else { heap.object(clo.contexto.0)?.get(cur_position)? };
+        let v = if direct { clo.context } else { heap.object(clo.context.0)?.get(cur_position)? };
         if cell && v.1 { heap.object(v.0).and_then(|o| o.get(0)).unwrap_or((0, false)) } else { v }
     };
     Some((value.1 && value.0 != 0).then_some(value.0))
@@ -440,7 +440,7 @@ fn start_from_listener(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter
         *q = Waiter::default();
         return;
     }
-    let estado = trace_field(heap, listener, "state").and_then(|c| field_int(heap, c)).unwrap_or(-1);
+    let state = trace_field(heap, listener, "state").and_then(|c| field_int(heap, c)).unwrap_or(-1);
     let result = if [
         LISTENER_THEN,
         LISTENER_CATCH_ERROR,
@@ -448,7 +448,7 @@ fn start_from_listener(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter
         LISTENER_THEN | LISTENER_CATCH_ERROR,
         LISTENER_THEN | LISTENER_CATCH_ERROR | LISTENER_AWAIT,
     ]
-    .contains(&estado)
+    .contains(&state)
     {
         trace_ref(heap, listener, "result")
     } else {
@@ -489,8 +489,8 @@ fn tearoff_of(heap: &crate::heap::Heap, c: i64) -> Option<(i64, Option<i64>)> {
         v.iter().find(|&&(e, _)| e as i64 == clo.code).map(|&(_, k)| k)?
     };
     // The tear-off's environment keeps the receiver at position 0.
-    let receiver_obj = if clo.contexto.1 {
-        heap.object(clo.contexto.0).and_then(|o| o.get(0)).and_then(|v| (v.1 && v.0 != 0).then_some(v.0))
+    let receiver_obj = if clo.context.1 {
+        heap.object(clo.context.0).and_then(|o| o.get(0)).and_then(|v| (v.1 && v.0 != 0).then_some(v.0))
     } else {
         None
     };
@@ -529,12 +529,12 @@ fn up_to_controller(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
         return;
     };
     *q = Waiter::default();
-    let estado = trace_int(heap, controller, "_state").unwrap_or(0);
-    if estado & SUBSCRIPTION_MASK != CONTROLLER_SUBSCRIBED {
+    let state = trace_int(heap, controller, "_state").unwrap_or(0);
+    if state & SUBSCRIPTION_MASK != CONTROLLER_SUBSCRIBED {
         return;
     }
     let mut subscription = trace_ref(heap, controller, "_varData");
-    if estado & CONTROLLER_ADD_STREAM != 0 {
+    if state & CONTROLLER_ADD_STREAM != 0 {
         subscription = subscription.and_then(|s| trace_ref(heap, s, "_varData"));
     }
     let Some(subscription) = subscription else { return };
@@ -663,16 +663,16 @@ fn up_to_waiter(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
 }
 
 /// The stack-trace stack entry of the machine frame whose top is `sp`: the highest
-/// one still free, of `tipo`, written right below `sp`. The ones above it are left
+/// one still free, of `ty`, written right below `sp`. The ones above it are left
 /// behind (from deeper frames already matched, or left by unwound frames).
-fn match_at(stack: &[(i64, i64, usize)], top: &mut usize, tipo: i64, sp: u64) -> Option<i64> {
+fn match_at(stack: &[(i64, i64, usize)], top: &mut usize, ty: i64, sp: u64) -> Option<i64> {
     let sp = sp as usize;
     if sp == 0 {
         return None;
     }
     for i in (0..*top).rev() {
         let (t, v, address) = stack[i];
-        if t == tipo && address < sp && sp - address < STACK_WINDOW {
+        if t == ty && address < sp && sp - address < STACK_WINDOW {
             *top = i;
             return Some(v);
         }
@@ -942,7 +942,7 @@ fn symbolize_returns(pair_list: &[(u64, u64)]) -> String {
     with_trace_index(|ix| symbolize_with(ix, pair_list))
 }
 
-fn escrever_quadro(text: &mut String, n: usize, name: &str, url: &str, line_column: u32) {
+fn write_frame(text: &mut String, n: usize, name: &str, url: &str, line_column: u32) {
     use std::fmt::Write as _;
     let (line, column) = (line_column >> 12, line_column & 0xFFF);
     let _ = write!(text, "#{n:<6} {name} ({url}");
@@ -971,7 +971,7 @@ fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
                     if marks & HIDDEN_MARK != 0 {
                         continue;
                     }
-                    escrever_quadro(&mut text, n, &name, &url, p.line_column);
+                    write_frame(&mut text, n, &name, &url, p.line_column);
                     n += 1;
                     in_gap = false;
                     some_frame = true;
@@ -988,7 +988,7 @@ fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
                 let cur_position = usize::try_from(k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| f.waits.get(i)).copied().unwrap_or(0);
                 // SAFETY: the record of a section entry.
                 let (name, url, _) = unsafe { trace_record(f.rec) };
-                escrever_quadro(&mut text, n, &name, &url, cur_position);
+                write_frame(&mut text, n, &name, &url, cur_position);
                 n += 1;
                 in_gap = false;
                 some_frame = true;
@@ -1000,7 +1000,7 @@ fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
                 if marks & HIDDEN_MARK != 0 {
                     continue;
                 }
-                escrever_quadro(&mut text, n, &name, &url, f.token);
+                write_frame(&mut text, n, &name, &url, f.token);
                 n += 1;
                 in_gap = false;
                 some_frame = true;
@@ -1052,7 +1052,7 @@ fn trace_text(h: i64) -> Option<String> {
         let heap = heap.borrow();
         let o = heap.object(h)?;
         Some(match o.first() {
-            Some((t, true)) if t != 0 => (heap.text(t).map(|t| t.para_string()), Vec::new()),
+            Some((t, true)) if t != 0 => (heap.text(t).map(|t| t.to_dart_string()), Vec::new()),
             _ => (None, object_returns(&heap, h)),
         })
     })?;

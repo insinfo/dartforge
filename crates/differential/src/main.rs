@@ -1,5 +1,5 @@
 //! `dartforge-differential [options]` — corpus report.
-//! `dartforge-differential contrato [-o docs/CONTRATO-DDC.md]` — generates the contract document.
+//! `dartforge-differential contract [-o docs/CONTRATO-DDC.md]` — generates the contract document.
 //!
 //! Some lines this binary prints are parsed by CI (`.github/actions/harness`,
 //! `.github/workflows/*.yml`): `(N programas em X s)`, the

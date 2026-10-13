@@ -10,7 +10,7 @@
 //! * `suportado` (supported): it compiled and the output (stdout and exit
 //!   code) is the reference's;
 //! * `recusado` (rejected): the profile rejected it at compile time, with the
-//!   diagnostic — the same as the reference (`como a referência`) or not (the
+//!   diagnostic — the same as the reference (`how a referência`) or not (the
 //!   feature is missing in the profile);
 //! * `divergente` (divergent): it ran and the output differs from the
 //!   reference (including the ones in `PENDENTES`, marked);

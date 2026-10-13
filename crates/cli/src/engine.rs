@@ -114,7 +114,7 @@ pub fn generate_once(
 pub fn with_generator<R>(
     input: &Path,
     packages: Option<&Path>,
-    compile: impl FnOnce(Option<dartforge_emit_native::Gerador<'_>>) -> Result<R, String>,
+    compile: impl FnOnce(Option<dartforge_emit_native::Generator<'_>>) -> Result<R, String>,
 ) -> Result<R, String> {
     let Some((root, cfg, cfg_path)) = detect(input, packages) else {
         return compile(None);
@@ -138,7 +138,7 @@ pub fn with_generator<R>(
 /// [--comparar] [--release] [--estrito] [--trabalhadores N]
 /// [--escrever-cache <dir>] [--dart <exe>] [--estado]`. With `--estado` (or
 /// `DARTFORGE_BUILD_ESTADO=1`) the engine's state is saved in
-/// `.dart_tool/dartforge/build/estado` and reused by the next process;
+/// `.dart_tool/dartforge/build/state` and reused by the next process;
 /// without asking, nothing goes to disk (governing rule 6). With `--dart` (or
 /// `DARTFORGE_BUILD_DART`) the builders without a native generator run on the
 /// Dart VM (`dartforge_build::vm`); without it, on the native executor

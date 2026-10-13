@@ -118,7 +118,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// The parameters of a function expression, for the uniform entry.
-    fn params_da_closure(&self, f: &ast::Function) -> Vec<EntryParam> {
+    fn closure_params(&self, f: &ast::Function) -> Vec<EntryParam> {
         let unit = self.unit_id;
         f.parameters
             .as_deref()
@@ -408,7 +408,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.absorb(b);
 
         // --- entrada uniforme ----------------------------------------------
-        let infos = self.params_da_closure(f);
+        let infos = self.closure_params(f);
         let symbol_ent = format!("{symbol}$ent");
         let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), readable, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
@@ -619,15 +619,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // `n_req <= positionals <= n_pos` — inline, without the call.
                 let int = |x: usize| Operand::Constant(Constant::Int(x as i64));
                 let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(0) }, Type::I64);
-                let nnom = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(1) }, Type::I64);
+                let n_named = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(1) }, Type::I64);
                 if n_req == n_pos {
                     let x = self.emit(Instruction::Xor(npos, int(n_req)), Type::I64);
-                    let y = self.emit(Instruction::Or(x, nnom), Type::I64);
+                    let y = self.emit(Instruction::Or(x, n_named), Type::I64);
                     self.emit(Instruction::ICmp(ICmpOp::Eq, y, int(0)), Type::I1)
                 } else {
                     let lo = self.emit(Instruction::ICmp(ICmpOp::Sge, npos.clone(), int(n_req)), Type::I1);
                     let hi = self.emit(Instruction::ICmp(ICmpOp::Sle, npos, int(n_pos)), Type::I1);
-                    let z = self.emit(Instruction::ICmp(ICmpOp::Eq, nnom, int(0)), Type::I1);
+                    let z = self.emit(Instruction::ICmp(ICmpOp::Eq, n_named, int(0)), Type::I1);
                     let a = self.emit(Instruction::And(lo, hi), Type::I64);
                     let a = self.emit(Instruction::And(a, z), Type::I64);
                     self.emit(Instruction::ICmp(ICmpOp::Ne, a, int(0)), Type::I1)
@@ -869,7 +869,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: has, then_block: fast, else_block: slow });
 
         self.set_block(fast);
-        let alvo = self.object_word(callee.clone(), super::boxes::CLOSURE_TIPADO, Type::I64);
+        let target = self.object_word(callee.clone(), super::boxes::CLOSURE_TYPED, Type::I64);
         // The context is a reference (a root while alive).
         let env = self.closure_context(callee.clone());
         let mut args = vec![(env, Type::Ref)];
@@ -877,7 +877,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let v = self.coerce(v.clone(), t);
             args.push((v, t));
         }
-        let r = self.emit_call_with_check(Instruction::TypedCall { alvo, args, ret }, ret);
+        let r = self.emit_call_with_check(Instruction::TypedCall { target, args, ret }, ret);
         // The contract of `call_function_value` is `Ref` (the caller joins it with
         // other paths); the optimizer undoes the box when the user wants
         // the scalar (`Unbox(Box(x))`).
@@ -943,8 +943,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// passes in the slot after the arguments (`0`: none).
     pub(super) fn slot_tuple(&mut self, args: &Operand, desc: &Operand) -> Operand {
         let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
-        let nnom = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
-        let index = self.emit(Instruction::Add(npos, nnom), Type::I64);
+        let n_named = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
+        let index = self.emit(Instruction::Add(npos, n_named), Type::I64);
         self.emit(Instruction::LoadIndexed { base: args.clone(), index: index }, Type::I64)
     }
 
@@ -968,8 +968,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Tear-off of a top-level or static function: canonical.
     pub fn function_tearoff(&mut self, fid: usize) -> Operand {
-        let alvo = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{alvo}$tear");
+        let target = super::symbol_of(self.ctx, fid);
+        let symbol_ent = format!("{target}$tear");
         if self.ctx.arc_memory { self.arc_shared_functions.insert(symbol_ent.clone()); }
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
@@ -1019,8 +1019,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Tear-off of an instance method: a new closure with the receiver in the
     /// environment; the entry calls the member with the dispatch through the receiver.
     pub fn method_tearoff(&mut self, recv: Operand, fid: usize, span: Span) -> Operand {
-        let alvo = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{alvo}$tearm");
+        let target = super::symbol_of(self.ctx, fid);
+        let symbol_ent = format!("{target}$tearm");
         if self.ctx.arc_memory { self.arc_shared_functions.insert(symbol_ent.clone()); }
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
@@ -1218,8 +1218,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// fixed (`tuple`, in the environment). The entry builds the tuple and calls the
     /// function; the reified type is that of the instantiation (`ty`, static).
     pub fn instantiated_tearoff(&mut self, fid: usize, tuple: Operand, typ: Option<TypeId>) -> Operand {
-        let alvo = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{alvo}$teari");
+        let target = super::symbol_of(self.ctx, fid);
+        let symbol_ent = format!("{target}$teari");
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
@@ -1267,8 +1267,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         typ: Option<TypeId>,
         span: Span,
     ) -> Operand {
-        let alvo = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{alvo}$teari");
+        let target = super::symbol_of(self.ctx, fid);
+        let symbol_ent = format!("{target}$teari");
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
@@ -1334,11 +1334,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// The generic function (top-level or static, of the program) that `alvo`
-    /// names, for `alvo<T…>`.
-    pub fn target_generic_function(&self, ast: &ast::Ast, alvo: ast::ExprId) -> Option<usize> {
+    /// The generic function (top-level or static, of the program) that `target`
+    /// names, for `target<T…>`.
+    pub fn target_generic_function(&self, ast: &ast::Ast, target: ast::ExprId) -> Option<usize> {
         use dartforge_types::resolved::{MemberRef, Resolved};
-        let fid = match self.resolution_or_name(ast, alvo)? {
+        let fid = match self.resolution_or_name(ast, target)? {
             Resolved::Element(dartforge_elements::model::Element::Function(f)) => f.0 as usize,
             Resolved::Member { member: MemberRef::Function(f), .. } => f.0 as usize,
             _ => return None,
@@ -1389,8 +1389,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let strings: Vec<String> = args.iter().map(|a| self.type_recipe_with(*a, params, &vars).text).collect();
         let string_object = format!("C{}<{}>", self.ctx.id_rti(c), strings.join(","));
         let tuple_text = format!("L<{}>", strings.join(","));
-        let alvo = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{alvo}$teara{:08x}", (hash_name(&string_object) as u64) as u32);
+        let target = super::symbol_of(self.ctx, fid);
+        let symbol_ent = format!("{target}$teara{:08x}", (hash_name(&string_object) as u64) as u32);
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
@@ -1445,8 +1445,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn constructor_tearoff(&mut self, fid: usize, span: Span) -> Operand {
-        let alvo = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{alvo}$tear");
+        let target = super::symbol_of(self.ctx, fid);
+        let symbol_ent = format!("{target}$tear");
         if self.ctx.arc_memory { self.arc_shared_functions.insert(symbol_ent.clone()); }
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());

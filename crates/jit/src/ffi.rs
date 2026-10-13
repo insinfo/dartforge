@@ -317,15 +317,15 @@ impl ParsedModule {
             .collect()
     }
 
-    /// Gives the defined function `de` the name `to` (J03: the signature changed and the
+    /// Gives the defined function `of` the name `to` (J03: the signature changed and the
     /// new stable entry has another name). Its uses in the module follow the
-    /// value, so they start calling `to`. `false` if `de` is not defined
+    /// value, so they start calling `to`. `false` if `of` is not defined
     /// here or `to` already exists.
-    pub(crate) fn rename_function(&self, de: &str, to: &str) -> bool {
+    pub(crate) fn rename_function(&self, of: &str, to: &str) -> bool {
         // SAFETY: the definitions are live values of this module; the new name is
         // copied by LLVM.
         unsafe {
-            let definition = self.definitions().into_iter().find(|&f| value_name(f) == de);
+            let definition = self.definitions().into_iter().find(|&f| value_name(f) == of);
             let busy = self.definitions().into_iter().any(|f| value_name(f) == to);
             let Some(function) = definition.filter(|_| !busy) else { return false };
             self.rename_definition(function, to);
@@ -962,13 +962,13 @@ impl Lljit {
         if self.layer.is_null() {
             return Ok(());
         }
-        let modulo = load_library(dll);
-        if modulo.is_null() {
+        let module = load_library(dll);
+        if module.is_null() {
             return Err(format!("could not load the SDK library {}", dll.display()));
         }
         if self.maps {
-            let register = address_in_library(modulo, c"dartforge_register_map_llvm");
-            let deregister = address_in_library(modulo, c"dartforge_unregister_map");
+            let register = address_in_library(module, c"dartforge_register_map_llvm");
+            let deregister = address_in_library(module, c"dartforge_unregister_map");
             if register.is_null() || deregister.is_null() {
                 return Err("the SDK library does not export the stack map registration (dartforge_register_map_llvm)".to_owned());
             }
@@ -984,8 +984,8 @@ impl Lljit {
             }
         }
         if self.trace {
-            let register = address_in_library(modulo, c"dartforge_register_stack_trace");
-            let deregister = address_in_library(modulo, c"dartforge_unregister_stack_trace");
+            let register = address_in_library(module, c"dartforge_register_stack_trace");
+            let deregister = address_in_library(module, c"dartforge_unregister_stack_trace");
             if register.is_null() || deregister.is_null() {
                 return Err("the SDK library does not export the stack trace registration (dartforge_register_stack_trace)".to_owned());
             }
@@ -1253,7 +1253,7 @@ impl Lljit {
     /// accepts IR from that emitter — the same assumption the AOT driver makes. If the
     /// caller could choose the name, the function would have to be `unsafe`.
     ///
-    /// After the entry comes the runtime's `finalizar_programa` (the same source as the
+    /// After the entry comes the runtime's `finalize_program` (the same source as the
     /// AOT), on its own thread with `stack_bytes` of stack: see
     /// [`execute_program`]. `&self` guarantees that the `LLJIT` and the entry module
     /// stay alive until the thread ends, because removing requires `&mut`.
@@ -1306,14 +1306,14 @@ impl Drop for Lljit {
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn LoadLibraryW(name: *const u16) -> *mut std::ffi::c_void;
-    fn GetProcAddress(modulo: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+    fn GetProcAddress(module: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
 }
 
 #[cfg(unix)]
 #[cfg_attr(target_os = "linux", link(name = "dl"))]
 unsafe extern "C" {
     fn dlopen(name: *const std::ffi::c_char, mode: std::ffi::c_int) -> *mut std::ffi::c_void;
-    fn dlsym(modulo: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+    fn dlsym(module: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
 }
 
 /// `RTLD_NOW | RTLD_LOCAL`: everything resolved at load time, and the library's names
@@ -1343,25 +1343,25 @@ fn load_library(file_path: &std::path::Path) -> *mut std::ffi::c_void {
     unsafe { dlopen(c.as_ptr(), RTLD_NOW_LOCAL) }
 }
 
-/// The address of `name` in the library `modulo`, or null.
-fn address_in_library(modulo: *mut std::ffi::c_void, name: &CStr) -> *mut std::ffi::c_void {
-    // SAFETY: `modulo` is a handle returned by `load_library` and
+/// The address of `name` in the library `module`, or null.
+fn address_in_library(module: *mut std::ffi::c_void, name: &CStr) -> *mut std::ffi::c_void {
+    // SAFETY: `module` is a handle returned by `load_library` and
     // `name` is zero-terminated.
     #[cfg(windows)]
-    let p = unsafe { GetProcAddress(modulo, name.as_ptr()) };
+    let p = unsafe { GetProcAddress(module, name.as_ptr()) };
     #[cfg(unix)]
-    let p = unsafe { dlsym(modulo, name.as_ptr()) };
+    let p = unsafe { dlsym(module, name.as_ptr()) };
     p
 }
 
 /// Calls `dartforge_set_main_arguments` of the SDK library's
 /// runtime (`data`: the arguments in UTF-8, each terminated by NUL).
 pub(crate) fn set_arguments_in_library(dll: &std::path::Path, data: &[u8]) -> Result<(), String> {
-    let modulo = load_library(dll);
-    if modulo.is_null() {
+    let module = load_library(dll);
+    if module.is_null() {
         return Err(format!("could not load the SDK library {}", dll.display()));
     }
-    let p = address_in_library(modulo, c"dartforge_set_main_arguments");
+    let p = address_in_library(module, c"dartforge_set_main_arguments");
     if p.is_null() && data.is_empty() {
         // With no arguments to hand over, a library without the whole runtime
         // (the test ones) will do.
@@ -1383,11 +1383,11 @@ pub(crate) fn set_arguments_in_library(dll: &std::path::Path, data: &[u8]) -> Re
 /// runtime (the `Platform.script`). A library without the whole runtime (the test
 /// ones) does not have the symbol, and the script stays the process's.
 pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> Result<(), String> {
-    let modulo = load_library(dll);
-    if modulo.is_null() {
+    let module = load_library(dll);
+    if module.is_null() {
         return Err(format!("could not load the SDK library {}", dll.display()));
     }
-    let p = address_in_library(modulo, c"dartforge_set_program_script");
+    let p = address_in_library(module, c"dartforge_set_program_script");
     if p.is_null() {
         return Ok(());
     }
@@ -1420,7 +1420,7 @@ pub(crate) struct ReloadRuntime {
     /// `dartforge_request_at_safepoint`.
     request_fn: usize,
     /// `dartforge_publish_generation`.
-    publicar: usize,
+    publish: usize,
     /// `dartforge_stop_isolates` and `dartforge_release_isolates`.
     stop: usize,
     free: usize,
@@ -1460,7 +1460,7 @@ impl ReloadRuntime {
     pub(crate) fn embedded() -> Self {
         Self {
             request_fn: dartforge_runtime::abi::dartforge_request_at_safepoint as *const () as usize,
-            publicar: dartforge_runtime::abi::dartforge_publish_generation as *const () as usize,
+            publish: dartforge_runtime::abi::dartforge_publish_generation as *const () as usize,
             stop: dartforge_runtime::abi::dartforge_stop_isolates as *const () as usize,
             free: dartforge_runtime::abi::dartforge_release_isolates as *const () as usize,
             migrate: dartforge_runtime::abi::dartforge_set_migration as *const () as usize,
@@ -1469,25 +1469,25 @@ impl ReloadRuntime {
 
     /// The runtime of the source SDK library.
     pub(crate) fn from_library(dll: &std::path::Path) -> Result<Self, String> {
-        let modulo = load_library(dll);
-        if modulo.is_null() {
+        let module = load_library(dll);
+        if module.is_null() {
             return Err(format!("could not load the SDK library {}", dll.display()));
         }
-        let request_fn = address_in_library(modulo, c"dartforge_request_at_safepoint");
-        let publicar = address_in_library(modulo, c"dartforge_publish_generation");
-        let stop = address_in_library(modulo, c"dartforge_stop_isolates");
-        let free = address_in_library(modulo, c"dartforge_release_isolates");
-        if request_fn.is_null() || publicar.is_null() || stop.is_null() || free.is_null() {
+        let request_fn = address_in_library(module, c"dartforge_request_at_safepoint");
+        let publish = address_in_library(module, c"dartforge_publish_generation");
+        let stop = address_in_library(module, c"dartforge_stop_isolates");
+        let free = address_in_library(module, c"dartforge_release_isolates");
+        if request_fn.is_null() || publish.is_null() || stop.is_null() || free.is_null() {
             return Err(format!(
                 "the SDK library {} does not export live reload (dartforge_request_at_safepoint); \
                  recompile it with this dartforge",
                 dll.display()
             ));
         }
-        let migrate = address_in_library(modulo, c"dartforge_set_migration");
+        let migrate = address_in_library(module, c"dartforge_set_migration");
         Ok(Self {
             request_fn: request_fn as usize,
-            publicar: publicar as usize,
+            publish: publish as usize,
             stop: stop as usize,
             free: free as usize,
             migrate: migrate as usize,
@@ -1585,11 +1585,11 @@ impl ReloadRuntime {
             // while it exists.
             address.map(|e| unsafe { std::mem::transmute::<usize, extern "C" fn()>(e as usize) })
         };
-        // SAFETY: `publicar` is `dartforge_publish_generation` (`selectors.rs`).
+        // SAFETY: `publish` is `dartforge_publish_generation` (`selectors.rs`).
         unsafe {
-            let publicar: extern "C" fn(Option<extern "C" fn()>, Option<extern "C" fn()>, Option<extern "C" fn()>) =
-                std::mem::transmute(self.publicar);
-            publicar(as_fn(area), as_fn(register), as_fn(rti));
+            let publish: extern "C" fn(Option<extern "C" fn()>, Option<extern "C" fn()>, Option<extern "C" fn()>) =
+                std::mem::transmute(self.publish);
+            publish(as_fn(area), as_fn(register), as_fn(rti));
         }
     }
 }
@@ -1600,14 +1600,14 @@ impl ReloadRuntime {
 pub(crate) struct Cell(usize);
 
 impl Cell {
-    pub(crate) fn de(cell: &std::sync::atomic::AtomicUsize) -> Self {
+    pub(crate) fn of(cell: &std::sync::atomic::AtomicUsize) -> Self {
         Self(cell as *const std::sync::atomic::AtomicUsize as usize)
     }
 
     /// Points the entry to `implementation`: the following calls use it.
-    pub(crate) fn publicar(self, implementation: usize) {
+    pub(crate) fn publish(self, implementation: usize) {
         // SAFETY: the cell belongs to an entry of the session, which outlives
-        // the program thread (`JitSession::com_programa_vivo`).
+        // the program thread (`JitSession::with_live_program`).
         let cell = unsafe { &*(self.0 as *const std::sync::atomic::AtomicUsize) };
         cell.store(implementation, std::sync::atomic::Ordering::Release);
     }
@@ -1616,7 +1616,7 @@ impl Cell {
 /// The copy of a static from one generation to the next.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct GlobalCopy {
-    de: usize,
+    of: usize,
     to: usize,
     size: usize,
 }
@@ -1625,7 +1625,7 @@ impl GlobalCopy {
     pub(crate) fn apply(self) {
         // SAFETY: both addresses are materialized LLJIT globals, of the
         // same size (`Lljit::global_copy`), of retained generations.
-        unsafe { std::ptr::copy_nonoverlapping(self.de as *const u8, self.to as *mut u8, self.size) };
+        unsafe { std::ptr::copy_nonoverlapping(self.of as *const u8, self.to as *mut u8, self.size) };
     }
 }
 
@@ -1645,7 +1645,7 @@ pub(crate) fn call_embedded_entry(address: u64) -> i32 {
     // `void ()` by the session, which outlives the program thread.
     unsafe { std::mem::transmute::<usize, extern "C" fn()>(address as usize)() };
     dartforge_runtime::abi::unmark_main_isolate();
-    dartforge_runtime::abi::finalizar_programa()
+    dartforge_runtime::abi::finalize_program()
 }
 
 impl Lljit {
@@ -1672,14 +1672,14 @@ impl Lljit {
     /// Missing DLL or list, or a name in the list the DLL does not export.
     pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, used_count: &[String], publish_crt: bool) -> Result<Vec<String>, String> {
         let names = Self::exported_symbols_in_dll(dll, used_count)?;
-        let modulo = load_library(dll);
-        if modulo.is_null() {
+        let module = load_library(dll);
+        if module.is_null() {
             return Err(format!("could not load the SDK library {}", dll.display()));
         }
         let mut pair_list = Vec::with_capacity(names.len());
         for n in &names {
             let c = CString::new(n.as_str()).map_err(|_| format!("name with a null byte: {n}"))?;
-            let p = address_in_library(modulo, &c);
+            let p = address_in_library(module, &c);
             if p.is_null() {
                 return Err(format!("the SDK DLL does not export {n}"));
             }
@@ -1730,11 +1730,11 @@ impl Lljit {
 // `#[unsafe(no_mangle)]`s of the fragments.
 
 /// Runtime names published in the session, in source order.
-pub(crate) const RUNTIME_SYMBOLS: &[&str] = dartforge_runtime::simbolos::NOMES;
+pub(crate) const RUNTIME_SYMBOLS: &[&str] = dartforge_runtime::symbols::NAMES;
 
 /// Address of each runtime function, in the order of [`RUNTIME_SYMBOLS`].
 fn runtime_symbol_addresses() -> Vec<(&'static str, usize)> {
-    dartforge_runtime::simbolos::tabela()
+    dartforge_runtime::symbols::table()
 }
 
 /// Runs the program whose entry is at `address`, like the AOT `main`.
@@ -1745,7 +1745,7 @@ fn runtime_symbol_addresses() -> Vec<(&'static str, usize)> {
 /// `reset` to keep in sync with the runtime — and the stack is the same the
 /// AOT executable receives, so that deep recursion fails the same way.
 ///
-/// After the entry comes `dartforge_runtime::abi::finalizar_programa`, the same
+/// After the entry comes `dartforge_runtime::abi::finalize_program`, the same
 /// code the AOT's C `main` runs (uncaught exception → 255, collector
 /// statistics). The code it returns is returned here; the endings the
 /// runtime handles with `process::exit` during execution — non-null
@@ -1769,7 +1769,7 @@ pub(crate) fn execute_program(address: u64, stack_bytes: usize) -> Result<(i32, 
                 // `join`), and `@dartforge_entry` is emitted with the C signature
                 // `void(void)`.
                 unsafe { std::mem::transmute::<usize, extern "C" fn()>(address)() };
-                let code = dartforge_runtime::abi::finalizar_programa();
+                let code = dartforge_runtime::abi::finalize_program();
                 (code, started.elapsed())
             })
             .map_err(|error| format!("could not create the thread of the program: {error}"))?;
@@ -1917,9 +1917,9 @@ impl Lljit {
         if previous.size != next.size {
             return Err(format!("the global {} changed from {} to {} bytes", previous.logical_name, previous.size, next.size));
         }
-        let de = usize::try_from(self.lookup(&previous.name)?).map_err(|_| "global address".to_owned())?;
+        let of = usize::try_from(self.lookup(&previous.name)?).map_err(|_| "global address".to_owned())?;
         let to = usize::try_from(self.lookup(&next.name)?).map_err(|_| "global address".to_owned())?;
-        Ok(GlobalCopy { de, to, size: next.size })
+        Ok(GlobalCopy { of, to, size: next.size })
     }
 
     /// Writes zeros into the mutable global, already materialized.
@@ -2121,9 +2121,9 @@ const HALF_REGION: usize = OBJECT_REGION / 2;
 mod virtual_memory {
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn VirtualAlloc(address: *mut u8, size: usize, tipo: u32, protection: u32) -> *mut u8;
+        fn VirtualAlloc(address: *mut u8, size: usize, ty: u32, protection: u32) -> *mut u8;
         fn VirtualProtect(address: *mut u8, size: usize, protection: u32, old_value: *mut u32) -> i32;
-        fn VirtualFree(address: *mut u8, size: usize, tipo: u32) -> i32;
+        fn VirtualFree(address: *mut u8, size: usize, ty: u32) -> i32;
         fn FlushInstructionCache(process: *mut u8, address: *const u8, size: usize) -> i32;
         fn GetCurrentProcess() -> *mut u8;
     }
@@ -2257,8 +2257,8 @@ mod virtual_memory {
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[link(name = "kernel32")]
 unsafe extern "system" {
-    fn RtlAddFunctionTable(tabela: *const u8, n: u32, base: u64) -> u8;
-    fn RtlDeleteFunctionTable(tabela: *const u8) -> u8;
+    fn RtlAddFunctionTable(table: *const u8, n: u32, base: u64) -> u8;
+    fn RtlDeleteFunctionTable(table: *const u8) -> u8;
 }
 
 /// The memory of an object loaded by RTDyld (the per-object context of the
@@ -2315,10 +2315,10 @@ impl JitObject {
             return ptr::null_mut();
         }
         let page = virtual_memory::page();
-        let de = start & !(page - 1);
+        let of = start & !(page - 1);
         let until = (end + page - 1) & !(page - 1);
-        // SAFETY: `[de, until)` is inside the reserved region.
-        if !unsafe { virtual_memory::confirm(self.base.add(de), until - de) } {
+        // SAFETY: `[of, until)` is inside the reserved region.
+        if !unsafe { virtual_memory::confirm(self.base.add(of), until - of) } {
             return ptr::null_mut();
         }
         *cursor = end;
@@ -2484,7 +2484,7 @@ unsafe extern "C" {
     /// `llvm-sys` 221 declares it without `CreateContextCtx` (the context
     /// `CreateContext` receives) and with `CreateContext` without a return value.
     #[link_name = "LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks"]
-    fn criar_camada_rtdyld_com_gerenciador(
+    fn create_rtdyld_layer_with_manager(
         session: llvm_sys::orc2::LLVMOrcExecutionSessionRef,
         creation_context: *mut std::ffi::c_void,
         create_context: extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void,
@@ -2506,7 +2506,7 @@ extern "C" fn create_layer(
     // SAFETY: the C header signature (above); `layer` is the session's context,
     // alive until its `Drop`, and the functions live for the whole process.
     unsafe {
-        criar_camada_rtdyld_com_gerenciador(
+        create_rtdyld_layer_with_manager(
             session,
             layer,
             create_context,
@@ -2522,31 +2522,31 @@ extern "C" fn create_layer(
 /// The maps pass and the verifier over a module.
 ///
 /// # Safety
-/// `modulo` is a live module; `llvm_machine` is null or a live target machine.
-unsafe fn maps_pass(modulo: LLVMModuleRef, llvm_machine: LLVMTargetMachineRef) -> LLVMErrorRef {
+/// `module` is a live module; `llvm_machine` is null or a live target machine.
+unsafe fn maps_pass(module: LLVMModuleRef, llvm_machine: LLVMTargetMachineRef) -> LLVMErrorRef {
     // SAFETY: the function contract; the options are created and freed here.
     unsafe {
         let options = llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions();
-        let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(modulo, c"rewrite-statepoints-for-gc,verify".as_ptr(), llvm_machine, options);
+        let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(module, c"rewrite-statepoints-for-gc,verify".as_ptr(), llvm_machine, options);
         llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(options);
         error
     }
 }
 
-extern "C" fn pass_in_module(_ctx: *mut std::ffi::c_void, modulo: LLVMModuleRef) -> LLVMErrorRef {
+extern "C" fn pass_in_module(_ctx: *mut std::ffi::c_void, module: LLVMModuleRef) -> LLVMErrorRef {
     // SAFETY: the module of the `ThreadSafeModule`, with the context locked.
-    unsafe { maps_pass(modulo, ptr::null_mut()) }
+    unsafe { maps_pass(module, ptr::null_mut()) }
 }
 
 /// The IR transform of the session with maps: the maps pass on each
 /// module before code generation.
 extern "C" fn transform_ir(
     _ctx: *mut std::ffi::c_void,
-    modulo: *mut LLVMOrcThreadSafeModuleRef,
+    module: *mut LLVMOrcThreadSafeModuleRef,
     _responsibility: llvm_sys::orc2::LLVMOrcMaterializationResponsibilityRef,
 ) -> LLVMErrorRef {
-    // SAFETY: `modulo` points to the `ThreadSafeModule` being materialized.
-    unsafe { llvm_sys::orc2::LLVMOrcThreadSafeModuleWithModuleDo(*modulo, pass_in_module, ptr::null_mut()) }
+    // SAFETY: `module` points to the `ThreadSafeModule` being materialized.
+    unsafe { llvm_sys::orc2::LLVMOrcThreadSafeModuleWithModuleDo(*module, pass_in_module, ptr::null_mut()) }
 }
 
 #[cfg(test)]

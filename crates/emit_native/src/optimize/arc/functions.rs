@@ -173,7 +173,7 @@ pub(super) fn prepare_functions(
 /// Nominal facts of the lowering produce the Owned convention of the Ref returns
 /// of Dart bodies. Other producers still require that convention
 /// explicitly; uncovered operations require their own contracts.
-/// If `excecoes_por_tabelas` is already selected, also publishes
+/// If `table_exceptions` is already selected, also publishes
 /// the verified tables, in the final order of the functions, in the same transaction.
 /// Does not select that mode nor call this pass in the default pipeline.
 /// The other limits are those of [`prepare_arc_dart_functions`].
@@ -269,7 +269,7 @@ pub(super) fn prepare_with_variants(
         &variants,
         &receivers,
         &preserve_fields,
-        work.excecoes_por_tabelas,
+        work.table_exceptions,
         work.arc_external_callees,
     )?;
     slots.functions = prepared_set.clone();
@@ -277,7 +277,7 @@ pub(super) fn prepare_with_variants(
     work.functions = prepared_set;
     // The IDs of invokes/landing pads and the certificates belong to the new bodies.
     // Do not let the emitter consult an inventory of the previous CFG version.
-    if module.excecoes_por_tabelas {
+    if module.table_exceptions {
         work.tables = work
             .functions
             .iter()
@@ -465,7 +465,7 @@ mod tests {
             let mut m = Module::new();
             m.functions = functions;
             m.arc_memory = case != 2;
-            m.excecoes_por_tabelas = case != 3;
+            m.table_exceptions = case != 3;
             // Incomplete previous inventory: it cannot survive the new CFG.
             m.tables.push(FunctionTables::default());
             if case == 1 {
@@ -494,7 +494,7 @@ mod tests {
             } else {
                 result.unwrap();
                 if case == 3 {
-                    assert!(!m.excecoes_por_tabelas);
+                    assert!(!m.table_exceptions);
                     assert_eq!(m.tables.len(), 1);
                     continue;
                 }
@@ -1690,7 +1690,7 @@ mod tests {
                 );
                 let mut m = Module::new();
                 m.functions = fs.clone();
-                m.excecoes_por_tabelas = true;
+                m.table_exceptions = true;
                 m.tables.push(p.tables.clone());
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(ir.contains("%v1 = call i1 @df.unbox_bool(i64 %v0)"));
@@ -1993,7 +1993,7 @@ mod tests {
                 (1, 0)
             );
             let p = &plans["folha"];
-            let resumo = verify_dart_function_contract(
+            let summary = verify_dart_function_contract(
                 &functions[0],
                 &p.classes,
                 &p.tokens,
@@ -2005,12 +2005,12 @@ mod tests {
             let caller = caller[1].clone();
             let mut classes = HashMap::new();
             let mut tokens = TokenPlan::default();
-            produce_dart_calls(&caller, &[resumo], &mut classes, &mut tokens).unwrap();
+            produce_dart_calls(&caller, &[summary], &mut classes, &mut tokens).unwrap();
             assert!(tokens.instructions[&ValueId(1)].may_fail);
             // The emitter also materializes the check in the leaf.
             let mut module = Module::new();
             module.functions = functions;
-            module.excecoes_por_tabelas = true;
+            module.table_exceptions = true;
             module.tables.push(p.tables.clone());
             let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
             let body = ir
@@ -2077,7 +2077,7 @@ mod tests {
         );
         assert!(plans["caller"].tokens.instructions[&ValueId(1)].may_fail);
         let leaf = &plans["folha"];
-        let resumo = verify_dart_function_contract(
+        let summary = verify_dart_function_contract(
             &functions[1],
             &leaf.classes,
             &leaf.tokens,
@@ -2087,7 +2087,7 @@ mod tests {
         .unwrap();
         let mut classes = HashMap::new();
         let mut tokens = TokenPlan::default();
-        produce_dart_calls(&functions[0], &[resumo], &mut classes, &mut tokens).unwrap();
+        produce_dart_calls(&functions[0], &[summary], &mut classes, &mut tokens).unwrap();
         assert!(tokens.instructions[&ValueId(1)].may_fail);
     }
 
@@ -2405,7 +2405,7 @@ mod publication_tests {
             };
             m.functions = vec![caller, fallible];
             if by_tables {
-                crate::optimize::excecoes_por_tabelas(&mut m);
+                crate::optimize::table_exceptions(&mut m);
             }
             let mut plans: HashMap<_, _> = ["chamador", "falivel"].map(|s| (s.to_string(), DartFunctionPlan::default())).into();
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();

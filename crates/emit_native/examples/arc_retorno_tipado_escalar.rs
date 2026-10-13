@@ -24,7 +24,7 @@ fn module(ty: Type, value: Constant, abi: i64) -> Result<Module, String> {
                     (Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(abi)), Type::I64),
                 ], ret_ty: Type::I64 }, Type::I64),
                 (ValueId(2), Instruction::CallRuntime { name: "dartforge_arc_closure_context_v1".into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::Ref }, Type::Ref),
-                (ValueId(3), Instruction::TypedCall { alvo: Operand::Val(ValueId(1)), args: vec![(Operand::Val(ValueId(2)), Type::Ref)], ret: ty }, ty),
+                (ValueId(3), Instruction::TypedCall { target: Operand::Val(ValueId(1)), args: vec![(Operand::Val(ValueId(2)), Type::Ref)], ret: ty }, ty),
                 (ValueId(4), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
                 (ValueId(5), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(4)), Operand::Constant(Constant::Int(0))), Type::I1),
             ], terminator: Terminator::CondBranch { cond: Operand::Val(ValueId(5)), then_block: BlockId(1), else_block: BlockId(2) } },
@@ -59,9 +59,9 @@ fn main() -> Result<(), String> {
     let mut m = module(ty, value, abi)?; m.arc_memory = arc; if !arc { m.arc_aot_ports = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     if let Some(c) = control {
-        let alvo = "  call void @dartforge_arc_release(i64 %v2)\n";
-        if c != "sem-liberar-contexto" || ir.matches(alvo).count() != 2 { return Err("control without a single target on both exits".into()); }
-        ir = ir.replace(alvo, "");
+        let target = "  call void @dartforge_arc_release(i64 %v2)\n";
+        if c != "sem-liberar-contexto" || ir.matches(target).count() != 2 { return Err("control without a single target on both exits".into()); }
+        ir = ir.replace(target, "");
     }
     ir.push_str("declare void @dartforge_print_handle(i64)\ndefine void @prova() {\n");
     if !arc { ir.push_str(&format!("  %pc = ptrtoint ptr @corpo to i64\n  %versao = call i64 @dartforge_arc_register_typed_v1(i64 %pc, i64 {abi})\n")); }

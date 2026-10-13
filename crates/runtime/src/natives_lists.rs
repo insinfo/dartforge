@@ -32,14 +32,14 @@ pub unsafe extern "C" fn dartforge_register_helper(name: *const u8, len: i64, f:
     HELPERS.with(|a| a.borrow_mut().insert(name, f));
 }
 
-fn ajudante(name: &str) -> Option<usize> {
+fn helper(name: &str) -> Option<usize> {
     HELPERS.with(|a| a.borrow().get(name).copied())
 }
 
 /// `IndexError` of `ix` in `target` of size `size` (the VM's `RangeError
 /// (index)`).
 fn throw_index(ix: i64, target: i64, size: i64) {
-    if let Some(f) = ajudante("_dartforgeErroDeIndice") {
+    if let Some(f) = helper("_dartforgeErroDeIndice") {
         // SAFETY: registered by the `dart:_internal` library with this signature
         // (`int`, `Object?`, `int`) → `Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
@@ -87,15 +87,15 @@ fn outside_list(ix: i64, n: i64, name: &str) -> bool {
 /// native's type-argument tuple, with `h` rooted (the shape that `E` requires may
 /// decompact, and decompacting allocates).
 fn type_tuple_list(h: i64, tuple: i64, class: i32) {
-    if let Some(tipo) = tuple_list_type(tuple, Some(i64::from(class))) {
-        with_roots(&[h], || set_list_type(h, tipo + 1));
+    if let Some(ty) = tuple_list_type(tuple, Some(i64::from(class))) {
+        with_roots(&[h], || set_list_type(h, ty + 1));
     }
 }
 
 /// Writes into `h` (`class`) the reified type of `origin`, with its `E`.
 fn type_copied_list(h: i64, origin: i64, class: i32) {
-    if let Some(tipo) = with_roots(&[h], || copied_list_type(origin, Some(i64::from(class)))) {
-        with_roots(&[h], || set_list_type(h, tipo + 1));
+    if let Some(ty) = with_roots(&[h], || copied_list_type(origin, Some(i64::from(class)))) {
+        with_roots(&[h], || set_list_type(h, ty + 1));
     }
 }
 
@@ -116,7 +116,7 @@ pub extern "C" fn dartforge_native_DartForge_json_push(stack: i64, v: i64) -> i6
     }
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let serve = heap.e_lista(stack)
+        let serve = heap.is_list(stack)
             && heap.class(stack) == crate::layout::cid::GROWABLE_LIST
             && heap.list_shape(stack) == crate::lists::Element::General;
         if !serve {
@@ -131,7 +131,7 @@ pub extern "C" fn dartforge_native_DartForge_json_push(stack: i64, v: i64) -> i6
 /// barrier) and the length into field 0, without the `Heap`. `None` if it needs to
 /// grow or the shape is not the simple one.
 fn push_raw(stack: i64, v: i64) -> Option<i64> {
-    use crate::layout::{cid, desl, is_object};
+    use crate::layout::{cid, offsets, is_object};
     if !is_object(stack) {
         return None;
     }
@@ -140,15 +140,15 @@ fn push_raw(stack: i64, v: i64) -> Option<i64> {
         return None;
     }
     // SAFETY: `_GrowableList`: length in field 0, storage in field 1.
-    let (len, a) = unsafe { (raw_word(stack, desl::COMPRIMENTO), raw_word(stack, desl::EXPANSIVEL_DADOS)) };
-    let d = Data::de(a, true)?;
+    let (len, a) = unsafe { (raw_word(stack, offsets::LENGTH), raw_word(stack, offsets::GROWABLE_DATA)) };
+    let d = Data::of(a, true)?;
     let n = usize::try_from(len).ok()?;
     if n >= d.len {
         return None;
     }
     d.write_value(n, v);
     // SAFETY: field 0 (the raw length, no barrier: it is not a reference).
-    unsafe { *in_block(stack, desl::COMPRIMENTO).cast::<i64>() = len + 1 };
+    unsafe { *in_block(stack, offsets::LENGTH).cast::<i64>() = len + 1 };
     Some(len + 1)
 }
 
@@ -172,7 +172,7 @@ fn cut_stack(stack: i64, p: Data, until: usize) {
         }
     }
     // SAFETY: field 0 of the `_GrowableList` (the raw length).
-    unsafe { *in_block(stack, crate::layout::desl::COMPRIMENTO).cast::<i64>() = until as i64 };
+    unsafe { *in_block(stack, crate::layout::offsets::LENGTH).cast::<i64>() = until as i64 };
 }
 
 /// `_JsonListener._dfTruncar(stack, start)`: removes the values `stack[start..]`
@@ -182,7 +182,7 @@ pub extern "C" fn dartforge_native_DartForge_json_truncate(stack: i64, start: i6
     let Some((p, start, mark)) = stack_mark(stack, start) else { return -1 };
     // The stack is writable (the listener's): the same check as `push_raw`.
     // SAFETY: the `_GrowableList`'s storage (field 1).
-    if Data::de(unsafe { raw_word(stack, crate::layout::desl::EXPANSIVEL_DADOS) }, true).is_none() {
+    if Data::of(unsafe { raw_word(stack, crate::layout::offsets::GROWABLE_DATA) }, true).is_none() {
         return -1;
     }
     cut_stack(stack, p, start - 1);
@@ -204,10 +204,10 @@ pub extern "C" fn dartforge_native_DartForge_json_mark(stack: i64, start: i64) -
 /// outside the simple shape. May collect.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_json_close_list(stack: i64, start: i64, model: i64) -> i64 {
-    use crate::layout::{cid, desl, is_object};
+    use crate::layout::{cid, offsets, is_object};
     let Some((p, i0, _)) = stack_mark(stack, start) else { return 0 };
     // SAFETY: the `_GrowableList`'s storage (field 1).
-    if Data::de(unsafe { raw_word(stack, desl::EXPANSIVEL_DADOS) }, true).is_none() {
+    if Data::of(unsafe { raw_word(stack, offsets::GROWABLE_DATA) }, true).is_none() {
         return 0;
     }
     // SAFETY: live object.
@@ -219,8 +219,8 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(stack: i64, start: 
         let mut heap = heap.borrow_mut();
         // The stack and the model rooted: the values are reached through the stack.
         let list = heap.list_with_roots(&[stack, model], |heap| heap.new_growable(n, n, crate::lists::Element::General));
-        let tipo = heap.metadata(model);
-        heap.set_metadata(list, tipo);
+        let ty = heap.metadata(model);
+        heap.set_metadata(list, ty);
         if n > 0 {
             // The collector does not move: `p` stays valid. The storage is new and
             // nobody else sees it: raw copy, no barrier (like `list_reserve`).
@@ -277,16 +277,16 @@ pub extern "C" fn dartforge_native_DartForge_list_get(this: i64, ix: i64) -> i64
     HEAP.with(|heap| heap.borrow_mut().list_get_ref(this, ix as usize))
 }
 
-/// The `how_many` elements of `de` from `start` into a new fixed list (`cid`) of
+/// The `how_many` elements of `of` from `start` into a new fixed list (`cid`) of
 /// the same shape.
-fn list_slice(de: i64, start: i64, how_many: i64, cid: i32) -> i64 {
+fn list_slice(of: i64, start: i64, how_many: i64, cid: i32) -> i64 {
     let (start, how_many) = (start.max(0) as usize, how_many.max(0) as usize);
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let shape = heap.list_shape(de);
-        // `de` is an argument of the native: generated code keeps it rooted.
+        let shape = heap.list_shape(of);
+        // `of` is an argument of the native: generated code keeps it rooted.
         let h = heap.new_list(cid, how_many, shape);
-        heap.list_copy(de, start, h, 0, how_many);
+        heap.list_copy(of, start, h, 0, how_many);
         h
     })
 }
@@ -301,8 +301,8 @@ pub extern "C" fn dartforge_native_List_slice(this: i64, start: i64, how_many: i
 
 /// `_ImmutableList._from(from, offset, length)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_ImmutableList_from(de: i64, start: i64, how_many: i64, tuple: i64) -> i64 {
-    let h = list_slice(de, start, how_many, crate::layout::cid::IMMUTABLE_LIST);
+pub extern "C" fn dartforge_native_ImmutableList_from(of: i64, start: i64, how_many: i64, tuple: i64) -> i64 {
+    let h = list_slice(of, start, how_many, crate::layout::cid::IMMUTABLE_LIST);
     type_tuple_list(h, tuple, crate::layout::cid::IMMUTABLE_LIST);
     h
 }
@@ -390,7 +390,7 @@ pub extern "C" fn dartforge_native_DartForge_List_copy(dest: i64, origin: i64, n
     }
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        if !heap.e_lista(origin) || !heap.e_lista(dest) {
+        if !heap.is_list(origin) || !heap.is_list(dest) {
             return;
         }
         let n = n.min(heap.list_len(origin)).min(heap.list_len(dest));
@@ -398,13 +398,13 @@ pub extern "C" fn dartforge_native_DartForge_List_copy(dest: i64, origin: i64, n
     });
 }
 
-/// The overlay's `_GrowableList._grow(capacidade)`
-/// (`native_sdk/core/growable_array.dart`): a storage of `capacidade`, of the same
+/// The overlay's `_GrowableList._grow(capacity)`
+/// (`native_sdk/core/growable_array.dart`): a storage of `capacity`, of the same
 /// shape, with the elements up to the length (the VM's `_grow`, which copied through
 /// `[]=` and handed over to `_setData`, in a single copy).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_GrowableList_reserve(this: i64, capacidade: i64) {
-    let cap = usize::try_from(capacidade).unwrap_or(0);
+pub extern "C" fn dartforge_native_DartForge_GrowableList_reserve(this: i64, capacity: i64) {
+    let cap = usize::try_from(capacity).unwrap_or(0);
     HEAP.with(|heap| heap.borrow_mut().list_reserve(this, cap));
 }
 
@@ -470,7 +470,7 @@ pub unsafe extern "C" fn dartforge_list_from_table_g(data: *const u8, len: i64, 
     // The elements, without the heap borrowed: the getter runs Dart code.
     enum Item<'a> {
         Value(crate::heap::Value),
-        Texto(&'a [u8]),
+        Text(&'a [u8]),
         Getter(usize),
     }
     let word = |b: &[u8], i: usize, n: usize| {
@@ -498,7 +498,7 @@ pub unsafe extern "C" fn dartforge_list_from_table_g(data: *const u8, len: i64, 
             b's' => {
                 let n = word(b, i, 4) as usize;
                 i += 4 + n;
-                Item::Texto(&b[i - n..i])
+                Item::Text(&b[i - n..i])
             }
             b'g' => {
                 i += 4;
@@ -515,9 +515,9 @@ pub unsafe extern "C" fn dartforge_list_from_table_g(data: *const u8, len: i64, 
                 Item::Value(v) => v,
                 // Literal strings are canonical and permanent (the `literals`
                 // table is a root).
-                Item::Texto(t) => {
-                    let t = Texto::de_wtf8(t);
-                    crate::heap::Value::Ref(HEAP.with(|heap| heap.borrow_mut().string_literal(t.vista())))
+                Item::Text(t) => {
+                    let t = Text::from_wtf8(t);
+                    crate::heap::Value::Ref(HEAP.with(|heap| heap.borrow_mut().string_literal(t.view())))
                 }
                 Item::Getter(g) => {
                     // SAFETY: the index is that of a vector entry (the compiler
@@ -574,8 +574,8 @@ pub unsafe extern "C" fn dartforge_list_from_table(data: *const u8, len: i64) ->
                     i += 4;
                     // Literal strings are canonical and permanent (the `literals`
                     // table is a root): no collection in the middle loses them.
-                    let t = Texto::de_wtf8(&b[i..i + n]);
-                    let h = heap.string_literal(t.vista());
+                    let t = Text::from_wtf8(&b[i..i + n]);
+                    let h = heap.string_literal(t.view());
                     i += n;
                     crate::heap::Value::Ref(h)
                 }
@@ -709,7 +709,7 @@ unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: b
 
 /// The `add` of a `_GrowableList` with the `Ref` `v` (generated code's path when
 /// the storage is full or does not hold `v` unboxed; `lower/intrinsecos.rs`,
-/// `lower/literais.rs`): grows to `(capacidade * 2) | 3` if needed and writes
+/// `lower/literais.rs`): grows to `(capacity * 2) | 3` if needed and writes
 /// (decompacting, if that is the case). Returns `list`. Does not throw; may collect
 /// (`list` and `v` are operands, rooted by generated code).
 /// The return is borrowed from the first argument; it does not create an
@@ -738,7 +738,7 @@ pub extern "C" fn dartforge_list_append(list: i64, v: i64) -> i64 {
 }
 
 #[cfg(test)]
-mod testes_literal_owned {
+mod literal_owned_tests {
     use super::*;
 
     #[test]

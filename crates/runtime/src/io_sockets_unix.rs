@@ -96,7 +96,7 @@ mod network_only {
 
 #[cfg(unix)]
 unsafe extern "C" {
-    fn socket(domain: i32, tipo: i32, protocol: i32) -> i32;
+    fn socket(domain: i32, ty: i32, protocol: i32) -> i32;
     fn connect(fd: i32, e: *const u8, n: u32) -> i32;
     fn bind(fd: i32, e: *const u8, n: u32) -> i32;
     fn listen(fd: i32, queue: i32) -> i32;
@@ -109,16 +109,16 @@ unsafe extern "C" {
     fn sendto(fd: i32, b: *const u8, n: usize, flags: i32, e: *const u8, en: u32) -> isize;
     fn write(fd: i32, b: *const std::ffi::c_void, n: usize) -> isize;
     fn getnameinfo(e: *const u8, en: u32, host: *mut std::ffi::c_char, hn: u32, serv: *mut std::ffi::c_char, sn: u32, flags: i32) -> i32;
-    fn getaddrinfo(host: *const std::ffi::c_char, serv: *const std::ffi::c_char, hints: *const EnderecoInfo, res: *mut *mut EnderecoInfo) -> i32;
-    fn freeaddrinfo(res: *mut EnderecoInfo);
+    fn getaddrinfo(host: *const std::ffi::c_char, serv: *const std::ffi::c_char, hints: *const AddrInfo, res: *mut *mut AddrInfo) -> i32;
+    fn freeaddrinfo(res: *mut AddrInfo);
     fn gai_strerror(code: i32) -> *const std::ffi::c_char;
     fn inet_pton(family: i32, text: *const std::ffi::c_char, dest: *mut u8) -> i32;
     fn getifaddrs(res: *mut *mut InterfaceAddress) -> i32;
     fn freeifaddrs(res: *mut InterfaceAddress);
     fn if_nametoindex(name: *const std::ffi::c_char) -> u32;
     fn unlink(file_path: *const std::ffi::c_char) -> i32;
-    fn sendmsg(fd: i32, m: *const CabecalhoDeMensagem, flags: i32) -> isize;
-    fn recvmsg(fd: i32, m: *mut CabecalhoDeMensagem, flags: i32) -> isize;
+    fn sendmsg(fd: i32, m: *const MessageHeader, flags: i32) -> isize;
+    fn recvmsg(fd: i32, m: *mut MessageHeader, flags: i32) -> isize;
 }
 
 /// `struct iovec`.
@@ -133,7 +133,7 @@ struct Slice {
 /// `socklen_t`).
 #[cfg(unix)]
 #[repr(C)]
-struct CabecalhoDeMensagem {
+struct MessageHeader {
     name: *mut u8,
     name_size: u32,
     slices: *mut Slice,
@@ -153,7 +153,7 @@ struct CabecalhoDeMensagem {
 /// alignment is `size_t`'s; on macOS, `socklen_t` and 4 bytes.
 #[cfg(target_os = "linux")]
 mod cmsg {
-    pub const TAMANHO_DO_CABECALHO: usize = 16;
+    pub const HEADER_SIZE: usize = 16;
     pub const ALIGNMENT: usize = 8;
     pub fn write_size(b: &mut [u8], n: usize) {
         b[..8].copy_from_slice(&(n as u64).to_ne_bytes());
@@ -166,7 +166,7 @@ mod cmsg {
 
 #[cfg(all(unix, not(target_os = "linux")))]
 mod cmsg {
-    pub const TAMANHO_DO_CABECALHO: usize = 12;
+    pub const HEADER_SIZE: usize = 12;
     pub const ALIGNMENT: usize = 4;
     pub fn write_size(b: &mut [u8], n: usize) {
         b[..4].copy_from_slice(&(n as u32).to_ne_bytes());
@@ -186,7 +186,7 @@ fn align_cmsg(n: usize) -> usize {
 /// `struct addrinfo` (the order of `ai_addr` and `ai_canonname` differs).
 #[cfg(unix)]
 #[repr(C)]
-struct EnderecoInfo {
+struct AddrInfo {
     ai_flags: i32,
     ai_family: i32,
     ai_socktype: i32,
@@ -197,7 +197,7 @@ struct EnderecoInfo {
     ai_canonname: *const std::ffi::c_char,
     #[cfg(not(target_os = "linux"))]
     ai_addr: *const u8,
-    ai_next: *mut EnderecoInfo,
+    ai_next: *mut AddrInfo,
 }
 
 /// `struct ifaddrs`.
@@ -283,7 +283,7 @@ impl OsAddress {
     }
 
     /// `SocketAddress::GetType`.
-    fn tipo(&self) -> i64 {
+    fn ty(&self) -> i64 {
         match self.family() {
             network_only::AF_INET => TYPE_IPV4,
             network_only::AF_INET6 => TYPE_IPV6,
@@ -352,7 +352,7 @@ impl OsAddress {
 
 #[cfg(unix)]
 fn last_error() -> OsError {
-    OsError::de(&std::io::Error::last_os_error())
+    OsError::of(&std::io::Error::last_os_error())
 }
 
 /// Closes `fd` preserving the current error (`FDUtils::SaveErrorAndClose`).
@@ -365,18 +365,18 @@ fn close_with_error(fd: i32) -> OsError {
 
 /// A non-blocking socket, closed on `exec`.
 #[cfg(unix)]
-fn create_socket(family: u16, tipo: i32, protocol: i32) -> IoResult<i32> {
+fn create_socket(family: u16, ty: i32, protocol: i32) -> IoResult<i32> {
     #[cfg(target_os = "linux")]
     let fd = {
         const SOCK_NONBLOCK: i32 = 0o4000;
         const SOCK_CLOEXEC: i32 = 0o2000000;
         // SAFETY: creates a socket.
-        unsafe { socket(i32::from(family), tipo | SOCK_NONBLOCK | SOCK_CLOEXEC, protocol) }
+        unsafe { socket(i32::from(family), ty | SOCK_NONBLOCK | SOCK_CLOEXEC, protocol) }
     };
     #[cfg(not(target_os = "linux"))]
     let fd = {
         // SAFETY: creates a socket.
-        let fd = unsafe { socket(i32::from(family), tipo, protocol) };
+        let fd = unsafe { socket(i32::from(family), ty, protocol) };
         if fd >= 0 && !(close_on_exec(fd) && set_nonblocking(fd)) {
             return Err(close_with_error(fd));
         }
@@ -421,7 +421,7 @@ fn connect_socket(fd: i32, e: &OsAddress) -> IoResult<i64> {
             _ if err.kind() == std::io::ErrorKind::Interrupted => continue,
             _ => {
                 close_socket_descriptor(i64::from(fd));
-                return Err(OsError::de(&err));
+                return Err(OsError::of(&err));
             }
         }
     }
@@ -464,7 +464,7 @@ fn create_unix_connection(e: &OsAddress, origin: Option<&OsAddress>) -> IoResult
         return Ok(i64::from(fd));
     }
     close_socket_descriptor(i64::from(fd));
-    Err(OsError::de(&err))
+    Err(OsError::of(&err))
 }
 
 /// `ServerSocket::CreateBindListen`: `SO_REUSEADDR`, `IPV6_V6ONLY` and, if the
@@ -594,7 +594,7 @@ fn read_from_socket(fd: i64, dest: &mut [u8]) -> IoResult<usize> {
         match e.kind() {
             std::io::ErrorKind::Interrupted => continue,
             std::io::ErrorKind::WouldBlock => return Ok(0),
-            _ => return Err(OsError::de(&e)),
+            _ => return Err(OsError::of(&e)),
         }
     }
 }
@@ -612,7 +612,7 @@ fn write_to_socket(fd: i64, data: &[u8]) -> IoResult<usize> {
         match e.kind() {
             std::io::ErrorKind::Interrupted => continue,
             std::io::ErrorKind::WouldBlock => return Ok(0),
-            _ => return Err(OsError::de(&e)),
+            _ => return Err(OsError::of(&e)),
         }
     }
 }
@@ -626,17 +626,17 @@ fn pending_error(fd: i64) -> i32 {
 /// `SocketBase::LookupAddress` (`getaddrinfo`, first with `AI_ADDRCONFIG`): the
 /// IPv4/IPv6 addresses of `host`.
 #[cfg(unix)]
-fn resolve_name(host: &str, tipo: i64) -> IoResult<Vec<OsAddress>> {
+fn resolve_name(host: &str, ty: i64) -> IoResult<Vec<OsAddress>> {
     let Ok(c) = std::ffi::CString::new(host) else {
         return Err(OsError::from_code(network_only::EINVAL));
     };
-    let family = match tipo {
+    let family = match ty {
         TYPE_IPV4 => i32::from(network_only::AF_INET),
         TYPE_IPV6 => i32::from(network_only::AF_INET6),
         TYPE_UNIX => i32::from(network_only::AF_UNIX),
         _ => 0,
     };
-    let mut hints = EnderecoInfo {
+    let mut hints = AddrInfo {
         ai_flags: network_only::AI_ADDRCONFIG,
         ai_family: family,
         ai_socktype: network_only::SOCK_STREAM,
@@ -646,7 +646,7 @@ fn resolve_name(host: &str, tipo: i64) -> IoResult<Vec<OsAddress>> {
         ai_canonname: std::ptr::null(),
         ai_next: std::ptr::null_mut(),
     };
-    let mut res: *mut EnderecoInfo = std::ptr::null_mut();
+    let mut res: *mut AddrInfo = std::ptr::null_mut();
     // SAFETY: `hints` and `res` live during the calls.
     let mut status = unsafe { getaddrinfo(c.as_ptr(), std::ptr::null(), &hints, &mut res) };
     if status != 0 {
@@ -697,7 +697,7 @@ fn address_name(e: &OsAddress) -> IoResult<String> {
 
 /// `SocketBase::ListInterfaces`: (address, interface name, index).
 #[cfg(unix)]
-fn list_interfaces(tipo: i64) -> IoResult<Vec<(OsAddress, String, i64)>> {
+fn list_interfaces(ty: i64) -> IoResult<Vec<(OsAddress, String, i64)>> {
     let mut list: *mut InterfaceAddress = std::ptr::null_mut();
     // SAFETY: `list` receives the system's list.
     if unsafe { getifaddrs(&mut list) } != 0 {
@@ -711,7 +711,7 @@ fn list_interfaces(tipo: i64) -> IoResult<Vec<(OsAddress, String, i64)>> {
         if !i.ifa_addr.is_null() {
             let e = OsAddress::from_pointer(i.ifa_addr, 128);
             let f = e.family();
-            let accepts = match tipo {
+            let accepts = match ty {
                 TYPE_IPV4 => f == network_only::AF_INET,
                 TYPE_IPV6 => f == network_only::AF_INET6,
                 _ => f == network_only::AF_INET || f == network_only::AF_INET6,
@@ -905,7 +905,7 @@ fn receive_datagram(fd: i64, maximum: usize) -> IoResult<Option<(Vec<u8>, OsAddr
         match err.kind() {
             std::io::ErrorKind::Interrupted => continue,
             std::io::ErrorKind::WouldBlock => return Ok(None),
-            _ => return Err(OsError::de(&err)),
+            _ => return Err(OsError::of(&err)),
         }
     }
 }
@@ -923,7 +923,7 @@ fn send_datagram(fd: i64, data: &[u8], e: &OsAddress) -> IoResult<usize> {
         match err.kind() {
             std::io::ErrorKind::Interrupted => continue,
             std::io::ErrorKind::WouldBlock => return Ok(0),
-            _ => return Err(OsError::de(&err)),
+            _ => return Err(OsError::of(&err)),
         }
     }
 }
@@ -986,23 +986,23 @@ fn resource_level_and_type() -> (i64, i64) {
 /// `SocketBase::SendMessage`: the bytes sent (0 if the socket is full).
 #[cfg(unix)]
 fn send_message(fd: i64, data: &[u8], controls: &[ControlMessage]) -> IoResult<usize> {
-    let size: usize = controls.iter().map(|(_, _, d)| align_cmsg(cmsg::TAMANHO_DO_CABECALHO + d.len())).sum();
+    let size: usize = controls.iter().map(|(_, _, d)| align_cmsg(cmsg::HEADER_SIZE + d.len())).sum();
     // `u64` for the alignment of `cmsghdr`.
     let mut control = vec![0u64; size.div_ceil(8)];
     // SAFETY: the slice covers the `u64` `Vec`, with `size` ≤ the length.
     let bytes = unsafe { std::slice::from_raw_parts_mut(control.as_mut_ptr().cast::<u8>(), control.len() * 8) };
     let mut p = 0;
-    for (level, tipo, d) in controls {
+    for (level, ty, d) in controls {
         let b = &mut bytes[p..];
-        cmsg::write_size(b, cmsg::TAMANHO_DO_CABECALHO + d.len());
+        cmsg::write_size(b, cmsg::HEADER_SIZE + d.len());
         let n = cmsg::LEVEL_SHIFT;
         b[n..n + 4].copy_from_slice(&(*level as i32).to_ne_bytes());
-        b[n + 4..n + 8].copy_from_slice(&(*tipo as i32).to_ne_bytes());
-        b[cmsg::TAMANHO_DO_CABECALHO..cmsg::TAMANHO_DO_CABECALHO + d.len()].copy_from_slice(d);
-        p += align_cmsg(cmsg::TAMANHO_DO_CABECALHO + d.len());
+        b[n + 4..n + 8].copy_from_slice(&(*ty as i32).to_ne_bytes());
+        b[cmsg::HEADER_SIZE..cmsg::HEADER_SIZE + d.len()].copy_from_slice(d);
+        p += align_cmsg(cmsg::HEADER_SIZE + d.len());
     }
     let mut piece = Slice { base: data.as_ptr().cast_mut(), size: data.len() };
-    let m = CabecalhoDeMensagem {
+    let m = MessageHeader {
         name: std::ptr::null_mut(),
         name_size: 0,
         slices: &mut piece,
@@ -1021,7 +1021,7 @@ fn send_message(fd: i64, data: &[u8], controls: &[ControlMessage]) -> IoResult<u
         match err.kind() {
             std::io::ErrorKind::Interrupted => continue,
             std::io::ErrorKind::WouldBlock => return Ok(0),
-            _ => return Err(OsError::de(&err)),
+            _ => return Err(OsError::of(&err)),
         }
     }
 }
@@ -1033,7 +1033,7 @@ fn receive_message(fd: i64, maximum: usize) -> IoResult<(Vec<u8>, Vec<ControlMes
     let mut data = vec![0u8; maximum];
     let mut control = vec![0u64; RECEIVED_CONTROL_SIZE / 8];
     let mut piece = Slice { base: data.as_mut_ptr(), size: data.len() };
-    let mut m = CabecalhoDeMensagem {
+    let mut m = MessageHeader {
         name: std::ptr::null_mut(),
         name_size: 0,
         slices: &mut piece,
@@ -1052,7 +1052,7 @@ fn receive_message(fd: i64, maximum: usize) -> IoResult<(Vec<u8>, Vec<ControlMes
         match err.kind() {
             std::io::ErrorKind::Interrupted => continue,
             std::io::ErrorKind::WouldBlock => return Ok((Vec::new(), Vec::new())),
-            _ => return Err(OsError::de(&err)),
+            _ => return Err(OsError::of(&err)),
         }
     };
     data.truncate(read_list);
@@ -1060,16 +1060,16 @@ fn receive_message(fd: i64, maximum: usize) -> IoResult<(Vec<u8>, Vec<ControlMes
     let bytes = unsafe { std::slice::from_raw_parts(control.as_ptr().cast::<u8>(), (m.control_size as usize).min(RECEIVED_CONTROL_SIZE)) };
     let mut messages = Vec::new();
     let mut p = 0;
-    while p + cmsg::TAMANHO_DO_CABECALHO <= bytes.len() {
+    while p + cmsg::HEADER_SIZE <= bytes.len() {
         let b = &bytes[p..];
         let n = cmsg::read_size(b);
-        if n < cmsg::TAMANHO_DO_CABECALHO || n > b.len() {
+        if n < cmsg::HEADER_SIZE || n > b.len() {
             break;
         }
         let d = cmsg::LEVEL_SHIFT;
         let level = i32::from_ne_bytes(b[d..d + 4].try_into().unwrap());
-        let tipo = i32::from_ne_bytes(b[d + 4..d + 8].try_into().unwrap());
-        messages.push((i64::from(level), i64::from(tipo), b[cmsg::TAMANHO_DO_CABECALHO..n].to_vec()));
+        let ty = i32::from_ne_bytes(b[d + 4..d + 8].try_into().unwrap());
+        messages.push((i64::from(level), i64::from(ty), b[cmsg::HEADER_SIZE..n].to_vec()));
         p += align_cmsg(n);
     }
     Ok((data, messages))

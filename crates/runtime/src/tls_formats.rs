@@ -142,12 +142,12 @@ fn small_int(t: &Tlv) -> Option<u64> {
 
 /// The OIDs used (DER encoding of the content).
 mod oid {
-    pub const DADOS: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01];
+    pub const DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01];
     pub const ENCRYPTED_DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x06];
     pub const KEY_BAG: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x0a, 0x01, 0x01];
     pub const SHROUDED_KEY_BAG: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x0a, 0x01, 0x02];
     pub const CERT_BAG: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x0a, 0x01, 0x03];
-    pub const SACO_DE_SACOS: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x0a, 0x01, 0x06];
+    pub const SAFE_CONTENTS_BAG: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x0a, 0x01, 0x06];
     pub const X509_CERTIFICATE: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x16, 0x01];
     pub const LOCAL_KEY_ID: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x15];
     // PKCS#12 PBE (RFC 7292, appendix C).
@@ -505,7 +505,7 @@ fn decrypt_legacy_pem(dek: &str, password: &str, data: &[u8]) -> Option<Vec<u8>>
 fn pem_key(bytes: &[u8], password: &str) -> Result<Option<rustls::pki_types::PrivateKeyDer<'static>>, ()> {
     use rustls::pki_types::{PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer};
     for b in pem_blocks(bytes) {
-        let tipo = match b.label_name.as_str() {
+        let ty = match b.label_name.as_str() {
             "PRIVATE KEY" | "ENCRYPTED PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY" => b.label_name.as_str(),
             _ => continue,
         };
@@ -517,7 +517,7 @@ fn pem_key(bytes: &[u8], password: &str) -> Result<Option<rustls::pki_types::Pri
             (true, None) => return Err(()),
             _ => data,
         };
-        return Ok(Some(match tipo {
+        return Ok(Some(match ty {
             "PRIVATE KEY" => PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(data)),
             "ENCRYPTED PRIVATE KEY" => PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(decrypt_pkcs8(&data, password).map_err(|_| ())?)),
             "RSA PRIVATE KEY" => PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(data)),
@@ -567,8 +567,8 @@ fn read_pkcs12(der: &[u8], password: &str) -> Result<Pkcs12, &'static str> {
         return Err(PKCS12_INVALID);
     }
     let (secure, r) = wait_for(r, TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
-    let (tipo, content) = wait_for(&secure.content, TAG_OID).ok_or(PKCS12_INVALID)?;
-    if tipo.content.as_ref() != oid::DADOS {
+    let (ty, content) = wait_for(&secure.content, TAG_OID).ok_or(PKCS12_INVALID)?;
+    if ty.content.as_ref() != oid::DATA {
         return Err(PKCS12_INVALID);
     }
     let (explicit, _) = wait_for(content, 0xa0).ok_or(PKCS12_INVALID)?;
@@ -581,10 +581,10 @@ fn read_pkcs12(der: &[u8], password: &str) -> Result<Pkcs12, &'static str> {
     let mut p = Pkcs12::default();
     let (list, _) = wait_for(&secure, TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
     for ci in elements(&list.content).ok_or(PKCS12_INVALID)? {
-        let (tipo, content) = wait_for(&ci.content, TAG_OID).ok_or(PKCS12_INVALID)?;
+        let (ty, content) = wait_for(&ci.content, TAG_OID).ok_or(PKCS12_INVALID)?;
         let (explicit, _) = wait_for(content, 0xa0).ok_or(PKCS12_INVALID)?;
-        let bags = match tipo.content.as_ref() {
-            oid::DADOS => wait_for(&explicit.content, TAG_OCTETS).ok_or(PKCS12_INVALID)?.0.content.into_owned(),
+        let bags = match ty.content.as_ref() {
+            oid::DATA => wait_for(&explicit.content, TAG_OCTETS).ok_or(PKCS12_INVALID)?.0.content.into_owned(),
             oid::ENCRYPTED_DATA => {
                 // EncryptedData { version, EncryptedContentInfo { type, alg, [0] encrypted } }
                 let (ed, _) = wait_for(&explicit.content, TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
@@ -652,10 +652,10 @@ fn read_bags(der: &[u8], password: &str, p: &mut Pkcs12, depth: usize) -> Result
     }
     let (seq, _) = wait_for(der, TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
     for bag in elements(&seq.content).ok_or(PKCS12_INVALID)? {
-        let (tipo, r) = wait_for(&bag.content, TAG_OID).ok_or(PKCS12_INVALID)?;
+        let (ty, r) = wait_for(&bag.content, TAG_OID).ok_or(PKCS12_INVALID)?;
         let (value, r) = wait_for(r, 0xa0).ok_or(PKCS12_INVALID)?;
         let local_id = wait_for(r, TAG_SET).and_then(|(attributes, _)| local_key_id(&attributes.content));
-        match tipo.content.as_ref() {
+        match ty.content.as_ref() {
             oid::KEY_BAG => {
                 if p.key.is_none() {
                     let (k, _) = wait_for(&value.content, TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
@@ -678,7 +678,7 @@ fn read_bags(der: &[u8], password: &str, p: &mut Pkcs12, depth: usize) -> Result
                 let (cert, _) = wait_for(&e.content, TAG_OCTETS).ok_or(PKCS12_INVALID)?;
                 p.certificates.push((cert.content.into_owned(), local_id));
             }
-            oid::SACO_DE_SACOS => read_bags(&value.content, password, p, depth + 1)?,
+            oid::SAFE_CONTENTS_BAG => read_bags(&value.content, password, p, depth + 1)?,
             _ => {}
         }
     }

@@ -1,7 +1,7 @@
 //! The SDK compiled from source in the lowering (P5c/P5d, δ; docs/NATIVO-PLANO.md §7).
 //!
 //! The seven libraries of
-//! `sdk_modulo::SOURCE_LIBRARIES` are Dart code compiled like that of the
+//! `sdk_module::SOURCE_LIBRARIES` are Dart code compiled like that of the
 //! program, each one in its own module (an object in the cache), and the program calls them
 //! through the stable symbols. Three things change relative to the closed world:
 //!
@@ -22,7 +22,7 @@
 //!    (`vm:external-name`) is the runtime function of the `natives.rs` table; whatever
 //!    has no implementation (a pending native, a VM intrinsic) is a
 //!    diagnostic — the member that calls it is **rejected** in the SDK module
-//!    (`sdk_modulo`), with the reason, and never emitted wrong.
+//!    (`sdk_module`), with the reason, and never emitted wrong.
 
 use super::fn_builder::FnBuilder;
 use super::members::{Evaluated, linearization, subclass_of};
@@ -149,18 +149,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_by_selector(recv, s, evaluated)
     }
 
-    /// [`Self::call_by_name`] with the receiver `alvo` of a known static
+    /// [`Self::call_by_name`] with the receiver `target` of a known static
     /// type: if all the arguments have a guaranteed type, through the typed
     /// selector (`typed_entry.rs`), which only checks the covariant ones.
     pub fn call_by_name_typed(
         &mut self,
         recv: Operand,
-        alvo: dartforge_frontend::ast::ExprId,
+        target: dartforge_frontend::ast::ExprId,
         ty: AccessKind,
         name_str: &str,
         evaluated: &[Evaluated],
     ) -> Operand {
-        let typed = self.ctx.get_type(self.unit_id, alvo).is_some_and(|t| t != self.ctx.core.dynamic_);
+        let typed = self.ctx.get_type(self.unit_id, target).is_some_and(|t| t != self.ctx.core.dynamic_);
         self.call_by_name_with_typed_receiver(recv, typed, ty, name_str, evaluated)
     }
 
@@ -208,15 +208,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         if is_sdk && closed_member(self.ctx, cid, &name_str)
-            && let [Implementation::Function(alvo)] = implementations(self.ctx, cid, &key)[..]
+            && let [Implementation::Function(target)] = implementations(self.ctx, cid, &key)[..]
         {
             // The `this` of an SDK member is always `Ref`: a scalar `int`
             // becomes a `Smi` or a `_Mint` here (the `int` closed by a modifier
             // arrives with the receiver in `i64`; without the box, an even value or
             // one outside the `Smi` range would be read as a handle).
             let recv = self.coerce(recv, Type::Ref);
-            let args = self.match_args(alvo, evaluated);
-            let r = self.call_direct(alvo, Some(recv), args);
+            let args = self.match_args(target, evaluated);
+            let r = self.call_direct(target, Some(recv), args);
             let ret = self.return_repr(decl_fid);
             return Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) });
         }
@@ -320,10 +320,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Operand::Constant(Constant::Null)
                 }
                 (Implementation::Field(vid), _) => self.read_field_with_late_direct(recv.clone(), vid, span),
-                (Implementation::Function(alvo), _) => {
-                    let args = self.match_args(alvo, evaluated);
-                    let r = self.call_direct(alvo, Some(recv.clone()), args);
-                    if matches!(self.return_repr(alvo), Type::Void) { Operand::Constant(Constant::Null) } else { r }
+                (Implementation::Function(target), _) => {
+                    let args = self.match_args(target, evaluated);
+                    let r = self.call_direct(target, Some(recv.clone()), args);
+                    if matches!(self.return_repr(target), Type::Void) { Operand::Constant(Constant::Null) } else { r }
                 }
             };
             if self.is_terminated() {
@@ -943,12 +943,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `_Smi`, `_Mint`, `_Double`), otherwise `Ref`.
     fn receiver_repr(&self, cid: ClassId) -> Type {
         let core = self.ctx.core;
-        let de = |c: Option<ClassId>| c.is_some_and(|c| subclass_of(self.ctx, cid, c));
-        if de(core.int_class) {
+        let of = |c: Option<ClassId>| c.is_some_and(|c| subclass_of(self.ctx, cid, c));
+        if of(core.int_class) {
             Type::I64
-        } else if de(core.double_class) {
+        } else if of(core.double_class) {
             Type::F64
-        } else if de(core.bool_class) {
+        } else if of(core.bool_class) {
             Type::I1
         } else {
             Type::Ref
@@ -1290,8 +1290,8 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
             // The tuple of the generic method comes after the arguments.
             let tuple = if b.generic_function(fid) {
                 let npos = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
-                let nnom = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
-                let i = b.emit(Instruction::Add(npos, nnom), Type::I64);
+                let n_named = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
+                let i = b.emit(Instruction::Add(npos, n_named), Type::I64);
                 b.emit(Instruction::LoadIndexed { base: args.clone(), index: i }, Type::I64)
             } else {
                 Operand::Constant(Constant::Int(0))
@@ -1305,7 +1305,7 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
         }
     };
     let npos = values.len() - names.len();
-    let nnom = names.len();
+    let n_named = names.len();
     // `dartforge_forward_nsm` reads all the captures as `Ref`: the values
     // go boxed (docs/NATIVO-ESPACO-UNIFICADO.md §4.10, item 48).
     let mut fields: Vec<Operand> = values.into_iter().map(|v| b.coerce(v, Type::Ref)).collect();
@@ -1323,7 +1323,7 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
                 (text, Type::Ref),
                 (env, Type::Ref),
                 (Operand::Constant(Constant::Int(npos as i64)), Type::I64),
-                (Operand::Constant(Constant::Int(nnom as i64)), Type::I64),
+                (Operand::Constant(Constant::Int(n_named as i64)), Type::I64),
                 (tuple, Type::I64),
             ],
             ret_ty: Type::Ref,
@@ -1412,11 +1412,11 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                         Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) },
                         Type::I64,
                     );
-                    let nnom = b.emit(
+                    let n_named = b.emit(
                         Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) },
                         Type::I64,
                     );
-                    let index = b.emit(Instruction::Add(npos, nnom), Type::I64);
+                    let index = b.emit(Instruction::Add(npos, n_named), Type::I64);
                     b.armed_tuple = Some(b.emit(Instruction::LoadIndexed { base: args.clone(), index: index }, Type::I64));
                 }
                 b.call_direct(fid, Some(recv), vals)
@@ -1857,12 +1857,12 @@ pub fn table_symbol(ctx: &Context, cid: ClassId) -> String {
     )
 }
 
-/// The adapters generated by `gerar`; those that do not lower become entries that
+/// The adapters generated by `generate`; those that do not lower become entries that
 /// warn at runtime.
-fn adapters_or_reject(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mut Module)) {
+fn adapters_or_reject(ctx: &Context, module: &mut Module, generate: impl FnOnce(&mut Module)) {
     let mut m = Module::new();
     m.sdk_mode = true;
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| gerar(&mut m)));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| generate(&mut m)));
     if r.is_ok() && m.errors.is_empty() {
         module.functions.extend(std::mem::take(&mut m.functions));
         super::join_arc_facts(module, &mut m);
@@ -2496,7 +2496,7 @@ mod arc_tests {
             let dir = tempfile::tempdir().unwrap();
             let entry = dir.path().join("main.dart");
             std::fs::write(&entry, "class C { final String s; C(this.s); }\nString de(C c, int n) => n > 0 ? c.s : 'x';\nvoid main() { print(de(C('a'), 1)); }\n").unwrap();
-            let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
             assert!(diags.is_empty(), "{diags:?}");

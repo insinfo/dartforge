@@ -1257,8 +1257,8 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
         Instruction::AllocEnv { values } => values.iter().for_each(&mut op),
         Instruction::ConcatStrings { parts } => parts.iter().for_each(&mut op),
         Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => op(env),
-        Instruction::TypedCall { alvo, args, .. } => {
-            op(alvo);
+        Instruction::TypedCall { target, args, .. } => {
+            op(target);
             args.iter().for_each(|(a, _)| op(a));
         }
         Instruction::Load { ptr, .. } => op(ptr),
@@ -1319,8 +1319,8 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
             op(args);
             op(desc);
         }
-        Instruction::NativeCall { alvo, args, .. } => {
-            op(alvo);
+        Instruction::NativeCall { target, args, .. } => {
+            op(target);
             args.iter().for_each(|(a, _)| op(a));
         }
         Instruction::NativeLoad { address, index: idx_value, .. } => {
@@ -1332,8 +1332,8 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
             op(idx_value);
             op(val_ref);
         }
-        Instruction::CompositeNativeCall { alvo, args, dest, .. } => {
-            op(alvo);
+        Instruction::CompositeNativeCall { target, args, dest, .. } => {
+            op(target);
             args.iter().for_each(|(a, _)| op(a));
             dest.iter().for_each(&mut op);
         }
@@ -1342,7 +1342,7 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
     u
 }
 
-/// Replaces each use of `de` with `to` in an instruction (without the `phi`s).
+/// Replaces each use of `of` with `to` in an instruction (without the `phi`s).
 fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId>) {
     let t = |o: &mut Operand| {
         if let Operand::Val(v) = o
@@ -1403,8 +1403,8 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
         Instruction::AllocEnv { values } => values.iter_mut().for_each(t),
         Instruction::ConcatStrings { parts } => parts.iter_mut().for_each(t),
         Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => t(env),
-        Instruction::TypedCall { alvo, args, .. } => {
-            t(alvo);
+        Instruction::TypedCall { target, args, .. } => {
+            t(target);
             args.iter_mut().for_each(|(a, _)| t(a));
         }
         Instruction::Load { ptr, .. } => t(ptr),
@@ -1464,8 +1464,8 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
             t(args);
             t(desc);
         }
-        Instruction::NativeCall { alvo, args, .. } => {
-            t(alvo);
+        Instruction::NativeCall { target, args, .. } => {
+            t(target);
             args.iter_mut().for_each(|(a, _)| t(a));
         }
         Instruction::NativeLoad { address, index: idx_value, .. } => {
@@ -1477,8 +1477,8 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
             t(idx_value);
             t(val_ref);
         }
-        Instruction::CompositeNativeCall { alvo, args, dest, .. } => {
-            t(alvo);
+        Instruction::CompositeNativeCall { target, args, dest, .. } => {
+            t(target);
             args.iter_mut().for_each(|(a, _)| t(a));
             if let Some(d) = dest { t(d) }
         }
@@ -1709,8 +1709,8 @@ fn save_live(
             if b.id == success {
                 for (_, inst, _) in &mut b.instructions {
                     if let Instruction::Phi { incoming, .. } = inst {
-                        for (de, _) in incoming.iter_mut().filter(|(de, _)| *de == origin) {
-                            *de = edge;
+                        for (of, _) in incoming.iter_mut().filter(|(of, _)| *of == origin) {
+                            *of = edge;
                         }
                     }
                 }

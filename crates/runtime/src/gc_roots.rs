@@ -24,7 +24,7 @@ fn with_roots<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
 /// without a call.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
-    crate::heap::CONTEXTO.with(|c| {
+    crate::heap::CONTEXT.with(|c| {
         if c.stack_limit.get() == 0 {
             c.stack_limit.set(thread_stack_limit());
         }
@@ -43,10 +43,10 @@ const STACK_SLACK: usize = 256 * 1024;
 #[allow(unsafe_code)]
 fn thread_stack_limit() -> usize {
     let base = stack_base();
-    // The `folga` sabotage (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3):
+    // The `slack` sabotage (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3):
     // 4 KiB are not enough to build and throw the `StackOverflowError`.
-    let folga = if crate::heap::sabotage("folga") { 4 * 1024 } else { STACK_SLACK };
-    if base == 0 { 1 } else { base + folga }
+    let slack = if crate::heap::sabotage("folga") { 4 * 1024 } else { STACK_SLACK };
+    if base == 0 { 1 } else { base + slack }
 }
 
 #[cfg(windows)]
@@ -67,14 +67,14 @@ fn stack_base() -> usize {
 fn stack_base() -> usize {
     // `pthread_attr_t` has 56 bytes on glibc x86-64 and 64 on aarch64.
     #[repr(C, align(8))]
-    struct Atributos([u8; 64]);
+    struct PthreadAttr([u8; 64]);
     unsafe extern "C" {
         fn pthread_self() -> usize;
-        fn pthread_getattr_np(t: usize, a: *mut Atributos) -> i32;
-        fn pthread_attr_getstack(a: *const Atributos, address: *mut usize, size: *mut usize) -> i32;
-        fn pthread_attr_destroy(a: *mut Atributos) -> i32;
+        fn pthread_getattr_np(t: usize, a: *mut PthreadAttr) -> i32;
+        fn pthread_attr_getstack(a: *const PthreadAttr, address: *mut usize, size: *mut usize) -> i32;
+        fn pthread_attr_destroy(a: *mut PthreadAttr) -> i32;
     }
-    let mut a = Atributos([0; 64]);
+    let mut a = PthreadAttr([0; 64]);
     let (mut address, mut size) = (0usize, 0usize);
     // SAFETY: local attributes, initialized by `pthread_getattr_np` and destroyed
     // at the end.
@@ -115,12 +115,12 @@ fn stack_base() -> usize {
 /// use the slack) and enabled again afterwards.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_overflow() {
-    let limit = crate::heap::CONTEXTO.with(|c| c.stack_limit.replace(1));
+    let limit = crate::heap::CONTEXT.with(|c| c.stack_limit.replace(1));
     let error = dartforge_stack_overflow_error_new();
     if dartforge_exception_pending() == 0 {
         with_roots(&[error], || dartforge_exception_throw(error, 3));
     }
-    crate::heap::CONTEXTO.with(|c| c.stack_limit.set(limit));
+    crate::heap::CONTEXT.with(|c| c.stack_limit.set(limit));
 }
 
 /// Current value of a program `Ref` global, kept as a permanent root.
@@ -165,14 +165,14 @@ pub extern "C" fn dartforge_gc_collect() {
 // the slot's address (`dartforge_gc_global_root`).
 //
 // On a reload (JIT), the new module has another descriptor with the same key. The
-// new generation is emitted with the live one's layout (`emitir_ir_recarregavel`):
+// new generation is emitted with the live one's layout (`emit_reloadable_ir`):
 // the slots that remain keep their index and the new ones come after, so both
 // generations use the SAME area — which grows in place (the capacity is reserved
 // with slack) — and old code that still runs (a suspended `async` frame, a closure
 // created earlier) sees the same statics as the new code. A descriptor that does
 // not extend the layout (a module emitted without the previous layout) gets a new
 // area, with the values of the remaining slots, by name; the selector caches (a
-// name with `BIT_DE_CACHE`, one pair per call site, named after the function and
+// name with `CACHE_BIT`, one pair per call site, named after the function and
 // the position) restart zeroed, and every publication zeroes them
 // (`empty_area_caches`).
 //
@@ -195,19 +195,19 @@ thread_local! {
     /// The allocations that stopped being an area's (see above).
     static RETIRED_AREAS: RefCell<Vec<Vec<i64>>> = const { RefCell::new(Vec::new()) };
     /// The last requested descriptor and its area (the fast path).
-    static ULTIMA_AREA: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+    static LAST_AREA: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
     /// The table by module id that the `Context` points to (`areas`, `n_areas`).
     static AREA_TABLE: RefCell<Vec<*mut i64>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The next module id (`@df.area_id`), the same on every thread.
-static PROXIMO_ID_DE_AREA: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+static NEXT_AREA_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
 
 /// An area changed address (reload): this thread's table is emptied and each
 /// module goes through the runtime once again.
 fn forget_area_table() {
     AREA_TABLE.with(|t| t.borrow_mut().iter_mut().for_each(|p| *p = std::ptr::null_mut()));
-    ULTIMA_AREA.with(|u| u.set((0, 0)));
+    LAST_AREA.with(|u| u.set((0, 0)));
 }
 
 /// After the publication of a new generation in this isolate (with no Dart frame on
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn dartforge_globals_area_id(descriptor: *const i64, id: *
     let id = unsafe { &*id };
     let mut k = id.load(Ordering::Relaxed);
     if k == 0 {
-        let new = PROXIMO_ID_DE_AREA.fetch_add(1, Ordering::Relaxed);
+        let new = NEXT_AREA_ID.fetch_add(1, Ordering::Relaxed);
         k = match id.compare_exchange(0, new, Ordering::Relaxed, Ordering::Relaxed) {
             Ok(_) => new,
             Err(current) => current,
@@ -257,7 +257,7 @@ pub unsafe extern "C" fn dartforge_globals_area_id(descriptor: *const i64, id: *
             t.resize(k + 16, std::ptr::null_mut());
         }
         t[k] = p;
-        CONTEXTO.with(|c| {
+        CONTEXT.with(|c| {
             c.areas.set(t.as_ptr());
             c.n_areas.set(t.len());
         });
@@ -281,7 +281,7 @@ fn new_slots(n: usize) -> Vec<i64> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_globals_area(descriptor: *const i64) -> *mut i64 {
     let d = descriptor as usize;
-    let (last_one, area) = ULTIMA_AREA.with(|u| u.get());
+    let (last_one, area) = LAST_AREA.with(|u| u.get());
     if last_one == d {
         return area as *mut i64;
     }
@@ -330,7 +330,7 @@ pub unsafe extern "C" fn dartforge_globals_area(descriptor: *const i64) -> *mut 
         }
         areas.last_mut().expect("just pushed").slots.as_mut_ptr()
     });
-    ULTIMA_AREA.with(|u| u.set((d, p as usize)));
+    LAST_AREA.with(|u| u.set((d, p as usize)));
     p
 }
 
@@ -358,12 +358,12 @@ fn extend_area(a: &mut GlobalsArea, names: &[i64]) {
 }
 
 /// The bit that marks, in the descriptor, the name of a selector cache slot (the
-/// emitter's `BIT_DE_CACHE`, `llvm/mod.rs`); 0 is the cache name of a descriptor
+/// emitter's `CACHE_BIT`, `llvm/mod.rs`); 0 is the cache name of a descriptor
 /// older than this mark.
-const BIT_DE_CACHE: i64 = 1 << 62;
+const CACHE_BIT: i64 = 1 << 62;
 
 fn is_cache(name: i64) -> bool {
-    name == 0 || name & BIT_DE_CACHE != 0
+    name == 0 || name & CACHE_BIT != 0
 }
 
 /// Zeroes the selector caches of every area of this isolate. The publication of a
@@ -513,17 +513,17 @@ mod tests_gc_roots {
 // ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ───────────────────
 
 /// Generated code's slow allocation (`@df.allocate`): a zeroed block of `words`
-/// body words, class `cid`, state `JOVEM`; collects if needed and refills the TLAB
+/// body words, class `cid`, state `YOUNG`; collects if needed and refills the TLAB
 /// of `words` (up to `layout::TLAB_N`). Does not throw.
 ///
 /// `flags` are bits 8–31 of word 0 of the header that generated code built
-/// (`header >> 8`): the block's `flags` in the low 8 and, for `INSTANCIA`, the
-/// number of fields in the next 16 (for `BRUTO`/`REFS`, `n` is `words`).
+/// (`header >> 8`): the block's `flags` in the low 8 and, for `INSTANCE`, the
+/// number of fields in the next 16 (for `RAW`/`REFS`, `n` is `words`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_allocate(cid: i64, words: i64, flags: i64) -> i64 {
     let w = usize::try_from(words).expect("compiler bug: negative words in dartforge_allocate");
     let f = (flags & 0xFF) as u8;
-    let n = if f & crate::layout::flags::FORMA == crate::layout::flags::INSTANCIA {
+    let n = if f & crate::layout::flags::FORMAT == crate::layout::flags::INSTANCE {
         ((flags >> 8) & 0xFFFF) as usize
     } else {
         w
@@ -531,7 +531,7 @@ pub extern "C" fn dartforge_allocate(cid: i64, words: i64, flags: i64) -> i64 {
     let cid = i32::try_from(cid).expect("compiler bug: cid beyond 32 bits");
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let r = h.alocar_bloco(cid, w, f, n);
+        let r = h.allocate_block(cid, w, f, n);
         h.refill_tlab(w);
         r
     })

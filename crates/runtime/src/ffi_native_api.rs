@@ -98,9 +98,9 @@ unsafe fn read_cobject(p: *const u8, external: &mut Vec<(usize, usize)>, depth: 
     // SAFETY: guaranteed by the caller; every read is within the object's 48
     // bytes, at the header's positions.
     unsafe {
-        let tipo = *(p as *const i32);
+        let ty = *(p as *const i32);
         let v = p.add(8);
-        Some(match tipo {
+        Some(match ty {
             KNULL => Portable::Null,
             KBOOL => Portable::Bool(*v != 0),
             KINT32 => Portable::Int(i64::from(*(v as *const i32))),
@@ -132,9 +132,9 @@ unsafe fn read_cobject(p: *const u8, external: &mut Vec<(usize, usize)>, depth: 
                 if n < 0 || (n > 0 && data.is_null()) {
                     return None;
                 }
-                let bytes = n as usize * tamanho_do_elemento(t);
+                let bytes = n as usize * element_size(t);
                 let copy = if bytes == 0 { Vec::new() } else { std::slice::from_raw_parts(data, bytes).to_vec() };
-                if tipo != KTYPED_DATA {
+                if ty != KTYPED_DATA {
                     let pair = *(v.add(24) as *const usize);
                     let finalizer = *(v.add(32) as *const usize);
                     if finalizer != 0 {
@@ -195,15 +195,15 @@ pub extern "C" fn dartforge_api_post_integer(port: i64, value: i64) -> bool {
 #[derive(Default)]
 struct CObjectArena {
     objects: Vec<Box<[u64; COBJECT_SIZE / 8]>>,
-    textos: Vec<CString>,
+    text: Vec<CString>,
     lists: Vec<Vec<*mut u8>>,
     bytes: Vec<Vec<u8>>,
 }
 
 impl CObjectArena {
-    fn new(&mut self, tipo: i32) -> *mut u8 {
+    fn new(&mut self, ty: i32) -> *mut u8 {
         let mut o = Box::new([0u64; COBJECT_SIZE / 8]);
-        o[0] = tipo as u32 as u64;
+        o[0] = ty as u32 as u64;
         let p = o.as_mut_ptr() as *mut u8;
         self.objects.push(o);
         p
@@ -215,7 +215,7 @@ impl CObjectArena {
         // object, at the header's positions.
         unsafe {
             match v {
-                Portable::Null | Portable::Objeto(_) => self.new(KNULL),
+                Portable::Null | Portable::Object(_) => self.new(KNULL),
                 Portable::Bool(b) => {
                     let p = self.new(KBOOL);
                     *p.add(8) = u8::from(*b);
@@ -235,7 +235,7 @@ impl CObjectArena {
                     let p = self.new(KSTRING);
                     let c = CString::new(s.replace('\0', "")).unwrap_or_default();
                     *(p.add(8) as *mut *const c_char) = c.as_ptr();
-                    self.textos.push(c);
+                    self.text.push(c);
                     p
                 }
                 Portable::List(items) => {
@@ -250,7 +250,7 @@ impl CObjectArena {
                     let t = if let Portable::Typed(t, _) = v { *t } else { TYPE_UINT8 };
                     let p = self.new(KTYPED_DATA);
                     *(p.add(8) as *mut i32) = typed_data_of_type(t);
-                    *(p.add(16) as *mut isize) = (b.len() / tamanho_do_elemento(t).max(1)) as isize;
+                    *(p.add(16) as *mut isize) = (b.len() / element_size(t).max(1)) as isize;
                     self.bytes.push(b.clone());
                     let last_one = self.bytes.last().expect("just inserted");
                     *(p.add(24) as *mut *const u8) = last_one.as_ptr();
@@ -339,7 +339,7 @@ fn native_api_functions() -> [(&'static str, usize); 4] {
 /// `DartNativeApiFunctionPointer(name)`: the address of the native API function.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartNativeApiFunctionPointer(name: i64) -> i64 {
-    let name = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
+    let name = HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()).unwrap_or_default());
     match native_api_functions().iter().find(|(n, _)| *n == name) {
         Some((_, f)) => *f as i64,
         None => {
@@ -380,8 +380,8 @@ struct ApiData {
 
 /// The address of the data, built once and alive for the whole process.
 fn api_data() -> usize {
-    static DADOS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *DADOS.get_or_init(|| {
+    static DATA: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *DATA.get_or_init(|| {
         let mut entries: Vec<ApiEntry> = native_api_functions()
             .iter()
             .map(|(n, f)| ApiEntry { name: CString::new(*n).expect("C name").into_raw(), function: *f })

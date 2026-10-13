@@ -3,7 +3,7 @@
 //! generator**: textual LLVM IR → native object or bitcode for link-time
 //! optimization (LTO), without `clang` on the dartforge user's machine.
 //!
-//! [`gerar`] does what `clang -x ir -c` did in the AOT driver: it reads the module,
+//! [`generate`] does what `clang -x ir -c` did in the AOT driver: it reads the module,
 //! runs the optimization pipeline of the requested level (the same `default<On>`
 //! of the `PassBuilder` that Clang runs) and emits through the host's target
 //! machine, with the CPU that Clang assumes without `-march`. The JIT
@@ -58,7 +58,7 @@ use std::sync::OnceLock;
 
 /// Registers the native target, its `AsmPrinter` and its `AsmParser`, only once
 /// per process. The `AsmParser` is what assembles `module asm` and inline `asm` in
-/// the object (the minimal Windows CRT, `ligador_windows.rs`); without it LLVM
+/// the object (the minimal Windows CRT, `linker_windows.rs`); without it LLVM
 /// aborts the process ("Inline asm not supported by this streamer").
 ///
 /// LLVM's routines are not safe under concurrency; the [`OnceLock`] guarantees a
@@ -67,8 +67,8 @@ use std::sync::OnceLock;
 /// # Errors
 /// When the linked LLVM has no backend for the host's architecture.
 pub fn init_native_target() -> Result<(), String> {
-    static ESTADO: OnceLock<Result<(), String>> = OnceLock::new();
-    ESTADO
+    static STATE: OnceLock<Result<(), String>> = OnceLock::new();
+    STATE
         .get_or_init(|| {
             // SAFETY: `get_or_init` guarantees a single, exclusive execution; the
             // routines only register the target in LLVM's global tables.
@@ -122,30 +122,30 @@ pub fn version() -> String {
     format!("{larger}.{minor}.{correctness}")
 }
 
-/// What [`gerar`] produces.
+/// What [`generate`] produces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Formato {
+pub enum Format {
     /// A native object for the host (COFF, ELF or Mach-O).
-    Objeto,
+    Object,
     /// Bitcode for link-time optimization (`lld`'s LTO): the module goes through
     /// the pre-link pipeline (`lto-pre-link<O2>`) and the rest of the optimization
     /// happens with the whole program in view.
     Bitcode,
 }
 
-/// How [`gerar`] compiles a module.
+/// How [`generate`] compiles a module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Opcoes {
+pub struct Options {
     /// `-O2` (`default<O2>` and the code generator at the default level) instead of
     /// `-O0`.
-    pub otimizar: bool,
-    pub formato: Formato,
+    pub optimize: bool,
+    pub format: Format,
     /// The target CPU (LLVM's name, like Clang's `-march`; `native` is this
     /// machine's, with its features); `None`, Clang's default (`default_cpu`).
     pub cpu: Option<&'static str>,
 }
 
-impl Opcoes {
+impl Options {
     /// What goes into the key of a cached object: two equal modules with options of
     /// the same description give the same bytes.
     pub fn description(&self) -> String {
@@ -159,10 +159,10 @@ impl Opcoes {
         };
         format!(
             "{} {}{cpu}",
-            if self.otimizar { "O2" } else { "O0" },
-            match self.formato {
-                Formato::Objeto => "objeto",
-                Formato::Bitcode => "bitcode-lto",
+            if self.optimize { "O2" } else { "O0" },
+            match self.format {
+                Format::Object => "objeto",
+                Format::Bitcode => "bitcode-lto",
             }
         )
     }
@@ -178,7 +178,7 @@ fn machine_cpu() -> (String, String) {
 /// The generator's identity for the cache keys: the LLVM version, the host's triple
 /// and CPU. Another LLVM or another target machine does not reuse an object from
 /// this one.
-pub fn identidade() -> Result<String, String> {
+pub fn identity() -> Result<String, String> {
     static ID: OnceLock<Result<String, String>> = OnceLock::new();
     ID.get_or_init(|| {
         init_native_target()?;
@@ -198,11 +198,11 @@ pub fn identidade() -> Result<String, String> {
 /// # Errors
 /// IR the reader rejects, a target without a backend, a failure of the pipeline or
 /// of the code generator — the message is LLVM's.
-pub fn gerar(name: &str, ir: &str, options: &Opcoes) -> Result<Vec<u8>, String> {
+pub fn generate(name: &str, ir: &str, options: &Options) -> Result<Vec<u8>, String> {
     init_native_target()?;
-    let contexto = Context::new();
-    let modulo = contexto.do_read(name, ir)?;
-    let triple = modulo.triple().unwrap_or_else(default_triple);
+    let context = Context::new();
+    let module = context.do_read(name, ir)?;
+    let triple = module.triple().unwrap_or_else(default_triple);
     // Roots by stack maps (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8): a module
     // with `gc "statepoint-example"` functions goes through
     // `rewrite-statepoints-for-gc` — after the optimization, so that inlining and
@@ -210,45 +210,45 @@ pub fn gerar(name: &str, ir: &str, options: &Opcoes) -> Result<Vec<u8>, String> 
     // pass has already produced invalid IR that only died in instruction
     // selection). The code generator of those functions is never the `-O0` one
     // (FastISel has known defects with `gc.relocate`).
-    let with_maps = ir.contains(MARCA_DE_GC);
-    let llvm_machine = TargetMachine::from_triple(&triple, options.otimizar || with_maps, options.cpu)?;
-    modulo.complete_target(&triple, &llvm_machine, with_maps);
+    let with_maps = ir.contains(GC_MARK);
+    let llvm_machine = TargetMachine::from_triple(&triple, options.optimize || with_maps, options.cpu)?;
+    module.complete_target(&triple, &llvm_machine, with_maps);
     // Production bitcode never goes through the maps pass here: it runs after all
     // the link-time optimization — on Windows and Linux at the end of the
     // distributed ThinLTO (`emit_native/src/lto_distribuida.rs`), on Mach-O in
-    // `ld64.lld`'s LTO (`--lto-newpm-passes`, `ligador_macos.rs`)
+    // `ld64.lld`'s LTO (`--lto-newpm-passes`, `linker_macos.rs`)
     // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4). Rewritten earlier, the IR
     // would be optimized again in the LTO with the statepoints already in place,
     // and the optimizer does not know their roots: the executable loses roots.
-    let pass_at_linker = options.formato == Formato::Bitcode;
+    let pass_at_linker = options.format == Format::Bitcode;
     // `DARTFORGE_PIPELINE_OBJETO` replaces the pipeline of the optimized object
     // (time and size measurement: `default<O1>`, `default<Os>`;
     // docs/NATIVO-PRODUCAO-GRANDE.md).
     let chosen = std::env::var("DARTFORGE_PIPELINE_OBJETO").ok().filter(|p| !p.is_empty());
-    let pipeline = match (options.formato, options.otimizar) {
-        (Formato::Bitcode, _) => "lto-pre-link<O2>",
-        (Formato::Objeto, true) => chosen.as_deref().unwrap_or("default<O2>"),
-        (Formato::Objeto, false) => "default<O0>",
+    let pipeline = match (options.format, options.optimize) {
+        (Format::Bitcode, _) => "lto-pre-link<O2>",
+        (Format::Object, true) => chosen.as_deref().unwrap_or("default<O2>"),
+        (Format::Object, false) => "default<O0>",
     };
     if with_maps && !pass_at_linker {
-        modulo.otimizar(pipeline, &llvm_machine)?;
-        modulo.remove_statics_from_deopt();
-        modulo.otimizar("rewrite-statepoints-for-gc,verify", &llvm_machine)?;
+        module.optimize(pipeline, &llvm_machine)?;
+        module.remove_statics_from_deopt();
+        module.optimize("rewrite-statepoints-for-gc,verify", &llvm_machine)?;
         // The pass declares `@__tmp_use` for the provisional uses that it deletes
         // itself. The leftover declaration does not change an object, but in the
         // production bitcode (`lld-link`'s LTO) it enters the symbol table as
         // undefined, and linking fails.
-        modulo.remove_unused_declaration("__tmp_use");
-        check_after_rs4gc(name, &modulo)?;
+        module.remove_unused_declaration("__tmp_use");
+        check_after_rs4gc(name, &module)?;
     } else {
-        modulo.otimizar(pipeline, &llvm_machine)?;
+        module.optimize(pipeline, &llvm_machine)?;
     }
-    match options.formato {
-        Formato::Objeto => {
-            dump_before_generator(name, &modulo);
-            llvm_machine.emit_object(&modulo).map_err(|e| dump_if_requested(name, "object", &modulo, e))
+    match options.format {
+        Format::Object => {
+            dump_before_generator(name, &module);
+            llvm_machine.emit_object(&module).map_err(|e| dump_if_requested(name, "object", &module, e))
         }
-        Formato::Bitcode => Ok(modulo.bitcode()),
+        Format::Bitcode => Ok(module.bitcode()),
     }
 }
 
@@ -256,7 +256,7 @@ pub fn gerar(name: &str, ir: &str, options: &Opcoes) -> Result<Vec<u8>, String> 
 /// or the conversion, the `getelementptr` with constant indices or the sum with a
 /// constant of one of them; or the load of one of the canonical `true`/`false`
 /// objects of the thread context (`getelementptr` over `dartforge_context()` at
-/// 360 or 368, `layout::contexto`, directly or through the `select` of
+/// 360 or 368, `layout::context`, directly or through the `select` of
 /// `df.box_bool`), statics of the runtime image — the load is `!invariant.load`, and
 /// the code generator rematerializes it as a constant
 /// ([`IrModule::remove_statics_from_deopt`]).
@@ -361,7 +361,7 @@ unsafe fn canonical_load(p: llvm_sys::prelude::LLVMValueRef) -> bool {
 
 /// The attribute of the functions with roots in the stack map, as the emitter
 /// writes it (`emit_native/src/llvm/mod.rs`).
-pub const MARCA_DE_GC: &str = "gc \"statepoint-example\"";
+pub const GC_MARK: &str = "gc \"statepoint-example\"";
 
 
 /// The native object of one part of the **distributed ThinLTO**
@@ -381,61 +381,61 @@ pub const MARCA_DE_GC: &str = "gc \"statepoint-example\"";
 /// # Errors
 /// Bitcode the reader rejects, a failure of the pass, of the verifier or of the
 /// code generator — the message is LLVM's.
-pub fn gerar_de_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static str>) -> Result<(Vec<u8>, bool), String> {
+pub fn generate_from_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static str>) -> Result<(Vec<u8>, bool), String> {
     init_native_target()?;
-    let contexto = Context::new();
-    let modulo = contexto.read_bytes(name, bitcode)?;
-    let triple = modulo.triple().unwrap_or_else(default_triple);
+    let context = Context::new();
+    let module = context.read_bytes(name, bitcode)?;
+    let triple = module.triple().unwrap_or_else(default_triple);
     let llvm_machine = TargetMachine::from_triple(&triple, true, cpu)?;
-    let with_maps = modulo.has_gc_function();
-    modulo.complete_target(&triple, &llvm_machine, with_maps);
+    let with_maps = module.has_gc_function();
+    module.complete_target(&triple, &llvm_machine, with_maps);
     if with_maps {
-        modulo.remove_statics_from_deopt();
-        modulo.otimizar("rewrite-statepoints-for-gc,verify", &llvm_machine)?;
-        modulo.remove_unused_declaration("__tmp_use");
-        check_after_rs4gc(name, &modulo)?;
+        module.remove_statics_from_deopt();
+        module.optimize("rewrite-statepoints-for-gc,verify", &llvm_machine)?;
+        module.remove_unused_declaration("__tmp_use");
+        check_after_rs4gc(name, &module)?;
     } else {
-        modulo.otimizar("verify", &llvm_machine)?;
+        module.optimize("verify", &llvm_machine)?;
     }
-    dump_before_generator(name, &modulo);
-    Ok((llvm_machine.emit_object(&modulo).map_err(|e| dump_if_requested(name, "object", &modulo, e))?, with_maps))
+    dump_before_generator(name, &module);
+    Ok((llvm_machine.emit_object(&module).map_err(|e| dump_if_requested(name, "object", &module, e))?, with_maps))
 }
 
 /// `DARTFORGE_CONFERIR_RS4GC=1`: the root checker after
 /// `rewrite-statepoints-for-gc` ([`check_rs4gc`],
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4) on the module text. Expensive
 /// (prints the whole module): enabled in the maps-mode tests.
-fn check_after_rs4gc(name: &str, modulo: &IrModule<'_>) -> Result<(), String> {
+fn check_after_rs4gc(name: &str, module: &IrModule<'_>) -> Result<(), String> {
     if !std::env::var("DARTFORGE_CONFERIR_RS4GC").is_ok_and(|v| v == "1") {
         return Ok(());
     }
-    check_rs4gc::check(&modulo.text()).map_err(|e| dump_if_requested(name, "rs4gc", modulo, format!("{name}: {e}")))
+    check_rs4gc::check(&module.text()).map_err(|e| dump_if_requested(name, "rs4gc", module, format!("{name}: {e}")))
 }
 
 /// `DARTFORGE_DESPEJAR_MODULO=<trecho>`: the module whose name contains the chunk
 /// goes to the temporary directory right before the code generator
-/// (`gerador-<nome>.ll`) — for the failure where LLVM brings the process down after
+/// (`generator-<name>.ll`) — for the failure where LLVM brings the process down after
 /// printing the error ("ran out of registers").
-fn dump_before_generator(name: &str, modulo: &IrModule<'_>) {
+fn dump_before_generator(name: &str, module: &IrModule<'_>) {
     if let Ok(chunk) = std::env::var("DARTFORGE_DESPEJAR_MODULO")
         && !chunk.is_empty()
         && name.contains(&chunk)
     {
         let file_name: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
         let dest = std::env::temp_dir().join(format!("gerador-{file_name}.ll"));
-        let _ = std::fs::write(&dest, modulo.text());
+        let _ = std::fs::write(&dest, module.text());
         eprintln!("dartforge: the module before the code generator was saved at {}", dest.display());
     }
 }
 
 /// With `DARTFORGE_KEEP_IR`, the module of a failure (of the checker, of the code
-/// generator) goes to the temporary directory, `<etapa>-<nome>.ll`, for diagnosis.
+/// generator) goes to the temporary directory, `<etapa>-<name>.ll`, for diagnosis.
 /// Returns the error.
-fn dump_if_requested(name: &str, stage: &str, modulo: &IrModule<'_>, error: String) -> String {
+fn dump_if_requested(name: &str, stage: &str, module: &IrModule<'_>, error: String) -> String {
     if std::env::var_os("DARTFORGE_KEEP_IR").is_some() {
         let file_name: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
         let dest = std::env::temp_dir().join(format!("{stage}-{file_name}.ll"));
-        let _ = std::fs::write(&dest, modulo.text());
+        let _ = std::fs::write(&dest, module.text());
         eprintln!("dartforge: the failing module was saved at {}", dest.display());
     }
     error
@@ -528,15 +528,15 @@ impl Context {
         // goes to the `IrModule`; the error message, if any, is ours.
         unsafe {
             let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(ir.as_ptr().cast(), ir.len(), c_name.as_ptr());
-            let mut modulo = ptr::null_mut();
+            let mut module = ptr::null_mut();
             let mut message = ptr::null_mut();
-            let has_failed = LLVMParseIRInContext2(self.0, buffer, &mut modulo, &mut message) != 0;
+            let has_failed = LLVMParseIRInContext2(self.0, buffer, &mut module, &mut message) != 0;
             LLVMDisposeMemoryBuffer(buffer);
             if has_failed {
                 let detail = if message.is_null() { "invalid IR".to_owned() } else { take_message(message) };
                 return Err(format!("LLVM rejected the IR of {name}: {detail}"));
             }
-            Ok(IrModule { m: modulo, _context: self })
+            Ok(IrModule { m: module, _context: self })
         }
     }
 }
@@ -596,7 +596,7 @@ impl IrModule<'_> {
 
     /// Runs the `PassBuilder`'s textual pipeline (`default<O2>`…) with the target
     /// machine (the target's costs and legality, as in Clang).
-    fn otimizar(&self, pipeline: &str, llvm_machine: &TargetMachine) -> Result<(), String> {
+    fn optimize(&self, pipeline: &str, llvm_machine: &TargetMachine) -> Result<(), String> {
         let text = CString::new(pipeline).expect("pipeline without NUL");
         // SAFETY: module and machine alive; the options are created and freed here;
         // the returned error is consumed by `take_error`.
@@ -729,7 +729,7 @@ impl TargetMachine {
     /// ([`default_cpu`]). Position-independent code outside Windows: Linux
     /// executables are PIE (Clang's default) and the SDK's shared libraries require
     /// it; Mach-O is always PIC.
-    fn from_triple(triple: &str, otimizar: bool, cpu: Option<&str>) -> Result<Self, String> {
+    fn from_triple(triple: &str, optimize: bool, cpu: Option<&str>) -> Result<Self, String> {
         let triple_c = CString::new(triple).map_err(|_| format!("triple with NUL: {triple:?}"))?;
         // `native`: the detected name and features (what Clang does with
         // `-march=native`); another name, its implicit features.
@@ -756,7 +756,7 @@ impl TargetMachine {
                 triple_c.as_ptr(),
                 cpu.as_ptr(),
                 resources.as_ptr(),
-                if otimizar { LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault } else { LLVMCodeGenOptLevel::LLVMCodeGenLevelNone },
+                if optimize { LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault } else { LLVMCodeGenOptLevel::LLVMCodeGenLevelNone },
                 if windows { LLVMRelocMode::LLVMRelocDefault } else { LLVMRelocMode::LLVMRelocPIC },
                 LLVMCodeModel::LLVMCodeModelDefault,
             );
@@ -767,7 +767,7 @@ impl TargetMachine {
         }
     }
 
-    fn emit_object(&self, modulo: &IrModule<'_>) -> Result<Vec<u8>, String> {
+    fn emit_object(&self, module: &IrModule<'_>) -> Result<Vec<u8>, String> {
         // SAFETY: machine and module alive; the returned error message and buffer
         // are ours and freed.
         unsafe {
@@ -775,7 +775,7 @@ impl TargetMachine {
             let mut buffer = ptr::null_mut();
             let has_failed = LLVMTargetMachineEmitToMemoryBuffer(
                 self.0,
-                modulo.m,
+                module.m,
                 LLVMCodeGenFileType::LLVMObjectFile,
                 &mut message,
                 &mut buffer,
@@ -803,8 +803,8 @@ mod tests_mod {
 
     #[test]
     fn produces_object_and_bitcode() {
-        for otimizar in [false, true] {
-            let obj = gerar("soma", IR, &Opcoes { otimizar, formato: Formato::Objeto, cpu: None }).unwrap();
+        for optimize in [false, true] {
+            let obj = generate("soma", IR, &Options { optimize, format: Format::Object, cpu: None }).unwrap();
             let magic = &obj[..4];
             // ELF, Mach-O (64 bits) or COFF x86-64/arm64.
             assert!(
@@ -812,24 +812,24 @@ mod tests_mod {
                 "unexpected header: {magic:x?}"
             );
         }
-        let bc = gerar("soma", IR, &Opcoes { otimizar: true, formato: Formato::Bitcode, cpu: None }).unwrap();
+        let bc = generate("soma", IR, &Options { optimize: true, format: Format::Bitcode, cpu: None }).unwrap();
         assert_eq!(&bc[..4], b"BC\xc0\xde");
     }
 
     #[test]
     fn same_ir_same_bytes() {
-        let op = Opcoes { otimizar: true, formato: Formato::Objeto, cpu: None };
-        assert_eq!(gerar("a", IR, &op).unwrap(), gerar("a", IR, &op).unwrap());
+        let op = Options { optimize: true, format: Format::Object, cpu: None };
+        assert_eq!(generate("a", IR, &op).unwrap(), generate("a", IR, &op).unwrap());
     }
 
     #[test]
     fn invalid_ir_gives_error_with_llvm_message() {
-        let e = gerar("ruim", "define i32 @f( {", &Opcoes { otimizar: false, formato: Formato::Objeto, cpu: None }).unwrap_err();
+        let e = generate("ruim", "define i32 @f( {", &Options { optimize: false, format: Format::Object, cpu: None }).unwrap_err();
         assert!(e.contains("ruim"), "{e}");
     }
 
     #[test]
-    fn cpu_do_clang() {
+    fn clang_cpu() {
         assert_eq!(default_cpu("x86_64-pc-windows-msvc"), "x86-64");
         assert_eq!(default_cpu("arm64-apple-darwin24.1.0"), "apple-m1");
         assert_eq!(default_cpu("aarch64-unknown-linux-gnu"), "generic");

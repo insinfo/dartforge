@@ -13,11 +13,11 @@
 /// already unmodifiable by class) come back as they are.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_collection_mark_unmodifiable(handle: i64) -> i64 {
-    let e_lista = HEAP.with(|h| {
+    let is_list = HEAP.with(|h| {
         let h_ = h.borrow();
-        h_.e_lista(handle) && h_.class(handle) != crate::layout::cid::IMMUTABLE_LIST
+        h_.is_list(handle) && h_.class(handle) != crate::layout::cid::IMMUTABLE_LIST
     });
-    if !e_lista {
+    if !is_list {
         return handle;
     }
     // `handle` is an argument: the generated code keeps it rooted.

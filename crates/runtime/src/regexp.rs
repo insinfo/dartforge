@@ -11,7 +11,7 @@
 //
 // The overlay's `_RegExp` (`native_sdk/core/regexp_patch.dart`) compiles the
 // pattern once (`DartForge_regexp_compile`) into a `_ProgramaDeRegExp` (cid 16,
-// `BRUTO`+`ATTACHMENT`: the `Box<ProgramaRe>` released by the collector when the
+// `RAW`+`ATTACHMENT`: the `Box<ProgramaRe>` released by the collector when the
 // `_RegExp` dies, docs/NATIVO-ESPACO-UNIFICADO.md §4.3) and asks for each match
 // (`DartForge_regexp_exec`); the positions of the last match are read through
 // `DartForge_regexp_capture`.
@@ -58,7 +58,7 @@ enum ReNode {
         min: u32,
         max: u32,
         greedy: bool,
-        /// The captures inside the atom, `[de, until)`: cleared on each iteration.
+        /// The captures inside the atom, `[of, until)`: cleared on each iteration.
         groups: (usize, usize),
     },
     Back(usize),
@@ -1102,7 +1102,7 @@ fn run_re(p: &ReProgram, s: &[u16], start: usize, sticky: bool) -> Option<Vec<i6
 thread_local! {
     /// The positions of the last match and the message of the last failed
     /// compilation (read right after by Dart, on the same thread).
-    static ULTIMO_RE: std::cell::RefCell<(Vec<i64>, String)> = const { std::cell::RefCell::new((Vec::new(), String::new())) };
+    static LAST_RE: std::cell::RefCell<(Vec<i64>, String)> = const { std::cell::RefCell::new((Vec::new(), String::new())) };
 }
 
 /// Releases the program of a dead `_ProgramaDeRegExp` (called by the collector).
@@ -1122,7 +1122,7 @@ fn new_re_program(p: ReProgram) -> i64 {
         let h = heap.allocate(
             crate::layout::cid::REGEXP_PROGRAM,
             1,
-            crate::layout::flags::BRUTO | crate::layout::flags::ATTACHMENT,
+            crate::layout::flags::RAW | crate::layout::flags::ATTACHMENT,
         );
         let bytes = std::mem::size_of::<ReProgram>() + 16 * p.source.len();
         let ptr = Box::into_raw(Box::new(p)).cast::<u8>();
@@ -1181,13 +1181,13 @@ pub extern "C" fn dartforge_native_DartForge_regexp_compile(
     dot_all: u8,
 ) -> i64 {
     let r = with_string(pattern, |t| {
-        let u: Vec<u16> = t.unidades().collect();
+        let u: Vec<u16> = t.units().collect();
         compile_re(&u, multiline != 0, sensitive != 0, unicode != 0, dot_all != 0)
     });
     match r {
         Ok(p) => new_re_program(p),
         Err(e) => {
-            ULTIMO_RE.with(|u| u.borrow_mut().1 = e);
+            LAST_RE.with(|u| u.borrow_mut().1 = e);
             0
         }
     }
@@ -1196,7 +1196,7 @@ pub extern "C" fn dartforge_native_DartForge_regexp_compile(
 /// `DartForge_regexp_error`: the message of the last failed compilation.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_regexp_error() -> i64 {
-    let m = ULTIMO_RE.with(|u| u.borrow().1.clone());
+    let m = LAST_RE.with(|u| u.borrow().1.clone());
     allocate_str(&m)
 }
 
@@ -1239,8 +1239,8 @@ pub extern "C" fn dartforge_native_DartForge_regexp_exec(program: i64, target: i
             return None;
         }
         match t {
-            crate::textos::TextoRef::Dois(u) => run_re(p, u, start as usize, sticky != 0),
-            crate::textos::TextoRef::Um(b) => {
+            crate::text::TextRef::TwoByte(u) => run_re(p, u, start as usize, sticky != 0),
+            crate::text::TextRef::OneByte(b) => {
                 let u: Vec<u16> = b.iter().map(|&x| u16::from(x)).collect();
                 run_re(p, &u, start as usize, sticky != 0)
             }
@@ -1248,7 +1248,7 @@ pub extern "C" fn dartforge_native_DartForge_regexp_exec(program: i64, target: i
     });
     match r {
         Some(caps) => {
-            ULTIMO_RE.with(|u| u.borrow_mut().0 = caps);
+            LAST_RE.with(|u| u.borrow_mut().0 = caps);
             1
         }
         None => 0,
@@ -1258,5 +1258,5 @@ pub extern "C" fn dartforge_native_DartForge_regexp_exec(program: i64, target: i
 /// `DartForge_regexp_capture`: position `i` of the last match.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_regexp_capture(i: i64) -> i64 {
-    ULTIMO_RE.with(|u| u.borrow().0.get(i as usize).copied().unwrap_or(-1))
+    LAST_RE.with(|u| u.borrow().0.get(i as usize).copied().unwrap_or(-1))
 }

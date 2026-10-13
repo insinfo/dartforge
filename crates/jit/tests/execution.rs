@@ -104,9 +104,9 @@ fn execute_fn(command: &mut Command) -> Execution {
 /// write goes directly to the process's `stderr`, and not through `eprintln!`, which the
 /// test harness captures and only shows if the test fails. This way the line
 /// shows up in the log while the test runs.
-fn stage(start: std::time::Instant, nome: &str) {
+fn stage(start: std::time::Instant, name: &str) {
     use std::io::Write;
-    let line = format!("[differential {:>7.1?}] {nome}\n", start.elapsed());
+    let line = format!("[differential {:>7.1?}] {name}\n", start.elapsed());
     let _ = std::io::stderr().write_all(line.as_bytes());
 }
 
@@ -119,8 +119,8 @@ fn run_through_jit(dir: &Path, ir: &str) -> Execution {
     // The IR with the source SDK (the default) imports the runtime and the SDK from the
     // shared library, which the executor receives through the environment, as
     // `dartforge run` finds it in the cache.
-    if dartforge_jit::ir_usa_sdk_da_fonte(ir) && std::env::var_os("DARTFORGE_SDK_DLL").is_none() {
-        let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("source SDK library");
+    if dartforge_jit::ir_uses_source_sdk(ir) && std::env::var_os("DARTFORGE_SDK_DLL").is_none() {
+        let dll = dartforge_emit_native::sdk_module::source_sdk_dll().expect("source SDK library");
         command.env("DARTFORGE_SDK_DLL", dll);
     }
     execute_fn(&mut command)
@@ -136,9 +136,9 @@ fn run_through_jit(dir: &Path, ir: &str) -> Execution {
 /// and the JIT at the pre-check; this test reports it first, without LLVM or Clang.
 #[test]
 fn every_emitter_extern_exists_in_runtime() {
-    let declared_set: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS.iter().map(|e| e.nome()).collect();
+    let declared_set: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS.iter().map(|e| e.name()).collect();
     assert!(declared_set.len() > 100, "unexpected externs table: {declared_set:?}");
-    let missing_list: Vec<&&str> = declared_set.iter().filter(|nome| !RUNTIME_SYMBOLS.contains(nome)).collect();
+    let missing_list: Vec<&&str> = declared_set.iter().filter(|name| !RUNTIME_SYMBOLS.contains(name)).collect();
     assert!(missing_list.is_empty(), "the emitter declares externs the runtime does not define: {missing_list:?}");
 }
 
@@ -204,11 +204,11 @@ fn divergent_target_fails_loudly() {
     assert_eq!(error.stage, "layout");
     assert!(error.message.contains(other_one), "{error}");
 
-    // The header the native emitter writes (`alvo::cabecalho_ir`) must
+    // The header the native emitter writes (`target::ir_header`) must
     // be compatible with this process's LLJIT: same architecture,
     // system and ABI, even if the installed LLVM spells the triple another
     // way (`x86_64-pc-linux-gnu`, `arm64-apple-macosx15.7.3`).
-    let header = dartforge_emit_native::alvo::cabecalho_ir();
+    let header = dartforge_emit_native::target::ir_header();
     session
         .add_ir_module("alvo_do_emissor", &format!("{header}define void @g() {{\n  ret void\n}}\n"))
         .unwrap();
@@ -354,7 +354,7 @@ fn runner_jit_failure_exits_with_70() {
 /// The first three are the forms the emitter got wrong on 2026-09-23 (found
 /// by this differential): `for` with the variable reassigned, instance
 /// method and `print` of an `int` returned by a function. They were fixed with the
-/// native representation contract (`crates/emit_native/tests/contrato.rs`)
+/// native representation contract (`crates/emit_native/tests/contract.rs`)
 /// and stay here as a regression of both profiles.
 const PROGRAMS: &[(&str, &str, &str)] = &[
     (
@@ -419,13 +419,13 @@ void main() {
 ];
 
 /// Emits the LLVM IR of a Dart file as the JIT receives it
-/// (`emitir_ir_recarregavel`: without static objects, which the JIT does not have,
+/// (`emit_reloadable_ir`: without static objects, which the JIT does not have,
 /// docs/NATIVO-ESPACO-UNIFICADO.md §2.11); the AOT driver links that same text.
-fn emitir_ir(input: &Path) -> String {
-    let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-    dartforge_emit_native::emitir_ir_recarregavel(input, &options, None)
+fn emit_ir(input: &Path) -> String {
+    let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+    dartforge_emit_native::emit_reloadable_ir(input, &options, None)
         .unwrap_or_else(|error| panic!("the test program did not emit IR: {error}"))
-        .texto
+        .text
 }
 
 /// Emits the IR of `source` once and runs that same text through both profiles.
@@ -438,7 +438,7 @@ fn run_in_both_profiles(label_name: &str, source: &str) -> (Execution, Execution
     // Large stack like the CLI: lowering is recursive over the AST.
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
-        .spawn(move || emitir_ir(&file))
+        .spawn(move || emit_ir(&file))
         .unwrap()
         .join()
         .unwrap();

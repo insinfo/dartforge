@@ -27,8 +27,8 @@ fn module(scenario: Scenario) -> Result<Module, String> {
     let mut layout = vec![Type::Ref; 40];
     layout[..4].copy_from_slice(&[Type::I64, Type::F64, Type::I1, Type::I8]);
     m.arc_field_layouts.insert(123, layout.clone());
-    if cell { m.arc_field_layouts.insert(dartforge_runtime::layout::cid::CELULA as u32, vec![Type::Ref]); }
-    if capture { m.arc_field_layouts.insert(dartforge_runtime::layout::cid::CONTEXTO as u32, layout); }
+    if cell { m.arc_field_layouts.insert(dartforge_runtime::layout::cid::CELL as u32, vec![Type::Ref]); }
+    if capture { m.arc_field_layouts.insert(dartforge_runtime::layout::cid::CONTEXT as u32, layout); }
     for id in m.arc_field_layouts.keys() {
         m.classes.push(ClassDef { id: *id, name: format!("C{id}"), field_count: m.arc_field_layouts[id].len(),
             vtable: vec![], to_string_symbol: None });
@@ -341,7 +341,7 @@ passou:
     );
     if matches!(scenario, Scenario::Cell) {
         ir = ir.replace("@dartforge_arc_object_owned_v1(i64 123, i64 40)",
-            &format!("@dartforge_arc_object_owned_v1(i64 {}, i64 1)", dartforge_runtime::layout::cid::CELULA));
+            &format!("@dartforge_arc_object_owned_v1(i64 {}, i64 1)", dartforge_runtime::layout::cid::CELL));
         let start = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("missing start of the scalar check")?;
         let end = ir[start..].find("  br i1 %ok_inicio,").map(|n| start + n).ok_or("missing end of the scalar check")?;
         ir.replace_range(start..end, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
@@ -371,7 +371,7 @@ passou:
     if capture {
         ir = ir.replace("@dartforge_arc_object_owned_v1(i64 123, i64 40)",
             &format!("@dartforge_arc_object_owned_v1(i64 {}, i64 40)",
-                dartforge_runtime::layout::cid::CONTEXTO));
+                dartforge_runtime::layout::cid::CONTEXT));
     }
     if neighbor {
         ir = ir.replace("  call void @inicializar(i64 %obj, i64 %filho)\n",
@@ -411,8 +411,8 @@ passou:
         Some("sem-retencao") => {
             let borrowed = m.functions[0].blocks.iter().flat_map(|b| &b.instructions)
                 .find_map(|(v, i, _)| match i {
-                    Instruction::ArcCopy { value: Operand::Val(de) }
-                        if *v == ValueId(if neighbor { 2 } else { 1 }) => Some(de.0),
+                    Instruction::ArcCopy { value: Operand::Val(of) }
+                        if *v == ValueId(if neighbor { 2 } else { 1 }) => Some(of.0),
                     _ => None,
                 }).ok_or("return copy not found")?;
             let call = format!("  call void @dartforge_arc_retain(i64 %v{borrowed})\n");

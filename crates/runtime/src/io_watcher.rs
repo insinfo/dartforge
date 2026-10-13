@@ -18,7 +18,7 @@
 // Windows: `ReadDirectoryChangesW` on the completion port, like the VM
 // (`file_system_watcher_win.cc`). There is no watcher descriptor (`Init` is 0):
 // each path is a directory handle (`DirectoryWatchHandle`, in
-// `io_windows_eventos.rs`), and its pointer is the path id and that of the
+// `io_windows_events.rs`), and its pointer is the path id and that of the
 // internal socket. `_unwatchPath` stops reading and closes the handle; the
 // reference stays with the socket, which Dart closes right after. The events
 // carry neither "is directory" (`_Win32FileSystemWatcher` checks the disk) nor
@@ -115,7 +115,7 @@ pub extern "C" fn dartforge_native_FileSystemWatcher_InitWatcher() -> i64 {
     // macOS: the `CFRunLoop` thread (`FSEventsWatcher`).
     #[cfg(target_os = "macos")]
     {
-        match fsevents::Watcher::iniciar() {
+        match fsevents::Watcher::start() {
             Ok(o) => Box::into_raw(o) as i64,
             Err(e) => {
                 throw_os_error(&e);
@@ -458,7 +458,7 @@ mod fsevents {
             flag_bits: u64,
             order: isize,
             cb: extern "C" fn(Ref, *mut c_void),
-            contexto: *mut TimerContext,
+            context: *mut TimerContext,
         ) -> Ref;
         fn CFRunLoopAddTimer(rl: Ref, t: Ref, mode: Ref);
         fn CFAbsoluteTimeGetCurrent() -> f64;
@@ -498,7 +498,7 @@ mod fsevents {
     struct Functions {
         create: unsafe extern "C" fn(Ref, Callback, *mut StreamContext, Ref, u64, f64, u32) -> Ref,
         schedule: unsafe extern "C" fn(Ref, Ref, Ref),
-        iniciar: unsafe extern "C" fn(Ref) -> u8,
+        start: unsafe extern "C" fn(Ref) -> u8,
         drain: unsafe extern "C" fn(Ref),
         stop: unsafe extern "C" fn(Ref),
         invalidate: unsafe extern "C" fn(Ref),
@@ -522,7 +522,7 @@ mod fsevents {
                 Some(Functions {
                     create: std::mem::transmute::<*mut c_void, _>(s(c"FSEventStreamCreate")?),
                     schedule: std::mem::transmute::<*mut c_void, _>(s(c"FSEventStreamScheduleWithRunLoop")?),
-                    iniciar: std::mem::transmute::<*mut c_void, _>(s(c"FSEventStreamStart")?),
+                    start: std::mem::transmute::<*mut c_void, _>(s(c"FSEventStreamStart")?),
                     drain: std::mem::transmute::<*mut c_void, _>(s(c"FSEventStreamFlushSync")?),
                     stop: std::mem::transmute::<*mut c_void, _>(s(c"FSEventStreamStop")?),
                     invalidate: std::mem::transmute::<*mut c_void, _>(s(c"FSEventStreamInvalidate")?),
@@ -549,7 +549,7 @@ mod fsevents {
 
     impl Watcher {
         /// Starts the thread and waits for its loop to exist.
-        pub fn iniciar() -> Result<Box<Watcher>, super::OsError> {
+        pub fn start() -> Result<Box<Watcher>, super::OsError> {
             let (tx, rx) = std::sync::mpsc::channel::<usize>();
             let thread_handle = std::thread::Builder::new()
                 .name("dart:io FileWatcher".into())
@@ -574,7 +574,7 @@ mod fsevents {
                         CFRunLoopRun();
                     }
                 })
-                .map_err(|e| super::OsError::de(&e))?;
+                .map_err(|e| super::OsError::of(&e))?;
             let run_loop = rx.recv().map_err(|_| super::OsError::invalid_argument())?;
             Ok(Box::new(Watcher { run_loop, thread_handle: Some(thread_handle) }))
         }
@@ -595,7 +595,7 @@ mod fsevents {
             let text = unsafe { CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8) };
             let no = Box::into_raw(Box::new(No { base: real.len(), text, read_side, write_side, recursive, stream: std::ptr::null() }));
             DESCRIPTORS.lock().unwrap_or_else(|e| e.into_inner()).insert(no as i64, read_side);
-            let mut contexto =
+            let mut context =
                 StreamContext { version: 0, info: no.cast(), retain: std::ptr::null(), release: Some(free_node), description: std::ptr::null() };
             // SAFETY: the FSEvents functions with the documented types; the node
             // lives until the context's `release` (the stream freed).
@@ -604,7 +604,7 @@ mod fsevents {
                 let stream = (f.create)(
                     std::ptr::null(),
                     on_event,
-                    &mut contexto,
+                    &mut context,
                     list,
                     K_FS_EVENT_STREAM_EVENT_ID_SINCE_NOW,
                     0.10,
@@ -613,7 +613,7 @@ mod fsevents {
                 CFRelease(list);
                 (*no).stream = stream;
                 (f.schedule)(stream, self.run_loop as Ref, kCFRunLoopDefaultMode);
-                (f.iniciar)(stream);
+                (f.start)(stream);
                 (f.drain)(stream);
             }
             Ok(no as i64)
@@ -624,12 +624,12 @@ mod fsevents {
         /// `Stop`: schedules the stop on the loop itself and waits for the thread.
         fn drop(&mut self) {
             let run_loop = self.run_loop as Ref;
-            let mut contexto =
+            let mut context =
                 TimerContext { version: 0, info: run_loop as *mut c_void, retain: std::ptr::null(), release: std::ptr::null(), description: std::ptr::null() };
             // SAFETY: the loop is retained until here; the timer copies the
             // context.
             unsafe {
-                let t = CFRunLoopTimerCreate(std::ptr::null(), 0.0, 0.0, 0, 0, stop_loop, &mut contexto);
+                let t = CFRunLoopTimerCreate(std::ptr::null(), 0.0, 0.0, 0, 0, stop_loop, &mut context);
                 CFRunLoopAddTimer(run_loop, t, kCFRunLoopCommonModes);
                 CFRelease(t);
                 CFRunLoopWakeUp(run_loop);

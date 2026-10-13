@@ -84,9 +84,9 @@ pub(super) fn prepare(
             }
             let b = f.blocks.iter_mut().find(|b| b.id == origin).unwrap();
             match &mut b.terminator {
-                Terminator::Branch(alvo) => {
-                    if *alvo == dest {
-                        *alvo = new;
+                Terminator::Branch(target) => {
+                    if *target == dest {
+                        *target = new;
                     }
                 }
                 Terminator::CondBranch {
@@ -94,9 +94,9 @@ pub(super) fn prepare(
                     else_block,
                     ..
                 } => {
-                    for alvo in [then_block, else_block] {
-                        if *alvo == dest {
-                            *alvo = new;
+                    for target in [then_block, else_block] {
+                        if *target == dest {
+                            *target = new;
                         }
                     }
                 }
@@ -104,9 +104,9 @@ pub(super) fn prepare(
                     if *default == dest {
                         *default = new;
                     }
-                    for (_, alvo) in cases {
-                        if *alvo == dest {
-                            *alvo = new;
+                    for (_, target) in cases {
+                        if *target == dest {
+                            *target = new;
                         }
                     }
                 }
@@ -118,9 +118,9 @@ pub(super) fn prepare(
                 }
                 for (_, inst, _) in &mut b.instructions {
                     if let Instruction::Phi { incoming, .. } = inst {
-                        for (de, _) in incoming {
-                            if *de == origin {
-                                *de = new;
+                        for (of, _) in incoming {
+                            if *of == origin {
+                                *of = new;
                             }
                         }
                     }

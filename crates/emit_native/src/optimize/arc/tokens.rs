@@ -234,9 +234,9 @@ fn owner_scopes(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> HashSe
     scopes
 }
 
-fn path(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
+fn path(f: &Function, parents: &[Option<usize>], mut b: usize) -> Vec<u32> {
     let mut r = vec![f.blocks[b].id.0];
-    while let Some(parent) = pais[b] {
+    while let Some(parent) = parents[b] {
         b = parent;
         r.push(f.blocks[b].id.0);
     }
@@ -244,12 +244,12 @@ fn path(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
     r
 }
 
-fn flow_error(f: &Function, pais: &[Option<usize>], b: usize, message: String) -> String {
+fn flow_error(f: &Function, parents: &[Option<usize>], b: usize, message: String) -> String {
     format!(
         "tokens in {} b{}: {message}; path {:?}",
         f.symbol,
         f.blocks[b].id.0,
-        path(f, pais, b)
+        path(f, parents, b)
     )
 }
 
@@ -601,7 +601,7 @@ fn analyze_tokens(
             .map(|(v, _, _)| *v)
             .collect(),
     );
-    let mut pais = vec![None; f.blocks.len()];
+    let mut parents = vec![None; f.blocks.len()];
     let mut queue = VecDeque::from([0]);
     while let Some(i) = queue.pop_front() {
         let b = &f.blocks[i];
@@ -654,7 +654,7 @@ fn analyze_tokens(
                     }
                 }
             })();
-            result.map_err(|m| flow_error(f, &pais, i, format!("v{}: {m}", v.0)))?;
+            result.map_err(|m| flow_error(f, &parents, i, format!("v{}: {m}", v.0)))?;
         }
         let mut failure = None;
         terminator_operands(&b.terminator, &mut |o| {
@@ -663,7 +663,7 @@ fn analyze_tokens(
             }
         });
         if let Some(m) = failure {
-            return Err(flow_error(f, &pais, i, m));
+            return Err(flow_error(f, &parents, i, m));
         }
         if let Terminator::Return(val_ref) = &b.terminator
             && !matches!(
@@ -673,7 +673,7 @@ fn analyze_tokens(
         {
             match (plan.ret, val_ref) {
                 (TokenReturn::Owned, Some(v)) => consume_operand(v, classes, &mut active_set)
-                    .map_err(|m| flow_error(f, &pais, i, m))?,
+                    .map_err(|m| flow_error(f, &parents, i, m))?,
                 (TokenReturn::Borrowed, Some(Operand::Val(v))) if of_caller(*v, classes) => {}
                 (TokenReturn::Borrowed, Some(Operand::Constant(Constant::Null))) => {}
                 (TokenReturn::Trivial, None) => {}
@@ -688,7 +688,7 @@ fn analyze_tokens(
                     };
                     return Err(flow_error(
                         f,
-                        &pais,
+                        &parents,
                         i,
                         format!("return does not satisfy the token convention {:?} ({class})", plan.ret),
                     ));
@@ -708,7 +708,7 @@ fn analyze_tokens(
             ids.sort_unstable();
             return Err(flow_error(
                 f,
-                &pais,
+                &parents,
                 i,
                 format!("tokens not consumed at the exit {ids:?}"),
             ));
@@ -735,8 +735,8 @@ fn analyze_tokens(
                 let mut produced = Vec::new();
                 for (v, inst, _) in &dest.instructions {
                     if let Instruction::Phi { incoming, .. } = inst {
-                        for (de, op) in incoming {
-                            if *de != b.id {
+                        for (of, op) in incoming {
+                            if *of != b.id {
                                 continue;
                             }
                             use_value(op, classes, &r)?;
@@ -791,8 +791,8 @@ fn analyze_tokens(
                     let mut used_set = live_set.entry[&dest.id].clone();
                     for (_, inst, _) in &dest.instructions {
                         if let Instruction::Phi { incoming, .. } = inst {
-                            for (de, op) in incoming {
-                                if *de != b.id { continue; }
+                            for (of, op) in incoming {
+                                if *of != b.id { continue; }
                                 if let Operand::Val(v) = op {
                                     let mut current = *v;
                                     let mut seen_set = HashSet::new();
@@ -820,7 +820,7 @@ fn analyze_tokens(
             .map_err(|m| {
                 flow_error(
                     f,
-                    &pais,
+                    &parents,
                     i,
                     format!("edge b{} -> b{}: {m}", b.id.0, dest.id.0),
                 )
@@ -833,19 +833,19 @@ fn analyze_tokens(
                     only_now.sort_unstable();
                     return Err(flow_error(
                         f,
-                        &pais,
+                        &parents,
                         i,
                         format!(
                             "join b{} with different tokens (only before {only_before:?}, only now {only_now:?}); previous path {:?}",
                             dest.id.0,
-                            path(f, &pais, s)
+                            path(f, &parents, s)
                         ),
                     ));
                 }
                 Some(_) => {}
                 None => {
                     entries[s] = Some(next_one);
-                    pais[s] = Some(i);
+                    parents[s] = Some(i);
                     queue.push_back(s);
                 }
             }

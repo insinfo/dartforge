@@ -136,9 +136,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
         use_site: &mut dyn FnMut(&mut Self, SuperMember, Operand) -> Operand,
     ) -> Operand {
-        let alvo = self.super_member(name, setter);
-        if alvo != SuperMember::OfMixin {
-            return use_site(self, alvo, this);
+        let target = self.super_member(name, setter);
+        if target != SuperMember::OfMixin {
+            return use_site(self, target, this);
         }
         let targets = self.mixin_super_targets(name, setter);
         if targets.is_empty() {
@@ -193,7 +193,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(this) = self.this_for_super(span) else {
             return Operand::Constant(Constant::Null);
         };
-        self.with_super_target(this, name, false, span, &mut |s, alvo, this| match alvo {
+        self.with_super_target(this, name, false, span, &mut |s, target, this| match target {
             SuperMember::Function(f) => {
                 if s.ctx.program.functions[f].kind == FunctionKind::Getter {
                     let v = s.call_direct(f, Some(this), Vec::new());
@@ -230,7 +230,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(this) = self.this_for_super(span) else {
             return Operand::Constant(Constant::Null);
         };
-        self.with_super_target(this, name, false, span, &mut |s, alvo, this| match alvo {
+        self.with_super_target(this, name, false, span, &mut |s, target, this| match target {
             SuperMember::Function(f) => {
                 if s.ctx.program.functions[f].kind == FunctionKind::Getter {
                     s.call_direct(f, Some(this), Vec::new())
@@ -254,7 +254,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Operand::Constant(Constant::Null);
         };
         let v2 = value.clone();
-        self.with_super_target(this, name, true, span, &mut |s, alvo, this| match alvo {
+        self.with_super_target(this, name, true, span, &mut |s, target, this| match target {
             SuperMember::Function(f) => {
                 let args = s.match_args(f, &[(None, v2.clone())]);
                 s.call_direct(f, Some(this), args);
@@ -283,7 +283,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let equality = op_name_str == "==";
         let op_name = op_name_str.to_string();
-        self.with_super_target(this, sym, false, span, &mut |s, alvo, this| match alvo {
+        self.with_super_target(this, sym, false, span, &mut |s, target, this| match target {
             SuperMember::Function(f) => {
                 let args = s.match_args(f, &[(None, right.clone())]);
                 s.call_direct(f, Some(this), args)

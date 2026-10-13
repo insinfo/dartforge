@@ -440,7 +440,7 @@ mod tests {
                 params: vec![(ValueId(0), "objeto".into(), Type::Ref)], return_ty: Type::Ref,
                 blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
                     (ValueId(1), Instruction::Const(Constant::Int(7)), Type::I64),
-                    (ValueId(2), Instruction::NativeCall { alvo: Operand::Constant(Constant::Int(0x1000)),
+                    (ValueId(2), Instruction::NativeCall { target: Operand::Constant(Constant::Int(0x1000)),
                         args: vec![(arg, CType::I64), (Operand::Constant(Constant::Double(0.5)), CType::F64)], ret },
                         if case == 3 { Type::Ref } else { Type::I64 })],
                     terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });

@@ -399,8 +399,8 @@ fn check_result_uses(
         let mut invalid = false;
         for (_, inst, _) in &b.instructions {
             if let Instruction::Phi { incoming, .. } = inst {
-                for (de, op) in incoming {
-                    let Some(&p) = pos.get(de) else { continue };
+                for (of, op) in incoming {
+                    let Some(&p) = pos.get(of) else { continue };
                     // The success edge publishes the result; all the
                     // others must be dominated by that publication.
                     if uses(op) && cfg.reachable(p) && without_success.contains(&p) && (p, i) != success

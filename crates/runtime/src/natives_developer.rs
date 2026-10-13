@@ -37,7 +37,7 @@ pub extern "C" fn dartforge_native_Developer_log(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_Developer_postEvent(_type: i64, _dados: i64) {}
+pub extern "C" fn dartforge_native_Developer_postEvent(_type: i64, _data: i64) {}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Developer_lookupExtension(_method: i64) -> i64 {

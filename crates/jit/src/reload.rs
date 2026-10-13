@@ -550,19 +550,19 @@ impl JitSession {
         let mut new_aliases: Vec<((String, String), String)> = Vec::new();
         let mut renamed: Vec<(String, String)> = Vec::new();
         if let Some(index) = self.reloadables.iter().position(|m| m.name == name) {
-            let modulo = &self.reloadables[index];
+            let module = &self.reloadables[index];
             let mut renames = Vec::new();
             for s in &signatures {
                 let text = s.text();
-                let Some(current) = modulo.entries.get(&s.name).filter(|e| e.generation > 0) else { continue };
+                let Some(current) = module.entries.get(&s.name).filter(|e| e.generation > 0) else { continue };
                 if current.signature.text() == text {
                     continue;
                 }
                 let key = (s.name.clone(), text);
-                let target = match modulo.aliases.get(&key) {
+                let target = match module.aliases.get(&key) {
                     Some(a) => a.clone(),
                     None => {
-                        let k = modulo.aliases.keys().filter(|(n, _)| *n == s.name).count() + 1;
+                        let k = module.aliases.keys().filter(|(n, _)| *n == s.name).count() + 1;
                         let a = format!("{}$sig{k}", s.name);
                         new_aliases.push((key, a.clone()));
                         a
@@ -570,12 +570,12 @@ impl JitSession {
                 };
                 renames.push((s.name.clone(), target));
             }
-            for (de, to) in &renames {
-                if !parsed.rename_function(de, to) {
+            for (of, to) in &renames {
+                if !parsed.rename_function(of, to) {
                     return Err(JitError {
                         stage: "contract",
                         message: format!(
-                            "the signature of {de} changed and the new entry {to} could not be created; \
+                            "the signature of {of} changed and the new entry {to} could not be created; \
                              the reload is refused — restart the session"
                         ),
                     });
@@ -598,8 +598,8 @@ impl JitSession {
                 }
             }
         }
-        for (de, to) in &renamed {
-            if let Some(p) = new_items.remove(de) {
+        for (of, to) in &renamed {
+            if let Some(p) = new_items.remove(of) {
                 new_items.insert(to.clone(), p);
             }
         }
@@ -970,7 +970,7 @@ impl JitSession {
                 .entries
                 .get(&signature.name)
                 .expect("the contract check guarantees the existing entry");
-            swaps.push((ffi::Cell::de(&entry.slot), *address as usize));
+            swaps.push((ffi::Cell::of(&entry.slot), *address as usize));
         }
         // With a running program, the task runs at the main isolate's
         // safepoint and first stops the other isolates at their
@@ -981,7 +981,7 @@ impl JitSession {
                 copy.apply();
             }
             for (cell_ref, implementation) in swaps {
-                cell_ref.publicar(implementation);
+                cell_ref.publish(implementation);
             }
             if let Some((runtime, area, register, rti)) = records {
                 // J03: the live objects of each isolate move to the new layout

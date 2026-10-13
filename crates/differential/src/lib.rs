@@ -16,7 +16,7 @@ pub use oracles::{Environment, dart_oracle, dartforge, dartforge_jit, dartforge_
 pub use process::Output;
 pub use report::{AotFromSameIr, Divergence, JitRun, ProgramIr, ProgramResult, compare, format_ir_report, format_report, ir_differences};
 
-use dartforge_emit_native::resumo::ResumoIr;
+use dartforge_emit_native::summary::IrSummary;
 use std::sync::{Condvar, Mutex};
 
 /// What to run for each program.
@@ -122,7 +122,7 @@ pub fn run_corpus(env: &Environment, programs: &[Program], op: Options, progress
 /// Concurrent emissions when `DARTFORGE_IR_PARALELO_MAX` does not say otherwise.
 ///
 /// Each emission loads the SDK, analyzes and lowers the program inside the
-/// harness process. Today that is cheap (measured in `ESTADO.md` §3.2: the
+/// harness process. Today that is cheap (measured in `STATE.md` §3.2: the
 /// whole corpus in under half a second, a peak of 10 MB with eight at the
 /// same time), because the `vm` section of `libraries.json` only declares
 /// `dart:cli` and the `include` of `vm_common` is not followed yet. When it
@@ -196,7 +196,7 @@ pub fn emit_corpus_ir(programs: &[Program], threads: usize, limiter: &Limiter) -
         threads,
         |p| ProgramIr {
             name: p.name.clone(),
-            result: limiter.run(|| dartforge_native_ir(p).map(|text| ResumoIr::de(&text))),
+            result: limiter.run(|| dartforge_native_ir(p).map(|text| IrSummary::of(&text))),
         },
         |_| {},
     )

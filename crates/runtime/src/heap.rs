@@ -27,9 +27,9 @@ pub struct HeapStats {
     pub boxes_avoided: u64,
 }
 
-// `Texto`, `StringMut`, `UnitsIter` and `push_point` live in `textos.rs` (P1,
+// `Text`, `StringMut`, `UnitsIter` and `push_point` live in `text.rs` (P1,
 // docs/NATIVO-ESPACO-UNIFICADO.md §4.3).
-pub use crate::textos::{UnitsIter, Texto, StringMut, push_point};
+pub use crate::text::{UnitsIter, Text, StringMut, push_point};
 
 /// An object field: the bits and whether they are a reference (what the collector follows).
 pub type Field = (i64, bool);
@@ -37,8 +37,8 @@ pub type Field = (i64, bool);
 // The layout contract (docs/NATIVO-ESPACO-UNIFICADO.md §3.1) lives in
 // `crate::layout`; `heap` re-exports it for those who already used it from here.
 pub use crate::layout::{
-    PAGE_HEAD, CAMPOS_EM_LINHA, Header, DESLOCAMENTO_DO_HANDLE, LARGEST_CLASS, PAGINA, Ref, TLAB_N,
-    capacidade, is_object, palavras_do_mapa, smi,
+    PAGE_HEAD, INLINE_FIELDS, Header, HANDLE_OFFSET, LARGEST_CLASS, PAGE, Ref, TLAB_N,
+    capacity, is_object, map_words, smi,
 };
 
 // The header ([`Header`], `crate::layout`) of a user object in the
@@ -59,31 +59,31 @@ pub use crate::layout::{
 //
 // An object whose number of fields changed after creation (the error that gains
 // the stack trace, the JIT reload that changes the class layout, J03) cannot change
-// address: the fields go to an **out-of-line body** (bit [`FORA`] in
+// address: the fields go to an **out-of-line body** (bit [`OUT_OF_LINE`] in
 // `flags`), with the same layout (header + fields + extension), whose address
 // sits in place of the first field. Generated code reads the out-of-line body with a
 // branchless select (`llvm/mod.rs`).
 
-/// States of a block ([`Header::estado`]; `crate::layout::estado`). The
+/// States of a block ([`Header::state`]; `crate::layout::state`). The
 /// collector is generational without moving objects ("sticky" marks): an object is born
-/// [`JOVEM`] (inline allocation writes 1), and one that survives a collection becomes
-/// [`VELHO`]. The minor collection only marks and sweeps the young; old ones count as
+/// [`YOUNG`] (inline allocation writes 1), and one that survives a collection becomes
+/// [`OLD`]. The minor collection only marks and sweeps the young; old ones count as
 /// live, and old-to-young references are found through the [`REMEMBERED`] ones
 /// — the write barrier (`Heap::get_mut` and the runtime's field writes,
 /// and the generated code's one after writing a `Ref` into a field,
 /// `llvm/mod.rs`) marks the old object that receives a reference, like the VM's *store
-/// buffer*. [`PERMANENTE`] is the static object, outside the heap.
-pub const LIVRE: u8 = crate::layout::estado::LIVRE;
-pub const JOVEM: u8 = crate::layout::estado::JOVEM;
+/// buffer*. [`PERMANENT`] is the static object, outside the heap.
+pub const FREE: u8 = crate::layout::state::FREE;
+pub const YOUNG: u8 = crate::layout::state::YOUNG;
 pub const MARKED: u8 = 2;
-pub const VELHO: u8 = crate::layout::estado::VELHO;
-pub const REMEMBERED: u8 = crate::layout::estado::REMEMBERED;
-pub const PERMANENTE: u8 = crate::layout::estado::PERMANENTE;
+pub const OLD: u8 = crate::layout::state::OLD;
+pub const REMEMBERED: u8 = crate::layout::state::REMEMBERED;
+pub const PERMANENT: u8 = crate::layout::state::PERMANENT;
 /// Bit of [`Header::flags`]: the fields live in an out-of-line body.
-pub const FORA: u8 = crate::layout::flags::FORA;
+pub const OUT_OF_LINE: u8 = crate::layout::flags::OUT_OF_LINE;
 
-// [`PAGINA`] is the page size of the object space (and its alignment:
-// the page of a handle is `h & !(PAGINA - 1)`). [`PAGE_HEAD`] are the
+// [`PAGE`] is the page size of the object space (and its alignment:
+// the page of a handle is `h & !(PAGE - 1)`). [`PAGE_HEAD`] are the
 // bytes at the start of each page with the mark bitmap: one bit per 8-byte word
 // of the page (a block's bit is that of the word where it starts). Marking
 // sets the bit of the reached object; sweeps read only the bits, without touching the
@@ -100,7 +100,7 @@ use crate::space::{
     TLAB_BLOCKS, allocation_bytes, fields_of, body, is_reference, shape, marked, mark_block, mark_reference,
     new_out_of_line_body, body_refs, release_out_of_line_body,
 };
-use crate::layout::{bytes_do_bloco, flags as flags_do_bloco};
+use crate::layout::{block_bytes, flags as block_flags};
 
 /// The minor collection comes every `YOUNG_LIMIT` allocated bytes (the size of the
 /// *new space*; the VM's semispace starts smaller and grows up to 8 MiB on 64
@@ -134,11 +134,11 @@ const WORK_PER_MINOR_UNDER_STRESS: usize = 64;
 #[repr(C)]
 pub struct EmptyObject {
     pub header: Header,
-    pub fields: [i64; CAMPOS_EM_LINHA],
+    pub fields: [i64; INLINE_FIELDS],
 }
 pub static EMPTY_OBJECT: EmptyObject = EmptyObject {
-    header: Header { estado: LIVRE, flags: 0, n: 0, class_id: 0, map: 0, metadata: 0 },
-    fields: [0; CAMPOS_EM_LINHA],
+    header: Header { state: FREE, flags: 0, n: 0, class_id: 0, map: 0, metadata: 0 },
+    fields: [0; INLINE_FIELDS],
 };
 
 /// The runtime's view of an object of the space ([`Heap::object`]): the
@@ -206,8 +206,8 @@ fn marked_in_collection(objects: &ObjectSpace, minor: bool, h: i64) -> bool {
         return match objects.block_of(h) {
             Some(b) => unsafe {
                 if minor {
-                    let e = (*b).estado;
-                    e == VELHO || e == REMEMBERED
+                    let e = (*b).state;
+                    e == OLD || e == REMEMBERED
                 } else {
                     marked(b)
                 }
@@ -313,9 +313,9 @@ pub fn inline_class() -> bool {
 }
 
 const _: () = {
-    use crate::layout::contexto as c;
+    use crate::layout::context as c;
     assert!(std::mem::offset_of!(Context, pending) == c::PENDING);
-    assert!(std::mem::offset_of!(Context, top) == c::TOPO);
+    assert!(std::mem::offset_of!(Context, top) == c::TOP);
     assert!(std::mem::offset_of!(Context, areas) == c::AREAS);
     assert!(std::mem::offset_of!(Context, n_areas) == c::N_AREAS);
     assert!(std::mem::offset_of!(Context, interrupt) == c::INTERRUPT);
@@ -323,16 +323,16 @@ const _: () = {
     assert!(std::mem::offset_of!(Context, registered) == c::REGISTERED);
     assert!(std::mem::offset_of!(Context, n_registered) == c::N_REGISTERED);
     assert!(std::mem::offset_of!(Context, tlab) == c::TLAB);
-    assert!(std::mem::offset_of!(Context, subtypes) == c::SUBTIPOS);
-    assert!(std::mem::offset_of!(Context, n_subtypes) == c::N_SUBTIPOS);
-    assert!(std::mem::offset_of!(Context, subtype_width) == c::LARGURA_SUBTIPOS);
+    assert!(std::mem::offset_of!(Context, subtypes) == c::SUBTYPES);
+    assert!(std::mem::offset_of!(Context, n_subtypes) == c::N_SUBTYPES);
+    assert!(std::mem::offset_of!(Context, subtype_width) == c::SUBTYPES_WIDTH);
     assert!(std::mem::offset_of!(Context, true_value) == c::TRUE);
     assert!(std::mem::offset_of!(Context, false_value) == c::FALSE);
-    assert!(std::mem::offset_of!(Context, stack_limit) == c::LIMITE_DA_PILHA);
+    assert!(std::mem::offset_of!(Context, stack_limit) == c::STACK_LIMIT);
 };
 
 thread_local! {
-    pub static CONTEXTO: Context = const {
+    pub static CONTEXT: Context = const {
         Context {
             pending: std::cell::Cell::new(0),
             top: std::cell::Cell::new(std::ptr::null()),
@@ -346,8 +346,8 @@ thread_local! {
             subtypes: std::cell::Cell::new(std::ptr::null()),
             n_subtypes: std::cell::Cell::new(0),
             subtype_width: std::cell::Cell::new(0),
-            true_value: (&raw const dartforge_true).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
-            false_value: (&raw const dartforge_false).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
+            true_value: (&raw const dartforge_true).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize),
+            false_value: (&raw const dartforge_false).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize),
             stack_limit: std::cell::Cell::new(0),
         }
     };
@@ -362,7 +362,7 @@ thread_local! {
 /// [`unstack_frame`].
 #[allow(unsafe_code)]
 pub unsafe fn stack_frame(q: *mut RootFrame) {
-    CONTEXTO.with(|c| {
+    CONTEXT.with(|c| {
         // SAFETY: `q` is the frame on the stack of the calling function, alive until the
         // `unstack_frame` before each of its returns.
         unsafe { (*q).previous = c.top.get() };
@@ -377,7 +377,7 @@ pub unsafe fn stack_frame(q: *mut RootFrame) {
 /// `q` is the valid frame passed to the last [`stack_frame`].
 #[allow(unsafe_code)]
 pub unsafe fn unstack_frame(q: *const RootFrame) {
-    CONTEXTO.with(|c| {
+    CONTEXT.with(|c| {
         assert!(std::ptr::eq(c.top.get(), q), "compiler bug: root frame closed out of order");
         // SAFETY: `q` is the top, still on the caller's stack.
         c.top.set(unsafe { (*q).previous });
@@ -408,7 +408,7 @@ const FRAME_ORDERED: u64 = 1 << 62;
 /// native frame, in arbitrary address order.
 #[allow(unsafe_code)]
 fn visit_frames(mut f: impl FnMut(i64)) {
-    let mut q = CONTEXTO.with(|c| c.top.get());
+    let mut q = CONTEXT.with(|c| c.top.get());
     while !q.is_null() {
         // SAFETY: each linked frame is on the stack of a still active function
         // of this thread, with `n` slots after the header (the address order,
@@ -594,7 +594,7 @@ pub fn has_stack_maps() -> bool {
 /// A test sabotage enabled (`DARTFORGE_SABOTAGEM=a,b,…`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 and §14.7): each targeted
 /// test must fail with its own. The runtime's: `sem_nop` (the reader
-/// without the `nop` rule), `folga` (D8: the 4 KiB stack slack) and
+/// without the `nop` rule), `slack` (D8: the 4 KiB stack slack) and
 /// `sem_porta` (D9: the Rust → Dart ports are not registered) and
 /// `tipo_sem_raiz` (D12: the canonical `Type` object stays only in the cache).
 pub fn sabotage(name: &str) -> bool {
@@ -928,7 +928,7 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                 // base of each (base, derived) pair of `"gc-live"`.
                 for j in (3..3 + n_deopt).chain((3 + n_deopt..n_locals.saturating_sub(1)).step_by(2)) {
                     let l = locals.add(12 * j);
-                    let tipo = *l;
+                    let ty = *l;
                     let width = l.add(2).cast::<u16>().read_unaligned();
                     let register = l.add(4).cast::<u16>().read_unaligned();
                     let value = l.add(8).cast::<i32>().read_unaligned();
@@ -936,8 +936,8 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                     // optimizer left in an operand (0xFEFEFEFE); any other
                     // non-null even constant would be a raw value treated
                     // as a reference (§3.5).
-                    if tipo == 4 || tipo == 5 {
-                        let c = if tipo == 4 {
+                    if ty == 4 || ty == 5 {
+                        let c = if ty == 4 {
                             i64::from(value)
                         } else {
                             (f.constants as *const u8).add(8 * value.max(0) as usize).cast::<i64>().read_unaligned()
@@ -947,9 +947,9 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                         }
                         continue;
                     }
-                    let slot = if tipo == 1 && width == 8 && register < 32 && PRESERVED & (1 << register) != 0 {
+                    let slot = if ty == 1 && width == 8 && register < 32 && PRESERVED & (1 << register) != 0 {
                         (ROOT_IN_REGISTER, i32::from(register))
-                    } else if tipo == 3 && width == 8 && (register == DWARF_SP || register == DWARF_FP) {
+                    } else if ty == 3 && width == 8 && (register == DWARF_SP || register == DWARF_FP) {
                         (if register == DWARF_FP { ROOT_AT_FP } else { ROOT_AT_SP }, value)
                     } else {
                         map_rejected("location that is neither `Indirect [SP|FP + d]` nor a preserved 8-byte `Register`")
@@ -991,12 +991,12 @@ fn visit_frame(
         let Some(i) = m.function_of(ret) else { continue };
         match m.slots_of(i, ret) {
             Some(slots) => {
-                for &(tipo, d) in slots {
-                    if tipo == ROOT_IN_REGISTER {
+                for &(ty, d) in slots {
+                    if ty == ROOT_IN_REGISTER {
                         f(register(d as u16) as i64);
                         continue;
                     }
-                    let b = if tipo == ROOT_AT_FP { fp } else { sp };
+                    let b = if ty == ROOT_AT_FP { fp } else { sp };
                     // SAFETY: the slot belongs to the frame of a still active function,
                     // stopped at the call the record describes.
                     f(unsafe { *((b as i64).wrapping_add(i64::from(d)) as *const i64) });
@@ -1039,14 +1039,14 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     struct CpuContext([u8; 1232]);
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn RtlCaptureContext(contexto: *mut CpuContext);
+        fn RtlCaptureContext(context: *mut CpuContext);
         fn RtlLookupFunctionEntry(pc: u64, base: *mut u64, history: *mut u8) -> *const u8;
         fn RtlVirtualUnwind(
-            tipo: u32,
+            ty: u32,
             base: u64,
             pc: u64,
             function: *const u8,
-            contexto: *mut CpuContext,
+            context: *mut CpuContext,
             data: *mut *mut u8,
             frame: *mut u64,
             pointers: *mut u8,
@@ -1054,7 +1054,7 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
         fn GetCurrentThreadStackLimits(low: *mut usize, high: *mut usize);
     }
     let maps = STACK_MAPS.read().unwrap_or_else(|e| e.into_inner());
-    let mut contexto = CpuContext([0; 1232]);
+    let mut context = CpuContext([0; 1232]);
     let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"));
     /// The offset in `CONTEXT` of each DWARF register 0–15 (rax,
     /// rdx, rcx, rbx, rsi, rdi, rbp, rsp, r8–r15).
@@ -1066,20 +1066,20 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     // read belong to the frame of a still active function, stopped at the call the
     // record describes.
     unsafe {
-        RtlCaptureContext(&mut contexto);
+        RtlCaptureContext(&mut context);
         let (mut low, mut high) = (0usize, 0usize);
         GetCurrentThreadStackLimits(&mut low, &mut high);
-        let mut pc = field(&contexto, 0xF8);
+        let mut pc = field(&context, 0xF8);
         let mut base = 0u64;
         let mut function = RtlLookupFunctionEntry(pc, &mut base, std::ptr::null_mut());
         while !function.is_null() {
-            let sp_before = field(&contexto, 0x98);
+            let sp_before = field(&context, 0x98);
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut frame = 0u64;
-            RtlVirtualUnwind(0, base, pc, function, &mut contexto, &mut data, &mut frame, std::ptr::null_mut());
+            RtlVirtualUnwind(0, base, pc, function, &mut context, &mut data, &mut frame, std::ptr::null_mut());
             // Now the context is the caller's: `Rip` is the return address
             // in it and `Rsp`, its SP at the call point.
-            let (ret, sp, fp) = (field(&contexto, 0xF8), field(&contexto, 0x98), field(&contexto, 0xA0));
+            let (ret, sp, fp) = (field(&context, 0xF8), field(&context, 0x98), field(&context, 0xA0));
             if ret == 0 {
                 break;
             }
@@ -1095,7 +1095,7 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
             let start = (!next_one.is_null()).then(|| next_base + u64::from(next_one.cast::<u32>().read_unaligned()));
             // The preserved registers in the context are the caller's, at the call
             // point: unwinding the inner frames restored them.
-            let register = |r: u16| IN_CONTEXT.get(usize::from(r)).map_or(0, |&d| field(&contexto, d));
+            let register = |r: u16| IN_CONTEXT.get(usize::from(r)).map_or(0, |&d| field(&context, d));
             visit_frame(&maps, start, ret, sp, fp, &register, &mut f);
             pc = ret;
             base = next_base;
@@ -1135,14 +1135,14 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     }
     unsafe extern "C" {
         fn _Unwind_Backtrace(step: unsafe extern "C" fn(*mut u8, *mut u8) -> i32, argument: *mut u8) -> i32;
-        fn _Unwind_GetIP(contexto: *mut u8) -> usize;
-        fn _Unwind_GetCFA(contexto: *mut u8) -> usize;
-        fn _Unwind_GetGR(contexto: *mut u8, register: i32) -> usize;
-        fn _Unwind_GetRegionStart(contexto: *mut u8) -> usize;
+        fn _Unwind_GetIP(context: *mut u8) -> usize;
+        fn _Unwind_GetCFA(context: *mut u8) -> usize;
+        fn _Unwind_GetGR(context: *mut u8, register: i32) -> usize;
+        fn _Unwind_GetRegionStart(context: *mut u8) -> usize;
     }
     /// `_URC_NO_REASON` (continue) and `_URC_NORMAL_STOP` (stop).
     const CONTINUE: i32 = 0;
-    const PARA: i32 = 4;
+    const TO: i32 = 4;
     struct State<'a> {
         maps: &'a [StackMap],
         f: &'a mut dyn FnMut(i64),
@@ -1150,28 +1150,28 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
         previous_cfa: Option<usize>,
         frames: u64,
     }
-    unsafe extern "C" fn step(contexto: *mut u8, argument: *mut u8) -> i32 {
+    unsafe extern "C" fn step(context: *mut u8, argument: *mut u8) -> i32 {
         // SAFETY: `argument` is the `State` below, alive during the walk;
-        // `contexto` is the unwinder's, valid during the call.
+        // `context` is the unwinder's, valid during the call.
         unsafe {
             let e = &mut *argument.cast::<State<'_>>();
-            let ip = _Unwind_GetIP(contexto) as u64;
+            let ip = _Unwind_GetIP(context) as u64;
             if ip == 0 {
-                return PARA;
+                return TO;
             }
-            let cfa = _Unwind_GetCFA(contexto);
+            let cfa = _Unwind_GetCFA(context);
             if let Some(previous) = e.previous_cfa {
                 if cfa < previous {
                     walk_anomaly("the CFA does not grow");
-                    return PARA;
+                    return TO;
                 }
                 let sp = frame_top(cfa, previous);
                 e.frames += 1;
-                let start = _Unwind_GetRegionStart(contexto) as u64;
-                let fp = _Unwind_GetGR(contexto, i32::from(DWARF_FP)) as u64;
+                let start = _Unwind_GetRegionStart(context) as u64;
+                let fp = _Unwind_GetGR(context, i32::from(DWARF_FP)) as u64;
                 // The closure inherits the `unsafe` block above: the unwinder's
                 // context is valid during the step.
-                let register = |r: u16| _Unwind_GetGR(contexto, i32::from(r)) as u64;
+                let register = |r: u16| _Unwind_GetGR(context, i32::from(r)) as u64;
                 visit_frame(e.maps, (start != 0).then_some(start), ip, sp as u64, fp, &register, e.f);
             }
             e.previous_cfa = Some(cfa);
@@ -1179,12 +1179,12 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
         }
     }
     let maps = STACK_MAPS.read().unwrap_or_else(|e| e.into_inner());
-    let mut estado = State { maps: &maps, f: &mut f, previous_cfa: None, frames: 0 };
+    let mut state = State { maps: &maps, f: &mut f, previous_cfa: None, frames: 0 };
     // SAFETY: the unwinder walks this thread's stack; `step` only reads.
     unsafe {
-        _Unwind_Backtrace(step, std::ptr::addr_of_mut!(estado).cast::<u8>());
+        _Unwind_Backtrace(step, std::ptr::addr_of_mut!(state).cast::<u8>());
     }
-    FRAMES_WALKED.fetch_add(estado.frames, std::sync::atomic::Ordering::Relaxed);
+    FRAMES_WALKED.fetch_add(state.frames, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))))]
@@ -1208,14 +1208,14 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
     struct CpuContext([u8; 1232]);
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn RtlCaptureContext(contexto: *mut CpuContext);
+        fn RtlCaptureContext(context: *mut CpuContext);
         fn RtlLookupFunctionEntry(pc: u64, base: *mut u64, history: *mut u8) -> *const u8;
         fn RtlVirtualUnwind(
-            tipo: u32,
+            ty: u32,
             base: u64,
             pc: u64,
             function: *const u8,
-            contexto: *mut CpuContext,
+            context: *mut CpuContext,
             data: *mut *mut u8,
             frame: *mut u64,
             pointers: *mut u8,
@@ -1223,24 +1223,24 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
         fn GetCurrentThreadStackLimits(low: *mut usize, high: *mut usize);
     }
     let mut out = Vec::new();
-    let mut contexto = CpuContext([0; 1232]);
+    let mut context = CpuContext([0; 1232]);
     let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"));
     // SAFETY: as in `visit_frames_by_maps`: the context is this
     // thread's, each step unwinds a frame with its function's table, and the
     // walk stops when the SP stops growing or leaves the stack.
     unsafe {
-        RtlCaptureContext(&mut contexto);
+        RtlCaptureContext(&mut context);
         let (mut low, mut high) = (0usize, 0usize);
         GetCurrentThreadStackLimits(&mut low, &mut high);
-        let mut pc = field(&contexto, 0xF8);
+        let mut pc = field(&context, 0xF8);
         let mut base = 0u64;
         let mut function = RtlLookupFunctionEntry(pc, &mut base, std::ptr::null_mut());
         while !function.is_null() && out.len() < maximum {
-            let sp_before = field(&contexto, 0x98);
+            let sp_before = field(&context, 0x98);
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut frame = 0u64;
-            RtlVirtualUnwind(0, base, pc, function, &mut contexto, &mut data, &mut frame, std::ptr::null_mut());
-            let (ret, sp) = (field(&contexto, 0xF8), field(&contexto, 0x98));
+            RtlVirtualUnwind(0, base, pc, function, &mut context, &mut data, &mut frame, std::ptr::null_mut());
+            let (ret, sp) = (field(&context, 0xF8), field(&context, 0x98));
             if ret == 0 || sp <= sp_before || (sp as usize) < low || (sp as usize) >= high {
                 break;
             }
@@ -1265,41 +1265,41 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
 pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
     unsafe extern "C" {
         fn _Unwind_Backtrace(step: unsafe extern "C" fn(*mut u8, *mut u8) -> i32, argument: *mut u8) -> i32;
-        fn _Unwind_GetIP(contexto: *mut u8) -> usize;
-        fn _Unwind_GetRegionStart(contexto: *mut u8) -> usize;
-        fn _Unwind_GetCFA(contexto: *mut u8) -> usize;
+        fn _Unwind_GetIP(context: *mut u8) -> usize;
+        fn _Unwind_GetRegionStart(context: *mut u8) -> usize;
+        fn _Unwind_GetCFA(context: *mut u8) -> usize;
     }
     /// `_URC_NO_REASON` (continue) and `_URC_NORMAL_STOP` (stop).
     const CONTINUE: i32 = 0;
-    const PARA: i32 = 4;
+    const TO: i32 = 4;
     struct State {
         out: Vec<(u64, u64, u64)>,
         maximum: usize,
         /// The CFA of the previous (deeper) frame: the stack top of this one.
         previous_cfa: u64,
     }
-    unsafe extern "C" fn step(contexto: *mut u8, argument: *mut u8) -> i32 {
+    unsafe extern "C" fn step(context: *mut u8, argument: *mut u8) -> i32 {
         // SAFETY: `argument` is the `State` below, alive during the walk;
-        // `contexto` is the unwinder's, valid during the call.
+        // `context` is the unwinder's, valid during the call.
         unsafe {
             let e = &mut *argument.cast::<State>();
-            let ip = _Unwind_GetIP(contexto) as u64;
+            let ip = _Unwind_GetIP(context) as u64;
             if ip == 0 || e.out.len() >= e.maximum {
-                return PARA;
+                return TO;
             }
-            let cfa = _Unwind_GetCFA(contexto) as u64;
+            let cfa = _Unwind_GetCFA(context) as u64;
             let top = if e.out.is_empty() { e.previous_cfa } else { frame_top(cfa as usize, e.previous_cfa as usize) as u64 };
-            e.out.push((ip, _Unwind_GetRegionStart(contexto) as u64, top));
+            e.out.push((ip, _Unwind_GetRegionStart(context) as u64, top));
             e.previous_cfa = cfa;
             CONTINUE
         }
     }
-    let mut estado = State { out: Vec::new(), maximum, previous_cfa: 0 };
+    let mut state = State { out: Vec::new(), maximum, previous_cfa: 0 };
     // SAFETY: the unwinder walks this thread's stack; `step` only reads.
     unsafe {
-        _Unwind_Backtrace(step, std::ptr::addr_of_mut!(estado).cast::<u8>());
+        _Unwind_Backtrace(step, std::ptr::addr_of_mut!(state).cast::<u8>());
     }
-    estado.out
+    state.out
 }
 
 #[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))))]
@@ -1312,7 +1312,7 @@ pub fn return_addresses(_max: usize) -> Vec<(u64, u64, u64)> {
 /// slots of a frame whose `n` field carries `k` in bits 40 and up).
 #[allow(unsafe_code)]
 fn visit_check_slots(mut f: impl FnMut(i64)) {
-    let mut q = CONTEXTO.with(|c| c.top.get());
+    let mut q = CONTEXT.with(|c| c.top.get());
     while !q.is_null() {
         // SAFETY: each linked frame is on the stack of a still active
         // function of this thread (as in `visit_frames`).
@@ -1338,14 +1338,14 @@ fn check_walk(from_maps: &[i64]) {
     let mut checked = 0u64;
     visit_check_slots(|h| {
         // Only heap objects: a `Smi` (or null) in the slot is not a root, and
-        // the image's static object (`PERMANENTE`) is never collected — the
+        // the image's static object (`PERMANENT`) is never collected — the
         // compiler removes it from `"deopt"` (`remove_statics_from_deopt`, §14.12).
         if !crate::layout::is_object(h) {
             return;
         }
         // SAFETY: `h` is the handle of an object the generated code wrote into the
         // check slot, alive at this collection point.
-        if unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado } == PERMANENTE {
+        if unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state } == PERMANENT {
             return;
         }
         checked += 1;
@@ -1367,7 +1367,7 @@ fn check_walk(from_maps: &[i64]) {
 /// under stress, without TLAB (every allocation goes through the runtime).
 #[derive(Debug)]
 struct Schedule {
-    estado: std::cell::Cell<u64>,
+    state: std::cell::Cell<u64>,
     rate: u64,
     /// The draw already came out and the collection has not come yet: the next query
     /// answers the same (the slow path queries again).
@@ -1380,8 +1380,8 @@ impl Schedule {
         let (seed, rate) = v.split_once(',')?;
         let seed: u64 = seed.trim().parse().ok()?;
         let rate: u64 = rate.trim().parse().ok().filter(|&t| t > 0)?;
-        let estado = seed ^ 0x9E37_79B9_7F4A_7C15;
-        Some(Schedule { estado: std::cell::Cell::new(if estado == 0 { 1 } else { estado }), rate, pending: std::cell::Cell::new(false) })
+        let state = seed ^ 0x9E37_79B9_7F4A_7C15;
+        Some(Schedule { state: std::cell::Cell::new(if state == 0 { 1 } else { state }), rate, pending: std::cell::Cell::new(false) })
     }
 
     /// Does this allocation collect? (xorshift64*.)
@@ -1389,11 +1389,11 @@ impl Schedule {
         if self.pending.get() {
             return true;
         }
-        let mut x = self.estado.get();
+        let mut x = self.state.get();
         x ^= x >> 12;
         x ^= x << 25;
         x ^= x >> 27;
-        self.estado.set(x);
+        self.state.set(x);
         let yes = x.wrapping_mul(0x2545_F491_4F6C_DD1D) % self.rate == 0;
         self.pending.set(yes);
         yes
@@ -1441,7 +1441,7 @@ pub struct Heap {
     /// deeply immutable ones): canonical constants, enum values and
     /// `const` globals (the generated code marks them, `dartforge_mark_permanent`),
     /// top-level tear-offs and literals.
-    permanentes: crate::hash::HashSet<i64>,
+    permanents: crate::hash::HashSet<i64>,
     /// Canonical constant → the generated getter that produces it (the same address
     /// in all isolates): a message to another isolate carries the getter,
     /// and the destination receives its own canonical instance (`identical` across
@@ -1486,7 +1486,7 @@ pub struct Heap {
     /// The collection in progress is minor (young only).
     minor_collection: bool,
     /// `--gc-stress`: collections since the last full one and its marking
-    /// work (the spacing of full ones, [`Heap::coletar_automatico`]).
+    /// work (the spacing of full ones, [`Heap::collect_automatic`]).
     minors_since_full: u64,
     work_in_full: usize,
     /// Bytes outside the heap that count toward the triggers
@@ -1509,7 +1509,7 @@ pub struct Heap {
     /// N4 invalid handle messages): under `--gc-stress`, with verification,
     /// in tests and in the debug runtime, or with
     /// `DARTFORGE_VALIDAR_HANDLES=1`. Otherwise, an object handle is the
-    /// block (the generated code's invariant): only the `LIVRE` state (object already
+    /// block (the generated code's invariant): only the `FREE` state (object already
     /// collected) is checked, in the header read that happens anyway.
     validate_handles: bool,
     /// `DARTFORGE_GC_RASTRO=1`: one line per collection on stderr (the kind, the
@@ -1576,7 +1576,7 @@ impl Heap {
     /// Runs the native actions of all still live attachments (the isolate
     /// ended: the VM guarantees `NativeFinalizer`s at shutdown) and
     /// discards the `Finalizer` ones.
-    pub fn encerrar_finalizadores(&mut self) {
+    pub fn shutdown_finalizers(&mut self) {
         let attachments = std::mem::take(&mut self.attachments);
         self.attachments_by_owner.clear();
         while self.finish_ready_finalization().is_some() {}
@@ -1616,7 +1616,7 @@ impl Heap {
             enum_values: crate::hash::HashMap::default(),
             tearoffs: crate::hash::HashMap::default(),
             literals: crate::hash::HashMap::default(),
-            permanentes: crate::hash::HashSet::default(),
+            permanents: crate::hash::HashSet::default(),
             constants: crate::hash::HashMap::default(),
             tearoff_code: crate::hash::HashMap::default(),
             gc_disabled: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
@@ -1675,12 +1675,12 @@ impl Heap {
         self.runtime_roots[which] = handle;
         if handle != old { self.arc_swap_owning_root(0, old); }
     }
-    /// The interned string with the `unidades` (the `literals` table, a root), if it already
-    /// exists: the JIT's and the runtime's literal (`textos.rs`, P1).
-    pub fn literal(&self, unidades: &[u16]) -> Option<Ref> {
-        self.literals.get(unidades).copied()
+    /// The interned string with the `units` (the `literals` table, a root), if it already
+    /// exists: the JIT's and the runtime's literal (`text.rs`, P1).
+    pub fn literal(&self, units: &[u16]) -> Option<Ref> {
+        self.literals.get(units).copied()
     }
-    /// Interns `h` (a string with the `unidades`) as a canonical literal: root
+    /// Interns `h` (a string with the `units`) as a canonical literal: root
     /// (`literals`) and permanent (identity across ports of the same isolate).
     /// The entry counts one owner; repeating the same registration does not retain again.
     ///
@@ -1691,12 +1691,12 @@ impl Heap {
     /// heap.store_literal(vec![65], text);
     /// assert_eq!(heap.literal(&[65]), Some(text));
     /// ```
-    pub fn store_literal(&mut self, unidades: Vec<u16>, h: Ref) {
+    pub fn store_literal(&mut self, units: Vec<u16>, h: Ref) {
         if smi::e_handle(h) { self.check_live(h); }
-        let old = self.literals.get(&unidades).copied().unwrap_or(0);
+        let old = self.literals.get(&units).copied().unwrap_or(0);
         self.arc_swap_owning_root(h, old);
-        self.literals.insert(unidades, h);
-        self.permanentes.insert(h);
+        self.literals.insert(units, h);
+        self.permanents.insert(h);
     }
     /// Copies the value to the global owner; null or `Smi` releases the previous owner.
     ///
@@ -1748,9 +1748,9 @@ impl Heap {
     /// let mut heap = Heap::new(false);
     /// heap.move_global_root(10, 20);
     /// ```
-    pub fn move_global_root(&mut self, de: i64, to: i64) {
-        if de == to { return; }
-        if let Some(h) = self.globals.remove(&de) {
+    pub fn move_global_root(&mut self, of: i64, to: i64) {
+        if of == to { return; }
+        if let Some(h) = self.globals.remove(&of) {
             let old = self.globals.get(&to).copied().unwrap_or(0);
             self.globals.insert(to, h);
             self.arc_swap_owning_root(0, old);
@@ -1770,17 +1770,17 @@ impl Heap {
         }
     }
 
-    /// Marks `handle` as permanent (see `permanentes`).
+    /// Marks `handle` as permanent (see `permanents`).
     pub fn mark_permanent(&mut self, handle: i64) {
         if smi::e_handle(handle) {
-            self.permanentes.insert(handle);
+            self.permanents.insert(handle);
         }
     }
 
     /// Marks `handle` as the canonical constant that `getter` produces.
     pub fn mark_constant(&mut self, handle: i64, getter: usize) {
         if smi::e_handle(handle) {
-            self.permanentes.insert(handle);
+            self.permanents.insert(handle);
             if getter != 0 {
                 self.constants.insert(handle, getter);
             }
@@ -1797,10 +1797,10 @@ impl Heap {
         self.tearoff_code.get(&handle).copied()
     }
 
-    /// Whether `handle` is permanent and immutable (see `permanentes`): a
+    /// Whether `handle` is permanent and immutable (see `permanents`): a
     /// message in the same isolate passes it without copying.
     pub fn is_permanent(&self, handle: i64) -> bool {
-        self.permanentes.contains(&handle) || is_static(handle)
+        self.permanents.contains(&handle) || is_static(handle)
     }
     /// Reads the heap ceiling from the environment once, at creation.
     fn limit_from_env() -> usize {
@@ -1871,7 +1871,7 @@ impl Heap {
         let object = self.new_object(class_id, &[(index, false), (text, true)]);
         self.arc_swap_owning_root(object, 0);
         self.enum_values.insert((class_id, index), object);
-        self.permanentes.insert(object);
+        self.permanents.insert(object);
         self.pop_frame(frame);
         object
     }
@@ -1897,7 +1897,7 @@ impl Heap {
         self.arc_swap_owning_root(h, old);
         self.tearoffs.insert(code, h);
         self.tearoff_code.insert(h, code);
-        self.permanentes.insert(h);
+        self.permanents.insert(h);
     }
     /// Opens a root frame with a monotonic identifier.
     pub fn push_frame(&mut self) -> i64 {
@@ -2093,7 +2093,7 @@ impl Heap {
         if new == old { return; }
         let Some(mut arc) = self.arc.take() else { return };
         self.arc_retain_registering(&mut arc, new);
-        arc.estado.release(old).unwrap_or_else(|e| arc_failure(e));
+        arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
         self.arc = Some(arc);
     }
 
@@ -2134,15 +2134,15 @@ impl Heap {
     /// heap.pop_frame(caller);
     /// ```
     pub fn move_root(&mut self, origin: i64, source_slot: usize, dest: i64, dest_slot: usize) {
-        let de = self.frames.iter().rposition(|(id, _, _)| *id == origin)
+        let of = self.frames.iter().rposition(|(id, _, _)| *id == origin)
             .expect("nonexistent source frame");
         let to = self.frames.iter().rposition(|(id, _, _)| *id == dest)
             .expect("nonexistent destination frame");
-        assert!(self.frames[de].2 && self.frames[to].2, "move requires owning frames");
-        let value = *self.frames[de].1.get(source_slot).expect("invalid source slot");
+        assert!(self.frames[of].2 && self.frames[to].2, "move requires owning frames");
+        let value = *self.frames[of].1.get(source_slot).expect("invalid source slot");
         let old = *self.frames[to].1.get(dest_slot).expect("invalid destination slot");
-        if de == to && source_slot == dest_slot { return; }
-        self.frames[de].1[source_slot] = 0;
+        if of == to && source_slot == dest_slot { return; }
+        self.frames[of].1[source_slot] = 0;
         self.frames[to].1[dest_slot] = value;
         self.stats.live_roots -= usize::from(old != 0);
         self.arc_swap_owning_root(0, old);
@@ -2204,7 +2204,7 @@ impl Heap {
     }
     /// Collects if some trigger asks for it, checks the ceiling and counts the allocation of
     /// `bytes`.
-    fn antes_de_alocar(&mut self, bytes: usize) {
+    fn before_allocate(&mut self, bytes: usize) {
         // Two different limits (G6):
         // * the TRIGGER (`threshold`, `byte_threshold`): how much is allocated since
         //   the last collection, recomputed at the end of each one
@@ -2216,7 +2216,7 @@ impl Heap {
         // code did not register roots; with each function's frame (G1),
         // collecting without an open frame is just collecting with the permanent roots.
         if !self.gc_disabled && self.needs_collection(bytes) {
-            self.coletar_automatico(bytes);
+            self.collect_automatic(bytes);
         }
         // After the collection: if it still exceeds the ceiling, there is nothing to reclaim.
         self.verify_ceiling(bytes);
@@ -2273,17 +2273,17 @@ impl Heap {
     #[inline]
     pub fn allocate_object(&mut self, class_id: i64, n: usize) -> i64 {
         let cid = i32::try_from(class_id).expect("class id beyond 32 bits");
-        self.alocar_bloco(cid, crate::layout::palavras_de_instancia(n), flags_do_bloco::INSTANCIA, n)
+        self.allocate_block(cid, crate::layout::instance_words(n), block_flags::INSTANCE, n)
     }
     /// A block with a body of `words` zeroed words, class `cid`, `flags` and
-    /// `n` in the header (in `INSTANCIA`, the number of fields; in the others, the
+    /// `n` in the header (in `INSTANCE`, the number of fields; in the others, the
     /// words): the path of [`Heap::allocate`], [`Heap::allocate_object`] and of
     /// `dartforge_allocate`.
     #[inline]
-    pub(crate) fn alocar_bloco(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
+    pub(crate) fn allocate_block(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
         let bytes = allocation_bytes(words);
         if self.needs_collection(bytes) {
-            return self.alocar_lento(cid, words, flags, n);
+            return self.allocate_slow(cid, words, flags, n);
         }
         self.count_allocation(1, bytes);
         self.objects.allocate(cid, words, flags, n)
@@ -2304,18 +2304,18 @@ impl Heap {
     /// The collection the triggers ask for before allocating `bytes`: the full one if
     /// the total exceeded its trigger (or the ceiling, or every
     /// [`MINORS_PER_FULL_UNDER_STRESS`] under `--gc-stress`); otherwise the minor one.
-    fn coletar_automatico(&mut self, bytes: usize) {
+    fn collect_automatic(&mut self, bytes: usize) {
         let full = self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
             || (self.byte_limit != usize::MAX && self.total_bytes(bytes) > self.byte_limit)
             || (self.stress
                 && self.minors_since_full + 1
                     >= MINORS_PER_FULL_UNDER_STRESS.max((self.work_in_full / WORK_PER_MINOR_UNDER_STRESS) as u64));
-        self.coletar(!full);
+        self.run_collection(!full);
     }
     #[cold]
     #[inline(never)]
-    fn alocar_lento(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
-        self.antes_de_alocar(allocation_bytes(words));
+    fn allocate_slow(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
+        self.before_allocate(allocation_bytes(words));
         self.objects.allocate(cid, words, flags, n)
     }
     /// Refills the TLAB for `n` fields of the [`Context`] (if exhausted) with
@@ -2329,8 +2329,8 @@ impl Heap {
         if !self.published || self.stress || self.schedule.is_some() || n == 0 || n > TLAB_N {
             return;
         }
-        let size = bytes_do_bloco(n);
-        if CONTEXTO.with(|c| (c.tlab[n][1].get() as usize).saturating_sub(c.tlab[n][0].get() as usize) >= size) {
+        let size = block_bytes(n);
+        if CONTEXT.with(|c| (c.tlab[n][1].get() as usize).saturating_sub(c.tlab[n][0].get() as usize) >= size) {
             return;
         }
         let mut k = TLAB_BLOCKS
@@ -2346,7 +2346,7 @@ impl Heap {
         let (start, k) = self.objects.take_range(n, k);
         self.objects.live_set += k;
         self.count_allocation(k, k * size);
-        CONTEXTO.with(|c| {
+        CONTEXT.with(|c| {
             c.tlab[n][0].set(start);
             c.tlab[n][1].set(start.wrapping_add(k * size));
         });
@@ -2359,8 +2359,8 @@ impl Heap {
             return;
         }
         for n in 1..=TLAB_N {
-            let (cursor, end) = CONTEXTO.with(|c| (c.tlab[n][0].replace(std::ptr::null_mut()), c.tlab[n][1].replace(std::ptr::null_mut())));
-            let size = bytes_do_bloco(n);
+            let (cursor, end) = CONTEXT.with(|c| (c.tlab[n][0].replace(std::ptr::null_mut()), c.tlab[n][1].replace(std::ptr::null_mut())));
+            let size = block_bytes(n);
             let k = (end as usize).saturating_sub(cursor as usize) / size;
             if k > 0 {
                 self.objects.return_range(n, cursor, end);
@@ -2376,7 +2376,7 @@ impl Heap {
     /// The live block of object `h` (`h & 3 == 2`), or an N4 `panic` for an invalid
     /// handle or an already collected object.
     ///
-    /// A static object (image section, `PERMANENTE`) is also returned:
+    /// A static object (image section, `PERMANENT`) is also returned:
     /// it reads like any block; writers check
     /// ([`Heap::check_writable`]).
     ///
@@ -2388,11 +2388,11 @@ impl Heap {
     #[inline(always)]
     fn live_block(&self, handle: i64) -> *mut Header {
         if !self.validate_handles && is_object(handle) {
-            let b = (handle - DESLOCAMENTO_DO_HANDLE) as *mut Header;
+            let b = (handle - HANDLE_OFFSET) as *mut Header;
             // SAFETY: without validation, an object handle is a block of the space
             // or a static (`validate_handles`).
             #[allow(unsafe_code)]
-            if unsafe { (*b).estado } != LIVRE {
+            if unsafe { (*b).state } != FREE {
                 return b;
             }
         }
@@ -2409,21 +2409,21 @@ impl Heap {
         match self.objects.block_of(handle) {
             // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
-            Some(b) if unsafe { (*b).estado } == crate::space::POISON_STATE => {
+            Some(b) if unsafe { (*b).state } == crate::space::POISON_STATE => {
                 panic!("compiler bug: handle already collected (missing root; poisoned block, DARTFORGE_GC_VENENO)\nhandle {handle}")
             }
             // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
-            Some(b) if unsafe { (*b).estado } != 0 => b,
+            Some(b) if unsafe { (*b).state } != 0 => b,
             Some(_) => panic!("compiler bug: handle already collected (missing root)\nhandle {handle}"),
-            None if is_static(handle) => (handle - DESLOCAMENTO_DO_HANDLE) as *mut Header,
+            None if is_static(handle) => (handle - HANDLE_OFFSET) as *mut Header,
             None if self.objects.in_page(handle) => {
                 panic!("compiler bug: handle already collected (missing root)\nhandle {handle}")
             }
             None => panic!("compiler bug: handle beyond the table (scalar used as a handle)\nhandle {handle}"),
         }
     }
-    /// The block of `h` if it is an object of the space (live or `LIVRE`; never a
+    /// The block of `h` if it is an object of the space (live or `FREE`; never a
     /// static): the page map with `validate_handles`, otherwise the address
     /// itself.
     #[inline]
@@ -2434,10 +2434,10 @@ impl Heap {
         if !is_object(h) {
             return None;
         }
-        let b = (h - DESLOCAMENTO_DO_HANDLE) as *mut Header;
+        let b = (h - HANDLE_OFFSET) as *mut Header;
         // SAFETY: `validate_handles` (an object handle is a block or a static).
         #[allow(unsafe_code)]
-        (unsafe { (*b).estado } != PERMANENTE).then_some(b)
+        (unsafe { (*b).state } != PERMANENT).then_some(b)
     }
     /// Does the child `v` written into an old object require the barrier (§2.7)? Only a young object:
     /// null, `Smi`, old and static do not.
@@ -2448,7 +2448,7 @@ impl Heap {
         }
         // SAFETY: block of the space.
         #[allow(unsafe_code)]
-        self.space_block(v).is_some_and(|b| unsafe { (*b).estado } == JOVEM)
+        self.space_block(v).is_some_and(|b| unsafe { (*b).state } == YOUNG)
     }
     /// The N4 panic of a handle that is not an object's.
     #[cold]
@@ -2474,7 +2474,7 @@ impl Heap {
     #[allow(unsafe_code)]
     fn check_writable(b: *const Header) {
         // SAFETY: readable block (from `live_block`).
-        assert!(unsafe { (*b).estado } != PERMANENTE, "compiler bug: write to a static object");
+        assert!(unsafe { (*b).state } != PERMANENT, "compiler bug: write to a static object");
     }
     /// The identity `hashCode` of object `h` of the space: taken from the
     /// address, which does not change while the object lives (the collector does not move) and
@@ -2484,12 +2484,12 @@ impl Heap {
     pub fn identity_hash(&self, h: i64) -> Option<i64> {
         let b = match self.space_block(h) {
             Some(b) => b,
-            None if self.is_static(h) => (h - DESLOCAMENTO_DO_HANDLE) as *mut Header,
+            None if self.is_static(h) => (h - HANDLE_OFFSET) as *mut Header,
             None => return None,
         };
         // SAFETY: block of a page of the space.
         #[allow(unsafe_code)]
-        if unsafe { (*b).estado } == LIVRE {
+        if unsafe { (*b).state } == FREE {
             return None;
         }
         let x = ((b as u64 >> 3).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 34) as i64;
@@ -2502,8 +2502,8 @@ impl Heap {
         // SAFETY: block of a page of the space, checked alive.
         #[allow(unsafe_code)]
         unsafe {
-            // The map is only a reference map in `INSTANCIA` (§2.3).
-            if (*b).estado == LIVRE || shape(b) != flags_do_bloco::INSTANCIA {
+            // The map is only a reference map in `INSTANCE` (§2.3).
+            if (*b).state == FREE || shape(b) != block_flags::INSTANCE {
                 return None;
             }
             Some(Obj { body: body(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
@@ -2519,11 +2519,11 @@ impl Heap {
         if !self.is_static(h) {
             return None;
         }
-        let b = (h - DESLOCAMENTO_DO_HANDLE) as *mut Header;
+        let b = (h - HANDLE_OFFSET) as *mut Header;
         // SAFETY: static block of the image, alive for the whole process.
         #[allow(unsafe_code)]
         unsafe {
-            if shape(b) != flags_do_bloco::INSTANCIA {
+            if shape(b) != block_flags::INSTANCE {
                 return None;
             }
             Some(Obj { body: body(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
@@ -2547,7 +2547,7 @@ impl Heap {
         Self::check_writable(b);
         // SAFETY: live block.
         #[allow(unsafe_code)]
-        let instance = unsafe { shape(b) } == flags_do_bloco::INSTANCIA;
+        let instance = unsafe { shape(b) } == block_flags::INSTANCE;
         assert!(instance, "runtime bug: set_field on an object that is not INSTANCIA");
         self.objects.remember(b);
         // SAFETY: live block; `i` checked against the number of fields.
@@ -2603,7 +2603,7 @@ impl Heap {
             #[allow(unsafe_code)]
             let class_id = i64::from(unsafe { (*b).class_id });
             let Some(origin) = plan.get(&class_id) else { continue };
-            let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
+            let h = b as i64 + HANDLE_OFFSET;
             let olds = self.object(h).expect("live object").to_vec();
             let value_list: Vec<Field> = origin
                 .iter()
@@ -2625,13 +2625,13 @@ impl Heap {
 
     /// Replaces the fields of the object of block `b` with `value_list`: in the block itself
     /// if the number of fields is its own, otherwise in an out-of-line body (the object does not
-    /// change address; the generated code follows the body, [`FORA`]).
+    /// change address; the generated code follows the body, [`OUT_OF_LINE`]).
     fn swap_fields(&mut self, b: *mut Header, value_list: &[Field]) {
         self.objects.remember(b);
         // Under ARC, the migration (the JIT reload) and the added field are
         // a raw write: the snapshot counts the fields from before and those after.
         if self.arc.is_some() {
-            self.arc_snapshot(b, b as i64 + DESLOCAMENTO_DO_HANDLE);
+            self.arc_snapshot(b, b as i64 + HANDLE_OFFSET);
         }
         // SAFETY: live block of the space; the out-of-line body is new and of the size
         // of `value_list`.
@@ -2643,13 +2643,13 @@ impl Heap {
             } else {
                 let c = new_out_of_line_body(value_list.len());
                 (*c).class_id = (*b).class_id;
-                if (*b).flags & FORA != 0 {
+                if (*b).flags & OUT_OF_LINE != 0 {
                     release_out_of_line_body(current);
                 } else {
                     self.objects.with_out_of_line.push(b);
                 }
                 *fields_of(b).cast::<*mut Header>() = c;
-                (*b).flags |= FORA;
+                (*b).flags |= OUT_OF_LINE;
                 c
             };
             for (i, &(bits, is_ref_kind)) in value_list.iter().enumerate() {
@@ -2681,7 +2681,7 @@ impl Heap {
         // SAFETY: block of the space.
         #[allow(unsafe_code)]
         unsafe {
-            if (*b).estado == LIVRE {
+            if (*b).state == FREE {
                 return None;
             }
             self.objects.remember(b);
@@ -2726,10 +2726,10 @@ impl Heap {
         // sweep reads only the bits).
         // SAFETY (of the uses): `b` is a block of a page of the space.
         #[allow(unsafe_code)]
-        // The static (`PERMANENTE`) is checked before the mark bitmap: its
+        // The static (`PERMANENT`) is checked before the mark bitmap: its
         // bitmap would fall outside a heap page (§2.8).
         let walks = |b: *const Header| unsafe {
-            if minor { (*b).estado == JOVEM } else { (*b).estado != PERMANENTE && !marked(b) }
+            if minor { (*b).state == YOUNG } else { (*b).state != PERMANENT && !marked(b) }
         };
         // An edge: the first object child still to be marked goes to
         // `next_offset` (followed without the stack); the others, to the stack.
@@ -2739,7 +2739,7 @@ impl Heap {
                 return;
             }
             if is_object(bits) {
-                if !validate && !walks((bits - DESLOCAMENTO_DO_HANDLE) as *const Header) {
+                if !validate && !walks((bits - HANDLE_OFFSET) as *const Header) {
                     return;
                 }
                 if *next_offset == 0 {
@@ -2767,7 +2767,7 @@ impl Heap {
                         self.live_block(current)
                     } else {
                         debug_assert!(self.objects.block_of(current).is_some(), "invalid edge {current}");
-                        (current - DESLOCAMENTO_DO_HANDLE) as *mut Header
+                        (current - HANDLE_OFFSET) as *mut Header
                     };
                     let mut next_offset = 0;
                     // SAFETY: live block of the space.
@@ -2779,22 +2779,22 @@ impl Heap {
                         // Both promote already during marking (the reached young object
                         // becomes old, the remembered one becomes old again in the full one:
                         // the sweep reads only the bits) and set the bit.
-                        if (*b).estado != VELHO {
-                            (*b).estado = VELHO;
+                        if (*b).state != OLD {
+                            (*b).state = OLD;
                         }
                         mark_block(b);
                         live += 1;
                         marked_objects += 1;
                         self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack));
-                        // The body by format (§2.8): `BRUTO` has no
+                        // The body by format (§2.8): `RAW` has no
                         // references; `REFS`, the words `1..=word 0`;
-                        // `INSTANCIA`, the fields the map says are references. What
+                        // `INSTANCE`, the fields the map says are references. What
                         // this collection does not walk (old in the minor one, already
                         // marked) does not even enter the stack; the first one still to
                         // mark is followed directly.
-                        let tipo = shape(b);
-                        if tipo != flags_do_bloco::INSTANCIA {
-                            if tipo == flags_do_bloco::REFS {
+                        let ty = shape(b);
+                        if ty != block_flags::INSTANCE {
+                            if ty == block_flags::REFS {
                                 let w = self.objects.body_words(b);
                                 let n = body_refs(b, w);
                                 work += n;
@@ -2802,7 +2802,7 @@ impl Heap {
                                 for i in 1..=n {
                                     visit_ref(*p.add(i), &mut next_offset, &mut stack);
                                 }
-                                if !minor && (*b).flags & flags_do_bloco::CARTOES != 0 {
+                                if !minor && (*b).flags & block_flags::CARDS != 0 {
                                     crate::space::clear_cards(b, n);
                                 }
                             }
@@ -2821,8 +2821,8 @@ impl Heap {
                             m &= m - 1;
                         }
                         if n > 32 {
-                            let ext = fields.add(capacidade(n)).cast::<u64>();
-                            for w in 0..palavras_do_mapa(n) {
+                            let ext = fields.add(capacity(n)).cast::<u64>();
+                            for w in 0..map_words(n) {
                                 let mut m = *ext.add(w);
                                 while m != 0 {
                                     let i = 32 + w * 64 + m.trailing_zeros() as usize;
@@ -2847,19 +2847,19 @@ impl Heap {
 
     /// The strong reference positions of object `h`, by body shape, the
     /// same ones marking walks (§2.8): `REFS`, the words
-    /// `1..=word 0`; `INSTANCIA`, the fields of the map (and of the extended map);
-    /// `BRUTO`, none. A static or a free block has no edges here (the
+    /// `1..=word 0`; `INSTANCE`, the fields of the map (and of the extended map);
+    /// `RAW`, none. A static or a free block has no edges here (the
     /// static is immortal under ARC, docs/ARC-CICLOS-ESPECIFICACAO.md §19.1).
     fn ref_positions(&self, h: i64, f: &mut dyn FnMut(*mut i64)) {
         let Some(b) = self.space_block(h) else { return };
         // SAFETY: block of the space; only the live ones are walked.
         #[allow(unsafe_code)]
         unsafe {
-            if (*b).estado == LIVRE {
+            if (*b).state == FREE {
                 return;
             }
-            let tipo = shape(b);
-            if tipo == flags_do_bloco::REFS {
+            let ty = shape(b);
+            if ty == block_flags::REFS {
                 let w = self.objects.body_words(b);
                 let n = body_refs(b, w);
                 let p = fields_of(b);
@@ -2868,7 +2868,7 @@ impl Heap {
                 }
                 return;
             }
-            if tipo != flags_do_bloco::INSTANCIA {
+            if ty != block_flags::INSTANCE {
                 return;
             }
             let c = body(b);
@@ -2880,8 +2880,8 @@ impl Heap {
                 m &= m - 1;
             }
             if n > 32 {
-                let ext = fields.add(capacidade(n)).cast::<u64>();
-                for w in 0..palavras_do_mapa(n) {
+                let ext = fields.add(capacity(n)).cast::<u64>();
+                for w in 0..map_words(n) {
                     let mut m = *ext.add(w);
                     while m != 0 {
                         f(fields.add(32 + w * 64 + m.trailing_zeros() as usize));
@@ -2933,7 +2933,7 @@ impl Heap {
                 self.arc_swapped(b, attachment.owner, 0, action);
             }
             self.remember_object(attachment.owner);
-            if let Some(arc) = &mut self.arc { arc.estado.mark_side_edges(attachment.owner); }
+            if let Some(arc) = &mut self.arc { arc.state.mark_side_edges(attachment.owner); }
             self.attachments_by_owner.entry(attachment.owner).or_default().push(self.attachments.len());
         }
         if let FinalizerAction::Native(_, _, bytes) = attachment.action {
@@ -2962,7 +2962,7 @@ impl Heap {
     /// The full collection (`dartforge_gc_collect` and the tests): marks
     /// from the roots and sweeps everything; what survives becomes old.
     pub fn collect(&mut self) {
-        self.coletar(false);
+        self.run_collection(false);
     }
 
     /// Pushes the roots into `dest`: the runtime's permanent ones, the
@@ -3010,14 +3010,14 @@ impl Heap {
                 let b = self.live_block(h);
                 // SAFETY: live block of the space.
                 #[allow(unsafe_code)]
-                let estado = unsafe { (*b).estado };
-                if estado == JOVEM {
+                let state = unsafe { (*b).state };
+                if state == YOUNG {
                     // The parent: cid, state, flags and the child's position in the body.
                     let parent_node = origin.get(&h).copied();
                     let desc = |x: i64| {
                         let c = self.header(x);
                         let pos = self.words(x).iter().position(|&w| w == h);
-                        format!("cid {} state {} flags {:#x} n {} position {pos:?}", c.class_id, c.estado, c.flags, c.n)
+                        format!("cid {} state {} flags {:#x} n {} position {pos:?}", c.class_id, c.state, c.flags, c.n)
                     };
                     panic!(
                         "collector bug: reachable young object without a mark in the minor collection (missing write barrier)\nobject {h} (cid {}), reached from {parent_node:?} ({})",
@@ -3038,7 +3038,7 @@ impl Heap {
     /// A collection: `minor` marks and sweeps only the young (old ones count as
     /// live, and those remembered by the write barrier enter as roots);
     /// the full one, everything. In both, what survives becomes old.
-    fn coletar(&mut self, minor: bool) {
+    fn run_collection(&mut self, minor: bool) {
         // Pure ARC does not trace: draining decides lifetime by RC and by the
         // direct roots (docs/ARC-IMPLEMENTACAO.md §6).
         if self.arc.as_ref().is_some_and(|a| a.pure) {
@@ -3082,7 +3082,7 @@ impl Heap {
                 #[allow(unsafe_code)]
                 let work = unsafe { self.objects.push_remembered(b, &mut pending_list) };
                 self.marking_work += work;
-                let owner = b as i64 + DESLOCAMENTO_DO_HANDLE;
+                let owner = b as i64 + HANDLE_OFFSET;
                 self.visit_attachment_edges(owner, &mut |action| pending_list.push(action));
             }
         }
@@ -3171,14 +3171,14 @@ impl Heap {
         });
         if let Some(arc) = &mut self.arc {
             for &action in &ready {
-                arc.estado.retain_ref(action).unwrap_or_else(|e| arc_failure(e));
+                arc.state.retain_ref(action).unwrap_or_else(|e| arc_failure(e));
             }
         }
         self.ready_finalizations.extend(ready);
         // The identity tables across ports: purged by the mark bit
         // like the others (whoever needs the constant alive keeps it in a global,
         // the getter already writes there; §2.8).
-        self.permanentes.retain(|h| alive(h));
+        self.permanents.retain(|h| alive(h));
         self.constants.retain(|h, _| alive(h));
         self.tearoff_code.retain(|h, _| alive(h));
         let mut finalize = Vec::new();
@@ -3252,7 +3252,7 @@ impl Heap {
     /// process (resident, peak, committed system heap).
     pub fn memory_report(&self) -> String {
         use std::fmt::Write;
-        fn tabela<K, V>(m: &crate::hash::HashMap<K, V>) -> (usize, usize) {
+        fn table<K, V>(m: &crate::hash::HashMap<K, V>) -> (usize, usize) {
             (m.len(), m.capacity() * (std::mem::size_of::<(K, V)>() + 1) / 1024)
         }
         fn item_set<K>(m: &crate::hash::HashSet<K>) -> (usize, usize) {
@@ -3263,17 +3263,17 @@ impl Heap {
         let _ = writeln!(
             s,
             "[memory] tables (entries, KiB): globals {:?}, literals {:?} (+{literals} KiB of keys), constants {:?}, permanent {:?}, enum {:?}, tearoffs {:?}, tearoff code {:?}, late {:?}, weak {:?}, ephemerons {:?}, finalizable {:?}; estimated {} KiB, trigger {} KiB",
-            tabela(&self.globals),
-            tabela(&self.literals),
-            tabela(&self.constants),
-            item_set(&self.permanentes),
-            tabela(&self.enum_values),
-            tabela(&self.tearoffs),
-            tabela(&self.tearoff_code),
+            table(&self.globals),
+            table(&self.literals),
+            table(&self.constants),
+            item_set(&self.permanents),
+            table(&self.enum_values),
+            table(&self.tearoffs),
+            table(&self.tearoff_code),
             item_set(&self.late_fields_initialized),
-            tabela(&self.weak_refs),
-            tabela(&self.ephemerons),
-            tabela(&self.finalizable),
+            table(&self.weak_refs),
+            table(&self.ephemerons),
+            table(&self.finalizable),
             self.stats.estimated_bytes / 1024,
             self.byte_threshold / 1024
         );
@@ -3318,8 +3318,8 @@ impl Heap {
         self.byte_threshold = if self.byte_limit == usize::MAX {
             growth
         } else {
-            let folga = self.byte_limit.saturating_sub(self.total_bytes(0));
-            growth.min(self.stats.estimated_bytes.saturating_add((folga / 2).max(MIN_STEP)))
+            let slack = self.byte_limit.saturating_sub(self.total_bytes(0));
+            growth.min(self.stats.estimated_bytes.saturating_add((slack / 2).max(MIN_STEP)))
         };
         // There is no longer a count trigger for the full collection: it
         // existed because every collection swept the whole slot table, and with
@@ -3349,7 +3349,7 @@ impl Heap {
 // ---------------------------------------------------------------------------
 // The unified space API (docs/NATIVO-ESPACO-UNIFICADO.md §3.2): every runtime
 // value is a block of the object space; the per-type views are in
-// `textos.rs`, `boxes.rs`, `lists.rs` and `tipadas.rs`.
+// `text.rs`, `boxes.rs`, `lists.rs` and `typed_lists.rs`.
 // ---------------------------------------------------------------------------
 
 /// A value without a decided heap representation (what `TaggedValue` was) in the
@@ -3362,7 +3362,7 @@ pub enum Value {
     Bool(bool),
 }
 
-/// The static boxes of `false` and `true` (cid 5, `BRUTO`, `PERMANENTE`): the
+/// The static boxes of `false` and `true` (cid 5, `RAW`, `PERMANENT`): the
 /// header and the value, in the form of a block; the handle is the address + 2. The
 /// generated code references them as `@dartforge_false`/`@dartforge_true`
 /// (`llvm/externs.rs`). They are runtime statics (§2.11): never marked,
@@ -3370,14 +3370,14 @@ pub enum Value {
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
 pub static dartforge_false: [u64; 3] = [
-    crate::layout::palavra_do_cabecalho(PERMANENTE, crate::layout::flags::BRUTO, 1, crate::layout::cid::BOOL),
+    crate::layout::header_word(PERMANENT, crate::layout::flags::RAW, 1, crate::layout::cid::BOOL),
     0,
     0,
 ];
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
 pub static dartforge_true: [u64; 3] = [
-    crate::layout::palavra_do_cabecalho(PERMANENTE, crate::layout::flags::BRUTO, 1, crate::layout::cid::BOOL),
+    crate::layout::header_word(PERMANENT, crate::layout::flags::RAW, 1, crate::layout::cid::BOOL),
     0,
     1,
 ];
@@ -3403,12 +3403,12 @@ pub fn register_image(start: usize, end: usize) {
 }
 
 /// The ranges of the registered images, in registration order (the index of the
-/// static literals, `textos.rs`).
+/// static literals, `text.rs`).
 pub fn images() -> Vec<(usize, usize)> {
     IMAGES.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
-/// Is `h` a static object (`PERMANENTE`): one of the runtime's `bool` boxes
+/// Is `h` a static object (`PERMANENT`): one of the runtime's `bool` boxes
 /// or a block of the statics section of a registered image? Never reads memory
 /// outside those ranges.
 #[allow(unsafe_code)]
@@ -3416,7 +3416,7 @@ pub fn is_static(h: Ref) -> bool {
     if !is_object(h) {
         return false;
     }
-    let b = (h - DESLOCAMENTO_DO_HANDLE) as usize;
+    let b = (h - HANDLE_OFFSET) as usize;
     let from_runtime = b == std::ptr::addr_of!(dartforge_false) as usize || b == std::ptr::addr_of!(dartforge_true) as usize;
     let in_image = from_runtime || {
         let v = IMAGES.read().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -3424,26 +3424,26 @@ pub fn is_static(h: Ref) -> bool {
     };
     // SAFETY: `b` is in a registered range (readable memory of the image) or is
     // one of the runtime's boxes.
-    in_image && unsafe { (*(b as *const Header)).estado } == PERMANENTE
+    in_image && unsafe { (*(b as *const Header)).state } == PERMANENT
 }
 
 
 impl Heap {
     /// A zeroed block of `words` body words, class `cid` and `flags`
-    /// (format, compact shape, cards…), state `JOVEM`; collects first if a
+    /// (format, compact shape, cards…), state `YOUNG`; collects first if a
     /// trigger asks for it (the references the caller holds need a root). The header's `n`
-    /// is `words` (saturated): for `INSTANCIA`, use
+    /// is `words` (saturated): for `INSTANCE`, use
     /// [`Heap::allocate_instance`]. Whoever allocates a large general `_List` sets
-    /// `CARTOES` (`layout::has_cards`) and reserves their words
+    /// `CARDS` (`layout::has_cards`) and reserves their words
     /// (`layout::list_words`).
     pub fn allocate(&mut self, cid: i32, words: usize, flags: u8) -> Ref {
         debug_assert!(
-            flags & flags_do_bloco::FORMA != flags_do_bloco::INSTANCIA || words <= 32,
+            flags & block_flags::FORMAT != block_flags::INSTANCE || words <= 32,
             "INSTANCIA with an extended map through `allocate`: use `allocate_instance`"
         );
-        self.alocar_bloco(cid, words, flags, words)
+        self.allocate_block(cid, words, flags, words)
     }
-    /// An `INSTANCIA` object of `fields` zeroed fields (today's `allocate_object`).
+    /// An `INSTANCE` object of `fields` zeroed fields (today's `allocate_object`).
     pub fn allocate_instance(&mut self, cid: i32, fields: usize) -> Ref {
         self.allocate_object(i64::from(cid), fields)
     }
@@ -3475,35 +3475,35 @@ impl Heap {
     pub fn is_live_object(&self, h: Ref) -> bool {
         if !self.validate_handles {
             // SAFETY: `validate_handles` (an object handle is a block or a static).
-            return is_object(h) && unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado } != LIVRE;
+            return is_object(h) && unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state } != FREE;
         }
         match self.objects.block_of(h) {
             // SAFETY: block of a page of the space.
-            Some(b) => (unsafe { (*b).estado }) != LIVRE,
+            Some(b) => (unsafe { (*b).state }) != FREE,
             None => is_static(h),
         }
     }
-    /// Is `h` a static object (image section, `PERMANENTE`)?
+    /// Is `h` a static object (image section, `PERMANENT`)?
     #[allow(unsafe_code)]
     pub fn is_static(&self, h: Ref) -> bool {
         if !self.validate_handles {
             // SAFETY: `validate_handles` (an object handle is a block or a static).
-            return is_object(h) && unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado } == PERMANENTE;
+            return is_object(h) && unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state } == PERMANENT;
         }
         self.objects.block_of(h).is_none() && is_static(h)
     }
-    /// The body words of block `b` (readable): the `INSTANCIA` body (the
+    /// The body words of block `b` (readable): the `INSTANCE` body (the
     /// out-of-line one, if any) and its number of words.
     #[inline]
     #[allow(unsafe_code)]
     fn body_and_words(&self, b: *mut Header) -> (*mut Header, usize) {
         // SAFETY: readable block (from `live_block`).
         unsafe {
-            if shape(b) == flags_do_bloco::INSTANCIA {
+            if shape(b) == block_flags::INSTANCE {
                 let c = body(b);
-                return (c, crate::layout::palavras_de_instancia(usize::from((*c).n)));
+                return (c, crate::layout::instance_words(usize::from((*c).n)));
             }
-            if (*b).estado == PERMANENTE {
+            if (*b).state == PERMANENT {
                 let n = usize::from((*b).n);
                 if n != usize::from(u16::MAX) {
                     return (b, n);
@@ -3513,7 +3513,7 @@ impl Heap {
                 let c = (*b).class_id;
                 assert!(crate::layout::cid::is_string(c), "compiler bug: large static that is not a string");
                 let len = usize::try_from(*fields_of(b)).unwrap_or(0);
-                return (b, crate::layout::palavras_de_texto(len, c == crate::layout::cid::TWO_BYTE_STRING));
+                return (b, crate::layout::string_words(len, c == crate::layout::cid::TWO_BYTE_STRING));
             }
             (b, self.objects.body_words(b))
         }
@@ -3527,7 +3527,7 @@ impl Heap {
         // keeps it.
         unsafe { std::slice::from_raw_parts(fields_of(c), w) }
     }
-    /// The whole body of `h`, writable **without barrier**: only `BRUTO`, or before
+    /// The whole body of `h`, writable **without barrier**: only `RAW`, or before
     /// publishing the object (whoever writes a `Ref` into a published object calls
     /// [`Heap::remember`]/[`Heap::remember_element`]).
     #[inline]
@@ -3557,12 +3557,12 @@ impl Heap {
         // SAFETY: the same words, seen as bytes.
         unsafe { std::slice::from_raw_parts_mut(p.as_mut_ptr().cast(), p.len() * 8) }
     }
-    /// Replaces the `mask` bits of `flags` with `value`: only `FORMA`/`ELEMENTO` of a
+    /// Replaces the `mask` bits of `flags` with `value`: only `FORMAT`/`ELEMENT` of a
     /// `_List`/`_ImmutableList` (§2.16).
     #[allow(unsafe_code)]
     pub fn set_flags(&mut self, h: Ref, mask: u8, value: u8) {
         assert!(
-            mask & !(flags_do_bloco::FORMA | flags_do_bloco::ELEMENTO) == 0,
+            mask & !(block_flags::FORMAT | block_flags::ELEMENT) == 0,
             "runtime bug: set_flags only swaps FORMA and ELEMENTO"
         );
         let b = self.live_block(h);
@@ -3587,11 +3587,11 @@ impl Heap {
         }
         // SAFETY: live block of the space.
         unsafe {
-            let e = (*b).estado;
-            if e != VELHO && e != REMEMBERED {
+            let e = (*b).state;
+            if e != OLD && e != REMEMBERED {
                 return;
             }
-            if (*b).flags & flags_do_bloco::CARTOES != 0 {
+            if (*b).flags & block_flags::CARDS != 0 {
                 let len = body_refs(b, self.objects.body_words(b));
                 if i < len {
                     crate::space::dirty_card(b, len, i);
@@ -3606,7 +3606,7 @@ impl Heap {
         let b = self.live_block(h);
         Self::check_writable(b);
         // SAFETY: live block.
-        assert!(unsafe { shape(b) } == flags_do_bloco::REFS, "runtime bug: write_ref on an object that is not REFS");
+        assert!(unsafe { shape(b) } == block_flags::REFS, "runtime bug: write_ref on an object that is not REFS");
         b
     }
     /// Writes the `Ref` `v` into word `word ≥ 1` of the `REFS` body of `h`, with
@@ -3653,17 +3653,17 @@ impl Heap {
         }
         // SAFETY: live block of the space.
         unsafe {
-            let e = (*b).estado;
-            if e != VELHO && e != REMEMBERED {
+            let e = (*b).state;
+            if e != OLD && e != REMEMBERED {
                 return;
             }
-            if (*b).flags & flags_do_bloco::CARTOES != 0 {
+            if (*b).flags & block_flags::CARDS != 0 {
                 let len = body_refs(b, self.objects.body_words(b));
-                let (de, until) = ((word - 1).min(len), (word - 1 + v.len()).min(len));
-                let mut i = de;
+                let (of, until) = ((word - 1).min(len), (word - 1 + v.len()).min(len));
+                let mut i = of;
                 while i < until {
                     crate::space::dirty_card(b, len, i);
-                    i = (i / crate::layout::ELEMENTOS_POR_CARTAO + 1) * crate::layout::ELEMENTOS_POR_CARTAO;
+                    i = (i / crate::layout::ELEMENTS_PER_CARD + 1) * crate::layout::ELEMENTS_PER_CARD;
                 }
             }
         }
@@ -3678,8 +3678,8 @@ impl Heap {
         let Some(b) = self.space_block(h) else { return };
         // SAFETY: block of the space.
         unsafe {
-            let e = (*b).estado;
-            if (e == VELHO || e == REMEMBERED) && shape(b) == flags_do_bloco::REFS && (*b).flags & flags_do_bloco::CARTOES != 0 {
+            let e = (*b).state;
+            if (e == OLD || e == REMEMBERED) && shape(b) == block_flags::REFS && (*b).flags & block_flags::CARDS != 0 {
                 let len = body_refs(b, self.objects.body_words(b));
                 crate::space::dirty_all_cards(b, len);
             }
@@ -3693,11 +3693,11 @@ impl Heap {
         let Some(b) = self.space_block(h) else { return };
         // SAFETY: block of the space.
         unsafe {
-            let e = (*b).estado;
-            if e != VELHO && e != REMEMBERED {
+            let e = (*b).state;
+            if e != OLD && e != REMEMBERED {
                 return;
             }
-            if shape(b) == flags_do_bloco::REFS && (*b).flags & flags_do_bloco::CARTOES != 0 {
+            if shape(b) == block_flags::REFS && (*b).flags & block_flags::CARDS != 0 {
                 let len = body_refs(b, self.objects.body_words(b));
                 if i < len {
                     crate::space::dirty_card(b, len, i);
@@ -3712,20 +3712,20 @@ impl Heap {
     ///
     /// # Safety
     /// `release(ptr)` is the only release of `ptr`, and is valid; the body of `h` has
-    /// at least one word and is `BRUTO`.
+    /// at least one word and is `RAW`.
     #[allow(unsafe_code)]
     pub unsafe fn attach(&mut self, h: Ref, release: unsafe fn(*mut u8), ptr: *mut u8, bytes: usize) {
         let b = self.live_block(h);
         Self::check_writable(b);
         // SAFETY: the function contract; live block with word 0.
         unsafe {
-            // The block may have been born with `ATTACHMENT` (`allocate(.., BRUTO | ATTACHMENT)`, the
+            // The block may have been born with `ATTACHMENT` (`allocate(.., RAW | ATTACHMENT)`, the
             // form of §2.4): a duplicate is a pointer already written.
             assert!(
-                (*b).flags & flags_do_bloco::ATTACHMENT == 0 || *fields_of(b) == 0,
+                (*b).flags & block_flags::ATTACHMENT == 0 || *fields_of(b) == 0,
                 "runtime bug: duplicate attachment"
             );
-            (*b).flags |= flags_do_bloco::ATTACHMENT;
+            (*b).flags |= block_flags::ATTACHMENT;
             *fields_of(b) = ptr as i64;
         }
         self.objects.attach(b, release, ptr, bytes);
@@ -3750,7 +3750,7 @@ impl Heap {
     pub fn attachment(&self, h: Ref) -> *mut u8 {
         let b = self.live_block(h);
         // SAFETY: live block.
-        unsafe { if (*b).flags & flags_do_bloco::ATTACHMENT != 0 { *fields_of(b) as *mut u8 } else { std::ptr::null_mut() } }
+        unsafe { if (*b).flags & block_flags::ATTACHMENT != 0 { *fields_of(b) as *mut u8 } else { std::ptr::null_mut() } }
     }
     /// Projects the estimate without losing bytes that will be subtracted later.
     fn set_estimated_bytes(&mut self, bytes: u128) {
@@ -3892,7 +3892,7 @@ mod object_space {
         let s = heap.allocate_str("x");
         assert!(is_object(o) && is_object(s));
         assert!(matches!(heap.object(o), Some(f) if f.class_id == 7 && f.len() == 3));
-        // The string is not `INSTANCIA`: it has no field view.
+        // The string is not `INSTANCE`: it has no field view.
         assert!(heap.object(s).is_none());
         // Arbitrary scalars are not live objects (nor do they crash the lookup).
         for x in [2, 6, 18, o + 4, o - 4, o + 8, -2, i64::MAX - 1] {
@@ -3977,9 +3977,9 @@ mod object_space {
     #[allow(unsafe_code)]
     fn allocate_like_generated_code(heap: &mut Heap, class_id: i64, n: usize) -> i64 {
         // The TLAB is by body words (`n ≤ TLAB_N` fields: `max(n, 1)`).
-        let w = crate::layout::palavras_de_instancia(n);
+        let w = crate::layout::instance_words(n);
         let size = block_size(n);
-        let b = CONTEXTO.with(|c| {
+        let b = CONTEXT.with(|c| {
             let (cursor, end) = (c.tlab[w][0].get(), c.tlab[w][1].get());
             if (end as usize).saturating_sub(cursor as usize) < size {
                 return None;
@@ -3997,7 +3997,7 @@ mod object_space {
             *b.add(16).cast::<i64>() = 0;
             *b.cast::<u64>() = 1 | (n as u64) << 16 | (class_id as u64) << 32;
         }
-        b as i64 + DESLOCAMENTO_DO_HANDLE
+        b as i64 + HANDLE_OFFSET
     }
 
     #[test]
@@ -4010,7 +4010,7 @@ mod object_space {
             let mut garbage = Vec::new();
             for i in 0..10_000 {
                 let link = allocate_like_generated_code(&mut heap, 5, 2);
-                heap.set(link, 0, smi::de(i).unwrap(), false);
+                heap.set(link, 0, smi::of(i).unwrap(), false);
                 heap.set(link, 1, head, true);
                 if i % 3 == 0 {
                     head = link;
@@ -4019,10 +4019,10 @@ mod object_space {
                     garbage.push(link);
                 }
                 if i % 2_500 == 1_249 {
-                    heap.coletar(i % 5_000 != 1_249);
+                    heap.run_collection(i % 5_000 != 1_249);
                 }
             }
-            heap.coletar(true);
+            heap.run_collection(true);
             let mut n = 0;
             let mut h = head;
             while h != 0 {
@@ -4040,7 +4040,7 @@ mod object_space {
             }
             assert_eq!(heap.objects.pages.len(), pages);
             heap.set_root(frame, 0, 0);
-            heap.coletar(false);
+            heap.run_collection(false);
             assert_eq!(heap.stats().live_objects, 0);
         })
         .join()
@@ -4063,7 +4063,7 @@ mod object_space {
                     // reference map) must come zeroed from the handout.
                     let o = heap.object(link).expect("freshly allocated");
                     assert_eq!((o.field(1), o.field(2)), ((0, false), (0, false)), "dirty block handed out");
-                    heap.set(link, 0, smi::de(i).unwrap(), false);
+                    heap.set(link, 0, smi::of(i).unwrap(), false);
                     heap.set(link, 1, head, true);
                     heap.set(link, 2, 77, false);
                     if i % 4 == 0 {
@@ -4071,7 +4071,7 @@ mod object_space {
                         heap.set_root(frame, 0, head);
                     }
                     if i % 3_000 == 2_999 {
-                        heap.coletar(i % 9_000 != 8_999);
+                        heap.run_collection(i % 9_000 != 8_999);
                     }
                 }
                 // The whole list survives; on each round, the previous one dies.
@@ -4087,7 +4087,7 @@ mod object_space {
                 if round % 2 == 1 {
                     head = 0;
                     heap.set_root(frame, 0, 0);
-                    heap.coletar(false);
+                    heap.run_collection(false);
                     assert_eq!(heap.stats().live_objects, 0);
                 }
             }
@@ -4102,23 +4102,23 @@ mod object_space {
         let frame = heap.push_frame_with_slots(1);
         let old_gen = heap.allocate_object(1, 1);
         heap.set_root(frame, 0, old_gen);
-        heap.coletar(false);
+        heap.run_collection(false);
         // Young object only reachable through the old one (the `set` barrier remembers it).
         let young = heap.allocate_object(2, 1);
         heap.set(young, 0, 7, false);
         heap.set(old_gen, 0, young, true);
         let garbage = heap.allocate_object(3, 1);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(matches!(heap.object(young), Some(f) if f.class_id == 2 && f.field(0).0 == 7));
         assert!(!heap.is_live_object(garbage));
         assert_eq!(heap.stats().live_objects, 2);
         // After it, the young object became old: without a new barrier, another minor collection
         // does not walk it, and it stays alive.
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(heap.is_live_object(young));
         // The full collection frees what only dead old objects reached.
         heap.set_root(frame, 0, 0);
-        heap.coletar(false);
+        heap.run_collection(false);
         assert_eq!(heap.stats().live_objects, 0);
     }
 
@@ -4130,7 +4130,7 @@ mod object_space {
         let frame = heap.push_frame_with_slots(1);
         let old_gen = heap.allocate_object(1, 1);
         heap.set_root(frame, 0, old_gen);
-        heap.coletar(false);
+        heap.run_collection(false);
         let young = heap.allocate_object(2, 0);
         // Writes without barrier (as generated code without it would).
         let b = heap.objects.block_of(old_gen).expect("object");
@@ -4140,7 +4140,7 @@ mod object_space {
             *fields_of(b) = young;
             mark_reference(b, 0, true);
         }
-        heap.coletar(true);
+        heap.run_collection(true);
     }
 
     #[test]
@@ -4151,14 +4151,14 @@ mod object_space {
         let frame = heap.push_frame_with_slots(1);
         let owner = heap.allocate_object(1, 0);
         heap.set_root(frame, 0, owner);
-        heap.coletar(false);
+        heap.run_collection(false);
         let action = heap.allocate_object(2, 0);
         // Sabotages the publication: does not call the barrier of add_attachment.
         heap.attachments.push(FinalizerAttachment {
             owner, value: owner, detach: 0, action: FinalizerAction::Dart(action),
         });
         heap.reindex_attachments();
-        heap.coletar(true);
+        heap.run_collection(true);
     }
 
     #[test]
@@ -4168,12 +4168,12 @@ mod object_space {
         let frame = heap.push_frame_with_slots(1);
         let owner = heap.allocate_object(1, 0);
         heap.set_root(frame, 0, owner);
-        heap.coletar(false);
+        heap.run_collection(false);
         let action = heap.allocate_object(2, 0);
         heap.add_attachment(FinalizerAttachment {
             owner, value: owner, detach: 0, action: FinalizerAction::Dart(action),
         });
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(heap.is_live_object(action));
         heap.pop_frame(frame);
         heap.collect();
@@ -4219,7 +4219,7 @@ mod object_space {
         // A scalar that looks like a handle holds nothing.
         let garbage = heap.allocate_object(3, 0);
         heap.set(o, 33, garbage, false);
-        heap.coletar(false);
+        heap.run_collection(false);
         for f in &children {
             assert!(heap.object(*f).is_some());
         }
@@ -4229,7 +4229,7 @@ mod object_space {
         assert!(!obj.field(33).1);
         // Replacing the reference with a scalar clears the bit.
         heap.set(o, 39, 5, false);
-        heap.coletar(false);
+        heap.run_collection(false);
         assert!(heap.object(children[3]).is_none());
     }
 
@@ -4239,17 +4239,17 @@ mod object_space {
         let frame = heap.push_frame_with_slots(1);
         let o = heap.allocate_object(1, 1);
         heap.set_root(frame, 0, o);
-        heap.coletar(false);
+        heap.run_collection(false);
         // The old object grows (out-of-line body) and receives a young one in the new
         // field: the minor collection finds it through the remembered set.
         heap.ensure_fields(o, 3);
         let young = heap.allocate_object(2, 0);
         heap.set(o, 2, young, true);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(heap.object(young).is_some());
         assert_eq!(heap.object(o).expect("object").len(), 3);
         heap.pop_frame(frame);
-        heap.coletar(false);
+        heap.run_collection(false);
         assert_eq!(heap.stats().live_objects, 0);
     }
 
@@ -4356,11 +4356,11 @@ mod runtime_roots {
         let old_gen = heap.allocate_object(200, 0);
         heap.set_root(frame, 0, old_gen);
         heap.mark_late((old_gen, 0));
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(heap.late_initialized((old_gen, 0)), "the live old object stays marked");
         let young = heap.allocate_object(200, 0);
         heap.mark_late((young, 3));
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(!heap.late_initialized((young, 3)), "the dead young object loses the mark");
         assert!(heap.late_initialized((old_gen, 0)));
         heap.pop_frame(frame);
@@ -4491,7 +4491,7 @@ mod fixed_root_tests {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame_with_slots(1);
         for _ in 0..8 {
-            let handle = heap.allocate(crate::layout::cid::tipada(1), 2 * 1024 * 1024 / 8, crate::layout::flags::BRUTO);
+            let handle = heap.allocate(crate::layout::cid::typed(1), 2 * 1024 * 1024 / 8, crate::layout::flags::RAW);
             heap.set_root(frame, 0, handle);
         }
         let stats = heap.stats();
@@ -4587,7 +4587,7 @@ mod unified_space {
     fn list(heap: &mut Heap, len: usize) -> Ref {
         let mut f = flags::REFS;
         if layout::has_cards(len) {
-            f |= flags::CARTOES;
+            f |= flags::CARDS;
         }
         let h = heap.allocate(cid::LIST, layout::list_words(len), f);
         heap.words_mut(h)[0] = len as i64;
@@ -4599,7 +4599,7 @@ mod unified_space {
         let mut heap = heap();
         let frame = heap.push_frame_with_slots(1);
         let target = heap.allocate_object(200, 1);
-        let m = heap.allocate(cid::MINT, 2, flags::BRUTO);
+        let m = heap.allocate(cid::MINT, 2, flags::RAW);
         heap.set_root(frame, 0, m);
         // Bits that look like a handle, in a BRUTO body: the collector does not follow them.
         heap.words_mut(m)[0] = i64::MAX;
@@ -4620,17 +4620,17 @@ mod unified_space {
         heap.set_root(frame, 0, l);
         let a = heap.allocate_object(200, 0);
         heap.write_ref(l, 1, a);
-        heap.write_ref(l, 3, smi::de(7).unwrap());
+        heap.write_ref(l, 3, smi::of(7).unwrap());
         heap.collect();
         assert!(heap.is_live_object(a), "REFS element not followed");
         // The list is old: a young object written into it survives the minor collection
         // through the barrier (without it, verification would report).
         let b = heap.allocate_object(201, 0);
         heap.write_ref(l, 2, b);
-        assert_eq!(heap.header(l).estado, REMEMBERED);
-        heap.coletar(true);
+        assert_eq!(heap.header(l).state, REMEMBERED);
+        heap.run_collection(true);
         assert!(heap.is_live_object(b), "young object of an old list collected");
-        assert_eq!(heap.words(l)[1..], [a, b, smi::de(7).unwrap()]);
+        assert_eq!(heap.words(l)[1..], [a, b, smi::of(7).unwrap()]);
         // Without a reference, it goes away.
         heap.write_refs(l, 1, &[0, 0]);
         heap.collect();
@@ -4651,7 +4651,7 @@ mod unified_space {
         heap.collect();
         assert!(heap.is_live_object(child));
         assert!(!heap.is_live_object(released), "scalar field followed");
-        assert_eq!(heap.words(o).len(), layout::palavras_de_instancia(40));
+        assert_eq!(heap.words(o).len(), layout::instance_words(40));
         heap.pop_frame(frame);
     }
 
@@ -4662,7 +4662,7 @@ mod unified_space {
         let len = 100_000;
         let l = list(&mut heap, len);
         heap.set_root(frame, 0, l);
-        assert!(heap.header(l).flags & flags::CARTOES != 0);
+        assert!(heap.header(l).flags & flags::CARDS != 0);
         heap.collect();
         // Old: scattered old → young writes, each dirtying the card.
         let mut young_set = Vec::new();
@@ -4671,7 +4671,7 @@ mod unified_space {
             heap.write_ref(l, 1 + i, j);
             young_set.push((i, j));
         }
-        heap.coletar(true);
+        heap.run_collection(true);
         for &(i, j) in &young_set {
             assert!(heap.is_live_object(j), "young object in element {i} collected (card not walked)");
             assert_eq!(heap.words(l)[1 + i], j);
@@ -4683,7 +4683,7 @@ mod unified_space {
         let k = heap.allocate_object(201, 0);
         heap.words_mut(l)[1 + 77_777] = k;
         heap.remember(l);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(heap.is_live_object(k));
         heap.pop_frame(frame);
     }
@@ -4703,7 +4703,7 @@ mod unified_space {
         let mut heap = heap();
         let before = RELEASED.load(std::sync::atomic::Ordering::SeqCst);
         let frame = heap.push_frame_with_slots(1);
-        let a = heap.allocate(cid::STRING_ACCUMULATOR, 1, flags::BRUTO);
+        let a = heap.allocate(cid::STRING_ACCUMULATOR, 1, flags::RAW);
         let p = Box::into_raw(Box::new([0u8; 1000])).cast::<u8>();
         let bytes_before = heap.stats().estimated_bytes;
         // SAFETY: `release_box` is the only release of `p`.
@@ -4715,7 +4715,7 @@ mod unified_space {
         assert_eq!(heap.stats().estimated_bytes, bytes_before + 3000);
         assert_eq!(heap.objects.attachment_bytes, 3000);
         heap.set_root(frame, 0, a);
-        heap.coletar(true);
+        heap.run_collection(true);
         heap.collect();
         assert_eq!(RELEASED.load(std::sync::atomic::Ordering::SeqCst), before, "attachment released with the owner alive");
         heap.pop_frame(frame);
@@ -4728,7 +4728,7 @@ mod unified_space {
     fn large_region_returned() {
         let mut heap = heap();
         let pages = heap.objects.n_pages();
-        let t = heap.allocate(cid::tipada(1), 5000, flags::BRUTO);
+        let t = heap.allocate(cid::typed(1), 5000, flags::RAW);
         assert!(heap.objects.block_of(t).is_some());
         assert_eq!(heap.words(t).len(), 5000, "the saturated n read from the region");
         assert_eq!(heap.objects.n_pages(), pages + 1);
@@ -4736,7 +4736,7 @@ mod unified_space {
         assert_eq!(heap.objects.n_pages(), pages, "dead large region did not leave the space");
         assert!(heap.objects.cached_bytes() > 0, "freed region without cache");
         // Reused from the cache by an allocation of the same size.
-        let u = heap.allocate(cid::tipada(1), 5000, flags::BRUTO);
+        let u = heap.allocate(cid::typed(1), 5000, flags::RAW);
         assert_eq!(heap.objects.cached_bytes(), 0);
         assert!(heap.words(u).iter().all(|&w| w == 0), "dirty reused region");
         heap.collect();
@@ -4745,14 +4745,14 @@ mod unified_space {
         assert_eq!(heap.objects.cached_bytes(), 0, "idle region did not go back to the system");
         // A 16 KiB medium class is not a large region.
         let pages = heap.objects.n_pages();
-        let m = heap.allocate(cid::tipada(1), layout::LARGEST_MEDIUM, flags::BRUTO);
+        let m = heap.allocate(cid::typed(1), layout::LARGEST_MEDIUM, flags::RAW);
         assert_eq!(heap.words(m).len(), layout::LARGEST_MEDIUM);
         assert!(heap.objects.n_pages() <= pages + 1);
     }
 
     /// A static in the form of §2.11 (in the test's read-only memory).
     static STATIC_STRING: [u64; 3] = [
-        layout::palavra_do_cabecalho(layout::estado::PERMANENTE, flags::BRUTO, 2, cid::ONE_BYTE_STRING),
+        layout::header_word(layout::state::PERMANENT, flags::RAW, 2, cid::ONE_BYTE_STRING),
         0,
         3,
     ];
@@ -4761,7 +4761,7 @@ mod unified_space {
     fn static_never_marked_nor_swept() {
         let start = std::ptr::addr_of!(STATIC_STRING) as usize;
         register_image(start, start + std::mem::size_of_val(&STATIC_STRING));
-        let s = start as i64 + layout::DESLOCAMENTO_DO_HANDLE;
+        let s = start as i64 + layout::HANDLE_OFFSET;
         let v = Heap::box_bool(true);
         let mut heap = heap();
         heap.stress = true;
@@ -4778,9 +4778,9 @@ mod unified_space {
         heap.set_global_root(1, o);
         heap.weak_refs.insert(o, s);
         for minor in [true, false, true, false] {
-            heap.coletar(minor);
+            heap.run_collection(minor);
         }
-        assert_eq!(heap.header(s).estado, layout::estado::PERMANENTE);
+        assert_eq!(heap.header(s).state, layout::state::PERMANENT);
         assert_eq!(heap.words(s)[0], 3);
         assert_eq!(heap.weak_refs.get(&o), Some(&s), "weak reference to a static zeroed");
         assert!(heap.is_permanent(s));
@@ -4803,7 +4803,7 @@ mod unified_space {
         heap.mark_constant(o, 0x1234);
         assert!(heap.is_permanent(o));
         heap.collect();
-        assert!(heap.permanentes.is_empty() && heap.constants.is_empty(), "dead handle in the identity tables");
+        assert!(heap.permanents.is_empty() && heap.constants.is_empty(), "dead handle in the identity tables");
         // Alive through a global, it stays.
         let g = heap.allocate_object(200, 0);
         heap.mark_constant(g, 0x5678);
@@ -4871,8 +4871,8 @@ mod unified_space {
     #[test]
     fn set_flags_changes_only_the_shape() {
         let mut heap = heap();
-        let l = heap.allocate(cid::LIST, 3, flags::BRUTO | flags::ELEMENTO_INT);
-        heap.set_flags(l, flags::FORMA | flags::ELEMENTO, flags::REFS);
+        let l = heap.allocate(cid::LIST, 3, flags::RAW | flags::ELEMENT_INT);
+        heap.set_flags(l, flags::FORMAT | flags::ELEMENT, flags::REFS);
         assert_eq!(heap.header(l).flags, flags::REFS);
     }
 
@@ -4884,14 +4884,14 @@ mod unified_space {
         heap.set_root(frame, 0, l);
         let mut hs = Vec::new();
         for w in [1, 7, 64, 65, 70, 71, 300, 1000, 2014] {
-            let h = heap.allocate(cid::tipada(1), w, flags::BRUTO);
+            let h = heap.allocate(cid::typed(1), w, flags::RAW);
             heap.words_mut(h)[w - 1] = w as i64;
             hs.push((w, h));
         }
         for (i, &(_, h)) in hs.iter().enumerate() {
             heap.write_ref(l, 1 + i, h);
         }
-        heap.coletar(true);
+        heap.run_collection(true);
         heap.collect();
         for &(w, h) in &hs {
             assert_eq!(heap.words(h).len(), w);
@@ -4906,7 +4906,7 @@ mod unified_space {
 /// between old objects and in the owning slots. Observational roots are
 /// seen during synchronization, without counting RC; young objects use the minor collection until promotion.
 pub struct HeapArc {
-    pub estado: crate::arc::EstadoDoArc,
+    pub state: crate::arc::ArcHeapState,
     /// The old objects handed out raw in this epoch ([`Heap::words_mut`],
     /// [`Heap::object_fields`], [`Heap::set_flags`]): the counted occurrences
     /// they had before. Synchronization counts the current ones and releases
@@ -4931,8 +4931,8 @@ pub struct HeapArc {
 impl std::fmt::Debug for HeapArc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArcDoHeap")
-            .field("registrados", &self.estado.registered_set())
-            .field("estatisticas", &self.estado.statistics)
+            .field("registrados", &self.state.registered_set())
+            .field("estatisticas", &self.state.statistics)
             .field("fotos", &self.snapshots.len())
             .field("efemeros", &self.ephemerons.counted.len())
             .finish()
@@ -5060,15 +5060,15 @@ impl crate::arc::ArcGraph for HeapGraph<'_> {
     }
 }
 
-/// Does object `h` have a `BRUTO` body (no reference positions: string,
+/// Does object `h` have a `RAW` body (no reference positions: string,
 /// numeric box, typed data)? ARC's cycle candidate filter
-/// (`EstadoDoArc::without_edges`).
+/// (`ArcHeapState::without_edges`).
 fn block_without_refs(h: Ref) -> bool {
     // SAFETY: ARC only calls with registered handles, live blocks of the space
     // (the image has no metadata).
     #[allow(unsafe_code)]
     unsafe {
-        (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).flags & flags_do_bloco::FORMA == flags_do_bloco::BRUTO
+        (*((h - HANDLE_OFFSET) as *const Header)).flags & block_flags::FORMAT == block_flags::RAW
     }
 }
 
@@ -5088,10 +5088,10 @@ fn arc_geometry(space: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
 /// Pure ARC, in the draining loop (after step 4, in which every young object that
 /// survives is registered): the object of the space without metadata died in this
 /// draining — the young object nobody counted, or one killed by RC, whose
-/// metadata `take_dead` already removed. The static (`PERMANENTE`) is not in the
+/// metadata `take_dead` already removed. The static (`PERMANENT`) is not in the
 /// space and never dies.
 #[allow(unsafe_code)]
-fn died_in_drain(space: &ObjectSpace, validate: bool, estado: &crate::arc::EstadoDoArc, h: Ref) -> bool {
+fn died_in_drain(space: &ObjectSpace, validate: bool, state: &crate::arc::ArcHeapState, h: Ref) -> bool {
     if !is_object(h) {
         return false;
     }
@@ -5100,9 +5100,9 @@ fn died_in_drain(space: &ObjectSpace, validate: bool, estado: &crate::arc::Estad
     } else {
         // SAFETY: an object handle is a block or a static (the contract
         // of `space_block` without validation).
-        unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado != PERMANENTE }
+        unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state != PERMANENT }
     };
-    in_space && estado.meta(h).is_none()
+    in_space && state.meta(h).is_none()
 }
 
 #[allow(unsafe_code)]
@@ -5114,7 +5114,7 @@ impl Heap {
 
     /// The ARC counters, if enabled.
     pub fn arc_statistics(&self) -> Option<crate::arc::ArcStats> {
-        self.arc.as_ref().map(|a| a.estado.statistics)
+        self.arc.as_ref().map(|a| a.state.statistics)
     }
 
     /// The swap of `old` for `new` in a strong position of block `b` (of
@@ -5126,36 +5126,36 @@ impl Heap {
         let new_in_space = self.space_block(new).is_some();
         let Some(arc) = self.arc.as_deref_mut() else { return };
         // SAFETY: live block of the space.
-        let e = unsafe { (*b).estado };
-        if old == new || arc.snapshots.contains_key(&h) || (!arc.pure && e != VELHO && e != REMEMBERED) {
+        let e = unsafe { (*b).state };
+        if old == new || arc.snapshots.contains_key(&h) || (!arc.pure && e != OLD && e != REMEMBERED) {
             return;
         }
         if !arc.pure {
-            arc.estado.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
-        } else if !arc.estado.retain_if_registered(new).unwrap_or_else(|e| arc_failure(e)) && new_in_space {
-            arc.estado.register_live_at(new, arc_geometry(&self.objects, new));
-            arc.estado.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
+            arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
+        } else if !arc.state.retain_if_registered(new).unwrap_or_else(|e| arc_failure(e)) && new_in_space {
+            arc.state.register_live_at(new, arc_geometry(&self.objects, new));
+            arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
         }
-        arc.estado.release(old).unwrap_or_else(|e| arc_failure(e));
+        arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
     }
 
     /// The object of the space `h` still without metadata gets registered (RC zero,
     /// live) before its first counted occurrence.
     fn arc_register_if_needed(space: &ObjectSpace, arc: &mut HeapArc, h: Ref) {
-        if smi::e_handle(h) && arc.estado.meta(h).is_none() {
-            arc.estado.register_live_at(h, arc_geometry(space, h));
+        if smi::e_handle(h) && arc.state.meta(h).is_none() {
+            arc.state.register_live_at(h, arc_geometry(space, h));
         }
     }
 
     /// Retains `v` (registering the object of the space without metadata): a
     /// new occurrence, under pure ARC.
     fn arc_retain_registering(&self, arc: &mut HeapArc, v: Ref) {
-        if arc.estado.retain_if_registered(v).unwrap_or_else(|e| arc_failure(e)) {
+        if arc.state.retain_if_registered(v).unwrap_or_else(|e| arc_failure(e)) {
             return;
         }
         if self.space_block(v).is_some() {
-            arc.estado.register_live_at(v, arc_geometry(&self.objects, v));
-            arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
+            arc.state.register_live_at(v, arc_geometry(&self.objects, v));
+            arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
         }
     }
 
@@ -5191,8 +5191,8 @@ impl Heap {
     /// ARC (the young object also counts writes).
     fn arc_snapshot(&mut self, b: *mut Header, h: Ref) {
         // SAFETY: live block of the space.
-        let e = unsafe { (*b).estado };
-        if e != VELHO && e != REMEMBERED && !self.arc.as_ref().is_some_and(|a| a.pure) {
+        let e = unsafe { (*b).state };
+        if e != OLD && e != REMEMBERED && !self.arc.as_ref().is_some_and(|a| a.pure) {
             return;
         }
         if self.arc.as_ref().is_some_and(|a| a.snapshots.contains_key(&h)) {
@@ -5202,7 +5202,7 @@ impl Heap {
         // SAFETY: the positions are body words of a live block.
         self.visit_strong_references(h, &mut |v| value_list.push(v));
         let arc = self.arc.as_deref_mut().expect("ARC ligado");
-        value_list.retain(|&v| arc.estado.meta(v).is_some());
+        value_list.retain(|&v| arc.state.meta(v).is_some());
         arc.snapshots.insert(h, value_list);
     }
 
@@ -5210,8 +5210,8 @@ impl Heap {
     /// old ones, as handles (before the sweep of the young).
     fn promotion_data(&self) -> (Vec<Ref>, Vec<Ref>) {
         let mut promoted = Vec::new();
-        self.objects.young_marked(&mut |b| promoted.push(b as i64 + DESLOCAMENTO_DO_HANDLE));
-        let remembered = self.objects.remembered.iter().map(|&b| b as i64 + DESLOCAMENTO_DO_HANDLE).collect();
+        self.objects.young_marked(&mut |b| promoted.push(b as i64 + HANDLE_OFFSET));
+        let remembered = self.objects.remembered.iter().map(|&b| b as i64 + HANDLE_OFFSET).collect();
         (promoted, remembered)
     }
 
@@ -5223,9 +5223,9 @@ impl Heap {
         if self.arc.is_some() {
             return;
         }
-        self.coletar(false);
+        self.run_collection(false);
         let mut arc = Box::new(HeapArc {
-            estado: crate::arc::EstadoDoArc::new(),
+            state: crate::arc::ArcHeapState::new(),
             snapshots: crate::hash::HashMap::default(),
             ephemerons: ArcEphemerons::default(),
             check: std::env::var("DARTFORGE_ARC_CONFERIR").is_ok_and(|v| v == "1"),
@@ -5236,23 +5236,23 @@ impl Heap {
             },
             pure: !std::env::var("DARTFORGE_ARC_BERCARIO").is_ok_and(|v| v == "1"),
         });
-        arc.estado.trace_log = std::env::var("DARTFORGE_ARC_TRACO").is_ok_and(|v| v == "1");
-        arc.estado.without_edges = Some(block_without_refs);
+        arc.state.trace_log = std::env::var("DARTFORGE_ARC_TRACO").is_ok_and(|v| v == "1");
+        arc.state.without_edges = Some(block_without_refs);
         let reached_set = self.reachable_by_tracing();
         for &x in &reached_set {
-            arc.estado.register_live_at(x, arc_geometry(&self.objects, x));
+            arc.state.register_live_at(x, arc_geometry(&self.objects, x));
         }
         let mut value_list = Vec::new();
         for &x in &reached_set {
             // SAFETY: the positions are body words of a live block.
             self.visit_strong_references(x, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
-                arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
+                arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
         for (&p, &(k, v)) in &self.ephemerons {
-            if arc.estado.alive(p) && smi::e_handle(k) && smi::e_handle(v) {
-                arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
+            if arc.state.alive(p) && smi::e_handle(k) && smi::e_handle(v) {
+                arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
                 arc.ephemerons.insert_entry(p, k, v);
             }
         }
@@ -5261,7 +5261,7 @@ impl Heap {
         }
         self.mark_side_edges(&mut arc);
         for &x in &reached_set {
-            arc.estado.review(x);
+            arc.state.review(x);
         }
         self.arc = Some(arc);
     }
@@ -5269,10 +5269,10 @@ impl Heap {
     /// Restores side indications after activation or metadata rebuilding.
     fn mark_side_edges(&self, arc: &mut HeapArc) {
         for &owner in self.attachments_by_owner.keys() {
-            arc.estado.mark_side_edges(owner);
+            arc.state.mark_side_edges(owner);
         }
         for &(key, _) in arc.ephemerons.counted.values() {
-            arc.estado.mark_side_edges(key);
+            arc.state.mark_side_edges(key);
         }
     }
 
@@ -5321,11 +5321,11 @@ impl Heap {
     fn arc_fixpoint(&mut self, arc: &mut HeapArc) {
         let l: crate::hash::HashSet<Ref> = self.reachable_by_tracing().into_iter().collect();
         let d: Vec<Ref> = arc
-            .estado
+            .state
             .live_set()
-            .filter(|h| !l.contains(h) && arc.estado.meta(*h).is_some_and(|m| m.estado == crate::arc::ArcState::Live && !m.immortal))
+            .filter(|h| !l.contains(h) && arc.state.meta(*h).is_some_and(|m| m.state == crate::arc::ArcState::Live && !m.immortal))
             .collect();
-        if arc.estado.trace_log {
+        if arc.state.trace_log {
             eprintln!("[arc-trace] fixed point: {} reached, {} dead", l.len(), d.len());
         }
         if d.is_empty() {
@@ -5343,14 +5343,14 @@ impl Heap {
             if let Some((_, v)) = arc.ephemerons.remove_it(p)
                 && !in_d.contains(&v)
             {
-                arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
+                arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
         let n = d.len();
-        let HeapArc { estado, ephemerons, .. } = arc;
+        let HeapArc { state, ephemerons, .. } = arc;
         let mut graph = HeapGraph { heap: self, ephemerons };
-        estado.discard(&mut graph, &d).unwrap_or_else(|e| arc_failure(e));
-        estado.statistics.dead_by_cycle += n as u64;
+        state.discard(&mut graph, &d).unwrap_or_else(|e| arc_failure(e));
+        state.statistics.dead_by_cycle += n as u64;
     }
 
     /// ARC synchronization, at the end of the minor collection (§19.3, §19.4, §22):
@@ -5370,12 +5370,12 @@ impl Heap {
     ///    full sweep returns the blocks of the dead.
     fn sync_arc(&mut self, full: bool, promoted: Vec<Ref>, remembered: Vec<Ref>) {
         let mut arc = self.arc.take().expect("ARC ligado");
-        if arc.estado.trace_log {
+        if arc.state.trace_log {
             eprintln!("[arc-trace] synchronize full={full} promoted={promoted:?} remembered={remembered:?} snapshots={:?}", arc.snapshots.keys().collect::<Vec<_>>());
         }
         let new_ones: crate::hash::HashSet<Ref> = promoted.iter().copied().collect();
         for &h in &promoted {
-            arc.estado.register_live_at(h, arc_geometry(&self.objects, h));
+            arc.state.register_live_at(h, arc_geometry(&self.objects, h));
         }
         // Promotion rebuilt RC; restores each owning occurrence,
         // without retaining again the owners of objects that were already old.
@@ -5388,27 +5388,27 @@ impl Heap {
             // SAFETY: the positions are body words of a live block.
             self.visit_strong_references(h, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
-                arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
+                arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
         for &x in &remembered {
-            if new_ones.contains(&x) || arc.snapshots.contains_key(&x) || !arc.estado.alive(x) {
+            if new_ones.contains(&x) || arc.snapshots.contains_key(&x) || !arc.state.alive(x) {
                 continue;
             }
             // SAFETY: the positions are body words of a live block.
             self.visit_strong_references(x, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
                 if new_ones.contains(&v) {
-                    arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
+                    arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
                 }
             }
         }
         for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
-            if arc.estado.alive(x) {
+            if arc.state.alive(x) {
                 // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(x, &mut |v| value_list.push(v));
                 for v in value_list.drain(..) {
-                    arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
+                    arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
                 }
             }
             release.extend(snapshot);
@@ -5416,7 +5416,7 @@ impl Heap {
         // Ephemerons: the current live entries against the counted ones.
         let mut currents: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
         for (&p, &(k, v)) in &self.ephemerons {
-            if !(arc.estado.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
+            if !(arc.state.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
                 continue;
             }
             currents.insert(p);
@@ -5428,7 +5428,7 @@ impl Heap {
                     {
                         release.push(v0);
                     }
-                    arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
+                    arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
                     arc.ephemerons.insert_entry(p, k, v);
                 }
             }
@@ -5440,11 +5440,11 @@ impl Heap {
             }
         }
         for v in release {
-            arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
+            arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
         }
         self.mark_side_edges(&mut arc);
         for &h in &promoted {
-            arc.estado.review(h);
+            arc.state.review(h);
         }
         // All roots protect the zeros they see; the owning slots
         // already had their occurrences included in RC.
@@ -5453,7 +5453,7 @@ impl Heap {
         let root_list: crate::hash::HashSet<Ref> = root_list.into_iter().filter(|&h| smi::e_handle(h)).collect();
         let protected = |h: Ref| root_list.contains(&h);
         for &h in &root_list {
-            arc.estado.add_candidate(h);
+            arc.state.add_candidate(h);
         }
         // With `DARTFORGE_ARC_CICLOS=sempre`, the cycle round repeats on
         // each pass with new deaths: the discard (and the ephemeron that leaves with the
@@ -5465,25 +5465,25 @@ impl Heap {
         let mut attachment_edges = Vec::new();
         let mut natives = Vec::new();
         let mut finalize = Vec::new();
-        arc.estado.resume_deferred();
+        arc.state.resume_deferred();
         loop {
             {
-                let HeapArc { estado, ephemerons, .. } = &mut *arc;
+                let HeapArc { state, ephemerons, .. } = &mut *arc;
                 let mut graph = HeapGraph { heap: self, ephemerons };
-                estado.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
                 if cycles {
-                    estado.collect_cycles(&mut graph, &protected).unwrap_or_else(|e| arc_failure(e));
-                    estado.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                    state.collect_cycles(&mut graph, &protected).unwrap_or_else(|e| arc_failure(e));
+                    state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
                 }
             }
             if fixpoint {
                 fixpoint = false;
                 self.arc_fixpoint(&mut arc);
-                let HeapArc { estado, ephemerons, .. } = &mut *arc;
+                let HeapArc { state, ephemerons, .. } = &mut *arc;
                 let mut graph = HeapGraph { heap: self, ephemerons };
-                estado.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
             }
-            let dead_set = arc.estado.take_dead();
+            let dead_set = arc.state.take_dead();
             if dead_set.is_empty() {
                 break;
             }
@@ -5498,7 +5498,7 @@ impl Heap {
             for p in holders {
                 self.ephemerons.remove(&p);
                 if let Some((_, v)) = arc.ephemerons.remove_it(p) {
-                    arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
+                    arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
                 }
             }
             self.attachments.retain_mut(|a| {
@@ -5523,7 +5523,7 @@ impl Heap {
             Self::reindex_attachment_list(&self.attachments, &mut self.attachments_by_owner);
             self.late_fields_initialized.retain(|(h, _)| !dead.contains(h));
             self.new_lates.retain(|(h, _)| !dead.contains(h));
-            self.permanentes.retain(|h| !dead.contains(h));
+            self.permanents.retain(|h| !dead.contains(h));
             self.constants.retain(|h, _| !dead.contains(h));
             self.tearoff_code.retain(|h, _| !dead.contains(h));
             self.finalizable.retain(|h, &mut pair| {
@@ -5537,7 +5537,7 @@ impl Heap {
         self.reindex_attachments();
         for &action in &ready { self.arc_retain_registering(&mut arc, action); }
         for (_, action) in attachment_edges {
-            arc.estado.release(action).unwrap_or_else(|e| arc_failure(e));
+            arc.state.release(action).unwrap_or_else(|e| arc_failure(e));
         }
         self.ready_finalizations.extend(ready);
         if full {
@@ -5549,19 +5549,19 @@ impl Heap {
             self.check_arc(&mut arc);
         }
         if self.trace {
-            let e = arc.estado.statistics;
+            let e = arc.state.statistics;
             eprintln!(
                 "[arc] {} promoted={} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={}",
                 if full { "full" } else { "minor" },
                 promoted.len(),
-                arc.estado.registered_set(),
+                arc.state.registered_set(),
                 e.retains,
                 e.releases,
                 e.dead_by_rc,
                 e.dead_by_cycle,
                 e.cycle_rounds,
                 e.examined,
-                arc.estado.candidates()
+                arc.state.candidates()
             );
         }
         self.arc = Some(arc);
@@ -5625,7 +5625,7 @@ impl Heap {
         let mut value_list = Vec::new();
         let n_snapshots = arc.snapshots.len();
         for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
-            if self.space_block(x).is_some() && !arc.estado.dead(x) {
+            if self.space_block(x).is_some() && !arc.state.dead(x) {
                 // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(x, &mut |v| value_list.push(v));
                 for v in value_list.drain(..) {
@@ -5636,7 +5636,7 @@ impl Heap {
                 Self::arc_register_if_needed(&self.objects, &mut arc, x);
             }
             for v in snapshot {
-                arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
+                arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
         if let Some(start) = start {
@@ -5649,8 +5649,8 @@ impl Heap {
         // all young objects here cost a metadata lookup per allocation,
         // although the decision on each young object already happens in step 4.
         for &h in &protected_set {
-            if self.young_child(h) && arc.estado.meta(h).is_none() {
-                arc.estado.register_live_at(h, arc_geometry(&self.objects, h));
+            if self.young_child(h) && arc.state.meta(h).is_none() {
+                arc.state.register_live_at(h, arc_geometry(&self.objects, h));
             }
         }
         if let Some(start) = start {
@@ -5661,7 +5661,7 @@ impl Heap {
         let mut currents: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
         let entries: Vec<(Ref, Ref, Ref)> = self.ephemerons.iter().map(|(&p, &(k, v))| (p, k, v)).collect();
         for (p, k, v) in entries {
-            if !(arc.estado.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
+            if !(arc.state.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
                 continue;
             }
             currents.insert(p);
@@ -5685,7 +5685,7 @@ impl Heap {
             }
         }
         for v in release {
-            arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
+            arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
         }
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
@@ -5694,11 +5694,11 @@ impl Heap {
         let mut dead_young: Vec<Ref> = Vec::new();
         let n_young = young_set.len();
         for &b in &young_set {
-            let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
-            if arc.estado.decide_young(h) {
+            let h = b as i64 + HANDLE_OFFSET;
+            if arc.state.decide_young(h) {
                 // SAFETY: block handed out since the last draining, occupied.
                 unsafe {
-                    (*b).estado = VELHO;
+                    (*b).state = OLD;
                     mark_block(b);
                 }
             } else {
@@ -5712,7 +5712,7 @@ impl Heap {
             // SAFETY: the positions are body words of a block not yet released.
             self.visit_strong_references(h, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
-                arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
+                arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
         if let Some(start) = start {
@@ -5722,7 +5722,7 @@ impl Heap {
         // Roots generate no decrement when they disappear: what they hold becomes
         // a cycle candidate again.
         for &h in &protected_set {
-            arc.estado.add_candidate(h);
+            arc.state.add_candidate(h);
         }
         let protected = |h: Ref| protected_set.contains(&h);
         if let Some(start) = start {
@@ -5738,23 +5738,23 @@ impl Heap {
         let mut finalize = Vec::new();
         let mut dead_rc: Vec<Ref> = Vec::new();
         let mut first_one = true;
-        arc.estado.resume_deferred();
+        arc.state.resume_deferred();
         // The loop in parts, for the trace: zeros, cycles, ephemeron fixed
         // point, side tables (µs).
         let mut run_loop = [0u128; 4];
         loop {
             let t0 = trace.then(std::time::Instant::now);
             {
-                let HeapArc { estado, ephemerons, .. } = &mut *arc;
+                let HeapArc { state, ephemerons, .. } = &mut *arc;
                 let mut graph = HeapGraph { heap: self, ephemerons };
-                estado.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
                 if let Some(t0) = t0 {
                     run_loop[0] += t0.elapsed().as_micros();
                 }
                 if cycles {
                     let t1 = trace.then(std::time::Instant::now);
-                    estado.collect_cycles(&mut graph, &protected).unwrap_or_else(|e| arc_failure(e));
-                    estado.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                    state.collect_cycles(&mut graph, &protected).unwrap_or_else(|e| arc_failure(e));
+                    state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
                     if let Some(t1) = t1 {
                         run_loop[1] += t1.elapsed().as_micros();
                     }
@@ -5764,15 +5764,15 @@ impl Heap {
                 let t2 = trace.then(std::time::Instant::now);
                 fixpoint = false;
                 self.arc_fixpoint(&mut arc);
-                let HeapArc { estado, ephemerons, .. } = &mut *arc;
+                let HeapArc { state, ephemerons, .. } = &mut *arc;
                 let mut graph = HeapGraph { heap: self, ephemerons };
-                estado.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
                 if let Some(t2) = t2 {
                     run_loop[2] += t2.elapsed().as_micros();
                 }
             }
             let t3 = trace.then(std::time::Instant::now);
-            let amount = arc.estado.transfer_dead(&mut dead_rc);
+            let amount = arc.state.transfer_dead(&mut dead_rc);
             // Young objects also require side cleanup in the first round, but
             // are reclaimed by the sweep: they do not enter the RC dead.
             let has_dead = amount != 0 || (first_one && !dead_young.is_empty());
@@ -5787,8 +5787,8 @@ impl Heap {
             // than the cascade.
             let validate = self.validate_handles;
             let space = &self.objects;
-            let estado = &arc.estado;
-            let dead = |h: &Ref| died_in_drain(space, validate, estado, *h);
+            let state = &arc.state;
+            let dead = |h: &Ref| died_in_drain(space, validate, state, *h);
             self.weak_refs.retain(|holder, target| {
                 if dead(target) {
                     *target = 0;
@@ -5825,7 +5825,7 @@ impl Heap {
             Self::reindex_attachment_list(&self.attachments, &mut self.attachments_by_owner);
             self.late_fields_initialized.retain(|(h, _)| !dead(h));
             self.new_lates.retain(|(h, _)| !dead(h));
-            self.permanentes.retain(|h| !dead(h));
+            self.permanents.retain(|h| !dead(h));
             self.constants.retain(|h, _| !dead(h));
             self.tearoff_code.retain(|h, _| !dead(h));
             self.finalizable.retain(|h, &mut pair| {
@@ -5838,7 +5838,7 @@ impl Heap {
             for p in holders {
                 self.ephemerons.remove(&p);
                 if let Some((_, v)) = arc.ephemerons.remove_it(p) {
-                    arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
+                    arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
                 }
             }
             if let Some(t3) = t3 {
@@ -5848,7 +5848,7 @@ impl Heap {
         self.reindex_attachments();
         for &action in &ready { self.arc_retain_registering(&mut arc, action); }
         for (_, action) in attachment_edges {
-            arc.estado.release(action).unwrap_or_else(|e| arc_failure(e));
+            arc.state.release(action).unwrap_or_else(|e| arc_failure(e));
         }
         self.ready_finalizations.extend(ready);
         if let Some(start) = start {
@@ -5891,7 +5891,7 @@ impl Heap {
                     d.to_string()
                 })
                 .collect();
-            let e = arc.estado.statistics;
+            let e = arc.state.statistics;
             eprintln!(
                 "[arc] {} us={} phases={} loop={}/{}/{}/{} young={n_young} young_dead={} snapshots={n_snapshots} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={} zeros_seen={} deferred={}",
                 if full { "full" } else { "drain" },
@@ -5902,14 +5902,14 @@ impl Heap {
                 run_loop[2],
                 run_loop[3],
                 dead_young.len(),
-                arc.estado.registered_set(),
+                arc.state.registered_set(),
                 e.retains,
                 e.releases,
                 e.dead_by_rc,
                 e.dead_by_cycle,
                 e.cycle_rounds,
                 e.examined,
-                arc.estado.candidates(),
+                arc.state.candidates(),
                 e.seen_zeros,
                 e.deferred_zeros
             );
@@ -5933,7 +5933,7 @@ impl Heap {
     fn reclaim_arc(&mut self, arc: &HeapArc) {
         self.objects.clear_marks();
         let mut live_set = 0usize;
-        for h in arc.estado.live_set() {
+        for h in arc.state.live_set() {
             if let Some(b) = self.space_block(h) {
                 // SAFETY: live block of the space.
                 unsafe { mark_block(b) };
@@ -5965,7 +5965,7 @@ impl Heap {
             if !smi::e_handle(h) || !is_object(h) || self.space_block(h).is_none() || !seen.insert(h) {
                 continue;
             }
-            if !arc.estado.alive(h) {
+            if !arc.state.alive(h) {
                 let parent_node = origin.get(&h).copied();
                 let desc = |x: Ref| {
                     let c = self.header(x);
@@ -5973,18 +5973,18 @@ impl Heap {
                     format!(
                         "cid {} state {} flags {:#x} n {} position {pos:?} metadata {:?} snapshot {}",
                         c.class_id,
-                        c.estado,
+                        c.state,
                         c.flags,
                         c.n,
-                        arc.estado.meta(x),
+                        arc.state.meta(x),
                         arc.snapshots.contains_key(&x)
                     )
                 };
                 panic!(
                     "ARC bug: reachable object without live RC: handle {h} (cid {}, state {}), metadata {:?}, root {}; reached from {parent_node:?} ({})",
                     self.header(h).class_id,
-                    self.header(h).estado,
-                    arc.estado.meta(h),
+                    self.header(h).state,
+                    arc.state.meta(h),
                     root_list.contains(&h),
                     parent_node.map(desc).unwrap_or_default()
                 );
@@ -5997,10 +5997,10 @@ impl Heap {
                 }
             });
         }
-        let HeapArc { estado, ephemerons, .. } = arc;
+        let HeapArc { state, ephemerons, .. } = arc;
         let owning_set = self.owning_roots();
         let graph = HeapGraph { heap: self, ephemerons };
-        if let Err(e) = estado.audit(&graph, &owning_set) {
+        if let Err(e) = state.audit(&graph, &owning_set) {
             if let crate::arc::ArcError::Audit { handle, .. } = e {
                 panic!("ARC bug: {e:?} (cid {})", graph.heap.header(handle).class_id);
             }
@@ -6040,16 +6040,16 @@ mod arc_no_heap {
             assert!(heap.code_owners.is_empty());
             heap.collect();
             assert!(heap.is_live_object(value));
-            if let Some(arc) = &heap.arc { assert_eq!(arc.estado.meta(value).unwrap().rc, 1); }
+            if let Some(arc) = &heap.arc { assert_eq!(arc.state.meta(value).unwrap().rc, 1); }
             heap.retain_code_owner(value);
             heap.move_code_to_global(10, value);
-            if let Some(arc) = &heap.arc { assert_eq!(arc.estado.meta(value).unwrap().rc, 1); }
+            if let Some(arc) = &heap.arc { assert_eq!(arc.state.meta(value).unwrap().rc, 1); }
             assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 heap.move_code_to_global(10, value);
             })).is_err());
             assert_eq!(heap.globals[&10], value);
             heap.retain_code_owner(value);
-            heap.move_code_to_global(10, smi::de(42).unwrap());
+            heap.move_code_to_global(10, smi::of(42).unwrap());
             assert!(!heap.globals.contains_key(&10), "an owner is not scalar storage");
             heap.collect();
             assert!(heap.is_live_object(value), "token SSA independente protege carga");
@@ -6082,20 +6082,20 @@ mod arc_no_heap {
             heap.collect();
             assert!(!heap.is_live_object(old));
             if let Some(arc) = &heap.arc {
-                assert_eq!(arc.estado.meta(a).unwrap().rc, 3);
+                assert_eq!(arc.state.meta(a).unwrap().rc, 3);
             }
             // The destination already contains a: consumes the token and the old occurrence.
             heap.move_code_to_root(frame, 1, a);
             assert!(heap.code_owners.is_empty());
             if let Some(arc) = &heap.arc {
-                assert_eq!(arc.estado.meta(a).unwrap().rc, 2);
+                assert_eq!(arc.state.meta(a).unwrap().rc, 2);
             }
             assert_eq!(heap.copy_root_to_code(frame, 1), a);
             heap.pop_frame(frame);
             heap.collect();
             assert!(heap.is_live_object(a));
             if let Some(arc) = &heap.arc {
-                assert_eq!(arc.estado.meta(a).unwrap().rc, 1);
+                assert_eq!(arc.state.meta(a).unwrap().rc, 1);
             }
             heap.release_code_owner(a);
             heap.collect();
@@ -6125,7 +6125,7 @@ mod arc_no_heap {
         let observational = heap.push_frame_with_slots(1);
         failure(&mut heap, observational, 0, a);
         assert_eq!(heap.code_owners[&a], 1);
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
         heap.pop_frame(observational);
         heap.collect();
         assert!(heap.is_live_object(a));
@@ -6148,14 +6148,14 @@ mod arc_no_heap {
             heap.collect();
             assert!(heap.is_live_object(value));
             if let Some(arc) = &heap.arc {
-                assert_eq!(arc.estado.meta(value).unwrap().rc, 2);
+                assert_eq!(arc.state.meta(value).unwrap().rc, 2);
             }
             heap.set_root(frame, 0, 0);
             heap.release_code_owner(value);
             heap.collect();
             assert!(heap.is_live_object(value));
             if let Some(arc) = &heap.arc {
-                assert_eq!(arc.estado.meta(value).unwrap().rc, 1);
+                assert_eq!(arc.state.meta(value).unwrap().rc, 1);
             }
             heap.release_code_owner(value);
             assert!(heap.is_live_object(value), "release does not collect");
@@ -6163,7 +6163,7 @@ mod arc_no_heap {
             assert!(!heap.is_live_object(value));
             assert!(heap.code_owners.is_empty());
             heap.pop_frame(frame);
-            for scalar in [0, smi::de(42).unwrap()] {
+            for scalar in [0, smi::of(42).unwrap()] {
                 heap.retain_code_owner(scalar);
                 heap.release_code_owner(scalar);
             }
@@ -6193,7 +6193,7 @@ mod arc_no_heap {
         heap.enable_arc();
         heap.arc.as_mut().unwrap().check = true;
         heap.collect();
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 3);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 3);
         heap.release_code_owner(a);
         heap.collect();
         assert!(heap.is_live_object(a) && heap.is_live_object(b));
@@ -6212,11 +6212,11 @@ mod arc_no_heap {
             heap.add_ready_finalization(action);
             heap.add_ready_finalization(action);
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 2);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 2);
             assert_eq!(heap.finish_ready_finalization(), Some(action));
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 1);
-            heap.encerrar_finalizadores();
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 1);
+            heap.shutdown_finalizers();
             assert_eq!(heap.finish_ready_finalization(), None);
             heap.collect();
             assert!(!heap.is_live_object(action));
@@ -6239,14 +6239,14 @@ mod arc_no_heap {
                 owner, value, detach: 0, action: FinalizerAction::Dart(action),
             });
             heap.set_root(frame, 2, 0);
-            heap.coletar(minor);
+            heap.run_collection(minor);
             assert!(heap.attachments.is_empty());
             assert_eq!(heap.ready_finalizations.front(), Some(&action));
             assert!(!heap.is_live_object(value));
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 2);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 2);
             heap.pop_frame(frame);
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 1);
             assert_eq!(heap.finish_ready_finalization(), Some(action));
             heap.collect();
             assert!(!heap.is_live_object(action));
@@ -6298,17 +6298,17 @@ mod arc_no_heap {
             }
             heap.set_root(frame, 2, 0);
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 3);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 3);
             heap.detach_finalizer(b, 7);
             let mut edges = Vec::new();
             heap.visit_attachment_edges(a, &mut |v| edges.push(v));
             assert_eq!(edges, [action, action]);
             heap.visit_attachment_edges(b, &mut |_| panic!("attachment removed from the index"));
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 2);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 2);
             heap.detach_finalizer(a, 3);
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 1);
             heap.detach_finalizer(a, 5);
             heap.collect();
             assert!(!heap.is_live_object(action));
@@ -6357,8 +6357,8 @@ mod arc_no_heap {
             let target = list(&mut heap, 0);
             heap.set_root(frame, 1, target);
             heap.add_attachment(FinalizerAttachment { value: target, ..attachment });
-            heap.encerrar_finalizadores();
-            heap.encerrar_finalizadores();
+            heap.shutdown_finalizers();
+            heap.shutdown_finalizers();
             assert_eq!(heap.external, 17);
             assert_eq!(RUNS.load(std::sync::atomic::Ordering::Relaxed), before + 2);
             heap.pop_frame(frame);
@@ -6426,9 +6426,9 @@ mod arc_no_heap {
                 owner, value: target, detach: 3, action: FinalizerAction::Dart(action),
             });
             heap.pop_frame(temp_value);
-            heap.coletar(true);
+            heap.run_collection(true);
             assert!(heap.is_live_object(target));
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(action).unwrap().rc, 1);
             assert!(heap.ready_finalizations.is_empty());
             heap.detach_finalizer(owner, 3);
             heap.collect();
@@ -6440,7 +6440,7 @@ mod arc_no_heap {
     }
 
     fn alive(heap: &Heap, h: Ref) -> bool {
-        heap.arc.as_ref().unwrap().estado.alive(h)
+        heap.arc.as_ref().unwrap().state.alive(h)
     }
 
     #[test]
@@ -6454,18 +6454,18 @@ mod arc_no_heap {
             heap.set_root(owner, 0, a);
             heap.set_root(owner, 1, a);
             heap.set_root(observer, 0, a);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
             heap.set_root(owner, 0, a);
             for _ in 0..2 {
-                heap.coletar(true);
-                assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+                heap.run_collection(true);
+                assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
             }
             let b = list(&mut heap, 0);
             heap.set_root(owner, 0, b);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(b).unwrap().rc, 1);
             heap.set_root(owner, 1, 0);
-            heap.coletar(true);
+            heap.run_collection(true);
             assert!(alive(&heap, a), "the observational root still protects the zero");
             heap.pop_frame(observer);
             heap.pop_frame(owner);
@@ -6487,12 +6487,12 @@ mod arc_no_heap {
             heap.write_ref(a, 1, b);
             heap.write_ref(b, 1, a);
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 2);
-            heap.set_root(frame, 0, smi::de(7).unwrap());
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(b).unwrap().rc, 2);
+            heap.set_root(frame, 0, smi::of(7).unwrap());
             heap.collect();
             assert!(alive(&heap, a) && alive(&heap, b));
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
             heap.pop_frame(frame);
             heap.collect();
             assert!(!alive(&heap, a) && !alive(&heap, b));
@@ -6511,12 +6511,12 @@ mod arc_no_heap {
             heap.set_root(caller, 0, a);
             heap.move_root(callee, 0, caller, 0);
             assert_eq!(heap.frames.last().unwrap().1[0], 0);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
             heap.pop_frame(callee);
             heap.collect();
             assert!(alive(&heap, a));
             heap.move_root(caller, 0, caller, 0);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
             let b = list(&mut heap, 0);
             heap.set_root(caller, 1, b);
             heap.move_root(caller, 0, caller, 1);
@@ -6541,7 +6541,7 @@ mod arc_no_heap {
         assert!(failure.is_err());
         assert_eq!(heap.frames[0].1[0], a);
         assert_eq!(heap.frames[1].1[0], 0);
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
         heap.collect();
         heap.pop_frame(observer);
         heap.pop_frame(owner);
@@ -6561,9 +6561,9 @@ mod arc_no_heap {
             let closure = heap.new_closure(123, (env, true), 0, 0);
             heap.set_root(frame, 0, closure);
             heap.collect();
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(env).unwrap().rc, 1);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(closure).unwrap().rc, 1);
-            assert_eq!(heap.closure(closure).unwrap().contexto.0, env);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(env).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(closure).unwrap().rc, 1);
+            assert_eq!(heap.closure(closure).unwrap().context.0, env);
             heap.pop_frame(frame);
             heap.collect();
             assert!(!alive(&heap, env) && !alive(&heap, closure));
@@ -6589,7 +6589,7 @@ mod arc_no_heap {
             let data = heap.list_data(l);
             let boxes = heap.words(data)[1..3].to_vec();
             for &r in &boxes {
-                assert_eq!(heap.arc.as_ref().unwrap().estado.meta(r).unwrap().rc, 1);
+                assert_eq!(heap.arc.as_ref().unwrap().state.meta(r).unwrap().rc, 1);
             }
             heap.pop_frame(frame);
             heap.collect();
@@ -6605,20 +6605,20 @@ mod arc_no_heap {
             heap.arc.as_mut().unwrap().pure = pure;
             heap.stress = true;
             let frame = heap.push_owning_frame(1);
-            let base = heap.new_typed(crate::tipadas::tipo::UINT8, 8);
+            let base = heap.new_typed(crate::typed_lists::ty::UINT8, 8);
             heap.set_root(frame, 0, base);
-            let c = crate::tipadas::view_cid(crate::tipadas::tipo::UINT8, false);
+            let c = crate::typed_lists::view_cid(crate::typed_lists::ty::UINT8, false);
             let first_one = heap.new_view(c, base, 2, 6);
             heap.set_root(frame, 0, first_one);
             let second_one = heap.new_view(c, first_one, 1, 3);
             heap.set_root(frame, 0, second_one);
             heap.collect();
-            let vista = heap.tipada(second_one).unwrap();
-            assert_eq!(vista.base, Some(base));
-            assert_eq!(vista.offset, 3);
-            assert_eq!(vista.len, 3);
+            let view = heap.typed(second_one).unwrap();
+            assert_eq!(view.base, Some(base));
+            assert_eq!(view.offset, 3);
+            assert_eq!(view.len, 3);
             assert!(!alive(&heap, first_one));
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(base).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(base).unwrap().rc, 1);
             heap.pop_frame(frame);
             heap.collect();
             assert!(!alive(&heap, base) && !alive(&heap, second_one));
@@ -6635,17 +6635,17 @@ mod arc_no_heap {
             heap.set_global_root(20, a);
             heap.set_runtime_root(0, a);
             for _ in 0..2 {
-                heap.coletar(true);
-                assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 3);
+                heap.run_collection(true);
+                assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 3);
             }
             heap.move_global_root(10, 10);
             heap.set_global_root(20, a);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 3);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 3);
             heap.move_global_root(10, 20);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
             heap.release_global_root(20);
             heap.release_global_root(20);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
             heap.collect();
             assert!(alive(&heap, a));
             heap.set_runtime_root(0, 0);
@@ -6662,15 +6662,15 @@ mod arc_no_heap {
         heap.set_runtime_root(1, a);
         heap.enable_arc();
         heap.arc.as_mut().unwrap().check = true;
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
         let b = list(&mut heap, 0);
         heap.set_global_root(10, b);
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 1);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(b).unwrap().rc, 1);
         heap.set_runtime_root(1, 0);
         heap.collect();
         assert!(!alive(&heap, a) && alive(&heap, b));
-        heap.set_global_root(10, smi::de(7).unwrap());
+        heap.set_global_root(10, smi::of(7).unwrap());
         heap.collect();
         assert!(!alive(&heap, b));
     }
@@ -6681,27 +6681,27 @@ mod arc_no_heap {
             let mut heap = heap_arc();
             heap.arc.as_mut().unwrap().pure = pure;
             heap.stress = true;
-            let unidades = vec![65u16];
+            let units = vec![65u16];
             let text = heap.allocate_str("A");
-            heap.store_literal(unidades.clone(), text);
-            heap.store_literal(unidades.clone(), text);
+            heap.store_literal(units.clone(), text);
+            heap.store_literal(units.clone(), text);
             let tearoff = heap.new_closure(123, (0, false), 0, 0);
             heap.register_tearoff(123, tearoff);
             heap.register_tearoff(123, tearoff);
             let enum_value_of = heap.enum_value(900, 0, "zero");
             assert_eq!(heap.enum_value(900, 0, "zero"), enum_value_of);
             for _ in 0..2 {
-                heap.coletar(true);
+                heap.run_collection(true);
                 for h in [text, tearoff, enum_value_of] {
-                    assert_eq!(heap.arc.as_ref().unwrap().estado.meta(h).unwrap().rc, 1);
+                    assert_eq!(heap.arc.as_ref().unwrap().state.meta(h).unwrap().rc, 1);
                 }
             }
-            assert_eq!(heap.literal(&unidades), Some(text));
+            assert_eq!(heap.literal(&units), Some(text));
             assert_eq!(heap.registered_tearoff(123), Some(tearoff));
             let replacement = heap.new_closure(123, (0, false), 0, 0);
             heap.register_tearoff(123, replacement);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(tearoff).unwrap().rc, 0);
-            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(replacement).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(tearoff).unwrap().rc, 0);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(replacement).unwrap().rc, 1);
             heap.collect();
             assert_eq!(heap.registered_tearoff(123), Some(replacement));
             assert!(!alive(&heap, tearoff), "the identity index is not an owner");
@@ -6737,7 +6737,7 @@ mod arc_no_heap {
         heap.root(frame, a);
         heap.enable_arc();
         heap.arc.as_mut().unwrap().check = true;
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
         heap.collect();
         heap.pop_frame(frame);
         heap.collect();
@@ -6752,15 +6752,15 @@ mod arc_no_heap {
         let b = list(&mut heap, 1);
         heap.write_ref(a, 1, b);
         heap.set_root(frame, 0, a);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(alive(&heap, a) && alive(&heap, b));
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 1);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(b).unwrap().rc, 1);
         // a[0] = null in an old object: b loses its only occurrence and dies.
         heap.write_ref(a, 1, 0);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(!alive(&heap, b));
         heap.pop_frame(frame);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(!alive(&heap, a));
         heap.collect();
     }
@@ -6771,18 +6771,18 @@ mod arc_no_heap {
         let frame = heap.push_frame_with_slots(2);
         let old_gen = list(&mut heap, 0);
         heap.set_root(frame, 0, old_gen);
-        heap.coletar(true);
-        let generation = heap.arc.as_ref().unwrap().estado.meta(old_gen).unwrap().generation;
+        heap.run_collection(true);
+        let generation = heap.arc.as_ref().unwrap().state.meta(old_gen).unwrap().generation;
         let young = list(&mut heap, 0);
         let garbage = list(&mut heap, 0);
         heap.set_root(frame, 1, young);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(alive(&heap, old_gen) && alive(&heap, young));
         assert!(!alive(&heap, garbage));
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(old_gen).unwrap().generation, generation);
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(young).unwrap().rc, 0);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(old_gen).unwrap().generation, generation);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(young).unwrap().rc, 0);
         heap.pop_frame(frame);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(!alive(&heap, old_gen) && !alive(&heap, young));
     }
 
@@ -6798,7 +6798,7 @@ mod arc_no_heap {
         heap.collect();
         assert!(alive(&heap, a) && alive(&heap, b), "the root holds the cycle");
         heap.pop_frame(frame);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(alive(&heap, a), "the minor collection does not run the cycle round");
         heap.collect();
         assert!(!alive(&heap, a) && !alive(&heap, b));
@@ -6814,14 +6814,14 @@ mod arc_no_heap {
         heap.write_ref(a, 1, b);
         heap.write_ref(a, 2, c);
         heap.set_root(frame, 0, a);
-        heap.coletar(true);
+        heap.run_collection(true);
         // Raw swap: a = [c, c]; b loses, c gains.
         let p = heap.words_mut(a);
         p[1] = c;
         heap.remember(a);
-        heap.coletar(true);
+        heap.run_collection(true);
         assert!(!alive(&heap, b));
-        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(c).unwrap().rc, 2);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(c).unwrap().rc, 2);
         heap.pop_frame(frame);
         heap.collect();
     }
@@ -6913,15 +6913,15 @@ mod arc_no_heap {
     /// (and, under ARC, is registered alive); the weak reference and the ephemeron with a reachable
     /// target stay, and those with an unreachable target become `Pending` (the
     /// full collection requires them zeroed). The unreachable ones leave the model.
-    fn check_model(heap: &Heap, m: &mut Model, full: bool, arc: bool, contexto: &str) {
+    fn check_model(heap: &Heap, m: &mut Model, full: bool, arc: bool, context: &str) {
         let live_set = m.reachable();
         for &h in &live_set {
             if arc {
-                assert!(alive(heap, h), "{contexto}: reachable {h:#x} without live RC");
+                assert!(alive(heap, h), "{context}: reachable {h:#x} without live RC");
             }
             let p = heap.words(h);
             for (i, &f) in m.fields[&h].iter().enumerate() {
-                assert_eq!(p[1 + i], f, "{contexto}: element {i} of {h:#x}");
+                assert_eq!(p[1 + i], f, "{context}: element {i} of {h:#x}");
             }
         }
         if full && arc {
@@ -6930,8 +6930,8 @@ mod arc_no_heap {
             for &h in &m.garbage {
                 assert!(
                     !alive(heap, h),
-                    "{contexto}: unreachable {h:#x} survived the full collection ({:?}; ephemerons {:?}; weak {:?})",
-                    heap.arc.as_ref().unwrap().estado.meta(h),
+                    "{context}: unreachable {h:#x} survived the full collection ({:?}; ephemerons {:?}; weak {:?})",
+                    heap.arc.as_ref().unwrap().state.meta(h),
                     heap.ephemerons.iter().filter(|(p, (k, v))| **p == h || *k == h || *v == h).collect::<Vec<_>>(),
                     heap.weak_refs.iter().filter(|(p, a)| **p == h || **a == h).collect::<Vec<_>>(),
                 );
@@ -6952,9 +6952,9 @@ mod arc_no_heap {
             }
             let current = heap.weak_refs.get(p).copied().unwrap_or(0);
             match *target {
-                Weak::Holds(a) if live_set.contains(&a) => assert_eq!(current, a, "{contexto}: weak {p:#x} with live target"),
+                Weak::Holds(a) if live_set.contains(&a) => assert_eq!(current, a, "{context}: weak {p:#x} with live target"),
                 Weak::Holds(a) => {
-                    assert!(current == a || current == 0, "{contexto}: weak {p:#x}");
+                    assert!(current == a || current == 0, "{context}: weak {p:#x}");
                     *target = Weak::Pending;
                 }
                 Weak::Pending => {}
@@ -6963,12 +6963,12 @@ mod arc_no_heap {
                 assert_eq!(
                     current,
                     0,
-                    "{contexto}: weak {p:#x} not zeroed in the full collection (target {:?}; ephemerons {:?}; pointed to by {:?})",
-                    heap.arc.as_ref().map(|a| a.estado.meta(current)),
+                    "{context}: weak {p:#x} not zeroed in the full collection (target {:?}; ephemerons {:?}; pointed to by {:?})",
+                    heap.arc.as_ref().map(|a| a.state.meta(current)),
                     heap.ephemerons
                         .iter()
                         .filter(|(q, (k, v))| **q == current || *k == current || *v == current)
-                        .map(|(q, kv)| (*q, *kv, live_set.contains(q), live_set.contains(&kv.0), heap.arc.as_ref().map(|a| a.estado.alive(*q))))
+                        .map(|(q, kv)| (*q, *kv, live_set.contains(q), live_set.contains(&kv.0), heap.arc.as_ref().map(|a| a.state.alive(*q))))
                         .collect::<Vec<_>>(),
                     model_fields.iter().filter(|(_, c)| c.contains(&current)).map(|(h, _)| (*h, live_set.contains(h))).collect::<Vec<_>>(),
                 );
@@ -6981,15 +6981,15 @@ mod arc_no_heap {
             }
             let current = heap.ephemerons.get(p).copied().unwrap_or((0, 0));
             match *e {
-                Weak::Holds((k, v)) if live_set.contains(&k) => assert_eq!(current, (k, v), "{contexto}: ephemeron {p:#x} with live key"),
+                Weak::Holds((k, v)) if live_set.contains(&k) => assert_eq!(current, (k, v), "{context}: ephemeron {p:#x} with live key"),
                 Weak::Holds((k, v)) => {
-                    assert!(current == (k, v) || current == (0, 0), "{contexto}: ephemeron {p:#x}");
+                    assert!(current == (k, v) || current == (0, 0), "{context}: ephemeron {p:#x}");
                     *e = Weak::Pending;
                 }
                 Weak::Pending => {}
             }
             if full && *e == Weak::Pending {
-                assert_eq!(current, (0, 0), "{contexto}: ephemeron {p:#x} not zeroed in the full collection");
+                assert_eq!(current, (0, 0), "{context}: ephemeron {p:#x} not zeroed in the full collection");
             }
             true
         });
@@ -7010,7 +7010,7 @@ mod arc_no_heap {
         let frame = heap.push_frame_with_slots(SLOTS);
         let mut m = Model { root_list: vec![0; SLOTS], ..Model::default() };
         for step in 0..steps {
-            let contexto = format!("semente {seed}, passo {step}, arc {arc}");
+            let context = format!("semente {seed}, passo {step}, arc {arc}");
             match r.until(20) {
                 0..=4 => {
                     let len = 1 + r.until(3);
@@ -7062,12 +7062,12 @@ mod arc_no_heap {
                     }
                 }
                 15..=17 => {
-                    heap.coletar(true);
-                    check_model(&heap, &mut m, false, arc, &contexto);
+                    heap.run_collection(true);
+                    check_model(&heap, &mut m, false, arc, &context);
                 }
                 _ => {
                     heap.collect();
-                    check_model(&heap, &mut m, true, arc, &contexto);
+                    check_model(&heap, &mut m, true, arc, &context);
                 }
             }
         }
@@ -7078,7 +7078,7 @@ mod arc_no_heap {
         heap.collect();
         check_model(&heap, &mut m, true, arc, &format!("semente {seed}, fim, arc {arc}"));
         if arc {
-            assert_eq!(heap.arc.as_ref().unwrap().estado.live_set().count(), 0, "seed {seed}: a live object without a root was left");
+            assert_eq!(heap.arc.as_ref().unwrap().state.live_set().count(), 0, "seed {seed}: a live object without a root was left");
         }
         heap.pop_frame(frame);
     }

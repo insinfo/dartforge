@@ -23,7 +23,7 @@ pub struct Context<'a> {
     /// the SDK classes.
     pub class_ids: Vec<Option<u32>>,
     /// With the source SDK, the ids of the SDK classes come from this table
-    /// (`sdk_modulo::sdk_class_ids`), the same as the SDK module's: the
+    /// (`sdk_module::sdk_class_ids`), the same as the SDK module's: the
     /// program loads only the libraries it imports, and numbering by what it
     /// loaded would give ids different from those of the compiled SDK.
     pub fixed_sdk_ids: Option<std::sync::Arc<IdTable>>,
@@ -382,7 +382,7 @@ impl<'a> Context<'a> {
     pub fn with_source_sdk(mut self) -> Self {
         for (i, l) in self.program.libraries.iter().enumerate() {
             if let Some(name) = l.uri.strip_prefix("dart:")
-                && crate::sdk_modulo::SOURCE_LIBRARIES.contains(&name)
+                && crate::sdk_module::SOURCE_LIBRARIES.contains(&name)
             {
                 self.compiled[i] = true;
             }
@@ -505,7 +505,7 @@ impl<'a> Context<'a> {
         let mut ids = vec![None; program.classes.len()];
         let mut keys: Vec<(String, String, usize)> = Vec::new();
         // 1–127 belong to the fixed cids (docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
-        let mut next = dartforge_runtime::layout::PRIMEIRO_CID_LIVRE as u32;
+        let mut next = dartforge_runtime::layout::FIRST_FREE_CID as u32;
         match self.fixed_sdk_ids.clone() {
             Some(table) => {
                 for (i, c) in program.classes.iter().enumerate() {
@@ -882,10 +882,10 @@ pub fn sdk_class_ids(program: &Program, interner: &Interner, compiled: &[bool]) 
     // The classes the runtime knows have the fixed cid of the layout contract
     // (docs/NATIVO-ESPACO-UNIFICADO.md §2.4, `layout::cid::FROM_SDK`): 1–127 stay
     // reserved (those that do not exist in the loaded SDK have no instances) and the
-    // others start at `PRIMEIRO_CID_LIVRE`, skipping 1000–1012.
+    // others start at `FIRST_FREE_CID`, skipping 1000–1012.
     let fixed_set: std::collections::HashMap<(&str, &str), u32> =
-        dartforge_runtime::layout::cid::DO_SDK.iter().map(|&(c, lib, name)| ((lib, name), c as u32)).collect();
-    let mut next = dartforge_runtime::layout::PRIMEIRO_CID_LIVRE as u32;
+        dartforge_runtime::layout::cid::SDK_CLASSES.iter().map(|&(c, lib, name)| ((lib, name), c as u32)).collect();
+    let mut next = dartforge_runtime::layout::FIRST_FREE_CID as u32;
     for k in keys {
         if let Some(&c) = fixed_set.get(&(k.0.as_str(), k.1.as_str())) {
             table.ids.insert(k, c);

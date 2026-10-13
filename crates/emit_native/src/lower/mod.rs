@@ -743,8 +743,8 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         // as they are (positionals in order, named ones by
                         // name) to the target constructor.
                         let span = ast.member(member).span;
-                        let alvo = builder.type_constructor(ast.ty(r.ty), r.constructor.map(|n| n.sym));
-                        match alvo {
+                        let target = builder.type_constructor(ast.ty(r.ty), r.constructor.map(|n| n.sym));
+                        match target {
                             Some(t) => {
                                 let mut evaluated = Vec::new();
                                 for (i, p) in ctx.outline.functions[f_idx].parameters.iter().enumerate() {
@@ -765,7 +765,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                                     builder.creation_type = Some(ctx.outline.functions[f_idx].return_type);
                                 }
                                 let (target_rti, target_tuple) = if target_class
-                                    .is_some_and(|alvo| builder.generic_class(alvo))
+                                    .is_some_and(|target| builder.generic_class(target))
                                 {
                                     let annotation = ast.ty(r.ty);
                                     let rti = builder.annotation_recipe(annotation)

@@ -38,8 +38,8 @@ use std::collections::{HashMap, HashSet};
 
 /// The SDK libraries the program compiles from source.
 pub fn source_libraries(program: &Program, interner: &Interner) -> Vec<LibraryId> {
-    let achar = |uri: &str| program.libraries.iter().position(|l| l.uri == uri).map(|i| LibraryId(i as u32));
-    let Some(async_lib) = achar("dart:async") else {
+    let find_library = |uri: &str| program.libraries.iter().position(|l| l.uri == uri).map(|i| LibraryId(i as u32));
+    let Some(async_lib) = find_library("dart:async") else {
         return Vec::new();
     };
     if !uses_dart_async(program, interner, async_lib) {
@@ -49,7 +49,7 @@ pub fn source_libraries(program: &Program, interner: &Interner) -> Vec<LibraryId
     // `IterableElementError`, `checkNotNullable`… (pure Dart code, except for the
     // intrinsics, `lower/externals.rs`).
     let mut v = vec![async_lib];
-    v.extend(achar("dart:_internal"));
+    v.extend(find_library("dart:_internal"));
     v
 }
 

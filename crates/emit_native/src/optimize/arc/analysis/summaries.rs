@@ -418,9 +418,9 @@ fn value_coverage<'a>(
                     symbol,
                     args,
                     ret_ty,
-                } => call(symbol).is_some_and(|(callee, resumo)| {
-                    resumo.fields == ArcHeapFields::Preserved
-                        && resumo.publications == ArcHeapPublications::ResultOnly
+                } => call(symbol).is_some_and(|(callee, summary)| {
+                    summary.fields == ArcHeapFields::Preserved
+                        && summary.publications == ArcHeapPublications::ResultOnly
                         && *t == *ret_ty
                         && *ret_ty == callee.return_ty
                         && args.len() == callee.params.len()
@@ -670,10 +670,10 @@ mod tests {
             Type::Ref,
         ));
         f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
-        let resumo = extract(&f, 8).unwrap();
-        assert!(matches!(resumo.ret(), ArcHeapReturn::Aliases { .. }));
-        assert_eq!(resumo.fields(), ArcHeapFields::UnknownSet);
-        assert_eq!(resumo.publications(), ArcHeapPublications::UnknownValues);
+        let summary = extract(&f, 8).unwrap();
+        assert!(matches!(summary.ret(), ArcHeapReturn::Aliases { .. }));
+        assert_eq!(summary.fields(), ArcHeapFields::UnknownSet);
+        assert_eq!(summary.publications(), ArcHeapPublications::UnknownValues);
         // A string constant allocates in the JIT, even without an explicit HIR call.
         f = identity();
         f.blocks[0].instructions.push((

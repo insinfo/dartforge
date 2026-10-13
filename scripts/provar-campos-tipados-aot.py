@@ -25,7 +25,7 @@ def main():
     saida.mkdir(parents=True, exist_ok=True)
     fixture = raiz / "crates/emit_native/tests/fixtures/campos_tipados_arc.dart"
     layout = raiz / "crates/runtime/src/layout.rs"
-    limite = int(re.search(r"CAMPOS_EM_LINHA: usize = (\d+)",
+    limite = int(re.search(r"INLINE_FIELDS: usize = (\d+)",
                            layout.read_text(encoding="utf-8")).group(1))
     fonte = fixture.read_text(encoding="utf-8")
     # A fixture tem seis campos de Base, um do mixin e trinta int de Folha.

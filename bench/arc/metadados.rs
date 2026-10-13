@@ -15,11 +15,11 @@ mod hash;
 #[path = "../../crates/runtime/src/layout.rs"]
 mod layout;
 
-use arc::{EstadoDoArc, Geometry};
+use arc::{ArcHeapState, Geometry};
 use std::{hint::black_box, time::Instant};
 
 #[inline(never)]
-fn medir(arc: &mut EstadoDoArc, handles: &[i64]) -> u64 {
+fn medir(arc: &mut ArcHeapState, handles: &[i64]) -> u64 {
     let mut soma = 0;
     for i in 0..10_000_000usize {
         let h = black_box(handles[i.wrapping_mul(4099) & (handles.len() - 1)]);
@@ -31,7 +31,7 @@ fn medir(arc: &mut EstadoDoArc, handles: &[i64]) -> u64 {
 }
 
 fn main() {
-    let mut arc = EstadoDoArc::new();
+    let mut arc = ArcHeapState::new();
     let mut handles = Vec::new();
     for p in 0..8 {
         let g = Geometry {
@@ -40,7 +40,7 @@ fn main() {
             blocks: 1024,
         };
         for i in 0..g.blocks {
-            let h = (g.first + u64::from(i) * g.size) as i64 + layout::DESLOCAMENTO_DO_HANDLE;
+            let h = (g.first + u64::from(i) * g.size) as i64 + layout::HANDLE_OFFSET;
             arc.register_live_at(h, Some(g));
             arc.retain_ref(h).unwrap();
             handles.push(h);

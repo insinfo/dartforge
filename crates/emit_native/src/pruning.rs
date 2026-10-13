@@ -734,7 +734,7 @@ impl Graph {
         i
     }
 
-    fn de(summaries: &[&Summary]) -> Graph {
+    fn of(summaries: &[&Summary]) -> Graph {
         let mut g = Graph {
             names: Vec::new(),
             index: HashMap::new(),
@@ -824,7 +824,7 @@ impl Graph {
 
 /// The fixpoint over the summaries (§3.5), for those who only want the reach.
 pub fn reach(summaries: &[&Summary], prune: bool) -> Reach {
-    Graph::de(summaries).reachability(prune)
+    Graph::of(summaries).reachability(prune)
 }
 
 /// Pruning numbers (`--timings`).

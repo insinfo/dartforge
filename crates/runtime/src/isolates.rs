@@ -48,14 +48,14 @@ const ISOLATE_STACK: usize = 64 * 1024 * 1024;
 /// What generated code hands over at entry: the preparation of an isolate and the
 /// closure call (0 = not registered yet).
 static PREPARE_ISOLATE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static CHAMAR_CLOSURE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static CALL_CLOSURE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// `dartforge_register_isolates(prepare, call)`: the program entry hands over the
 /// isolate preparation and the closure call.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_register_isolates(prepare: extern "C" fn(), call: Option<extern "C" fn(i64) -> i64>) {
     PREPARE_ISOLATE.store(prepare as usize, std::sync::atomic::Ordering::Release);
-    CHAMAR_CLOSURE.store(call.map_or(0, |c| c as usize), std::sync::atomic::Ordering::Release);
+    CALL_CLOSURE.store(call.map_or(0, |c| c as usize), std::sync::atomic::Ordering::Release);
 }
 
 /// The control state of an isolate.
@@ -135,8 +135,8 @@ fn object_id(h: i64) -> Option<i64> {
 }
 
 /// Calls function `name` of the `dart:isolate` overlay.
-fn ajudante_de_isolado(name: &str) -> usize {
-    ajudante(name).unwrap_or_else(|| panic!("compiler bug: dart:isolate without a registered `{name}`"))
+fn isolate_helper(name: &str) -> usize {
+    helper(name).unwrap_or_else(|| panic!("compiler bug: dart:isolate without a registered `{name}`"))
 }
 
 /// Copies `value` to another isolate; `None` if it is not sendable (with the
@@ -218,12 +218,12 @@ mod tests_control_owner {
             let ready_flag = HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.text(input).unwrap().para_string(), "input");
-                assert_eq!(h.text(message).unwrap().para_string(), "argumento");
+                assert_eq!(h.text(input).unwrap().to_dart_string(), "input");
+                assert_eq!(h.text(message).unwrap().to_dart_string(), "argumento");
                 let ready_flag = h.allocate_str("pronto");
                 h.set_root(frame, 2, ready_flag);
                 h.collect();
-                assert_eq!(h.text(ready_flag).unwrap().para_string(), "pronto");
+                assert_eq!(h.text(ready_flag).unwrap().to_dart_string(), "pronto");
                 ready_flag
             });
             (input, message, ready_flag)
@@ -253,7 +253,7 @@ mod tests_control_owner {
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.text(error).unwrap().para_string(), "protected error");
+                assert_eq!(h.text(error).unwrap().to_dart_string(), "protected error");
                 assert!(h.is_live_object(trace));
                 // The diagnostic may repeat the error: it is another owner occurrence.
                 h.set_root(frame, 2, error);
@@ -297,7 +297,7 @@ mod tests_control_owner {
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.text(msg).unwrap().para_string(), "portable control");
+                assert_eq!(h.text(msg).unwrap().to_dart_string(), "portable control");
             });
             msg
         });
@@ -318,12 +318,12 @@ fn handle_control_message(msg: i64) {
     // storage's form.
     let items: Vec<Value> = HEAP.with(|h| {
         let h = h.borrow();
-        if !crate::layout::is_object(msg) || !h.e_lista(msg) {
+        if !crate::layout::is_object(msg) || !h.is_list(msg) {
             return Vec::new();
         }
         (0..h.list_len(msg)).map(|i| h.list_get(msg, i)).collect()
     });
-    let Some(tipo) = items.get(1).and_then(|v| int_from(*v)) else { return };
+    let Some(ty) = items.get(1).and_then(|v| int_from(*v)) else { return };
     let object = |i: usize| match items.get(i) {
         Some(Value::Ref(r)) => *r,
         _ => 0,
@@ -331,14 +331,14 @@ fn handle_control_message(msg: i64) {
     let id = |i: usize| object_id(object(i));
     // The element in a `Ref` position (boxes the scalar of a compact list).
     let value = |i: usize| items.get(i).map_or(0, |v| HEAP.with(|h| h.borrow_mut().to_ref(*v)));
-    match tipo {
+    match ty {
         OOB_PAUSE | OOB_RESUME => {
             let (Some(cap), Some(resume)) = (id(2), id(3)) else { return };
             with_state(|e| {
                 if cap != e.pause {
                     return;
                 }
-                if tipo == OOB_PAUSE {
+                if ty == OOB_PAUSE {
                     e.pauses.push(resume);
                 } else if let Some(k) = e.pauses.iter().position(|&r| r == resume) {
                     e.pauses.remove(k);
@@ -411,7 +411,7 @@ fn handle_control_message(msg: i64) {
 /// `ProcessUnhandledException`: the pending exception goes to the error listeners
 /// (`[error, trace]`); without a listener and with fatal errors, it is printed.
 /// Returns whether the isolate must end.
-fn relatar_erro_nao_tratado() -> bool {
+fn report_unhandled_error() -> bool {
     with_unhandled_error(report_error_guarded)
 }
 
@@ -439,7 +439,7 @@ fn report_error_guarded(error: i64, trace: i64, frame: i64) -> bool {
     let (fatal, listeners) = with_state(|e| (e.errors_fatal, e.error_listeners.clone()));
     // SAFETY: registered by the `dart:isolate` overlay with the signature
     // (`Object?`, `Object?`) → `List<String>`.
-    let describe = { let dart_target: usize = ajudante_de_isolado("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
+    let describe = { let dart_target: usize = isolate_helper("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
     let description = describe(error, trace);
     if dartforge_exception_pending() != 0 {
         // The error's `toString()` failed: the runtime's description.
@@ -452,20 +452,20 @@ fn report_error_guarded(error: i64, trace: i64, frame: i64) -> bool {
     HEAP.with(|h| h.borrow_mut().set_root(frame, 2, description));
     if listeners.is_empty() {
         if fatal {
-            let textos: Vec<String> = HEAP.with(|h| {
+            let text: Vec<String> = HEAP.with(|h| {
                 let h = h.borrow();
-                if !crate::layout::is_object(description) || !h.e_lista(description) {
+                if !crate::layout::is_object(description) || !h.is_list(description) {
                     return Vec::new();
                 }
                 (0..h.list_len(description))
                     .map(|i| match h.list_get(description, i) {
-                        crate::heap::Value::Ref(r) => h.text(r).map(|t| t.para_string()).unwrap_or_default(),
+                        crate::heap::Value::Ref(r) => h.text(r).map(|t| t.to_dart_string()).unwrap_or_default(),
                         _ => String::new(),
                     })
                     .collect()
             });
-            let trace = textos.get(1).map(String::as_str).unwrap_or("");
-            eprintln!("Unhandled exception:\n{}\n{}", textos.first().map(String::as_str).unwrap_or(""), trace.trim_end());
+            let trace = text.get(1).map(String::as_str).unwrap_or("");
+            eprintln!("Unhandled exception:\n{}\n{}", text.first().map(String::as_str).unwrap_or(""), trace.trim_end());
         }
     } else if let Ok(g) = copy_to_graph(description, false) {
         for (k, port) in listeners.iter().enumerate() {
@@ -503,7 +503,7 @@ fn run_isolate_loop(call: extern "C" fn(i64) -> i64) {
         if dartforge_exception_pending() == 0 {
             return;
         }
-        if relatar_erro_nao_tratado() {
+        if report_unhandled_error() {
             return;
         }
     }
@@ -530,7 +530,7 @@ pub extern "C" fn dartforge_safepoint() {
 /// [`dartforge_safepoint`]; the emitter reads the byte directly).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_pending_interrupt() -> u8 {
-    crate::heap::CONTEXTO.with(|c| c.interrupt.load(std::sync::atomic::Ordering::Acquire))
+    crate::heap::CONTEXT.with(|c| c.interrupt.load(std::sync::atomic::Ordering::Acquire))
 }
 
 // ---------------------------------------------------------------------------
@@ -562,9 +562,9 @@ fn with_isolate_entry<R>(input: &Graph, message: &Graph, handle_it: impl FnOnce(
 }
 
 /// The life of an isolate created by `Isolate.spawn`, on its thread.
-fn rodar_isolado(p: IsolateRequest) {
+fn run_isolate(p: IsolateRequest) {
     let prepare = PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire);
-    let call = CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
+    let call = CALL_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
     // SAFETY: registered by `dartforge_register_isolates` with these signatures,
     // before any `Isolate.spawn`.
     let prepare = { let dart_target: usize = prepare; move || { dart_v0(dart_target) } };
@@ -583,7 +583,7 @@ fn rodar_isolado(p: IsolateRequest) {
     });
     isolate_names().insert(control, p.name.clone());
     if dartforge_exception_pending() != 0 {
-        relatar_erro_nao_tratado();
+        report_unhandled_error();
         shut_down_isolate();
         return;
     }
@@ -597,17 +597,17 @@ fn run_entry_and_loop(p: &IsolateRequest, call: extern "C" fn(i64) -> i64, contr
     with_isolate_entry(&p.input, &p.message, |input, message, frame| {
         // SAFETY: registered by the `dart:isolate` overlay with the signatures
         // (`int`, `int`, `int`) → `List` and (`Function`, `Object?`) → `void`.
-        let ready_flag = { let dart_target: usize = ajudante_de_isolado("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
-        let iniciar = { let dart_target: usize = ajudante_de_isolado("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(dart_target, a0, a1) } };
+        let ready_flag = { let dart_target: usize = isolate_helper("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let start = { let dart_target: usize = isolate_helper("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(dart_target, a0, a1) } };
         let m = ready_flag(control, pause, termination);
         if dartforge_exception_pending() != 0 { return; }
         HEAP.with(|h| h.borrow_mut().set_root(frame, 2, m));
         if let Ok(g) = copy_to_graph(m, false) {
             post(p.ready_flag, g);
         }
-        iniciar(input, message);
+        start(input, message);
     });
-    if dartforge_exception_pending() == 0 || !relatar_erro_nao_tratado() {
+    if dartforge_exception_pending() == 0 || !report_unhandled_error() {
         run_isolate_loop(call);
     }
 }
@@ -632,13 +632,13 @@ pub extern "C" fn dartforge_native_Isolate_spawnFunction(
         throw_argument_error("readyPort is not a SendPort");
         return;
     };
-    if PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire) == 0 || CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire) == 0 {
+    if PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire) == 0 || CALL_CLOSURE.load(std::sync::atomic::Ordering::Acquire) == 0 {
         throw_internal_error("Isolate.spawn without the program entry registered");
         return;
     }
     let Some(g_input) = copy_to_other_isolate(input) else { return };
     let Some(g_message) = copy_to_other_isolate(message) else { return };
-    let text = |h: i64| HEAP.with(|heap| heap.borrow().text(h).map(|t| t.para_string()));
+    let text = |h: i64| HEAP.with(|heap| heap.borrow().text(h).map(|t| t.to_dart_string()));
     let name = text(name).unwrap_or_else(|| format!("{}:spawn()", text(uri).unwrap_or_default()));
     let request = IsolateRequest {
         ready_flag,
@@ -654,7 +654,7 @@ pub extern "C" fn dartforge_native_Isolate_spawnFunction(
         // The allocator's free lists are valid while the isolate runs
         // (`allocator.rs`); the end of the thread returns them to the system.
         enable_allocation_cache();
-        rodar_isolado(request);
+        run_isolate(request);
         flush_allocation_cache();
     });
     if let Err(e) = created {
@@ -683,7 +683,7 @@ pub extern "C" fn dartforge_native_Isolate_spawnUri(
     _name: i64,
 ) {
     let Some(ready_flag) = object_id(ready_flag) else { return };
-    let uri = HEAP.with(|h| h.borrow().text(uri).map(|t| t.para_string()).unwrap_or_default());
+    let uri = HEAP.with(|h| h.borrow().text(uri).map(|t| t.to_dart_string()).unwrap_or_default());
     // The JIT (the host set the script) runs one program per process: the class
     // tables and the RTI belong to the process. See docs/JIT.md.
     let jit = program_script().lock().unwrap_or_else(|e| e.into_inner()).is_some();
@@ -702,7 +702,7 @@ pub extern "C" fn dartforge_native_Isolate_getPortAndCapabilitiesOfCurrentIsolat
     let (c, p, t) = with_state(|e| (e.control, e.pause, e.termination));
     // SAFETY: registered by the `dart:isolate` overlay with the signature (`int`,
     // `int`, `int`) → `List`.
-    let f = { let dart_target: usize = ajudante_de_isolado("_dartforgePortaECapacidades"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+    let f = { let dart_target: usize = isolate_helper("_dartforgePortaECapacidades"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
     f(c, p, t)
 }
 

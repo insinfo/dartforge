@@ -2,7 +2,7 @@
 //! §4.3): the literals (`Const(String/StringWtf8)`), interpolation
 //! (`ConcatStrings`) and the `@df.string_*` helpers of the prelude.
 //!
-//! A string is a `BRUTO` block of cid 6 (`_OneByteString`) or 7
+//! A string is a `RAW` block of cid 6 (`_OneByteString`) or 7
 //! (`_TwoByteString`): with the handle `h = block + 2`, the cid at `h+2` (`i32`), the
 //! hash at `h+6` (`i32`, 0 = not computed), the length at `h+14` (`i64`) and the
 //! code units starting at `h+22` (`layout::off`).
@@ -10,7 +10,7 @@
 //! **Literal in AOT** (`static_objects`): a static object of the module,
 //! `@df.s.<key>`, `linkonce_odr` in a `comdat` keyed by the content (the linker
 //! keeps a single copy across the program and the SDK modules: `identical` of
-//! equal literals holds across libraries), state `PERMANENTE`, in the image
+//! equal literals holds across libraries), state `PERMANENT`, in the image
 //! section, with the hash already computed (`layout::string_hash`). The value is the
 //! constant `ptrtoint (gep @df.s.<key>, 2)`: no call nor cache at the use
 //! site. **In the JIT** the memory of a generation is freed (J02), so the literal
@@ -23,7 +23,7 @@
 
 use super::LlvmEmitter;
 use crate::hir::*;
-use dartforge_runtime::layout::{self, cid, desl, estado, flags};
+use dartforge_runtime::layout::{self, cid, offsets, state, flags};
 use std::fmt::Write;
 
 /// The `@df.string_*` helpers (§3.5), printed in the prelude of each module by
@@ -34,7 +34,7 @@ use std::fmt::Write;
 /// * `@df.string_allocate(len, two)`: a string of `len` zeroed code units, inline
 ///   through `@df.allocate` up to 16 words, otherwise `@dartforge_string_allocate`;
 /// * `@df.string_write(s, i, u)`: the `writeInto*String` (writes without a barrier: the
-///   string is `BRUTO` and has not been published yet);
+///   string is `RAW` and has not been published yet);
 /// * `@df.string_hash(s)`: the hash in the header, or `@dartforge_string_hash` on the
 ///   first query;
 /// * `@df.string_equals(a, b)`: `==` between two strings (identity; different lengths and
@@ -206,33 +206,33 @@ pub(super) struct StringState {
 
 /// The image section (§2.11) in the object format of the host.
 fn image_section() -> &'static str {
-    match crate::alvo::sistema() {
-        crate::alvo::Sistema::Windows => ".dfimg$m",
-        crate::alvo::Sistema::MacOs => "__DATA_CONST,__dfimg",
-        crate::alvo::Sistema::Linux => "dfimg",
+    match crate::target::target_os() {
+        crate::target::Os::Windows => ".dfimg$m",
+        crate::target::Os::MacOs => "__DATA_CONST,__dfimg",
+        crate::target::Os::Linux => "dfimg",
     }
 }
 
 /// A static literal: the key and the definition of the global.
 fn static_literal(bytes: &[u8]) -> (String, String) {
-    let text = dartforge_runtime::heap::Texto::de_wtf8(bytes);
-    let seen = text.vista();
-    let two = !seen.e_um_byte();
+    let text = dartforge_runtime::heap::Text::from_wtf8(bytes);
+    let seen = text.view();
+    let two = !seen.is_one_byte();
     let c = if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING };
     let len = seen.len();
-    let w = layout::palavras_de_texto(len, two);
+    let w = layout::string_words(len, two);
     // The code units in bytes (little-endian), padded with zeros up to the word.
     let mut units: Vec<u8> = match seen {
-        dartforge_runtime::textos::TextoRef::Um(b) => b.to_vec(),
-        dartforge_runtime::textos::TextoRef::Dois(u) => u.iter().flat_map(|x| x.to_le_bytes()).collect(),
+        dartforge_runtime::text::TextRef::OneByte(b) => b.to_vec(),
+        dartforge_runtime::text::TextRef::TwoByte(u) => u.iter().flat_map(|x| x.to_le_bytes()).collect(),
     };
     units.resize(8 * (w - 1), 0);
     let mut h = blake3::Hasher::new();
     h.update(&c.to_le_bytes());
     h.update(&units[..if two { 2 * len } else { len }]);
     let key = h.finalize().to_hex()[..32].to_string();
-    let header = layout::palavra_do_cabecalho(estado::PERMANENTE, flags::BRUTO, w, c);
-    let hash = layout::hash_de_texto(seen.unidades());
+    let header = layout::header_word(state::PERMANENT, flags::RAW, w, c);
+    let hash = layout::string_hash(seen.units());
     let n = units.len();
     let body = if n == 0 {
         "zeroinitializer".to_string()
@@ -248,9 +248,9 @@ fn static_literal(bytes: &[u8]) -> (String, String) {
         s.push('"');
         s
     };
-    let comdat = if crate::alvo::has_comdat() { ", comdat" } else { "" };
+    let comdat = if crate::target::has_comdat() { ", comdat" } else { "" };
     let mut def = String::new();
-    if crate::alvo::has_comdat() {
+    if crate::target::has_comdat() {
         writeln!(def, "$\"df.s.{key}\" = comdat any").unwrap();
     }
     writeln!(
@@ -272,7 +272,7 @@ impl LlvmEmitter<'_> {
             writeln!(
                 self.out,
                 "  %v{v} = ptrtoint ptr getelementptr inbounds (i8, ptr @\"df.s.{key}\", i64 {}) to i64",
-                layout::DESLOCAMENTO_DO_HANDLE
+                layout::HANDLE_OFFSET
             )
             .unwrap();
             return;
@@ -343,13 +343,13 @@ impl LlvmEmitter<'_> {
 
 // Checks that the numbers written by hand in `HELPERS` are those of `layout`.
 const _: () = {
-    assert!(desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE == 2);
-    assert!(desl::HASH_DO_TEXTO as i64 - layout::DESLOCAMENTO_DO_HANDLE == 6);
-    assert!(desl::COMPRIMENTO as i64 - layout::DESLOCAMENTO_DO_HANDLE == 14);
-    assert!(desl::UNIDADES as i64 - layout::DESLOCAMENTO_DO_HANDLE == 22);
+    assert!(offsets::CLASS as i64 - layout::HANDLE_OFFSET == 2);
+    assert!(offsets::STRING_HASH as i64 - layout::HANDLE_OFFSET == 6);
+    assert!(offsets::LENGTH as i64 - layout::HANDLE_OFFSET == 14);
+    assert!(offsets::UNITS as i64 - layout::HANDLE_OFFSET == 22);
     assert!(cid::ONE_BYTE_STRING == 6 && cid::TWO_BYTE_STRING == 7);
     assert!(layout::TLAB_N == 16);
-    assert!(layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 0, 0) == 513);
+    assert!(layout::header_word(state::YOUNG, flags::RAW, 0, 0) == 513);
 };
 
 #[cfg(test)]
@@ -362,10 +362,10 @@ mod tests {
         assert!(HELPERS.contains(&format!("and i64 %b, {}", 7 | i64::MIN)));
         // The header word built in `@df.string_allocate` is the one from `layout`.
         for (len, two) in [(0usize, false), (5, false), (9, true), (60, false)] {
-            let w = layout::palavras_de_texto(len, two);
+            let w = layout::string_words(len, two);
             let c = if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING };
             let assembled = (c as u64) << 32 | (w as u64) << 16 | 513;
-            assert_eq!(assembled, layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, w, c));
+            assert_eq!(assembled, layout::header_word(state::YOUNG, flags::RAW, w, c));
             // The helper's computation of `w`: 1 + ((len << two) + 7) >> 3.
             assert_eq!(1 + (((len << u32::from(two)) + 7) >> 3), w);
         }
@@ -378,15 +378,15 @@ mod tests {
     fn static_literal_in_block_shape() {
         let (key, def) = static_literal(b"ab");
         assert_eq!(key.len(), 32);
-        let w0 = layout::palavra_do_cabecalho(estado::PERMANENTE, flags::BRUTO, 2, cid::ONE_BYTE_STRING) as i64;
-        let hash = layout::hash_de_texto("ab".encode_utf16());
+        let w0 = layout::header_word(state::PERMANENT, flags::RAW, 2, cid::ONE_BYTE_STRING) as i64;
+        let hash = layout::string_hash("ab".encode_utf16());
         assert!(def.contains(&format!("{{ i64 {w0}, i64 {hash}, i64 2, [8 x i8] c\"ab\\00\\00\\00\\00\\00\\00\" }}")), "{def}");
         assert!(def.contains("linkonce_odr constant"));
         // The same string gives the same key; the shape goes into the key.
         assert_eq!(static_literal(b"ab").0, key);
         assert_ne!(static_literal(b"ac").0, key);
         let (_, two) = static_literal("€".as_bytes());
-        let w0 = layout::palavra_do_cabecalho(estado::PERMANENTE, flags::BRUTO, 2, cid::TWO_BYTE_STRING) as i64;
+        let w0 = layout::header_word(state::PERMANENT, flags::RAW, 2, cid::TWO_BYTE_STRING) as i64;
         assert!(two.contains(&format!("i64 {w0}")), "{two}");
         assert!(two.contains("c\"\\AC \\00\\00\\00\\00\\00\\00\""), "{two}");
         let (_, empty) = static_literal(b"");

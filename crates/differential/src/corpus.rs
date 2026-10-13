@@ -10,9 +10,9 @@
 //!   the oracle is the smallest configured SDK with version ≥ x.y, and
 //!   DartForge receives `--versao-linguagem x.y`. Without it, 3.6 (the floor;
 //!   `corpus/js`);
-//! * `// erro-de-compilacao` — negative program: the VM, DDC and DartForge
+//! * `// erro-of-compilacao` — negative program: the VM, DDC and DartForge
 //!   must **reject it**, and the report compares the line of the first error;
-//! * `// experimentos: a,b` — `--enable-experiment=a,b` in all three;
+//! * `// experiments: a,b` — `--enable-experiment=a,b` in all three;
 //! * `// diverge-ddc: reason` — the web prints, by definition, something else.
 //!
 //! A `PENDENTES` file in the corpus directory lists (one per line) the
@@ -41,9 +41,9 @@ pub struct Program {
     pub requires: LanguageVersion,
     /// The entry's `// @dart=x.y`, when present.
     pub marker: Option<LanguageVersion>,
-    /// `// erro-de-compilacao`: the program must be rejected.
+    /// `// erro-of-compilacao`: the program must be rejected.
     pub compile_error: bool,
-    /// `// experimentos: a,b`.
+    /// `// experiments: a,b`.
     pub experiments: Vec<String>,
     /// Listed in `PENDENTES`: a feature not implemented in DartForge yet.
     pub pending: bool,

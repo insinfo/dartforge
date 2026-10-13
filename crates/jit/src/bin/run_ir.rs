@@ -40,7 +40,7 @@ fn main() -> ExitCode {
             _ => return usage(),
         }
     }
-    dartforge_jit::definir_argumentos(from_program);
+    dartforge_jit::set_arguments(from_program);
     let Some(file) = file else {
         return usage();
     };

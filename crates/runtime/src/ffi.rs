@@ -69,7 +69,7 @@ fn object_type_type(h: i64) -> Option<i64> {
 
 /// The C type letter of an RTI type (a native type class).
 fn type_letter(t: i64) -> Result<char, String> {
-    let class = RTI.with(|u| match u.borrow().tipo(t) {
+    let class = RTI.with(|u| match u.borrow().ty(t) {
         Type::Interface(c, _) => Some(*c),
         _ => None,
     });
@@ -93,7 +93,7 @@ fn key_part(t: i64, s: &mut String) -> Result<(), String> {
 
 /// The key (`lower/ffi.rs::chave_da_assinatura`) of the native signature `ns`.
 fn signature_key(ns: i64) -> Result<String, String> {
-    let (ret, pos) = RTI.with(|u| match u.borrow().tipo(ns) {
+    let (ret, pos) = RTI.with(|u| match u.borrow().ty(ns) {
         Type::Function { generics: 0, ret, pos, n_required, named } if named.is_empty() && *n_required == pos.len() => Ok((*ret, pos.clone())),
         _ => Err(format!("`{}` is not a native function signature", u.borrow().text(ns))),
     })?;
@@ -104,12 +104,12 @@ fn signature_key(ns: i64) -> Result<String, String> {
         // `VarArgs<(T1, T2…)>`/`VarArgs<T>`: the marker and the variadic types.
         let variadic = RTI.with(|u| {
             let u = u.borrow();
-            let Type::Interface(c, args) = u.tipo(p) else { return None };
+            let Type::Interface(c, args) = u.ty(p) else { return None };
             if native_types().read().unwrap_or_else(|e| e.into_inner()).get(c) != Some(&'*') {
                 return None;
             }
             let a = *args.first()?;
-            Some(match u.tipo(a) {
+            Some(match u.ty(a) {
                 Type::Record { pos, named } if named.is_empty() => pos.clone(),
                 _ => vec![a],
             })
@@ -135,8 +135,8 @@ fn throw_unsupported(msg: &str) {
 
 /// `sizeOf<T>()`: the size in bytes of native type `T` in the target ABI.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_ffi_size_of(tipo: i64) -> i64 {
-    let Some(t) = object_type_type(tipo) else {
+pub extern "C" fn dartforge_native_DartForge_ffi_size_of(ty: i64) -> i64 {
+    let Some(t) = object_type_type(ty) else {
         throw_argument_error("sizeOf: type argument expected");
         return 0;
     };
@@ -198,7 +198,7 @@ fn closure_env(clo: i64) -> (i64, i64) {
         let Some(c) = h.closure(clo) else {
             panic!("compiler bug: FFI trampoline without a closure");
         };
-        let env = c.contexto.0;
+        let env = c.context.0;
         (h.capture(env, 0).0, h.capture(env, 1).0)
     })
 }
@@ -237,7 +237,7 @@ pub extern "C" fn dartforge_ffi_pointer_address(pointer: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_return_pointer(address: i64, clo: i64) -> i64 {
     let (_, ns) = closure_env(clo);
-    new_pointer(address, RTI.with(|u| match u.borrow().tipo(ns) {
+    new_pointer(address, RTI.with(|u| match u.borrow().ty(ns) {
         Type::Function { ret, .. } => Some(*ret),
         _ => None,
     }))
@@ -260,15 +260,15 @@ pub extern "C" fn dartforge_arc_ffi_return_pointer_owned_v1(address: i64, clo: i
 }
 
 /// A Dart `Pointer` with the address and, if known, the type `Pointer<X>`.
-fn new_pointer(address: i64, tipo: Option<i64>) -> i64 {
-    let Some(f) = ajudante("_dartforgePonteiro") else {
+fn new_pointer(address: i64, ty: Option<i64>) -> i64 {
+    let Some(f) = helper("_dartforgePonteiro") else {
         panic!("compiler bug: dart:ffi without a registered `_dartforgePonteiro`");
     };
     // SAFETY: registered by the `dart:ffi` overlay with the signature (`int`) →
     // `Pointer`.
     let f = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     let p = f(address);
-    if let Some(t) = tipo {
+    if let Some(t) = ty {
         HEAP.with(|h| h.borrow_mut().set_metadata(p, t + 1));
     }
     p
@@ -425,8 +425,8 @@ pub extern "C" fn dartforge_native_DartForge_ffi_store_f64(base: i64, offset: i6
 /// The load of an ABI-specific integer (`Long`, `Size`…): the C type that the
 /// compiler resolved for the target.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_ffi_load_abi(tipo: i64, base: i64, offset: i64) -> i64 {
-    match object_type_type(tipo).map(type_letter) {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_abi(ty: i64, base: i64, offset: i64) -> i64 {
+    match object_type_type(ty).map(type_letter) {
         Some(Ok('a')) => dartforge_native_DartForge_ffi_load_i8(base, offset),
         Some(Ok('h')) => dartforge_native_DartForge_ffi_load_u8(base, offset),
         Some(Ok('s')) => dartforge_native_DartForge_ffi_load_i16(base, offset),
@@ -447,8 +447,8 @@ pub extern "C" fn dartforge_native_DartForge_ffi_load_abi(tipo: i64, base: i64, 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_ffi_store_abi(tipo: i64, base: i64, offset: i64, value: i64) {
-    match object_type_type(tipo).map(type_letter) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_abi(ty: i64, base: i64, offset: i64, value: i64) {
+    match object_type_type(ty).map(type_letter) {
         Some(Ok('a' | 'h')) => dartforge_native_DartForge_ffi_store_u8(base, offset, value),
         Some(Ok('s' | 't')) => dartforge_native_DartForge_ffi_store_u16(base, offset, value),
         Some(Ok('i' | 'j')) => dartforge_native_DartForge_ffi_store_u32(base, offset, value),
@@ -536,7 +536,7 @@ mod dl {
     }
 
     /// The modules loaded in the process (`DynamicLibrary.process()`).
-    pub fn modulos() -> Vec<usize> {
+    pub fn modules() -> Vec<usize> {
         let mut n = 256u32;
         loop {
             let mut v = vec![0usize; n as usize];
@@ -559,7 +559,7 @@ mod dl {
 /// `Ffi_dl_open(path)`: the handle, or `ArgumentError` with the system error.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Ffi_dl_open(file_path: i64) -> i64 {
-    let text = HEAP.with(|h| h.borrow().text(file_path).map(|t| t.para_string()).unwrap_or_default());
+    let text = HEAP.with(|h| h.borrow().text(file_path).map(|t| t.to_dart_string()).unwrap_or_default());
     #[cfg(unix)]
     {
         let Ok(c) = std::ffi::CString::new(text.clone()) else {
@@ -615,7 +615,7 @@ fn search_for(handle: i64, name: &std::ffi::CStr) -> usize {
     #[cfg(windows)]
     {
         if handle == PROCESS_HANDLE {
-            return dl::modulos()
+            return dl::modules()
                 .into_iter()
                 // SAFETY: a loaded module and a valid C name.
                 .map(|m| unsafe { dl::GetProcAddress(m, name.as_ptr()) })
@@ -630,7 +630,7 @@ fn search_for(handle: i64, name: &std::ffi::CStr) -> usize {
 /// `Ffi_dl_lookup(handle, symbolName)`: the address, or `ArgumentError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Ffi_dl_lookup(handle: i64, name: i64) -> i64 {
-    let text = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
+    let text = HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()).unwrap_or_default());
     let Ok(c) = std::ffi::CString::new(text.clone()) else {
         return throw_ffi_argument_error(format!("Failed to lookup symbol '{text}'"));
     };
@@ -647,7 +647,7 @@ pub extern "C" fn dartforge_native_Ffi_dl_lookup(handle: i64, name: i64) -> i64 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Ffi_dl_providesSymbol(handle: i64, name: i64) -> u8 {
-    let text = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
+    let text = HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()).unwrap_or_default());
     std::ffi::CString::new(text).map_or(0, |c| u8::from(search_for(handle, &c) != 0))
 }
 
@@ -713,7 +713,7 @@ fn compound_from_rti(rti: i64) -> Option<FfiCompound> {
 
 /// The RTI class of an `Interface` RTI type.
 fn type_rti_class(t: i64) -> Option<i64> {
-    RTI.with(|u| match u.borrow().tipo(t) {
+    RTI.with(|u| match u.borrow().ty(t) {
         Type::Interface(c, _) => Some(*c),
         _ => None,
     })
@@ -744,8 +744,8 @@ pub extern "C" fn dartforge_ffi_compound(rti: i64, base: i64, offset: i64) -> i6
 /// `Pointer<S>.ref`/`[i]` (the overlay): the instance of `S` over `base` + `offset`,
 /// through the `Type` object of `S`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_ffi_compound_of_type(tipo: i64, base: i64, offset: i64) -> i64 {
-    let Some(rti) = object_type_type(tipo).and_then(type_rti_class) else {
+pub extern "C" fn dartforge_native_DartForge_ffi_compound_of_type(ty: i64, base: i64, offset: i64) -> i64 {
+    let Some(rti) = object_type_type(ty).and_then(type_rti_class) else {
         throw_argument_error("struct type argument expected");
         return 0;
     };
@@ -791,7 +791,7 @@ pub unsafe extern "C" fn dartforge_ffi_native_symbol(name: *const u8, n: i64) ->
 
 /// Local selection comes before the foreign lookup so as not to cross heaps/TLS.
 fn resolve_native_address(name: &str, process: impl FnOnce(&std::ffi::CStr) -> usize) -> usize {
-    endereco_nativo_do_runtime(name).unwrap_or_else(|| {
+    runtime_native_address(name).unwrap_or_else(|| {
         std::ffi::CString::new(name).map_or(0, |c| process(&c))
     })
 }
@@ -829,15 +829,15 @@ mod tests_resolve_native {
 }
 
 /// `Pointer<X>.asTypedList(n)`: the internal typed list `class_id` (elements
-/// `tipo`) over the pointer's native memory, without copying — writing into one is
+/// `ty`) over the pointer's native memory, without copying — writing into one is
 /// writing into the other.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_typed_external(class_id: i64, tipo: i64, pointer: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_typed_external(class_id: i64, ty: i64, pointer: i64, n: i64) -> i64 {
     let Some(address) = address_of(pointer) else {
         throw_argument_error("a Pointer was expected");
         return 0;
     };
-    let tipo = tipo as u8;
+    let ty = ty as u8;
     if n < 0 {
         throw_argument_error("length must be non-negative");
         return 0;
@@ -846,17 +846,17 @@ pub extern "C" fn dartforge_typed_external(class_id: i64, tipo: i64, pointer: i6
         throw_argument_error("asTypedList on nullptr");
         return 0;
     }
-    debug_assert_eq!(class_id, i64::from(crate::layout::cid::tipada(tipo)), "typed list cid outside the contract");
+    debug_assert_eq!(class_id, i64::from(crate::layout::cid::typed(ty)), "typed list cid outside the contract");
     // The internal list with `EXTERNAL` (§2.5): the length and the native address.
-    HEAP.with(|h| h.borrow_mut().external_typed(tipo, address as usize as *mut u8, n as usize))
+    HEAP.with(|h| h.borrow_mut().external_typed(ty, address as usize as *mut u8, n as usize))
 }
 
 /// [`dartforge_typed_external`] that registers the class's method table on the first
 /// allocation (like `dartforge_typed_new_t`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_typed_external_t(class_id: i64, tipo: i64, pointer: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
+pub extern "C" fn dartforge_typed_external_t(class_id: i64, ty: i64, pointer: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
     dartforge_register_table(class_id, f);
-    dartforge_typed_external(class_id, tipo, pointer, n)
+    dartforge_typed_external(class_id, ty, pointer, n)
 }
 
 /// The address of the bytes of a struct/union (an argument by value): the base
@@ -945,8 +945,8 @@ pub extern "C" fn dartforge_ffi_handles_open() -> i64 {
 pub extern "C" fn dartforge_ffi_handles_close(scope: i64) {
     let released_list: Vec<usize> = HANDLE_CELLS.with(|c| {
         let mut c = c.borrow_mut();
-        let de = (scope.max(0) as usize).min(c.len());
-        c.split_off(de)
+        let of = (scope.max(0) as usize).min(c.len());
+        c.split_off(of)
     });
     for cell in released_list {
         HEAP.with(|h| h.borrow_mut().release_global_root(cell as i64));

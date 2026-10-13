@@ -63,13 +63,13 @@ fn main() {
                     timings: false,
                     optimize: false,
                     // The corpus is `corpus/js`, written for 3.6.
-                    versao_linguagem: Some(dartforge_frontend::LanguageVersion::FLOOR),
-                    experimentos: Vec::new(),
-                    depuracao: false,
-                    gerador: None,
+                    language_version: Some(dartforge_frontend::LanguageVersion::FLOOR),
+                    experiments: Vec::new(),
+                    debug: false,
+                    generator: None,
                     cpu: None,
                 };
-                dartforge_emit_native::compilar(&i2, &o2, &options)
+                dartforge_emit_native::compile(&i2, &o2, &options)
             })
             .expect("spawn thread")
             .join()

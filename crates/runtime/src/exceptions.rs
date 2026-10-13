@@ -1,6 +1,6 @@
 // Native runtime: the pending exception, stack traces and the SDK's error classes.
 
-/// A new heap string with the text `s` (`textos.rs`).
+/// A new heap string with the text `s` (`text.rs`).
 fn error_text(s: &str) -> i64 {
     HEAP.with(|h| h.borrow_mut().allocate_str(s))
 }
@@ -191,14 +191,14 @@ thread_local! {
 
 /// Stores the pending exception and its mirror in the thread context (which
 /// generated code reads, `Context::pending`).
-fn definir_excecao(v: Option<crate::heap::Value>) {
-    CONTEXTO.with(|c| c.pending.set(u8::from(v.is_some())));
+fn set_exception(v: Option<crate::heap::Value>) {
+    CONTEXT.with(|c| c.pending.set(u8::from(v.is_some())));
     EXCEPTION.with(|slot| *slot.borrow_mut() = v);
 }
 
 /// Takes the pending exception (and clears the mirror).
 fn take_exception() -> Option<crate::heap::Value> {
-    CONTEXTO.with(|c| c.pending.set(0));
+    CONTEXT.with(|c| c.pending.set(0));
     EXCEPTION.with(|slot| slot.borrow_mut().take())
 }
 
@@ -206,7 +206,7 @@ fn take_exception() -> Option<crate::heap::Value> {
 /// to the event loop (`isolates.rs`).
 fn begin_unwind() {
     UNWINDING.with(|d| d.set(true));
-    definir_excecao(Some(crate::heap::Value::Ref(0)));
+    set_exception(Some(crate::heap::Value::Ref(0)));
     HEAP.with(|h| h.borrow_mut().set_runtime_root(0, 0));
 }
 
@@ -294,13 +294,13 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
     }
     // G6: the pending exception is a root until it is consumed.
     HEAP.with(|h| h.borrow_mut().set_runtime_root(0, reference));
-    definir_excecao(Some(value));
+    set_exception(Some(value));
 }
 
 /// Tells whether there is a pending exception on the current thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_pending() -> u8 {
-    CONTEXTO.with(|c| c.pending.get())
+    CONTEXT.with(|c| c.pending.get())
 }
 
 /// Disarms and clears the pending exception slot.
@@ -313,7 +313,7 @@ pub extern "C" fn dartforge_exception_clear() {
     }
     // Without an exception or a stored stack trace (the case of every `return`):
     // nothing to clear, and the heap is not touched.
-    if CONTEXTO.with(|c| c.pending.get()) == 0 && CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()) {
+    if CONTEXT.with(|c| c.pending.get()) == 0 && CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()) {
         return;
     }
     take_exception();
@@ -330,7 +330,7 @@ pub extern "C" fn dartforge_exception_clear() {
 
 fn allocate_format_exception(message: &str) -> i64 {
     let msg = error_text(message);
-    if ajudante("_dartforgeErroDeFormato").is_some() {
+    if helper("_dartforgeErroDeFormato").is_some() {
         return with_roots(&[msg], || dartforge_format_exception_new(msg, 0, -1));
     }
     with_roots(&[msg], || {
@@ -353,7 +353,7 @@ pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i64, offset: i64) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroDeFormato") {
+    if let Some(f) = helper("_dartforgeErroDeFormato") {
         // SAFETY: registered by `dart:core` with the signature
         // `(String, Object?, int) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
@@ -366,7 +366,7 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroDeEstado") {
+    if let Some(f) = helper("_dartforgeErroDeEstado") {
         // SAFETY: registered by `dart:core` with the signature `(String) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[msg_handle], || g(msg_handle));
@@ -376,7 +376,7 @@ pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_argument_error_new(msg_handle: i64, name_handle: i64) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroDeArgumento") {
+    if let Some(f) = helper("_dartforgeErroDeArgumento") {
         // SAFETY: registered by `dart:core` with the signature
         // `(String?, String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
@@ -407,7 +407,7 @@ pub extern "C" fn dartforge_range_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_range_error_range(val: i64, min: i64, max: i64, name_handle: i64, msg_handle: i64) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroDeFaixa") {
+    if let Some(f) = helper("_dartforgeErroDeFaixa") {
         // SAFETY: registered by `dart:core`: `(int, int, int, String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64| -> i64 { dart_r4(dart_target, a0, a1, a2, a3) } };
         let _ = msg_handle;
@@ -427,7 +427,7 @@ pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64,
         let x = indexable_or_len;
         if !crate::layout::is_object(x) || !h.is_live_object(x) {
             x
-        } else if h.e_lista(x) {
+        } else if h.is_list(x) {
             h.list_len(x) as i64
         } else {
             h.text(x).map_or(x, |t| t.len() as i64)
@@ -441,7 +441,7 @@ pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64,
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unsupported_error_new(msg_handle: i64) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroNaoSuportado") {
+    if let Some(f) = helper("_dartforgeErroNaoSuportado") {
         // SAFETY: registered by `dart:core` with the signature `(String?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         return with_roots(&[msg_handle], || g(msg_handle));
@@ -456,7 +456,7 @@ pub extern "C" fn dartforge_unimplemented_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroDeAssercao") {
+    if let Some(f) = helper("_dartforgeErroDeAssercao") {
         // SAFETY: registered by `dart:core` with the signature `(Object?) -> Object`.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
         let m = if is_ref != 0 { msg_bits } else { HEAP.with(|h| h.borrow_mut().to_ref(crate::heap::Value::Int(msg_bits))) };
@@ -479,12 +479,12 @@ pub extern "C" fn dartforge_type_error_new() -> i64 {
 /// identity and the VM's `toString`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_late_error_new(name: i64, code: i64) -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroLate") {
+    if let Some(f) = helper("_dartforgeErroLate") {
         // SAFETY: helper registered by dart:_internal as (String, int) -> Object.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
         return with_roots(&[name], || g(name, code));
     }
-    let n = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
+    let n = HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()).unwrap_or_default());
     let (location, message) = match code {
         0 => ("Field", "has not been initialized"),
         1 => ("Field", "has already been initialized"),
@@ -504,7 +504,7 @@ pub extern "C" fn dartforge_late_error_new(name: i64, code: i64) -> i64 {
 /// threw `StackOverflowError`. We build the same error without consuming the stack.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_overflow_error_new() -> i64 {
-    if let Some(f) = ajudante("_dartforgeErroPilha") {
+    if let Some(f) = helper("_dartforgeErroPilha") {
         // SAFETY: helper registered by dart:_internal as () -> Object.
         let g = { let dart_target: usize = f; move || -> i64 { dart_r0(dart_target) } };
         return g();
@@ -516,13 +516,13 @@ pub extern "C" fn dartforge_stack_overflow_error_new() -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_no_such_method_error_new(name: i64) -> i64 {
     if debug() {
-        let t = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()));
+        let t = HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()));
         eprintln!("[debug] NoSuchMethodError: {t:?}");
     }
     // In the SDK from source the error is always the SDK's `NoSuchMethodError` (the
     // synthetic class 1012 is not a subtype of anything in the compiled library's
     // RTI: not even a `catch (e)` would catch it).
-    if let Some(f) = ajudante("_dartforgeErroDeChamada") {
+    if let Some(f) = helper("_dartforgeErroDeChamada") {
         // The SDK from source provides the concrete NoSuchMethodError instance.
         // The name is rooted while the Dart constructors allocate.
         let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
@@ -565,7 +565,7 @@ fn field_as_ref(handle: i64, ix: usize) -> i64 {
 /// SDK from source: the error built by the registered Dart function `name(text)`
 /// (`identical_patch.dart`), or `None` without it.
 fn source_error_with_text(name: &str, text: &str) -> Option<i64> {
-    let f = ajudante(name)?;
+    let f = helper(name)?;
     // SAFETY: registered by `dart:core` with the signature `(String) -> Object`.
     let g = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     let t = error_text(text);

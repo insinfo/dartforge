@@ -279,8 +279,8 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
             let (record, kind) = match rel.get(&((p + 4) as u32)) {
                 Some(&s1) => {
                     let (_, v1) = *value_of.get(s1 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
-                    let alvo = v1 as i64 + field(4) - 4;
-                    let kind = (alvo & 3) as u32;
+                    let target = v1 as i64 + field(4) - 4;
+                    let kind = (target & 3) as u32;
                     (Some((s1, field(4) - 4 - i64::from(kind))), kind)
                 }
                 None if field(4) == 3 => (None, 3),
@@ -453,7 +453,7 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
 /// converter: in COFF and ELF, except for the `DARTFORGE_RASTRO_CRU=1` measurement; in
 /// Mach-O never.
 pub fn convert_here() -> bool {
-    crate::alvo::sistema() != crate::alvo::Sistema::MacOs && !std::env::var_os("DARTFORGE_RASTRO_CRU").is_some_and(|v| !v.is_empty() && v != "0")
+    crate::target::target_os() != crate::target::Os::MacOs && !std::env::var_os("DARTFORGE_RASTRO_CRU").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 /// The converter for the object format. Returns whether it converted.

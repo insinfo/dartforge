@@ -18,7 +18,7 @@ use super::*;
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut m = Module::new(); m.arc_memory = true; m.excecoes_por_tabelas = true;
+/// let mut m = Module::new(); m.arc_memory = true; m.table_exceptions = true;
 /// m.functions.push(Function { symbol: "leaf".into(), name: "leaf".into(),
 ///     debug_info: None, params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
@@ -58,7 +58,7 @@ pub fn prepare_arc_tabled_module(
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::*};
 /// use std::collections::HashMap;
-/// let mut m = Module::new(); m.arc_memory = true; m.excecoes_por_tabelas = true;
+/// let mut m = Module::new(); m.arc_memory = true; m.table_exceptions = true;
 /// m.functions.push(Function { symbol: "leaf".into(), name: "leaf".into(),
 ///     debug_info: None, params: vec![], return_ty: Type::Void,
 ///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
@@ -76,7 +76,7 @@ pub fn produce_module_arc_tables(
     if !module.arc_memory {
         return Ok(0);
     }
-    if !module.excecoes_por_tabelas || module.tables.len() != module.functions.len() {
+    if !module.table_exceptions || module.tables.len() != module.functions.len() {
         return Err("ARC tables: module without a complete exceptional inventory".into());
     }
     let mut symbols = HashSet::new();
@@ -291,7 +291,7 @@ mod tests {
                         .landing_pads
                         .insert(BlockId(999));
                 }
-                3 => m.excecoes_por_tabelas = false,
+                3 => m.table_exceptions = false,
                 4 => {
                     plans.insert("obsoleto".into(), DartFunctionPlan::default());
                 }

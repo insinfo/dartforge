@@ -1,9 +1,9 @@
 //! Compilation driver LLVM IR -> Clang -> link with the cached runtime.
 
-use crate::alvo::Sistema;
+use crate::target::Os;
 use crate::cache::{RuntimeCache, native_cache_dir};
 use crate::object_cache::{self, ObjectCache};
-use crate::gerador::{Generation, Gerador};
+use crate::generator::{Generation, Generator};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -15,8 +15,8 @@ pub struct NativeDriverOptions {
     /// J05: the object carries the line tables; on Windows the link generates the
     /// PDB (`/DEBUG`), which is where the debugger looks for them.
     pub debug_info: bool,
-    /// The target CPU (`--cpu`, `gerador::Cpu`); `None`, the baseline of the target.
-    pub cpu: Option<crate::gerador::Cpu>,
+    /// The target CPU (`--cpu`, `generator::Cpu`); `None`, the baseline of the target.
+    pub cpu: Option<crate::generator::Cpu>,
 }
 
 impl Default for NativeDriverOptions {
@@ -41,13 +41,13 @@ fn default_clang() -> PathBuf {
     }
     for var in ["DARTFORGE_LLVM_DIR", "LLVM_SYS_221_PREFIX"] {
         if let Some(d) = std::env::var_os(var) {
-            let c = PathBuf::from(d).join("bin").join(crate::alvo::nome_clang());
+            let c = PathBuf::from(d).join("bin").join(crate::target::clang_name());
             if c.is_file() {
                 return c;
             }
         }
     }
-    PathBuf::from(crate::alvo::nome_clang())
+    PathBuf::from(crate::target::clang_name())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -67,7 +67,7 @@ pub struct TimingsReport {
 pub struct LinkTimes {
     pub clang: Duration,
     pub link: Duration,
-    pub objeto_do_cache: bool,
+    pub cache_object: bool,
 }
 
 pub fn compile_and_link(
@@ -79,13 +79,13 @@ pub fn compile_and_link(
     // A program with the source SDK (P5c): the entry calls the registration of the
     // SDK libraries, which live in the cached objects.
     let sdk = if llvm_ir.contains("declare void @df.register.") {
-        let dir = crate::sdk_do_dart()?;
+        let dir = crate::dart_sdk()?;
         let profile = if options.optimize {
-            crate::sdk_modulo::SdkProfile::Production
+            crate::sdk_module::SdkProfile::Production
         } else {
-            crate::sdk_modulo::SdkProfile::Development
+            crate::sdk_module::SdkProfile::Development
         };
-        let sdk = crate::sdk_modulo::compiled_sdk_in_profile(&dir, &options.clang, profile)?;
+        let sdk = crate::sdk_module::compiled_sdk_in_profile(&dir, &options.clang, profile)?;
         if let Some(t) = sdk.cold
             && options.timings
         {
@@ -116,7 +116,7 @@ pub fn compile_and_link(
         _ => llvm_ir,
     };
     let (link_with, sdk_objects): (Linkage, Vec<PathBuf>) = match &sdk {
-        Some(s) if production => (Linkage::Production(crate::cache::RuntimeCache::para_producao()?.lib_path), s.objects.clone()),
+        Some(s) if production => (Linkage::Production(crate::cache::RuntimeCache::for_production()?.lib_path), s.objects.clone()),
         Some(s) => (Linkage::SharedSdk(s.import.clone()), Vec::new()),
         None => (Linkage::Runtime(runtime.lib_path.clone()), Vec::new()),
     };
@@ -135,7 +135,7 @@ pub fn compile_and_link(
     let keep_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
     // Production with the source SDK: bitcode, optimized together with the SDK one at
     // link time (LTO).
-    let gerador = Gerador::escolher(&options.clang);
+    let generator = Generator::choose(&options.clang);
     // `DARTFORGE_PRODUCAO_SEM_LTO=1` (measurement, docs/NATIVO-PRODUCAO-GRANDE.md
     // §3.2): the parts of the program go as `-O2` objects, and only the SDK
     // bitcode goes through the linker's LTO.
@@ -155,19 +155,19 @@ pub fn compile_and_link(
     let cache = ObjectCache::from_env();
     // Also in production: each part becomes a bitcode, and the linker's ThinLTO
     // optimizes them together (the IR already assembled with the pruned tables).
-    if let Some((threshold, alvo)) = crate::partition::limits()
+    if let Some((threshold, target)) = crate::partition::limits()
         && llvm_ir.len() > threshold
     {
-        let plan = crate::partition::make_plan(llvm_ir, alvo);
+        let plan = crate::partition::make_plan(llvm_ir, target);
         // Production in parts: the bitcode has to carry the ThinLTO summary,
         // which only Clang writes (the embedded generator does not: `lld` would do
         // the full LTO in a single module, on one thread — 1 600 s on
         // new_sali/backend, docs/NATIVO-PRODUCAO-GRANDE.md §1.2).
         // `DARTFORGE_GERADOR` chooses by hand.
         let parts_generator = if production && !without_lto && std::env::var_os("DARTFORGE_GERADOR").is_none() {
-            Gerador::clang_if_any(&options.clang)
+            Generator::clang_if_any(&options.clang)
         } else {
-            gerador.clone()
+            generator.clone()
         };
         let objects = generate_parts(&plan, &parts_generator, generation, cache, &staging, &stem)?;
         drop(plan);
@@ -183,8 +183,8 @@ pub fn compile_and_link(
         let distributed = cfg!(feature = "llvm-embutido")
             && production
             && !without_lto
-            && matches!(crate::alvo::sistema(), Sistema::Windows | Sistema::Linux)
-            && crate::alvo::raizes_por_mapas()?;
+            && matches!(crate::target::target_os(), Os::Windows | Os::Linux)
+            && crate::target::roots_by_maps()?;
         let linked_done = if distributed {
             link_distributed(&options.clang, &objects, &sdk_objects, &link_with, output, options.debug_info, options.cpu, &staging, cache)
         } else {
@@ -206,7 +206,7 @@ pub fn compile_and_link(
                 let _ = std::fs::remove_file(o);
             }
         }
-        return Ok(LinkTimes { clang: clang_duration, link: t_link.elapsed(), objeto_do_cache: false });
+        return Ok(LinkTimes { clang: clang_duration, link: t_link.elapsed(), cache_object: false });
     }
 
     // Roots by maps in single-module production, through the distributed ThinLTO,
@@ -220,33 +220,33 @@ pub fn compile_and_link(
     let single_distributed = cfg!(feature = "llvm-embutido")
         && production
         && !without_lto
-        && matches!(crate::alvo::sistema(), Sistema::Windows | Sistema::Linux)
-        && (crate::alvo::raizes_por_mapas()? || std::env::var("DARTFORGE_LTO_DISTRIBUIDA").is_ok_and(|v| v == "1"));
+        && matches!(crate::target::target_os(), Os::Windows | Os::Linux)
+        && (crate::target::roots_by_maps()? || std::env::var("DARTFORGE_LTO_DISTRIBUIDA").is_ok_and(|v| v == "1"));
     // The bitcode that goes to the distributed ThinLTO has to carry the ThinLTO
     // summary, which only Clang writes: without it, the backend with the index of the
     // link returns an empty module. `DARTFORGE_GERADOR` chooses by hand.
-    let gerador = if single_distributed && std::env::var_os("DARTFORGE_GERADOR").is_none() {
-        Gerador::Clang(options.clang.clone())
+    let generator = if single_distributed && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+        Generator::Clang(options.clang.clone())
     } else {
-        gerador
+        generator
     };
 
     // Phase 1: the generator compiles LLVM IR -> object, or the cache already has the
     // object of this IR with this generator and this generation.
     let obj_staging = || -> Result<PathBuf, String> {
         create_staging()?;
-        Ok(staging.join(format!("{stem}.{}", crate::alvo::ext_object())))
+        Ok(staging.join(format!("{stem}.{}", crate::target::ext_object())))
     };
     let (mut obj_file, mut from_cache) = match cache {
         Some(c) => {
             let description = generation.description();
-            let key = object_cache::key(llvm_ir, &gerador.identity()?, &[description.as_str()]);
-            let (obj, hit) = c.get_or_create(key, |tmp| gerador.gerar(llvm_ir, generation, tmp))?;
+            let key = object_cache::key(llvm_ir, &generator.identity()?, &[description.as_str()]);
+            let (obj, hit) = c.get_or_create(key, |tmp| generator.generate(llvm_ir, generation, tmp))?;
             (obj, Some((c, key, hit)))
         }
         None => {
             let obj = obj_staging()?;
-            gerador.gerar(llvm_ir, generation, &obj)?;
+            generator.generate(llvm_ir, generation, &obj)?;
             (obj, None)
         }
     };
@@ -269,7 +269,7 @@ pub fn compile_and_link(
         // cache, and the link is redone once with a new object.
         c.remove(key);
         obj_file = obj_staging()?;
-        gerador.gerar(llvm_ir, generation, &obj_file)?;
+        generator.generate(llvm_ir, generation, &obj_file)?;
         from_cache = None;
         linked_done = link_object(&obj_file);
     }
@@ -295,7 +295,7 @@ pub fn compile_and_link(
     Ok(LinkTimes {
         clang: clang_duration,
         link: link_duration,
-        objeto_do_cache: matches!(from_cache, Some((_, _, true))),
+        cache_object: matches!(from_cache, Some((_, _, true))),
     })
 }
 
@@ -313,7 +313,7 @@ fn link_distributed(
     linkage: &Linkage,
     output: &Path,
     debug_info: bool,
-    cpu: Option<crate::gerador::Cpu>,
+    cpu: Option<crate::generator::Cpu>,
     staging: &Path,
     cache: Option<&'static ObjectCache>,
 ) -> Result<(), String> {
@@ -340,7 +340,7 @@ fn link_distributed(
     _link: &Linkage,
     _output: &Path,
     _debug: bool,
-    _cpu: Option<crate::gerador::Cpu>,
+    _cpu: Option<crate::generator::Cpu>,
     _staging: &Path,
     _cache: Option<&'static ObjectCache>,
 ) -> Result<(), String> {
@@ -384,10 +384,10 @@ pub fn outliner_at_link() -> bool {
     if request.as_deref() == Some("0") {
         return false;
     }
-    let default_mode = !crate::alvo::excecoes_por_tabelas().unwrap_or(true)
-        && !crate::alvo::raizes_por_mapas().unwrap_or(true)
-        && !crate::alvo::symbolic_stack_trace().unwrap_or(true)
-        && !crate::alvo::arc_memory().unwrap_or(true);
+    let default_mode = !crate::target::table_exceptions().unwrap_or(true)
+        && !crate::target::roots_by_maps().unwrap_or(true)
+        && !crate::target::symbolic_stack_trace().unwrap_or(true)
+        && !crate::target::arc_memory().unwrap_or(true);
     cfg!(target_arch = "aarch64") && default_mode && (LINK_IN_PARTS.get() || request.as_deref() == Some("1"))
 }
 
@@ -422,14 +422,14 @@ pub fn generation_tasks() -> usize {
 /// IR at `-O0`, is the measure, not the cores).
 fn generate_parts(
     plan: &crate::partition::Plan<'_>,
-    gerador: &Gerador,
+    generator: &Generator,
     generation: Generation,
     cache: Option<&'static ObjectCache>,
     staging: &Path,
     stem: &str,
 ) -> Result<Vec<PathBuf>, String> {
     let parallel = generation_tasks();
-    let identity = gerador.identity()?;
+    let identity = generator.identity()?;
     let description = generation.description();
     if cache.is_none() {
         std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
@@ -450,11 +450,11 @@ fn generate_parts(
                 let r = match cache {
                     Some(c) => {
                         let key = object_cache::key(ir, &identity, &[description.as_str()]);
-                        c.get_or_create(key, |tmp| gerador.gerar(ir, generation, tmp)).map(|(o, _)| o)
+                        c.get_or_create(key, |tmp| generator.generate(ir, generation, tmp)).map(|(o, _)| o)
                     }
                     None => {
-                        let o = staging.join(format!("{stem}.parte{i}.{}", crate::alvo::ext_object()));
-                        gerador.gerar(ir, generation, &o).map(|()| o)
+                        let o = staging.join(format!("{stem}.parte{i}.{}", crate::target::ext_object()));
+                        generator.generate(ir, generation, &o).map(|()| o)
                     }
                 };
                 results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
@@ -492,23 +492,23 @@ impl Linkage {
 }
 
 /// Linking on Linux: `ld.lld` directly, with the link sysroot
-/// (`ligador.rs`) — without the Clang driver nor GCC on the machine.
-fn link_on_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
-    use crate::ligador;
-    let sysroot = ligador::SysrootLinux::locate(clang)?;
+/// (`linker.rs`) — without the Clang driver nor GCC on the machine.
+fn link_on_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+    use crate::linker;
+    let sysroot = linker::SysrootLinux::locate(clang)?;
     let mut entries = vec![obj.to_path_buf()];
     entries.extend(sdk.iter().cloned());
     entries.push(linkage.library().to_path_buf());
     let production = matches!(linkage, Linkage::Production(_));
-    ligador::link(
-        &ligador::ld_lld(clang),
+    linker::link(
+        &linker::ld_lld(clang),
         sysroot,
-        &ligador::Linkage {
-            product: ligador::Product::Executable,
+        &linker::Linkage {
+            product: linker::Product::Executable,
             entries,
             origin_rpath: matches!(linkage, Linkage::SharedSdk(_)),
             lto: production,
-            cpu: cpu.map(crate::gerador::Cpu::name),
+            cpu: cpu.map(crate::generator::Cpu::name),
             prune: production,
             keep_debug_info: debug_info,
             exit: output,
@@ -517,10 +517,10 @@ fn link_on_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, o
 }
 
 /// Linking on Windows: `lld-link` directly, with the import libraries
-/// and the minimal CRT generated by dartforge (`ligador_windows.rs`) —
+/// and the minimal CRT generated by dartforge (`linker_windows.rs`) —
 /// without Visual Studio nor the Windows SDK on the machine (N15).
-fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
-    use crate::ligador_windows as lw;
+fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+    use crate::linker_windows as lw;
     let sysroot = lw::SysrootWindows::locate(clang)?;
     let mut entries = vec![obj.to_path_buf()];
     entries.extend(sdk.iter().cloned());
@@ -533,7 +533,7 @@ fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage,
             product: lw::Product::Executable,
             entries,
             lto: production && !NO_LTO_AT_LINK.get(),
-            cpu: cpu.map(crate::gerador::Cpu::name),
+            cpu: cpu.map(crate::generator::Cpu::name),
             prune: production,
             debug_info,
             exit: output,
@@ -542,10 +542,10 @@ fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage,
 }
 
 /// Linking on macOS: `ld64.lld` directly, with the `.tbd` files of the link
-/// sysroot (`ligador_macos.rs`) — without `xcrun`, Apple's `ld` nor the
+/// sysroot (`linker_macos.rs`) — without `xcrun`, Apple's `ld` nor the
 /// Command Line Tools on the machine (N16).
-fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
-    use crate::ligador_macos as lm;
+fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+    use crate::linker_macos as lm;
     let sysroot = lm::SysrootMacos::locate()?;
     let mut entries = vec![obj.to_path_buf()];
     entries.extend(sdk.iter().cloned());
@@ -559,7 +559,7 @@ fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, o
             entries,
             executable_rpath: matches!(linkage, Linkage::SharedSdk(_)),
             lto: production,
-            cpu: cpu.map(crate::gerador::Cpu::name),
+            cpu: cpu.map(crate::generator::Cpu::name),
             prune: production,
             keep_debug_info: debug_info,
             exit: output,
@@ -571,15 +571,15 @@ fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, o
 /// what the system requires coming from dartforge (no C driver, no
 /// system toolchain). The `lld` is the one from the same LLVM as the generator — the
 /// production bitcode (LTO) is only read by the same version.
-fn link(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
-    match crate::alvo::sistema() {
-        Sistema::Linux => link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu),
+fn link(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+    match crate::target::target_os() {
+        Os::Linux => link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu),
         // The link from before N15 (the Clang driver with `link.exe` and the
         // Visual C++ CRT), only for comparison: it is the reference of
         // `sem-toolchain.yml`, in the same build.
-        Sistema::Windows if link_with_clang() => link_old_with_clang(clang, obj, sdk, linkage, output, debug_info, cpu),
-        Sistema::Windows => link_on_windows(clang, obj, sdk, linkage, output, debug_info, cpu),
-        Sistema::MacOs => link_on_macos(clang, obj, sdk, linkage, output, debug_info, cpu),
+        Os::Windows if link_with_clang() => link_old_with_clang(clang, obj, sdk, linkage, output, debug_info, cpu),
+        Os::Windows => link_on_windows(clang, obj, sdk, linkage, output, debug_info, cpu),
+        Os::MacOs => link_on_macos(clang, obj, sdk, linkage, output, debug_info, cpu),
     }
 }
 
@@ -592,15 +592,15 @@ pub fn link_with_clang() -> bool {
 /// The link through the Clang driver, as it was before N15 (the Visual Studio
 /// toolchain on the machine): `DARTFORGE_LIGAR_COM_CLANG=1` on Windows. Only
 /// to compare with the link without the system toolchain.
-fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
-    if crate::alvo::sistema() == Sistema::Linux {
+fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+    if crate::target::target_os() == Os::Linux {
         return link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu);
     }
     let mut cmd = std::process::Command::new(clang);
     cmd.arg(obj).args(sdk).arg(linkage.library());
-    let sistema = crate::alvo::sistema();
+    let target_os = crate::target::target_os();
     match linkage {
-        Linkage::SharedSdk(_) if sistema == Sistema::Windows => {
+        Linkage::SharedSdk(_) if target_os == Os::Windows => {
             // Executable of the source SDK (development): the runtime is in the
             // DLL, which uses the dynamic CRT (that of `rustc`); the executable uses the
             // same one.
@@ -609,10 +609,10 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
         Linkage::SharedSdk(_) => {
             // The shared library goes next to the executable; the `rpath`
             // points the loader to the directory of the executable itself.
-            cmd.arg(if sistema == Sistema::MacOs { "-Wl,-rpath,@executable_path" } else { "-Wl,-rpath,$ORIGIN" });
+            cmd.arg(if target_os == Os::MacOs { "-Wl,-rpath,@executable_path" } else { "-Wl,-rpath,$ORIGIN" });
             // Clang adds `-lSystem` on macOS: without the SDK root
             // (`-isysroot`), the linker does not find it.
-            cmd.args(crate::alvo::argumentos_de_ligacao());
+            cmd.args(crate::target::link_arguments());
         }
         Linkage::Production(_) => {
             // Production with the source SDK: everything static in the executable,
@@ -626,10 +626,10 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             // `lld` is of the same version. Rejecting its absence avoids silently falling
             // into a wrong lld on PATH (measured: LLVM 20 reading
             // bitcode 22 — `Unknown attribute kind (105)`).
-            let lld_name = match sistema {
-                Sistema::Windows => "lld-link.exe",
-                Sistema::Linux => "ld.lld",
-                Sistema::MacOs => "ld64.lld",
+            let lld_name = match target_os {
+                Os::Windows => "lld-link.exe",
+                Os::Linux => "ld.lld",
+                Os::MacOs => "ld64.lld",
             };
             let lld = clang.with_file_name(lld_name);
             if !lld.is_file() {
@@ -652,15 +652,15 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             // (or whose imports changed) go through optimization
             // and code generation again (docs/NATIVO-PRODUCAO-GRANDE.md).
             if let Some(d) = thinlto_cache() {
-                match sistema {
-                    Sistema::Windows => {
+                match target_os {
+                    Os::Windows => {
                         cmd.arg(format!("-Wl,/lldltocache:{}", d.display()));
                         cmd.arg("-Wl,/lldltocachepolicy:cache_size_bytes=4g:prune_after=168h");
                     }
-                    Sistema::Linux => {
+                    Os::Linux => {
                         cmd.arg(format!("-Wl,--thinlto-cache-dir={}", d.display()));
                     }
-                    Sistema::MacOs => {
+                    Os::MacOs => {
                         cmd.arg(format!("-Wl,-cache_path_lto,{}", d.display()));
                     }
                 }
@@ -669,13 +669,13 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             if let Some(c) = cpu {
                 cmd.arg(format!("-march={}", c.name()));
             }
-            cmd.args(crate::alvo::argumentos_de_ligacao());
+            cmd.args(crate::target::link_arguments());
             // The bitcode of the embedded generator has no ThinLTO summary:
             // `lld` does the full LTO, and its code generation is split
             // into parallel partitions (Mach-O does not have the option).
             let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
-            match sistema {
-                Sistema::Windows => {
+            match target_os {
+                Os::Windows => {
                     // `/OPT:REF` also turns on `lld-link`'s `/OPT:ICF`, which
                     // merges functions with identical bodies into a single address; the
                     // `/OPT:NOICF` goes right below, for every profile
@@ -685,14 +685,14 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
                 }
                 // Without the symbol table, like the Windows `.exe` (which leaves it
                 // in the PDB): half the size in ELF (measured: 9.4 → 4.4 MB).
-                Sistema::Linux => {
+                Os::Linux => {
                     cmd.arg("-Wl,--gc-sections");
-                    if !crate::ligador::keep_symbols() && !debug_info {
+                    if !crate::linker::keep_symbols() && !debug_info {
                         cmd.arg("-Wl,--strip-all");
                     }
                     cmd.arg(format!("-Wl,--lto-partitions={partitions}"));
                 }
-                Sistema::MacOs => {
+                Os::MacOs => {
                     cmd.arg("-Wl,-dead_strip");
                     // `-S` strips the debug map (J05).
                     if !debug_info {
@@ -702,15 +702,15 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             }
         }
         Linkage::Runtime(_) => {
-            cmd.args(crate::alvo::argumentos_de_ligacao());
+            cmd.args(crate::target::link_arguments());
         }
     }
-    if sistema == Sistema::Windows && debug_info {
+    if target_os == Os::Windows && debug_info {
         // The `-g` at link time becomes the linker's `/DEBUG`: the PDB next to the
         // executable, with the CodeView tables of the object.
         cmd.arg("-g");
     }
-    if sistema == Sistema::Windows {
+    if target_os == Os::Windows {
         // No ICF in any profile: `link.exe` without `/DEBUG` (and `lld-link`
         // with `/OPT:REF`) merges functions with identical bodies, and the tear-off of a
         // top-level function is compared by address.

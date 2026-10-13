@@ -14,8 +14,8 @@
 //   in any isolate of the process; constants, enums, top-level tear-offs and
 //   heap strings when the message stays in the same isolate.
 // * The graph copies blocks of the object space by body format
-//   (docs/NATIVO-ESPACO-UNIFICADO.md §2.12): `INSTANCIA` field by field with the
-//   reference bit; `REFS` by word 0 and the references; `BRUTO` raw,
+//   (docs/NATIVO-ESPACO-UNIFICADO.md §2.12): `INSTANCE` field by field with the
+//   reference bit; `REFS` by word 0 and the references; `RAW` raw,
 //   except what points into itself or outside the heap (typed list,
 //   view, attachment), which the destination rebuilds.
 // * The isolate's queue keeps (port, graph, arrival). The event loop
@@ -35,7 +35,7 @@ enum GValue {
     Word(i64),
     /// Node `i` of the graph.
     No(usize),
-    /// A static object of the image (`PERMANENTE`): the same address in every
+    /// A static object of the image (`PERMANENT`): the same address in every
     /// isolate of the process, never collected nor written.
     Static(i64),
     /// A permanent object of the source heap, passed by identity (only
@@ -60,21 +60,21 @@ enum GValue {
 /// references replaced by `GValue`.
 #[derive(Clone, Debug)]
 enum GNode {
-    /// An `INSTANCIA` object (of the program, or of the runtime: `_GrowableList`,
+    /// An `INSTANCE` object (of the program, or of the runtime: `_GrowableList`,
     /// `_Closure`, `_Contexto`, `_Celula`, `_SendPort`…): the class and the fields,
     /// with the reference bit of each.
     Instance { cid: i32, fields: Vec<(GValue, bool)> },
     /// A `REFS` body (general `_List`/`_ImmutableList`, `_Record`): word 0
     /// (the length or the shape) and the references.
     Refs { cid: i32, word0: i64, refs: Vec<GValue> },
-    /// A compact `_List`/`_ImmutableList` (`BRUTO` with `ELEMENTO`): the
+    /// A compact `_List`/`_ImmutableList` (`RAW` with `ELEMENT`): the
     /// raw elements (`i64`, `f64` bits or 0/1).
     Compact { cid: i32, shape: crate::lists::Element, elements: Vec<i64> },
-    /// A `BRUTO` body with no pointer into itself nor outside the heap
+    /// A `RAW` body with no pointer into itself nor outside the heap
     /// (`_Mint`, `_Double`, SIMD): the words and the `flags`, copied raw.
-    Bruto { cid: i32, flags: u8, words: Box<[i64]> },
+    RawHandle { cid: i32, flags: u8, words: Box<[i64]> },
     /// A string (the canonical form is rebuilt at the destination).
-    Texto(Texto),
+    Text(Text),
     /// The accumulator of a `StringBuffer` (`_AcumuladorDeTexto`, `ATTACHMENT`): the
     /// units, which live outside the heap.
     Accumulator(Vec<u16>),
@@ -84,7 +84,7 @@ enum GNode {
     /// An internal or external (`EXTERNAL`) typed list: the bytes, copied
     /// into an internal one at the destination (the VM copies the external one to new memory,
     /// `object_graph_copy.cc`).
-    Typed { tipo: u8, bytes: Vec<u8> },
+    Typed { ty: u8, bytes: Vec<u8> },
     /// A view: the base (copied) and the offset; the data address is
     /// recomputed at the destination.
     View { cid: i32, base: GValue, offset: usize, len: usize },
@@ -117,7 +117,7 @@ pub struct IllegalMessage(pub String);
 /// The word `h` (in a `Ref` position) in the graph: immediate, static, by
 /// identity, canonical, or the object's node (reserved now and filled
 /// when `h` leaves the stack).
-fn ref_de_handle(heap: &Heap, h: i64, map: &mut crate::hash::HashMap<i64, usize>, stack: &mut Vec<i64>, nodes: &mut Vec<(GNode, i64)>, share: bool) -> GValue {
+fn ref_of_handle(heap: &Heap, h: i64, map: &mut crate::hash::HashMap<i64, usize>, stack: &mut Vec<i64>, nodes: &mut Vec<(GNode, i64)>, share: bool) -> GValue {
     if !crate::layout::is_object(h) {
         return GValue::Word(h);
     }
@@ -207,11 +207,11 @@ fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred
     use crate::layout::{cid, flags};
     let c = *heap.header(h);
     let class = c.class_id;
-    let shape = c.flags & flags::FORMA;
-    if shape == flags::INSTANCIA {
+    let shape = c.flags & flags::FORMAT;
+    if shape == flags::INSTANCE {
         if cid::is_typed(class) {
-            // View (`INSTANCIA`, cids 36–65): the base and the offset.
-            let t = heap.tipada(h).expect("live view");
+            // View (`INSTANCE`, cids 36–65): the base and the offset.
+            let t = heap.typed(h).expect("live view");
             return Ok(GNode::View { cid: class, base: v(t.base.unwrap_or(0)), offset: t.offset, len: t.len });
         }
         let object = heap.object(h).expect("live object");
@@ -242,7 +242,7 @@ fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred
         let n = usize::try_from(p[0]).unwrap_or(0).min(p.len().saturating_sub(1));
         return Ok(GNode::Refs { cid: class, word0: p[0], refs: p[1..=n].iter().map(|&x| v(x)).collect() });
     }
-    // `BRUTO`.
+    // `RAW`.
     if c.flags & flags::ATTACHMENT != 0 {
         if class == cid::REGEXP_PROGRAM {
             let (source, options) = re_program_pattern(heap, h);
@@ -251,18 +251,18 @@ fn block_node(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> GValue, transferred
         return Ok(GNode::Accumulator(accumulator_units(heap, h)));
     }
     if cid::is_string(class) {
-        return Ok(GNode::Texto(heap.text(h).expect("string viva").to_string_fn()));
+        return Ok(GNode::Text(heap.text(h).expect("string viva").to_string_fn()));
     }
     if cid::is_typed(class) {
-        let t = heap.tipada(h).expect("live typed list");
+        let t = heap.typed(h).expect("live typed list");
         let bytes = heap.typed_bytes(h).map(<[u8]>::to_vec).unwrap_or_default();
-        return Ok(GNode::Typed { tipo: t.tipo, bytes });
+        return Ok(GNode::Typed { ty: t.ty, bytes });
     }
     if cid::is_fixed_list(class) {
         // Compact: `list_elements` tells the shape.
         return Ok(fixed_list_node(heap, h, class, v));
     }
-    Ok(GNode::Bruto { cid: class, flags: c.flags, words: heap.words(h).into() })
+    Ok(GNode::RawHandle { cid: class, flags: c.flags, words: heap.words(h).into() })
 }
 
 /// Copies the value `root` (a value in a `Ref` position) into a graph.
@@ -273,13 +273,13 @@ fn copy_to_graph(root: i64, share: bool) -> Result<Graph, IllegalMessage> {
     let mut nodes: Vec<(GNode, i64)> = Vec::new();
     let mut types = (!share).then(MessageTypes::default);
     let mut transferred: Vec<i64> = Vec::new();
-    let r = HEAP.with(|heap| ref_de_handle(&heap.borrow(), root, &mut map, &mut stack, &mut nodes, share));
+    let r = HEAP.with(|heap| ref_of_handle(&heap.borrow(), root, &mut map, &mut stack, &mut nodes, share));
     while let Some(h) = stack.pop() {
         let i = map[&h];
         let r = HEAP.with(|heap| -> Result<(GNode, i64), IllegalMessage> {
             let heap = heap.borrow();
             let meta = i64::from(heap.header(h).metadata);
-            let mut v = |x: i64| ref_de_handle(&heap, x, &mut map, &mut stack, &mut nodes, share);
+            let mut v = |x: i64| ref_of_handle(&heap, x, &mut map, &mut stack, &mut nodes, share);
             let no = block_node(&heap, h, &mut v, &mut transferred)?;
             Ok((no, meta))
         });
@@ -337,8 +337,8 @@ impl Graph {
                 GNode::Refs { refs, .. } => refs.iter().for_each(&mut f),
                 GNode::View { base, .. } => f(base),
                 GNode::Compact { .. }
-                | GNode::Bruto { .. }
-                | GNode::Texto(_)
+                | GNode::RawHandle { .. }
+                | GNode::Text(_)
                 | GNode::Accumulator(_)
                 | GNode::ReProgram { .. }
                 | GNode::Typed { .. }
@@ -379,11 +379,11 @@ pub enum Portable {
     /// The bytes of a typed list (of any element type, like the VM's
     /// `CObjectTypedData`).
     Bytes(Vec<u8>),
-    /// A typed list of `tipo` elements (the runtime's `TIPO_*`).
+    /// A typed list of `ty` elements (the runtime's `TIPO_*`).
     Typed(u8, Vec<u8>),
     /// A runtime object with one integer field (see [`GNode::FromRuntime`]).
     FromRuntime { cid: i32, id: i64 },
-    Objeto(Vec<Portable>),
+    Object(Vec<Portable>),
 }
 
 impl Portable {
@@ -423,8 +423,8 @@ impl Portable {
 /// boxes and the string literals (the block is constant and lives for the whole
 /// process; `layout` gives the offsets).
 fn portable_from_static(h: i64) -> Portable {
-    use crate::layout::{DESLOCAMENTO_DO_HANDLE, cid, desl};
-    let b = (h - DESLOCAMENTO_DO_HANDLE) as *const u8;
+    use crate::layout::{HANDLE_OFFSET, cid, offsets};
+    let b = (h - HANDLE_OFFSET) as *const u8;
     // SAFETY: `h` is the handle of a static object (checked when copying), a
     // constant block of the image section with the whole header and body.
     #[allow(unsafe_code)]
@@ -432,15 +432,15 @@ fn portable_from_static(h: i64) -> Portable {
         let c = *(b as *const crate::layout::Header);
         let word = |d: usize| *(b.add(d) as *const i64);
         match c.class_id {
-            cid::BOOL => Portable::Bool(word(desl::VALOR) != 0),
+            cid::BOOL => Portable::Bool(word(offsets::VALUE) != 0),
             cid::ONE_BYTE_STRING => {
-                let n = word(desl::COMPRIMENTO) as usize;
-                let u = std::slice::from_raw_parts(b.add(desl::UNIDADES), n);
+                let n = word(offsets::LENGTH) as usize;
+                let u = std::slice::from_raw_parts(b.add(offsets::UNITS), n);
                 Portable::Str(u.iter().map(|&x| char::from(x)).collect())
             }
             cid::TWO_BYTE_STRING => {
-                let n = word(desl::COMPRIMENTO) as usize;
-                let u = std::slice::from_raw_parts(b.add(desl::UNIDADES) as *const u16, n);
+                let n = word(offsets::LENGTH) as usize;
+                let u = std::slice::from_raw_parts(b.add(offsets::UNITS) as *const u16, n);
                 Portable::Str(String::from_utf16_lossy(u))
             }
             _ => Portable::Null,
@@ -477,9 +477,9 @@ impl Graph {
             use crate::layout::cid;
             use crate::lists::Element;
             match n {
-                GNode::Texto(t) => Portable::Str(t.para_string()),
-                GNode::Bruto { cid: cid::MINT, words, .. } => Portable::Int(words.first().copied().unwrap_or(0)),
-                GNode::Bruto { cid: cid::DOUBLE, words, .. } => Portable::Double(f64::from_bits(words.first().copied().unwrap_or(0) as u64)),
+                GNode::Text(t) => Portable::Str(t.to_dart_string()),
+                GNode::RawHandle { cid: cid::MINT, words, .. } => Portable::Int(words.first().copied().unwrap_or(0)),
+                GNode::RawHandle { cid: cid::DOUBLE, words, .. } => Portable::Double(f64::from_bits(words.first().copied().unwrap_or(0) as u64)),
                 GNode::Refs { cid: c, refs, .. } if cid::is_fixed_list(*c) => Portable::List(refs.iter().map(|x| val(g, x, true, visiting)).collect()),
                 GNode::Compact { shape, elements, .. } => Portable::List(
                     elements
@@ -505,12 +505,12 @@ impl Graph {
                         _ => Portable::List(Vec::new()),
                     }
                 }
-                GNode::Instance { fields, .. } => Portable::Objeto(fields.iter().map(|(x, is_ref_kind)| val(g, x, *is_ref_kind, visiting)).collect()),
+                GNode::Instance { fields, .. } => Portable::Object(fields.iter().map(|(x, is_ref_kind)| val(g, x, *is_ref_kind, visiting)).collect()),
                 GNode::Typed { bytes, .. } => Portable::Bytes(bytes.clone()),
                 GNode::FromRuntime { cid, id } => Portable::FromRuntime { cid: *cid, id: *id },
                 GNode::View { cid: c, base, offset, len } => {
-                    let tipo = if *c >= cid::BYTE_DATA_VIEW { TYPE_UINT8 } else { ((*c - cid::PRIMEIRA_VISAO) % cid::ELEMENT_TYPES) as u8 };
-                    let n = len * tamanho_do_elemento(tipo);
+                    let ty = if *c >= cid::BYTE_DATA_VIEW { TYPE_UINT8 } else { ((*c - cid::FIRST_VIEW) % cid::ELEMENT_TYPES) as u8 };
+                    let n = len * element_size(ty);
                     match val(g, base, true, visiting) {
                         Portable::Bytes(b) => Portable::Bytes(b[(*offset).min(b.len())..(offset + n).min(b.len())].to_vec()),
                         _ => Portable::Null,
@@ -534,14 +534,14 @@ impl Portable {
         fn val(p: &Portable, nodes: &mut Vec<(GNode, i64)>) -> GValue {
             use crate::layout::{cid, flags};
             match p {
-                Portable::Null | Portable::Objeto(_) => GValue::Word(0),
+                Portable::Null | Portable::Object(_) => GValue::Word(0),
                 Portable::Bool(b) => GValue::Static(Heap::box_bool(*b)),
-                Portable::Int(x) => match smi::de(*x) {
+                Portable::Int(x) => match smi::of(*x) {
                     Some(r) => GValue::Word(r),
-                    None => no(GNode::Bruto { cid: cid::MINT, flags: flags::BRUTO, words: Box::new([*x]) }, nodes),
+                    None => no(GNode::RawHandle { cid: cid::MINT, flags: flags::RAW, words: Box::new([*x]) }, nodes),
                 },
-                Portable::Double(x) => no(GNode::Bruto { cid: cid::DOUBLE, flags: flags::BRUTO, words: Box::new([x.to_bits() as i64]) }, nodes),
-                Portable::Str(s) => no(GNode::Texto(Texto::de_str(s)), nodes),
+                Portable::Double(x) => no(GNode::RawHandle { cid: cid::DOUBLE, flags: flags::RAW, words: Box::new([x.to_bits() as i64]) }, nodes),
+                Portable::Str(s) => no(GNode::Text(Text::from_rust_str(s)), nodes),
                 Portable::List(items) => {
                     let i = nodes.len();
                     nodes.push((GNode::Accumulator(Vec::new()), 0));
@@ -549,8 +549,8 @@ impl Portable {
                     nodes[i] = (GNode::Refs { cid: cid::LIST, word0: refs.len() as i64, refs }, 0);
                     GValue::No(i)
                 }
-                Portable::Bytes(b) => no(GNode::Typed { tipo: TYPE_UINT8, bytes: b.clone() }, nodes),
-                Portable::Typed(tipo, b) => no(GNode::Typed { tipo: *tipo, bytes: b.clone() }, nodes),
+                Portable::Bytes(b) => no(GNode::Typed { ty: TYPE_UINT8, bytes: b.clone() }, nodes),
+                Portable::Typed(ty, b) => no(GNode::Typed { ty: *ty, bytes: b.clone() }, nodes),
                 Portable::FromRuntime { cid, id } => no(GNode::FromRuntime { cid: *cid, id: *id }, nodes),
             }
         }
@@ -589,15 +589,15 @@ fn allocate_node(heap: &mut Heap, no: &GNode) -> Option<i64> {
             heap.words_mut(h)[1..=elements.len()].copy_from_slice(elements);
             h
         }
-        GNode::Bruto { cid: c, flags: f, words } => {
+        GNode::RawHandle { cid: c, flags: f, words } => {
             let h = heap.allocate(*c, words.len(), *f);
             heap.words_mut(h).copy_from_slice(words);
             h
         }
-        GNode::Texto(t) => heap.allocate_string(t.vista()),
-        GNode::Typed { tipo, bytes } => {
-            let tipo = if *tipo == TYPE_BYTE_DATA { TYPE_UINT8 } else { *tipo };
-            let h = heap.new_typed(tipo, bytes.len() / tamanho_do_elemento(tipo));
+        GNode::Text(t) => heap.allocate_string(t.view()),
+        GNode::Typed { ty, bytes } => {
+            let ty = if *ty == TYPE_BYTE_DATA { TYPE_UINT8 } else { *ty };
+            let h = heap.new_typed(ty, bytes.len() / element_size(ty));
             if let Some(b) = heap.typed_bytes_mut(h) {
                 let n = b.len().min(bytes.len());
                 b[..n].copy_from_slice(&bytes[..n]);
@@ -636,9 +636,9 @@ fn materialize(g: &Graph) -> i64 {
     }
     // The message types in this isolate's universe, and its canonical `Type`
     // objects (outside the heap borrow).
-    let ids_de_tipo = g.types.as_ref().map(MessageTypes::import);
+    let type_ids = g.types.as_ref().map(MessageTypes::import);
     let mut type_objects: crate::hash::HashMap<usize, i64> = crate::hash::HashMap::default();
-    if let Some(ids) = &ids_de_tipo {
+    if let Some(ids) = &type_ids {
         for (i, (no, _)) in g.nodes.iter().enumerate() {
             if let GNode::Instance { cid, fields } = no
                 && i64::from(*cid) == TYPE_CLASS
@@ -765,7 +765,7 @@ fn materialize(g: &Graph) -> i64 {
                 _ => {}
             }
             if *meta != 0 {
-                let meta = match &ids_de_tipo {
+                let meta = match &type_ids {
                     Some(ids) => 1 + ids[(*meta - 1) as usize],
                     None => *meta,
                 };
@@ -774,7 +774,7 @@ fn materialize(g: &Graph) -> i64 {
         }
         word(&g.root, &handles)
     });
-    refazer_indices_copiados(g, &handles);
+    redo_copied_indices(g, &handles);
     HEAP.with(|heap| heap.borrow_mut().pop_frame(frame));
     result
 }
@@ -788,8 +788,8 @@ fn materialize(g: &Graph) -> i64 {
 /// compact_hash.dart`): -1 for an object that is not a `_Map`/`_Set` (the whole class
 /// is left out from then on). The nodes stay rooted in the
 /// frame of [`materialize`].
-fn refazer_indices_copiados(g: &Graph, handles: &[i64]) {
-    let Some(f) = ajudante("_dartforgeRefazerIndiceCopiado") else { return };
+fn redo_copied_indices(g: &Graph, handles: &[i64]) {
+    let Some(f) = helper("_dartforgeRefazerIndiceCopiado") else { return };
     // SAFETY: registered by `dart:_compact_hash` with the signature
     // `(Object) -> int`.
     let redo = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
@@ -897,7 +897,7 @@ mod tests_owners_materialization {
             h.collect();
             let text = h.words(value)[1];
             assert_eq!(h.words(value)[2], text);
-            assert_eq!(h.text(text).unwrap().para_string(), "aliases in the queue");
+            assert_eq!(h.text(text).unwrap().to_dart_string(), "aliases in the queue");
         });
         0
     }
@@ -1072,7 +1072,7 @@ struct Waker {
 
 #[cfg(target_vendor = "apple")]
 #[repr(C)]
-struct EventoDoDespertador {
+struct WakerEvent {
     ident: usize,
     filter_obj: i16,
     flag_bits: u16,
@@ -1083,7 +1083,7 @@ struct EventoDoDespertador {
 
 #[cfg(target_vendor = "apple")]
 #[repr(C)]
-struct PrazoDoDespertador {
+struct WakerDeadline {
     seconds: i64,
     nanos: i64,
 }
@@ -1091,18 +1091,18 @@ struct PrazoDoDespertador {
 #[cfg(target_vendor = "apple")]
 unsafe extern "C" {
     #[link_name = "kqueue"]
-    fn kqueue_do_despertador() -> i32;
+    fn waker_kqueue() -> i32;
     #[link_name = "kevent"]
-    fn kevent_do_despertador(
+    fn waker_kevent(
         kq: i32,
-        changes: *const EventoDoDespertador,
+        changes: *const WakerEvent,
         nm: i32,
-        events: *mut EventoDoDespertador,
+        events: *mut WakerEvent,
         ne: i32,
-        wait_entry: *const PrazoDoDespertador,
+        wait_entry: *const WakerDeadline,
     ) -> i32;
     #[link_name = "close"]
-    fn close_do_despertador(fd: i32) -> i32;
+    fn waker_close(fd: i32) -> i32;
 }
 
 #[cfg(target_vendor = "apple")]
@@ -1113,19 +1113,19 @@ impl Waker {
     const EV_CLEAR: u16 = 0x20;
     const NOTE_TRIGGER: u32 = 0x0100_0000;
 
-    fn event(flag_bits: u16, fd_flags: u32) -> EventoDoDespertador {
-        EventoDoDespertador { ident: 1, filter_obj: Self::EVFILT_USER, flag_bits, fd_flags, data: 0, udata: std::ptr::null_mut() }
+    fn event(flag_bits: u16, fd_flags: u32) -> WakerEvent {
+        WakerEvent { ident: 1, filter_obj: Self::EVFILT_USER, flag_bits, fd_flags, data: 0, udata: std::ptr::null_mut() }
     }
 
     fn new() -> Waker {
         // SAFETY: creates the kqueue; the event lives during the call.
-        let kq = unsafe { kqueue_do_despertador() };
+        let kq = unsafe { waker_kqueue() };
         if kq < 0 {
             panic!("failed to create the event loop kqueue");
         }
         let ev = Self::event(Self::EV_ADD | Self::EV_CLEAR, 0);
         // SAFETY: the change lives during the call.
-        if unsafe { kevent_do_despertador(kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == -1 {
+        if unsafe { waker_kevent(kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == -1 {
             panic!("failed to register the event loop waker");
         }
         Waker { kq }
@@ -1134,14 +1134,14 @@ impl Waker {
     fn wake(&self) {
         let ev = Self::event(0, Self::NOTE_TRIGGER);
         // SAFETY: the change lives during the call; the kqueue belongs to this isolate.
-        unsafe { kevent_do_despertador(self.kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+        unsafe { waker_kevent(self.kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
     }
 
     fn wait_for(&self, deadline: std::time::Duration) {
-        let ts = PrazoDoDespertador { seconds: deadline.as_secs() as i64, nanos: i64::from(deadline.subsec_nanos()) };
+        let ts = WakerDeadline { seconds: deadline.as_secs() as i64, nanos: i64::from(deadline.subsec_nanos()) };
         let mut ev = Self::event(0, 0);
         // SAFETY: an output event; the deadline lives during the call.
-        unsafe { kevent_do_despertador(self.kq, std::ptr::null(), 0, &mut ev, 1, &ts) };
+        unsafe { waker_kevent(self.kq, std::ptr::null(), 0, &mut ev, 1, &ts) };
     }
 }
 
@@ -1149,7 +1149,7 @@ impl Waker {
 impl Drop for Waker {
     fn drop(&mut self) {
         // SAFETY: the kqueue belongs to this waker.
-        unsafe { close_do_despertador(self.kq) };
+        unsafe { waker_close(self.kq) };
     }
 }
 
@@ -1196,7 +1196,7 @@ fn next_port_id() -> i64 {
 thread_local! {
     static QUEUE: std::sync::Arc<IsolateQueue> = {
         static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let target = crate::heap::CONTEXTO.with(|c| &c.interrupt as *const std::sync::atomic::AtomicU8 as usize);
+        let target = crate::heap::CONTEXT.with(|c| &c.interrupt as *const std::sync::atomic::AtomicU8 as usize);
         let queue = std::sync::Arc::new(IsolateQueue {
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             messages: std::sync::Mutex::new(Queues::default()),
@@ -1302,7 +1302,7 @@ fn post_control(port: i64, graph: Graph) {
 /// Clears this isolate's interrupt request (whoever serves it will drain the
 /// control queue next; a message arriving later sets it again).
 fn clear_interrupt_request() {
-    crate::heap::CONTEXTO.with(|c| c.interrupt.store(0, std::sync::atomic::Ordering::Relaxed));
+    crate::heap::CONTEXT.with(|c| c.interrupt.store(0, std::sync::atomic::Ordering::Relaxed));
 }
 
 // ---------------------------------------------------------------------------
@@ -1406,26 +1406,26 @@ fn remove_live_isolate() {
 /// when the main isolate releases.
 #[derive(Default)]
 struct WriteBarrier {
-    estado: std::sync::Mutex<(usize, Option<[usize; 3]>)>,
+    state: std::sync::Mutex<(usize, Option<[usize; 3]>)>,
     sig_num: std::sync::Condvar,
 }
 
 /// The stop request, in an isolate that is not the main one.
-extern "C" fn parar_neste_isolado(datum: usize, execute_fn: i32) {
+extern "C" fn stop_this_isolate(datum: usize, execute_fn: i32) {
     // SAFETY: `datum` is an `Arc<Barreira>` handed over by `dartforge_stop_isolates`
     // (one reference per request, returned here).
     let barrier = unsafe { std::sync::Arc::from_raw(datum as *const WriteBarrier) };
-    let mut estado = barrier.estado.lock().unwrap_or_else(|e| e.into_inner());
-    estado.0 += 1;
+    let mut state = barrier.state.lock().unwrap_or_else(|e| e.into_inner());
+    state.0 += 1;
     barrier.sig_num.notify_all();
     if execute_fn == 0 {
         return;
     }
-    while estado.1.is_none() {
-        estado = barrier.sig_num.wait(estado).unwrap_or_else(|e| e.into_inner());
+    while state.1.is_none() {
+        state = barrier.sig_num.wait(state).unwrap_or_else(|e| e.into_inner());
     }
-    let [area, register, rti] = estado.1.expect("liberado");
-    drop(estado);
+    let [area, register, rti] = state.1.expect("liberado");
+    drop(state);
     let as_fn = |p: usize| {
         // SAFETY: 0 or a `void ()` trampoline of the published generation.
         (p != 0).then(|| unsafe { std::mem::transmute::<usize, extern "C" fn()>(p) })
@@ -1445,16 +1445,16 @@ pub extern "C" fn dartforge_stop_isolates() -> usize {
         let live_set = live_isolates().lock().unwrap_or_else(|e| e.into_inner());
         for f in live_set.iter().filter(|f| f.id != mine) {
             let datum = std::sync::Arc::into_raw(barrier.clone()) as usize;
-            f.messages.lock().unwrap_or_else(|e| e.into_inner()).safepoints.push_back((parar_neste_isolado, datum));
+            f.messages.lock().unwrap_or_else(|e| e.into_inner()).safepoints.push_back((stop_this_isolate, datum));
             f.notify();
             n += 1;
         }
     }
-    let mut estado = barrier.estado.lock().unwrap_or_else(|e| e.into_inner());
-    while estado.0 < n {
-        estado = barrier.sig_num.wait(estado).unwrap_or_else(|e| e.into_inner());
+    let mut state = barrier.state.lock().unwrap_or_else(|e| e.into_inner());
+    while state.0 < n {
+        state = barrier.sig_num.wait(state).unwrap_or_else(|e| e.into_inner());
     }
-    drop(estado);
+    drop(state);
     std::sync::Arc::into_raw(barrier) as usize
 }
 
@@ -1465,7 +1465,7 @@ pub extern "C" fn dartforge_stop_isolates() -> usize {
 pub extern "C" fn dartforge_release_isolates(stopped_flag: usize, area: usize, register: usize, rti: usize) {
     // SAFETY: `stopped_flag` came from `dartforge_stop_isolates`, once.
     let barrier = unsafe { std::sync::Arc::from_raw(stopped_flag as *const WriteBarrier) };
-    barrier.estado.lock().unwrap_or_else(|e| e.into_inner()).1 = Some([area, register, rti]);
+    barrier.state.lock().unwrap_or_else(|e| e.into_inner()).1 = Some([area, register, rti]);
     barrier.sig_num.notify_all();
 }
 

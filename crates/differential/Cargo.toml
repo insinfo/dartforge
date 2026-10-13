@@ -13,7 +13,7 @@ dartforge-emit-native = { path = "../emit_native" }
 dartforge-frontend = { path = "../frontend" }
 
 [features]
-# The object generator embedded in the harness AOT (crates/emit_native/src/gerador.rs);
+# The object generator embedded in the harness AOT (crates/emit_native/src/generator.rs);
 # without it, the harness generates objects with the Clang of `DARTFORGE_CLANG`.
 llvm-embutido = ["dartforge-emit-native/llvm-embutido"]
 

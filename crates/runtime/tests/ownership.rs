@@ -3,12 +3,12 @@
 // Includes the generator's rejections in the Cargo suite, without running its main.
 #[allow(dead_code)]
 #[path = "../build.rs"]
-mod gerador;
+mod generator;
 
 use dartforge_runtime::{
-    efeitos::EFEITOS,
-    ownership::{CONTRATOS, ModoParametro, ModoResultado},
-    simbolos::NOMES,
+    effects::EFFECTS,
+    ownership::{CONTRACTS, ParamMode, ResultMode},
+    symbols::NAMES,
 };
 
 #[test]
@@ -20,10 +20,10 @@ fn owned_closure_keeps_context_cell_and_repeated_edges_until_drop() {
         dartforge_memory_arc_v1();
         for cycle in [false, true] {
             let value = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let cell = dartforge_arc_object_owned_v1(i64::from(cid::CELULA), 1);
+            let cell = dartforge_arc_object_owned_v1(i64::from(cid::CELL), 1);
             dartforge_arc_write_field_ref_v1(cell, 0, value);
             dartforge_arc_release(value);
-            let env = dartforge_arc_object_owned_v1(i64::from(cid::CONTEXTO), 40);
+            let env = dartforge_arc_object_owned_v1(i64::from(cid::CONTEXT), 40);
             for i in [0, 39] { dartforge_arc_write_field_ref_v1(env, i, cell); }
             dartforge_arc_release(cell);
             let code = input as *const () as usize as i64;
@@ -379,7 +379,7 @@ const NATIVES_WITHOUT_RESULT: &[&str] = &[
 
 #[test]
 fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
-    let audited: Vec<_> = NOMES
+    let audited: Vec<_> = NAMES
         .iter()
         .filter(|n| {
             n.starts_with("dartforge_arc_")
@@ -439,146 +439,146 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
                 )
         })
         .collect();
-    assert_eq!(audited.len(), CONTRATOS.len());
-    for nome in audited {
-        let c = CONTRATOS.iter().find(|c| c.nome == *nome).unwrap();
-        let effect = EFEITOS.iter().find(|e| e.0 == c.nome).unwrap();
-        assert_eq!(effect.2, c.pode_falhar);
-        assert_eq!(effect.3, c.chama_dart);
-        assert!(!c.chama_dart || c.invalida_borrows);
+    assert_eq!(audited.len(), CONTRACTS.len());
+    for name in audited {
+        let c = CONTRACTS.iter().find(|c| c.name == *name).unwrap();
+        let effect = EFFECTS.iter().find(|e| e.0 == c.name).unwrap();
+        assert_eq!(effect.2, c.may_fail);
+        assert_eq!(effect.3, c.calls_dart);
+        assert!(!c.calls_dart || c.invalidates_borrows);
     }
-    let receber = CONTRATOS
+    let receive = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_arc_global_receive_v1")
+        .find(|c| c.name == "dartforge_arc_global_receive_v1")
         .unwrap();
     assert_eq!(
-        receber.parametros,
-        &[ModoParametro::Native, ModoParametro::Consume]
+        receive.parameters,
+        &[ParamMode::Native, ParamMode::Consume]
     );
-    assert!(receber.retencao_persistente && receber.invalida_borrows);
-    let load = CONTRATOS
+    assert!(receive.persistent_retention && receive.invalidates_borrows);
+    let load = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_arc_frame_load_v1")
+        .find(|c| c.name == "dartforge_arc_frame_load_v1")
         .unwrap();
-    assert_eq!(load.resultado, ModoResultado::Owned);
-    let boxed = CONTRATOS
+    assert_eq!(load.result, ResultMode::Owned);
+    let boxed = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_arc_box_int_owned_v1")
+        .find(|c| c.name == "dartforge_arc_box_int_owned_v1")
         .unwrap();
-    assert_eq!(boxed.parametros, &[ModoParametro::Scalar]);
-    assert_eq!(boxed.resultado, ModoResultado::Owned);
-    assert!(!boxed.pode_falhar && !boxed.retencao_persistente);
-    assert!(boxed.invalida_borrows);
-    assert!(EFEITOS.iter().find(|e| e.0 == boxed.nome).unwrap().1);
-    let instance = CONTRATOS
+    assert_eq!(boxed.parameters, &[ParamMode::Scalar]);
+    assert_eq!(boxed.result, ResultMode::Owned);
+    assert!(!boxed.may_fail && !boxed.persistent_retention);
+    assert!(boxed.invalidates_borrows);
+    assert!(EFFECTS.iter().find(|e| e.0 == boxed.name).unwrap().1);
+    let instance = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_arc_object_owned_v1")
+        .find(|c| c.name == "dartforge_arc_object_owned_v1")
         .unwrap();
     assert_eq!(
-        instance.parametros,
-        &[ModoParametro::Native, ModoParametro::Scalar]
+        instance.parameters,
+        &[ParamMode::Native, ParamMode::Scalar]
     );
-    assert_eq!(instance.resultado, ModoResultado::Owned);
-    assert!(instance.invalida_borrows);
-    assert!(!instance.pode_falhar && !instance.chama_dart && !instance.retencao_persistente);
-    assert!(EFEITOS.iter().find(|e| e.0 == instance.nome).unwrap().1);
-    let scalar = CONTRATOS
+    assert_eq!(instance.result, ResultMode::Owned);
+    assert!(instance.invalidates_borrows);
+    assert!(!instance.may_fail && !instance.calls_dart && !instance.persistent_retention);
+    assert!(EFFECTS.iter().find(|e| e.0 == instance.name).unwrap().1);
+    let scalar = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_arc_read_field_scalar_v1")
+        .find(|c| c.name == "dartforge_arc_read_field_scalar_v1")
         .unwrap();
     assert_eq!(
-        scalar.parametros,
-        &[ModoParametro::Borrow, ModoParametro::Scalar]
+        scalar.parameters,
+        &[ParamMode::Borrow, ParamMode::Scalar]
     );
-    assert_eq!(scalar.resultado, ModoResultado::ScalarI64);
+    assert_eq!(scalar.result, ResultMode::ScalarI64);
     assert!(
-        !scalar.pode_falhar
-            && !scalar.chama_dart
-            && !scalar.retencao_persistente
-            && !scalar.invalida_borrows
+        !scalar.may_fail
+            && !scalar.calls_dart
+            && !scalar.persistent_retention
+            && !scalar.invalidates_borrows
     );
-    for (nome, value, retention) in [
+    for (name, value, retention) in [
         (
             "dartforge_arc_write_field_scalar_v1",
-            ModoParametro::Scalar,
+            ParamMode::Scalar,
             false,
         ),
         (
             "dartforge_arc_write_field_ref_v1",
-            ModoParametro::Borrow,
+            ParamMode::Borrow,
             true,
         ),
     ] {
-        let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
+        let c = CONTRACTS.iter().find(|c| c.name == name).unwrap();
         assert_eq!(
-            c.parametros,
-            &[ModoParametro::Borrow, ModoParametro::Scalar, value]
+            c.parameters,
+            &[ParamMode::Borrow, ParamMode::Scalar, value]
         );
-        assert_eq!(c.resultado, ModoResultado::Void);
-        assert_eq!(c.retencao_persistente, retention);
-        assert!(c.invalida_borrows && !c.pode_falhar && !c.chama_dart);
-        assert!(!EFEITOS.iter().find(|e| e.0 == nome).unwrap().1);
+        assert_eq!(c.result, ResultMode::Void);
+        assert_eq!(c.persistent_retention, retention);
+        assert!(c.invalidates_borrows && !c.may_fail && !c.calls_dart);
+        assert!(!EFFECTS.iter().find(|e| e.0 == name).unwrap().1);
     }
-    let throw = CONTRATOS
+    let throw = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_arc_throw_ref_v1")
+        .find(|c| c.name == "dartforge_arc_throw_ref_v1")
         .unwrap();
-    let ref_read = CONTRATOS
+    let ref_read = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_arc_read_field_ref_v1")
+        .find(|c| c.name == "dartforge_arc_read_field_ref_v1")
         .unwrap();
     assert_eq!(
-        ref_read.parametros,
-        &[ModoParametro::Borrow, ModoParametro::Scalar]
+        ref_read.parameters,
+        &[ParamMode::Borrow, ParamMode::Scalar]
     );
-    assert_eq!(ref_read.resultado, ModoResultado::BorrowArg(0));
+    assert_eq!(ref_read.result, ResultMode::BorrowArg(0));
     assert!(
-        !ref_read.pode_falhar
-            && !ref_read.chama_dart
-            && !ref_read.retencao_persistente
-            && !ref_read.invalida_borrows
+        !ref_read.may_fail
+            && !ref_read.calls_dart
+            && !ref_read.persistent_retention
+            && !ref_read.invalidates_borrows
     );
-    assert!(!EFEITOS.iter().find(|e| e.0 == ref_read.nome).unwrap().1);
-    assert_eq!(throw.parametros, &[ModoParametro::Borrow]);
-    assert_eq!(throw.resultado, ModoResultado::Void);
-    assert!(throw.pode_falhar && throw.retencao_persistente && throw.invalida_borrows);
-    let clear = CONTRATOS
+    assert!(!EFFECTS.iter().find(|e| e.0 == ref_read.name).unwrap().1);
+    assert_eq!(throw.parameters, &[ParamMode::Borrow]);
+    assert_eq!(throw.result, ResultMode::Void);
+    assert!(throw.may_fail && throw.persistent_retention && throw.invalidates_borrows);
+    let clear = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_exception_clear")
+        .find(|c| c.name == "dartforge_exception_clear")
         .unwrap();
-    assert!(clear.parametros.is_empty());
-    assert!(!clear.pode_falhar && !clear.retencao_persistente);
-    assert!(clear.invalida_borrows);
-    let field = CONTRATOS
+    assert!(clear.parameters.is_empty());
+    assert!(!clear.may_fail && !clear.persistent_retention);
+    assert!(clear.invalidates_borrows);
+    let field = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_native_DartForge_record_fieldAt")
+        .find(|c| c.name == "dartforge_native_DartForge_record_fieldAt")
         .unwrap();
-    assert_eq!(field.resultado, ModoResultado::BorrowArg(0));
+    assert_eq!(field.result, ResultMode::BorrowArg(0));
     // Record reads: they neither allocate nor throw (lowering does not check).
-    assert!(!field.pode_falhar);
-    for nome in [
+    assert!(!field.may_fail);
+    for name in [
         "dartforge_native_DartForge_record_numFields",
         "dartforge_native_DartForge_record_shape",
     ] {
-        let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
-        assert_eq!(c.parametros, &[ModoParametro::Borrow]);
-        assert_eq!(c.resultado, ModoResultado::ScalarI64);
-        assert!(!c.pode_falhar);
-        assert!(!c.retencao_persistente && !c.invalida_borrows);
+        let c = CONTRACTS.iter().find(|c| c.name == name).unwrap();
+        assert_eq!(c.parameters, &[ParamMode::Borrow]);
+        assert_eq!(c.result, ResultMode::ScalarI64);
+        assert!(!c.may_fail);
+        assert!(!c.persistent_retention && !c.invalidates_borrows);
     }
-    let print = CONTRATOS
+    let print = CONTRACTS
         .iter()
-        .find(|c| c.nome == "dartforge_print_handle")
+        .find(|c| c.name == "dartforge_print_handle")
         .unwrap();
-    assert_eq!(print.parametros, &[ModoParametro::Borrow]);
-    assert_eq!(print.resultado, ModoResultado::Void);
-    assert!(print.pode_falhar);
-    assert!(!print.retencao_persistente && !print.invalida_borrows);
-    assert!(!CONTRATOS.iter().any(|c| c.nome == "dartforge_allocate"));
-    for nome in ["dartforge_gc_global_root", "dartforge_mark_constant"] {
-        let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
-        assert!(c.retencao_persistente);
-        assert!(!c.parametros.contains(&ModoParametro::Consume));
+    assert_eq!(print.parameters, &[ParamMode::Borrow]);
+    assert_eq!(print.result, ResultMode::Void);
+    assert!(print.may_fail);
+    assert!(!print.persistent_retention && !print.invalidates_borrows);
+    assert!(!CONTRACTS.iter().any(|c| c.name == "dartforge_allocate"));
+    for name in ["dartforge_gc_global_root", "dartforge_mark_constant"] {
+        let c = CONTRACTS.iter().find(|c| c.name == name).unwrap();
+        assert!(c.persistent_retention);
+        assert!(!c.parameters.contains(&ParamMode::Consume));
     }
 }
 
@@ -588,7 +588,7 @@ fn copied_borrowed_capture_survives_env_and_preserves_pending() {
     std::thread::spawn(|| {
         dartforge_memory_arc_v1();
         let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-        let env = dartforge_arc_object_owned_v1(i64::from(cid::CONTEXTO), 40);
+        let env = dartforge_arc_object_owned_v1(i64::from(cid::CONTEXT), 40);
         dartforge_arc_write_field_ref_v1(env, 39, child);
         dartforge_arc_release(child);
         dartforge_exception_throw(42, 1);

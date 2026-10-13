@@ -104,9 +104,9 @@ pub(super) struct DartFunctionIndex<'a> {
 impl<'a> DartFunctionIndex<'a> {
     pub(super) fn new(summaries: &'a [DartFunctionContract]) -> Result<Self, String> {
         let mut by_symbol = HashMap::with_capacity(summaries.len());
-        for resumo in summaries {
-            if by_symbol.insert(&resumo.symbol, resumo).is_some() {
-                return Err(format!("repeated Dart summary: {}", resumo.symbol));
+        for summary in summaries {
+            if by_symbol.insert(&summary.symbol, summary).is_some() {
+                return Err(format!("repeated Dart summary: {}", summary.symbol));
             }
         }
         Ok(Self { by_symbol })
@@ -296,11 +296,11 @@ fn classify_statics<'f, 'a>(
             else {
                 continue;
             };
-            let resumo = index
+            let summary = index
                 .by_symbol
                 .get(symbol)
                 .ok_or_else(|| format!("Dart callee without a summary: {symbol}"))?;
-            if args.len() != resumo.parameters.len() || *ret_ty != resumo.ret || ty != ret_ty {
+            if args.len() != summary.parameters.len() || *ret_ty != summary.ret || ty != ret_ty {
                 return Err(format!("incompatible Dart signature: {symbol}"));
             }
             let class = if *ret_ty == Type::Ref {
@@ -309,7 +309,7 @@ fn classify_statics<'f, 'a>(
                 Ownership::Trivial
             };
             let effect = TokenEffect {
-                may_fail: resumo.may_fail,
+                may_fail: summary.may_fail,
                 ..Default::default()
             };
             if new_classes.get(v).is_some_and(|c| *c != class)
@@ -319,7 +319,7 @@ fn classify_statics<'f, 'a>(
             }
             new_classes.insert(*v, class);
             new_plan.instructions.insert(*v, effect);
-            calls.push((args, *resumo));
+            calls.push((args, *summary));
         }
     }
     Ok(calls)
@@ -354,8 +354,8 @@ fn produce_calls(
     if classify_instructions {
         produce_arc_contracts(f, &mut new_classes, &mut new_plan)?;
     }
-    for (args, resumo) in calls {
-        for (op, expected) in args.iter().zip(&resumo.parameters) {
+    for (args, summary) in calls {
+        for (op, expected) in args.iter().zip(&summary.parameters) {
             let compatible = operand_has_type(op, *expected, &types)
                 && match op {
                     Operand::Val(arg) => {
@@ -365,7 +365,7 @@ fn produce_calls(
                     Operand::Constant(_) => true,
                 };
             if !compatible {
-                return Err(format!("incompatible Dart argument: {}", resumo.symbol));
+                return Err(format!("incompatible Dart argument: {}", summary.symbol));
             }
         }
     }
@@ -392,7 +392,7 @@ mod tests {
         external_plan
             .instructions
             .insert(ValueId(1), TokenEffect::default());
-        let resumo = verify_dart_function_contract(
+        let summary = verify_dart_function_contract(
             &callee,
             &HashMap::from([(ValueId(1), Ownership::Owned)]),
             &external_plan,
@@ -454,7 +454,7 @@ mod tests {
             ..Default::default()
         };
         let mut classes = HashMap::new();
-        produce_dart_calls(&caller, &[resumo], &mut classes, &mut plan).unwrap();
+        produce_dart_calls(&caller, &[summary], &mut classes, &mut plan).unwrap();
         assert_eq!(
             insert_arc_dart_exits(
                 &mut caller,
@@ -661,7 +661,7 @@ mod tests {
         callee_plan
             .instructions
             .insert(ValueId(1), TokenEffect::default());
-        let resumo = verify_dart_function_contract(
+        let summary = verify_dart_function_contract(
             &callee,
             &HashMap::from([(ValueId(1), Ownership::Owned)]),
             &callee_plan,
@@ -669,7 +669,7 @@ mod tests {
             &ScopePlan::default(),
         )
         .unwrap();
-        assert!(resumo.may_fail);
+        assert!(summary.may_fail);
         let (mut caller, mut plan) = identity();
         caller.symbol = "caller".into();
         caller.blocks[0].instructions[0].1 = Instruction::CallStatic {
@@ -678,7 +678,7 @@ mod tests {
             ret_ty: Type::Ref,
         };
         let mut classes = HashMap::new();
-        produce_dart_calls(&caller, &[resumo], &mut classes, &mut plan).unwrap();
+        produce_dart_calls(&caller, &[summary], &mut classes, &mut plan).unwrap();
         assert!(plan.instructions[&ValueId(1)].may_fail);
         assert!(
             produce_and_verify_dart_tokens(
@@ -722,7 +722,7 @@ mod tests {
     #[test]
     fn direct_call_receives_owned_from_verified_callee_without_manual_contract() {
         let (callee, callee_plan) = identity();
-        let resumo = verify_dart_function_contract(
+        let summary = verify_dart_function_contract(
             &callee,
             &HashMap::new(),
             &callee_plan,
@@ -730,7 +730,7 @@ mod tests {
             &ScopePlan::default(),
         )
         .unwrap();
-        assert!(!resumo.may_fail);
+        assert!(!summary.may_fail);
         let (mut caller, mut plan) = identity();
         caller.symbol = "caller".into();
         caller.blocks[0].instructions[0].1 = Instruction::CallStatic {
@@ -739,7 +739,7 @@ mod tests {
             ret_ty: Type::Ref,
         };
         let mut classes = HashMap::new();
-        produce_dart_calls(&caller, &[resumo.clone()], &mut classes, &mut plan).unwrap();
+        produce_dart_calls(&caller, &[summary.clone()], &mut classes, &mut plan).unwrap();
         assert_eq!(classes[&ValueId(1)], Ownership::Owned);
         assert_eq!(
             insert_arc_dart_exits(
@@ -765,7 +765,7 @@ mod tests {
         classes.clear();
         plan.instructions.clear();
         assert!(
-            produce_dart_calls(&caller, &[resumo], &mut classes, &mut plan)
+            produce_dart_calls(&caller, &[summary], &mut classes, &mut plan)
                 .unwrap_err()
                 .contains("without a summary")
         );
@@ -788,7 +788,7 @@ mod tests {
             .is_err()
         );
         let (callee, plan) = identity();
-        let resumo = verify_dart_function_contract(
+        let summary = verify_dart_function_contract(
             &callee,
             &HashMap::new(),
             &plan,
@@ -805,7 +805,7 @@ mod tests {
         };
         let mut classes = HashMap::from([(ValueId(0), Ownership::Trivial)]);
         assert!(
-            produce_dart_calls(&caller, &[resumo], &mut classes, &mut plan)
+            produce_dart_calls(&caller, &[summary], &mut classes, &mut plan)
                 .unwrap_err()
                 .contains("argument")
         );

@@ -60,7 +60,7 @@ fn edit(source: &std::path::Path, destination: &std::path::Path) {
 /// The CLI with the source-built SDK library (the only mode since the
 /// unified space, docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
 fn cli_with_sdk() -> Command {
-    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("source-built SDK DLL");
+    let dll = dartforge_emit_native::sdk_module::source_sdk_dll().expect("source-built SDK DLL");
     let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge"));
     command.env("DARTFORGE_SDK_DLL", dll);
     command

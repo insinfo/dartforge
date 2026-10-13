@@ -35,11 +35,11 @@ use dartforge_types::TypeId;
 
 impl FnBuilder<'_, '_> {
     /// The fixed list of the iterations being emitted that `target` (a local) names (N13).
-    pub(super) fn fixed_list_of(&self, ast: &dartforge_frontend::ast::Ast, alvo: dartforge_frontend::ast::ExprId) -> Option<super::fn_builder::FixedList> {
+    pub(super) fn fixed_list_of(&self, ast: &dartforge_frontend::ast::Ast, target: dartforge_frontend::ast::ExprId) -> Option<super::fn_builder::FixedList> {
         if self.fixed_lists.is_empty() {
             return None;
         }
-        let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(alvo).kind else { return None };
+        let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(target).kind else { return None };
         let super::locals::Mode::Memory(key) = self.lookup_local(n.sym)?.mode else { return None };
         self.fixed_lists.iter().rev().find(|f| f.key == key).cloned()
     }
@@ -52,7 +52,7 @@ impl FnBuilder<'_, '_> {
     pub(super) fn proven_of(
         &self,
         ast: &dartforge_frontend::ast::Ast,
-        alvo: dartforge_frontend::ast::ExprId,
+        target: dartforge_frontend::ast::ExprId,
         index: Option<dartforge_frontend::ast::ExprId>,
     ) -> Option<super::fn_builder::ProvenTyped> {
         if self.proven_typed.is_empty() {
@@ -65,7 +65,7 @@ impl FnBuilder<'_, '_> {
                 _ => None,
             }
         };
-        let key = address(alvo)?;
+        let key = address(target)?;
         let counter = match index {
             Some(i) => Some(address(i)?),
             None => None,
@@ -413,7 +413,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn typed_data_and_length(&mut self, list: &Operand, typ: i64, write: bool) -> (Operand, Operand) {
         let data = self.typed_helper("df.typed_data", vec![(list.clone(), Type::Ref)], Type::I64);
         let n = if write {
-            let immutable = i64::from(dartforge_runtime::layout::cid::visao(typ as u8, true));
+            let immutable = i64::from(dartforge_runtime::layout::cid::view(typ as u8, true));
             self.typed_helper(
                 "df.typed_len_writable",
                 vec![(list.clone(), Type::Ref), (Operand::Constant(Constant::Int(immutable)), Type::I64)],
@@ -546,7 +546,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The storage of a runtime list (the `_List` or
     /// `_ImmutableList` itself, or the data of the `_GrowableList`): the address of
-    /// element 0 (`a+22`) and its shape (`flags & (FORMA | ELEMENTO)`, the
+    /// element 0 (`a+22`) and its shape (`flags & (FORMAT | ELEMENT)`, the
     /// [`shape_code`]). The caller knows that `list` is a runtime list.
     ///
     /// Under ARC, the address is derived from the list: the preparation holds the list
@@ -586,7 +586,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn elements_and_shape(&mut self, list: &Operand) -> (Operand, Result<i64, Operand>) {
         if let Some(f) = &self.access_fixed {
             let shape = f.shape;
-            if self.ctx.arc_memory && crate::alvo::arc_prepared().unwrap_or(false) {
+            if self.ctx.arc_memory && crate::target::arc_prepared().unwrap_or(false) {
                 let (data, _) = self.list_storage(list);
                 return (data, Ok(shape));
             }
@@ -722,23 +722,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// published, an owner that it consumes; without it (legacy ARC, in which
 /// nobody releases tokens of the code), the borrow of the list.
 pub(super) fn arc_list_ref_read() -> &'static str {
-    if crate::alvo::arc_prepared().unwrap_or(false) {
+    if crate::target::arc_prepared().unwrap_or(false) {
         "dartforge_arc_list_ref_owned_v1"
     } else {
         "dartforge_arc_list_ref_v1"
     }
 }
 
-/// The shape of a runtime list storage: the `FORMA` and
-/// `ELEMENTO` bits of the `flags` (`layout::flags`, §2.3 and §2.16).
+/// The shape of a runtime list storage: the `FORMAT` and
+/// `ELEMENT` bits of the `flags` (`layout::flags`, §2.3 and §2.16).
 pub(super) const SHAPE_GENERAL: i64 = dartforge_runtime::layout::flags::REFS as i64;
-const SHAPE_INT: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_INT) as i64;
-const SHAPE_DOUBLE: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_DOUBLE) as i64;
-const SHAPE_BOOL: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_BOOL) as i64;
+const SHAPE_INT: i64 = (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_INT) as i64;
+const SHAPE_DOUBLE: i64 = (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_DOUBLE) as i64;
+const SHAPE_BOOL: i64 = (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_BOOL) as i64;
 
 /// Element 0 of a storage, from the handle (`b+24` = `h+22`).
 const STORAGE_ELEMENTS: i64 =
-    dartforge_runtime::layout::desl::ELEMENTOS as i64 - dartforge_runtime::layout::DESLOCAMENTO_DO_HANDLE;
+    dartforge_runtime::layout::offsets::ELEMENTS as i64 - dartforge_runtime::layout::HANDLE_OFFSET;
 
 /// The code of the compact shape of the elements of representation `t` (`int`,
 /// `double`, `bool`), what `@df.core_shape` reads from the storage; the general
@@ -939,7 +939,7 @@ mod arc_tests {
             let dir = tempfile::tempdir().unwrap();
             let entry = dir.path().join("main.dart");
             std::fs::write(&entry, "Object ler(List<Object> valores, int i) => valores[i]; void main() { ler([1], 0); }\n").unwrap();
-            let sdk = crate::sdk_modulo::load_native_sdk(crate::sdk_tests()).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
             assert!(diags.is_empty(), "{diags:?}");

@@ -33,9 +33,9 @@ impl Convention {
     /// The target convention of this compilation.
     pub fn of_target() -> Convention {
         let arm = cfg!(target_arch = "aarch64");
-        match crate::alvo::sistema() {
-            crate::alvo::Sistema::Windows if !arm => Convention::Win64,
-            crate::alvo::Sistema::MacOs if arm => Convention::AArch64 { apple: true },
+        match crate::target::target_os() {
+            crate::target::Os::Windows if !arm => Convention::Win64,
+            crate::target::Os::MacOs if arm => Convention::AArch64 { apple: true },
             _ if arm => Convention::AArch64 { apple: false },
             _ => Convention::SysV,
         }

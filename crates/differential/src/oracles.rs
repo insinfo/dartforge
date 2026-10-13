@@ -97,7 +97,7 @@ pub struct Environment {
     pub extra_path: Vec<PathBuf>,
     /// `--gc-stress`: the native executable runs with `DARTFORGE_GC_STRESS=1`.
     pub gc_stress: bool,
-    /// `--otimizar`: the native executable is the production one
+    /// `--optimize`: the native executable is the production one
     /// (`aot --optimize`: a single executable, LTO and method-table pruning,
     /// docs/NATIVO-PODA-DE-TABELAS.md).
     pub optimize: bool,
@@ -184,7 +184,7 @@ impl Environment {
         })
     }
 
-    /// Output directory of a program for an executor (`ddc`, `forge`, `contrato`).
+    /// Output directory of a program for an executor (`ddc`, `forge`, `contract`).
     /// The executor names are directories on disk and stay as they are.
     pub fn output_dir(&self, executor: &str, program: &Program) -> PathBuf {
         self.work_dir.join(executor).join(&program.name)
@@ -192,7 +192,7 @@ impl Environment {
 }
 
 /// Generates `destination` (the `dart_sdk.js` of `sdk`) with
-/// `scripts/gerar-dart-sdk.ps1` if it does not exist yet.
+/// `scripts/generate-dart-sdk.ps1` if it does not exist yet.
 fn generate_dart_sdk_js(root: &Path, sdk: &Path, destination: &Path) {
     if destination.is_file() || !sdk.join("version").is_file() {
         return;
@@ -305,7 +305,7 @@ pub fn dart_oracle(env: &Environment, program: &Program) -> Output {
 // ---------------------------------------------------------------- negative programs
 
 /// The comparable output of an executor that **rejected** a negative program
-/// (`// erro-de-compilacao`): the line of the first error it reported. Code 0,
+/// (`// erro-of-compilacao`): the line of the first error it reported. Code 0,
 /// so that the report does not mistake an expected rejection for a broken
 /// oracle; what is compared is the text.
 ///
@@ -528,7 +528,7 @@ pub fn dartforge(env: &Environment, program: &Program, dir: &Path) -> Output {
     run_node(env, dir)
 }
 
-/// DartForge Native: compiles via `dartforge_emit_native::compilar` and then runs the binary.
+/// DartForge Native: compiles via `dartforge_emit_native::compile` and then runs the binary.
 pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Output {
     let _ = std::fs::create_dir_all(dir);
     let exe_name = if cfg!(windows) { format!("{}.exe", program.name) } else { program.name.clone() };
@@ -546,13 +546,13 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
                 packages: None,
                 timings: false,
                 optimize,
-                versao_linguagem: Some(version),
-                experimentos: Vec::new(),
-                depuracao: false,
-                gerador: None,
+                language_version: Some(version),
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
                 cpu: None,
             };
-            dartforge_emit_native::compilar(&entry, &out_path, &options)
+            dartforge_emit_native::compile(&entry, &out_path, &options)
         })
         .map_err(|e| format!("failed to create the compilation thread: {e}"))
         .and_then(|h| h.join().map_err(|_| "the compilation thread aborted".to_string()))
@@ -595,7 +595,7 @@ pub fn dartforge_native_ir(program: &Program) -> Result<String, String> {
 
 /// The IR the JIT runs: without static objects (the JIT does not have them,
 /// a generation's memory is freed; docs/NATIVO-ESPACO-UNIFICADO.md §2.11), like
-/// `dartforge run` (`emitir_ir_recarregavel`). `--jit-aot` links this same IR.
+/// `dartforge run` (`emit_reloadable_ir`). `--jit-aot` links this same IR.
 pub fn dartforge_native_ir_jit(program: &Program) -> Result<String, String> {
     emit_program_ir(program, true)
 }
@@ -611,16 +611,16 @@ fn emit_program_ir(program: &Program, jit: bool) -> Result<String, String> {
                 packages: None,
                 timings: false,
                 optimize: false,
-                versao_linguagem: Some(version),
-                experimentos: Vec::new(),
-                depuracao: false,
-                gerador: None,
+                language_version: Some(version),
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
                 cpu: None,
             };
             if jit {
-                dartforge_emit_native::emitir_ir_recarregavel(&entry, &options, None).map(|ir| ir.texto)
+                dartforge_emit_native::emit_reloadable_ir(&entry, &options, None).map(|ir| ir.text)
             } else {
-                dartforge_emit_native::emitir_ir(&entry, &options).map(|ir| ir.texto)
+                dartforge_emit_native::emit_ir(&entry, &options).map(|ir| ir.text)
             }
         })
         .map_err(|e| format!("[emit-ir] failed to create the emission thread: {e}"))?
@@ -819,7 +819,7 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
     // A program with the SDK from source (P5c/P5d): the executor loads the
     // DLL of the compiled SDK (the same one the AOT imports).
     if ir.contains("declare void @df.register.") {
-        match dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte() {
+        match dartforge_emit_native::sdk_module::source_sdk_dll() {
             Ok(dll) => env_vars.push(("DARTFORGE_SDK_DLL", dll.to_string_lossy().into_owned())),
             Err(e) => {
                 let output = Output { stdout: String::new(), stderr: format!("[compile-native] SDK from source: {e}"), code: 1 };
@@ -866,7 +866,7 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
                 if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
                     let _ = std::fs::remove_file(&exe);
                 }
-                AotFromSameIr { output, link_time, run_time, object_from_cache: t.objeto_do_cache }
+                AotFromSameIr { output, link_time, run_time, object_from_cache: t.cache_object }
             }
         }
     });

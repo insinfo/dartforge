@@ -210,10 +210,10 @@ fn blocks<'a>(body: &[&'a str], helpers: &HashMap<&str, bool>) -> Vec<Block<'a>>
             let words: Vec<&str> = t.split_whitespace().collect();
             while k + 1 < words.len() {
                 if words[k] == "label"
-                    && let Some(alvo) = words[k + 1].strip_prefix('%')
+                    && let Some(target) = words[k + 1].strip_prefix('%')
                 {
-                    let alvo = alvo.trim_end_matches([',', ']']).trim_matches('"');
-                    b.successors.push(alvo);
+                    let target = target.trim_end_matches([',', ']']).trim_matches('"');
+                    b.successors.push(target);
                 }
                 k += 1;
             }

@@ -16,7 +16,7 @@
 
 use super::LlvmEmitter;
 use crate::hir::*;
-use dartforge_runtime::layout::{self, cid, desl, flags};
+use dartforge_runtime::layout::{self, cid, offsets, flags};
 use std::fmt::Write;
 
 /// The `@df.list_*` helpers (§3.5), printed in the prelude of each module by
@@ -27,7 +27,7 @@ use std::fmt::Write;
 /// * `@df.list_len(l)`: the length, `[l+14]` in all three classes;
 /// * `@df.list_storage(l)`: cid 10 → `[l+22]`, otherwise `l`;
 /// * `@df.list_element(a, i)`: the address `a + 22 + 8i`;
-/// * `@df.list_shape(a)`: `[a−1] & 0x66` (`FORMA` and `ELEMENTO`: 0x04 general,
+/// * `@df.list_shape(a)`: `[a−1] & 0x66` (`FORMAT` and `ELEMENT`: 0x04 general,
 ///   0x22 `int`, 0x42 `double`, 0x62 `bool`);
 /// * `@df.list_capacity(l)`: the length of the storage;
 /// * `@df.list_read(a, i)`: word `i` (a `Ref` in the general shape);
@@ -115,21 +115,21 @@ fim:\n\
 // The numbers in the text of `HELPERS` are those of the layout contract (relative to the
 // handle, block + 2).
 const _: () = {
-    let h = layout::DESLOCAMENTO_DO_HANDLE as usize;
-    assert!(desl::COMPRIMENTO - h == 14);
-    assert!(desl::EXPANSIVEL_DADOS - h == 22);
-    assert!(desl::ELEMENTOS - h == 22);
-    assert!(desl::CLASSE - h == 2);
-    assert!(desl::FLAGS as i64 - h as i64 == -1);
+    let h = layout::HANDLE_OFFSET as usize;
+    assert!(offsets::LENGTH - h == 14);
+    assert!(offsets::GROWABLE_DATA - h == 22);
+    assert!(offsets::ELEMENTS - h == 22);
+    assert!(offsets::CLASS - h == 2);
+    assert!(offsets::FLAGS as i64 - h as i64 == -1);
     assert!(cid::GROWABLE_LIST == 10);
-    assert!(flags::FORMA | flags::ELEMENTO == 102);
+    assert!(flags::FORMAT | flags::ELEMENT == 102);
 };
 
 /// The helpers of the module: under ARC (`Module::arc_memory`), the element write
 /// and the storage replacement of the `_GrowableList` go through the
 /// runtime, which counts the replacement and applies the barrier: the element through the word
 /// of the `REFS` body (`dartforge_arc_write_ref`), the storage through field
-/// 1 of the `INSTANCIA` (`dartforge_object_set`).
+/// 1 of the `INSTANCE` (`dartforge_object_set`).
 pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
     if !arc {
         return std::borrow::Cow::Borrowed(HELPERS);
@@ -160,7 +160,7 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
 #[derive(Default)]
 pub(super) struct ListState {}
 
-/// The ABI tag of a word of the mixed literal (that of `LlvmEmitter::tag_de`): 1
+/// The ABI tag of a word of the mixed literal (that of `LlvmEmitter::tag_of`): 1
 /// `int`, 2 `bool`, 3 `Ref`, 4 bits of a `double`.
 const TAG_REF: u8 = 3;
 
@@ -178,7 +178,7 @@ impl LlvmEmitter<'_> {
     pub(super) fn emit_alloc_list(&mut self, v: u32, elements: &[(Operand, u8)]) {
         let n = elements.len();
         let width = n.max(1);
-        let tags: Vec<u8> = elements.iter().map(|(op, _)| self.tag_de(op)).collect();
+        let tags: Vec<u8> = elements.iter().map(|(op, _)| self.tag_of(op)).collect();
         // The shape by the code of `lists::Elemento` (0 general, 1 int, 2 double,
         // 3 bool); `None`: mixed.
         let shape: Option<i64> = match tags.first() {
