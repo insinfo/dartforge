@@ -387,9 +387,99 @@ pub fn merge_program_rules(js: &str, program_start: usize) -> String {
     out
 }
 
+/// The program's `dart.addRtiResources(C, [...])` statements (from
+/// `program_start` on) become one call, in the place of the last, over a
+/// flat list: `C, "|a", D, ["|b", "|c"], …` (a single recipe without its
+/// list). The resources (`$ccache`, `$interfaceRecipe` and the interface
+/// marks) are first read when an instance's type is computed or tested,
+/// which loading a library never does; at the last statement every listed
+/// class is already defined. The exception is a class that `applyMixin` or
+/// `registerExtension` receives: they copy its marks at load, so its
+/// statement stays. Each statement cost the call and the list:
+/// 2,067 in limitless_ui. `DARTFORGE_JSPROD_BATCH_RESOURCES=0` turns it off.
+pub fn batch_program_resources(js: &str, program_start: usize) -> String {
+    const CALL: &str = "dart.addRtiResources(";
+    // `applyMixin` and `registerExtension` copy the marks at load: a class
+    // they receive keeps its statement where it is.
+    let mut copied: HashSet<&str> = HashSet::new();
+    for c in ["applyMixin(", "registerExtension("] {
+        for (p, _) in js[program_start..].match_indices(c) {
+            let rest = &js[program_start + p + c.len()..];
+            let args = &rest[..rest.find(");").unwrap_or(0)];
+            copied.extend(args.split(", ").map(str::trim));
+        }
+    }
+    let mut found: Vec<(usize, usize, &str, Vec<&str>)> = Vec::new();
+    for (p, _) in js[program_start..].match_indices(CALL) {
+        let p = program_start + p;
+        // A whole statement on its own line: `dart.addRtiResources(C, [...]);`.
+        if p > 0 && js.as_bytes()[p - 1] != b'\n' {
+            continue;
+        }
+        let rest = &js[p + CALL.len()..];
+        let Some(line_end) = rest.find('\n') else { continue };
+        let line = &rest[..line_end];
+        let Some((class, list)) = line.split_once(", [") else { continue };
+        let Some(list) = list.strip_suffix("]);") else { continue };
+        // Only a class reached through its library's namespace (`L$lib.C`):
+        // a local of the library's IIFE (a mixin application) would not be
+        // in scope at the last statement.
+        let Some((namespace, _)) = class.split_once('.') else { continue };
+        if !namespace.starts_with("L$") || copied.contains(class) || !class.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b == b'.') {
+            continue;
+        }
+        let items: Vec<&str> = list.split(", ").collect();
+        if items.is_empty() || !items.iter().all(|x| x.len() >= 2 && x.starts_with('"') && x.ends_with('"') && !x[1..x.len() - 1].contains(['"', '\\'])) {
+            continue;
+        }
+        found.push((p, p + CALL.len() + line_end + 1, class, items));
+    }
+    // The loop costs ~100 bytes and each statement saves ~6: in a small
+    // program the batch loses (measured on the corpus, raw and gzip).
+    const MIN_STATEMENTS: usize = 32;
+    if found.len() < MIN_STATEMENTS {
+        return js.to_string();
+    }
+    let mut flat: Vec<String> = Vec::new();
+    for (_, _, class, items) in &found {
+        flat.push(class.to_string());
+        flat.push(if items.len() == 1 { items[0].to_string() } else { format!("[{}]", items.join(", ")) });
+    }
+    let call = format!(
+        "((a) => {{ for (let i = 0; i < a.length; i += 2) dart.addRtiResources(a[i], typeof a[i + 1] == \"string\" ? [a[i + 1]] : a[i + 1]); }})([{}]);\n",
+        flat.join(", ")
+    );
+    let last = found.len() - 1;
+    let mut out = String::with_capacity(js.len());
+    let mut pos = 0;
+    for (i, (start, end, _, _)) in found.iter().enumerate() {
+        out.push_str(&js[pos..*start]);
+        if i == last {
+            out.push_str(&call);
+        }
+        pos = *end;
+    }
+    out.push_str(&js[pos..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn program_resources_batch_into_the_last_statement() {
+        let mut js = "dart.addRtiResources(core.S, [\"|s\"]);\nEND\nL$a.A = class {};\ndart.addRtiResources(L$a.A, [\"|a\"]);\nL$a.B = class {};\ndart.addRtiResources(L$a.B, [\"|b\", \"|c\"]);\n".to_string();
+        for i in 0..40 {
+            js.push_str(&format!("dart.addRtiResources(L$a.C{i}, [\"|c{i}\"]);\n"));
+        }
+        js.push_str("main();\n");
+        let out = batch_program_resources(&js, js.find("END").unwrap());
+        assert!(out.starts_with("dart.addRtiResources(core.S, [\"|s\"]);"), "{out}");
+        assert!(out.contains("})([L$a.A, \"|a\", L$a.B, [\"|b\", \"|c\"], L$a.C0, \"|c0\""), "{out}");
+        assert!(out.contains("L$a.C39, \"|c39\"]);\nmain();"), "{out}");
+        assert_eq!(out.matches("addRtiResources(L$").count(), 0, "{out}");
+    }
 
     #[test]
     fn program_rules_merge_into_the_last_call() {

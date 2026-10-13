@@ -540,6 +540,11 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
     };
     let js = alias_recipes(&js);
     let js = drop_unused_private_names(&js);
+    // After the name table, which reads the resource lists.
+    let js = match js.find("if (typeof NodeList !== 'undefined'") {
+        Some(start) if std::env::var("DARTFORGE_JSPROD_BATCH_RESOURCES").map_or(true, |v| v != "0") => crate::rti_rules::batch_program_resources(&js, start),
+        _ => js,
+    };
     let before_compaction = js.len();
     // Identifiers by scope and whitespace (oxc); `DARTFORGE_JSPROD_NAMES=0`
     // stays with whitespace compaction only, and `DARTFORGE_JSPROD_PROPS=0`
