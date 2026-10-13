@@ -549,7 +549,7 @@ fn emit_ir_internal(
     // program, a call in a large one.
     let llvm_ir = if cfg!(unix) && prune && !excecoes_por_tabelas && !raizes_por_mapas && !arc_memory {
         let mode = if large { sdk_modulo::ContextInTls::PerCall } else { sdk_modulo::ContextInTls::Inline };
-        sdk_modulo::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.programa")
+        sdk_modulo::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.program")
     } else {
         llvm_ir
     };
@@ -791,7 +791,7 @@ mod tests {
         // registers the table may also change.
         let (la, la2): (Vec<_>, Vec<_>) = (ia.lines().collect(), ia2.lines().collect());
         assert_eq!(la.len(), la2.len(), "the same program in another directory gives the same IR");
-        let rti_table = |l: &str| l.contains("@dartforge_rti_iniciar_tabela(");
+        let rti_table = |l: &str| l.contains("@dartforge_rti_init_table(");
         for (x, y) in la.iter().zip(&la2) {
             if x != y {
                 assert!(
@@ -822,12 +822,12 @@ mod tests {
                 .unwrap()
         };
         let synchronous = emit_source("void main() { print(1); }\n");
-        assert!(!synchronous.texto.contains("call void @dartforge_laco_de_eventos"));
+        assert!(!synchronous.texto.contains("call void @dartforge_event_loop"));
         assert!(!synchronous.texto.contains("@df.dart$3aasync"));
         assert_eq!(synchronous.sdk_byte_count, 0);
 
         let asynchronous = emit_source("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
-        assert!(asynchronous.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
+        assert!(asynchronous.texto.contains("call void @dartforge_event_loop(ptr @dartforge_call_dart0)"));
         assert!(asynchronous.texto.contains("define i64 @df.main$2edart..f$async$q"), "the body of the state machine");
         // `dart:async` comes from the cached SDK module (`sdk_modulo.rs`): the IR
         // of the program only calls it, it does not define its functions (`sdk_byte_count`

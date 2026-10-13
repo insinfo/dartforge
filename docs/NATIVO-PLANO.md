@@ -339,7 +339,7 @@ E literal `double` sai na forma hexadecimal do LLVM: `format!("{d}")` imprime
 acessor implícito de campo (um `final int codigo;` gera um elemento getter
 `codigo`) tem `node: FunctionRef::None` e nunca vira símbolo. A busca de método
 por nome não filtrava por isso, então `e.codigo` virava
-`call @df_fn_N_codigo` — "use of undefined value", e de novo o módulo inteiro
+`call @df_fn_N_code` — "use of undefined value", e de novo o módulo inteiro
 recusado. `metodo_de_instancia`/`funcao_de_topo` exigem o `node`, e a busca cai
 no acesso a campo que já estava escrito logo abaixo.
 
@@ -495,7 +495,7 @@ representação ser honesta transforma cada escalar em posição `Ref` num
 * **G1.** O emissor abre, na entrada de toda função que tem algum valor
   `Ref`, um **quadro de raízes no stack dela** — `{ anterior, N, [N x i64] }`
   (a pilha-sombra do `ShadowStackGC` do LLVM), com os slots zerados — e o
-  encadeia com `dartforge_gc_empilhar(quadro)`; a coleta percorre a cadeia
+  encadeia com `dartforge_gc_push(quadro)`; a coleta percorre a cadeia
   da thread. Cada valor `Ref` tem um **slot fixo**: cada valor SSA `Ref`
   (parâmetro, resultado de chamada, `Load`, `phi`, alocação) é gravado no
   slot dele com um `store` comum logo depois de ser definido — o parâmetro
@@ -729,7 +729,7 @@ em paralelo.
   (`crates/emit_native/src/lib.rs`) devolvem `Err` com **todos** os
   diagnósticos quando o lowering produziu algum; nenhum IR é emitido. Saiu o
   módulo de erro que gerava um executável só para imprimir os diagnósticos e
-  sair com 254, e saiu do runtime a `dartforge_erro_de_compilacao`. A primeira
+  sair com 254, e saiu do runtime a `dartforge_compile_error`. A primeira
   linha do erro é `erro de compilação: <primeiro diagnóstico sem a posição>` —
   a chave de agrupamento do relatório; as seguintes, um diagnóstico cada.
 * **O relatório mostra tudo o que falta.** Cada falha nativa lista os
@@ -849,7 +849,7 @@ de 100 000 `Object o = i`, 100 000 alocações a menos. O ganho grande é com o
 SDK da fonte, genérico (`E`, `Object?`).
 
 **P5a — sobreposição.** `native_sdk/libraries.json` (alvo
-`dartforge_nativo`, base `vm`) troca por **conteúdo** quatro arquivos:
+`dartforge_native`, base `vm`) troca por **conteúdo** quatro arquivos:
 `async_patch.dart` (o modelo do dart2js sem `_SuspendState`),
 `schedule_microtask_patch.dart` e `timer_patch.dart` (natives
 `DartForge_scheduleImmediate`/`DartForge_Timer_*`) e `finalizer_patch.dart`
@@ -880,7 +880,7 @@ patches; o lowering de P5d precisa dele para todos (é do dono de
 **P5b — natives.** `emit_native/src/nativos.rs`: os 137 natives em ordem, com
 estado (`Runtime`/`Pendente`) e efeitos G8 conservadores; o teste recusa native
 da fonte sem entrada e entrada que deixou de ser native. 45 já no runtime
-(fragmentos `nativos_numeros` e `nativos_strings`, `dartforge_nativo_<Nome>`):
+(fragmentos `nativos_numeros` e `nativos_strings`, `dartforge_native_<Nome>`):
 os `Integer_*FromInteger` (operandos trocados como na VM; deslocamento com a
 regra do `ShiftOperationHelper`), `Smi`/`Mint_bitLength`/`bitNegate`, a
 aritmética e as comparações de `Double`, `Double_toString` (o `ToShortest` da
@@ -928,7 +928,7 @@ argumentos todos `Ref` num vetor na pilha do chamador (posicionais e depois
 nomeados, na ordem do descritor) e o descritor `[n_posicionais, n_nomeados,
 hash(nome)…]` (FNV-1a de 64 bits do nome, com os nomes ordenados: o mesmo
 em qualquer módulo). A entrada confere a aridade contra a assinatura da
-função (`dartforge_args_casam`), preenche os padrões dos opcionais ausentes e
+função (`dartforge_args_match`), preenche os padrões dos opcionais ausentes e
 chama o **corpo** `i64 @<símbolo>(i64 env, i64 p0, …)`. O código de uma
 closure é o endereço da entrada uniforme (`ptrtoint`, emissão de
 `AllocClosure` em `crates/emit_native/src/llvm/mod.rs`), para que uma closure
@@ -1094,7 +1094,7 @@ compilação.
 
 *Natives e intrínsecos* (`lower/externos.rs`): o `external` da fonte com
 `@pragma("vm:external-name", N)` tem por corpo a chamada a
-`dartforge_nativo_N` (a tabela de δ, `nativos.rs`); `unsafeCast` é intrínseco
+`dartforge_native_N` (a tabela de δ, `nativos.rs`); `unsafeCast` é intrínseco
 (o valor). As classes de erro que o runtime representa (1000–1012) e o
 `List.filled` são construídos pelas externs que o runtime já usa
 (`lower/erros_do_runtime.rs`) — o objeto tem de ser o do runtime, que é o que
@@ -1138,8 +1138,8 @@ na ordem da VM (`timer_impl.dart`): prazo `agora` para duração 0 e
 `agora + 1 + ms` para as outras, desempate pela sequência de agendamento,
 periódico reagendado em `prazo + ms` depois do callback. É o único ponto em
 que o runtime chama Dart, por uma função do código gerado que chama uma
-closure sem argumentos (`dartforge_chamar_dart0`; G8 marca
-`dartforge_laco_de_eventos` com `chama_dart`). Exceção que sai de uma
+closure sem argumentos (`dartforge_call_dart0`; G8 marca
+`dartforge_event_loop` com `chama_dart`). Exceção que sai de uma
 microtarefa já passou pela `Zone` (`_rootHandleError` a relança): o laço para
 e `finalizar_programa` a relata. O estado é por thread (um isolado por
 thread; P8 o junta em `isolado.rs`), e as closures que esperam são raízes do
@@ -1151,7 +1151,7 @@ tipo tem o mesmo id); o compilador descreve cada tipo por uma **receita**
 (texto curto) com um global preguiçoso por receita; variáveis `P<i>`
 (parâmetro de tipo da classe do código corrente, lido do tipo de `this` visto
 como a classe declarante) e `M<i>` (argumento de tipo da função corrente) são
-trocadas no ambiente por `dartforge_rti_avaliar`; as regras de supertipo de
+trocadas no ambiente por `dartforge_rti_eval`; as regras de supertipo de
 cada classe citada (o fecho) são registradas na entrada. O tipo de cada
 objeto genérico, coleção com tipo de elemento e closure (a assinatura, o
 `$signature` do dart2js) mora num metadado por slot do heap (o `metadata_ptr`
@@ -1382,16 +1382,16 @@ lentos e processos com muita saída).
 
 **Isolados** (`isolados.rs`, `portas.rs`). Um isolado é uma thread com o
 próprio heap, área de globais, universo de tipos e laço de eventos. A
-entrada gerada separa `df.preparar_isolado` (registros das bibliotecas,
+entrada gerada separa `df.prepare_isolate` (registros das bibliotecas,
 RTI, embedder), que o runtime roda em cada thread nova, e registra a
-chamada de closure (`dartforge_registrar_isolados`). `Isolate.spawn`
+chamada de closure (`dartforge_register_isolates`). `Isolate.spawn`
 copia a entrada e a mensagem para grafos; na thread nova, o isolado
 manda a mensagem de pronto (`[porta de controle, [pausa, término]]`) e
 roda a entrada como a primeira mensagem. Numa mensagem para outro
 isolado:
 
 * constantes canônicas (`const`, valores de enum, globais `const`) vão
-  pelo getter que as produz (`dartforge_marcar_constante`: o endereço do
+  pelo getter que as produz (`dartforge_mark_constant`: o endereço do
   getter é o mesmo em todos os isolados) e tear-offs de topo pelo código —
   o destino recebe as dele, e `identical`/`switch` valem entre isolados,
   como no grupo de isolados da VM;
@@ -1406,7 +1406,7 @@ A porta de controle recebe as mensagens OOB da VM (`pause`, `resume`,
 entre eventos antes das comuns. Um erro não tratado vai aos ouvintes de
 erro; sem ouvinte e com erros fatais, é impresso (`Unhandled exception:`)
 e o isolado termina. `Isolate.exit` desenrola o isolado com uma exceção
-que nenhum `catch` recebe (`dartforge_exception_capturavel`). Limites:
+que nenhum `catch` recebe (`dartforge_exception_catchable`). Limites:
 o `kill` imediato só é visto quando o isolado volta ao laço de eventos (a
 VM interrompe na verificação de pilha); `Isolate.spawnUri` não existe
 num programa compilado (a porta de pronto recebe o erro).
@@ -1420,7 +1420,7 @@ assinatura a cada chamada:
   `Pointer` e os inteiros específicos da ABI (`Long`, `IntPtr`, `Size`,
   `WChar`…, do SDK ou do programa) ganham um tipo C; os da ABI saem do
   `@AbiSpecificIntegerMapping` para o alvo (`linuxX64`, `windowsX64`,
-  `macosArm64`…). A tabela vai ao runtime (`dartforge_ffi_registrar_tipo`)
+  `macosArm64`…). A tabela vai ao runtime (`dartforge_ffi_register_type`)
   e serve a `sizeOf<T>()` e à chave do trampolim.
 * **Trampolins.** Todo tipo de função feito só de tipos nativos que aparece
   no programa é uma assinatura: `lookupFunction<NS, DS>` e `asFunction`
@@ -1758,7 +1758,7 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
   frio, para NaN e infinito) não passam mais pelo seletor.
 * **Contexto da thread** (`runtime/src/heap.rs`, `Contexto`): a exceção
   pendente e o topo da pilha-sombra num `#[repr(C)]` que o código gerado lê
-  e grava direto; `dartforge_contexto()` uma vez por ativação no lugar de
+  e grava direto; `dartforge_context()` uma vez por ativação no lugar de
   uma chamada por conferência e duas por quadro. O `exception_clear` de
   todo `return` não toca mais no heap quando não há exceção.
 * **`for-in` sobre `List<E>`** (`lower/sdk_fonte.rs`): a lista do runtime é
@@ -1766,7 +1766,7 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
   `ListIterator` (`ConcurrentModificationError`) a cada volta; outra classe
   que implementa `List` segue pelo `Iterator` dela.
 * **`List<bool>`** lida e gravada em linha, e a gravação direta confere o
-  `E` reificado da lista (`dartforge_lista_len_gravavel`): um `List<Never>`
+  `E` reificado da lista (`dartforge_list_len_writable`): um `List<Never>`
   ou um `List<int>` visto como `List<num>` fica com o `[]=` do SDK, que
   lança o `TypeError` da VM (`corpus/native/27`). Antes, a gravação direta
   de `int`/`double` não conferia a covariância.
@@ -1775,7 +1775,7 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
   `CabecalhoDeLista`): os elementos de `Value::List` ficam atrás de um
   `#[repr(C)]` num `Box` (endereço dos dados, comprimento lógico, bits de
   gravação conferida) que não muda de endereço enquanto a lista vive.
-  `dartforge_lista_cabecalho` é pura do handle (`memory(none)`) e sai dos
+  `dartforge_list_header` é pura do handle (`memory(none)`) e sai dos
   laços; o comprimento e os dados são lidos em linha a cada uso. Toda
   mudança de estrutura passa pela guarda de `Elementos::vetor_mut`, que
   ressincroniza o cabeçalho. A gravação direta é conferida uma vez por
@@ -1784,7 +1784,7 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
 * **`List.filled` e `add`**: `_List.filled`/`_GrowableList.filled`
   (sobreposição de `array.dart`/`growable_array.dart`) preenchem no
   runtime; `lista.add(v)` de `List<int|double|bool>` com `v` do tipo exato
-  acrescenta o escalar sem caixa (`dartforge_lista_add_escalar`, conferido
+  acrescenta o escalar sem caixa (`dartforge_list_add_scalar`, conferido
   uma vez por lista).
 * **`sort()` de `List<int>`** (sobreposição de `internal/sort.dart` e
   `collection/list.dart`): o mesmo dual-pivot do SDK com `int` estático.
@@ -1795,7 +1795,7 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
 * **Closures**: o cabeçalho imutável (`CabecalhoDeClosure`, num `Box`) vem
   de uma chamada pura e a chamada tipada lê a ABI, o corpo e o ambiente em
   linha; as capturas são lidas em linha do vetor do ambiente
-  (`dartforge_env_dados`, que não muda de tamanho).
+  (`dartforge_env_data`, que não muda de tamanho).
 * **Strings**: o `==` de `_StringBase` compara no runtime (sobreposição de
   `string_patch.dart`); o literal é achado pelo endereço da constante,
   conferido pelos bytes.
@@ -1826,7 +1826,7 @@ A comparação com a VM e o `dart compile exe` é
 `scripts/comparar-desempenho.py`. O que ainda pesa, pelo perfil: o código do
 SDK compilado à parte (`List.filled`, `add`, `sort`, `Map`) passa pelo
 despacho por seletor com a convenção uniforme e pelas conferências de RTI
-(`dartforge_rti_como`), sem o inlining nem a especialização que o programa
+(`dartforge_rti_as`), sem o inlining nem a especialização que o programa
 já recebe. O mapa e o conjunto ainda pagam o despacho das funções de
 igualdade e hash (`_equals`/`_hashCode` dos mixins) e a conferência de RTI
 na entrada uniforme do `add`/`[]=`; os objetos, duas alocações cada (o
@@ -1893,7 +1893,7 @@ o `compact_hash.dart` já era o da VM (índice `Uint32List` e dados lado a
 lado, sem nó por entrada): o tempo ia no **caminho até a tabela**. Um
 `m[k] = v` de `Map<int, int>` custava cerca de 10 mil instruções: cada
 `_data[i] = x` passava pelo seletor e pela entrada uniforme do `[]=` de
-`_List`, com a conferência de covariância (`dartforge_rti_como_em`, que na
+`_List`, com a conferência de covariância (`dartforge_rti_as_with_context`, que na
 época ainda formatava a mensagem mesmo quando passava — corrigido à parte
 em `tipos.rs`), e `_hashCode`/`_equals` iam ao despacho dinâmico. Na VM, o
 compilador especializa `_hashCode`/`_equals` do
@@ -1914,13 +1914,13 @@ O que entrou, uma coisa de cada vez:
    do SDK faz a operação. `mapa` 2,6 → 0,93 bilhão de instruções (200 mil
    chaves, callgrind); 730 → 290 ms.
 2. **Interpolação com `int` sem caixa** (`JuntarTextos`, `hir.rs`,
-   `llvm/mod.rs`; `dartforge_string_juntar_tipado`, `strings.rs`): a parte
+   `llvm/mod.rs`; `dartforge_string_join_typed`, `strings.rs`): a parte
    `int` vai como par (espécie, bits) e os dígitos são escritos direto no
    texto junto (dois por divisão), sem a string intermediária de
    `dartforge_to_string_i64` — uma alocação a menos por `'k$i'`. Cada texto
    é lido do heap uma vez.
 3. **Memória direta da RTI** (`tipos.rs`, `memo_e`/`memo_aval`): `v is t` e
-   `dartforge_rti_avaliar` guardados por uma chave do valor (o tipo
+   `dartforge_rti_eval` guardados por uma chave do valor (o tipo
    reificado gravado, ou a espécie/classe) numa tabela de 1024 vagas,
    esquecida quando uma regra, classe ou forma do runtime muda. As
    conferências de covariância da entrada `$c` (`K`/`V` do `[]=`, `E` do
@@ -1964,7 +1964,7 @@ AOT; `textos` 67,7 contra 189,2. (A medição de memória de antes não foi
 registrada em §8.4.)
 
 O que ainda pesa, pelo perfil, e é de outras frentes: a entrada uniforme
-`$c` (vetor de argumentos, `dartforge_rti_avaliar` duas vezes por `[]=` —
+`$c` (vetor de argumentos, `dartforge_rti_eval` duas vezes por `[]=` —
 cerca de 180 instruções cada, a maior parte no metadado do receptor), o
 despacho por seletor e `dartforge_value_class`, a alocação de cada string
 (`Heap::allocate` e a coleta), e o iterador de `where`/`ListIterator` (os
@@ -1984,7 +1984,7 @@ de instruções) mostrou onde iam as cerca de 850 instruções por objeto:
 * alocação por chamada ao runtime: `dartforge_object_new`, `Heap::allocate`,
   o registro da tabela de métodos e um `calloc`/`free` para o vetor de campos
   (cerca de 250 instruções);
-* cada leitura ou gravação de campo chamava `dartforge_object_campos` (TLS,
+* cada leitura ou gravação de campo chamava `dartforge_object_fields` (TLS,
   tabela de handles, `match` no `Value`);
 * coleta completa a cada ~1 MiB alocado, sempre marcando tudo o que vive (a
   árvore longa) e varrendo a tabela de slots inteira.
@@ -2027,7 +2027,7 @@ sem mover** (marcas "pegajosas"):
    histerese de ¾ do gatilho anterior). A **barreira de escrita**: toda
    mutação do runtime passa por `Heap::get_mut`, que lembra o velho (objeto
    ou slot); o código gerado, depois de gravar um `Ref` num campo, testa o
-   estado no cabeçalho (`h - 18`) e chama `dartforge_lembrar` se é velho.
+   estado no cabeçalho (`h - 18`) e chama `dartforge_remember` se é velho.
    `DARTFORGE_GC_VERIFICAR=1` faz cada coleta menor conferir, por uma
    travessia completa, que nenhum jovem alcançável ficou sem marca (o
    corpus inteiro passa com `--gc-stress` e a verificação ligada);
@@ -2069,7 +2069,7 @@ milhões → 319 milhões depois dos passos 1–3 (a alocação saiu do perfil:
 `dartforge_object_new` de 60 milhões para 1). Em `arvores(12)`, a coleta
 passou de 40% das instruções para 25%, e o que resta é o código do programa
 (`arvore` e `conta`: o `esq?.conta() ?? 0` encaixota e desencaixota o `int?`,
-e cada ativação chama `dartforge_contexto` e monta o quadro da
+e cada ativação chama `dartforge_context` e monta o quadro da
 pilha-sombra).
 
 **O que não fechou, e por quê.** `lista_ligada` ficou pior: tudo o que ela
@@ -2092,7 +2092,7 @@ outras threads. O que falta, pela ordem do ganho esperado:
   morto, como o scavenger);
 * **marcação da completa em paralelo**, ou concorrente (a VM marca o *old
   space* em outras threads);
-* no código do programa: `dartforge_contexto` em linha (TLS direto) e `?.` +
+* no código do programa: `dartforge_context` em linha (TLS direto) e `?.` +
   `??` sobre `int?` sem caixa.
 
 ### 8.7 Objetos de 8 bytes por campo (N19, segunda rodada, 2026-09-29)
@@ -2227,7 +2227,7 @@ depois de §9.4):
 
 Contados por uprobe (`perf stat -e uprobes:…`), por requisição, antes de §9.4:
 444 alocações do heap (102 objetos, 103 closures, 103 ambientes, 51 células),
-874 `dartforge_rti_e`, 1 123 `dartforge_seletor`, 115 `dartforge_string_new`
+874 `dartforge_rti_e`, 1 123 `dartforge_selector`, 115 `dartforge_string_new`
 (literais: sem alocação, mas uma busca por endereço cada), uma coleta a cada
 2,6 requisições. Pelo `dart:_http` (inclusivo):
 
@@ -2305,12 +2305,12 @@ avaliado (a mensagem sem " of 'nome'").
   argumentos garantidos usa o seletor `t` + o de sempre (`tc:[]`, `ts:x`);
   a tabela da classe o liga à entrada `$tc`/`$ts`, gerada só quando a `$c`
   confere algum parâmetro que a tipada dispensa, e o runtime
-  (`dartforge_seletor`) cai no seletor sem o `t` quando a classe não a tem
+  (`dartforge_selector`) cai no seletor sem o `t` quando a classe não a tem
   (sem o que dispensar, encaminhador de `noSuchMethod`, classe do
   programa). A `$tc` também não confere a aridade;
 * a conferência de aridade da entrada uniforme sem nomeados vai em linha
   (`n_req <= posicionais <= n_pos`, nenhum nomeado), sem chamar
-  `dartforge_args_casam`;
+  `dartforge_args_match`;
 * o cast implícito do argumento `dynamic` no ponto de chamada, com o tipo do
   parâmetro na invocação (o tipo estático do alvo, ou o do construtor com os
   argumentos de tipo da criação), para funções, construtores, fábricas,
@@ -2336,7 +2336,7 @@ membros do SDK, índice, operador; a ordem de avaliação do cast; `for-in`,
 `--gc-stress`; corpus nativo 56/56, `corpus/js` pelo nativo 235/235; testes
 de `dartforge-emit-native` e `dartforge-runtime` verdes. Fica de fora (já
 era assim): a mensagem do `NoSuchMethodError` de aridade errada numa chamada
-dinâmica (`dartforge_nsm_chamada` não sabe o receptor nem o nome).
+dinâmica (`dartforge_nsm_call` não sabe o receptor nem o nome).
 
 Instruções por requisição (callgrind, `/`, §9.1): **1 225 725 → 1 164 449**
 (−5,0%). `dartforge_rti_e` 31,7 → 6,3 mil instruções/req; `args_casam`
@@ -2358,7 +2358,7 @@ números incluem o que as outras frentes mudaram desde §8.5):
 
 A avaliação do tipo do receptor duas vezes no `[]=` de mapa (`K` e `V`,
 ambos covariantes: a VM também confere os dois) continua: cada
-`dartforge_rti_avaliar` passa pela chave do receptor
+`dartforge_rti_eval` passa pela chave do receptor
 (`chave_do_valor`, ~100 instruções).
 
 ### 9.7 Funções locais que não escapam, chamadas diretas (item 2 de §9.5, medido em 2026-09-29)
@@ -2409,7 +2409,7 @@ exceção e `finally`, tear-off, passada adiante, devolvida, `late`, `async`,
 
 Instruções por requisição (callgrind, `/`, §9.1): **1 164 449 → 927 176**
 (−20,4%). O `_parse` não cria mais closure nem ambiente; `dartforge_env_new`
-inclusivo 112 → 95 mil instruções/req e `dartforge_closure_new_tipada` 130
+inclusivo 112 → 95 mil instruções/req e `dartforge_closure_new_typed` 130
 → 71 mil (o que resta são closures que escapam de fato: os
 `onData`/`onDone` de `_HttpOutgoing.addStream`, os `then` do
 `_AsyncCompleter`, as dos `_StreamController`). No `bench/performance` nenhum
@@ -2432,7 +2432,7 @@ do primeiro byte (palavra 0) e o tamanho em bytes (palavra 1), além do `Vec`
 próprio ou da memória externa de `asTypedList`; nenhum `&mut Vec` sai dele
 (só a fatia), então o endereço não muda enquanto a lista vive. O código
 gerado (`lower/tipados.rs`, `dados_e_comprimento_tipados`) chama uma vez
-`dartforge_typed_cabecalho(h, tipo)` — pura do handle — e lê em linha o
+`dartforge_typed_header(h, tipo)` — pura do handle — e lê em linha o
 endereço e o tamanho (`>> log2` do elemento); as leituras levam
 `!invariant.load` (`llvm/mod.rs`), e o LLVM as tira dos laços e junta as
 iguais, como fazia com as duas chamadas puras. A visão não tem cabeçalho
@@ -2456,7 +2456,7 @@ verdes.
 Instruções por requisição (callgrind, `/`, §9.1): **927 176 → 898 112**
 (−3,1%; o heap de N19 mudava na mesma janela — a parte desta mudança, pelas
 funções: `dartforge_typed_len` + `dartforge_typed_ptr` 50,8 mil
-instruções/req → `dartforge_typed_cabecalho` 12,6 mil + as visões 4,4 mil).
+instruções/req → `dartforge_typed_header` 12,6 mil + as visões 4,4 mil).
 `scripts/comparar-desempenho.py --sem-jit --repeticoes 5 tipados`:
 `produto_f64` 7,4 ms (Dart AOT 8,1; 0,91×, era 0,97× em §8.4) e `fnv_bytes`
 13,6 ms (Dart AOT 20,1; 0,68×, era 0,67×) — os laços continuam vetorizados
@@ -2472,7 +2472,7 @@ três mudanças de §9.6–§9.8 sobre o ponto de partida fica em −26,3%.
 ### 9.9 Rodada 2: constantes, closures, cabeçalhos e o servidor que caía (medido em 2026-09-29)
 
 Ponto de partida: o `main` depois da rodada de caches inline de despacho
-(`df.classe`/`df.seletor` em linha, `==` de `String` numa chamada, a
+(`df.class`/`df.selector` em linha, `==` de `String` numa chamada, a
 string canônica de um caractere do `s[i]`, a limpeza da exceção só quando
 pendente — `corpus/native/56_despacho_em_linha_e_igualdade_de_string.dart`,
 completo e igual à VM) e do heap novo de N19: **593 029 instruções/req**
@@ -2502,7 +2502,7 @@ Na rota `/json`: 606 103 (Dart AOT 125 788).
 * **Closure de ambiente direto** (`lower/closures.rs`): com um valor só no
   ambiente — o `this` sem capturas, ou uma captura `Ref` (ou a célula
   dela) sem `this` —, a closure guarda o valor no lugar do ambiente e o
-  corpo o recebe como o parâmetro `env` (`dartforge_closure_nova_direta`,
+  corpo o recebe como o parâmetro `env` (`dartforge_closure_new_direct`,
   `AllocClosureTipada { direto }`): uma alocação a menos por closure (59
   ambientes por requisição → 30). Fora: corpo `async`/gerador, genérica,
   tupla de tipos, `late`. O `==` de duas closures da mesma expressão sobre
@@ -2511,7 +2511,7 @@ Na rota `/json`: 606 103 (Dart AOT 125 788).
   `corpus/native/60_closures_de_ambiente_direto.dart`.
 * **`String.fromCharCodes` de lista do runtime**
   (`native_sdk/core/string_patch.dart`, `_deCodigos`;
-  `DartForge_string_de_codigos`): a lista toda em Latin-1 vira a string
+  `DartForge_string_from_char_codes`): a lista toda em Latin-1 vira a string
   numa cópia só, em vez do `_scanCodeUnits` e de um `_setAt` (uma chamada ao
   runtime) por unidade — os nomes e valores de cabeçalho do `_HttpParser`.
   De passagem, dois defeitos antigos dos natives de string: o
@@ -2523,7 +2523,7 @@ Na rota `/json`: 606 103 (Dart AOT 125 788).
   `_buffer[_length + i] = bytes[i]`) passa por um cache por função e tipo
   de elemento: o último handle, num local `Ref` (enraizado: a lista não
   morre e o handle não é reusado enquanto está no cache), e o cabeçalho
-  dele. A falha chama `dartforge_typed_cabecalho_na_falha`, declarada sem
+  dele. A falha chama `dartforge_typed_header_on_failure`, declarada sem
   `speculatable` (com a função pura, o LLVM chamava antes do teste e o
   cache virava um `select`). Lista de parâmetro ou de local fica com a
   chamada pura, que o LLVM tira do laço e vetoriza (`tipados/produto_f64`
@@ -2593,7 +2593,7 @@ receptor no despacho 5,2%. Os maiores, pela ordem:
    tipadas no cache inline do seletor. Depende de a classe estar no handle
    ou num cabeçalho.
 5. **Por chamada de função Dart** (1 185 por requisição): prólogo com
-   `dartforge_contexto`, a área de globais e o quadro de raízes. Os
+   `dartforge_context`, a área de globais e o quadro de raízes. Os
    getters e acessos de uma linha não entram em linha quando a chamada vai
    pelo seletor (`CodeUnits.[]`, 149 por requisição no `writeHeaders`).
 
@@ -2645,7 +2645,7 @@ servidor do `main` de partida), em % da CPU ativa (fora a espera no laço):
 | RTI (`rti_avaliar`, `rti_definir`, `rti_e`, `is_subclass`) | 6,3 |
 | natives de string e lista | 6,1 |
 | classe do receptor (`value_class`, `cid_do_valor_do_runtime`) | 2,9 |
-| `dartforge_contexto` + `__chkstk` | 2,5 |
+| `dartforge_context` + `__chkstk` | 2,5 |
 
 A diferença mais clara para o §9.9 é o `malloc` do Windows: o `System` do
 Rust é o `HeapAlloc` do heap do processo, com o `GetProcessHeap` e a trava do
@@ -2660,13 +2660,13 @@ heap a cada closure, ambiente, vetor de lista ou texto.
   bytes, cada uma com a sua lista livre por thread (até 64 KiB por classe).
   Todo bloco de classe sai do `System` com o tamanho da classe, então pode
   voltar a qualquer lista ou ao sistema. As listas só valem nas threads de
-  isolado (`dartforge_iniciar` e o `Isolate.spawn` as ligam; o fim da thread
+  isolado (`dartforge_init` e o `Isolate.spawn` as ligam; o fim da thread
   do isolado as esvazia). No perfil, o `malloc`/`free` vai de 10,7% para ~3%
   da CPU ativa. CPU/req com 1 conexão: razão **0,94** [0,73–1,22];
   req/s 1,00 [0,79–1,35].
 * **`P<i>` com cache no ponto de uso** (`llvm/mod.rs`,
-  `emitir_rti_avaliar_em_cache`; `tipos.rs`, `dartforge_rti_avaliar_cache`).
-  Serve ao `dartforge_rti_avaliar` sem tupla e com `this`: duas palavras na
+  `emitir_rti_avaliar_em_cache`; `tipos.rs`, `dartforge_rti_eval_cache`).
+  Serve ao `dartforge_rti_eval` sem tupla e com `this`: duas palavras na
   área do isolado (a mesma dos caches de seletor, zerada pela recarga)
   guardam a chave do tipo de `this` e o resultado. A chave é o metadado do
   cabeçalho do objeto, ou `-16 - classe` sem metadado, a mesma da memória do
@@ -2690,7 +2690,7 @@ heap a cada closure, ambiente, vetor de lista ou texto.
   contadores (salvo no `--gc-stress`, que continua coletando). Não foi
   medido sozinho: menor que o ruído.
 * **O quadro de raízes no topo do bloco de entrada** (`llvm/mod.rs`, o
-  prólogo). O `alloca` do quadro saía depois do `df.obter_area`, que é
+  prólogo). O `alloca` do quadro saía depois do `df.get_area`, que é
   `alwaysinline` e tem desvios. Com isso ele deixava de estar no bloco de
   entrada e virava **alocação dinâmica**: `__chkstk` e o ajuste de pilha a
   cada chamada da função, e o inliner não o levava para o bloco de entrada
@@ -2739,7 +2739,7 @@ AOT varia muito entre rodadas (59–365 ms).
    que vira fixa ou imutável pelos conjuntos `fixas`/`imutaveis`). Não
    entrou nesta rodada: o risco de semântica é maior que o ganho, que
    ficaria abaixo do ruído desta máquina.
-2. **`dartforge_contexto` por chamada** (~1,3%). Um TLS do próprio módulo
+2. **`dartforge_context` por chamada** (~1,3%). Um TLS do próprio módulo
    (cache preguiçoso do ponteiro do contexto) tiraria a chamada do prólogo,
    mas o JIT (ORC no COFF) não foi verificado com variáveis `thread_local`.
 3. **As duas `Uint8List(8192)` e o gatilho da coleta.** Aqui cada uma é
@@ -2803,15 +2803,15 @@ igual à da VM e à do `dart compile exe`.
      criado (a string é imutável, e o `writeInto*String` grava no lugar).
      Por isso o endereço delas é fixo enquanto a string vive.
    * Duas funções puras dão o endereço e o comprimento:
-     `dartforge_texto_dados` (com o bit 63 ligado quando cada unidade tem
-     dois bytes) e `dartforge_texto_len`. As duas são `memory(none)` e
+     `dartforge_string_data` (com o bit 63 ligado quando cada unidade tem
+     dois bytes) e `dartforge_string_len`. As duas são `memory(none)` e
      leem o heap sem o `borrow` (`heap_sem_emprestimo`).
    * O código gerado lê a unidade depois de um teste de limites. Índice
      fora da faixa, ou valor que não é string do runtime, vai ao native de
      antes, que lança o `RangeError` da VM.
    * A string lida de um campo tem um cache por ponto de leitura: o handle
      enraizado, o endereço e o comprimento. A falha do cache é uma chamada
-     só (`dartforge_texto_na_falha`), que grava o comprimento no local do
+     só (`dartforge_string_on_failure`), que grava o comprimento no local do
      cache.
    * Continua pendente um cabeçalho de endereço fixo, como o das listas
      tipadas: o cache não sobrevive entre chamadas, e uma função pequena
@@ -2846,7 +2846,7 @@ igual à da VM e à do `dart compile exe`.
    `native_sdk/convert/convert_patch.dart`, gerada do arquivo da VM).
    * O listener acrescenta aos contêineres que ele mesmo criou (os pares de
      um objeto, os elementos de um vetor e a pilha, todos `[]` de
-     `dynamic`/`Object?`) pelo native `DartForge_json_acrescentar`. Isso
+     `dynamic`/`Object?`) pelo native `DartForge_json_append`. Isso
      evita o despacho do `add` (saber a classe de uma lista do runtime
      custa duas consultas a `HashSet`) e a conferência do `E` na entrada
      uniforme.
@@ -2992,7 +2992,7 @@ São as propostas 1 e 2 de `PLANO-TAMANHO-DESEMPENHO.md` §2.
    * **Quando ela é refeita:**
      * quando uma marca muda (`marcar_fixa`, `marcar_imutavel`: são os únicos pontos em que a
        classe de uma lista muda);
-     * quando chega a tabela dos ids do SDK (`dartforge_registrar_cids` →
+     * quando chega a tabela dos ids do SDK (`dartforge_register_cids` →
        `definir_cids_do_runtime`, que refaz os slots já alocados).
    * **Por que isso basta.** O valor de um slot nunca troca de variante. A troca de conteúdo das
      mensagens entre isolados (`portas.rs`) mantém a variante.
@@ -3001,10 +3001,10 @@ São as propostas 1 e 2 de `PLANO-TAMANHO-DESEMPENHO.md` §2.
    * **O que o contexto publica.** O endereço e o comprimento do vetor ficam nos deslocamentos
      336 e 344. O vetor é estendido até a capacidade de `slots`, e o endereço só é republicado
      quando ele cresce.
-   * **O `df.classe` (`llvm/mod.rs`).** Para um slot (`h > 0`, `h & 3 == 0`), ele confere o
+   * **O `df.class` (`llvm/mod.rs`).** Para um slot (`h > 0`, `h & 3 == 0`), ele confere o
      índice e lê o `i32`. O endereço e o comprimento são relidos a cada uso. Índice fora da
      faixa ou classe desconhecida (`i32::MIN`, que é o slot livre) vão ao runtime.
-2. **`is C` por mapa de bits** (`runtime/src/nucleo.rs`, `MapasDeSubtipo`; `df.subclasse` em
+2. **`is C` por mapa de bits** (`runtime/src/nucleo.rs`, `MapasDeSubtipo`; `df.subclass` em
    `llvm/mod.rs`). É o equivalente, montado pelo runtime, da tabela `@df.sub.<C>[cid]`.
    * **Montagem.** A primeira consulta de um alvo `C` que vai ao runtime
      (`dartforge_is_subclass`) monta o mapa das classes `cid <: C` pelo grafo inverso.
@@ -3060,8 +3060,8 @@ outras frentes:
 | utf8_bytes | 410 / 515 | 356 / 408 | 390 / 463 | 56 / 76 | 1,17 |
 | reviver | 203 / 236 | 168 / 191 | 193 / 210 | 39 / 46 | 1,22 |
 
-A razão pareada "antes / depois sem em linha" dá 1,11 no total. A parte em linha (`df.classe`
-e `df.subclasse`) responde por uns 7%, e o runtime (vetor e coleta) mais as outras frentes pelo
+A razão pareada "antes / depois sem em linha" dá 1,11 no total. A parte em linha (`df.class`
+e `df.subclass`) responde por uns 7%, e o runtime (vetor e coleta) mais as outras frentes pelo
 resto. A saída foi igual nos três executáveis.
 
 **Perfil do JSON** (self, thread do isolado, ~2 000 amostras por pilha em 10 s, simbolizado
@@ -3077,11 +3077,11 @@ pelo `/map` do `lld-link`), em % das amostras:
 | strings | 7,6 | 8,0 |
 | alocação no heap | 5,8 | 6,8 |
 | RTI | 4,1 | 4,5 |
-| `dartforge_contexto` | 0,6 | 1,1 |
+| `dartforge_context` | 0,6 | 1,1 |
 
 `value_class` (5,5%), `cid_do_valor_do_runtime` (5,4%) e `is_subclass` (1,7%) saem do perfil.
 `Heap::coletar` sozinho cai de 8,6% para 2,5%. O resto sobe em proporção porque o total caiu.
-O `dartforge_contexto` sobe um pouco: é a chamada do `df.classe` nas funções sem `%ctx`.
+O `dartforge_context` sobe um pouco: é a chamada do `df.class` nas funções sem `%ctx`.
 
 **Servidor HTTP.** 4 executores alternados. A medida foi interrompida depois de 4 repetições
 válidas (de 12), com builds concorrentes. Mediana [faixa]:
@@ -3315,9 +3315,9 @@ já tem cópias com o `chunk` num local, §10.3).
    `borrow` no caminho comum. A chave `int` (`Smi`, ou `_Mint` pelo valor em
    `h+14`) e a `String` (hash do cabeçalho; calculado e gravado na primeira vez,
    como `hash_de_texto`) são lidas do mesmo jeito. A gravação no `_data` faz a
-   barreira de elemento do código gerado (`@df.barreira_elemento`: velho ou
+   barreira de elemento do código gerado (`@df.element_barrier`: velho ou
    lembrado recebendo filho jovem suja o cartão; velho chama o
-   `dartforge_lembrar`). As contas (`_hashPattern`, `_firstProbe`,
+   `dartforge_remember`). As contas (`_hashPattern`, `_firstProbe`,
    `_nextProbe`) e o protocolo de "não sei" não mudam.
 2. **Reinserção em lote.** `_Map._init` e `_Set._init` (sobrepostos) chamam um
    native que reinsere de uma vez as entradas de chave `int`/`String` de
@@ -3373,7 +3373,7 @@ Acrescentados depois do primeiro perfil da implementação (o mesmo método):
    List.filled(n, null)` dos `_init` sobrepostos e do lote do JSON avaliava o
    `List<Object?>` a cada tabela. A lista nunca sai da tabela (a VM também a cria
    sem argumentos de tipo). A lista do JSON sai pronta do runtime
-   (`DartForge_json_fechar_lista`) com o tipo do `[]` modelo do listener, sem
+   (`DartForge_json_close_list`) com o tipo do `[]` modelo do listener, sem
    o `[]` por contêiner; e o `getString` do parser de UTF-8 copia o ASCII em
    linha.
 

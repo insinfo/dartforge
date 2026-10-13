@@ -45,7 +45,7 @@ pub const fn sistema() -> Sistema {
 ///   the caller checks after each call — the usual IR, byte for byte;
 /// * `tabelas`: a Dart call that throws unwinds the stack up to the
 ///   `landingpad` of whoever handles it (`optimize/tables.rs`), with the
-///   runtime's personality (`dartforge_personalidade`). Only on Windows
+///   runtime's personality (`dartforge_personality`). Only on Windows
 ///   x86-64, the only target with the personality written, and without the function
 ///   call trace (`DARTFORGE_RASTRO=1` counts entries and exits, and
 ///   unwinding skips the exits).
@@ -86,7 +86,7 @@ pub fn excecoes_por_tabelas() -> Result<bool, String> {
 /// * absent, empty or `tracing`: the usual tracing collector — the usual
 ///   IR, byte for byte;
 /// * `arc`: reference counting with cycle collection. The entry turns
-///   ARC on in the runtime (`dartforge_memoria_arc_v1`, the version of the memory
+///   ARC on in the runtime (`dartforge_memory_arc_v1`, the version of the memory
 ///   ABI) and the reference writes into an object that may be old
 ///   go through the runtime, which counts the replacement (decision 6 of §18.1: no
 ///   inline write without the contract).
@@ -288,15 +288,15 @@ pub fn image_markers() -> (String, &'static str, &'static str) {
             "@df.img.z",
         ),
         Sistema::Linux => (
-            "$df.img.ancora = comdat any\n\
-             @df.img.ancora = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"dfimg\", comdat, align 8\n\
+            "$df.img.anchor = comdat any\n\
+             @df.img.anchor = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"dfimg\", comdat, align 8\n\
              @__start_dfimg = external hidden global i8\n@__stop_dfimg = external hidden global i8\n"
                 .to_string(),
             "@__start_dfimg",
             "@__stop_dfimg",
         ),
         Sistema::MacOs => (
-            "@df.img.ancora = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"__DATA_CONST,__dfimg\", align 8\n\
+            "@df.img.anchor = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"__DATA_CONST,__dfimg\", align 8\n\
              @\"\\01section$start$__DATA_CONST$__dfimg\" = external hidden global i8\n\
              @\"\\01section$end$__DATA_CONST$__dfimg\" = external hidden global i8\n"
                 .to_string(),

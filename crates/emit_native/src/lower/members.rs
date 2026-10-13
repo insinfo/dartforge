@@ -328,7 +328,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // The probe before the late guard may find zero without a Ref
             // mark. The ABI accepts only that empty state or a real edge.
             return self.emit(Instruction::CallRuntime {
-                name: "dartforge_arc_ler_campo_late_ref_v1".into(),
+                name: "dartforge_arc_read_field_late_ref_v1".into(),
                 args: vec![(obj, Type::Ref), (idx, Type::I64)],
                 ret_ty: Type::Ref,
             }, Type::Ref);
@@ -753,7 +753,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let t = self.recipe_rti(&r);
                 self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_rti_objeto_tipo".to_string(),
+                        name: "dartforge_rti_object_type".to_string(),
                         args: vec![(t, Type::I64)],
                         ret_ty: Type::Ref,
                     },
@@ -2129,7 +2129,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let v = if is_const && repr == Type::Ref {
             self.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_constante_canonica".to_string(),
+                    name: "dartforge_canonical_constant".to_string(),
                     args: vec![(v, Type::Ref)],
                     ret_ty: Type::Ref,
                 },
@@ -2151,7 +2151,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if is_const && repr == Type::Ref {
             self.emit(
                 Instruction::CallRuntime {
-                name: "dartforge_marcar_constante".to_string(),
+                name: "dartforge_mark_constant".to_string(),
                 args: vec![(v.clone(), Type::Ref), (Operand::Constant(Constant::Function(self.func.symbol.clone())), Type::I64)],
                     ret_ty: Type::Void,
                 },
@@ -2362,7 +2362,7 @@ mod arc_mixin_field_tests {
                     .flat_map(|f| &f.blocks).flat_map(|b| &b.instructions).collect();
                 let probes = reads.iter().filter(|(_, i, ty)| matches!(i,
                     Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
-                        if name == "dartforge_arc_ler_campo_late_ref_v1") && *ty == Type::Ref).count();
+                        if name == "dartforge_arc_read_field_late_ref_v1") && *ty == Type::Ref).count();
                 if arc {
                     assert_eq!(probes, 2, "late Ref and scalar late with an initializer use the Ref probe");
                     assert!(!reads.iter().any(|(_, i, _)| matches!(i,

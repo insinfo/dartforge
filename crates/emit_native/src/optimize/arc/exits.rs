@@ -55,7 +55,7 @@ pub(super) fn prepare_ref_throws(
         let error = block_id()?;
         let normal = block_id()?;
         f.blocks[i].instructions.extend([
-            (call, Instruction::CallRuntime { name: "dartforge_arc_lancar_ref_v1".into(),
+            (call, Instruction::CallRuntime { name: "dartforge_arc_throw_ref_v1".into(),
                 args: vec![(payload, Type::Ref)], ret_ty: Type::Void }, Type::Void),
             (pending, Instruction::CallRuntime { name: "dartforge_exception_pending".into(),
                 args: vec![], ret_ty: Type::I8 }, Type::I8),
@@ -383,7 +383,7 @@ mod tests {
             assert!(f.blocks.iter().all(|b| !matches!(b.terminator, Terminator::Throw(_))));
             let publications = f.blocks.iter().flat_map(|b| &b.instructions)
                 .filter(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
-                    if name == "dartforge_arc_lancar_ref_v1")).count();
+                    if name == "dartforge_arc_throw_ref_v1")).count();
             assert_eq!(publications, 1);
             // A dead local may be released before the Throw. The Owned
             // payload, however, may only be released after publishing the exception.
@@ -392,7 +392,7 @@ mod tests {
             if case == 1 {
                 let b = &f.blocks[0];
                 let publication = b.instructions.iter().position(|(_, i, _)| matches!(i,
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_lancar_ref_v1")).unwrap();
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_throw_ref_v1")).unwrap();
                 assert!(!b.instructions[..publication].iter().any(|(_, i, _)| matches!(i,
                     Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
             }

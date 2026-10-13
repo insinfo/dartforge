@@ -17,7 +17,7 @@ pub const GENERIC_OWNED_PREFIX: &str = "df.arc.owned.";
 /// The native scope thunk: the runtime function that may run Dart, with the
 /// result and the contract of the base, inside a native scope (the tokens that
 /// Dart ports return die at the close), defined by the emitter.
-pub const NATIVE_SCOPE_PREFIX: &str = "df.arc.escopo.";
+pub const NATIVE_SCOPE_PREFIX: &str = "df.arc.scope.";
 pub(crate) use natives::ERRORS_WITH_ARC_VARIANT;
 
 mod classification;

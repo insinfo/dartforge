@@ -545,9 +545,9 @@ mod tests {
                     } else {
                         Instruction::CallRuntime {
                             name: if fallible {
-                                "df.teste.campo_falivel"
+                                "df.test.fallible_field"
                             } else {
-                                "dartforge_arc_ler_campo_ref_v1"
+                                "dartforge_arc_read_field_ref_v1"
                             }
                             .into(),
                             args: vec![
@@ -621,7 +621,7 @@ mod tests {
                     (
                         ValueId(5),
                         Instruction::CallRuntime {
-                            name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                            name: "dartforge_arc_write_field_ref_v1".into(),
                             args: vec![
                                 (Operand::Val(ValueId(0)), Type::Ref),
                                 (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -768,7 +768,7 @@ mod tests {
                             (
                                 ValueId(1),
                                 Instruction::CallRuntime {
-                                    name: "df.teste.campo_falivel".into(),
+                                    name: "df.test.fallible_field".into(),
                                     args: vec![
                                         (Operand::Val(ValueId(0)), Type::Ref),
                                         (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -825,7 +825,7 @@ mod tests {
                             (
                                 ValueId(5),
                                 Instruction::CallRuntime {
-                                    name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                                    name: "dartforge_arc_write_field_ref_v1".into(),
                                     args: vec![
                                         (Operand::Val(ValueId(0)), Type::Ref),
                                         (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -948,7 +948,7 @@ mod tests {
                         (
                             ValueId(1),
                             Instruction::CallRuntime {
-                                name: "dartforge_arc_ler_campo_ref_v1".into(),
+                                name: "dartforge_arc_read_field_ref_v1".into(),
                                 args: vec![
                                     (Operand::Val(ValueId(0)), Type::Ref),
                                     (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -1062,7 +1062,7 @@ mod tests {
                     instructions: vec![(
                         ValueId(1),
                         Instruction::CallRuntime {
-                            name: "dartforge_arc_ler_campo_ref_v1".into(),
+                            name: "dartforge_arc_read_field_ref_v1".into(),
                             args: vec![
                                 (Operand::Val(ValueId(0)), Type::Ref),
                                 (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -1082,7 +1082,7 @@ mod tests {
                     instructions: vec![(
                         ValueId(2),
                         Instruction::CallRuntime {
-                            name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                            name: "dartforge_arc_write_field_ref_v1".into(),
                             args: vec![
                                 (Operand::Val(ValueId(0)), Type::Ref),
                                 (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -1145,7 +1145,7 @@ mod tests {
             let read = (
                 ValueId(1),
                 Instruction::CallRuntime {
-                    name: "dartforge_arc_ler_campo_ref_v1".into(),
+                    name: "dartforge_arc_read_field_ref_v1".into(),
                     args: vec![
                         (Operand::Val(ValueId(0)), Type::Ref),
                         (Operand::Constant(Constant::Int(39)), Type::I64),
@@ -1157,7 +1157,7 @@ mod tests {
             let swap = (
                 ValueId(2),
                 Instruction::CallRuntime {
-                    name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                    name: "dartforge_arc_write_field_ref_v1".into(),
                     args: vec![
                         (Operand::Val(ValueId(0)), Type::Ref),
                         (Operand::Constant(Constant::Int(39)), Type::I64),
@@ -1235,7 +1235,7 @@ mod tests {
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(
                     ir.find("call void @dartforge_arc_retain").unwrap()
-                        < ir.find("call void @dartforge_arc_gravar_campo_ref_v1")
+                        < ir.find("call void @dartforge_arc_write_field_ref_v1")
                             .unwrap()
                 );
             }
@@ -1268,7 +1268,7 @@ mod tests {
                             name: if case == 2 {
                                 "dartforge_object_get"
                             } else {
-                                "dartforge_arc_ler_campo_ref_v1"
+                                "dartforge_arc_read_field_ref_v1"
                             }
                             .into(),
                             args: vec![
@@ -1306,7 +1306,7 @@ mod tests {
                     }
                 );
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                assert!(ir.contains("call i64 @dartforge_arc_ler_campo_ref_v1(i64 %v0, i64 39)"));
+                assert!(ir.contains("call i64 @dartforge_arc_read_field_ref_v1(i64 %v0, i64 39)"));
                 assert!(ir.contains("call void @dartforge_arc_retain(i64 %v1)"));
                 let prepared = format!("{m:?}/{plans:?}");
                 assert_eq!(
@@ -1354,7 +1354,7 @@ mod tests {
                     instructions: vec![
                         call(
                             0,
-                            "dartforge_arc_objeto_owned_v1",
+                            "dartforge_arc_object_owned_v1",
                             vec![integer(123), integer(40)],
                             Type::Ref,
                         ),
@@ -1369,7 +1369,7 @@ mod tests {
                             if case == 3 {
                                 "dartforge_object_set"
                             } else {
-                                "dartforge_arc_gravar_campo_ref_v1"
+                                "dartforge_arc_write_field_ref_v1"
                             },
                             vec![
                                 reference(0),
@@ -1384,7 +1384,7 @@ mod tests {
                         ),
                         call(
                             3,
-                            "dartforge_arc_gravar_campo_escalar_v1",
+                            "dartforge_arc_write_field_scalar_v1",
                             vec![
                                 reference(0),
                                 integer(39),
@@ -1398,7 +1398,7 @@ mod tests {
                         ),
                         call(
                             4,
-                            "dartforge_arc_ler_campo_escalar_v1",
+                            "dartforge_arc_read_field_scalar_v1",
                             vec![reference(0), integer(39)],
                             Type::I64,
                         ),
@@ -1425,9 +1425,9 @@ mod tests {
                 }
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(ir.contains(
-                    "call void @dartforge_arc_gravar_campo_ref_v1(i64 %v0, i64 37, i64 %v1)"
+                    "call void @dartforge_arc_write_field_ref_v1(i64 %v0, i64 37, i64 %v1)"
                 ));
-                assert!(ir.contains("call void @dartforge_arc_gravar_campo_escalar_v1(i64 %v0, i64 39, i64 9223372036854775807)"));
+                assert!(ir.contains("call void @dartforge_arc_write_field_scalar_v1(i64 %v0, i64 39, i64 9223372036854775807)"));
                 assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
                 assert!(ir.contains("call void @dartforge_arc_release(i64 %v1)"));
                 let prepared = format!("{m:?}/{plans:?}");
@@ -1456,7 +1456,7 @@ mod tests {
             let name_str = if case == 3 {
                 "dartforge_object_new"
             } else {
-                "dartforge_arc_objeto_owned_v1"
+                "dartforge_arc_object_owned_v1"
             };
             m.functions.push(Function {
                 symbol: "instancia".into(),
@@ -1485,7 +1485,7 @@ mod tests {
                         (
                             ValueId(1),
                             Instruction::CallRuntime {
-                                name: "dartforge_arc_ler_campo_escalar_v1".into(),
+                                name: "dartforge_arc_read_field_scalar_v1".into(),
                                 args: vec![
                                     (Operand::Val(ValueId(0)), Type::Ref),
                                     (Operand::Constant(Constant::Int(39)), Type::I64),
@@ -1531,9 +1531,9 @@ mod tests {
                 assert_eq!(p.classes[&ValueId(2)], Ownership::Trivial);
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(
-                    ir.contains("declare i64 @dartforge_arc_objeto_owned_v1(i64, i64) nounwind")
+                    ir.contains("declare i64 @dartforge_arc_object_owned_v1(i64, i64) nounwind")
                 );
-                assert!(ir.contains("call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)"));
+                assert!(ir.contains("call i64 @dartforge_arc_object_owned_v1(i64 123, i64 40)"));
                 assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
                 let prepared = format!("{m:?}/{plans:?}");
                 assert_eq!(
@@ -1693,7 +1693,7 @@ mod tests {
                 m.excecoes_por_tabelas = true;
                 m.tables.push(p.tables.clone());
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                assert!(ir.contains("%v1 = call i1 @df.desencaixa_bool(i64 %v0)"));
+                assert!(ir.contains("%v1 = call i1 @df.unbox_bool(i64 %v0)"));
                 assert!(ir.contains("%u = call i8 @dartforge_unbox_bool(i64 %r)"));
                 assert!(ir.contains("%x = icmp ne i8 %u, 0"));
             } else {
@@ -1888,7 +1888,7 @@ mod tests {
 
     #[test]
     fn control_and_nsm_preserve_owner_on_success_and_release_on_failure() {
-        for name_str in ["dartforge_ponto_seguro", "dartforge_nsm_chamada"] {
+        for name_str in ["dartforge_safepoint", "dartforge_nsm_call"] {
         for case in 0..5 {
             let mut m = Module::new();
             m.arc_memory = case != 4;
@@ -2027,7 +2027,7 @@ mod tests {
                 .split("pilha.ok:")
                 .next()
                 .unwrap();
-            assert!(overflow.contains("call void @df.lancar()"));
+            assert!(overflow.contains("call void @df.throw()"));
         }
     }
 
@@ -2366,18 +2366,18 @@ mod publication_tests {
         m.arc_memory = true;
         m.functions.push(saved("unidade", vec![(ValueId(0), "s".into(), Type::Ref)],
             Instruction::CallRuntime {
-                name: "dartforge_nativo_DartForge_string_codeUnitAt".into(),
+                name: "dartforge_native_DartForge_string_codeUnitAt".into(),
                 args: vec![(val(0), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
                 ret_ty: Type::I64,
             }, Type::I64));
         let mut plans = HashMap::from([("unidade".into(), DartFunctionPlan::default())]);
         prepare_arc_dart_module(&mut m, &mut plans).unwrap();
-        let name_str = super::super::NATIVE_SCOPE_PREFIX.to_string() + "dartforge_nativo_DartForge_string_codeUnitAt";
+        let name_str = super::super::NATIVE_SCOPE_PREFIX.to_string() + "dartforge_native_DartForge_string_codeUnitAt";
         assert!(matches!(&m.functions[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if *name == name_str));
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
         assert!(ir.contains(&format!("define internal i64 @{name_str}(ptr")) || ir.contains(&format!("define internal i64 @{name_str}(i64")), "{ir}");
-        assert!(ir.contains("call i64 @dartforge_arc_escopo_nativo_abrir_v1()"));
-        assert!(ir.contains("call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %e)"));
+        assert!(ir.contains("call i64 @dartforge_arc_native_scope_open_v1()"));
+        assert!(ir.contains("call void @dartforge_arc_native_scope_close_v1(i64 %e)"));
         // Idempotent: the thunk gets no other prefix.
         let before = format!("{m:?}");
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
@@ -2430,7 +2430,7 @@ mod publication_tests {
             m.arc_memory = true;
             m.arc_external_callees = externals;
             m.functions.push(saved("programa", vec![(ValueId(0), "x".into(), Type::Ref)],
-                Instruction::CallStatic { symbol: "df.sdk.externo".into(), args: vec![val(0)], ret_ty: Type::Ref },
+                Instruction::CallStatic { symbol: "df.sdk.external".into(), args: vec![val(0)], ret_ty: Type::Ref },
                 Type::Ref));
             m.dart_ref_returns.insert("programa".into());
             let mut plans = HashMap::from([("programa".into(), DartFunctionPlan::default())]);

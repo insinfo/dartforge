@@ -1,5 +1,5 @@
 // `is C` e `as C` de classes sem argumentos de tipo pelo mapa de bits do
-// alvo (`df.subclasse`, `MapasDeSubtipo` no runtime): hierarquias com
+// alvo (`df.subclass`, `MapasDeSubtipo` no runtime): hierarquias com
 // herança, interfaces, mixins (inclusive aplicação nomeada e `on`),
 // classes abstratas, `sealed` com `switch` por tipo, classes do SDK
 // (erros, exceções, `StringSink`, `Comparable`) e do usuário que as

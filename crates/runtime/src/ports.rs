@@ -168,7 +168,7 @@ fn transferable() -> &'static std::sync::RwLock<crate::hash::HashSet<i64>> {
 
 thread_local! {
     /// Classes whose instances cannot go in a message (the receive
-    /// ports; `DartForge_porta_abrir` registers the class).
+    /// ports; `DartForge_port_open` registers the class).
     /// Class → the description the refusal carries (the VM text).
     static NOT_SENDABLE: RefCell<crate::hash::HashMap<i64, String>> = RefCell::new(crate::hash::HashMap::default());
     /// The description of the last refused message.
@@ -644,7 +644,7 @@ fn materialize(g: &Graph) -> i64 {
                 && i64::from(*cid) == TYPE_CLASS
                 && let Some((GValue::Word(k), _)) = fields.first()
             {
-                type_objects.insert(i, dartforge_rti_objeto_tipo(ids[*k as usize]));
+                type_objects.insert(i, dartforge_rti_object_type(ids[*k as usize]));
             }
         }
     }
@@ -657,7 +657,7 @@ fn materialize(g: &Graph) -> i64 {
         GValue::Constant(getter) => {
             canonical.entry(getter).or_insert_with(|| {
                 // SAFETY: `getter` is the address of a generated getter without
-                // arguments (registered by `dartforge_marcar_constante`),
+                // arguments (registered by `dartforge_mark_constant`),
                 // the same in all isolates of the process.
                 let f = { let dart_target: usize = getter; move || -> i64 { dart_r0(dart_target) } };
                 f()
@@ -871,9 +871,9 @@ mod tests_owners_materialization {
             h.set_root(frame, 0, text);
             (frame, text)
         });
-        let port = dartforge_nativo_DartForge_porta_abrir(0);
-        assert_eq!(dartforge_nativo_DartForge_porta_enviar(port, text), 0);
-        assert_eq!(dartforge_nativo_DartForge_porta_enviar(port, text), 0);
+        let port = dartforge_native_DartForge_port_open(0);
+        assert_eq!(dartforge_native_DartForge_port_send(port, text), 0);
+        assert_eq!(dartforge_native_DartForge_port_send(port, text), 0);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.pop_frame(frame);
@@ -891,7 +891,7 @@ mod tests_owners_materialization {
     }
 
     extern "C" fn verify_message(_: i64) -> i64 {
-        let value = dartforge_nativo_DartForge_mensagem_atual();
+        let value = dartforge_native_DartForge_current_message();
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
@@ -917,9 +917,9 @@ mod tests_owners_materialization {
             let dispatcher = h.new_closure(123, (0, false), 0, 0);
             (frame, text, list, dispatcher)
         });
-        dartforge_nativo_DartForge_portas_despachante(dispatcher);
-        let port = dartforge_nativo_DartForge_porta_abrir(0);
-        assert_eq!(dartforge_nativo_DartForge_porta_enviar(port, list), 0);
+        dartforge_native_DartForge_ports_dispatcher(dispatcher);
+        let port = dartforge_native_DartForge_port_open(0);
+        assert_eq!(dartforge_native_DartForge_port_send(port, list), 0);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.pop_frame(frame);
@@ -927,8 +927,8 @@ mod tests_owners_materialization {
             assert!(!h.is_live_object(list) && h.is_live_object(text));
         });
         assert!(dispatch_next(verify_message));
-        dartforge_nativo_DartForge_porta_fechar(port);
-        dartforge_nativo_DartForge_portas_despachante(0);
+        dartforge_native_DartForge_port_close(port);
+        dartforge_native_DartForge_ports_dispatcher(0);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
@@ -949,15 +949,15 @@ mod tests_owners_materialization {
             h.set_root(frame, 0, text);
             (frame, text)
         });
-        let port = dartforge_nativo_DartForge_porta_abrir(0);
-        assert_eq!(dartforge_nativo_DartForge_porta_enviar(port, text), 0);
+        let port = dartforge_native_DartForge_port_open(0);
+        assert_eq!(dartforge_native_DartForge_port_send(port, text), 0);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.pop_frame(frame);
             h.collect();
             assert!(h.is_live_object(text), "the queue must keep the shared owner");
         });
-        dartforge_nativo_DartForge_porta_fechar(port);
+        dartforge_native_DartForge_port_close(port);
         extern "C" fn ignore(_: i64) -> i64 { 0 }
         assert!(dispatch_next(ignore));
         HEAP.with(|h| {
@@ -1042,7 +1042,7 @@ pub struct IsolateQueue {
     /// The address of the interrupt request of the isolate's thread
     /// (`Context::interrupt`), or 0 after it ended. A control message
     /// sets it: the generated code reads it at the safepoint of each loop
-    /// iteration and calls [`dartforge_ponto_seguro`], which serves the control without
+    /// iteration and calls [`dartforge_safepoint`], which serves the control without
     /// waiting for the next event — an immediate `kill` or a `ping` reach
     /// an isolate stuck in a loop without events, like the VM's stack
     /// check. The mutex guarantees nobody writes after the thread zeroed it.
@@ -1346,7 +1346,7 @@ pub fn unmark_main_isolate() {
 /// called exactly once, with `1` at the safepoint or with `0` if the
 /// isolate ends first.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_pedir_no_ponto_seguro(f: extern "C" fn(usize, i32), datum: usize) -> i32 {
+pub extern "C" fn dartforge_request_at_safepoint(f: extern "C" fn(usize, i32), datum: usize) -> i32 {
     // The registry stays locked during the insertion: the isolate's end-of-life
     // discard does not lose a request arriving at the same time.
     let main_queue = main_isolate().lock().unwrap_or_else(|e| e.into_inner());
@@ -1362,8 +1362,8 @@ pub extern "C" fn dartforge_pedir_no_ponto_seguro(f: extern "C" fn(usize, i32), 
 // can only come in with no Dart frame on the stack of ANY isolate,
 // because the cells of the stable entries belong to the process. The main
 // isolate, at its safepoint, asks the others to stop at their next
-// safepoint (`dartforge_parar_isolados`), swaps the code, and
-// releases them (`dartforge_liberar_isolados`); each one redoes its own registrations
+// safepoint (`dartforge_stop_isolates`), swaps the code, and
+// releases them (`dartforge_release_isolates`); each one redoes its own registrations
 // of the new generation (the runtime state is per isolate) before continuing.
 
 /// The isolates alive in the event loop (those that serve requests).
@@ -1412,7 +1412,7 @@ struct WriteBarrier {
 
 /// The stop request, in an isolate that is not the main one.
 extern "C" fn parar_neste_isolado(datum: usize, execute_fn: i32) {
-    // SAFETY: `datum` is an `Arc<Barreira>` handed over by `dartforge_parar_isolados`
+    // SAFETY: `datum` is an `Arc<Barreira>` handed over by `dartforge_stop_isolates`
     // (one reference per request, returned here).
     let barrier = unsafe { std::sync::Arc::from_raw(datum as *const WriteBarrier) };
     let mut estado = barrier.estado.lock().unwrap_or_else(|e| e.into_inner());
@@ -1430,14 +1430,14 @@ extern "C" fn parar_neste_isolado(datum: usize, execute_fn: i32) {
         // SAFETY: 0 or a `void ()` trampoline of the published generation.
         (p != 0).then(|| unsafe { std::mem::transmute::<usize, extern "C" fn()>(p) })
     };
-    dartforge_publicar_geracao(as_fn(area), as_fn(register), as_fn(rti));
+    dartforge_publish_generation(as_fn(area), as_fn(register), as_fn(rti));
 }
 
 /// Stops all live isolates other than this one at their safepoint and returns the
-/// stop, which [`dartforge_liberar_isolados`] ends. Called at the
+/// stop, which [`dartforge_release_isolates`] ends. Called at the
 /// main isolate's safepoint.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_parar_isolados() -> usize {
+pub extern "C" fn dartforge_stop_isolates() -> usize {
     let mine = isolate_id();
     let barrier = std::sync::Arc::new(WriteBarrier::default());
     let mut n = 0;
@@ -1462,8 +1462,8 @@ pub extern "C" fn dartforge_parar_isolados() -> usize {
 /// new generation (`area`, `register`, `rti`, `void ()` trampolines or 0) on
 /// its thread and continues.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_liberar_isolados(stopped_flag: usize, area: usize, register: usize, rti: usize) {
-    // SAFETY: `stopped_flag` came from `dartforge_parar_isolados`, once.
+pub extern "C" fn dartforge_release_isolates(stopped_flag: usize, area: usize, register: usize, rti: usize) {
+    // SAFETY: `stopped_flag` came from `dartforge_stop_isolates`, once.
     let barrier = unsafe { std::sync::Arc::from_raw(stopped_flag as *const WriteBarrier) };
     barrier.estado.lock().unwrap_or_else(|e| e.into_inner()).1 = Some([area, register, rti]);
     barrier.sig_num.notify_all();
@@ -1612,11 +1612,11 @@ fn dispatch_next(call: extern "C" fn(i64) -> i64) -> bool {
 // ---------------------------------------------------------------------------
 // Overlay natives (`native_sdk/isolate/isolate_patch.dart`).
 
-/// `DartForge_porta_abrir(port)`: opens a port of this isolate for the
+/// `DartForge_port_open(port)`: opens a port of this isolate for the
 /// object `port` (a `_RawReceivePort`, whose class becomes
 /// unsendable) and returns the id.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_porta_abrir(object: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_port_open(object: i64) -> i64 {
     let class = HEAP.with(|h| h.borrow().object(object).map(|o| o.class_id));
     if let Some(c) = class {
         NOT_SENDABLE.with(|n| {
@@ -1630,17 +1630,17 @@ pub extern "C" fn dartforge_nativo_DartForge_porta_abrir(object: i64) -> i64 {
     id
 }
 
-/// `DartForge_porta_fechar(id)`: closes the port; pending messages for
+/// `DartForge_port_close(id)`: closes the port; pending messages for
 /// it are discarded at dispatch.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_porta_fechar(id: i64) {
+pub extern "C" fn dartforge_native_DartForge_port_close(id: i64) {
     rec().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
     OPEN_PORTS.with(|p| p.borrow_mut().remove(&id));
 }
 
-/// `DartForge_porta_manter_vivo(id, keep)`: `keepIsolateAlive`.
+/// `DartForge_port_set_keep_alive(id, keep)`: `keepIsolateAlive`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_porta_manter_vivo(id: i64, keep: u8) {
+pub extern "C" fn dartforge_native_DartForge_port_set_keep_alive(id: i64, keep: u8) {
     OPEN_PORTS.with(|p| {
         if let Some(v) = p.borrow_mut().get_mut(&id) {
             *v = keep != 0;
@@ -1648,17 +1648,17 @@ pub extern "C" fn dartforge_nativo_DartForge_porta_manter_vivo(id: i64, keep: u8
     });
 }
 
-/// `DartForge_porta_mantem_vivo(id)`.
+/// `DartForge_port_keeps_alive(id)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_porta_mantem_vivo(id: i64) -> u8 {
+pub extern "C" fn dartforge_native_DartForge_port_keeps_alive(id: i64) -> u8 {
     OPEN_PORTS.with(|p| u8::from(p.borrow().get(&id).copied().unwrap_or(false)))
 }
 
-/// `DartForge_porta_enviar(id, message)`: copies and posts. Returns 1 if the
+/// `DartForge_port_send(id, message)`: copies and posts. Returns 1 if the
 /// message has an unsendable object (the description stays in
-/// `DartForge_porta_recusa`).
+/// `DartForge_port_refusal`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_porta_enviar(id: i64, message: i64) -> u8 {
+pub extern "C" fn dartforge_native_DartForge_port_send(id: i64, message: i64) -> u8 {
     let same = {
         let r = rec().lock().unwrap_or_else(|e| e.into_inner());
         let queue = QUEUE.with(|f| f.id);
@@ -1676,38 +1676,38 @@ pub extern "C" fn dartforge_nativo_DartForge_porta_enviar(id: i64, message: i64)
     }
 }
 
-/// `DartForge_porta_recusa()`: why the last message was refused.
+/// `DartForge_port_refusal()`: why the last message was refused.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_porta_recusa() -> i64 {
+pub extern "C" fn dartforge_native_DartForge_port_refusal() -> i64 {
     let d = LAST_REJECTION.with(|u| u.borrow().clone());
     HEAP.with(|h| h.borrow_mut().allocate_str(&d))
 }
 
-/// `DartForge_portas_despachante(f)`: the argument-less closure the loop
+/// `DartForge_ports_dispatcher(f)`: the argument-less closure the loop
 /// calls for each message (`_RawReceivePort._despachar`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_portas_despachante(f: i64) {
+pub extern "C" fn dartforge_native_DartForge_ports_dispatcher(f: i64) {
     HEAP.with(|h| h.borrow_mut().set_global_root(DISPATCHER_ROOT, f));
     DISPATCHER.with(|d| *d.borrow_mut() = f);
 }
 
-/// `DartForge_porta_atual()`: the port of the message being dispatched.
+/// `DartForge_port_current()`: the port of the message being dispatched.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_porta_atual() -> i64 {
+pub extern "C" fn dartforge_native_DartForge_port_current() -> i64 {
     CURRENT.with(|a| a.borrow().0)
 }
 
-/// `DartForge_mensagem_atual()`: the message being dispatched.
+/// `DartForge_current_message()`: the message being dispatched.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_mensagem_atual() -> i64 {
+pub extern "C" fn dartforge_native_DartForge_current_message() -> i64 {
     CURRENT.with(|a| a.borrow().1)
 }
 
-/// `DartForge_classe_nao_enviavel(object)`: the class of `object` does not go
+/// `DartForge_class_not_sendable(object)`: the class of `object` does not go
 /// in a message (the VM's `@pragma('vm:isolate-unsendable')`). The description is the
 /// VM's without the private library suffix and without the retaining path.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(object: i64) {
+pub extern "C" fn dartforge_native_DartForge_class_not_sendable(object: i64) {
     let class = HEAP.with(|h| h.borrow().object(object).map(|o| o.class_id));
     let Some(c) = class else { return };
     let name = class_name(c);
@@ -1720,10 +1720,10 @@ pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(object: i64) {
     });
 }
 
-/// `DartForge_classe_transferivel(object)`: the class of `object` has its
+/// `DartForge_class_transferable(object)`: the class of `object` has its
 /// first field moved in a message (`TransferableTypedData`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_classe_transferivel(object: i64) {
+pub extern "C" fn dartforge_native_DartForge_class_transferable(object: i64) {
     let class = HEAP.with(|h| h.borrow().object(object).map(|o| o.class_id));
     if let Some(c) = class
         && !transferable_classes().contains(&c)
@@ -1732,9 +1732,9 @@ pub extern "C" fn dartforge_nativo_DartForge_classe_transferivel(object: i64) {
     }
 }
 
-/// `DartForge_capacidade_nova()`: a capability id unique in the process.
+/// `DartForge_capability_new()`: a capability id unique in the process.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_capacidade_nova() -> i64 {
+pub extern "C" fn dartforge_native_DartForge_capability_new() -> i64 {
     static NEXT_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
     NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }

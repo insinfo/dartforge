@@ -31,7 +31,7 @@ const TYPE_INT32X4: u8 = crate::tipadas::tipo::INT32X4;
 const TYPE_FLOAT64X2: u8 = crate::tipadas::tipo::FLOAT64X2;
 const TYPE_BYTE_DATA: u8 = crate::tipadas::tipo::BYTE_DATA;
 
-/// The bit of [`dartforge_view_nova`]'s `tipo` that marks the view as unmodifiable
+/// The bit of [`dartforge_view_new`]'s `tipo` that marks the view as unmodifiable
 /// (`_UnmodifiableXArrayView`).
 const UNMODIFIABLE_VIEW: i64 = 0x100;
 
@@ -68,7 +68,7 @@ fn max_elements(_type: u8) -> i64 {
 /// cid of the list of `tipo` (`layout::cid::tipada`), which the emitter passes to
 /// register the method table (`_t`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_typed_novo(class_id: i64, tipo: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_typed_new(class_id: i64, tipo: i64, n: i64) -> i64 {
     let tipo = tipo as u8;
     debug_assert_eq!(class_id, i64::from(crate::layout::cid::tipada(tipo)), "typed list cid outside the contract");
     let max = max_elements(tipo);
@@ -79,28 +79,28 @@ pub extern "C" fn dartforge_typed_novo(class_id: i64, tipo: i64, n: i64) -> i64 
     HEAP.with(|h| h.borrow_mut().new_typed(tipo, n as usize))
 }
 
-/// [`dartforge_typed_novo`] that registers the class's method table on the first
+/// [`dartforge_typed_new`] that registers the class's method table on the first
 /// allocation (like `dartforge_object_new_t`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_typed_novo_t(class_id: i64, tipo: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
-    dartforge_registrar_tabela(class_id, f);
-    dartforge_typed_novo(class_id, tipo, n)
+pub extern "C" fn dartforge_typed_new_t(class_id: i64, tipo: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
+    dartforge_register_table(class_id, f);
+    dartforge_typed_new(class_id, tipo, n)
 }
 
 /// Allocates a view over `base` (an internal list; a view passed here is resolved
 /// to its internal list). The [`UNMODIFIABLE_VIEW`] bit of `tipo` marks the view as
 /// unmodifiable; the type [`TYPE_BYTE_DATA`] is `_ByteDataView`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_view_nova(class_id: i64, tipo: i64, base: i64, offset: i64, length: i64) -> i64 {
+pub extern "C" fn dartforge_view_new(class_id: i64, tipo: i64, base: i64, offset: i64, length: i64) -> i64 {
     let cid = crate::tipadas::view_cid((tipo & 0xFF) as u8, tipo & UNMODIFIABLE_VIEW != 0);
     debug_assert_eq!(class_id, i64::from(cid), "view cid outside the contract");
     // `new_view` roots the base during the allocation.
     HEAP.with(|h| h.borrow_mut().new_view(cid, base, offset.max(0) as usize, length.max(0) as usize))
 }
 
-/// [`dartforge_view_nova`] that registers the class's method table.
+/// [`dartforge_view_new`] that registers the class's method table.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_view_nova_t(
+pub extern "C" fn dartforge_view_new_t(
     class_id: i64,
     tipo: i64,
     base: i64,
@@ -108,19 +108,19 @@ pub extern "C" fn dartforge_view_nova_t(
     length: i64,
     f: extern "C" fn() -> *const i64,
 ) -> i64 {
-    dartforge_registrar_tabela(class_id, f);
-    dartforge_view_nova(class_id, tipo, base, offset, length)
+    dartforge_register_table(class_id, f);
+    dartforge_view_new(class_id, tipo, base, offset, length)
 }
 
 /// `TypedDataBase_length`: the length in elements.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedDataBase_length(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_TypedDataBase_length(this: i64) -> i64 {
     typed_view(this).map_or(0, |t| t.len as i64)
 }
 
 /// The length in elements of `h` if it is a typed list of the given `tipo`
 /// (internal, external or view) and, for `escrita != 0`, modifiable; otherwise 0.
-/// Slow path: generated code reads the length inline (`@df.tipada_len`,
+/// Slow path: generated code reads the length inline (`@df.typed_len`,
 /// `llvm/tipados_ir.rs`); this remains for filling ([`dartforge_typed_fill_int`])
 /// and until the cut (§3.7).
 #[unsafe(no_mangle)]
@@ -195,13 +195,13 @@ fn range_to_fill(h: i64, tipo: i64, start: i64, end: i64) -> Option<(*mut u8, us
 
 /// `TypedDataView_typedData`: the internal list of a view.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedDataView_typedData(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_TypedDataView_typedData(this: i64) -> i64 {
     typed_view(this).map_or(0, |t| t.base.unwrap_or(this))
 }
 
 /// `TypedDataView_offsetInBytes`: the offset of a view.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedDataView_offsetInBytes(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_TypedDataView_offsetInBytes(this: i64) -> i64 {
     typed_view(this).map_or(0, |t| t.offset as i64)
 }
 
@@ -240,121 +240,121 @@ fn write_value<const N: usize>(this: i64, off: i64, v: [u8; N]) {
 
 /// `_getInt8`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getInt8(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getInt8(this: i64, off: i64) -> i64 {
     do_read::<1>(this, off).map_or(0, |b| i8::from_ne_bytes(b) as i64)
 }
 
 /// `_setInt8`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setInt8(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setInt8(this: i64, off: i64, v: i64) {
     write_value::<1>(this, off, (v as i8).to_ne_bytes());
 }
 
 /// `_getUint8`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getUint8(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getUint8(this: i64, off: i64) -> i64 {
     do_read::<1>(this, off).map_or(0, |b| u8::from_ne_bytes(b) as i64)
 }
 
 /// `_setUint8`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setUint8(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setUint8(this: i64, off: i64, v: i64) {
     write_value::<1>(this, off, (v as u8).to_ne_bytes());
 }
 
 /// `_getInt16`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getInt16(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getInt16(this: i64, off: i64) -> i64 {
     do_read::<2>(this, off).map_or(0, |b| i16::from_ne_bytes(b) as i64)
 }
 
 /// `_setInt16`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setInt16(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setInt16(this: i64, off: i64, v: i64) {
     write_value::<2>(this, off, (v as i16).to_ne_bytes());
 }
 
 /// `_getUint16`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getUint16(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getUint16(this: i64, off: i64) -> i64 {
     do_read::<2>(this, off).map_or(0, |b| u16::from_ne_bytes(b) as i64)
 }
 
 /// `_setUint16`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setUint16(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setUint16(this: i64, off: i64, v: i64) {
     write_value::<2>(this, off, (v as u16).to_ne_bytes());
 }
 
 /// `_getInt32`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getInt32(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getInt32(this: i64, off: i64) -> i64 {
     do_read::<4>(this, off).map_or(0, |b| i32::from_ne_bytes(b) as i64)
 }
 
 /// `_setInt32`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setInt32(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setInt32(this: i64, off: i64, v: i64) {
     write_value::<4>(this, off, (v as i32).to_ne_bytes());
 }
 
 /// `_getUint32`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getUint32(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getUint32(this: i64, off: i64) -> i64 {
     do_read::<4>(this, off).map_or(0, |b| u32::from_ne_bytes(b) as i64)
 }
 
 /// `_setUint32`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setUint32(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setUint32(this: i64, off: i64, v: i64) {
     write_value::<4>(this, off, (v as u32).to_ne_bytes());
 }
 
 /// `_getInt64`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getInt64(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getInt64(this: i64, off: i64) -> i64 {
     do_read::<8>(this, off).map_or(0, i64::from_ne_bytes)
 }
 
 /// `_setInt64`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setInt64(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setInt64(this: i64, off: i64, v: i64) {
     write_value::<8>(this, off, v.to_ne_bytes());
 }
 
 /// `_getUint64`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_getUint64(this: i64, off: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_getUint64(this: i64, off: i64) -> i64 {
     do_read::<8>(this, off).map_or(0, |b| u64::from_ne_bytes(b) as i64)
 }
 
 /// `_setUint64`: the value truncated to the element type.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_setUint64(this: i64, off: i64, v: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_setUint64(this: i64, off: i64, v: i64) {
     write_value::<8>(this, off, (v as u64).to_ne_bytes());
 }
 
 /// `TypedData_GetFloat32` (`_getFloat32`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedData_GetFloat32(this: i64, off: i64) -> f64 {
+pub extern "C" fn dartforge_native_TypedData_GetFloat32(this: i64, off: i64) -> f64 {
     do_read::<4>(this, off).map_or(0.0, |b| f64::from(f32::from_ne_bytes(b)))
 }
 
 /// `TypedData_SetFloat32` (`_setFloat32`): the `double` rounded to `float`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedData_SetFloat32(this: i64, off: i64, v: f64) {
+pub extern "C" fn dartforge_native_TypedData_SetFloat32(this: i64, off: i64, v: f64) {
     write_value::<4>(this, off, (v as f32).to_ne_bytes());
 }
 
 /// `TypedData_GetFloat64` (`_getFloat64`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedData_GetFloat64(this: i64, off: i64) -> f64 {
+pub extern "C" fn dartforge_native_TypedData_GetFloat64(this: i64, off: i64) -> f64 {
     do_read::<8>(this, off).map_or(0.0, f64::from_ne_bytes)
 }
 
 /// `TypedData_SetFloat64` (`_setFloat64`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedData_SetFloat64(this: i64, off: i64, v: f64) {
+pub extern "C" fn dartforge_native_TypedData_SetFloat64(this: i64, off: i64, v: f64) {
     write_value::<8>(this, off, v.to_ne_bytes());
 }
 
@@ -373,7 +373,7 @@ fn element(this: i64, i: i64) -> Option<(crate::tipadas::TypedRef, *mut u8)> {
 /// Element `i` (integer bits) of a list or view of integers, with the VM's index
 /// check.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_int(this: i64, i: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_typed_index_int(this: i64, i: i64) -> i64 {
     let Some((t, p)) = element(this, i) else { return 0 };
     // SAFETY: `p` is element `i < len` of the live list, with no assumed alignment.
     unsafe {
@@ -392,9 +392,9 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_int(this: i64, i: i64
 
 /// Element `i` of a list or view of `double`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_double(this: i64, i: i64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_typed_index_double(this: i64, i: i64) -> f64 {
     let Some((t, p)) = element(this, i) else { return 0.0 };
-    // SAFETY: as in `dartforge_nativo_DartForge_typed_indexar_int`.
+    // SAFETY: as in `dartforge_native_DartForge_typed_index_int`.
     unsafe {
         match t.tipo {
             TYPE_FLOAT32 => f64::from(p.cast::<f32>().read_unaligned()),
@@ -422,31 +422,31 @@ fn relocate(this: i64, start: i64, count: i64, from: i64, skip: i64, n: usize) {
 
 /// `_memMove1`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_memMove1(this: i64, start: i64, count: i64, from: i64, skip: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_memMove1(this: i64, start: i64, count: i64, from: i64, skip: i64) {
     relocate(this, start, count, from, skip, 1);
 }
 
 /// `_memMove2`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_memMove2(this: i64, start: i64, count: i64, from: i64, skip: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_memMove2(this: i64, start: i64, count: i64, from: i64, skip: i64) {
     relocate(this, start, count, from, skip, 2);
 }
 
 /// `_memMove4`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_memMove4(this: i64, start: i64, count: i64, from: i64, skip: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_memMove4(this: i64, start: i64, count: i64, from: i64, skip: i64) {
     relocate(this, start, count, from, skip, 4);
 }
 
 /// `_memMove8`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_memMove8(this: i64, start: i64, count: i64, from: i64, skip: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_memMove8(this: i64, start: i64, count: i64, from: i64, skip: i64) {
     relocate(this, start, count, from, skip, 8);
 }
 
 /// `_memMove16`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_typed_memMove16(this: i64, start: i64, count: i64, from: i64, skip: i64) {
+pub extern "C" fn dartforge_native_DartForge_typed_memMove16(this: i64, start: i64, count: i64, from: i64, skip: i64) {
     relocate(this, start, count, from, skip, 16);
 }
 
@@ -454,9 +454,9 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_memMove16(this: i64, start: i
 /// integer elements of `from` (a list or view of signed integers) into a byte list,
 /// saturating to 0..255.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_TypedDataBase_setClampedRange(this: i64, start: i64, count: i64, from: i64, skip: i64) {
+pub extern "C" fn dartforge_native_TypedDataBase_setClampedRange(this: i64, start: i64, count: i64, from: i64, skip: i64) {
     for k in 0..count.max(0) {
-        let v = dartforge_nativo_DartForge_typed_indexar_int(from, skip + k);
+        let v = dartforge_native_DartForge_typed_index_int(from, skip + k);
         if dartforge_exception_pending() != 0 {
             return;
         }

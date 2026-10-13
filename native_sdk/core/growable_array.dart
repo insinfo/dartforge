@@ -389,7 +389,7 @@ class _GrowableList<T> extends ListBase<T> {
     _reservar(new_capacity);
   }
 
-  @pragma("vm:external-name", "DartForge_GrowableList_reservar")
+  @pragma("vm:external-name", "DartForge_GrowableList_reserve")
   external void _reservar(int capacidade);
 
   // This method is marked as never-inline to conserve code size.

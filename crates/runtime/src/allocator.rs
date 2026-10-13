@@ -229,6 +229,6 @@ unsafe impl std::alloc::GlobalAlloc for CachingAllocator {
 
 /// The executable's allocator: only in the `staticlib` profiles (the JIT and the
 /// tests use the one of their host process).
-#[cfg(not(dartforge_runtime_embutido))]
+#[cfg(not(dartforge_runtime_embedded))]
 #[global_allocator]
 static GLOBAL_ALLOCATOR: CachingAllocator = CachingAllocator;

@@ -135,7 +135,7 @@ pub(super) fn produce(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
                     if *ret_ty == Type::Ref
                         && matches!(
                             name.as_str(),
-                            "dartforge_object_new" | "dartforge_arc_objeto_owned_v1"
+                            "dartforge_object_new" | "dartforge_arc_object_owned_v1"
                         ) =>
                 {
                     match args.as_slice() {
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(facts["base"][&ValueId(0)], 123);
         prepare_arc_dart_module(&mut m, &mut plans).unwrap();
         assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
-            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_gravar_campo_ref_v1")));
+            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_write_field_ref_v1")));
         assert_eq!(
             prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
             (0, 0)
@@ -382,7 +382,7 @@ mod tests {
                 result.unwrap();
                 assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
                     matches!(i, Instruction::CallRuntime { name, .. }
-                        if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
+                        if name == "dartforge_arc_write_field_ref_checked_v1")));
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
                 assert!(result.is_err(), "caso {case}: {result:?}");

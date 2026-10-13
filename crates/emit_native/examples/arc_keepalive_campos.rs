@@ -78,7 +78,7 @@ fn module(scenario: Scenario) -> Result<Module, String> {
     }
     if matches!(scenario, Scenario::Late) {
         m.functions[0].blocks[0].instructions[0].1 = Instruction::CallRuntime {
-            name: "dartforge_arc_ler_campo_late_ref_v1".into(),
+            name: "dartforge_arc_read_field_late_ref_v1".into(),
             args: vec![(val(0), Type::Ref), (Operand::Constant(Constant::Int(39)), Type::I64)],
             ret_ty: Type::Ref,
         };
@@ -89,7 +89,7 @@ fn module(scenario: Scenario) -> Result<Module, String> {
             if let Instruction::GetField { object, .. } | Instruction::SetField { object, .. } = inst { *object = val(9); }
         }
         f.blocks[0].instructions.insert(0, (ValueId(9), Instruction::CallRuntime {
-            name: "dartforge_arc_contexto_closure_v1".into(), args: vec![(val(0), Type::Ref)], ret_ty: Type::Ref,
+            name: "dartforge_arc_closure_context_v1".into(), args: vec![(val(0), Type::Ref)], ret_ty: Type::Ref,
         }, Type::Ref));
     }
     if capture {
@@ -292,16 +292,16 @@ fn main() -> Result<(), String> {
         r#"
 declare void @dartforge_print_handle(i64)
 define void @prova_keepalive() {
-  %obj = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)
+  %obj = call i64 @dartforge_arc_object_owned_v1(i64 123, i64 40)
   %filho = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)
   call void @inicializar(i64 %obj, i64 %filho)
   call void @dartforge_arc_release(i64 %filho)
-  %aresta = call i8 @dartforge_arc_observar_heap_v1(i64 %filho)
+  %aresta = call i8 @dartforge_arc_observe_heap_v1(i64 %filho)
   %ok_aresta = icmp eq i8 %aresta, 1
   %inteiro = call i64 @ler_inteiro(i64 %obj)
-  %double = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 1)
-  %bool = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 2)
-  %byte = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 3)
+  %double = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 1)
+  %bool = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 2)
+  %byte = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 3)
   %ok_int = icmp eq i64 %inteiro, 42
   %ok_double = icmp eq i64 %double, -9223372036854775808
   %ok_bool = icmp eq i64 %bool, 1
@@ -318,8 +318,8 @@ ler:
 coletar:
   call void @dartforge_arc_release(i64 %obj)
   call void @dartforge_arc_collect()
-  %obj_morto = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
-  %filho_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %obj_morto = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
+  %filho_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno)
   %ok_obj = icmp eq i8 %obj_morto, 0
   %ok_filho = icmp eq i8 %filho_vivo, 3
   %ok = and i1 %ok_obj, %ok_filho
@@ -327,7 +327,7 @@ coletar:
 liberar:
   call void @dartforge_arc_release(i64 %retorno)
   call void @dartforge_arc_collect()
-  %final = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %final = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno)
   %morto = icmp eq i8 %final, 0
   br i1 %morto, label %passou, label %falha
 falha:
@@ -340,8 +340,8 @@ passou:
 "#,
     );
     if matches!(scenario, Scenario::Cell) {
-        ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
-            &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 1)", dartforge_runtime::layout::cid::CELULA));
+        ir = ir.replace("@dartforge_arc_object_owned_v1(i64 123, i64 40)",
+            &format!("@dartforge_arc_object_owned_v1(i64 {}, i64 1)", dartforge_runtime::layout::cid::CELULA));
         let start = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("missing start of the scalar check")?;
         let end = ir[start..].find("  br i1 %ok_inicio,").map(|n| start + n).ok_or("missing end of the scalar check")?;
         ir.replace_range(start..end, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
@@ -355,7 +355,7 @@ passou:
             if !ir.contains(declaration) { ir.push_str(&format!("\n{declaration}\n")); }
         }
         ir = ir.replace("  call void @inicializar(i64 %obj, i64 %filho)\n",
-            "  %late_vazio = call i64 @dartforge_arc_ler_campo_late_ref_v1(i64 %obj, i64 39)\n  %late_estado = call i8 @dartforge_late_field_initialized(i64 %obj, i64 39)\n  %late_null = icmp eq i64 %late_vazio, 0\n  %late_sem_marca = icmp eq i8 %late_estado, 0\n  %late_ok = and i1 %late_null, %late_sem_marca\n  call void @inicializar(i64 %obj, i64 %filho)\n  call void @dartforge_late_field_mark_initialized(i64 %obj, i64 39)\n");
+            "  %late_vazio = call i64 @dartforge_arc_read_field_late_ref_v1(i64 %obj, i64 39)\n  %late_estado = call i8 @dartforge_late_field_initialized(i64 %obj, i64 39)\n  %late_null = icmp eq i64 %late_vazio, 0\n  %late_sem_marca = icmp eq i8 %late_estado, 0\n  %late_ok = and i1 %late_null, %late_sem_marca\n  call void @inicializar(i64 %obj, i64 %filho)\n  call void @dartforge_late_field_mark_initialized(i64 %obj, i64 39)\n");
         ir = ir.replace("  %ok_inicio = and i1 %ok_campos, %ok_aresta\n",
             "  %ok_inicializado = and i1 %ok_campos, %ok_aresta\n  %ok_inicio = and i1 %ok_inicializado, %late_ok\n");
     }
@@ -366,18 +366,18 @@ passou:
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %codigo = ptrtoint ptr @entrada_contexto to i64\n  %closure = call i64 @dartforge_arc_closure_owned_v1(i64 %codigo, i64 %obj, i64 0, i64 0)\n  %retorno = call i64 @ler_e_substituir(i64 %closure)\n  call void @dartforge_arc_release(i64 %closure)\n");
         ir = ir.replace("  %ok = and i1 %ok_obj, %ok_filho\n",
-            "  %closure_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %closure)\n  %closure_morta = icmp eq i8 %closure_estado, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %closure_morta\n");
+            "  %closure_estado = call i8 @dartforge_arc_observe_heap_v1(i64 %closure)\n  %closure_morta = icmp eq i8 %closure_estado, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %closure_morta\n");
     }
     if capture {
-        ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
-            &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 40)",
+        ir = ir.replace("@dartforge_arc_object_owned_v1(i64 123, i64 40)",
+            &format!("@dartforge_arc_object_owned_v1(i64 {}, i64 40)",
                 dartforge_runtime::layout::cid::CONTEXTO));
     }
     if neighbor {
         ir = ir.replace("  call void @inicializar(i64 %obj, i64 %filho)\n",
-            "  %vizinho = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  call void @inicializar(i64 %vizinho, i64 %filho)\n  call void @inicializar(i64 %obj, i64 %vizinho)\n  call void @dartforge_arc_release(i64 %vizinho)\n");
+            "  %vizinho = call i64 @dartforge_arc_object_owned_v1(i64 123, i64 40)\n  call void @inicializar(i64 %vizinho, i64 %filho)\n  call void @inicializar(i64 %obj, i64 %vizinho)\n  call void @dartforge_arc_release(i64 %vizinho)\n");
         ir = ir.replace("  %ok = and i1 %ok_obj, %ok_filho\n",
-            "  %vizinho_morto = call i8 @dartforge_arc_observar_heap_v1(i64 %vizinho)\n  %ok_vizinho = icmp eq i8 %vizinho_morto, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %ok_vizinho\n");
+            "  %vizinho_morto = call i8 @dartforge_arc_observe_heap_v1(i64 %vizinho)\n  %ok_vizinho = icmp eq i8 %vizinho_morto, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %ok_vizinho\n");
     }
     if matches!(scenario, Scenario::Global) {
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
@@ -394,17 +394,17 @@ passou:
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %retorno = call i64 @ler_e_substituir(i64 %obj, i1 true)\n");
         ir = ir.replace("passou:\n  call void @dartforge_print_handle(i64 3)",
-            "passou:\n  %obj_nulo = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  %filho_nulo = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)\n  call void @inicializar(i64 %obj_nulo, i64 %filho_nulo)\n  call void @dartforge_arc_release(i64 %filho_nulo)\n  %ret_nulo = call i64 @ler_e_substituir(i64 %obj_nulo, i1 false)\n  %eh_nulo = icmp eq i64 %ret_nulo, 0\n  call void @dartforge_arc_release(i64 %obj_nulo)\n  call void @dartforge_arc_collect()\n  %obj_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj_nulo)\n  %filho_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %filho_nulo)\n  %obj_nulo_morto = icmp eq i8 %obj_nulo_estado, 0\n  %filho_nulo_morto = icmp eq i8 %filho_nulo_estado, 0\n  %ambos_nulos_mortos = and i1 %obj_nulo_morto, %filho_nulo_morto\n  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo\n  br i1 %ok_nulo, label %passou_nulo, label %falha\npassou_nulo:\n  call void @dartforge_print_handle(i64 3)");
+            "passou:\n  %obj_nulo = call i64 @dartforge_arc_object_owned_v1(i64 123, i64 40)\n  %filho_nulo = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)\n  call void @inicializar(i64 %obj_nulo, i64 %filho_nulo)\n  call void @dartforge_arc_release(i64 %filho_nulo)\n  %ret_nulo = call i64 @ler_e_substituir(i64 %obj_nulo, i1 false)\n  %eh_nulo = icmp eq i64 %ret_nulo, 0\n  call void @dartforge_arc_release(i64 %obj_nulo)\n  call void @dartforge_arc_collect()\n  %obj_nulo_estado = call i8 @dartforge_arc_observe_heap_v1(i64 %obj_nulo)\n  %filho_nulo_estado = call i8 @dartforge_arc_observe_heap_v1(i64 %filho_nulo)\n  %obj_nulo_morto = icmp eq i8 %obj_nulo_estado, 0\n  %filho_nulo_morto = icmp eq i8 %filho_nulo_estado, 0\n  %ambos_nulos_mortos = and i1 %obj_nulo_morto, %filho_nulo_morto\n  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo\n  br i1 %ok_nulo, label %passou_nulo, label %falha\npassou_nulo:\n  call void @dartforge_print_handle(i64 3)");
     }
     if matches!(scenario, Scenario::Mixed) {
         // Records only the native address, without creating a root or an owner. The
         // later observation must find the local allocation already destroyed.
-        let line = ir.lines().find(|l| l.contains("%v108 = call i64 @dartforge_arc_objeto_owned_v1"))
+        let line = ir.lines().find(|l| l.contains("%v108 = call i64 @dartforge_arc_object_owned_v1"))
             .ok_or("local allocation of the mixed proof not found")?.to_owned();
         ir = ir.replace(&line, &format!("{line}\n  store i64 %v108, ptr @misto.local"));
         ir.push_str("\n@misto.local = internal global i64 0\n");
         ir = ir.replace("  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo",
-            "  %local = load i64, ptr @misto.local\n  %local_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %local)\n  %local_morto = icmp eq i8 %local_estado, 0\n  %originais_mortos = and i1 %ambos_nulos_mortos, %eh_nulo\n  %ok_nulo = and i1 %originais_mortos, %local_morto");
+            "  %local = load i64, ptr @misto.local\n  %local_estado = call i8 @dartforge_arc_observe_heap_v1(i64 %local)\n  %local_morto = icmp eq i8 %local_estado, 0\n  %originais_mortos = and i1 %ambos_nulos_mortos, %eh_nulo\n  %ok_nulo = and i1 %originais_mortos, %local_morto");
     }
     match control.as_deref() {
         None => {}
@@ -467,12 +467,12 @@ mod tests {
         let m = module(Scenario::Mixed).unwrap();
         let f = &m.functions[0];
         assert!(f.blocks[2].instructions.iter().any(|(v, i, _)| *v == ValueId(108)
-            && matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_objeto_owned_v1")));
+            && matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_object_owned_v1")));
         let b = f.blocks.iter().find(|b| b.id == BlockId(5)).unwrap();
         assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
-            if name == "dartforge_arc_ler_campo_escalar_conferido_v1")));
+            if name == "dartforge_arc_read_field_scalar_checked_v1")));
         assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
-            if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
+            if name == "dartforge_arc_write_field_ref_checked_v1")));
     }
 
     #[test]
@@ -483,11 +483,11 @@ mod tests {
         let copy = b.instructions.iter().position(|(v, i, _)| *v == ValueId(1) && matches!(i, Instruction::ArcCopy { .. })).unwrap();
         assert!(copy < save);
         assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
-            if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
+            if name == "dartforge_arc_write_field_ref_checked_v1")));
         let null = m.functions[0].blocks.iter().find(|b| b.id == BlockId(4)).unwrap();
         assert!(matches!(null.terminator, Terminator::Return(Some(Operand::Val(ValueId(105))))));
         assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
-            if name == "dartforge_arc_ler_campo_escalar_conferido_v1")));
+            if name == "dartforge_arc_read_field_scalar_checked_v1")));
     }
 
     #[test]
@@ -495,7 +495,7 @@ mod tests {
         let m = module(Scenario::Argument).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. }
-            if name == "dartforge_arc_argumento_owned_v1"));
+            if name == "dartforge_arc_argument_owned_v1"));
         let release_ref = ops.iter().position(|(_, i, _)| matches!(i,
             Instruction::ArcDrop { value: Operand::Val(ValueId(9)) })).unwrap();
         let store = ops.iter().position(|(v, _, _)| *v == ValueId(2)).unwrap();
@@ -541,7 +541,7 @@ mod tests {
         let ir = LlvmEmitter::new(&m).emit_all();
         assert!(
             ir.find("call void @dartforge_arc_retain").unwrap()
-                < ir.find("call void @dartforge_arc_gravar_campo_ref_conferido_v1")
+                < ir.find("call void @dartforge_arc_write_field_ref_checked_v1")
                     .unwrap()
         );
     }
@@ -557,7 +557,7 @@ mod capture_tests {
         let ir = LlvmEmitter::new(&m).emit_all();
         let read = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
         let retain = ir.find("call void @dartforge_arc_retain").unwrap();
-        let store = ir.find("call void @dartforge_arc_gravar_campo_ref_conferido_v1").unwrap();
+        let store = ir.find("call void @dartforge_arc_write_field_ref_checked_v1").unwrap();
         assert!(read < retain && retain < store);
     }
 }

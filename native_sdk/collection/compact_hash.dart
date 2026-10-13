@@ -387,23 +387,23 @@ mixin _CustomEqualsAndHashCode<K> implements _EqualsAndHashCode {
 // SDK faz a operação.
 
 /// O novo `_usedData` depois de `mapa[chave] = valor`, ou -1.
-@pragma("vm:external-name", "DartForge_hash_mapa_gravar")
+@pragma("vm:external-name", "DartForge_hash_map_store")
 external int _dfMapaGravar(Uint32List indice, List<Object?> dados, int mascara,
     int usados, Object? chave, Object? valor);
 
 /// O valor da chave, `dados` se ela falta, ou `indice` se o Dart procura.
-@pragma("vm:external-name", "DartForge_hash_mapa_buscar")
+@pragma("vm:external-name", "DartForge_hash_map_lookup")
 external Object? _dfMapaBuscar(
     Uint32List indice, List<Object?> dados, int mascara, Object? chave);
 
 /// O novo `_usedData` depois de `conjunto.add(chave)` (o mesmo se já
 /// estava), ou -1.
-@pragma("vm:external-name", "DartForge_hash_conjunto_adicionar")
+@pragma("vm:external-name", "DartForge_hash_set_add")
 external int _dfConjuntoAdicionar(Uint32List indice, List<Object?> dados,
     int mascara, int usados, Object? chave);
 
 /// A chave guardada, `dados` se ela falta, ou `indice` se o Dart procura.
-@pragma("vm:external-name", "DartForge_hash_conjunto_buscar")
+@pragma("vm:external-name", "DartForge_hash_set_lookup")
 external Object? _dfConjuntoBuscar(
     Uint32List indice, List<Object?> dados, int mascara, Object? chave);
 
@@ -415,18 +415,18 @@ external Object? _dfConjuntoBuscar(
 
 /// `this[pares[i]] = pares[i + 1]` para `i` de `de` até `ate`, de 2 em 2; com
 /// `pularRemovidas`, sem as entradas removidas do `_data` velho.
-@pragma("vm:external-name", "DartForge_hash_mapa_preencher")
+@pragma("vm:external-name", "DartForge_hash_map_fill")
 external int _dfMapaPreencher(Uint32List indice, List<Object?> dados,
     int mascara, int usados, List pares, int de, int ate, bool pularRemovidas);
 
 /// DartForge: o `_data` novo de uma tabela, `new List.filled(n, null)` sem
 /// avaliar o tipo reificado: a lista é interna (nunca sai do `_HashBase`) e só
 /// é comparada por identidade e lida pelos próprios métodos da tabela.
-@pragma("vm:external-name", "DartForge_hash_novos_dados")
+@pragma("vm:external-name", "DartForge_hash_new_data")
 external List<Object?> _dfNovosDados(int n);
 
 /// `add(velhos[i])` para `i` de `de` até `ate`, sem as removidas.
-@pragma("vm:external-name", "DartForge_hash_conjunto_preencher")
+@pragma("vm:external-name", "DartForge_hash_set_fill")
 external int _dfConjuntoPreencher(Uint32List indice, List<Object?> dados,
     int mascara, int usados, List velhos, int de, int ate);
 

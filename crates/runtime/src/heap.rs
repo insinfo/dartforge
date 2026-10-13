@@ -241,7 +241,7 @@ pub struct RootFrame {
 /// a call (`llvm/mod.rs`): the pending exception (mirror of
 /// `exceptions::EXCEPTION`, checked after each call) and the top of
 /// this thread's shadow stack (of its isolate). The address comes from
-/// `dartforge_contexto`, once per activation; it does not change while the
+/// `dartforge_context`, once per activation; it does not change while the
 /// thread lives. The offsets are a contract with the emitter.
 #[repr(C)]
 pub struct Context {
@@ -251,7 +251,7 @@ pub struct Context {
     pub top: std::cell::Cell<*const RootFrame>,
     /// The globals area of each module in this isolate, by module id
     /// (`@df.area_id`; 0 = no id): the fast path of the function
-    /// prologue (`@df.obter_area`). Address of the elements (offset 16)
+    /// prologue (`@df.get_area`). Address of the elements (offset 16)
     /// and length (24); a null entry goes to the runtime.
     pub areas: std::cell::Cell<*const *mut i64>,
     pub n_areas: std::cell::Cell<usize>,
@@ -291,8 +291,8 @@ pub struct Context {
     pub subtype_width: std::cell::Cell<usize>,
     /// The handles (address + 2) of the static `true` (offset
     /// 360) and `false` (368) boxes of this runtime: `@df.box_bool` and
-    /// `@df.desencaixa_bool` read them from here, without referencing the
-    /// `dartforge_verdadeiro`/`_falso` data of another image (the executable and the SDK
+    /// `@df.unbox_bool` read them from here, without referencing the
+    /// `dartforge_true`/`_falso` data of another image (the executable and the SDK
     /// DLL each have their own copy; only the active runtime's is canonical).
     pub true_value: *const u8,
     pub false_value: *const u8,
@@ -300,7 +300,7 @@ pub struct Context {
     /// each function that calls another compares the address of its frame with it
     /// and, below it, throws `StackOverflowError` instead of overflowing the system
     /// stack (the VM's `stack_overflow_check`). 0 = not computed yet
-    /// (fragment `gc_roots.rs`, `dartforge_contexto`); 1 = no known limit.
+    /// (fragment `gc_roots.rs`, `dartforge_context`); 1 = no known limit.
     pub stack_limit: std::cell::Cell<usize>,
 }
 
@@ -346,8 +346,8 @@ thread_local! {
             subtypes: std::cell::Cell::new(std::ptr::null()),
             n_subtypes: std::cell::Cell::new(0),
             subtype_width: std::cell::Cell::new(0),
-            true_value: (&raw const dartforge_verdadeiro).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
-            false_value: (&raw const dartforge_falso).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
+            true_value: (&raw const dartforge_true).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
+            false_value: (&raw const dartforge_false).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
             stack_limit: std::cell::Cell::new(0),
         }
     };
@@ -1439,7 +1439,7 @@ pub struct Heap {
     /// Permanent and immutable objects that a message between ports of the
     /// same isolate passes by identity, without copying (the VM shares the
     /// deeply immutable ones): canonical constants, enum values and
-    /// `const` globals (the generated code marks them, `dartforge_marcar_permanente`),
+    /// `const` globals (the generated code marks them, `dartforge_mark_permanent`),
     /// top-level tear-offs and literals.
     permanentes: crate::hash::HashSet<i64>,
     /// Canonical constant → the generated getter that produces it (the same address
@@ -1546,7 +1546,7 @@ pub struct Heap {
     /// loop (roots until then).
     pub ready_finalizations: std::collections::VecDeque<i64>,
     /// ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): enabled by the
-    /// program at startup (`dartforge_memoria_arc_v1`); `None` is the usual
+    /// program at startup (`dartforge_memory_arc_v1`); `None` is the usual
     /// tracing collector.
     arc: Option<Box<HeapArc>>,
 }
@@ -2278,7 +2278,7 @@ impl Heap {
     /// A block with a body of `words` zeroed words, class `cid`, `flags` and
     /// `n` in the header (in `INSTANCIA`, the number of fields; in the others, the
     /// words): the path of [`Heap::allocate`], [`Heap::allocate_object`] and of
-    /// `dartforge_alocar`.
+    /// `dartforge_allocate`.
     #[inline]
     pub(crate) fn alocar_bloco(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
         let bytes = allocation_bytes(words);
@@ -2568,7 +2568,7 @@ impl Heap {
     fn check_live(&self, h: i64) {
         self.live_block(h);
     }
-    /// The generated code's write barrier (`dartforge_lembrar`): the old
+    /// The generated code's write barrier (`dartforge_remember`): the old
     /// object `h` received a `Ref` in a field.
     pub fn remember_object(&mut self, h: i64) {
         if let Some(b) = self.space_block(h) {
@@ -2672,7 +2672,7 @@ impl Heap {
         self.swap_fields(b, &new_ones);
     }
     /// The address of the fields of object `handle` (8-byte words; the
-    /// path of `dartforge_object_campos`); `None` if it is not a live object.
+    /// path of `dartforge_object_fields`); `None` if it is not a live object.
     /// Whoever asks for the pointer may write through it: it counts as a write
     /// barrier, but the reference map is up to the writer.
     #[inline]
@@ -3364,19 +3364,19 @@ pub enum Value {
 
 /// The static boxes of `false` and `true` (cid 5, `BRUTO`, `PERMANENTE`): the
 /// header and the value, in the form of a block; the handle is the address + 2. The
-/// generated code references them as `@dartforge_falso`/`@dartforge_verdadeiro`
+/// generated code references them as `@dartforge_false`/`@dartforge_true`
 /// (`llvm/externs.rs`). They are runtime statics (§2.11): never marked,
 /// swept nor written; [`is_static`] recognizes them by address.
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
-pub static dartforge_falso: [u64; 3] = [
+pub static dartforge_false: [u64; 3] = [
     crate::layout::palavra_do_cabecalho(PERMANENTE, crate::layout::flags::BRUTO, 1, crate::layout::cid::BOOL),
     0,
     0,
 ];
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
-pub static dartforge_verdadeiro: [u64; 3] = [
+pub static dartforge_true: [u64; 3] = [
     crate::layout::palavra_do_cabecalho(PERMANENTE, crate::layout::flags::BRUTO, 1, crate::layout::cid::BOOL),
     0,
     1,
@@ -3384,7 +3384,7 @@ pub static dartforge_verdadeiro: [u64; 3] = [
 
 /// The ranges `[start, end)` of the static objects section (`.dfimg`) of each
 /// loaded image (the executable, the SDK DLL): registered by
-/// `dartforge_registrar_imagem`, which the `@df.preparar_isolado` of each image
+/// `dartforge_register_image`, which the `@df.prepare_isolate` of each image
 /// calls. An object handle outside the heap pages is only accepted as a
 /// static inside one of them (the validation of `--gc-stress` and of verification,
 /// and the runtime's reads); statics belong to the process, shared by
@@ -3417,7 +3417,7 @@ pub fn is_static(h: Ref) -> bool {
         return false;
     }
     let b = (h - DESLOCAMENTO_DO_HANDLE) as usize;
-    let from_runtime = b == std::ptr::addr_of!(dartforge_falso) as usize || b == std::ptr::addr_of!(dartforge_verdadeiro) as usize;
+    let from_runtime = b == std::ptr::addr_of!(dartforge_false) as usize || b == std::ptr::addr_of!(dartforge_true) as usize;
     let in_image = from_runtime || {
         let v = IMAGES.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         v.iter().any(|&(i, f)| i <= b && b + std::mem::size_of::<Header>() <= f)
@@ -4533,19 +4533,19 @@ mod fixed_root_tests {
     }
 }
 /// The process's object layout epoch (J03): grows with each migration
-/// that a JIT reload defines (`dartforge_definir_migracao`).
+/// that a JIT reload defines (`dartforge_set_migration`).
 pub static LAYOUT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 thread_local! {
     /// `DARTFORGE_EFEITOS=conferir` (`effects_check.rs`): the externs running
-    /// on this thread that the effects table marks `coleta = 0`. With
+    /// on this thread that the effects table marks `collects = 0`. With
     /// any of them, a collection is the wrong mark — the defect of a wrong roots
     /// map, only on our side — and ends the process saying which.
     static COLLECTION_FORBIDDEN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Forbids collection until the matching [`allow_collection`]: the extern `name` is
-/// marked `coleta = 0`.
+/// marked `collects = 0`.
 pub fn forbid_collection(name: String) {
     COLLECTION_FORBIDDEN.with(|p| p.borrow_mut().push(name));
 }
@@ -4557,11 +4557,11 @@ pub fn allow_collection() {
     });
 }
 
-/// Ends the process if an extern marked `coleta = 0` is running.
+/// Ends the process if an extern marked `collects = 0` is running.
 fn check_collection_allowed() {
     let culprit = COLLECTION_FORBIDDEN.with(|p| p.borrow().last().cloned());
     if let Some(name) = culprit {
-        eprintln!("dartforge: the extern {name} is marked coleta = 0 in efeitos.tsv and collected");
+        eprintln!("dartforge: the extern {name} is marked collects = 0 in effects.tsv and collected");
         std::process::abort();
     }
 }
@@ -5161,7 +5161,7 @@ impl Heap {
 
     /// The references the generated code wrote inline into a freshly
     /// allocated object (`AllocObject`, inline context, cell and closure,
-    /// `dartforge_arc_inicial`): under pure ARC, each one counts. In
+    /// `dartforge_arc_initial`): under pure ARC, each one counts. In
     /// nursery mode it does nothing (they count at promotion).
     pub fn arc_count_initial(&mut self, h: Ref) {
         if !smi::e_handle(h) || self.space_block(h).is_none() {
@@ -5215,7 +5215,7 @@ impl Heap {
         (promoted, remembered)
     }
 
-    /// Enables ARC (`dartforge_memoria_arc_v1`, at program startup): a
+    /// Enables ARC (`dartforge_memory_arc_v1`, at program startup): a
     /// full tracing collection and the registration of every live object with the RC
     /// of the occurrences that reach it, including owning slots.
     /// Observational roots only protect the objects they see.

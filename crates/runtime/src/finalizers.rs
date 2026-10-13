@@ -15,9 +15,9 @@
 //   guarantees them at shutdown); the `Finalizer`s do not (the specification
 //   does not promise that they run).
 
-/// `DartForge_finalizador_anexar(owner, value, action, detach)`.
+/// `DartForge_finalizer_attach(owner, value, action, detach)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar(owner: i64, value: i64, action: i64, detach: i64) {
+pub extern "C" fn dartforge_native_DartForge_finalizer_attach(owner: i64, value: i64, action: i64, detach: i64) {
     HEAP.with(|h| {
         h.borrow_mut().add_attachment(crate::heap::FinalizerAttachment {
             owner,
@@ -28,10 +28,10 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar(owner: i64, valu
     });
 }
 
-/// `DartForge_finalizador_anexar_nativo(owner, value, function, token,
+/// `DartForge_finalizer_attach_native(owner, value, function, token,
 /// detach, externalSize)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(owner: i64, value: i64, function: i64, token: i64, detach: i64, external_size: i64) {
+pub extern "C" fn dartforge_native_DartForge_finalizer_attach_native(owner: i64, value: i64, function: i64, token: i64, detach: i64, external_size: i64) {
     if function == 0 {
         throw_argument_error("NativeFinalizer callback must not be nullptr");
         return;
@@ -56,9 +56,9 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(owner: i6
     });
 }
 
-/// `DartForge_finalizador_desanexar(owner, detach)`.
+/// `DartForge_finalizer_detach(owner, detach)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_finalizador_desanexar(owner: i64, detach: i64) {
+pub extern "C" fn dartforge_native_DartForge_finalizer_detach(owner: i64, detach: i64) {
     if detach == 0 {
         return;
     }
@@ -109,7 +109,7 @@ mod tests_finalization_owner {
                 assert!(h.is_live_object(active_one));
             });
         });
-        dartforge_laco_de_eventos(run_with_reentry);
+        dartforge_event_loop(run_with_reentry);
         ACTIVE_COUNT.with(|a| { assert_eq!(a.borrow_mut().pop(), Some(closure)); });
         0
     }
@@ -127,7 +127,7 @@ mod tests_finalization_owner {
             h.add_ready_finalization(second_one);
             [first_one, second_one]
         });
-        dartforge_laco_de_eventos(run_with_reentry);
+        dartforge_event_loop(run_with_reentry);
         EXECUTED.with(|e| assert_eq!(&*e.borrow(), &closures));
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
@@ -158,7 +158,7 @@ mod tests_finalization_owner {
             h.add_ready_finalization(closure);
             closure
         });
-        dartforge_laco_de_eventos(shut_down_during_callback);
+        dartforge_event_loop(shut_down_during_callback);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             assert!(h.ready_finalizations.is_empty());

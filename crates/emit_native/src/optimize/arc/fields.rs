@@ -101,7 +101,7 @@ fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&H
                 }
             }
             Instruction::CallRuntime { name, args, ret_ty }
-                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
+                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_object_owned_v1")
                     && *ret_ty == Type::Ref => {
                 // The zeroed factory also fixes the physical class. Do not infer
                 // size/layout from the width nor from non-constant parameters.
@@ -192,9 +192,9 @@ fn known_representation(
     repr.ok_or_else(|| "receiver without a nominal origin".into())
 }
 
-const WRITE_SCALAR: &str = "dartforge_arc_gravar_campo_escalar_conferido_v1";
-const READ_SCALAR: &str = "dartforge_arc_ler_campo_escalar_conferido_v1";
-const WRITE_CHECKED: &str = "dartforge_arc_gravar_campo_ref_conferido_v1";
+const WRITE_SCALAR: &str = "dartforge_arc_write_field_scalar_checked_v1";
+const READ_SCALAR: &str = "dartforge_arc_read_field_scalar_checked_v1";
+const WRITE_CHECKED: &str = "dartforge_arc_write_field_ref_checked_v1";
 
 fn field_layouts(layouts: &HashMap<u32, Vec<Type>>, idx_value: usize, repr: Type) -> Vec<i64> {
     let mut pairs: Vec<_> = layouts.iter().filter(|(cid, fields)|
@@ -297,10 +297,10 @@ pub(super) fn prepare(
         // this assigns no class nor turns scalar bits into a Ref.
         let derived = match inst {
             Instruction::ArcLoadStrong { .. } => true,
-            Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if matches!(name.as_str(), super::vectors::READ_ARGUMENT | "dartforge_arc_lista_ref_owned_v1") => true,
+            Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if matches!(name.as_str(), super::vectors::READ_ARGUMENT | "dartforge_arc_list_ref_owned_v1") => true,
             Instruction::AllocObject { .. } => true,
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
-                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1") => classes.contains_key(v),
+                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_object_owned_v1") => classes.contains_key(v),
             // The catalog checks the Ref result, the arity and the declared types.
             // This only authorizes the physical guard; the transaction still rechecks
             // SSA types, native provenance, tokens and Dart boundaries. An
@@ -344,16 +344,16 @@ pub(super) fn prepare(
                     "dartforge_arc_retain"
                         | "dartforge_object_new"
                         | "dartforge_arc_release"
-                        | "dartforge_arc_objeto_owned_v1"
+                        | "dartforge_arc_object_owned_v1"
                         | "dartforge_arc_box_int_owned_v1"
                         | "dartforge_arc_box_double_owned_v1"
                         | "dartforge_exception_pending"
-                        | "dartforge_rti_receita"
-                        | "dartforge_rti_avaliar"
+                        | "dartforge_rti_recipe"
+                        | "dartforge_rti_eval"
                 );
                 let field = match name.as_str() {
-                    "dartforge_arc_ler_campo_ref_v1" => Some(true),
-                    "dartforge_arc_ler_campo_escalar_v1" => Some(false),
+                    "dartforge_arc_read_field_ref_v1" => Some(true),
+                    "dartforge_arc_read_field_scalar_v1" => Some(false),
                     _ => None,
                 };
                 let mut safe_field = false;
@@ -374,7 +374,7 @@ pub(super) fn prepare(
                 }
                 // Defining RTI may compact lists. Only the physical origin of
                 // non-list instances closes the layout obligation here.
-                let define_instance = name == "dartforge_rti_definir" && args.len() == 2 && {
+                let define_instance = name == "dartforge_rti_set" && args.len() == 2 && {
                     let o = origin(&args[0].0, &origins);
                     !o.unknown && !o.sites.is_empty() && o.sites.iter().all(|s|
                         i32::try_from(classes[s]).ok().is_some_and(|cid|
@@ -581,9 +581,9 @@ pub(super) fn prepare(
                         } else if checked_ref_write {
                             WRITE_CHECKED
                         } else if repr == Type::Ref {
-                            "dartforge_arc_gravar_campo_ref_v1"
+                            "dartforge_arc_write_field_ref_v1"
                         } else {
-                            "dartforge_arc_gravar_campo_escalar_v1"
+                            "dartforge_arc_write_field_scalar_v1"
                         }
                         .into(),
                         args,
@@ -613,9 +613,9 @@ pub(super) fn prepare(
                         name: if checked_scalar {
                             READ_SCALAR
                         } else if repr == Type::Ref {
-                            "dartforge_arc_ler_campo_ref_v1"
+                            "dartforge_arc_read_field_ref_v1"
                         } else {
-                            "dartforge_arc_ler_campo_escalar_v1"
+                            "dartforge_arc_read_field_scalar_v1"
                         }
                         .into(),
                         args,
@@ -755,15 +755,15 @@ mod tests {
             let f = &mut m.functions[0];
             f.params = vec![(ValueId(0), "closure".into(), Type::Ref)];
             let (name_str, args) = match case {
-                0 => ("dartforge_arc_contexto_closure_v1", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
-                1 => ("dartforge_arc_ler_campo_ref_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
+                0 => ("dartforge_arc_closure_context_v1", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
+                1 => ("dartforge_arc_read_field_ref_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
                 2 => ("opaca", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
-                3 => ("dartforge_arc_contexto_closure_v1", vec![(Operand::Val(ValueId(0)), Type::I64)]),
-                4 => ("dartforge_arc_objeto_owned_v1", vec![(Operand::Constant(Constant::Int(999)), Type::I64), (Operand::Constant(Constant::Int(1)), Type::I64)]),
-                5 => ("dartforge_arc_ler_campo_escalar_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
-                6 => ("dartforge_arc_excecao_owned_v1", vec![]),
-                8 => ("dartforge_arc_ler_campo_late_ref_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
-                _ => ("dartforge_arc_contexto_closure_v1", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
+                3 => ("dartforge_arc_closure_context_v1", vec![(Operand::Val(ValueId(0)), Type::I64)]),
+                4 => ("dartforge_arc_object_owned_v1", vec![(Operand::Constant(Constant::Int(999)), Type::I64), (Operand::Constant(Constant::Int(1)), Type::I64)]),
+                5 => ("dartforge_arc_read_field_scalar_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
+                6 => ("dartforge_arc_exception_owned_v1", vec![]),
+                8 => ("dartforge_arc_read_field_late_ref_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
+                _ => ("dartforge_arc_closure_context_v1", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
             };
             if case == 7 { f.params[0].2 = Type::I64; }
             f.blocks[0].instructions = vec![
@@ -777,7 +777,7 @@ mod tests {
             if case < 2 || case == 6 || case == 8 {
                 r.unwrap();
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1"));
+                assert!(ir.contains("call i64 @dartforge_arc_read_field_scalar_checked_v1"));
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
                 assert!(r.is_err(), "caso {case}");
@@ -812,7 +812,7 @@ mod tests {
             if valid_dest {
                 result.unwrap();
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                assert!(ir.contains("call void @dartforge_arc_gravar_campo_ref_conferido_v1"));
+                assert!(ir.contains("call void @dartforge_arc_write_field_ref_checked_v1"));
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
                 assert!(result.is_err());
@@ -881,7 +881,7 @@ mod tests {
                 *class_id = cid;
             }
             m.functions[0].blocks[0].instructions.extend([
-                (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_definir".into(), args: vec![
+                (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_set".into(), args: vec![
                     (Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64),
                 ], ret_ty: Type::Void }, Type::Void),
                 (ValueId(2), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
@@ -920,8 +920,8 @@ mod tests {
             ]);
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("call void @dartforge_arc_gravar_campo_escalar_conferido_v1"));
-            assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1"));
+            assert!(ir.contains("call void @dartforge_arc_write_field_scalar_checked_v1"));
+            assert!(ir.contains("call i64 @dartforge_arc_read_field_scalar_checked_v1"));
             assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             certify_arc_aot_ports(&mut m, &plans).unwrap();
             m.arc_field_layouts.insert(123, vec![Type::Ref]);
@@ -950,7 +950,7 @@ mod tests {
         assert!(m.functions[0].blocks[0].instructions.iter().any(|(_, i, _)|
             matches!(i, Instruction::ConstArray(v) if v == &vec![123, 1, 124, 2])));
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-        assert!(ir.contains("call void @dartforge_arc_gravar_campo_ref_conferido_v1"));
+        assert!(ir.contains("call void @dartforge_arc_write_field_ref_checked_v1"));
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         for case in 0..4 {
             let mut fs = m.functions.clone();
@@ -988,7 +988,7 @@ mod tests {
         let mut plans = HashMap::from([("campos".into(), plan)]);
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 0));
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-        let read = ir.find("call i64 @dartforge_arc_ler_campo_ref_v1").unwrap();
+        let read = ir.find("call i64 @dartforge_arc_read_field_ref_v1").unwrap();
         let retain = ir.find("call void @dartforge_arc_retain").unwrap();
         assert!(read < retain);
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
@@ -1017,7 +1017,7 @@ mod tests {
         for case in 0..5 {
             let (mut m, mut plans) = module(vec![Type::Ref], vec![Operand::Constant(Constant::Null)]);
             m.functions[0].params.push((ValueId(7), "filho".into(), Type::Ref));
-            let name_str = if case == 1 { "dartforge_arc_objeto_owned_v1" } else { "dartforge_object_new" };
+            let name_str = if case == 1 { "dartforge_arc_object_owned_v1" } else { "dartforge_object_new" };
             m.functions[0].blocks[0].instructions[0].1 = Instruction::CallRuntime {
                 name: name_str.into(), args: vec![
                     (Operand::Constant(Constant::Int(if case == 2 { 124 } else { 123 })), Type::I64),
@@ -1040,7 +1040,7 @@ mod tests {
             } else {
                 result.unwrap();
                 assert!(m.functions[0].blocks[0].instructions.iter().any(|(_, i, _)|
-                    matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_gravar_campo_ref_v1")));
+                    matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_write_field_ref_v1")));
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             }
         }
@@ -1223,7 +1223,7 @@ mod tests {
                     f.blocks[0].instructions.push((
                         ValueId(1),
                         Instruction::CallRuntime {
-                            name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                            name: "dartforge_arc_write_field_ref_v1".into(),
                             args: vec![
                                 (receiver.clone(), Type::Ref),
                                 (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -1467,11 +1467,11 @@ mod tests {
                 );
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 if case == 0 {
-                    assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %v4, i64 0)"));
+                    assert!(ir.contains("call i64 @dartforge_arc_read_field_scalar_v1(i64 %v4, i64 0)"));
                 } else {
                     // The null path is rejected by the physical guard, without
                     // invalidating the known representation of the other path.
-                    assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1(i64 %v4, i64 0,"));
+                    assert!(ir.contains("call i64 @dartforge_arc_read_field_scalar_checked_v1(i64 %v4, i64 0,"));
                 }
             }
         }

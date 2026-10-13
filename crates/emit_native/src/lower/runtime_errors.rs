@@ -200,7 +200,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// representation (1 `int`, 2 `bool`, 3 `Ref`, 4 `double`), or
     /// `dartforge_throw_with_stack_trace`. Under ARC, the value goes as a borrowed
     /// `Ref` (a scalar is boxed first) to
-    /// `dartforge_arc_lancar_ref_v1`/`…_com_rastro_ref_v1`, which publish the
+    /// `dartforge_arc_throw_ref_v1`/`…_com_rastro_ref_v1`, which publish the
     /// exception's own root, followed by the pending guard that the
     /// ARC preparation recognizes; the path without a pending exception is unreachable.
     pub fn emit_throw_value(&mut self, value: Operand, stack_trace: Option<Operand>) {
@@ -209,9 +209,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let (name, mut args) = match stack_trace {
                 Some(s) => {
                     let s = self.coerce(s, Type::Ref);
-                    ("dartforge_arc_lancar_com_rastro_ref_v1", vec![(s, Type::Ref)])
+                    ("dartforge_arc_throw_with_stack_trace_ref_v1", vec![(s, Type::Ref)])
                 }
-                None => ("dartforge_arc_lancar_ref_v1", Vec::new()),
+                None => ("dartforge_arc_throw_ref_v1", Vec::new()),
             };
             args.insert(0, (value, Type::Ref));
             self.emit(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Void }, Type::Void);

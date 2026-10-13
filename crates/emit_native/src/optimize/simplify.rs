@@ -65,7 +65,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
             let cid = match inst {
                 Instruction::AllocObject { class_id, .. } => i64::from(*class_id),
                 Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
-                    if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1") => match args.as_slice() {
+                    if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_object_owned_v1") => match args.as_slice() {
                         [(Operand::Constant(Constant::Int(cid)), Type::I64), (_, Type::I64)] => *cid,
                         _ => return None,
                     },
@@ -312,12 +312,12 @@ fn pure(inst: &Instruction) -> bool {
 /// §3.5) with no effect beyond its result: it is in one of the four effect
 /// tables (`llvm/ir_strings.rs`, `ir_boxes.rs`, `ir_lists.rs`,
 /// `ir_typed.rs`, read by `externs::effects_of`), does not throw and does not write
-/// to the heap (the `*_gravar*` ones write, even those that return a value). Those that
+/// to the heap (the `*_write*` ones write, even those that return a value). Those that
 /// allocate (boxes, strings, SIMD) are removable like an object allocation;
-/// `@df.texto_hash` only fills the hash cache.
+/// `@df.string_hash` only fills the hash cache.
 fn pure_helper(name: &str) -> bool {
     use crate::llvm::externs::{CONSERVATIVE, effects_of};
-    if !name.starts_with("df.") || name.contains("gravar") {
+    if !name.starts_with("df.") || name.contains("write") {
         return false;
     }
     let e = effects_of(name);

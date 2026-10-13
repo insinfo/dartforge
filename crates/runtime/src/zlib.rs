@@ -149,7 +149,7 @@ fn reject_dictionary(dictionary: i64) -> bool {
 /// `Filter_CreateZLibDeflate(gzip, level, windowBits, memLevel, strategy,
 /// dictionary, raw)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Filter_CreateZLibDeflate(
+pub extern "C" fn dartforge_native_Filter_CreateZLibDeflate(
     this: i64,
     gzip: u8,
     level: i64,
@@ -175,7 +175,7 @@ pub extern "C" fn dartforge_nativo_Filter_CreateZLibDeflate(
 
 /// `Filter_CreateZLibInflate(gzip, windowBits, dictionary, raw)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Filter_CreateZLibInflate(this: i64, _gzip: u8, _window_bits: i64, dictionary: i64, raw_value: u8) {
+pub extern "C" fn dartforge_native_Filter_CreateZLibInflate(this: i64, _gzip: u8, _window_bits: i64, dictionary: i64, raw_value: u8) {
     if reject_dictionary(dictionary) {
         return;
     }
@@ -203,7 +203,7 @@ fn throw_invalid_data() {
 
 /// `Filter_Process(data, start, end)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Filter_Process(this: i64, data: i64, start: i64, end: i64) {
+pub extern "C" fn dartforge_native_Filter_Process(this: i64, data: i64, start: i64, end: i64) {
     let Some(f) = zlib_filter(this) else { return throw_internal_error("zlib filter closed") };
     let bytes = bytes_from_int_list(data);
     let end = (end.max(0) as usize).min(bytes.len());
@@ -220,7 +220,7 @@ pub extern "C" fn dartforge_nativo_Filter_Process(this: i64, data: i64, start: i
 
 /// `Filter_Processed({flush, end})`: the available output, or `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Filter_Processed(this: i64, flush_out: u8, terminate: u8) -> i64 {
+pub extern "C" fn dartforge_native_Filter_Processed(this: i64, flush_out: u8, terminate: u8) -> i64 {
     let Some(f) = zlib_filter(this) else { return 0 };
     let out = match f {
         ZlibFilter::ZlibCompression(c) => {

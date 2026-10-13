@@ -49,7 +49,7 @@ fn main() -> Result<(), String> {
                     ),
                     (
                         ValueId(22),
-                        runtime("dartforge_arc_rastro_owned_v1", vec![], Type::Ref),
+                        runtime("dartforge_arc_stack_trace_owned_v1", vec![], Type::Ref),
                         Type::Ref,
                     ),
                     (
@@ -152,7 +152,7 @@ fn main() -> Result<(), String> {
                 vec![(
                     ValueId(1),
                     runtime(
-                        "dartforge_arc_lancar_com_rastro_ref_v1",
+                        "dartforge_arc_throw_with_stack_trace_ref_v1",
                         vec![(val(0), Type::Ref), (val(2), Type::Ref)],
                         Type::Void,
                     ),
@@ -249,7 +249,7 @@ fn main() -> Result<(), String> {
     catch.instructions = vec![
         (
             ValueId(10),
-            runtime("dartforge_arc_excecao_owned_v1", vec![], Type::Ref),
+            runtime("dartforge_arc_exception_owned_v1", vec![], Type::Ref),
             Type::Ref,
         ),
         (
@@ -259,7 +259,7 @@ fn main() -> Result<(), String> {
         ),
         (
             ValueId(23),
-            runtime("dartforge_arc_rastro_owned_v1", vec![], Type::Ref),
+            runtime("dartforge_arc_stack_trace_owned_v1", vec![], Type::Ref),
             Type::Ref,
         ),
         (

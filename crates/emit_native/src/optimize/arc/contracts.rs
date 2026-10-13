@@ -12,40 +12,40 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// Contracts of the prelude `@df.*` helpers that the lowering calls through
 /// `CallRuntime` (`llvm/ir_{boxes,strings,lists}.rs`). They are inline IR,
 /// outside the runtime catalog: they read scalar fields of the borrowed object
-/// (and, in `@df.texto_gravar`, write units of a string not yet
+/// (and, in `@df.string_write`, write units of a string not yet
 /// published), without allocating, retaining, throwing or calling Dart — what their
 /// effects (`HELPER_EFFECTS`) say and what the test
-/// `helpers_agree_with_effects` checks. `@df.tipada_base` borrows
+/// `helpers_agree_with_effects` checks. `@df.typed_base` borrows
 /// the base of the view, which it holds in an immutable edge. The derived
-/// addresses (`@df.tipada_dados`, `@df.nucleo_armazenamento`, read by
-/// `@df.nucleo_forma`) are scalars whose accesses `derived_set.rs` holds with
-/// `@df.manter_vivo(list)`; `@df.palavra_ref` (a `Ref` read from the
+/// addresses (`@df.typed_data`, `@df.core_storage`, read by
+/// `@df.core_shape`) are scalars whose accesses `derived_set.rs` holds with
+/// `@df.keep_alive(list)`; `@df.word_ref` (a `Ref` read from the
 /// storage) stays out: under ARC the lowering uses the Owned read.
 pub const HELPER_CONTRACTS: &[Contrato] = &[
     Contrato { nome: "df.bit_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.valor_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.identico", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.nucleo_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.nucleo_len_gravavel", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.texto_gravar", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar, ModoParametro::Scalar], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.texto_hash", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.texto_igual", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.texto_igual_a", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.texto_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.texto_unidade", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.smi_value", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.identical", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.core_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.core_len_writable", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.string_write", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar, ModoParametro::Scalar], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.string_hash", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.string_equals", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.string_equals_object", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.string_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.string_code_unit", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     // `num` in Ref as double: the path that is not Smi/Mint unboxes through the
     // runtime (a pending TypeError), as the marks of the helper say.
-    Contrato { nome: "df.num_para_double", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarF64, retencao_persistente: false, invalida_borrows: true, pode_falhar: true, chama_dart: false },
-    Contrato { nome: "df.tipada_base", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::BorrowArg(0), retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.tipada_bytes", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.tipada_cid", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.tipada_deslocamento", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.tipada_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.tipada_dados", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.nucleo_armazenamento", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.nucleo_forma", parametros: &[ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.manter_vivo", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
-    Contrato { nome: "df.tipada_len_gravavel", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.num_to_double", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarF64, retencao_persistente: false, invalida_borrows: true, pode_falhar: true, chama_dart: false },
+    Contrato { nome: "df.typed_base", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::BorrowArg(0), retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.typed_bytes", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.typed_cid", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.typed_offset", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.typed_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.typed_data", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.core_storage", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.core_shape", parametros: &[ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.keep_alive", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::Void, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.typed_len_writable", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
 ];
 
 /// The ownership contract of `name`: that of an IR helper
@@ -56,9 +56,9 @@ pub const HELPER_CONTRACTS: &[Contrato] = &[
 ///
 /// ```
 /// use dartforge_emit_native::optimize::arc::contract;
-/// assert!(contract("df.texto_len").is_ok());
-/// assert!(contract("dartforge_arc_lista_len_v1").is_ok());
-/// assert!(contract("df.palavra_ref").is_err());
+/// assert!(contract("df.string_len").is_ok());
+/// assert!(contract("dartforge_arc_list_len_v1").is_ok());
+/// assert!(contract("df.word_ref").is_err());
 /// ```
 pub fn contract(name_str: &str) -> Result<&'static Contrato, &'static str> {
     if let Some(base) = name_str.strip_prefix(super::NATIVE_SCOPE_PREFIX) {
@@ -85,7 +85,7 @@ pub fn contract(name_str: &str) -> Result<&'static Contrato, &'static str> {
 /// exists on the normal exit.
 #[cfg(test)]
 pub(super) const TEST_CONTRACTS: &[Contrato] = &[Contrato {
-    nome: "df.teste.campo_falivel",
+    nome: "df.test.fallible_field",
     parametros: &[ModoParametro::Borrow, ModoParametro::Scalar],
     resultado: ModoResultado::BorrowArg(0),
     retencao_persistente: false,
@@ -1009,7 +1009,7 @@ fn produce(
                     }
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
-                    name: "dartforge_arc_lista_nova_owned_v1".into(),
+                    name: "dartforge_arc_list_new_owned_v1".into(),
                     args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
                         (Operand::Constant(Constant::Int(elements.len() as i64)), Type::I64),
                         (Operand::Constant(Constant::Int(10)), Type::I64),
@@ -1034,7 +1034,7 @@ fn produce(
                     return Err(format!("v{}: record literal requires Ref fields in SSA", v.0));
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
-                    name: "dartforge_arc_record_novo_owned_v1".into(),
+                    name: "dartforge_arc_record_from_refs_owned_v1".into(),
                     args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
                         (Operand::Constant(Constant::Int(elements.len() as i64)), Type::I64)],
                     ret_ty: Type::Ref,
@@ -1058,7 +1058,7 @@ fn produce(
                     return Err(format!("v{}: interpolation without audited text/int parts", v.0));
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
-                    name: "dartforge_arc_string_juntar_owned_v1".into(),
+                    name: "dartforge_arc_string_join_owned_v1".into(),
                     args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
                         (Operand::Constant(Constant::Int(parts.len() as i64)), Type::I64)],
                     ret_ty: Type::Ref,
@@ -1160,7 +1160,7 @@ fn produce(
         if include_arc && let Instruction::NativeCall { alvo, args, ret } = inst {
             // Only scalars cross the C ABI (the HIR converts Pointer into an
             // address). A Dart callback may reenter, but the C exit clears
-            // the pending flag (`dartforge_ffi_callback_sair`): nothing stays pending.
+            // the pending flag (`dartforge_ffi_callback_exit`): nothing stays pending.
             let scalar = |op: &Operand| match op {
                 Operand::Val(arg) => types.get(arg).is_some_and(|t| *t != Type::Ref && *t != Type::Void),
                 Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => true,
@@ -1326,7 +1326,7 @@ pub struct RuntimeCallContract {
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, optimize::arc::{runtime_call_contract, Ownership}};
-/// let i = Instruction::CallRuntime { name: "dartforge_arc_quadro_carregar_v1".into(),
+/// let i = Instruction::CallRuntime { name: "dartforge_arc_frame_load_v1".into(),
 ///     args: vec![(Operand::Val(ValueId(0)), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I64)],
 ///     ret_ty: Type::Ref };
 /// assert_eq!(runtime_call_contract(&i)?.result, Ownership::Owned);
@@ -1482,19 +1482,19 @@ mod tests {
             assert!(c.parametros.iter().all(|m| matches!(m, ModoParametro::Borrow | ModoParametro::Scalar)));
         }
         // The Ref read from the storage and whatever allocates stay without a contract.
-        for name_str in ["df.palavra_ref", "df.texto_alocar"] {
+        for name_str in ["df.word_ref", "df.string_allocate"] {
             assert!(contract(name_str).is_err(), "{name_str}");
         }
         let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };
-        let text = rt("df.texto_igual_a", vec![(Operand::Val(ValueId(1)), Type::Ref), (Operand::Constant(Constant::Null), Type::Ref)], Type::I1);
+        let text = rt("df.string_equals_object", vec![(Operand::Val(ValueId(1)), Type::Ref), (Operand::Constant(Constant::Null), Type::Ref)], Type::I1);
         let c = runtime_call_contract(&text).unwrap();
         assert_eq!(c.result, Ownership::Trivial);
         assert!(!c.effect.may_fail && !c.invalidates_borrows);
-        let base = rt("df.tipada_base", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::Ref);
+        let base = rt("df.typed_base", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::Ref);
         assert_eq!(runtime_call_contract(&base).unwrap().result,
             Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(1)), scope: 0 });
         // A wrong width of the result is rejected.
-        let wrong = rt("df.texto_len", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::I8);
+        let wrong = rt("df.string_len", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::I8);
         assert!(runtime_call_contract(&wrong).is_err());
     }
 
@@ -1601,7 +1601,7 @@ mod tests {
             .unwrap();
         // The first throw may be the prologue guard, before creating
         // any token; the last one is the Throw exit of the prepared body.
-        let unwind = function.rfind("call void @df.lancar()").unwrap();
+        let unwind = function.rfind("call void @df.throw()").unwrap();
         assert!(release < unwind);
         assert_eq!(
             insert_arc_dart_exits(
@@ -2501,7 +2501,7 @@ mod tests {
     #[test]
     fn fallible_query_produces_scalar_only_on_normal_exit() {
         // The record queries do not fail; the address of the closure does.
-        for name_str in ["dartforge_ffi_endereco_da_closure"] {
+        for name_str in ["dartforge_ffi_closure_address"] {
             let mut f = Function {
                 symbol: "consulta_record".into(),
                 name: "consulta_record".into(),
@@ -3151,7 +3151,7 @@ mod tests {
                     (
                         ValueId(1),
                         Instruction::CallRuntime {
-                            name: "dartforge_arc_ler_campo_escalar_v1".into(),
+                            name: "dartforge_arc_read_field_scalar_v1".into(),
                             args: vec![
                                 (Operand::Val(ValueId(0)), Type::Ref),
                                 (Operand::Constant(Constant::Int(2)), Type::I64),
@@ -3205,7 +3205,7 @@ mod tests {
         assert!(plan.instructions.is_empty());
         // The scalar ABI does not accept being annotated as a producer of Ref.
         if let Instruction::CallRuntime { name, ret_ty, .. } = &mut f.blocks[0].instructions[0].1 {
-            *name = "dartforge_arc_ler_campo_escalar_v1".into();
+            *name = "dartforge_arc_read_field_scalar_v1".into();
             *ret_ty = Type::Ref;
         }
         f.blocks[0].instructions[0].2 = Type::Ref;
@@ -3545,8 +3545,8 @@ mod tests {
     #[test]
     fn owned_exception_has_independent_ref_result_without_new_failure() {
         for name_str in [
-            "dartforge_arc_excecao_owned_v1",
-            "dartforge_arc_rastro_owned_v1",
+            "dartforge_arc_exception_owned_v1",
+            "dartforge_arc_stack_trace_owned_v1",
         ] {
             let i = Instruction::CallRuntime {
                 name: name_str.into(),
@@ -3568,7 +3568,7 @@ mod tests {
     #[test]
     fn throw_with_trace_requires_two_ref_borrows_without_consuming_tokens() {
         let mut i = Instruction::CallRuntime {
-            name: "dartforge_arc_lancar_com_rastro_ref_v1".into(),
+            name: "dartforge_arc_throw_with_stack_trace_ref_v1".into(),
             args: vec![
                 (Operand::Val(ValueId(0)), Type::Ref),
                 (Operand::Val(ValueId(1)), Type::Ref),
@@ -3597,14 +3597,14 @@ mod tests {
             Constant::Function("getter".into()),
         ] {
             let i = Instruction::CallRuntime {
-                name: "dartforge_arc_quadro_abrir_v1".into(),
+                name: "dartforge_arc_frame_open_v1".into(),
                 args: vec![(Operand::Constant(k), Type::I64)],
                 ret_ty: Type::I64,
             };
             assert!(runtime_call_contract(&i).is_err());
         }
         let mut i = Instruction::CallRuntime {
-            name: "dartforge_marcar_constante".into(),
+            name: "dartforge_mark_constant".into(),
             args: vec![
                 (Operand::Constant(Constant::Null), Type::Ref),
                 (
@@ -3624,7 +3624,7 @@ mod tests {
     #[test]
     fn contracts_do_not_infer_ref_by_width_or_hide_tokens() {
         let mut i = Instruction::CallRuntime {
-            name: "dartforge_arc_global_receber_v1".into(),
+            name: "dartforge_arc_global_receive_v1".into(),
             args: vec![
                 (Operand::Val(ValueId(0)), Type::I64),
                 (Operand::Val(ValueId(1)), Type::Ref),
@@ -3648,7 +3648,7 @@ mod tests {
                 .always
                 .is_empty()
         );
-        for name_str in ["dartforge_arc_retain", "dartforge_alocar"] {
+        for name_str in ["dartforge_arc_retain", "dartforge_allocate"] {
             let i = Instruction::CallRuntime {
                 name: name_str.into(),
                 args: vec![],
@@ -3663,7 +3663,7 @@ mod tests {
         // The atomic load of the control does not touch the heap nor serve messages.
         // This does not certify the safepoint that runs the slow path.
         let i = Instruction::CallRuntime {
-            name: "dartforge_interrupcao_pendente".into(),
+            name: "dartforge_pending_interrupt".into(),
             args: vec![],
             ret_ty: Type::I8,
         };
@@ -3684,7 +3684,7 @@ mod tests {
         }
         assert!(runtime_call_contract(&wrong).is_err());
         let slow = runtime_call_contract(&Instruction::CallRuntime {
-            name: "dartforge_ponto_seguro".into(), args: vec![], ret_ty: Type::Void,
+            name: "dartforge_safepoint".into(), args: vec![], ret_ty: Type::Void,
         }).unwrap();
         assert!(slow.effect.may_fail && slow.invalidates_borrows && slow.calls_dart);
     }
@@ -3692,7 +3692,7 @@ mod tests {
     #[test]
     fn rti_define_borrows_object_without_turning_type_id_into_ref() {
         let i = Instruction::CallRuntime {
-            name: "dartforge_rti_definir".into(),
+            name: "dartforge_rti_set".into(),
             args: vec![(Operand::Val(ValueId(0)), Type::Ref),
                 (Operand::Val(ValueId(1)), Type::I64)], ret_ty: Type::Void,
         };
@@ -3718,7 +3718,7 @@ mod tests {
     #[test]
     fn abi_byte_is_not_i1_boolean() {
         let mut i = Instruction::CallRuntime {
-            name: "dartforge_arc_verificar_abi".into(),
+            name: "dartforge_arc_verify_abi".into(),
             args: vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
             ret_ty: Type::I8,
         };
@@ -3759,7 +3759,7 @@ mod tests {
 
     #[test]
     fn rti_recipe_borrows_string_and_returns_id_without_inventing_owned_ref() {
-        let i = Instruction::CallRuntime { name: "dartforge_rti_receita".into(),
+        let i = Instruction::CallRuntime { name: "dartforge_rti_recipe".into(),
             args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 };
         let c = runtime_call_contract(&i).unwrap();
         assert_eq!(c.result, Ownership::Trivial);
@@ -3822,7 +3822,7 @@ mod tests {
                 instructions: vec![(
                     ValueId(1),
                     Instruction::CallRuntime {
-                        name: "dartforge_arc_quadro_carregar_v1".into(),
+                        name: "dartforge_arc_frame_load_v1".into(),
                         args: vec![
                             (Operand::Val(ValueId(0)), Type::I64),
                             (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -3866,7 +3866,7 @@ mod tests {
                 instructions: vec![(
                     ValueId(0),
                     Instruction::CallRuntime {
-                        name: "dartforge_arc_quadro_carregar_v1".into(),
+                        name: "dartforge_arc_frame_load_v1".into(),
                         args: vec![
                             (Operand::Constant(Constant::Int(1)), Type::I64),
                             (Operand::Constant(Constant::Int(0)), Type::I64),

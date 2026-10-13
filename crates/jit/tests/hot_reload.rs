@@ -444,16 +444,16 @@ define i64 @df_fn_0() {{
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn changed_signature_gets_new_entry() {
     let v1 = "define i64 @df_fn_0() {\n  ret i64 1\n}\n\
-              define i64 @df_usa() {\n  %r = call i64 @df_fn_0()\n  ret i64 %r\n}\n";
+              define i64 @df_uses() {\n  %r = call i64 @df_fn_0()\n  ret i64 %r\n}\n";
     let v2 = |k: i64| {
         format!(
             "define i64 @df_fn_0(i64 %a) {{\n  %r = add i64 %a, {k}\n  ret i64 %r\n}}\n\
-             define i64 @df_usa() {{\n  %r = call i64 @df_fn_0(i64 5)\n  ret i64 %r\n}}\n"
+             define i64 @df_uses() {{\n  %r = call i64 @df_fn_0(i64 5)\n  ret i64 %r\n}}\n"
         )
     };
     let mut session = JitSession::new().expect("session");
     session.add_reloadable_module("app", v1).expect("generation 1");
-    let uses = session.stable_entry("df_usa").expect("entry");
+    let uses = session.stable_entry("df_uses").expect("entry");
     let old_value = session.stable_entry("df_fn_0").expect("entry");
     assert_eq!(uses.call(&session).unwrap(), 1);
 

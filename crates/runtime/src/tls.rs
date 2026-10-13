@@ -122,7 +122,7 @@ fn object_context(obj: i64) -> Option<SharedContext> {
     if p == 0 {
         return None;
     }
-    // SAFETY: the field holds an `Arc` from `DartForge_tls_contexto_novo`, alive
+    // SAFETY: the field holds an `Arc` from `DartForge_tls_context_new`, alive
     // until the object is collected; here one more reference is taken.
     unsafe {
         let a = p as *const std::sync::Mutex<TlsContext>;
@@ -150,7 +150,7 @@ fn string_or_null(r: Result<(), String>) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_novo(this: i64) {
+pub extern "C" fn dartforge_native_DartForge_tls_context_new(this: i64) {
     let c: SharedContext = std::sync::Arc::new(std::sync::Mutex::new(TlsContext::new()));
     let p = std::sync::Arc::into_raw(c) as i64;
     attach_finalizer(this, free_tls_context, p as usize);
@@ -160,7 +160,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_novo(this: i64) {
 /// `usePrivateKeyBytes`: whether there was a key (formats in `tls_formats.rs`);
 /// without it, Dart throws the VM's `ArgumentError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_chave(this: i64, bytes: i64, password: i64) -> u8 {
+pub extern "C" fn dartforge_native_DartForge_tls_context_key(this: i64, bytes: i64, password: i64) -> u8 {
     let b = typed_list_bytes(bytes).unwrap_or_default();
     let password = String::from_utf8_lossy(&utf8_of_string(password)).into_owned();
     match key_of(&b, &password) {
@@ -178,7 +178,7 @@ fn password_of(password: i64) -> String {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_confiaveis(this: i64, bytes: i64, password: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_context_trusted(this: i64, bytes: i64, password: i64) -> i64 {
     let b = typed_list_bytes(bytes).unwrap_or_default();
     string_or_null(certificates_of(&b, &password_of(password)).map(|certs| {
         with_context(this, |c| {
@@ -189,7 +189,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_confiaveis(this: i64, 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_cadeia(this: i64, bytes: i64, password: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_context_chain(this: i64, bytes: i64, password: i64) -> i64 {
     let b = typed_list_bytes(bytes).unwrap_or_default();
     string_or_null(certificates_of(&b, &password_of(password)).map(|certs| {
         with_context(this, |c| c.chain = certs);
@@ -197,7 +197,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_cadeia(this: i64, byte
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_autoridades(this: i64, bytes: i64, password: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_context_authorities(this: i64, bytes: i64, password: i64) -> i64 {
     let b = typed_list_bytes(bytes).unwrap_or_default();
     string_or_null(certificates_of(&b, &password_of(password)).map(|certs| {
         with_context(this, |c| c.authorities.extend(certs));
@@ -205,7 +205,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_autoridades(this: i64,
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_alpn(this: i64, bytes: i64, tls_server: u8) {
+pub extern "C" fn dartforge_native_DartForge_tls_context_alpn(this: i64, bytes: i64, tls_server: u8) {
     let protocols = protocols_of(&typed_list_bytes(bytes).unwrap_or_default());
     with_context(this, |c| {
         if tls_server != 0 {
@@ -217,7 +217,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_alpn(this: i64, bytes:
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_raizes_embutidas(this: i64) {
+pub extern "C" fn dartforge_native_DartForge_tls_context_builtin_roots(this: i64) {
     with_context(this, |c| {
         c.builtin_roots = true;
         c.roots = None;
@@ -225,12 +225,12 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_raizes_embutidas(this:
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_definir_versao_minima(this: i64, version: i64) {
+pub extern "C" fn dartforge_native_DartForge_tls_context_set_min_version(this: i64, version: i64) {
     with_context(this, |c| c.min_version = version);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_versao_minima(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_context_min_version(this: i64) -> i64 {
     with_context(this, |c| c.min_version).unwrap_or(TLS_DEFAULT_MIN_VERSION)
 }
 
@@ -331,7 +331,7 @@ impl rustls::client::danger::ServerCertVerifier for DartVerifier {
 }
 
 /// The `SecureSocket`'s `keyLog`: each line in NSS format is kept until Dart takes
-/// it to its port (`DartForge_tls_filtro_chaves_pendentes`).
+/// it to its port (`DartForge_tls_filter_pending_keys`).
 #[derive(Debug, Default)]
 struct KeyRegistry(std::sync::Mutex<Vec<String>>);
 
@@ -361,7 +361,7 @@ fn object_filter<'a>(obj: i64) -> Option<&'a mut TlsFilter> {
     if p == 0 {
         return None;
     }
-    // SAFETY: the field holds the `Box` from `DartForge_tls_filtro_novo`, used only
+    // SAFETY: the field holds the `Box` from `DartForge_tls_filter_new`, used only
     // by the owning isolate's thread, and alive until `destroy` or collection.
     Some(unsafe { &mut *(p as *mut TlsFilter) })
 }
@@ -372,7 +372,7 @@ fn free_tls_filter(p: usize) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_novo(this: i64) {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_new(this: i64) {
     let f = Box::new(TlsFilter {
         connection: None,
         tls_server: false,
@@ -387,7 +387,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_novo(this: i64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_destruir(this: i64) {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_destroy(this: i64) {
     let p = native_field(this);
     if p != 0 {
         remove_finalizer(this);
@@ -398,7 +398,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_destruir(this: i64) {
 
 /// `registerKeyLogPort`: the session keys start being logged.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_registrar_chaves(this: i64) {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_register_keys(this: i64) {
     if let Some(f) = object_filter(this) {
         f.keys = Some(std::sync::Arc::default());
     }
@@ -406,7 +406,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_registrar_chaves(this: i
 
 /// The `keyLog` lines since the last call, separated by `\n`, or `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_chaves_pendentes(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_pending_keys(this: i64) -> i64 {
     let line_list = object_filter(this)
         .and_then(|f| f.keys.as_ref().map(|c| std::mem::take(&mut *c.0.lock().unwrap_or_else(|e| e.into_inner()))))
         .unwrap_or_default();
@@ -416,7 +416,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_chaves_pendentes(this: i
 /// `SecureSocket_Connect`: sets up the rustls connection. `null`, or the error text
 /// (Dart throws the `TlsException`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_conectar(
+pub extern "C" fn dartforge_native_DartForge_tls_filter_connect(
     this: i64,
     host: i64,
     contexto: i64,
@@ -515,9 +515,9 @@ fn connect_server(
 
 /// The VM's `SSLFilter::Handshake`: 0 in progress, 1 just finished (Dart calls
 /// `handshakeCompleteHandler`), 16 the certificate waits for Dart's decision, -1
-/// error (`DartForge_tls_filtro_erro`).
+/// error (`DartForge_tls_filter_error`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_handshake(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_handshake(this: i64) -> i64 {
     let Some(f) = object_filter(this) else { return -1 };
     if f.error.is_some() {
         return -1;
@@ -540,7 +540,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_handshake(this: i64) -> 
 
 /// The error text (the `OS Error`), or `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_erro(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_error(this: i64) -> i64 {
     match object_filter(this).and_then(|f| f.error.clone()) {
         Some(e) => allocate_str(&e),
         None => 0,
@@ -549,7 +549,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_erro(this: i64) -> i64 {
 
 /// The certificate waiting for the decision, for `onBadCertificate`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_certificado_pendente(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_pending_certificate(this: i64) -> i64 {
     let Some(f) = object_filter(this) else { return 0 };
     let v = f.verification.lock().unwrap_or_else(|e| e.into_inner());
     v.pending.as_ref().map_or(0, |(c, _)| x509_new(c.clone()))
@@ -557,7 +557,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_certificado_pendente(thi
 
 /// `_markAsTrusted`: Dart's decision about the pending certificate.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_decidir(this: i64, trusted_one: u8) {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_decide(this: i64, trusted_one: u8) {
     let Some(f) = object_filter(this) else { return };
     let mut v = f.verification.lock().unwrap_or_else(|e| e.into_inner());
     let Some((_, reason)) = v.pending.take() else { return };
@@ -570,7 +570,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_decidir(this: i64, trust
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_protocolo(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_protocol(this: i64) -> i64 {
     match object_filter(this).and_then(|f| f.connection.as_ref()?.alpn_protocol().map(<[u8]>::to_vec)) {
         Some(p) => dart_string_from_bytes(&p),
         None => 0,
@@ -578,7 +578,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_protocolo(this: i64) -> 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_certificado_do_par(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_filter_peer_certificate(this: i64) -> i64 {
     let Some(f) = object_filter(this) else { return 0 };
     match f.connection.as_ref().and_then(|c| c.peer_certificates()).and_then(|c| c.first()) {
         Some(c) => x509_new(c.clone().into_owned()),
@@ -649,9 +649,9 @@ fn ring_fill(buf: &mut [u8], start: usize, end: &mut usize, f: &mut dyn FnMut(&m
 /// The VM's `ProcessAllBuffers` over the four rings (`b0`…`b3`, the `Uint8List`s of
 /// the `_ExternalBuffer`s) and the positions (`pos`, an `Int64List` with
 /// `[start, end]` of each ring, updated in place). 0, or the code of the fatal
-/// error after the handshake (the text in `DartForge_tls_filtro_erro`).
+/// error after the handshake (the text in `DartForge_tls_filter_error`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
+pub extern "C" fn dartforge_native_DartForge_tls_filter_process(
     this: i64,
     in_handshake: u8,
     b0: i64,
@@ -781,7 +781,7 @@ unsafe fn typed_bytes_mut_of<'a>(h: i64) -> &'a mut [u8] {
 type X509Certificate = std::sync::Arc<rustls::pki_types::CertificateDer<'static>>;
 
 /// A pointer with one reference to the certificate, for Dart to adopt
-/// (`DartForge_tls_x509_adotar`).
+/// (`DartForge_tls_x509_adopt`).
 fn x509_new(c: rustls::pki_types::CertificateDer<'static>) -> i64 {
     std::sync::Arc::into_raw(X509Certificate::new(c)) as i64
 }
@@ -792,7 +792,7 @@ fn free_x509(p: usize) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_adotar(this: i64, p: i64) {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_adopt(this: i64, p: i64) {
     if p != 0 {
         attach_finalizer(this, free_x509, p as usize);
         write_native_field(this, p);
@@ -809,12 +809,12 @@ fn x509_der(this: i64) -> Vec<u8> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_der(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_der(this: i64) -> i64 {
     dart_bytes(x509_der(this))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_pem(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_pem(this: i64) -> i64 {
     let b64 = base64_standard(&x509_der(this));
     let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
     for line in b64.as_bytes().chunks(64) {
@@ -826,31 +826,31 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_x509_pem(this: i64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_sha1(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_sha1(this: i64) -> i64 {
     let d = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, &x509_der(this));
     dart_bytes(d.as_ref().to_vec())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_sujeito(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_subject(this: i64) -> i64 {
     let der = x509_der(this);
     allocate_str(&x509_fields(&der).map(|c| x509_name(c.subject)).unwrap_or_default())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_emissor(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_issuer(this: i64) -> i64 {
     let der = x509_der(this);
     allocate_str(&x509_fields(&der).map(|c| x509_name(c.emitter)).unwrap_or_default())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_inicio(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_start(this: i64) -> i64 {
     let der = x509_der(this);
     x509_fields(&der).and_then(|c| x509_instant(c.start)).unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_x509_fim(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_tls_x509_end(this: i64) -> i64 {
     let der = x509_der(this);
     x509_fields(&der).and_then(|c| x509_instant(c.end)).unwrap_or(0)
 }

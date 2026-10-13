@@ -14,7 +14,7 @@
 //! (*inline cache*). The selector is identified by the 64-bit FNV-1a hash of its
 //! text (`c:m`, `g:x`, `s:x`; private ones with `@library`), the same in
 //! any module, without a combined numbering. The class registers its table at
-//! startup (`dartforge_registrar_metodos`).
+//! startup (`dartforge_register_methods`).
 
 use super::LlvmEmitter;
 use crate::hir::*;
@@ -40,7 +40,7 @@ pub(super) fn llvm_bytes(s: &str) -> String {
 
 impl LlvmEmitter<'_> {
     /// `%v = recv.<selector>(args)`: the entry comes from
-    /// `dartforge_seletor(cache, recv, hash, name, n)` — the call-site cache
+    /// `dartforge_selector(cache, recv, hash, name, n)` — the call-site cache
     /// (class id, entry), the lookup in the class table on a miss,
     /// and the `NoSuchMethodError` entry when the class does not have the member.
     pub(super) fn emit_selector_call(
@@ -77,11 +77,11 @@ impl LlvmEmitter<'_> {
         if self.compact_selector {
             // The hash, the name and the length in a static descriptor
             // (`@df.seld.<k>`): three arguments instead of five.
-            writeln!(self.out, "  %sf{v} = call ptr @df.seletor_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
+            writeln!(self.out, "  %sf{v} = call ptr @df.selector_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
         } else {
             writeln!(
                 self.out,
-                "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{name}, i64 {})",
+                "  %sf{v} = call ptr @df.selector(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{name}, i64 {})",
                 selector.len()
             )
             .unwrap();
@@ -90,7 +90,7 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr %sargs{v} to i64").unwrap();
             writeln!(self.out, "  %sdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
         } else {
             writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @df.arr.{k})").unwrap();
         }
@@ -125,11 +125,11 @@ impl LlvmEmitter<'_> {
         if self.compact_selector {
             // The hash, the name and the length in a static descriptor
             // (`@df.seld.<k>`): three arguments instead of five.
-            writeln!(self.out, "  %sf{v} = call ptr @df.seletor_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
+            writeln!(self.out, "  %sf{v} = call ptr @df.selector_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
         } else {
             writeln!(
                 self.out,
-                "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{name}, i64 {})",
+                "  %sf{v} = call ptr @df.selector(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{name}, i64 {})",
                 selector.len()
             )
             .unwrap();
@@ -140,7 +140,7 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr {a} to i64").unwrap();
             writeln!(self.out, "  %sdv{v} = ptrtoint ptr {d} to i64").unwrap();
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
         } else {
             writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr {a}, ptr {d})").unwrap();
         }
@@ -149,7 +149,7 @@ impl LlvmEmitter<'_> {
     /// The names of the call-trace functions (`DARTFORGE_RASTRO=1`).
     pub(super) fn emit_stack_trace_names(&mut self) {
         for (k, s) in std::mem::take(&mut self.stack_trace_names).iter().enumerate() {
-            writeln!(self.out, "@df.rastro.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
+            writeln!(self.out, "@df.call_trace.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
         }
 
     }
@@ -188,7 +188,7 @@ impl LlvmEmitter<'_> {
         let module = self.module;
         let mut body = String::new();
         if module.arc_aot_ports.is_some() {
-            body.push_str("  call void @df.arc.registrar_portas()\n");
+            body.push_str("  call void @df.arc.register_ports()\n");
         }
         for class in &module.classes {
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
@@ -210,7 +210,7 @@ impl LlvmEmitter<'_> {
         if self.static_objects {
             let (globals, start, end) = crate::alvo::image_markers();
             self.out.push_str(&globals);
-            writeln!(body, "  call void @dartforge_registrar_imagem(ptr {start}, ptr {end})").unwrap();
+            writeln!(body, "  call void @dartforge_register_image(ptr {start}, ptr {end})").unwrap();
         }
         // Roots by maps: the stack maps of the image this module
         // was linked into (the registration is idempotent, per image), in its
@@ -231,7 +231,7 @@ impl LlvmEmitter<'_> {
             let runtime_trace = module.sdk_library && module.classes.iter()
                 .any(|cls| cls.id == *cid && cls.name == "_StackTrace");
             if !module.sdk_library || runtime_trace {
-                writeln!(body, "  call void @dartforge_registrar_tabela(i64 {cid}, ptr @{symbol})").unwrap();
+                writeln!(body, "  call void @dartforge_register_table(i64 {cid}, ptr @{symbol})").unwrap();
                 if self.tables_at_link {
                     self.annotate_external(symbol, Type::Ptr, &[]);
                 }
@@ -247,7 +247,7 @@ impl LlvmEmitter<'_> {
             .unwrap();
             writeln!(
                 body,
-                "  call void @dartforge_registrar_ajudante(ptr @df.ajn.{k}, i64 {}, ptr @{symbol})",
+                "  call void @dartforge_register_helper(ptr @df.ajn.{k}, i64 {}, ptr @{symbol})",
                 name.len()
             )
             .unwrap();
@@ -255,14 +255,14 @@ impl LlvmEmitter<'_> {
         for (k, name) in self.argument_names.iter().enumerate() {
             writeln!(
                 self.out,
-                "@df.nomearg.{k} = private unnamed_addr constant [{} x i8] c\"{}\"",
+                "@df.argname.{k} = private unnamed_addr constant [{} x i8] c\"{}\"",
                 name.len(),
                 llvm_bytes(name)
             )
             .unwrap();
             writeln!(
                 body,
-                "  call void @dartforge_registrar_nome_de_argumento(ptr @df.nomearg.{k}, i64 {})",
+                "  call void @dartforge_register_argument_name(ptr @df.argname.{k}, i64 {})",
                 name.len()
             )
             .unwrap();
@@ -294,9 +294,9 @@ impl LlvmEmitter<'_> {
             self.out,
             "define i64 @dartforge_dispatch_toString(i64 %obj) {{\nb0:\n  %a = alloca [1 x i64]\n  \
              store i64 0, ptr %a\n  \
-             %area = call ptr @df.obter_area()\n  \
+             %area = call ptr @df.get_area()\n  \
              %ic = getelementptr i64, ptr %area, i64 {slot}\n  \
-             %f = call ptr @df.seletor(ptr %ic, i64 %obj, i64 {h}, ptr @df.seln.{name}, i64 {})\n  \
+             %f = call ptr @df.selector(ptr %ic, i64 %obj, i64 {h}, ptr @df.seln.{name}, i64 {})\n  \
              %r = call i64 %f(i64 %obj, ptr %a, ptr @df.arr.{k})\n  ret i64 %r\n}}\n",
             s.len()
         )
@@ -374,7 +374,7 @@ impl LlvmEmitter<'_> {
                 self.out,
                 "define internal i64 @{name}({params}) {{\n\
                  entrada:\n\
-                 \x20 %e = call i64 @dartforge_arc_escopo_nativo_abrir_v1()\n\
+                 \x20 %e = call i64 @dartforge_arc_native_scope_open_v1()\n\
                  \x20 %r = call i64 @{base}({params})\n\
                  \x20 %p = call i8 @dartforge_exception_pending()\n\
                  \x20 %z = icmp ne i8 %p, 0\n\
@@ -384,7 +384,7 @@ impl LlvmEmitter<'_> {
                  \x20 br label %fim\n\
                  fim:\n\
                  \x20 %res = phi i64 [ 0, %entrada ], [ %r, %ok ]\n\
-                 \x20 call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %e)\n\
+                 \x20 call void @dartforge_arc_native_scope_close_v1(i64 %e)\n\
                  \x20 ret i64 %res\n\
                  }}\n"
             );
@@ -409,9 +409,9 @@ impl LlvmEmitter<'_> {
                 self.out,
                 "define internal {r} @{name}({params}) {{\n\
                  entrada:\n\
-                 \x20 %e = call i64 @dartforge_arc_escopo_nativo_abrir_v1()\n\
+                 \x20 %e = call i64 @dartforge_arc_native_scope_open_v1()\n\
                  \x20 {call}\n\
-                 \x20 call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %e)\n\
+                 \x20 call void @dartforge_arc_native_scope_close_v1(i64 %e)\n\
                  \x20 {ret_val}\n\
                  }}\n"
             );
@@ -451,8 +451,8 @@ impl LlvmEmitter<'_> {
             }
             // What the emitter itself writes (`dartforge_dispatch_toString`,
             // `dartforge_entry`, the registrations) is not external.
-            if (symbol.starts_with("dartforge_") && !symbol.starts_with("dartforge_nativo_"))
-                || symbol == "df.registrar.programa"
+            if (symbol.starts_with("dartforge_") && !symbol.starts_with("dartforge_native_"))
+                || symbol == "df.register.program"
             {
                 continue;
             }

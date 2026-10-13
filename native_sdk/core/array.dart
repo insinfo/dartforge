@@ -297,7 +297,7 @@ class _ArrayIterator<E> implements Iterator<E> {
 
 // DartForge: preenche os `length` elementos de uma lista do runtime com
 // `valor` (`_List.filled` e `_GrowableList.filled`).
-@pragma("vm:external-name", "DartForge_List_preencher")
+@pragma("vm:external-name", "DartForge_List_fill")
 external void _preencherLista(Object lista, Object valor);
 
 // DartForge: copia os `n` primeiros elementos de `origem` para os `n`
@@ -306,5 +306,5 @@ external void _preencherLista(Object lista, Object valor);
 // o `E` dela e `origem` só tem elementos desse `E` (quem chama garante),
 // então nada é conferido; os elementos passam sem caixa, e entre duas
 // listas escalares compactas (N14) os bits passam direto.
-@pragma("vm:external-name", "DartForge_List_copiar")
+@pragma("vm:external-name", "DartForge_List_copy")
 external void _copiarElementos(Object destino, Object origem, int n);

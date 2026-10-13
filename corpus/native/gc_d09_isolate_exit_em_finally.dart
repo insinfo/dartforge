@@ -3,7 +3,7 @@
 // runtime (`Function.apply`, pela porta `dart_r3`) ainda em curso. O
 // `Isolate.exit` não é capturável: manda a mensagem e encerra o isolado, e a
 // exceção pendente se perde. Com as exceções por tabelas, a saída do isolado
-// sobe de pouso em pouso por `@df.lancar` até a porta de `rodar_isolado`.
+// sobe de pouso em pouso por `@df.throw` até a porta de `rodar_isolado`.
 //
 // Saída: 870
 

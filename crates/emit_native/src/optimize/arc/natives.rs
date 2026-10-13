@@ -23,8 +23,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         };
         // The pending exception and stack trace with an owner independent of `clear`.
         let pending = match name.as_str() {
-            "dartforge_exception_peek_ref" => Some("dartforge_arc_excecao_owned_v1"),
-            "dartforge_stack_trace_get" => Some("dartforge_arc_rastro_owned_v1"),
+            "dartforge_exception_peek_ref" => Some("dartforge_arc_exception_owned_v1"),
+            "dartforge_stack_trace_get" => Some("dartforge_arc_stack_trace_owned_v1"),
             _ => None,
         };
         if let Some(owned) = pending {
@@ -46,7 +46,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
                 return Err(format!("ARC field read in {} v{}: incompatible ABI", f.symbol, v.0));
             }
             // Ref: a borrow of the receiver, without retention.
-            *name = if *ret_ty == Type::Ref { "dartforge_arc_ler_campo_ref_v1" } else { "dartforge_arc_ler_campo_escalar_v1" }.into();
+            *name = if *ret_ty == Type::Ref { "dartforge_arc_read_field_ref_v1" } else { "dartforge_arc_read_field_scalar_v1" }.into();
             continue;
         }
         if name == "dartforge_object_set" {
@@ -56,16 +56,16 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
                 return Err(format!("ARC field write in {} v{}: incompatible ABI or mark", f.symbol, v.0));
             };
             let (name_str, repr) = if *mark == 1 {
-                ("dartforge_arc_gravar_campo_ref_v1", Type::Ref)
+                ("dartforge_arc_write_field_ref_v1", Type::Ref)
             } else {
-                ("dartforge_arc_gravar_campo_escalar_v1", Type::I64)
+                ("dartforge_arc_write_field_scalar_v1", Type::I64)
             };
             *args = vec![(object.clone(), Type::Ref), (index.clone(), Type::I64), (value.clone(), repr)];
             *name = name_str.into();
             continue;
         }
-        // The new string (`@df.texto_alocar`) with a code owner.
-        if name == "df.texto_alocar" {
+        // The new string (`@df.string_allocate`) with a code owner.
+        if name == "df.string_allocate" {
             let [(len, Type::I64), (Operand::Constant(Constant::Bool(two)), Type::I1)] = args.as_slice() else {
                 return Err(format!("ARC text allocation in {} v{}: incompatible ABI", f.symbol, v.0));
             };
@@ -73,7 +73,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
                 return Err(format!("ARC text allocation in {} v{}: non-Ref result", f.symbol, v.0));
             }
             *args = vec![(len.clone(), Type::I64), (Operand::Constant(Constant::Int(i64::from(*two))), Type::I64)];
-            *name = "dartforge_arc_texto_novo_owned_v1".into();
+            *name = "dartforge_arc_string_allocate_owned_v1".into();
             continue;
         }
         // The runtime error constructors: the Owned variant (the
@@ -95,7 +95,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = format!("dartforge_arc_{base}_owned_v1");
             continue;
         }
-        if name == "df.lista_len" {
+        if name == "df.list_len" {
             if *ty != Type::I64
                 || *ret_ty != Type::I64
                 || !matches!(args.as_slice(), [(_, Type::Ref)])
@@ -105,14 +105,14 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
                     f.symbol, v.0
                 ));
             }
-            *name = "dartforge_arc_lista_len_v1".into();
+            *name = "dartforge_arc_list_len_v1".into();
             continue;
         }
         // FFI callback: the context closure and the argument's `Pointer`
         // get a code owner, through the Owned port in the pointer case.
         let callback = match name.as_str() {
             "dartforge_ffi_callback_closure" => Some(("dartforge_arc_ffi_callback_closure_owned_v1", 1)),
-            "dartforge_ffi_callback_ponteiro" => Some(("dartforge_arc_ffi_callback_ponteiro_owned_v1", 3)),
+            "dartforge_ffi_callback_pointer" => Some(("dartforge_arc_ffi_callback_pointer_owned_v1", 3)),
             _ => None,
         };
         if let Some((owned, n)) = callback {
@@ -125,8 +125,8 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         // The object of a `Handle`: a callback argument or the return of a
         // native call (read before closing the cell scope).
         let handle = match name.as_str() {
-            "dartforge_ffi_objeto_do_handle" => Some(("dartforge_arc_ffi_objeto_do_handle_owned_v1", 1)),
-            "dartforge_ffi_handles_fechar_com_objeto" => Some(("dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1", 2)),
+            "dartforge_ffi_handle_object" => Some(("dartforge_arc_ffi_handle_object_owned_v1", 1)),
+            "dartforge_ffi_handles_close_with_object" => Some(("dartforge_arc_ffi_handles_close_with_object_owned_v1", 2)),
             _ => None,
         };
         if let Some((owned, n)) = handle {
@@ -138,16 +138,16 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
         }
         // The `Pointer` returned by a native call: an address and a borrowed
         // closure, with a code owner through the helper's Owned port.
-        if name == "dartforge_ffi_ponteiro_de_retorno" {
+        if name == "dartforge_ffi_return_pointer" {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64), (_, Type::Ref)]) {
                 return Err(format!("ARC return pointer in {} v{}: incompatible I64,Ref/Ref ABI", f.symbol, v.0));
             }
-            *name = "dartforge_arc_ffi_ponteiro_de_retorno_owned_v1".into();
+            *name = "dartforge_arc_ffi_return_pointer_owned_v1".into();
             continue;
         }
         let rti = match name.as_str() {
-            "dartforge_rti_texto" => Some("dartforge_arc_rti_texto_owned_v1"),
-            "dartforge_rti_objeto_tipo" => Some("dartforge_arc_rti_objeto_tipo_owned_v1"),
+            "dartforge_rti_string" => Some("dartforge_arc_rti_string_owned_v1"),
+            "dartforge_rti_object_type" => Some("dartforge_arc_rti_object_type_owned_v1"),
             _ => None,
         };
         if let Some(owned) = rti {
@@ -157,7 +157,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             *name = owned.into();
             continue;
         }
-        if name == "dartforge_nativo_Socket_RecvFrom" {
+        if name == "dartforge_native_Socket_RecvFrom" {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::Ref)])
             {
                 return Err(format!(
@@ -211,25 +211,25 @@ pub(crate) const ERRORS_WITH_ARC_VARIANT: &[&str] = &[
 /// constructors called by the lowering. Field reads, object allocation and
 /// the native-address ones have their own producers.
 fn generic_owned(name_str: &str) -> bool {
-    name_str.starts_with("dartforge_nativo_")
+    name_str.starts_with("dartforge_native_")
         || matches!(
             name_str,
             "dartforge_collection_mark_unmodifiable"
-                | "dartforge_constante_canonica"
-                | "dartforge_encaminhar_nsm"
-                | "dartforge_ffi_composto"
-                | "dartforge_ffi_composto_copia"
-                | "dartforge_ffi_composto_novo"
-                | "dartforge_ffi_ponteiro_novo"
-                | "dartforge_lista_de_tabela"
-                | "dartforge_lista_de_tabela_g"
-                | "dartforge_rastro_texto"
+                | "dartforge_canonical_constant"
+                | "dartforge_forward_nsm"
+                | "dartforge_ffi_compound"
+                | "dartforge_ffi_compound_copy"
+                | "dartforge_ffi_compound_new"
+                | "dartforge_ffi_pointer_new"
+                | "dartforge_list_from_table"
+                | "dartforge_list_from_table_g"
+                | "dartforge_stack_trace_string"
                 | "dartforge_string_concat"
                 | "dartforge_to_string_bool"
                 | "dartforge_to_string_f64"
-                | "dartforge_typed_externo"
-                | "dartforge_typed_novo"
-                | "dartforge_view_nova"
+                | "dartforge_typed_external"
+                | "dartforge_typed_new"
+                | "dartforge_view_new"
         )
 }
 
@@ -273,7 +273,7 @@ mod tests {
                 assert_eq!(plans["seletor"].tokens.pendings[&ValueId(2)], BlockId(1));
                 certify_arc_aot_ports(&mut m, &plans).unwrap();
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                assert!(ir.contains("call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc2"));
+                assert!(ir.contains("call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc2"));
                 assert!(!ir.contains("call i64 %sf2("));
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
@@ -297,7 +297,7 @@ mod tests {
             m.functions.push(Function { symbol: "getter".into(), name: "getter".into(), debug_info: None,
                 params: vec![], return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
                     (ValueId(0), Instruction::Const(Constant::String("C201".into())), Type::Ref),
-                    (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_receita".into(),
+                    (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_recipe".into(),
                         args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
                     (ValueId(2), Instruction::StoreGlobal { symbol: "cache".into(), val: Operand::Val(ValueId(1)),
                         ty: Type::I64, root: None }, Type::Void),
@@ -327,7 +327,7 @@ mod tests {
                     assert_eq!(plans["seletor"].classes[&ValueId(2)], Ownership::Owned);
                     certify_arc_aot_ports(&mut m, &plans).unwrap();
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                    assert!(ir.contains("call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc2"));
+                    assert!(ir.contains("call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc2"));
                 }
                 3 => {
                     assert_eq!(r.unwrap(), (0, 0));
@@ -367,14 +367,14 @@ mod tests {
                 r.unwrap();
                 assert_eq!(plans["literal"].classes[&ValueId(1)], Ownership::Owned);
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                assert!(ir.contains("call i64 @dartforge_arc_lista_nova_owned_v1(ptr %list_buf_1"));
+                assert!(ir.contains("call i64 @dartforge_arc_list_new_owned_v1(ptr %list_buf_1"));
                 if case == 1 { assert!(ir.contains("store i8 3") && ir.contains("store i8 4")); }
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
                 if case == 7 {
                     assert_eq!(r.unwrap(), (0, 0));
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                    assert!(ir.contains("call i64 @dartforge_lista_nova(ptr %list_buf_1"));
+                    assert!(ir.contains("call i64 @dartforge_list_new(ptr %list_buf_1"));
                 } else { assert!(r.is_err(), "caso {case}"); }
                 assert_eq!(format!("{m:?}"), before);
                 assert_eq!(plans, ps);
@@ -410,14 +410,14 @@ mod tests {
                     r.unwrap();
                     assert_eq!(plans["juntar"].classes[&ValueId(2)], Ownership::Owned);
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                    assert!(ir.contains("call i64 @dartforge_arc_string_juntar_owned_v1(ptr %jbuf2, i64 4)"));
-                    assert!(!ir.contains("call i64 @dartforge_string_juntar_tipado("));
+                    assert!(ir.contains("call i64 @dartforge_arc_string_join_owned_v1(ptr %jbuf2, i64 4)"));
+                    assert!(!ir.contains("call i64 @dartforge_string_join_typed("));
                     assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 }
                 6 => {
                     assert_eq!(r.unwrap(), (0, 0));
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                    assert!(ir.contains("call i64 @dartforge_string_juntar_tipado(ptr %jbuf2, i64 4)"));
+                    assert!(ir.contains("call i64 @dartforge_string_join_typed(ptr %jbuf2, i64 4)"));
                     assert_eq!(format!("{m:?}"), before);
                 }
                 _ => {
@@ -469,15 +469,15 @@ mod tests {
             let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };
             let i64c = |n| (Operand::Constant(Constant::Int(n)), Type::I64);
             let insts = vec![
-                (ValueId(2), rt("dartforge_typed_novo", vec![i64c(23), i64c(1), (Operand::Val(ValueId(1)), Type::I64)], Type::Ref), Type::Ref),
+                (ValueId(2), rt("dartforge_typed_new", vec![i64c(23), i64c(1), (Operand::Val(ValueId(1)), Type::I64)], Type::Ref), Type::Ref),
                 (ValueId(3), rt("dartforge_exception_pending", vec![], Type::I8), Type::I8),
                 (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
             ];
             let native = if case == 1 {
                 // An argument without a representation in the thunk: rejected.
-                rt("dartforge_nativo_X_y", vec![(Operand::Val(ValueId(0)), Type::Ptr)], Type::Ref)
+                rt("dartforge_native_X_y", vec![(Operand::Val(ValueId(0)), Type::Ptr)], Type::Ref)
             } else {
-                rt("dartforge_nativo_X_y", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Double(1.5)), Type::F64)], Type::Ref)
+                rt("dartforge_native_X_y", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Double(1.5)), Type::F64)], Type::Ref)
             };
             let insts2 = vec![
                 (ValueId(5), native, Type::Ref),
@@ -510,10 +510,10 @@ mod tests {
                         assert_eq!(plans["g"].tokens.pendings[&ValueId(v)], BlockId(block));
                     }
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                    assert!(ir.contains("call i64 @df.arc.owned.dartforge_typed_novo(i64 23, i64 1, i64 %v1)"), "{ir}");
-                    assert!(ir.contains("define internal i64 @df.arc.owned.dartforge_typed_novo(i64 %a0, i64 %a1, i64 %a2)"));
-                    assert!(ir.contains("define internal i64 @df.arc.owned.dartforge_nativo_X_y(i64 %a0, double %a1)"));
-                    assert!(ir.contains("declare i64 @dartforge_nativo_X_y(i64, double)"));
+                    assert!(ir.contains("call i64 @df.arc.owned.dartforge_typed_new(i64 23, i64 1, i64 %v1)"), "{ir}");
+                    assert!(ir.contains("define internal i64 @df.arc.owned.dartforge_typed_new(i64 %a0, i64 %a1, i64 %a2)"));
+                    assert!(ir.contains("define internal i64 @df.arc.owned.dartforge_native_X_y(i64 %a0, double %a1)"));
+                    assert!(ir.contains("declare i64 @dartforge_native_X_y(i64, double)"));
                     assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 }
                 2 => {
@@ -537,9 +537,9 @@ mod tests {
             let handle = if case == 1 { (Operand::Val(ValueId(0)), Type::Ref) } else { (Operand::Val(ValueId(1)), Type::I64) };
             let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };
             let insts = vec![
-                (ValueId(2), rt("dartforge_ffi_handles_abrir", vec![], Type::I64), Type::I64),
-                (ValueId(3), rt("dartforge_ffi_handle_novo", vec![(Operand::Val(ValueId(0)), Type::Ref)], Type::I64), Type::I64),
-                (ValueId(4), rt("dartforge_ffi_handles_fechar_com_objeto", vec![(Operand::Val(ValueId(2)), Type::I64), handle], Type::Ref), Type::Ref),
+                (ValueId(2), rt("dartforge_ffi_handles_open", vec![], Type::I64), Type::I64),
+                (ValueId(3), rt("dartforge_ffi_handle_new", vec![(Operand::Val(ValueId(0)), Type::Ref)], Type::I64), Type::I64),
+                (ValueId(4), rt("dartforge_ffi_handles_close_with_object", vec![(Operand::Val(ValueId(2)), Type::I64), handle], Type::Ref), Type::Ref),
                 (ValueId(5), rt("dartforge_exception_pending", vec![], Type::I8), Type::I8),
                 (ValueId(6), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(5)), Operand::Constant(Constant::Int(0))), Type::I1),
             ];
@@ -563,7 +563,7 @@ mod tests {
                     assert_eq!(plans["nat"].classes[&ValueId(4)], Ownership::Owned);
                     assert_eq!(plans["nat"].tokens.pendings[&ValueId(4)], BlockId(1));
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                    assert!(ir.contains("call i64 @dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1("));
+                    assert!(ir.contains("call i64 @dartforge_arc_ffi_handles_close_with_object_owned_v1("));
                     assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 }
                 2 => {
@@ -586,7 +586,7 @@ mod tests {
             m.arc_memory = case != 2;
             let clo = if case == 1 { (Operand::Val(ValueId(1)), Type::I64) } else { (Operand::Val(ValueId(0)), Type::Ref) };
             let insts = vec![
-                (ValueId(2), Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_de_retorno".into(),
+                (ValueId(2), Instruction::CallRuntime { name: "dartforge_ffi_return_pointer".into(),
                     args: vec![(Operand::Val(ValueId(1)), Type::I64), clo], ret_ty: Type::Ref }, Type::Ref),
                 (ValueId(3), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
                 (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
@@ -610,7 +610,7 @@ mod tests {
                     assert_eq!(plans["ent"].classes[&ValueId(2)], Ownership::Owned);
                     assert_eq!(plans["ent"].tokens.pendings[&ValueId(2)], BlockId(1));
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                    assert!(ir.contains("call i64 @dartforge_arc_ffi_ponteiro_de_retorno_owned_v1("));
+                    assert!(ir.contains("call i64 @dartforge_arc_ffi_return_pointer_owned_v1("));
                     assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 }
                 2 => {
@@ -635,7 +635,7 @@ mod tests {
             let mut insts = vec![
                 (ValueId(1), Instruction::CallRuntime { name: "dartforge_ffi_callback_closure".into(),
                     args: vec![(Operand::Val(ValueId(0)), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
-                (ValueId(2), Instruction::CallRuntime { name: "dartforge_ffi_callback_ponteiro".into(),
+                (ValueId(2), Instruction::CallRuntime { name: "dartforge_ffi_callback_pointer".into(),
                     args: vec![(Operand::Val(ValueId(0)), Type::I64), i64c(0), i64c(0x1000)],
                     ret_ty: if case == 2 { Type::I64 } else { Type::Ref } }, if case == 2 { Type::I64 } else { Type::Ref }),
                 (ValueId(3), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
@@ -663,7 +663,7 @@ mod tests {
                     assert_eq!(plans["cb"].tokens.pendings[&ValueId(2)], BlockId(1));
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                     assert!(ir.contains("call i64 @dartforge_arc_ffi_callback_closure_owned_v1("));
-                    assert!(ir.contains("call i64 @dartforge_arc_ffi_callback_ponteiro_owned_v1("));
+                    assert!(ir.contains("call i64 @dartforge_arc_ffi_callback_pointer_owned_v1("));
                     assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 }
                 3 => {
@@ -851,7 +851,7 @@ mod tests {
                         (
                             ValueId(2),
                             Instruction::CallRuntime {
-                                name: "dartforge_arc_lista_armazenamento_ref_v1".into(),
+                                name: "dartforge_arc_list_storage_ref_v1".into(),
                                 args: vec![(val(0), Type::Ref)],
                                 ret_ty: Type::Ref,
                             },
@@ -860,7 +860,7 @@ mod tests {
                         (
                             ValueId(3),
                             Instruction::CallRuntime {
-                                name: "dartforge_lista_acrescentar".into(),
+                                name: "dartforge_list_append".into(),
                                 args: vec![(val(0), Type::Ref), (val(1), Type::Ref)],
                                 ret_ty: if case == 4 { Type::I64 } else { Type::Ref },
                             },
@@ -899,7 +899,7 @@ mod tests {
                     .iter()
                     .position(|(_, i, _)| {
                         matches!(i,
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_lista_acrescentar")
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_list_append")
                     })
                     .unwrap();
                 assert_eq!(copy_inst < call, case == 1);
@@ -952,7 +952,7 @@ mod tests {
                         (
                             ValueId(1),
                             Instruction::CallRuntime {
-                                name: "dartforge_arc_lista_armazenamento_ref_v1".into(),
+                                name: "dartforge_arc_list_storage_ref_v1".into(),
                                 args: vec![(val(0), Type::Ref)],
                                 ret_ty: Type::Ref,
                             },
@@ -961,7 +961,7 @@ mod tests {
                         (
                             ValueId(2),
                             Instruction::CallRuntime {
-                                name: "dartforge_arc_lista_forma_v1".into(),
+                                name: "dartforge_arc_list_shape_v1".into(),
                                 args: vec![(val(1), Type::Ref)],
                                 ret_ty: Type::I64,
                             },
@@ -970,7 +970,7 @@ mod tests {
                         (
                             ValueId(3),
                             Instruction::CallRuntime {
-                                name: "dartforge_arc_lista_gravar_len_v1".into(),
+                                name: "dartforge_arc_list_write_len_v1".into(),
                                 args: vec![
                                     (val(0), Type::Ref),
                                     (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -1001,7 +1001,7 @@ mod tests {
                 .position(|(_, i, _)| matches!(i, Instruction::ArcCopy { .. }))
                 .unwrap();
             let mutation = insts.iter().position(|(_, i, _)| matches!(i,
-                Instruction::CallRuntime { name, .. } if name == "dartforge_arc_lista_gravar_len_v1")).unwrap();
+                Instruction::CallRuntime { name, .. } if name == "dartforge_arc_list_write_len_v1")).unwrap();
             assert!(copy_inst < mutation);
             assert_eq!(
                 plans["armazenamento"].classes[&insts[copy_inst].0],
@@ -1035,7 +1035,7 @@ mod tests {
                     instructions: vec![(
                         ValueId(1),
                         Instruction::CallRuntime {
-                            name: "df.lista_len".into(),
+                            name: "df.list_len".into(),
                             args: if case == 2 {
                                 vec![]
                             } else {
@@ -1063,7 +1063,7 @@ mod tests {
                 );
                 assert!(plans["comprimento"].tokens.pendings.is_empty());
                 assert!(
-                    matches!(&m.functions[0].blocks[0].instructions[0].1,                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_lista_len_v1")
+                    matches!(&m.functions[0].blocks[0].instructions[0].1,                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_list_len_v1")
                 );
                 let prepared = format!("{m:?}");
                 assert_eq!(
@@ -1150,7 +1150,7 @@ mod tests {
                             (
                                 ValueId(1),
                                 Instruction::CallRuntime {
-                                    name: "dartforge_nativo_Socket_RecvFrom".into(),
+                                    name: "dartforge_native_Socket_RecvFrom".into(),
                                     args: if case == 2 {
                                         vec![]
                                     } else {

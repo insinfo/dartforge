@@ -1,6 +1,6 @@
 //! Emission of typed lists and SIMD values (P4,
 //! docs/NATIVO-ESPACO-UNIFICADO.md §3.5 and §4.6): boxing and unboxing of a SIMD
-//! vector and the `@df.tipada_*`, `@df.nucleo_*` and `@df.simd_caixa` helpers of the
+//! vector and the `@df.typed_*`, `@df.core_*` and `@df.simd_box` helpers of the
 //! prelude.
 //!
 //! The helpers read the block through the offsets of the contract
@@ -30,35 +30,35 @@ use std::fmt::Write;
 /// prelude of each module by `emit_runtime_decls`. The numeric constants are
 /// those of `layout` (checked in the `contract_offsets` test).
 pub const HELPERS: &str = "\
-define internal i64 @df.tipada_len(i64 %t) alwaysinline {
+define internal i64 @df.typed_len(i64 %t) alwaysinline {
   %a = add i64 %t, 14
   %p = inttoptr i64 %a to ptr
   %n = load i64, ptr %p, align 8, !invariant.load !{}
   ret i64 %n
 }
-define internal i64 @df.tipada_dados(i64 %t) alwaysinline {
+define internal i64 @df.typed_data(i64 %t) alwaysinline {
   %a = add i64 %t, 22
   %p = inttoptr i64 %a to ptr
   %d = load i64, ptr %p, align 8, !invariant.load !{}
   ret i64 %d
 }
-define internal i64 @df.tipada_cid(i64 %t) alwaysinline {
+define internal i64 @df.typed_cid(i64 %t) alwaysinline {
   %a = add i64 %t, 2
   %p = inttoptr i64 %a to ptr
   %c = load i32, ptr %p, align 4, !invariant.load !{}
   %r = sext i32 %c to i64
   ret i64 %r
 }
-define internal i64 @df.tipada_len_gravavel(i64 %t, i64 %imutavel) alwaysinline {
-  %c = call i64 @df.tipada_cid(i64 %t)
-  %n = call i64 @df.tipada_len(i64 %t)
+define internal i64 @df.typed_len_writable(i64 %t, i64 %imutavel) alwaysinline {
+  %c = call i64 @df.typed_cid(i64 %t)
+  %n = call i64 @df.typed_len(i64 %t)
   %i = icmp eq i64 %c, %imutavel
   %r = select i1 %i, i64 0, i64 %n
   ret i64 %r
 }
-define internal i64 @df.tipada_bytes(i64 %t) alwaysinline {
-  %c = call i64 @df.tipada_cid(i64 %t)
-  %n = call i64 @df.tipada_len(i64 %t)
+define internal i64 @df.typed_bytes(i64 %t) alwaysinline {
+  %c = call i64 @df.typed_cid(i64 %t)
+  %n = call i64 @df.typed_len(i64 %t)
   %d = sub i64 %c, 22
   %interna = icmp ult i64 %d, 14
   %v = sub i64 %c, 36
@@ -72,24 +72,24 @@ define internal i64 @df.tipada_bytes(i64 %t) alwaysinline {
   %r = shl i64 %n, %lg
   ret i64 %r
 }
-define internal i64 @df.tipada_base(i64 %t) alwaysinline {
+define internal i64 @df.typed_base(i64 %t) alwaysinline {
   %a = add i64 %t, 30
   %p = inttoptr i64 %a to ptr
   %b = load i64, ptr %p, align 8, !invariant.load !{}
   ret i64 %b
 }
-define internal i64 @df.tipada_deslocamento(i64 %t) alwaysinline {
+define internal i64 @df.typed_offset(i64 %t) alwaysinline {
   %a = add i64 %t, 38
   %p = inttoptr i64 %a to ptr
   %d = load i64, ptr %p, align 8, !invariant.load !{}
   ret i64 %d
 }
-define internal void @df.manter_vivo(i64 %l) alwaysinline {
+define internal void @df.keep_alive(i64 %l) alwaysinline {
   ret void
 }
-define internal i64 @df.nucleo_len(i64 %l) alwaysinline {
+define internal i64 @df.core_len(i64 %l) alwaysinline {
 entrada:
-  %c = call i64 @df.classe(i64 %l)
+  %c = call i64 @df.class(i64 %l)
   %d = sub i64 %c, 8
   %e = icmp ult i64 %d, 3
   br i1 %e, label %lista, label %fim
@@ -102,9 +102,9 @@ fim:
   %r = phi i64 [ %n, %lista ], [ 0, %entrada ]
   ret i64 %r
 }
-define internal i64 @df.nucleo_armazenamento(i64 %l) alwaysinline {
+define internal i64 @df.core_storage(i64 %l) alwaysinline {
 entrada:
-  %c = call i64 @df.classe(i64 %l)
+  %c = call i64 @df.class(i64 %l)
   %e = icmp eq i64 %c, 10
   br i1 %e, label %expansivel, label %fim
 expansivel:
@@ -116,7 +116,7 @@ fim:
   %r = phi i64 [ %s, %expansivel ], [ %l, %entrada ]
   ret i64 %r
 }
-define internal i64 @df.nucleo_forma(i64 %a) alwaysinline {
+define internal i64 @df.core_shape(i64 %a) alwaysinline {
   %f = add i64 %a, -1
   %p = inttoptr i64 %f to ptr
   %b = load i8, ptr %p, align 1
@@ -124,16 +124,16 @@ define internal i64 @df.nucleo_forma(i64 %a) alwaysinline {
   %r = zext i8 %m to i64
   ret i64 %r
 }
-define internal i64 @df.nucleo_len_gravavel(i64 %l, i64 %forma) alwaysinline {
+define internal i64 @df.core_len_writable(i64 %l, i64 %forma) alwaysinline {
 entrada:
-  %c = call i64 @df.classe(i64 %l)
+  %c = call i64 @df.class(i64 %l)
   %fixa = icmp eq i64 %c, 8
   %exp = icmp eq i64 %c, 10
   %mod = or i1 %fixa, %exp
   br i1 %mod, label %forma.conf, label %fim
 forma.conf:
-  %a = call i64 @df.nucleo_armazenamento(i64 %l)
-  %f = call i64 @df.nucleo_forma(i64 %a)
+  %a = call i64 @df.core_storage(i64 %l)
+  %f = call i64 @df.core_shape(i64 %a)
   %ok = icmp eq i64 %f, %forma
   %la = add i64 %l, 14
   %lp = inttoptr i64 %la to ptr
@@ -144,17 +144,17 @@ fim:
   %r = phi i64 [ %g, %forma.conf ], [ 0, %entrada ]
   ret i64 %r
 }
-define internal i64 @df.palavra_ref(i64 %e, i64 %i) alwaysinline {
+define internal i64 @df.word_ref(i64 %e, i64 %i) alwaysinline {
   %o = shl i64 %i, 3
   %a = add i64 %e, %o
   %p = inttoptr i64 %a to ptr
   %r = load i64, ptr %p, align 8
   ret i64 %r
 }
-define internal i64 @df.simd_caixa(<2 x i64> %v, i64 %cid) alwaysinline {
+define internal i64 @df.simd_box(<2 x i64> %v, i64 %cid) alwaysinline {
   %c = shl i64 %cid, 32
   %cab = or i64 %c, 131585
-  %h = call i64 @df.alocar(i64 %cab, i64 2)
+  %h = call i64 @df.allocate(i64 %cab, i64 2)
   %a = add i64 %h, 14
   %p = inttoptr i64 %a to ptr
   store <2 x i64> %v, ptr %p, align 8
@@ -166,20 +166,20 @@ define internal i64 @df.simd_caixa(<2 x i64> %v, i64 %cid) alwaysinline {
 /// `@`): `(name, allocates, throws)`. `externs::effects_of` (P0) consults them instead of
 /// treating them as unknown (conservative) externs. None calls Dart.
 pub const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
-    ("df.tipada_len", false, false),
-    ("df.tipada_dados", false, false),
-    ("df.tipada_cid", false, false),
-    ("df.tipada_len_gravavel", false, false),
-    ("df.tipada_bytes", false, false),
-    ("df.tipada_base", false, false),
-    ("df.tipada_deslocamento", false, false),
-    ("df.nucleo_len", false, false),
-    ("df.nucleo_armazenamento", false, false),
-    ("df.nucleo_forma", false, false),
-    ("df.nucleo_len_gravavel", false, false),
-    ("df.palavra_ref", false, false),
-    ("df.manter_vivo", false, false),
-    ("df.simd_caixa", true, false),
+    ("df.typed_len", false, false),
+    ("df.typed_data", false, false),
+    ("df.typed_cid", false, false),
+    ("df.typed_len_writable", false, false),
+    ("df.typed_bytes", false, false),
+    ("df.typed_base", false, false),
+    ("df.typed_offset", false, false),
+    ("df.core_len", false, false),
+    ("df.core_storage", false, false),
+    ("df.core_shape", false, false),
+    ("df.core_len_writable", false, false),
+    ("df.word_ref", false, false),
+    ("df.keep_alive", false, false),
+    ("df.simd_box", true, false),
 ];
 
 /// The per-module emission state of typed lists.
@@ -187,7 +187,7 @@ pub const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
 pub(super) struct TypedState {}
 
 impl LlvmEmitter<'_> {
-    /// The SIMD vector `op` (of type `from`) boxed: `@df.simd_caixa`, an inline
+    /// The SIMD vector `op` (of type `from`) boxed: `@df.simd_box`, an inline
     /// allocation with the lanes at `h+14` (cid 19 `_Float32x4`, 20 `_Int32x4`, 21
     /// `_Float64x2`).
     pub(super) fn emit_simd_box(&mut self, v: u32, op: &Operand, from: Type) {
@@ -205,13 +205,13 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %bh{v} = extractelement <2 x i64> %bx{v}, i32 1").unwrap();
             writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_box_simd_owned_v1(i64 {cid}, i64 %bl{v}, i64 %bh{v})").unwrap();
         } else {
-            writeln!(self.out, "  %v{v} = call i64 @df.simd_caixa(<2 x i64> %bx{v}, i64 {cid})").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @df.simd_box(<2 x i64> %bx{v}, i64 {cid})").unwrap();
         }
     }
 
     /// The SIMD vector (of type `to`) of a box: the lanes at `h+14`. Without
     /// `!invariant.load`: the box may have been written in the same function
-    /// (`@df.simd_caixa`), and the load cannot be hoisted above the write.
+    /// (`@df.simd_box`), and the load cannot be hoisted above the write.
     pub(super) fn emit_simd_unbox(&mut self, v: u32, op: &Operand, to: Type) {
         let only = self.coerce(op, Type::Ref);
         writeln!(self.out, "  %ux{v} = add i64 {only}, 14").unwrap();

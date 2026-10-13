@@ -27,7 +27,7 @@ Medido e descartado: `minsize` no programa grande (38,58 contra 38,51 MB);
 `-machine-outliner-reruns=1` (−0,46 MB, ligação mais lenta; não ligado);
 exceções por tabelas (A1) sem o outliner tiram só 0,7 MB do `__text` e põem
 2 MB de tabelas — a checagem da pendência não é o que pesa. A tabela de
-registro das classes (`df.registrar.programa`, 37 mil chamadas, 440 KB) como
+registro das classes (`df.register.program`, 37 mil chamadas, 440 KB) como
 dados ficaria do mesmo tamanho (~400 KB de tabelas com relocações).
 
 O que resta para ficar abaixo do Dart está no código por função (`__text`
@@ -57,7 +57,7 @@ O que mudou no código gerado (todos no modo padrão, fora do ARC):
   (`sdk_modulo::com_contexto_em_tls`): o prólogo não chama mais a função Rust
   com quadro; o `fib` passava 1/3 do tempo nela.
 * O marco da conferência da pilha nasce no bloco de entrada (virava alocação
-  dinâmica depois do `df.obter_area` em linha).
+  dinâmica depois do `df.get_area` em linha).
 * Objeto recém-alocado sem ponto de coleta desde a alocação: corpo direto e
   gravação sem barreira; `this` com corpo direto no AOT (sem corpo de fora).
 * Literal de mapa `{k: v, …}` como na VM (`_dartforgePreencherMapa`), em vez
@@ -114,7 +114,7 @@ incompletos**.
 
 O `main` estava vermelho desde `aa05983e`, e ninguém tinha percebido:
 * Windows: `runtime/tests/ownership.rs` não listava `dartforge_value_class`
-  e `dartforge_lista_acrescentar`, auditadas no catálogo (75 ≠ 77).
+  e `dartforge_list_append`, auditadas no catálogo (75 ≠ 77).
 * Linux, macOS e Windows: `memoria_cli` (AOT e JIT com `--memoria=arc`)
   entrava em pânico. Desde `a1edd273`, closures, chamadas tipadas e, depois,
   seletores exigiam portas certificadas sob ARC. Mas a CLI não prepara nem
@@ -140,41 +140,41 @@ em `bench/performance/numerico.dart` passou, em ordem, por:
   fechamento foi validada, inclusive pela prova AOT ampliada.
 * `Uri.splitQueryString`: a tupla RTI vinda de getter `df.rti.*` é aceita
   só com prova estrita (`caches_rti::getters_rti`: retorno de cache auditado,
-  de `dartforge_rti_receita` ou de outro getter comprovado, e todos os
+  de `dartforge_rti_recipe` ou de outro getter comprovado, e todos os
   escritores do cache vindos da receita). Uma constante não basta. Os gates
   com módulo exigem essa prova; a produção de contratos por corpo aceita só
   a forma.
 * `medir` (`JuntarTextos`): nova fábrica
-  `dartforge_arc_string_juntar_owned_v1`, que enraíza as partes, copia as
+  `dartforge_arc_string_join_owned_v1`, que enraíza as partes, copia as
   unidades e entrega owner. Partes só Ref/`int` em SSA.
-* `df.$tipo.toString`: leitura escalar auditada do ID; o texto ganha owner
-  na preparação (`dartforge_arc_rti_texto_owned_v1`); convenção de retorno
+* `df.$type.toString`: leitura escalar auditada do ID; o texto ganha owner
+  na preparação (`dartforge_arc_rti_string_owned_v1`); convenção de retorno
   Ref declarada.
-* `dartforge_rti_iniciar`: `dartforge_rti_iniciar_tabela` passou de `1 1 0`
+* `dartforge_rti_init`: `dartforge_rti_init_table` passou de `1 1 0`
   para `0 0 0`. Isso foi confirmado pela análise estática (`folha_pura`) e
   por execução AOT tracing com `DARTFORGE_EFEITOS=conferir`, normal e sob
   GC stress (nome presente na tabela conferida, saída igual à do Dart). O
   parâmetro Rust passou a `*const i64`, como no vetor constante do módulo.
-* `df.ffi.v_lp$ent`: contratos de `dartforge_ffi_endereco_da_closure`
-  (`pending`) e `dartforge_ffi_endereco_do_ponteiro` (`pending-dart`), e
+* `df.ffi.v_lp$ent`: contratos de `dartforge_ffi_closure_address`
+  (`pending`) e `dartforge_ffi_pointer_address` (`pending-dart`), e
   `ChamadaNativa` só com escalares. O resultado é Trivial, sem pendência
-  (`dartforge_ffi_callback_sair` limpa a exceção do callback) e com
+  (`dartforge_ffi_callback_exit` limpa a exceção do callback) e com
   reentrada Dart.
 
 * `df.ffi.v_lp$cb` (corpo do callback): o lowering registra, sob ARC, o
   contexto e os argumentos não-Ref como fatos escalares. A closure do
   contexto e o `Pointer` do argumento ganham owner por
   `dartforge_arc_ffi_callback_closure_owned_v1` e
-  `dartforge_arc_ffi_callback_ponteiro_owned_v1` (o ajudante Dart roda num
+  `dartforge_arc_ffi_callback_pointer_owned_v1` (o ajudante Dart roda num
   escopo nativo; o token da porta Owned é copiado antes de fechar).
-* `df.ffi.p_$ent`: `dartforge_arc_ffi_ponteiro_de_retorno_owned_v1`, com a
+* `df.ffi.p_$ent`: `dartforge_arc_ffi_return_pointer_owned_v1`, com a
   closure emprestada e o mesmo protocolo de escopo.
 * `df.ffi.l_HHl$ent` (`Handle`): o escopo de handles agora abre depois das
   conversões que lançam e fecha antes das do retorno. Corrige um defeito
   também do tracing: uma exceção entre abrir e fechar (ou qualquer retorno
   de struct, que nunca fechava) deixava células e raízes para sempre. O
   `Handle` devolvido é lido e o escopo fechado na mesma chamada
-  (`dartforge_ffi_handles_fechar_com_objeto`; sob ARC, a variante Owned
+  (`dartforge_ffi_handles_close_with_object`; sob ARC, a variante Owned
   retém antes de soltar as células). `handles_abrir`, `handle_novo` e
   `handles_fechar` passaram de `1 1 0` para `0 0 0`, conferido por
   execução com `DARTFORGE_EFEITOS=conferir` (29 pontos instrumentados no
@@ -184,16 +184,16 @@ em `bench/performance/numerico.dart` passou, em ordem, por:
   fecha o escopo — exercitado 3000 vezes sob GC stress.
 
 O módulo 0 (programa e FFI) passa inteiro. No SDK:
-* Ajudantes em IR (`df.texto_*`, `df.nucleo_len*`, `df.tipada_*`,
-  `df.identico`): leituras escalares puras do objeto emprestado ganham
+* Ajudantes em IR (`df.string_*`, `df.core_len*`, `df.typed_*`,
+  `df.identical`): leituras escalares puras do objeto emprestado ganham
   contrato do lado do emissor (`optimize::arc::CONTRATOS_DOS_AJUDANTES`,
   consultado antes do catálogo do runtime; o resultado `i1:scalar` entrou
-  no gerador). Continuam em linha. `df.tipada_base` empresta a base da
+  no gerador). Continuam em linha. `df.typed_base` empresta a base da
   visão. O teste `ajudantes_concordam_com_os_efeitos` amarra os contratos
   aos efeitos.
-* Sem endereços derivados sob ARC: `df.texto_alocar` vira
-  `dartforge_arc_texto_novo_owned_v1`; listas do núcleo leem/gravam
-  elementos compactos por `dartforge_arc_lista_ler_bits_v1` (nova) e
+* Sem endereços derivados sob ARC: `df.string_allocate` vira
+  `dartforge_arc_string_allocate_owned_v1`; listas do núcleo leem/gravam
+  elementos compactos por `dartforge_arc_list_read_bits_v1` (nova) e
   `…_gravar_bits_v1` sobre o armazenamento `Ref` emprestado; as voltas N13
   (que guardariam o armazenamento) ficam desligadas; listas tipadas não têm
   caminho rápido e o acesso por índice/bytes vai ao intrínseco do runtime
@@ -207,10 +207,10 @@ O módulo 0 (programa e FFI) passa inteiro. No SDK:
 Depois disso, a preparação conjunta passou o módulo 1 do SDK inteiro e
 avançou pelo `dart:core` (módulo 2). O que entrou:
 * Exceções: um ponto único de lançamento (`emitir_lancamento`); sob ARC o
-  valor vai como `Ref` emprestado a `dartforge_arc_lancar_ref_v1`/
+  valor vai como `Ref` emprestado a `dartforge_arc_throw_ref_v1`/
   `…_com_rastro_ref_v1` com a guarda canônica e caminho morto
   `Unreachable`. `catch`/`finally` leem a exceção e o rastro pela
-  preparação como owners (`dartforge_arc_excecao_owned_v1`,
+  preparação como owners (`dartforge_arc_exception_owned_v1`,
   `…_rastro_owned_v1`). Os 14 construtores de erro do runtime ganham
   variantes `dartforge_arc_<nome>_owned_v1` (escopo nativo + retain,
   `owner_em_escopo_nativo`). As trocas por variantes Owned ficam todas na
@@ -224,7 +224,7 @@ avançou pelo `dart:core` (módulo 2). O que entrou:
   escopo nativo, guarda, retain) para natives que devolvem `Ref` e uma
   lista explícita de construtores do runtime (`typed_novo`, `view_nova`,
   `string_concat`…); contrato derivado na hora dos tipos da chamada.
-* Owners para records literais (`dartforge_arc_record_novo_owned_v1`,
+* Owners para records literais (`dartforge_arc_record_from_refs_owned_v1`,
   arestas contadas), tear-offs canônicos, objeto `Type` canônico, `is`/`as`
   (`rti_e`, `rti_como*`), consultas de record, ABI uniforme
   (`args_casam`, `arg_indice`, slot da tupla de tipos).
@@ -238,7 +238,7 @@ avançou pelo `dart:core` (módulo 2). O que entrou:
   com fato próprio (`globais_escalares_dart`); saídas compartilhadas por
   guardas separadas por caminho; `Unreachable` não exige tokens; retorno
   implícito explícito; `And/Or/Xor` seguem a semântica do emissor (i64 com
-  operandos estendidos); bit/valor de Smi por `@df.bit_smi`/`@df.valor_smi`.
+  operandos estendidos); bit/valor de Smi por `@df.bit_smi`/`@df.smi_value`.
 * Marcas rebaixadas (`1 1 0` → `0 0 0` ou `1 0 0`): `rti_e`,
   `exception_capturavel`, `args_casam`, `arg_indice`, natives de record,
   `string_igual_a`, `string_concat`, `to_string_bool/f64`, `rastro_texto`,
@@ -270,7 +270,7 @@ Depois, até o fim do SDK (16 módulos):
 * Leituras e escritas físicas por índice: `CellGet` escalar e
   `dartforge_object_get/set` (quadro assíncrono, record, enum, campo por
   índice) vão às entradas auditadas `ler/gravar_campo_*_v1`; captura
-  escalar por `dartforge_arc_env_escalar_v1` (nova, confere classe e mapa).
+  escalar por `dartforge_arc_scalar_env_v1` (nova, confere classe e mapa).
 * `Unbox` SIMD e as operações `Simd` (exceto `Carrega`/`Grava`, que leem
   por endereço) são puras, com origens Trivial; `TabelaDeFuncoes` é dado
   constante. O thunk Owned genérico aceita `Ptr` (tabelas constantes) e
@@ -304,7 +304,7 @@ não mudam. Com ela:
   callee do SDK ganha o resumo da própria chamada (`resumos_externos`:
   tipos dos operandos, falha possível, Ref Owned); certificado como imagem.
 * Escopo nativo: funções do runtime que rodam Dart, com contrato, vão por
-  thunks `df.arc.escopo.<base>` (abrir, chamar, fechar); as ABIs
+  thunks `df.arc.scope.<base>` (abrir, chamar, fechar); as ABIs
   `dartforge_arc_*` escopam por dentro (`em_escopo_nativo`, também nos
   handles FFI). A entrada abre um escopo raiz para a preparação do isolado
   e outro para `main` e o laço de eventos (os tokens de portas chamadas
@@ -317,7 +317,7 @@ não mudam. Com ela:
 * A certificação aceita comparação de identidade de handles, as fábricas
   contratadas (`AllocList`, `AllocRecord`, `JuntarTextos`, caixa SIMD),
   `ArcLoadStrong` e as chamadas C de ABI escalar.
-* `dartforge_chamar_dart0` (o laço de eventos) é callback Owned; `toString`
+* `dartforge_call_dart0` (o laço de eventos) é callback Owned; `toString`
   de formas de record com convenção Owned; leitura Ref de campo zerado e
   ainda não gravado dá null (`ler_campo_ref_v1`); o thunk Owned das
   fábricas tipadas usa a variante `_t`, que registra a tabela da classe
@@ -352,7 +352,7 @@ e corrigiu:
   escalar na palavra 0, campos Ref);
 * contratos: `ffi_ponteiro_novo` (thunk Owned), `ffi_simbolo_nativo` (modo
   novo `bytes:native`), `rti_tupla_juntar` (`1 0 0`), `lista_de_tabela`
-  (`1 0 0`), `double_modulo` (`0 0 0`), `df.num_para_double`.
+  (`1 0 0`), `double_modulo` (`0 0 0`), `df.num_to_double`.
 
 Depois, os locais Ref capturados por funções locais diretas: o inlining
 deixava o local só com `Load`/`Store` sem promovê-lo (o mem2reg agora roda
@@ -379,9 +379,9 @@ O corpus fica com 125 de 126 iguais também nesse modo
 (`scripts/corpus-nativo.sh tabelas`).
 
 Rastro simbólico (`--rastro=simbolico`) com a preparação:
-`dartforge_rastro_entrar` (borrow, sem retenção: o desenrolamento só lê o
+`dartforge_stack_trace_enter` (borrow, sem retenção: o desenrolamento só lê o
 endereço enquanto o quadro que o empurrou está na pilha) e
-`dartforge_rastro_sair` ganham contrato. Um programa com lançamento
+`dartforge_stack_trace_exit` ganham contrato. Um programa com lançamento
 síncrono e cadeia async (`target/prova-rastro/`) sai igual em tracing e no
 preparado, normal/GC stress. Os dois perdem os quadros de quem espera
 (`meio`, `topo`) que a VM mostra: a cadeia async do §13.14 ainda não
@@ -398,7 +398,7 @@ contra 2,0 da última medida no Windows (55beeb34). A causa principal era
 contra 1,3.
 
 Os caminhos rápidos voltaram (62eda051). A preparação
-(`optimize/arc/derivados.rs`) põe `@df.manter_vivo(lista)` depois de cada
+(`optimize/arc/derivados.rs`) põe `@df.keep_alive(lista)` depois de cada
 acesso pelo endereço derivado (dados de tipadas, armazenamento do núcleo):
 a lista fica emprestada e viva até ali. O verificador recusa endereço que
 escapa (para chamada, terminador ou outro uso) e acesso ao armazenamento do
@@ -421,7 +421,7 @@ das leituras e gravações de campo. O ARC legado estourava a memória no
 `json` (1,78 GB de pico, saída 255): desde 4758df70 a leitura de elemento
 `Ref` de lista geral sob ARC criava um token do código que, sem a
 preparação, ninguém soltava. Sem preparação, a leitura agora é emprestada
-(`dartforge_arc_lista_ref_v1`): pico de 331 MB e `json` 2,6–3× o A0 no ARC
+(`dartforge_arc_list_ref_v1`): pico de 331 MB e `json` 2,6–3× o A0 no ARC
 legado (antes 55–123×).
 
 Rodada válida com tudo isso (`target/bench-arcp3/`, 88b6e57e, 3 repetições,
@@ -518,7 +518,7 @@ Os commits até `ba300764` acrescentaram:
   arestas Ref e preservam owners durante crescimento e descompactação.
   Armazenamento ARC é Ref, sem inferir referência de I64. Crescimento
   empresta o receiver, sem produzir um owner adicional para ele.
-* Literais (`ba300764`): `dartforge_arc_lista_nova_owned_v1` enraíza elementos
+* Literais (`ba300764`): `dartforge_arc_list_new_owned_v1` enraíza elementos
   antes de alocar, conta referências copiadas e entrega um owner da lista.
   HIR confere tipos reais e recusa ponteiros/vetores sem caixa/representações
   incompatíveis; pistas de tags não certificam representação. Tracing
@@ -1360,7 +1360,7 @@ token Owned. Campos ainda em construção conservam seu protocolo; isso não
 certifica receivers/campos nem inicialização completa. Casos inválidos são
 atômicos, a preparação é idempotente e tracing conserva o corpo.
 LLVM conserva o registro preguiçoso de métodos pela nova fábrica
-dartforge_arc_objeto_owned_t_v1. Seu callback segue o protocolo estático de
+dartforge_arc_object_owned_t_v1. Seu callback segue o protocolo estático de
 tabelas, sem Dart/GC/exceções; função Rust unsafe documenta a validade da
 memória devolvida. Catálogo confere a assinatura Rust completa e distingue
 TabelaEstatica de um inteiro/endereço genérico. Produtor runtime genérico
@@ -1657,7 +1657,7 @@ exclusivo de --memoria=arc. Não é nova prova AOT nem medição de desempenho.
 Passaram 233 testes do emissor (7 ignorados), incluindo 125 testes ARC,
 e 52 exemplos de documentação. Logs target/arc-keepalive-{focado,suite,doc}.log.
 
-ABI dartforge_arc_ler_campo_ref_v1 confere instância viva, índice e marca Ref
+ABI dartforge_arc_read_field_ref_v1 confere instância viva, índice e marca Ref
 no mapa físico e devolve BorrowArg(0), sem alocação, coleta, retenção ou Dart.
 Null/Smi são Ref válidos; bits iguais a handle num campo escalar são recusados.
 O receiver vivo não basta após substituir sua aresta: prova runtime em
@@ -1684,7 +1684,7 @@ lowering e integração no fluxo normal continuam pendentes, somente por
 e 52 exemplos do emissor. Logs target/arc-leitura-ref-runtime-{suite,doc}.log
 e target/arc-leitura-ref-emissor-{suite,doc}.log.
 
-ABIs dartforge_arc_gravar_campo_{escalar,ref}_v1 distinguem valor escalar
+ABIs dartforge_arc_write_field_{escalar,ref}_v1 distinguem valor escalar
 de referência emprestada sem uma flag dinâmica de classificação. Atualizam
 bits, mapa real e barreira via Heap::definir_campo; a operação Ref conserva
 uma aresta forte sem consumir tokens do chamador, com retenção antes da
@@ -1706,7 +1706,7 @@ runtime; 225 testes do emissor (7 ignorados) e 52 exemplos de documentação.
 Logs target/arc-gravacao-runtime-{focado,suite,doc}.log e
 target/arc-gravacao-emissor-{suite,doc}.log.
 
-ABI dartforge_arc_objeto_owned_v1 aloca INSTANCIA zerada e publica um único
+ABI dartforge_arc_object_owned_v1 aloca INSTANCIA zerada e publica um único
 token Owned no mesmo empréstimo do heap, antes do retorno/reabastecimento
 TLAB. Confere classe i32 e número de campos u16 sem truncar o cabeçalho.
 Ownership (classe nativa, quantidade escalar, resultado Owned), efeitos de
@@ -1762,7 +1762,7 @@ de --memoria=arc. Passaram 223 testes do emissor (7 ignorados), 52 exemplos
 de documentação e cargo check --locked -p dartforge-jit --all-targets;
 logs target/arc-layouts-{suite,doc,jit-check}.log.
 
-ABI dartforge_arc_ler_campo_escalar_v1 copia bits somente após conferir
+ABI dartforge_arc_read_field_scalar_v1 copia bits somente após conferir
 objeto vivo, índice e ausência da marca de referência no mapa real do heap.
 Borrow do receiver, resultado I64 escalar, sem retenção/invalidação/GC/Dart;
 catálogo ownership, efeitos e extern LLVM auditados juntos. Violação de
@@ -2125,7 +2125,7 @@ CI gera objetos LLVM O0/O2 e executa ARC/tracing sob ARC_CONFERIR/GC_STRESS,
 com conferência de efeitos na geração; artefatos IR/C++/stdout são publicados.
 Execução nativa desta fixture ainda pendente; teste HIR Windows e sintaxe C++
 no WSL passaram. Não valida forced unwind, finally ou inlining observado.
-Diagnóstico `dartforge_arc_observar_heap_v1` consulta páginas registradas e
+Diagnóstico `dartforge_arc_observe_heap_v1` consulta páginas registradas e
 inventário de owners sem dereferenciar endereço externo nem criar referência:
 bit 0 bloco vivo, bit 1 owner do código. Catálogo parcial passa a 29 contratos,
 argumento i64 Native (pode já estar liberado), resultado u8 escalar, efeitos0/0/0.
@@ -2199,10 +2199,10 @@ variantes de cada plataforma Linux/macOS na CI 38013924479. Downloads em
 `target/ci-38013924479/{linux,macos}`: 16 stdout MAX+LF conferidos byte a byte,
 IR com getter Owned e resume. Job Linux completo terminou com sucesso.
 
-Captura Owned do StackTrace: `dartforge_arc_rastro_owned_v1` retém o rastro
+Captura Owned do StackTrace: `dartforge_arc_stack_trace_owned_v1` retém o rastro
 antes de devolver o handle, sem safepoint entre leitura e retenção. Quando
 não há rastro corrente, cria um StackTrace sem instalá-lo para um throw futuro.
-`dartforge_arc_lancar_com_rastro_ref_v1` publica valor/rastro Ref emprestados
+`dartforge_arc_throw_with_stack_trace_ref_v1` publica valor/rastro Ref emprestados
 em raízes runtime independentes, sem consumir os owners do chamador.
 Catálogo parcial passa a 28 contratos. Teste do runtime passou em tracing/ARC:
 identidade do valor e rastro, sobrevivência ao clear/liberação dos originais,
@@ -2214,7 +2214,7 @@ Ainda falta integrar a observação do rastro na prova AOT de unwind; este teste
 CI 38013924479 da fonte 7418650d já passou pelas oito variantes AOT Linux
 com captura Owned da exceção; job Linux completo terminou com sucesso; workflow e macOS continuam em execução.
 
-Leitura Owned da exceção: nova ABI `dartforge_arc_excecao_owned_v1` conserva
+Leitura Owned da exceção: nova ABI `dartforge_arc_exception_owned_v1` conserva
 identidade de Ref, encaixota escalares e entrega owner independente antes de
 sair do empréstimo do heap. Não consome pendência/rastro; null sem pendência.
 Contrato auditado 26: resultado Ref Owned, sem parâmetros/falha nova,
@@ -2261,7 +2261,7 @@ Primeira execução AOT Linux do resume ARC integrado: o passo da CI 38010046028
 quatro variantes automático ARC/tracing × normal/erro. Runtime real com Mint,
 ARC_CONFERIR=1, BER=0, GC_STRESS=1; códigos zero e stdout byte exato.
 Download auditado: propagador usa personalidade de cleanup, landingpad cleanup,
-release antes de resume do par recebido, sem df.lancar nesse pouso.
+release antes de resume do par recebido, sem df.throw nesse pouso.
 Congelado em `bench/results/2026-10-09-arc-resume-linux-ci`, oito IR/stdout,
 hashes de fontes/arquivos e digest do artefato Actions. IR é entrada, não
 otimizado; não há executáveis nem versão exata da libLLVM no artefato.
@@ -2294,8 +2294,8 @@ pipeline semântico completo ou o gate de desempenho.
 Integração de resume ao protótipo ARC: HIR ganha saída Retoma, cujo Return
 é placeholder sem transferência. A preparação automática usa esse modo
 em Unix e mantém Lanca em Windows, até a integração SEH. O emissor escolhe
-`dartforge_personalidade_cleanup_itanium`, emite landingpad cleanup e retoma
-o par original. Drops ARC precedem resume; não chama df.lancar nesse pouso.
+`dartforge_personality_cleanup_itanium`, emite landingpad cleanup e retoma
+o par original. Drops ARC precedem resume; não chama df.throw nesse pouso.
 Tokens/emissor/materialização conferem pouso não inicial, um invoke estático,
 entrada exclusivamente excepcional, retorno canônico e corpo só de drops.
 Rejeitam limpeza da pendência e demais operações no cleanup; emissor rejeita
@@ -2346,7 +2346,7 @@ Forced unwind tem somente prova unitária; macOS somente compilação.
 Não altera o gate ARC/A0 nem conclui o objetivo completo.
 
 Personalidade Itanium de cleanup: nova entrada Unix
-`dartforge_personalidade_cleanup_itanium` separa cleanup puro de catch-all
+`dartforge_personality_cleanup_itanium` separa cleanup puro de catch-all
 Dart. Cleanup não para a busca; instala na fase de unwind, inclusive para
 exceção estrangeira/forçada. Catch-all só instala o quadro selecionado para
 exceção Dart. Entrega o objeto original ao landingpad e seletores 0/1,
@@ -2378,7 +2378,7 @@ Logs `target/ownership-lsda-*`. AOT ARC normal/erro da variante automática
 reconstruído com o runtime alterado passou sob stress e auditoria, código 0,
 IR e stdout idênticos aos artefatos anteriores. As personalidades ainda tratam
 os pousos como handlers. Auditoria confirmou que Itanium entrega zero no
-par do landingpad e reinicializa o objeto de unwind em df.lancar; SEH
+par do landingpad e reinicializa o objeto de unwind em df.throw; SEH
 ignora a fase de unwind e usa RtlUnwindEx na busca. Preservar esse objeto,
 distinguir cleanup/handler nas fases e emitir resume/funclets continua
 pendente; nenhum resume nativo foi certificado. Referência consultada:
@@ -2415,7 +2415,7 @@ Antes, uma folha que só lia ou limpava pendência podia ser considerada
 infalível, omitindo a exigência de saída excepcional nos callers.
 A preparação conjunta propaga essa falha transitivamente; o resumo
 isolado também a registra. Regressão cobre pending/clear na cadeia
-caller→intermediária→folha, rejeição atômica e emissão de df.lancar
+caller→intermediária→folha, rejeição atômica e emissão de df.throw
 no prólogo. Passaram 87 testes ARC, 39 LLVM e 45 doctests; quatro AOT
 ARC/tracing normal/erro sob stress e auditoria terminaram com código 0,
 LLVM e stdout idênticos ao arquivo da prova Guarda anterior. Logs
@@ -2441,7 +2441,7 @@ metadados, sem wrap. Publica CFG, tabelas e escopos somente após verificar
 o conjunto. Passaram 85 testes ARC, 39 LLVM e 45 doctests.
 Nova prova `arc_retornos_guardados`: quatro execuções AOT ARC/tracing sob
 stress e auditoria, código 0. Normal imprime i64::MAX após liberar a cópia
-de retorno e coletar; erro desenrola do callee por df.lancar, chega ao
+de retorno e coletar; erro desenrola do callee por df.throw, chega ao
 landingpad do invoke no caller, limpa a exceção e libera o token da fábrica.
 Artefatos em `bench/results/2026-10-09-arc-guardas-unwind-aot`; logs
 `target/ownership-guardas-*`. Morte final, geração dos invokes do caller,
@@ -2479,7 +2479,7 @@ rejeita saída Lanca não canônica, metadado obsoleto ou saída sem Return;
 A normalização vale para função isolada e preparação conjunta; saídas
 marcadas também propagam falha aos chamadores nos resumos.
 Regressão confirma nenhuma retenção e um drop do antigo resultado, ordem
-release→df.lancar no LLVM, idempotência e preservação atômica na rejeição
+release→df.throw no LLVM, idempotência e preservação atômica na rejeição
 de Guarda. Passaram 82 testes ARC, 39 LLVM e 45 doctests, logs
 `target/ownership-saidas-lanca-*`. Não houve execução nativa desse unwind
 por tabelas; a prova AOT anterior executa o protocolo de pendência runtime.
@@ -2539,7 +2539,7 @@ descritores/proveniência; não foi ligada ao pipeline padrão, nem conclui
 cleanup em arestas, finally, cancelamento ou suspensão.
 
 Exceção Ref e cleanup executado no AOT: a nova ABI
-`dartforge_arc_lancar_ref_v1` recebe borrow Ref, não consome token do código
+`dartforge_arc_throw_ref_v1` recebe borrow Ref, não consome token do código
 e publica a raiz da exceção pendente; pode alocar o rastro. Catálogo agora
 com 25 contratos, incluindo `dartforge_exception_clear`. O teste do runtime
 passou em ARC e tracing com auditoria/stress: Mint vivo após release do
@@ -3333,7 +3333,7 @@ Finalizable/verificadores locais; não prova ownership integrado ou >= A0.
 
 Base de ABI para slots proprietários: novo fragmento `arc_abi.rs`
 exporta abertura, cópia, movimento e fechamento com nomes
-`dartforge_arc_quadro_{abrir,copiar,mover,fechar}_v1`. Declarada no LLVM
+`dartforge_arc_frame_{abrir,copiar,mover,fechar}_v1`. Declarada no LLVM
 e em efeitos.tsv: nenhum ponto de coleta, exceção Dart ou chamada Dart.
 Usa slots contados do Heap, com cópia antes da liberação do antigo,
 movimento sem retain físico e fecho LIFO. Cópia/fecho validam quadro
@@ -3439,12 +3439,12 @@ Suíte release do emissor: 115 testes aprovados, nenhuma falha e sete
 manuais ignorados (`target/emissor-finalizavel-semantico-release.log`).
 Não valida ainda todos os produtores (capturas, corpos assíncronos,
 late e entradas especializadas), nem emite ArcKeepAlive ou cleanup ARC.
-Inspeção de simplificar::pura confirma que a ABI dartforge_arc_quadro_*
+Inspeção de simplificar::pura confirma que a ABI dartforge_arc_frame_*
 não é classificada como chamada pura: efeitos de GC/exceção nulos não
 autorizam sua remoção. Isso é inspeção, não prova de execução integrada.
 
 ABI mínima ARC implementada em arc_abi.rs: dartforge_arc_retain/release,
-dartforge_arc_collect e dartforge_arc_verificar_abi. Tokens do código têm
+dartforge_arc_collect e dartforge_arc_verify_abi. Tokens do código têm
 inventário por handle/multiplicidade separado de owners de slots e mensagens;
 entram no alcance e na auditoria, sem contar raízes observacionais novamente.
 Null/Smi são no-op. Release exige token do código; owner de quadro não o
@@ -3463,7 +3463,7 @@ Ainda não inseridos pelo lowering; ownership.tsv, contratos de resultados,
 consumo CFG, ArcKeepAlive e gate >= A0 continuam pendentes. O inventário por
 handle é uma base auditável, não uma alegação de custo mínimo.
 
-Entrada LLVM ARC passa a conferir dartforge_arc_verificar_abi(1) depois de
+Entrada LLVM ARC passa a conferir dartforge_arc_verify_abi(1) depois de
 ativar o modo e antes dos registros/código Dart, tanto autossuficiente quanto
 modo SDK/preparar_isolado. Resultado diferente de 1 termina com llvm.trap e
 unreachable, sem converter incompatibilidade em exceção Dart ignorável.
@@ -3471,7 +3471,7 @@ Tracing não emite a conferência. Isso só confere versão de tokens e modo do
 heap; não certifica o contrato de cada módulo/extern ou retornos owned.
 Suíte release do emissor: 116 aprovados, sete manuais ignorados
 (`target/emissor-arc-conferencia-abi-release.log`). Validação compilada na
-fonte eaa457d8: guarda extraída de df.preparar_isolado no IR real; stubs
+fonte eaa457d8: guarda extraída de df.prepare_isolate no IR real; stubs
 retornando 1/0 compilam e respectivamente continuam/terminam por llvm.trap
 (0xC000001D). Dois AOT ARC otimizados, checagem/tabelas, gc_d04_finally sob
 estresse, auditados/ciclos sempre, produzem stdout igual ao Dart e stderr
@@ -3621,7 +3621,7 @@ real, representação e registro de owner; não implementar carga lendo só esse
 mapa. ArcLoadStrong/ArcStoreStrong globais e inserção automática seguem pendentes.
 
 Ponte runtime SSA→owner global disponível como
-`dartforge_arc_global_receber_v1(id, valor)`: não desreferencia o ID, consome
+`dartforge_arc_global_receive_v1(id, valor)`: não desreferencia o ID, consome
 token do código sem retain da origem, publica o registro e solta owner antigo.
 O chamador deverá publicar os bits reais antes, sem safepoint até a chamada;
 o token SSA sustenta o valor nesse intervalo. Null/Smi removem owner antigo,
@@ -4603,7 +4603,7 @@ Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE
   valor→portador de um efêmero ficava vivo pela chave). Opt-in por `--memoria=arc` no AOT e no JIT; o
   rastreamento continua o padrão, com o IR de sempre.
 * **Exceções por tabelas no Linux**: a primeira execução (A1/B1) parou em 37 programas; o lançamento passava
-  por uma função Rust com a guarda de abortar na variante `panic=unwind` do runtime. O `@df.lancar` chama o
+  por uma função Rust com a guarda de abortar na variante `panic=unwind` do runtime. O `@df.throw` chama o
   `_Unwind_RaiseException` direto.
 * **§11 da especificação dos mapas**: itens 7 (`ld.lld`/`ld64.lld` com o RS4GC na LTO), 8 (o RS4GC cai com EH
   por funclets), 12 (`link.exe`), 13 (inliner e `gc`), 14 (`C-unwind` sob `panic=abort`) e 16 (bytes por

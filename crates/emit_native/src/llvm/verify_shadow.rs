@@ -113,7 +113,7 @@ fn collection(line: &str, helpers: &HashMap<&str, bool>) -> bool {
             if let Some(&c) = helpers.get(name) {
                 return c;
             }
-            if matches!(name, "df.corpo" | "df.barreira" | "df.barreira_elemento" | "df.e_objeto" | "df.filho_jovem" | "df.lancar") {
+            if matches!(name, "df.body" | "df.barrier" | "df.element_barrier" | "df.is_object" | "df.young_child" | "df.throw") {
                 return false;
             }
             if name.starts_with("df.") || name.starts_with("df_") || name == "dart_main" {

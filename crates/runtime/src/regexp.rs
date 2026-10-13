@@ -10,11 +10,11 @@
 // (`.*`, `\d+`, `[a-z]{2,}`) is iterative, without per-character recursion.
 //
 // The overlay's `_RegExp` (`native_sdk/core/regexp_patch.dart`) compiles the
-// pattern once (`DartForge_regexp_compilar`) into a `_ProgramaDeRegExp` (cid 16,
+// pattern once (`DartForge_regexp_compile`) into a `_ProgramaDeRegExp` (cid 16,
 // `BRUTO`+`ATTACHMENT`: the `Box<ProgramaRe>` released by the collector when the
 // `_RegExp` dies, docs/NATIVO-ESPACO-UNIFICADO.md §4.3) and asks for each match
-// (`DartForge_regexp_executar`); the positions of the last match are read through
-// `DartForge_regexp_captura`.
+// (`DartForge_regexp_exec`); the positions of the last match are read through
+// `DartForge_regexp_capture`.
 
 /// A character class (`[...]`, `\d`, `.`).
 #[derive(Clone, Debug)]
@@ -1170,10 +1170,10 @@ fn regexp_match_at(h: i64, s: &[u16], start: usize, sticky: bool) -> Option<Vec<
     })
 }
 
-/// `DartForge_regexp_compilar`: compiles the pattern and returns the
-/// `_ProgramaDeRegExp`, or null with the message in `DartForge_regexp_erro`.
+/// `DartForge_regexp_compile`: compiles the pattern and returns the
+/// `_ProgramaDeRegExp`, or null with the message in `DartForge_regexp_error`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_compilar(
+pub extern "C" fn dartforge_native_DartForge_regexp_compile(
     pattern: i64,
     multiline: u8,
     sensitive: u8,
@@ -1193,44 +1193,44 @@ pub extern "C" fn dartforge_nativo_DartForge_regexp_compilar(
     }
 }
 
-/// `DartForge_regexp_erro`: the message of the last failed compilation.
+/// `DartForge_regexp_error`: the message of the last failed compilation.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_erro() -> i64 {
+pub extern "C" fn dartforge_native_DartForge_regexp_error() -> i64 {
     let m = ULTIMO_RE.with(|u| u.borrow().1.clone());
     allocate_str(&m)
 }
 
-/// `DartForge_regexp_grupos`: how many capture groups.
+/// `DartForge_regexp_groups`: how many capture groups.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_grupos(program: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_regexp_groups(program: i64) -> i64 {
     HEAP.with(|heap| re_program(&heap.borrow(), program).groups as i64)
 }
 
-/// `DartForge_regexp_n_nomes`: how many named groups.
+/// `DartForge_regexp_n_names`: how many named groups.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_n_nomes(program: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_regexp_n_names(program: i64) -> i64 {
     HEAP.with(|heap| re_program(&heap.borrow(), program).names.len() as i64)
 }
 
-/// `DartForge_regexp_nome`: the name of the `i`-th named group.
+/// `DartForge_regexp_name`: the name of the `i`-th named group.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_nome(program: i64, i: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_regexp_name(program: i64, i: i64) -> i64 {
     let n = HEAP.with(|heap| re_program(&heap.borrow(), program).names.get(i as usize).map(|x| x.0.clone()));
     allocate_str(&n.unwrap_or_default())
 }
 
-/// `DartForge_regexp_indice_do_nome`: the index of the `i`-th named group.
+/// `DartForge_regexp_name_index`: the index of the `i`-th named group.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_indice_do_nome(program: i64, i: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_regexp_name_index(program: i64, i: i64) -> i64 {
     HEAP.with(|heap| re_program(&heap.borrow(), program).names.get(i as usize).map_or(-1, |x| x.1 as i64))
 }
 
-/// `DartForge_regexp_executar`: matches from `start`; the positions stay for
-/// `DartForge_regexp_captura`. The units of a `_TwoByteString` are read directly
+/// `DartForge_regexp_exec`: matches from `start`; the positions stay for
+/// `DartForge_regexp_capture`. The units of a `_TwoByteString` are read directly
 /// from the block; those of a `_OneByteString` are widened first (the engine
 /// walks in `u16`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_executar(program: i64, target: i64, start: i64, sticky: u8) -> u8 {
+pub extern "C" fn dartforge_native_DartForge_regexp_exec(program: i64, target: i64, start: i64, sticky: u8) -> u8 {
     let r = HEAP.with(|heap| {
         let heap = heap.borrow();
         let p = re_program(&heap, program);
@@ -1255,8 +1255,8 @@ pub extern "C" fn dartforge_nativo_DartForge_regexp_executar(program: i64, targe
     }
 }
 
-/// `DartForge_regexp_captura`: position `i` of the last match.
+/// `DartForge_regexp_capture`: position `i` of the last match.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_captura(i: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_regexp_capture(i: i64) -> i64 {
     ULTIMO_RE.with(|u| u.borrow().0.get(i as usize).copied().unwrap_or(-1))
 }

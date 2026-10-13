@@ -5,10 +5,10 @@
 // * The compiler generates, per native signature of the program (the same key as
 //   the call trampolines, `lower/ffi.rs`), a C ENTRY: a function with the
 //   signature's C ABI and a `nest` parameter — the callback's context. The entry
-//   asks the runtime for the mode (`dartforge_ffi_callback_entrar`), converts the C
+//   asks the runtime for the mode (`dartforge_ffi_callback_enter`), converts the C
 //   arguments to Dart, calls the closure through the uniform convention (through a
 //   common HIR body), converts the return value and, if the closure threw, returns
-//   the exceptional return value (`dartforge_ffi_callback_sair`).
+//   the exceptional return value (`dartforge_ffi_callback_exit`).
 // * Each callback is a distinct C function pointer: a trampoline of a few
 //   instructions that loads the context into the entry's `nest` register (r10 on
 //   x86-64, x15 on AArch64 — the same code `llvm.init.trampoline` would write) and
@@ -27,7 +27,7 @@
 //   inside the callback itself is allowed: the context is only released when the
 //   last call in progress leaves.
 
-/// Modes of a callback (the `mode` of `DartForge_ffi_callback_novo`).
+/// Modes of a callback (the `mode` of `DartForge_ffi_callback_new`).
 const MODE_PERSISTENT: i64 = 0;
 const MODE_LOCAL: i64 = 1;
 const MODE_LISTENER: i64 = 2;
@@ -87,7 +87,7 @@ thread_local! {
 /// `key` points to `n` ASCII bytes; `input` is the C entry generated for the
 /// signature (the context in the `nest` parameter).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_registrar_callback(key: *const u8, n: i64, input: usize) {
+pub unsafe extern "C" fn dartforge_ffi_register_callback(key: *const u8, n: i64, input: usize) {
     // SAFETY: guaranteed by the caller (a module constant).
     let b = unsafe { std::slice::from_raw_parts(key, n as usize) };
     let key = String::from_utf8_lossy(b).into_owned();
@@ -323,11 +323,11 @@ fn install_callback(ctx: Box<CallbackContext>) -> Result<usize, String> {
     Ok(f)
 }
 
-/// `DartForge_ffi_callback_novo(signature, function, exceptional, mode, port)`: the
+/// `DartForge_ffi_callback_new(signature, function, exceptional, mode, port)`: the
 /// C function pointer of a new callback (`port` is the listener's, or the site of a
 /// `fromFunction`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_novo(fn_signature: i64, function: i64, exceptional: i64, mode: i64, port: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64, function: i64, exceptional: i64, mode: i64, port: i64) -> i64 {
     let Some(ns) = object_type_type(fn_signature) else {
         throw_argument_error("native callback: signature type argument expected");
         return 0;
@@ -408,9 +408,9 @@ fn release_callback(ctx: *mut CallbackContext) {
     executable_memory::free(ctx.trampoline);
 }
 
-/// `DartForge_ffi_callback_apagar(address)`: the `close()` of a `NativeCallable`.
+/// `DartForge_ffi_callback_delete(address)`: the `close()` of a `NativeCallable`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_apagar(address: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_delete(address: i64) {
     let Some(ctx) = live_callbacks().lock().unwrap_or_else(|e| e.into_inner()).remove(&(address as usize)) else {
         return;
     };
@@ -427,10 +427,10 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_apagar(address: i64) {
     }
 }
 
-/// `DartForge_ffi_callback_manter(delta)`: the counter of local `NativeCallable`s
+/// `DartForge_ffi_callback_keep(delta)`: the counter of local `NativeCallable`s
 /// that keep the isolate alive (`keepIsolateAlive`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_manter(delta: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_keep(delta: i64) {
     adjust_callbacks_keeping_alive(delta);
 }
 
@@ -440,7 +440,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_manter(delta: i64) {
 /// # Safety
 /// `ctx` is the trampoline's context (alive while the callback is not closed).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_callback_entrar(ctx: *mut CallbackContext) -> i64 {
+pub unsafe extern "C" fn dartforge_ffi_callback_enter(ctx: *mut CallbackContext) -> i64 {
     // SAFETY: guaranteed by the caller.
     let c = unsafe { &mut *ctx };
     if c.mode == MODE_LISTENER {
@@ -457,7 +457,7 @@ pub unsafe extern "C" fn dartforge_ffi_callback_entrar(ctx: *mut CallbackContext
 /// The callback's closure (the entry calls through it).
 ///
 /// # Safety
-/// As [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_enter`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_closure(ctx: i64) -> i64 {
     // SAFETY: guaranteed by the caller.
@@ -467,9 +467,9 @@ pub unsafe extern "C" fn dartforge_ffi_callback_closure(ctx: i64) -> i64 {
 /// The Dart `Pointer<X>` of argument `i` (address `address`).
 ///
 /// # Safety
-/// As [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_enter`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_callback_ponteiro(ctx: i64, i: i64, address: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_ffi_callback_pointer(ctx: i64, i: i64, address: i64) -> i64 {
     // SAFETY: guaranteed by the caller.
     let ns = unsafe { (*(ctx as *const CallbackContext)).fn_signature };
     let tipo = RTI.with(|u| match u.borrow().tipo(ns) {
@@ -486,7 +486,7 @@ pub unsafe extern "C" fn dartforge_ffi_callback_ponteiro(ctx: i64, i: i64, addre
 /// allocates on the heap, runs Dart nor leaves a pending exception.
 ///
 /// # Safety
-/// As [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_enter`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_ffi_callback_closure_owned_v1(ctx: i64) -> i64 {
     // SAFETY: the contract above.
@@ -503,15 +503,15 @@ pub unsafe extern "C" fn dartforge_arc_ffi_callback_closure_owned_v1(ctx: i64) -
 /// null, without an owner. May allocate, collect and run Dart.
 ///
 /// # Safety
-/// As [`dartforge_ffi_callback_entrar`].
+/// As [`dartforge_ffi_callback_enter`].
 ///
 /// # Panics
 /// Missing helper, an incompatible Owned registration or an unclosed reentrant
 /// scope; aborts at the C boundary.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_ffi_callback_ponteiro_owned_v1(ctx: i64, i: i64, address: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_ffi_callback_pointer_owned_v1(ctx: i64, i: i64, address: i64) -> i64 {
     // SAFETY: the contract above.
-    owner_in_native_scope(|| unsafe { dartforge_ffi_callback_ponteiro(ctx, i, address) })
+    owner_in_native_scope(|| unsafe { dartforge_ffi_callback_pointer(ctx, i, address) })
 }
 
 /// The C entry finished the call: returns 1 (and the exceptional return in `out`)
@@ -519,9 +519,9 @@ pub unsafe extern "C" fn dartforge_arc_ffi_callback_ponteiro_owned_v1(ctx: i64, 
 /// context if it was closed during the call.
 ///
 /// # Safety
-/// As [`dartforge_ffi_callback_entrar`]; `out` is writable.
+/// As [`dartforge_ffi_callback_enter`]; `out` is writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_callback_sair(ctx: *mut CallbackContext, out: *mut i64) -> u8 {
+pub unsafe extern "C" fn dartforge_ffi_callback_exit(ctx: *mut CallbackContext, out: *mut i64) -> u8 {
     // SAFETY: guaranteed by the caller.
     let c = unsafe { &mut *ctx };
     c.active_list -= 1;
@@ -541,9 +541,9 @@ pub unsafe extern "C" fn dartforge_ffi_callback_sair(ctx: *mut CallbackContext, 
 /// message `[context, a0, a1, …]` to the `NativeCallable`'s port.
 ///
 /// # Safety
-/// As [`dartforge_ffi_callback_entrar`]; `args` has `n` values.
+/// As [`dartforge_ffi_callback_enter`]; `args` has `n` values.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const CallbackContext, args: *const i64, n: i64) {
+pub unsafe extern "C" fn dartforge_ffi_callback_post(ctx: *const CallbackContext, args: *const i64, n: i64) {
     // SAFETY: guaranteed by the caller.
     let c = unsafe { &*ctx };
     // SAFETY: likewise.
@@ -571,7 +571,7 @@ pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const CallbackConte
 /// `DartForge_ffi_callback_args(message)`: the Dart arguments of a `listener`
 /// message (the pointers become `Pointer<X>`s of the signature).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(message: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_args(message: i64) -> i64 {
     // The elements of the message (a core list), in the `Ref` position.
     let items: Vec<crate::heap::Value> = HEAP.with(|h| {
         let h = h.borrow();
@@ -610,7 +610,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(message: i64) -> 
                     crate::heap::Value::Ref(r) => HEAP.with(|h| h.borrow().typed_bytes(*r).map(<[u8]>::to_vec)).unwrap_or_default(),
                     _ => Vec::new(),
                 };
-                dartforge_ffi_composto_copia(rti, bytes.as_ptr() as i64)
+                dartforge_ffi_compound_copy(rti, bytes.as_ptr() as i64)
             }
             KeyPart::Letter(_) => HEAP.with(|h| h.borrow_mut().to_ref(*v)),
         };
@@ -638,7 +638,7 @@ mod tests_owned_callback {
 
     #[test]
     fn callback_closure_gains_an_owner_and_releases_on_release() {
-        let closure = dartforge_arc_objeto_owned_v1(123, 1);
+        let closure = dartforge_arc_object_owned_v1(123, 1);
         let ctx = Box::new(CallbackContext {
             mode: MODE_LOCAL, isolate: 0, closure, port: 0, fn_signature: 0,
             key: String::new(), exceptional: 0, active_list: 0,
@@ -651,10 +651,10 @@ mod tests_owned_callback {
         assert_eq!(dartforge_exception_pending(), 0);
         dartforge_arc_release(closure);
         dartforge_arc_collect();
-        assert_eq!(dartforge_arc_observar_heap_v1(closure), 3);
+        assert_eq!(dartforge_arc_observe_heap_v1(closure), 3);
         dartforge_arc_release(owner);
         dartforge_arc_collect();
-        assert_eq!(dartforge_arc_observar_heap_v1(closure), 0);
+        assert_eq!(dartforge_arc_observe_heap_v1(closure), 0);
     }
 }
 
@@ -678,7 +678,7 @@ mod finalizador_callback_tests {
             if synchronous {
                 dartforge_exception_clear();
                 // Null handles would reveal an improper creation of an attachment.
-                dartforge_nativo_DartForge_finalizador_anexar_nativo(0, 0, address as i64, 0, 0, 17);
+                dartforge_native_DartForge_finalizer_attach_native(0, 0, address as i64, 0, 0, 17);
                 assert_eq!(dartforge_exception_pending(), 1);
                 dartforge_exception_clear();
             }

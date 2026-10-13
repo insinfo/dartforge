@@ -958,7 +958,7 @@ impl ListenRecord {
 /// `EventHandler_SendData(sender, sendPort, data)`: command `data` for the socket
 /// of `sender` (which starts notifying on `sendPort`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_EventHandler_SendData(sender: i64, port: i64, data: i64) {
+pub extern "C" fn dartforge_native_EventHandler_SendData(sender: i64, port: i64, data: i64) {
     let port = native_field(port);
     if sender == 0 {
         // The VM's timers go through here; the native ones do not (`events.rs`).
@@ -976,6 +976,6 @@ pub extern "C" fn dartforge_nativo_EventHandler_SendData(sender: i64, port: i64,
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_EventHandler_TimerMillisecondClock() -> i64 {
-    dartforge_nativo_Stopwatch_now() / 1_000_000
+pub extern "C" fn dartforge_native_EventHandler_TimerMillisecondClock() -> i64 {
+    dartforge_native_Stopwatch_now() / 1_000_000
 }

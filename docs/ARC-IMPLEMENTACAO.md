@@ -27,8 +27,8 @@ a separação entre opção do compilador e argumento de `main`.
 | `arc` no AOT e no JIT | contagem de referências com coleta de ciclos; a migração de instâncias da recarga conta pela foto (`Heap::trocar_campos`) |
 
 O SDK compilado leva `memoria=arc_v1` na chave (`sdk_modulo::chave_do_sdk`).
-O programa ARC chama `dartforge_memoria_arc_v1` na entrada (no
-`df.preparar_isolado` de cada isolado, ou no `dartforge_entry`), e esse
+O programa ARC chama `dartforge_memory_arc_v1` na entrada (no
+`df.prepare_isolate` de cada isolado, ou no `dartforge_entry`), e esse
 símbolo versionado faz a ligação com um runtime sem a ABI falhar (§24).
 
 ## 2. Primeiro desenho: RC adiado das raízes, contado nos maduros
@@ -44,7 +44,7 @@ execução. Esta seção registra o primeiro desenho, ainda selecionável com
 | Jovens | Continuam com a coleta menor de sempre. O jovem que sobrevive é **promovido** e ganha metadados (`rc=0`). As arestas que saem dele e as que os velhos lembrados têm para ele são contadas nesse momento. O jovem que morre na menor nunca toca a tabela. | `heap.rs` (`sincronizar_arc`), `espaco.rs` (`jovens_marcados`) |
 | Gravação contada | `definir_campo`, `gravar_ref`, `gravar_refs` e os natives que gravam cru (`nativos_hash.rs`, `nativos_listas.rs`) contam a troca na hora: retain do novo, release do antigo. Só quando o dono é velho; o jovem não tem metadados. | `heap.rs` (`arc_trocou`), `nucleo.rs` (`arc_gravacao_crua`) |
 | Gravação crua | `palavras_mut`, `campos_de_objeto` e `definir_flags` num velho tiram uma **foto** das ocorrências contadas. Na sincronização, as atuais são retidas e as da foto soltas. Até lá, as gravações contadas pulam o objeto fotografado. | `heap.rs` (`arc_foto`) |
-| Código gerado | No ARC, `SetField`, o `dartforge_object_set` especializado, `CellSet` e os ajudantes de lista (`@df.lista_gravar_ref`, `@df.lista_gravar_dados`) não gravam em linha: chamam o runtime, que conta e aplica a barreira (§18.1, decisão 6). A alocação continua em linha (o objeto nasce jovem). | `llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/caixas_ir.rs` |
+| Código gerado | No ARC, `SetField`, o `dartforge_object_set` especializado, `CellSet` e os ajudantes de lista (`@df.list_write_ref`, `@df.list_write_data`) não gravam em linha: chamam o runtime, que conta e aplica a barreira (§18.1, decisão 6). A alocação continua em linha (o objeto nasce jovem). | `llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/caixas_ir.rs` |
 | Raízes | **Adiadas**: a pilha-sombra (ou os mapas), os quadros do runtime, os globais, os literais e as demais raízes de `Heap::raizes` não contam. Elas protegem os zeros que veem na sincronização: o zero protegido fica na fila (a tabela de contagem zero). | `heap.rs`, `arc.rs` (`drenar_zeros`) |
 | Morte | Só na sincronização (fim da coleta menor), nunca dentro de uma gravação: o runtime mantém o contrato de raízes do rastreamento. O descarte rompe as arestas e solta os destinos fora do conjunto (§19.4). | `arc.rs` (`descartar`) |
 | Ciclos | Na completa, o ponto fixo global (§22.3): `L` é o alcance pelas raízes reais com a regra condicional dos efêmeros, e todo registrado vivo fora de `L` morre num lote só, inclusive o de RC positivo só por ciclos. A *trial deletion* lateral sem tocar o RC real (§22.1) fica para `DARTFORGE_ARC_CICLOS=sempre`, em toda sincronização e repetida a cada volta com morte nova. Candidatos: quem desceu a um RC positivo, quem desceu a zero e voltou a subir antes da drenagem (o autociclo `x[i] = x` depois de soltar a última ocorrência de fora) e quem uma raiz vê. As raízes não geram decremento ao sumir, então o sobrevivente protegido só por elas volta a ser candidato. | `heap.rs` (`ponto_fixo_arc`), `arc.rs` (`coletar_ciclos`, `candidatar`, `drenar_zeros`) |
@@ -127,7 +127,7 @@ o padrão do modo `arc`, ninguém percorre o heap para decidir vida:
 | Parte | Como funciona | Arquivo |
 | --- | --- | --- |
 | Gravação | Toda gravação de referência conta na hora, também num jovem (`arc_trocou`); o destino sem metadados ganha registro (RC zero) antes da primeira ocorrência. | `heap.rs` |
-| Alocação em linha | O código gerado grava os campos de `AllocObject`, do contexto, da célula, do record pequeno e da closure sem passar pelo runtime: depois de cada uma, `dartforge_arc_inicial(h)` conta as referências gravadas (§21.1, item 1). | `llvm/mod.rs`, `llvm/caixas_ir.rs`, `nucleo.rs` |
+| Alocação em linha | O código gerado grava os campos de `AllocObject`, do contexto, da célula, do record pequeno e da closure sem passar pelo runtime: depois de cada uma, `dartforge_arc_initial(h)` conta as referências gravadas (§21.1, item 1). | `llvm/mod.rs`, `llvm/caixas_ir.rs`, `nucleo.rs` |
 | Escrita crua | A foto vale para todo objeto: a drenagem conta as ocorrências de agora e solta as da foto. A vida do fotografado segue o RC. | `heap.rs` (`arc_foto`) |
 | Drenagem | No lugar da coleta menor (`drenar_arc`): as raízes diretas (pilha-sombra ou mapas, quadros do runtime, globais) dão o conjunto protegido, sem seguir arestas. O jovem registrado fica; o que só uma raiz vê ganha registro (RC zero, protegido); o resto morreu sem ninguém o ver e solta as ocorrências que contou. Os zeros morrem em cascata, menos os protegidos. | `heap.rs` |
 | Ciclos | Na completa, o ponto fixo da §22.3 quando há efêmeros; senão a *trial deletion* até não haver morte nova. Candidatos: quem desceu a RC positivo, o zero que voltou a subir, o jovem que sobreviveu à drenagem e quem uma raiz vê. | `heap.rs`, `arc.rs` |

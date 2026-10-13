@@ -205,7 +205,7 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                         super::vectors::checked_read(i, roles) || (*role == DartEntryVector::Descriptor
                             && matches!(
                                 name.as_str(),
-                                "dartforge_args_casam" | "dartforge_arg_indice"
+                                "dartforge_args_match" | "dartforge_arg_index"
                             )
                             && args.first().is_some_and(|(o, t)| uses(o) && *t == Type::Ptr)
                             && args.iter().skip(1).all(|(o, _)| !uses(o)))
@@ -443,9 +443,9 @@ pub(super) fn certify(
                 ));
             }
             if let Instruction::CallRuntime { name, .. } = i
-                && (name.starts_with("dartforge_arc_escopo_nativo_")
-                    || name.starts_with("dartforge_arc_registrar_")
-                    || name == "dartforge_arc_retirar_retorno_owned_v1")
+                && (name.starts_with("dartforge_arc_native_scope_")
+                    || name.starts_with("dartforge_arc_register_")
+                    || name == "dartforge_arc_take_return_owned_v1")
             {
                 return Err(format!(
                     "ARC ports: {} handles native scopes/registrations without a verified protocol",
@@ -490,7 +490,7 @@ pub(super) fn certify(
     // In a set, or with callees from another image, the typed body may come
     // from another image (a program closure passed to the SDK, or the
     // reverse): the runtime registry checks the body of each closure
-    // before the call (`dartforge_arc_alvo_tipada_v1`).
+    // before the call (`dartforge_arc_typed_target_v1`).
     let typed_set = check_typed(m, plans, (idempotence && !m.arc_external_callees).then_some(&[][..]))?;
     let total = callbacks.len() + uniforms.len() + typed_set.len();
     m.arc_aot_ports = Some(ArcAotPorts {
@@ -659,11 +659,11 @@ mod tests {
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 if closure {
                     assert!(
-                        ir.contains("call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 %v0")
+                        ir.contains("call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 %v0")
                     );
                     assert!(!ir.contains("call i64 %cf3("));
                 } else {
-                    assert!(ir.contains("call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc3"));
+                    assert!(ir.contains("call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc3"));
                 }
                 assert!(!ir.contains("call i64 %sf3("));
             }
@@ -739,7 +739,7 @@ mod tests {
                 certify_arc_aot_ports(&mut m, &p).unwrap();
                 assert_eq!(m.arc_aot_ports, certificate);
                 let ir = LlvmEmitter::new(&m).emit_all();
-                assert_eq!(ir.matches(" = call i64 @dartforge_arc_registrar_tipada_v1").count(), usize::from(case == 0));
+                assert_eq!(ir.matches(" = call i64 @dartforge_arc_register_typed_v1").count(), usize::from(case == 0));
                 if case == 0 { assert!(ir.contains("i64 %t0, i64 31)")); }
             } else {
                 assert!(result.is_err(), "caso {case}: {result:?}");
@@ -758,11 +758,11 @@ mod tests {
             assert_eq!(m.arc_aot_ports, certificate);
             let ir = LlvmEmitter::new(&m).emit_all();
             assert_eq!(
-                ir.matches(" = call i64 @dartforge_arc_registrar_uniforme_owned_v1")
+                ir.matches(" = call i64 @dartforge_arc_register_uniform_owned_v1")
                     .count(),
                 2
             );
-            assert!(ir.contains("df.arc.compativel:\n  call void @df.arc.registrar_portas()"));
+            assert!(ir.contains("df.arc.compatible:\n  call void @df.arc.register_ports()"));
             assert!(
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     LlvmEmitter::new(&m).with_maps_in_jit(true).emit_all()
@@ -848,7 +848,7 @@ mod tests {
         assert_eq!(certify_arc_aot_ports(&mut m, &p).unwrap(), 0);
         assert_eq!(format!("{m:?}"), before);
         let ir = LlvmEmitter::new(&m).emit_all();
-        assert!(!ir.contains("define private void @df.arc.registrar_portas"));
+        assert!(!ir.contains("define private void @df.arc.register_ports"));
     }
 
     #[test]
@@ -859,7 +859,7 @@ mod tests {
                 ValueId(50),
                 if scope {
                     Instruction::CallRuntime {
-                        name: "dartforge_arc_escopo_nativo_abrir_v1".into(),
+                        name: "dartforge_arc_native_scope_open_v1".into(),
                         args: vec![],
                         ret_ty: Type::I64,
                     }

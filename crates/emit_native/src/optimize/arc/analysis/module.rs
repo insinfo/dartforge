@@ -263,7 +263,7 @@ mod tests {
                     (
                         ValueId(2),
                         Instruction::CallRuntime {
-                            name: "dartforge_nativo_DartForge_finalizador_anexar".into(),
+                            name: "dartforge_native_DartForge_finalizer_attach".into(),
                             args: vec![
                                 (Operand::Val(ValueId(0)), Type::Ref),
                                 (Operand::Constant(Constant::Null), Type::Ref),
@@ -342,7 +342,7 @@ mod tests {
                 instructions: vec![(
                     ValueId(2),
                     Instruction::CallRuntime {
-                        name: "dartforge_nativo_DartForge_finalizador_anexar".into(),
+                        name: "dartforge_native_DartForge_finalizer_attach".into(),
                         args: vec![
                             (Operand::Val(ValueId(0)), Type::Ref),
                             (Operand::Constant(Constant::Null), Type::Ref),

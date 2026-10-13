@@ -145,7 +145,7 @@ pub extern "C" fn dartforge_stack_trace_get() -> i64 {
 /// Native of the VM's static getter `StackTrace.current`: with the stack trace
 /// table, the addresses of this stack (§13.14).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_StackTrace_current() -> i64 {
+pub extern "C" fn dartforge_native_StackTrace_current() -> i64 {
     let returns = capture_returns();
     if !returns.is_empty() {
         return allocate_return_trace(&returns);
@@ -165,7 +165,7 @@ pub extern "C" fn dartforge_throw_with_stack_trace(bits: i64, tag: u8, st_handle
 /// exception to generated code's pending-exception protocol. The return is
 /// unreachable in Dart (`Never`), but takes a `Ref` in the ABI of the SDK from source.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Error_throwWithStackTrace(error: i64, trace: i64) -> i64 {
+pub extern "C" fn dartforge_native_Error_throwWithStackTrace(error: i64, trace: i64) -> i64 {
     dartforge_throw_with_stack_trace(error, 3, trace);
     0
 }
@@ -218,7 +218,7 @@ fn unwinding_now() -> bool {
 /// Whether the pending exception can be caught by a `catch` (the generated handler
 /// asks before the `on T` tests).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_exception_capturavel() -> u8 {
+pub extern "C" fn dartforge_exception_catchable() -> u8 {
     u8::from(!unwinding_now())
 }
 
@@ -536,7 +536,7 @@ pub extern "C" fn dartforge_no_such_method_error_new(name: i64) -> i64 {
 /// `_toStringPlain` and does not consult this native; null is the "no signature
 /// found" contract in the other cases.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_NoSuchMethodError_existingMethodSignature(
+pub extern "C" fn dartforge_native_NoSuchMethodError_existingMethodSignature(
     _receiver: i64,
     _method_name: i64,
     _invocation_type: i64,

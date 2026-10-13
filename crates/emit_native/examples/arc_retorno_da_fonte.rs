@@ -147,7 +147,7 @@ define void @prova_retorno_da_fonte() {
   %argumento = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)
   %retorno = call i64 @SIMBOLO_FONTE(i64 %argumento)
   call void @dartforge_arc_collect()
-  %antes = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %antes = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno)
   %tem_owner = icmp eq i8 %antes, 3
   %igual = icmp eq i64 %retorno, %argumento
   %valido = and i1 %igual, %tem_owner
@@ -155,13 +155,13 @@ define void @prova_retorno_da_fonte() {
 soltar_argumento:
   call void @dartforge_arc_release(i64 %argumento)
   call void @dartforge_arc_collect()
-  %vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno)
   %owned = icmp eq i8 %vivo, 3
   br i1 %owned, label %soltar_retorno, label %falha
 soltar_retorno:
   call void @dartforge_arc_release(i64 %retorno)
   call void @dartforge_arc_collect()
-  %fim = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %fim = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno)
   %morto = icmp eq i8 %fim, 0
   br i1 %morto, label %passou, label %falha
 falha:
@@ -176,7 +176,7 @@ passou:
     ir = ir.replace("SIMBOLO_FONTE", &symbol);
     ir.push_str("\ndefine void @dartforge_entry() {\n");
     if arc {
-        ir.push_str("  call void @dartforge_memoria_arc_v1()\n");
+        ir.push_str("  call void @dartforge_memory_arc_v1()\n");
     }
     ir.push_str("  call void @prova_retorno_da_fonte()\n  ret void\n}\n");
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");

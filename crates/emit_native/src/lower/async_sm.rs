@@ -1092,7 +1092,7 @@ mod ref_restoration_tests {
         let mut plans = HashMap::from([("restaurar".into(), p)]);
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 0));
         let reader = m.functions[0].blocks.iter().flat_map(|b| &b.instructions).find_map(|(v, i, _)|
-            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_ler_campo_ref_v1").then_some(*v)).unwrap();
+            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_read_field_ref_v1").then_some(*v)).unwrap();
         assert_eq!(plans["restaurar"].classes[&reader], Ownership::Borrowed {
             owner: OwnerOrigin::Value(ValueId(0)), scope: 0,
         });
@@ -1100,7 +1100,7 @@ mod ref_restoration_tests {
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
         assert!(ir.contains("i64 %v0, i64 40)"));
         assert!(ir.find("call void @dartforge_arc_retain").unwrap()
-            < ir.find("call void @dartforge_arc_gravar_campo_escalar_conferido_v1").unwrap());
+            < ir.find("call void @dartforge_arc_write_field_scalar_checked_v1").unwrap());
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         // The same typed access can be emitted under tracing; the ARC tokens appear
         // only in the explicitly selected preparation above.
@@ -1111,7 +1111,7 @@ mod ref_restoration_tests {
         assert_eq!(prepare_arc_dart_module(&mut tracing, &mut without_plans).unwrap(), (0, 0));
         assert_eq!(format!("{tracing:?}"), before);
         let ir = crate::llvm::LlvmEmitter::new(&tracing).emit_all();
-        assert!(!ir.contains("call i64 @dartforge_arc_ler_campo_ref_v1"));
+        assert!(!ir.contains("call i64 @dartforge_arc_read_field_ref_v1"));
     }
 }
 

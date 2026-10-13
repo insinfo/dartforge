@@ -356,7 +356,7 @@ impl JitSession {
     ///
     /// * **no frame** of it exists: the publication runs without a program
     ///   running, or at the event safepoint of the main isolate with the
-    ///   other isolates stopped at theirs (`dartforge_parar_isolados`) — in
+    ///   other isolates stopped at theirs (`dartforge_stop_isolates`) — in
     ///   none of them is there a Dart frame on the stack; `hot_reload` takes `&mut self`,
     ///   so nothing of the session runs in parallel;
     /// * **no address** of it is stored: every reference to a program
@@ -1227,9 +1227,9 @@ fn check_contract(
 
 /// The functions that the publication of a generation calls: the globals area with
 /// its layout and the registrations it redoes.
-const AREA_PREPARATION: &str = "df.preparar_area";
-const PROGRAM_REGISTRY: &str = "df.registrar.programa";
-const RTI_START: &str = "dartforge_rti_iniciar";
+const AREA_PREPARATION: &str = "df.prepare_area";
+const PROGRAM_REGISTRY: &str = "df.register.program";
+const RTI_START: &str = "dartforge_rti_init";
 
 /// The program's class ids are positional: an edit that inserts or
 /// reorders classes changes the class of an id that already has objects in the heap.
@@ -1436,10 +1436,10 @@ mod tests {
     #[test]
     fn references_accept_exports_of_the_sdk_loaded_in_this_session() {
         let mut external = HashSet::new();
-        external.insert("df.sdk_teste".to_owned());
-        assert!(check_references(&["df.sdk_teste".to_owned()], &[], &[], &external, false).is_ok());
-        let error = check_references(&["df.sdk_ausente".to_owned()], &[], &[], &external, false).unwrap_err();
-        assert!(error.contains("df.sdk_ausente"), "{error}");
+        external.insert("df.sdk_test".to_owned());
+        assert!(check_references(&["df.sdk_test".to_owned()], &[], &[], &external, false).is_ok());
+        let error = check_references(&["df.sdk_missing".to_owned()], &[], &[], &external, false).unwrap_err();
+        assert!(error.contains("df.sdk_missing"), "{error}");
         let error = check_references(&["dartforge_object_new".to_owned()], &[], &[], &external, false).unwrap_err();
         assert!(error.contains("dartforge_object_new"), "{error}");
     }

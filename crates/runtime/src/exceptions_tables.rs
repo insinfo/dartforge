@@ -7,7 +7,7 @@
 // the runtime standing:
 //
 // * **no Rust frame stays in the path of an unwind**: every call from the runtime
-//   to Dart code goes through a generated *port* (`@df.porta.<r|v><n>`), which
+//   to Dart code goes through a generated *port* (`@df.port.<r|v><n>`), which
 //   catches any unwind, restores the top of the shadow stack and returns with the
 //   exception **pending** — the protocol the runtime already expects from a Dart
 //   function that threw;
@@ -39,13 +39,13 @@ static PORTAS_DART: [std::sync::atomic::AtomicUsize; 16] = [
     std::sync::atomic::AtomicUsize::new(0),
 ];
 
-/// `dartforge_registrar_portas(tabela, n)`: the entry of a program compiled with
+/// `dartforge_register_ports(tabela, n)`: the entry of a program compiled with
 /// `--excecoes=tabelas` hands over the ports before any Dart code runs.
 ///
 /// # Safety
 /// `tabela` points to `n` function addresses (a module constant).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_portas(tabela: *const usize, n: i64) {
+pub unsafe extern "C" fn dartforge_register_ports(tabela: *const usize, n: i64) {
     TABLES_MODE.store(true, std::sync::atomic::Ordering::Release);
     // The `sem_porta` sabotage (D9, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
     // §7.3): the runtime calls Dart directly, and a Dart exception crosses the Rust
@@ -572,7 +572,7 @@ unsafe fn seh_personality(rec: *mut u8, frame: *mut u8, dispatch: *mut u8) -> i3
 }
 
 /// The personality of the functions generated with `--excecoes=tabelas`
-/// (`personality ptr @dartforge_personalidade` in the IR). Only Windows x86-64 has
+/// (`personality ptr @dartforge_personality` in the IR). Only Windows x86-64 has
 /// the mode; on the other targets the emitter rejects it and nobody references this
 /// symbol.
 ///
@@ -580,7 +580,7 @@ unsafe fn seh_personality(rec: *mut u8, frame: *mut u8, dispatch: *mut u8) -> i3
 /// Only the system exception dispatcher calls it.
 #[cfg(not(unix))]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_personalidade(rec: *mut u8, frame: *mut u8, contexto: *mut u8, dispatch: *mut u8) -> i32 {
+pub unsafe extern "C" fn dartforge_personality(rec: *mut u8, frame: *mut u8, contexto: *mut u8, dispatch: *mut u8) -> i32 {
     let _ = contexto;
     #[cfg(all(windows, target_arch = "x86_64"))]
     {
@@ -645,7 +645,7 @@ thread_local! {
 /// Only generated code calls it, with the Dart exception already pending.
 #[cfg(unix)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_objeto_de_desenrolamento() -> *mut u8 {
+pub unsafe extern "C" fn dartforge_unwind_object() -> *mut u8 {
     let object = UNWIND_OBJECT.with(|o| o.get());
     // SAFETY: the object belongs to the thread and there is no other unwind in
     // progress; the unwinder only uses its private area.
@@ -661,7 +661,7 @@ pub unsafe extern "C" fn dartforge_objeto_de_desenrolamento() -> *mut u8 {
 /// program entry and the ports have landing pads, so it is a defect). Ends.
 #[cfg(unix)]
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_desenrolamento_falhou(reason: i32) -> ! {
+pub extern "C" fn dartforge_unwind_failed(reason: i32) -> ! {
     abort_unwinding(&format!("_Unwind_RaiseException returned {reason} (no frame caught it)"))
 }
 
@@ -673,7 +673,7 @@ pub extern "C" fn dartforge_desenrolamento_falhou(reason: i32) -> ! {
 /// Only the system unwinder calls it.
 #[cfg(unix)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_personalidade(version: i32, actions: i32, class: u64, _object: *mut u8, contexto: *mut u8) -> i32 {
+pub unsafe extern "C" fn dartforge_personality(version: i32, actions: i32, class: u64, _object: *mut u8, contexto: *mut u8) -> i32 {
     // SAFETY: the dispatcher's contract, preserving the legacy protocol.
     unsafe { itanium_personality(version, actions, class, _object, contexto, false) }
 }
@@ -686,7 +686,7 @@ pub unsafe extern "C" fn dartforge_personalidade(version: i32, actions: i32, cla
 /// uses the action's selector and only handles in the chosen frame. Mixed landing
 /// pads run cleanup for a foreign/forced exception with selector zero. Does not
 /// interpret typed filters: the positive actions are catch-all. The legacy emitter
-/// keeps using `dartforge_personalidade`.
+/// keeps using `dartforge_personality`.
 ///
 /// # Errors
 /// Returns the Itanium protocol codes; a version other than 1 returns a fatal error
@@ -700,12 +700,12 @@ pub unsafe extern "C" fn dartforge_personalidade(version: i32, actions: i32, cla
 /// ```
 /// # #[cfg(unix)] {
 /// let _: unsafe extern "C" fn(i32, i32, u64, *mut u8, *mut u8) -> i32 =
-///     dartforge_runtime::abi::dartforge_personalidade_cleanup_itanium;
+///     dartforge_runtime::abi::dartforge_personality_cleanup_itanium;
 /// # }
 /// ```
 #[cfg(unix)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_personalidade_cleanup_itanium(
+pub unsafe extern "C" fn dartforge_personality_cleanup_itanium(
     version: i32, actions: i32, class: u64, object: *mut u8, contexto: *mut u8,
 ) -> i32 {
     // SAFETY: the dispatcher's contract for sites of the cleanup protocol.

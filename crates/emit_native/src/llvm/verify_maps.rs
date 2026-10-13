@@ -92,7 +92,7 @@ mod tests {
             "  %p = phi ptr addrspace(1) [ ptr addrspace(1) poison, %b0 ]",
             "  %v2 = call i64 @dartforge_string_concat(i64 %v1, i64 %v1)",
             "  %v2 = call i64 %f(i64 %v1)",
-            "%f = call ptr @dartforge_seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)",
+            "%f = call ptr @dartforge_selector(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)",
             "declare i64 @dartforge_string_concat(i64, i64) \"gc-leaf-function\"",
         ];
         for p in planted {

@@ -23,7 +23,7 @@ fn with_roots<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
 /// exception and the top of the shadow stack, which generated code reads and writes
 /// without a call.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_contexto() -> *const crate::heap::Context {
+pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
     crate::heap::CONTEXTO.with(|c| {
         if c.stack_limit.get() == 0 {
             c.stack_limit.set(thread_stack_limit());
@@ -114,7 +114,7 @@ fn stack_base() -> usize {
 /// limit is disabled while the error is built (the stack trace and the allocation
 /// use the slack) and enabled again afterwards.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_estouro_de_pilha() {
+pub extern "C" fn dartforge_stack_overflow() {
     let limit = crate::heap::CONTEXTO.with(|c| c.stack_limit.replace(1));
     let error = dartforge_stack_overflow_error_new();
     if dartforge_exception_pending() == 0 {
@@ -132,20 +132,20 @@ pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
 /// immutable: a message within the same isolate passes it by identity
 /// (`ports.rs`). The value is already a global root of the caller.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_marcar_permanente(handle: i64) {
+pub extern "C" fn dartforge_mark_permanent(handle: i64) {
     HEAP.with(|heap| heap.borrow_mut().mark_permanent(handle));
 }
 /// Marks the canonical constant `handle`, produced by the generated getter at
 /// address `getter` (see `Heap::mark_constant`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_marcar_constante(handle: i64, getter: i64) {
+pub extern "C" fn dartforge_mark_constant(handle: i64, getter: i64) {
     HEAP.with(|heap| heap.borrow_mut().mark_constant(handle, getter as usize));
 }
 /// The canonical form of a constant's value, before the getter stores it: the
 /// built string (`const s = 'a${'b'}'`) becomes the canonical literal with the same
 /// content, like the VM's constant canonicalization.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_constante_canonica(handle: i64) -> i64 {
+pub extern "C" fn dartforge_canonical_constant(handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().canonical_constant(handle))
 }
 /// Allows an explicit collection in tests and future maintenance routines.
@@ -228,18 +228,18 @@ pub fn forget_previous_area_generations() {
     forget_area_table();
 }
 
-/// The slow path of `@df.obter_area`: the area (`dartforge_area_de_globais`) and,
+/// The slow path of `@df.get_area`: the area (`dartforge_globals_area`) and,
 /// in this thread's table, the entry for the module id (assigned now, if it does
 /// not have one yet).
 ///
 /// # Safety
-/// `descriptor` as in [`dartforge_area_de_globais`]; `id` points to the
+/// `descriptor` as in [`dartforge_globals_area`]; `id` points to the
 /// `@df.area_id` of the same module.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_area_de_globais_id(descriptor: *const i64, id: *const std::sync::atomic::AtomicI64) -> *mut i64 {
+pub unsafe extern "C" fn dartforge_globals_area_id(descriptor: *const i64, id: *const std::sync::atomic::AtomicI64) -> *mut i64 {
     use std::sync::atomic::Ordering;
     // SAFETY: guaranteed by the caller.
-    let p = unsafe { dartforge_area_de_globais(descriptor) };
+    let p = unsafe { dartforge_globals_area(descriptor) };
     // SAFETY: the module's global, alive for the whole process.
     let id = unsafe { &*id };
     let mut k = id.load(Ordering::Relaxed);
@@ -279,7 +279,7 @@ fn new_slots(n: usize) -> Vec<i64> {
 /// `descriptor` points to a module's `@df.area`: `n + 2` words (`[key, n, names…]`),
 /// or 2 (`[key, -n]`, the lean production one), constant for the whole process.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_area_de_globais(descriptor: *const i64) -> *mut i64 {
+pub unsafe extern "C" fn dartforge_globals_area(descriptor: *const i64) -> *mut i64 {
     let d = descriptor as usize;
     let (last_one, area) = ULTIMA_AREA.with(|u| u.get());
     if last_one == d {
@@ -412,7 +412,7 @@ fn migrate_area(old_value: &GlobalsArea, new_area: &mut GlobalsArea) {
 /// # Safety
 /// `base` is the `__ImageBase` of a loaded PE image.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_mapa(base: *const u8) {
+pub unsafe extern "C" fn dartforge_register_map(base: *const u8) {
     crate::heap::register_stack_map(base as usize);
 }
 
@@ -424,7 +424,7 @@ pub unsafe extern "C" fn dartforge_registrar_mapa(base: *const u8) {
 /// # Safety
 /// `[start, end)` is the map section of a loaded image.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_mapa_secao(start: *const u8, end: *const u8) {
+pub unsafe extern "C" fn dartforge_register_map_section(start: *const u8, end: *const u8) {
     crate::heap::register_map_section(start as usize, end as usize);
 }
 
@@ -434,17 +434,17 @@ pub unsafe extern "C" fn dartforge_registrar_mapa_secao(start: *const u8, end: *
 /// # Safety
 /// `[start, end)` is the map section of a loaded image.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_mapa_llvm(start: *const u8, end: *const u8) {
+pub unsafe extern "C" fn dartforge_register_map_llvm(start: *const u8, end: *const u8) {
     crate::heap::register_llvm_section(start as usize, end as usize);
 }
 
-/// Removes the map registered by [`dartforge_registrar_mapa_llvm`] with the same
+/// Removes the map registered by [`dartforge_register_map_llvm`] with the same
 /// `start` (the JIT, when releasing an object's memory).
 ///
 /// # Safety
 /// None: it only compares the address.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_desregistrar_mapa(start: *const u8) {
+pub unsafe extern "C" fn dartforge_unregister_map(start: *const u8) {
     crate::heap::unregister_map(start as usize);
 }
 
@@ -456,7 +456,7 @@ pub unsafe extern "C" fn dartforge_desregistrar_mapa(start: *const u8) {
 /// # Safety
 /// `out` points to four writable `u64`s.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_gc_estatisticas(out: *mut u64) {
+pub unsafe extern "C" fn dartforge_gc_stats(out: *mut u64) {
     if out.is_null() {
         return;
     }
@@ -485,9 +485,9 @@ mod tests_gc_roots {
             // SAFETY: constant descriptors for the whole process.
             let (a, b, c) = unsafe {
                 (
-                    dartforge_area_de_globais(LEAN.as_ptr()),
-                    dartforge_area_de_globais(COMPLETE.as_ptr()),
-                    dartforge_area_de_globais(LEAN.as_ptr()),
+                    dartforge_globals_area(LEAN.as_ptr()),
+                    dartforge_globals_area(COMPLETE.as_ptr()),
+                    dartforge_globals_area(LEAN.as_ptr()),
                 )
             };
             assert_eq!(a, c);
@@ -520,8 +520,8 @@ mod tests_gc_roots {
 /// (`header >> 8`): the block's `flags` in the low 8 and, for `INSTANCIA`, the
 /// number of fields in the next 16 (for `BRUTO`/`REFS`, `n` is `words`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_alocar(cid: i64, words: i64, flags: i64) -> i64 {
-    let w = usize::try_from(words).expect("compiler bug: negative words in dartforge_alocar");
+pub extern "C" fn dartforge_allocate(cid: i64, words: i64, flags: i64) -> i64 {
+    let w = usize::try_from(words).expect("compiler bug: negative words in dartforge_allocate");
     let f = (flags & 0xFF) as u8;
     let n = if f & crate::layout::flags::FORMA == crate::layout::flags::INSTANCIA {
         ((flags >> 8) & 0xFFFF) as usize
@@ -538,9 +538,9 @@ pub extern "C" fn dartforge_alocar(cid: i64, words: i64, flags: i64) -> i64 {
 }
 
 /// Registers the static object section `[start, end)` of an image (the executable,
-/// the SDK DLL): called by each one's `@df.preparar_isolado`
+/// the SDK DLL): called by each one's `@df.prepare_isolate`
 /// (docs/NATIVO-ESPACO-UNIFICADO.md §2.11). Neither allocates nor throws.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_registrar_imagem(start: *const u8, end: *const u8) {
+pub extern "C" fn dartforge_register_image(start: *const u8, end: *const u8) {
     crate::heap::register_image(start as usize, end as usize);
 }

@@ -1,7 +1,7 @@
 //! Migration of live instances on a structural reload (J03).
 //!
 //! The native emitter writes into the IR the object layout of each program class
-//! (`; df.campos <id> <base> nome:flags:tipo,…`, with `a` nullable and `l` late;
+//! (`; df.fields <id> <base> nome:flags:tipo,…`, with `a` nullable and `l` late;
 //! `base` are the fields before the declared ones, the enum ones). When a class
 //! changes its fields, the reload no longer has to be rejected: every live object
 //! of that class moves to the new layout **by field name**, at publication — with
@@ -66,7 +66,7 @@ fn unescape(part: &str) -> Option<String> {
 pub(crate) fn ir_layouts(ir: &str) -> Vec<Layout> {
     ir.lines()
         .filter_map(|l| {
-            let rest = l.strip_prefix("; df.campos ")?;
+            let rest = l.strip_prefix("; df.fields ")?;
             let mut p = rest.splitn(3, ' ');
             let class = p.next()?.parse().ok()?;
             let base = p.next()?.parse().ok()?;
@@ -136,7 +136,7 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
     Ok(plan)
 }
 
-/// The plan in the runtime's format (`dartforge_definir_migracao`):
+/// The plan in the runtime's format (`dartforge_set_migration`):
 /// `[n, (class, new_len, origin…)…]`.
 pub(crate) fn encode(plan: &[Migration]) -> Vec<i64> {
     let mut v = vec![plan.len() as i64];
@@ -158,7 +158,7 @@ mod tests_mod {
 
     #[test]
     fn le_os_layouts_do_ir() {
-        let ir = "; df.campos 7 0 valor::int,rotulo$5f:a:String$3f\n; df.campos 8 2 \ndefine void @f() { ret void }\n";
+        let ir = "; df.fields 7 0 valor::int,rotulo$5f:a:String$3f\n; df.fields 8 2 \ndefine void @f() { ret void }\n";
         let l = ir_layouts(ir);
         assert_eq!(l.len(), 2);
         assert_eq!(l[0].fields, vec![field("valor", false, false, "int"), field("rotulo_", true, false, "String?")]);

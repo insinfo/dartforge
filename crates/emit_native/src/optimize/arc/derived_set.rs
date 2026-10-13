@@ -1,7 +1,7 @@
 //! Addresses derived from lists: the data of a typed list
-//! (`@df.tipada_dados`) and the storage of a core list
-//! (`@df.nucleo_armazenamento`). Each access through them gets, right after,
-//! `@df.manter_vivo(list)`: the list stays borrowed and alive up to there, and ARC
+//! (`@df.typed_data`) and the storage of a core list
+//! (`@df.core_storage`). Each access through them gets, right after,
+//! `@df.keep_alive(list)`: the list stays borrowed and alive up to there, and ARC
 //! puts the drop after the last access. The data of a typed list does not
 //! change while it lives; the storage of a core list changes when the list
 //! grows, so no path from its read to the access goes through a
@@ -13,7 +13,7 @@ use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 /// The use that holds the list after an access through the derived address.
-pub(crate) const KEEP_ALIVE: &str = "df.manter_vivo";
+pub(crate) const KEEP_ALIVE: &str = "df.keep_alive";
 
 #[derive(Clone, Copy, PartialEq)]
 struct Origin {
@@ -35,11 +35,11 @@ fn origins(f: &Function) -> HashMap<ValueId, Origin> {
             }
             let o = match inst {
                 Instruction::CallRuntime { name, args, .. }
-                    if matches!(name.as_str(), "df.tipada_dados" | "df.nucleo_armazenamento") =>
+                    if matches!(name.as_str(), "df.typed_data" | "df.core_storage") =>
                 {
                     match args.as_slice() {
                         [(Operand::Val(list), Type::Ref)] => {
-                            Some(Origin { list: *list, root: *v, core: name == "df.nucleo_armazenamento" })
+                            Some(Origin { list: *list, root: *v, core: name == "df.core_storage" })
                         }
                         _ => None,
                     }
@@ -71,7 +71,7 @@ fn address(inst: &Instruction) -> Option<&Operand> {
     match inst {
         Instruction::NativeLoad { address, .. } | Instruction::NativeWrite { address, .. } => Some(address),
         Instruction::Simd { op: OpSimd::Loads | OpSimd::Writes, args } => args.first(),
-        Instruction::CallRuntime { name, args, .. } if name == "df.nucleo_forma" => args.first().map(|(o, _)| o),
+        Instruction::CallRuntime { name, args, .. } if name == "df.core_shape" => args.first().map(|(o, _)| o),
         _ => None,
     }
 }
@@ -99,7 +99,7 @@ fn barrier(inst: &Instruction) -> bool {
         Instruction::CallRuntime { name, .. } => {
             let base = name.strip_prefix(super::NATIVE_SCOPE_PREFIX).unwrap_or(name);
             name != KEEP_ALIVE
-                && !matches!(base, "dartforge_ponto_seguro" | "dartforge_exception_clear")
+                && !matches!(base, "dartforge_safepoint" | "dartforge_exception_clear")
                 && super::contract(name).map_or(true, |c| c.invalida_borrows || c.chama_dart)
         }
         Instruction::CallStatic { .. }
@@ -115,7 +115,7 @@ fn barrier(inst: &Instruction) -> bool {
     }
 }
 
-/// Puts `@df.manter_vivo(list)` after each access through a derived address
+/// Puts `@df.keep_alive(list)` after each access through a derived address
 /// that does not have it yet (repeating changes nothing) and checks the resulting shape
 /// ([`verify`]).
 pub(super) fn keep_live(f: &mut Function) -> Result<(), String> {
@@ -186,7 +186,7 @@ fn valid_storages(f: &Function, der: &HashMap<ValueId, Origin>) -> Vec<HashSet<V
 }
 
 /// Checks that the derived address only serves derivations and accesses, that
-/// each access is followed by `@df.manter_vivo` of its list, and that no
+/// each access is followed by `@df.keep_alive` of its list, and that no
 /// path from the read of core storage to the access has a barrier.
 pub(super) fn verify(f: &Function) -> Result<(), String> {
     let der = origins(f);
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn typed_access_gets_list_keep_alive() {
         let mut f = function(vec![
-            (ValueId(2), rt("df.tipada_dados", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
+            (ValueId(2), rt("df.typed_data", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), Instruction::NativeLoad { address: val(2), index: val(1), ty: CType::F64 }, Type::F64),
             (ValueId(4), Instruction::Add(val(2), Operand::Constant(Constant::Int(8))), Type::I64),
             (ValueId(5), Instruction::NativeWrite { address: val(4), index: val(1), ty: CType::F64, value: val(3) }, Type::Void),
@@ -312,21 +312,21 @@ mod tests {
     fn derived_address_does_not_escape_or_cross_core_barrier() {
         // Passing the address to a call.
         let mut f = function(vec![
-            (ValueId(2), rt("df.tipada_dados", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
+            (ValueId(2), rt("df.typed_data", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![val(2)], ret_ty: Type::Void }, Type::Void),
         ]);
         assert!(keep_live(&mut f).unwrap_err().contains("escapes"));
         // A call between the read of the storage and the access.
         let mut f = function(vec![
-            (ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
+            (ValueId(2), rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
             (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
             (ValueId(4), Instruction::NativeLoad { address: val(2), index: val(1), ty: CType::I64 }, Type::I64),
         ]);
         assert!(keep_live(&mut f).unwrap_err().contains("barrier"));
         // Without a barrier, it passes; the shape is also an access.
         let mut f = function(vec![
-            (ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
-            (ValueId(3), rt("df.nucleo_forma", vec![(val(2), Type::I64)], Type::I64), Type::I64),
+            (ValueId(2), rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
+            (ValueId(3), rt("df.core_shape", vec![(val(2), Type::I64)], Type::I64), Type::I64),
             (ValueId(4), Instruction::Add(val(2), Operand::Constant(Constant::Int(22))), Type::I64),
             (ValueId(5), Instruction::NativeLoad { address: val(4), index: val(1), ty: CType::I64 }, Type::I64),
         ]);
@@ -347,7 +347,7 @@ mod tests {
             blocks: vec![
                 BasicBlock {
                     id: BlockId(0),
-                    instructions: vec![(ValueId(2), rt("df.nucleo_armazenamento", vec![(val(0), Type::Ref)], Type::I64), Type::I64)],
+                    instructions: vec![(ValueId(2), rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64), Type::I64)],
                     terminator: Terminator::Branch(BlockId(1)),
                 },
                 BasicBlock {
@@ -362,7 +362,7 @@ mod tests {
                 BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(None) },
             ],
         };
-        let mut f = loop_fn(rt("df.arc.escopo.dartforge_ponto_seguro", vec![], Type::Void));
+        let mut f = loop_fn(rt("df.arc.scope.dartforge_safepoint", vec![], Type::Void));
         keep_live(&mut f).unwrap();
         let mut f = loop_fn(Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void });
         assert!(keep_live(&mut f).unwrap_err().contains("barrier"));

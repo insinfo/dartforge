@@ -38,11 +38,11 @@ No `.rdata`:
 
 **Causa raiz:** o `/OPT:REF` não poda o SDK.
 
-- A entrada chama os `df.registrar.<lib>` das 15 bibliotecas do SDK.
+- A entrada chama os `df.register.<lib>` das 15 bibliotecas do SDK.
 - Toda alocação referencia a `df.mt.<Classe>$d`, que lista todo membro da classe em todas as
   formas de entrada. Então uma classe instanciada mantém vivos todos os seus métodos.
 - Um analisador de alcance sobre o IR confirmou isso: o modelo atual alcança 8 207 168 dos
-  8 207 376 bytes. Mantendo viva só a entrada cujo seletor aparece em algum `df.seletor` vivo, o
+  8 207 376 bytes. Mantendo viva só a entrada cujo seletor aparece em algum `df.selector` vivo, o
   código Dart cai **80% no hello (1,6 MB) e 72% no servidor**. É estimativa: o executável podado
   não foi gerado.
 
@@ -75,7 +75,7 @@ A tabela acima é a estimativa por religação. O que entrou, medido de ponta a 
   chama já abortava na fronteira `extern "C"`. O que muda está em `NATIVO.md` §1.1.
 - **`@df.area` enxuto:** `[chave, -n]` no `aot --optimize`, no programa e no SDK de produção
   (`LlvmEmitter::com_area_enxuta`). O sinal marca a forma. O leitor é
-  `dartforge_area_de_globais`: dá `n` slots exatos, sem nomes e sem folga. O JIT e a DLL de
+  `dartforge_globals_area`: dá `n` slots exatos, sem nomes e sem folga. O JIT e a DLL de
   desenvolvimento continuam com o descritor completo.
 - **ICF seguro na produção:**
   - `/opt:safeicf` no `lld-link`; o desenvolvimento continua com `/opt:noicf`.
@@ -133,7 +133,7 @@ Como funciona:
 
 Esforço e retorno:
 
-- **Onde mexer:** `llvm/seletores.rs`, `lower/sdk_fonte.rs`, `df.registrar.programa` em
+- **Onde mexer:** `llvm/seletores.rs`, `lower/sdk_fonte.rs`, `df.register.program` em
   `llvm/mod.rs` e os resumos em `sdk_modulo.rs`.
 - **Risco:** chamadas por nome em tempo de execução (`Function.apply`, `noSuchMethod`,
   `hash_do_nome` em `seletores.rs`/`closures.rs`, mirrors). Pedem raízes conservadoras, como as
@@ -327,7 +327,7 @@ esses custos somam cerca de 55–60% do JSON e 17–20% da CPU do servidor.
 **Rápidas** (dias a 2 semanas cada, independentes; ganhos estimados):
 
 1. **Classe por slot num vetor denso.** Os bits de fixa/imutável ficam no próprio vetor, e somem
-   os `HashSet` `fixas`/`imutaveis`. O `df.classe` lê a classe em linha, e o `is C` sem
+   os `HashSet` `fixas`/`imutaveis`. O `df.class` lê a classe em linha, e o `is C` sem
    argumentos de tipo vira consulta a uma tabela de bits `@df.sub.<C>[cid]`.
    - Referência: `LoadClassId` em `assembler_x64.cc`, faixas de cid em `class_finalizer.cc` e os
      type testing stubs.
@@ -374,7 +374,7 @@ nas listas grandes, literais de string estáticos no AOT e a cópia entre isolad
 o caminho sem SDK da fonte (`sdk_por_nome.rs`, `DARTFORGE_SDK_DA_FONTE`). A implementação foi
 dividida em pacotes paralelos (P0–P5, §4 da especificação) e é validada na integração (§5); os
 números medidos entram em `NATIVO-PLANO.md` §12. O marcador de ABI de §4 abaixo entrou como a
-conferência da tabela de cids (`dartforge_registrar_cids`).
+conferência da tabela de cids (`dartforge_register_cids`).
 
 ### O que não fazer, com evidência
 

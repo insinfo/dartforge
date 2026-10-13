@@ -967,10 +967,10 @@ impl Lljit {
             return Err(format!("could not load the SDK library {}", dll.display()));
         }
         if self.maps {
-            let register = address_in_library(modulo, c"dartforge_registrar_mapa_llvm");
-            let deregister = address_in_library(modulo, c"dartforge_desregistrar_mapa");
+            let register = address_in_library(modulo, c"dartforge_register_map_llvm");
+            let deregister = address_in_library(modulo, c"dartforge_unregister_map");
             if register.is_null() || deregister.is_null() {
-                return Err("the SDK library does not export the stack map registration (dartforge_registrar_mapa_llvm)".to_owned());
+                return Err("the SDK library does not export the stack map registration (dartforge_register_map_llvm)".to_owned());
             }
             // SAFETY: the layer lives as long as the session; the symbols are the
             // runtime functions with these signatures (`gc_roots.rs`), and the
@@ -984,10 +984,10 @@ impl Lljit {
             }
         }
         if self.trace {
-            let register = address_in_library(modulo, c"dartforge_registrar_rastro");
-            let deregister = address_in_library(modulo, c"dartforge_desregistrar_rastro");
+            let register = address_in_library(modulo, c"dartforge_register_stack_trace");
+            let deregister = address_in_library(modulo, c"dartforge_unregister_stack_trace");
             if register.is_null() || deregister.is_null() {
-                return Err("the SDK library does not export the stack trace registration (dartforge_registrar_rastro)".to_owned());
+                return Err("the SDK library does not export the stack trace registration (dartforge_register_stack_trace)".to_owned());
             }
             // SAFETY: as above (the runtime's `stack_trace.rs`).
             unsafe {
@@ -1354,21 +1354,21 @@ fn address_in_library(modulo: *mut std::ffi::c_void, name: &CStr) -> *mut std::f
     p
 }
 
-/// Calls `dartforge_definir_argumentos_do_main` of the SDK library's
+/// Calls `dartforge_set_main_arguments` of the SDK library's
 /// runtime (`data`: the arguments in UTF-8, each terminated by NUL).
 pub(crate) fn set_arguments_in_library(dll: &std::path::Path, data: &[u8]) -> Result<(), String> {
     let modulo = load_library(dll);
     if modulo.is_null() {
         return Err(format!("could not load the SDK library {}", dll.display()));
     }
-    let p = address_in_library(modulo, c"dartforge_definir_argumentos_do_main");
+    let p = address_in_library(modulo, c"dartforge_set_main_arguments");
     if p.is_null() && data.is_empty() {
         // With no arguments to hand over, a library without the whole runtime
         // (the test ones) will do.
         return Ok(());
     }
     if p.is_null() {
-        return Err("the SDK DLL does not export dartforge_definir_argumentos_do_main".to_string());
+        return Err("the SDK DLL does not export dartforge_set_main_arguments".to_string());
     }
     // SAFETY: the symbol is the runtime function with this signature
     // (`io_platform.rs`); `data` lives during the call, which copies it.
@@ -1379,7 +1379,7 @@ pub(crate) fn set_arguments_in_library(dll: &std::path::Path, data: &[u8]) -> Re
     Ok(())
 }
 
-/// Calls `dartforge_definir_script_do_programa` of the SDK library's
+/// Calls `dartforge_set_program_script` of the SDK library's
 /// runtime (the `Platform.script`). A library without the whole runtime (the test
 /// ones) does not have the symbol, and the script stays the process's.
 pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> Result<(), String> {
@@ -1387,7 +1387,7 @@ pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> 
     if modulo.is_null() {
         return Err(format!("could not load the SDK library {}", dll.display()));
     }
-    let p = address_in_library(modulo, c"dartforge_definir_script_do_programa");
+    let p = address_in_library(modulo, c"dartforge_set_program_script");
     if p.is_null() {
         return Ok(());
     }
@@ -1405,7 +1405,7 @@ pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> 
 // The program runs on its own thread while the watcher compiles the
 // new generation; publication (the cells, the statics, the registrations) runs
 // on the program thread, at the main isolate's safepoint — between two
-// loop events (`dartforge_pedir_no_ponto_seguro`, `ports.rs`), or with the
+// loop events (`dartforge_request_at_safepoint`, `ports.rs`), or with the
 // program stopped. Everything that crosses the boundary is an address: the publication
 // task owns its data and borrows nothing from the session.
 
@@ -1417,14 +1417,14 @@ pub(crate) type Task = Box<dyn FnOnce() + Send>;
 /// of the program is the library's).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReloadRuntime {
-    /// `dartforge_pedir_no_ponto_seguro`.
+    /// `dartforge_request_at_safepoint`.
     request_fn: usize,
-    /// `dartforge_publicar_geracao`.
+    /// `dartforge_publish_generation`.
     publicar: usize,
-    /// `dartforge_parar_isolados` and `dartforge_liberar_isolados`.
+    /// `dartforge_stop_isolates` and `dartforge_release_isolates`.
     stop: usize,
     free: usize,
-    /// `dartforge_definir_migracao` (J03); 0 in an old SDK library.
+    /// `dartforge_set_migration` (J03); 0 in an old SDK library.
     migrate: usize,
 }
 
@@ -1459,11 +1459,11 @@ impl ReloadRuntime {
     /// This process's runtime (`dartforge_runtime::abi`).
     pub(crate) fn embedded() -> Self {
         Self {
-            request_fn: dartforge_runtime::abi::dartforge_pedir_no_ponto_seguro as *const () as usize,
-            publicar: dartforge_runtime::abi::dartforge_publicar_geracao as *const () as usize,
-            stop: dartforge_runtime::abi::dartforge_parar_isolados as *const () as usize,
-            free: dartforge_runtime::abi::dartforge_liberar_isolados as *const () as usize,
-            migrate: dartforge_runtime::abi::dartforge_definir_migracao as *const () as usize,
+            request_fn: dartforge_runtime::abi::dartforge_request_at_safepoint as *const () as usize,
+            publicar: dartforge_runtime::abi::dartforge_publish_generation as *const () as usize,
+            stop: dartforge_runtime::abi::dartforge_stop_isolates as *const () as usize,
+            free: dartforge_runtime::abi::dartforge_release_isolates as *const () as usize,
+            migrate: dartforge_runtime::abi::dartforge_set_migration as *const () as usize,
         }
     }
 
@@ -1473,18 +1473,18 @@ impl ReloadRuntime {
         if modulo.is_null() {
             return Err(format!("could not load the SDK library {}", dll.display()));
         }
-        let request_fn = address_in_library(modulo, c"dartforge_pedir_no_ponto_seguro");
-        let publicar = address_in_library(modulo, c"dartforge_publicar_geracao");
-        let stop = address_in_library(modulo, c"dartforge_parar_isolados");
-        let free = address_in_library(modulo, c"dartforge_liberar_isolados");
+        let request_fn = address_in_library(modulo, c"dartforge_request_at_safepoint");
+        let publicar = address_in_library(modulo, c"dartforge_publish_generation");
+        let stop = address_in_library(modulo, c"dartforge_stop_isolates");
+        let free = address_in_library(modulo, c"dartforge_release_isolates");
         if request_fn.is_null() || publicar.is_null() || stop.is_null() || free.is_null() {
             return Err(format!(
-                "the SDK library {} does not export live reload (dartforge_pedir_no_ponto_seguro); \
+                "the SDK library {} does not export live reload (dartforge_request_at_safepoint); \
                  recompile it with this dartforge",
                 dll.display()
             ));
         }
-        let migrate = address_in_library(modulo, c"dartforge_definir_migracao");
+        let migrate = address_in_library(modulo, c"dartforge_set_migration");
         Ok(Self {
             request_fn: request_fn as usize,
             publicar: publicar as usize,
@@ -1499,13 +1499,13 @@ impl ReloadRuntime {
         self.migrate != 0
     }
 
-    /// `dartforge_definir_migracao`: the plan of the publication in progress, which
+    /// `dartforge_set_migration`: the plan of the publication in progress, which
     /// each isolate applies to its heap when publishing (`migration.rs`).
     pub(crate) fn set_migration(&self, data: &[i64]) {
         if self.migrate == 0 {
             return;
         }
-        // SAFETY: `migrate` is `dartforge_definir_migracao` (`selectors.rs`),
+        // SAFETY: `migrate` is `dartforge_set_migration` (`selectors.rs`),
         // which copies the `data.len()` words.
         unsafe {
             std::mem::transmute::<usize, unsafe extern "C" fn(*const i64, i64)>(self.migrate)(data.as_ptr(), data.len() as i64);
@@ -1523,7 +1523,7 @@ impl ReloadRuntime {
             response: std::sync::Mutex::new(None),
             sig_num: std::sync::Condvar::new(),
         };
-        // SAFETY: `request_fn` is `dartforge_pedir_no_ponto_seguro` (`ports.rs`),
+        // SAFETY: `request_fn` is `dartforge_request_at_safepoint` (`ports.rs`),
         // with this signature; the request lives until the answer below.
         let accepted = unsafe {
             let request_fn: extern "C" fn(extern "C" fn(usize, i32), usize) -> i32 = std::mem::transmute(self.request_fn);
@@ -1561,31 +1561,31 @@ impl ReloadRuntime {
     /// Stops the other isolates at their safepoint (called on the thread of the
     /// main isolate, at its safepoint) and returns the stop.
     pub(crate) fn stop_isolates(&self) -> usize {
-        // SAFETY: `stop` is `dartforge_parar_isolados` (`ports.rs`).
+        // SAFETY: `stop` is `dartforge_stop_isolates` (`ports.rs`).
         unsafe { std::mem::transmute::<usize, extern "C" fn() -> usize>(self.stop)() }
     }
 
     /// Releases the stop: each isolate redoes the registrations of the new generation.
     pub(crate) fn release_isolates(&self, stopped_flag: usize, area: Option<u64>, register: Option<u64>, rti: Option<u64>) {
         let e = |x: Option<u64>| x.map_or(0, |v| v as usize);
-        // SAFETY: `free` is `dartforge_liberar_isolados` (`ports.rs`), and
+        // SAFETY: `free` is `dartforge_release_isolates` (`ports.rs`), and
         // `stopped_flag` came from `stop_isolates`, once.
         unsafe {
             std::mem::transmute::<usize, extern "C" fn(usize, usize, usize, usize)>(self.free)(stopped_flag, e(area), e(register), e(rti));
         }
     }
 
-    /// `dartforge_publicar_geracao(area, register, rti)`: the globals area
+    /// `dartforge_publish_generation(area, register, rti)`: the globals area
     /// and the registrations of the new generation, on the program thread.
     pub(crate) fn publish_records(&self, area: Option<u64>, register: Option<u64>, rti: Option<u64>) {
         let as_fn = |address: Option<u64>| {
             // SAFETY: the addresses are `void ()` trampolines of the session
-            // (`df.preparar_area`, `df.register.program`,
-            // `dartforge_rti_iniciar`), alive
+            // (`df.prepare_area`, `df.register.program`,
+            // `dartforge_rti_init`), alive
             // while it exists.
             address.map(|e| unsafe { std::mem::transmute::<usize, extern "C" fn()>(e as usize) })
         };
-        // SAFETY: `publicar` is `dartforge_publicar_geracao` (`selectors.rs`).
+        // SAFETY: `publicar` is `dartforge_publish_generation` (`selectors.rs`).
         unsafe {
             let publicar: extern "C" fn(Option<extern "C" fn()>, Option<extern "C" fn()>, Option<extern "C" fn()>) =
                 std::mem::transmute(self.publicar);
@@ -1630,7 +1630,7 @@ impl GlobalCopy {
 }
 
 /// Calls the source SDK's `i32 ()` `main` on the current thread (it calls the
-/// library's `dartforge_iniciar`, which marks the main isolate).
+/// library's `dartforge_init`, which marks the main isolate).
 pub(crate) fn call_source_main(address: u64) -> i32 {
     // SAFETY: `address` is the `main` trampoline, checked `i32 ()` by the
     // session, which outlives the program thread.
@@ -2095,11 +2095,11 @@ struct LayerContext {
 
 unsafe extern "C" fn register_local_trace(start: *const u8, end: *const u8) {
     // SAFETY: the object's relocated section, alive as long as it.
-    unsafe { dartforge_runtime::abi::dartforge_registrar_rastro(start, end) };
+    unsafe { dartforge_runtime::abi::dartforge_register_stack_trace(start, end) };
 }
 
 unsafe extern "C" fn deregister_local_trace(start: *const u8) {
-    dartforge_runtime::abi::dartforge_desregistrar_rastro(start);
+    dartforge_runtime::abi::dartforge_unregister_stack_trace(start);
 }
 
 unsafe extern "C" fn register_local(start: *const u8, end: *const u8) {

@@ -52,7 +52,7 @@ fn native_resolver_and_its_cache_keep_this_runtimes_addresses() {
         for _ in 0..2 {
             // SAFETY: the name is a static UTF-8 string and lives during the call.
             let address = unsafe {
-                dartforge_runtime::abi::dartforge_ffi_simbolo_nativo(
+                dartforge_runtime::abi::dartforge_ffi_native_symbol(
                     name.as_ptr(),
                     name.len() as i64,
                 )

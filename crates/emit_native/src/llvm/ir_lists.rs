@@ -1,8 +1,8 @@
 //! Emission of core lists (P3, docs/NATIVO-ESPACO-UNIFICADO.md §3.5 and
-//! §4.5): the list literal (`AllocList`) and the `@df.lista_*` helpers of the
+//! §4.5): the list literal (`AllocList`) and the `@df.list_*` helpers of the
 //! prelude.
 //!
-//! The literal goes to the runtime as words (`dartforge_lista_nova`), in the shape
+//! The literal goes to the runtime as words (`dartforge_list_new`), in the shape
 //! the elements ask for: all `Ref` → general; all unboxed `int`, all `double` or all
 //! `bool` → the compact shape of that scalar (the reified `E`, written
 //! right after by `rti_definir`, confirms or undoes it: `Heap::lista_ajustar_forma`);
@@ -19,32 +19,32 @@ use crate::hir::*;
 use dartforge_runtime::layout::{self, cid, desl, flags};
 use std::fmt::Write;
 
-/// The `@df.lista_*` helpers (§3.5), printed in the prelude of each module by
+/// The `@df.list_*` helpers (§3.5), printed in the prelude of each module by
 /// `emit_runtime_decls`. `%l` is a core list (`_List`, `_ImmutableList` or
 /// `_GrowableList`); `%a`, a storage (`_List`/`_ImmutableList`), what
-/// `@df.lista_armazenamento` returns.
+/// `@df.list_storage` returns.
 ///
-/// * `@df.lista_len(l)`: the length, `[l+14]` in all three classes;
-/// * `@df.lista_armazenamento(l)`: cid 10 → `[l+22]`, otherwise `l`;
-/// * `@df.lista_elemento(a, i)`: the address `a + 22 + 8i`;
-/// * `@df.lista_forma(a)`: `[a−1] & 0x66` (`FORMA` and `ELEMENTO`: 0x04 general,
+/// * `@df.list_len(l)`: the length, `[l+14]` in all three classes;
+/// * `@df.list_storage(l)`: cid 10 → `[l+22]`, otherwise `l`;
+/// * `@df.list_element(a, i)`: the address `a + 22 + 8i`;
+/// * `@df.list_shape(a)`: `[a−1] & 0x66` (`FORMA` and `ELEMENTO`: 0x04 general,
 ///   0x22 `int`, 0x42 `double`, 0x62 `bool`);
-/// * `@df.lista_capacidade(l)`: the length of the storage;
-/// * `@df.lista_ler(a, i)`: word `i` (a `Ref` in the general shape);
-/// * `@df.lista_gravar_ref(a, i, v)`: writes the `Ref` and applies the element
-///   barrier (`@df.barreira_elemento`, with cards);
-/// * `@df.lista_gravar_len(l, n)`: the length of a `_GrowableList`, without a
+/// * `@df.list_capacity(l)`: the length of the storage;
+/// * `@df.list_read(a, i)`: word `i` (a `Ref` in the general shape);
+/// * `@df.list_write_ref(a, i, v)`: writes the `Ref` and applies the element
+///   barrier (`@df.element_barrier`, with cards);
+/// * `@df.list_write_len(l, n)`: the length of a `_GrowableList`, without a
 ///   barrier (it is not a reference; the VM's `_setLength`);
-/// * `@df.lista_gravar_dados(l, d)`: replaces the storage of a `_GrowableList`
+/// * `@df.list_write_data(l, d)`: replaces the storage of a `_GrowableList`
 ///   with the barrier when `d` has the shape of the current one (returns 1); otherwise it does not write
 ///   and returns 0 (the native gives the shape to the new one).
-pub const HELPERS: &str = "define internal i64 @df.lista_len(i64 %l) alwaysinline {\n\
+pub const HELPERS: &str = "define internal i64 @df.list_len(i64 %l) alwaysinline {\n\
   %p = inttoptr i64 %l to ptr\n\
   %q = getelementptr inbounds i8, ptr %p, i64 14\n\
   %n = load i64, ptr %q, align 8\n\
   ret i64 %n\n\
 }\n\
-define internal i64 @df.lista_armazenamento(i64 %l) alwaysinline {\n\
+define internal i64 @df.list_storage(i64 %l) alwaysinline {\n\
 entrada:\n\
   %p = inttoptr i64 %l to ptr\n\
   %cp = getelementptr inbounds i8, ptr %p, i64 2\n\
@@ -59,53 +59,53 @@ fim:\n\
   %r = phi i64 [ %d, %exp ], [ %l, %entrada ]\n\
   ret i64 %r\n\
 }\n\
-define internal ptr @df.lista_elemento(i64 %a, i64 %i) alwaysinline {\n\
+define internal ptr @df.list_element(i64 %a, i64 %i) alwaysinline {\n\
   %p = inttoptr i64 %a to ptr\n\
   %b = getelementptr inbounds i8, ptr %p, i64 22\n\
   %e = getelementptr inbounds i64, ptr %b, i64 %i\n\
   ret ptr %e\n\
 }\n\
-define internal i8 @df.lista_forma(i64 %a) alwaysinline {\n\
+define internal i8 @df.list_shape(i64 %a) alwaysinline {\n\
   %p = inttoptr i64 %a to ptr\n\
   %fp = getelementptr inbounds i8, ptr %p, i64 -1\n\
   %f = load i8, ptr %fp, align 1\n\
   %r = and i8 %f, 102\n\
   ret i8 %r\n\
 }\n\
-define internal i64 @df.lista_capacidade(i64 %l) alwaysinline {\n\
-  %a = call i64 @df.lista_armazenamento(i64 %l)\n\
-  %n = call i64 @df.lista_len(i64 %a)\n\
+define internal i64 @df.list_capacity(i64 %l) alwaysinline {\n\
+  %a = call i64 @df.list_storage(i64 %l)\n\
+  %n = call i64 @df.list_len(i64 %a)\n\
   ret i64 %n\n\
 }\n\
-define internal i64 @df.lista_ler(i64 %a, i64 %i) alwaysinline {\n\
-  %e = call ptr @df.lista_elemento(i64 %a, i64 %i)\n\
+define internal i64 @df.list_read(i64 %a, i64 %i) alwaysinline {\n\
+  %e = call ptr @df.list_element(i64 %a, i64 %i)\n\
   %v = load i64, ptr %e, align 8\n\
   ret i64 %v\n\
 }\n\
-define internal void @df.lista_gravar_ref(i64 %a, i64 %i, i64 %v) alwaysinline {\n\
-  %e = call ptr @df.lista_elemento(i64 %a, i64 %i)\n\
+define internal void @df.list_write_ref(i64 %a, i64 %i, i64 %v) alwaysinline {\n\
+  %e = call ptr @df.list_element(i64 %a, i64 %i)\n\
   store i64 %v, ptr %e, align 8\n\
-  call void @df.barreira_elemento(i64 %a, i64 %i, i64 %v)\n\
+  call void @df.element_barrier(i64 %a, i64 %i, i64 %v)\n\
   ret void\n\
 }\n\
-define internal void @df.lista_gravar_len(i64 %l, i64 %n) alwaysinline {\n\
+define internal void @df.list_write_len(i64 %l, i64 %n) alwaysinline {\n\
   %p = inttoptr i64 %l to ptr\n\
   %q = getelementptr inbounds i8, ptr %p, i64 14\n\
   store i64 %n, ptr %q, align 8\n\
   ret void\n\
 }\n\
-define internal i64 @df.lista_gravar_dados(i64 %l, i64 %d) alwaysinline {\n\
+define internal i64 @df.list_write_data(i64 %l, i64 %d) alwaysinline {\n\
 entrada:\n\
-  %a = call i64 @df.lista_armazenamento(i64 %l)\n\
-  %fa = call i8 @df.lista_forma(i64 %a)\n\
-  %fd = call i8 @df.lista_forma(i64 %d)\n\
+  %a = call i64 @df.list_storage(i64 %l)\n\
+  %fa = call i8 @df.list_shape(i64 %a)\n\
+  %fd = call i8 @df.list_shape(i64 %d)\n\
   %igual = icmp eq i8 %fa, %fd\n\
   br i1 %igual, label %grava, label %fim\n\
 grava:\n\
   %p = inttoptr i64 %l to ptr\n\
   %q = getelementptr inbounds i8, ptr %p, i64 22\n\
   store i64 %d, ptr %q, align 8\n\
-  call void @df.barreira(i64 %l, i64 %d)\n\
+  call void @df.barrier(i64 %l, i64 %d)\n\
   br label %fim\n\
 fim:\n\
   %r = phi i64 [ 1, %grava ], [ 0, %entrada ]\n\
@@ -128,15 +128,15 @@ const _: () = {
 /// The helpers of the module: under ARC (`Module::arc_memory`), the element write
 /// and the storage replacement of the `_GrowableList` go through the
 /// runtime, which counts the replacement and applies the barrier: the element through the word
-/// of the `REFS` body (`dartforge_arc_gravar_ref`), the storage through field
+/// of the `REFS` body (`dartforge_arc_write_ref`), the storage through field
 /// 1 of the `INSTANCIA` (`dartforge_object_set`).
 pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
     if !arc {
         return std::borrow::Cow::Borrowed(HELPERS);
     }
-    let element = "%e = call ptr @df.lista_elemento(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\ncall void @df.barreira_elemento(i64 %a, i64 %i, i64 %v)\n";
-    let arc_element = "%p = add i64 %i, 1\ncall void @dartforge_arc_gravar_ref(i64 %a, i64 %p, i64 %v)\n";
-    let data = "%p = inttoptr i64 %l to ptr\n%q = getelementptr inbounds i8, ptr %p, i64 22\nstore i64 %d, ptr %q, align 8\ncall void @df.barreira(i64 %l, i64 %d)\n";
+    let element = "%e = call ptr @df.list_element(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\ncall void @df.element_barrier(i64 %a, i64 %i, i64 %v)\n";
+    let arc_element = "%p = add i64 %i, 1\ncall void @dartforge_arc_write_ref(i64 %a, i64 %p, i64 %v)\n";
+    let data = "%p = inttoptr i64 %l to ptr\n%q = getelementptr inbounds i8, ptr %p, i64 22\nstore i64 %d, ptr %q, align 8\ncall void @df.barrier(i64 %l, i64 %d)\n";
     let arc_data = "call void @dartforge_object_set(i64 %l, i64 1, i64 %d, i8 1)\n";
     assert!(HELPERS.matches(element).count() == 1 && HELPERS.matches(data).count() == 1);
     std::borrow::Cow::Owned(HELPERS.replace(element, arc_element).replace(data, arc_data))
@@ -146,14 +146,14 @@ pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
 /// `CallRuntime`: `(name, allocates, throws)`. `externs::effects_of` consults them
 /// before the extern table (a helper outside here is conservative).
 pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
-    ("df.lista_len", false, false),
-    ("df.lista_armazenamento", false, false),
-    ("df.lista_forma", false, false),
-    ("df.lista_capacidade", false, false),
-    ("df.lista_ler", false, false),
-    ("df.lista_gravar_ref", false, false),
-    ("df.lista_gravar_len", false, false),
-    ("df.lista_gravar_dados", false, false),
+    ("df.list_len", false, false),
+    ("df.list_storage", false, false),
+    ("df.list_shape", false, false),
+    ("df.list_capacity", false, false),
+    ("df.list_read", false, false),
+    ("df.list_write_ref", false, false),
+    ("df.list_write_len", false, false),
+    ("df.list_write_data", false, false),
 ];
 
 /// The per-module emission state of lists.
@@ -174,7 +174,7 @@ impl LlvmEmitter<'_> {
     }
 
     /// The literal list: a `_GrowableList` of capacity `n` with the words
-    /// of the elements (`dartforge_lista_nova(words, n, cid, shape)`).
+    /// of the elements (`dartforge_list_new(words, n, cid, shape)`).
     pub(super) fn emit_alloc_list(&mut self, v: u32, elements: &[(Operand, u8)]) {
         let n = elements.len();
         let width = n.max(1);
@@ -212,7 +212,7 @@ impl LlvmEmitter<'_> {
         writeln!(
             self.out,
             "  %v{v} = call i64 @{}(ptr %list_buf_{v}, i64 {n}, i64 {}, i64 {shape})",
-            if self.arc_owned_factories() { "dartforge_arc_lista_nova_owned_v1" } else { "dartforge_lista_nova" },
+            if self.arc_owned_factories() { "dartforge_arc_list_new_owned_v1" } else { "dartforge_list_new" },
             cid::GROWABLE_LIST
         )
         .unwrap();

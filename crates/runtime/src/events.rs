@@ -13,7 +13,7 @@
 // `deadline + ms`.
 //
 // It is the ONLY point where the runtime calls Dart code: through the function
-// that generated code hands to `dartforge_laco_de_eventos` (`call`, which calls a
+// that generated code hands to `dartforge_event_loop` (`call`, which calls a
 // closure without arguments through the uniform convention and returns with the
 // pending exception, if any). An exception that leaves a microtask or a timer was
 // not handled by the `Zone` (the source's `_rootHandleError` rethrows it in an
@@ -42,7 +42,7 @@ struct Events {
     /// VM's `_id`: it grows on every scheduling (and rescheduling).
     queue: std::collections::BTreeMap<(i64, i64), i64>,
     next_seq: i64,
-    /// Active timers by id (the one from `DartForge_Timer_novo`, never 0).
+    /// Active timers by id (the one from `DartForge_Timer_new`, never 0).
     active: crate::hash::HashMap<i64, LoopTimer>,
     next_id: i64,
     next_root: i64,
@@ -94,7 +94,7 @@ fn call_event(call: extern "C" fn(i64) -> i64, closure: i64, root: Option<i64>) 
 /// `_AsyncRun._scheduleImmediate(callback)`: the closure runs before the next
 /// timer, after the ones already waiting.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_scheduleImmediate(closure: i64) {
+pub extern "C" fn dartforge_native_DartForge_scheduleImmediate(closure: i64) {
     EVENTS.with(|e| {
         let mut e = e.borrow_mut();
         let root = e.root_it(closure);
@@ -105,7 +105,7 @@ pub extern "C" fn dartforge_nativo_DartForge_scheduleImmediate(closure: i64) {
 /// `_Timer._novo(ms, fire, periodic)`: schedules the timer and returns the id
 /// (never 0). `fire` is the closure the loop calls at the deadline.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_Timer_novo(ms: i64, fire: i64, periodic: u8) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_Timer_new(ms: i64, fire: i64, periodic: u8) -> i64 {
     EVENTS.with(|e| {
         let mut e = e.borrow_mut();
         let ms = ms.max(0);
@@ -124,7 +124,7 @@ pub extern "C" fn dartforge_nativo_DartForge_Timer_novo(ms: i64, fire: i64, peri
 
 /// `_Timer._cancelar(id)`: removes the timer from the queue and releases the root.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_Timer_cancelar(id: i64) {
+pub extern "C" fn dartforge_native_DartForge_Timer_cancel(id: i64) {
     let root = EVENTS.with(|e| e.borrow_mut().active.remove(&id).map(|t| t.root));
     if let Some(r) = root {
         release_root(r);
@@ -135,7 +135,7 @@ pub extern "C" fn dartforge_nativo_DartForge_Timer_cancelar(id: i64) {
 /// nothing left (or an exception leaves one of them). `call` is the
 /// generated-code function that calls a closure without arguments.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_laco_de_eventos(call: extern "C" fn(i64) -> i64) {
+pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
     // In the loop, the isolate serves requests at the safepoint (`ports.rs`).
     register_live_isolate();
     loop {
@@ -245,7 +245,7 @@ pub extern "C" fn dartforge_laco_de_eventos(call: extern "C" fn(i64) -> i64) {
 /// `Error`, P5); the runtime's (ids 1000–1012) already receive it at `throw`.
 /// Until `Error` comes from source, there is nothing to write.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Error_trySetStackTrace(_error: i64, _trace: i64) {}
+pub extern "C" fn dartforge_native_Error_trySetStackTrace(_error: i64, _trace: i64) {}
 
 #[cfg(test)]
 mod tests_event_owners {
@@ -254,7 +254,7 @@ mod tests_event_owners {
 
     extern "C" fn callback(closure: i64) -> i64 {
         let timer = TIMER.with(|t| t.get());
-        if timer != 0 { dartforge_nativo_DartForge_Timer_cancelar(timer); }
+        if timer != 0 { dartforge_native_DartForge_Timer_cancel(timer); }
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
@@ -272,12 +272,12 @@ mod tests_event_owners {
             h.new_closure(123, (0, false), 0, 0)
         });
         if periodic {
-            let id = dartforge_nativo_DartForge_Timer_novo(0, closure, 1);
+            let id = dartforge_native_DartForge_Timer_new(0, closure, 1);
             TIMER.with(|t| t.set(id));
             call_event(callback, closure, None);
         } else {
             TIMER.with(|t| t.set(0));
-            dartforge_nativo_DartForge_scheduleImmediate(closure);
+            dartforge_native_DartForge_scheduleImmediate(closure);
             let (root, value) = EVENTS.with(|e| e.borrow_mut().immediates.pop_front().unwrap());
             call_event(callback, value, Some(root));
         }
@@ -316,7 +316,7 @@ mod tests_event_owners {
             h.enable_arc();
             h.new_closure(123, (0, false), 0, 0)
         });
-        dartforge_nativo_DartForge_scheduleImmediate(closure);
+        dartforge_native_DartForge_scheduleImmediate(closure);
         let (root, value) = EVENTS.with(|e| e.borrow_mut().immediates.pop_front().unwrap());
         call_event(callback_throws, value, Some(root));
         assert_eq!(dartforge_exception_pending(), 1);

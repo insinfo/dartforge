@@ -7,11 +7,11 @@
 
 extern "C" {
 void prova_owner_estrangeiro();
-void dartforge_memoria_arc_v1();
+void dartforge_memory_arc_v1();
 void dartforge_arc_collect();
-std::uint8_t dartforge_arc_observar_heap_v1(std::int64_t);
+std::uint8_t dartforge_arc_observe_heap_v1(std::int64_t);
 std::uint8_t dartforge_exception_pending();
-void* dartforge_contexto();
+void* dartforge_context();
 }
 
 static std::int64_t endereco_owner;
@@ -58,10 +58,10 @@ static _Unwind_Reason_Code parar_forcado(
              "unwind forcado executou catch ou esqueceu destrutor local");
     conferir(topo() == topo_anterior && dartforge_exception_pending() == 0, 23,
              "unwind forcado alterou pendencia ou abandonou raizes");
-    conferir(dartforge_arc_observar_heap_v1(endereco_owner) == 1, 24,
+    conferir(dartforge_arc_observe_heap_v1(endereco_owner) == 1, 24,
              "unwind forcado deixou owner ou coletou antes do fim");
     dartforge_arc_collect();
-    conferir(dartforge_arc_observar_heap_v1(endereco_owner) == 0, 25,
+    conferir(dartforge_arc_observe_heap_v1(endereco_owner) == 0, 25,
              "unwind forcado deixou Mint vivo apos coleta");
     std::puts("forced-cleanup-ok");
     std::fflush(stdout);
@@ -77,7 +77,7 @@ extern "C" void prova_print_estrangeira(std::int64_t endereco) {
     ++chamadas_print;
     if (chamadas_print != 1) return;
     endereco_owner = endereco;
-    conferir(dartforge_arc_observar_heap_v1(endereco) == 3, 11,
+    conferir(dartforge_arc_observe_heap_v1(endereco) == 3, 11,
              "Mint deve estar vivo e ter owner antes do unwind");
     Local local;
     if (forcar_unwind) {
@@ -94,13 +94,13 @@ extern "C" void prova_print_estrangeira(std::int64_t endereco) {
 
 static void* topo() {
     void* resultado;
-    std::memcpy(&resultado, static_cast<unsigned char*>(dartforge_contexto()) + 8,
+    std::memcpy(&resultado, static_cast<unsigned char*>(dartforge_context()) + 8,
                 sizeof(resultado));
     return resultado;
 }
 
 int main(int argc, char** argv) {
-    if (argc >= 2 && std::strcmp(argv[1], "arc") == 0) dartforge_memoria_arc_v1();
+    if (argc >= 2 && std::strcmp(argv[1], "arc") == 0) dartforge_memory_arc_v1();
     classe_dart_no_forcado = argc >= 3 && std::strcmp(argv[2], "forcado_dart") == 0;
     forcar_unwind = classe_dart_no_forcado || (argc >= 3 && std::strcmp(argv[2], "forcado") == 0);
     void* anterior = topo();
@@ -117,10 +117,10 @@ int main(int argc, char** argv) {
         conferir(destruicoes_local == 1, 14, "destrutor C++ local nao executou uma vez");
         conferir(topo() == anterior, 15, "quadro de raizes abandonado no contexto");
         conferir(dartforge_exception_pending() == 0, 16, "pendencia Dart foi modificada");
-        conferir(dartforge_arc_observar_heap_v1(endereco_owner) == 1, 17,
+        conferir(dartforge_arc_observe_heap_v1(endereco_owner) == 1, 17,
                  "cleanup deve consumir owner sem coletar o Mint");
         dartforge_arc_collect();
-        conferir(dartforge_arc_observar_heap_v1(endereco_owner) == 0, 18,
+        conferir(dartforge_arc_observe_heap_v1(endereco_owner) == 0, 18,
                  "Mint permaneceu vivo apos cleanup e coleta");
     }
     conferir(capturada && destruicoes_excecao == 1, 19,

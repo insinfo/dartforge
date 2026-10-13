@@ -40,7 +40,7 @@ fn system_random_bytes(dest: &mut [u8]) -> IoResult<()> {
 
 /// `Crypto_GetRandomBytes(count)`: `count` (0 to 4096) random bytes.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Crypto_GetRandomBytes(n: i64) -> i64 {
+pub extern "C" fn dartforge_native_Crypto_GetRandomBytes(n: i64) -> i64 {
     if !(0..=4096).contains(&n) {
         let msg = allocate_str("Invalid argument: count must be a positive int less than or equal to 4096.");
         with_roots(&[msg], || dartforge_exception_throw(msg, 3));
@@ -65,7 +65,7 @@ pub extern "C" fn dartforge_nativo_Crypto_GetRandomBytes(n: i64) -> i64 {
 /// (`Platform.script`, the executable's `argv[0]`) and the `Uri.base` hook (the
 /// current directory). Without `dart:io`, nothing.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_preparar_embedder() {
+pub extern "C" fn dartforge_prepare_embedder() {
     let Some(iniciar) = ajudante("_dartforgeIniciarIo") else {
         return;
     };
@@ -115,7 +115,7 @@ static SDK_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// # Safety
 /// `text` points to `n` readable UTF-8 bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_versao_do_sdk(text: *const u8, n: i64) {
+pub unsafe extern "C" fn dartforge_register_sdk_version(text: *const u8, n: i64) {
     // SAFETY: a module constant with `n` bytes.
     let b = unsafe { std::slice::from_raw_parts(text, n as usize) };
     let _ = SDK_VERSION.set(String::from_utf8_lossy(b).into_owned());
@@ -414,33 +414,33 @@ fn dart_string_list(textos: &[String], tipada: bool) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_NumberOfProcessors() -> i64 {
+pub extern "C" fn dartforge_native_Platform_NumberOfProcessors() -> i64 {
     processor_count()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_PathSeparator() -> i64 {
+pub extern "C" fn dartforge_native_Platform_PathSeparator() -> i64 {
     allocate_str(PATH_SEPARATOR)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_OperatingSystem() -> i64 {
+pub extern "C" fn dartforge_native_Platform_OperatingSystem() -> i64 {
     allocate_str(SYSTEM_NAME)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_OperatingSystemVersion() -> i64 {
+pub extern "C" fn dartforge_native_Platform_OperatingSystemVersion() -> i64 {
     dart_or_error(system_version(), |v| allocate_str(&v))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_LocalHostname() -> i64 {
+pub extern "C" fn dartforge_native_Platform_LocalHostname() -> i64 {
     dart_or_error(host_name(), |v| allocate_str(&v))
 }
 
 /// `Platform_ExecutableName`: the process's `argv[0]`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_ExecutableName() -> i64 {
+pub extern "C" fn dartforge_native_Platform_ExecutableName() -> i64 {
     match std::env::args_os().next() {
         Some(a) => dart_string_from_bytes(&path_bytes_of(std::path::Path::new(&a))),
         None => 0,
@@ -450,7 +450,7 @@ pub extern "C" fn dartforge_nativo_Platform_ExecutableName() -> i64 {
 /// `Platform_ResolvedExecutableName`: the absolute, canonical path of the
 /// executable.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_ResolvedExecutableName() -> i64 {
+pub extern "C" fn dartforge_native_Platform_ResolvedExecutableName() -> i64 {
     match std::env::current_exe().and_then(std::fs::canonicalize) {
         Ok(p) => {
             #[cfg(windows)]
@@ -465,14 +465,14 @@ pub extern "C" fn dartforge_nativo_Platform_ResolvedExecutableName() -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_Environment() -> i64 {
+pub extern "C" fn dartforge_native_Platform_Environment() -> i64 {
     dart_string_list(&environment_variables(), false)
 }
 
 /// `Platform_ExecutableArguments`: the VM options before the script — an AOT
 /// executable has none.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_ExecutableArguments() -> i64 {
+pub extern "C" fn dartforge_native_Platform_ExecutableArguments() -> i64 {
     dart_string_list(&[], true)
 }
 
@@ -501,7 +501,7 @@ pub fn set_program_script(file_path: Vec<u8>) {
 /// # Safety
 /// `data` points to `size` readable bytes (or `size` is 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_definir_script_do_programa(data: *const u8, size: usize) {
+pub unsafe extern "C" fn dartforge_set_program_script(data: *const u8, size: usize) {
     let bytes = if size == 0 {
         Vec::new()
     } else {
@@ -524,7 +524,7 @@ pub fn set_main_arguments(arguments: Vec<String>) {
 /// # Safety
 /// `data` points to `size` readable bytes (or `size` is 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_definir_argumentos_do_main(data: *const u8, size: usize) {
+pub unsafe extern "C" fn dartforge_set_main_arguments(data: *const u8, size: usize) {
     let bytes = if size == 0 {
         &[][..]
     } else {
@@ -540,7 +540,7 @@ pub unsafe extern "C" fn dartforge_definir_argumentos_do_main(data: *const u8, s
 /// The `args` of `main`: a fixed-length `List<String>`, like the VM embedder's
 /// (`Dart_NewListOfType`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
+pub extern "C" fn dartforge_main_arguments() -> i64 {
     let arguments = main_arguments()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -553,7 +553,7 @@ pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
 /// of the VM's `Dart_VersionString` (without the VM's build date, which does not
 /// exist here).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_GetVersion() -> i64 {
+pub extern "C" fn dartforge_native_Platform_GetVersion() -> i64 {
     let version = SDK_VERSION.get().map_or("unknown", String::as_str);
     // The full version, as the VM writes it (the compiler asked `dart --version`
     // for it, with the channel and the date): only the system is missing.
@@ -573,7 +573,7 @@ pub extern "C" fn dartforge_nativo_Platform_GetVersion() -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Platform_LocaleName() -> i64 {
+pub extern "C" fn dartforge_native_Platform_LocaleName() -> i64 {
     dart_or_error(locale_name(), |v| allocate_str(&v))
 }
 
@@ -800,53 +800,53 @@ fn read_stdin_byte(_fd: i64) -> IoResult<i64> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_ReadByte(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_ReadByte(fd: i64) -> i64 {
     dart_or_error(read_stdin_byte(fd), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_GetEchoMode(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_GetEchoMode(fd: i64) -> i64 {
     dart_or_error(terminal_mode(fd, TerminalMode::Echo), dart_bool)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_SetEchoMode(fd: i64, enabled_flag: u8) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_SetEchoMode(fd: i64, enabled_flag: u8) -> i64 {
     dart_true_or_error(change_terminal_mode(fd, TerminalMode::Echo, enabled_flag != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_GetEchoNewlineMode(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_GetEchoNewlineMode(fd: i64) -> i64 {
     dart_or_error(terminal_mode(fd, TerminalMode::EchoNewline), dart_bool)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_SetEchoNewlineMode(fd: i64, enabled_flag: u8) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_SetEchoNewlineMode(fd: i64, enabled_flag: u8) -> i64 {
     dart_true_or_error(change_terminal_mode(fd, TerminalMode::EchoNewline, enabled_flag != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_GetLineMode(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_GetLineMode(fd: i64) -> i64 {
     dart_or_error(terminal_mode(fd, TerminalMode::Line), dart_bool)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_SetLineMode(fd: i64, enabled_flag: u8) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_SetLineMode(fd: i64, enabled_flag: u8) -> i64 {
     dart_true_or_error(change_terminal_mode(fd, TerminalMode::Line, enabled_flag != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_AnsiSupported(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_Stdin_AnsiSupported(fd: i64) -> i64 {
     dart_bool(supports_ansi(fd))
 }
 
 /// `Stdout_GetTerminalSize`: `[columns, lines]` or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdout_GetTerminalSize(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_Stdout_GetTerminalSize(fd: i64) -> i64 {
     dart_or_error(terminal_size(fd), |(c, l)| dart_fixed_list(&[dart_int(c), dart_int(l)]))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdout_AnsiSupported(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_Stdout_AnsiSupported(fd: i64) -> i64 {
     dart_bool(supports_ansi(fd))
 }
 
@@ -865,7 +865,7 @@ fn global_exit_code() -> i32 {
 /// `Process_Exit`: ends the process right away (the VM uses `_exit`, without the
 /// global destructors; `std`'s standard output is flushed first).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_Exit(status: i64) {
+pub extern "C" fn dartforge_native_Process_Exit(status: i64) {
     use std::io::Write;
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
@@ -873,23 +873,23 @@ pub extern "C" fn dartforge_nativo_Process_Exit(status: i64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_SetExitCode(status: i64) {
+pub extern "C" fn dartforge_native_Process_SetExitCode(status: i64) {
     EXIT_CODE.store(status, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_GetExitCode() -> i64 {
+pub extern "C" fn dartforge_native_Process_GetExitCode() -> i64 {
     EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_Sleep(ms: i64) {
+pub extern "C" fn dartforge_native_Process_Sleep(ms: i64) {
     std::thread::sleep(std::time::Duration::from_millis(ms.max(0) as u64));
 }
 
 /// `Process_Pid(process)`: that of the current process (with `null`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_Pid(process: i64) -> i64 {
+pub extern "C" fn dartforge_native_Process_Pid(process: i64) -> i64 {
     if process == 0 {
         return i64::from(std::process::id());
     }
@@ -948,7 +948,7 @@ fn utf8_to_system(s: &[u8]) -> Vec<u8> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SystemEncodingToString(bytes: i64) -> i64 {
+pub extern "C" fn dartforge_native_SystemEncodingToString(bytes: i64) -> i64 {
     let b = typed_list_bytes(bytes).unwrap_or_else(|| {
         HEAP.with(|h| {
             let h = h.borrow();
@@ -959,6 +959,6 @@ pub extern "C" fn dartforge_nativo_SystemEncodingToString(bytes: i64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_StringToSystemEncoding(text: i64) -> i64 {
+pub extern "C" fn dartforge_native_StringToSystemEncoding(text: i64) -> i64 {
     dart_bytes(utf8_to_system(&utf8_of_string(text)))
 }

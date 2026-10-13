@@ -3,7 +3,7 @@
 //!
 //! In the VM, an `external` with `@pragma("vm:external-name", "Name")` is a
 //! C++ function of the runtime (`runtime/lib/*.cc`). Here it is the Rust function
-//! `dartforge_nativo_<Name>` (the `crate::natives` table, from δ), with the
+//! `dartforge_native_<Name>` (the `crate::natives` table, from δ), with the
 //! signature in the HIR representation of the declared types (`int` → `i64`,
 //! `double` → `double`, `bool` → `i8` — the C ABI `bool` —, the rest,
 //! receiver included, → `Ref`). The error leaves through the pending exception.
@@ -17,7 +17,7 @@ use dartforge_diagnostics::Span;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The body of an `external` with a native: the parameters (and `this`) go to
-    /// `dartforge_nativo_<Name>` and the result comes back in the representation of the
+    /// `dartforge_native_<Name>` and the result comes back in the representation of the
     /// return. Returns `false` if the function has no native.
     pub fn lower_external(&mut self, fid: usize, span: Span) -> bool {
         let (native, recognized) = crate::source::native_pragma(self.ctx.program, self.ctx.interner, fid);

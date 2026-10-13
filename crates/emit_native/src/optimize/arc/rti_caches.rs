@@ -65,7 +65,7 @@ pub(super) fn produce(
                         Type::I64 => {
                             matches!(val, Operand::Val(id) if definitions.get(id).is_some_and(|(i, t)|
                             *t == Type::I64 && matches!(i, Instruction::CallRuntime { name, args, ret_ty }
-                            if name == "dartforge_rti_receita" && *ret_ty == Type::I64
+                            if name == "dartforge_rti_recipe" && *ret_ty == Type::I64
                             && args.len() == 1 && args[0].1 == Type::Ref)))
                         }
                         _ => false,
@@ -158,7 +158,7 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
                 Instruction::LoadGlobal { symbol: sym_name, ty: read_done } => globals.get(sym_name) == Some(read_done) && ty == read_done,
                 Instruction::StoreGlobal { symbol: sym_name, ty: stored, root, val } => globals.get(sym_name) == Some(stored)
                     && *ty == Type::Void && root.is_none() && numeric(val),
-                Instruction::CallRuntime { name, args, ret_ty } => name == "dartforge_rti_receita"
+                Instruction::CallRuntime { name, args, ret_ty } => name == "dartforge_rti_recipe"
                     && *ty == Type::I64 && *ret_ty == Type::I64 && args.len() == 1 && args[0].1 == Type::Ref,
                 Instruction::CallStatic { symbol, args, ret_ty } => {
                     dependencies.insert(symbol.clone());
@@ -188,7 +188,7 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
 
 // Getters whose result is provably an ID of the RTI universe: a closed
 // body of `preserve_fields` and every return coming from an audited RTI cache,
-// from `dartforge_rti_receita` or from another proven getter (greatest fixpoint).
+// from `dartforge_rti_recipe` or from another proven getter (greatest fixpoint).
 // A constant or arithmetic is not enough: preserving fields does not prove the
 // origin of the ID. Every I64 cache write in the module must come from the recipe;
 // without that, no getter is accepted. Does not cover JIT reload.
@@ -201,7 +201,7 @@ pub(super) fn getters_rti(m: &Module, plans: &HashMap<String, DartFunctionPlan>)
             Instruction::StoreGlobal { symbol: sym_name, val, ty: Type::I64, .. } if caches.contains(sym_name) =>
                 matches!(val, Operand::Val(id) if definitions.get(id).is_some_and(|(i, t)| *t == Type::I64
                     && matches!(i, Instruction::CallRuntime { name, args, ret_ty: Type::I64 }
-                        if name == "dartforge_rti_receita" && args.len() == 1 && args[0].1 == Type::Ref))),
+                        if name == "dartforge_rti_recipe" && args.len() == 1 && args[0].1 == Type::Ref))),
             _ => true,
         })
     });
@@ -243,7 +243,7 @@ fn rti_origin(
     match definitions.get(&v) {
         Some((Instruction::LoadGlobal { symbol: sym_name, ty: Type::I64 }, Type::I64)) => caches.contains(sym_name),
         Some((Instruction::CallRuntime { name, args, ret_ty: Type::I64 }, Type::I64)) =>
-            name == "dartforge_rti_receita" && args.len() == 1 && args[0].1 == Type::Ref,
+            name == "dartforge_rti_recipe" && args.len() == 1 && args[0].1 == Type::Ref,
         Some((Instruction::CallStatic { symbol, args, ret_ty: Type::I64 }, Type::I64)) =>
             args.is_empty() && accepted.contains(symbol),
         Some((Instruction::Phi { incoming, .. }, Type::I64)) => incoming.iter().all(|(_, o)|
@@ -279,7 +279,7 @@ mod tests {
                     (
                         ValueId(1),
                         Instruction::CallRuntime {
-                            name: "dartforge_rti_receita".into(),
+                            name: "dartforge_rti_recipe".into(),
                             args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
                             ret_ty: Type::I64,
                         },

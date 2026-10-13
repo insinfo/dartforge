@@ -36,7 +36,7 @@ fn module() -> Result<Module, String> {
                     (
                         ValueId(2),
                         Instruction::CallRuntime {
-                            name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                            name: "dartforge_native_DartForge_record_fieldAt".into(),
                             args: vec![
                                 (val(1), Type::Ref),
                                 (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -136,12 +136,12 @@ define void @prova_pending() {
   %campos = alloca i64
   %filho = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)
   store i64 %filho, ptr %campos
-  %record = call i64 @dartforge_record_novo(ptr %campos, i64 1)
+  %record = call i64 @dartforge_record_from_refs(ptr %campos, i64 1)
   call void @dartforge_arc_retain(i64 %record)
   call void @dartforge_arc_release(i64 %filho)
   br i1 __ERRO__, label %preparar_erro, label %ler
 preparar_erro:
-  call void @dartforge_arc_lancar_ref_v1(i64 %filho)
+  call void @dartforge_arc_throw_ref_v1(i64 %filho)
   br label %ler
 ler:
   %retorno = call i64 @ler_record(i64 %record)
@@ -155,8 +155,8 @@ normal:
 coletar_normal:
   call void @dartforge_arc_release(i64 %record)
   call void @dartforge_arc_collect()
-  %record_morto = call i8 @dartforge_arc_observar_heap_v1(i64 %record)
-  %filho_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %record_morto = call i8 @dartforge_arc_observe_heap_v1(i64 %record)
+  %filho_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno)
   %ok_record = icmp eq i8 %record_morto, 0
   %ok_filho = icmp eq i8 %filho_vivo, 3
   %ok = and i1 %ok_record, %ok_filho
@@ -164,19 +164,19 @@ coletar_normal:
 liberar:
   call void @dartforge_arc_release(i64 %retorno)
   call void @dartforge_arc_collect()
-  %final = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %final = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno)
   %morto = icmp eq i8 %final, 0
   br i1 %morto, label %passou, label %falha
 erro:
   %ret_null = icmp eq i64 %retorno, 0
   %com_erro = icmp ne i8 %pending, 0
-  %sem_owner = call i8 @dartforge_arc_observar_heap_v1(i64 %filho)
+  %sem_owner = call i8 @dartforge_arc_observe_heap_v1(i64 %filho)
   %ok_borrow = icmp eq i8 %sem_owner, 1
   %ok_erro1 = and i1 %ret_null, %com_erro
   %ok_erro = and i1 %ok_erro1, %ok_borrow
   br i1 %ok_erro, label %conferir_excecao, label %falha
 conferir_excecao:
-  %capturada = call i64 @dartforge_arc_excecao_owned_v1()
+  %capturada = call i64 @dartforge_arc_exception_owned_v1()
   %mesma_excecao = icmp eq i64 %capturada, %filho
   br i1 %mesma_excecao, label %limpar_erro, label %falha
 limpar_erro:
@@ -184,8 +184,8 @@ limpar_erro:
   call void @dartforge_exception_clear()
   call void @dartforge_arc_release(i64 %record)
   call void @dartforge_arc_collect()
-  %erro_record = call i8 @dartforge_arc_observar_heap_v1(i64 %record)
-  %erro_filho = call i8 @dartforge_arc_observar_heap_v1(i64 %filho)
+  %erro_record = call i8 @dartforge_arc_observe_heap_v1(i64 %record)
+  %erro_filho = call i8 @dartforge_arc_observe_heap_v1(i64 %filho)
   %erro_pending = call i8 @dartforge_exception_pending()
   %record_zero = icmp eq i8 %erro_record, 0
   %filho_zero = icmp eq i8 %erro_filho, 0

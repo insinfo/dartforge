@@ -202,7 +202,7 @@ RE_COLETA_DIRETA = re.compile(r"borrow_mut\(\)\s*\.\s*collect\(\)")
 SEM_LANCA = {"definir_excecao"}
 RE_PONTEIRO = re.compile(r'extern\s+"C"\s+fn\s*\(')
 RE_AJUDANTE = re.compile(r"\b(ajudante|ajudante_de_io|ajudante_de_isolado)\s*\(|\bPARA_TEXTO\b")
-DECLARA_AJUDANTE = {"ajudante", "ajudante_de_io", "ajudante_de_isolado", "dartforge_registrar_ajudante", "dartforge_iniciar"}
+DECLARA_AJUDANTE = {"ajudante", "ajudante_de_io", "ajudante_de_isolado", "dartforge_register_helper", "dartforge_init"}
 # ponteiros `extern "C" fn` que sao codigo C (finalizadores nativos, APIs do SO), nao Dart
 PONTEIRO_C = {("heap.rs", "encerrar_finalizadores"), ("heap.rs", "coletar")}
 ARQ_C = {"io_observador.rs", "io_windows_eventos.rs", "ffi_api_nativa.rs"}
@@ -210,10 +210,10 @@ ARQ_C = {"io_observador.rs", "io_windows_eventos.rs", "ffi_api_nativa.rs"}
 RE_TABELA = re.compile(r'extern\s+"C"\s+fn\s*\(\s*\)\s*->\s*\*const\s+i64')
 coleta, lanca, dart = {}, {}, {}
 # niveis de "roda Dart": usuario (codigo Dart arbitrario) > sdk (funcao da sobreposicao do SDK
-# registrada por dartforge_registrar_ajudante: construtor de erro/objeto) > tabela (getter gerado)
+# registrada por dartforge_register_helper: construtor de erro/objeto) > tabela (getter gerado)
 AJUDANTE_USUARIO = {"invocar_no_such_method", "refazer_indices_copiados", "finalizar_programa", "relatar_erro_nao_tratado", "rodar_isolado"}
 # guardam/enfileiram o ponteiro sem chamar, ou chamam codigo C do proprio runtime
-PONTEIRO_NAO_CHAMADO = {"dartforge_registrar_isolados", "dartforge_pedir_no_ponto_seguro", "parar_neste_isolado", "dartforge_iniciar"}
+PONTEIRO_NAO_CHAMADO = {"dartforge_register_isolates", "dartforge_request_at_safepoint", "parar_neste_isolado", "dartforge_init"}
 sementes = []
 for f in funcs:
     if f.nome in SEM_COLETA and f.arq == "heap.rs":
@@ -281,7 +281,7 @@ for m in RE_DECL.finditer(ext):
     decl[m.group(1)] = ("externs.rs:%d" % (ext.count("\n", 0, m.start()) + 1), ef)
 nat = open(os.path.join(EN, "natives.rs"), encoding="utf-8").read()
 for m in re.finditer(r'\bruntime\("(\w+)"\)', nat):
-    decl.setdefault("dartforge_nativo_" + m.group(1), ("natives.rs:%d" % (nat.count("\n", 0, m.start()) + 1), (1, 1, 0)))
+    decl.setdefault("dartforge_native_" + m.group(1), ("natives.rs:%d" % (nat.count("\n", 0, m.start()) + 1), (1, 1, 0)))
 prefixos = {}
 for base, _, arqs in os.walk(EN):
     for a in sorted(arqs):

@@ -25,7 +25,7 @@
 //!   others (the thread-local one, `thread_local`);
 //! * `declare`, the header (`target`, `source_filename`), attributes and
 //!   metadata: in every part; `$x = comdat any`, in the part of the item that uses it;
-//!   the comments (`; df.classe`, `; df.campos`, which the JIT reload reads
+//!   the comments (`; df.class`, `; df.fields`, which the JIT reload reads
 //!   from the whole IR) only in part 0.
 //!
 //! The parts group the items by the library of the symbol
@@ -481,19 +481,19 @@ mod tests {
     use super::*;
 
     const MOD: &str = "target triple = \"x86_64-pc-windows-msvc\"\n\
-; df.classe 1 lib A\n\
+; df.class 1 lib A\n\
 declare i64 @dartforge_x(i64)\n\
 @.str.0 = private unnamed_addr constant [2 x i8] c\"oi\"\n\
 @df.area_id = internal global i64 0, align 8\n\
 @df.a.g = global { i64, [2 x ptr] } zeroinitializer\n\
 $\"df.b.k\" = comdat any\n\
-define internal i64 @df.ajuda(i64 %x) alwaysinline {\n\
+define internal i64 @df.help(i64 %x) alwaysinline {\n\
   %a = load i64, ptr @df.area_id\n\
   ret i64 %x\n\
 }\n\
 define i64 @df.a.f(i64 %v0, { i64, i64 } %v1) {\n\
 b0:\n\
-  %r = call i64 @df.ajuda(i64 %v0)\n\
+  %r = call i64 @df.help(i64 %v0)\n\
   %s = call i64 @\"df.b.k\"(ptr @.str.0)\n\
   ret i64 %s\n\
 }\n\
@@ -510,7 +510,7 @@ b0:\n\
         assert_eq!(p.len(), 3, "{p:#?}");
         // the part of `df.a.f` copies the helper and the string, declares `df.b.k`.
         let pa = p.iter().find(|t| t.contains("define i64 @df.a.f")).unwrap();
-        assert!(pa.contains("define internal i64 @df.ajuda"));
+        assert!(pa.contains("define internal i64 @df.help"));
         assert!(pa.contains("@.str.0 = private"));
         assert!(pa.contains("declare i64 @df.b.k(ptr)"));
         assert!(pa.contains("@df.area_id = external global i64") || pa.contains("@df.area_id = global i64 0"));
@@ -520,7 +520,7 @@ b0:\n\
         assert!(pb.contains("@df.a.g = external global { i64, [2 x ptr] }"), "{pb}");
         // The mutable state: defined once, with external linkage.
         assert_eq!(p.iter().filter(|t| t.contains("@df.area_id = global i64 0")).count(), 1);
-        assert!(p[0].contains("; df.classe"));
+        assert!(p[0].contains("; df.class"));
     }
 
     /// The thread-local variable of the context (`sdk_modulo::with_context_in_tls`)
@@ -528,9 +528,9 @@ b0:\n\
     /// `thread_local`.
     #[test]
     fn thread_local_variable_stays_thread_local() {
-        let m = read("@df.ctx.tls.programa = internal thread_local global ptr null, align 8\n");
+        let m = read("@df.ctx.tls.program = internal thread_local global ptr null, align 8\n");
         assert!(m.items[0].mutable);
-        assert_eq!(declaration(&m.items[0]), "@df.ctx.tls.programa = external thread_local global ptr\n");
+        assert_eq!(declaration(&m.items[0]), "@df.ctx.tls.program = external thread_local global ptr\n");
     }
 
     #[test]

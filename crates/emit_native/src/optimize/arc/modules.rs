@@ -359,7 +359,7 @@ fn private_name(
     role: &str,
 ) -> Result<String, String> {
     loop {
-        let name = format!("df.arc.privado.{role}.{next_item}");
+        let name = format!("df.arc.private.{role}.{next_item}");
         *next_item = next_item
             .checked_add(1)
             .ok_or("nomes privados ARC esgotados")?;
@@ -594,7 +594,7 @@ mod tests {
                         (
                             ValueId(1),
                             Instruction::CallRuntime {
-                                name: "dartforge_rti_receita".into(),
+                                name: "dartforge_rti_recipe".into(),
                                 args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
                                 ret_ty: Type::I64,
                             },

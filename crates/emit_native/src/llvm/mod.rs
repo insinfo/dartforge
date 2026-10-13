@@ -64,7 +64,7 @@ pub struct LlvmEmitter<'a> {
     slots: std::collections::HashMap<ValueId, usize>,
     /// The function opened a roots frame (`%gcq`).
     has_frame: bool,
-    /// The function read `%ctx` (`dartforge_contexto`, the thread context of the
+    /// The function read `%ctx` (`dartforge_context`, the thread context of the
     /// runtime) at the entry: pending exception and shadow stack without a call.
     has_ctx: bool,
     /// The LLVM label at which each HIR block that splits into
@@ -83,7 +83,7 @@ pub struct LlvmEmitter<'a> {
     function_table_of: std::collections::HashMap<Vec<String>, usize>,
     /// The names of the named arguments of the descriptors of the module: the
     /// descriptor only keeps the hash, and the `Invocation` of a `noSuchMethod`
-    /// needs the name (`dartforge_registrar_nome_de_argumento`).
+    /// needs the name (`dartforge_register_argument_name`).
     argument_names: std::collections::BTreeSet<String>,
     // --- P5c (source SDK, δ; `selectors.rs`) ---
     /// Call sites by selector already emitted (one cache each).
@@ -103,7 +103,7 @@ pub struct LlvmEmitter<'a> {
     /// The generic Owned thunks called (`df.arc.owned.<base>`): the base and the
     /// signature (`selectors::emit_owned_thunks`).
     owned_thunks: std::collections::BTreeMap<String, (String, Vec<Type>)>,
-    /// The native scope thunks (`df.arc.escopo.<base>`): base, arguments
+    /// The native scope thunks (`df.arc.scope.<base>`): base, arguments
     /// and return.
     scope_thunks: std::collections::BTreeMap<String, (String, Vec<Type>, Type)>,
     /// Symbols defined in a `comdat` (`selectors::linkage_of`).
@@ -116,7 +116,7 @@ pub struct LlvmEmitter<'a> {
     // --- Per-isolate global area ---
     /// The slot (`i64`) of each global of the module in the area (`@dfg_…` and the
     /// `$ok` flag): Dart statics are per isolate, and each
-    /// isolate is a thread with its own area (`dartforge_area_de_globais`).
+    /// isolate is a thread with its own area (`dartforge_globals_area`).
     global_slots: std::collections::HashMap<String, usize>,
     /// The hash of the name of each slot, in order (the area descriptor): 0 for the
     /// selector caches.
@@ -134,13 +134,13 @@ pub struct LlvmEmitter<'a> {
     /// true in AOT and in the SDK modules; false in the program modules in the
     /// JIT, whose memory is freed (J02).
     static_objects: bool,
-    /// The address of the fields of an object through a call to `@df.corpo` instead
+    /// The address of the fields of an object through a call to `@df.body` instead
     /// of the 15 inline instructions (the development profile of the program,
     /// `-O0`): the IR of new_sali/backend had 465 thousand copies of the sequence,
     /// 21% of the lines (docs/NATIVO-PROJETOS-REAIS.md, C9). Production and the
     /// SDK modules stay inline.
     fields_per_call: bool,
-    /// Instance allocation through a call to `@df.nova_instancia` (the
+    /// Instance allocation through a call to `@df.new_instance` (the
     /// production of the program with `new_instance` in
     /// [`LlvmEmitter::outlined_helpers`]).
     out_of_line_allocation: bool,
@@ -150,7 +150,7 @@ pub struct LlvmEmitter<'a> {
     /// Out-of-line dispatch by selector (`selector` in
     /// [`LlvmEmitter::outlined_helpers`]): the call site passes the
     /// static descriptor of the selector (`@df.seld.<k>`: hash, name,
-    /// length) to `@df.seletor_d`, which has `@df.seletor` inline —
+    /// length) to `@df.selector_d`, which has `@df.selector` inline —
     /// three arguments instead of five at each of the ~170 thousand sites of the
     /// large program.
     compact_selector: bool,
@@ -175,7 +175,7 @@ pub struct LlvmEmitter<'a> {
     /// order, and the check would give a false positive.
     ordered_frames: bool,
     /// The module is of the production profile (`--optimize`): with
-    /// [`Self::fields_per_call`], `@df.corpo` goes `noinline` (the
+    /// [`Self::fields_per_call`], `@df.body` goes `noinline` (the
     /// optimizer would put it back inline).
     production: bool,
     /// The method tables are assembled at link time
@@ -344,10 +344,10 @@ impl<'a> LlvmEmitter<'a> {
     /// Mach-O, those of LLVM's `__llvm_stackmaps`.
     fn maps_registration_call() -> &'static str {
         match crate::alvo::sistema() {
-            crate::alvo::Sistema::Windows => "  call void @dartforge_registrar_mapa(ptr @__ImageBase)\n",
-            crate::alvo::Sistema::Linux => "  call void @dartforge_registrar_mapa_secao(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n",
+            crate::alvo::Sistema::Windows => "  call void @dartforge_register_map(ptr @__ImageBase)\n",
+            crate::alvo::Sistema::Linux => "  call void @dartforge_register_map_section(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n",
             crate::alvo::Sistema::MacOs => {
-                "  call void @dartforge_registrar_mapa_llvm(ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\", ptr @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\")\n"
+                "  call void @dartforge_register_map_llvm(ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\", ptr @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\")\n"
             }
         }
     }
@@ -357,7 +357,7 @@ impl<'a> LlvmEmitter<'a> {
         let mut s = String::new();
         for (cid, name_str, position) in &self.module.trace_fields {
             let idx = self.string_const_index(name_str.as_bytes()).unwrap_or(0);
-            writeln!(s, "  call void @dartforge_registrar_campo_do_rastro(i64 {cid}, ptr @.str.{idx}, i64 {}, i64 {position})", name_str.len()).unwrap();
+            writeln!(s, "  call void @dartforge_register_stack_trace_field(i64 {cid}, ptr @.str.{idx}, i64 {}, i64 {position})", name_str.len()).unwrap();
         }
         // The tear-off entries of the stream branches.
         // Only those that survived pruning (the entry disappears with its creator).
@@ -365,7 +365,7 @@ impl<'a> LlvmEmitter<'a> {
             if !self.module.functions.iter().any(|f| f.symbol == *sym_name) {
                 continue;
             }
-            writeln!(s, "  call void @dartforge_registrar_tearoff_do_rastro(ptr @{sym_name}, i64 {kind})").unwrap();
+            writeln!(s, "  call void @dartforge_register_stack_trace_tearoff(ptr @{sym_name}, i64 {kind})").unwrap();
         }
         s
     }
@@ -377,10 +377,10 @@ impl<'a> LlvmEmitter<'a> {
             return None;
         }
         let (_, start, end) = stack_trace::markers();
-        Some(format!("  call void @dartforge_registrar_rastro(ptr {start}, ptr {end})\n"))
+        Some(format!("  call void @dartforge_register_stack_trace(ptr {start}, ptr {end})\n"))
     }
 
-    /// Gets the address of the fields through a call to `@df.corpo`, out of line.
+    /// Gets the address of the fields through a call to `@df.body`, out of line.
     /// Used in the development profile to reduce the size of the IR.
     pub fn with_fields_per_call(mut self, yes: bool) -> Self {
         self.fields_per_call = yes;
@@ -388,7 +388,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// Selects the production profile; with fields per call, keeps
-    /// `@df.corpo` out of line through `noinline`.
+    /// `@df.body` out of line through `noinline`.
     pub fn with_production(mut self, yes: bool) -> Self {
         self.production = yes;
         self
@@ -424,7 +424,7 @@ impl<'a> LlvmEmitter<'a> {
         }
         self.out_of_line_allocation = names.iter().any(|n| n == "nova_instancia");
         self.compact_selector = names.iter().any(|n| n == "seletor");
-        // `@df.seletor` stays `alwaysinline`: only `@df.seletor_d`
+        // `@df.selector` stays `alwaysinline`: only `@df.selector_d`
         // (out of line) calls it.
         self.outlined_helpers = names.into_iter().filter(|n| n != "seletor").collect();
         self
@@ -466,7 +466,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// The area descriptor with only the key and the number of slots, `[key, -n]`
-    /// (the sign marks the lean form for `dartforge_area_de_globais`): the
+    /// (the sign marks the lean form for `dartforge_globals_area`): the
     /// hashes of the names only serve reload (the migration of the area and the
     /// extension of the layout), and the production executable never reloads. The
     /// JIT and the development DLL keep the complete descriptor.
@@ -536,7 +536,7 @@ impl<'a> LlvmEmitter<'a> {
             // A source SDK library (P5c): without the entry or the `toString`
             // dispatch, which belong to the program; the registration function of its
             // classes, which the program entry calls.
-            let reg = self.module.record.clone().unwrap_or_else(|| "df.registrar".to_string());
+            let reg = self.module.record.clone().unwrap_or_else(|| "df.register".to_string());
             self.emit_registration(&reg);
             self.emit_selector_globals();
             self.emit_area_descriptor();
@@ -569,7 +569,7 @@ impl<'a> LlvmEmitter<'a> {
         // extended) now: the publication of a JIT reload calls it at the
         // safepoint, before the new code runs.
         self.out.push_str(
-            "define void @df.preparar_area() {\n  %a = call ptr @dartforge_area_de_globais(ptr @df.area)\n  ret void\n}\n",
+            "define void @df.prepare_area() {\n  %a = call ptr @dartforge_globals_area(ptr @df.area)\n  ret void\n}\n",
         );
         // The area in the prologue of each function: the module id indexes the table
         // of this thread in the `Context` (offsets 16 and 24); an absent entry
@@ -579,7 +579,7 @@ impl<'a> LlvmEmitter<'a> {
         // SDK modules, when splitting the joined module into partitions, promotes the
         // internal `@df.area_id` of one of them with the same name — "duplicate
         // symbol: df.area_id" (docs/NATIVO-PRODUCAO-GRANDE.md §5).
-        let get_area = GET_AREA.replace("@df.area_id", "@df.area_id.programa");
+        let get_area = GET_AREA.replace("@df.area_id", "@df.area_id.program");
         self.out.push_str(&out_of_line(&get_area, &self.outlined_helpers));
         self.emit_string_globals();
         self.emit_external_declarations();
@@ -655,7 +655,7 @@ impl<'a> LlvmEmitter<'a> {
         // The ids of the program classes, for the next generation of a
         // JIT reload (J03, `context::ir_ids`).
         for (id, lib, class) in &self.module.program_ids {
-            writeln!(self.out, "; df.classe {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
+            writeln!(self.out, "; df.class {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
         }
         // The layout of the objects, to migrate the live instances (J03):
         // `name:flags:ty`, with `a` nullable and `l` late.
@@ -667,7 +667,7 @@ impl<'a> LlvmEmitter<'a> {
                     format!("{}:{flags}:{}", crate::context::escape_str(&c.name), crate::context::escape_str(&c.ty))
                 })
                 .collect();
-            writeln!(self.out, "; df.campos {id} {base} {}", list.join(",")).unwrap();
+            writeln!(self.out, "; df.fields {id} {base} {}", list.join(",")).unwrap();
         }
     }
 
@@ -690,17 +690,17 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(stack_trace::markers().0);
         }
         if self.maps && !self.maps_in_jit {
-            // The registration of the map of the image (`dartforge_registrar_mapa*`): the
+            // The registration of the map of the image (`dartforge_register_map*`): the
             // base of the PE image (the runtime finds `.dfgcm` and `.llvm_st` through the
             // headers); the bounds of the `dfgcm` section that `ld.lld` defines;
             // on Mach-O, those of LLVM's `__llvm_stackmaps`.
             self.out.push_str(match crate::alvo::sistema() {
-                crate::alvo::Sistema::Windows => "declare void @dartforge_registrar_mapa(ptr)\n@__ImageBase = external constant i8\n",
+                crate::alvo::Sistema::Windows => "declare void @dartforge_register_map(ptr)\n@__ImageBase = external constant i8\n",
                 crate::alvo::Sistema::Linux => {
-                    "declare void @dartforge_registrar_mapa_secao(ptr, ptr)\n@__start_dfgcm = external hidden global i8\n@__stop_dfgcm = external hidden global i8\n"
+                    "declare void @dartforge_register_map_section(ptr, ptr)\n@__start_dfgcm = external hidden global i8\n@__stop_dfgcm = external hidden global i8\n"
                 }
                 crate::alvo::Sistema::MacOs => {
-                    "declare void @dartforge_registrar_mapa_llvm(ptr, ptr)\n\
+                    "declare void @dartforge_register_map_llvm(ptr, ptr)\n\
                      @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n\
                      @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n"
                 }
@@ -758,12 +758,12 @@ impl<'a> LlvmEmitter<'a> {
             // leaf (no statepoint around it).
             if self.maps {
                 self.out.push_str(
-                    "declare void @dartforge_efeitos_antes(ptr, i64, i64) \"gc-leaf-function\"\ndeclare void @dartforge_efeitos_depois() \"gc-leaf-function\"\n",
+                    "declare void @dartforge_effects_before(ptr, i64, i64) \"gc-leaf-function\"\ndeclare void @dartforge_effects_after() \"gc-leaf-function\"\n",
                 );
             } else {
-                self.out.push_str("declare void @dartforge_efeitos_antes(ptr, i64, i64)\ndeclare void @dartforge_efeitos_depois()\n");
+                self.out.push_str("declare void @dartforge_effects_before(ptr, i64, i64)\ndeclare void @dartforge_effects_after()\n");
             }
-            self.out.push_str("declare i64 @dartforge_efeitos_nivel() nounwind \"gc-leaf-function\"\ndeclare void @dartforge_efeitos_restaurar(i64) nounwind \"gc-leaf-function\"\n");
+            self.out.push_str("declare i64 @dartforge_effects_level() nounwind \"gc-leaf-function\"\ndeclare void @dartforge_effects_restore(i64) nounwind \"gc-leaf-function\"\n");
         }
         self.out.push('\n');
     }
@@ -861,8 +861,8 @@ impl<'a> LlvmEmitter<'a> {
         if has_resume {
             crate::optimize::arc::check_resumes(func, tab.unwrap()).expect("invalid Resume");
         }
-        let personality = if has_cleanup { " personality ptr @dartforge_personalidade_cleanup_itanium" }
-            else if has_landing_pad { " personality ptr @dartforge_personalidade" } else { "" };
+        let personality = if has_cleanup { " personality ptr @dartforge_personality_cleanup_itanium" }
+            else if has_landing_pad { " personality ptr @dartforge_personality" } else { "" };
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): one slot per `alloca` of type
         // `Ref`, and the `Ref` SSA values live at some collection point, with a
@@ -991,7 +991,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  store ptr {top}, ptr %ctxtopo, align 8").unwrap();
                 }
                 if externs::check_effects() {
-                    writeln!(self.out, "  call void @dartforge_efeitos_restaurar(i64 %efnivel)").unwrap();
+                    writeln!(self.out, "  call void @dartforge_effects_restore(i64 %efnivel)").unwrap();
                 }
                 if has_cleanup && tab.is_some_and(|t| t.exits.get(&block.id) != Some(&ExceptionExit::Resume)) {
                     // The inliner may combine catch and cleanup. A zero selector
@@ -1007,11 +1007,11 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  call void @dartforge_arc_release(i64 %v{})", v.0).unwrap();
                         }
                         for q in c.frames(block.id).iter().rev() {
-                            writeln!(self.out, "  call void @dartforge_arc_quadro_fechar_v1(i64 %v{})", q.0).unwrap();
+                            writeln!(self.out, "  call void @dartforge_arc_frame_close_v1(i64 %v{})", q.0).unwrap();
                         }
                     }
                     if self.stack_trace.is_some() {
-                        writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
+                        writeln!(self.out, "  call void @dartforge_call_trace_exit()").unwrap();
                     }
                     if self.has_frame {
                         writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
@@ -1027,10 +1027,10 @@ impl<'a> LlvmEmitter<'a> {
             if block.id.0 == 0 {
                 self.emit_closure_buffers(func);
                 if has_landing_pad && externs::check_effects() {
-                    writeln!(self.out, "  %efnivel = call i64 @dartforge_efeitos_nivel()").unwrap();
+                    writeln!(self.out, "  %efnivel = call i64 @dartforge_effects_level()").unwrap();
                 }
                 // The roots frame is also born before any call
-                // (N17): the `df.obter_area` below is `alwaysinline` and has
+                // (N17): the `df.get_area` below is `alwaysinline` and has
                 // branches, and an `alloca` after it stopped being in the entry
                 // block — it became a dynamic allocation, with `__chkstk` and
                 // `stacksave` on each call of the function, and prevented the inliner
@@ -1043,7 +1043,7 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 // The marker of the stack check
                 // (`emit_stack_check`), for the same reason: after
-                // `df.obter_area` (or the inline context,
+                // `df.get_area` (or the inline context,
                 // `sdk_modulo::with_context_in_tls`) it became a dynamic
                 // allocation, with the frame pointer and the `sp` adjustment on each
                 // call.
@@ -1051,7 +1051,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %pilhaq = alloca i8, align 1").unwrap();
                 }
                 if Self::uses_area(func) {
-                    writeln!(self.out, "  %area = call ptr @df.obter_area()").unwrap();
+                    writeln!(self.out, "  %area = call ptr @df.get_area()").unwrap();
                 }
             }
             if block.id.0 == 0
@@ -1060,12 +1060,12 @@ impl<'a> LlvmEmitter<'a> {
                 let n = *k;
                 *k += 1;
                 self.stack_trace_names.push(func.symbol.clone());
-                writeln!(self.out, "  call void @dartforge_rastro_entrada(ptr @df.rastro.{n}, i64 {})", func.symbol.len()).unwrap();
+                writeln!(self.out, "  call void @dartforge_call_trace_entry(ptr @df.call_trace.{n}, i64 {})", func.symbol.len()).unwrap();
             }
             // The thread context (`runtime/src/heap.rs`, `Context`): the
             // pending exception at offset 0, the top of the shadow stack at 8.
             if block.id.0 == 0 && self.has_ctx {
-                writeln!(self.out, "  %ctx = call ptr @dartforge_contexto()").unwrap();
+                writeln!(self.out, "  %ctx = call ptr @dartforge_context()").unwrap();
                 writeln!(self.out, "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8").unwrap();
                 // Without a roots frame, the top that the landing pad restores is that of the
                 // entry of the function.
@@ -1200,7 +1200,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  store i64 {val_ref}, ptr %ga{v}").unwrap();
                         writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
                         if *mode == StrongStoreMode::Move {
-                            writeln!(self.out, "  call void @dartforge_arc_global_receber_v1(i64 %gr{v}, i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @dartforge_arc_global_receive_v1(i64 %gr{v}, i64 {val_ref})").unwrap();
                         } else {
                             writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {val_ref}) nounwind").unwrap();
                             writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
@@ -1208,13 +1208,13 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::ArcLoadStrong { slot } => {
                         let (frame, idx_value) = self.slot_arc(slot);
-                        writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_quadro_carregar_v1(i64 {frame}, i64 {idx_value})").unwrap();
+                        writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_frame_load_v1(i64 {frame}, i64 {idx_value})").unwrap();
                     }
                     Instruction::ArcStoreStrong { slot, value, mode } => {
                         let (frame, idx_value) = self.slot_arc(slot);
                         let val_ref = self.arc_reference(value);
-                        let name_str = if *mode == StrongStoreMode::Copy { "copiar" } else { "receber" };
-                        writeln!(self.out, "  call void @dartforge_arc_quadro_{name_str}_v1(i64 {frame}, i64 {idx_value}, i64 {val_ref})").unwrap();
+                        let name_str = if *mode == StrongStoreMode::Copy { "copy" } else { "receive" };
+                        writeln!(self.out, "  call void @dartforge_arc_frame_{name_str}_v1(i64 {frame}, i64 {idx_value}, i64 {val_ref})").unwrap();
                     }
                     Instruction::Const(Constant::Int(n)) => {
                         writeln!(self.out, "  %v{v} = add i64 0, {n}").unwrap();
@@ -1501,7 +1501,7 @@ impl<'a> LlvmEmitter<'a> {
                         self.emit_inline_allocation(v, c, n);
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
-                        if (name == "dartforge_object_new" || name == "dartforge_arc_objeto_owned_v1")
+                        if (name == "dartforge_object_new" || name == "dartforge_arc_object_owned_v1")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
@@ -1511,14 +1511,14 @@ impl<'a> LlvmEmitter<'a> {
                         let f = self.module.table_functions[&(*c as u32)].clone();
                         self.annotate_external(&f, Type::Ptr, &[]);
                         let n = self.coerce(&args[1].0, Type::I64);
-                        let factory = if name == "dartforge_arc_objeto_owned_v1" {
-                            "dartforge_arc_objeto_owned_t_v1"
+                        let factory = if name == "dartforge_arc_object_owned_v1" {
+                            "dartforge_arc_object_owned_t_v1"
                         } else { "dartforge_object_new_t" };
                         writeln!(self.out, "  %v{v} = call i64 @{factory}(i64 {c}, i64 {n}, ptr @{f})").unwrap();
                         let _ = ret_ty;
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
-                        if (name == "dartforge_typed_novo" || name == "dartforge_view_nova" || name == "dartforge_typed_externo")
+                        if (name == "dartforge_typed_new" || name == "dartforge_view_new" || name == "dartforge_typed_external")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
@@ -1536,7 +1536,7 @@ impl<'a> LlvmEmitter<'a> {
                     // the thunk of the `_t` variant, which registers the table.
                     Instruction::CallRuntime { name, args, ret_ty }
                         if name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX).is_some_and(|b|
-                            matches!(b, "dartforge_typed_novo" | "dartforge_view_nova" | "dartforge_typed_externo"))
+                            matches!(b, "dartforge_typed_new" | "dartforge_view_new" | "dartforge_typed_external"))
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
@@ -1579,7 +1579,7 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  %xcq{v} = icmp ne i8 %xcd{v}, 0").unwrap();
                             writeln!(self.out, "  br i1 %xcq{v}, label %xc{v}.sai, label %xc{v}.fim").unwrap();
                             writeln!(self.out, "xc{v}.sai:").unwrap();
-                            writeln!(self.out, "  call void @df.lancar()").unwrap();
+                            writeln!(self.out, "  call void @df.throw()").unwrap();
                             writeln!(self.out, "  unreachable").unwrap();
                         } else {
                             writeln!(self.out, "  br label %xc{v}.fim").unwrap();
@@ -1590,7 +1590,7 @@ impl<'a> LlvmEmitter<'a> {
                     // The interrupt request (J01): the byte in the context
                     // (offset 32), read atomically — another thread sets it, and
                     // the load cannot leave the loop.
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_interrupcao_pendente" && self.has_ctx => {
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_pending_interrupt" && self.has_ctx => {
                         writeln!(self.out, "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32").unwrap();
                         writeln!(self.out, "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8").unwrap();
                         // The request is rare: the slow path stays outside the body
@@ -1601,20 +1601,20 @@ impl<'a> LlvmEmitter<'a> {
                         self.emit_rti_evaluate_cached(v, args);
                     }
                     // The class of the receiver: that of the object of the space read from the
-                    // header, inline (`df.classe`); the rest, the runtime.
+                    // header, inline (`df.class`); the rest, the runtime.
                     Instruction::CallRuntime { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
                         let h = self.coerce(&args[0].0, Type::I64);
-                        writeln!(self.out, "  %v{v} = call i64 @df.classe(i64 {h})").unwrap();
+                        writeln!(self.out, "  %v{v} = call i64 @df.class(i64 {h})").unwrap();
                     }
-                    // `cid <: C` through the bitmap of the target (`df.subclasse`),
+                    // `cid <: C` through the bitmap of the target (`df.subclass`),
                     // without a call after the first query.
                     Instruction::CallRuntime { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
                         let a = self.coerce(&args[0].0, Type::I64);
                         let b = self.coerce(&args[1].0, Type::I64);
-                        writeln!(self.out, "  %v{v} = call i8 @df.subclasse(i64 {a}, i64 {b})").unwrap();
+                        writeln!(self.out, "  %v{v} = call i8 @df.subclass(i64 {a}, i64 {b})").unwrap();
                     }
                     Instruction::CallRuntime { name, args, ret_ty } => {
-                        if name.starts_with("dartforge_nativo_") {
+                        if name.starts_with("dartforge_native_") {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             self.annotate_external(name, *ret_ty, &types);
                         }
@@ -1626,14 +1626,14 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         if let Some(base) = name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX) {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
-                            if base.starts_with("dartforge_nativo_") {
+                            if base.starts_with("dartforge_native_") {
                                 self.annotate_external(base, Type::Ref, &types);
                             }
                             self.owned_thunks.insert(name.clone(), (base.to_string(), types));
                         }
                         if let Some(base) = name.strip_prefix(crate::optimize::arc::NATIVE_SCOPE_PREFIX) {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
-                            if base.starts_with("dartforge_nativo_") {
+                            if base.starts_with("dartforge_native_") {
                                 self.annotate_external(base, *ret_ty, &types);
                             }
                             self.scope_thunks.insert(name.clone(), (base.to_string(), types, *ret_ty));
@@ -1657,7 +1657,7 @@ impl<'a> LlvmEmitter<'a> {
                                     self.checked_externs.len() - 1
                                 }
                             };
-                            writeln!(self.out, "  call void @dartforge_efeitos_antes(ptr @df.efn.{k}, i64 {}, i64 {marks})", name.len()).unwrap();
+                            writeln!(self.out, "  call void @dartforge_effects_before(ptr @df.efn.{k}, i64 {}, i64 {marks})", name.len()).unwrap();
                         }
                         if *ret_ty == Type::Void {
                             writeln!(self.out, "  call {r} @{name}({joined})").unwrap();
@@ -1665,7 +1665,7 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  %v{v} = call {r} @{name}({joined})").unwrap();
                         }
                         if marks != 0 {
-                            writeln!(self.out, "  call void @dartforge_efeitos_depois()").unwrap();
+                            writeln!(self.out, "  call void @dartforge_effects_after()").unwrap();
                         }
                     }
                     Instruction::NativeCall { alvo, args, ret } => {
@@ -1934,13 +1934,13 @@ impl<'a> LlvmEmitter<'a> {
             if matches!(block.terminator, Terminator::Return(_)) {
                 match tab.and_then(|t| t.exits.get(&block.id)) {
                     Some(ExceptionExit::Throws) => {
-                        writeln!(self.out, "  call void @df.lancar()").unwrap();
+                        writeln!(self.out, "  call void @df.throw()").unwrap();
                         writeln!(self.out, "  unreachable").unwrap();
                         continue;
                     }
                     Some(ExceptionExit::Resume) => {
                         if self.stack_trace.is_some() {
-                            writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
+                            writeln!(self.out, "  call void @dartforge_call_trace_exit()").unwrap();
                         }
                         if self.has_frame {
                             writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
@@ -1955,7 +1955,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %xge{b} = call i1 @llvm.expect.i1(i1 %xgn{b}, i1 false)").unwrap();
                         writeln!(self.out, "  br i1 %xge{b}, label %xg{b}.lanca, label %xg{b}.ret").unwrap();
                         writeln!(self.out, "xg{b}.lanca:").unwrap();
-                        writeln!(self.out, "  call void @df.lancar()").unwrap();
+                        writeln!(self.out, "  call void @df.throw()").unwrap();
                         writeln!(self.out, "  unreachable").unwrap();
                         writeln!(self.out, "xg{b}.ret:").unwrap();
                     }
@@ -1963,7 +1963,7 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
             if self.stack_trace.is_some() && matches!(block.terminator, Terminator::Return(_)) {
-                writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
+                writeln!(self.out, "  call void @dartforge_call_trace_exit()").unwrap();
             }
             // G3: the roots frame closes before EVERY `ret`, including that
             // of the exception exits (which return the default value).
@@ -2028,7 +2028,7 @@ impl<'a> LlvmEmitter<'a> {
                         self.attach_deopt(throw_start, &live_set);
                     }
                     if tab.is_some() {
-                        writeln!(self.out, "  call void @df.lancar()").unwrap();
+                        writeln!(self.out, "  call void @df.throw()").unwrap();
                     }
                     writeln!(self.out, "  unreachable").unwrap();
                 }
@@ -2332,7 +2332,7 @@ impl<'a> LlvmEmitter<'a> {
                 if self.arc_uniform_abi() {
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr %cargs{v} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();
-                    writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
+                    writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
                 } else {
                     self.closure_entry(v, &c);
                     writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @df.arr.{k})").unwrap();
@@ -2347,7 +2347,7 @@ impl<'a> LlvmEmitter<'a> {
                         "ARC closure forwarding requires certified AOT ports");
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr {a} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr {d} to i64").unwrap();
-                    writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
+                    writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
                 } else {
                     self.closure_entry(v, &c);
                     writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})").unwrap();
@@ -2409,7 +2409,7 @@ impl<'a> LlvmEmitter<'a> {
     /// The globals of the module (`@dfg_<id>` and the `$ok` flag) become slots of the
     /// global area of the isolate: the VM keeps the statics in the *field table*
     /// of each isolate, and here each isolate (a thread) has its own area, which
-    /// the runtime creates the first time (`dartforge_area_de_globais`, zeroed).
+    /// the runtime creates the first time (`dartforge_globals_area`, zeroed).
     /// The selector caches (`selectors.rs`) get slots after these.
     ///
     /// In a hot reload generation ([`LlvmEmitter::with_previous_area`]), the
@@ -2447,7 +2447,7 @@ impl<'a> LlvmEmitter<'a> {
     /// addresses, and the method tables have just changed). In production,
     /// `[key, -n]` ([`LlvmEmitter::with_lean_area`]).
     fn emit_area_descriptor(&mut self) {
-        let key = self.module.record.clone().unwrap_or_else(|| "df.programa".to_string());
+        let key = self.module.record.clone().unwrap_or_else(|| "df.program".to_string());
         if self.lean_area {
             // Production (`with_lean_area`): `[key, -n]`, without the names.
             let n = self.slot_hashes.len() as i64;
@@ -2537,13 +2537,13 @@ impl<'a> LlvmEmitter<'a> {
         !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_SEM_QUADRO_NA_ENTRADA").is_some_and(|v| !v.is_empty() && v != "0"))
     }
 
-    /// `dartforge_rti_avaliar` without a tuple and with `this`: goes through the cache of the
+    /// `dartforge_rti_eval` without a tuple and with `this`: goes through the cache of the
     /// use site in the area ([`Self::emit_rti_evaluate_cached`]).
     /// `DARTFORGE_SEM_CACHE_RTI=1` at compile time turns it off (measurement).
     fn rti_evaluate_cached(i: &Instruction) -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         matches!(i, Instruction::CallRuntime { name, args, .. }
-            if name == "dartforge_rti_avaliar"
+            if name == "dartforge_rti_eval"
                 && args.len() == 4
                 && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
                 && !matches!(args[1].0, Operand::Constant(_)))
@@ -2557,7 +2557,7 @@ impl<'a> LlvmEmitter<'a> {
     /// of the runtime (`value_key`) — and the result. An object of the space
     /// with the stored key answers with two loads; the rest (runtime
     /// values, the first time, another key) calls
-    /// `dartforge_rti_avaliar_cache`, which answers and stores. The model and the
+    /// `dartforge_rti_eval_cache`, which answers and stores. The model and the
     /// class are constants of the site; the tuple is 0. The area is per isolate (the
     /// type ids are of its universe) and reload zeroes the caches.
     fn emit_rti_evaluate_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
@@ -2589,7 +2589,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %ra{v}r1 = load i64, ptr %ra{v}rp, align 8").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.lenta:").unwrap();
-        writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_avaliar_cache(ptr %ra{v}c, i64 {model}, i64 {this}, i64 {class})").unwrap();
+        writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_eval_cache(ptr %ra{v}c, i64 {model}, i64 {this}, i64 {class})").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.fim:").unwrap();
         writeln!(o, "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ]").unwrap();
@@ -2614,7 +2614,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("  %null_s = call i64 @dartforge_to_string_handle(i64 0)\n");
         self.out.push_str("  ret i64 %null_s\n");
         self.out.push_str("check_obj:\n");
-        self.out.push_str("  %cls = call i64 @df.classe(i64 %obj)\n");
+        self.out.push_str("  %cls = call i64 @df.class(i64 %obj)\n");
 
         let mut cases = Vec::new();
         for class in &self.module.classes {
@@ -2684,14 +2684,14 @@ impl<'a> LlvmEmitter<'a> {
             return;
         }
         self.externals.insert("llvm.trap".into(), "declare void @llvm.trap()".into());
-        self.out.push_str("  call void @dartforge_memoria_arc_v1()\n\
-            \x20 %df.arc.abi = call i8 @dartforge_arc_verificar_abi(i64 1)\n\
+        self.out.push_str("  call void @dartforge_memory_arc_v1()\n\
+            \x20 %df.arc.abi = call i8 @dartforge_arc_verify_abi(i64 1)\n\
             \x20 %df.arc.abi.ok = icmp eq i8 %df.arc.abi, 1\n\
-            \x20 br i1 %df.arc.abi.ok, label %df.arc.compativel, label %df.arc.incompativel\n\
-            df.arc.incompativel:\n\
+            \x20 br i1 %df.arc.abi.ok, label %df.arc.compatible, label %df.arc.incompatible\n\
+            df.arc.incompatible:\n\
             \x20 call void @llvm.trap()\n\
             \x20 unreachable\n\
-            df.arc.compativel:\n");
+            df.arc.compatible:\n");
         if !self.module.sdk_mode {
             self.register_arc_aot_ports();
         }
@@ -2702,7 +2702,7 @@ impl<'a> LlvmEmitter<'a> {
             self.emit_ports();
         }
         if self.module.sdk_mode {
-            self.emit_registration("df.registrar.programa");
+            self.emit_registration("df.register.program");
             let ids: Vec<String> = self.module.runtime_cids.iter().map(|c| format!("i64 {c}")).collect();
             writeln!(
                 self.out,
@@ -2714,7 +2714,7 @@ impl<'a> LlvmEmitter<'a> {
             if let Some(v) = &self.module.sdk_version {
                 writeln!(
                     self.out,
-                    "@df.versao_do_sdk = private unnamed_addr constant [{} x i8] c\"{}\"",
+                    "@df.sdk_version = private unnamed_addr constant [{} x i8] c\"{}\"",
                     v.len(),
                     selectors::llvm_bytes(v)
                 )
@@ -2723,32 +2723,32 @@ impl<'a> LlvmEmitter<'a> {
             // The preparation of an isolate (the main one and that of each
             // `Isolate.spawn`, which the runtime calls on the new thread): the
             // registrations of the libraries, the RTI and the embedder.
-            writeln!(self.out, "define void @df.preparar_isolado() {{").unwrap();
+            writeln!(self.out, "define void @df.prepare_isolate() {{").unwrap();
             // ARC memory, turned on before any Dart code of the isolate.
             self.start_arc();
             // Prepared ARC image: the Dart ports that the runtime calls here
             // (registrations, RTI, embedder) return owners to a native scope.
             let root_scope = self.module.arc_memory && self.module.arc_prepared;
             if root_scope {
-                writeln!(self.out, "  %escopo.prep = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
+                writeln!(self.out, "  %escopo.prep = call i64 @dartforge_arc_native_scope_open_v1()").unwrap();
             }
-            writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
+            writeln!(self.out, "  call void @dartforge_register_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
             if let Some(v) = &self.module.sdk_version {
-                writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
+                writeln!(self.out, "  call void @dartforge_register_sdk_version(ptr @df.sdk_version, i64 {})", v.len()).unwrap();
             }
             // The tables of the classes of the runtime values (which do not go
             // through `dartforge_object_new_t`).
             for c in self.module.runtime_cids.clone() {
                 if let Some(f) = self.module.table_functions.get(&(c as u32)).cloned() {
                     self.annotate_external(&f, Type::Ptr, &[]);
-                    writeln!(self.out, "  call void @dartforge_registrar_tabela(i64 {c}, ptr @{f})").unwrap();
+                    writeln!(self.out, "  call void @dartforge_register_table(i64 {c}, ptr @{f})").unwrap();
                 }
             }
             for r in &self.module.sdk_records {
                 writeln!(self.out, "  call void @{r}()").unwrap();
                 self.externals.insert(r.clone(), format!("declare void @{r}()"));
             }
-            writeln!(self.out, "  call void @df.registrar.programa()").unwrap();
+            writeln!(self.out, "  call void @df.register.program()").unwrap();
             // RTI and the event loop, as in the usual entry (below).
             if let Some(start) = &self.module.start_rti {
                 writeln!(self.out, "  {}", entry_call(self.module.excecoes_por_tabelas, start, &[])).unwrap();
@@ -2760,18 +2760,18 @@ impl<'a> LlvmEmitter<'a> {
             for c in self.module.ffi_composites.clone() {
                 writeln!(
                     self.out,
-                    "  call void @dartforge_ffi_registrar_composto(i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {})",
+                    "  call void @dartforge_ffi_register_compound(i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {})",
                     c.rti, c.class, c.fields, c.base_index, c.offset_index, c.size, c.alignment
                 )
                 .unwrap();
             }
             for (c, letter) in &self.module.ffi_types {
-                writeln!(self.out, "  call void @dartforge_ffi_registrar_tipo(i64 {c}, i64 {})", u32::from(*letter)).unwrap();
+                writeln!(self.out, "  call void @dartforge_ffi_register_type(i64 {c}, i64 {})", u32::from(*letter)).unwrap();
             }
             for (i, (key, sym_name)) in self.module.ffi_trampolines.iter().enumerate() {
                 writeln!(
                     self.out,
-                    "  call void @dartforge_ffi_registrar_trampolim(ptr @df.ffi.chave.{i}, i64 {}, ptr @\"{sym_name}\")",
+                    "  call void @dartforge_ffi_register_trampoline(ptr @df.ffi.key.{i}, i64 {}, ptr @\"{sym_name}\")",
                     key.len()
                 )
                 .unwrap();
@@ -2779,47 +2779,47 @@ impl<'a> LlvmEmitter<'a> {
             for (i, cb) in self.module.ffi_callbacks.iter().enumerate() {
                 writeln!(
                     self.out,
-                    "  call void @dartforge_ffi_registrar_callback(ptr @df.ffi.cbchave.{i}, i64 {}, ptr @df.ffi.cbentrada.{i})",
+                    "  call void @dartforge_ffi_register_callback(ptr @df.ffi.cbkey.{i}, i64 {}, ptr @df.ffi.cbentry.{i})",
                     cb.key.len()
                 )
                 .unwrap();
             }
-            writeln!(self.out, "  call void @dartforge_preparar_embedder()").unwrap();
+            writeln!(self.out, "  call void @dartforge_prepare_embedder()").unwrap();
             if root_scope {
-                writeln!(self.out, "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo.prep)").unwrap();
+                writeln!(self.out, "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo.prep)").unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             for (i, (key, _)) in self.module.ffi_trampolines.iter().enumerate() {
-                writeln!(self.out, "@df.ffi.chave.{i} = private unnamed_addr constant [{} x i8] c\"{key}\"", key.len()).unwrap();
+                writeln!(self.out, "@df.ffi.key.{i} = private unnamed_addr constant [{} x i8] c\"{key}\"", key.len()).unwrap();
             }
             self.emit_callbacks_ffi();
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             // Exceptions by tables: the ports through which the runtime calls
             // Dart code, delivered before any Dart code runs.
             if self.module.excecoes_por_tabelas {
-                writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTS})").unwrap();
+                writeln!(self.out, "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})").unwrap();
             }
             let call = self.module.call_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
-            writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {call})").unwrap();
-            writeln!(self.out, "  call void @df.preparar_isolado()").unwrap();
+            writeln!(self.out, "  call void @dartforge_register_isolates(ptr @df.prepare_isolate, ptr {call})").unwrap();
+            writeln!(self.out, "  call void @df.prepare_isolate()").unwrap();
             // The root scope of the main isolate: `main` and the event
             // loop, whose calls from the runtime into Dart return owners.
             if root_scope {
-                writeln!(self.out, "  %escopo.raiz = call i64 @dartforge_arc_escopo_nativo_abrir_v1()").unwrap();
+                writeln!(self.out, "  %escopo.raiz = call i64 @dartforge_arc_native_scope_open_v1()").unwrap();
             }
             self.call_main();
             if let Some(call) = &self.module.call_dart {
-                writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{call})").unwrap();
+                writeln!(self.out, "  call void @dartforge_event_loop(ptr @{call})").unwrap();
             }
             if root_scope {
-                writeln!(self.out, "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo.raiz)").unwrap();
+                writeln!(self.out, "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo.raiz)").unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             // The runtime and the SDK live in the source SDK DLL: the `main` of the
             // executable is this one, and it hands the entry to the runtime.
             writeln!(
                 self.out,
-                "define i32 @main() {{\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}}\n"
+                "define i32 @main() {{\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}}\n"
             )
             .unwrap();
             return;
@@ -2830,7 +2830,7 @@ impl<'a> LlvmEmitter<'a> {
         // Exceptions by tables: the ports through which the runtime calls
         // Dart code, delivered before any Dart code runs.
         if self.module.excecoes_por_tabelas {
-            writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTS})").unwrap();
+            writeln!(self.out, "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})").unwrap();
         }
         // Registra classes
         for class in &self.module.classes {
@@ -2866,14 +2866,14 @@ impl<'a> LlvmEmitter<'a> {
         self.call_main();
         // P6: microtasks and timers after `main` (runtime, `events.rs`).
         if let Some(call) = &self.module.call_dart {
-            writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{call})").unwrap();
+            writeln!(self.out, "  call void @dartforge_event_loop(ptr @{call})").unwrap();
         }
         writeln!(self.out, "  ret void").unwrap();
         writeln!(self.out, "}}\n").unwrap();
     }
 
     /// The call of `main` at the entry: with parameters, the first is the list
-    /// of the command line arguments (`dartforge_argumentos_do_main`) and
+    /// of the command line arguments (`dartforge_main_arguments`) and
     /// the second, `null`.
     /// A primitive argument of a C call: the operand converted to the C type
     /// (narrow ones with the ABI extension), as `ty attributes value`.
@@ -3113,7 +3113,7 @@ impl<'a> LlvmEmitter<'a> {
         }
         let conv = c_abi::Convention::of_target();
         for (i, cb) in self.module.ffi_callbacks.clone().iter().enumerate() {
-            writeln!(self.out, "@df.ffi.cbchave.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.key.len(), cb.key).unwrap();
+            writeln!(self.out, "@df.ffi.cbkey.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.key.len(), cb.key).unwrap();
             let mut regs = c_abi::Registers::new_set();
             // The return first: an `sret` takes the first register.
             let ret = match &cb.ret {
@@ -3169,8 +3169,8 @@ impl<'a> LlvmEmitter<'a> {
             // (below) — C code is not crossed. The
             // `callback_sem_pouso` sabotage (D9 of §7.3) removes the landing pad.
             let by_tables = self.module.excecoes_por_tabelas && !crate::alvo::sabotage("callback_sem_pouso");
-            let personality = if by_tables { " personality ptr @dartforge_personalidade" } else { "" };
-            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}){personality} {{", decls.join(", "))
+            let personality = if by_tables { " personality ptr @dartforge_personality" } else { "" };
+            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentry.{i}({}){personality} {{", decls.join(", "))
                 .unwrap();
             let n = cb.params.len().max(1);
             writeln!(self.out, "entrada:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
@@ -3192,7 +3192,7 @@ impl<'a> LlvmEmitter<'a> {
                     None => writeln!(self.out, "  %end{j} = ptrtoint ptr %a{j} to i64").unwrap(),
                 }
             }
-            writeln!(self.out, "  %modo = call i64 @dartforge_ffi_callback_entrar(ptr %ctx)").unwrap();
+            writeln!(self.out, "  %modo = call i64 @dartforge_ffi_callback_enter(ptr %ctx)").unwrap();
             writeln!(self.out, "  %e_ouvinte = icmp ne i64 %modo, 0\n  br i1 %e_ouvinte, label %ouvinte, label %local").unwrap();
             // Listener: the bits of each argument in the message (of a
             // compound, the address: the runtime copies the bytes).
@@ -3215,7 +3215,7 @@ impl<'a> LlvmEmitter<'a> {
                 };
                 writeln!(self.out, "  %o{j} = {bits}\n  %g{j} = getelementptr [{n} x i64], ptr %buf, i64 0, i64 {j}\n  store i64 %o{j}, ptr %g{j}").unwrap();
             }
-            writeln!(self.out, "  call void @dartforge_ffi_callback_postar(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
+            writeln!(self.out, "  call void @dartforge_ffi_callback_post(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
             match &cb.ret {
                 NativeType::Prim(CType::Void) => writeln!(self.out, "  ret void").unwrap(),
                 NativeType::Prim(CType::Ptr | CType::Handle) => writeln!(self.out, "  ret ptr null").unwrap(),
@@ -3260,7 +3260,7 @@ impl<'a> LlvmEmitter<'a> {
                 // shadow stack and goes on with the default value and the pending
                 // exception, as the body returned in the check model.
                 self.out.push_str(
-                    "  %tctx = call ptr @dartforge_contexto()\n  %ttp = getelementptr inbounds i8, ptr %tctx, i64 8\n  %ttopo = load ptr, ptr %ttp, align 8\n",
+                    "  %tctx = call ptr @dartforge_context()\n  %ttp = getelementptr inbounds i8, ptr %tctx, i64 8\n  %ttopo = load ptr, ptr %ttp, align 8\n",
                 );
                 let landing_pad = "tlp:\n  %tx = landingpad { ptr, i32 } catch ptr null\n  store ptr %ttopo, ptr %ttp, align 8\n  br label %tcont\n";
                 if empty {
@@ -3288,9 +3288,9 @@ impl<'a> LlvmEmitter<'a> {
             if let Some((_, l)) = &ret {
                 let sz = l.size.div_ceil(16) * 16;
                 writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {sz}, i1 false)").unwrap();
-                writeln!(self.out, "  call void @dartforge_ffi_copiar_composto(ptr %rt, i64 %r, i64 {})", l.size).unwrap();
+                writeln!(self.out, "  call void @dartforge_ffi_copy_compound(ptr %rt, i64 %r, i64 {})", l.size).unwrap();
             }
-            writeln!(self.out, "  %x = call i8 @dartforge_ffi_callback_sair(ptr %ctx, ptr %saida)").unwrap();
+            writeln!(self.out, "  %x = call i8 @dartforge_ffi_callback_exit(ptr %ctx, ptr %saida)").unwrap();
             match (&cb.ret, &ret) {
                 (NativeType::Prim(CType::Void), _) => {
                     writeln!(self.out, "  ret void\n}}\n").unwrap();
@@ -3354,15 +3354,15 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "  {}", entry_call(by_tables, &entry, &[])).unwrap();
             return;
         }
-        writeln!(self.out, "  %df.args = call i64 @dartforge_argumentos_do_main()").unwrap();
+        writeln!(self.out, "  %df.args = call i64 @dartforge_main_arguments()").unwrap();
         let args: &[&str] = if n == 1 { &["i64 %df.args"] } else { &["i64 %df.args", "i64 0"] };
         writeln!(self.out, "  {}", entry_call(by_tables, &entry, args)).unwrap();
     }
 
     /// Exceptions by tables: the ports through which the runtime calls Dart
     /// code (`runtime/src/exceptions_tables.rs`), one per signature —
-    /// `@df.porta.<v|r><n>(function, n words)`, `v` without a value and `r`
-    /// returning a word — and the `@df.portas` table, at index
+    /// `@df.port.<v|r><n>(function, n words)`, `v` without a value and `r`
+    /// returning a word — and the `@df.ports` table, at index
     /// `2n + (1 if it returns)`, which the program entry registers. The port
     /// calls the function with `invoke`; an unwinding lands in it, which
     /// restores the top of the shadow stack and returns with the exception pending — what
@@ -3372,15 +3372,15 @@ impl<'a> LlvmEmitter<'a> {
         let mut table = Vec::with_capacity(N_PORTS);
         for n in 0..N_PORTS / 2 {
             for returns in [false, true] {
-                let name_str = format!("df.porta.{}{n}", if returns { 'r' } else { 'v' });
+                let name_str = format!("df.port.{}{n}", if returns { 'r' } else { 'v' });
                 let params: String = (0..n).map(|i| format!(", i64 %a{i}")).collect();
                 let args: Vec<String> = (0..n).map(|i| format!("i64 %a{i}")).collect();
                 let (typ, result, back, pattern) =
                     if returns { ("i64", "%r = ", "ret i64 %r", "ret i64 0") } else { ("void", "", "ret void", "ret void") };
-                writeln!(self.out, "define internal {typ} @{name_str}(ptr %f{params}) personality ptr @dartforge_personalidade {{")
+                writeln!(self.out, "define internal {typ} @{name_str}(ptr %f{params}) personality ptr @dartforge_personality {{")
                     .unwrap();
                 self.out.push_str(
-                    "entrada:\n  %ctx = call ptr @dartforge_contexto()\n  %tp = getelementptr inbounds i8, ptr %ctx, i64 8\n  %topo = load ptr, ptr %tp, align 8\n",
+                    "entrada:\n  %ctx = call ptr @dartforge_context()\n  %tp = getelementptr inbounds i8, ptr %ctx, i64 8\n  %topo = load ptr, ptr %tp, align 8\n",
                 );
                 writeln!(self.out, "  {result}invoke {typ} %f({}) to label %volta unwind label %pouso", args.join(", ")).unwrap();
                 writeln!(
@@ -3391,7 +3391,7 @@ impl<'a> LlvmEmitter<'a> {
                 table.push(format!("ptr @{name_str}"));
             }
         }
-        writeln!(self.out, "@df.portas = private unnamed_addr constant [{N_PORTS} x ptr] [{}]\n", table.join(", ")).unwrap();
+        writeln!(self.out, "@df.ports = private unnamed_addr constant [{N_PORTS} x ptr] [{}]\n", table.join(", ")).unwrap();
     }
 
     /// Type of the value that the emitter actually prints for an instruction.
@@ -3471,7 +3471,7 @@ impl<'a> LlvmEmitter<'a> {
     /// `runtime/vm/compiler/backend/il.h:9693`, `CheckStackOverflowInstr`): the
     /// address of an `alloca` of the frame below
     /// `Context::stack_limit` throws `StackOverflowError`
-    /// (`dartforge_estouro_de_pilha`) and the function returns with the exception
+    /// (`dartforge_stack_overflow`) and the function returns with the exception
     /// pending, before chaining the roots frame. Only in the functions that
     /// call (those that have `%ctx`): a leaf does not deepen the stack.
     fn emit_stack_check(&mut self, func: &Function) {
@@ -3483,13 +3483,13 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)").unwrap();
         writeln!(o, "  br i1 %pilhax, label %pilha.estouro, label %pilha.ok").unwrap();
         writeln!(o, "pilha.estouro:").unwrap();
-        writeln!(o, "  call void @dartforge_estouro_de_pilha()").unwrap();
+        writeln!(o, "  call void @dartforge_stack_overflow()").unwrap();
         if self.stack_trace.is_some() {
-            writeln!(o, "  call void @dartforge_rastro_saida()").unwrap();
+            writeln!(o, "  call void @dartforge_call_trace_exit()").unwrap();
         }
         // Exceptions by tables: the `StackOverflowError` unwinds from here.
         if by_tables {
-            writeln!(o, "  call void @df.lancar()").unwrap();
+            writeln!(o, "  call void @df.throw()").unwrap();
             writeln!(o, "  unreachable").unwrap();
             writeln!(o, "pilha.ok:").unwrap();
             self.current_label = "pilha.ok".to_string();
@@ -3515,7 +3515,7 @@ impl<'a> LlvmEmitter<'a> {
     /// `h > 0`; `crates/runtime/src/heap.rs`, `Header`) has the header at
     /// `h - 2`; anything else — null, a `Smi`, a runtime value — uses
     /// `EMPTY_OBJECT` (the pointer in `Context::empties`, offset 40 of the
-    /// context), zeroed fields, as `dartforge_object_campos` gave. With the
+    /// context), zeroed fields, as `dartforge_object_fields` gave. With the
     /// `FORA` bit in the `flags`, the body is the address kept in the first
     /// field (the object that changed its number of fields): a select, without a
     /// branch. No call.
@@ -3547,7 +3547,7 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_field_addresses(&mut self, v: u32, only: &str) {
         let o = &mut self.out;
         if self.fields_per_call {
-            writeln!(o, "  %fcb{v} = call ptr @df.corpo(i64 {only}, ptr %ctx)").unwrap();
+            writeln!(o, "  %fcb{v} = call ptr @df.body(i64 {only}, ptr %ctx)").unwrap();
             writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
             return;
         }
@@ -3650,12 +3650,12 @@ impl<'a> LlvmEmitter<'a> {
         let size = layout::bytes_do_bloco(w);
         if self.out_of_line_allocation {
             // Production of the large program: the same computation, in a call to
-            // `@df.nova_instancia` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
+            // `@df.new_instance` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
             let header = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
             let t = table.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
             writeln!(
                 self.out,
-                "  %v{v} = call i64 @df.nova_instancia(ptr %ctx, i64 {}, i64 {size}, i64 {}, i64 {c}, i64 {n}, ptr {t})",
+                "  %v{v} = call i64 @df.new_instance(ptr %ctx, i64 {}, i64 {size}, i64 {}, i64 {c}, i64 {n}, ptr {t})",
                 layout::contexto::tlab_cursor(w),
                 header as i64
             )
@@ -3740,7 +3740,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// The write barrier after storing the `Ref` `sv` into the object `only`
-    /// (`@df.barreira`, docs/NATIVO-ESPACO-UNIFICADO.md §2.7): the old object
+    /// (`@df.barrier`, docs/NATIVO-ESPACO-UNIFICADO.md §2.7): the old object
     /// that receives a young child goes into the remembered set of the next minor collection —
     /// the *store buffer* of the VM's barrier. `dynamic`: `is_ref` only known at
     /// runtime (0/1, `i8`). The HIR block now ends at `wb{v}.fim`.
@@ -3751,11 +3751,11 @@ impl<'a> LlvmEmitter<'a> {
                 writeln!(o, "  %wbr{v} = icmp ne i8 {r}, 0").unwrap();
                 writeln!(o, "  br i1 %wbr{v}, label %wb{v}.ref, label %wb{v}.fim").unwrap();
                 writeln!(o, "wb{v}.ref:").unwrap();
-                writeln!(o, "  call void @df.barreira(i64 {only}, i64 {sv})").unwrap();
+                writeln!(o, "  call void @df.barrier(i64 {only}, i64 {sv})").unwrap();
                 writeln!(o, "  br label %wb{v}.fim").unwrap();
             }
             None => {
-                writeln!(o, "  call void @df.barreira(i64 {only}, i64 {sv})").unwrap();
+                writeln!(o, "  call void @df.barrier(i64 {only}, i64 {sv})").unwrap();
                 writeln!(o, "  br label %wb{v}.fim").unwrap();
             }
         }
@@ -4062,16 +4062,16 @@ impl<'a> LlvmEmitter<'a> {
 /// effects table marks that way — the leaf helpers ([`leaf_helpers`]),
 /// the unwinding and the frame of the effects check.
 const MAP_LEAVES: &[&str] = &[
-    "df.corpo",
-    "df.barreira",
-    "df.barreira_elemento",
-    "df.e_objeto",
-    "df.filho_jovem",
-    "df.lancar",
-    "dartforge_efeitos_antes",
-    "dartforge_efeitos_depois",
-    "dartforge_efeitos_nivel",
-    "dartforge_efeitos_restaurar",
+    "df.body",
+    "df.barrier",
+    "df.element_barrier",
+    "df.is_object",
+    "df.young_child",
+    "df.throw",
+    "dartforge_effects_before",
+    "dartforge_effects_after",
+    "dartforge_effects_level",
+    "dartforge_effects_restore",
 ];
 
 /// The rule of roots by the callee (`LlvmEmitter::callee_roots_the_arguments`)
@@ -4159,9 +4159,9 @@ fn empty_deopt(text: &str) -> String {
 /// get `"gc-leaf-function"` — out of line (the large program), the
 /// call to them does not become a collection point. Inline the attribute changes
 /// nothing. Only those that do not call the runtime, or call an extern that does not allocate
-/// in the heap of the collector (`dartforge_lembrar`).
+/// in the heap of the collector (`dartforge_remember`).
 fn leaf_helpers(text: &str) -> String {
-    const LEAVES: &[&str] = &["@df.corpo(", "@df.barreira(", "@df.barreira_elemento(", "@df.e_objeto(", "@df.filho_jovem("];
+    const LEAVES: &[&str] = &["@df.body(", "@df.barrier(", "@df.element_barrier(", "@df.is_object(", "@df.young_child("];
     let mut exit = String::with_capacity(text.len() + 256);
     for line in text.split_inclusive('\n') {
         let alvo = line.starts_with("define internal ") && LEAVES.iter().any(|f| line.contains(f));
@@ -4185,22 +4185,22 @@ const N_PORTS: usize = 16;
 /// What every module declares with exceptions by tables
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
 ///
-/// * the personality of the functions with a landing pad (`dartforge_personalidade`, of the
+/// * the personality of the functions with a landing pad (`dartforge_personality`, of the
 ///   runtime) and the registration of the ports;
-/// * `@df.lancar`, the unwinding: a structured exception of the system with
+/// * `@df.throw`, the unwinding: a structured exception of the system with
 ///   its own code `0xE0444652` (the integer below), non-continuable, without
 ///   parameters — the Dart exception itself is the pending flag of the runtime. `internal`:
 ///   each module (and each part of a split module) has its own copy.
 const EXCEPTIONS_BY_TABLES: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)\n\
-declare i32 @dartforge_personalidade(...)\n\
-declare void @dartforge_registrar_portas(ptr, i64)\n\
+declare i32 @dartforge_personality(...)\n\
+declare void @dartforge_register_ports(ptr, i64)\n\
 declare dllimport void @RaiseException(i32, i32, i32, ptr)\n\
-define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\n\
+define internal void @df.throw() noreturn noinline cold \"gc-leaf-function\" {\n\
   call void @RaiseException(i32 -532396462, i32 1, i32 0, ptr null)\n\
   unreachable\n\
 }\n";
 
-/// The same on Itanium targets (Linux, macOS): `@df.lancar` asks the runtime for
+/// The same on Itanium targets (Linux, macOS): `@df.throw` asks the runtime for
 /// the exception object of the thread (`exceptions_tables.rs`) and hands it itself
 /// to the system unwinder (`_Unwind_RaiseException`), like Windows'
 /// `RaiseException`: no Rust frame stays between the throw
@@ -4210,17 +4210,17 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\
 /// foreign exception. If the unwinder comes back, the code goes to the runtime,
 /// which terminates.
 const EXCEPTIONS_BY_TABLES_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
-declare i32 @dartforge_personalidade(...)
-declare i32 @dartforge_personalidade_cleanup_itanium(...)
+declare i32 @dartforge_personality(...)
+declare i32 @dartforge_personality_cleanup_itanium(...)
 declare i32 @llvm.eh.typeid.for(ptr)
-declare void @dartforge_registrar_portas(ptr, i64)
-declare ptr @dartforge_objeto_de_desenrolamento()
+declare void @dartforge_register_ports(ptr, i64)
+declare ptr @dartforge_unwind_object()
 declare i32 @_Unwind_RaiseException(ptr)
-declare void @dartforge_desenrolamento_falhou(i32) noreturn
-define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {
-  %o = call ptr @dartforge_objeto_de_desenrolamento()
+declare void @dartforge_unwind_failed(i32) noreturn
+define internal void @df.throw() noreturn noinline cold \"gc-leaf-function\" {
+  %o = call ptr @dartforge_unwind_object()
   %r = call i32 @_Unwind_RaiseException(ptr %o)
-  call void @dartforge_desenrolamento_falhou(i32 %r)
+  call void @dartforge_unwind_failed(i32 %r)
   unreachable
 }
 ";
@@ -4236,7 +4236,7 @@ fn entry_call(by_tables: bool, sym_name: &str, args: &[&str]) -> String {
             list.push_str(", ");
             list.push_str(a);
         }
-        format!("call void @df.porta.v{}({list})", args.len())
+        format!("call void @df.port.v{}({list})", args.len())
     } else {
         format!("call void @{sym_name}({})", args.join(", "))
     }
@@ -4275,8 +4275,8 @@ fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
 /// `internal` in each module and `alwaysinline`: the common path becomes three
 /// instructions in place of the call.
 const GET_AREA: &str = "@df.area_id = internal global i64 0, align 8\n\
-define internal ptr @df.obter_area() alwaysinline {\n\
-  %ctx = call ptr @dartforge_contexto()\n\
+define internal ptr @df.get_area() alwaysinline {\n\
+  %ctx = call ptr @dartforge_context()\n\
   %id = load atomic i64, ptr @df.area_id monotonic, align 8\n\
   %tp = getelementptr inbounds i8, ptr %ctx, i64 16\n\
   %t = load ptr, ptr %tp, align 8\n\
@@ -4292,7 +4292,7 @@ ler:\n\
 pronto:\n\
   ret ptr %p\n\
 lenta:\n\
-  %q = call ptr @dartforge_area_de_globais_id(ptr @df.area, ptr @df.area_id)\n\
+  %q = call ptr @dartforge_globals_area_id(ptr @df.area, ptr @df.area_id)\n\
   ret ptr %q\n\
 }\n";
 
@@ -4309,12 +4309,12 @@ lenta:\n\
 /// rest (`null` and `Smi` without the source SDK), ask the runtime
 /// (`dartforge_value_class`).
 ///
-/// `df.subclasse` is `cid <: C` through the bitmap of the target that the runtime
+/// `df.subclass` is `cid <: C` through the bitmap of the target that the runtime
 /// builds on the first query (`runtime/src/core.rs`, `SubtypeMaps`;
 /// offsets 352–368 of the context), the VM's *type testing stub*: without a
 /// call when the map exists and the `cid` is within its width.
 /// The cache (`cache[0]` = class + 1, `cache[1]` = entry, in the area of the
-/// isolate) is checked here; only a miss calls `dartforge_seletor`, which
+/// isolate) is checked here; only a miss calls `dartforge_selector`, which
 /// looks up the table of the class and rewrites the cache — the VM's monomorphic
 /// *inline cache* (`ICData`), without the call to the runtime on a hit.
 ///
@@ -4350,7 +4350,7 @@ s1:\n",
     text.replace("@@RAPIDOS@@", &fast_set)
 }
 
-const VALUE_CLASS: &str = "define internal i64 @df.classe(i64 %h) alwaysinline {\n\
+const VALUE_CLASS: &str = "define internal i64 @df.class(i64 %h) alwaysinline {\n\
 @@RAPIDOS@@  %m = and i64 %h, @@MASCARA@@\n\
   %o = icmp eq i64 %m, 2\n\
   br i1 %o, label %obj, label %rt\n\
@@ -4364,8 +4364,8 @@ rt:\n\
   %x = call i64 @dartforge_value_class(i64 %h)\n\
   ret i64 %x\n\
 }\n\
-define internal ptr @df.seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l) alwaysinline {\n\
-  %cid = call i64 @df.classe(i64 %r)\n\
+define internal ptr @df.selector(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l) alwaysinline {\n\
+  %cid = call i64 @df.class(i64 %r)\n\
   %k = add i64 %cid, 1\n\
   %c0 = load i64, ptr %c, align 8\n\
   %sim = icmp eq i64 %c0, %k\n\
@@ -4375,11 +4375,11 @@ acerto:\n\
   %e = load ptr, ptr %ep, align 8\n\
   ret ptr %e\n\
 falha:\n\
-  %f = call ptr @dartforge_seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)\n\
+  %f = call ptr @dartforge_selector(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)\n\
   ret ptr %f\n\
 }\n\
-define internal i8 @df.subclasse(i64 %cid, i64 %alvo) alwaysinline {\n\
-  %ctx = call ptr @dartforge_contexto()\n\
+define internal i8 @df.subclass(i64 %cid, i64 %alvo) alwaysinline {\n\
+  %ctx = call ptr @dartforge_context()\n\
   %lp = getelementptr inbounds i8, ptr %ctx, i64 @@LARGURA@@\n\
   %l = load i64, ptr %lp, align 8\n\
   %d1 = icmp ult i64 %cid, %l\n\
@@ -4436,13 +4436,13 @@ pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<
 
 /// Dispatch by selector with the static descriptor (`@df.seld.<k>`), out
 /// of line ([`LlvmEmitter::compact_selector`]).
-const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.seletor_d(ptr %c, i64 %r, ptr %d) noinline {
+const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.selector_d(ptr %c, i64 %r, ptr %d) noinline {
   %h = load i64, ptr %d, align 8
   %np = getelementptr inbounds i8, ptr %d, i64 8
   %n = load ptr, ptr %np, align 8
   %lp = getelementptr inbounds i8, ptr %d, i64 16
   %l = load i64, ptr %lp, align 8
-  %f = call ptr @df.seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)
+  %f = call ptr @df.selector(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)
   ret ptr %f
 }
 ";
@@ -4454,7 +4454,7 @@ const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.seletor_d(ptr %c, 
 /// class does not register the table on the first allocation).
 fn new_instance() -> String {
     format!(
-        "define internal i64 @df.nova_instancia(ptr %ctx, i64 %cur, i64 %tam, i64 %cab, i64 %c, i64 %n, ptr %tab) noinline {{
+        "define internal i64 @df.new_instance(ptr %ctx, i64 %cur, i64 %tam, i64 %cab, i64 %c, i64 %n, ptr %tab) noinline {{
   %ta = getelementptr inbounds i8, ptr %ctx, i64 %cur
   %tb = load ptr, ptr %ta, align 8
   %tfa = getelementptr inbounds i8, ptr %ta, i64 8
@@ -4520,16 +4520,16 @@ fn out_of_line(text: &str, names: &[String]) -> String {
 /// The helpers of the foundation of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md
 /// §3.5), with the offsets of the layout contract:
 ///
-/// * `@df.e_objeto(h)`: `h & (7 | i64::MIN) == 2`;
-/// * `@df.filho_jovem(v)`: the stored child requires the barrier (young object);
-/// * `@df.barreira(o, v)`: old `o` receiving a young child → `dartforge_lembrar`
+/// * `@df.is_object(h)`: `h & (7 | i64::MIN) == 2`;
+/// * `@df.young_child(v)`: the stored child requires the barrier (young object);
+/// * `@df.barrier(o, v)`: old `o` receiving a young child → `dartforge_remember`
 ///   (weight 1:9 on the slow branch, like Julia's barrier);
-/// * `@df.barreira_elemento(o, i, v)`: the same with cards (`o` old or
+/// * `@df.element_barrier(o, i, v)`: the same with cards (`o` old or
 ///   remembered with `CARTOES`: dirties the card of element `i`);
-/// * `@df.alocar(header, w)`: the TLAB of `w ≤ TLAB_N` words (the cursor
+/// * `@df.allocate(header, w)`: the TLAB of `w ≤ TLAB_N` words (the cursor
 ///   advances `16 + 8w` and writes word 0); exhausted or a larger `w`,
-///   `dartforge_alocar(cid, w, header >> 8)`.
-/// `@df.corpo(h, ctx)`: the start of the body of an object (the header; the
+///   `dartforge_allocate(cid, w, header >> 8)`.
+/// `@df.body(h, ctx)`: the start of the body of an object (the header; the
 /// fields 16 bytes later), the same computation as `emit_field_addresses`
 /// inline — a value that is not an object reads the reserve object of the context
 /// (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
@@ -4550,7 +4550,7 @@ fn body_helper(per_call: bool, production: bool) -> String {
         (true, true) => " noinline nounwind willreturn memory(none)",
     };
     format!(
-        "define internal ptr @df.corpo(i64 %o, ptr %ctx){attribute} {{
+        "define internal ptr @df.body(i64 %o, ptr %ctx){attribute} {{
   %k = and i64 %o, {OBJECT_MASK}
   %e = icmp eq i64 %k, 2
   %a = add i64 %o, -2
@@ -4575,12 +4575,12 @@ fn space_helpers() -> String {
     use layout::{contexto, desl, estado, flags};
     let d = |x: usize| x as i64 - layout::DESLOCAMENTO_DO_HANDLE;
     format!(
-        "define internal i1 @df.e_objeto(i64 %h) alwaysinline {{\n\
+        "define internal i1 @df.is_object(i64 %h) alwaysinline {{\n\
   %m = and i64 %h, {mask}\n\
   %r = icmp eq i64 %m, 2\n\
   ret i1 %r\n\
 }}\n\
-define internal i1 @df.filho_jovem(i64 %v) alwaysinline {{\n\
+define internal i1 @df.young_child(i64 %v) alwaysinline {{\n\
   %b = and i64 %v, 1\n\
   %imediato = icmp ne i64 %b, 0\n\
   %nulo = icmp eq i64 %v, 0\n\
@@ -4599,7 +4599,7 @@ obj:\n\
 nao:\n\
   ret i1 false\n\
 }}\n\
-define internal void @df.barreira(i64 %o, i64 %v) alwaysinline {{\n\
+define internal void @df.barrier(i64 %o, i64 %v) alwaysinline {{\n\
   %p = inttoptr i64 %o to ptr\n\
   %ep = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
   %e = load i8, ptr %ep, align 8\n\
@@ -4607,15 +4607,15 @@ define internal void @df.barreira(i64 %o, i64 %v) alwaysinline {{\n\
   %x = call i1 @llvm.expect.i1(i1 %velho, i1 false)\n\
   br i1 %x, label %filho, label %fim\n\
 filho:\n\
-  %j = call i1 @df.filho_jovem(i64 %v)\n\
+  %j = call i1 @df.young_child(i64 %v)\n\
   br i1 %j, label %lembrar, label %fim\n\
 lembrar:\n\
-  call void @dartforge_lembrar(i64 %o)\n\
+  call void @dartforge_remember(i64 %o)\n\
   br label %fim\n\
 fim:\n\
   ret void\n\
 }}\n\
-define internal void @df.barreira_elemento(i64 %o, i64 %i, i64 %v) alwaysinline {{\n\
+define internal void @df.element_barrier(i64 %o, i64 %i, i64 %v) alwaysinline {{\n\
   %p = inttoptr i64 %o to ptr\n\
   %ep = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
   %e = load i8, ptr %ep, align 8\n\
@@ -4624,7 +4624,7 @@ define internal void @df.barreira_elemento(i64 %o, i64 %i, i64 %v) alwaysinline 
   %x = call i1 @llvm.expect.i1(i1 %velho, i1 false)\n\
   br i1 %x, label %filho, label %fim\n\
 filho:\n\
-  %j = call i1 @df.filho_jovem(i64 %v)\n\
+  %j = call i1 @df.young_child(i64 %v)\n\
   br i1 %j, label %lento, label %fim\n\
 lento:\n\
   %fp = getelementptr inbounds i8, ptr %p, i64 {flags_h}\n\
@@ -4651,16 +4651,16 @@ lembrar:\n\
   %ev = icmp eq i8 %e, {old_one}\n\
   br i1 %ev, label %chamar, label %fim\n\
 chamar:\n\
-  call void @dartforge_lembrar(i64 %o)\n\
+  call void @dartforge_remember(i64 %o)\n\
   br label %fim\n\
 fim:\n\
   ret void\n\
 }}\n\
-define internal i64 @df.alocar(i64 %cab, i64 %w) alwaysinline {{\n\
+define internal i64 @df.allocate(i64 %cab, i64 %w) alwaysinline {{\n\
   %pequeno = icmp ule i64 %w, {tlab_n}\n\
   br i1 %pequeno, label %tlab, label %lento\n\
 tlab:\n\
-  %ctx = call ptr @dartforge_contexto()\n\
+  %ctx = call ptr @dartforge_context()\n\
   %o16 = shl i64 %w, 4\n\
   %oc = add i64 %o16, {tlab}\n\
   %ta = getelementptr inbounds i8, ptr %ctx, i64 %oc\n\
@@ -4684,7 +4684,7 @@ lento:\n\
   %cid = lshr i64 %cab, 32\n\
   %fl = lshr i64 %cab, 8\n\
   %fn = and i64 %fl, 16777215\n\
-  %r = call i64 @dartforge_alocar(i64 %cid, i64 %w, i64 %fn)\n\
+  %r = call i64 @dartforge_allocate(i64 %cid, i64 %w, i64 %fn)\n\
   ret i64 %r\n\
 }}\n",
         mask = OBJECT_MASK,
@@ -4704,5 +4704,5 @@ lento:\n\
     )
 }
 
-// `@df.caixa_int`, `@df.desencaixa_int` and `@df.env_ref` are from P2
+// `@df.box_int`, `@df.unbox_int` and `@df.env_ref` are from P2
 // (`ir_boxes::HELPERS`, docs/NATIVO-ESPACO-UNIFICADO.md §3.5).

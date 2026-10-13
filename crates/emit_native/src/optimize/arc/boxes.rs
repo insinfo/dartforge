@@ -81,7 +81,7 @@ mod simd_tests {
             assert_eq!(format!("{m:?}"), before); assert_eq!(ps, plans);
             m.arc_memory = false;
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("call i64 @df.simd_caixa("));
+            assert!(ir.contains("call i64 @df.simd_box("));
             assert!(!ir.contains("call i64 @dartforge_arc_box_simd_owned_v1"));
         }
     }

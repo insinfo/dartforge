@@ -176,7 +176,7 @@ pub mod cid {
 
     /// `(cid, library, class)` of every class with a fixed cid, in cid order: the
     /// source of the emitter's numbering (`context.rs`) and of the ABI check
-    /// (`dartforge_registrar_cids`). The library is the URI (`dart:core`), the key of
+    /// (`dartforge_register_cids`). The library is the URI (`dart:core`), the key of
     /// the stable numbering; the runtime's internal ones have [`INTERNAL`].
     pub const DO_SDK: &[(i32, &str, &str)] = &[
         (NULL, "dart:core", "Null"),

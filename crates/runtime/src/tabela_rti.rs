@@ -1,5 +1,5 @@
 //! The compressed form of the RTI table (`emit_native/src/lower/rti.rs`,
-//! `dartforge_rti_iniciar_tabela`): the text of the classes and supertype rules of
+//! `dartforge_rti_init_table`): the text of the classes and supertype rules of
 //! a large program exceeds 1 MB (1.37 MB in `new_sali/backend`, 10 thousand
 //! classes) and is very repetitive; zlib reduces it to ~1/5. The compiler
 //! compresses, the runtime decompresses once per process. Both sides are here, so

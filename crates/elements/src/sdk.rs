@@ -401,11 +401,11 @@ mod tests {
             return;
         };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk");
-        let sdk = SdkLayout::load_with_overlay(&lib, &dir, "dartforge_nativo").unwrap();
+        let sdk = SdkLayout::load_with_overlay(&lib, &dir, "dartforge_native").unwrap();
         // One substitution per entry of `substitui` in libraries.json.
         let json: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("libraries.json")).unwrap()).unwrap();
-        let expected_ones = json["dartforge_nativo"]["substitui"].as_object().unwrap().len();
+        let expected_ones = json["dartforge_native"]["substitui"].as_object().unwrap().len();
         assert_eq!(sdk.replacements.len(), expected_ones);
         assert!(expected_ones >= 20);
         let async_patch = &sdk.library("async").unwrap().patches[0];
@@ -428,7 +428,7 @@ mod tests {
             .iter()
             .map(|u| program.units[u.0 as usize].source.as_str())
             .collect();
-        for mark in ["DartForge_scheduleImmediate", "DartForge_Timer_novo", "_envolverCorpo"] {
+        for mark in ["DartForge_scheduleImmediate", "DartForge_Timer_new", "_envolverCorpo"] {
             assert!(async_sources.iter().any(|s| s.contains(mark)), "{mark} missing from the loaded dart:async");
         }
         assert!(!async_sources.iter().any(|s| s.contains("class _SuspendState")), "the VM's _SuspendState is still loaded");

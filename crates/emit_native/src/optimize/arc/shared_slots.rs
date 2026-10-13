@@ -425,7 +425,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
                 (
                     frame,
                     Instruction::CallRuntime {
-                        name: "dartforge_arc_quadro_abrir_v1".into(),
+                        name: "dartforge_arc_frame_open_v1".into(),
                         args: vec![(
                             Operand::Constant(Constant::Int(roots.len() as i64)),
                             Type::I64,
@@ -440,7 +440,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
                     b.instructions.push((
                         new()?,
                         Instruction::CallRuntime {
-                            name: "dartforge_arc_quadro_fechar_v1".into(),
+                            name: "dartforge_arc_frame_close_v1".into(),
                             args: vec![(Operand::Val(frame), Type::I64)],
                             ret_ty: Type::Void,
                         },
@@ -484,7 +484,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
                 } if pairs.is_some_and(|ps| ps.contains_key(p)) => {
                     let (frame, index) = &pairs.unwrap()[p];
                     *i = Instruction::CallRuntime {
-                        name: "dartforge_arc_quadro_carregar_v1".into(),
+                        name: "dartforge_arc_frame_load_v1".into(),
                         args: vec![(frame.clone(), Type::I64), (index.clone(), Type::I64)],
                         ret_ty: Type::Ref,
                     };
@@ -495,7 +495,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
                 } if pairs.is_some_and(|ps| ps.contains_key(p)) => {
                     let (frame, index) = &pairs.unwrap()[p];
                     *i = Instruction::CallRuntime {
-                        name: "dartforge_arc_quadro_copiar_v1".into(),
+                        name: "dartforge_arc_frame_copy_v1".into(),
                         args: vec![
                             (frame.clone(), Type::I64),
                             (index.clone(), Type::I64),
@@ -530,7 +530,7 @@ pub fn lower_shared_ref_slots(m: &Module) -> Result<ArcRefSlotsDraft, String> {
         super::ssa::verify(f)?;
         for (_, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::CallRuntime { name, .. } = i
-                && name.starts_with("dartforge_arc_quadro_")
+                && name.starts_with("dartforge_arc_frame_")
             {
                 super::contracts::runtime_call_contract(i)?;
             }
@@ -937,7 +937,7 @@ mod tests {
                 .iter()
                 .filter_map(|(_, i, _)| {
                     if let Instruction::CallRuntime { name, args, .. } = i
-                        && name == "dartforge_arc_quadro_carregar_v1"
+                        && name == "dartforge_arc_frame_load_v1"
                     {
                         Some(args)
                     } else {
@@ -947,7 +947,7 @@ mod tests {
                 .collect();
             assert_eq!(reads.len(), 2);
             for (_, inst, _) in &direct.blocks[0].instructions {
-                if matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_carregar_v1")
+                if matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_frame_load_v1")
                 {
                     assert_eq!(
                         super::super::contracts::runtime_call_contract(inst)
@@ -965,7 +965,7 @@ mod tests {
                 );
             }
             assert!(direct.blocks[0].instructions.iter().all(|(_, i, _)|
-                !matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_fechar_v1")));
+                !matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_frame_close_v1")));
             super::super::frames::verify(root).unwrap();
         }
     }
@@ -998,7 +998,7 @@ mod tests {
             Instruction::CallStatic { symbol, args, .. } if symbol == &direct.symbol && args == &vec![val(0), Operand::Val(pairs[&ValueId(0)])]));
         for b in &root.blocks[1..] {
             assert!(matches!(&b.instructions.last().unwrap().1,
-                Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_fechar_v1"));
+                Instruction::CallRuntime { name, .. } if name == "dartforge_arc_frame_close_v1"));
         }
         super::super::frames::verify(root).unwrap();
     }

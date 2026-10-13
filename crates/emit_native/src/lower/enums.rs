@@ -200,7 +200,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_marcar_constante".to_string(),
+                name: "dartforge_mark_constant".to_string(),
                 args: vec![(obj.clone(), Type::Ref), (Operand::Constant(Constant::Function(self.func.symbol.clone())), Type::I64)],
                 ret_ty: Type::Void,
             },

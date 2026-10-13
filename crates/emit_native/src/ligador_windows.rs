@@ -477,7 +477,7 @@ sair:
 
 ; O cookie, os inicializadores C (`.CRT$XI*`) e C++ (`.CRT$XC*`, onde o Rust
 ; põe os dele).
-define void @df_crt_iniciar() {
+define void @df_crt_init() {
   call void @__security_init_cookie()
   call void @df_initterm(ptr @__xi_a, ptr @__xi_z)
   call void @df_initterm(ptr @__xc_a, ptr @__xc_z)
@@ -549,7 +549,7 @@ module asm "  jmpq *__imp___C_specific_handler(%rip)"
 /// one the emitter writes with the source SDK) and exits through `ucrtbase`'s
 /// `exit`, which runs the `atexit`s and flushes the C streams.
 pub const CRT_EXE_IR: &str = r#"
-declare void @df_crt_iniciar()
+declare void @df_crt_init()
 declare i32 @main()
 declare dllimport void @_set_app_type(i32)
 declare dllimport void @exit(i32) noreturn
@@ -564,7 +564,7 @@ define i32 @atexit(ptr %f) {
 
 define i32 @mainCRTStartup() {
   call void @_set_app_type(i32 1)
-  call void @df_crt_iniciar()
+  call void @df_crt_init()
   %r = call i32 @main()
   call void @exit(i32 %r)
   unreachable
@@ -574,7 +574,7 @@ define i32 @mainCRTStartup() {
 /// The entry of the DLL (that of the source SDK): on load, the cookie and the
 /// initializers; on process exit (or unload), its `atexit`s.
 pub const CRT_DLL_IR: &str = r#"
-declare void @df_crt_iniciar()
+declare void @df_crt_init()
 declare dllimport i32 @_initialize_onexit_table(ptr)
 declare dllimport i32 @_register_onexit_function(ptr, ptr)
 declare dllimport i32 @_execute_onexit_table(ptr)
@@ -582,10 +582,10 @@ declare dllimport i32 @_execute_onexit_table(ptr)
 ; A tabela de `atexit` desta DLL (`_onexit_table_t`: início, fim, limite),
 ; percorrida quando ela sai do processo — como a CRT da Microsoft faz numa
 ; DLL, e não no `exit` (a DLL pode ser descarregada antes).
-@df_tabela_de_saida = internal global [3 x ptr] zeroinitializer, align 8
+@df_exit_table = internal global [3 x ptr] zeroinitializer, align 8
 
 define i32 @atexit(ptr %f) {
-  %r = call i32 @_register_onexit_function(ptr @df_tabela_de_saida, ptr %f)
+  %r = call i32 @_register_onexit_function(ptr @df_exit_table, ptr %f)
   ret i32 %r
 }
 
@@ -594,14 +594,14 @@ entrada:
   %anexar = icmp eq i32 %motivo, 1
   br i1 %anexar, label %iniciar, label %talvez_sair
 iniciar:
-  %0 = call i32 @_initialize_onexit_table(ptr @df_tabela_de_saida)
-  call void @df_crt_iniciar()
+  %0 = call i32 @_initialize_onexit_table(ptr @df_exit_table)
+  call void @df_crt_init()
   br label %fim
 talvez_sair:
   %sair = icmp eq i32 %motivo, 0
   br i1 %sair, label %desanexar, label %fim
 desanexar:
-  %1 = call i32 @_execute_onexit_table(ptr @df_tabela_de_saida)
+  %1 = call i32 @_execute_onexit_table(ptr @df_exit_table)
   br label %fim
 fim:
   ret i32 1
@@ -1126,11 +1126,11 @@ int main(void) {
             r#"
 static __declspec(thread) int t = 5;
 static void no_fim(void) { escrever("dll fim\n"); }
-int df_valor(void) { static int registrado; if (!registrado) { registrado = 1; atexit(no_fim); } return ++t; }
+int df_value(void) { static int registrado; if (!registrado) { registrado = 1; atexit(no_fim); } return ++t; }
 "#,
         );
         let def = d.join("b.def");
-        std::fs::write(&def, "LIBRARY b.dll\nEXPORTS\n  df_valor\n").unwrap();
+        std::fs::write(&def, "LIBRARY b.dll\nEXPORTS\n  df_value\n").unwrap();
         link(
             &lld_link(&clang),
             &sysroot,
@@ -1138,7 +1138,7 @@ int df_valor(void) { static int registrado; if (!registrado) { registrado = 1; a
         )
         .unwrap();
         assert!(d.join("b.lib").is_file(), "the DLL import library");
-        let q = compilar("q", "int df_valor(void);\nint main(void) { if (df_valor() == 6) escrever(\"dll ok\\n\"); return 0; }\n");
+        let q = compilar("q", "int df_value(void);\nint main(void) { if (df_value() == 6) escrever(\"dll ok\\n\"); return 0; }\n");
         let exe_dll = d.join("q.exe");
         link_exe(vec![q, d.join("b.lib")], &exe_dll);
         let wine = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|p| p.join("wine")).find(|w| w.is_file());

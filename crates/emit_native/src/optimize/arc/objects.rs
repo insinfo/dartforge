@@ -87,7 +87,7 @@ pub(super) fn prepare(
                 instructions.push((
                     *v,
                     Instruction::CallRuntime {
-                        name: "dartforge_arc_objeto_owned_v1".into(),
+                        name: "dartforge_arc_object_owned_v1".into(),
                         args: args.clone(),
                         ret_ty: Type::Ref,
                     },
@@ -102,7 +102,7 @@ pub(super) fn prepare(
                 // The physical map must mark the slot as Ref before borrowing;
                 // do not convert the word of a scalar cell into a reference.
                 instructions.push((*v, Instruction::CallRuntime {
-                    name: "dartforge_arc_ler_campo_ref_v1".into(),
+                    name: "dartforge_arc_read_field_ref_v1".into(),
                     args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
                     ret_ty: Type::Ref,
                 }, Type::Ref));
@@ -119,7 +119,7 @@ pub(super) fn prepare(
                 }
                 let bits = if *ty == Type::I64 { *v } else { id()? };
                 instructions.push((bits, Instruction::CallRuntime {
-                    name: "dartforge_arc_ler_campo_escalar_v1".into(),
+                    name: "dartforge_arc_read_field_scalar_v1".into(),
                     args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
                     ret_ty: Type::I64,
                 }, Type::I64));
@@ -137,8 +137,8 @@ pub(super) fn prepare(
                     return Err(format!("ARC cell in {} v{} requires a Ref receiver", f.symbol, v.0));
                 }
                 let (name_str, val_ref, repr) = match typ(value) {
-                    Some(Type::Ref) => ("dartforge_arc_gravar_campo_ref_v1", value.clone(), Type::Ref),
-                    Some(Type::I64) => ("dartforge_arc_gravar_campo_escalar_v1", value.clone(), Type::I64),
+                    Some(Type::Ref) => ("dartforge_arc_write_field_ref_v1", value.clone(), Type::Ref),
+                    Some(Type::I64) => ("dartforge_arc_write_field_scalar_v1", value.clone(), Type::I64),
                     Some(t @ (Type::F64 | Type::I1 | Type::I8)) => {
                         let bits = id()?;
                         let conversion = if t == Type::F64 {
@@ -147,7 +147,7 @@ pub(super) fn prepare(
                             Instruction::ZExt { op: value.clone(), from: t, to: Type::I64 }
                         };
                         instructions.push((bits, conversion, Type::I64));
-                        ("dartforge_arc_gravar_campo_escalar_v1", Operand::Val(bits), Type::I64)
+                        ("dartforge_arc_write_field_scalar_v1", Operand::Val(bits), Type::I64)
                     }
                     _ => return Err(format!("ARC cell in {} v{}: value without a representation", f.symbol, v.0)),
                 };
@@ -186,7 +186,7 @@ pub(super) fn prepare(
                     format!("ARC capture in {} v{}: index outside the ABI", f.symbol, v.0))?;
                 let bits = if *ty == Type::I64 { *v } else { id()? };
                 instructions.push((bits, Instruction::CallRuntime {
-                    name: "dartforge_arc_env_escalar_v1".into(),
+                    name: "dartforge_arc_scalar_env_v1".into(),
                     args: vec![(env.clone(), Type::Ref), (Operand::Constant(Constant::Int(idx_value)), Type::I64)],
                     ret_ty: Type::I64,
                 }, Type::I64));
@@ -282,7 +282,7 @@ pub(super) fn prepare(
             instructions.push((
                 *v,
                 Instruction::CallRuntime {
-                    name: "dartforge_arc_objeto_owned_v1".into(),
+                    name: "dartforge_arc_object_owned_v1".into(),
                     args: vec![
                         (
                             Operand::Constant(Constant::Int(i64::from(class_id))),
@@ -299,7 +299,7 @@ pub(super) fn prepare(
             ));
             for (i, (op, repr)) in fields.iter().zip(layout.iter()).enumerate() {
                 let (val_ref, argument, name_str) = if *repr == Type::Ref {
-                    (op.clone(), Type::Ref, "dartforge_arc_gravar_campo_ref_v1")
+                    (op.clone(), Type::Ref, "dartforge_arc_write_field_ref_v1")
                 } else {
                     let bits = if *repr == Type::I64 {
                         op.clone()
@@ -320,7 +320,7 @@ pub(super) fn prepare(
                         instructions.push((bits, conversion, Type::I64));
                         Operand::Val(bits)
                     };
-                    (bits, Type::I64, "dartforge_arc_gravar_campo_escalar_v1")
+                    (bits, Type::I64, "dartforge_arc_write_field_scalar_v1")
                 };
                 instructions.push((
                     id()?,
@@ -385,7 +385,7 @@ mod tests {
                 for f in &m.functions {
                     assert_eq!(plans[&f.symbol].classes[&ValueId(2)], Ownership::Owned);
                     assert!(f.blocks[0].instructions.iter().any(|(_, i, _)| matches!(i,
-                        Instruction::CallRuntime { name, args, .. } if name == "dartforge_arc_gravar_campo_ref_v1"
+                        Instruction::CallRuntime { name, args, .. } if name == "dartforge_arc_write_field_ref_v1"
                             && args[1].0 == Operand::Constant(Constant::Int(3)))));
                 }
                 crate::llvm::LlvmEmitter::new(&m).emit_all();
@@ -484,7 +484,7 @@ mod tests {
             if case != 2 {
                 assert!(f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i,
                     Instruction::CallRuntime { name, args, .. }
-                    if name == "dartforge_arc_gravar_campo_ref_v1"
+                    if name == "dartforge_arc_write_field_ref_v1"
                         && args[1].0 == Operand::Constant(Constant::Int(39)))));
             }
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
@@ -505,7 +505,7 @@ mod tests {
         m.functions[0].blocks[0].instructions = vec![(
             ValueId(2),
             Instruction::CallRuntime {
-                name: "dartforge_arc_objeto_owned_t_v1".into(),
+                name: "dartforge_arc_object_owned_t_v1".into(),
                 args: vec![
                     (Operand::Constant(Constant::Int(123)), Type::I64),
                     (Operand::Constant(Constant::Int(5)), Type::I64),
@@ -616,12 +616,12 @@ mod tests {
                     .flat_map(|b| &b.instructions)
                     .collect();
                 assert!(ops.iter().any(|(_, i, _)| matches!(i,
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_objeto_owned_v1")));
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_object_owned_v1")));
                 assert!(ops.iter().any(|(_, i, _)| matches!(i,
                     Instruction::CallStatic { symbol, args, .. }
                     if symbol == "construtor" && args == &vec![Operand::Val(ValueId(2))])));
                 assert!(!ops.iter().any(|(_, i, _)| matches!(i,
-                    Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_gravar_campo"))));
+                    Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_write_field"))));
                 assert_eq!(
                     prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
                     (0, 0)
@@ -686,17 +686,17 @@ mod tests {
         );
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. }
-            if name == "dartforge_arc_objeto_owned_v1"));
+            if name == "dartforge_arc_object_owned_v1"));
         assert_eq!(plans["objeto"].classes[&ValueId(2)], Ownership::Owned);
         assert_eq!(
             ops.iter()
                 .filter(|(_, i, _)| matches!(i,
-            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_gravar_campo_ref_v1"))
+            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_write_field_ref_v1"))
                 .count(),
             1
         );
         assert_eq!(ops.iter().filter(|(_, i, _)| matches!(i,
-            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_gravar_campo_escalar_v1")).count(), 4);
+            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_write_field_scalar_v1")).count(), 4);
         assert!(ops.iter().any(|(_, i, _)| matches!(i, Instruction::Bitcast {
             op: Operand::Constant(Constant::Double(n)), to: Type::I64 } if n.to_bits() == (-0.0f64).to_bits())));
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
@@ -828,7 +828,7 @@ mod tests {
             if quantity != 0 {
                 assert!(
                     matches!(&ops[ops.len() - 3].1, Instruction::CallRuntime { name, args, .. }
-                    if name == "dartforge_arc_gravar_campo_ref_v1"
+                    if name == "dartforge_arc_write_field_ref_v1"
                     && args[1].0 == Operand::Constant(Constant::Int((quantity - 1) as i64))
                     && args[2] == (Operand::Val(ValueId(0)), Type::Ref))
                 );
@@ -856,7 +856,7 @@ mod tests {
             assert_eq!(plans["objeto"].classes[&ret], Ownership::Owned);
             assert!(matches!(plans["objeto"].classes[&ValueId(1)], Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(0)), .. }));
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("@dartforge_arc_ler_campo_ref_v1(i64 %v0, i64 0)"));
+            assert!(ir.contains("@dartforge_arc_read_field_ref_v1(i64 %v0, i64 0)"));
             assert!(ir.contains("call void @dartforge_arc_retain("));
         }
     }
@@ -874,12 +874,12 @@ mod tests {
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
             let ops = &m.functions[0].blocks[0].instructions;
             assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
-                if name == "dartforge_arc_ler_campo_escalar_v1"));
+                if name == "dartforge_arc_read_field_scalar_v1"));
             assert_eq!(ops.last().unwrap().0, ValueId(1));
             assert_eq!(ops.last().unwrap().2, ty);
             assert_eq!(plans["objeto"].classes[&ValueId(1)], Ownership::Trivial);
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("@dartforge_arc_ler_campo_escalar_v1(i64 %v0, i64 0)"), "{ir}");
+            assert!(ir.contains("@dartforge_arc_read_field_scalar_v1(i64 %v0, i64 0)"), "{ir}");
         }
     }
 
@@ -896,11 +896,11 @@ mod tests {
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
             let ops = &m.functions[0].blocks[0].instructions;
             assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
-                if name == "dartforge_arc_env_escalar_v1"));
+                if name == "dartforge_arc_scalar_env_v1"));
             assert_eq!((ops.last().unwrap().0, ops.last().unwrap().2), (ValueId(1), ty));
             assert_eq!(plans["objeto"].classes[&ValueId(1)], Ownership::Trivial);
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("@dartforge_arc_env_escalar_v1(i64 %v0, i64 2)"), "{ir}");
+            assert!(ir.contains("@dartforge_arc_scalar_env_v1(i64 %v0, i64 2)"), "{ir}");
         }
     }
 
@@ -933,7 +933,7 @@ mod tests {
             assert_eq!(ops[1].0, ValueId(1));
             assert!(matches!(ops[1].1, Instruction::ArcCopy { .. }));
             assert!(matches!(&ops[2].1, Instruction::CallRuntime { name, .. }
-                if name == "dartforge_arc_objeto_owned_v1"));
+                if name == "dartforge_arc_object_owned_v1"));
             assert_eq!(plans["objeto"].classes[&ValueId(1)], Ownership::Owned);
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("@dartforge_arc_env_ref_v1(i64 %v0, i64 39)"));
@@ -951,7 +951,7 @@ mod tests {
             (
                 ValueId(1),
                 Instruction::CallRuntime {
-                    name: "dartforge_arc_ler_campo_ref_v1".into(),
+                    name: "dartforge_arc_read_field_ref_v1".into(),
                     args: vec![
                         (Operand::Val(ValueId(0)), Type::Ref),
                         (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -977,7 +977,7 @@ mod tests {
         assert_eq!(ops[1].0, ValueId(1));
         assert!(matches!(ops[1].1, Instruction::ArcCopy { .. }));
         assert!(matches!(&ops[2].1, Instruction::CallRuntime { name, .. }
-            if name == "dartforge_arc_objeto_owned_v1"));
+            if name == "dartforge_arc_object_owned_v1"));
         assert!(matches!(
             ops.last().unwrap().1,
             Instruction::ArcDrop {

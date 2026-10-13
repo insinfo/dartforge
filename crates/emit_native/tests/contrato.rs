@@ -70,7 +70,7 @@ fn symbol_literal_uses_sdk_class_and_canonical_constant() {
     let main = main.split("\n}\n").next().expect("end of main");
     // Both occurrences of `#foo` go through the same getter of the canonical
     // constant `@dfc.<hash>.get`: called, or copied into `main` by the inliner
-    // (the copy keeps the object with `dartforge_marcar_constante` and the key of the
+    // (the copy keeps the object with `dartforge_mark_constant` and the key of the
     // getter).
     let getters: Vec<&str> = main
         .match_indices("@dfc.")

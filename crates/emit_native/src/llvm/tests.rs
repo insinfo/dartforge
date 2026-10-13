@@ -6,7 +6,7 @@ use crate::hir::*;
 #[test]
 fn owned_factory_preserves_method_table_registration() {
     for owned in [false, true] {
-        let name = if owned { "dartforge_arc_objeto_owned_v1" } else { "dartforge_object_new" };
+        let name = if owned { "dartforge_arc_object_owned_v1" } else { "dartforge_object_new" };
         let mut m = Module::new();
         m.arc_memory = true;
         m.table_functions.insert(32001, "df.mt.C".into());
@@ -18,7 +18,7 @@ fn owned_factory_preserves_method_table_registration() {
             ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }]));
         let ir = LlvmEmitter::new(&m).emit_all();
         let body = body_of(&ir, "criar");
-        let expected = if owned { "dartforge_arc_objeto_owned_t_v1" } else { "dartforge_object_new_t" };
+        let expected = if owned { "dartforge_arc_object_owned_t_v1" } else { "dartforge_object_new_t" };
         assert!(ir.contains(&format!("declare i64 @{expected}(i64, i64, ptr)")), "{ir}");
         assert!(body.contains(&format!("call i64 @{expected}(i64 32001, i64 40, ptr @df.mt.C)")), "{body}");
         assert!(ir.contains("declare ptr @df.mt.C()"), "{ir}");
@@ -104,7 +104,7 @@ fn arc_global_loads_real_bits_and_publishes_before_transferring_owner() {
     assert!(body.contains("%v2 = load i64, ptr %ga2"));
     assert!(body.contains("@dartforge_arc_retain(i64 %v2)"));
     assert!(body.find("@dartforge_arc_retain(i64 %v0)").unwrap() < body.find("store i64 %v0, ptr %ga1").unwrap());
-    assert!(body.find("store i64 %v2, ptr %ga3").unwrap() < body.find("@dartforge_arc_global_receber_v1").unwrap());
+    assert!(body.find("store i64 %v2, ptr %ga3").unwrap() < body.find("@dartforge_arc_global_receive_v1").unwrap());
     assert!(!body.contains("@dartforge_arc_release(i64 %v2)"));
     m.globals[0].1 = Type::I64;
     assert!(!crate::lower::verifier::verify(&m).is_empty());
@@ -163,9 +163,9 @@ fn emitted_arc_slots_preserve_descriptor_and_modes_after_optimizing() {
     crate::optimize::optimize(&mut m);
     let ir = LlvmEmitter::new(&m).emit_all();
     let body = body_of(&ir, "arc_slots");
-    assert!(body.contains("@dartforge_arc_quadro_copiar_v1(i64 %v0, i64 7, i64 %v1)"));
-    assert!(body.contains("%v3 = call i64 @dartforge_arc_quadro_carregar_v1(i64 %v0, i64 7)"));
-    assert!(body.contains("@dartforge_arc_quadro_receber_v1(i64 %v0, i64 7, i64 %v3)"));
+    assert!(body.contains("@dartforge_arc_frame_copy_v1(i64 %v0, i64 7, i64 %v1)"));
+    assert!(body.contains("%v3 = call i64 @dartforge_arc_frame_load_v1(i64 %v0, i64 7)"));
+    assert!(body.contains("@dartforge_arc_frame_receive_v1(i64 %v0, i64 7, i64 %v3)"));
     assert!(!body.contains("@dartforge_arc_retain"));
     assert!(!body.contains("@dartforge_arc_release"));
     m.functions[0].params[0].2 = Type::Ptr;
@@ -330,18 +330,18 @@ fn arc_entry_rejects_incompatible_abi_before_registrations() {
             m.sdk_mode = sdk;
             m.arc_memory = arc;
             let ir = LlvmEmitter::new(&m).emit_all();
-            let body = body_of(&ir, if sdk { "df.preparar_isolado" } else { "dartforge_entry" });
+            let body = body_of(&ir, if sdk { "df.prepare_isolate" } else { "dartforge_entry" });
             if !arc {
-                assert!(!body.contains("@dartforge_arc_verificar_abi"));
+                assert!(!body.contains("@dartforge_arc_verify_abi"));
                 continue;
             }
-            let activate = body.find("@dartforge_memoria_arc_v1()").unwrap();
-            let check = body.find("@dartforge_arc_verificar_abi(i64 1)").unwrap();
-            let compatible = body.find("df.arc.compativel:\n").unwrap();
+            let activate = body.find("@dartforge_memory_arc_v1()").unwrap();
+            let check = body.find("@dartforge_arc_verify_abi(i64 1)").unwrap();
+            let compatible = body.find("df.arc.compatible:\n").unwrap();
             assert!(activate < check && check < compatible);
             assert!(body.contains("icmp eq i8 %df.arc.abi, 1"));
-            assert!(body.contains("label %df.arc.compativel, label %df.arc.incompativel"));
-            assert!(body.contains("df.arc.incompativel:\n  call void @llvm.trap()\n  unreachable"));
+            assert!(body.contains("label %df.arc.compatible, label %df.arc.incompatible"));
+            assert!(body.contains("df.arc.incompatible:\n  call void @llvm.trap()\n  unreachable"));
             assert!(ir.contains("declare void @llvm.trap()"));
         }
     }
@@ -456,7 +456,7 @@ fn roots_frame_on_every_ret() {
     let body = body_of(&ir, "f");
     assert!(
         body.contains("%gcq = alloca { ptr, i64, [1 x i64] }")
-            && body.contains("%ctx = call ptr @dartforge_contexto()")
+            && body.contains("%ctx = call ptr @dartforge_context()")
             && body.contains("store ptr %gcq, ptr %ctxtopo"),
         "{body}"
     );
@@ -465,7 +465,7 @@ fn roots_frame_on_every_ret() {
     // The exit of the stack check (C22) returns before the frame is
     // linked: nothing to close there.
     let (prologue, rest) = body.split_once("pilha.ok:").expect("stack check in the prologue");
-    assert!(prologue.contains("pilha.estouro:") && prologue.contains("call void @dartforge_estouro_de_pilha()"), "{body}");
+    assert!(prologue.contains("pilha.estouro:") && prologue.contains("call void @dartforge_stack_overflow()"), "{body}");
     assert!(!prologue.contains("store ptr %gcq, ptr %ctxtopo"), "the frame cannot be chained on overflow: {body}");
     assert_eq!(prologue.matches("\n  ret ").count(), 1, "{body}");
     let rets = rest.matches("\n  ret ").count();
@@ -530,7 +530,7 @@ fn without_ref_without_frame() {
         }],
     );
     let ir = emit(f);
-    assert!(!body_of(&ir, "g").contains("gc_empilhar"));
+    assert!(!body_of(&ir, "g").contains("gc_push"));
 }
 
 /// G2: a `store` into a `Ref` local updates the slot of the `alloca`.
@@ -611,7 +611,7 @@ fn ref_field_carries_is_ref() {
     let ir = emit(f);
     let body = body_of(&ir, "k");
     // The address of the fields comes from the object itself (`h + 14`), without a call.
-    assert!(!body.contains("@dartforge_object_campos("), "{body}");
+    assert!(!body.contains("@dartforge_object_fields("), "{body}");
     // The header at `h - 2`; the fields, 8-byte words after it; the
     // `is_ref` is the bit of the field in the header map.
     assert!(body.contains("%fxa2 = add i64 %v0, -2"), "{body}");
@@ -753,13 +753,13 @@ fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
     e.tab = Some(&t);
     e.emit_function(&f);
     let ir = e.out;
-    assert!(ir.contains("personality ptr @dartforge_personalidade_cleanup_itanium"));
+    assert!(ir.contains("personality ptr @dartforge_personality_cleanup_itanium"));
     #[cfg(feature = "llvm-embutido")]
     check_cleanup_objects(&ir);
     let landing_pad = &ir[ir.find("b2:").unwrap()..];
     assert!(landing_pad.contains("%lpad2 = landingpad { ptr, i32 } cleanup"));
     assert!(landing_pad.contains("resume { ptr, i32 } %lpad2"));
-    assert!(!landing_pad.contains("@df.lancar"));
+    assert!(!landing_pad.contains("@df.throw"));
     assert!(landing_pad.find("@dartforge_arc_release").unwrap() < landing_pad.find("resume").unwrap());
     let mut bad = t.clone();
     bad.landing_pads.clear();
@@ -794,16 +794,16 @@ fn check_cleanup_objects(ir: &str) {
     // Windows header nor promising cross-compilation of Dart modules.
     let triple = if cfg!(target_arch = "aarch64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" };
     let complete = format!(r#"target triple = "{triple}"
-        declare i32 @dartforge_personalidade_cleanup_itanium(...)
+        declare i32 @dartforge_personality_cleanup_itanium(...)
         declare i32 @llvm.eh.typeid.for(ptr)
-        declare ptr @dartforge_contexto()
-        declare void @dartforge_estouro_de_pilha()
+        declare ptr @dartforge_context()
+        declare void @dartforge_stack_overflow()
         declare i1 @llvm.expect.i1(i1, i1)
-        declare void @df.lancar()
+        declare void @df.throw()
         declare void @dartforge_arc_retain(i64)
         declare void @dartforge_arc_release(i64)
-        declare i64 @dartforge_efeitos_nivel() nounwind
-        declare void @dartforge_efeitos_restaurar(i64) nounwind
+        declare i64 @dartforge_effects_level() nounwind
+        declare void @dartforge_effects_restore(i64) nounwind
         declare void @falha()
         {ir}"#);
     for optimize in [false, true] {
@@ -862,8 +862,8 @@ fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
     e.emit_function(f);
     let ir = e.out;
     if super::externs::check_effects() {
-        assert!(ir.contains("%efnivel = call i64 @dartforge_efeitos_nivel()"));
-        let restoration = ir.find("call void @dartforge_efeitos_restaurar(i64 %efnivel)").unwrap();
+        assert!(ir.contains("%efnivel = call i64 @dartforge_effects_level()"));
+        let restoration = ir.find("call void @dartforge_effects_restore(i64 %efnivel)").unwrap();
         assert!(restoration < ir.find("lpad4.estrangeira:").unwrap());
     }
     assert!(ir.contains("%lpseletor4 = extractvalue { ptr, i32 } %lpad4, 1"));
@@ -885,11 +885,11 @@ fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
 fn foreign_cleanup_closes_local_frames_in_lifo() {
     let val = |id| Operand::Val(ValueId(id));
     let open = |id| (ValueId(id), Instruction::CallRuntime {
-        name: "dartforge_arc_quadro_abrir_v1".into(),
+        name: "dartforge_arc_frame_open_v1".into(),
         args: vec![(Operand::Constant(Constant::Int(1)), Type::I64)], ret_ty: Type::I64,
     }, Type::I64);
     let close = |id, q| (ValueId(id), Instruction::CallRuntime {
-        name: "dartforge_arc_quadro_fechar_v1".into(), args: vec![(val(q), Type::I64)], ret_ty: Type::Void,
+        name: "dartforge_arc_frame_close_v1".into(), args: vec![(val(q), Type::I64)], ret_ty: Type::Void,
     }, Type::Void);
     let f = function("quadros_estrangeiros", vec![], Type::Void, vec![
         BasicBlock { id: BlockId(0), instructions: vec![open(0), open(1),
@@ -923,14 +923,14 @@ fn foreign_cleanup_closes_local_frames_in_lifo() {
     e.emit_function(&functions[0]);
     let ir = e.out;
     let excerpt = ir.split("lpad1.estrangeira:").nth(1).unwrap().split("resume ").next().unwrap();
-    let internal = excerpt.find("call void @dartforge_arc_quadro_fechar_v1(i64 %v1)").unwrap();
-    let external = excerpt.find("call void @dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap();
+    let internal = excerpt.find("call void @dartforge_arc_frame_close_v1(i64 %v1)").unwrap();
+    let external = excerpt.find("call void @dartforge_arc_frame_close_v1(i64 %v0)").unwrap();
     assert!(internal < external);
-    assert_eq!(excerpt.matches("@dartforge_arc_quadro_fechar_v1").count(), 2);
+    assert_eq!(excerpt.matches("@dartforge_arc_frame_close_v1").count(), 2);
     let resume = ir.split("b3:\n").nth(1).unwrap().split("resume ").next().unwrap();
     assert!(!resume.contains("catch ptr null"));
-    assert!(resume.find("@dartforge_arc_quadro_fechar_v1(i64 %v1)").unwrap()
-        < resume.find("@dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap());
+    assert!(resume.find("@dartforge_arc_frame_close_v1(i64 %v1)").unwrap()
+        < resume.find("@dartforge_arc_frame_close_v1(i64 %v0)").unwrap());
     let mut invalidates = functions[0].clone();
     invalidates.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.swap(0, 1);
     assert!(crate::optimize::arc::check_resumes(&invalidates, t).unwrap_err().contains("out of LIFO order"));
@@ -947,7 +947,7 @@ fn foreign_cleanup_closes_local_frames_in_lifo() {
 
     #[cfg(feature = "llvm-embutido")]
     {
-        let complete = format!("declare i64 @dartforge_arc_quadro_abrir_v1(i64) nounwind\ndeclare void @dartforge_arc_quadro_fechar_v1(i64) nounwind\n{ir}");
+        let complete = format!("declare i64 @dartforge_arc_frame_open_v1(i64) nounwind\ndeclare void @dartforge_arc_frame_close_v1(i64) nounwind\n{ir}");
         check_cleanup_objects(&complete);
     }
 }

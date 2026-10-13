@@ -89,14 +89,14 @@ mod notification {
 
 /// `FileSystemWatcher::IsSupported`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_IsSupported() -> u8 {
+pub extern "C" fn dartforge_native_FileSystemWatcher_IsSupported() -> u8 {
     u8::from(cfg!(any(target_os = "linux", target_os = "android", target_os = "macos", windows)))
 }
 
 /// `FileSystemWatcher::Init`: the inotify descriptor, non-blocking; throws the
 /// `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_InitWatcher() -> i64 {
+pub extern "C" fn dartforge_native_FileSystemWatcher_InitWatcher() -> i64 {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         // SAFETY: call without pointers.
@@ -134,7 +134,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_InitWatcher() -> i64 {
 /// socket (see the header), and on Windows there is no watcher; on macOS, stops
 /// the `CFRunLoop` and waits for its thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_CloseWatcher(id: i64) {
+pub extern "C" fn dartforge_native_FileSystemWatcher_CloseWatcher(id: i64) {
     #[cfg(target_os = "macos")]
     if id != 0 {
         // SAFETY: `id` came from `InitWatcher`'s `Box::into_raw`, and Dart closes
@@ -149,7 +149,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_CloseWatcher(id: i64) {
 /// always `IN_DELETE_SELF | IN_MOVE_SELF`); throws the `OSError`. inotify does not
 /// watch subdirectories: `recursive` is ignored, as in the VM.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64, file_path: i64, events: i64, recursive: u8) -> i64 {
+pub extern "C" fn dartforge_native_FileSystemWatcher_WatchPath(id: i64, _ns: i64, file_path: i64, events: i64, recursive: u8) -> i64 {
     let recursive = recursive != 0;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
@@ -223,7 +223,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64
 
 /// `FileSystemWatcher::UnwatchPath`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_UnwatchPath(id: i64, file_path: i64) {
+pub extern "C" fn dartforge_native_FileSystemWatcher_UnwatchPath(id: i64, file_path: i64) {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     // SAFETY: call without pointers; an already removed `wd` only gives `EINVAL`.
     unsafe {
@@ -246,7 +246,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_UnwatchPath(id: i64, file_p
 /// `FileSystemWatcher::GetSocketId`: on Linux, the descriptor itself; on Windows,
 /// the path's handle; on macOS, the read end of the path's pipe.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_GetSocketId(id: i64, file_path: i64) -> i64 {
+pub extern "C" fn dartforge_native_FileSystemWatcher_GetSocketId(id: i64, file_path: i64) -> i64 {
     #[cfg(target_os = "macos")]
     {
         let _ = id;
@@ -293,7 +293,7 @@ const EVENT_READ_SIZE: usize = 4096;
 /// `FileSystemWatcher::ReadEvents`: the ready events (an empty list when there are
 /// none, which ends the `_listenOnSocket` read loop); throws the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, file_path: i64) -> i64 {
+pub extern "C" fn dartforge_native_FileSystemWatcher_ReadEvents(id: i64, file_path: i64) -> i64 {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         use inotify::*;

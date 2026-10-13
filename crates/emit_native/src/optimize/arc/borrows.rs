@@ -520,7 +520,7 @@ mod tests {
                         (
                             ValueId(2),
                             Instruction::CallRuntime {
-                                name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                                name: "dartforge_native_DartForge_record_fieldAt".into(),
                                 args: vec![
                                     (Operand::Val(ValueId(0)), Type::Ref),
                                     (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -575,7 +575,7 @@ mod tests {
         (
             ValueId(2),
             Instruction::CallRuntime {
-                name: "dartforge_arc_ler_campo_ref_v1".into(),
+                name: "dartforge_arc_read_field_ref_v1".into(),
                 args: vec![
                     (Operand::Val(ValueId(0)), Type::Ref),
                     (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -590,7 +590,7 @@ mod tests {
         (
             ValueId(5),
             Instruction::CallRuntime {
-                name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                name: "dartforge_arc_write_field_ref_v1".into(),
                 args: vec![
                     (Operand::Val(ValueId(0)), Type::Ref),
                     (Operand::Constant(Constant::Int(0)), Type::I64),

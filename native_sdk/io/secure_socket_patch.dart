@@ -241,30 +241,30 @@ base class _SecureFilterImpl extends NativeFieldWrapperClass1
   @pragma("vm:entry-point", "get")
   List<_ExternalBuffer>? buffers;
 
-  @pragma("vm:external-name", "DartForge_tls_filtro_novo")
+  @pragma("vm:external-name", "DartForge_tls_filter_new")
   external void _novo();
-  @pragma("vm:external-name", "DartForge_tls_filtro_conectar")
+  @pragma("vm:external-name", "DartForge_tls_filter_connect")
   external String? _conectar(String host, SecurityContext contexto,
       bool servidor, bool pedir, bool exigir, Uint8List protocolos);
-  @pragma("vm:external-name", "DartForge_tls_filtro_destruir")
+  @pragma("vm:external-name", "DartForge_tls_filter_destroy")
   external void _destruir();
-  @pragma("vm:external-name", "DartForge_tls_filtro_handshake")
+  @pragma("vm:external-name", "DartForge_tls_filter_handshake")
   external int _handshake();
-  @pragma("vm:external-name", "DartForge_tls_filtro_erro")
+  @pragma("vm:external-name", "DartForge_tls_filter_error")
   external String? _erro();
-  @pragma("vm:external-name", "DartForge_tls_filtro_certificado_pendente")
+  @pragma("vm:external-name", "DartForge_tls_filter_pending_certificate")
   external int _certificadoPendente();
-  @pragma("vm:external-name", "DartForge_tls_filtro_decidir")
+  @pragma("vm:external-name", "DartForge_tls_filter_decide")
   external void _decidir(bool confiavel);
-  @pragma("vm:external-name", "DartForge_tls_filtro_protocolo")
+  @pragma("vm:external-name", "DartForge_tls_filter_protocol")
   external String? _protocolo();
-  @pragma("vm:external-name", "DartForge_tls_filtro_certificado_do_par")
+  @pragma("vm:external-name", "DartForge_tls_filter_peer_certificate")
   external int _certificadoDoPar();
-  @pragma("vm:external-name", "DartForge_tls_filtro_registrar_chaves")
+  @pragma("vm:external-name", "DartForge_tls_filter_register_keys")
   external void _registrarChaves();
-  @pragma("vm:external-name", "DartForge_tls_filtro_chaves_pendentes")
+  @pragma("vm:external-name", "DartForge_tls_filter_pending_keys")
   external String? _chavesPendentes();
-  @pragma("vm:external-name", "DartForge_tls_filtro_processar")
+  @pragma("vm:external-name", "DartForge_tls_filter_process")
   external int _processar(bool emHandshake, Uint8List textoLido,
       Uint8List textoAEscrever, Uint8List cifradoLido,
       Uint8List cifradoAEscrever, Int64List posicoes);
@@ -378,23 +378,23 @@ base class _SecurityContext extends NativeFieldWrapperClass1
     _setAlpnProtocols(encodedProtocols, isServer);
   }
 
-  @pragma("vm:external-name", "DartForge_tls_contexto_novo")
+  @pragma("vm:external-name", "DartForge_tls_context_new")
   external void _createNativeContext();
-  @pragma("vm:external-name", "DartForge_tls_contexto_chave")
+  @pragma("vm:external-name", "DartForge_tls_context_key")
   external bool _usarChave(Uint8List bytes, String senha);
-  @pragma("vm:external-name", "DartForge_tls_contexto_confiaveis")
+  @pragma("vm:external-name", "DartForge_tls_context_trusted")
   external String? _confiar(Uint8List bytes, String senha);
-  @pragma("vm:external-name", "DartForge_tls_contexto_cadeia")
+  @pragma("vm:external-name", "DartForge_tls_context_chain")
   external String? _usarCadeia(Uint8List bytes, String senha);
-  @pragma("vm:external-name", "DartForge_tls_contexto_autoridades")
+  @pragma("vm:external-name", "DartForge_tls_context_authorities")
   external String? _usarAutoridades(Uint8List bytes, String senha);
-  @pragma("vm:external-name", "DartForge_tls_contexto_alpn")
+  @pragma("vm:external-name", "DartForge_tls_context_alpn")
   external void _setAlpnProtocols(Uint8List protocols, bool isServer);
-  @pragma("vm:external-name", "DartForge_tls_contexto_raizes_embutidas")
+  @pragma("vm:external-name", "DartForge_tls_context_builtin_roots")
   external void _trustBuiltinRoots();
-  @pragma("vm:external-name", "DartForge_tls_contexto_definir_versao_minima")
+  @pragma("vm:external-name", "DartForge_tls_context_set_min_version")
   external void _setMinimumProtocolVersion(int version);
-  @pragma("vm:external-name", "DartForge_tls_contexto_versao_minima")
+  @pragma("vm:external-name", "DartForge_tls_context_min_version")
   external int _getMinimumProtocolVersion();
 }
 
@@ -424,7 +424,7 @@ base class _X509CertificateImpl extends NativeFieldWrapperClass1
   DateTime get endValidity =>
       new DateTime.fromMillisecondsSinceEpoch(_fim(), isUtc: true);
 
-  @pragma("vm:external-name", "DartForge_tls_x509_adotar")
+  @pragma("vm:external-name", "DartForge_tls_x509_adopt")
   external void _fixar(int ponteiro);
   @pragma("vm:external-name", "DartForge_tls_x509_der")
   external Uint8List _der();
@@ -432,12 +432,12 @@ base class _X509CertificateImpl extends NativeFieldWrapperClass1
   external String _pem();
   @pragma("vm:external-name", "DartForge_tls_x509_sha1")
   external Uint8List _sha1();
-  @pragma("vm:external-name", "DartForge_tls_x509_sujeito")
+  @pragma("vm:external-name", "DartForge_tls_x509_subject")
   external String _sujeito();
-  @pragma("vm:external-name", "DartForge_tls_x509_emissor")
+  @pragma("vm:external-name", "DartForge_tls_x509_issuer")
   external String _emissor();
-  @pragma("vm:external-name", "DartForge_tls_x509_inicio")
+  @pragma("vm:external-name", "DartForge_tls_x509_start")
   external int _inicio();
-  @pragma("vm:external-name", "DartForge_tls_x509_fim")
+  @pragma("vm:external-name", "DartForge_tls_x509_end")
   external int _fim();
 }

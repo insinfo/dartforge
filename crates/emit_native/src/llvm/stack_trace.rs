@@ -403,8 +403,8 @@ pub(super) fn markers() -> (&'static str, &'static str, &'static str) {
             "@df.pcl.z",
         ),
         Sistema::Linux => (
-            "$df.pcl.ancora = comdat any\n\
-             @df.pcl.ancora = linkonce_odr hidden constant [3 x i32] zeroinitializer, section \"dfpcl\", comdat, align 4\n\
+            "$df.pcl.anchor = comdat any\n\
+             @df.pcl.anchor = linkonce_odr hidden constant [3 x i32] zeroinitializer, section \"dfpcl\", comdat, align 4\n\
              @__start_dfpcl = external hidden global i8\n@__stop_dfpcl = external hidden global i8\n",
             "@__start_dfpcl",
             "@__stop_dfpcl",

@@ -486,7 +486,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.core.string_class == Some(*class) {
             let r = self.emit(
                 Instruction::CallRuntime {
-                    name: crate::natives::symbol("DartForge_string_igual_a"),
+                    name: crate::natives::symbol("DartForge_string_equals_object"),
                     args: vec![(a, Type::Ref), (b, Type::Ref)],
                     ret_ty: Type::I8,
                 },
@@ -845,7 +845,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let n = self.coerce(args.first()?.clone(), Type::I64);
             return Some(self.emit_call_with_check(
                 Instruction::CallRuntime {
-                    name: "dartforge_typed_novo".to_string(),
+                    name: "dartforge_typed_new".to_string(),
                     args: vec![
                         (Operand::Constant(Constant::Int(cid)), Type::I64),
                         (Operand::Constant(Constant::Int(ty)), Type::I64),
@@ -877,7 +877,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let n = self.coerce(args.get(1)?.clone(), Type::I64);
             return Some(self.emit_call_with_check(
                 Instruction::CallRuntime {
-                    name: "dartforge_typed_externo".to_string(),
+                    name: "dartforge_typed_external".to_string(),
                     args: vec![
                         (Operand::Constant(Constant::Int(cid)), Type::I64),
                         (Operand::Constant(Constant::Int(ty)), Type::I64),
@@ -906,7 +906,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let n = self.coerce(args.get(2)?.clone(), Type::I64);
         Some(self.emit_call_with_check(
             Instruction::CallRuntime {
-                name: "dartforge_view_nova".to_string(),
+                name: "dartforge_view_new".to_string(),
                 args: vec![
                     (Operand::Constant(Constant::Int(cid)), Type::I64),
                     (Operand::Constant(Constant::Int(ty)), Type::I64),
@@ -965,7 +965,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let v = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
                 if ret == Type::Void { v } else { self.coerce(v, ret) }
             }
-            // `ClassID.getID(o)`: the class of the value inline (`@df.classe`,
+            // `ClassID.getID(o)`: the class of the value inline (`@df.class`,
             // docs/NATIVO-ESPACO-UNIFICADO.md §3.8), without calling the runtime.
             "ClassID_getID" => {
                 let o = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
@@ -1306,7 +1306,7 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
     };
     let npos = values.len() - names.len();
     let nnom = names.len();
-    // `dartforge_encaminhar_nsm` reads all the captures as `Ref`: the values
+    // `dartforge_forward_nsm` reads all the captures as `Ref`: the values
     // go boxed (docs/NATIVO-ESPACO-UNIFICADO.md §4.10, item 48).
     let mut fields: Vec<Operand> = values.into_iter().map(|v| b.coerce(v, Type::Ref)).collect();
     for n in names {
@@ -1316,7 +1316,7 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
     let text = b.emit(Instruction::Const(Constant::String(name_str)), Type::Ref);
     let r = b.emit_call_with_check(
         Instruction::CallRuntime {
-            name: "dartforge_encaminhar_nsm".to_string(),
+            name: "dartforge_forward_nsm".to_string(),
             args: vec![
                 (this, Type::Ref),
                 (Operand::Constant(Constant::Int(code)), Type::I64),
@@ -1492,7 +1492,7 @@ fn unit_of(ctx: &Context, cid: ClassId) -> Option<dartforge_elements::model::Uni
 
 /// The function in place of a rejected SDK member: the same signature, and the
 /// body warns at runtime which member and why
-/// (`dartforge_membro_recusado`) — never a wrong output.
+/// (`dartforge_member_rejected`) — never a wrong output.
 pub fn rejected_function(ctx: &Context, fid: usize, reason: &str) -> Function {
     let f = &ctx.program.functions[fid];
     let unit = match f.node {
@@ -1523,7 +1523,7 @@ pub fn rejected_function(ctx: &Context, fid: usize, reason: &str) -> Function {
     let text = format!("{symbol} ({reason})");
     let t = b.emit(Instruction::Const(Constant::String(text)), Type::Ref);
     b.emit(
-        Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
         Type::Void,
     );
     b.terminate(Terminator::Unreachable);
@@ -1666,7 +1666,7 @@ fn rejected_pattern(ctx: &Context, unit: dartforge_elements::model::UnitId, symb
     let short = reason.strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(reason);
     let t = b.emit(Instruction::Const(Constant::String(format!("{symbol} ({short})"))), Type::Ref);
     b.emit(
-        Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
         Type::Void,
     );
     b.terminate(Terminator::Unreachable);
@@ -1722,7 +1722,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
                 let text = b.emit(Instruction::CallRuntime {
-                    name: "dartforge_rastro_texto".to_string(),
+                    name: "dartforge_stack_trace_string".to_string(),
                     args: vec![(this, Type::Ref)],
                     ret_ty: Type::Ref,
                 }, Type::Ref);
@@ -1901,7 +1901,7 @@ fn adapters_or_reject(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mu
         b.declare_arc_uniform_return();
         let t = b.emit(Instruction::Const(Constant::String(format!("{symbol} ({reason})"))), Type::Ref);
         b.emit(
-            Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+            Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
             Type::Void,
         );
         b.terminate(Terminator::Unreachable);
@@ -1948,7 +1948,7 @@ pub fn lower_late_getter_or_reject(
     b.add_param("this".to_string(), Type::Ref);
     let t = b.emit(Instruction::Const(Constant::String(format!("{symbol} ({reason})"))), Type::Ref);
     b.emit(
-        Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
         Type::Void,
     );
     b.terminate(Terminator::Unreachable);
@@ -2020,7 +2020,7 @@ pub fn lower_global_or_reject(
             let mut b = FnBuilder::new(ctx, unit, getter.clone(), name_str.clone(), repr);
             let t = b.emit(Instruction::Const(Constant::String(format!("{getter} ({reason})"))), Type::Ref);
             b.emit(
-                Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+                Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
                 Type::Void,
             );
             b.terminate(Terminator::Unreachable);
@@ -2218,9 +2218,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let class = self.ctx.sdk_class("core", "ConcurrentModificationError")?;
         let empty = self.ctx.interner.lookup("")?;
         let ctor = *self.ctx.program.classes[class.0 as usize].constructors.get(&empty)?;
-        // A core list by class (`@df.classe`, fixed cids 8–10,
+        // A core list by class (`@df.class`, fixed cids 8–10,
         // docs/NATIVO-ESPACO-UNIFICADO.md §2.4): `_List`, `_ImmutableList` or
-        // `_GrowableList`; the length inline (`@df.lista_len`).
+        // `_GrowableList`; the length inline (`@df.list_len`).
         let cid = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_value_class".to_string(),
@@ -2251,7 +2251,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         self.set_block(head);
         // Inside the loop, the length read from the block on each round trip
-        // (`@df.lista_len`, the same offset in the three classes).
+        // (`@df.list_len`, the same offset in the three classes).
         let n = self.list_len_inline(list.clone());
         let equal = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), n0), Type::I1);
         self.terminate(Terminator::CondBranch { cond: equal, then_block: checks, else_block: changed });
@@ -2425,7 +2425,7 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
     let object = ctx.core.object_class.map(|c| method_table(ctx, c)).unwrap_or_default();
     for k in 0..ctx.record_shapes.len() {
         let id = crate::context::SHAPE_BASE_ID + k as u32;
-        let base = format!("df.$registro.{k}");
+        let base = format!("df.$record.{k}");
         // toString$c
         let mut b = FnBuilder::new(ctx, u, format!("{base}.toString$c"), "toString".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
@@ -2480,7 +2480,7 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
                 table.push((s.clone(), f.clone()));
             }
         }
-        module.method_tables.push((id, format!("df.mt.$registro.{k}"), table));
+        module.method_tables.push((id, format!("df.mt.$record.{k}"), table));
     }
 }
 

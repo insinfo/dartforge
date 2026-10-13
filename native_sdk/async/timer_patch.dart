@@ -69,11 +69,11 @@ final class _Timer implements Timer {
   /// tear-off de `_disparar`, com este `_Timer` no ambiente) como raiz
   /// enquanto ele estiver agendado e o chama no prazo — o laço de eventos só
   /// chama closures sem argumentos, o único ponto em que o runtime chama Dart.
-  @pragma("vm:external-name", "DartForge_Timer_novo")
+  @pragma("vm:external-name", "DartForge_Timer_new")
   external static int _novo(
       int milliseconds, void Function() disparar, bool periodico);
 
   /// Tira o timer do heap de timers (a raiz é solta).
-  @pragma("vm:external-name", "DartForge_Timer_cancelar")
+  @pragma("vm:external-name", "DartForge_Timer_cancel")
   external static void _cancelar(int id);
 }

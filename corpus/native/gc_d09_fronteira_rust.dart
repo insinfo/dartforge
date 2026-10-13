@@ -1,6 +1,6 @@
 // D9 (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3): a exceção Dart que
 // sai de uma função que o runtime chamou. `Function.apply` chama o
-// closure pelo runtime (`dartforge_nativo_Function_apply`, pela porta `dart_r3`); o
+// closure pelo runtime (`dartforge_native_Function_apply`, pela porta `dart_r3`); o
 // `then` que lança roda numa microtarefa do laço de eventos. Com as
 // exceções por tabelas, a porta é o que impede a exceção de atravessar os
 // quadros Rust.

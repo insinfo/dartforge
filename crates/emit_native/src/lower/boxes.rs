@@ -39,7 +39,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // The ABI checks class/map and returns a borrow of the closure,
             // including for the scalar null of canonical tear-offs.
             self.emit(Instruction::CallRuntime {
-                name: "dartforge_arc_contexto_closure_v1".to_string(),
+                name: "dartforge_arc_closure_context_v1".to_string(),
                 args: vec![(clo, Type::Ref)],
                 ret_ty: Type::Ref,
             }, Type::Ref)
@@ -60,13 +60,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Option<Operand> {
         let _ = member;
         match (native?, this, args) {
-            // `identical(a, b)` (§2.10): `@df.identico`, without a call.
+            // `identical(a, b)` (§2.10): `@df.identical`, without a call.
             ("Identical_comparison", None, [a, b]) => {
                 let a = self.coerce(a.clone(), Type::Ref);
                 let b = self.coerce(b.clone(), Type::Ref);
                 Some(self.emit(
                     Instruction::CallRuntime {
-                        name: "df.identico".to_string(),
+                        name: "df.identical".to_string(),
                         args: vec![(a, Type::Ref), (b, Type::Ref)],
                         ret_ty: Type::I1,
                     },
@@ -158,7 +158,7 @@ mod context_tests {
                 let mut raw_reads = 0;
                 for (_, inst, ty) in m.functions.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
                     if let Instruction::CallRuntime { name, args, ret_ty } = inst {
-                        if name == "dartforge_arc_contexto_closure_v1" {
+                        if name == "dartforge_arc_closure_context_v1" {
                             assert_eq!((*ret_ty, *ty), (Type::Ref, Type::Ref));
                             assert_eq!(args.len(), 1);
                             assert_eq!(args[0].1, Type::Ref);
@@ -173,7 +173,7 @@ mod context_tests {
                 let mut errors = 0;
                 for b in m.functions.iter().flat_map(|f| &f.blocks) {
                     for (v, i, _) in &b.instructions {
-                        if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_nsm_chamada") {
+                        if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_nsm_call") {
                             errors += 1;
                             if arc {
                                 let Terminator::CondBranch { cond, then_block, else_block } = &b.terminator else {

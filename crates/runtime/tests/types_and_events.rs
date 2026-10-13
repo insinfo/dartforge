@@ -11,11 +11,11 @@ use dartforge_runtime::abi::*;
 fn recipe(r: &str) -> i64 {
     // SAFETY: `r` is valid UTF-8 with `r.len()` bytes, alive during the call.
     let h = unsafe { dartforge_string_new(r.as_ptr(), r.len() as i64) };
-    dartforge_rti_receita(h)
+    dartforge_rti_recipe(h)
 }
 
 fn sub(s: &str, t: &str) -> bool {
-    dartforge_rti_subtipo(recipe(s), recipe(t)) != 0
+    dartforge_rti_subtype(recipe(s), recipe(t)) != 0
 }
 
 fn in_a_thread(f: impl FnOnce() + Send + 'static) {
@@ -26,7 +26,7 @@ fn in_a_thread(f: impl FnOnce() + Send + 'static) {
 #[allow(unsafe_code)]
 fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending() {
     in_a_thread(|| {
-        dartforge_memoria_arc_v1();
+        dartforge_memory_arc_v1();
         for recipe in ["C350<C201>", "F<0;C201;1;C201;nome:C350!>", "R<C201;nome:C350>", "L<C201,C350>"] {
             let mut previous = None;
             for pending in [false, true] {
@@ -44,12 +44,12 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                     dartforge_throw_with_stack_trace(0, 3, r);
                     Some(r)
                 } else { None };
-                let name = b"dartforge_rti_receita";
+                let name = b"dartforge_rti_recipe";
                 // SAFETY: constant name. Bit 0 forbids collection, bit 1 a new pending exception.
-                unsafe { dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 3); }
-                let tipo = dartforge_rti_receita(text);
-                dartforge_efeitos_depois();
-                assert_eq!(dartforge_efeitos_nivel(), 0);
+                unsafe { dartforge_effects_before(name.as_ptr(), name.len() as i64, 3); }
+                let tipo = dartforge_rti_recipe(text);
+                dartforge_effects_after();
+                assert_eq!(dartforge_effects_level(), 0);
                 assert_eq!(dartforge_exception_pending(), u8::from(pending));
                 if let Some(trace) = trace {
                     assert_eq!(dartforge_exception_peek_ref(), 0);
@@ -58,12 +58,12 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                 }
                 if let Some(id) = previous { assert_eq!(tipo, id); }
                 previous = Some(tipo);
-                assert_eq!(dartforge_arc_observar_heap_v1(text), 3);
+                assert_eq!(dartforge_arc_observe_heap_v1(text), 3);
                 dartforge_arc_release(text);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(text), 0, "recipe {recipe}; pending {pending}");
+                assert_eq!(dartforge_arc_observe_heap_v1(text), 0, "recipe {recipe}; pending {pending}");
                 // The canonical ID stays valid without retaining the recipe string.
-                assert_eq!(dartforge_rti_subtipo(tipo, tipo), 1);
+                assert_eq!(dartforge_rti_subtype(tipo, tipo), 1);
             }
         }
     });
@@ -73,27 +73,27 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
 #[allow(unsafe_code)]
 fn set_rti_preserves_owner_pending_and_elements_on_decompact() {
     in_a_thread(|| {
-        dartforge_memoria_arc_v1();
-        dartforge_rti_classe_do_runtime(0, 201);
-        dartforge_rti_classe_do_runtime(4, 200);
-        dartforge_rti_regra(8, recipe("C200<P0>"));
+        dartforge_memory_arc_v1();
+        dartforge_rti_runtime_class(0, 201);
+        dartforge_rti_runtime_class(4, 200);
+        dartforge_rti_rule(8, recipe("C200<P0>"));
         let int_type = recipe("C200<C201>");
         let general_type = recipe("C200<D>");
         let value_list = [i64::MAX, i64::MIN];
         // SAFETY: word vector alive and complete for the compact list.
-        let list = unsafe { dartforge_lista_nova(value_list.as_ptr(), 2, 8, 1) };
+        let list = unsafe { dartforge_list_new(value_list.as_ptr(), 2, 8, 1) };
         dartforge_arc_retain(list);
         let define = |tipo| {
-            let name = b"dartforge_rti_definir";
+            let name = b"dartforge_rti_set";
             // SAFETY: live constant name, with its exact length.
-            unsafe { dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 2); }
-            dartforge_rti_definir(list, tipo);
-            dartforge_efeitos_depois();
-            assert_eq!(dartforge_efeitos_nivel(), 0);
+            unsafe { dartforge_effects_before(name.as_ptr(), name.len() as i64, 2); }
+            dartforge_rti_set(list, tipo);
+            dartforge_effects_after();
+            assert_eq!(dartforge_effects_level(), 0);
         };
         define(int_type);
         dartforge_arc_collect();
-        assert_eq!(dartforge_arc_observar_heap_v1(list), 3);
+        assert_eq!(dartforge_arc_observe_heap_v1(list), 3);
         define(general_type);
         assert_eq!(dartforge_exception_pending(), 0);
         define(int_type);
@@ -106,16 +106,16 @@ fn set_rti_preserves_owner_pending_and_elements_on_decompact() {
         assert_eq!(dartforge_stack_trace_get(), trace);
         dartforge_exception_clear();
         dartforge_arc_collect();
-        assert_eq!(dartforge_arc_observar_heap_v1(list), 3);
-        let first = dartforge_nativo_DartForge_lista_get(list, 0);
-        let second = dartforge_nativo_DartForge_lista_get(list, 1);
+        assert_eq!(dartforge_arc_observe_heap_v1(list), 3);
+        let first = dartforge_native_DartForge_list_get(list, 0);
+        let second = dartforge_native_DartForge_list_get(list, 1);
         assert_eq!(dartforge_unbox_int(first), value_list[0]);
         assert_eq!(dartforge_unbox_int(second), value_list[1]);
         assert_ne!(dartforge_rti_e(list, general_type), 0);
         dartforge_arc_release(list);
         dartforge_arc_collect();
         for h in [list, first, second] {
-            assert_eq!(dartforge_arc_observar_heap_v1(h), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(h), 0);
         }
         assert_eq!(dartforge_exception_pending(), 0);
     });
@@ -145,10 +145,10 @@ fn subtyping_and_evaluation() {
         // 0 = Object; 201 and 202 classes without parameters; 210 = List<E>, 211 =
         // Iterable<E>, 220 = Future<T> (program classes: cid ≥ 128, outside the
         // runtime's fixed cids, docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
-        dartforge_rti_classe_do_runtime(10, 0);
-        dartforge_rti_classe_do_runtime(9, 220);
-        dartforge_rti_regra(210, recipe("C211<P0>"));
-        dartforge_rti_regra(201, recipe("C202"));
+        dartforge_rti_runtime_class(10, 0);
+        dartforge_rti_runtime_class(9, 220);
+        dartforge_rti_rule(210, recipe("C211<P0>"));
+        dartforge_rti_rule(201, recipe("C202"));
         assert!(sub("C210<C201>", "C211<C201>"));
         assert!(sub("C210<C201>", "C211<C202>"), "covariant through rule 201 <: 202");
         assert!(!sub("C210<C202>", "C211<C201>"));
@@ -170,13 +170,13 @@ fn subtyping_and_evaluation() {
 
         // `P0` evaluated in the type of `this` (List<C201>) seen as Iterable.
         let obj = dartforge_object_new(210, 0);
-        dartforge_rti_definir(obj, recipe("C210<C201>"));
-        let t = dartforge_rti_avaliar(recipe("C211<P0>"), obj, 211, 0);
+        dartforge_rti_set(obj, recipe("C210<C201>"));
+        let t = dartforge_rti_eval(recipe("C211<P0>"), obj, 211, 0);
         assert_eq!(t, recipe("C211<C201>"));
         assert!(dartforge_rti_e(obj, recipe("C211<C202>")) != 0);
         assert!(dartforge_rti_e(obj, recipe("C211<U>")) == 0);
         // `M0` of the tuple.
-        let t = dartforge_rti_avaliar(recipe("C210<M0>"), 0, 0, recipe("L<C202>"));
+        let t = dartforge_rti_eval(recipe("C210<M0>"), 0, 0, recipe("L<C202>"));
         assert_eq!(t, recipe("C210<C202>"));
     });
 }
@@ -191,26 +191,26 @@ fn list_allocators_preserve_type_argument() {
         // 200 = List<E> (a program class, cid ≥ 128); the concrete ones have the
         // contract's fixed cids (docs/NATIVO-ESPACO-UNIFICADO.md §2.4):
         // 8 = _List<E>, 9 = _ImmutableList<E>, 10 = _GrowableList<E>.
-        dartforge_rti_classe_do_runtime(4, 200);
+        dartforge_rti_runtime_class(4, 200);
         for class in [8, 9, 10] {
-            dartforge_rti_regra(class, recipe("C200<P0>"));
+            dartforge_rti_rule(class, recipe("C200<P0>"));
         }
 
-        let fixed_one = dartforge_nativo_List_allocate(dartforge_box_int(2), recipe("L<C201>"));
+        let fixed_one = dartforge_native_List_allocate(dartforge_box_int(2), recipe("L<C201>"));
         assert!(dartforge_rti_e(fixed_one, recipe("C200<C201>")) != 0);
-        let piece = dartforge_nativo_List_slice(fixed_one, 0, 2, 1);
+        let piece = dartforge_native_List_slice(fixed_one, 0, 2, 1);
         assert!(dartforge_rti_e(piece, recipe("C200<C201>")) != 0);
 
-        let unmodifiable = dartforge_nativo_ImmutableList_from(fixed_one, 0, 2, recipe("L<C201>"));
+        let unmodifiable = dartforge_native_ImmutableList_from(fixed_one, 0, 2, recipe("L<C201>"));
         assert!(dartforge_rti_e(unmodifiable, recipe("C200<C201>")) != 0);
         assert!(dartforge_rti_e(unmodifiable, recipe("C200<C202>")) == 0);
 
-        let unmodifiable_from_copy = dartforge_nativo_Internal_makeFixedListUnmodifiable(fixed_one);
+        let unmodifiable_from_copy = dartforge_native_Internal_makeFixedListUnmodifiable(fixed_one);
         assert!(dartforge_rti_e(unmodifiable_from_copy, recipe("C200<C201>")) != 0);
-        let fixed_from_copy = dartforge_nativo_Internal_makeListFixedLength(unmodifiable_from_copy);
+        let fixed_from_copy = dartforge_native_Internal_makeListFixedLength(unmodifiable_from_copy);
         assert!(dartforge_rti_e(fixed_from_copy, recipe("C200<C201>")) != 0);
 
-        let mutable = dartforge_nativo_GrowableList_allocate(fixed_one, recipe("L<C201>"));
+        let mutable = dartforge_native_GrowableList_allocate(fixed_one, recipe("L<C201>"));
         assert!(dartforge_rti_e(mutable, recipe("C200<C201>")) != 0);
     });
 }
@@ -231,13 +231,13 @@ extern "C" fn call(closure: i64) -> i64 {
 fn event_loop_in_vm_order() {
     in_a_thread(|| {
         let c = |k: i64| dartforge_tearoff(k);
-        dartforge_nativo_DartForge_Timer_novo(20, c(1), 0);
-        dartforge_nativo_DartForge_Timer_novo(0, c(2), 0);
-        let cancelled = dartforge_nativo_DartForge_Timer_novo(0, c(3), 0);
-        dartforge_nativo_DartForge_Timer_novo(0, c(5), 0);
-        dartforge_nativo_DartForge_scheduleImmediate(c(4));
-        dartforge_nativo_DartForge_Timer_cancelar(cancelled);
-        dartforge_laco_de_eventos(call);
+        dartforge_native_DartForge_Timer_new(20, c(1), 0);
+        dartforge_native_DartForge_Timer_new(0, c(2), 0);
+        let cancelled = dartforge_native_DartForge_Timer_new(0, c(3), 0);
+        dartforge_native_DartForge_Timer_new(0, c(5), 0);
+        dartforge_native_DartForge_scheduleImmediate(c(4));
+        dartforge_native_DartForge_Timer_cancel(cancelled);
+        dartforge_event_loop(call);
         let order = ORDER.with(|o| o.borrow().clone());
         assert_eq!(order, vec![4, 2, 5, 1]);
     });

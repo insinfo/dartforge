@@ -818,7 +818,7 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
     }
     // A program with the SDK from source (P5c/P5d): the executor loads the
     // DLL of the compiled SDK (the same one the AOT imports).
-    if ir.contains("declare void @df.registrar.") {
+    if ir.contains("declare void @df.register.") {
         match dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte() {
             Ok(dll) => env_vars.push(("DARTFORGE_SDK_DLL", dll.to_string_lossy().into_owned())),
             Err(e) => {

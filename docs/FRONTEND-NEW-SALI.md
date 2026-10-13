@@ -199,7 +199,7 @@ desnecessários (`implementation.function as RunHandler` em `zone.dart`,
 depois de chamada `Never` em `uri.dart`, `s is! String` com `s: String` em
 `string_patch.dart`, `return -1` depois de `while (true)` em
 `convert_patch.dart`). Ferramenta: `cargo run --release -p dartforge-types
---example avisos -- sdk <sdk/lib> native_sdk dartforge_nativo _internal core
+--example avisos -- sdk <sdk/lib> native_sdk dartforge_native _internal core
 _compact_hash collection math convert async`.
 
 Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`

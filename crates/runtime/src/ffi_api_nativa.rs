@@ -338,7 +338,7 @@ fn native_api_functions() -> [(&'static str, usize); 4] {
 
 /// `DartNativeApiFunctionPointer(name)`: the address of the native API function.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartNativeApiFunctionPointer(name: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartNativeApiFunctionPointer(name: i64) -> i64 {
     let name = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
     match native_api_functions().iter().find(|(n, _)| *n == name) {
         Some((_, f)) => *f as i64,
@@ -354,12 +354,12 @@ pub extern "C" fn dartforge_nativo_DartNativeApiFunctionPointer(name: i64) -> i6
 const DL_API_VERSION: (i32, i32) = (2, 5);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartApiDLMajorVersion() -> i64 {
+pub extern "C" fn dartforge_native_DartApiDLMajorVersion() -> i64 {
     i64::from(DL_API_VERSION.0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartApiDLMinorVersion() -> i64 {
+pub extern "C" fn dartforge_native_DartApiDLMinorVersion() -> i64 {
     i64::from(DL_API_VERSION.1)
 }
 
@@ -396,6 +396,6 @@ fn api_data() -> usize {
 /// `DartApiDLInitializeData()`: the pointer that C passes to
 /// `Dart_InitializeApiDL`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartApiDLInitializeData() -> i64 {
+pub extern "C" fn dartforge_native_DartApiDLInitializeData() -> i64 {
     api_data() as i64
 }

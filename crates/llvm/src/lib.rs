@@ -255,7 +255,7 @@ pub fn gerar(name: &str, ir: &str, options: &Opcoes) -> Result<Vec<u8>, String> 
 /// The value `v` is a fixed address of the image: a global, a constant expression,
 /// or the conversion, the `getelementptr` with constant indices or the sum with a
 /// constant of one of them; or the load of one of the canonical `true`/`false`
-/// objects of the thread context (`getelementptr` over `dartforge_contexto()` at
+/// objects of the thread context (`getelementptr` over `dartforge_context()` at
 /// 360 or 368, `layout::contexto`, directly or through the `select` of
 /// `df.box_bool`), statics of the runtime image — the load is `!invariant.load`, and
 /// the code generator rematerializes it as a constant
@@ -324,7 +324,7 @@ unsafe fn constant_value(v: llvm_sys::prelude::LLVMValueRef, depth: u32) -> Opti
 }
 
 /// The pointer `p` is the field of the canonical `true` or `false` in the context:
-/// `getelementptr` over the call to `dartforge_contexto` with offset 360 or 368,
+/// `getelementptr` over the call to `dartforge_context` with offset 360 or 368,
 /// constant or chosen by a `select` between the two.
 ///
 /// # Safety
@@ -344,7 +344,7 @@ unsafe fn canonical_load(p: llvm_sys::prelude::LLVMValueRef) -> bool {
         let callee = LLVMGetCalledValue(base);
         let mut n = 0usize;
         let name = LLVMGetValueName2(callee, &mut n);
-        if name.is_null() || std::slice::from_raw_parts(name.cast::<u8>(), n) != b"dartforge_contexto" {
+        if name.is_null() || std::slice::from_raw_parts(name.cast::<u8>(), n) != b"dartforge_context" {
             return false;
         }
         let canonical = |x| !LLVMIsAConstantInt(x).is_null() && matches!(LLVMConstIntGetZExtValue(x), TRUE | FALSE);

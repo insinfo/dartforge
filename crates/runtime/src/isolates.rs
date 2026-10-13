@@ -3,7 +3,7 @@
 //
 // An isolate is a thread with its own heap, its own globals area and its own
 // event loop: all runtime state is per thread. Generated code hands over at
-// entry the preparation of an isolate (`df.preparar_isolado`: the library
+// entry the preparation of an isolate (`df.prepare_isolate`: the library
 // registrations, the RTI and the embedder) and the function that calls a
 // closure; `Isolate.spawn` copies the entry and the message into graphs
 // (`ports.rs`), creates the thread, and on it prepares the isolate, sends the
@@ -23,7 +23,7 @@
 // `Isolate.exit` and `kill` unwind the isolate (the VM's `UnwindError`): the
 // pending exception cannot be caught (`exceptions.rs`). Control is served between
 // events and also at the safepoint of each loop iteration
-// ([`dartforge_ponto_seguro`], the role of the VM's stack check): an immediate
+// ([`dartforge_safepoint`], the role of the VM's stack check): an immediate
 // `kill` or a `ping` reach an isolate stuck in a loop without events; a `kill`
 // with `beforeNextEvent` waits for the current event to finish.
 
@@ -50,10 +50,10 @@ const ISOLATE_STACK: usize = 64 * 1024 * 1024;
 static PREPARE_ISOLATE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static CHAMAR_CLOSURE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// `dartforge_registrar_isolados(prepare, call)`: the program entry hands over the
+/// `dartforge_register_isolates(prepare, call)`: the program entry hands over the
 /// isolate preparation and the closure call.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_registrar_isolados(prepare: extern "C" fn(), call: Option<extern "C" fn(i64) -> i64>) {
+pub extern "C" fn dartforge_register_isolates(prepare: extern "C" fn(), call: Option<extern "C" fn(i64) -> i64>) {
     PREPARE_ISOLATE.store(prepare as usize, std::sync::atomic::Ordering::Release);
     CHAMAR_CLOSURE.store(call.map_or(0, |c| c as usize), std::sync::atomic::Ordering::Release);
 }
@@ -96,8 +96,8 @@ fn with_state<R>(f: impl FnOnce(&mut IsolateState) -> R) -> R {
             isolate_names().insert(control, "main".to_string());
             IsolateState {
                 control,
-                pause: dartforge_nativo_DartForge_capacidade_nova(),
-                termination: dartforge_nativo_DartForge_capacidade_nova(),
+                pause: dartforge_native_DartForge_capability_new(),
+                termination: dartforge_native_DartForge_capability_new(),
                 errors_fatal: true,
                 pauses: Vec::new(),
                 exit_listeners: Vec::new(),
@@ -140,7 +140,7 @@ fn ajudante_de_isolado(name: &str) -> usize {
 }
 
 /// Copies `value` to another isolate; `None` if it is not sendable (with the
-/// description in `DartForge_porta_recusa`).
+/// description in `DartForge_port_refusal`).
 fn copy_to_other_isolate(value: i64) -> Option<Graph> {
     match copy_to_graph(value, false) {
         Ok(g) => Some(g),
@@ -496,7 +496,7 @@ fn shut_down_isolate() {
 /// error does not end it.
 fn run_isolate_loop(call: extern "C" fn(i64) -> i64) {
     loop {
-        dartforge_laco_de_eventos(call);
+        dartforge_event_loop(call);
         if unwinding_now() || ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| e.shut_down)) {
             return;
         }
@@ -516,7 +516,7 @@ fn run_isolate_loop(call: extern "C" fn(i64) -> i64) {
 /// blocks on the way run. The publication of a JIT reload is not served here: it
 /// needs a stack without Dart frames.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ponto_seguro() {
+pub extern "C" fn dartforge_safepoint() {
     if unwinding_now() {
         return;
     }
@@ -527,9 +527,9 @@ pub extern "C" fn dartforge_ponto_seguro() {
 }
 
 /// The interrupt request without the context in generated code (the slow path of
-/// [`dartforge_ponto_seguro`]; the emitter reads the byte directly).
+/// [`dartforge_safepoint`]; the emitter reads the byte directly).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_interrupcao_pendente() -> u8 {
+pub extern "C" fn dartforge_pending_interrupt() -> u8 {
     crate::heap::CONTEXTO.with(|c| c.interrupt.load(std::sync::atomic::Ordering::Acquire))
 }
 
@@ -565,7 +565,7 @@ fn with_isolate_entry<R>(input: &Graph, message: &Graph, handle_it: impl FnOnce(
 fn rodar_isolado(p: IsolateRequest) {
     let prepare = PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire);
     let call = CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
-    // SAFETY: registered by `dartforge_registrar_isolados` with these signatures,
+    // SAFETY: registered by `dartforge_register_isolates` with these signatures,
     // before any `Isolate.spawn`.
     let prepare = { let dart_target: usize = prepare; move || { dart_v0(dart_target) } };
     let call: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(call) };
@@ -616,7 +616,7 @@ fn run_entry_and_loop(p: &IsolateRequest, call: extern "C" fn(i64) -> i64, contr
 /// errorsAreFatal, onExit, onError, packageConfig, debugName)`.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
+pub extern "C" fn dartforge_native_Isolate_spawnFunction(
     ready_flag: i64,
     uri: i64,
     input: i64,
@@ -668,7 +668,7 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
 /// it fails too); the ready port receives the error.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
+pub extern "C" fn dartforge_native_Isolate_spawnUri(
     ready_flag: i64,
     uri: i64,
     _args: i64,
@@ -698,7 +698,7 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
 /// `Isolate_getPortAndCapabilitiesOfCurrentIsolate`: `[control port, pause,
 /// termination]`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_getPortAndCapabilitiesOfCurrentIsolate() -> i64 {
+pub extern "C" fn dartforge_native_Isolate_getPortAndCapabilitiesOfCurrentIsolate() -> i64 {
     let (c, p, t) = with_state(|e| (e.control, e.pause, e.termination));
     // SAFETY: registered by the `dart:isolate` overlay with the signature (`int`,
     // `int`, `int`) → `List`.
@@ -708,7 +708,7 @@ pub extern "C" fn dartforge_nativo_Isolate_getPortAndCapabilitiesOfCurrentIsolat
 
 /// `Isolate_getDebugName(controlPort)`: the name of the live isolate, or `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_getDebugName(port: i64) -> i64 {
+pub extern "C" fn dartforge_native_Isolate_getDebugName(port: i64) -> i64 {
     let Some(id) = object_id(port) else { return 0 };
     let name = isolate_names().get(&id).cloned();
     name.map_or(0, |n| HEAP.with(|h| h.borrow_mut().allocate_str(&n)))
@@ -717,7 +717,7 @@ pub extern "C" fn dartforge_nativo_Isolate_getDebugName(port: i64) -> i64 {
 /// `Isolate_getCurrentRootUriStr`: the `file:` URI of the script (the `.dart` the
 /// JIT runs, as in `dart run`; in AOT, the executable, as in the VM).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_getCurrentRootUriStr() -> i64 {
+pub extern "C" fn dartforge_native_Isolate_getCurrentRootUriStr() -> i64 {
     let defined = program_script().lock().unwrap_or_else(|e| e.into_inner()).clone();
     let file_path = match defined {
         Some(b) => path_from_bytes(&b),
@@ -745,7 +745,7 @@ fn file_uri(file_path: &std::path::Path) -> String {
 /// `Isolate_sendOOB(port, msg)`: the message goes to the control queue of the
 /// isolate that owns the port.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_sendOOB(port: i64, message: i64) {
+pub extern "C" fn dartforge_native_Isolate_sendOOB(port: i64, message: i64) {
     let Some(id) = object_id(port) else {
         throw_argument_error("port is not a SendPort");
         return;
@@ -757,7 +757,7 @@ pub extern "C" fn dartforge_nativo_Isolate_sendOOB(port: i64, message: i64) {
 /// `Isolate_exit_(finalMessagePort, message)`: sends the final message and unwinds
 /// the isolate (the VM's `UnwindError`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_exit_(port: i64, message: i64) -> i64 {
+pub extern "C" fn dartforge_native_Isolate_exit_(port: i64, message: i64) -> i64 {
     if port != 0 {
         let Some(id) = object_id(port) else {
             throw_argument_error("finalMessagePort is not a SendPort");

@@ -4,7 +4,7 @@
 //! arithmetic; an `F64` promotes the other side (`IntToDouble`, never `bitcast`);
 //! equality involving a `Ref` goes to Dart's `==` through the dynamic class (the
 //! inline null rule, `source_equality`); `identical` of a `Ref` is the
-//! inline `@df.identico` (docs/NATIVO-ESPACO-UNIFICADO.md §2.10). Before,
+//! inline `@df.identical` (docs/NATIVO-ESPACO-UNIFICADO.md §2.10). Before,
 //! "some side is a `Ref`" meant "concatenate strings", which only held
 //! because everything that was not an `int` was a `Ref`.
 
@@ -18,7 +18,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `identical(a, b)`: scalars by value (bits, for `double`); if
-    /// some side is a `Ref`, through the inline `@df.identico` (equal handle, or
+    /// some side is a `Ref`, through the inline `@df.identical` (equal handle, or
     /// `_Mint`/`_Double` of the same value — the VM's `Instance::IsIdenticalTo`;
     /// the helper is from P2, `llvm/ir_boxes.rs`).
     pub fn identical(&mut self, a: Operand, b: Operand) -> Operand {
@@ -50,7 +50,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let b = self.coerce(b, Type::Ref);
                 self.emit(
                     Instruction::CallRuntime {
-                        name: "df.identico".to_string(),
+                        name: "df.identical".to_string(),
                         args: vec![(a, Type::Ref), (b, Type::Ref)],
                         ret_ty: Type::I1,
                     },
@@ -61,7 +61,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `a == b` with `a` of non-nullable static type `String` (the `==` of
-    /// `String` cannot be overridden): the inline `@df.texto_igual_a` — the
+    /// `String` cannot be overridden): the inline `@df.string_equals_object` — the
     /// identity, the class of `b`, the length and the hash, and the code units in the
     /// runtime only when needed (P1, `llvm/ir_strings.rs`).
     pub fn string_equality(&mut self, a: Operand, b: Operand) -> Operand {
@@ -69,7 +69,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let b = self.coerce(b, Type::Ref);
         self.emit(
             Instruction::CallRuntime {
-                name: "df.texto_igual_a".to_string(),
+                name: "df.string_equals_object".to_string(),
                 args: vec![(a, Type::Ref), (b, Type::Ref)],
                 ret_ty: Type::I1,
             },
@@ -215,7 +215,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(fast);
         let value = |s: &mut Self, x: &Operand| {
             if s.operand_type(x) == Type::Ref && s.ctx.arc_memory {
-                s.emit(Instruction::CallRuntime { name: "df.valor_smi".into(), args: vec![(x.clone(), Type::Ref)], ret_ty: Type::I64 }, Type::I64)
+                s.emit(Instruction::CallRuntime { name: "df.smi_value".into(), args: vec![(x.clone(), Type::Ref)], ret_ty: Type::I64 }, Type::I64)
             } else if s.operand_type(x) == Type::Ref {
                 s.emit(Instruction::AShr(x.clone(), one.clone()), Type::I64)
             } else {
@@ -324,7 +324,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 BinaryOp::Div => self.emit(Instruction::FDiv(a, b), Type::F64),
                 BinaryOp::Rem => self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_nativo_DartForge_double_modulo".to_string(),
+                        name: "dartforge_native_DartForge_double_modulo".to_string(),
                         args: vec![(a, Type::F64), (b, Type::F64)],
                         ret_ty: Type::F64,
                     },

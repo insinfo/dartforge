@@ -506,7 +506,7 @@ jobs:
               for caminho in normal erro; do
                 exe="target/prova-arc-resume/${perfil}-${modo}-${caminho}"
                 DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_retornos_guardados -- "$exe" "$modo" "$caminho" automatico "$perfil"
-                grep -F 'personality ptr @dartforge_personalidade_cleanup_itanium' "${exe}.ll"
+                grep -F 'personality ptr @dartforge_personality_cleanup_itanium' "${exe}.ll"
                 grep -F 'resume { ptr, i32 } %lpad' "${exe}.ll"
                 if [ "$perfil" = misto ]; then
                   grep -F '@llvm.eh.typeid.for(ptr null)' "${exe}.ll"

@@ -211,10 +211,10 @@ fn fn_signature(text: &str) -> Option<String> {
 
 /// The infrastructure of each generation's globals area: the descriptor
 /// (`@df.area`) and the module id (`@df.area_id`), read by the local
-/// `df.obter_area`. They neither enter the fingerprint nor prevent keeping the
+/// `df.get_area`. They neither enter the fingerprint nor prevent keeping the
 /// function: the area layout only grows between generations, and the runtime
 /// accepts the descriptor of a previous generation as a prefix of the current
-/// layout, returning the same area (`dartforge_area_de_globais`).
+/// layout, returning the same area (`dartforge_globals_area`).
 const INFRASTRUCTURE: [&str; 2] = ["df.area", "df.area_id"];
 
 /// The local closure of `i`: the generation's items it reaches (local functions

@@ -49,7 +49,7 @@ fn main() -> Result<(), String> {
         vec![
             (
                 Instruction::CallRuntime {
-                    name: "dartforge_alocar".into(),
+                    name: "dartforge_allocate".into(),
                     args: vec![integer(0), integer(1), integer(2)],
                     ret_ty: Type::Ref,
                 },
@@ -129,19 +129,19 @@ fn main() -> Result<(), String> {
     ir.push_str(
         r#"
 @prova.fraca = internal global i64 0
-declare void @dartforge_nativo_WeakReference_setTarget(i64, i64)
-declare i64 @dartforge_nativo_WeakReference_getTarget(i64)
+declare void @dartforge_native_WeakReference_setTarget(i64, i64)
+declare i64 @dartforge_native_WeakReference_getTarget(i64)
 declare void @dartforge_print_handle(i64)
 define void @prova_criar_fraca(i64 %alvo) {
-  %w = call i64 @dartforge_alocar(i64 0, i64 1, i64 2)
+  %w = call i64 @dartforge_allocate(i64 0, i64 1, i64 2)
   call void @dartforge_arc_retain(i64 %w)
   store i64 %w, ptr @prova.fraca
-  call void @dartforge_nativo_WeakReference_setTarget(i64 %w, i64 %alvo)
+  call void @dartforge_native_WeakReference_setTarget(i64 %w, i64 %alvo)
   ret void
 }
 define void @prova_conferir_fraca(i64 %esperado) {
   %w = load i64, ptr @prova.fraca
-  %alvo = call i64 @dartforge_nativo_WeakReference_getTarget(i64 %w)
+  %alvo = call i64 @dartforge_native_WeakReference_getTarget(i64 %w)
   %vivo = icmp ne i64 %alvo, 0
   %quer = icmp ne i64 %esperado, 0
   %ok = icmp eq i1 %vivo, %quer

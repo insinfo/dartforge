@@ -20,7 +20,7 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, ExprId};
 
 /// Symbol of the structural equality of records with a shape.
-pub const EQUAL_SYMBOL: &str = "df.$registro.igual";
+pub const EQUAL_SYMBOL: &str = "df.$record.equals";
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `(e1, …, name: e)` with some named field.
@@ -93,7 +93,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let names = self.emit(Instruction::Const(Constant::String(names.join(","))), Type::Ref);
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_rti_registro_nomeado".to_string(),
+                name: "dartforge_rti_named_record".to_string(),
                 args: vec![
                     (obj.clone(), Type::Ref),
                     (Operand::Constant(Constant::Int(positional.len() as i64)), Type::I64),
@@ -296,7 +296,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
-    /// `df.$registro.igual(a, b)`: same shape and equal fields (`==` of each
+    /// `df.$record.equals(a, b)`: same shape and equal fields (`==` of each
     /// field); what is not a record with a shape goes to the runtime `==`.
     pub fn lower_record_equality(&mut self) {
         let a = Operand::Val(self.add_param("a".to_string(), Type::Ref));

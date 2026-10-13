@@ -37,7 +37,7 @@ fn main() {
     // checked: it changes the SDK code like a source does.
     // Ownership also decides retains, cleanup and the ABI of ARC bodies.
     // An isolated change of the catalog must invalidate the cached SDK.
-    for table in ["../runtime/efeitos.tsv", "../runtime/ownership.tsv"] {
+    for table in ["../runtime/effects.tsv", "../runtime/ownership.tsv"] {
         let path = root.join(table);
         println!("cargo::rerun-if-changed={}", path.display());
         files.push(path);
@@ -109,7 +109,7 @@ fn precompile_runtime() {
     for d in ["../runtime/src", "../runtime_static/src"] {
         join(&root.join(d), &mut sources);
     }
-    for f in ["../runtime/build.rs", "../runtime/Cargo.toml", "../runtime/efeitos.tsv",
+    for f in ["../runtime/build.rs", "../runtime/Cargo.toml", "../runtime/effects.tsv",
         "../runtime/ownership.tsv", "../runtime_static/Cargo.toml", "../../Cargo.lock"] {
         let p = root.join(f);
         println!("cargo::rerun-if-changed={}", p.display());

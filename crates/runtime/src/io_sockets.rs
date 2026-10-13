@@ -77,7 +77,7 @@ fn dest_address(addr: i64, port: i64, scope: i64) -> Option<OsAddress> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_CreateConnect(this: i64, addr: i64, port: i64, scope: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_CreateConnect(this: i64, addr: i64, port: i64, scope: i64) -> i64 {
     let Some(e) = dest_address(addr, port, scope) else {
         throw_invalid_address();
         return 0;
@@ -86,7 +86,7 @@ pub extern "C" fn dartforge_nativo_Socket_CreateConnect(this: i64, addr: i64, po
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_CreateBindConnect(this: i64, addr: i64, port: i64, origin: i64, source_port: i64, scope: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_CreateBindConnect(this: i64, addr: i64, port: i64, origin: i64, source_port: i64, scope: i64) -> i64 {
     let (Some(e), Some(o)) = (dest_address(addr, port, scope), dest_address(origin, source_port, 0)) else {
         throw_invalid_address();
         return 0;
@@ -95,13 +95,13 @@ pub extern "C" fn dartforge_nativo_Socket_CreateBindConnect(this: i64, addr: i64
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_CreateUnixDomainConnect(this: i64, file_path: i64, _ns: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_CreateUnixDomainConnect(this: i64, file_path: i64, _ns: i64) -> i64 {
     let r = OsAddress::from_unix_path(&utf8_of_string(file_path)).and_then(|e| create_unix_connection(&e, None));
     created_socket(this, r, SocketFinalizer::Normal)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_CreateUnixDomainBindConnect(this: i64, file_path: i64, origin: i64, _ns: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_CreateUnixDomainBindConnect(this: i64, file_path: i64, origin: i64, _ns: i64) -> i64 {
     let r = OsAddress::from_unix_path(&utf8_of_string(file_path)).and_then(|e| {
         let o = OsAddress::from_unix_path(&utf8_of_string(origin))?;
         create_unix_connection(&e, Some(&o))
@@ -112,7 +112,7 @@ pub extern "C" fn dartforge_nativo_Socket_CreateUnixDomainBindConnect(this: i64,
 /// `ServerSocket_CreateBindListen`: the listening socket, shared with another one of
 /// the same (address, port) when both ask for `shared`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ServerSocket_CreateBindListen(
+pub extern "C" fn dartforge_native_ServerSocket_CreateBindListen(
     this: i64,
     addr: i64,
     port: i64,
@@ -176,7 +176,7 @@ pub extern "C" fn dartforge_nativo_ServerSocket_CreateBindListen(
 
 /// `ServerSocket_CreateUnixDomainBindListen`: like the TCP one, sharing by path.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ServerSocket_CreateUnixDomainBindListen(this: i64, file_path: i64, queue: i64, shared: u8, _ns: i64) -> i64 {
+pub extern "C" fn dartforge_native_ServerSocket_CreateUnixDomainBindListen(this: i64, file_path: i64, queue: i64, shared: u8, _ns: i64) -> i64 {
     let file_path = utf8_of_string(file_path);
     let shared = shared != 0;
     let mut reg = listen_record();
@@ -222,7 +222,7 @@ pub extern "C" fn dartforge_nativo_ServerSocket_CreateUnixDomainBindListen(this:
 
 /// `ServerSocket_Accept(socket)`: `true` with the new connection in the object.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ServerSocket_Accept(this: i64, new: i64) -> u8 {
+pub extern "C" fn dartforge_native_ServerSocket_Accept(this: i64, new: i64) -> u8 {
     let Some(s) = object_socket(this) else { return 0 };
     let fd = accept_conn(s.descriptor());
     if fd >= 0 {
@@ -234,7 +234,7 @@ pub extern "C" fn dartforge_nativo_ServerSocket_Accept(this: i64, new: i64) -> u
 
 /// `Socket_Available`: the ready bytes (1 if the system cannot tell).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_Available(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_Available(this: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     let n = available(s);
     if n >= 0 { n } else { 1 }
@@ -249,7 +249,7 @@ pub extern "C" fn dartforge_nativo_Socket_Available(this: i64) -> i64 {
 /// `--enable-asserts`), `assert(available > 0)` throws first and the socket
 /// closes, in the VM too.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_Read(this: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_Read(this: i64, n: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     if n < 0 {
         throw_os_error(&OsError::invalid_argument());
@@ -272,7 +272,7 @@ pub extern "C" fn dartforge_nativo_Socket_Read(this: i64, n: i64) -> i64 {
 
 /// `Socket_WriteList(buffer, offset, bytes)`: the bytes written.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_WriteList(this: i64, buffer: i64, start: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_WriteList(this: i64, buffer: i64, start: i64, n: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     let bytes = typed_list_bytes(buffer).unwrap_or_default();
     let start = (start.max(0) as usize).min(bytes.len());
@@ -287,13 +287,13 @@ pub extern "C" fn dartforge_nativo_Socket_WriteList(this: i64, buffer: i64, star
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_HasPendingWrite(this: i64) -> u8 {
+pub extern "C" fn dartforge_native_Socket_HasPendingWrite(this: i64) -> u8 {
     object_socket(this).map_or(0, |s| u8::from(pending_write(s)))
 }
 
 /// `Socket_GetPort`: the local port, or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetPort(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_GetPort(this: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     let p = local_port(s.descriptor());
     if p > 0 {
@@ -305,7 +305,7 @@ pub extern "C" fn dartforge_nativo_Socket_GetPort(this: i64) -> i64 {
 /// `Socket_GetRemotePeer`: `[[type, text, bytes], port]` (`[type, text]` in the
 /// Unix domain).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetRemotePeer(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_GetRemotePeer(this: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     match remote_peer(s.descriptor()) {
         Ok((e, port)) => {
@@ -330,21 +330,21 @@ pub extern "C" fn dartforge_nativo_Socket_GetRemotePeer(this: i64) -> i64 {
 
 /// `Socket_GetError`: the pending error as an `OSError`, or `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetError(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_GetError(this: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     let c = pending_error(s.descriptor());
     if c != 0 { OsError::from_code(c).to_dart() } else { 0 }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetFD(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_GetFD(this: i64) -> i64 {
     object_socket(this).map_or(0, NativeSocket::descriptor)
 }
 
 /// `_getSocketType(nativeSocket)`: the descriptor type (terminal, pipe, file,
 /// other) or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetType(sock: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_GetType(sock: i64) -> i64 {
     let Some(s) = object_socket(sock) else { return 0 };
     dart_or_error(descriptor_type(s.descriptor()), dart_int)
 }
@@ -352,7 +352,7 @@ pub extern "C" fn dartforge_nativo_Socket_GetType(sock: i64) -> i64 {
 /// `Socket_GetStdioHandle(socket, num)`: the standard input/output `num` as a
 /// socket (the asynchronous input of `stdin`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetStdioHandle(sock: i64, num: i64) -> u8 {
+pub extern "C" fn dartforge_native_Socket_GetStdioHandle(sock: i64, num: i64) -> u8 {
     let fd = default_handle(num.clamp(0, 2));
     if fd >= 0 {
         set_socket_on_object(sock, fd, SocketFinalizer::Stdio);
@@ -361,7 +361,7 @@ pub extern "C" fn dartforge_nativo_Socket_GetStdioHandle(sock: i64, num: i64) ->
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetSocketId(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_GetSocketId(this: i64) -> i64 {
     let p = native_field(this);
     if p == 0 {
         throw_internal_error("No native peer");
@@ -372,27 +372,27 @@ pub extern "C" fn dartforge_nativo_Socket_GetSocketId(this: i64) -> i64 {
 /// `Socket_SetSocketId(id, typeFlags)`: the object starts using descriptor `id`
 /// (the `_NativeSocket` created for an already open descriptor: the signal pipes).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_SetSocketId(this: i64, id: i64, flag_bits: i64) {
+pub extern "C" fn dartforge_native_Socket_SetSocketId(this: i64, id: i64, flag_bits: i64) {
     let f = if flag_bits & (1 << 21) != 0 { SocketFinalizer::Signal } else { SocketFinalizer::Normal };
     set_socket_on_object(this, id, f);
 }
 
 /// `SocketBase_IsBindError(errno)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SocketBase_IsBindError(_this: i64, error: i64) -> u8 {
+pub extern "C" fn dartforge_native_SocketBase_IsBindError(_this: i64, error: i64) -> u8 {
     u8::from(is_bind_error(error))
 }
 
 /// `OSError_inProgressErrorCode`: the system's "operation in progress".
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_OSError_inProgressErrorCode() -> i64 {
+pub extern "C" fn dartforge_native_OSError_inProgressErrorCode() -> i64 {
     in_progress_code()
 }
 
 /// `Socket_GetOption(option, protocol)`: `TCP_NODELAY`, multicast loop and TTL,
 /// `SO_BROADCAST`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetOption(this: i64, option: i64, protocol: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_GetOption(this: i64, option: i64, protocol: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     match get_option(s.descriptor(), option, protocol == TYPE_IPV4) {
         Some(v) if option == 2 => dart_int(v),
@@ -406,7 +406,7 @@ pub extern "C" fn dartforge_nativo_Socket_GetOption(this: i64, option: i64, prot
 
 /// `Socket_SetOption(option, protocol, value)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_SetOption(this: i64, option: i64, protocol: i64, value: i64) {
+pub extern "C" fn dartforge_native_Socket_SetOption(this: i64, option: i64, protocol: i64, value: i64) {
     let Some(s) = object_socket(this) else { return };
     if !(0..=4).contains(&option) || option == 3 {
         throw_argument_error("option to setOption() is outside expected range");
@@ -426,7 +426,7 @@ pub extern "C" fn dartforge_nativo_Socket_SetOption(this: i64, option: i64, prot
 
 /// `Socket_SetRawOption(level, option, data)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_SetRawOption(this: i64, level: i64, option: i64, data: i64) {
+pub extern "C" fn dartforge_native_Socket_SetRawOption(this: i64, level: i64, option: i64, data: i64) {
     let Some(s) = object_socket(this) else { return };
     let b = typed_list_bytes(data).unwrap_or_default();
     if !set_raw_option(s.descriptor(), level, option, &b) {
@@ -436,13 +436,13 @@ pub extern "C" fn dartforge_nativo_Socket_SetRawOption(this: i64, level: i64, op
 
 /// `Socket_JoinMulticast(addr, interfaceAddr, interfaceIndex)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_JoinMulticast(this: i64, addr: i64, iface: i64, ix: i64) {
+pub extern "C" fn dartforge_native_Socket_JoinMulticast(this: i64, addr: i64, iface: i64, ix: i64) {
     multicast(this, addr, iface, ix, true);
 }
 
 /// `Socket_LeaveMulticast(addr, interfaceAddr, interfaceIndex)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_LeaveMulticast(this: i64, addr: i64, iface: i64, ix: i64) {
+pub extern "C" fn dartforge_native_Socket_LeaveMulticast(this: i64, addr: i64, iface: i64, ix: i64) {
     multicast(this, addr, iface, ix, false);
 }
 
@@ -512,7 +512,7 @@ fn multicast_option(group: &[u8], iface: Option<&[u8]>, ix: i64, v4: bool, join:
 
 /// `Socket_GetRawOption(level, option, data)`: writes the value into `data`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_GetRawOption(this: i64, level: i64, option: i64, data: i64) {
+pub extern "C" fn dartforge_native_Socket_GetRawOption(this: i64, level: i64, option: i64, data: i64) {
     let Some(s) = object_socket(this) else { return };
     let mut b = typed_list_bytes(data).unwrap_or_default();
     if !get_raw_option(s.descriptor(), level, option, &mut b) {
@@ -524,7 +524,7 @@ pub extern "C" fn dartforge_nativo_Socket_GetRawOption(this: i64, level: i64, op
 
 /// `RawSocketOption_GetOptionValue(key)`: the system constants.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_RawSocketOption_GetOptionValue(key: i64) -> i64 {
+pub extern "C" fn dartforge_native_RawSocketOption_GetOptionValue(key: i64) -> i64 {
     match raw_option_constant(key) {
         Some(v) => v,
         None => {
@@ -536,7 +536,7 @@ pub extern "C" fn dartforge_nativo_RawSocketOption_GetOptionValue(key: i64) -> i
 
 /// `Socket_Fatal(msg)`: an unrecoverable `dart:io` error (the VM aborts).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_Fatal(msg: i64) {
+pub extern "C" fn dartforge_native_Socket_Fatal(msg: i64) {
     let text = if msg == 0 { String::from("(null)") } else { HEAP.with(|h| h.borrow().text(msg).map(|t| t.para_string()).unwrap_or_default()) };
     eprintln!("Fatal error in dart:io (socket): {text}");
     std::process::abort();
@@ -546,7 +546,7 @@ pub extern "C" fn dartforge_nativo_Socket_Fatal(msg: i64) {
 // UDP.
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_CreateBindDatagram(this: i64, addr: i64, port: i64, reuse_address: u8, reuse_port: u8, ttl: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_CreateBindDatagram(this: i64, addr: i64, port: i64, reuse_address: u8, reuse_port: u8, ttl: i64) -> i64 {
     let Some(e) = dest_address(addr, port, 0) else {
         throw_invalid_address();
         return 0;
@@ -556,7 +556,7 @@ pub extern "C" fn dartforge_nativo_Socket_CreateBindDatagram(this: i64, addr: i6
 
 /// `Socket_AvailableDatagram`: whether there is a datagram.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_AvailableDatagram(this: i64) -> u8 {
+pub extern "C" fn dartforge_native_Socket_AvailableDatagram(this: i64) -> u8 {
     let Some(s) = object_socket(this) else { return 0 };
     u8::from(has_datagram(s.descriptor()))
 }
@@ -567,7 +567,7 @@ const MAX_DATAGRAM_SIZE: usize = 65536;
 /// `Socket_RecvFrom`: the received `Datagram` (through the patch's
 /// `_makeDatagram`), or `null` if there was none.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_RecvFrom(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_RecvFrom(this: i64) -> i64 {
     socket_recvfrom(this, false)
 }
 
@@ -586,7 +586,7 @@ pub extern "C" fn dartforge_nativo_Socket_RecvFrom(this: i64) -> i64 {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// // Receiver without a peer: the pending exit hands over no owner.
-/// let socket = dartforge_arc_objeto_owned_v1(123, 1);
+/// let socket = dartforge_arc_object_owned_v1(123, 1);
 /// assert_eq!(dartforge_arc_socket_recvfrom_owned_v1(socket), 0);
 /// assert_ne!(dartforge_exception_pending(), 0);
 /// dartforge_exception_clear();
@@ -594,7 +594,7 @@ pub extern "C" fn dartforge_nativo_Socket_RecvFrom(this: i64) -> i64 {
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_socket_recvfrom_owned_v1(this: i64) -> i64 {
-    let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
+    let scope = ArcUniformScope(dartforge_arc_native_scope_open_v1());
     let result = socket_recvfrom(this, true);
     let result = if dartforge_exception_pending() != 0 {
         assert_eq!(result, 0, "pending ARC receive must return null");
@@ -641,7 +641,7 @@ fn socket_recvfrom(this: i64, owned: bool) -> i64 {
 /// `Socket_SendTo(buffer, offset, bytes, address, port)`: the bytes sent (0 if the
 /// socket is full).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_SendTo(this: i64, buffer: i64, start: i64, n: i64, addr: i64, port: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_SendTo(this: i64, buffer: i64, start: i64, n: i64, addr: i64, port: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     let Some(e) = dest_address(addr, port, 0) else {
         throw_invalid_address();
@@ -664,14 +664,14 @@ pub extern "C" fn dartforge_nativo_Socket_SendTo(this: i64, buffer: i64, start: 
 
 /// `InternetAddress_Parse(address)`: the bytes of the numeric address, or `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_InternetAddress_Parse(text: i64) -> i64 {
+pub extern "C" fn dartforge_native_InternetAddress_Parse(text: i64) -> i64 {
     let t = HEAP.with(|h| h.borrow().text(text).map(|t| t.para_string()).unwrap_or_default());
     parse_address(&t).map_or(0, dart_bytes)
 }
 
 /// `InternetAddress_RawAddrToString(address)`: the numeric text.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_InternetAddress_RawAddrToString(addr: i64) -> i64 {
+pub extern "C" fn dartforge_native_InternetAddress_RawAddrToString(addr: i64) -> i64 {
     let Some(e) = address_from_list(addr) else {
         throw_invalid_address();
         return 0;
@@ -682,7 +682,7 @@ pub extern "C" fn dartforge_nativo_InternetAddress_RawAddrToString(addr: i64) ->
 /// `InternetAddress_ParseScopedLinkLocalAddress(address)`: the scope of a link-local
 /// IPv6 with `%interface`, or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_InternetAddress_ParseScopedLinkLocalAddress(text: i64) -> i64 {
+pub extern "C" fn dartforge_native_InternetAddress_ParseScopedLinkLocalAddress(text: i64) -> i64 {
     let t = HEAP.with(|h| h.borrow().text(text).map(|t| t.para_string()).unwrap_or_default());
     match resolve_name(&t, TYPE_IPV6) {
         Ok(v) if !v.is_empty() => dart_int(v[0].scope()),
@@ -776,7 +776,7 @@ fn dart_ip_address(ip: std::net::IpAddr) -> i64 {
 /// `SynchronousSocket_LookupRequest(host, type)`: `[[type, text, bytes]…]` or the
 /// `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_LookupRequest(host: i64, tipo: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_LookupRequest(host: i64, tipo: i64) -> i64 {
     let host = String::from_utf8_lossy(&utf8_of_string(host)).into_owned();
     match resolve_name(&host, tipo) {
         Ok(v) => {
@@ -802,7 +802,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_LookupRequest(host: i64, ti
 /// `SynchronousSocket_CreateConnectSync(addr, port)`: `null` when connected, or the
 /// `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_CreateConnectSync(this: i64, addr: i64, port: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_CreateConnectSync(this: i64, addr: i64, port: i64) -> i64 {
     let ip = match typed_list_bytes(addr).as_deref() {
         Some(&[a, b, c, d]) => std::net::IpAddr::from([a, b, c, d]),
         Some(b) if b.len() == 16 => {
@@ -828,7 +828,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_CreateConnectSync(this: i64
 
 /// `SynchronousSocket_Available`: the bytes already received and not read.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_Available(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_Available(this: i64) -> i64 {
     let Some(Some(s)) = sync_socket(this) else { return dart_int(0) };
     dart_int(ready_bytes(s).max(0))
 }
@@ -857,7 +857,7 @@ fn ready_bytes(s: &std::net::TcpStream) -> i64 {
 
 /// `SynchronousSocket_CloseSync`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_CloseSync(this: i64) {
+pub extern "C" fn dartforge_native_SynchronousSocket_CloseSync(this: i64) {
     if let Some(s) = sync_socket(this) {
         s.take();
     }
@@ -865,7 +865,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_CloseSync(this: i64) {
 
 /// `SynchronousSocket_GetPort`: the local port or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_GetPort(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_GetPort(this: i64) -> i64 {
     let Some(Some(s)) = sync_socket(this) else { return 0 };
     match s.local_addr() {
         Ok(a) => dart_int(i64::from(a.port())),
@@ -876,7 +876,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_GetPort(this: i64) -> i64 {
 /// `SynchronousSocket_GetRemotePeer`: `[[type, text, bytes], port]` or the
 /// `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_GetRemotePeer(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_GetRemotePeer(this: i64) -> i64 {
     let Some(Some(s)) = sync_socket(this) else { return 0 };
     match s.peer_addr() {
         Ok(a) => {
@@ -890,7 +890,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_GetRemotePeer(this: i64) ->
 /// `SynchronousSocket_Read(len)`: up to `len` bytes (blocks until some arrive);
 /// `null` at the end of the stream; or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_Read(this: i64, len: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_Read(this: i64, len: i64) -> i64 {
     use std::io::Read;
     let Some(Some(s)) = sync_socket(this) else { return 0 };
     let len = len.max(0) as usize;
@@ -908,7 +908,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_Read(this: i64, len: i64) -
 /// `SynchronousSocket_ReadList(buffer, offset, bytes)`: writes into `buffer` and
 /// returns how many it read (0 at the end of the stream), or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_ReadList(this: i64, buffer: i64, start: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_ReadList(this: i64, buffer: i64, start: i64, n: i64) -> i64 {
     use std::io::Read;
     let Some(Some(s)) = sync_socket(this) else { return 0 };
     let start = start.max(0) as usize;
@@ -926,7 +926,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_ReadList(this: i64, buffer:
 /// `SynchronousSocket_WriteList(buffer, offset, bytes)`: writes everything and
 /// returns how many, or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_WriteList(this: i64, buffer: i64, start: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_native_SynchronousSocket_WriteList(this: i64, buffer: i64, start: i64, n: i64) -> i64 {
     use std::io::Write;
     let Some(Some(s)) = sync_socket(this) else { return 0 };
     let start = start.max(0) as usize;
@@ -942,7 +942,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_WriteList(this: i64, buffer
 
 /// `SynchronousSocket_ShutdownRead`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_ShutdownRead(this: i64) {
+pub extern "C" fn dartforge_native_SynchronousSocket_ShutdownRead(this: i64) {
     if let Some(Some(s)) = sync_socket(this) {
         let _ = s.shutdown(std::net::Shutdown::Read);
     }
@@ -950,7 +950,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_ShutdownRead(this: i64) {
 
 /// `SynchronousSocket_ShutdownWrite`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SynchronousSocket_ShutdownWrite(this: i64) {
+pub extern "C" fn dartforge_native_SynchronousSocket_ShutdownWrite(this: i64) {
     if let Some(Some(s)) = sync_socket(this) {
         let _ = s.shutdown(std::net::Shutdown::Write);
     }
@@ -992,7 +992,7 @@ fn throw_out_of_resources() {
 /// `SocketControlMessage.fromHandles(handles)`: the `SCM_RIGHTS` message with the
 /// descriptors.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SocketControlMessage_fromHandles(resources: i64) -> i64 {
+pub extern "C" fn dartforge_native_SocketControlMessage_fromHandles(resources: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `(List<ResourceHandle>, int, int) → Object`.
@@ -1010,7 +1010,7 @@ pub extern "C" fn dartforge_nativo_SocketControlMessage_fromHandles(resources: i
 
 /// `_SocketControlMessageImpl.extractHandles()`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SocketControlMessageImpl_extractHandles(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_SocketControlMessageImpl_extractHandles(this: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `(Object, int, int) → List<ResourceHandle>`.
@@ -1029,7 +1029,7 @@ pub extern "C" fn dartforge_nativo_SocketControlMessageImpl_extractHandles(this:
 /// `Socket_SendMessage(buffer, offset, bytes, controlMessages)`: the bytes sent;
 /// `controlMessages` is `[level, type, Uint8List]*`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_SendMessage(this: i64, buffer: i64, start: i64, n: i64, controls: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_SendMessage(this: i64, buffer: i64, start: i64, n: i64, controls: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     #[cfg(unix)]
     {
@@ -1071,7 +1071,7 @@ pub extern "C" fn dartforge_nativo_Socket_SendMessage(this: i64, buffer: i64, st
 /// `Socket_ReceiveMessage(len)`: `[level, type, Uint8List]*` and, last, the
 /// `Uint8List` of the data.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Socket_ReceiveMessage(this: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_native_Socket_ReceiveMessage(this: i64, n: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
     #[cfg(unix)]
     {
@@ -1102,7 +1102,7 @@ pub extern "C" fn dartforge_nativo_Socket_ReceiveMessage(this: i64, n: i64) -> i
 /// `ResourceHandleImpl_toFile`: the `RandomAccessFile` over the descriptor (the
 /// file becomes its owner).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toFile(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_ResourceHandleImpl_toFile(this: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int` and `(int) → RandomAccessFile`.
@@ -1121,7 +1121,7 @@ pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toFile(this: i64) -> i64 {
 /// `ResourceHandleImpl_toRawSocket`: `[type, text, bytes, fd]` of the descriptor's
 /// local address.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toRawSocket(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_ResourceHandleImpl_toRawSocket(this: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int`.
@@ -1160,13 +1160,13 @@ fn throw_unsupported_resource(api: &str) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toSocket(_this: i64) -> i64 {
+pub extern "C" fn dartforge_native_ResourceHandleImpl_toSocket(_this: i64) -> i64 {
     throw_unsupported_resource("toSocket");
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toRawDatagramSocket(_this: i64) -> i64 {
+pub extern "C" fn dartforge_native_ResourceHandleImpl_toRawDatagramSocket(_this: i64) -> i64 {
     throw_unsupported_resource("toRawDatagramSocket");
     0
 }

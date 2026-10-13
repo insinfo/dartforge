@@ -33,8 +33,8 @@ tabelas inteiras, definidas nos módulos do SDK (§3.8).
 | Tabela de uma classe concreta: pares `(seletor, entrada)` pela linearização | `EN/lower/sdk_fonte.rs` `tabela_de_metodos`, `lower_adaptadores_e_tabelas` |
 | Emissão: `@<sim>$d = private … { cid, n, (hash, ptr)… }` e `define ptr @<sim>()` | `EN/llvm/seletores.rs` `emitir_tabelas_de_metodos` |
 | Registro preguiçoso na primeira alocação (`dartforge_object_new_t`, `_typed_novo_t`, `_view_nova_t`, `_typed_externo_t`) | `EN/llvm/mod.rs` (alocação em linha e `CallRuntime`), `RT/seletores.rs` |
-| Registro na partida: classes do programa, `_StackTrace`, classes dos valores do runtime | `emitir_registro`, `emit_entry` (`df.preparar_isolado`) |
-| Busca: cache do ponto de chamada, depois busca binária na tabela | `@df.seletor` em `EN/llvm/mod.rs`, `dartforge_seletor` em `RT/seletores.rs` |
+| Registro na partida: classes do programa, `_StackTrace`, classes dos valores do runtime | `emitir_registro`, `emit_entry` (`df.prepare_isolate`) |
+| Busca: cache do ponto de chamada, depois busca binária na tabela | `@df.selector` em `EN/llvm/mod.rs`, `dartforge_selector` em `RT/seletores.rs` |
 | SDK de produção: bitcode `-O2` por biblioteca, em cache por conteúdo | `EN/sdk_modulo.rs` `sdk_compilado_no_perfil` |
 | Ligação de produção: programa + bitcode do SDK + runtime estático, LTO, `/OPT:REF`, `safeicf` | `EN/driver.rs`, `EN/ligador_windows.rs`, `ligador.rs`, `ligador_macos.rs` |
 
@@ -100,17 +100,17 @@ exatamente o que o texto cita. A leitura do IR:
 * `define … @f(…) {` até a linha `}`: a função `f`; toda `@x` no corpo (e depois do nome, na linha
   do `define`) é referência;
 * `@g = …`: global; toda `@x` depois do `=` é referência;
-* `call ptr @df.seletor(ptr …, i64 …, i64 <H>, ptr @df.seln.<k>, i64 …)`: a função chama o seletor
+* `call ptr @df.selector(ptr …, i64 …, i64 <H>, ptr @df.seln.<k>, i64 …)`: a função chama o seletor
   `H`. Se o texto de `@df.seln.<k>` começa com `t` (`tc:m`, `ts:x`), ela também chama o seletor sem
-  o `t`: é a volta que `dartforge_seletor` faz quando a classe não tem a entrada tipada;
+  o `t`: é a volta que `dartforge_selector` faz quando a classe não tem a entrada tipada;
 * símbolo `private`/`internal` é **local**: no resumo recebe o prefixo `<biblioteca>#`, porque
-  `@df.seln.0`, `@.str.3` e `@df.classe` se repetem em todo módulo;
+  `@df.seln.0`, `@.str.3` e `@df.class` se repetem em todo módulo;
 * `declare`, metadados, atributos e comdats não entram.
 
 ### 3.4 O programa
 
 `poda::montar(ir_do_programa, resumos)` lê o IR do programa com as mesmas regras. As tabelas do
-programa (classes do programa, formas de record, `df.mt.$tipo`) continuam emitidas como hoje; a
+programa (classes do programa, formas de record, `df.mt.$type`) continuam emitidas como hoje; a
 leitura as reconhece pela linha `@df.mt.…$d = private unnamed_addr constant { … } { i64 <cid>, i64
 <n>, i64 <h>, ptr @<entrada>, … }`.
 
@@ -135,19 +135,19 @@ linear no grafo.
 |---|---|---|
 | Entrada do processo | a CRT chama `main`, que passa `dartforge_entry` e `dartforge_dispatch_toString` ao runtime | `main` |
 | Chamadas do runtime por símbolo | nenhuma: o runtime estático de produção não cita símbolo Dart (conferido com `llvm-nm --undefined-only` no `dartforge_rtprod_*`); por segurança, todo `dartforge_*` definido num módulo Dart | `dartforge_*` |
-| Ajudantes (`_dartforge*` do SDK: erros, `noSuchMethod`, E/S, `Uri.base`) | ponteiros entregues por `dartforge_registrar_ajudante` no `df.registrar.<lib>` | alcançados pelo registro, que a entrada chama |
+| Ajudantes (`_dartforge*` do SDK: erros, `noSuchMethod`, E/S, `Uri.base`) | ponteiros entregues por `dartforge_register_helper` no `df.register.<lib>` | alcançados pelo registro, que a entrada chama |
 | `Function.apply`, classe chamável | `dartforge_closure_entry` procura `c:call` pelo hash do texto (`RT/closures.rs`) | seletor `c:call` |
-| Seletor tipado sem entrada tipada | `dartforge_seletor` repete a busca com o texto sem o `t` | `tc:m` chamado ⇒ `c:m` chamado (§3.3) |
-| `noSuchMethod` | `dartforge_nsm_seletor` → ajudante `_dartforgeNoSuchMethod`, que chama `noSuchMethod` por seletor; os encaminhadores gerados são pares comuns da tabela | pelo ajudante; `c:noSuchMethod` também é raiz |
+| Seletor tipado sem entrada tipada | `dartforge_selector` repete a busca com o texto sem o `t` | `tc:m` chamado ⇒ `c:m` chamado (§3.3) |
+| `noSuchMethod` | `dartforge_nsm_selector` → ajudante `_dartforgeNoSuchMethod`, que chama `noSuchMethod` por seletor; os encaminhadores gerados são pares comuns da tabela | pelo ajudante; `c:noSuchMethod` também é raiz |
 | Protocolo de `Object` que o runtime usa indiretamente (`toString` do erro não tratado, igualdade e hash das coleções) | `dartforge_dispatch_toString`, código do SDK | `c:toString`, `c:==`, `g:hashCode`, `c:noSuchMethod`, `g:runtimeType` (baratos: quase toda classe viva já os tem vivos) |
 | Tear-off de método | `obj.m` sem chamada é o seletor `g:m`, que chama a entrada `$g` (que cria o `$tearm`) | pelo seletor, sem raiz extra |
 | Tear-off de função e de construtor, closures | referência direta no IR | sem raiz extra |
-| FFI | callbacks e trampolins registrados em `df.preparar_isolado` (`dartforge_ffi_registrar_*`); `@Native` é importação | pela entrada |
-| Isolados | `Isolate.spawn` leva uma closure; a thread nova chama `df.preparar_isolado`, passado por `dartforge_registrar_isolados`; as tabelas copiadas entre isolados (`RT/portas.rs`) são do mesmo executável | pela entrada |
+| FFI | callbacks e trampolins registrados em `df.prepare_isolate` (`dartforge_ffi_register_*`); `@Native` é importação | pela entrada |
+| Isolados | `Isolate.spawn` leva uma closure; a thread nova chama `df.prepare_isolate`, passado por `dartforge_register_isolates`; as tabelas copiadas entre isolados (`RT/portas.rs`) são do mesmo executável | pela entrada |
 | Mirrors | o `dart:mirrors` nativo só lê nome e biblioteca da classe (`native_sdk/mirrors/mirrors_patch.dart`); não há invocação por nome | nenhuma. Se um dia houver `invoke`/`getField`, a função do runtime que busca por nome entra em `CHAMA_POR_NOME` (§3.7) |
 | `llvm.used`, `llvm.global_ctors` | o LLVM | todo global `llvm.*` |
 
-Regra geral: uma busca por hash calculado em tempo de execução, fora de `df.seletor`, **precisa**
+Regra geral: uma busca por hash calculado em tempo de execução, fora de `df.selector`, **precisa**
 de uma raiz aqui. Hoje há só a de `c:call`.
 
 ### 3.7 Busca por nome em tempo de execução
@@ -168,13 +168,13 @@ O `montar` devolve o IR do programa com:
   define.
 
 Tabela morta (a função dela não é alcançada) sai vazia: nada vivo a cita, e o LTO a tira. Tabela
-viva registra só os pares vivos; como toda busca da tabela usa um hash de `df.seletor` vivo (ou
+viva registra só os pares vivos; como toda busca da tabela usa um hash de `df.selector` vivo (ou
 `c:call`), um par podado nunca é procurado.
 
 Ficam de fora, sem mudança:
 
 * **JIT e recarga:** a geração nova do programa pode chamar qualquer seletor; o JIT usa a DLL de
-  desenvolvimento, com as tabelas inteiras nos módulos do SDK, e `dartforge_publicar_geracao`
+  desenvolvimento, com as tabelas inteiras nos módulos do SDK, e `dartforge_publish_generation`
   substitui tabelas do programa. Podar ali exigiria reconstruir o SDK a cada recarga.
 * **`--nativo` sem `--optimize` e a DLL do SDK:** a ligação rápida contra a DLL; a DLL é uma só
   para todo programa.
@@ -223,7 +223,7 @@ No `new_sali/backend` saem 131 270 funções e 77 633 globais: 476 MB dos 1,31 G
 desliga também isto.
 
 O despacho compacto do programa grande (`docs/NATIVO-PRODUCAO-GRANDE.md` §3) chama
-`@df.seletor_d(ptr <cache>, i64 <receptor>, ptr @df.seld.<k>)`, e o descritor
+`@df.selector_d(ptr <cache>, i64 <receptor>, ptr @df.seld.<k>)`, e o descritor
 `@df.seld.<k> = … { i64 <hash>, ptr @df.seln.<k>, i64 <len> }` leva o seletor: o `resumir` lê o
 hash do descritor citado (`descritor_de_seletor`, `chamada_de_seletor_compacta`; teste
 `chamada_compacta_le_o_seletor_do_descritor`).

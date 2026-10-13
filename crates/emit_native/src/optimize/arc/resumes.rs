@@ -6,7 +6,7 @@ pub(crate) fn resume_instruction(i: &Instruction) -> bool {
     match i {
         Instruction::ArcDrop { .. } => true,
         Instruction::CallRuntime { name, args, ret_ty } => {
-            name == "dartforge_arc_quadro_fechar_v1"
+            name == "dartforge_arc_frame_close_v1"
                 && *ret_ty == Type::Void
                 && matches!(args.as_slice(), [(Operand::Val(_), Type::I64)])
         }

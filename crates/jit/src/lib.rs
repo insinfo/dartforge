@@ -72,10 +72,10 @@ pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 
 /// Identifies the contract of the `main` emitted for the source SDK. A mere
 /// `df.register.*` declaration may also appear in IR that does not call the
-/// DLL's runtime; the decision depends on the actual call to `dartforge_iniciar`.
+/// DLL's runtime; the decision depends on the actual call to `dartforge_init`.
 pub fn ir_usa_sdk_da_fonte(ir: &str) -> bool {
     let main = ir.lines().any(|line| line.trim_start().starts_with("define i32 @main()"));
-    let iniciar = ir.lines().any(|line| line.contains("call i32 @dartforge_iniciar(ptr @dartforge_entry,"));
+    let iniciar = ir.lines().any(|line| line.contains("call i32 @dartforge_init(ptr @dartforge_entry,"));
     main && iniciar
 }
 
@@ -372,7 +372,7 @@ impl JitSession {
     }
 
     /// Runs the `main` of the program with the source SDK (which calls the
-    /// DLL's `dartforge_iniciar`): the exit code is its own. The mutable
+    /// DLL's `dartforge_init`): the exit code is its own. The mutable
     /// globals of the program's JIT modules are zeroed between executions of the
     /// same session. Internal statics of the SDK DLL persist between calls.
     pub fn run_main(&self) -> Result<EntryReport, JitError> {
@@ -670,7 +670,7 @@ impl JitSession {
     /// generation; `run_entry` still offers isolated executions.
     ///
     /// The embedded runtime uses per-thread state. A session with an SDK DLL has
-    /// another initialization contract (`dartforge_iniciar`) and is refused here.
+    /// another initialization contract (`dartforge_init`) and is refused here.
     pub fn run_reloadable_entry(&self) -> Result<EntryReport, JitError> {
         if self.sdk_dll.is_some() {
             return Err(JitError::new("execute", "stateful reload does not support the source SDK yet", String::new()));
@@ -687,7 +687,7 @@ impl JitSession {
     }
 
     /// Runs the reloadable `main` of the source SDK on the calling thread.
-    /// The DLL's `dartforge_iniciar` keeps that thread's runtime and does the
+    /// The DLL's `dartforge_init` keeps that thread's runtime and does the
     /// finalization; no global of the JIT modules is zeroed here.
     pub fn run_reloadable_main(&self) -> Result<EntryReport, JitError> {
         if self.sdk_dll.is_none() {
@@ -873,10 +873,10 @@ mod tests {
     use super::*;
     #[test]
     fn registry_declaration_does_not_change_runtime_profile() {
-        let without_sdk = "declare void @df.registrar.fake()\ndefine void @dartforge_entry() { ret void }\n";
+        let without_sdk = "declare void @df.register.fake()\ndefine void @dartforge_entry() { ret void }\n";
         assert!(!ir_usa_sdk_da_fonte(without_sdk));
-        let with_sdk = "declare void @df.registrar.core()\ndefine void @dartforge_entry() { ret void }\n\
-            define i32 @main() {\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+        let with_sdk = "declare void @df.register.core()\ndefine void @dartforge_entry() { ret void }\n\
+            define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
         assert!(ir_usa_sdk_da_fonte(with_sdk));
     }
     /// The error message identifies the stage and preserves the LLVM text.
@@ -909,16 +909,16 @@ mod tests {
     #[test]
     #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
     fn cached_object_accepts_external_authorized_by_sdk() {
-        let ir = "declare void @df.sdk_teste()\ndefine void @dartforge_entry() {\n  call void @df.sdk_teste()\n  ret void\n}\n";
+        let ir = "declare void @df.sdk_test()\ndefine void @dartforge_entry() {\n  call void @df.sdk_test()\n  ret void\n}\n";
         let compiled = compile_module("sdk", ir).unwrap();
         let mut without_sdk = JitSession::new().unwrap();
         assert_eq!(without_sdk.add_compiled_module(&compiled).unwrap_err().stage, "symbols");
 
         let mut with_sdk = JitSession::new().unwrap();
-        with_sdk.sdk_externals.insert("df.sdk_teste".to_owned());
+        with_sdk.sdk_externals.insert("df.sdk_test".to_owned());
         with_sdk.add_ir_module("sdk-ir", ir).unwrap();
         let mut with_sdk = JitSession::new().unwrap();
-        with_sdk.sdk_externals.insert("df.sdk_teste".to_owned());
+        with_sdk.sdk_externals.insert("df.sdk_test".to_owned());
         with_sdk.add_compiled_module(&compiled).unwrap();
     }
 }

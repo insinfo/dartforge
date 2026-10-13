@@ -6,7 +6,7 @@
 //!   `Pointer` and the ABI-specific integers (`Long`, `Size`, `WChar`…, of the
 //!   SDK and of the program), resolved for the target through the
 //!   `@AbiSpecificIntegerMapping` annotation. The table goes to the runtime
-//!   (`dartforge_ffi_registrar_tipo`), which uses it in `sizeOf` and to find the
+//!   (`dartforge_ffi_register_type`), which uses it in `sizeOf` and to find the
 //!   trampoline of a signature through the RTI.
 //! * **Trampolines.** Every native signature `NativeFunction<F>` that appears
 //!   in the program (the whole type table, after inference) gets a
@@ -472,7 +472,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let x = match (t, cls) {
                 (NativeType::Prim(CType::Handle), _) => self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_objeto_do_handle".to_string(),
+                        name: "dartforge_ffi_handle_object".to_string(),
                         args: vec![(v, Type::I64)],
                         ret_ty: Type::Ref,
                     },
@@ -481,7 +481,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The `Pointer` comes from the Dart helper, which may throw.
                 (NativeType::Prim(CType::Ptr), _) => self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_callback_ponteiro".to_string(),
+                        name: "dartforge_ffi_callback_pointer".to_string(),
                         args: vec![(context.clone(), Type::I64), (Operand::Constant(Constant::Int(i as i64)), Type::I64), (v, Type::I64)],
                         ret_ty: Type::Ref,
                     },
@@ -491,7 +491,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // (the VM also copies it into a `TypedData`).
                 (NativeType::Composite(_), Some(c)) => self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_composto_copia".to_string(),
+                        name: "dartforge_ffi_compound_copy".to_string(),
                         args: vec![(Operand::Constant(Constant::Int(ctx.id_rti(*c))), Type::I64), (v, Type::I64)],
                         ret_ty: Type::Ref,
                     },
@@ -511,7 +511,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let r = self.coerce(r, Type::Ref);
                 Some(self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_handle_novo".to_string(),
+                        name: "dartforge_ffi_handle_new".to_string(),
                         args: vec![(r, Type::Ref)],
                         ret_ty: Type::I64,
                     },
@@ -522,7 +522,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let r = self.coerce(r, Type::Ref);
                 Some(self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_endereco_do_ponteiro".to_string(),
+                        name: "dartforge_ffi_pointer_address".to_string(),
                         args: vec![(r, Type::Ref)],
                         ret_ty: Type::I64,
                     },
@@ -535,7 +535,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let r = self.coerce(r, Type::Ref);
                 Some(self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_endereco_do_composto".to_string(),
+                        name: "dartforge_ffi_compound_address".to_string(),
                         args: vec![(r, Type::Ref)],
                         ret_ty: Type::I64,
                     },
@@ -569,7 +569,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let alvo = self.emit_call_with_check(
             Instruction::CallRuntime {
-                name: "dartforge_ffi_endereco_da_closure".to_string(),
+                name: "dartforge_ffi_closure_address".to_string(),
                 args: vec![(clo.clone(), Type::Ref)],
                 ret_ty: Type::I64,
             },
@@ -899,7 +899,7 @@ fn integer_literal(source: &str, ast: &ast::Ast, e: ast::ExprId) -> Option<i64> 
 }
 
 impl CType {
-    /// The suffix of the load/store natives (`DartForge_ffi_carregar_i32`).
+    /// The suffix of the load/store natives (`DartForge_ffi_load_i32`).
     fn memory_suffix(self) -> &'static str {
         match self {
             CType::I8 => "i8",
@@ -952,7 +952,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The load checks the base (a pending `RangeError`/`ArgumentError`).
                 let v = self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: format!("dartforge_nativo_DartForge_ffi_carregar_{}", tc.memory_suffix()),
+                        name: format!("dartforge_native_DartForge_ffi_load_{}", tc.memory_suffix()),
                         args: vec![(base, Type::Ref), (d, Type::I64)],
                         ret_ty: ret,
                     },
@@ -962,7 +962,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     CType::Bool => self.emit(Instruction::ICmp(ICmpOp::Ne, v, Operand::Constant(Constant::Int(0))), Type::I1),
                     CType::Ptr => self.emit_call_with_check(
                         Instruction::CallRuntime {
-                            name: "dartforge_ffi_ponteiro_novo".to_string(),
+                            name: "dartforge_ffi_pointer_new".to_string(),
                             args: vec![(v, Type::I64)],
                             ret_ty: Type::Ref,
                         },
@@ -973,7 +973,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             FieldType::Composite(c) => self.emit_call_with_check(
                 Instruction::CallRuntime {
-                    name: "dartforge_ffi_composto".to_string(),
+                    name: "dartforge_ffi_compound".to_string(),
                     args: vec![(Operand::Constant(Constant::Int(self.ctx.id_rti(c))), Type::I64), (base, Type::Ref), (d, Type::I64)],
                     ret_ty: Type::Ref,
                 },
@@ -997,7 +997,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let data = self.emit(Instruction::ConstArray(words), Type::Ptr);
                 let rest = self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_lista_de_tabela".to_string(),
+                        name: "dartforge_list_from_table".to_string(),
                         args: vec![(data, Type::Ptr), (Operand::Constant(Constant::Int(table.len() as i64)), Type::I64)],
                         ret_ty: Type::Ref,
                     },
@@ -1042,7 +1042,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         (
                             self.emit_call_with_check(
                                 Instruction::CallRuntime {
-                                    name: "dartforge_ffi_endereco_do_ponteiro".to_string(),
+                                    name: "dartforge_ffi_pointer_address".to_string(),
                                     args: vec![(p, Type::Ref)],
                                     ret_ty: Type::I64,
                                 },
@@ -1056,7 +1056,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The store checks the base, like the load.
                 self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: format!("dartforge_nativo_DartForge_ffi_gravar_{}", tc.memory_suffix()),
+                        name: format!("dartforge_native_DartForge_ffi_store_{}", tc.memory_suffix()),
                         args: vec![(base, Type::Ref), (d, Type::I64), (v, ty)],
                         ret_ty: Type::Void,
                     },
@@ -1075,7 +1075,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let od = self.coerce(od, Type::I64);
                 self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_nativo_DartForge_ffi_copiar".to_string(),
+                        name: "dartforge_native_DartForge_ffi_copy".to_string(),
                         args: vec![
                             (base, Type::Ref),
                             (d, Type::I64),
@@ -1104,7 +1104,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let name_str = self.emit(Instruction::ConstArray(words), Type::Ptr);
         self.emit_call_with_check(
             Instruction::CallRuntime {
-                name: "dartforge_ffi_simbolo_nativo".to_string(),
+                name: "dartforge_ffi_native_symbol".to_string(),
                 args: vec![(name_str, Type::Ptr), (Operand::Constant(Constant::Int(symbol.len() as i64)), Type::I64)],
                 ret_ty: Type::I64,
             },
@@ -1162,7 +1162,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn native_variable_base(&mut self, symbol: &[u8]) -> Operand {
         let e = self.symbol_address(symbol);
         self.emit_call_with_check(
-            Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_novo".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Ref },
+            Instruction::CallRuntime { name: "dartforge_ffi_pointer_new".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Ref },
             Type::Ref,
         )
     }
@@ -1256,7 +1256,7 @@ fn size_of(ctx: &Context, t: &FieldType) -> usize {
 // to the native function `s` (the function name, without `symbol:`), with the signature
 // `NF`. The VM resolves the symbol in the *asset* of the library and, without it, in the
 // process and in the executable; here the resolution is in the process
-// (`dartforge_ffi_simbolo_nativo`, with a cache), where the libc and what the
+// (`dartforge_ffi_native_symbol`, with a cache), where the libc and what the
 // program loaded are (`DynamicLibrary.open` with `RTLD_GLOBAL` is not
 // needed: the process includes the libraries linked to the executable).
 
@@ -1446,8 +1446,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for (v, t) in args.iter().cloned().zip(a.params.iter()) {
             let x = match t {
                 NativeType::Prim(CType::Handle) => self.coerce(v, Type::Ref),
-                NativeType::Prim(CType::Ptr) => address(self, "dartforge_ffi_endereco_do_ponteiro", v),
-                NativeType::Composite(_) => address(self, "dartforge_ffi_endereco_do_composto", v),
+                NativeType::Prim(CType::Ptr) => address(self, "dartforge_ffi_pointer_address", v),
+                NativeType::Composite(_) => address(self, "dartforge_ffi_compound_address", v),
                 NativeType::Prim(tc) => self.coerce(v, tc.hir_type()),
             };
             natives.push((x, t.clone()));
@@ -1456,13 +1456,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (NativeType::Composite(_), Some(c)) => {
                 let new = self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_composto_novo".to_string(),
+                        name: "dartforge_ffi_compound_new".to_string(),
                         args: vec![(Operand::Constant(Constant::Int(self.ctx.id_rti(c))), Type::I64)],
                         ret_ty: Type::Ref,
                     },
                     Type::Ref,
                 );
-                let dest = address(self, "dartforge_ffi_endereco_do_composto", new.clone());
+                let dest = address(self, "dartforge_ffi_compound_address", new.clone());
                 Some((new, dest))
             }
             (NativeType::Composite(_), None) => unreachable!("returned struct without a class"),
@@ -1470,7 +1470,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let scope = with_handles.then(|| {
             self.emit(
-                Instruction::CallRuntime { name: "dartforge_ffi_handles_abrir".to_string(), args: Vec::new(), ret_ty: Type::I64 },
+                Instruction::CallRuntime { name: "dartforge_ffi_handles_open".to_string(), args: Vec::new(), ret_ty: Type::I64 },
                 Type::I64,
             )
         });
@@ -1478,7 +1478,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if matches!(t, NativeType::Prim(CType::Handle)) {
                 let obj = std::mem::replace(x, Operand::Constant(Constant::Null));
                 *x = self.emit(
-                    Instruction::CallRuntime { name: "dartforge_ffi_handle_novo".to_string(), args: vec![(obj, Type::Ref)], ret_ty: Type::I64 },
+                    Instruction::CallRuntime { name: "dartforge_ffi_handle_new".to_string(), args: vec![(obj, Type::Ref)], ret_ty: Type::I64 },
                     Type::I64,
                 );
             }
@@ -1486,7 +1486,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let close = |b: &mut Self| {
             if let Some(e) = scope.clone() {
                 b.emit(
-                    Instruction::CallRuntime { name: "dartforge_ffi_handles_fechar".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Void },
+                    Instruction::CallRuntime { name: "dartforge_ffi_handles_close".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Void },
                     Type::Void,
                 );
             }
@@ -1521,7 +1521,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let e = scope.expect("Handle return opens the scope");
             return self.emit_call_with_check(
                 Instruction::CallRuntime {
-                    name: "dartforge_ffi_handles_fechar_com_objeto".to_string(),
+                    name: "dartforge_ffi_handles_close_with_object".to_string(),
                     args: vec![(e, Type::I64), (r, Type::I64)],
                     ret_ty: Type::Ref,
                 },
@@ -1534,14 +1534,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (CType::Void, _) => Operand::Constant(Constant::Null),
             (CType::Ptr, Some(clo)) => self.emit_call_with_check(
                 Instruction::CallRuntime {
-                    name: "dartforge_ffi_ponteiro_de_retorno".to_string(),
+                    name: "dartforge_ffi_return_pointer".to_string(),
                     args: vec![(r, Type::I64), (clo, Type::Ref)],
                     ret_ty: Type::Ref,
                 },
                 Type::Ref,
             ),
             (CType::Ptr, None) => self.emit_call_with_check(
-                Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_novo".to_string(), args: vec![(r, Type::I64)], ret_ty: Type::Ref },
+                Instruction::CallRuntime { name: "dartforge_ffi_pointer_new".to_string(), args: vec![(r, Type::I64)], ret_ty: Type::Ref },
                 Type::Ref,
             ),
             // The trampoline returns `Ref`; an `@Native`, the raw value

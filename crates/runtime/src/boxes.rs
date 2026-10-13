@@ -4,8 +4,8 @@
 //! * `_Mint` (cid 3) and `_Double` (cid 4): `BRUTO` blocks of one word, the value
 //!   at `b+16`. The form is canonical: an `int` that fits in a `Smi` never becomes
 //!   a `_Mint`.
-//! * `bool` (cid 5): only the runtime's two statics (`dartforge_falso`,
-//!   `dartforge_verdadeiro`, state `PERMANENTE`); the handle is the address + 2.
+//! * `bool` (cid 5): only the runtime's two statics (`dartforge_false`,
+//!   `dartforge_true`, state `PERMANENTE`); the handle is the address + 2.
 //! * `_Celula` (14): `INSTANCIA` with one field, the map bit set by the write.
 //! * `_Contexto` (13): `INSTANCIA` with the captures, each bit set by the write.
 //! * `_Closure` (11): `INSTANCIA` with four fields — code (raw), context (`Ref`:
@@ -73,9 +73,9 @@ impl Heap {
     /// One of the two static `bool` boxes.
     pub fn box_bool(v: bool) -> Ref {
         let block = if v {
-            std::ptr::addr_of!(crate::heap::dartforge_verdadeiro)
+            std::ptr::addr_of!(crate::heap::dartforge_true)
         } else {
-            std::ptr::addr_of!(crate::heap::dartforge_falso)
+            std::ptr::addr_of!(crate::heap::dartforge_false)
         };
         block as i64 + DESLOCAMENTO_DO_HANDLE
     }

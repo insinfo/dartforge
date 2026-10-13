@@ -297,7 +297,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let label_list = std::mem::take(&mut self.pending_labels);
                 match counted {
                     // N13: the list of the bound belongs to the runtime (the class of the block says so,
-                    // `@df.nucleo_len`) — the iterations use the length and the data
+                    // `@df.core_len`) — the iterations use the length and the data
                     // read once, and the bounds checks of `v[i]`
                     // are proven by the condition; otherwise (empty, or a
                     // program class that implements `List`), the usual iterations,
@@ -582,7 +582,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // it goes straight to the "no clause matched" path.
             let capturable = self.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_exception_capturavel".to_string(),
+                    name: "dartforge_exception_catchable".to_string(),
                     args: Vec::new(),
                     ret_ty: Type::I8,
                 },
@@ -742,7 +742,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // of a call that happens before the check escaped.
             let capturable = self.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_exception_capturavel".to_string(),
+                    name: "dartforge_exception_catchable".to_string(),
                     args: Vec::new(),
                     ret_ty: Type::I8,
                 },

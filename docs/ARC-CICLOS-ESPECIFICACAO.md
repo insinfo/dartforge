@@ -621,7 +621,7 @@ números de linha que mudam.
 | `crates/emit_native/src/llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/raizes.rs`, `llvm/externs.rs` | Emitir a ABI ARC; cobrir stores, inicializações, resultados, raízes e chamadas especiais (§21). |
 | `crates/runtime/src/heap.rs` | Integrar estado ARC em `Heap`; alterar `antes_de_alocar`, alocação, `definir_campo`, raízes, tabelas laterais e `collect`. Separar política de vida da varredura física. |
 | `crates/runtime/src/espaco.rs`, `layout.rs` | Implementar reclamador ARC sem reutilizar marcas de tracing como evidência de vida; preservar layout e invariantes do alocador (§19.4). |
-| `crates/runtime/src/{nucleo,gc_raizes}.rs` | Adaptar `dartforge_object_new/get/set`, `dartforge_alocar`, registro de imagem e raízes; não abastecer TLAB sem registro ARC. |
+| `crates/runtime/src/{nucleo,gc_raizes}.rs` | Adaptar `dartforge_object_new/get/set`, `dartforge_allocate`, registro de imagem e raízes; não abastecer TLAB sem registro ARC. |
 | `crates/runtime/src/{listas,nativos_listas,colecoes,closures,tipos}.rs` | Enumerar e contabilizar todos os campos/buffers gerenciados, inclusive substituição, cópia, crescimento e redução. |
 | `crates/runtime/src/{nativos_sistema,finalizadores,eventos,excecoes}.rs` | Integrar promoção weak, ephemerons, anexos, eventos e pendências com a máquina de estados de morte. |
 | `native_sdk/core/finalizer_patch.dart`, `native_sdk/ffi/ffi_native_finalizer_patch.dart` | Preservar ligação do callback à zona, classificar a ação capturada e transportar `externalSize` ao runtime; atualmente o patch nativo valida esse tamanho, mas não o passa à extern. |
@@ -1056,7 +1056,7 @@ Em `llvm/mod.rs`, alterar separadamente:
 1. `Instruction::AllocObject`: campos atualmente gravados diretamente por
    `emitir_gravacao_de_campo` devem usar inicialização ARC ou stores certificados.
 2. `Instruction::SetField`: substituir o store/bitmap/barreira geracional por
-   transação ARC; `dartforge_lembrar` sozinho não conta referências.
+   transação ARC; `dartforge_remember` sozinho não conta referências.
 3. A especialização de `CallRuntime("dartforge_object_set")` com índice constante
    precisa do mesmo tratamento. Alterar só `SetField` deixa esse desvio ativo.
 4. `alocacao_em_linha`/TLAB: emitir o registro de metadados e owner inicial antes
@@ -1111,7 +1111,7 @@ o inventário nem os contratos de todas as instruções do lowering.
 Extensão auditada do catálogo: `dartforge_gc_global_root` recebe ID nativo
 de armazenamento e Ref borrowed, cria owner persistente e pode invalidar
 borrows associados ao valor substituído; não consome o token SSA do argumento.
-`dartforge_marcar_constante` recebe Ref borrowed e endereço nativo do getter,
+`dartforge_mark_constant` recebe Ref borrowed e endereço nativo do getter,
 mantém a referência permanente e também não consome SSA. O catálogo passa a
 15 entradas; todas as auditadas exigem cobertura e assinatura Rust compatível.
 Novas linhas explícitas não precisam pertencer ao prefixo ARC. Execução Dart
@@ -1177,7 +1177,7 @@ forma/proveniência do objeto. `cell_get_ref` não usa esse contrato: seu caminh
 escalar pode criar uma caixa sem sustentação pela célula. Catálogo: 18 externs.
 
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
-`dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
+`dartforge_arc_collect`, `dartforge_arc_verify_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas
 não executam Dart nem coleta de ciclos; o coletor roda em safepoints próprios.
 Externs de campo existentes passam a seguir o modo do runtime selecionado,
@@ -1185,7 +1185,7 @@ com o contrato de resultado owned em ARC. O chamador não pode inferir o modo
 do callee pelo nome do símbolo: o registro de ABI deve garanti-lo.
 
 Base disponível para slots explícitos: `arc_abi.rs` exporta
-`dartforge_arc_quadro_{abrir,copiar,mover,fechar}_v1`, declarados no emissor
+`dartforge_arc_frame_{abrir,copiar,mover,fechar}_v1`, declarados no emissor
 e na tabela de efeitos. Quadros/índices são escalares; copiar recebe Ref
 borrowed e cria ocorrência no slot, mover transfere a ocorrência entre
 slots, fechar consome as ocorrências do quadro do topo. Todos usam o
@@ -1194,9 +1194,9 @@ coletam nem chamam Dart. Cópia/fechamento rejeitam quadro observacional.
 Essa base ainda não é inserida pelo lowering e não substitui a tabela
 ownership.tsv ou a ABI geral de retornos owned.
 
-`dartforge_arc_quadro_carregar_v1(quadro, indice) -> Ref` copia o owner do
+`dartforge_arc_frame_load_v1(quadro, indice) -> Ref` copia o owner do
 slot para um token independente em `owners_codigo`, sobrevivendo ao fecho
-do quadro. `dartforge_arc_quadro_receber_v1(quadro, indice, valor)` valida
+do quadro. `dartforge_arc_frame_receive_v1(quadro, indice, valor)` valida
 destino e token antes de mutar, transfere o token ao slot sem retain da
 origem e solta o conteúdo antigo após publicação. Null/Smi não contam
 fisicamente. As duas operações não coletam nem executam Dart; sua declaração
@@ -1671,7 +1671,7 @@ engenharia em `docs/ARC-IMPLEMENTACAO.md` (§6, "ARC puro").
 | E0 | parcial: o inventário de formas é o do `GrafoDoHeap` (bitmap da instância, `REFS`, corpo de fora, anexos, efêmeros e fracos), sem a tabela formal por construtor/escritor | auditoria por recontagem (`DARTFORGE_ARC_CONFERIR=1`) em toda drenagem |
 | E1 | feita: `--memoria arc`/`--memoria=arc` no AOT e no JIT; o modo entra na chave do SDK compilado; tracing segue padrão, com o IR de sempre | corpus 238/238 nos dois modos |
 | E2 | **não iniciada**: não há owners na HIR (§20); a contagem é toda do runtime | — |
-| E3 | feita, com desvio: o RC conta **toda** gravação forte (também em jovem), pela barreira do runtime e, nas alocações em linha do código gerado, por `dartforge_arc_inicial`; a escrita crua de um native tira uma foto, recontada na drenagem. As raízes não contam (RC adiado, Deutsch–Bobrow): a drenagem, no lugar da coleta menor, protege só o que as raízes veem; o jovem registrado sobrevive, o jovem que só as raízes veem é registrado, o resto morre sem varredura do heap e solta o que contava; os zeros cascateiam; o morto pelo RC volta ao alocador um a um (`soltar_morto`) | corpus 238/238 com auditoria, com `--gc-stress` e JIT × AOT 238/238 |
+| E3 | feita, com desvio: o RC conta **toda** gravação forte (também em jovem), pela barreira do runtime e, nas alocações em linha do código gerado, por `dartforge_arc_initial`; a escrita crua de um native tira uma foto, recontada na drenagem. As raízes não contam (RC adiado, Deutsch–Bobrow): a drenagem, no lugar da coleta menor, protege só o que as raízes veem; o jovem registrado sobrevive, o jovem que só as raízes veem é registrado, o resto morre sem varredura do heap e solta o que contava; os zeros cascateiam; o morto pelo RC volta ao alocador um a um (`soltar_morto`) | corpus 238/238 com auditoria, com `--gc-stress` e JIT × AOT 238/238 |
 | E4 | feita: *trial deletion* dos candidatos (§8) na drenagem completa, ou em toda drenagem com `DARTFORGE_ARC_CICLOS=sempre`; efêmeros pelo ponto fixo do §22.3 quando há algum; fracos e finalizadores despachados na drenagem | grafos aleatórios com semente contra oráculo independente (3000 sementes × 3 modos, `arc_grafos_aleatorios_*`); corpus 238/238 com ciclos em toda drenagem e auditoria |
 | E5 | parcial: exceções, async, eventos, isolados e JIT passam no corpus; a matriz `tracing/arc × pendência/tabelas × debug/otimizado` não está no harness (as combinações rodam por variável de ambiente) | corpus nativo 238/238 em Windows; Linux e macOS 238/238 no modo anterior (berçário), ainda não com o ARC puro |
 | E6 | início: o filtro mínimo do §32 — objeto de corpo `BRUTO` (texto, caixa numérica, dados tipados) não tem aresta e não vira candidato a ciclo | — |
@@ -3101,7 +3101,7 @@ o parser não pode transformar presença de metadata em uma propriedade de heap.
 | **Novo** `crates/emit_native/src/optimize/arc/analise/latencia.rs` | Calcular efeitos transitivos, limites de laços/stack e obrigações de entradas. Validar perfil `dsp-v1`, com proveniência e caminho de chamada para cada impedimento. Reutilizar SCCs e resumos; não equiparar `nao_lancam` a segurança de áudio. |
 | `crates/emit_native/src/optimize/{mod,efeitos}.rs`, `sdk_modulo.rs` | Rodar análise inicial para orientar otimizações e verificação final sobre a HIR transformada. SDK fornece resumos versionados; funções externas sem resumo têm efeito desconhecido. |
 | `crates/emit_native/src/lower/ffi.rs::{lower_ffi,corpo_do_callback}`, `llvm/` e `llvm/raizes.rs` | Incluir conversões, boxing, dispatch, registros de raiz, prólogo/epílogo e helpers nos efeitos da entrada. Relacionar chamadas LLVM emitidas à obrigação HIR; validar também helpers introduzidos pela toolchain ou impedir sua introdução no alvo certificado. |
-| `crates/runtime/src/ffi_callbacks.rs::{ContextoCallback,dartforge_ffi_callback_entrar,dartforge_ffi_callback_sair,dartforge_ffi_callback_postar}` | Separar capacidades verificadas da ponte comum e da futura ponte preparada. A atual postagem cria `Vec`/mensagem; a saída pode soltar contexto fechado. Esses caminhos não recebem resumo RT vazio. |
+| `crates/runtime/src/ffi_callbacks.rs::{ContextoCallback,dartforge_ffi_callback_enter,dartforge_ffi_callback_exit,dartforge_ffi_callback_post}` | Separar capacidades verificadas da ponte comum e da futura ponte preparada. A atual postagem cria `Vec`/mensagem; a saída pode soltar contexto fechado. Esses caminhos não recebem resumo RT vazio. |
 | `crates/runtime/src/{heap,typed_data,ffi,gc_raizes}.rs` e módulos ARC propostos | Expor efeitos reais de helpers, garantir vida de buffers/backing stores e auditar alocação, último drop, safepoint e acesso nativo. Preparar contexto sem acesso concorrente ilegal ao heap do isolate. |
 | **Novo** `crates/runtime/src/latencia_conferir.rs` | Auditoria com IDs/contadores de capacidade fixa por domínio, preparados antes da sessão; sem `String`, crescimento de `Vec` ou logging no callback. Registrar no build/`RUNTIME_MAIN` conforme §18. |
 | `crates/cli/src/nativo.rs`, `emit_native/src/lib.rs::CompileOptions`, `{cache,cache_objeto,driver}.rs` e `sdk_modulo.rs` | Propagar modo de contratos e perfil imutáveis, incluir dependências no cache e produzir manifesto/certificado por entrada. Não reutilizar objeto cuja ABI, efeitos, alvo ou política de verificação difiram. |

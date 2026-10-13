@@ -100,22 +100,22 @@ class StringBuffer {
     return _texto(acumulador);
   }
 
-  @pragma("vm:external-name", "DartForge_sb_novo")
+  @pragma("vm:external-name", "DartForge_sb_new")
   external static Object _novo();
 
-  @pragma("vm:external-name", "DartForge_sb_escrever")
+  @pragma("vm:external-name", "DartForge_sb_write")
   external static void _escrever(Object acumulador, String str);
 
   /// Se `obj` é uma `String`, acrescenta as unidades dela e devolve quantas;
   /// senão -1 (sem mudar nada).
-  @pragma("vm:external-name", "DartForge_sb_escrever_se_texto")
+  @pragma("vm:external-name", "DartForge_sb_write_if_string")
   external static int _escreverSeTexto(Object acumulador, Object? obj);
 
   /// Acrescenta o ponto de código `codigo` (0..0x10FFFF, conferido pelo
   /// Dart): uma unidade, ou o par de surrogates acima de 0xFFFF.
-  @pragma("vm:external-name", "DartForge_sb_escrever_codigo")
+  @pragma("vm:external-name", "DartForge_sb_write_char_code")
   external static void _escreverCodigo(Object acumulador, int codigo);
 
-  @pragma("vm:external-name", "DartForge_sb_texto")
+  @pragma("vm:external-name", "DartForge_sb_to_string")
   external static String _texto(Object acumulador);
 }

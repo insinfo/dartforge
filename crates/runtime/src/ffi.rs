@@ -31,7 +31,7 @@ fn trampolines() -> &'static std::sync::RwLock<crate::hash::HashMap<String, usiz
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_registrar_tipo(class: i64, letter: i64) {
+pub extern "C" fn dartforge_ffi_register_type(class: i64, letter: i64) {
     let Some(c) = u32::try_from(letter).ok().and_then(char::from_u32) else { return };
     let mut t = native_types().write().unwrap_or_else(|e| e.into_inner());
     t.entry(class).or_insert(c);
@@ -40,7 +40,7 @@ pub extern "C" fn dartforge_ffi_registrar_tipo(class: i64, letter: i64) {
 /// # Safety
 /// `key` points to `n` ASCII bytes; `input` is the trampoline's uniform entry.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_registrar_trampolim(key: *const u8, n: i64, input: usize) {
+pub unsafe extern "C" fn dartforge_ffi_register_trampoline(key: *const u8, n: i64, input: usize) {
     // SAFETY: guaranteed by the caller (a module constant).
     let b = unsafe { std::slice::from_raw_parts(key, n as usize) };
     let key = String::from_utf8_lossy(b).into_owned();
@@ -135,7 +135,7 @@ fn throw_unsupported(msg: &str) {
 
 /// `sizeOf<T>()`: the size in bytes of native type `T` in the target ABI.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_tamanho(tipo: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_size_of(tipo: i64) -> i64 {
     let Some(t) = object_type_type(tipo) else {
         throw_argument_error("sizeOf: type argument expected");
         return 0;
@@ -159,7 +159,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_tamanho(tipo: i64) -> i64 {
 /// `asFunction`: the closure that calls the native function at `address` through
 /// signature `ns`, with the Dart type `df`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_funcao(address: i64, ns: i64, df: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_function(address: i64, ns: i64, df: i64) -> i64 {
     let (Some(ns), Some(df)) = (object_type_type(ns), object_type_type(df)) else {
         throw_argument_error("asFunction: type arguments expected");
         return 0;
@@ -204,7 +204,7 @@ fn closure_env(clo: i64) -> (i64, i64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_endereco_da_closure(clo: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_closure_address(clo: i64) -> i64 {
     closure_env(clo).0
 }
 
@@ -223,7 +223,7 @@ fn address_of(pointer: i64) -> Option<i64> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_endereco_do_ponteiro(pointer: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_pointer_address(pointer: i64) -> i64 {
     match address_of(pointer) {
         Some(e) => e,
         None => {
@@ -235,7 +235,7 @@ pub extern "C" fn dartforge_ffi_endereco_do_ponteiro(pointer: i64) -> i64 {
 
 /// The `Pointer<X>` that a native call returns (`X` from the signature).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_ponteiro_de_retorno(address: i64, clo: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_return_pointer(address: i64, clo: i64) -> i64 {
     let (_, ns) = closure_env(clo);
     new_pointer(address, RTI.with(|u| match u.borrow().tipo(ns) {
         Type::Function { ret, .. } => Some(*ret),
@@ -255,8 +255,8 @@ pub extern "C" fn dartforge_ffi_ponteiro_de_retorno(address: i64, clo: i64) -> i
 /// Missing helper, an incompatible Owned registration or an unclosed reentrant
 /// scope; aborts at the C boundary.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ffi_ponteiro_de_retorno_owned_v1(address: i64, clo: i64) -> i64 {
-    owner_in_native_scope(|| dartforge_ffi_ponteiro_de_retorno(address, clo))
+pub extern "C" fn dartforge_arc_ffi_return_pointer_owned_v1(address: i64, clo: i64) -> i64 {
+    owner_in_native_scope(|| dartforge_ffi_return_pointer(address, clo))
 }
 
 /// A Dart `Pointer` with the address and, if known, the type `Pointer<X>`.
@@ -319,105 +319,105 @@ fn write_native<T: Copy>(base: i64, offset: i64, value: T) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_i8(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_i8(base: i64, offset: i64) -> i64 {
     load_native::<i8>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_i8(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_i8(base: i64, offset: i64, value: i64) {
     write_native::<i8>(base, offset, value as i8);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_u8(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_u8(base: i64, offset: i64) -> i64 {
     load_native::<u8>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_u8(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_u8(base: i64, offset: i64, value: i64) {
     write_native::<u8>(base, offset, value as u8);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_i16(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_i16(base: i64, offset: i64) -> i64 {
     load_native::<i16>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_i16(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_i16(base: i64, offset: i64, value: i64) {
     write_native::<i16>(base, offset, value as i16);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_u16(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_u16(base: i64, offset: i64) -> i64 {
     load_native::<u16>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_u16(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_u16(base: i64, offset: i64, value: i64) {
     write_native::<u16>(base, offset, value as u16);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_i32(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_i32(base: i64, offset: i64) -> i64 {
     load_native::<i32>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_i32(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_i32(base: i64, offset: i64, value: i64) {
     write_native::<i32>(base, offset, value as i32);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_u32(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_u32(base: i64, offset: i64) -> i64 {
     load_native::<u32>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_u32(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_u32(base: i64, offset: i64, value: i64) {
     write_native::<u32>(base, offset, value as u32);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_i64(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_i64(base: i64, offset: i64) -> i64 {
     load_native::<i64>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_i64(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_i64(base: i64, offset: i64, value: i64) {
     write_native::<i64>(base, offset, value as i64);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_u64(base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_u64(base: i64, offset: i64) -> i64 {
     load_native::<u64>(base, offset)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_u64(base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_u64(base: i64, offset: i64, value: i64) {
     write_native::<u64>(base, offset, value as u64);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_f32(base: i64, offset: i64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_f32(base: i64, offset: i64) -> f64 {
     // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 4, |p| f64::from(unsafe { std::ptr::read_unaligned(p.cast::<f32>()) })).unwrap_or(0.0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_f32(base: i64, offset: i64, value: f64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_f32(base: i64, offset: i64, value: f64) {
     // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 4, |p| unsafe { std::ptr::write_unaligned(p.cast::<f32>(), value as f32) });
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_f64(base: i64, offset: i64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_f64(base: i64, offset: i64) -> f64 {
     // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 8, |p| unsafe { std::ptr::read_unaligned(p.cast::<f64>()) }).unwrap_or(0.0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_f64(base: i64, offset: i64, value: f64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_f64(base: i64, offset: i64, value: f64) {
     // SAFETY: as in `carga_e_gravacao!`.
     with_memory(base, offset, 8, |p| unsafe { std::ptr::write_unaligned(p.cast::<f64>(), value) });
 }
@@ -425,16 +425,16 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_f64(base: i64, offset: i
 /// The load of an ABI-specific integer (`Long`, `Size`…): the C type that the
 /// compiler resolved for the target.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_abi(tipo: i64, base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_load_abi(tipo: i64, base: i64, offset: i64) -> i64 {
     match object_type_type(tipo).map(type_letter) {
-        Some(Ok('a')) => dartforge_nativo_DartForge_ffi_carregar_i8(base, offset),
-        Some(Ok('h')) => dartforge_nativo_DartForge_ffi_carregar_u8(base, offset),
-        Some(Ok('s')) => dartforge_nativo_DartForge_ffi_carregar_i16(base, offset),
-        Some(Ok('t')) => dartforge_nativo_DartForge_ffi_carregar_u16(base, offset),
-        Some(Ok('i')) => dartforge_nativo_DartForge_ffi_carregar_i32(base, offset),
-        Some(Ok('j')) => dartforge_nativo_DartForge_ffi_carregar_u32(base, offset),
-        Some(Ok('l')) => dartforge_nativo_DartForge_ffi_carregar_i64(base, offset),
-        Some(Ok('m')) => dartforge_nativo_DartForge_ffi_carregar_u64(base, offset),
+        Some(Ok('a')) => dartforge_native_DartForge_ffi_load_i8(base, offset),
+        Some(Ok('h')) => dartforge_native_DartForge_ffi_load_u8(base, offset),
+        Some(Ok('s')) => dartforge_native_DartForge_ffi_load_i16(base, offset),
+        Some(Ok('t')) => dartforge_native_DartForge_ffi_load_u16(base, offset),
+        Some(Ok('i')) => dartforge_native_DartForge_ffi_load_i32(base, offset),
+        Some(Ok('j')) => dartforge_native_DartForge_ffi_load_u32(base, offset),
+        Some(Ok('l')) => dartforge_native_DartForge_ffi_load_i64(base, offset),
+        Some(Ok('m')) => dartforge_native_DartForge_ffi_load_u64(base, offset),
         Some(Err(m)) => {
             throw_unsupported(&m);
             0
@@ -447,12 +447,12 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_carregar_abi(tipo: i64, base: i
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_abi(tipo: i64, base: i64, offset: i64, value: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_store_abi(tipo: i64, base: i64, offset: i64, value: i64) {
     match object_type_type(tipo).map(type_letter) {
-        Some(Ok('a' | 'h')) => dartforge_nativo_DartForge_ffi_gravar_u8(base, offset, value),
-        Some(Ok('s' | 't')) => dartforge_nativo_DartForge_ffi_gravar_u16(base, offset, value),
-        Some(Ok('i' | 'j')) => dartforge_nativo_DartForge_ffi_gravar_u32(base, offset, value),
-        Some(Ok('l' | 'm')) => dartforge_nativo_DartForge_ffi_gravar_u64(base, offset, value),
+        Some(Ok('a' | 'h')) => dartforge_native_DartForge_ffi_store_u8(base, offset, value),
+        Some(Ok('s' | 't')) => dartforge_native_DartForge_ffi_store_u16(base, offset, value),
+        Some(Ok('i' | 'j')) => dartforge_native_DartForge_ffi_store_u32(base, offset, value),
+        Some(Ok('l' | 'm')) => dartforge_native_DartForge_ffi_store_u64(base, offset, value),
         Some(Err(m)) => throw_unsupported(&m),
         _ => throw_unsupported("AbiSpecificInteger without an integer mapping for this ABI"),
     }
@@ -460,7 +460,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_gravar_abi(tipo: i64, base: i64
 
 /// `_memCopy(target, targetOffset, source, sourceOffset, length)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_copiar(dest: i64, dest_offset: i64, origin: i64, source_offset: i64, n: i64) {
+pub extern "C" fn dartforge_native_DartForge_ffi_copy(dest: i64, dest_offset: i64, origin: i64, source_offset: i64, n: i64) {
     let Ok(n) = usize::try_from(n) else { return };
     let mut buf = vec![0u8; n];
     // SAFETY: as in `carga_e_gravacao!`; the intermediate buffer separates the two
@@ -473,7 +473,7 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_copiar(dest: i64, dest_offset: 
 
 /// `_abi()`: the target's index in `Abi.values`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_abi() -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_abi() -> i64 {
     // The order of `Abi.values` (`abi.dart`): androidArm … windowsX64.
     let arm = cfg!(target_arch = "aarch64");
     if cfg!(windows) {
@@ -558,7 +558,7 @@ mod dl {
 
 /// `Ffi_dl_open(path)`: the handle, or `ArgumentError` with the system error.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Ffi_dl_open(file_path: i64) -> i64 {
+pub extern "C" fn dartforge_native_Ffi_dl_open(file_path: i64) -> i64 {
     let text = HEAP.with(|h| h.borrow().text(file_path).map(|t| t.para_string()).unwrap_or_default());
     #[cfg(unix)]
     {
@@ -586,12 +586,12 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_open(file_path: i64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Ffi_dl_processLibrary() -> i64 {
+pub extern "C" fn dartforge_native_Ffi_dl_processLibrary() -> i64 {
     PROCESS_HANDLE
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Ffi_dl_executableLibrary() -> i64 {
+pub extern "C" fn dartforge_native_Ffi_dl_executableLibrary() -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `dlopen(NULL)` is the executable.
@@ -629,7 +629,7 @@ fn search_for(handle: i64, name: &std::ffi::CStr) -> usize {
 
 /// `Ffi_dl_lookup(handle, symbolName)`: the address, or `ArgumentError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Ffi_dl_lookup(handle: i64, name: i64) -> i64 {
+pub extern "C" fn dartforge_native_Ffi_dl_lookup(handle: i64, name: i64) -> i64 {
     let text = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
     let Ok(c) = std::ffi::CString::new(text.clone()) else {
         return throw_ffi_argument_error(format!("Failed to lookup symbol '{text}'"));
@@ -646,13 +646,13 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_lookup(handle: i64, name: i64) -> i64 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Ffi_dl_providesSymbol(handle: i64, name: i64) -> u8 {
+pub extern "C" fn dartforge_native_Ffi_dl_providesSymbol(handle: i64, name: i64) -> u8 {
     let text = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
     std::ffi::CString::new(text).map_or(0, |c| u8::from(search_for(handle, &c) != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Ffi_dl_close(handle: i64) {
+pub extern "C" fn dartforge_native_Ffi_dl_close(handle: i64) {
     if handle == PROCESS_HANDLE {
         throw_argument_error("Cannot close the process library.");
         return;
@@ -692,7 +692,7 @@ fn ffi_compounds() -> &'static std::sync::RwLock<crate::hash::HashMap<i64, FfiCo
 
 /// Registers a program struct/union (the isolate's preparation).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_registrar_composto(
+pub extern "C" fn dartforge_ffi_register_compound(
     rti: i64,
     class: i64,
     fields: i64,
@@ -722,7 +722,7 @@ fn type_rti_class(t: i64) -> Option<i64> {
 /// An instance of struct/union `rti` over the memory at `base` + `offset` (the VM
 /// transformer's `S#fromTypedDataBase`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_composto(rti: i64, base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_compound(rti: i64, base: i64, offset: i64) -> i64 {
     let Some(c) = compound_from_rti(rti) else {
         throw_unsupported("struct or union not registered in the DartForge native backend");
         return 0;
@@ -744,17 +744,17 @@ pub extern "C" fn dartforge_ffi_composto(rti: i64, base: i64, offset: i64) -> i6
 /// `Pointer<S>.ref`/`[i]` (the overlay): the instance of `S` over `base` + `offset`,
 /// through the `Type` object of `S`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ffi_composto_de_tipo(tipo: i64, base: i64, offset: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_compound_of_type(tipo: i64, base: i64, offset: i64) -> i64 {
     let Some(rti) = object_type_type(tipo).and_then(type_rti_class) else {
         throw_argument_error("struct type argument expected");
         return 0;
     };
-    dartforge_ffi_composto(rti, base, offset)
+    dartforge_ffi_compound(rti, base, offset)
 }
 
 /// A `Pointer` (type `Pointer<Never>`) with the address (a struct's `Pointer` field).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_ponteiro_novo(address: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_pointer_new(address: i64) -> i64 {
     new_pointer(address, None)
 }
 
@@ -767,7 +767,7 @@ pub extern "C" fn dartforge_ffi_ponteiro_novo(address: i64) -> i64 {
 /// # Safety
 /// `name` points to `n` readable bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_simbolo_nativo(name: *const u8, n: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_ffi_native_symbol(name: *const u8, n: i64) -> i64 {
     // SAFETY: guaranteed by the caller (a module constant).
     let name = unsafe { std::slice::from_raw_parts(name, usize::try_from(n).unwrap_or(0)) };
     let name = String::from_utf8_lossy(name).into_owned();
@@ -803,12 +803,12 @@ mod tests_resolve_native {
     #[test]
     fn reserved_abi_does_not_query_same_named_process_runtime() {
         let looked_up = std::cell::Cell::new(false);
-        let address = resolve_native_address("dartforge_arc_verificar_abi", |_| {
+        let address = resolve_native_address("dartforge_arc_verify_abi", |_| {
             looked_up.set(true);
             0xdead
         });
         assert!(!looked_up.get());
-        let lookup: extern "C" fn(i64) -> i8 = dartforge_arc_verificar_abi;
+        let lookup: extern "C" fn(i64) -> i8 = dartforge_arc_verify_abi;
         assert_eq!(address, lookup as *const () as usize);
         let previous = HEAP.with(|h| h.replace(Heap::new(true)));
         assert_eq!(lookup(1), 0);
@@ -832,7 +832,7 @@ mod tests_resolve_native {
 /// `tipo`) over the pointer's native memory, without copying — writing into one is
 /// writing into the other.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, pointer: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_typed_external(class_id: i64, tipo: i64, pointer: i64, n: i64) -> i64 {
     let Some(address) = address_of(pointer) else {
         throw_argument_error("a Pointer was expected");
         return 0;
@@ -851,19 +851,19 @@ pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, pointer: i64
     HEAP.with(|h| h.borrow_mut().external_typed(tipo, address as usize as *mut u8, n as usize))
 }
 
-/// [`dartforge_typed_externo`] that registers the class's method table on the first
-/// allocation (like `dartforge_typed_novo_t`).
+/// [`dartforge_typed_external`] that registers the class's method table on the first
+/// allocation (like `dartforge_typed_new_t`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_typed_externo_t(class_id: i64, tipo: i64, pointer: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
-    dartforge_registrar_tabela(class_id, f);
-    dartforge_typed_externo(class_id, tipo, pointer, n)
+pub extern "C" fn dartforge_typed_external_t(class_id: i64, tipo: i64, pointer: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
+    dartforge_register_table(class_id, f);
+    dartforge_typed_external(class_id, tipo, pointer, n)
 }
 
 /// The address of the bytes of a struct/union (an argument by value): the base
 /// (`Pointer` or `TypedData`) plus the offset, checked against the size on a
 /// `TypedData` base.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_endereco_do_composto(obj: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_compound_address(obj: i64) -> i64 {
     let data = HEAP.with(|h| match h.borrow().object(obj) {
         Some(fields) => {
             let c = ffi_compounds().read().unwrap_or_else(|e| e.into_inner()).values().find(|c| c.class == fields.class_id).copied()?;
@@ -883,25 +883,25 @@ pub extern "C" fn dartforge_ffi_endereco_do_composto(obj: i64) -> i64 {
 /// A new struct/union, over a `Uint8List` of its size (the value a native call
 /// returns by value, as in the VM).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_composto_novo(rti: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_compound_new(rti: i64) -> i64 {
     let Some(c) = compound_from_rti(rti) else {
         throw_unsupported("struct or union not registered in the DartForge native backend");
         return 0;
     };
     let bytes = HEAP.with(|h| h.borrow_mut().new_typed(TYPE_UINT8, c.size as usize));
-    with_roots(&[bytes], || dartforge_ffi_composto(rti, bytes, 0))
+    with_roots(&[bytes], || dartforge_ffi_compound(rti, bytes, 0))
 }
 
 /// A new struct/union (over a `Uint8List`) with the bytes at `address` — a
 /// callback's by-value argument, copied as in the VM.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_composto_copia(rti: i64, address: i64) -> i64 {
-    let new = dartforge_ffi_composto_novo(rti);
+pub extern "C" fn dartforge_ffi_compound_copy(rti: i64, address: i64) -> i64 {
+    let new = dartforge_ffi_compound_new(rti);
     if new == 0 {
         return 0;
     }
     let n = compound_from_rti(rti).map_or(0, |c| c.size as usize);
-    let dest = with_roots(&[new], || dartforge_ffi_endereco_do_composto(new));
+    let dest = with_roots(&[new], || dartforge_ffi_compound_address(new));
     if dest != 0 && address != 0 {
         // SAFETY: `address` has the struct's `n` bytes (the C entry or a message);
         // `dest`, those of the new struct.
@@ -916,7 +916,7 @@ pub extern "C" fn dartforge_ffi_composto_copia(rti: i64, address: i64) -> i64 {
 /// # Safety
 /// `dest` has `n` writable bytes; `origin` is 0 or has `n` bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_copiar_composto(dest: *mut u8, origin: i64, n: i64) {
+pub unsafe extern "C" fn dartforge_ffi_copy_compound(dest: *mut u8, origin: i64, n: i64) {
     if origin != 0 && n > 0 {
         // SAFETY: guaranteed by the caller.
         unsafe { std::ptr::copy_nonoverlapping(origin as usize as *const u8, dest, n as usize) };
@@ -937,12 +937,12 @@ thread_local! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_handles_abrir() -> i64 {
+pub extern "C" fn dartforge_ffi_handles_open() -> i64 {
     HANDLE_CELLS.with(|c| c.borrow().len() as i64)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_handles_fechar(scope: i64) {
+pub extern "C" fn dartforge_ffi_handles_close(scope: i64) {
     let released_list: Vec<usize> = HANDLE_CELLS.with(|c| {
         let mut c = c.borrow_mut();
         let de = (scope.max(0) as usize).min(c.len());
@@ -950,7 +950,7 @@ pub extern "C" fn dartforge_ffi_handles_fechar(scope: i64) {
     });
     for cell in released_list {
         HEAP.with(|h| h.borrow_mut().release_global_root(cell as i64));
-        // SAFETY: the cell was created by `dartforge_ffi_handle_novo` and leaves the
+        // SAFETY: the cell was created by `dartforge_ffi_handle_new` and leaves the
         // registry once.
         unsafe { drop(Box::from_raw(cell as *mut i64)) };
     }
@@ -958,7 +958,7 @@ pub extern "C" fn dartforge_ffi_handles_fechar(scope: i64) {
 
 /// The `Handle` of `obj`: the address of a new cell of the current scope.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_handle_novo(obj: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_handle_new(obj: i64) -> i64 {
     let cell = Box::into_raw(Box::new(obj)) as usize;
     HEAP.with(|h| h.borrow_mut().set_global_root(cell as i64, obj));
     HANDLE_CELLS.with(|c| c.borrow_mut().push(cell));
@@ -967,7 +967,7 @@ pub extern "C" fn dartforge_ffi_handle_novo(obj: i64) -> i64 {
 
 /// The object of a `Handle` returned by C.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_objeto_do_handle(handle: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_handle_object(handle: i64) -> i64 {
     match live_object_of_handle(handle) {
         Some(obj) => obj,
         None => {
@@ -995,27 +995,27 @@ fn throw_invalid_handle() {
 ///
 /// Under tracing, nothing collects between reading the cell and returning the object.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_ffi_handles_fechar_com_objeto(scope: i64, handle: i64) -> i64 {
+pub extern "C" fn dartforge_ffi_handles_close_with_object(scope: i64, handle: i64) -> i64 {
     let obj = live_object_of_handle(handle);
-    dartforge_ffi_handles_fechar(scope);
+    dartforge_ffi_handles_close(scope);
     obj.unwrap_or_else(|| {
         throw_invalid_handle();
         0
     })
 }
 
-/// [`dartforge_ffi_handles_fechar_com_objeto`] under ARC: the object gains a code
+/// [`dartforge_ffi_handles_close_with_object`] under ARC: the object gains a code
 /// owner before the scope's cells release their roots. Invalid handle: a pending
 /// `ArgumentError`, null and no owner.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(scope: i64, handle: i64) -> i64 {
+pub extern "C" fn dartforge_arc_ffi_handles_close_with_object_owned_v1(scope: i64, handle: i64) -> i64 {
     // The owner before closing the handles; the error runs in a native scope.
     in_native_scope(|| {
         let obj = live_object_of_handle(handle);
         if let Some(o) = obj {
             dartforge_arc_retain(o);
         }
-        dartforge_ffi_handles_fechar(scope);
+        dartforge_ffi_handles_close(scope);
         obj.unwrap_or_else(|| {
             throw_invalid_handle();
             0
@@ -1023,11 +1023,11 @@ pub extern "C" fn dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(scope: i6
     })
 }
 
-/// [`dartforge_ffi_objeto_do_handle`] under ARC, with a code owner (the `Handle`
+/// [`dartforge_ffi_handle_object`] under ARC, with a code owner (the `Handle`
 /// argument of a callback, whose cell belongs to the outer scope).
 /// Invalid handle: a pending `ArgumentError`, null and no owner.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ffi_objeto_do_handle_owned_v1(handle: i64) -> i64 {
+pub extern "C" fn dartforge_arc_ffi_handle_object_owned_v1(handle: i64) -> i64 {
     in_native_scope(|| match live_object_of_handle(handle) {
         Some(obj) => {
             dartforge_arc_retain(obj);

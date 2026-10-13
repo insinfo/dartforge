@@ -543,7 +543,7 @@ fn start_process(
 /// stdin, stdout, stderr, exitHandler, status)`.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn dartforge_nativo_Process_Start(
+pub extern "C" fn dartforge_native_Process_Start(
     process: i64,
     _ns: i64,
     file_path: i64,
@@ -662,7 +662,7 @@ fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64,
 /// `Process_Wait(stdin, stdout, stderr, exitHandler)`: `[pid, code, output,
 /// error]`; on an error, kills the child and throws the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_Wait(process: i64, input: i64, output: i64, error: i64, end: i64) -> i64 {
+pub extern "C" fn dartforge_native_Process_Wait(process: i64, input: i64, output: i64, error: i64, end: i64) -> i64 {
     let (Some(e), Some(s), Some(r), Some(f)) = (object_socket(input), object_socket(output), object_socket(error), object_socket(end)) else {
         return 0;
     };
@@ -714,7 +714,7 @@ fn kill_process(pid: i64, sig_num: i64) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_KillPid(pid: i64, sig_num: i64) -> u8 {
+pub extern "C" fn dartforge_native_Process_KillPid(pid: i64, sig_num: i64) -> u8 {
     u8::from(kill_process(pid, system_signal(sig_num)))
 }
 
@@ -920,12 +920,12 @@ fn clear_signal_by_descriptor(fd: i64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_SetSignalHandler(sig_num: i64) -> i64 {
+pub extern "C" fn dartforge_native_Process_SetSignalHandler(sig_num: i64) -> i64 {
     dart_or_error(subscribe_signal(sig_num), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_ClearSignalHandler(sig_num: i64) {
+pub extern "C" fn dartforge_native_Process_ClearSignalHandler(sig_num: i64) {
     cancel_signal(sig_num);
 }
 
@@ -1022,11 +1022,11 @@ fn max_resident_memory() -> IoResult<i64> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ProcessInfo_CurrentRSS() -> i64 {
+pub extern "C" fn dartforge_native_ProcessInfo_CurrentRSS() -> i64 {
     dart_or_error(resident_memory(), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ProcessInfo_MaxRSS() -> i64 {
+pub extern "C" fn dartforge_native_ProcessInfo_MaxRSS() -> i64 {
     dart_or_error(max_resident_memory(), dart_int)
 }

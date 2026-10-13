@@ -45,7 +45,7 @@ fn selector_hash(text: &str) -> i64 {
 
 /// The `(hash, selector, entry)` pairs of a method table, sorted
 /// by hash and without a repeated hash: the order of the runtime's binary search
-/// (`dartforge_registrar_tabela`).
+/// (`dartforge_register_table`).
 ///
 /// # Panics
 /// Two different selectors with the same hash in the same class.
@@ -173,10 +173,10 @@ fn constant_text(line: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&v).into_owned())
 }
 
-/// The hash and the index of the name of a call `@df.seletor(ptr …, i64 …, i64
+/// The hash and the index of the name of a call `@df.selector(ptr …, i64 …, i64
 /// <hash>, ptr @df.seln.<k>, i64 …)`; `None` if the hash is not constant.
 fn selector_call(line: &str) -> Option<(i64, &str)> {
-    let i = line.find("@df.seletor(")? + "@df.seletor(".len();
+    let i = line.find("@df.selector(")? + "@df.selector(".len();
     let mut args = line[i..].split(", ");
     args.next()?;
     args.next()?;
@@ -196,9 +196,9 @@ fn selector_descriptor(rest: &str) -> Option<(i64, &str)> {
     Some((h, name))
 }
 
-/// The descriptor of the call `@df.seletor_d(ptr …, i64 …, ptr @df.seld.<k>)`.
+/// The descriptor of the call `@df.selector_d(ptr …, i64 …, ptr @df.seld.<k>)`.
 fn compact_selector_call(line: &str) -> Option<&str> {
-    let i = line.find("@df.seletor_d(")? + "@df.seletor_d(".len();
+    let i = line.find("@df.selector_d(")? + "@df.selector_d(".len();
     let mut args = line[i..].split(", ");
     args.next()?;
     args.next()?;
@@ -244,7 +244,7 @@ pub struct SummarizedTable {
 /// The summary of a module (an SDK library or the program): §3.3.
 ///
 /// Local names (`private`/`internal`) carry the `<module>#` prefix,
-/// because they repeat in every module (`@df.seln.0`, `@df.classe`).
+/// because they repeat in every module (`@df.seln.0`, `@df.class`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Summary {
     pub module: String,
@@ -435,9 +435,9 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                 r.definitions.push(current.take().expect("current definition"));
                 continue;
             }
-            let call = if l.contains("@df.seletor(") {
+            let call = if l.contains("@df.selector(") {
                 selector_call(l)
-            } else if l.contains("@df.seletor_d(") {
+            } else if l.contains("@df.selector_d(") {
                 compact_selector_call(l).and_then(|d| descriptors.get(d).copied())
             } else {
                 None
@@ -448,7 +448,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                     if seen_selectors.insert(h) {
                         r.selectors.push((h, t.clone()));
                     }
-                    // The fallback of the typed selector (`dartforge_seletor`).
+                    // The fallback of the typed selector (`dartforge_selector`).
                     if let Some(without_t) = t.strip_prefix('t') {
                         let h2 = selector_hash(without_t);
                         d.calls.push(h2);
@@ -1078,7 +1078,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
         if seen_selectors.insert(h) {
             r.selectors.push((h, text.to_string()));
         }
-        // The fallback of the typed selector (`dartforge_seletor`), as in the IR.
+        // The fallback of the typed selector (`dartforge_selector`), as in the IR.
         if let Some(without_t) = text.strip_prefix('t') {
             let h2 = selector_hash(without_t);
             d.calls.push(h2);
@@ -1276,7 +1276,7 @@ mod tests {
             "define i64 @C.usado$c(i64 %t, ptr %a, ptr %d) {\n  ret i64 0\n}\n\
              define i64 @C.morto$c(i64 %t, ptr %a, ptr %d) {\n  %x = call i64 @C.morto(i64 %t)\n  ret i64 %x\n}\n\
              define i64 @C.morto(i64 %t) {\n  ret i64 1\n}\n\
-             define internal i64 @df.classe(i64 %h) {\n  ret i64 0\n}\n\
+             define internal i64 @df.class(i64 %h) {\n  ret i64 0\n}\n\
              define i64 @aloca() {\n  %v = call i64 @dartforge_object_new_t(i64 200, i64 0, ptr @df.mt.C)\n  ret i64 %v\n}\n\
              declare ptr @df.mt.C()\n"
         );
@@ -1287,8 +1287,8 @@ mod tests {
     fn program(call: &str) -> String {
         format!(
             "@df.seln.0 = private unnamed_addr constant [{} x i8] c\"{call}\"\n\
-             define internal i64 @df.classe(i64 %h) {{\n  ret i64 0\n}}\n\
-             define i32 @main() {{\n  %o = call i64 @aloca()\n  %f = call ptr @df.seletor(ptr %ic, i64 %o, i64 {}, ptr @df.seln.0, i64 {})\n  ret i32 0\n}}\n\
+             define internal i64 @df.class(i64 %h) {{\n  ret i64 0\n}}\n\
+             define i32 @main() {{\n  %o = call i64 @aloca()\n  %f = call ptr @df.selector(ptr %ic, i64 %o, i64 {}, ptr @df.seln.0, i64 {})\n  ret i32 0\n}}\n\
              @df.mt.P$d = private unnamed_addr constant {{ i64, i64, i64, ptr }} {{ i64 300, i64 1, i64 {}, ptr @P.nunca$c }}\n\
              define ptr @df.mt.P() {{\nb0:\n  ret ptr @df.mt.P$d\n}}\n\
              define i64 @P.nunca$c(i64 %t, ptr %a, ptr %d) {{\n  ret i64 0\n}}\n\
@@ -1323,8 +1323,8 @@ mod tests {
     #[test]
     fn locals_carry_module_prefix() {
         let r = sdk();
-        assert!(r.names.contains(&"dart:x#df.classe".to_string()));
-        assert!(!r.names.contains(&"df.classe".to_string()));
+        assert!(r.names.contains(&"dart:x#df.class".to_string()));
+        assert!(!r.names.contains(&"df.class".to_string()));
     }
 
     #[test]
@@ -1358,7 +1358,7 @@ mod tests {
         let ir = format!(
             "@df.seln.0 = private unnamed_addr constant [7 x i8] c\"tc:usado\"\n\
              @df.seld.0 = private unnamed_addr constant {{ i64, ptr, i64 }} {{ i64 {}, ptr @df.seln.0, i64 8 }}\n\
-             define i32 @main() {{\n  %f = call ptr @df.seletor_d(ptr %ic, i64 %o, ptr @df.seld.0)\n  ret i32 0\n}}\n",
+             define i32 @main() {{\n  %f = call ptr @df.selector_d(ptr %ic, i64 %o, ptr @df.seld.0)\n  ret i32 0\n}}\n",
             h("tc:usado")
         );
         let r = summarize(&ir, "programa", &[]);
@@ -1405,7 +1405,7 @@ mod tests {
         m.functions.push(function("P.usado$c", Vec::new()));
         m.functions.push(function("P.morto$c", Vec::new()));
         m.entry_symbol = Some("dart_main".into());
-        m.sdk_records = vec!["df.registrar.core".into()];
+        m.sdk_records = vec!["df.register.core".into()];
         m.method_tables = vec![(
             300,
             "df.mt.P".into(),
@@ -1442,29 +1442,29 @@ mod tests {
         assert_eq!((e.functions, e.live_functions, e.pairs, e.live_pairs), (5, 3, 2, 1));
         let f = m.functions[1].clone();
         let mut dead_sdk = f.clone();
-        dead_sdk.symbol = "df.dart$3acore.morto".into();
+        dead_sdk.symbol = "df.dart$3acore.dead".into();
         m.functions = vec![f, dead_sdk];
-        m.dart_scalar_parameters.insert("df.dart$3acore.morto".into(), HashSet::new());
-        m.dart_rti_parameters.insert("df.dart$3acore.morto".into(), HashSet::new());
-        m.dart_vector_parameters.insert("df.dart$3acore.morto".into(), Default::default());
-        m.arc_uniform_returns.insert("df.dart$3acore.morto".into());
-        m.arc_shared_functions.insert("df.dart$3acore.morto".into());
+        m.dart_scalar_parameters.insert("df.dart$3acore.dead".into(), HashSet::new());
+        m.dart_rti_parameters.insert("df.dart$3acore.dead".into(), HashSet::new());
+        m.dart_vector_parameters.insert("df.dart$3acore.dead".into(), Default::default());
+        m.arc_uniform_returns.insert("df.dart$3acore.dead".into());
+        m.arc_shared_functions.insert("df.dart$3acore.dead".into());
         crate::source::prune(&mut m);
         assert!(m.dart_scalar_parameters.contains_key("f"));
-        assert!(!m.dart_scalar_parameters.contains_key("df.dart$3acore.morto"));
-        assert!(!m.dart_rti_parameters.contains_key("df.dart$3acore.morto"));
+        assert!(!m.dart_scalar_parameters.contains_key("df.dart$3acore.dead"));
+        assert!(!m.dart_rti_parameters.contains_key("df.dart$3acore.dead"));
         assert!(m.dart_vector_parameters.contains_key("f"));
-        assert!(!m.dart_vector_parameters.contains_key("df.dart$3acore.morto"));
+        assert!(!m.dart_vector_parameters.contains_key("df.dart$3acore.dead"));
         assert!(m.arc_uniform_returns.contains("f"));
-        assert!(!m.arc_uniform_returns.contains("df.dart$3acore.morto"));
-        assert!(!m.arc_shared_functions.contains("df.dart$3acore.morto"));
+        assert!(!m.arc_uniform_returns.contains("df.dart$3acore.dead"));
+        assert!(!m.arc_shared_functions.contains("df.dart$3acore.dead"));
     }
 
     #[test]
     fn hir_pruning_sees_selector_called_by_sdk() {
         // The SDK calls `c:dead` in a function its registration reaches.
-        let ir = "define void @df.registrar.core() {\n  call void @x()\n  ret void\n}\n\
-                  define void @x() {\n  %f = call ptr @df.seletor(ptr %ic, i64 %o, i64 HASH, ptr @df.seln.0, i64 7)\n  ret void\n}\n\
+        let ir = "define void @df.register.core() {\n  call void @x()\n  ret void\n}\n\
+                  define void @x() {\n  %f = call ptr @df.selector(ptr %ic, i64 %o, i64 HASH, ptr @df.seln.0, i64 7)\n  ret void\n}\n\
                   @df.seln.0 = private unnamed_addr constant [7 x i8] c\"c:morto\"\n"
             .replace("HASH", &h("c:morto").to_string());
         let sdk = summarize(&ir, "dart:core", &[]);
@@ -1481,10 +1481,10 @@ mod tests {
         let m = assemble(&program("c:usado"), &[&s], true).unwrap();
         let ir = &m.ir;
         // `df.mt.P` (nobody cites it) and its pair go away; `main` and the uncited local
-        // `df.classe` too: only what the fixpoint reaches stays.
+        // `df.class` too: only what the fixpoint reaches stays.
         assert!(!ir.contains("define ptr @df.mt.P()"), "{ir}");
         assert!(!ir.contains("define i64 @P.nunca$c"), "{ir}");
-        assert!(!ir.contains("define internal i64 @df.classe"), "{ir}");
+        assert!(!ir.contains("define internal i64 @df.class"), "{ir}");
         assert!(ir.contains("define i32 @main()"), "{ir}");
         assert!(ir.contains("@df.seln.0 = private"), "the text of the selector that main cites stays: {ir}");
         let e = m.statistics;
@@ -1527,7 +1527,7 @@ mod tests {
         pairs.sort();
         let ir = format!(
             "@df.seln.0 = private unnamed_addr constant [7 x i8] c\"c:vivo\"\n\
-             define i32 @main() {{\n  %p = call ptr @df.mt.P()\n  %f = call ptr @df.seletor(ptr %ic, i64 0, i64 {}, ptr @df.seln.0, i64 6)\n  ret i32 0\n}}\n\
+             define i32 @main() {{\n  %p = call ptr @df.mt.P()\n  %f = call ptr @df.selector(ptr %ic, i64 0, i64 {}, ptr @df.seln.0, i64 6)\n  ret i32 0\n}}\n\
              @df.mt.P$d = private unnamed_addr constant {{ i64, i64, i64, ptr, i64, ptr }} {{ i64 300, i64 2, i64 {}, ptr {}, i64 {}, ptr {} }}\n\
              define ptr @df.mt.P() {{\nb0:\n  ret ptr @df.mt.P$d\n}}\n",
             h("c:vivo"),

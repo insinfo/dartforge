@@ -37,7 +37,7 @@ pub(super) fn analyze_shared(
         .flat_map(|b| &b.instructions)
         .filter_map(|(v, inst, _)| match inst {
             Instruction::CallRuntime { name, args, .. }
-                if name == "dartforge_arc_quadro_abrir_v1" =>
+                if name == "dartforge_arc_frame_open_v1" =>
             {
                 match args.first() {
                     Some((Operand::Constant(Constant::Int(n)), _)) => Some((*v, *n)),
@@ -112,9 +112,9 @@ pub(super) fn analyze_shared(
                     index(q, i64::from(*i))?;
                 }
                 Instruction::CallRuntime { name, args, .. }
-                    if name.starts_with("dartforge_arc_quadro_") =>
+                    if name.starts_with("dartforge_arc_frame_") =>
                 {
-                    if name == "dartforge_arc_quadro_abrir_v1" {
+                    if name == "dartforge_arc_frame_open_v1" {
                         if capacities.get(v).is_some_and(|n| *n < 0) {
                             return Err(error("negative frame capacity".into()));
                         }
@@ -130,8 +130,8 @@ pub(super) fn analyze_shared(
                         if borrowed_set.contains_key(&q) {
                             if !matches!(
                                 name.as_str(),
-                                "dartforge_arc_quadro_carregar_v1"
-                                    | "dartforge_arc_quadro_copiar_v1"
+                                "dartforge_arc_frame_load_v1"
+                                    | "dartforge_arc_frame_copy_v1"
                             ) {
                                 return Err(error(
                                     "function cannot close or transfer a borrowed frame".into(),
@@ -142,17 +142,17 @@ pub(super) fn analyze_shared(
                                 .ok_or_else(|| error("borrowed frame without an index".into()))?;
                             par(q, &i.0)?;
                         }
-                        if name != "dartforge_arc_quadro_fechar_v1" {
+                        if name != "dartforge_arc_frame_close_v1" {
                             if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
                                 index(q, *i)?;
                             }
                         }
-                        if name == "dartforge_arc_quadro_fechar_v1" {
+                        if name == "dartforge_arc_frame_close_v1" {
                             if active_set.last() != Some(&q) {
                                 return Err(error(format!("closing out of LIFO order of v{}", q.0)));
                             }
                             active_set.pop();
-                        } else if name == "dartforge_arc_quadro_mover_v1" {
+                        } else if name == "dartforge_arc_frame_move_v1" {
                             let dest = args
                                 .get(2)
                                 .ok_or_else(|| error("move without a destination frame".into()))?;
@@ -260,13 +260,13 @@ mod tests {
                 instructions: vec![
                     call(
                         0,
-                        "dartforge_arc_quadro_abrir_v1",
+                        "dartforge_arc_frame_open_v1",
                         vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
                         Type::I64,
                     ),
                     call(
                         1,
-                        "dartforge_arc_quadro_fechar_v1",
+                        "dartforge_arc_frame_close_v1",
                         vec![(Operand::Val(ValueId(0)), Type::I64)],
                         Type::Void,
                     ),
@@ -364,7 +364,7 @@ mod tests {
         assert!(verify(&f).unwrap_err().contains("index 1 outside"));
         f.blocks[0].instructions[1] = call(
             2,
-            "dartforge_arc_quadro_carregar_v1",
+            "dartforge_arc_frame_load_v1",
             vec![
                 (Operand::Val(ValueId(0)), Type::I64),
                 (Operand::Constant(Constant::Int(-1)), Type::I64),
@@ -375,7 +375,7 @@ mod tests {
         f = example();
         f.blocks[0].instructions[0] = call(
             0,
-            "dartforge_arc_quadro_abrir_v1",
+            "dartforge_arc_frame_open_v1",
             vec![(Operand::Constant(Constant::Int(-1)), Type::I64)],
             Type::I64,
         );
@@ -389,7 +389,7 @@ mod tests {
             1,
             call(
                 2,
-                "dartforge_arc_quadro_abrir_v1",
+                "dartforge_arc_frame_open_v1",
                 vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
                 Type::I64,
             ),

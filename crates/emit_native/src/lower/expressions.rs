@@ -548,7 +548,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let typ = self.recipe_rti(&r);
                     return self.emit(
                         Instruction::CallRuntime {
-                            name: "dartforge_rti_objeto_tipo".to_string(),
+                            name: "dartforge_rti_object_type".to_string(),
                             args: vec![(typ, Type::I64)],
                             ret_ty: Type::Ref,
                         },
@@ -573,7 +573,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     });
                     return self.emit(
                         Instruction::CallRuntime {
-                            name: "dartforge_rti_objeto_tipo".to_string(),
+                            name: "dartforge_rti_object_type".to_string(),
                             args: vec![(typ, Type::I64)],
                             ret_ty: Type::Ref,
                         },
@@ -660,7 +660,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // so the operand arrives as a `Ref` and goes back to the scalar here.
                 // (`==`/`!=` stays out: comparing with null is legitimate.)
                 // A non-nullable `String` on the left: the `==` of `String` (which cannot
-                // be overridden) inline, `@df.texto_igual_a`.
+                // be overridden) inline, `@df.string_equals_object`.
                 if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                     && l_ty.is_some_and(|t| {
                         self.ctx.is_string(t)
@@ -1354,7 +1354,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 });
                 self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_rti_objeto_tipo".to_string(),
+                        name: "dartforge_rti_object_type".to_string(),
                         args: vec![(t, Type::I64)],
                         ret_ty: Type::Ref,
                     },

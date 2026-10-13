@@ -902,12 +902,12 @@ pub fn sdk_class_ids(program: &Program, interner: &Interner, compiled: &[bool]) 
 }
 
 /// The ids of the program classes written into the IR by a generation
-/// (`; df.classe <id> <library> <class>`, with the parts escaped by
+/// (`; df.class <id> <library> <class>`, with the parts escaped by
 /// [`escape_str`]), by `(library, class)`.
 pub fn ir_ids(ir: &str) -> std::collections::HashMap<(String, String), u32> {
     ir.lines()
         .filter_map(|l| {
-            let mut p = l.strip_prefix("; df.classe ")?.split(' ');
+            let mut p = l.strip_prefix("; df.class ")?.split(' ');
             let id = p.next()?.parse().ok()?;
             Some(((unescape(p.next()?)?, unescape(p.next()?)?), id))
         })

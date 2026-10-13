@@ -1,6 +1,6 @@
 // D12 (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3): os caches estáticos
 // do runtime que guardam handles têm de ser raiz. O objeto `Type` canônico
-// (`dartforge_rti_objeto_tipo`, o cache `OBJETOS_TIPO`) e o texto de um
+// (`dartforge_rti_object_type`, o cache `OBJETOS_TIPO`) e o texto de um
 // caractere (`String_charAt`, o cache `UM_CARACTERE`) são pedidos de novo
 // a cada volta, sem que nada do programa os segure entre as voltas; com o
 // estresse, cada volta coleta. Sabotagem que o derruba: `tipo_sem_raiz` (o

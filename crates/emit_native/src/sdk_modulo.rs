@@ -17,7 +17,7 @@ use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
 /// The overlay target in `native_sdk/libraries.json`.
-pub const OVERLAY_TARGET: &str = "dartforge_nativo";
+pub const OVERLAY_TARGET: &str = "dartforge_native";
 
 /// The libraries that the native backend compiles from the SDK source (decision 1 of
 /// NATIVO-PLANO §7.1), in approximate dependency order. `typed_data`
@@ -126,7 +126,7 @@ pub fn measure_sdk_inference(lib_dir: &Path) -> Result<Vec<LibraryInference>, St
 /// library (names, subtypes, method tables); the program entry
 /// calls it.
 pub fn registration_symbol(uri: &str) -> String {
-    format!("df.registrar.{}", crate::context::escape_str(uri))
+    format!("df.register.{}", crate::context::escape_str(uri))
 }
 
 /// The registration functions of the [`SOURCE_LIBRARIES`], in order.
@@ -327,7 +327,7 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         debug_assert_eq!(ctx.class_ids, base.class_ids);
         let mut module = crate::lower::lower_program(&ctx);
         module.sdk_library = true;
-        // The classes of `null` and of the `Smi` inline (`llvm/mod.rs`, `df.classe`).
+        // The classes of `null` and of the `Smi` inline (`llvm/mod.rs`, `df.class`).
         module.runtime_cids = runtime_cids(&ctx);
         module.record = Some(registration_symbol(&uri));
         if let Some(e) = module.errors.first() {
@@ -964,7 +964,7 @@ pub enum ContextInTls {
     PerCall,
 }
 
-/// The IR with the thread context (`dartforge_contexto`, a Rust function with a
+/// The IR with the thread context (`dartforge_context`, a Rust function with a
 /// frame, the `thread_local!` variable and the stack limit check)
 /// kept in a `thread_local` variable of the module itself: the prologue of each function reads the variable (on Mach-O, the
 /// `tlv_get_addr`, which does not touch the other registers) and only calls the
@@ -975,18 +975,18 @@ pub enum ContextInTls {
 ///
 /// ```
 /// use dartforge_emit_native::sdk_modulo::{with_context_in_tls, ContextInTls};
-/// let ir = "define i64 @f() {\n  %ctx = call ptr @dartforge_contexto()\n  ret i64 0\n}\n";
+/// let ir = "define i64 @f() {\n  %ctx = call ptr @dartforge_context()\n  ret i64 0\n}\n";
 /// let new_ir = with_context_in_tls(ir, ContextInTls::Inline, "df.ctx.tls");
-/// assert!(new_ir.contains("%ctx = call ptr @df.contexto()") && new_ir.contains("@df.ctx.tls = internal thread_local global ptr null"));
+/// assert!(new_ir.contains("%ctx = call ptr @df.context()") && new_ir.contains("@df.ctx.tls = internal thread_local global ptr null"));
 /// let without = "define void @g() {\n  ret void\n}\n";
 /// assert_eq!(with_context_in_tls(without, ContextInTls::Inline, "df.ctx.tls"), without);
 /// ```
 ///
 /// `variable` is the name of the variable: the program in parts promotes it to
 /// external (`partition.rs`), and its name cannot be that of the internal one of an
-/// SDK module (like `@df.area_id.programa`).
+/// SDK module (like `@df.area_id.program`).
 pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> String {
-    const CALL: &str = "call ptr @dartforge_contexto()";
+    const CALL: &str = "call ptr @dartforge_context()";
     if !ir.contains(CALL) {
         return ir.to_string();
     }
@@ -995,10 +995,10 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
         ContextInTls::Free => "",
         ContextInTls::PerCall => " noinline",
     };
-    let mut s = ir.replace(CALL, "call ptr @df.contexto()");
+    let mut s = ir.replace(CALL, "call ptr @df.context()");
     s.push_str(&format!(
         "\n@{variable} = internal thread_local global ptr null, align 8\n\
-         define internal ptr @df.contexto() nounwind{attribute} {{\n\
+         define internal ptr @df.context() nounwind{attribute} {{\n\
          \x20 %p = call ptr @llvm.threadlocal.address.p0(ptr @{variable})\n\
          \x20 %c = load ptr, ptr %p, align 8\n\
          \x20 %z = icmp eq ptr %c, null\n\

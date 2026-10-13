@@ -177,7 +177,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// compact storage of the value's shape (docs/NATIVO-ESPACO-UNIFICADO.md
     /// §2.16: the compact shape only exists when the reified `E` is the scalar)
     /// with room, the word written directly and the length plus one; when full,
-    /// `dartforge_lista_acrescentar` (grows to `(capacity * 2) | 3`);
+    /// `dartforge_list_append` (grows to `(capacity * 2) | 3`);
     /// any other (a user class, fixed size, unmodifiable,
     /// general storage) calls the usual `add`. Without this, each `add`
     /// went through dispatch, checked `E` twice through the RTI (at the uniform
@@ -254,7 +254,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let boxed = self.coerce(v.clone(), Type::Ref);
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_lista_acrescentar".to_string(),
+                name: "dartforge_list_append".to_string(),
                 args: vec![(list.clone(), Type::Ref), (boxed, Type::Ref)],
                 ret_ty: Type::Ref,
             },

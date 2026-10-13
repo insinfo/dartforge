@@ -351,7 +351,7 @@ pub enum Instruction {
         values: Vec<Operand>,
     },
     /// The interpolation `'a$b c'`: the parts in a single string, with one allocation
-    /// (`dartforge_string_juntar_tipado`), not one per concatenation. Each
+    /// (`dartforge_string_join_typed`), not one per concatenation. Each
     /// part is a text (`Ref`) or an unboxed `int` (`I64`), written in
     /// decimal directly into the result.
     ConcatStrings {
@@ -375,7 +375,7 @@ pub enum Instruction {
         direct: bool,
     },
     /// Call of the typed body of a closure: `alvo` is the address (`I64`,
-    /// from `dartforge_closure_tipada`), the arguments go in the HIR
+    /// from `dartforge_closure_typed`), the arguments go in the HIR
     /// representations (the first is the environment) and the result comes back in `ret`. The
     /// exception leaves through the pending flag, as in a Dart call.
     TypedCall {
@@ -972,7 +972,7 @@ pub struct LayoutField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExceptionExit {
     /// The exception is pending on every path to this `Return`: unwinds
-    /// (`@df.lancar`) instead of returning.
+    /// (`@df.throw`) instead of returning.
     Throws,
     /// Resumes the native object received in this Itanium cleanup landing pad.
     /// Only admits ARC drops and LIFO closing of local frames before the Return.
@@ -1152,13 +1152,13 @@ pub struct Module {
     /// `_StreamIterator._onData` and 2 for `_StreamController._add`.
     pub stack_trace_tearoffs: Vec<(String, i64)>,
     /// The ids of the program classes, `(id, library, class)`: written
-    /// in the IR (`; df.classe …`) so that the next generation of a JIT
+    /// in the IR (`; df.class …`) so that the next generation of a JIT
     /// reload gives the same id to the same class (J03, `Context::with_previous_ids`).
     pub program_ids: Vec<(u32, String, String)>,
     /// The layout of the objects of each program class, for the migration of the
     /// live instances on a JIT reload (J03): `(id, fields before the
     /// declared ones — those of enums —, fields)`, written in the IR as
-    /// `; df.campos …`.
+    /// `; df.fields …`.
     pub program_fields: Vec<(u32, usize, Vec<LayoutField>)>,
     /// Program with the source SDK: the class ids of the values that the
     /// runtime represents (`Null`, `_Smi`, `_Mint`, `_Double`, `bool`,
@@ -1184,7 +1184,7 @@ pub struct Module {
     /// (pruning roots, besides the functions of the program).
     pub source_roots: Vec<String>,
     /// The function that the runtime event loop uses to call a
-    /// closure without arguments (`dartforge_laco_de_eventos`, after
+    /// closure without arguments (`dartforge_event_loop`, after
     /// `main`). `None`: the program does not use `dart:async` and there is no loop.
     pub call_dart: Option<String>,
     /// RTI: the function that registers the type universe before `main`

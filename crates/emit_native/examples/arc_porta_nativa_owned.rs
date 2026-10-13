@@ -260,29 +260,29 @@ declare void @dartforge_print_handle(i64)
 @cache_nsm = private global [2 x i64] zeroinitializer
 
 define void @prova_porta_owned() {
-  call void @dartforge_registrar_ajudante(ptr @nome_helper, i64 22, ptr @ajudante_nsm)
+  call void @dartforge_register_helper(ptr @nome_helper, i64 22, ptr @ajudante_nsm)
   %codigo = ptrtoint ptr @ajudante_nsm to i64
-  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)
-  %escopo = call i64 @dartforge_arc_escopo_nativo_abrir_v1()
+  %versao = call i64 @dartforge_arc_register_return_owned_v1(i64 %codigo, i64 7)
+  %escopo = call i64 @dartforge_arc_native_scope_open_v1()
   %recv = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775806)
-  %f = call ptr @dartforge_seletor(ptr @cache_nsm, i64 %recv, i64 12345, ptr @nome_seletor, i64 11)
+  %f = call ptr @dartforge_selector(ptr @cache_nsm, i64 %recv, i64 12345, ptr @nome_seletor, i64 11)
   %r = call i64 %f(i64 %recv, ptr @args_nsm, ptr @desc_nsm)
   %pendente = call i8 @dartforge_exception_pending()
   %normal = icmp eq i8 %pendente, 0
   br i1 %normal, label %verificar, label %falha
 verificar:
   call void @dartforge_arc_collect()
-  %vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %r)
+  %vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %r)
   %valor = call i64 @dartforge_unbox_int(i64 %r)
   %ok_owner = icmp eq i8 %vivo, 3
   %ok_valor = icmp eq i64 %valor, 9223372036854775807
   %ok = and i1 %ok_owner, %ok_valor
   br i1 %ok, label %fechar, label %falha
 fechar:
-  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo)
+  call void @dartforge_arc_native_scope_close_v1(i64 %escopo)
   call void @dartforge_arc_release(i64 %recv)
   call void @dartforge_arc_collect()
-  %final = call i8 @dartforge_arc_observar_heap_v1(i64 %r)
+  %final = call i8 @dartforge_arc_observe_heap_v1(i64 %r)
   %morto = icmp eq i8 %final, 0
   br i1 %morto, label %sucesso, label %falha
 falha:
@@ -290,12 +290,12 @@ falha:
   unreachable
 sucesso:
   %codigo_uniforme = ptrtoint ptr @entrada_uniforme to i64
-  %versao_uniforme = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_uniforme)
+  %versao_uniforme = call i64 @dartforge_arc_register_uniform_owned_v1(i64 %codigo_uniforme)
   %args_ptr = ptrtoint ptr @args_nsm to i64
   %desc_ptr = ptrtoint ptr @desc_nsm to i64
-  %ru = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_uniforme, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  %ru = call i64 @dartforge_arc_invoke_uniform_v1(i64 %codigo_uniforme, i64 0, i64 %args_ptr, i64 %desc_ptr)
   call void @dartforge_arc_collect()
-  %uniforme_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %ru)
+  %uniforme_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %ru)
   %uniforme_valor = call i64 @dartforge_unbox_int(i64 %ru)
   %uniforme_ok_owner = icmp eq i8 %uniforme_vivo, 3
   %uniforme_ok_valor = icmp eq i64 %uniforme_valor, 9223372036854775807
@@ -304,14 +304,14 @@ sucesso:
 liberar_uniforme:
   call void @dartforge_arc_release(i64 %ru)
   call void @dartforge_arc_collect()
-  %uniforme_final = call i8 @dartforge_arc_observar_heap_v1(i64 %ru)
+  %uniforme_final = call i8 @dartforge_arc_observe_heap_v1(i64 %ru)
   %uniforme_morto = icmp eq i8 %uniforme_final, 0
   br i1 %uniforme_morto, label %sucesso_uniforme, label %falha
 sucesso_uniforme:
   %codigo_fallback = ptrtoint ptr %f to i64
-  %rf = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_fallback, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  %rf = call i64 @dartforge_arc_invoke_uniform_v1(i64 %codigo_fallback, i64 0, i64 %args_ptr, i64 %desc_ptr)
   call void @dartforge_arc_collect()
-  %fallback_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rf)
+  %fallback_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %rf)
   %fallback_valor = call i64 @dartforge_unbox_int(i64 %rf)
   %fallback_ok_owner = icmp eq i8 %fallback_vivo, 3
   %fallback_ok_valor = icmp eq i64 %fallback_valor, 9223372036854775807
@@ -320,19 +320,19 @@ sucesso_uniforme:
 liberar_fallback:
   call void @dartforge_arc_release(i64 %rf)
   call void @dartforge_arc_collect()
-  %fallback_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rf)
+  %fallback_final = call i8 @dartforge_arc_observe_heap_v1(i64 %rf)
   %fallback_morto = icmp eq i8 %fallback_final, 0
   br i1 %fallback_morto, label %sucesso_fallback, label %falha
 sucesso_fallback:
   %codigo_falivel = ptrtoint ptr @uniforme_falivel to i64
-  %versao_falivel = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_falivel)
+  %versao_falivel = call i64 @dartforge_arc_register_uniform_owned_v1(i64 %codigo_falivel)
   %xp = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775806)
-  %rp = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_falivel, i64 %xp, i64 %args_ptr, i64 %desc_ptr)
+  %rp = call i64 @dartforge_arc_invoke_uniform_v1(i64 %codigo_falivel, i64 %xp, i64 %args_ptr, i64 %desc_ptr)
   %pending_falivel = call i8 @dartforge_exception_pending()
-  %payload = call i64 @dartforge_arc_excecao_owned_v1()
+  %payload = call i64 @dartforge_arc_exception_owned_v1()
   call void @dartforge_arc_release(i64 %xp)
   call void @dartforge_arc_collect()
-  %payload_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %payload)
+  %payload_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %payload)
   %payload_ok_owner = icmp eq i8 %payload_vivo, 3
   %payload_identico = icmp eq i64 %payload, %xp
   %payload_ok = and i1 %payload_ok_owner, %payload_identico
@@ -345,13 +345,13 @@ sucesso_pending:
   call void @dartforge_exception_clear()
   call void @dartforge_arc_release(i64 %payload)
   call void @dartforge_arc_collect()
-  %payload_final = call i8 @dartforge_arc_observar_heap_v1(i64 %payload)
+  %payload_final = call i8 @dartforge_arc_observe_heap_v1(i64 %payload)
   %payload_morto = icmp eq i8 %payload_final, 0
   br i1 %payload_morto, label %sucesso_excecao, label %falha
 sucesso_excecao:
-  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_falivel, i64 %versao_falivel)
-  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_uniforme, i64 %versao_uniforme)
-  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo, i64 %versao)
+  call void @dartforge_arc_take_return_owned_v1(i64 %codigo_falivel, i64 %versao_falivel)
+  call void @dartforge_arc_take_return_owned_v1(i64 %codigo_uniforme, i64 %versao_uniforme)
+  call void @dartforge_arc_take_return_owned_v1(i64 %codigo, i64 %versao)
   call void @dartforge_print_handle(i64 3)
   ret void
 }
@@ -362,9 +362,9 @@ sucesso_excecao:
         // transfers its single owner through the adapter and the Dart body.
         ir = ir.replace("sucesso_excecao:\n", r#"sucesso_excecao:
   %codigo_repasse = ptrtoint ptr @repasse_seletor to i64
-  %rs = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_repasse, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  %rs = call i64 @dartforge_arc_invoke_uniform_v1(i64 %codigo_repasse, i64 0, i64 %args_ptr, i64 %desc_ptr)
   call void @dartforge_arc_collect()
-  %repasse_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rs)
+  %repasse_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %rs)
   %repasse_valor = call i64 @dartforge_unbox_int(i64 %rs)
   %repasse_owner_ok = icmp eq i8 %repasse_vivo, 3
   %repasse_valor_ok = icmp eq i64 %repasse_valor, 9223372036854775807
@@ -373,16 +373,16 @@ sucesso_excecao:
 liberar_repasse:
   call void @dartforge_arc_release(i64 %rs)
   call void @dartforge_arc_collect()
-  %repasse_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rs)
+  %repasse_final = call i8 @dartforge_arc_observe_heap_v1(i64 %rs)
   %repasse_morto = icmp eq i8 %repasse_final, 0
   br i1 %repasse_morto, label %repasse_concluido, label %falha
 repasse_concluido:
   %closure = call i64 @dartforge_arc_closure_owned_v1(i64 %codigo_uniforme, i64 0, i64 0, i64 0)
   %codigo_closure = ptrtoint ptr @repasse_closure to i64
-  %rc = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_closure, i64 %closure, i64 %args_ptr, i64 %desc_ptr)
+  %rc = call i64 @dartforge_arc_invoke_uniform_v1(i64 %codigo_closure, i64 %closure, i64 %args_ptr, i64 %desc_ptr)
   call void @dartforge_arc_release(i64 %closure)
   call void @dartforge_arc_collect()
-  %closure_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rc)
+  %closure_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %rc)
   %closure_valor = call i64 @dartforge_unbox_int(i64 %rc)
   %closure_owner_ok = icmp eq i8 %closure_vivo, 3
   %closure_valor_ok = icmp eq i64 %closure_valor, 9223372036854775807
@@ -391,14 +391,14 @@ repasse_concluido:
 liberar_closure:
   call void @dartforge_arc_release(i64 %rc)
   call void @dartforge_arc_collect()
-  %closure_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rc)
+  %closure_final = call i8 @dartforge_arc_observe_heap_v1(i64 %rc)
   %closure_morto = icmp eq i8 %closure_final, 0
   br i1 %closure_morto, label %closure_concluida, label %falha
 closure_concluida:
   %codigo_local = ptrtoint ptr @seletor_local to i64
-  %rl = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_local, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  %rl = call i64 @dartforge_arc_invoke_uniform_v1(i64 %codigo_local, i64 0, i64 %args_ptr, i64 %desc_ptr)
   call void @dartforge_arc_collect()
-  %local_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rl)
+  %local_vivo = call i8 @dartforge_arc_observe_heap_v1(i64 %rl)
   %local_valor = call i64 @dartforge_unbox_int(i64 %rl)
   %local_owner_ok = icmp eq i8 %local_vivo, 3
   %local_valor_ok = icmp eq i64 %local_valor, 9223372036854775807
@@ -407,7 +407,7 @@ closure_concluida:
 liberar_local:
   call void @dartforge_arc_release(i64 %rl)
   call void @dartforge_arc_collect()
-  %local_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rl)
+  %local_final = call i8 @dartforge_arc_observe_heap_v1(i64 %rl)
   %local_morto = icmp eq i8 %local_final, 0
   br i1 %local_morto, label %local_concluido, label %falha
 local_concluido:
@@ -418,12 +418,12 @@ local_concluido:
         // Do not repeat the registrations in the harness: that would hide a registration
         // missing at startup. The fixed image keeps the versions until exit.
         for line in [
-            "  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)\n",
-            "  %versao_uniforme = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_uniforme)\n",
-            "  %versao_falivel = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_falivel)\n",
-            "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_falivel, i64 %versao_falivel)\n",
-            "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_uniforme, i64 %versao_uniforme)\n",
-            "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo, i64 %versao)\n",
+            "  %versao = call i64 @dartforge_arc_register_return_owned_v1(i64 %codigo, i64 7)\n",
+            "  %versao_uniforme = call i64 @dartforge_arc_register_uniform_owned_v1(i64 %codigo_uniforme)\n",
+            "  %versao_falivel = call i64 @dartforge_arc_register_uniform_owned_v1(i64 %codigo_falivel)\n",
+            "  call void @dartforge_arc_take_return_owned_v1(i64 %codigo_falivel, i64 %versao_falivel)\n",
+            "  call void @dartforge_arc_take_return_owned_v1(i64 %codigo_uniforme, i64 %versao_uniforme)\n",
+            "  call void @dartforge_arc_take_return_owned_v1(i64 %codigo, i64 %versao)\n",
         ] {
             ir = ir.replace(line, "");
         }
@@ -433,16 +433,16 @@ local_concluido:
         Some("sem-registro") => {
             if arc {
                 ir = ir.replace(
-                    "  %cv0 = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %c0, i64 7)\n",
+                    "  %cv0 = call i64 @dartforge_arc_register_return_owned_v1(i64 %c0, i64 7)\n",
                     "",
                 );
             } else {
-                ir = ir.replace("  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)\n", "  %versao = add i64 0, 0\n");
+                ir = ir.replace("  %versao = call i64 @dartforge_arc_register_return_owned_v1(i64 %codigo, i64 7)\n", "  %versao = add i64 0, 0\n");
             }
         }
         Some("sem-fechamento") => {
             ir = ir.replace(
-                "  call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %escopo)\n",
+                "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo)\n",
                 "",
             );
         }
@@ -472,7 +472,7 @@ mod tests {
             let m = module(tables, true).unwrap();
             let ir = LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("call i64 @dartforge_arc_box_int_owned_v1"));
-            assert!(ir.contains("call void @df.arc.registrar_portas()"));
+            assert!(ir.contains("call void @df.arc.register_ports()"));
             assert!(
                 !m.functions[0]
                     .blocks

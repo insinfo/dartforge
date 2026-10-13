@@ -139,7 +139,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                         *v == q
                             && *t == Type::I64
                             && matches!(i, Instruction::CallRuntime { name, args, ret_ty }
-                    if name == "dartforge_arc_quadro_abrir_v1" && *ret_ty == Type::I64
+                    if name == "dartforge_arc_frame_open_v1" && *ret_ty == Type::I64
                     && args == &vec![(Operand::Constant(Constant::Int(n as i64)), Type::I64)])
                     })
                 })
@@ -248,7 +248,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             _ => None,
         };
         let own_set: HashSet<_> = f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, i, _)|
-            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_abrir_v1").then_some(*v)).collect();
+            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_frame_open_v1").then_some(*v)).collect();
         let natives: HashSet<_> = own_set
             .iter()
             .copied()
@@ -267,7 +267,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                 };
                 match inst {
                     Instruction::CallRuntime { name, args, ret_ty }
-                        if name.starts_with("dartforge_arc_quadro_") =>
+                        if name.starts_with("dartforge_arc_frame_") =>
                     {
                         super::contracts::runtime_call_contract(inst)?;
                         if *ty != *ret_ty || args.iter().any(|(a, t)| typ(a) != Some(*t)) {
@@ -276,7 +276,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                                 f.symbol, v.0
                             ));
                         }
-                        if name != "dartforge_arc_quadro_abrir_v1" {
+                        if name != "dartforge_arc_frame_open_v1" {
                             allow(&args[0].0);
                             if let Operand::Val(q) = args[0].0
                                 && let Some(i) = pairs.get(&q)
@@ -285,7 +285,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                                     allow(&args[1].0);
                                 }
                             }
-                            if name == "dartforge_arc_quadro_mover_v1" {
+                            if name == "dartforge_arc_frame_move_v1" {
                                 allow(&args[2].0);
                             }
                         }
@@ -554,7 +554,7 @@ pub(super) mod tests {
                 0 => a.blocks[0].instructions.push((
                     ValueId(100),
                     Instruction::CallRuntime {
-                        name: "dartforge_arc_quadro_fechar_v1".into(),
+                        name: "dartforge_arc_frame_close_v1".into(),
                         args: vec![(v(0), Type::I64)],
                         ret_ty: Type::Void,
                     },

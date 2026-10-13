@@ -94,7 +94,7 @@ pub(super) fn dart_attachment<'a>(
     let Instruction::CallRuntime { name, args, ret_ty } = i else {
         return None;
     };
-    if name != "dartforge_nativo_DartForge_finalizador_anexar"
+    if name != "dartforge_native_DartForge_finalizer_attach"
         || ty != Type::Void
         || *ret_ty != Type::Void
         || args.len() != 4

@@ -187,7 +187,7 @@ abstract final class _StringBase implements String {
     return _createFromCodePoints(typedCharCodes, start, end);
   }
 
-  @pragma("vm:external-name", "DartForge_string_de_codigos")
+  @pragma("vm:external-name", "DartForge_string_from_char_codes")
   external static String? _deCodigos(List<int> codigos, int inicio, int fim);
 
   static int _scanCodeUnits(List<int> charCodes, int start, int end) {
@@ -320,10 +320,10 @@ abstract final class _StringBase implements String {
     return _igualA(other);
   }
 
-  @pragma("vm:external-name", "DartForge_string_igual_a")
+  @pragma("vm:external-name", "DartForge_string_equals_object")
   external bool _igualA(Object other);
 
-  @pragma("vm:external-name", "DartForge_string_iguais")
+  @pragma("vm:external-name", "DartForge_string_equals")
   external bool _iguais(String other);
 
   int compareTo(String other) {
@@ -350,15 +350,15 @@ abstract final class _StringBase implements String {
   // no runtime (`nativos_strings.rs`), com o mesmo resultado: `other`
   // vazio casa, fora dos limites não.
   @pragma("vm:exact-result-type", bool)
-  @pragma("vm:external-name", "DartForge_string_regiao_igual")
+  @pragma("vm:external-name", "DartForge_string_region_equals")
   external bool _substringMatches(int start, String other);
 
   // DartForge: a busca de `indexOf`/`lastIndexOf` por uma `String`, depois
   // da conferência de `start` (`nativos_strings.rs`).
-  @pragma("vm:external-name", "DartForge_string_indice_de")
+  @pragma("vm:external-name", "DartForge_string_index_of")
   external int _indiceDe(String other, int start);
 
-  @pragma("vm:external-name", "DartForge_string_ultimo_indice_de")
+  @pragma("vm:external-name", "DartForge_string_last_index_of")
   external int _ultimoIndiceDe(String other, int start);
 
   bool endsWith(String other) {
@@ -1033,7 +1033,7 @@ final class _OneByteString extends _StringBase {
     return parts;
   }
 
-  @pragma("vm:external-name", "DartForge_string_dividir_por_codigo")
+  @pragma("vm:external-name", "DartForge_string_split_by_code")
   external void _dividirPorCodigo(List<String> parts, int charCode);
 
   List<String> split(Pattern pattern) {

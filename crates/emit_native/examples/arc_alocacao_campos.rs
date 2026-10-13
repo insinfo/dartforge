@@ -133,10 +133,10 @@ fn module(frame: bool, typed: bool) -> Result<Module, String> {
         m.functions.push(Function { symbol: "invocar_closure".into(), name: "invocar_closure".into(), debug_info: None,
             params: vec![(ValueId(0), "closure".into(), Type::Ref), (ValueId(7), "normal".into(), Type::I1)], return_ty: Type::Ref,
             blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                (ValueId(1), Instruction::CallRuntime { name: "dartforge_arc_alvo_tipada_v1".into(), args: vec![
+                (ValueId(1), Instruction::CallRuntime { name: "dartforge_arc_typed_target_v1".into(), args: vec![
                     (Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(1071)), Type::I64),
                 ], ret_ty: Type::I64 }, Type::I64),
-                (ValueId(2), Instruction::CallRuntime { name: "dartforge_arc_contexto_closure_v1".into(), args: vec![
+                (ValueId(2), Instruction::CallRuntime { name: "dartforge_arc_closure_context_v1".into(), args: vec![
                     (Operand::Val(ValueId(0)), Type::Ref),
                 ], ret_ty: Type::Ref }, Type::Ref),
                 (ValueId(3), Instruction::TypedCall { alvo: Operand::Val(ValueId(1)), args: vec![
@@ -203,7 +203,7 @@ fn main() -> Result<(), String> {
     if !arc { m.arc_aot_ports = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     let cid = if frame { dartforge_emit_native::lower::async_sm::ASYNC_FRAME_ID } else { 123 };
-    let owned = format!("call i64 @dartforge_arc_objeto_owned_v1(i64 {cid}, i64 40)");
+    let owned = format!("call i64 @dartforge_arc_object_owned_v1(i64 {cid}, i64 40)");
     let without_owner = format!("call i64 @dartforge_object_new(i64 {cid}, i64 40)");
     let retain_read = m.functions.iter().find(|f| f.symbol == "ler_quadro")
         .and_then(|f| f.blocks.iter().flat_map(|b| &b.instructions).find_map(|(_, i, _)|
@@ -232,14 +232,14 @@ fn main() -> Result<(), String> {
 declare void @dartforge_print_handle(i64)
 define void @prova_alocacao_campos() {
   %obj = call i64 @criar_objeto()
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
   %owned = icmp eq i8 %estado, 3
   br i1 %owned, label %campos, label %falha
 campos:
-  %a = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 0)
-  %b = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 1)
-  %c = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 2)
-  %d = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 3)
+  %a = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 0)
+  %b = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 1)
+  %c = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 2)
+  %d = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 3)
   %aok = icmp eq i64 %a, 85
   %bok = icmp eq i64 %b, -9223372036854775808
   %cok = icmp eq i64 %c, 1
@@ -249,18 +249,18 @@ campos:
   %bits = and i1 %ab, %cd
   br i1 %bits, label %filho, label %falha
 filho:
-  %ref = call i64 @dartforge_arc_ler_campo_ref_v1(i64 %obj, i64 39)
+  %ref = call i64 @dartforge_arc_read_field_ref_v1(i64 %obj, i64 39)
   %valor = call i64 @dartforge_unbox_int(i64 %ref)
   %mint = icmp eq i64 %valor, 9223372036854775807
-  %ef = call i8 @dartforge_arc_observar_heap_v1(i64 %ref)
+  %ef = call i8 @dartforge_arc_observe_heap_v1(i64 %ref)
   %sem_owner = icmp eq i8 %ef, 1
   %ok = and i1 %mint, %sem_owner
   br i1 %ok, label %liberar, label %falha
 liberar:
   call void @dartforge_arc_release(i64 %obj)
   call void @dartforge_arc_collect()
-  %eo = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
-  %em = call i8 @dartforge_arc_observar_heap_v1(i64 %ref)
+  %eo = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
+  %em = call i8 @dartforge_arc_observe_heap_v1(i64 %ref)
   %morto = icmp eq i8 %eo, 0
   %filho_morto = icmp eq i8 %em, 0
   %fim = and i1 %morto, %filho_morto
@@ -281,28 +281,28 @@ passou:
             ir = ir.replace(&format!("i64 %obj, i64 {de})"), &format!("i64 %obj, i64 {to})"));
         }
         ir = ir.replace("%aok = icmp eq i64 %a, 85", "%aok = icmp eq i64 %a, 0");
-        ir = ir.replace("%ref = call i64 @dartforge_arc_ler_campo_ref_v1(i64 %obj, i64 39)",
+        ir = ir.replace("%ref = call i64 @dartforge_arc_read_field_ref_v1(i64 %obj, i64 39)",
             "%ref = call i64 @ler_quadro(i64 %obj)");
         ir = ir.replace("%sem_owner = icmp eq i8 %ef, 1", "%sem_owner = icmp eq i8 %ef, 3");
         ir = ir.replace("  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()",
-            "  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()\n  %sobreviveu = call i8 @dartforge_arc_observar_heap_v1(i64 %ref)\n  %ainda_owned = icmp eq i8 %sobreviveu, 3\n  br i1 %ainda_owned, label %soltar_leitura, label %falha\nsoltar_leitura:\n  call void @dartforge_arc_release(i64 %ref)\n  call void @dartforge_arc_collect()");
+            "  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()\n  %sobreviveu = call i8 @dartforge_arc_observe_heap_v1(i64 %ref)\n  %ainda_owned = icmp eq i8 %sobreviveu, 3\n  br i1 %ainda_owned, label %soltar_leitura, label %falha\nsoltar_leitura:\n  call void @dartforge_arc_release(i64 %ref)\n  call void @dartforge_arc_collect()");
     }
     if typed {
         // ARC uses the automatic registration of the certificate before the Dart entry.
         // Tracing registers manually only to compare the same native ABI;
         // that registration neither prepares nor certifies the tracing pipeline.
         let tracing_registration = if arc { "" } else {
-            "  %pc = ptrtoint ptr @criar_objeto to i64\n  %versao = call i64 @dartforge_arc_registrar_tipada_v1(i64 %pc, i64 1071)\n"
+            "  %pc = ptrtoint ptr @criar_objeto to i64\n  %versao = call i64 @dartforge_arc_register_typed_v1(i64 %pc, i64 1071)\n"
         };
         ir = ir.replace("  %obj = call i64 @criar_objeto()",
-            &format!("{tracing_registration}  %closure = call i64 @criar_closure()\n  %contexto = call i64 @dartforge_arc_contexto_closure_v1(i64 %closure)\n  %obj = call i64 @invocar_closure(i64 %closure, i1 true)\n  call void @dartforge_arc_release(i64 %closure)\n  call void @dartforge_arc_collect()\n  %ec = call i8 @dartforge_arc_observar_heap_v1(i64 %contexto)\n  %contexto_morto = icmp eq i8 %ec, 0\n  br i1 %contexto_morto, label %conferir_objeto, label %falha\nconferir_objeto:"));
+            &format!("{tracing_registration}  %closure = call i64 @criar_closure()\n  %contexto = call i64 @dartforge_arc_closure_context_v1(i64 %closure)\n  %obj = call i64 @invocar_closure(i64 %closure, i1 true)\n  call void @dartforge_arc_release(i64 %closure)\n  call void @dartforge_arc_collect()\n  %ec = call i8 @dartforge_arc_observe_heap_v1(i64 %contexto)\n  %contexto_morto = icmp eq i8 %ec, 0\n  br i1 %contexto_morto, label %conferir_objeto, label %falha\nconferir_objeto:"));
         if typed_error {
             let start = ir.find("define void @prova_alocacao_campos() {").ok_or("missing harness")?;
             ir.truncate(start);
             ir.push_str(&format!("define void @prova_alocacao_campos() {{\n{tracing_registration}"));
             ir.push_str(r#"
   %closure = call i64 @criar_closure()
-  %contexto = call i64 @dartforge_arc_contexto_closure_v1(i64 %closure)
+  %contexto = call i64 @dartforge_arc_closure_context_v1(i64 %closure)
   %obj = call i64 @invocar_closure(i64 %closure, i1 false)
   %pending = call i8 @dartforge_exception_pending()
   %erro = icmp ne i8 %pending, 0
@@ -313,7 +313,7 @@ limpar:
   call void @dartforge_exception_clear()
   call void @dartforge_arc_release(i64 %closure)
   call void @dartforge_arc_collect()
-  %ec = call i8 @dartforge_arc_observar_heap_v1(i64 %contexto)
+  %ec = call i8 @dartforge_arc_observe_heap_v1(i64 %contexto)
   %contexto_morto = icmp eq i8 %ec, 0
   br i1 %contexto_morto, label %passou, label %falha
 falha:

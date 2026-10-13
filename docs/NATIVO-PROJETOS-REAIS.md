@@ -170,7 +170,7 @@ A VM não estoura porque monta o literal num vetor preenchido por
    e `null`) passa a aceitar números, pelo tipo estático do literal: `i`
    (8 bytes) para `int`, `d` (os bits do `double`) para `double` — um
    literal inteiro num contexto `double` já tem tipo `double` na inferência.
-   O runtime lê `d` em `dartforge_lista_de_tabela`
+   O runtime lê `d` em `dartforge_list_from_table`
    (`RT/nativos_listas.rs`). As tabelas `Map<int, int>` viram dados.
 2. O literal de 256 elementos ou mais que não cabe na tabela, com todo
    elemento constante (tem chave canônica, `chave_constante`), vai por
@@ -294,7 +294,7 @@ vezes — 21% das linhas.
    `--thinlto-jobs` no mesmo número).
 2. `EN/driver.rs`, `gerar_partes`: as partes em paralelo; a ligação recebe
    todos os objetos.
-3. No desenvolvimento (`-O0`), o endereço dos campos é `call @df.corpo(h,
+3. No desenvolvimento (`-O0`), o endereço dos campos é `call @df.body(h,
    ctx)` (`llvm/mod.rs`, `ajudante_do_corpo`); a produção e os módulos do
    SDK continuam em linha (`alwaysinline`). O IR caiu de 1,32 para 1,06 GB.
 
@@ -510,7 +510,7 @@ overflow trace correctly" derrubava o executável com o código -11
 
 * O runtime guarda o limite em `Contexto::limite_da_pilha`
   (`RT/heap.rs`, deslocamento 376). O limite é o início da pilha da
-  thread, pego na primeira vez em `dartforge_contexto`, mais uma folga de
+  thread, pego na primeira vez em `dartforge_context`, mais uma folga de
   256 KiB:
   * Windows: `GetCurrentThreadStackLimits`;
   * Linux: `pthread_getattr_np`;
@@ -518,7 +518,7 @@ overflow trace correctly" derrubava o executável com o código -11
 * Toda função que chama outra (as que têm `%ctx`) compara o endereço de um
   `alloca` com esse limite antes de encadear o quadro de raízes
   (`EN/llvm/mod.rs`, `emitir_conferencia_da_pilha`). Abaixo dele, chama
-  `dartforge_estouro_de_pilha`, que lança o `StackOverflowError` do SDK, e
+  `dartforge_stack_overflow`, que lança o `StackOverflowError` do SDK, e
   volta com a exceção pendente.
 * Uma função num ciclo de chamadas diretas (Tarjan sobre os `CallStatic`,
   `optimize/efeitos.rs`, `em_ciclo`) conta como função que lança. Antes, o

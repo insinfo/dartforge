@@ -72,7 +72,7 @@ fn main() -> Result<(), String> {
                 (
                     ValueId(0),
                     call(
-                        "dartforge_arc_quadro_abrir_v1",
+                        "dartforge_arc_frame_open_v1",
                         vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
                         Type::I64,
                     ),
@@ -114,7 +114,7 @@ fn main() -> Result<(), String> {
                 (
                     ValueId(6),
                     call(
-                        "dartforge_arc_quadro_fechar_v1",
+                        "dartforge_arc_frame_close_v1",
                         vec![(value(0), Type::I64)],
                         Type::Void,
                     ),
@@ -311,12 +311,12 @@ fn main() -> Result<(), String> {
             if let Instruction::CallRuntime { name, .. } = &mut instruction.1 {
                 // Replaces the observation with an audited Ref throw. The next
                 // test selects the same prepared cleanup block.
-                *name = "dartforge_arc_lancar_ref_v1".into();
+                *name = "dartforge_arc_throw_ref_v1".into();
             }
         }
         let printed = match &instruction.1 {
             Instruction::CallRuntime { name, args, .. }
-                if name == "dartforge_print_handle" || name == "dartforge_arc_lancar_ref_v1" =>
+                if name == "dartforge_print_handle" || name == "dartforge_arc_throw_ref_v1" =>
             {
                 Some(args[0].0.clone())
             }

@@ -296,44 +296,44 @@ const PATH_SEPARATOR: &str = "\\";
 // The `_Directory` natives.
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_Current(_ns: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_Current(_ns: i64) -> i64 {
     dart_or_error(current_directory(), |b| dart_string_from_bytes(&b))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_SetCurrent(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_SetCurrent(_ns: i64, raw: i64) -> i64 {
     dart_true_or_error(std::env::set_current_dir(raw_path(raw)).map_err(OsError::from))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_Exists(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_Exists(_ns: i64, raw: i64) -> i64 {
     dart_or_error(directory_exists(&raw_path(raw)), |e| {
         dart_int(if e { DIRECTORY_EXISTS } else { DIRECTORY_NOT_FOUND })
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_Create(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_Create(_ns: i64, raw: i64) -> i64 {
     dart_true_or_error(create_directory(&raw_path(raw)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_SystemTemp(_ns: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_SystemTemp(_ns: i64) -> i64 {
     dart_string_from_bytes(&system_temp_directory())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_CreateTemp(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_CreateTemp(_ns: i64, raw: i64) -> i64 {
     dart_or_error(create_temp_directory(&path_bytes(raw)), |b| dart_string_from_bytes(&b))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_Delete(_ns: i64, raw: i64, recursive: u8) -> i64 {
+pub extern "C" fn dartforge_native_Directory_Delete(_ns: i64, raw: i64, recursive: u8) -> i64 {
     dart_true_or_error(delete_directory(&raw_path(raw), recursive != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_Rename(_ns: i64, raw: i64, new: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_Rename(_ns: i64, raw: i64, new: i64) -> i64 {
     dart_true_or_error(rename_directory(&raw_path(raw), &path_text(new)))
 }
 
@@ -341,7 +341,7 @@ pub extern "C" fn dartforge_nativo_Directory_Rename(_ns: i64, raw: i64, new: i64
 /// `File`/`Directory`/`Link` per entry (`fromRawPath`); the first error is thrown
 /// as a `FileSystemException` ("Directory listing failed").
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_FillWithDirectoryListing(
+pub extern "C" fn dartforge_native_Directory_FillWithDirectoryListing(
     _ns: i64,
     list: i64,
     raw: i64,
@@ -449,13 +449,13 @@ fn free_object_listing(pair: usize) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_SetAsyncDirectoryListerPointer(this: i64, p: i64) {
+pub extern "C" fn dartforge_native_Directory_SetAsyncDirectoryListerPointer(this: i64, p: i64) {
     attach_finalizer(this, free_object_listing, p as usize);
     write_native_field(this, p);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Directory_GetAsyncDirectoryListerPointer(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Directory_GetAsyncDirectoryListerPointer(this: i64) -> i64 {
     let p = native_field(this);
     if p != 0 {
         AsyncListing::retain_ref(p);

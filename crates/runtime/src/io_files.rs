@@ -1138,23 +1138,23 @@ fn stdio_kind(fd: i64) -> IoResult<i64> {
 // The `_File` natives (static, on paths).
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Exists(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Exists(_ns: i64, raw: i64) -> i64 {
     dart_bool(file_exists(&raw_path(raw)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Create(_ns: i64, raw: i64, exclusive: u8) -> i64 {
+pub extern "C" fn dartforge_native_File_Create(_ns: i64, raw: i64, exclusive: u8) -> i64 {
     dart_true_or_error(create_file(&raw_path(raw), exclusive != 0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_CreateLink(_ns: i64, raw: i64, target: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_CreateLink(_ns: i64, raw: i64, target: i64) -> i64 {
     dart_null_or_error(create_link(&raw_path(raw), &path_text(target)))
 }
 
 /// `File_CreatePipe`: `[pointer of read_side, pointer of write_side]`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_CreatePipe(_ns: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_CreatePipe(_ns: i64) -> i64 {
     match create_pipe() {
         Ok((read_side, write_side)) => {
             let a = dart_int(NativeFile::new(read_side));
@@ -1180,95 +1180,95 @@ fn create_pipe() -> IoResult<(i64, i64)> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_LinkTarget(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_LinkTarget(_ns: i64, raw: i64) -> i64 {
     dart_or_error(link_target(&raw_path(raw)), |b| dart_string_from_bytes(&b))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Delete(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Delete(_ns: i64, raw: i64) -> i64 {
     dart_true_or_error(delete_file(&raw_path(raw)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_DeleteLink(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_DeleteLink(_ns: i64, raw: i64) -> i64 {
     dart_true_or_error(delete_link(&raw_path(raw)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Rename(_ns: i64, raw: i64, new: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Rename(_ns: i64, raw: i64, new: i64) -> i64 {
     dart_true_or_error(rename_file(&raw_path(raw), &path_text(new)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_RenameLink(_ns: i64, raw: i64, new: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_RenameLink(_ns: i64, raw: i64, new: i64) -> i64 {
     dart_true_or_error(rename_link(&raw_path(raw), &path_text(new)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Copy(_ns: i64, raw: i64, new: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Copy(_ns: i64, raw: i64, new: i64) -> i64 {
     dart_true_or_error(copy_file(&raw_path(raw), &path_text(new)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_LengthFromPath(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_LengthFromPath(_ns: i64, raw: i64) -> i64 {
     dart_or_error(file_metadata(&raw_path(raw)), |m| dart_int(m.len() as i64))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_LastModified(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_LastModified(_ns: i64, raw: i64) -> i64 {
     dart_or_error(last_modified(&raw_path(raw)), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_LastAccessed(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_LastAccessed(_ns: i64, raw: i64) -> i64 {
     dart_or_error(last_accessed(&raw_path(raw)), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_SetLastModified(_ns: i64, raw: i64, ms: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_SetLastModified(_ns: i64, raw: i64, ms: i64) -> i64 {
     dart_null_or_error(change_instants(&raw_path(raw), None, Some(ms)))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_SetLastAccessed(_ns: i64, raw: i64, ms: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_SetLastAccessed(_ns: i64, raw: i64, ms: i64) -> i64 {
     dart_null_or_error(change_instants(&raw_path(raw), Some(ms), None))
 }
 
 /// `File_Open`: the pointer of the open file (an `int`) or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Open(_ns: i64, raw: i64, mode: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Open(_ns: i64, raw: i64, mode: i64) -> i64 {
     dart_or_error(open_file(&raw_path(raw), mode), |d| dart_int(NativeFile::new(d)))
 }
 
 /// `File_OpenStdio`: the file of standard input/output `fd`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_OpenStdio(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_OpenStdio(fd: i64) -> i64 {
     NativeFile::new(default_descriptor(fd))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_GetStdioHandleType(fd: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_GetStdioHandleType(fd: i64) -> i64 {
     dart_or_error(stdio_kind(fd), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_GetType(_ns: i64, raw: i64, follow: u8) -> i64 {
+pub extern "C" fn dartforge_native_File_GetType(_ns: i64, raw: i64, follow: u8) -> i64 {
     dart_int(path_type(&raw_path(raw), follow != 0))
 }
 
 /// `File_Stat`: the `Int64List` of [`statistics`], or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Stat(_ns: i64, file_path: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Stat(_ns: i64, file_path: i64) -> i64 {
     dart_or_error(statistics(&path_text(file_path)), |d| dart_int64s(&d))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_AreIdentical(_ns: i64, a: i64, b: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_AreIdentical(_ns: i64, a: i64, b: i64) -> i64 {
     dart_or_error(identical(&path_text(a), &path_text(b)), dart_bool)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_ResolveSymbolicLinks(_ns: i64, raw: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_ResolveSymbolicLinks(_ns: i64, raw: i64) -> i64 {
     dart_or_error(canonical_path(&raw_path(raw)), |b| dart_string_from_bytes(&b))
 }
 
@@ -1290,14 +1290,14 @@ fn receiver_file<'a>(this: i64) -> Option<&'a NativeFile> {
 
 /// `File_SetPointer`: the object becomes the owner of the reference of `p`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_SetPointer(this: i64, p: i64) {
+pub extern "C" fn dartforge_native_File_SetPointer(this: i64, p: i64) {
     attach_finalizer(this, free_object_file, p as usize);
     write_native_field(this, p);
 }
 
 /// `File_GetPointer`: retains a reference for the IOService (0 if closed).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_GetPointer(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_GetPointer(this: i64) -> i64 {
     let p = native_field(this);
     if p != 0 {
         NativeFile::retain_ref(p);
@@ -1306,13 +1306,13 @@ pub extern "C" fn dartforge_nativo_File_GetPointer(this: i64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_GetFD(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_GetFD(this: i64) -> i64 {
     receiver_file(this).map_or(0, |a| a.descriptor())
 }
 
 /// `File_Close`: 0, or -1 if already closed.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Close(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Close(this: i64) -> i64 {
     let p = native_field(this);
     if p == 0 {
         return -1;
@@ -1327,7 +1327,7 @@ pub extern "C" fn dartforge_nativo_File_Close(this: i64) -> i64 {
 
 /// `File_ReadByte`: the byte, -1 at the end, or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_ReadByte(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_ReadByte(this: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     let mut b = [0u8; 1];
     dart_or_error(a.do_read(&mut b), |n| dart_int(if n == 1 { i64::from(b[0]) } else { -1 }))
@@ -1335,7 +1335,7 @@ pub extern "C" fn dartforge_nativo_File_ReadByte(this: i64) -> i64 {
 
 /// `File_WriteByte`: 1 or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_WriteByte(this: i64, value: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_WriteByte(this: i64, value: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     let Some(v) = HEAP.with(|h| h.borrow().int_of(value)) else {
         return OsError::invalid_argument().to_dart();
@@ -1346,7 +1346,7 @@ pub extern "C" fn dartforge_nativo_File_WriteByte(this: i64, value: i64) -> i64 
 /// `File_Read`: the bytes read (a view, like the VM's `_makeUint8ListView`, if fewer
 /// than requested came) or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Read(this: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Read(this: i64, n: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     if n < 0 {
         return OsError::invalid_argument().to_dart();
@@ -1358,7 +1358,7 @@ pub extern "C" fn dartforge_nativo_File_Read(this: i64, n: i64) -> i64 {
             buf.truncate(read_list);
             let base = dart_bytes(buf);
             let cid = crate::layout::cid::visao(TYPE_UINT8, false);
-            with_roots(&[base], || dartforge_view_nova(i64::from(cid), i64::from(TYPE_UINT8), base, 0, read_list as i64))
+            with_roots(&[base], || dartforge_view_new(i64::from(cid), i64::from(TYPE_UINT8), base, 0, read_list as i64))
         }
         Err(e) => e.to_dart(),
     }
@@ -1367,7 +1367,7 @@ pub extern "C" fn dartforge_nativo_File_Read(this: i64, n: i64) -> i64 {
 /// `File_ReadInto(buffer, start, end)`: the bytes read, written into
 /// `buffer[start..]`, or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_ReadInto(this: i64, buffer: i64, start: i64, end: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_ReadInto(this: i64, buffer: i64, start: i64, end: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     let end = HEAP.with(|h| h.borrow().int_of(end)).unwrap_or(start);
     let mut buf = vec![0u8; (end - start).max(0) as usize];
@@ -1408,7 +1408,7 @@ fn write_bytes_to_list(list: i64, start: usize, bytes: &[u8]) {
 
 /// `File_WriteFrom(buffer, start, end)`: `null` or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_WriteFrom(this: i64, buffer: i64, start: i64, end: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_WriteFrom(this: i64, buffer: i64, start: i64, end: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     let bytes = typed_list_bytes(buffer).unwrap_or_default();
     let end = HEAP.with(|h| h.borrow().int_of(end)).unwrap_or(bytes.len() as i64) as usize;
@@ -1417,38 +1417,38 @@ pub extern "C" fn dartforge_nativo_File_WriteFrom(this: i64, buffer: i64, start:
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Position(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Position(this: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     dart_or_error(a.cur_position(), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_SetPosition(this: i64, p: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_SetPosition(this: i64, p: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     dart_true_or_error(a.set_position(p))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Truncate(this: i64, n: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Truncate(this: i64, n: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     dart_true_or_error(a.truncate_file(n))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Length(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Length(this: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     dart_or_error(a.size(), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Flush(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Flush(this: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     dart_true_or_error(a.sync_file())
 }
 
 /// `File_Lock(type, start, end)`: `true` or the `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_File_Lock(this: i64, tipo: i64, start: i64, end: i64) -> i64 {
+pub extern "C" fn dartforge_native_File_Lock(this: i64, tipo: i64, start: i64, end: i64) -> i64 {
     let Some(a) = receiver_file(this) else { return 0 };
     if !(LOCK_UNLOCK..=LOCK_EXCLUSIVE_BLOCKING).contains(&tipo) || start < 0 || (end != -1 && end <= start) {
         return OsError::invalid_argument().to_dart();
@@ -1460,17 +1460,17 @@ pub extern "C" fn dartforge_nativo_File_Lock(this: i64, tipo: i64, start: i64, e
 // `_NamespaceImpl`: only the default namespace (the current directory).
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Namespace_Create(ns: i64, _n: i64) -> i64 {
+pub extern "C" fn dartforge_native_Namespace_Create(ns: i64, _n: i64) -> i64 {
     ns
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Namespace_GetPointer(_ns: i64) -> i64 {
+pub extern "C" fn dartforge_native_Namespace_GetPointer(_ns: i64) -> i64 {
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Namespace_GetDefault() -> i64 {
+pub extern "C" fn dartforge_native_Namespace_GetDefault() -> i64 {
     0
 }
 

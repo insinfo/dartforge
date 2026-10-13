@@ -58,7 +58,7 @@ pub enum ArcHeapPublications {
     UnknownValues,
 }
 
-/// Summary of a local version of the body, separate from reach and efeitos.tsv.
+/// Summary of a local version of the body, separate from reach and effects.tsv.
 /// Only the extractor builds its fields. Aliases are of the normal return;
 /// field preservation and publication through the result require coverage of the
 /// whole body. Other bodies keep unknown effects.

@@ -41,7 +41,7 @@ O que muda, em uma frase por eixo:
    memória externa em `flags`, o estado `PERMANENTE` para objetos estáticos e o hash da string em
    `mapa`.
 3. **Classes:** cids 1–65 fixos para as classes que o runtime conhece (`_OneByteString` = 6,
-   `_List` = 8…); o programa começa em 128. `df.classe` vira três casos sem chamada.
+   `_List` = 8…); o programa começa em 128. `df.class` vira três casos sem chamada.
 4. **Alocação:** as classes de tamanho vão de 0–64 palavras exatas para mais 24 classes médias até
    2014 palavras (16 KiB); acima disso, uma região grande própria (`VirtualAlloc`/`mmap`) com
    granularidade de 4 KiB. A alocação em linha serve a qualquer objeto de até 16 palavras,
@@ -80,7 +80,7 @@ do legado. Cada arquivo tem um dono só.
 | `h > 0`, `h & 3 == 0` | slot: índice `(h >> 2) - 1` | `handle_de_indice` (3939-3944), `indice_de` (3946-3948), `indice_vivo` (3960-3983, cinco pânicos N4); fora do heap: `RT/nucleo.rs:699`, `RT/nativos_listas.rs:518` |
 | negativo | nunca handle (ids negativos só como chave de `globais`: `RT/eventos.rs:23`, `RT/tipos.rs:1401`) | `marcado_na_coleta` 2635, `try_get` 4092 |
 
-No emissor a mesma divisão está em `@df.classe` (`EN/llvm/mod.rs:3070-3104`: `h==0`, `h&1`,
+No emissor a mesma divisão está em `@df.class` (`EN/llvm/mod.rs:3070-3104`: `h==0`, `h&1`,
 `h & 0x8000000000000003 == 2`, `== 0` para slot) e na leitura de campos
 (`emitir_endereco_dos_campos`, `EN/llvm/mod.rs:2532-2550`, que troca o bloco por `ctx+40`,
 `OBJETO_VAZIO`, quando não é objeto).
@@ -102,7 +102,7 @@ Pontos por onde toda variante passa: `Value::estimated_bytes` (2550-2574), `Valu
 | `Match(Texto)` | texto (legado) | `strings.rs:592`, `portas.rs:540` | `colecoes.rs:209,236`, `strings.rs:47,263,277,286`, … |
 | `Objeto` | marcador, nunca em slot | `static VALOR_OBJETO` (2659), `get_mut` (4427) | `nucleo.rs:734`, `portas.rs:183,586,587`, `saida.rs:116,232`, `tipos.rs:163,824` |
 | `Cell(TaggedValue)` | captura mutável | `create_cell` (4153) ← `closures.rs:7`; `portas.rs:542,619` | `cell_get`/`cell_set` (4158/4166), `portas.rs:208`, `saida.rs:208`, `tipos.rs:826` |
-| `Environment(Vec<TaggedValue>)` | capturas | `create_environment` (4174) ← `closures.rs:46`, `ffi.rs:183`, `tearoff` (3402); `portas.rs:543,623` | `environment_get` (4179), `closures.rs:149` (`dartforge_env_dados` expõe o `Vec`), `nativos_listas.rs:838,1065`, `seletores.rs:423`, `portas.rs:209`, `saida.rs:207` |
+| `Environment(Vec<TaggedValue>)` | capturas | `create_environment` (4174) ← `closures.rs:46`, `ffi.rs:183`, `tearoff` (3402); `portas.rs:543,623` | `environment_get` (4179), `closures.rs:149` (`dartforge_env_data` expõe o `Vec`), `nativos_listas.rs:838,1065`, `seletores.rs:423`, `portas.rs:209`, `saida.rs:207` |
 | `Closure(Box<CabecalhoDeClosure>)` | código, ambiente, corpo tipado, ABI | `create_closure` (4191) ← `closures.rs:62,72`, `ffi.rs:186`, `tearoff` (3404); `closures.rs:89`; `portas.rs:545,628` | `closure_parts` (4196), `closures.rs:73,104,125,137,182`, `nativos_listas.rs:836,1063`, `nucleo.rs:741`, `seletores.rs:281`, `portas.rs:210`, `saida.rs:206`, `tipos.rs:822` |
 | `List(Elementos)` | `_List`/`_GrowableList`/`_ImmutableList` pelas marcas do slot | `create_list` (4203) ← `colecoes.rs:122,128,415,547`, `despacho.rs:164`, `ffi_callbacks.rs:575`, `nativos_listas.rs:1120`, `strings.rs:303,441`; `allocate` direto em `closures.rs:339,345`, `colecoes.rs:486,493,597`, `io_arquivos.rs:190`, `nativos_listas.rs:207,262,279,300,630,648,972`, `portas.rs:552` | 30 linhas em `nativos_listas.rs` (73…646, 9 delas `get_mut`), 14 em `colecoes.rs`, `despacho.rs:152,277`, `excecoes.rs:416`, `ffi_callbacks.rs:533`, `isolados.rs:170`, `nativos_hash.rs:109`, `nativos_strings.rs:383`, `nucleo.rs:738`, `portas.rs:174,216,635`, `saida.rs:108,162`, `seletores.rs:272`, `strings.rs:373`, `tipos.rs:819,930,935`, `zlib.rs:199` |
 | `Map(Vec<(TV,TV)>)` | só sem SDK da fonte | `create_map` (4285) ← `colecoes.rs:295`; `portas.rs:553,648` | `colecoes.rs:395,398,412,475`, `nucleo.rs:739`, `portas.rs:217`, `saida.rs:111,176`, `tipos.rs:820` |
@@ -190,13 +190,13 @@ fixo e uma função "pura" do handle que o LLVM tira dos laços.
 
 | Estrutura | Layout | Obtida por | Lida em |
 |---|---|---|---|
-| `CabecalhoDeLista` (`RT/heap.rs:634-667`, vazio 671) | `dados`@0, `len`@8, `gravavel`@16 (bits `1<<código` e `1<<(código+4)`), `forma`@24, `vetor`, `compacto`, `logico` | `dartforge_lista_cabecalho` (`RT/nativos_listas.rs:167`; decl `EN/llvm/externs.rs:391`, `memory(none) … speculatable`) | `EN/lower/tipados.rs:297,308-310,332-350,734,765,811-827,854-865`; `EN/lower/comandos.rs:322-344`; `EN/lower/sdk_fonte.rs:2128-2139` |
+| `CabecalhoDeLista` (`RT/heap.rs:634-667`, vazio 671) | `dados`@0, `len`@8, `gravavel`@16 (bits `1<<código` e `1<<(código+4)`), `forma`@24, `vetor`, `compacto`, `logico` | `dartforge_list_header` (`RT/nativos_listas.rs:167`; decl `EN/llvm/externs.rs:391`, `memory(none) … speculatable`) | `EN/lower/tipados.rs:297,308-310,332-350,734,765,811-827,854-865`; `EN/lower/comandos.rs:322-344`; `EN/lower/sdk_fonte.rs:2128-2139` |
 | elementos gerais `TaggedValue` (`RT/heap.rs:51-62`) | 16 B: bits@0, `is_ref`@8, tag@9 (Int 0, Bool 1, Double 2, Ref 3) | `dados + 16i` | `EN/lower/tipados.rs:811-818`; espelho da tag em `tipados.rs:880-883` |
-| `CabecalhoTipado` (`RT/heap.rs:2427-2446`, vazio 2451) | `dados`@0, `bytes`@8, `proprio: Vec<u8>`, `externo` | `dartforge_typed_cabecalho` (`RT/typed_data.rs:178`; `EN/llvm/externs.rs:346`) | `EN/lower/tipados.rs:466-568` (cache por ponto, `typed_cabecalho_na_falha` 561); `!invariant.load` em `EN/llvm/mod.rs:990-1021` |
-| `CabecalhoDeClosure` (`RT/heap.rs:1058-1073`, vazia 1077) | `code_id`@0, `environment`@8, `tipado`@16, `abi`@24 | `dartforge_closure_cabecalho` (`RT/closures.rs:135-140`; `externs.rs:407`) | `EN/lower/closures.rs:794-822` |
-| vetor do `Environment` | `Vec<TaggedValue>` | `dartforge_env_dados` (`RT/closures.rs:147-152`; `externs.rs:413`) | `EN/llvm/mod.rs:1495-1506` e `@df.env_ref` (3163-3184) |
-| unidades do `Texto` | `Vec<u8>`/`Vec<u16>`, bit 63 = dois bytes | `dartforge_texto_dados`/`_len`/`_na_falha` (`RT/nativos_strings.rs:22-56`; `externs.rs:361-372`) | `EN/lower/textos.rs:92-188` (cache por valor lido) |
-| `ClasseDoSlot` (`RT/heap.rs:2803-2828`) | `classe: i32`, `marcas: u32` por slot | `Contexto.classes`/`n_classes` (+336/+344) | `@df.classe`, `EN/llvm/mod.rs:3081-3100` |
+| `CabecalhoTipado` (`RT/heap.rs:2427-2446`, vazio 2451) | `dados`@0, `bytes`@8, `proprio: Vec<u8>`, `externo` | `dartforge_typed_header` (`RT/typed_data.rs:178`; `EN/llvm/externs.rs:346`) | `EN/lower/tipados.rs:466-568` (cache por ponto, `typed_cabecalho_na_falha` 561); `!invariant.load` em `EN/llvm/mod.rs:990-1021` |
+| `CabecalhoDeClosure` (`RT/heap.rs:1058-1073`, vazia 1077) | `code_id`@0, `environment`@8, `tipado`@16, `abi`@24 | `dartforge_closure_header` (`RT/closures.rs:135-140`; `externs.rs:407`) | `EN/lower/closures.rs:794-822` |
+| vetor do `Environment` | `Vec<TaggedValue>` | `dartforge_env_data` (`RT/closures.rs:147-152`; `externs.rs:413`) | `EN/llvm/mod.rs:1495-1506` e `@df.env_ref` (3163-3184) |
+| unidades do `Texto` | `Vec<u8>`/`Vec<u16>`, bit 63 = dois bytes | `dartforge_string_data`/`_len`/`_na_falha` (`RT/nativos_strings.rs:22-56`; `externs.rs:361-372`) | `EN/lower/textos.rs:92-188` (cache por valor lido) |
+| `ClasseDoSlot` (`RT/heap.rs:2803-2828`) | `classe: i32`, `marcas: u32` por slot | `Contexto.classes`/`n_classes` (+336/+344) | `@df.class`, `EN/llvm/mod.rs:3081-3100` |
 
 O `tls.rs` depende do `Box` de forma ainda mais forte: `tomar_bytes_tipados` (763-771) faz
 `std::mem::take` do `Armazenamento` durante o processamento síncrono e `devolver_bytes_tipados`
@@ -247,8 +247,8 @@ O `tls.rs` depende do `Box` de forma ainda mais forte: `tomar_bytes_tipados` (76
 * **Varredura** menor (`varrer_jovens`, 2018-2091) e completa (`varrer`, 2162-2300) só leem os bits;
   folga de páginas vazias por classe (`demanda`, `pico`).
 * **Barreira:** `get_mut` (4421-4437), `definir_campo` (3836), `campos_de_objeto` (4076),
-  `dartforge_lembrar` (`RT/nucleo.rs:459`) e, no código gerado, `emitir_barreira`
-  (`EN/llvm/mod.rs:2707-2728`: estado `== VELHO` → `dartforge_lembrar`).
+  `dartforge_remember` (`RT/nucleo.rs:459`) e, no código gerado, `emitir_barreira`
+  (`EN/llvm/mod.rs:2707-2728`: estado `== VELHO` → `dartforge_remember`).
 * **Verificação:** `DARTFORGE_GC_VERIFICAR=1` confere cada coleta menor por uma travessia completa
   (4598-4638); `--gc-stress` é `DARTFORGE_GC_STRESS` (`RT/nucleo.rs:140`), sem TLAB, zerando mortos.
 * **Corpo de fora** (`FORA`, `trocar_campos` 4020-4046): objeto cujo número de campos mudou (erro
@@ -271,11 +271,11 @@ representação. Nenhum código emite estas (só declaradas): `cell_get_tag`, `c
 `rti_regra`, `rti_subtipo`, `set_len`, `stack_trace_from_string`, `string_equal`,
 `string_juntar`, `string_len`, `object_campos`, `closure_tipada`.
 
-**Helpers `df.*` em IR** (`EN/llvm/mod.rs`): `@df.obter_area` (3003-3022), `@df.preparar_area`
-(233-235), `@df.classe` (3070-3104; com o SDK da fonte, `null`/`Smi` pelos imediatos de
-`cids[0..2]`, 3049-3067), `@df.seletor` (3105-3118), `@df.subclasse` (3119-3149, `Contexto`
-+352/+360/+368), `@df.caixa_int` (3151-3162), `@df.env_ref` (3163-3184), `@df.desencaixa_int`
-(3185-3195), `@df.preparar_isolado` (1922-1976: `dartforge_registrar_cids` e as tabelas).
+**Helpers `df.*` em IR** (`EN/llvm/mod.rs`): `@df.get_area` (3003-3022), `@df.prepare_area`
+(233-235), `@df.class` (3070-3104; com o SDK da fonte, `null`/`Smi` pelos imediatos de
+`cids[0..2]`, 3049-3067), `@df.selector` (3105-3118), `@df.subclass` (3119-3149, `Contexto`
++352/+360/+368), `@df.box_int` (3151-3162), `@df.env_ref` (3163-3184), `@df.unbox_int`
+(3185-3195), `@df.prepare_isolate` (1922-1976: `dartforge_register_cids` e as tabelas).
 
 **`Contexto`** (`RT/heap.rs:2737-2792`, asserts 2830-2846): pendente 0, topo 8, áreas 16/24,
 interrupção 32, `vazios` 40, registradas 48/56, `tlab[n]` 64+16n/72+16n, classes 336/344,
@@ -305,7 +305,7 @@ memória (0 int, 1 bool, 2 double, 3 ref).
 `_Float32x4`, `_Int32x4`, `_Float64x2`, `_Int8List`…`_Float64x2List`, `_SendPort`,
 `_Capability`), com o id que a numeração estável der (`context.rs:395-430`: ordem do caminho
 estável a partir de 1, pulando 1000–1012). Chega ao runtime por `@df.cids` e
-`dartforge_registrar_cids` (`RT/seletores.rs:227-238`), que refaz a classe de todo slot.
+`dartforge_register_cids` (`RT/seletores.rs:227-238`), que refaz a classe de todo slot.
 `ClassID.cidX` do SDK vira constante na compilação (`EN/lower/intrinsecos.rs:51-73`).
 
 ### 1.8 O SDK nativo
@@ -313,7 +313,7 @@ estável a partir de 1, pulando 1000–1012). Chega ao runtime por `@df.cids` e
 Sobreposições (`native_sdk/libraries.json:6-38`): `core/string_patch.dart` (`==` e buscas por
 natives `DartForge_string_*`), `core/integers.dart` (`_Smi.toString` fora da tabela por
 `DartForge_int_toString`, 650-661), `core/double.dart` (cache de `toString`), `core/array.dart`
-(`DartForge_List_preencher`/`_copiar`), `core/growable_array.dart` (`_reservar`, cópias no
+(`DartForge_List_fill`/`_copiar`), `core/growable_array.dart` (`_reservar`, cópias no
 runtime), `core/string_buffer_patch.dart` (acumulador do runtime, `DartForge_sb_*`),
 `collection/compact_hash.dart` (campos de verdade `_indiceDF`, `_hashMask`, `_data`,
 `_usedData`, `_deletedKeys`, 161-178; natives `DartForge_hash_*`), `convert/convert_patch.dart`
@@ -330,16 +330,16 @@ io, developer, mirrors. Sem sobreposição: `typed_data_patch.dart`, `internal_p
   em `RT/nativos_listas.rs`: `List_allocate` 203, `List_getLength` 219, `List_setIndexed` 225,
   `List_slice` 257, `ImmutableList_from` 274, `GrowableList_allocate` 293, `_getCapacity` 310,
   `_getLength` 323, `_setLength` 329, `_setData` 343, `_setIndexed` 473,
-  `DartForge_List_preencher` 368, `_copiar` 428, `DartForge_GrowableList_reservar` 453,
-  `DartForge_json_acrescentar` 148, `Internal_makeListFixedLength` 625,
-  `Internal_makeFixedListUnmodifiable` 643, `DartForge_lista_get` 245.
+  `DartForge_List_fill` 368, `_copiar` 428, `DartForge_GrowableList_reserve` 453,
+  `DartForge_json_append` 148, `Internal_makeListFixedLength` 625,
+  `Internal_makeFixedListUnmodifiable` 643, `DartForge_list_get` 245.
 * `_Map`/`_Set`/`_ConstMap`/`_ConstSet` **já** são objetos Dart do espaço (literais por
   `colecao_vazia_fonte`, `EN/lower/sdk_fonte.rs:1924-1935`); o `_index` é um `Value::TypedData`
   (`Uint32List`) e o `_data` um `Value::List`. `nativos_hash.rs` sonda a mesma tabela
   (`sondar` 122-159) para chaves `int` e `String`.
 * Listas tipadas: `Value::TypedData`/`TypedView`; fábricas reconhecidas em `fabrica_tipada`
-  (`EN/lower/sdk_fonte.rs:801-916`) → `dartforge_typed_novo`/`dartforge_view_nova`;
-  `asTypedList` → `dartforge_typed_externo` (`RT/ffi.rs:778`), classe `_XList` interna com
+  (`EN/lower/sdk_fonte.rs:801-916`) → `dartforge_typed_new`/`dartforge_view_new`;
+  `asTypedList` → `dartforge_typed_external` (`RT/ffi.rs:778`), classe `_XList` interna com
   `Armazenamento::externo`.
 * `_Closure` tem campos declarados (`_function`, `_context`…) que o runtime não usa;
   `Closure_equals` (`RT/nativos_listas.rs:829-847`) e `Closure_computeHash` (1060-1074) olham o
@@ -364,7 +364,7 @@ io, developer, mirrors. Sem sobreposição: `typed_data_patch.dart`, `internal_p
 * **Recarga (J03):** `migrar_instancias` (`RT/heap.rs:3989-4015`) percorre só o espaço de
   objetos (`para_cada_vivo`) e troca campos por `trocar_campos` (corpo de fora); o plano vem de
   `crates/jit/src/migracao.rs:67-142` e é aplicado por isolado em `aplicar_migracao_pendente`
-  (`RT/seletores.rs:586-601`). `dartforge_publicar_geracao` (`RT/seletores.rs:182-212`) refaz
+  (`RT/seletores.rs:586-601`). `dartforge_publish_generation` (`RT/seletores.rs:182-212`) refaz
   tabelas e esvazia caches. A memória de uma geração do JIT **é liberada** quando nenhuma entrada
   a usa (`docs/JIT.md` §J02) — dado estático de um módulo do JIT não pode ser referenciado pelo heap.
 * **RTI** (`RT/tipos.rs`): `chave_do_valor` (133-167) lê o metadado direto do cabeçalho do objeto
@@ -375,7 +375,7 @@ io, developer, mirrors. Sem sobreposição: `typed_data_patch.dart`, `internal_p
 * **E/S:** nenhuma operação assíncrona guarda ponteiro para memória do heap: IOCP copia para
   `Operacao.dados` (`RT/io_windows_eventos.rs:292-348,1037-1077`), soquetes e arquivos copiam
   (`bytes_da_lista_tipada`, `RT/io_arquivos.rs:224-232`). Ponteiros para dentro do heap só em
-  chamadas síncronas: `com_memoria` (`RT/ffi.rs:262-282`), `dartforge_ffi_endereco_do_composto`
+  chamadas síncronas: `com_memoria` (`RT/ffi.rs:262-282`), `dartforge_ffi_compound_address`
   (814-829), `dartforge_typed_ptr` (`RT/typed_data.rs:255-264`), `tls.rs:656-693`.
 
 ### 1.10 O que a VM do Dart e a Julia fazem (base das decisões)
@@ -459,7 +459,7 @@ io, developer, mirrors. Sem sobreposição: `typed_data_patch.dart`, `internal_p
    só serve ao programa, ao despacho e ao runtime.
 3. **Classes do runtime fixas.** O cid de cada classe que o runtime cria é uma constante do
    contrato (§2.4), igual no runtime, no emissor, no JIT e em todas as gerações.
-4. **O cid não muda depois que o objeto é publicado.** `df.classe` lê o cid com
+4. **O cid não muda depois que o objeto é publicado.** `df.class` lê o cid com
    `!invariant.load`; mudar de classe é alocar outro objeto (§2.16).
 5. **Uma palavra por elemento.** Elementos e campos têm 8 bytes; a `TaggedValue` de 16 bytes sai do
    heap. Onde a palavra precisa se descrever sozinha (listas gerais, records), ela é um `Ref`
@@ -547,8 +547,8 @@ Predicados por faixa (como `class_id.h`): string `cid − 6 <u 2`; `_List`/`_Imm
 `cid − 8 <u 2`; lista do núcleo `cid − 8 <u 3`; lista tipada interna `cid − 22 <u 14`; qualquer
 lista tipada ou visão `cid − 22 <u 44`; visão não modificável `cid − 50 <u 14 || cid == 65`.
 
-Consequências: `@df.classe` não chama o runtime (§3.5); `ClassID.cidX` vira a constante do
-contrato (sem busca em `EN/lower/intrinsecos.rs:51-73`); `@df.cids` e `dartforge_registrar_cids`
+Consequências: `@df.class` não chama o runtime (§3.5); `ClassID.cidX` vira a constante do
+contrato (sem busca em `EN/lower/intrinsecos.rs:51-73`); `@df.cids` e `dartforge_register_cids`
 viram uma conferência de ABI (o runtime aborta se a tabela do módulo não é a dele — o marcador de
 ABI do `PLANO-TAMANHO-DESEMPENHO.md` §4.2); o problema "string alocada antes de os cids chegarem"
 não existe. O `_ExternalXArray` da VM não é usado: `asTypedList` devolve a `_XList` interna com
@@ -625,8 +625,8 @@ modo (máximo empacotamento por página); a VM usa listas livres de tamanho vari
 
 **TLAB:** a de hoje, indexada por palavras `1..=16` (`Contexto.tlab[w]` em `64 + 16w`). O código
 gerado aloca em linha qualquer objeto de até 16 palavras, com `w` constante ou calculado (strings,
-listas pequenas, caixas, células, contextos, closures, visões): `@df.alocar` (§3.5). Acima de 16
-palavras, ou TLAB esgotada, `dartforge_alocar` (§3.6), que coleta se preciso e reabastece.
+listas pequenas, caixas, células, contextos, closures, visões): `@df.allocate` (§3.5). Acima de 16
+palavras, ou TLAB esgotada, `dartforge_allocate` (§3.6), que coleta se preciso e reabastece.
 
 **No runtime:** `Heap::alocar(cid, w, flags)` (§3.2); todo objeto sai zerado. A contagem para os
 gatilhos continua em `estimated_bytes`, agora `Σ tamanho dos blocos em uso + bytes externos`
@@ -638,13 +638,13 @@ gatilhos continua em `estimated_bytes`, agora `Σ tamanho dos blocos em uso + by
 **Barreira de objeto** (depois de gravar o `Ref` `v` num campo ou elemento do objeto `o`):
 
 ```
-se o.estado == VELHO e v é objeto e v.estado == JOVEM: dartforge_lembrar(o)
+se o.estado == VELHO e v é objeto e v.estado == JOVEM: dartforge_remember(o)
 ```
 
 É a de hoje (`EN/llvm/mod.rs:2707-2728`) mais o teste do filho, como a VM (`StoreBarrier`, o filho
 precisa estar no *new space*) e a Julia (`jl_gc_wb`, filho não marcado): gravar num velho um
 objeto velho, estático ou um `Smi` não lembra nada. `LEMBRADO` (4) não redispara. A função lenta
-continua `dartforge_lembrar` (`VELHO → LEMBRADO`, push em `lembrados`).
+continua `dartforge_remember` (`VELHO → LEMBRADO`, push em `lembrados`).
 
 **Cartões** (`CARTOES`): toda `_List`/`_ImmutableList` geral com mais de 2014 palavras (sempre
 objeto grande) tem, depois do último elemento, `⌈len / 2048⌉` palavras de cartões — 1 bit por 32
@@ -653,7 +653,7 @@ elementos, o `kSlotsPerCardLog2 = 5` da VM (`page.h:186-189`). A barreira de ele
 ```
 se o.estado ≥ VELHO (3 ou 4) e v é objeto jovem:
     se o.flags & CARTOES: cartões[i >> 11] |= 1 << ((i >> 5) & 63)     // em b + 24 + 8·len
-    se o.estado == VELHO: dartforge_lembrar(o)
+    se o.estado == VELHO: dartforge_remember(o)
 ```
 
 Na coleta menor, um lembrado com `CARTOES` tem só os elementos dos cartões sujos percorridos, e
@@ -704,7 +704,7 @@ estáticos não são raízes: não morrem e não apontam para o heap.
 
 * `identical(a, b)`: mesmo handle; ou os dois `_Mint` (cid 3) com o mesmo valor; ou os dois
   `_Double` (cid 4) com os mesmos bits (`Instance::IsIdenticalTo` da VM; R9). Em linha
-  (`@df.identico`, §3.5). A forma canônica garante que um `_Mint` nunca está na faixa do `Smi`.
+  (`@df.identical`, §3.5). A forma canônica garante que um `_Mint` nunca está na faixa do `Smi`.
 * `identityHashCode`/`Object.hashCode` padrão: do endereço (`hash_de_identidade`,
   `RT/heap.rs:3803-3813`), que não muda porque o coletor não move — a VM guarda um número
   sorteado no cabeçalho (`object.cc:20997-21040`), que aqui não é preciso. `String`: o hash do
@@ -739,7 +739,7 @@ objeto seu para a seção sempre existir) e reconhece um estático pela faixa qu
 compartilhados por todos os isolados — a "região permanente, somente leitura, de constantes
 canônicas" da decisão 4 do proprietário (NATIVO-PLANO §7.1).
 
-As caixas de `bool` são estáticas **do runtime** (`dartforge_falso`, `dartforge_verdadeiro`,
+As caixas de `bool` são estáticas **do runtime** (`dartforge_false`, `dartforge_true`,
 mesma seção): `Box` de `bool` é um `select` entre duas constantes.
 
 **No JIT não há estáticos.** A memória de uma geração é liberada (J02, `docs/JIT.md` §"Política de
@@ -790,7 +790,7 @@ O grafo da mensagem (`RT/portas.rs:44-88`) deixa de espelhar o `Value` e passa a
   próxima alocação **se** o objeto não está enraizado, e enquanto ele estiver enraizado.
 * `tls.rs` deixa de fazer `mem::take` do `Armazenamento` (763-777): processa sobre as fatias dos
   objetos, que não se movem nem crescem.
-* `com_memoria` (`RT/ffi.rs:262-282`) e `dartforge_ffi_endereco_do_composto` (814-829) usam
+* `com_memoria` (`RT/ffi.rs:262-282`) e `dartforge_ffi_compound_address` (814-829) usam
   `dados`.
 * E/S assíncrona continua copiando para buffers do runtime (§1.9); zero-cópia em escrita síncrona
   fica possível, mas não faz parte desta especificação.
@@ -820,7 +820,7 @@ O grafo da mensagem (`RT/portas.rs:44-88`) deixa de espelhar o `Value` e passa a
   `Internal_makeListFixedLength` → um `_List` novo com os elementos (como a VM);
   `Internal_makeFixedListUnmodifiable` e `dartforge_collection_mark_unmodifiable` → um
   `_ImmutableList` novo com os elementos (a VM troca o cid no lugar, `Array::MakeImmutable`; aqui
-  não, porque `df.classe` usa `!invariant.load`). Os chamadores do SDK usam o valor devolvido
+  não, porque `df.class` usa `!invariant.load`). Os chamadores do SDK usam o valor devolvido
   (`List.unmodifiable`, as constantes); P3 confere cada um.
 * **Forma compacta** (`ELEMENTO`) só em `_List`/`_ImmutableList` (a `_GrowableList` herda a do
   armazenamento). É mutável e não é lida com `!invariant.load`. Descompactar (gravar um valor que a
@@ -840,7 +840,7 @@ O grafo da mensagem (`RT/portas.rs:44-88`) deixa de espelhar o `Value` e passa a
   `TaggedValue`/`ValueTag` no heap; `Elementos`, `CabecalhoDeLista`, `FormaDeLista`,
   `Armazenamento`, `CabecalhoTipado`, `CabecalhoDeClosure` e os vazios deles; `ClasseDoSlot`,
   `Contexto::classes`/`n_classes`; `iteracoes_ativas`, `origens`.
-* **Some** do emissor: o ramo de slot de `@df.classe`; `@df.env_ref`; os caches de texto
+* **Some** do emissor: o ramo de slot de `@df.class`; `@df.env_ref`; os caches de texto
   (`EN/lower/textos.rs:121-188`) e de cabeçalho tipado (`EN/lower/tipados.rs:517-568`); o cache de
   literal no ponto de uso no AOT; a ABI de pares `(bits, tag)` de `AllocList`/`AllocRecord`/
   `AllocEnv`/`AllocCell` (os valores vão como palavras); 35 externs de acesso (§3.7).
@@ -1024,8 +1024,8 @@ impl Heap {
 }
 
 /// Os estáticos de `bool` (seção da imagem, estado PERMANENTE).
-#[unsafe(no_mangle)] pub static dartforge_falso: [u64; 3];
-#[unsafe(no_mangle)] pub static dartforge_verdadeiro: [u64; 3];
+#[unsafe(no_mangle)] pub static dartforge_false: [u64; 3];
+#[unsafe(no_mangle)] pub static dartforge_true: [u64; 3];
 ```
 
 Some: `get`, `try_get`, `get_mut`, `allocate`, `allocate_linked`, `normalizar`, `como_ref`
@@ -1168,37 +1168,37 @@ Sai `classes`/`n_classes` (336/344); `subtipos`, `n_subtipos` e `largura_subtipo
 
 Todos `define internal … alwaysinline`, impressos no prelúdio de cada módulo por
 `emit_runtime_decls` (`EN/llvm/mod.rs:296-322`). Os que precisam do contexto chamam
-`@dartforge_contexto()` (`memory(none) … speculatable`; o LLVM o une ao `%ctx` da função).
+`@dartforge_context()` (`memory(none) … speculatable`; o LLVM o une ao `%ctx` da função).
 
 | Helper | Assinatura | Semântica | Dono |
 |---|---|---|---|
-| `@df.classe` | `i64 (i64 %h)` | `0` → 1; ímpar → 2; senão `sext (load i32 [h+2], !invariant.load)`. Sem chamada. | P0 |
-| `@df.e_objeto` | `i1 (i64 %h)` | `(h & 0x8000000000000007) == 2` | P0 |
-| `@df.alocar` | `i64 (i64 %cabecalho, i64 %w)` | `w ≤ 16`: TLAB `[ctx+64+16w, ctx+72+16w)`, avança `16+8w`, grava a palavra 0; esgotada ou `w > 16`: `@dartforge_alocar(cid, w, flags)` | P0 |
-| `@df.barreira` | `void (i64 %o, i64 %v)` | §2.7, peso 1:9 no ramo lento | P0 |
-| `@df.barreira_elemento` | `void (i64 %o, i64 %i, i64 %v)` | §2.7 com cartões | P0 |
-| `@df.subclasse` | `i8 (i64 %cid, i64 %alvo)` | a de hoje com os deslocamentos novos | P0 |
-| `@df.seletor`, `@df.obter_area`, `@df.preparar_area` | as de hoje | inalterados | P0 |
-| `@df.texto_len` | `i64 (i64 %s)` | `load i64 [s+14]` (o chamador sabe que é `String`) | P1 |
-| `@df.texto_unidade` | `i64 (i64 %s, i64 %i)` | sem conferir limites: cid 6 → `zext load i8 [s+22+i]`, 7 → `zext load i16 [s+22+2i]` | P1 |
-| `@df.texto_alocar` | `i64 (i64 %len, i1 %dois)` | `w = palavras_de_texto`; `@df.alocar` com `JOVEM | BRUTO<<8 | w<<16 | cid<<32`; grava `len`; `w > 16` → `@dartforge_texto_novo` | P1 |
-| `@df.texto_gravar` | `void (i64 %s, i64 %i, i64 %u)` | o `writeInto*String`: `store i8`/`i16` pelo cid | P1 |
-| `@df.texto_hash` | `i64 (i64 %s)` | `load i32 [s+6]`; 0 → `@dartforge_texto_hash(s)` | P1 |
-| `@df.texto_igual` | `i1 (i64 %a, i64 %b)` | `a == b`; cids iguais, comprimentos iguais, hashes (se os dois calculados) iguais; senão `@dartforge_texto_iguais` | P1 |
-| `@df.caixa_int` | `i64 (i64 %v)` | `Smi` na faixa; senão `_Mint` por `@df.alocar` (w = 1) | P2 |
-| `@df.desencaixa_int` | `i64 (i64 %r)` | ímpar → `ashr 1`; objeto de cid 3 → `[r+14]`; senão `@dartforge_unbox_int` (lança) | P2 |
-| `@df.caixa_double` | `i64 (double %v)` | `_Double` por `@df.alocar` (w = 1) | P2 |
-| `@df.desencaixa_double` | `double (i64 %r)` | cid 4 → `[r+14]`; senão `@dartforge_unbox_double` | P2 |
-| `@df.caixa_bool` | `i64 (i1 %v)` | `select` entre `@dartforge_verdadeiro+2` e `@dartforge_falso+2` | P2 |
-| `@df.desencaixa_bool` | `i1 (i64 %r)` | `r == verdadeiro`; nem uma nem outra → `@dartforge_unbox_bool` | P2 |
-| `@df.identico` | `i1 (i64 %a, i64 %b)` | §2.10 | P2 |
-| `@df.lista_len` | `i64 (i64 %l)` | `load i64 [l+14]` (o mesmo deslocamento em `_List`, `_ImmutableList` e `_GrowableList`) | P3 |
-| `@df.lista_armazenamento` | `i64 (i64 %l)` | cid 10 → `[l+22]`; senão `l` | P3 |
-| `@df.lista_elemento` | `ptr (i64 %a, i64 %i)` | `a + 22 + 8i` (sobre o armazenamento) | P3 |
-| `@df.lista_forma` | `i8 (i64 %a)` | `load i8 [a−1] & 0x66` | P3 |
-| `@df.tipada_len` | `i64 (i64 %t)` | `load i64 [t+14]` | P4 |
-| `@df.tipada_dados` | `ptr (i64 %t)` | `load ptr [t+22]` | P4 |
-| `@df.simd_caixa` | `i64 (<2 x i64> %v, i64 %cid)` | `@df.alocar` (w = 2) e grava as pistas | P4 |
+| `@df.class` | `i64 (i64 %h)` | `0` → 1; ímpar → 2; senão `sext (load i32 [h+2], !invariant.load)`. Sem chamada. | P0 |
+| `@df.is_object` | `i1 (i64 %h)` | `(h & 0x8000000000000007) == 2` | P0 |
+| `@df.allocate` | `i64 (i64 %cabecalho, i64 %w)` | `w ≤ 16`: TLAB `[ctx+64+16w, ctx+72+16w)`, avança `16+8w`, grava a palavra 0; esgotada ou `w > 16`: `@dartforge_allocate(cid, w, flags)` | P0 |
+| `@df.barrier` | `void (i64 %o, i64 %v)` | §2.7, peso 1:9 no ramo lento | P0 |
+| `@df.element_barrier` | `void (i64 %o, i64 %i, i64 %v)` | §2.7 com cartões | P0 |
+| `@df.subclass` | `i8 (i64 %cid, i64 %alvo)` | a de hoje com os deslocamentos novos | P0 |
+| `@df.selector`, `@df.get_area`, `@df.prepare_area` | as de hoje | inalterados | P0 |
+| `@df.string_len` | `i64 (i64 %s)` | `load i64 [s+14]` (o chamador sabe que é `String`) | P1 |
+| `@df.string_code_unit` | `i64 (i64 %s, i64 %i)` | sem conferir limites: cid 6 → `zext load i8 [s+22+i]`, 7 → `zext load i16 [s+22+2i]` | P1 |
+| `@df.string_allocate` | `i64 (i64 %len, i1 %dois)` | `w = palavras_de_texto`; `@df.allocate` com `JOVEM | BRUTO<<8 | w<<16 | cid<<32`; grava `len`; `w > 16` → `@dartforge_string_allocate` | P1 |
+| `@df.string_write` | `void (i64 %s, i64 %i, i64 %u)` | o `writeInto*String`: `store i8`/`i16` pelo cid | P1 |
+| `@df.string_hash` | `i64 (i64 %s)` | `load i32 [s+6]`; 0 → `@dartforge_string_hash(s)` | P1 |
+| `@df.string_equals` | `i1 (i64 %a, i64 %b)` | `a == b`; cids iguais, comprimentos iguais, hashes (se os dois calculados) iguais; senão `@dartforge_string_equals` | P1 |
+| `@df.box_int` | `i64 (i64 %v)` | `Smi` na faixa; senão `_Mint` por `@df.allocate` (w = 1) | P2 |
+| `@df.unbox_int` | `i64 (i64 %r)` | ímpar → `ashr 1`; objeto de cid 3 → `[r+14]`; senão `@dartforge_unbox_int` (lança) | P2 |
+| `@df.box_double` | `i64 (double %v)` | `_Double` por `@df.allocate` (w = 1) | P2 |
+| `@df.unbox_double` | `double (i64 %r)` | cid 4 → `[r+14]`; senão `@dartforge_unbox_double` | P2 |
+| `@df.box_bool` | `i64 (i1 %v)` | `select` entre `@dartforge_true+2` e `@dartforge_false+2` | P2 |
+| `@df.unbox_bool` | `i1 (i64 %r)` | `r == verdadeiro`; nem uma nem outra → `@dartforge_unbox_bool` | P2 |
+| `@df.identical` | `i1 (i64 %a, i64 %b)` | §2.10 | P2 |
+| `@df.list_len` | `i64 (i64 %l)` | `load i64 [l+14]` (o mesmo deslocamento em `_List`, `_ImmutableList` e `_GrowableList`) | P3 |
+| `@df.list_storage` | `i64 (i64 %l)` | cid 10 → `[l+22]`; senão `l` | P3 |
+| `@df.list_element` | `ptr (i64 %a, i64 %i)` | `a + 22 + 8i` (sobre o armazenamento) | P3 |
+| `@df.list_shape` | `i8 (i64 %a)` | `load i8 [a−1] & 0x66` | P3 |
+| `@df.typed_len` | `i64 (i64 %t)` | `load i64 [t+14]` | P4 |
+| `@df.typed_data` | `ptr (i64 %t)` | `load ptr [t+22]` | P4 |
+| `@df.simd_box` | `i64 (<2 x i64> %v, i64 %cid)` | `@df.allocate` (w = 2) e grava as pistas | P4 |
 
 Cada pacote escreve os seus num arquivo próprio do emissor (§4) que exporta `pub const
 AJUDANTES: &str`; `emit_runtime_decls` (P0) concatena os quatro.
@@ -1206,16 +1206,16 @@ AJUDANTES: &str`; `emit_runtime_decls` (P0) concatena os quatro.
 ### 3.6 Externs novas ou mudadas (`EN/llvm/externs.rs`, P0)
 
 ```llvm
-declare i64 @dartforge_alocar(i64, i64, i64) nounwind                   ; (cid, palavras, flags): ALOCA_SEM_LANCAR
-declare void @dartforge_lembrar(i64) nounwind                           ; de hoje
-declare i64 @dartforge_texto_novo(i64, i64) nounwind                    ; (len, dois): ALOCA_SEM_LANCAR
-declare i64 @dartforge_texto_hash(i64) nounwind willreturn              ; grava o cabeçalho; {aloca: false, lanca: false}
-declare i8 @dartforge_texto_iguais(i64, i64) memory(read) nounwind willreturn  ; {false, false}
-declare i64 @dartforge_lista_nova(ptr, i64, i64, i64) nounwind          ; (palavras, n, cid, forma): literal; ALOCA_SEM_LANCAR
-declare i64 @dartforge_lista_acrescentar(i64, i64) nounwind             ; (lista, Ref): o add que cresce; ALOCA_SEM_LANCAR
-declare i64 @dartforge_record_novo(ptr, i64) nounwind                   ; (Refs, n): ALOCA_SEM_LANCAR
-@dartforge_verdadeiro = external constant [3 x i64]
-@dartforge_falso = external constant [3 x i64]
+declare i64 @dartforge_allocate(i64, i64, i64) nounwind                   ; (cid, palavras, flags): ALOCA_SEM_LANCAR
+declare void @dartforge_remember(i64) nounwind                           ; de hoje
+declare i64 @dartforge_string_allocate(i64, i64) nounwind                    ; (len, dois): ALOCA_SEM_LANCAR
+declare i64 @dartforge_string_hash(i64) nounwind willreturn              ; grava o cabeçalho; {aloca: false, lanca: false}
+declare i8 @dartforge_string_equals(i64, i64) memory(read) nounwind willreturn  ; {false, false}
+declare i64 @dartforge_list_new(ptr, i64, i64, i64) nounwind          ; (palavras, n, cid, forma): literal; ALOCA_SEM_LANCAR
+declare i64 @dartforge_list_append(i64, i64) nounwind             ; (lista, Ref): o add que cresce; ALOCA_SEM_LANCAR
+declare i64 @dartforge_record_from_refs(ptr, i64) nounwind                   ; (Refs, n): ALOCA_SEM_LANCAR
+@dartforge_true = external constant [3 x i64]
+@dartforge_false = external constant [3 x i64]
 ; mantidas como caminho lento que lança TypeError:
 declare i64 @dartforge_unbox_int(i64)
 declare double @dartforge_unbox_double(i64)
@@ -1224,13 +1224,13 @@ declare i8 @dartforge_unbox_bool(i64)
 declare i64 @dartforge_string_new(ptr, i64)
 ```
 
-`dartforge_registrar_cids(ptr, i64)` fica, com semântica de conferência (aborta se diferente de
+`dartforge_register_cids(ptr, i64)` fica, com semântica de conferência (aborta se diferente de
 `layout::cid::DO_SDK`).
 
 ### 3.7 Externs e símbolos que somem
 
 * **Acesso à representação antiga** (o código gerado passa a ler o bloco):
-  `dartforge_texto_dados`, `_texto_len`, `_texto_na_falha`, `_lista_cabecalho`,
+  `dartforge_string_data`, `_texto_len`, `_texto_na_falha`, `_lista_cabecalho`,
   `_lista_len_gravavel`, `_lista_len_ou_menos1`, `_lista_ref`, `_lista_add_escalar` (vira
   `_lista_acrescentar`), `_closure_cabecalho`, `_closure_code`, `_closure_env`,
   `_closure_tipada`, `_env_dados`, `_env_new`, `_env_get`, `_env_get_ref`, `_cell_new`,
@@ -1240,7 +1240,7 @@ declare i64 @dartforge_string_new(ptr, i64)
   `_record_get_ref`, `_list_new` (vira `_lista_nova`), `_collection_is_unmodifiable`.
   `dartforge_value_class` deixa de ser chamado pelo código gerado (fica no runtime como função
   interna trivial). `dartforge_closure_new`/`_new_tipada`/`_nova_direta` e `dartforge_tearoff`
-  podem ficar como caminho lento; a criação em linha (`@df.alocar` + gravações) é de P2.
+  podem ficar como caminho lento; a criação em linha (`@df.allocate` + gravações) é de P2.
 * **Legado sem SDK da fonte** (saem com `lower/sdk_por_nome.rs`): `dartforge_list_len`,
   `_list_get_bits`, `_list_get_tag`, `_list_set`, `_list_push`, `_list_get_ref`,
   `_list_first*`/`_last*`/`_single*`, `_generic_len`, `_list_join`, `_list_new_empty`,
@@ -1256,24 +1256,24 @@ declare i64 @dartforge_string_new(ptr, i64)
 * **Ficam:** `dartforge_string_new` (JIT), `_string_concat`, `_string_equal` (só se ainda
   emitida; senão sai), `_string_juntar_tipado`, `_to_string_i64`/`_f64`/`_bool`/`_handle`
   (interpolação, `EN/lower/expressoes.rs:386,394,415`), `_identical` (caminho lento de
-  `@df.identico`), `_equal`, e o resto (RTI, exceções, raízes, seletores, FFI, E/S).
+  `@df.identical`), `_equal`, e o resto (RTI, exceções, raízes, seletores, FFI, E/S).
 
 ### 3.8 Natives do SDK: o que muda de implementação
 
 | Native / intrínseco | Hoje | Depois | Dono |
 |---|---|---|---|
-| `String_getLength`, `_StringBase.codeUnitAt` | `lower/textos.rs` com cache + `texto_dados`/`_len` | `@df.texto_len`/`@df.texto_unidade` com o teste de limites; fora da faixa, o native (lança) | P1 |
-| `Internal_allocateOneByteString`/`TwoByte` | `nativos_strings.rs:142,150` | `@df.texto_alocar` em linha | P1 |
-| `Internal_writeIntoOneByteString`/`TwoByte` | `nativos_strings.rs:157,169` (`get_mut`) | `@df.texto_gravar` em linha | P1 |
-| `String_getHashCode` | `hash_de_texto` do slot | `@df.texto_hash` | P1 |
-| `String_charAt`, `String_concat`, `StringBase_substringUnchecked`, `OneByteString_substringUnchecked`, `OneByteString_allocateFromOneByteList`, `TwoByteString_allocateFromTwoByteList`, `StringBase_createFromCodePoints`, `StringBase_joinReplaceAllResult`, `String_concatRange`, `String_toUpperCase`/`toLowerCase`, `DartForge_string_*` (7), `DartForge_sb_*` (5), `DartForge_int_toString`, `Double_toString`, `DartForge_double_bits`, `DartForge_regexp_*` (8), `DartForge_imprimir` | runtime sobre `Texto` | runtime sobre `TextoRef`/`novo_texto` | P1 |
-| `ClassID_getID`, `ClassID.cidX` | `value_class`; constantes pela tabela | `@df.classe`; `layout::cid` | P0 (catálogo), P3 (`intrinsecos.rs`) |
-| `List_getLength`, `GrowableList_getLength`, `_getCapacity` | runtime | `@df.lista_len` / comprimento do armazenamento | P3 (runtime), P4 (em linha, `tipados.rs`) |
-| `GrowableList_setLength`, `_setData`, `_setIndexed`, `List_setIndexed`, `DartForge_lista_get` | runtime | em linha: gravação de campo sem barreira (comprimento, como a VM, `graph_intrinsifier.cc:607-626`), com barreira (`dados`, elemento geral) | P3 (runtime), P4 (em linha) |
-| `List_allocate`, `List_slice`, `ImmutableList_from`, `GrowableList_allocate`, `DartForge_List_preencher`/`_copiar`, `DartForge_GrowableList_reservar`, `Internal_makeListFixedLength`/`makeFixedListUnmodifiable`, `DartForge_json_acrescentar`, `DartForge_hash_*` | runtime sobre `Elementos` | runtime sobre `listas.rs`; as duas `Internal_make*` devolvem objeto novo | P3 |
+| `String_getLength`, `_StringBase.codeUnitAt` | `lower/textos.rs` com cache + `texto_dados`/`_len` | `@df.string_len`/`@df.string_code_unit` com o teste de limites; fora da faixa, o native (lança) | P1 |
+| `Internal_allocateOneByteString`/`TwoByte` | `nativos_strings.rs:142,150` | `@df.string_allocate` em linha | P1 |
+| `Internal_writeIntoOneByteString`/`TwoByte` | `nativos_strings.rs:157,169` (`get_mut`) | `@df.string_write` em linha | P1 |
+| `String_getHashCode` | `hash_de_texto` do slot | `@df.string_hash` | P1 |
+| `String_charAt`, `String_concat`, `StringBase_substringUnchecked`, `OneByteString_substringUnchecked`, `OneByteString_allocateFromOneByteList`, `TwoByteString_allocateFromTwoByteList`, `StringBase_createFromCodePoints`, `StringBase_joinReplaceAllResult`, `String_concatRange`, `String_toUpperCase`/`toLowerCase`, `DartForge_string_*` (7), `DartForge_sb_*` (5), `DartForge_int_toString`, `Double_toString`, `DartForge_double_bits`, `DartForge_regexp_*` (8), `DartForge_print` | runtime sobre `Texto` | runtime sobre `TextoRef`/`novo_texto` | P1 |
+| `ClassID_getID`, `ClassID.cidX` | `value_class`; constantes pela tabela | `@df.class`; `layout::cid` | P0 (catálogo), P3 (`intrinsecos.rs`) |
+| `List_getLength`, `GrowableList_getLength`, `_getCapacity` | runtime | `@df.list_len` / comprimento do armazenamento | P3 (runtime), P4 (em linha, `tipados.rs`) |
+| `GrowableList_setLength`, `_setData`, `_setIndexed`, `List_setIndexed`, `DartForge_list_get` | runtime | em linha: gravação de campo sem barreira (comprimento, como a VM, `graph_intrinsifier.cc:607-626`), com barreira (`dados`, elemento geral) | P3 (runtime), P4 (em linha) |
+| `List_allocate`, `List_slice`, `ImmutableList_from`, `GrowableList_allocate`, `DartForge_List_fill`/`_copiar`, `DartForge_GrowableList_reserve`, `Internal_makeListFixedLength`/`makeFixedListUnmodifiable`, `DartForge_json_append`, `DartForge_hash_*` | runtime sobre `Elementos` | runtime sobre `listas.rs`; as duas `Internal_make*` devolvem objeto novo | P3 |
 | `Closure_equals`, `Closure_computeHash`, `Function_apply`, `DartForge_record_*`, `Identical_comparison`, `Double_*`/`Integer_*`/`Mint_*`/`Smi_*`, `Double_parse`, `DartForge_double_*`, `DartForge_int_hashCode`, `Object_getHash` | runtime sobre `Value` | runtime sobre `caixas.rs`; `DartForge_record_*` em linha | P2 |
-| `TypedDataBase_length`, `TypedDataView_typedData`/`_offsetInBytes`, `TypedData_Get*`/`Set*`, `DartForge_typed_*`, `_memMove*`, `setClampedRange`, SIMD | runtime sobre `Armazenamento` + `typed_cabecalho` | em linha por `@df.tipada_*`; runtime sobre `tipadas.rs` | P4 |
-| `WeakReference_*`, `WeakProperty_*`, `Object_*` (menos hash), `Isolate_*`, `DartForge_porta_*` | runtime | runtime (API nova) | P5 |
+| `TypedDataBase_length`, `TypedDataView_typedData`/`_offsetInBytes`, `TypedData_Get*`/`Set*`, `DartForge_typed_*`, `_memMove*`, `setClampedRange`, SIMD | runtime sobre `Armazenamento` + `typed_cabecalho` | em linha por `@df.typed_*`; runtime sobre `tipadas.rs` | P4 |
+| `WeakReference_*`, `WeakProperty_*`, `Object_*` (menos hash), `Isolate_*`, `DartForge_port_*` | runtime | runtime (API nova) | P5 |
 
 O catálogo `EN/nativos.rs` (estado, `INTRINSECOS`, `RETORNO_REF`) é de P0, que aplica esta tabela.
 
@@ -1342,12 +1342,12 @@ ganchos do emissor.
 7. `heap.rs`: marcação por formato (§2.8) com `PERMANENTE` conferido antes do mapa de marcas;
    lembrados com cartões; verificação; tabelas laterais sem slots; `permanentes`/`constantes`
    purgados; gatilhos com bytes externos; `Contexto` renumerado (§3.4); registro das faixas da
-   imagem (`dartforge_registrar_imagem(inicio, fim)`, chamado por `@df.preparar_isolado` de cada
+   imagem (`dartforge_register_image(inicio, fim)`, chamado por `@df.prepare_isolate` de cada
    imagem: executável e DLL do SDK) para validar estáticos no `--gc-stress`.
-8. `llvm/mod.rs`: `@df.classe` sem slot; `@df.alocar` (substitui `emitir_alocacao_em_linha`,
-   2622-2676, para qualquer `w ≤ 16`, constante ou não); `@df.barreira` com o teste do filho;
-   `@df.barreira_elemento`; `@df.e_objeto`; `@df.subclasse` com os deslocamentos novos; saem
-   `@df.env_ref`, `@df.caixa_int` e `@df.desencaixa_int` (vão a P2); o cache de literal no ponto de
+8. `llvm/mod.rs`: `@df.class` sem slot; `@df.allocate` (substitui `emitir_alocacao_em_linha`,
+   2622-2676, para qualquer `w ≤ 16`, constante ou não); `@df.barrier` com o teste do filho;
+   `@df.element_barrier`; `@df.is_object`; `@df.subclass` com os deslocamentos novos; saem
+   `@df.env_ref`, `@df.box_int` e `@df.unbox_int` (vão a P2); o cache de literal no ponto de
    uso (578-605) só com `objetos_estaticos` falso; a opção `objetos_estaticos` (verdadeira no AOT
    e nos módulos do SDK; falsa nos módulos do programa no JIT, cuja memória é liberada, J02).
 9. Reescrever os testes do módulo `heap` (4931-6216) para a API nova e acrescentar: um por
@@ -1387,10 +1387,10 @@ os natives que devolvem número. **Fornece:** `textos.rs` (§3.3), os helpers P1
 6. Emissor: `llvm/textos_ir.rs` com os helpers, o literal estático (§2.11: `@df.s.<blake3>`
    `linkonce_odr`, comdat, seção da imagem, hash calculado com `layout::hash_de_texto`) e
    `JuntarTextos` sobre as vistas; `lower/textos.rs` sem os caches (121-188): `codeUnitAt` e
-   `length` por `@df.texto_len`/`@df.texto_unidade` com o teste de limites e o native como
+   `length` por `@df.string_len`/`@df.string_code_unit` com o teste de limites e o native como
    caminho lento; `allocateOneByteString`/`TwoByteString` e `writeInto*` em linha;
-   `String_getHashCode` por `@df.texto_hash`; `==` com os dois lados `String` estáticos por
-   `@df.texto_igual`. O campo `caches_de_texto` do `FnBuilder` sai (P0, `lower/fn_builder.rs`).
+   `String_getHashCode` por `@df.string_hash`; `==` com os dois lados `String` estáticos por
+   `@df.string_equals`. O campo `caches_de_texto` do `FnBuilder` sai (P0, `lower/fn_builder.rs`).
 7. Medir e decidir se `integers.dart` volta ao `_Smi.toString` da VM (agora `_allocate`/`_setAt`
    em linha, como `asm_intrinsifier_x64.cc:1754-1818`) e se o `==` volta ao da VM. Registrar.
 8. Receber os natives de §4.9.
@@ -1413,14 +1413,14 @@ caixa/célula/contexto/closure/record, `caixa_em_linha`.
 1. `caixas.rs`: `_Mint`/`_Double` (`BRUTO`, w = 1), `bool` estático, `valor`/`como_ref`,
    `identico` (§2.10), célula, contexto, closure, record (`REFS`), `tearoff` canônico.
 2. `nucleo.rs`: `dartforge_box_*`/`unbox_*` (só caminho lento), `dartforge_identical`,
-   `dartforge_equal`, `dartforge_value_class` trivial (cid do cabeçalho), `dartforge_record_novo`,
+   `dartforge_equal`, `dartforge_value_class` trivial (cid do cabeçalho), `dartforge_record_from_refs`,
    `escalar_de_ref`, `dartforge_object_new` por palavras (`alocar_instancia` +
    `reabastecer_tlab(palavras_de_instancia(n))`); sai a ABI de pares `tagged`/`untag`
    (401-425) onde os valores passam a ir como palavras.
 3. `closures.rs`, `despacho.rs`, `nativos_numeros.rs` sobre `caixas.rs`; `Function.apply`
    (269-306).
 4. Emissor: `llvm/caixas_ir.rs` (helpers e braços: `AllocEnv`/`AllocCell`/`AllocClosure*` em
-   linha por `@df.alocar` e gravação de campo com o bit do mapa; `EnvGet`/`CellGet` lidos no tipo
+   linha por `@df.allocate` e gravação de campo com o bit do mapa; `EnvGet`/`CellGet` lidos no tipo
    gravado; `AllocRecord` com `Ref`s); `lower/closures.rs` lê `abi` (`h+38`), `tipado` (`h+30`) e o
    contexto (`h+22`) do bloco, sem `closure_cabecalho` (794-822); `lower/locais.rs`,
    `captura.rs`, `extensoes.rs`, `async_sm.rs`, `funcoes_diretas.rs`: `EnvGet`/`CellGet` sempre na
@@ -1461,9 +1461,9 @@ helpers P3 de §3.5, o braço `AllocList`, `lista_em_linha`.
    (`bytes_da_tipada`).
 5. Emissor: `llvm/listas_ir.rs`; `lower/listas.rs` (os natives de `_List`/`_GrowableList` em
    linha: comprimento, capacidade, `_setLength` sem barreira, `_setData` e `_setIndexed` com
-   barreira, `DartForge_lista_get`); `lower/literais.rs` (`AllocList` com a forma do `E` e as
+   barreira, `DartForge_list_get`); `lower/literais.rs` (`AllocList` com a forma do `E` e as
    palavras; a tabela de bytes de `lista_de_tabela`; apaga os ramos sem SDK, 53-121); `lower/intrinsecos.rs` (`ClassID.cidX` por
-   `layout::cid`; o `add` escalar grava direto quando cabe e chama `dartforge_lista_acrescentar`
+   `layout::cid`; o `add` escalar grava direto quando cabe e chama `dartforge_list_append`
    quando cresce); `lower/constantes.rs`.
 6. Receber e entregar os natives de §4.9.
 
@@ -1493,9 +1493,9 @@ braços SIMD, `tipada_em_linha`, o acesso em linha a listas tipadas e a `List<E>
    `dados`; a lista de argumentos dos callbacks por `listas.rs`.
 4. `io_*.rs`, `tls.rs`, `zlib.rs`: `dart_bytes`, `dart_lista_fixa`, `dart_int`, `dart_bool`,
    `bytes_da_lista_tipada` sobre a API nova; `tls.rs` sem o `mem::take` (§2.14).
-5. Emissor: `llvm/tipados_ir.rs` e `llvm/simd.rs` (caixa por `@df.simd_caixa`, descaixa por
-   carga de `h+14`); `lower/tipados.rs`: lista tipada por `@df.tipada_len`/`_dados` (saem
-   `typed_cabecalho` e o cache por ponto, 466-568), `List<E>` por `@df.lista_*` com a forma no
+5. Emissor: `llvm/tipados_ir.rs` e `llvm/simd.rs` (caixa por `@df.simd_box`, descaixa por
+   carga de `h+14`); `lower/tipados.rs`: lista tipada por `@df.typed_len`/`_dados` (saem
+   `typed_cabecalho` e o cache por ponto, 466-568), `List<E>` por `@df.list_*` com a forma no
    `flags` do armazenamento, gravação direta quando o cid é 8 ou 10 e a forma casa, barreira de
    elemento na lista geral; `lower/comandos.rs` (laços versionados, 322-344);
    `lower/simd.rs`, `lower/ffi.rs`.
@@ -1529,7 +1529,7 @@ emissor sem o legado; os testes e a documentação.
 2. `tipos.rs`: `chave_do_valor` e `tipo_do_valor` pelo cid (§2.15); `tipo_lista_*`;
    `ajustar_forma_da_lista` → `lista_ajustar_forma`; `set_metadado` uniforme.
 3. `seletores.rs`: saem `cid_do_valor_do_runtime`, `cid_do_runtime`, `CIDS_DO_RUNTIME`;
-   `dartforge_registrar_cids` confere a ABI; `aplicar_migracao_pendente` recusa cid < 128.
+   `dartforge_register_cids` confere a ABI; `aplicar_migracao_pendente` recusa cid < 128.
 4. `excecoes.rs`, `saida.rs` (impressão e `toString` de tudo pelo cid), `compat_jit.rs`,
    `eventos.rs`, `finalizadores.rs`, `nativos_sistema.rs`, `nativos_desenvolvedor.rs`.
 5. Receber os natives de §4.9 (`Object_*`, `WeakReference_*`, `WeakProperty_*`).
@@ -1538,7 +1538,7 @@ emissor sem o legado; os testes e a documentação.
    `atribuicao.rs:703,721,896`, `padroes.rs:474,491`, `membros.rs:525,534`, `chamadas.rs:50,139,
    223,592,618`; os de `literais.rs:53-121` são de P3); com P0, `AllocMap`/`AllocSet` da HIR; os externs
    legados de §3.7 depois de conferir por busca que ninguém os emite. `operadores.rs`:
-   `identical` por `@df.identico`, `==` de strings por `@df.texto_igual`. `verificador.rs`:
+   `identical` por `@df.identical`, `==` de strings por `@df.string_equals`. `verificador.rs`:
    recusa `EnvGet`/`CellGet` em tipo diferente do gravado e as instruções que sumiram.
    `optimize/*`: efeitos das externs novas; `escape.rs` continua só para objetos do programa.
 7. Testes: `EN/tests/contrato.rs:36` e `crates/jit/tests/sessao_persistente.rs:148` sem o modo
@@ -1577,7 +1577,7 @@ Ordem:
 
 | Native (linha atual em `RT/nativos_listas.rs`) | Para | Pacote |
 |---|---|---|
-| `DartForge_string_iguais` 505, `DartForge_string_igual_a` 514, `String_concatRange` 541, `OneByteString_allocateFromOneByteList` 763, `TwoByteString_allocateFromTwoByteList` 770, `StringBase_createFromCodePoints` 778, `StringBase_joinReplaceAllResult` 797, `DartForge_imprimir` 498 | `nativos_strings.rs` | P1 |
+| `DartForge_string_equals` 505, `DartForge_string_equals_object` 514, `String_concatRange` 541, `OneByteString_allocateFromOneByteList` 763, `TwoByteString_allocateFromTwoByteList` 770, `StringBase_createFromCodePoints` 778, `StringBase_joinReplaceAllResult` 797, `DartForge_print` 498 | `nativos_strings.rs` | P1 |
 | `ClassID_getID` 479, `Identical_comparison` 485, `DartForge_int_hashCode` 563, `DartForge_double_*` 661-723, `Closure_equals` 829, `Double_parse` 854, `DartForge_math_*` 907-950, `DartForge_record_*` 954-986, `Closure_computeHash` 1060 | `nucleo.rs` ou `nativos_numeros.rs` | P2 |
 | `Object_*` 491-619 (menos o hash de identidade, que usa `hash_de_identidade`), `WeakReference_*`/`WeakProperty_*` 1027-1054 | `nativos_sistema.rs` | P5 |
 
@@ -1628,13 +1628,13 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
    `texto_em_linha` (`membro`, `native`, `this`, `args`).
 6. **Externs novas com esqueleto no runtime.** O teste `cada_extern_do_emissor_existe_no_runtime`
    (`crates/jit/tests/execucao.rs`) exige cada extern declarada no runtime; os esqueletos
-   (`todo!`) estão nos arquivos dos donos: `dartforge_alocar` (`gc_raizes.rs`, P0),
-   `dartforge_texto_novo`/`_texto_hash`/`_texto_iguais` (`nativos_strings.rs`, P1),
-   `dartforge_lista_nova`/`_lista_acrescentar` (`nativos_listas.rs`, P3),
-   `dartforge_record_novo` (`nucleo.rs`, P2). `@dartforge_falso`/`@dartforge_verdadeiro` não são
+   (`todo!`) estão nos arquivos dos donos: `dartforge_allocate` (`gc_raizes.rs`, P0),
+   `dartforge_string_allocate`/`_texto_hash`/`_texto_iguais` (`nativos_strings.rs`, P1),
+   `dartforge_list_new`/`_lista_acrescentar` (`nativos_listas.rs`, P3),
+   `dartforge_record_from_refs` (`nucleo.rs`, P2). `@dartforge_false`/`@dartforge_true` não são
    funções: ficam em `externs::GLOBAIS`, impressas no prelúdio.
 7. **`ClassID_getID`** passou a `Embutido` no catálogo: `CallRuntime dartforge_value_class`, que o
-   emissor já troca por `@df.classe`. O native do runtime fica até a P2 movê-lo (§4.9).
+   emissor já troca por `@df.class`. O native do runtime fica até a P2 movê-lo (§4.9).
    `nativos::no_espaco_unificado(nome) -> Option<(Pacote, bool)>` codifica a tabela §3.8 (o
    pacote e se vira em linha).
 8. **Numeração:** as classes do programa também começam em 128 quando não há SDK compilado.
@@ -1643,7 +1643,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
 9. **Problemas abertos para a P0b:** (a) os estáticos de `bool` existem em cada cópia do runtime
    (a `staticlib` do executável e a da DLL do SDK); a identidade de `true` exige que o código
    da DLL use os do executável (ou o contrário); (b) o JIT publica só funções
-   (`simbolos::tabela`): os dados `dartforge_falso`/`_verdadeiro` precisam entrar na tabela;
+   (`simbolos::tabela`): os dados `dartforge_false`/`_verdadeiro` precisam entrar na tabela;
    (c) a seção da imagem (`.dfimg`) dos estáticos.
 
 **P2 (2026-09-30):**
@@ -1655,22 +1655,22 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     e `lower/caixas.rs` leem os campos pela `CallRuntime dartforge_object_get(h, i)` com `i`
     constante, que o emissor expande em linha como a palavra `b+16+8i` (zeros para null/`Smi`).
     A P0 mantém essa expansão sem conferir `FORMA` (vale também para a `_Record` `REFS`: `i = 0`
-    é o número de campos, `i = k` o campo `k`). A chamada tipada confere `@df.classe == 11` antes
+    é o número de campos, `i = k` o campo `k`). A chamada tipada confere `@df.class == 11` antes
     de ler a ABI (só o bloco de `_Closure` tem os quatro campos).
 12. **`AllocEnv` vazio é null** (sem alocar): quem não captura nada nunca lê o contexto. Quem lê
-    um contexto no runtime (`dartforge_encaminhar_nsm`, P5) usa `Heap::captura(h, i)` só para
+    um contexto no runtime (`dartforge_forward_nsm`, P5) usa `Heap::captura(h, i)` só para
     `i` menor que o número de valores gravados.
 13. **Record posicional:** `registros.rs::lower_registro_posicional(ast, positional)` encaixota
     os elementos em HIR (`Box`) e emite `AllocRecord` só com `Ref` (tag 3); pedido à P5 que o
     braço `ExprKind::Record` posicional de `expressoes.rs` o chame. Enquanto um elemento chegar
     sem caixa, o emissor usa o caminho lento `dartforge_record_new` (pares), que encaixota no
     runtime com as raízes certas: a extern fica declarada.
-14. **Ajudantes da P2 no prelúdio:** `@df.caixa_int`, `@df.desencaixa_int`, `@df.caixa_double`,
-    `@df.desencaixa_double`, `@df.caixa_bool`, `@df.desencaixa_bool`, `@df.identico`
-    (`caixas_ir::AJUDANTES`, com `EFEITOS_DOS_AJUDANTES`). Usam `@df.alocar(cabeçalho, w)` e,
-    em `CellSet` de `Ref`, `@df.barreira(o, v)` (P0). `@df.env_ref` não existe mais: o `EnvGet`
+14. **Ajudantes da P2 no prelúdio:** `@df.box_int`, `@df.unbox_int`, `@df.box_double`,
+    `@df.unbox_double`, `@df.box_bool`, `@df.unbox_bool`, `@df.identical`
+    (`caixas_ir::AJUDANTES`, com `EFEITOS_DOS_AJUDANTES`). Usam `@df.allocate(cabeçalho, w)` e,
+    em `CellSet` de `Ref`, `@df.barrier(o, v)` (P0). `@df.env_ref` não existe mais: o `EnvGet`
     lê a palavra `h+14+8i` na representação gravada.
-15. **`caixa_em_linha`:** `Identical_comparison` por `CallRuntime df.identico` (I1),
+15. **`caixa_em_linha`:** `Identical_comparison` por `CallRuntime df.identical` (I1),
     `DartForge_int_hashCode` (o próprio `i64`) e `DartForge_double_bits` (`Bitcast`). Os
     `DartForge_record_*` ficam no runtime: o receptor pode ser um record com forma (objeto do
     programa), e o native confere a classe.
@@ -1685,7 +1685,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     resultado.
 19. **Natives movidos (regra atômica de §4.9):** os de §4.9 da P2 e também `Object_getHash`
     (para `nucleo.rs`: `int` → o valor, `bool` → 1231/1237, null → 2011, `String` → o hash do
-    conteúdo, o resto → `hash_de_identidade`) e `DartForge_verdadeiro` (`has63BitSmis`, para
+    conteúdo, o resto → `hash_de_identidade`) e `DartForge_true` (`has63BitSmis`, para
     `nativos_numeros.rs`). O teste `testes_modulo_double` foi junto.
 20. **`EXCEPTION` em `finalizar_programa`** (`nucleo.rs`) ainda lê o par `(bits, tag)` por
     `untag`: muda no corte, junto com o tipo da `EXCEPTION` (P5: `TaggedValue` → `Valor`).
@@ -1693,16 +1693,16 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `colecoes.rs`).
 
 19. **P4 — ajudantes do prelúdio** (`llvm/tipados_ir.rs`, com `EFEITOS_DOS_AJUDANTES`, todos
-    sem alocar nem lançar, menos `@df.simd_caixa`): `@df.tipada_len`, `@df.tipada_dados`
-    (devolve `i64`, não `ptr`: o lowering soma e indexa em HIR), `@df.tipada_cid`,
-    `@df.tipada_len_gravavel(t, cid_imutável)` (0 na visão não modificável), `@df.tipada_bytes`,
-    `@df.tipada_base`, `@df.tipada_deslocamento` (cargas com `!invariant.load`: nada disso muda
-    enquanto a lista vive); `@df.nucleo_len` (0 se o cid não é 8–10), `@df.nucleo_armazenamento`,
-    `@df.nucleo_forma` (`flags & 0x66` do armazenamento), `@df.nucleo_len_gravavel(l, forma)`
-    (cid 8 ou 10 e forma igual), `@df.palavra_ref(e, i)` (carga de um `Ref` que o emissor
-    enraíza, porque o resultado da `CallRuntime` é `Ref`); `@df.simd_caixa(<2 x i64>, cid)` por
-    `@df.alocar`. Os `@df.nucleo_*` leem o bloco pelos deslocamentos do contrato em vez de
-    chamar os `@df.lista_*` da P3 (sem dependência de ordem; mesma semântica). A descaixa SIMD
+    sem alocar nem lançar, menos `@df.simd_box`): `@df.typed_len`, `@df.typed_data`
+    (devolve `i64`, não `ptr`: o lowering soma e indexa em HIR), `@df.typed_cid`,
+    `@df.typed_len_writable(t, cid_imutável)` (0 na visão não modificável), `@df.typed_bytes`,
+    `@df.typed_base`, `@df.typed_offset` (cargas com `!invariant.load`: nada disso muda
+    enquanto a lista vive); `@df.core_len` (0 se o cid não é 8–10), `@df.core_storage`,
+    `@df.core_shape` (`flags & 0x66` do armazenamento), `@df.core_len_writable(l, forma)`
+    (cid 8 ou 10 e forma igual), `@df.word_ref(e, i)` (carga de um `Ref` que o emissor
+    enraíza, porque o resultado da `CallRuntime` é `Ref`); `@df.simd_box(<2 x i64>, cid)` por
+    `@df.allocate`. Os `@df.core_*` leem o bloco pelos deslocamentos do contrato em vez de
+    chamar os `@df.list_*` da P3 (sem dependência de ordem; mesma semântica). A descaixa SIMD
     lê `h+14` sem `!invariant.load` (a caixa pode ter sido gravada na mesma função).
 20. **P4 — forma no lowering:** `lower/tipados.rs::codigo_da_forma` passa a devolver o `flags`
     do armazenamento (`REFS` 0x04, `BRUTO|ELEMENTO_*` 0x22/0x42/0x62), e `ListaFixa::forma`
@@ -1710,7 +1710,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     novos `pub(super)` para quem lê listas do núcleo (o for-in de `sdk_fonte.rs`):
     `comprimento_do_nucleo`, `armazenamento_da_lista`, `comprimento_gravavel_do_nucleo`,
     `ler_elemento_da_lista` (mesma assinatura). Gravação direta de `Ref` em lista geral (com
-    `@df.barreira_elemento`) não foi feita: só escalares em forma compacta são gravados em linha,
+    `@df.element_barrier`) não foi feita: só escalares em forma compacta são gravados em linha,
     como antes.
 21. **P4 — runtime:** `typed_data.rs::resolver` devolve `Option<TipadaRef>`; `bytes_de`/
     `bytes_de_mut` saem (usar `Heap::tipada`/`bytes_da_tipada[_mut]`). `TIPO_*` e
@@ -1719,10 +1719,10 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     (`unsafe`) dão os bytes sem o empréstimo do heap (TLS, FFI). Auxiliares de fragmento em
     `io_arquivos.rs`: `dart_lista_fixa(&[Ref])` (`nova_lista(LIST, n, Geral)` + `gravar_refs`),
     `bytes_de_lista_de_valores(&Heap, h)`, `dart_tipada_de_bytes(tipo, &[u8])`. Saem do runtime
-    `dartforge_typed_cabecalho`, `_typed_cabecalho_na_falha` e `dartforge_simd_caixa` (o código
+    `dartforge_typed_header`, `_typed_cabecalho_na_falha` e `dartforge_simd_box` (o código
     gerado não os emite mais); `dartforge_typed_len`/`_typed_ptr` ficam (caminho do
     `fillRange`), sem emissão. **Pedidos:** à P0, tirar essas três declarações de `externs.rs` e
-    o caso especial `dartforge_typed_cabecalho`/`cabecalhos_invariantes` de `llvm/mod.rs`, e
+    o caso especial `dartforge_typed_header`/`cabecalhos_invariantes` de `llvm/mod.rs`, e
     consultar `tipados_ir::EFEITOS_DOS_AJUDANTES` em `efeitos_de`; à P3, trocar `resolver`/
     `bytes_de` em `nativos_listas.rs` (`codigos_da_lista`); à P5, tirar `dartforge_typed_len`/
     `_ptr`/`_cabecalho` de `optimize/simplificar.rs` e tratar os `df.*` sem efeito como puros.
@@ -1739,7 +1739,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     is_empty, get}`, `Heap::lista_de_refs(cid, &[Ref])` (lista fixa geral recém-alocada) e
     `Heap::lista_preencher(h, Valor)` (o `List.filled`: o mesmo objeto em toda posição).
     `lista_dados(h)` devolve o próprio `h` numa `_List`/`_ImmutableList` (como
-    `@df.lista_armazenamento`). A `_List` compacta reserva as palavras de cartões como a geral
+    `@df.list_storage`). A `_List` compacta reserva as palavras de cartões como a geral
     (descompactar no lugar precisa delas), e a grande nasce com `CARTOES` em qualquer forma.
     Todo método que aloca enraíza o que segura entre duas alocações (inclusive o `v` de
     `lista_push` durante o crescimento); o resultado é de quem chama.
@@ -1753,7 +1753,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     Numa `_GrowableList` de armazenamento vazio, ajustar a forma aloca um armazenamento vazio
     próprio (o `_emptyList` do SDK é compartilhado); ajustar pode alocar (descompactar), então
     quem chama enraíza `h`.
-25. **`dartforge_lista_nova(palavras, n, cid, forma)`:** `forma` de 0 a 3 é o código de
+25. **`dartforge_list_new(palavras, n, cid, forma)`:** `forma` de 0 a 3 é o código de
     `Elemento`; **outro valor é o endereço de `n` bytes de tags** (1 `int`, 2 `bool`, 3 `Ref`,
     4 bits de `double`) do literal misto, que sai geral com as caixas feitas no runtime (uma
     caixa feita no código gerado antes da lista ficaria sem raiz na alocação seguinte). O
@@ -1761,10 +1761,10 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     dos operandos (todos `Ref` → geral; todos `int`/`double`/`bool` → compacta; senão tags).
     Os dois `alloca` (palavras e tags) saem em `buffer_de_lista`.
 26. **Ajudantes da P3 no prelúdio** (`listas_ir::AJUDANTES`, todos sem alocar nem lançar, em
-    `EFEITOS_DOS_AJUDANTES`): os quatro de §3.5 mais `@df.lista_capacidade(l)`,
-    `@df.lista_ler(a, i)` (`Ref`: a `CallRuntime` com retorno `Ref` é enraizada; uma
-    `CargaNativa` seria `I64`), `@df.lista_gravar_ref(a, i, v)` (com `@df.barreira_elemento`),
-    `@df.lista_gravar_len(l, n)` e `@df.lista_gravar_dados(l, d)` (grava com `@df.barreira` e
+    `EFEITOS_DOS_AJUDANTES`): os quatro de §3.5 mais `@df.list_capacity(l)`,
+    `@df.list_read(a, i)` (`Ref`: a `CallRuntime` com retorno `Ref` é enraizada; uma
+    `CargaNativa` seria `I64`), `@df.list_write_ref(a, i, v)` (com `@df.element_barrier`),
+    `@df.list_write_len(l, n)` e `@df.list_write_data(l, d)` (grava com `@df.barrier` e
     devolve 1 se a forma de `d` é a do armazenamento atual; senão 0, e o native devolve a forma
     compacta ao armazenamento sem tipo que o `_shrink` da VM monta). Ganchos `pub(super)` em
     `lower/listas.rs`: `lista_len_em_linha`, `lista_armazenamento_em_linha` (`I64`),
@@ -1773,37 +1773,37 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `_setLength` (sem barreira nem conferência, como a VM), `_setData` (acima),
     `List_setIndexed`/`GrowableList_setIndexed` (em linha só no armazenamento geral dentro da
     faixa; o resto no native) e o `[]` (`_Array`/`_List`/`_ImmutableList`/`_GrowableList`: em
-    linha na geral dentro da faixa; compacta ou fora, `DartForge_lista_get`). O `add` escalar de
+    linha na geral dentro da faixa; compacta ou fora, `DartForge_list_get`). O `add` escalar de
     `intrinsecos.rs` grava direto numa `_GrowableList` compacta da forma do valor com lugar,
-    chama `dartforge_lista_acrescentar` cheia e o `add` do SDK no resto.
+    chama `dartforge_list_append` cheia e o `add` do SDK no resto.
 28. **Natives:** `Internal_makeListFixedLength`, `Internal_makeFixedListUnmodifiable` e
     `dartforge_collection_mark_unmodifiable` devolvem objeto novo com o tipo copiado
     (`tipo_lista_copiada`); o getter de constante (`constantes.rs`) já usava o valor devolvido e
     os chamadores do SDK (`array_patch.dart`, `string_patch.dart`, `array.dart`) também.
     `GrowableList_allocate` é o `_withData` da VM (compartilha o `_List`). `_grow` continua
-    `DartForge_GrowableList_reservar` (armazenamento novo da mesma forma, uma cópia).
+    `DartForge_GrowableList_reserve` (armazenamento novo da mesma forma, uma cópia).
     `ClassID.numPredefinedCids` passa a `PRIMEIRO_CID_LIVRE` (128): as classes do runtime usam o
     `hashCode` no hash das constantes, como as predefinidas da VM (`compact_hash.dart`).
-29. **Saem do runtime** (`nativos_listas.rs`): `dartforge_lista_cabecalho`,
+29. **Saem do runtime** (`nativos_listas.rs`): `dartforge_list_header`,
     `_lista_len_gravavel`, `_lista_add_escalar` (§3.7). Ficam como transição, sobre a API nova:
-    `dartforge_lista_len_ou_menos1` e `_lista_ref` (o primeiro ainda emitido pelo for-in de
+    `dartforge_list_len_or_minus1` e `_lista_ref` (o primeiro ainda emitido pelo for-in de
     `lower/sdk_fonte.rs`), `dartforge_collection_is_unmodifiable` (usado só pelo legado de
     `colecoes.rs`). O legado de `colecoes.rs` (`dartforge_list_*`, `_map_*`, `_set_*`,
     `_iteration_*`, `_generic_len`) continua sobre a API velha até a P5 confirmar que ninguém o
     emite (hoje: `atribuicao.rs`, `expressoes.rs`, `membros.rs`, `padroes.rs`, `verificador.rs`,
     `erros_do_runtime.rs`, `comandos.rs`, `despacho.rs`, `ffi_callbacks.rs`); aí a P3 o apaga.
     `lower/literais.rs` perdeu os ramos sem SDK da fonte (o literal com elementos de controle
-    acrescenta à lista por `dartforge_lista_acrescentar`); `laco_indice` e
+    acrescenta à lista por `dartforge_list_append`); `laco_indice` e
     `ler_elemento_iteravel` ficam (a P4 os usa em `comandos.rs`).
-30. **Pedidos da P3:** à P0, em `externs.rs`, tirar as declarações de `dartforge_lista_cabecalho`,
+30. **Pedidos da P3:** à P0, em `externs.rs`, tirar as declarações de `dartforge_list_header`,
     `_lista_len_gravavel`, `_lista_add_escalar` e `_list_new` e marcar
     `dartforge_collection_mark_unmodifiable` como `ALOCA_SEM_LANCAR`; no for-in de
-    `lower/sdk_fonte.rs` (≈2120–2160), trocar `dartforge_lista_len_ou_menos1` e
-    `dartforge_lista_cabecalho` pela classe (`dartforge_value_class`, cid 8–10) e por
+    `lower/sdk_fonte.rs` (≈2120–2160), trocar `dartforge_list_len_or_minus1` e
+    `dartforge_list_header` pela classe (`dartforge_value_class`, cid 8–10) e por
     `lista_len_em_linha` (ou os ganchos da P4, item 20). À P5, em `tipos.rs`, levar
     `ajustar_forma_da_lista`/`definir_tipo_da_lista` a `Heap::lista_ajustar_forma` (item 24) e
     manter `tipo_lista_da_tupla`/`tipo_lista_copiada` com a assinatura de hoje (a P3 passa o cid
-    fixo como classe concreta). `Object_getHash` e `DartForge_verdadeiro` continuam em
+    fixo como classe concreta). `Object_getHash` e `DartForge_true` continuam em
     `nativos_listas.rs` (§3.8 dá `Object_getHash` à P2; §4.9 o exclui da lista da P5): quem os
     quiser os move pela regra de §4.9.
 31. **P1 — `textos.rs` além de §3.3:** `TextoRef::cabe_em_um_byte`; em `Heap`,
@@ -1819,7 +1819,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `permanentes` — a `lista_de_tabela` da P3 depende disso.
 32. **P1 — fragmentos:** `alocar_texto(Texto)`, `alocar_str`, `lancar_range` e `com_texto`
     ficam (usados por outros pacotes); `com_texto` passa a entregar a `TextoRef` (a API de leitura
-    da `Texto` é a mesma). Saem `texto_de`, `texto_de_qualquer`, `dartforge_texto_dados`,
+    da `Texto` é a mesma). Saem `texto_de`, `texto_de_qualquer`, `dartforge_string_data`,
     `_texto_len` e `_texto_na_falha`. Novos: `inteiro_do_valor(heap, Valor)` (`Smi`, `_Mint` ou
     `Valor::Int`), `copia_de_texto`, `texto_copiado`, `novo_acumulador_com(Vec<u16>)` e
     `acrescentar_ao_acumulador`; em `regexp.rs`, `novo_programa_re`,
@@ -1837,20 +1837,20 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     (`anexar(.., bytes)`). O crescimento do `Vec` não entra em `contar_externos`, porque a morte
     desconta só os `bytes` registrados. **Pedido à P0:** `Heap::ajustar_anexo(h, bytes)` para o
     dono atualizar o tamanho registrado; o P1 passa a chamá-lo em `sb_escrever*`.
-36. **P1 — emissor:** mais um ajudante, `@df.texto_igual_a(a, b)` (o `_StringBase.==` com um
-    `Object?`: identidade, `e_objeto`, cid 6/7, depois `@df.texto_igual`). `@df.texto_igual` não
+36. **P1 — emissor:** mais um ajudante, `@df.string_equals_object(a, b)` (o `_StringBase.==` com um
+    `Object?`: identidade, `e_objeto`, cid 6/7, depois `@df.string_equals`). `@df.string_equals` não
     compara cids (uma `_TwoByteString` Latin-1 do `allocateTwoByteString` pode ser igual a uma
     `_OneByteString`): o falso rápido vem só do comprimento ou dos dois hashes calculados e
     diferentes. Os ajudantes são texto fixo em `AJUDANTES`, conferido contra `layout` por
-    `const` e por teste. `lower/textos.rs` chama os ajudantes por `CallRuntime df.texto_*`
+    `const` e por teste. `lower/textos.rs` chama os ajudantes por `CallRuntime df.string_*`
     (efeitos em `textos_ir::EFEITOS_DOS_AJUDANTES`) e faz em linha também
-    `DartForge_string_igual_a`/`_iguais`. O campo `caches_de_texto` saiu de `lower/fn_builder.rs`
+    `DartForge_string_equals_object`/`_iguais`. O campo `caches_de_texto` saiu de `lower/fn_builder.rs`
     (autorizado). O literal estático é `@"df.s.<32 hex do blake3(cid, unidades)>"`, com o
     `comdat` escrito junto do global em `emitir_globais_de_texto`.
 37. **P1 — `integers.dart`/`double.dart`** (item 7 de §4.3): ficam como estão até a medição
     da integração. Não houve execução antes do corte, e a troca pelo `_Smi.toString` da VM com
-    `@df.texto_alocar`/`@df.texto_gravar` em linha só se decide medindo.
-38. **Pedidos da P1:** à P0, em `externs.rs`, tirar as declarações de `dartforge_texto_dados`,
+    `@df.string_allocate`/`@df.string_write` em linha só se decide medindo.
+38. **Pedidos da P1:** à P0, em `externs.rs`, tirar as declarações de `dartforge_string_data`,
     `_texto_len` e `_texto_na_falha` (o runtime não as define mais; o teste
     `cada_extern_do_emissor_existe_no_runtime` acusa), e `ajustar_anexo` (item 35). Aberto para
     a P0b: o literal estático em `comdat` só é único dentro de uma ligação. Entre o executável e
@@ -1869,10 +1869,10 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `CIDS_DO_RUNTIME`. `portas.rs` mantém `Grafo::escalar(bits, ValueTag)` (`io_eventos.rs`) ao
     lado dos novos `Grafo::nulo()`/`Grafo::de_int(v)`. O `use crate::heap::{smi, ValueTag}` de
     `tipos.rs` continua sendo o import desses nomes para todos os fragmentos.
-41. **P5 — `dartforge_registrar_cids`:** aceita as duas tabelas que o emissor pode passar — os
+41. **P5 — `dartforge_register_cids`:** aceita as duas tabelas que o emissor pode passar — os
     65 cids de `DO_SDK` em ordem, ou as 32 posições de `sdk_modulo::cids_do_runtime` (com -1 para
     a classe que o SDK carregado não tem) — e aborta com a mensagem se a tabela do módulo não é a
-    do runtime. `dartforge_definir_migracao` descarta (com mensagem) a entrada de cid < 128.
+    do runtime. `dartforge_set_migration` descarta (com mensagem) a entrada de cid < 128.
 42. **P5 — RTI:** `chave_do_valor` é `metadado` ou `−16 − cid` para todo valor (null −17,
     `Smi` −18), menos o `_Record` sem metadado (o tipo sai dos campos: sem chave).
     `rti_definir` não grava num estático (`PERMANENTE`) e ajusta a forma de toda lista do núcleo
@@ -1894,8 +1894,8 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `metodo_por_seletor` (`chamadas.rs`) e `propriedade_por_seletor` (`expressoes.rs`). O padrão
     de record posicional confere o cid 12 e lê pelos natives `DartForge_record_numFields`/
     `_fieldAt` (saem `dartforge_record_len`/`_get_ref`); `String * n` vai pelo seletor (sai
-    `dartforge_string_repeat`); `identical` de `Ref` é `@df.identico` e o `==` com `String` não
-    anulável à esquerda é `@df.texto_igual_a`. O record posicional de `expressoes.rs` é
+    `dartforge_string_repeat`); `identical` de `Ref` é `@df.identical` e o `==` com `String` não
+    anulável à esquerda é `@df.string_equals_object`. O record posicional de `expressoes.rs` é
     `lower_registro_posicional` (P2). `escape.rs` só substitui objetos de cid ≥ 128;
     `simplificar.rs` trata como puros os ajudantes `df.*` das quatro tabelas de efeitos que não
     lançam nem gravam (pedido da P4).
@@ -1918,7 +1918,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
 48. **Pedidos da P5:** à **P0** — (a) tirar `pub mod sdk_por_nome;` e `pub mod nsm;` de
     `lower/mod.rs` (a P5 então apaga os dois arquivos); (b) em `sdk_fonte.rs`,
     `gerar_encaminhador_nsm`, encaixotar os valores (`coagir(v, Type::Ref)`) antes do
-    `AllocEnv`: `dartforge_encaminhar_nsm` lê todas as capturas como `Ref`; (c) tirar
+    `AllocEnv`: `dartforge_forward_nsm` lê todas as capturas como `Ref`; (c) tirar
     `Context::sdk_da_fonte`, `sdk_da_fonte_pedido`/`DARTFORGE_SDK_DA_FONTE` e o `bool` de
     `emitir_ir_com`/`compilar_com`, com os ramos que sobram em `closures.rs`, `comandos.rs`,
     `constantes.rs`, `fn_builder.rs`, `intrinsecos.rs`, `literais.rs`, `mod.rs`, `registros.rs`,
@@ -1945,7 +1945,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     uma página de um bloco; a morta vai a um cache por tamanho (`RegioesGrandes`), reusada zerada, e
     as paradas de uma coleta completa à outra voltam ao sistema. Anexos por endereço do bloco
     (`HashMap`), soltos na varredura (menor e completa) pelo bit de marca, e no fim do heap.
-50. **P0b — contratos que o texto não fixava.** (a) `dartforge_alocar(cid, palavras, x)`: `x` são os
+50. **P0b — contratos que o texto não fixava.** (a) `dartforge_allocate(cid, palavras, x)`: `x` são os
     bits 8–31 da palavra 0 do cabeçalho que o código montou (`cabecalho >> 8`): `flags` nos 8 de
     baixo e, em `INSTANCIA`, o número de campos nos 16 seguintes (em `BRUTO`/`REFS` o `n` é
     `palavras`). (b) `REFS`: a palavra 0 é o **número de `Ref` que seguem** (o comprimento da
@@ -1958,31 +1958,31 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     faixa inteira e lembra o objeto se algum valor é jovem; `lembrar(h)` suja todos.
     (f) `Heap::ajustar_anexo(h, bytes)`: a diferença conta nos gatilhos.
 51. **P0b — estáticos.** Um handle de objeto fora das páginas é estático se cai numa faixa
-    registrada (`dartforge_registrar_imagem(inicio, fim)`, `heap::registrar_imagem`) ou é uma das
+    registrada (`dartforge_register_image(inicio, fim)`, `heap::registrar_imagem`) ou é uma das
     caixas de `bool` do runtime, e o estado é `PERMANENTE`; nada lê memória fora dessas faixas.
     O estático é legível por toda a API (`cabecalho`, `classe`, `palavras`, `metadado`,
     `e_objeto_vivo`, `hash_de_identidade`); gravar nele é pânico (`conferir_gravavel`). O
     registro da imagem: cada módulo com `objetos_estaticos` escreve os marcadores da seção
     (`alvo::marcadores_da_imagem`: `.dfimg$a`/`$z` em `comdat` no COFF, `__start_dfimg`/
     `__stop_dfimg` com uma âncora no ELF, `section$start/end$__DATA_CONST$__dfimg` no Mach-O) e
-    chama o registro na função de registro dele (`df.registrar.<uri>` e `df.registrar.programa`);
+    chama o registro na função de registro dele (`df.register.<uri>` e `df.register.program`);
     `alvo::secao_da_imagem()` é a seção dos literais. `objetos_estaticos`: `emitir_ir`/`compilar`
     (AOT) e os módulos do SDK, sim; `emitir_ir_recarregavel` (JIT), não. Com eles, o literal não
     divide o bloco (`rotulos_de_saida`).
 52. **P0b — problema 9 (a)/(b), `bool`.** O código gerado não referencia mais os dados
-    `dartforge_falso`/`_verdadeiro`: o `Contexto` da thread publica os dois handles
-    (`layout::contexto::VERDADEIRO` = 360, `FALSO` = 368) e `@df.caixa_bool`/`@df.desencaixa_bool`
+    `dartforge_false`/`_verdadeiro`: o `Contexto` da thread publica os dois handles
+    (`layout::contexto::VERDADEIRO` = 360, `FALSO` = 368) e `@df.box_bool`/`@df.unbox_bool`
     (`caixas_ir.rs`, mudança mecânica autorizada) os leem dali. Só o runtime ativo tem `Contexto`,
     então entre o executável e a DLL do SDK vale sempre a cópia dele; o JIT não precisa publicar
     dados. `externs::GLOBAIS` ficou vazia. Continua aberto (9a, item 38): um literal de string
     igual no programa e no SDK é um estático em cada imagem na ligação de desenvolvimento
     (executável + DLL); `identical` entre os dois só na produção, em que tudo é uma imagem.
-53. **P0b — emissor.** `@df.classe` sem o ramo de slot: `0` → 1, ímpar → 2, objeto → carga
+53. **P0b — emissor.** `@df.class` sem o ramo de slot: `0` → 1, ímpar → 2, objeto → carga
     `!invariant.load`, o resto (handle inválido) → `dartforge_value_class`, que dá o pânico N4.
-    `@df.alocar`, `@df.barreira`, `@df.barreira_elemento`, `@df.e_objeto` e `@df.filho_jovem`
+    `@df.allocate`, `@df.barrier`, `@df.element_barrier`, `@df.is_object` e `@df.young_child`
     (em `ajudantes_do_espaco`, com os deslocamentos de `layout`); a alocação em linha de
     `dartforge_object_new` pela TLAB de `max(n, 1)` palavras; a barreira de campo por
-    `@df.barreira(o, v)`. Pendente para a integração: remedir `LIMITE_JOVEM` e `CONTAGEM_JOVEM`
+    `@df.barrier(o, v)`. Pendente para a integração: remedir `LIMITE_JOVEM` e `CONTAGEM_JOVEM`
     (passo 10), que exige executar.
 54. **Corte (P0, 2026-09-30).** Saíram do runtime: `enum Value`, `TaggedValue`/`ValueTag`,
     `Elementos`/`CabecalhoDeLista`/`FormaDeLista`/`Armazenamento`/`CabecalhoTipado`/
@@ -1996,7 +1996,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `nucleo.rs`). `portas.rs`: `NoG::DoRuntime`/`Portavel::DoRuntime` levam o `cid` fixo;
     `Grafo::escalar` saiu. `seletores.rs`: saíram `cid_registrado`, `cid_do_runtime` e
     `cid_do_valor_do_runtime` (fica `CIDS_FIXOS_POR_POSICAO` para a conferência de
-    `dartforge_registrar_cids`). `colecoes.rs` ficou só com
+    `dartforge_register_cids`). `colecoes.rs` ficou só com
     `dartforge_collection_mark_unmodifiable`. Saíram 80 funções exportadas que nenhum código
     cita (o legado sem SDK da fonte e os acessos da representação velha; ficam as 5 que os testes
     usam: `closure_code`, `print_bool`/`_f64`/`_string`, `rti_subtipo`), e do emissor `AllocMap`/
@@ -2012,7 +2012,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     de `RegExp` com `alocar(cid, 1, BRUTO | ANEXO)` (§2.4); `Heap::anexar` recusava a flag já
     acesa ("anexo duplicado", 67 programas). O duplicado passa a ser a palavra do ponteiro já
     gravada (`b+16 ≠ 0`).
-56. **Cartão da barreira de elemento.** `@df.barreira_elemento` somava `desl::ELEMENTOS` (24,
+56. **Cartão da barreira de elemento.** `@df.element_barrier` somava `desl::ELEMENTOS` (24,
     do bloco) ao handle, 2 bytes além: o `or` do cartão caía desalinhado e a coleta menor não
     via o elemento novo (lista velha grande com filho jovem morto e reusado: 96, 99). O
     deslocamento é `ELEMENTOS − 2`, como os demais do contrato (`d(desl::…)`).
@@ -2031,19 +2031,19 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     (`estatico_de_texto`; percorre a seção pulando palavras zero e para no primeiro cabeçalho
     que não é string estática); `Heap::string_literal` o consulta antes de internar, e o
     getter de `const` (`constantes.rs`, `membros.rs`) passa o valor por
-    `dartforge_constante_canonica` (string → literal canônico; o resto como está). Entre o
+    `dartforge_canonical_constant` (string → literal canônico; o resto como está). Entre o
     executável e a DLL do SDK com o mesmo literal vale o registrado por último (o programa).
     `heap::imagens()` dá as faixas.
 59. **O JIT recebe IR sem estáticos.** O diferencial (`--jit`, `--jit-aot`) e os testes do JIT
     mandavam ao JIT o IR do AOT (`emitir_ir`, com `.dfimg`): no JIT os marcadores `$a`/`$z`
     não delimitam a seção e todo literal era "handle além da tabela". Passam a usar
-    `emitir_ir_recarregavel(.., None)`, o do `dartforge run` (`oraculos::dartforge_nativo_ir_jit`,
+    `emitir_ir_recarregavel(.., None)`, o do `dartforge run` (`oraculos::dartforge_native_ir_jit`,
     `jit/tests/execucao.rs`, `sessao_persistente.rs`); o `--jit-aot` liga esse mesmo IR.
 60. **`d op= n` com `d` `double` e `n` `num`.** `lower_binary_op_helper` desencaixava o `num`
     como `_Double` (`TypeError` para um `int`; defeito anterior, exposto pelo 96). Novo
-    ajudante `@df.num_para_double` (`caixas_ir.rs`): `Smi`/`_Mint` convertidos, o resto pelo
-    `@df.desencaixa_double`.
-61. **Externs compostos pelo nome.** O corte tirou `dartforge_typed_novo_t`, `_view_nova_t` e
+    ajudante `@df.num_to_double` (`caixas_ir.rs`): `Smi`/`_Mint` convertidos, o resto pelo
+    `@df.unbox_double`.
+61. **Externs compostos pelo nome.** O corte tirou `dartforge_typed_new_t`, `_view_nova_t` e
     `_typed_externo_t` (emitidos como `@{name}_t` em `llvm/mod.rs`, invisíveis à busca por
     nome); voltaram em `externs.rs`, `typed_data.rs` e `ffi.rs`.
 62. **`--gc-stress` sem custo quadrático.** Uma completa a cada 8 coletas custa o heap vivo

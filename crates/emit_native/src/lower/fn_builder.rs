@@ -246,8 +246,8 @@ pub struct FunctionStackTrace {
     pub async_body: Option<crate::hir::TraceAsyncBody>,
     pub closure_entry: Option<String>,
     pub chain_link: Option<crate::hir::WaitLink>,
-    /// The trace stack (`dartforge_rastro_entrar(ty, value)` at the entry and
-    /// `dartforge_rastro_sair` at each exit): the frame of an `async` body
+    /// The trace stack (`dartforge_stack_trace_enter(ty, value)` at the entry and
+    /// `dartforge_stack_trace_exit` at each exit): the frame of an `async` body
     /// (type 0) and the listener of `_FutureListener.handleValue` (type 1), which the
     /// runtime matches with the frames of the machine stack.
     pub stack: Option<(i64, Operand)>,
@@ -431,9 +431,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// `dartforge_rastro_entrar(ty, value)` at the start of the entry block
+    /// `dartforge_stack_trace_enter(ty, value)` at the start of the entry block
     /// (after the definition of `value`, when it belongs to it) and
-    /// `dartforge_rastro_sair(depth)` before each `Return` and `Throw`:
+    /// `dartforge_stack_trace_exit(depth)` before each `Return` and `Throw`:
     /// the depth returned by the entry also cuts what functions
     /// unwound by an exception left on top.
     fn instrument_stack_trace_stack(&mut self, ty: i64, value: Operand) {
@@ -447,7 +447,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let prof = new(&mut self.next_value);
         let call = Instruction::CallRuntime {
-            name: "dartforge_rastro_entrar".to_string(),
+            name: "dartforge_stack_trace_enter".to_string(),
             args: vec![(Operand::Constant(Constant::Int(ty)), Type::I64), (value.clone(), Type::Ref)],
             ret_ty: Type::I64,
         };
@@ -471,7 +471,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.func.blocks[bi].instructions.push((
                 v,
                 Instruction::CallRuntime {
-                    name: "dartforge_rastro_sair".to_string(),
+                    name: "dartforge_stack_trace_exit".to_string(),
                     args: vec![(Operand::Val(prof), Type::I64)],
                     ret_ty: Type::Void,
                 },
@@ -1086,7 +1086,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let request = self.emit(
-            Instruction::CallRuntime { name: "dartforge_interrupcao_pendente".to_string(), args: Vec::new(), ret_ty: Type::I8 },
+            Instruction::CallRuntime { name: "dartforge_pending_interrupt".to_string(), args: Vec::new(), ret_ty: Type::I8 },
             Type::I8,
         );
         let ha = self.emit(Instruction::ICmp(ICmpOp::Ne, request, Operand::Constant(Constant::Int(0))), Type::I1);
@@ -1095,7 +1095,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: ha, then_block: slow, else_block: follows });
         self.set_block(slow);
         self.emit_call_with_check(
-            Instruction::CallRuntime { name: "dartforge_ponto_seguro".to_string(), args: Vec::new(), ret_ty: Type::Void },
+            Instruction::CallRuntime { name: "dartforge_safepoint".to_string(), args: Vec::new(), ret_ty: Type::Void },
             Type::Void,
         );
         self.terminate(Terminator::Branch(follows));
@@ -1508,7 +1508,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // (the `other.toDouble()` of the `_Double` operators). The path
             // that unboxes may leave a pending `TypeError`.
             self.emit_call_with_check(
-                Instruction::CallRuntime { name: "df.num_para_double".to_string(), args: vec![(rop, Type::Ref)], ret_ty: Type::F64 },
+                Instruction::CallRuntime { name: "df.num_to_double".to_string(), args: vec![(rop, Type::Ref)], ret_ty: Type::F64 },
                 Type::F64,
             )
         } else if tr == Type::Ref && tl == Type::I64 {
@@ -1541,7 +1541,7 @@ pub struct FixedList {
     /// size and the interpretation of each element are known at emission.
     pub shape: i64,
     /// In a compact shape, the length for direct stores
-    /// (`dartforge_lista_len_gravavel`, called before the round trips: the
+    /// (`dartforge_list_len_writable`, called before the round trips: the
     /// length if the list is modifiable, otherwise 0 — and every store goes
     /// to the SDK's `[]=`).
     pub writable_length: Option<Operand>,

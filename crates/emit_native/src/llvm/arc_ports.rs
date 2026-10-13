@@ -16,12 +16,12 @@ impl LlvmEmitter<'_> {
             "AOT ARC ports require a fixed image; the JIT needs pins and retirement"
         );
         self.out
-            .push_str("define private void @df.arc.registrar_portas() {\n");
+            .push_str("define private void @df.arc.register_ports() {\n");
         for (i, s) in certificate.uniforms().iter().enumerate() {
             writeln!(self.out, "  %u{i} = ptrtoint ptr @{s} to i64").unwrap();
             writeln!(
                 self.out,
-                "  %uv{i} = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %u{i})"
+                "  %uv{i} = call i64 @dartforge_arc_register_uniform_owned_v1(i64 %u{i})"
             )
             .unwrap();
         }
@@ -29,7 +29,7 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %c{i} = ptrtoint ptr @{s} to i64").unwrap();
             writeln!(
                 self.out,
-                "  %cv{i} = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %c{i}, i64 {n})"
+                "  %cv{i} = call i64 @dartforge_arc_register_return_owned_v1(i64 %c{i}, i64 {n})"
             )
             .unwrap();
         }
@@ -37,7 +37,7 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %t{i} = ptrtoint ptr @{s} to i64").unwrap();
             writeln!(
                 self.out,
-                "  %tv{i} = call i64 @dartforge_arc_registrar_tipada_v1(i64 %t{i}, i64 {abi})"
+                "  %tv{i} = call i64 @dartforge_arc_register_typed_v1(i64 %t{i}, i64 {abi})"
             )
             .unwrap();
         }
@@ -47,7 +47,7 @@ impl LlvmEmitter<'_> {
     pub(super) fn register_arc_aot_ports(&mut self) {
         if self.module.arc_aot_ports.is_some() {
             self.out
-                .push_str("  call void @df.arc.registrar_portas()\n");
+                .push_str("  call void @df.arc.register_ports()\n");
         }
     }
 }

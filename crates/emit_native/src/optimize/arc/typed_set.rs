@@ -2,8 +2,8 @@
 
 use super::*;
 
-const TARGET: &str = "dartforge_arc_alvo_tipada_v1";
-const CONTEXTO: &str = "dartforge_arc_contexto_closure_v1";
+const TARGET: &str = "dartforge_arc_typed_target_v1";
+const CONTEXTO: &str = "dartforge_arc_closure_context_v1";
 
 fn definition<'a>(f: &'a Function, op: &Operand) -> Option<&'a Instruction> {
     let Operand::Val(v) = op else { return None };
@@ -98,7 +98,7 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
             && let [(closure, Type::Ref), (Operand::Constant(Constant::Int(3)), Type::I64)] = args.as_slice()
             && closures.contains(closure)
         {
-            *name = "dartforge_arc_ler_campo_escalar_v1".into();
+            *name = "dartforge_arc_read_field_scalar_v1".into();
         }
     }
     for (_, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -217,7 +217,7 @@ mod tests {
                     }
                     if case >= 14 {
                         let inst = if case == 15 { Instruction::Const(Constant::Int(1)) } else {
-                            Instruction::CallRuntime { name: "dartforge_rti_avaliar".into(), args: vec![
+                            Instruction::CallRuntime { name: "dartforge_rti_eval".into(), args: vec![
                                 (Operand::Constant(Constant::Int(0)), Type::I64),
                                 (Operand::Constant(Constant::Null), if case == 16 { Type::I64 } else { Type::Ref }),
                                 (Operand::Constant(Constant::Int(0)), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -246,10 +246,10 @@ mod tests {
                 certify_arc_aot_ports(&mut m, &p).unwrap();
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 if case >= 9 {
-                    assert!(ir.contains("call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 %v0"));
+                    assert!(ir.contains("call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 %v0"));
                     assert!(!ir.contains("call i64 %cf4("));
                 } else {
-                    assert!(ir.contains("@dartforge_arc_alvo_tipada_v1(i64 %v0, i64 31)"));
+                    assert!(ir.contains("@dartforge_arc_typed_target_v1(i64 %v0, i64 31)"));
                     assert!(ir.contains("call i64 %ct4("));
                     let (mut without_registration, _) = module();
                     without_registration.functions = m.functions.clone();

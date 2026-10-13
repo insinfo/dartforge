@@ -3,7 +3,7 @@
   "comment:1": "O alvo parte de uma seção do libraries.json do SDK (base) e troca arquivos inteiros: a chave é o caminho relativo ao lib/ do SDK, o valor o arquivo desta pasta que o substitui.",
   "comment:2": "O caminho lógico continua sendo o do SDK: um 'part' de um arquivo substituído resolve ao lado do original, e pode ele mesmo estar substituído.",
   "comment:3": "Só o que depende da máquina interna da VM é nosso: _SuspendState (async), Timer e microtarefas ligados ao dart:isolate/dart:io, e o Finalizer do GC fraco.",
-  "dartforge_nativo": {
+  "dartforge_native": {
     "base": "vm",
     "substitui": {
       "_internal/vm/lib/async_patch.dart": "async/async_patch.dart",

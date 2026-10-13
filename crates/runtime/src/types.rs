@@ -9,7 +9,7 @@
 //   recipe's global keeps the id). A recipe can have **variables**:
 //   `P<i>`, the i-th type parameter of the class that declares the current
 //   code, and `M<i>`, the i-th type argument of the current generic
-//   function. `dartforge_rti_avaliar` replaces the variables with the types of
+//   function. `dartforge_rti_eval` replaces the variables with the types of
 //   the environment (the type of `this` seen as that class, and the tuple of
 //   function arguments) — dart2js's `_Rti._eval`;
 // * **supertype rules** per class (dart2js's `_Universe.findRule`):
@@ -57,7 +57,7 @@ enum Type {
 }
 
 /// The SDK classes the runtime needs to know (registered by the
-/// generated code): `dartforge_rti_classe_do_runtime`.
+/// generated code): `dartforge_rti_runtime_class`.
 #[derive(Default)]
 struct RuntimeClasses {
     int: i64,
@@ -107,10 +107,10 @@ struct Universe {
     /// covariance check (`K`/`V` of a map's `[]=`, `E` of a list's
     /// `add`), which the VM does with an inline class test.
     memo_and: Vec<(i64, i64, bool)>,
-    /// The same for `dartforge_rti_avaliar`: `[key of this, model,
+    /// The same for `dartforge_rti_eval`: `[key of this, model,
     /// class, tuple, result]`.
     memo_eval: Vec<[i64; 5]>,
-    /// The same for `dartforge_rti_definir` of a runtime collection:
+    /// The same for `dartforge_rti_set` of a runtime collection:
     /// `[concrete class, requested type, stored type]` — the `List<E>` of a
     /// literal seen as `_GrowableList<E>` went through `as_supertype`
     /// (and a new `Vec`) on every list created (N17).
@@ -342,7 +342,7 @@ impl Universe {
         self.memo_and[i] = (key, t, r);
     }
 
-    /// Stored `dartforge_rti_avaliar`.
+    /// Stored `dartforge_rti_eval`.
     fn memo_eval_read(&self, k: [i64; 4]) -> Option<i64> {
         let e = self.memo_eval.get(memo_slot(k[0], k[1], k[2] ^ k[3].rotate_left(32)))?;
         (e[..4] == k).then_some(e[4])
@@ -1089,7 +1089,7 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
 /// `len` readable bytes (packed in little-endian): the UTF-8 text or its
 /// compressed form. The vector lives for the whole process.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(data: *const i64, len: i64) {
+pub unsafe extern "C" fn dartforge_rti_init_table(data: *const i64, len: i64) {
     // SAFETY: guaranteed by the caller (a module constant).
     let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
     let bytes = if bytes.starts_with(crate::tabela_rti::HEADER) { crate::tabela_rti::decompressed(bytes) } else { bytes };
@@ -1110,9 +1110,9 @@ pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(data: *const i64, len: i64
             }
             "R" => {
                 let model = units_recipe(b.encode_utf16().collect());
-                dartforge_rti_regra(id, model);
+                dartforge_rti_rule(id, model);
             }
-            "F" => dartforge_rti_classe_do_runtime(id, b.parse().expect("RTI id")),
+            "F" => dartforge_rti_runtime_class(id, b.parse().expect("RTI id")),
             // The library and the declared name of the class (`dart:mirrors`).
             "B" => {
                 let (uri, name) = b.split_once(' ').unwrap_or((b, ""));
@@ -1126,7 +1126,7 @@ pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(data: *const i64, len: i64
 /// Registers a supertype rule: `class` has the supertype `model` (an
 /// already read recipe, in `P<i>` of the parameters of `class`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_regra(class: i64, model: i64) {
+pub extern "C" fn dartforge_rti_rule(class: i64, model: i64) {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
         let sup = match u.tipo(model) {
@@ -1150,7 +1150,7 @@ pub extern "C" fn dartforge_rti_regra(class: i64, model: i64) {
 /// 10 Object, 11 StringBuffer, 12 RegExp, 13 Match, 14 Type) or, with
 /// `shape` ≥ 1000, the RTI class of the heap class id `shape`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_classe_do_runtime(shape: i64, class: i64) {
+pub extern "C" fn dartforge_rti_runtime_class(shape: i64, class: i64) {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
         u.forget_memos();
@@ -1181,7 +1181,7 @@ pub extern "C" fn dartforge_rti_classe_do_runtime(shape: i64, class: i64) {
 /// Reads a recipe (a heap `String`; the getter of its global keeps the
 /// result).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_receita(text: i64) -> i64 {
+pub extern "C" fn dartforge_rti_recipe(text: i64) -> i64 {
     let unidades: Vec<u16> = HEAP.with(|h| h.borrow().text(text).map(|t| t.unidades().collect()).unwrap_or_default());
     units_recipe(unidades)
 }
@@ -1214,11 +1214,11 @@ fn units_recipe(unidades: Vec<u16>) -> i64 {
 /// Inconsistent IDs or a receiver without valid lifetime: internal error, no Dart exception.
 ///
 /// ```
-/// use dartforge_runtime::abi::dartforge_rti_avaliar;
-/// assert_eq!(dartforge_rti_avaliar(0, 0, 0, 0), 0); // dynamic stays dynamic.
+/// use dartforge_runtime::abi::dartforge_rti_eval;
+/// assert_eq!(dartforge_rti_eval(0, 0, 0, 0), 0); // dynamic stays dynamic.
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_avaliar(model: i64, this: i64, class: i64, tuple: i64) -> i64 {
+pub extern "C" fn dartforge_rti_eval(model: i64, this: i64, class: i64, tuple: i64) -> i64 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
         // The type of `this` only enters through its key: the direct-mapped memo
@@ -1257,7 +1257,7 @@ pub extern "C" fn dartforge_rti_avaliar(model: i64, this: i64, class: i64, tuple
     })
 }
 
-/// [`dartforge_rti_avaliar`] (without tuple) of a use site with an inline
+/// [`dartforge_rti_eval`] (without tuple) of a use site with an inline
 /// cache (`llvm/mod.rs`, N17): `cache` are the two words of the site in the
 /// isolate's globals area — the key of `this` ([`value_key`] of
 /// an object of the space: the metadata, or `-16 - class`) and the result. The
@@ -1270,8 +1270,8 @@ pub extern "C" fn dartforge_rti_avaliar(model: i64, this: i64, class: i64, tuple
 /// `cache` points to two writable words of the isolate area.
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub unsafe extern "C" fn dartforge_rti_avaliar_cache(cache: *mut i64, model: i64, this: i64, class: i64) -> i64 {
-    let r = dartforge_rti_avaliar(model, this, class, 0);
+pub unsafe extern "C" fn dartforge_rti_eval_cache(cache: *mut i64, model: i64, this: i64, class: i64) -> i64 {
+    let r = dartforge_rti_eval(model, this, class, 0);
     if crate::heap::is_object(this)
         && let Some(key) = value_key(this)
         && key != 0
@@ -1287,7 +1287,7 @@ pub unsafe extern "C" fn dartforge_rti_avaliar_cache(cache: *mut i64, model: i64
 
 /// Stores the type of a generic object (in the header `metadata`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
+pub extern "C" fn dartforge_rti_set(obj: i64, tipo: i64) {
     if !crate::layout::is_object(obj) {
         return;
     }
@@ -1356,7 +1356,7 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
 /// fields were already filled in canonical order (positionals, then sorted
 /// names); the types come from the actual values, as `Record.runtimeType` requires.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, names: i64) {
+pub extern "C" fn dartforge_rti_named_record(obj: i64, npos: i64, names: i64) {
     let npos = usize::try_from(npos).expect("invalid number of positional fields");
     let names = HEAP.with(|h| h.borrow().text(names).map(|t| t.para_string()).unwrap_or_default());
     let fields = HEAP.with(|h| {
@@ -1374,7 +1374,7 @@ pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, names: i64
         let named = names.into_iter().zip(fields.drain(npos..)).map(|(n, t)| (n.to_string(), t)).collect();
         u.intern(Type::Record { pos: fields, named })
     });
-    dartforge_rti_definir(obj, tipo);
+    dartforge_rti_set(obj, tipo);
 }
 
 /// Text with type arguments for the default `toString` of a value
@@ -1391,7 +1391,7 @@ pub(crate) fn text_with_arguments(v: i64) -> Option<String> {
 
 /// The type of a `Ref` value.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_do_valor(v: i64) -> i64 {
+pub extern "C" fn dartforge_rti_of_value(v: i64) -> i64 {
     RTI.with(|u| ref_type(&mut u.borrow_mut(), v))
 }
 
@@ -1428,23 +1428,23 @@ pub extern "C" fn dartforge_rti_e(v: i64, t: i64) -> u8 {
 
 /// `S <: T`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_subtipo(s: i64, t: i64) -> u8 {
+pub extern "C" fn dartforge_rti_subtype(s: i64, t: i64) -> u8 {
     RTI.with(|u| u8::from(u.borrow_mut().sub(s, t)))
 }
 
 /// `v as T`: pending `TypeError` if `v` is not a `T` (the VM message:
 /// "type 'S' is not a subtype of type 'T' in type cast").
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
-    dartforge_rti_como_em(v, t, 0, 0);
+pub extern "C" fn dartforge_rti_as(v: i64, t: i64) {
+    dartforge_rti_as_with_context(v, t, 0, 0);
 }
 
-/// [`dartforge_rti_como`] with the check context, which changes the end of the
+/// [`dartforge_rti_as`] with the check context, which changes the end of the
 /// VM message: 0 the `as` (" in type cast"), 1 the implicit assignment of
 /// a `dynamic` (no suffix), 2 the parameter `name` (a `String`) on entry
 /// to a dynamic or covariant call (" of 'name'").
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, name: i64) {
+pub extern "C" fn dartforge_rti_as_with_context(v: i64, t: i64, contexto: i64, name: i64) {
     // The suffix is only built on failure: a passing check (almost
     // all of them) allocates nothing.
     let suffix = || match contexto {
@@ -1474,7 +1474,7 @@ pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, name: i64
     });
     if let Some(msg) = failure {
         let m = HEAP.with(|h| h.borrow_mut().allocate_str(&msg));
-        let e = with_roots(&[m], || dartforge_type_error_com_mensagem(m));
+        let e = with_roots(&[m], || dartforge_type_error_with_message(m));
         with_roots(&[e], || dartforge_exception_throw(e, 3));
     }
 }
@@ -1491,7 +1491,7 @@ thread_local! {
 /// The canonical `Type` object of type `t` (permanent root, like enum
 /// values).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
+pub extern "C" fn dartforge_rti_object_type(t: i64) -> i64 {
     if let Some(h) = TYPE_OBJECTS.with(|m| m.borrow().get(&t).copied()) {
         return h;
     }
@@ -1512,29 +1512,29 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
     h
 }
 
-/// [`dartforge_rti_objeto_tipo`] under ARC: the canonical `Type` object with a
+/// [`dartforge_rti_object_type`] under ARC: the canonical `Type` object with a
 /// code owner, independent of the cache's permanent root. May allocate
 /// on the first lookup; does not throw nor run Dart.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let a = dartforge_arc_rti_objeto_tipo_owned_v1(7);
-/// let b = dartforge_arc_rti_objeto_tipo_owned_v1(7);
+/// let a = dartforge_arc_rti_object_type_owned_v1(7);
+/// let b = dartforge_arc_rti_object_type_owned_v1(7);
 /// assert_eq!(a, b);
-/// assert_eq!(dartforge_arc_observar_heap_v1(a), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(a), 3);
 /// dartforge_arc_release(a);
 /// dartforge_arc_release(b);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_rti_objeto_tipo_owned_v1(t: i64) -> i64 {
-    let h = dartforge_rti_objeto_tipo(t);
+pub extern "C" fn dartforge_arc_rti_object_type_owned_v1(t: i64) -> i64 {
+    let h = dartforge_rti_object_type(t);
     HEAP.with(|heap| heap.borrow_mut().retain_code_owner(h));
     h
 }
 
 /// The text of a type (`Type.toString()`), as a heap `String`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {
+pub extern "C" fn dartforge_rti_string(t: i64) -> i64 {
     let s = RTI.with(|u| u.borrow().text(t));
     HEAP.with(|h| h.borrow_mut().allocate_str(&s))
 }
@@ -1547,14 +1547,14 @@ pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let text = dartforge_arc_rti_texto_owned_v1(0);
-/// assert_eq!(dartforge_arc_observar_heap_v1(text), 3);
+/// let text = dartforge_arc_rti_string_owned_v1(0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(text), 3);
 /// dartforge_arc_release(text);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(text), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(text), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_rti_texto_owned_v1(t: i64) -> i64 {
+pub extern "C" fn dartforge_arc_rti_string_owned_v1(t: i64) -> i64 {
     let s = RTI.with(|u| u.borrow().text(t));
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
@@ -1566,7 +1566,7 @@ pub extern "C" fn dartforge_arc_rti_texto_owned_v1(t: i64) -> i64 {
 
 /// `TypeError` with the message. In the source SDK, the exception must be the real
 /// `_TypeError` class for `e is TypeError` and `toString` dispatch.
-fn dartforge_type_error_com_mensagem(message: i64) -> i64 {
+fn dartforge_type_error_with_message(message: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeTipo") {
         // SAFETY: the helper registered by `dart:core` receives a String and
         // returns the concrete `_TypeError` instance.
@@ -1588,14 +1588,14 @@ mod tests_arc_borrowed_evaluation {
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             let previous_universe = RTI.with(|u| u.replace(Universe::new()));
             let recipe = |text: &str| units_recipe(text.encode_utf16().collect());
-            let object = dartforge_arc_objeto_owned_v1(32001, 2);
+            let object = dartforge_arc_object_owned_v1(32001, 2);
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_gravar_campo_escalar_v1(object, 0, 42);
-            dartforge_arc_gravar_campo_ref_v1(object, 1, child);
-            dartforge_rti_definir(object, recipe("C32001<C200>"));
+            dartforge_arc_write_field_scalar_v1(object, 0, 42);
+            dartforge_arc_write_field_ref_v1(object, 1, child);
+            dartforge_rti_set(object, recipe("C32001<C200>"));
             let refs = [child, 0, crate::layout::smi::de(7).unwrap()];
             // SAFETY: live vector of three Refs held by the caller.
-            let rec = unsafe { dartforge_record_novo(refs.as_ptr(), refs.len() as i64) };
+            let rec = unsafe { dartforge_record_from_refs(refs.as_ptr(), refs.len() as i64) };
             dartforge_arc_retain(rec);
             let parameter = recipe("P0");
             let method = recipe("M0");
@@ -1605,10 +1605,10 @@ mod tests_arc_borrowed_evaluation {
             let stats = HEAP.with(|h| h.borrow().stats());
             let pending = dartforge_exception_pending();
             for _ in 0..64 {
-                assert_eq!(dartforge_rti_avaliar(parameter, object, 32001, 0), expected);
-                assert_eq!(dartforge_rti_avaliar(method, 0, 0, tuple), expected_method);
-                assert_eq!(dartforge_rti_avaliar(parameter, rec, 32001, 0), T_DYNAMIC);
-                assert_eq!(dartforge_rti_avaliar(parameter, crate::layout::smi::de(7).unwrap(), 32001, 0), T_DYNAMIC);
+                assert_eq!(dartforge_rti_eval(parameter, object, 32001, 0), expected);
+                assert_eq!(dartforge_rti_eval(method, 0, 0, tuple), expected_method);
+                assert_eq!(dartforge_rti_eval(parameter, rec, 32001, 0), T_DYNAMIC);
+                assert_eq!(dartforge_rti_eval(parameter, crate::layout::smi::de(7).unwrap(), 32001, 0), T_DYNAMIC);
             }
             HEAP.with(|h| {
                 let h = h.borrow();
@@ -1619,7 +1619,7 @@ mod tests_arc_borrowed_evaluation {
                 assert_eq!(h.object(object).unwrap().get(1), Some((child, true)));
             });
             assert_eq!(dartforge_exception_pending(), pending);
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 3);
             dartforge_arc_release(rec);
             dartforge_arc_release(object);
             dartforge_arc_release(child);

@@ -1,6 +1,6 @@
 // A classe do receptor lida em linha e o cache do ponto de chamada
-// (`llvm/mod.rs`, `df.classe`/`df.seletor`), o `==` de `String` numa
-// chamada (`DartForge_string_igual_a`), a string canônica de um caractere
+// (`llvm/mod.rs`, `df.class`/`df.selector`), o `==` de `String` numa
+// chamada (`DartForge_string_equals_object`), a string canônica de um caractere
 // do `s[i]`, a limpeza da exceção só quando pendente, e o `Ref` atribuído
 // capturado por funções locais diretas, que mora no slot do quadro de
 // raízes (`funcoes_diretas.rs`). A saída tem de ser a da VM.

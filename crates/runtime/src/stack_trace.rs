@@ -17,7 +17,7 @@
 // **The awaiter chain** (the VM's `AsyncAwareStackUnwinder`,
 // `runtime/vm/stack_trace.cc`). The resumed `async` body and
 // `_FutureListener.handleValue` push the frame or the listener onto the stack-trace
-// stack (`dartforge_rastro_entrar`); at `throw`, the walk of the machine frames
+// stack (`dartforge_stack_trace_enter`); at `throw`, the walk of the machine frames
 // matches each marked frame with its entry and, once the first already suspended
 // `async` body (or the listener) is found, follows the chain through the heap:
 // frame → `Completer` → `_Future` → `_FutureListener` → the awaiting closure,
@@ -90,7 +90,7 @@ const LISTENER_CATCH_ERROR: i64 = 2;
 const LISTENER_WHEN_COMPLETE: i64 = 8;
 const LISTENER_AWAIT: i64 = 16;
 
-/// The maximum distance between the address written by `dartforge_rastro_entrar` (a
+/// The maximum distance between the address written by `dartforge_stack_trace_enter` (a
 /// local of it) and the stack top of the frame that called it.
 const STACK_WINDOW: usize = 16 * 1024;
 
@@ -191,7 +191,7 @@ thread_local! {
     /// inside out; empty without a table.
     static THROW_RETURNS: std::cell::RefCell<Vec<(u64, u64)>> = const { std::cell::RefCell::new(Vec::new()) };
     /// The stack-trace stack: `(type, value, address)` pushed by
-    /// `dartforge_rastro_entrar` — the frame of an `async` body (type 0) or the
+    /// `dartforge_stack_trace_enter` — the frame of an `async` body (type 0) or the
     /// `handleValue` listener (type 1) and a machine-stack address right below the
     /// calling frame.
     static TRACE_STACK: std::cell::RefCell<Vec<(i64, i64, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -206,7 +206,7 @@ thread_local! {
 /// `[start, end)` is the stack-trace section of a loaded image, which stays loaded
 /// until the end of the process.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_rastro(start: *const u8, end: *const u8) {
+pub unsafe extern "C" fn dartforge_register_stack_trace(start: *const u8, end: *const u8) {
     let (start, end) = (start as usize, end as usize);
     if start == 0 || end <= start {
         return;
@@ -223,7 +223,7 @@ pub unsafe extern "C" fn dartforge_registrar_rastro(start: *const u8, end: *cons
 /// Removes the stack-trace section registered with `start` (the JIT object that the
 /// session releases, on a reload). Neither allocates on the collector's heap nor throws.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_desregistrar_rastro(start: *const u8) {
+pub extern "C" fn dartforge_unregister_stack_trace(start: *const u8) {
     let start = start as usize;
     let mut sections = TRACE_SECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     let before = sections.len();
@@ -240,7 +240,7 @@ pub extern "C" fn dartforge_desregistrar_rastro(start: *const u8) {
 /// # Safety
 /// `name` points to `n` valid UTF-8 bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_campo_do_rastro(class: i64, name: *const u8, n: i64, cur_position: i64) {
+pub unsafe extern "C" fn dartforge_register_stack_trace_field(class: i64, name: *const u8, n: i64, cur_position: i64) {
     let (Ok(n), Ok(cur_position)) = (usize::try_from(n), usize::try_from(cur_position)) else { return };
     if name.is_null() {
         return;
@@ -258,7 +258,7 @@ pub unsafe extern "C" fn dartforge_registrar_campo_do_rastro(class: i64, name: *
 /// `_add` of `_StreamController`) that the image has. Idempotent; neither allocates
 /// on the collector's heap nor throws.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_registrar_tearoff_do_rastro(input: *const u8, kind: i64) {
+pub extern "C" fn dartforge_register_stack_trace_tearoff(input: *const u8, kind: i64) {
     let input = input as usize;
     if input == 0 {
         return;
@@ -271,10 +271,10 @@ pub extern "C" fn dartforge_registrar_tearoff_do_rastro(input: *const u8, kind: 
 
 /// Pushes onto the stack-trace stack the frame of an `async` body (`tipo` 0) or the
 /// `_FutureListener.handleValue` listener (`tipo` 1) at the function's entry;
-/// returns the depth, which the exit passes to [`dartforge_rastro_sair`].
+/// returns the depth, which the exit passes to [`dartforge_stack_trace_exit`].
 #[unsafe(no_mangle)]
 #[inline(never)]
-pub extern "C" fn dartforge_rastro_entrar(tipo: i64, value: i64) -> i64 {
+pub extern "C" fn dartforge_stack_trace_enter(tipo: i64, value: i64) -> i64 {
     let mark = std::hint::black_box(0u8);
     let address = std::hint::black_box(std::ptr::addr_of!(mark)) as usize;
     TRACE_STACK.with(|p| {
@@ -287,7 +287,7 @@ pub extern "C" fn dartforge_rastro_entrar(tipo: i64, value: i64) -> i64 {
 /// The exit of the function that entered with `depth`: cuts the stack-trace stack
 /// there (whatever functions unwound by an exception left on top falls with it).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rastro_sair(depth: i64) {
+pub extern "C" fn dartforge_stack_trace_exit(depth: i64) {
     let n = usize::try_from(depth.saturating_sub(1)).unwrap_or(0);
     TRACE_STACK.with(|p| p.borrow_mut().truncate(n));
 }
@@ -904,7 +904,7 @@ fn with_trace_index<R>(f: impl FnOnce(&TraceIndex) -> R) -> R {
     let mut points = Vec::new();
     let mut functions = Vec::new();
     for &(start, end) in &sections {
-        // SAFETY: sections registered by `dartforge_registrar_rastro`.
+        // SAFETY: sections registered by `dartforge_register_stack_trace`.
         unsafe { read_trace_section(start, end, &mut points, &mut functions) };
     }
     // Stable: those with the same label stay in section order (from the inside out).
@@ -1062,7 +1062,7 @@ fn trace_text(h: i64) -> Option<String> {
 /// `_StackTrace.toString` (the VM has it in C++): the text of field 0, or the pairs
 /// symbolized now and stored in field 0 for the next request.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rastro_texto(h: i64) -> i64 {
+pub extern "C" fn dartforge_stack_trace_string(h: i64) -> i64 {
     let (ready_flag, returns) = HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.object(h).and_then(|o| o.first()) {

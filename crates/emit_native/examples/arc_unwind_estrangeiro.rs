@@ -85,7 +85,7 @@ fn module(with_frames: bool, resume: bool) -> Result<Module, String> {
         let open = |id| {
             call(
                 id,
-                "dartforge_arc_quadro_abrir_v1",
+                "dartforge_arc_frame_open_v1",
                 vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
                 Type::I64,
             )
@@ -93,7 +93,7 @@ fn module(with_frames: bool, resume: bool) -> Result<Module, String> {
         let close = |id, frame| {
             call(
                 id,
-                "dartforge_arc_quadro_fechar_v1",
+                "dartforge_arc_frame_close_v1",
                 vec![(val(frame), Type::I64)],
                 Type::Void,
             )
@@ -334,10 +334,10 @@ mod frame_tests {
                 .next()
                 .unwrap();
             let internal = foreign
-                .find("call void @dartforge_arc_quadro_fechar_v1(i64 %v11)")
+                .find("call void @dartforge_arc_frame_close_v1(i64 %v11)")
                 .unwrap();
             let external = foreign
-                .find("call void @dartforge_arc_quadro_fechar_v1(i64 %v6)")
+                .find("call void @dartforge_arc_frame_close_v1(i64 %v6)")
                 .unwrap();
             assert!(internal < external);
         }

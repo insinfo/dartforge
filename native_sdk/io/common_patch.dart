@@ -3,7 +3,7 @@
 // DartForge chama para construir objetos do `dart:io` (a VM os constrói
 // pela API C, `DartUtils::NewDartOSError`, `SyncDirectoryListing`…). O
 // registro da biblioteca entrega os endereços ao runtime
-// (`dartforge_registrar_ajudante`); os natives estão em
+// (`dartforge_register_helper`); os natives estão em
 // `crates/runtime/src/io_*.rs`.
 
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file

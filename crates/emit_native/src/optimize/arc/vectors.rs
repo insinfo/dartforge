@@ -4,7 +4,7 @@
 
 use super::*;
 
-pub(super) const READ_ARGUMENT: &str = "dartforge_arc_argumento_owned_v1";
+pub(super) const READ_ARGUMENT: &str = "dartforge_arc_argument_owned_v1";
 
 /// The word of the type tuple of the generic uniform call: the slot right
 /// after the positional and named arguments, `args[desc[0] + desc[1]]`
@@ -192,7 +192,7 @@ pub(super) fn produce(
                 Instruction::CallRuntime { name, args, .. }
                     if matches!(
                         name.as_str(),
-                        "dartforge_args_casam" | "dartforge_arg_indice"
+                        "dartforge_args_match" | "dartforge_arg_index"
                     ) && args
                         .first()
                         .is_some_and(|(o, t)| descriptor(o) && *t == Type::Ptr)

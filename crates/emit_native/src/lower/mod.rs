@@ -948,7 +948,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             vtable: Vec::new(),
             to_string_symbol: None,
         });
-        let symbol = "dartforge_chamar_dart0".to_string();
+        let symbol = "dartforge_call_dart0".to_string();
         let mut b = fn_builder::FnBuilder::new(ctx, u, symbol.clone(), "chamar".to_string(), Type::Ref);
         let clo = Operand::Val(b.add_param("closure".to_string(), Type::Ref));
         let r = b.call_function_value(clo, &[]);
@@ -983,7 +983,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
     for k in 0..ctx.record_shapes.len() {
         let id = crate::context::SHAPE_BASE_ID + k as u32;
         let (npos, names) = &ctx.record_shapes[k];
-        let symbol = format!("df.$registro.{k}.toString");
+        let symbol = format!("df.$record.{k}.toString");
         module.classes.push(ClassDef {
             id,
             name: "Record".to_string(),
@@ -1005,7 +1005,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         let mut builder = fn_builder::FnBuilder::new(ctx, u, symbol, "toString".to_string(), Type::Ref);
         builder.lower_shape_to_string(k);
         builder.finish(&mut module);
-        let hash_symbol = format!("df.$registro.{k}.hashCode");
+        let hash_symbol = format!("df.$record.{k}.hashCode");
         let mut builder = fn_builder::FnBuilder::new(ctx, u, hash_symbol, "hashCode".to_string(), Type::I64);
         builder.lower_shape_hash(k);
         builder.finish(&mut module);

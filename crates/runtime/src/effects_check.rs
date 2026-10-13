@@ -1,14 +1,14 @@
-// Checking of the extern effects table (`crates/runtime/efeitos.tsv`,
+// Checking of the extern effects table (`crates/runtime/effects.tsv`,
 // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8).
 //
 // With `DARTFORGE_EFEITOS=conferir` at compile time, generated code calls
-// `dartforge_efeitos_antes(name, marks)` before and `dartforge_efeitos_depois()`
-// after every extern that the table marks `coleta = 0` (bit 0 of the marks) or
-// `lanca = 0` (bit 1). Here the mark is put to the test:
+// `dartforge_effects_before(name, marks)` before and `dartforge_effects_after()`
+// after every extern that the table marks `collects = 0` (bit 0 of the marks) or
+// `throws = 0` (bit 1). Here the mark is put to the test:
 //
-// * `coleta = 0`: a collection while the extern runs terminates the process
+// * `collects = 0`: a collection while the extern runs terminates the process
 //   (`heap::forbid_collection`), naming it;
-// * `lanca = 0`: if the extern entered without a pending exception and left with
+// * `throws = 0`: if the extern entered without a pending exception and left with
 //   one, the process is terminated, naming it.
 //
 // A wrong optimistic mark is the emitter's most dangerous defect (a missing root,
@@ -27,7 +27,7 @@ thread_local! {
 /// # Safety
 /// `name` points to `len` bytes (the extern's name, a module constant).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_efeitos_antes(name: *const u8, len: i64, marks: i64) {
+pub unsafe extern "C" fn dartforge_effects_before(name: *const u8, len: i64, marks: i64) {
     // SAFETY: guaranteed by the caller.
     let bytes = unsafe { std::slice::from_raw_parts(name, usize::try_from(len).unwrap_or(0)) };
     let name = String::from_utf8_lossy(bytes).into_owned();
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn dartforge_efeitos_antes(name: *const u8, len: i64, mark
 
 /// The exit of the most recent checked extern.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_efeitos_depois() {
+pub extern "C" fn dartforge_effects_after() {
     let Some((name, marks, pending_before)) = EXTERNS_UNDER_CHECK.with(|p| p.borrow_mut().pop()) else {
         return;
     };
@@ -48,7 +48,7 @@ pub extern "C" fn dartforge_efeitos_depois() {
         crate::heap::allow_collection();
     }
     if marks & 2 != 0 && pending_before == 0 && dartforge_exception_pending() != 0 {
-        eprintln!("dartforge: the extern {name} is marked lanca = 0 in efeitos.tsv and left a pending exception");
+        eprintln!("dartforge: the extern {name} is marked throws = 0 in effects.tsv and left a pending exception");
         std::process::abort();
     }
 }
@@ -56,11 +56,11 @@ pub extern "C" fn dartforge_efeitos_depois() {
 /// Returns the depth of the externs being checked on this thread.
 ///
 /// ```
-/// let level = dartforge_runtime::abi::dartforge_efeitos_nivel();
+/// let level = dartforge_runtime::abi::dartforge_effects_level();
 /// assert!(level >= 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_efeitos_nivel() -> i64 {
+pub extern "C" fn dartforge_effects_level() -> i64 {
     EXTERNS_UNDER_CHECK.with(|p| p.borrow().len() as i64)
 }
 
@@ -76,12 +76,12 @@ pub extern "C" fn dartforge_efeitos_nivel() -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let level = dartforge_efeitos_nivel();
-/// dartforge_efeitos_restaurar(level);
-/// assert_eq!(dartforge_efeitos_nivel(), level);
+/// let level = dartforge_effects_level();
+/// dartforge_effects_restore(level);
+/// assert_eq!(dartforge_effects_level(), level);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_efeitos_restaurar(level: i64) {
+pub extern "C" fn dartforge_effects_restore(level: i64) {
     let level = usize::try_from(level).expect("negative effects-check level");
     EXTERNS_UNDER_CHECK.with(|p| {
         let mut stack = p.borrow_mut();
@@ -98,17 +98,17 @@ mod tests_effects_restore {
     use super::*;
     #[test]
     fn unwind_preserves_outer_level_and_releases_abandoned_bans() {
-        let initial = dartforge_efeitos_nivel();
+        let initial = dartforge_effects_level();
         let name = b"fixture-unwind";
         // SAFETY: name points to valid bytes during both calls.
         unsafe {
-            dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 1);
-            dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 1);
+            dartforge_effects_before(name.as_ptr(), name.len() as i64, 1);
+            dartforge_effects_before(name.as_ptr(), name.len() as i64, 1);
         }
-        dartforge_efeitos_restaurar(initial + 1);
-        assert_eq!(dartforge_efeitos_nivel(), initial + 1);
-        dartforge_efeitos_restaurar(initial);
-        assert_eq!(dartforge_efeitos_nivel(), initial);
+        dartforge_effects_restore(initial + 1);
+        assert_eq!(dartforge_effects_level(), initial + 1);
+        dartforge_effects_restore(initial);
+        assert_eq!(dartforge_effects_level(), initial);
         dartforge_arc_collect();
     }
 }

@@ -52,7 +52,7 @@ fn main() -> Result<(), String> {
                 (
                     ValueId(4),
                     call(
-                        "dartforge_arc_lista_armazenamento_ref_v1",
+                        "dartforge_arc_list_storage_ref_v1",
                         vec![(val(0), Type::Ref)],
                         Type::Ref,
                     ),
@@ -61,7 +61,7 @@ fn main() -> Result<(), String> {
                 (
                     ValueId(5),
                     call(
-                        "dartforge_arc_lista_gravar_bits_v1",
+                        "dartforge_arc_list_write_bits_v1",
                         vec![
                             (val(4), Type::Ref),
                             (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -75,7 +75,7 @@ fn main() -> Result<(), String> {
                 (
                     ValueId(6),
                     call(
-                        "dartforge_arc_lista_gravar_dados_v1",
+                        "dartforge_arc_list_write_data_v1",
                         vec![(val(0), Type::Ref), (val(1), Type::Ref)],
                         Type::I64,
                     ),
@@ -84,7 +84,7 @@ fn main() -> Result<(), String> {
                 (
                     ValueId(7),
                     call(
-                        "dartforge_arc_lista_gravar_len_v1",
+                        "dartforge_arc_list_write_len_v1",
                         vec![
                             (val(0), Type::Ref),
                             (Operand::Constant(Constant::Int(0)), Type::I64),
@@ -102,7 +102,7 @@ fn main() -> Result<(), String> {
         insts[2] = (
             ValueId(6),
             call(
-                "dartforge_lista_acrescentar",
+                "dartforge_list_append",
                 vec![(val(0), Type::Ref), (val(1), Type::Ref)],
                 Type::Ref,
             ),
@@ -149,11 +149,11 @@ fn main() -> Result<(), String> {
         (1, 2, 0x42, 0xfff8_1234_5678_9abc_u64 as i64),
         (2, 3, 0x62, 1),
     ] {
-        writeln!(ir, "  %pai{n} = call i64 @dartforge_lista_nova(ptr %palavra, i64 1, i64 10, i64 {code})\n  call void @dartforge_arc_retain(i64 %pai{n})\n  %novo{n} = call i64 @dartforge_lista_nova(ptr null, i64 0, i64 8, i64 {code})\n  call void @dartforge_arc_retain(i64 %novo{n})\n  %retorno{n} = call i64 @trocar_armazenamento(i64 %pai{n}, i64 %novo{n}, i64 {bits}, i64 {shape})").unwrap();
-        writeln!(ir, "  %len{n} = call i64 @dartforge_arc_lista_len_v1(i64 %pai{n})\n  %cap{n} = call i64 @dartforge_arc_lista_capacidade_v1(i64 %pai{n})\n  %lenzero{n} = icmp eq i64 %len{n}, 0\n  %capzero{n} = icmp eq i64 %cap{n}, 0\n  %encolheu{n} = and i1 %lenzero{n}, %capzero{n}\n  br i1 %encolheu{n}, label %coletar{n}, label %falha\ncoletar{n}:").unwrap();
-        writeln!(ir, "  call void @dartforge_arc_release(i64 %pai{n})\n  call void @dartforge_arc_release(i64 %novo{n})\n  call void @dartforge_arc_collect()\n  %estado{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno{n})\n  %vivo{n} = icmp eq i8 %estado{n}, 3\n  br i1 %vivo{n}, label %ler{n}, label %falha\nler{n}:").unwrap();
+        writeln!(ir, "  %pai{n} = call i64 @dartforge_list_new(ptr %palavra, i64 1, i64 10, i64 {code})\n  call void @dartforge_arc_retain(i64 %pai{n})\n  %novo{n} = call i64 @dartforge_list_new(ptr null, i64 0, i64 8, i64 {code})\n  call void @dartforge_arc_retain(i64 %novo{n})\n  %retorno{n} = call i64 @trocar_armazenamento(i64 %pai{n}, i64 %novo{n}, i64 {bits}, i64 {shape})").unwrap();
+        writeln!(ir, "  %len{n} = call i64 @dartforge_arc_list_len_v1(i64 %pai{n})\n  %cap{n} = call i64 @dartforge_arc_list_capacity_v1(i64 %pai{n})\n  %lenzero{n} = icmp eq i64 %len{n}, 0\n  %capzero{n} = icmp eq i64 %cap{n}, 0\n  %encolheu{n} = and i1 %lenzero{n}, %capzero{n}\n  br i1 %encolheu{n}, label %coletar{n}, label %falha\ncoletar{n}:").unwrap();
+        writeln!(ir, "  call void @dartforge_arc_release(i64 %pai{n})\n  call void @dartforge_arc_release(i64 %novo{n})\n  call void @dartforge_arc_collect()\n  %estado{n} = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno{n})\n  %vivo{n} = icmp eq i8 %estado{n}, 3\n  br i1 %vivo{n}, label %ler{n}, label %falha\nler{n}:").unwrap();
         // The raw observation only happens after proving that the owner kept the block.
-        writeln!(ir, "  %endereco{n} = add i64 %retorno{n}, 22\n  %ptr{n} = inttoptr i64 %endereco{n} to ptr\n  %bits{n} = load i64, ptr %ptr{n}, align 8\n  %iguais{n} = icmp eq i64 %bits{n}, {bits}\n  br i1 %iguais{n}, label %liberar{n}, label %falha\nliberar{n}:\n  call void @dartforge_arc_release(i64 %retorno{n})\n  call void @dartforge_arc_collect()\n  %final{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno{n})\n  %morto{n} = icmp eq i8 %final{n}, 0\n  br i1 %morto{n}, label %passou{n}, label %falha\npassou{n}:").unwrap();
+        writeln!(ir, "  %endereco{n} = add i64 %retorno{n}, 22\n  %ptr{n} = inttoptr i64 %endereco{n} to ptr\n  %bits{n} = load i64, ptr %ptr{n}, align 8\n  %iguais{n} = icmp eq i64 %bits{n}, {bits}\n  br i1 %iguais{n}, label %liberar{n}, label %falha\nliberar{n}:\n  call void @dartforge_arc_release(i64 %retorno{n})\n  call void @dartforge_arc_collect()\n  %final{n} = call i8 @dartforge_arc_observe_heap_v1(i64 %retorno{n})\n  %morto{n} = icmp eq i8 %final{n}, 0\n  br i1 %morto{n}, label %passou{n}, label %falha\npassou{n}:").unwrap();
     }
     ir.push_str("  call void @dartforge_print_handle(i64 3)\n  ret void\nfalha:\n  call void @llvm.trap()\n  unreachable\n}\n");
     if grow {
@@ -174,7 +174,7 @@ fn main() -> Result<(), String> {
             }
             // The appended value must live only through the copied edge, before killing the list.
             let check = format!(
-                "  call void @dartforge_arc_release(i64 %novo{n})\n  call void @dartforge_arc_collect()\n  %forma{n} = call i64 @dartforge_arc_lista_forma_v1(i64 %pai{n})\n  %geral{n} = icmp eq i64 %forma{n}, 4\n  %filhoestado{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %novo{n})\n  %filhovivo{n} = icmp eq i8 %filhoestado{n}, 1\n  %aresta{n} = and i1 %geral{n}, %filhovivo{n}\n  br i1 %aresta{n}, label %conferir{n}, label %falha\nconferir{n}:\n  %ultimo{n} = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %pai{n}, i64 1)\n  %elemento{n} = icmp eq i64 %ultimo{n}, %novo{n}\n  call void @dartforge_arc_release(i64 %ultimo{n})\n  br i1 %elemento{n}, label %soltarpai{n}, label %falha\nsoltarpai{n}:\n  call void @dartforge_arc_release(i64 %pai{n})\n"
+                "  call void @dartforge_arc_release(i64 %novo{n})\n  call void @dartforge_arc_collect()\n  %forma{n} = call i64 @dartforge_arc_list_shape_v1(i64 %pai{n})\n  %geral{n} = icmp eq i64 %forma{n}, 4\n  %filhoestado{n} = call i8 @dartforge_arc_observe_heap_v1(i64 %novo{n})\n  %filhovivo{n} = icmp eq i8 %filhoestado{n}, 1\n  %aresta{n} = and i1 %geral{n}, %filhovivo{n}\n  br i1 %aresta{n}, label %conferir{n}, label %falha\nconferir{n}:\n  %ultimo{n} = call i64 @dartforge_arc_list_ref_owned_v1(i64 %pai{n}, i64 1)\n  %elemento{n} = icmp eq i64 %ultimo{n}, %novo{n}\n  call void @dartforge_arc_release(i64 %ultimo{n})\n  br i1 %elemento{n}, label %soltarpai{n}, label %falha\nsoltarpai{n}:\n  call void @dartforge_arc_release(i64 %pai{n})\n"
             );
             ir = ir.replace(&release, &check);
         }

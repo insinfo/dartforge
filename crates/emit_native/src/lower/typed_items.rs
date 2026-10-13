@@ -8,14 +8,14 @@
 //! (`_Int32ArrayView`, and the unmodifiable one) of `typed_data_patch.dart`. In the
 //! unified space (docs/NATIVO-ESPACO-UNIFICADO.md §2.5) the three forms have
 //! the length at `h+14` and the address of the bytes at `h+22`, invariant
-//! while the list lives: `@df.tipada_len`/`@df.tipada_dados`
+//! while the list lives: `@df.typed_len`/`@df.typed_data`
 //! (`llvm/ir_typed.rs`) read them inline with `!invariant.load`, and LLVM hoists
 //! the loads out of loops (and vectorizes). On writes, the unmodifiable view
 //! (checked by the cid, also invariant) gives length 0. An index out of
 //! bounds falls into the usual dispatch, with the same errors as the VM.
 //!
 //! `List` is not `final`: a user class may implement it. The class of the
-//! receiver (`@df.classe`) says whether it is a runtime list (`_List`,
+//! receiver (`@df.class`) says whether it is a runtime list (`_List`,
 //! `_ImmutableList`, `_GrowableList`, cids 8–10); any other gets length 0
 //! and keeps the dispatch. The length is at `h+14` in all three; the elements,
 //! in the storage (the list itself, or the `_List` at `h+22` of the growable one),
@@ -26,7 +26,7 @@
 //! `double` or `bool` (which no class extends; with another `E`, the list may
 //! be of a subtype and the SDK `[]=` checks the value), into a `_List` or
 //! `_GrowableList` (the `_ImmutableList` does not accept it) of the compact shape of `E`
-//! (`@df.nucleo_len_gravavel`): a scalar without a barrier.
+//! (`@df.core_len_writable`): a scalar without a barrier.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -152,7 +152,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Indexable::Core { write_op });
         }
         // Under ARC, each access through the address of the bytes gets
-        // `@df.manter_vivo(list)` in the preparation (`optimize/arc/derived_set.rs`).
+        // `@df.keep_alive(list)` in the preparation (`optimize/arc/derived_set.rs`).
         if library != "dart:typed_data" {
             return None;
         }
@@ -287,7 +287,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // (N13), the one read before them.
             return match &self.access_fixed {
                 Some(f) => f.length.clone(),
-                None => self.typed_helper("df.nucleo_len", vec![(list.clone(), Type::Ref)], Type::I64),
+                None => self.typed_helper("df.core_len", vec![(list.clone(), Type::Ref)], Type::I64),
             };
         };
         // N14: in the N13 iterations, the direct write was checked before them.
@@ -299,7 +299,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // exists with the reified `E` exactly `int`, `double` or `bool`:
         // covariance is satisfied).
         self.typed_helper(
-            "df.nucleo_len_gravavel",
+            "df.core_len_writable",
             vec![(list.clone(), Type::Ref), (int(shape_code(t)), Type::I64)],
             Type::I64,
         )
@@ -394,33 +394,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The address of the elements of a suitable typed list: what
     /// `fast_length` read for the bounds test that guards this
-    /// access, or `@df.tipada_dados`.
+    /// access, or `@df.typed_data`.
     fn typed_addresses(&mut self, list: &Operand) -> Operand {
         if let Some((l, d)) = &self.typed_data
             && l == list
         {
             return d.clone();
         }
-        self.typed_helper("df.tipada_dados", vec![(list.clone(), Type::Ref)], Type::I64)
+        self.typed_helper("df.typed_data", vec![(list.clone(), Type::Ref)], Type::I64)
     }
 
     /// The address of the elements and the length of a typed list of type
     /// `ty` (internal, external or a view: the same offsets, §2.5), inline
-    /// and invariant (`@df.tipada_dados`/`@df.tipada_len`); `write`: 0
-    /// for the unmodifiable view of the type (`@df.tipada_len_gravavel`, by the cid).
+    /// and invariant (`@df.typed_data`/`@df.typed_len`); `write`: 0
+    /// for the unmodifiable view of the type (`@df.typed_len_writable`, by the cid).
     /// Before, a fixed-address header per pure runtime call and a
     /// cache per access point.
     fn typed_data_and_length(&mut self, list: &Operand, typ: i64, write: bool) -> (Operand, Operand) {
-        let data = self.typed_helper("df.tipada_dados", vec![(list.clone(), Type::Ref)], Type::I64);
+        let data = self.typed_helper("df.typed_data", vec![(list.clone(), Type::Ref)], Type::I64);
         let n = if write {
             let immutable = i64::from(dartforge_runtime::layout::cid::visao(typ as u8, true));
             self.typed_helper(
-                "df.tipada_len_gravavel",
+                "df.typed_len_writable",
                 vec![(list.clone(), Type::Ref), (Operand::Constant(Constant::Int(immutable)), Type::I64)],
                 Type::I64,
             )
         } else {
-            self.typed_helper("df.tipada_len", vec![(list.clone(), Type::Ref)], Type::I64)
+            self.typed_helper("df.typed_len", vec![(list.clone(), Type::Ref)], Type::I64)
         };
         (data, n)
     }
@@ -553,24 +553,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// after each access, which stays in the block of the read, without a call between
     /// the two (`optimize/arc/derived_set.rs`; growth replaces the storage).
     pub(super) fn list_storage(&mut self, list: &Operand) -> (Operand, Operand) {
-        let a = self.typed_helper("df.nucleo_armazenamento", vec![(list.clone(), Type::Ref)], Type::I64);
-        let shape = self.typed_helper("df.nucleo_forma", vec![(a.clone(), Type::I64)], Type::I64);
+        let a = self.typed_helper("df.core_storage", vec![(list.clone(), Type::Ref)], Type::I64);
+        let shape = self.typed_helper("df.core_shape", vec![(a.clone(), Type::I64)], Type::I64);
         let data = self.emit(Instruction::Add(a, Operand::Constant(Constant::Int(STORAGE_ELEMENTS))), Type::I64);
         (data, shape)
     }
 
     /// The logical length of `list` if it is a runtime list, otherwise 0
-    /// (`@df.nucleo_len`).
+    /// (`@df.core_len`).
     pub(super) fn core_length(&mut self, list: &Operand) -> Operand {
-        self.typed_helper("df.nucleo_len", vec![(list.clone(), Type::Ref)], Type::I64)
+        self.typed_helper("df.core_len", vec![(list.clone(), Type::Ref)], Type::I64)
     }
 
     /// The length of `list` for direct writes in shape `shape`
-    /// (`@df.nucleo_len_gravavel`): 0 if it is not a `_List`/`_GrowableList`
+    /// (`@df.core_len_writable`): 0 if it is not a `_List`/`_GrowableList`
     /// of that shape.
     pub(super) fn core_writable_length(&mut self, list: &Operand, shape: i64) -> Operand {
         self.typed_helper(
-            "df.nucleo_len_gravavel",
+            "df.core_len_writable",
             vec![(list.clone(), Type::Ref), (Operand::Constant(Constant::Int(shape)), Type::I64)],
             Type::I64,
         )
@@ -597,7 +597,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Element `index` of a storage of shape `k`, in its natural
-    /// representation: the `Ref` (`@df.palavra_ref`, which the
+    /// representation: the `Ref` (`@df.word_ref`, which the
     /// emitter roots like any `Ref`), or the bits of the scalar. Under ARC,
     /// the general list goes through the checked read that produces an owner.
     fn load_in_shape(&mut self, list: &Operand, data: &Operand, index: &Operand, k: i64) -> Operand {
@@ -622,7 +622,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 args: vec![(list.clone(), Type::Ref), (index.clone(), Type::I64)],
                 ret_ty: Type::Ref,
             }, Type::Ref),
-            _ => self.typed_helper("df.palavra_ref", vec![(data.clone(), Type::I64), (index.clone(), Type::I64)], Type::Ref),
+            _ => self.typed_helper("df.word_ref", vec![(data.clone(), Type::I64), (index.clone(), Type::I64)], Type::Ref),
         }
     }
 
@@ -701,7 +701,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Writes `value` (`int`, `double` or `bool`, unboxed) into element
     /// `index` (already checked) of a runtime list whose direct write
-    /// was checked (`@df.nucleo_len_gravavel`): the storage is compact
+    /// was checked (`@df.core_len_writable`): the storage is compact
     /// in the shape of `repr`, and the element is the 8 bytes of the bits (scalar:
     /// without a barrier).
     fn store_list_element(&mut self, list: &Operand, index: &Operand, value: Operand, repr: Type) {
@@ -723,9 +723,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// nobody releases tokens of the code), the borrow of the list.
 pub(super) fn arc_list_ref_read() -> &'static str {
     if crate::alvo::arc_prepared().unwrap_or(false) {
-        "dartforge_arc_lista_ref_owned_v1"
+        "dartforge_arc_list_ref_owned_v1"
     } else {
-        "dartforge_arc_lista_ref_v1"
+        "dartforge_arc_list_ref_v1"
     }
 }
 
@@ -741,7 +741,7 @@ const STORAGE_ELEMENTS: i64 =
     dartforge_runtime::layout::desl::ELEMENTOS as i64 - dartforge_runtime::layout::DESLOCAMENTO_DO_HANDLE;
 
 /// The code of the compact shape of the elements of representation `t` (`int`,
-/// `double`, `bool`), what `@df.nucleo_forma` reads from the storage; the general
+/// `double`, `bool`), what `@df.core_shape` reads from the storage; the general
 /// shape for the others.
 pub(super) fn shape_code(t: Type) -> i64 {
     match t {
@@ -786,7 +786,7 @@ impl FnBuilder<'_, '_> {
     /// * `TypedDataBase_length`, `TypedDataView_offsetInBytes`,
     ///   `TypedDataView_typedData`: the load from the block;
     /// * the recognized `[]` of each numeric list and view
-    ///   (`DartForge_typed_indexar_*`): the bounds test and the load, with the
+    ///   (`DartForge_typed_index_*`): the bounds test and the load, with the
     ///   runtime as the slow path (which throws the VM's `RangeError`);
     /// * the numeric `_TypedList._getX`/`_setX` (the byte accesses of
     ///   `ByteData` and of the patch's copies): the test `0 <= off`, `off + N <=
@@ -806,9 +806,9 @@ impl FnBuilder<'_, '_> {
             return None;
         }
         let helper_name = match (native, args.len()) {
-            (Some("TypedDataBase_length"), 0) => Some(("df.tipada_len", Type::I64)),
-            (Some("TypedDataView_offsetInBytes"), 0) => Some(("df.tipada_deslocamento", Type::I64)),
-            (Some("TypedDataView_typedData"), 0) => Some(("df.tipada_base", Type::Ref)),
+            (Some("TypedDataBase_length"), 0) => Some(("df.typed_len", Type::I64)),
+            (Some("TypedDataView_offsetInBytes"), 0) => Some(("df.typed_offset", Type::I64)),
+            (Some("TypedDataView_typedData"), 0) => Some(("df.typed_base", Type::Ref)),
             (Some(_), _) => return None,
             (None, _) => None,
         };
@@ -839,14 +839,14 @@ impl FnBuilder<'_, '_> {
     fn index_typed_inline(&mut self, this: Operand, i: Operand, tc: CType, slow: &str) -> Operand {
         let repr = tc.hir_type();
         let i = self.coerce(i, Type::I64);
-        let n = self.typed_helper("df.tipada_len", vec![(this.clone(), Type::Ref)], Type::I64);
+        let n = self.typed_helper("df.typed_len", vec![(this.clone(), Type::Ref)], Type::I64);
         let ok = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);
         let fast = self.new_block();
         let slowly = self.new_block();
         let join = self.new_block();
         self.terminate(Terminator::CondBranch { cond: ok, then_block: fast, else_block: slowly });
         self.set_block(fast);
-        let data = self.typed_helper("df.tipada_dados", vec![(this.clone(), Type::Ref)], Type::I64);
+        let data = self.typed_helper("df.typed_data", vec![(this.clone(), Type::Ref)], Type::I64);
         let v = self.emit(Instruction::NativeLoad { address: data, index: i.clone(), ty: tc }, repr);
         let fast_end = self.current_block;
         self.terminate(Terminator::Branch(join));
@@ -880,7 +880,7 @@ impl FnBuilder<'_, '_> {
         let repr = tc.hir_type();
         let off = self.coerce(args[0].clone(), Type::I64);
         let value = if writes { Some(self.coerce(args[1].clone(), repr)) } else { None };
-        let bytes = self.typed_helper("df.tipada_bytes", vec![(this.clone(), Type::Ref)], Type::I64);
+        let bytes = self.typed_helper("df.typed_bytes", vec![(this.clone(), Type::Ref)], Type::I64);
         let inside = self.emit(Instruction::ICmp(ICmpOp::Ult, off.clone(), bytes.clone()), Type::I1);
         let block_fits = self.new_block();
         let fast = self.new_block();
@@ -893,7 +893,7 @@ impl FnBuilder<'_, '_> {
         self.terminate(Terminator::CondBranch { cond: fits, then_block: fast, else_block: slowly });
 
         self.set_block(fast);
-        let data = self.typed_helper("df.tipada_dados", vec![(this.clone(), Type::Ref)], Type::I64);
+        let data = self.typed_helper("df.typed_data", vec![(this.clone(), Type::Ref)], Type::I64);
         let address = self.emit(Instruction::Add(data, off.clone()), Type::I64);
         let v = match &value {
             Some(x) => {
@@ -960,12 +960,12 @@ mod arc_tests {
                 let mut owned = 0; let mut raw_items = 0;
                 for (_, inst, ty) in m.functions.iter().filter(|f| f.name == "ler").flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
                     if let Instruction::CallRuntime { name, args, ret_ty } = inst {
-                        if name == "dartforge_arc_lista_ref_owned_v1" || name == "dartforge_arc_lista_ref_v1" {
+                        if name == "dartforge_arc_list_ref_owned_v1" || name == "dartforge_arc_list_ref_v1" {
                             owned += 1;
                             assert_eq!((*ret_ty, *ty), (Type::Ref, Type::Ref));
                             assert_eq!(args.iter().map(|a| a.1).collect::<Vec<_>>(), vec![Type::Ref, Type::I64]);
                         }
-                        if name == "df.palavra_ref" { raw_items += 1; }
+                        if name == "df.word_ref" { raw_items += 1; }
                     }
                 }
                 if arc { assert!(owned > 0); assert_eq!(raw_items, 0); }

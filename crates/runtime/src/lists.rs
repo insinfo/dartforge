@@ -73,7 +73,7 @@ impl Element {
         }
     }
 
-    /// The ABI code of `dartforge_lista_nova` (0 general, 1 int, 2 double, 3 bool:
+    /// The ABI code of `dartforge_list_new` (0 general, 1 int, 2 double, 3 bool:
     /// the order of the variants).
     pub const fn code(self) -> i64 {
         match self {
@@ -273,7 +273,7 @@ impl Heap {
     }
 
     /// The storage of a `_GrowableList`; the list itself, if it is fixed or
-    /// unmodifiable (generated code's `@df.lista_armazenamento`).
+    /// unmodifiable (generated code's `@df.list_storage`).
     pub fn list_data(&self, h: Ref) -> Ref {
         match self.list_cid(h) {
             cid::GROWABLE_LIST => self.list_growable_field(h, 1),

@@ -224,7 +224,7 @@ fn main() -> Result<(), String> {
     let mut m = module()?;
     m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    let allocate = "  %v1 = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n";
+    let allocate = "  %v1 = call i64 @dartforge_arc_object_owned_v1(i64 123, i64 40)\n";
     if ir.matches(allocate).count() != 1 {
         return Err("allocation without a single target".into());
     }
@@ -254,7 +254,7 @@ fn main() -> Result<(), String> {
 declare void @dartforge_print_handle(i64)
 define void @prova_campos_locais() {
   %ret = call i64 @ler_objeto_local()
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %ret)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %ret)
   %owned = icmp eq i8 %estado, 3
   br i1 %owned, label %conferir, label %falha
 conferir:
@@ -264,8 +264,8 @@ conferir:
 coletar:
   call void @dartforge_arc_collect()
   %obj = load i64, ptr @prova.objeto
-  %eo = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
-  %er = call i8 @dartforge_arc_observar_heap_v1(i64 %ret)
+  %eo = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
+  %er = call i8 @dartforge_arc_observe_heap_v1(i64 %ret)
   %morto = icmp eq i8 %eo, 0
   %vivo = icmp eq i8 %er, 3
   %ok = and i1 %morto, %vivo
@@ -273,7 +273,7 @@ coletar:
 liberar:
   call void @dartforge_arc_release(i64 %ret)
   call void @dartforge_arc_collect()
-  %fim = call i8 @dartforge_arc_observar_heap_v1(i64 %ret)
+  %fim = call i8 @dartforge_arc_observe_heap_v1(i64 %ret)
   %solto = icmp eq i8 %fim, 0
   br i1 %solto, label %passou, label %falha
 falha:

@@ -8,15 +8,15 @@
 // SAFETY: the emitter defines this entry with the C signature void(void).
 //
 // Only in the AOT executable. When this file is compiled as a module of the
-// `dartforge-runtime` crate (cfg `dartforge_runtime_embutido`, set by build.rs),
+// `dartforge-runtime` crate (cfg `dartforge_runtime_embedded`, set by build.rs),
 // the JIT is what calls the entry, and a C `main` would clash with the Rust binary's.
-#[cfg(not(any(dartforge_runtime_embutido, dartforge_runtime_dll)))]
+#[cfg(not(any(dartforge_runtime_embedded, dartforge_runtime_dll)))]
 unsafe extern "C" {
     fn dartforge_entry();
 }
 
 /// Invokes once the program linked against the Rust runtime.
-#[cfg(not(any(dartforge_runtime_embutido, dartforge_runtime_dll)))]
+#[cfg(not(any(dartforge_runtime_embedded, dartforge_runtime_dll)))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     // SAFETY: the object was emitted for this ABI and linked by the same native driver.
@@ -33,7 +33,7 @@ pub extern "C" fn main() -> i32 {
 /// executable's `main` — which the emitter writes — calls this function with its
 /// `dartforge_entry`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_iniciar(input: extern "C" fn(), to_string_fn: extern "C" fn(i64) -> i64) -> i32 {
+pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C" fn(i64) -> i64) -> i32 {
     PARA_TEXTO.with(|p| p.set(Some(to_string_fn)));
     // The main isolate uses the allocator's free lists (`allocator.rs`).
     enable_allocation_cache();
@@ -168,7 +168,7 @@ thread_local! {
     /// map.
     static SUBTYPE_FAST: std::cell::Cell<[(i64, i64, u8); FAST_SUBTYPE_SLOTS]> =
         const { std::cell::Cell::new([(-1, -1, 0); FAST_SUBTYPE_SLOTS]) };
-    /// The subtype bitmaps that generated code reads inline (`df.subclasse`,
+    /// The subtype bitmaps that generated code reads inline (`df.subclass`,
     /// `llvm/mod.rs`; [`crate::heap::Context::subtypes`]).
     static SUBTYPE_MAPS: RefCell<SubtypeMaps> = RefCell::new(SubtypeMaps::default());
 }
@@ -440,7 +440,7 @@ use crate::heap::{CAMPOS_EM_LINHA, EMPTY_OBJECT};
 /// not an object, the zeroed fields of [`EMPTY_OBJECT`]. Generated code no longer
 /// uses it (it reads the block inline); it remains for the ABI.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_object_campos(h: i64) -> i64 {
+pub extern "C" fn dartforge_object_fields(h: i64) -> i64 {
     heap_without_borrow(|heap| heap.object_fields(h).map_or(EMPTY_OBJECT.fields.as_ptr() as i64, |p| p as i64))
 }
 
@@ -448,7 +448,7 @@ pub extern "C" fn dartforge_object_campos(h: i64) -> i64 {
 /// `Ref` in a field written inline, and the next minor collection must walk it
 /// (`Heap::remember_object`). Does not allocate.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lembrar(h: i64) {
+pub extern "C" fn dartforge_remember(h: i64) {
     heap_without_borrow(|heap| heap.remember_object(h));
 }
 
@@ -457,7 +457,7 @@ pub extern "C" fn dartforge_lembrar(h: i64) {
 /// is the version of the memory ABI (docs/ARC-CICLOS-ESPECIFICACAO.md §24): a
 /// runtime without it does not link with the program.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_memoria_arc_v1() {
+pub extern "C" fn dartforge_memory_arc_v1() {
     HEAP.with(|heap| heap.borrow_mut().enable_arc());
     MEMORIA_ARC.with(|m| m.set(true));
 }
@@ -487,7 +487,7 @@ fn arc_raw_write(h: i64, old: i64, new: i64) {
 /// under tracing): counts the swap and applies the barrier (`Heap::write_ref`).
 /// Does not allocate.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_gravar_ref(h: i64, word: i64, v: i64) {
+pub extern "C" fn dartforge_arc_write_ref(h: i64, word: i64, v: i64) {
     let word = usize::try_from(word).expect("negative word");
     HEAP.with(|heap| heap.borrow_mut().write_ref(h, word, v));
 }
@@ -496,7 +496,7 @@ pub extern "C" fn dartforge_arc_gravar_ref(h: i64, word: i64, v: i64) {
 /// freshly allocated object `h` (`AllocObject`, the context, the cell and the
 /// inline closure) start counting (`Heap::arc_count_initial`). Does not allocate.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_inicial(h: i64) {
+pub extern "C" fn dartforge_arc_initial(h: i64) {
     HEAP.with(|heap| heap.borrow_mut().arc_count_initial(h));
 }
 
@@ -601,7 +601,7 @@ fn throw_type_error() {
 }
 
 /// `Unbox` (R3/R10): the `int` of a reference (`Smi` or `_Mint`); null or another
-/// type throws TypeError. The slow path of `@df.desencaixa_int`.
+/// type throws TypeError. The slow path of `@df.unbox_int`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unbox_int(h: i64) -> i64 {
     if crate::heap::smi::is_smi(h) {
@@ -716,11 +716,11 @@ mod tests_owners_record_and_concat {
             let record = unsafe { dartforge_record_new(pair_list.as_ptr(), 1) };
             dartforge_arc_retain(record);
             dartforge_arc_release(text);
-            assert_eq!(dartforge_nativo_DartForge_record_numFields(record), 1);
-            assert_eq!(dartforge_nativo_DartForge_record_shape(record), 1);
-            assert_eq!(dartforge_nativo_DartForge_record_numFields(0), 0);
-            assert_eq!(dartforge_nativo_DartForge_record_shape(0), 0);
-            let field = dartforge_nativo_DartForge_record_fieldAt(record, 0);
+            assert_eq!(dartforge_native_DartForge_record_numFields(record), 1);
+            assert_eq!(dartforge_native_DartForge_record_shape(record), 1);
+            assert_eq!(dartforge_native_DartForge_record_numFields(0), 0);
+            assert_eq!(dartforge_native_DartForge_record_shape(0), 0);
+            let field = dartforge_native_DartForge_record_fieldAt(record, 0);
             assert_eq!(field, text);
             dartforge_arc_collect();
             assert!(HEAP.with(|h| h.borrow().is_live_object(field)));
@@ -810,7 +810,7 @@ mod tests_owners_record_and_concat {
 /// # Safety
 /// `refs` points to `n` readable words.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_record_novo(refs: *const i64, n: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_record_from_refs(refs: *const i64, n: i64) -> i64 {
     let n = usize::try_from(n).expect("invalid length");
     let fields = if n == 0 {
         &[][..]
@@ -822,7 +822,7 @@ pub unsafe extern "C" fn dartforge_record_novo(refs: *const i64, n: i64) -> i64 
     HEAP.with(|heap| heap.borrow_mut().new_record(fields))
 }
 
-/// [`dartforge_record_novo`] under ARC, for every record literal: the borrowed
+/// [`dartforge_record_from_refs`] under ARC, for every record literal: the borrowed
 /// `Ref`s gain the record's edges and the record a code owner before another
 /// collection. Neither throws nor runs Dart.
 ///
@@ -833,16 +833,16 @@ pub unsafe extern "C" fn dartforge_record_novo(refs: *const i64, n: i64) -> i64 
 /// use dartforge_runtime::abi::*;
 /// let a = dartforge_arc_box_int_owned_v1(i64::MAX);
 /// // SAFETY: one field alive during creation.
-/// let r = unsafe { dartforge_arc_record_novo_owned_v1([a].as_ptr(), 1) };
+/// let r = unsafe { dartforge_arc_record_from_refs_owned_v1([a].as_ptr(), 1) };
 /// dartforge_arc_release(a);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(a), 1);
+/// assert_eq!(dartforge_arc_observe_heap_v1(a), 1);
 /// dartforge_arc_release(r);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(r), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_record_novo_owned_v1(refs: *const i64, n: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_record_from_refs_owned_v1(refs: *const i64, n: i64) -> i64 {
     let n = usize::try_from(n).expect("invalid length");
     let fields = if n == 0 {
         &[][..]
@@ -864,14 +864,14 @@ pub unsafe extern "C" fn dartforge_arc_record_novo_owned_v1(refs: *const i64, n:
 /// `ClassID.getID(o)`: the value's cid (`ClassID_getID`; the emitter does it inline
 /// through `@df.class`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_ClassID_getID(o: i64) -> i64 {
+pub extern "C" fn dartforge_native_ClassID_getID(o: i64) -> i64 {
     dartforge_value_class(o)
 }
 
 /// `identical(a, b)` (`Identical_comparison`; lowering does it inline through
 /// `@df.identical_one`, `lower/boxes.rs`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Identical_comparison(a: i64, b: i64) -> u8 {
+pub extern "C" fn dartforge_native_Identical_comparison(a: i64, b: i64) -> u8 {
     dartforge_identical(a, b)
 }
 
@@ -895,7 +895,7 @@ fn tearoff_receiver(heap: &Heap, c: &crate::boxes::ClosureRef) -> Option<i64> {
 /// tear-off of a method on the same object); ordinary closures are only equal to
 /// themselves.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Closure_equals(this: i64, other_one: i64) -> u8 {
+pub extern "C" fn dartforge_native_Closure_equals(this: i64, other_one: i64) -> u8 {
     if this == other_one {
         return 1;
     }
@@ -915,7 +915,7 @@ pub extern "C" fn dartforge_nativo_Closure_equals(this: i64, other_one: i64) -> 
 /// `_Closure._computeHash` (`Closure_computeHash`): consistent with
 /// `Closure_equals` — the function and, for a method tear-off, the receiver.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Closure_computeHash(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Closure_computeHash(this: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         let Some(c) = heap.closure(this) else { return 0 };
@@ -930,27 +930,27 @@ pub extern "C" fn dartforge_nativo_Closure_computeHash(this: i64) -> i64 {
 
 /// `_Record._numFields`: how many fields (the runtime's positional record).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_record_numFields(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_record_numFields(this: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().record(this).map_or(0, |c| c.len() as i64))
 }
 
 /// `_Record._shape`: the shape — for a positional record, the number of fields.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_record_shape(this: i64) -> i64 {
-    dartforge_nativo_DartForge_record_numFields(this)
+pub extern "C" fn dartforge_native_DartForge_record_shape(this: i64) -> i64 {
+    dartforge_native_DartForge_record_numFields(this)
 }
 
 /// `_Record._fieldNames`: the names (none in a positional record): an empty
 /// `_ImmutableList`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_record_fieldNames(_this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_record_fieldNames(_this: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::IMMUTABLE_LIST, 0, crate::lists::Element::General))
 }
 
 /// `_Record._fieldAt(i)`: the field (already in a `Ref` position), or null outside
 /// the shape.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_record_fieldAt(this: i64, i: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_record_fieldAt(this: i64, i: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         let fields = heap.record(this);
@@ -964,7 +964,7 @@ pub extern "C" fn dartforge_nativo_DartForge_record_fieldAt(this: i64, i: i64) -
 /// objects, the header's identity hash (`Heap::identity_hash`, stable because the
 /// collector does not move).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Object_getHash(o: i64) -> i64 {
+pub extern "C" fn dartforge_native_Object_getHash(o: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.value(o) {

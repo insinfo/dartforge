@@ -532,7 +532,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // literal with the same content; any other value comes back as it is.
             self.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_constante_canonica".to_string(),
+                    name: "dartforge_canonical_constant".to_string(),
                     args: vec![(v, Type::Ref)],
                     ret_ty: Type::Ref,
                 },
@@ -550,7 +550,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_marcar_constante".to_string(),
+                name: "dartforge_mark_constant".to_string(),
                 args: vec![(v.clone(), Type::Ref), (Operand::Constant(Constant::Function(self.func.symbol.clone())), Type::I64)],
                 ret_ty: Type::Void,
             },

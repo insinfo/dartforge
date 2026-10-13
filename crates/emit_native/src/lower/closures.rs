@@ -8,7 +8,7 @@
 //! named ones after, in the order of the descriptor; `desc` is
 //! `[n_positional, n_named, hash(name)…]` with the names sorted. The
 //! entry checks the arity against the signature of the function
-//! (`dartforge_args_casam`, which returns 0 when it does not match — then it throws
+//! (`dartforge_args_match`, which returns 0 when it does not match — then it throws
 //! `NoSuchMethodError`, like the VM), fills in the defaults of the missing optional
 //! ones and calls the **body** with the parameters in declaration order.
 //!
@@ -456,7 +456,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let pattern = e.recipe_rti(pattern);
                 let joined = e.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_rti_tupla_juntar".to_string(),
+                        name: "dartforge_rti_tuple_join".to_string(),
                         args: vec![
                             (from_outside, Type::I64),
                             (Operand::Constant(Constant::Int(n_outside as i64)), Type::I64),
@@ -615,7 +615,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !self.guaranteed_arity {
             let ok = if named.is_empty() {
                 // Without named ones in the signature, the check of
-                // `dartforge_args_casam` is: no named one passed and
+                // `dartforge_args_match` is: no named one passed and
                 // `n_req <= positionals <= n_pos` — inline, without the call.
                 let int = |x: usize| Operand::Constant(Constant::Int(x as i64));
                 let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(0) }, Type::I64);
@@ -636,7 +636,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let sig = self.emit(Instruction::ConstArray(sig), Type::Ptr);
                 let ok = self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_args_casam".to_string(),
+                        name: "dartforge_args_match".to_string(),
                         args: vec![(desc.clone(), Type::Ptr), (sig, Type::Ptr)],
                         ret_ty: Type::I8,
                     },
@@ -653,7 +653,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             });
             self.set_block(b_error);
             let call = Instruction::CallRuntime {
-                name: "dartforge_nsm_chamada".to_string(),
+                name: "dartforge_nsm_call".to_string(),
                 args: Vec::new(),
                 ret_ty: Type::Void,
             };
@@ -702,7 +702,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let h = hash_name(p.name.as_deref().unwrap_or(""));
                 let j = self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_arg_indice".to_string(),
+                        name: "dartforge_arg_index".to_string(),
                         args: vec![(desc.clone(), Type::Ptr), (Operand::Constant(Constant::Int(h)), Type::I64)],
                         ret_ty: Type::I64,
                     },
@@ -837,7 +837,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn call_typed_closure(&mut self, callee: Operand, evaluated: &[Evaluated], reprs: &[Type], ret: Type, abi: i64) -> Operand {
         // Returns `Ref`, like the uniform call. The fields of `_Closure`
         // (code, context, typed body, ABI) are read from the block inline,
-        // after checking the class (`@df.classe` inline): only a `_Closure`
+        // after checking the class (`@df.class` inline): only a `_Closure`
         // block has the four fields; whatever is not a closure goes through the
         // uniform entry.
         debug_assert_ne!(abi, 0);

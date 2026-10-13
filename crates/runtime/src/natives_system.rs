@@ -11,19 +11,19 @@ fn monotonic_start() -> std::time::Instant {
 /// `Stopwatch_frequency`: ticks per second of the `Stopwatch_now` clock
 /// (nanoseconds, like the VM on Linux and macOS).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stopwatch_frequency() -> i64 {
+pub extern "C" fn dartforge_native_Stopwatch_frequency() -> i64 {
     1_000_000_000
 }
 
 /// `Stopwatch_now`: the monotonic clock, in nanoseconds.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stopwatch_now() -> i64 {
+pub extern "C" fn dartforge_native_Stopwatch_now() -> i64 {
     monotonic_start().elapsed().as_nanos() as i64
 }
 
 /// `DateTime_currentTimeMicros`: microseconds since the Unix epoch (UTC).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DateTime_currentTimeMicros() -> i64 {
+pub extern "C" fn dartforge_native_DateTime_currentTimeMicros() -> i64 {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_micros() as i64,
         Err(e) => -(e.duration().as_micros() as i64),
@@ -205,13 +205,13 @@ fn local_timezone(seconds: i64) -> (i64, String) {
 
 /// `DateTime_timeZoneOffsetInSeconds`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DateTime_timeZoneOffsetInSeconds(seconds: i64) -> i64 {
+pub extern "C" fn dartforge_native_DateTime_timeZoneOffsetInSeconds(seconds: i64) -> i64 {
     local_timezone(seconds).0
 }
 
 /// `DateTime_timeZoneName`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DateTime_timeZoneName(seconds: i64) -> i64 {
+pub extern "C" fn dartforge_native_DateTime_timeZoneName(seconds: i64) -> i64 {
     HEAP.with(|h| h.borrow_mut().allocate_str(&local_timezone(seconds).1))
 }
 
@@ -228,13 +228,13 @@ fn entropy() -> u64 {
 
 /// `Random_initialSeed`: the seed of `Random()` without an argument.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Random_initialSeed() -> i64 {
+pub extern "C" fn dartforge_native_Random_initialSeed() -> i64 {
     entropy() as i64
 }
 
 /// `SecureRandom_getBytes(n)`: `n` (1 to 8) random bytes in an integer.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SecureRandom_getBytes(n: i64) -> i64 {
+pub extern "C" fn dartforge_native_SecureRandom_getBytes(n: i64) -> i64 {
     let v = entropy();
     if n >= 8 { v as i64 } else { (v & ((1u64 << (8 * n.max(0))) - 1)) as i64 }
 }
@@ -242,7 +242,7 @@ pub extern "C" fn dartforge_nativo_SecureRandom_getBytes(n: i64) -> i64 {
 /// `Uri_isWindowsPlatform`: whether the host system is Windows (`Uri.file` and
 /// `Uri.base` use its path rules).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Uri_isWindowsPlatform() -> u8 {
+pub extern "C" fn dartforge_native_Uri_isWindowsPlatform() -> u8 {
     u8::from(cfg!(windows))
 }
 
@@ -253,13 +253,13 @@ pub extern "C" fn dartforge_nativo_Uri_isWindowsPlatform() -> u8 {
 
 /// `Object.==` (`Object_equals`): identity.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Object_equals(this: i64, other_one: i64) -> u8 {
+pub extern "C" fn dartforge_native_Object_equals(this: i64, other_one: i64) -> u8 {
     dartforge_identical(this, other_one)
 }
 
 /// `Object.toString()` (`Object_toString`): `Instance of 'Class'`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Object_toString(this: i64) -> i64 {
     // The VM's `Object_toString` also writes numbers (`_Mint` and `_Double` have
     // no `toString` of their own in the source): by cid, without unboxing what is
     // not a number.
@@ -271,7 +271,7 @@ pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
         return dartforge_to_string_i64(i);
     }
     if let Some(d) = real {
-        return dartforge_nativo_Double_toString(d);
+        return dartforge_native_Double_toString(d);
     }
     if let Some(t) = simd_string(this) {
         return HEAP.with(|h| h.borrow_mut().allocate_str(&t));
@@ -288,15 +288,15 @@ pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
 /// `Object._haveSameRuntimeType(a, b)`: the same class (the type arguments are
 /// left to the RTI).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Object_haveSameRuntimeType(a: i64, b: i64) -> u8 {
+pub extern "C" fn dartforge_native_Object_haveSameRuntimeType(a: i64, b: i64) -> u8 {
     u8::from(dartforge_value_class(a) == dartforge_value_class(b))
 }
 
 /// `Object.runtimeType`: uses the RTI universe, including reified type arguments,
 /// and returns the isolate's canonical `Type` object.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Object_runtimeType(this: i64) -> i64 {
-    dartforge_rti_objeto_tipo(dartforge_rti_do_valor(this))
+pub extern "C" fn dartforge_native_Object_runtimeType(this: i64) -> i64 {
+    dartforge_rti_object_type(dartforge_rti_of_value(this))
 }
 
 // Weak references and ephemerons (`WeakReference`, `Expando`): the state lives in
@@ -306,36 +306,36 @@ pub extern "C" fn dartforge_nativo_Object_runtimeType(this: i64) -> i64 {
 /// `WeakReference.target` (`WeakReference_getTarget`): the target, or null if it
 /// was collected.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakReference_getTarget(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_WeakReference_getTarget(this: i64) -> i64 {
     HEAP.with(|h| h.borrow().weak_refs.get(&this).copied().unwrap_or(0))
 }
 
 /// `_WeakReference._target =` (`WeakReference_setTarget`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakReference_setTarget(this: i64, target: i64) {
+pub extern "C" fn dartforge_native_WeakReference_setTarget(this: i64, target: i64) {
     HEAP.with(|h| h.borrow_mut().weak_refs.insert(this, target));
 }
 
 /// `_WeakProperty.key` (`WeakProperty_getKey`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakProperty_getKey(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_WeakProperty_getKey(this: i64) -> i64 {
     HEAP.with(|h| h.borrow().ephemerons.get(&this).map_or(0, |p| p.0))
 }
 
 /// `_WeakProperty.key =` (`WeakProperty_setKey`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakProperty_setKey(this: i64, key: i64) {
+pub extern "C" fn dartforge_native_WeakProperty_setKey(this: i64, key: i64) {
     HEAP.with(|h| h.borrow_mut().ephemerons.entry(this).or_insert((0, 0)).0 = key);
 }
 
 /// `_WeakProperty.value` (`WeakProperty_getValue`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakProperty_getValue(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_WeakProperty_getValue(this: i64) -> i64 {
     HEAP.with(|h| h.borrow().ephemerons.get(&this).map_or(0, |p| p.1))
 }
 
 /// `_WeakProperty.value =` (`WeakProperty_setValue`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakProperty_setValue(this: i64, value: i64) {
+pub extern "C" fn dartforge_native_WeakProperty_setValue(this: i64, value: i64) {
     HEAP.with(|h| h.borrow_mut().ephemerons.entry(this).or_insert((0, 0)).1 = value);
 }

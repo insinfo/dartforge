@@ -34,7 +34,7 @@ pub(super) fn check_local_vector(
     let native_tuple = *tuple_types == Operand::Constant(Constant::Int(0))
         || matches!(tuple_types, Operand::Val(id) if f.blocks.iter().flat_map(|b| &b.instructions).any(|(v, i, t)|
             v == id && *t == Type::I64 && match i {
-                Instruction::CallRuntime { name, ret_ty: Type::I64, .. } => name == "dartforge_rti_avaliar",
+                Instruction::CallRuntime { name, ret_ty: Type::I64, .. } => name == "dartforge_rti_eval",
                 Instruction::CallStatic { symbol, args, ret_ty: Type::I64 } =>
                     args.is_empty() && getters.is_none_or(|g| g.contains(symbol)),
                 _ => false,

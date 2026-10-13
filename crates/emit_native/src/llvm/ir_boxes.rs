@@ -2,9 +2,9 @@
 //! docs/NATIVO-ESPACO-UNIFICADO.md §2.5, §3.5 and §4.4): scalar `Box`/`Unbox`,
 //! `AllocCell`/`CellGet`/`CellSet`, `AllocEnv`/`EnvGet`, `AllocClosure`,
 //! `AllocClosureTyped`, `TearOff`, `AllocRecord` and the
-//! `@df.caixa_*`/`@df.desencaixa_*`/`@df.identico` helpers of the prelude.
+//! `@df.box_*`/`@df.unbox_*`/`@df.identical` helpers of the prelude.
 //!
-//! Everything is a block of the object space, allocated inline by `@df.alocar` (P0) and
+//! Everything is a block of the object space, allocated inline by `@df.allocate` (P0) and
 //! read/written by offset from the handle (`h = block + 2`, so the
 //! word `b + k` is at `h + k − 2`):
 //!
@@ -42,18 +42,18 @@ const CAB_CLOSURE: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::INST
 /// full (the text is `const`); the `helpers_with_layout_headers` test
 /// checks that they are those of [`layout::header_word`].
 ///
-/// * `@df.caixa_int`: a `Smi` in the 63-bit range; otherwise a new `_Mint`.
-/// * `@df.desencaixa_int`: `Smi` → `ashr 1`; `_Mint` → the value; otherwise the
+/// * `@df.box_int`: a `Smi` in the 63-bit range; otherwise a new `_Mint`.
+/// * `@df.unbox_int`: `Smi` → `ashr 1`; `_Mint` → the value; otherwise the
 ///   runtime, which throws `TypeError` (pending exception).
-/// * `@df.caixa_double`/`@df.desencaixa_double`: likewise with `_Double`.
-/// * `@df.num_para_double`: a `num` in a `Ref` as a `double` (`Smi` and `_Mint`
-///   converted; the rest through `@df.desencaixa_double`): the right operand
+/// * `@df.box_double`/`@df.unbox_double`: likewise with `_Double`.
+/// * `@df.num_to_double`: a `num` in a `Ref` as a `double` (`Smi` and `_Mint`
+///   converted; the rest through `@df.unbox_double`): the right operand
 ///   of `d op= n` with `d` a `double` and `n` a `num`.
-/// * `@df.caixa_bool`: a `select` between the statics; `@df.desencaixa_bool`
+/// * `@df.box_bool`: a `select` between the statics; `@df.unbox_bool`
 ///   compares with them, and the rest goes to the runtime.
-/// * `@df.identico`: `identical` (§2.10) — the same handle, or two `_Mint`/
+/// * `@df.identical`: `identical` (§2.10) — the same handle, or two `_Mint`/
 ///   `_Double` with the same bits.
-pub const HELPERS: &str = "define internal i64 @df.caixa_int(i64 %v) alwaysinline {\n\
+pub const HELPERS: &str = "define internal i64 @df.box_int(i64 %v) alwaysinline {\n\
   %a = add i64 %v, 4611686018427387904\n\
   %ok = icmp ult i64 %a, -9223372036854775808\n\
   br i1 %ok, label %smi, label %heap\n\
@@ -62,13 +62,13 @@ smi:\n\
   %r = or i64 %s, 1\n\
   ret i64 %r\n\
 heap:\n\
-  %h = call i64 @df.alocar(i64 12884967937, i64 1)\n\
+  %h = call i64 @df.allocate(i64 12884967937, i64 1)\n\
   %p = inttoptr i64 %h to ptr\n\
   %q = getelementptr inbounds i8, ptr %p, i64 14\n\
   store i64 %v, ptr %q, align 8\n\
   ret i64 %h\n\
 }\n\
-define internal i64 @df.desencaixa_int(i64 %r) alwaysinline {\n\
+define internal i64 @df.unbox_int(i64 %r) alwaysinline {\n\
   %b = and i64 %r, 1\n\
   %e = icmp ne i64 %b, 0\n\
   br i1 %e, label %smi, label %obj\n\
@@ -93,14 +93,14 @@ lento:\n\
   %h = call i64 @dartforge_unbox_int(i64 %r)\n\
   ret i64 %h\n\
 }\n\
-define internal i64 @df.caixa_double(double %d) alwaysinline {\n\
-  %h = call i64 @df.alocar(i64 17179935233, i64 1)\n\
+define internal i64 @df.box_double(double %d) alwaysinline {\n\
+  %h = call i64 @df.allocate(i64 17179935233, i64 1)\n\
   %p = inttoptr i64 %h to ptr\n\
   %q = getelementptr inbounds i8, ptr %p, i64 14\n\
   store double %d, ptr %q, align 8\n\
   ret i64 %h\n\
 }\n\
-define internal double @df.desencaixa_double(i64 %r) alwaysinline {\n\
+define internal double @df.unbox_double(i64 %r) alwaysinline {\n\
   %m = and i64 %r, -9223372036854775801\n\
   %o = icmp eq i64 %m, 2\n\
   br i1 %o, label %cls, label %lento\n\
@@ -118,7 +118,7 @@ lento:\n\
   %h = call double @dartforge_unbox_double(i64 %r)\n\
   ret double %h\n\
 }\n\
-define internal double @df.num_para_double(i64 %r) alwaysinline {\n\
+define internal double @df.num_to_double(i64 %r) alwaysinline {\n\
   %b = and i64 %r, 1\n\
   %e = icmp ne i64 %b, 0\n\
   br i1 %e, label %smi, label %obj\n\
@@ -142,18 +142,18 @@ ler:\n\
   %dx = sitofp i64 %x to double\n\
   ret double %dx\n\
 dbl:\n\
-  %d = call double @df.desencaixa_double(i64 %r)\n\
+  %d = call double @df.unbox_double(i64 %r)\n\
   ret double %d\n\
 }\n\
-define internal i64 @df.caixa_bool(i1 %b) alwaysinline {\n\
-  %ctx = call ptr @dartforge_contexto()\n\
+define internal i64 @df.box_bool(i1 %b) alwaysinline {\n\
+  %ctx = call ptr @dartforge_context()\n\
   %o = select i1 %b, i64 360, i64 368\n\
   %p = getelementptr inbounds i8, ptr %ctx, i64 %o\n\
   %r = load i64, ptr %p, align 8, !invariant.load !{}\n\
   ret i64 %r\n\
 }\n\
-define internal i1 @df.desencaixa_bool(i64 %r) alwaysinline {\n\
-  %ctx = call ptr @dartforge_contexto()\n\
+define internal i1 @df.unbox_bool(i64 %r) alwaysinline {\n\
+  %ctx = call ptr @dartforge_context()\n\
   %vp = getelementptr inbounds i8, ptr %ctx, i64 360\n\
   %vh = load i64, ptr %vp, align 8, !invariant.load !{}\n\
   %v = icmp eq i64 %r, %vh\n\
@@ -176,11 +176,11 @@ define internal i64 @df.bit_smi(i64 %x) alwaysinline {\n\
   %b = and i64 %x, 1\n\
   ret i64 %b\n\
 }\n\
-define internal i64 @df.valor_smi(i64 %x) alwaysinline {\n\
+define internal i64 @df.smi_value(i64 %x) alwaysinline {\n\
   %v = ashr i64 %x, 1\n\
   ret i64 %v\n\
 }\n\
-define internal i1 @df.identico(i64 %a, i64 %b) alwaysinline {\n\
+define internal i1 @df.identical(i64 %a, i64 %b) alwaysinline {\n\
   %eq = icmp eq i64 %a, %b\n\
   br i1 %eq, label %sim, label %t1\n\
 t1:\n\
@@ -220,16 +220,16 @@ nao:\n\
 /// before the extern table (a helper outside here is conservative). The
 /// unboxings throw `TypeError` (which allocates) through the runtime.
 pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
-    ("df.caixa_int", true, false),
-    ("df.caixa_double", true, false),
-    ("df.caixa_bool", false, false),
-    ("df.desencaixa_int", true, true),
-    ("df.desencaixa_double", true, true),
-    ("df.num_para_double", true, true),
-    ("df.desencaixa_bool", true, true),
-    ("df.identico", false, false),
+    ("df.box_int", true, false),
+    ("df.box_double", true, false),
+    ("df.box_bool", false, false),
+    ("df.unbox_int", true, true),
+    ("df.unbox_double", true, true),
+    ("df.num_to_double", true, true),
+    ("df.unbox_bool", true, true),
+    ("df.identical", false, false),
     ("df.bit_smi", false, false),
-    ("df.valor_smi", false, false),
+    ("df.smi_value", false, false),
 ];
 
 /// The per-module emission state of boxes and closures.
@@ -253,20 +253,20 @@ impl LlvmEmitter<'_> {
         match from {
             Type::F64 => {
                 let only = self.coerce(op, Type::F64);
-                writeln!(self.out, "  %v{v} = call i64 @df.caixa_double(double {only})").unwrap();
+                writeln!(self.out, "  %v{v} = call i64 @df.box_double(double {only})").unwrap();
             }
             Type::I1 => {
                 let only = self.coerce(op, Type::I1);
-                writeln!(self.out, "  %v{v} = call i64 @df.caixa_bool(i1 {only})").unwrap();
+                writeln!(self.out, "  %v{v} = call i64 @df.box_bool(i1 {only})").unwrap();
             }
             Type::I8 => {
                 let only = self.coerce(op, Type::I8);
                 writeln!(self.out, "  %cb{v} = icmp ne i8 {only}, 0").unwrap();
-                writeln!(self.out, "  %v{v} = call i64 @df.caixa_bool(i1 %cb{v})").unwrap();
+                writeln!(self.out, "  %v{v} = call i64 @df.box_bool(i1 %cb{v})").unwrap();
             }
             _ => {
                 let only = self.coerce(op, Type::I64);
-                writeln!(self.out, "  %v{v} = call i64 @df.caixa_int(i64 {only})").unwrap();
+                writeln!(self.out, "  %v{v} = call i64 @df.box_int(i64 {only})").unwrap();
             }
         }
     }
@@ -277,22 +277,22 @@ impl LlvmEmitter<'_> {
         let only = self.coerce(op, Type::Ref);
         match to {
             Type::F64 => {
-                writeln!(self.out, "  %v{v} = call double @df.desencaixa_double(i64 {only})").unwrap();
+                writeln!(self.out, "  %v{v} = call double @df.unbox_double(i64 {only})").unwrap();
             }
             Type::I1 => {
-                writeln!(self.out, "  %v{v} = call i1 @df.desencaixa_bool(i64 {only})").unwrap();
+                writeln!(self.out, "  %v{v} = call i1 @df.unbox_bool(i64 {only})").unwrap();
             }
             _ => {
-                writeln!(self.out, "  %v{v} = call i64 @df.desencaixa_int(i64 {only})").unwrap();
+                writeln!(self.out, "  %v{v} = call i64 @df.unbox_int(i64 {only})").unwrap();
             }
         }
     }
 
-    /// The inline allocation (`@df.alocar`) of a block of `w` words with
+    /// The inline allocation (`@df.allocate`) of a block of `w` words with
     /// header `hdr`, into `%v<v>`, and its pointer (the handle) into `%bp<v>`.
-    /// Above `TLAB_N` words, `@df.alocar` goes to the runtime.
+    /// Above `TLAB_N` words, `@df.allocate` goes to the runtime.
     fn allocate_block(&mut self, v: u32, hdr: u64, w: usize) {
-        writeln!(self.out, "  %v{v} = call i64 @df.alocar(i64 {}, i64 {w})", hdr as i64).unwrap();
+        writeln!(self.out, "  %v{v} = call i64 @df.allocate(i64 {}, i64 {w})", hdr as i64).unwrap();
         writeln!(self.out, "  %bp{v} = inttoptr i64 %v{v} to ptr").unwrap();
     }
 
@@ -348,7 +348,7 @@ impl LlvmEmitter<'_> {
                 writeln!(self.out, "  store i64 {s}, ptr %rb{v}_{i}").unwrap();
             }
             let buf = if n == 0 { "null".to_string() } else { format!("%rec_buf_{v}") };
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_record_novo_owned_v1(ptr {buf}, i64 {n})").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_record_from_refs_owned_v1(ptr {buf}, i64 {n})").unwrap();
             return;
         }
         if !self.refs_only_record(elements) {
@@ -373,7 +373,7 @@ impl LlvmEmitter<'_> {
                 writeln!(self.out, "  %rb{v}_{i} = getelementptr [{n} x i64], ptr %rec_buf_{v}, i64 0, i64 {i}").unwrap();
                 writeln!(self.out, "  store i64 {s}, ptr %rb{v}_{i}").unwrap();
             }
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_record_novo(ptr %rec_buf_{v}, i64 {n})").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_record_from_refs(ptr %rec_buf_{v}, i64 {n})").unwrap();
             return;
         }
         let hdr = layout::palavra_do_cabecalho(estado::JOVEM, flags::REFS, w, cid::RECORD);
@@ -401,11 +401,11 @@ impl LlvmEmitter<'_> {
     }
 
     /// Under ARC, the references written inline into the freshly allocated object
-    /// `%v<v>` start counting (`dartforge_arc_inicial`): the generated code does not
+    /// `%v<v>` start counting (`dartforge_arc_initial`): the generated code does not
     /// go through the runtime for these writes.
     pub(super) fn count_initial_in_arc(&mut self, v: u32) {
         if self.module.arc_memory {
-            writeln!(self.out, "  call void @dartforge_arc_inicial(i64 %v{v})").unwrap();
+            writeln!(self.out, "  call void @dartforge_arc_initial(i64 %v{v})").unwrap();
         }
     }
 
@@ -420,7 +420,7 @@ impl LlvmEmitter<'_> {
     }
 
     /// The write into a cell: the value, the map bit by representation and,
-    /// for a `Ref`, the barrier (`@df.barreira`).
+    /// for a `Ref`, the barrier (`@df.barrier`).
     pub(super) fn emit_cell_set(&mut self, cell: &Operand, value: &Operand) {
         let k = self.boxes.new_name();
         let is_ref = self.type_of(value) == Type::Ref;
@@ -441,7 +441,7 @@ impl LlvmEmitter<'_> {
         writeln!(self.out, "  store i32 {}, ptr %csm{k}, align 4", u8::from(is_ref)).unwrap();
         let constant = matches!(value, Operand::Constant(Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)));
         if is_ref && !constant {
-            writeln!(self.out, "  call void @df.barreira(i64 {c}, i64 {s})").unwrap();
+            writeln!(self.out, "  call void @df.barrier(i64 {c}, i64 {s})").unwrap();
         }
     }
 
@@ -555,8 +555,8 @@ mod tests {
 
     #[test]
     fn helpers_with_layout_headers() {
-        assert!(HELPERS.contains(&format!("@df.alocar(i64 {}, i64 1)", CAB_MINT as i64)));
-        assert!(HELPERS.contains(&format!("@df.alocar(i64 {}, i64 1)", CAB_DOUBLE as i64)));
+        assert!(HELPERS.contains(&format!("@df.allocate(i64 {}, i64 1)", CAB_MINT as i64)));
+        assert!(HELPERS.contains(&format!("@df.allocate(i64 {}, i64 1)", CAB_DOUBLE as i64)));
         // The mask of `e_objeto` (7 | MIN) and the offsets of the value and of the class.
         assert!(HELPERS.contains(&format!("and i64 %r, {}", 7 | i64::MIN)));
         assert_eq!(layout::desl::VALOR as i64 - layout::DESLOCAMENTO_DO_HANDLE, 14);

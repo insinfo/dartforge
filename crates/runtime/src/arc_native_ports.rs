@@ -178,11 +178,11 @@ thread_local! {
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn null_val() -> i64 { 0 }
 /// // SAFETY: null is a Ref without a physical token; static zero-arity function.
-/// let v = unsafe { dartforge_arc_registrar_retorno_owned_v1(null_val as usize as i64, 0) };
-/// dartforge_arc_retirar_retorno_owned_v1(null_val as usize as i64, v);
+/// let v = unsafe { dartforge_arc_register_return_owned_v1(null_val as usize as i64, 0) };
+/// dartforge_arc_take_return_owned_v1(null_val as usize as i64, v);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_registrar_retorno_owned_v1(
+pub unsafe extern "C" fn dartforge_arc_register_return_owned_v1(
     code: i64,
     arity: i64,
 ) -> i64 {
@@ -219,11 +219,11 @@ pub unsafe extern "C" fn dartforge_arc_registrar_retorno_owned_v1(
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn smi(_: i64, _: *const i64, _: *const i64) -> i64 { 3 }
 /// // SAFETY: a static body that does not publish the vectors, returns a Smi without a token.
-/// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(smi as *const () as usize as i64) };
-/// dartforge_arc_retirar_retorno_owned_v1(smi as *const () as usize as i64, v);
+/// let v = unsafe { dartforge_arc_register_uniform_owned_v1(smi as *const () as usize as i64) };
+/// dartforge_arc_take_return_owned_v1(smi as *const () as usize as i64, v);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_registrar_uniforme_owned_v1(code: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_register_uniform_owned_v1(code: i64) -> i64 {
     let code = usize::try_from(code as u64).expect("invalid uniform address");
     let mut p = arc_port_records().lock().expect("ARC port registry poisoned");
     let version = p.register_contract(code, 3, true).expect("ARC uniform contract violated");
@@ -252,12 +252,12 @@ pub unsafe extern "C" fn dartforge_arc_registrar_uniforme_owned_v1(code: i64) ->
 /// extern "C" fn body(_: i64) -> i64 { 0 }
 /// let pc = body as *const () as usize as i64;
 /// // SAFETY: static function, borrowed context and a null Owned return.
-/// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
+/// let v = unsafe { dartforge_arc_register_typed_v1(pc, 6) };
 /// // SAFETY: no consumer/call of the address is active.
-/// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
+/// unsafe { dartforge_arc_take_typed_v1(pc, 6, v); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_registrar_tipada_v1(code: i64, abi: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_register_typed_v1(code: i64, abi: i64) -> i64 {
     arc_port_records().lock().expect("ARC port registry poisoned")
         .register_typed(usize::try_from(code as u64).expect("invalid typed address"), abi)
         .expect("invalid ARC typed registration")
@@ -267,7 +267,7 @@ pub unsafe extern "C" fn dartforge_arc_registrar_tipada_v1(code: i64, abi: i64) 
 ///
 /// # Safety
 /// There must be no active call nor consumer of an address obtained through
-/// `dartforge_arc_alvo_tipada_v1`. The code must stay valid until here.
+/// `dartforge_arc_typed_target_v1`. The code must stay valid until here.
 ///
 /// # Panics
 /// Missing registration or stale version; aborts at the C boundary.
@@ -277,11 +277,11 @@ pub unsafe extern "C" fn dartforge_arc_registrar_tipada_v1(code: i64, abi: i64) 
 /// extern "C" fn body(_: i64) -> i64 { 0 }
 /// let pc = body as *const () as usize as i64;
 /// // SAFETY: static ABI and no active consumer.
-/// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
-/// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
+/// let v = unsafe { dartforge_arc_register_typed_v1(pc, 6) };
+/// unsafe { dartforge_arc_take_typed_v1(pc, 6, v); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_retirar_tipada_v1(code: i64, abi: i64, version: i64) {
+pub unsafe extern "C" fn dartforge_arc_take_typed_v1(code: i64, abi: i64, version: i64) {
     arc_port_records().lock().expect("ARC port registry poisoned")
         .remove_typed(usize::try_from(code as u64).expect("invalid typed address"), abi, version)
         .expect("invalid ARC typed removal");
@@ -302,15 +302,15 @@ pub unsafe extern "C" fn dartforge_arc_retirar_tipada_v1(code: i64, abi: i64, ve
 /// extern "C" fn body(_: i64) -> i64 { 0 }
 /// let pc = body as *const () as usize as i64;
 /// // SAFETY: static ABI with a Ref context and a null Owned Ref result.
-/// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
+/// let v = unsafe { dartforge_arc_register_typed_v1(pc, 6) };
 /// let c = dartforge_arc_closure_owned_v1(0, 0, pc, 6);
-/// assert_eq!(dartforge_arc_alvo_tipada_v1(c, 6), pc);
+/// assert_eq!(dartforge_arc_typed_target_v1(c, 6), pc);
 /// dartforge_arc_release(c);
 /// // SAFETY: no consumer of the address remains.
-/// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
+/// unsafe { dartforge_arc_take_typed_v1(pc, 6, v); }
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_alvo_tipada_v1(closure: i64, abi: i64) -> i64 {
+pub extern "C" fn dartforge_arc_typed_target_v1(closure: i64, abi: i64) -> i64 {
     HEAP.with(|heap| arc_typed_target(&heap.borrow(),
         &arc_port_records().lock().expect("ARC port registry poisoned"), closure, abi)
         .expect("invalid ARC typed target"))
@@ -320,14 +320,14 @@ struct ArcUniformScope(i64);
 
 impl Drop for ArcUniformScope {
     fn drop(&mut self) {
-        dartforge_arc_escopo_nativo_fechar_v1(self.0);
+        dartforge_arc_native_scope_close_v1(self.0);
     }
 }
 
 /// `f` inside a native scope, without changing the result: the tokens that Dart
 /// ports return during `f` die at the closing, even on a panic.
 pub(crate) fn in_native_scope<T>(f: impl FnOnce() -> T) -> T {
-    let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
+    let scope = ArcUniformScope(dartforge_arc_native_scope_open_v1());
     let r = f();
     drop(scope);
     r
@@ -348,7 +348,7 @@ pub(crate) fn in_native_scope_if_arc<T>(f: impl FnOnce() -> T) -> T {
 /// ports' Owned returns stay in the scope and are released when it closes, after
 /// the copy. With a pending exception, null and no owner.
 pub(crate) fn owner_in_native_scope(f: impl FnOnce() -> i64) -> i64 {
-    let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
+    let scope = ArcUniformScope(dartforge_arc_native_scope_open_v1());
     let r = f();
     let result = if dartforge_exception_pending() != 0 {
         0
@@ -366,11 +366,11 @@ fn arc_invoke_uniform(
     args: i64,
     desc: i64,
 ) -> Result<i64, &'static str> {
-    let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
-    let result = if code == dartforge_nsm_seletor as *const () as usize {
+    let scope = ArcUniformScope(dartforge_arc_native_scope_open_v1());
+    let result = if code == dartforge_nsm_selector as *const () as usize {
         // This native body reads/copies the vectors, without forwarding them to the SDK.
         // The Dart helper uses dart_r7: its Owned stays borrowed in this scope.
-        let r = dartforge_nsm_seletor(recv, args as *const i64, desc as *const i64);
+        let r = dartforge_nsm_selector(recv, args as *const i64, desc as *const i64);
         if dartforge_exception_pending() != 0 {
             assert_eq!(r, 0, "a pending noSuchMethod must return null");
             0
@@ -415,15 +415,15 @@ fn arc_invoke_uniform(
 /// extern "C" fn null_val(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
 /// let pc = null_val as *const () as usize as i64;
 /// // SAFETY: the body neither publishes vectors nor creates tokens, returns a null Ref.
-/// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(pc) };
+/// let v = unsafe { dartforge_arc_register_uniform_owned_v1(pc) };
 /// let args = [0_i64]; let desc = [0_i64, 0];
 /// // SAFETY: valid vectors and a static registered body.
-/// assert_eq!(unsafe { dartforge_arc_invocar_uniforme_v1(pc, 0,
+/// assert_eq!(unsafe { dartforge_arc_invoke_uniform_v1(pc, 0,
 ///     args.as_ptr() as i64, desc.as_ptr() as i64) }, 0);
-/// dartforge_arc_retirar_retorno_owned_v1(pc, v);
+/// dartforge_arc_take_return_owned_v1(pc, v);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_invocar_uniforme_v1(
+pub unsafe extern "C" fn dartforge_arc_invoke_uniform_v1(
     code: i64,
     recv: i64,
     args: i64,
@@ -436,7 +436,7 @@ pub unsafe extern "C" fn dartforge_arc_invocar_uniforme_v1(
 fn arc_invoke_uniform_closure(closure: i64, args: i64, desc: i64) -> Result<i64, &'static str> {
     // The entry lookup may also run the Dart error helper. It pins its intermediate
     // returns until the exception is published, even if it fails.
-    let scope = ArcUniformScope(dartforge_arc_escopo_nativo_abrir_v1());
+    let scope = ArcUniformScope(dartforge_arc_native_scope_open_v1());
     let code = dartforge_closure_entry(closure);
     let result = if code == 0 {
         assert_ne!(dartforge_exception_pending(), 0, "invalid closure without an exception");
@@ -468,17 +468,17 @@ fn arc_invoke_uniform_closure(closure: i64, args: i64, desc: i64) -> Result<i64,
 /// extern "C" fn null_val(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
 /// let pc = null_val as *const () as usize as i64;
 /// // SAFETY: a static read-only body with a null Ref return.
-/// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(pc) };
+/// let v = unsafe { dartforge_arc_register_uniform_owned_v1(pc) };
 /// let c = dartforge_arc_closure_owned_v1(pc, 0, 0, 0);
 /// let args = [0_i64]; let desc = [0_i64, 0];
 /// // SAFETY: live closure and vectors; registered static code.
-/// assert_eq!(unsafe { dartforge_arc_invocar_closure_uniforme_v1(c,
+/// assert_eq!(unsafe { dartforge_arc_invoke_uniform_closure_v1(c,
 ///     args.as_ptr() as i64, desc.as_ptr() as i64) }, 0);
 /// dartforge_arc_release(c);
-/// dartforge_arc_retirar_retorno_owned_v1(pc, v);
+/// dartforge_arc_take_return_owned_v1(pc, v);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_invocar_closure_uniforme_v1(closure: i64, args: i64, desc: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_invoke_uniform_closure_v1(closure: i64, args: i64, desc: i64) -> i64 {
     arc_invoke_uniform_closure(closure, args, desc).expect("invalid ARC uniform closure boundary")
 }
 
@@ -496,11 +496,11 @@ pub unsafe extern "C" fn dartforge_arc_invocar_closure_uniforme_v1(closure: i64,
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn null_val(_: i64) -> i64 { 0 }
 /// // SAFETY: a static word ABI with a null Ref return.
-/// let v = unsafe { dartforge_arc_registrar_retorno_owned_v1(null_val as usize as i64, 1) };
-/// dartforge_arc_retirar_retorno_owned_v1(null_val as usize as i64, v);
+/// let v = unsafe { dartforge_arc_register_return_owned_v1(null_val as usize as i64, 1) };
+/// dartforge_arc_take_return_owned_v1(null_val as usize as i64, v);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_retirar_retorno_owned_v1(code: i64, version: i64) {
+pub extern "C" fn dartforge_arc_take_return_owned_v1(code: i64, version: i64) {
     let code = usize::try_from(code as u64).expect("invalid callback address");
     let mut p = arc_port_records()
         .lock()
@@ -521,11 +521,11 @@ pub extern "C" fn dartforge_arc_retirar_retorno_owned_v1(code: i64, version: i64
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let e = dartforge_arc_escopo_nativo_abrir_v1();
-/// dartforge_arc_escopo_nativo_fechar_v1(e);
+/// let e = dartforge_arc_native_scope_open_v1();
+/// dartforge_arc_native_scope_close_v1(e);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_escopo_nativo_abrir_v1() -> i64 {
+pub extern "C" fn dartforge_arc_native_scope_open_v1() -> i64 {
     ARC_NATIVE_PORTS.with(|p| {
         let mut p = p.borrow_mut();
         let id = new_arc_port_id();
@@ -550,11 +550,11 @@ pub extern "C" fn dartforge_arc_escopo_nativo_abrir_v1() -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let e = dartforge_arc_escopo_nativo_abrir_v1();
-/// dartforge_arc_escopo_nativo_fechar_v1(e);
+/// let e = dartforge_arc_native_scope_open_v1();
+/// dartforge_arc_native_scope_close_v1(e);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_escopo_nativo_fechar_v1(id: i64) {
+pub extern "C" fn dartforge_arc_native_scope_close_v1(id: i64) {
     let owners = ARC_NATIVE_PORTS.with(|p| {
         p.borrow_mut()
             .do_close(id)
@@ -755,25 +755,25 @@ mod testes_portas_arc {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             let pc = body as *const () as usize as i64;
-            let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 31) };
+            let v = unsafe { dartforge_arc_register_typed_v1(pc, 31) };
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let env = dartforge_arc_objeto_owned_v1(i64::from(crate::layout::cid::CONTEXTO), 1);
-            dartforge_arc_gravar_campo_ref_v1(env, 0, child);
+            let env = dartforge_arc_object_owned_v1(i64::from(crate::layout::cid::CONTEXTO), 1);
+            dartforge_arc_write_field_ref_v1(env, 0, child);
             let c = dartforge_arc_closure_owned_v1(0, env, pc, 31);
             dartforge_arc_release(env);
             let stats = HEAP.with(|h| h.borrow().stats());
-            let target = dartforge_arc_alvo_tipada_v1(c, 31);
+            let target = dartforge_arc_typed_target_v1(c, 31);
             assert_eq!(target, pc);
             assert_eq!(HEAP.with(|h| h.borrow().stats().allocations), stats.allocations);
             assert_eq!(HEAP.with(|h| h.borrow().stats().collections), stats.collections);
             let test_body: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(target as usize) };
-            let r = test_body(dartforge_arc_contexto_closure_v1(c), child);
+            let r = test_body(dartforge_arc_closure_context_v1(c), child);
             dartforge_arc_release(child); dartforge_arc_release(c); dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(r), 3);
             assert_eq!(dartforge_unbox_int(r), i64::MAX);
             dartforge_arc_release(r); dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
-            unsafe { dartforge_arc_retirar_tipada_v1(pc, 31, v); }
+            assert_eq!(dartforge_arc_observe_heap_v1(r), 0);
+            unsafe { dartforge_arc_take_typed_v1(pc, 31, v); }
             HEAP.with(|h| h.replace(previous));
         }
     }
@@ -785,15 +785,15 @@ mod testes_portas_arc {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         extern "C" fn datagram(data: i64, text: i64, ip: i64, port: i64, tipo: i64) -> i64 {
             assert_eq!(typed_list_bytes(data).unwrap(), [1, 2, 3]);
-            let r = dartforge_arc_objeto_owned_v1(500, 5);
-            for (i, v) in [(0, data), (1, text), (2, ip)] { dartforge_arc_gravar_campo_ref_v1(r, i, v); }
-            dartforge_arc_gravar_campo_escalar_v1(r, 3, port);
-            dartforge_arc_gravar_campo_escalar_v1(r, 4, tipo);
+            let r = dartforge_arc_object_owned_v1(500, 5);
+            for (i, v) in [(0, data), (1, text), (2, ip)] { dartforge_arc_write_field_ref_v1(r, i, v); }
+            dartforge_arc_write_field_scalar_v1(r, 3, port);
+            dartforge_arc_write_field_scalar_v1(r, 4, tipo);
             r
         }
         extern "C" fn error(_: i64, _: i64, _: i64, _: i64, _: i64) -> i64 {
             let e = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_lancar_ref_v1(e);
+            dartforge_arc_throw_ref_v1(e);
             dartforge_arc_release(e);
             0
         }
@@ -805,7 +805,7 @@ mod testes_portas_arc {
             let e = OsAddress::from_ip(&[127, 0, 0, 1]).unwrap();
             let fd = create_datagram(&e, false, false, 1).unwrap();
             let dest = std::net::SocketAddr::from(([127, 0, 0, 1], local_port(fd) as u16));
-            let socket = dartforge_arc_objeto_owned_v1(123, 1);
+            let socket = dartforge_arc_object_owned_v1(123, 1);
             set_socket_on_object(socket, fd, SocketFinalizer::Normal);
             let scopes = ARC_NATIVE_PORTS.with(|p| p.borrow().scopes.len());
             assert_eq!(dartforge_arc_socket_recvfrom_owned_v1(socket), 0);
@@ -832,15 +832,15 @@ mod testes_portas_arc {
                     dartforge_exception_clear();
                 } else {
                     assert_eq!(dartforge_exception_pending(), 0); assert_ne!(r, 0);
-                    let data = dartforge_arc_ler_campo_ref_v1(r, 0);
+                    let data = dartforge_arc_read_field_ref_v1(r, 0);
                     dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
+                    assert_eq!(dartforge_arc_observe_heap_v1(r), 3);
                     assert_eq!(typed_list_bytes(data).unwrap(), [1, 2, 3]);
                     dartforge_arc_release(r); dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
-                    assert_eq!(dartforge_arc_observar_heap_v1(data), 0);
+                    assert_eq!(dartforge_arc_observe_heap_v1(r), 0);
+                    assert_eq!(dartforge_arc_observe_heap_v1(data), 0);
                 }
-                dartforge_arc_retirar_retorno_owned_v1(pc as i64, version);
+                dartforge_arc_take_return_owned_v1(pc as i64, version);
             }
             HELPERS.with(|a| a.borrow_mut().remove("_dartforgeDatagrama"));
             dartforge_arc_release(socket); dartforge_arc_collect();
@@ -878,14 +878,14 @@ mod testes_portas_arc {
 
     fn register(f: usize, n: i64) -> i64 {
         // SAFETY: only the word/Owned Ref fixtures above are used.
-        unsafe { dartforge_arc_registrar_retorno_owned_v1(f as i64, n) }
+        unsafe { dartforge_arc_register_return_owned_v1(f as i64, n) }
     }
 
     #[test]
     fn all_ports_transfer_one_token_without_retaining_twice() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let fs = [
                 (new as *const () as usize, 0),
                 (one as *const () as usize, 1),
@@ -896,7 +896,7 @@ mod testes_portas_arc {
                 (seven as *const () as usize, 7),
             ];
             let entries: Vec<_> = fs.iter().map(|&(f, n)| (f, register(f, n))).collect();
-            let e = dartforge_arc_escopo_nativo_abrir_v1();
+            let e = dartforge_arc_native_scope_open_v1();
             let x = new();
             let y = dart_r0(fs[0].0);
             assert_eq!(dart_r1(fs[1].0, x), x);
@@ -908,19 +908,19 @@ mod testes_portas_arc {
             dartforge_arc_release(x);
             dartforge_arc_collect();
             for h in [x, y] {
-                assert_eq!(dartforge_arc_observar_heap_v1(h), 3);
+                assert_eq!(dartforge_arc_observe_heap_v1(h), 3);
             }
             // The scope is an owner, but its result is a native borrow.
             dartforge_arc_retain(y);
-            dartforge_arc_escopo_nativo_fechar_v1(e);
+            dartforge_arc_native_scope_close_v1(e);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
-            assert_eq!(dartforge_arc_observar_heap_v1(y), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(y), 3);
             dartforge_arc_release(y);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(y), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(y), 0);
             for (f, v) in entries {
-                dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+                dartforge_arc_take_return_owned_v1(f as i64, v);
             }
             // Without an explicit registration, a word gains neither an owner nor a scope.
             assert_eq!(dart_r0(scalar as *const () as usize), i64::MAX - 1);
@@ -930,10 +930,10 @@ mod testes_portas_arc {
     }
 
     extern "C" fn reentrant() -> i64 {
-        let e = dartforge_arc_escopo_nativo_abrir_v1();
+        let e = dartforge_arc_native_scope_open_v1();
         let x = dart_r0(new as *const () as usize);
         dartforge_arc_retain(x);
-        dartforge_arc_escopo_nativo_fechar_v1(e);
+        dartforge_arc_native_scope_close_v1(e);
         dartforge_arc_collect();
         x
     }
@@ -942,24 +942,24 @@ mod testes_portas_arc {
     fn reentrant_scopes_and_observational_frames_stay_distinct() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let f = reentrant as *const () as usize;
             let n = new as *const () as usize;
             let vf = register(f, 0);
             let vn = register(n, 0);
             let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(0));
-            let e = dartforge_arc_escopo_nativo_abrir_v1();
+            let e = dartforge_arc_native_scope_open_v1();
             let x = dart_r0(f);
             // The boundary's owners do not push frames onto the heap: the runtime
             // may close the observational frame it opened before the callback.
             HEAP.with(|h| h.borrow_mut().pop_frame(frame));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
-            dartforge_arc_escopo_nativo_fechar_v1(e);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 3);
+            dartforge_arc_native_scope_close_v1(e);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, vf);
-            dartforge_arc_retirar_retorno_owned_v1(n as i64, vn);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 0);
+            dartforge_arc_take_return_owned_v1(f as i64, vf);
+            dartforge_arc_take_return_owned_v1(n as i64, vn);
         })
         .join()
         .unwrap();
@@ -973,7 +973,7 @@ mod testes_portas_arc {
             let v = register(f, 0);
             assert_eq!(register(f, 0), v);
             assert!(arc_prepare_port(f, 0).is_err());
-            let e = dartforge_arc_escopo_nativo_abrir_v1();
+            let e = dartforge_arc_native_scope_open_v1();
             assert!(arc_prepare_port(f, 1).is_err());
             let g = arc_prepare_port(f, 0).unwrap();
             {
@@ -992,7 +992,7 @@ mod testes_portas_arc {
                 assert_eq!(p.scopes.last().unwrap().calls, 1);
             });
             drop(g);
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
             let new_area = register(f, 0);
             assert_ne!(new_area, v);
             {
@@ -1000,11 +1000,11 @@ mod testes_portas_arc {
                 assert!(p.deregister(f, v).is_err());
                 assert_eq!(p.entries[&(f, 0)].version, new_area);
             }
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, new_area);
-            let internal = dartforge_arc_escopo_nativo_abrir_v1();
+            dartforge_arc_take_return_owned_v1(f as i64, new_area);
+            let internal = dartforge_arc_native_scope_open_v1();
             ARC_NATIVE_PORTS.with(|p| assert!(p.borrow_mut().do_close(e).is_err()));
-            dartforge_arc_escopo_nativo_fechar_v1(internal);
-            dartforge_arc_escopo_nativo_fechar_v1(e);
+            dartforge_arc_native_scope_close_v1(internal);
+            dartforge_arc_native_scope_close_v1(e);
         })
         .join()
         .unwrap();
@@ -1019,18 +1019,18 @@ mod testes_portas_arc {
     fn pending_exit_neither_publishes_result_nor_clears_exception() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let f = fail as *const () as usize;
             let v = register(f, 0);
-            let e = dartforge_arc_escopo_nativo_abrir_v1();
+            let e = dartforge_arc_native_scope_open_v1();
             assert_eq!(dart_r0(f), 0);
             assert_ne!(dartforge_exception_pending(), 0);
             ARC_NATIVE_PORTS
                 .with(|p| assert!(p.borrow().scopes.last().unwrap().owners.is_empty()));
-            dartforge_arc_escopo_nativo_fechar_v1(e);
+            dartforge_arc_native_scope_close_v1(e);
             assert_ne!(dartforge_exception_pending(), 0);
             dartforge_exception_clear();
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
         })
         .join()
         .unwrap();
@@ -1053,14 +1053,14 @@ mod testes_portas_arc {
 
     fn register_uniform(f: usize) -> i64 {
         // SAFETY: the fixtures neither read nor publish vectors; they return Owned or pending.
-        unsafe { dartforge_arc_registrar_uniforme_owned_v1(f as i64) }
+        unsafe { dartforge_arc_register_uniform_owned_v1(f as i64) }
     }
 
     #[test]
     fn uniform_closes_callbacks_without_consuming_return_token() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let f = uniform_reentrant as *const () as usize;
             let n = new as *const () as usize;
             let v = register_uniform(f);
@@ -1068,12 +1068,12 @@ mod testes_portas_arc {
             let x = arc_invoke_uniform(f, 0, 0, 0).unwrap();
             ARC_NATIVE_PORTS.with(|p| assert!(p.borrow().scopes.is_empty()));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 3);
             dartforge_arc_release(x);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
-            dartforge_arc_retirar_retorno_owned_v1(n as i64, vn);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 0);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
+            dartforge_arc_take_return_owned_v1(n as i64, vn);
         }).join().unwrap();
     }
 
@@ -1081,7 +1081,7 @@ mod testes_portas_arc {
     fn uniform_pending_closes_internal_owners_and_preserves_exception() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let f = uniform_pending as *const () as usize;
             let n = new as *const () as usize;
             let v = register_uniform(f);
@@ -1090,11 +1090,11 @@ mod testes_portas_arc {
             assert_ne!(dartforge_exception_pending(), 0);
             ARC_NATIVE_PORTS.with(|p| assert!(p.borrow().scopes.is_empty()));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(ULTIMO.with(|u| u.get())), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(ULTIMO.with(|u| u.get())), 0);
             assert_ne!(dartforge_exception_pending(), 0);
             dartforge_exception_clear();
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
-            dartforge_arc_retirar_retorno_owned_v1(n as i64, vn);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
+            dartforge_arc_take_return_owned_v1(n as i64, vn);
         }).join().unwrap();
     }
 
@@ -1114,12 +1114,12 @@ mod testes_portas_arc {
                 assert_eq!(p.entries[&(f, 3)].calls, 0);
             }
             ARC_NATIVE_PORTS.with(|p| assert!(p.borrow().scopes.is_empty()));
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
             let f = uniform_reentrant as *const () as usize;
             let v = register_uniform(f);
             assert_eq!(register_uniform(f), v);
             assert!(arc_port_records().lock().unwrap().register(f, 3).is_err());
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
             assert!(arc_invoke_uniform(f, 0, 0, 0).is_err());
         }).join().unwrap();
     }
@@ -1128,25 +1128,25 @@ mod testes_portas_arc {
     fn uniform_adapts_native_fallback_to_single_owned() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let f = nsm_owned as *const () as usize;
             let v = register(f, 7);
             let name = b"_dartforgeNoSuchMethod";
             // SAFETY: a static seven-word helper with an Owned return.
-            unsafe { dartforge_registrar_ajudante(name.as_ptr(), name.len() as i64, f); }
+            unsafe { dartforge_register_helper(name.as_ptr(), name.len() as i64, f); }
             let recv = new();
             let args = [0_i64]; let desc = [0_i64, 0];
-            let x = arc_invoke_uniform(dartforge_nsm_seletor as *const () as usize,
+            let x = arc_invoke_uniform(dartforge_nsm_selector as *const () as usize,
                 recv, args.as_ptr() as i64, desc.as_ptr() as i64).unwrap();
             ARC_NATIVE_PORTS.with(|p| assert!(p.borrow().scopes.is_empty()));
             assert_eq!(args, [0]); assert_eq!(desc, [0, 0]);
             dartforge_arc_release(recv);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 3);
             dartforge_arc_release(x);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 0);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
         }).join().unwrap();
     }
 
@@ -1154,26 +1154,26 @@ mod testes_portas_arc {
     fn owned_no_such_method_survives_legacy_frame_pop_without_leaking() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let f = nsm_owned as *const () as usize;
             let v = register(f, 7);
             let name = b"_dartforgeNoSuchMethod";
             // SAFETY: a static name and a word fixture with the helper's signature.
             unsafe {
-                dartforge_registrar_ajudante(name.as_ptr(), name.len() as i64, f);
+                dartforge_register_helper(name.as_ptr(), name.len() as i64, f);
             }
-            let e = dartforge_arc_escopo_nativo_abrir_v1();
+            let e = dartforge_arc_native_scope_open_v1();
             let recv = dartforge_arc_box_int_owned_v1(i64::MAX - 1);
             let name = HEAP.with(|h| h.borrow_mut().allocate_str("missing"));
             let x = invocar_no_such_method(recv, 0, name, &[], 0, &[], 0).unwrap();
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 3);
             assert_eq!(dartforge_unbox_int(x), i64::MAX);
-            dartforge_arc_escopo_nativo_fechar_v1(e);
+            dartforge_arc_native_scope_close_v1(e);
             dartforge_arc_release(recv);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
-            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 0);
+            dartforge_arc_take_return_owned_v1(f as i64, v);
         })
         .join()
         .unwrap();
@@ -1183,15 +1183,15 @@ mod testes_portas_arc {
         let _serial = SERIAL.lock().unwrap();
         let f = new as *const () as usize;
         let v = register(f, 0);
-        let parent_node = dartforge_arc_escopo_nativo_abrir_v1();
+        let parent_node = dartforge_arc_native_scope_open_v1();
         std::thread::spawn(move || {
-            dartforge_memoria_arc_v1();
-            let e = dartforge_arc_escopo_nativo_abrir_v1();
+            dartforge_memory_arc_v1();
+            let e = dartforge_arc_native_scope_open_v1();
             assert_ne!(e, parent_node);
             ARC_NATIVE_PORTS.with(|p| assert!(p.borrow_mut().do_close(parent_node).is_err()));
             let x = dart_r0(f);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 3);
             let g = arc_prepare_port(f, 0).unwrap();
             // The version also stays pinned while a call from another thread is in
             // progress; the registration does not depend on the publisher's heap.
@@ -1203,20 +1203,20 @@ mod testes_portas_arc {
                     .is_err()
             );
             drop(g);
-            dartforge_arc_escopo_nativo_fechar_v1(e);
+            dartforge_arc_native_scope_close_v1(e);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 0);
         })
         .join()
         .unwrap();
-        dartforge_arc_escopo_nativo_fechar_v1(parent_node);
-        dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+        dartforge_arc_native_scope_close_v1(parent_node);
+        dartforge_arc_take_return_owned_v1(f as i64, v);
     }
     #[test]
     fn owned_return_ignored_by_void_port_is_released_immediately() {
         let _serial = SERIAL.lock().unwrap();
         std::thread::spawn(|| {
-            dartforge_memoria_arc_v1();
+            dartforge_memory_arc_v1();
             let fs = [
                 (new as *const () as usize, 0),
                 (one as *const () as usize, 1),
@@ -1224,11 +1224,11 @@ mod testes_portas_arc {
                 (tres as *const () as usize, 3),
             ];
             let entries: Vec<_> = fs.iter().map(|&(f, n)| (f, register(f, n))).collect();
-            let e = dartforge_arc_escopo_nativo_abrir_v1();
+            let e = dartforge_arc_native_scope_open_v1();
             dart_v0(fs[0].0);
             let y = ULTIMO.with(|u| u.get());
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(y), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(y), 0);
             let x = new();
             dart_v1(fs[1].0, x);
             dart_v2(fs[2].0, x, 0);
@@ -1237,10 +1237,10 @@ mod testes_portas_arc {
                 .with(|p| assert!(p.borrow().scopes.last().unwrap().owners.is_empty()));
             dartforge_arc_release(x);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
-            dartforge_arc_escopo_nativo_fechar_v1(e);
+            assert_eq!(dartforge_arc_observe_heap_v1(x), 0);
+            dartforge_arc_native_scope_close_v1(e);
             for (f, v) in entries {
-                dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+                dartforge_arc_take_return_owned_v1(f as i64, v);
             }
         })
         .join()

@@ -105,11 +105,11 @@ laço sobre lista tipada escapa da chamada genérica, SIMD ou não.
   índice fora dos limites, visão não modificável e `Uint8ClampedList` caem
   no `typed_data_patch.dart`, com os erros da VM (`corpus/native/20`).
 * **`List<E>`**: o runtime dá o cabeçalho da lista
-  (`dartforge_lista_cabecalho`, `heap::CabecalhoDeLista`: endereço fixo
+  (`dartforge_list_header`, `heap::CabecalhoDeLista`: endereço fixo
   enquanto a lista vive, `memory(none) speculatable`, fora dos laços), e o
   comprimento e o endereço dos elementos são lidos dele em linha; na
   escrita, um bit do cabeçalho diz que a lista é modificável e o `E` aceita
-  o escalar (conferido uma vez por `dartforge_lista_len_gravavel`); o
+  o escalar (conferido uma vez por `dartforge_list_len_writable`); o
   código gerado lê e grava o elemento em linha pela ABI de `TaggedValue`
   (`#[repr(C)]`, 16 bytes: `bits` no 0, `is_ref` no 8, a tag no 9,
   conferidos em tempo de compilação no runtime). A leitura confere a tag e
@@ -164,7 +164,7 @@ x float>`, `shufflevector`, `fcmp` + `select`), sem intrínseca de alvo nem
 * **Locais** guardam o vetor (`repr_do_local`); o capturado por closure, o
   `late` e os de funções assíncronas continuam na caixa. A caixa só aparece
   numa fronteira (argumento, retorno, campo, `dynamic`): os 16 bytes vão ao
-  runtime (`dartforge_simd_caixa`), e o desencaixe é uma carga no endereço
+  runtime (`dartforge_simd_box`), e o desencaixe é uma carga no endereço
   de `dartforge_typed_ptr` (a caixa é imutável).
 * **Listas SIMD** (`Float32x4List`, `Int32x4List`, `Float64x2List`) entram
   no caminho direto das listas tipadas: o elemento é carregado e gravado
@@ -192,7 +192,7 @@ x float>`, `shufflevector`, `fcmp` + `select`), sem intrínseca de alvo nem
   `Int32x4List`/`Float32x4List`/`Float64x2List` com valor SIMD do mesmo
   tipo grava o vetor direto (`lower/atribuicao.rs`); só o caminho lento
   (índice fora, visão não modificável: o `[]=` do SDK) o põe na caixa.
-  Antes, toda gravação chamava `dartforge_simd_caixa` — uma alocação por
+  Antes, toda gravação chamava `dartforge_simd_box` — uma alocação por
   volta, que sozinha fazia o B2D v1 SIMD do dgfx 9× mais lento que o
   escalar. O local SIMD gravado por uma função local direta (pelo endereço
   do local de quem chama) grava 16 bytes (`llvm/mod.rs`, `Store`); antes o
@@ -293,7 +293,7 @@ B2D v2 Batch 1,18×, SKIA 3,60×; no Dart AOT 3.6.2: 31,8×, 19,4×, 6,5×,
    nesse tipo nunca se grava `null`), e o runtime só é consultado com o
    campo nulo (`lower/membros.rs`). Tipos anuláveis, `int`/`double`/`bool`
    e o ciclo de inicialização seguem pelo runtime (`corpus/native/67`).
-3. **Cabeçalho de lista tipada fora dos laços**: `dartforge_typed_cabecalho`
+3. **Cabeçalho de lista tipada fora dos laços**: `dartforge_typed_header`
    devolve `dereferenceable(16) ptr` (nunca nulo), e as duas cargas dele
    passam a ser especuláveis — o LLVM as tira dos laços com a chamada (antes
    só a chamada saía; as cargas ficavam, porque o laço tem saídas antes
@@ -384,7 +384,7 @@ campos dos laços.
 
 Antes, cada `x[i]` de lista tipada tinha o teste de limites e, no caminho
 lento, a caixa do índice (`dartforge_box_int`), o despacho
-(`df.seletor`) e o desencaixe (`dartforge_unbox_int`). Esses caminhos são
+(`df.selector`) e o desencaixe (`dartforge_unbox_int`). Esses caminhos são
 frios, mas são chamadas no corpo do laço: o vetorizador do LLVM recusa o
 laço ("call instruction cannot be vectorized", "more than one early
 exit"), e o endereço e o comprimento das listas não saem do laço de forma
@@ -484,7 +484,7 @@ ir -O2 -S`, com `-march` para as colunas de CPU):
 * `blendSimd314`, base SSE2: as voltas rápidas não têm chamada nem teste
   de limites — `movdqu`, `pshufd` + `pmuludq` (o `mul` de 32 bits),
   `paddd`, `psrad $8`, `movdqu` e o contador. Antes havia, dentro do laço,
-  os caminhos com `dartforge_box_int`/`df.seletor`/`dartforge_unbox_int`
+  os caminhos com `dartforge_box_int`/`df.selector`/`dartforge_unbox_int`
   (frios: o tempo quase não muda, 26,9 → 26,8).
 * `blendSimd36`, base SSE2: `movups`, `cvtdq2ps` (×2), `mulps`, `addps`,
   `cmpnleps`/`cmpnltps` + `movmskps` (o teste de faixa), `cvttps2dq`,

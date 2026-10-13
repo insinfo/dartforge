@@ -118,14 +118,14 @@ class _JsonListener {
    * classe e sem a conferência do `E`. -1, sem mudar nada, se a lista não
    * está na forma simples do runtime.
    */
-  @pragma("vm:external-name", "DartForge_json_empilhar")
+  @pragma("vm:external-name", "DartForge_json_push")
   external static int _dfEmpilhar(List pilha, Object? v);
 
   /**
    * DartForge: a marca em `pilha[inicio - 1]`, sem mudar nada; -1 fora da
    * forma simples.
    */
-  @pragma("vm:external-name", "DartForge_json_marca")
+  @pragma("vm:external-name", "DartForge_json_mark")
   external static int _dfMarca(List pilha, int inicio);
 
   /**
@@ -133,7 +133,7 @@ class _JsonListener {
    * nova, do tipo de [_modelo]); tira da pilha esses valores e a marca em
    * `inicio - 1`. null, sem mudar nada, fora da forma simples.
    */
-  @pragma("vm:external-name", "DartForge_json_fechar_lista")
+  @pragma("vm:external-name", "DartForge_json_close_list")
   external static List<dynamic>? _dfFecharLista(
       List pilha, int inicio, List<dynamic> modelo);
 
@@ -144,7 +144,7 @@ class _JsonListener {
    * DartForge: tira da pilha os valores `pilha[inicio..]` e a marca em
    * `inicio - 1` e devolve a marca; -1, sem mudar nada, fora da forma simples.
    */
-  @pragma("vm:external-name", "DartForge_json_truncar")
+  @pragma("vm:external-name", "DartForge_json_truncate")
   external static int _dfTruncar(List pilha, int inicio);
 
   /** Empilha [v]; devolve o comprimento da pilha. */

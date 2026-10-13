@@ -423,7 +423,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.require(is_rec, failure);
                 let n = self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_nativo_DartForge_record_numFields".to_string(),
+                        name: "dartforge_native_DartForge_record_numFields".to_string(),
                         args: vec![(v.clone(), Type::Ref)],
                         ret_ty: Type::I64,
                     },
@@ -437,7 +437,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 for (i, f) in fields.iter().enumerate() {
                     let x = self.emit(
                         Instruction::CallRuntime {
-                            name: "dartforge_nativo_DartForge_record_fieldAt".to_string(),
+                            name: "dartforge_native_DartForge_record_fieldAt".to_string(),
                             args: vec![
                                 (v.clone(), Type::Ref),
                                 (Operand::Constant(Constant::Int(i as i64)), Type::I64),

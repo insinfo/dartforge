@@ -1,5 +1,5 @@
-// A classe de um valor do runtime lida em linha (`df.classe`, o vetor
-// denso `Heap::classes`) e o `is C` pelo mapa de bits (`df.subclasse`):
+// A classe de um valor do runtime lida em linha (`df.class`, o vetor
+// denso `Heap::classes`) e o `is C` pelo mapa de bits (`df.subclass`):
 // listas expansíveis, de tamanho fixo e não modificáveis (`List.filled`
 // com `growable: false`, `List.unmodifiable`, `toList`, `const`,
 // `List.generate`, `sublist`, `List.of`), strings de um e de dois bytes,

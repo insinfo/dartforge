@@ -41,7 +41,7 @@ TypeMirror reflectType(Type key, [List<Type>? typeArguments]) {
   return reflectClass(key);
 }
 
-@pragma("vm:external-name", "DartForge_mirrors_nome")
+@pragma("vm:external-name", "DartForge_mirrors_name")
 external String? _nome(Type tipo);
 
 @pragma("vm:external-name", "DartForge_mirrors_uri")

@@ -163,12 +163,12 @@ fn write_decimal(buf: &mut [u8; 20], v: i64) -> usize {
 /// `part_list` points to `2·n` readable words (the emitter's temporary); the
 /// strings are rooted by the emitter.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_string_juntar_tipado(part_list: *const i64, n: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_string_join_typed(part_list: *const i64, n: i64) -> i64 {
     // SAFETY: the contract above.
     unsafe { join_typed(part_list, n, false) }
 }
 
-/// The interpolation of `dartforge_string_juntar_tipado` under ARC: hands over a
+/// The interpolation of `dartforge_string_join_typed` under ARC: hands over a
 /// code owner of the result.
 ///
 /// The same (kind, bits) pairs. The strings stay rooted in an owning frame during
@@ -188,15 +188,15 @@ pub unsafe extern "C" fn dartforge_string_juntar_tipado(part_list: *const i64, n
 /// use dartforge_runtime::abi::*;
 /// let seven = dartforge_to_string_i64(7);
 /// let part_list = [0, seven, 1, -42];
-/// let text = unsafe { dartforge_arc_string_juntar_owned_v1(part_list.as_ptr(), 2) };
-/// assert_eq!(dartforge_arc_observar_heap_v1(text), 3);
-/// assert_eq!(dartforge_texto_iguais(text, dartforge_to_string_i64(-742)), 0);
+/// let text = unsafe { dartforge_arc_string_join_owned_v1(part_list.as_ptr(), 2) };
+/// assert_eq!(dartforge_arc_observe_heap_v1(text), 3);
+/// assert_eq!(dartforge_string_equals(text, dartforge_to_string_i64(-742)), 0);
 /// dartforge_arc_release(text);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(text), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(text), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_string_juntar_owned_v1(part_list: *const i64, n: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_string_join_owned_v1(part_list: *const i64, n: i64) -> i64 {
     // SAFETY: the contract above.
     unsafe { join_typed(part_list, n, true) }
 }
@@ -498,9 +498,9 @@ mod tests_owned_join {
             let dois = allocate_string(Texto::from_units(vec![0xD800, 0x41]));
             HEAP.with(|h| h.borrow_mut().pop_frame(frame));
             let part_list = [0, one, 1, i64::MIN, 0, dois, 1, 0];
-            let r = unsafe { dartforge_arc_string_juntar_owned_v1(part_list.as_ptr(), 4) };
+            let r = unsafe { dartforge_arc_string_join_owned_v1(part_list.as_ptr(), 4) };
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(r), 3);
             let expected: Vec<u16> = "part without owner-9223372036854775808".encode_utf16()
                 .chain([0xD800, 0x41, u16::from(b'0')]).collect();
             HEAP.with(|h| {
@@ -510,9 +510,9 @@ mod tests_owned_join {
             });
             dartforge_arc_release(r);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
-            let empty = unsafe { dartforge_arc_string_juntar_owned_v1(std::ptr::null(), 0) };
-            assert_eq!(dartforge_arc_observar_heap_v1(empty), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(r), 0);
+            let empty = unsafe { dartforge_arc_string_join_owned_v1(std::ptr::null(), 0) };
+            assert_eq!(dartforge_arc_observe_heap_v1(empty), 3);
             dartforge_arc_release(empty);
             HEAP.with(|h| { h.replace(previous); });
         }

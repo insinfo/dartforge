@@ -98,7 +98,7 @@ prefixo do nome SSA que o emissor dá (`EN/llvm/mod.rs`):
 | mapa de referências na gravação de campo (`%fm*`) | 0,7 M | 4% | 178 547 gravações; o bit `is_ref` do campo no cabeçalho |
 | `store` | 2,4 M | 13% | os slots da pilha de raízes (GC) e os campos |
 | exceção pendente depois de chamada (`load i8 %ctx`, `zext`, `icmp`, `br`) | ~2,2 M | ~12% | ~560 mil verificações |
-| moldura de GC (`%gc*`, `dartforge_contexto`) | ~0,7 M | 4% | por função |
+| moldura de GC (`%gc*`, `dartforge_context`) | ~0,7 M | 4% | por função |
 | o resto | ~7,6 M | ~40% | a computação |
 
 ## 2. Causas
@@ -133,10 +133,10 @@ Feito (as medidas estão na §5):
      e perde a inlining entre programa e SDK.
 3. **P3: o endereço dos campos e os ajudantes fora de linha no programa grande**
    (`lib.rs`, `FUNCOES_DO_PROGRAMA_GRANDE`; `llvm::ajudantes_fora_de_linha`).
-   * `@df.corpo` vai `noinline memory(read)`; `seletor`, `classe`, `subclasse`, `alocar`,
-     `barreira`, `obter_area` e a alocação de instância (`@df.nova_instancia`) também vão
+   * `@df.body` vai `noinline memory(read)`; `seletor`, `classe`, `subclasse`, `alocar`,
+     `barreira`, `obter_area` e a alocação de instância (`@df.new_instance`) também vão
      `noinline`.
-   * O despacho passa um descritor estático (`@df.seld.<k>`) ao `@df.seletor_d`. A poda lê o
+   * O despacho passa um descritor estático (`@df.seld.<k>`) ao `@df.selector_d`. A poda lê o
      seletor do descritor (`poda::chamada_de_seletor_compacta`).
    * `optsize` em toda função do programa grande.
    * O preço em desempenho está na §5.1. No desenvolvimento (`-O0`) do programa grande, os
@@ -170,7 +170,7 @@ Falta, por ordem de ganho estimado:
    * `this` sabido objeto, sem a seleção null/`Smi`;
    * o corpo de objeto sem indireção (`FORA` só existe para objeto que cresce: a recarga do JIT
      e `garantir_campos`), o que deixaria o campo em linha barato;
-   * o registro das classes (`df.registrar.programa`, 620 KB) e o `df.preparar_isolado`
+   * o registro das classes (`df.register.program`, 620 KB) e o `df.prepare_isolate`
      (340 KB) como dados em vez de código;
    * as constantes (`dfc.*`, 5 MB) como objetos estáticos da imagem, como os textos já são.
 8. **TFA** (§4), depois de 7: o número de funções retidas já é o do Dart.
@@ -300,7 +300,7 @@ os ajudantes um a um (`DARTFORGE_AJUDANTES_FORA=alocar,barreira`).
 Achado no caminho: com as partes do programa em ThinLTO e o SDK em LTO completa, a divisão do
 módulo do SDK em partições (`/opt:lldltopartitions`) promove o `@df.area_id` interno de um
 módulo do SDK com o mesmo nome do `@df.area_id` que `particao.rs` promove a externo no
-programa: "duplicate symbol: df.area_id". O programa agora usa `@df.area_id.programa`.
+programa: "duplicate symbol: df.area_id". O programa agora usa `@df.area_id.program`.
 
 ## 6. Segunda rodada: a ligação medida, o corpo, a FFI e as constantes
 
@@ -360,7 +360,7 @@ pré-ligação das partes) e `DARTFORGE_LTO_MLLVM` (opções do LLVM na ligaçã
 
 ### 6.3 O corpo do objeto sem dependência de memória
 
-O `@df.corpo` (o endereço dos campos, por chamada no programa grande) passa de `memory(read)` a
+O `@df.body` (o endereço dos campos, por chamada no programa grande) passa de `memory(read)` a
 `memory(none)`. O otimizador junta todas as chamadas sobre o mesmo objeto, mesmo com gravações e
 chamadas no meio, como no quadro do `$async` e no `this`. Antes eram 332 mil chamadas.
 
@@ -383,7 +383,7 @@ Ver `NATIVO-PODA-DE-TABELAS.md` §3.14. Saem 3 547 das 3 591 assinaturas: 7 094 
 No contexto constante, um literal grande (8 ou mais elementos) cujos elementos são outras
 constantes vai para a tabela de dados que já servia aos escalares. Cada elemento entra como
 `g` + índice num vetor de endereços dos getters canônicos (`Instruction::TabelaDeFuncoes`,
-`@df.fns.<k>`), que o runtime chama (`dartforge_lista_de_tabela_g`, com a lista enraizada).
+`@df.fns.<k>`), que o runtime chama (`dartforge_list_from_table_g`, com a lista enraizada).
 
 Antes, os 234 getters de constante que não cabiam na tabela somavam 30 MB de IR: um `[]=` por
 seletor por entrada, cada um com o seu vetor de argumentos e a sua checagem de exceção.

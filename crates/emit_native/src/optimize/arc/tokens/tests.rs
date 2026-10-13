@@ -487,7 +487,7 @@ fn arc_producer_classifies_fixed_operations_and_leaves_no_partial_state() {
             (
                 ValueId(6),
                 Instruction::CallRuntime {
-                    name: "dartforge_arc_quadro_fechar_v1".into(),
+                    name: "dartforge_arc_frame_close_v1".into(),
                     args: vec![(value(9), Type::I64)],
                     ret_ty: Type::Void,
                 },
@@ -775,7 +775,7 @@ fn audited_borrowed_result_depends_on_argument_owner() {
             (
                 ValueId(2),
                 Instruction::CallRuntime {
-                    name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                    name: "dartforge_native_DartForge_record_fieldAt".into(),
                     args: vec![
                         (value(1), Type::Ref),
                         (Operand::Constant(Constant::Int(0)), Type::I64),

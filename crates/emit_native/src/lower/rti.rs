@@ -8,7 +8,7 @@
 //! recipe has a lazy global (`dfr.<hash>`) and its getter
 //! (`df.rti.<hash>`). A recipe with variables (`P<i>`: type parameter of the
 //! class of the current code; `M<i>`: type argument of the current function)
-//! is evaluated in the environment (`dartforge_rti_avaliar`: the type of `this` seen
+//! is evaluated in the environment (`dartforge_rti_eval`: the type of `this` seen
 //! as the class, and the tuple of the function).
 //!
 //! **Where the type is stored** (in the slot metadata, `Heap::metadata`):
@@ -642,7 +642,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let s = g.emit(Instruction::Const(Constant::String(r.text.clone())), Type::Ref);
             let t = g.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_rti_receita".to_string(),
+                    name: "dartforge_rti_recipe".to_string(),
                     args: vec![(s, Type::Ref)],
                     ret_ty: Type::I64,
                 },
@@ -691,7 +691,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let tuple = self.type_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0)));
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_rti_avaliar".to_string(),
+                name: "dartforge_rti_eval".to_string(),
                 args: vec![
                     (base, Type::I64),
                     (this, Type::Ref),
@@ -714,7 +714,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn define_rti(&mut self, obj: Operand, ty: Operand) {
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_rti_definir".to_string(),
+                name: "dartforge_rti_set".to_string(),
                 args: vec![(obj, Type::Ref), (ty, Type::I64)],
                 ret_ty: Type::Void,
             },
@@ -794,7 +794,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         self.emit_call_with_check(
             Instruction::CallRuntime {
-                name: "dartforge_rti_como_em".to_string(),
+                name: "dartforge_rti_as_with_context".to_string(),
                 args: vec![(v, Type::Ref), (ty, Type::I64), (Operand::Constant(Constant::Int(code)), Type::I64), (name_str, Type::Ref)],
                 ret_ty: Type::Void,
             },
@@ -1290,19 +1290,19 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     if recipes.is_empty() && !uses_rti && !module.sdk_mode {
         return;
     }
-    // The `Type` object (`dartforge_rti_objeto_tipo`): the class and the selectors
+    // The `Type` object (`dartforge_rti_object_type`): the class and the selectors
     // used by the source SDK. Each type has a single canonical object.
     {
         let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
             return;
         };
-        let symbol = "df.$tipo.toString".to_string();
+        let symbol = "df.$type.toString".to_string();
         let mut t = FnBuilder::new(ctx, u, symbol.clone(), "toString".to_string(), Type::Ref);
         let obj = Operand::Val(t.add_param("this".to_string(), Type::Ref));
-        // Field 0 of `_Type` is the RTI ID, a scalar (`dartforge_rti_objeto_tipo`).
+        // Field 0 of `_Type` is the RTI ID, a scalar (`dartforge_rti_object_type`).
         // Under ARC, the read checks the real map of the field; the text gets an owner
         // in the ARC preparation (`optimize/arc/natives.rs`), not here.
-        let read = if ctx.arc_memory { "dartforge_arc_ler_campo_escalar_v1" } else { "dartforge_object_get" };
+        let read = if ctx.arc_memory { "dartforge_arc_read_field_scalar_v1" } else { "dartforge_object_get" };
         let id = t.emit(
             Instruction::CallRuntime {
                 name: read.to_string(),
@@ -1313,7 +1313,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         );
         let s = t.emit(
             Instruction::CallRuntime {
-                name: "dartforge_rti_texto".to_string(),
+                name: "dartforge_rti_string".to_string(),
                 args: vec![(id, Type::I64)],
                 ret_ty: Type::Ref,
             },
@@ -1326,7 +1326,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         if ctx.arc_memory {
             module.dart_ref_returns.insert(symbol.clone());
         }
-        let mut equality = FnBuilder::new(ctx, u, "df.$tipo.$3d$3d$c".to_string(), "==".to_string(), Type::Ref);
+        let mut equality = FnBuilder::new(ctx, u, "df.$type.$3d$3d$c".to_string(), "==".to_string(), Type::Ref);
         let recv = Operand::Val(equality.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(equality.add_param_vector(DartEntryVector::Arguments));
         equality.add_param_vector(DartEntryVector::Descriptor);
@@ -1339,7 +1339,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         let equal = equality.coerce(equal, Type::Ref);
         equality.terminate(Terminator::Return(Some(equal)));
         equality.finish(module);
-        let mut text = FnBuilder::new(ctx, u, "df.$tipo.toString$c".to_string(), "toString".to_string(), Type::Ref);
+        let mut text = FnBuilder::new(ctx, u, "df.$type.toString$c".to_string(), "toString".to_string(), Type::Ref);
         let recv = Operand::Val(text.add_param("this".to_string(), Type::Ref));
         text.add_param_vector(DartEntryVector::Arguments);
         text.add_param_vector(DartEntryVector::Descriptor);
@@ -1351,8 +1351,8 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         text.terminate(Terminator::Return(Some(value)));
         text.finish(module);
         let mut methods = vec![
-            ("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string()),
-            ("c:toString".to_string(), "df.$tipo.toString$c".to_string()),
+            ("c:==".to_string(), "df.$type.$3d$3d$c".to_string()),
+            ("c:toString".to_string(), "df.$type.toString$c".to_string()),
         ];
         // `_Type` is created by the runtime, outside the element hierarchy of the
         // program. It still inherits the members of `Object`, including the
@@ -1364,7 +1364,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
                 }
             }
         }
-        module.method_tables.push((CLASSE_TIPO as u32, "df.mt.$tipo".to_string(), methods));
+        module.method_tables.push((CLASSE_TIPO as u32, "df.mt.$type".to_string(), methods));
         module.classes.push(ClassDef {
             id: CLASSE_TIPO as u32,
             name: "_Type".to_string(),
@@ -1446,13 +1446,13 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         return;
     };
     // The registrations go into a constant TABLE that the runtime reads at once
-    // (`dartforge_rti_iniciar_tabela`), not into code: there are thousands of
+    // (`dartforge_rti_init_table`), not into code: there are thousands of
     // SDK classes, and one call per registration gave a function of tens
     // of thousands of instructions that LLVM compiled on every `dartforge run`,
     // every JIT reload and every AOT link. One line per registration:
     // `C<id> <parameters> <name>`, `R<id> <recipe>`, `F<shape> <id>`.
     let mut table = String::new();
-    let mut b = FnBuilder::new(ctx, u, "dartforge_rti_iniciar".to_string(), "rti".to_string(), Type::Void);
+    let mut b = FnBuilder::new(ctx, u, "dartforge_rti_init".to_string(), "rti".to_string(), Type::Void);
     for &c in &classes {
         let id = ctx.id_rti(c);
         let name_str = visible_name(ctx, c);
@@ -1520,7 +1520,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     let data = b.emit(Instruction::ConstArray(words), Type::Ptr);
     b.emit(
         Instruction::CallRuntime {
-            name: "dartforge_rti_iniciar_tabela".to_string(),
+            name: "dartforge_rti_init_table".to_string(),
             args: vec![(data, Type::Ptr), (Operand::Constant(Constant::Int(bytes.len() as i64)), Type::I64)],
             ret_ty: Type::Void,
         },
@@ -1528,7 +1528,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     );
     b.terminate(Terminator::Return(None));
     b.finish(module);
-    module.start_rti = Some("dartforge_rti_iniciar".to_string());
+    module.start_rti = Some("dartforge_rti_init".to_string());
 }
 
 /// The name of a class in `Type.toString()`: the VM's `Class::UserVisibleName`

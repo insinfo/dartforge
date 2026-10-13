@@ -81,17 +81,17 @@ fn module() -> Result<Module, String> {
         symbol: "receita".into(), name: "receita".into(), debug_info: None, params: vec![], return_ty: Type::I64,
         blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
             (ValueId(0), Instruction::Const(Constant::String("C32001".into())), Type::Ref),
-            (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_receita".into(),
+            (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_recipe".into(),
                 args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
         ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
     });
     m.functions[0].blocks[0].instructions.extend([
         (ValueId(3), Instruction::CallStatic { symbol: "receita".into(), args: vec![], ret_ty: Type::I64 }, Type::I64),
-        (ValueId(4), Instruction::CallRuntime { name: "dartforge_rti_avaliar".into(), args: vec![
+        (ValueId(4), Instruction::CallRuntime { name: "dartforge_rti_eval".into(), args: vec![
             (Operand::Val(ValueId(3)), Type::I64), (Operand::Constant(Constant::Null), Type::Ref),
             (Operand::Constant(Constant::Int(0)), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I64),
         ], ret_ty: Type::I64 }, Type::I64),
-        (ValueId(5), Instruction::CallRuntime { name: "dartforge_rti_definir".into(), args: vec![
+        (ValueId(5), Instruction::CallRuntime { name: "dartforge_rti_set".into(), args: vec![
             (Operand::Val(ValueId(0)), Type::Ref), (Operand::Val(ValueId(4)), Type::I64),
         ], ret_ty: Type::Void }, Type::Void),
         (ValueId(6), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
@@ -228,7 +228,7 @@ fn main() -> Result<(), String> {
     // Tracing uses explicit tokens only in this comparison harness.
     m.arc_memory = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    let factory = "call i64 @dartforge_arc_objeto_owned_t_v1(i64 32001, i64 2, ptr @df.mt.C)";
+    let factory = "call i64 @dartforge_arc_object_owned_t_v1(i64 32001, i64 2, ptr @df.mt.C)";
     if ir.matches(factory).count() != 1 {
         return Err("factory with a missing/ambiguous table".into());
     }
@@ -238,24 +238,24 @@ fn main() -> Result<(), String> {
 declare void @dartforge_print_handle(i64)
 define void @prova_instancia_zerada() {
   %obj = call i64 @criar()
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
   %owned = icmp eq i8 %estado, 3
   br i1 %owned, label %campo, label %falha
 campo:
-  %campo_atual = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 0)
+  %campo_atual = call i64 @dartforge_arc_read_field_scalar_v1(i64 %obj, i64 0)
   %construido = icmp eq i64 %campo_atual, 42
   br i1 %construido, label %filho, label %falha
 filho:
-  %hfilho = call i64 @dartforge_arc_ler_campo_ref_v1(i64 %obj, i64 1)
+  %hfilho = call i64 @dartforge_arc_read_field_ref_v1(i64 %obj, i64 1)
   call void @dartforge_arc_collect()
-  %estado_filho = call i8 @dartforge_arc_observar_heap_v1(i64 %hfilho)
+  %estado_filho = call i8 @dartforge_arc_observe_heap_v1(i64 %hfilho)
   %valor_filho = call i64 @dartforge_unbox_int(i64 %hfilho)
   %filho_sem_owner_codigo = icmp eq i8 %estado_filho, 1
   %filho_valor_ok = icmp eq i64 %valor_filho, 9223372036854775807
   %filho_ok = and i1 %filho_sem_owner_codigo, %filho_valor_ok
   br i1 %filho_ok, label %seletor, label %falha
 seletor:
-  %ptr = call ptr @dartforge_seletor(ptr @cache.prova, i64 %obj, i64 HASH_PROVA, ptr @nome.prova, i64 7)
+  %ptr = call ptr @dartforge_selector(ptr @cache.prova, i64 %obj, i64 HASH_PROVA, ptr @nome.prova, i64 7)
   %tabela = icmp eq ptr %ptr, @metodo
   br i1 %tabela, label %chamar, label %falha
 chamar:
@@ -265,9 +265,9 @@ chamar:
 liberar:
   call void @dartforge_arc_release(i64 %obj)
   call void @dartforge_arc_collect()
-  %fim = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
+  %fim = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
   %morto = icmp eq i8 %fim, 0
-  %fim_filho = call i8 @dartforge_arc_observar_heap_v1(i64 %hfilho)
+  %fim_filho = call i8 @dartforge_arc_observe_heap_v1(i64 %hfilho)
   %filho_morto = icmp eq i8 %fim_filho, 0
   %ambos_mortos = and i1 %morto, %filho_morto
   br i1 %ambos_mortos, label %passou, label %falha
@@ -287,7 +287,7 @@ passou:
     // factory. The harness entry links only the requested policy.
     ir.push_str("\ndefine void @dartforge_entry() {\n");
     if arc {
-        ir.push_str("  call void @dartforge_memoria_arc_v1()\n");
+        ir.push_str("  call void @dartforge_memory_arc_v1()\n");
     }
     ir.push_str("  call void @prova_instancia_zerada()\n  ret void\n}\n");
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");
@@ -299,7 +299,7 @@ passou:
             ),
             "sem-tabela" => (
                 factory,
-                "call i64 @dartforge_arc_objeto_owned_v1(i64 32001, i64 2)",
+                "call i64 @dartforge_arc_object_owned_v1(i64 32001, i64 2)",
             ),
             "sem-drop" => ("  call void @dartforge_arc_release(i64 %obj)\n", ""),
             "layout-obsoleto" => (
@@ -334,9 +334,9 @@ mod tests {
     #[test]
     fn zeroed_instance_generates_verified_ir_with_owned_table() {
         let ir = LlvmEmitter::new(&module().unwrap()).emit_all();
-        assert!(ir.contains("call i64 @dartforge_arc_objeto_owned_t_v1"));
+        assert!(ir.contains("call i64 @dartforge_arc_object_owned_t_v1"));
         assert!(ir.contains("define ptr @df.mt.C()"));
-        assert!(ir.contains("call void @dartforge_arc_gravar_campo_escalar_conferido_v1"));
-        assert!(ir.contains("call void @dartforge_arc_gravar_campo_ref_conferido_v1"));
+        assert!(ir.contains("call void @dartforge_arc_write_field_scalar_checked_v1"));
+        assert!(ir.contains("call void @dartforge_arc_write_field_ref_checked_v1"));
     }
 }

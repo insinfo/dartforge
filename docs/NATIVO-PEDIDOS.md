@@ -206,13 +206,13 @@ trocas novas da sobreposição (`print_patch.dart`, `string_buffer_patch.dart`).
 de desenvolvimento (JIT) tem de rodar o mesmo IR. Com o SDK da fonte o IR do
 programa referencia os símbolos do SDK e do runtime que moram na DLL em cache
 (`dfsdk_<chave>.dll`, com `exportados.def` ao lado), e o `main` do programa
-chama `dartforge_iniciar` dessa DLL.
+chama `dartforge_init` dessa DLL.
 
 **O que o δ fez (mínimo):** `JitSession::new_com_sdk(dll, usados)` carrega a
 DLL (`LoadLibraryW`) e publica na sessão só os nomes que o IR declara
 (`GetProcAddress`), no lugar do runtime deste processo — duas cópias do estado
 do runtime não conversariam; `run_main` executa o `main` numa thread nova;
-`run_ir` escolhe pelo IR (`declare void @df.registrar.`) e lê a DLL de
+`run_ir` escolhe pelo IR (`declare void @df.register.`) e lê a DLL de
 `DARTFORGE_SDK_DLL`, que o harness (`oraculos.rs`) põe no ambiente do
 executor; as globais `[2 x i64]` (o cache de um ponto de chamada por seletor)
 são zeradas entre execuções como as outras. Medido (debug): hello world pelo
@@ -256,10 +256,10 @@ parâmetros com os argumentos); o que não se deduz fica `dynamic`.
    (`tipos.rs`). Não é aresta do heap (é um id do universo de tipos), então o
    coletor não o percorre.
 2. **`crates/emit_native/src/nativos.rs`:** `DartForge_scheduleImmediate`,
-   `DartForge_Timer_novo`, `DartForge_Timer_cancelar` e
+   `DartForge_Timer_new`, `DartForge_Timer_cancel` e
    `Error_trySetStackTrace` passam a `Runtime` (implementados em
    `runtime/src/eventos.rs`).
 3. **`native_sdk/async/timer_patch.dart`:** `_Timer._novo` recebe o tear-off
    `_disparar` (uma closure) em vez do próprio `_Timer`: o laço de eventos só
    chama closures sem argumentos — o único ponto em que o runtime chama Dart
-   (`dartforge_laco_de_eventos`), sem precisar chamar um método pelo nome.
+   (`dartforge_event_loop`), sem precisar chamar um método pelo nome.

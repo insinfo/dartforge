@@ -23,7 +23,7 @@ fn campo_de_par(bits: i64, tag: u8) -> crate::heap::Field {
 /// expects), otherwise 0 — and the caller goes through the uniform entry. Only
 /// reads the heap.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_closure_tipada(h: i64, abi: i64) -> i64 {
+pub extern "C" fn dartforge_closure_typed(h: i64, abi: i64) -> i64 {
     heap_without_borrow(|heap| match heap.closure(h) {
         Some(c) if c.abi == abi && abi != 0 => c.typed_one,
         _ => 0,
@@ -63,7 +63,7 @@ pub extern "C" fn dartforge_closure_code(handle: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().closure(handle).expect("closure esperada").code)
 }
 
-/// The four fields of nobody (`abi` 0): what [`dartforge_closure_cabecalho`]
+/// The four fields of nobody (`abi` 0): what [`dartforge_closure_header`]
 /// returns for something that is not a closure.
 static CLOSURE_NONE: [i64; 4] = [0; 4];
 
@@ -72,7 +72,7 @@ static CLOSURE_NONE: [i64; 4] = [0; 4];
 /// something that is not a closure. Generated code reads the block directly
 /// (`lower/closures.rs`); this remains for the ABI.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_closure_cabecalho(h: i64) -> i64 {
+pub extern "C" fn dartforge_closure_header(h: i64) -> i64 {
     heap_without_borrow(|heap| match heap.closure(h) {
         Some(_) => h + (crate::layout::desl::CORPO as i64 - crate::layout::DESLOCAMENTO_DO_HANDLE),
         None => CLOSURE_NONE.as_ptr() as i64,
@@ -101,7 +101,7 @@ pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
     // the class table has the same convention (receiver, args, desc).
     code.or_else(|| class_method(dartforge_value_class(handle), name_hash("c:call")).map(|f| f as i64))
         .unwrap_or_else(|| {
-            dartforge_nsm_chamada();
+            dartforge_nsm_call();
             0
         })
 }
@@ -109,7 +109,7 @@ pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
 /// Throws the `NoSuchMethodError` of a function-value call that does not match
 /// (a value that is not a function, or wrong arity/names).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nsm_chamada() {
+pub extern "C" fn dartforge_nsm_call() {
     let name = HEAP.with(|heap| heap.borrow_mut().allocate_str("call"));
     let error = with_roots(&[name], || dartforge_no_such_method_error_new(name));
     with_roots(&[error], || dartforge_exception_throw(error, 3));
@@ -121,7 +121,7 @@ pub extern "C" fn dartforge_nsm_chamada() {
 /// the arguments) or, when the call passed none (`0`), the defaults (`pattern`,
 /// the instantiation to bounds).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_tupla_juntar(from_outside: i64, n_outside: i64, own: i64, pattern: i64) -> i64 {
+pub extern "C" fn dartforge_rti_tuple_join(from_outside: i64, n_outside: i64, own: i64, pattern: i64) -> i64 {
     let mut v = tuple_arguments(from_outside);
     v.resize(usize::try_from(n_outside).unwrap_or(0), 0);
     v.extend(tuple_arguments(if own > 0 { own } else { pattern }));
@@ -137,7 +137,7 @@ pub extern "C" fn dartforge_rti_tupla_juntar(from_outside: i64, n_outside: i64, 
 /// Both pointers are constant vectors emitted by the compiler, with the size
 /// their own headers state.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_args_casam(desc: *const i64, sig: *const i64) -> u8 {
+pub unsafe extern "C" fn dartforge_args_match(desc: *const i64, sig: *const i64) -> u8 {
     // SAFETY: headers of the emitter's constant vectors.
     let (npos, nnom) = unsafe { (*desc, *desc.add(1)) };
     let (required_count, total, snom) = unsafe { (*sig, *sig.add(1), *sig.add(2)) };
@@ -167,7 +167,7 @@ pub unsafe extern "C" fn dartforge_args_casam(desc: *const i64, sig: *const i64)
 /// # Safety
 /// `desc` is a constant descriptor emitted by the compiler.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arg_indice(desc: *const i64, hash: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arg_index(desc: *const i64, hash: i64) -> i64 {
     // SAFETY: header and names of the constant descriptor.
     let nnom = usize::try_from(unsafe { *desc.add(1) }).unwrap_or(0);
     let passed = unsafe { std::slice::from_raw_parts(desc.add(2), nnom) };
@@ -189,12 +189,12 @@ fn list_length(h: i64) -> usize {
 /// names in a second list, already produced by the Dart patch of `Function.apply`.
 /// Rebuilds the uniform closure ABI, including the names descriptor.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Function_apply(arguments: i64, names: i64) -> i64 {
+pub extern "C" fn dartforge_native_Function_apply(arguments: i64, names: i64) -> i64 {
     with_roots(&[arguments, names], || {
         let count = list_length(arguments);
         let named = list_length(names);
         if count == 0 || named >= count {
-            dartforge_nsm_chamada();
+            dartforge_nsm_call();
             return 0;
         }
         // The elements in a `Ref` position (the lists are the patch's general
@@ -215,7 +215,7 @@ pub extern "C" fn dartforge_nativo_Function_apply(arguments: i64, names: i64) ->
         let mut desc = vec![(count - 1 - named) as i64, named as i64];
         for name in name_list {
             let Some(name) = name else {
-                dartforge_nsm_chamada();
+                dartforge_nsm_call();
                 return 0;
             };
             // The same 64-bit FNV-1a as the descriptor emitted in `lower/closures.rs`.
@@ -285,7 +285,7 @@ mod function_apply_tests {
                                 heap.list_set(l, 1, Value::Ref(b));
                                 l
                             });
-                            assert_eq!(dartforge_nativo_Function_apply(arguments, names), 1);
+                            assert_eq!(dartforge_native_Function_apply(arguments, names), 1);
                         });
                     });
                 });

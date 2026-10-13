@@ -236,7 +236,7 @@ Natives: `AbstractType_equality`, `AbstractType_getHashCode`,
   `_FunctionType`, `_RecordType`… só têm factory `_uninstantiable` (lança
   `"Unreachable"`); quem as instancia é a VM.
 * No nativo, `runtimeType` e literais de tipo produzem o objeto canônico do
-  runtime (`dartforge_rti_objeto_tipo`, `crates/runtime/src/tipos.rs:1086-1110`),
+  runtime (`dartforge_rti_object_type`, `crates/runtime/src/tipos.rs:1086-1110`),
   de uma classe `_Type` própria com `==` e `toString` gerados pelo compilador
   (`crates/emit_native/src/lower/rti.rs:1052-1090`); `hashCode` é o de
   `Object` (o objeto é canônico por tipo).
@@ -264,7 +264,7 @@ Natives: `Object_instanceOf`, `Object_simpleInstanceOf` (`nativos.rs:549`,
   código não otimizado da VM.
 * `is`/`as` são baixados pela RTI do nativo (`crates/emit_native/src/lower/rti.rs`),
   e a falha cria o `_TypeError` da fonte por
-  `dartforge_type_error_com_mensagem` (`crates/runtime/src/tipos.rs:1121-1130`;
+  `dartforge_type_error_with_message` (`crates/runtime/src/tipos.rs:1121-1130`;
   ajudante `_dartforgeErroDeTipo`, `native_sdk/core/identical_patch.dart:21`).
 
 ## 4. Inalcançáveis

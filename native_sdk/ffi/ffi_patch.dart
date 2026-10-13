@@ -91,12 +91,12 @@ int sizeOf<T extends SizedNativeType>() => _tamanhoDe(T);
 
 /// O tamanho em bytes do tipo nativo `tipo` na ABI do alvo (primitivos,
 /// `Pointer`, inteiros específicos da ABI, structs e unions do programa).
-@pragma("vm:external-name", "DartForge_ffi_tamanho")
+@pragma("vm:external-name", "DartForge_ffi_size_of")
 external int _tamanhoDe(Type tipo);
 
 /// A função Dart que chama a função nativa em `endereco` pela assinatura
 /// nativa `assinatura`, com o tipo Dart `tipo` (`asFunction`).
-@pragma("vm:external-name", "DartForge_ffi_funcao")
+@pragma("vm:external-name", "DartForge_ffi_function")
 external Object _funcaoNativa(int endereco, Type assinatura, Type tipo);
 
 Pointer<T> _fromAddress<T extends NativeType>(int ptr) =>
@@ -239,14 +239,14 @@ const int _modoPersistente = 0;
 const int _modoLocal = 1;
 const int _modoOuvinte = 2;
 
-@pragma("vm:external-name", "DartForge_ffi_callback_novo")
+@pragma("vm:external-name", "DartForge_ffi_callback_new")
 external int _callbackNovo(Type assinatura, Object? funcao,
     Object? excepcional, int modo, int porta);
 
-@pragma("vm:external-name", "DartForge_ffi_callback_apagar")
+@pragma("vm:external-name", "DartForge_ffi_callback_delete")
 external void _callbackApagar(int endereco);
 
-@pragma("vm:external-name", "DartForge_ffi_callback_manter")
+@pragma("vm:external-name", "DartForge_ffi_callback_keep")
 external void _callbackManter(int delta);
 
 @pragma("vm:external-name", "DartForge_ffi_callback_args")
@@ -482,33 +482,33 @@ final class _FfiAbiSpecificMapping {
 /// Copies data byte-wise from [source] to [target].
 ///
 /// [source] and [target] should either be [Pointer] or [TypedData].
-@pragma("vm:external-name", "DartForge_ffi_copiar")
+@pragma("vm:external-name", "DartForge_ffi_copy")
 external void _memCopy(Object target, int targetOffsetInBytes, Object source,
     int sourceOffsetInBytes, int lengthInBytes);
 
 // The following functions are implemented in the method recognizer.
-@pragma("vm:external-name", "DartForge_ffi_carregar_i8")
+@pragma("vm:external-name", "DartForge_ffi_load_i8")
 external int _loadInt8(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_i16")
+@pragma("vm:external-name", "DartForge_ffi_load_i16")
 external int _loadInt16(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_i32")
+@pragma("vm:external-name", "DartForge_ffi_load_i32")
 external int _loadInt32(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_i64")
+@pragma("vm:external-name", "DartForge_ffi_load_i64")
 external int _loadInt64(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_u8")
+@pragma("vm:external-name", "DartForge_ffi_load_u8")
 external int _loadUint8(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_u16")
+@pragma("vm:external-name", "DartForge_ffi_load_u16")
 external int _loadUint16(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_u32")
+@pragma("vm:external-name", "DartForge_ffi_load_u32")
 external int _loadUint32(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_u64")
+@pragma("vm:external-name", "DartForge_ffi_load_u64")
 external int _loadUint64(Object typedDataBase, int offsetInBytes);
 
 @pragma("vm:prefer-inline")
@@ -522,16 +522,16 @@ int _loadAbiSpecificIntAtIndex<T extends AbiSpecificInteger>(
     _carregarAbi(
         T, typedDataBase, offsetInBytes + index * _tamanhoDe(T));
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_f32")
+@pragma("vm:external-name", "DartForge_ffi_load_f32")
 external double _loadFloat(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_f64")
+@pragma("vm:external-name", "DartForge_ffi_load_f64")
 external double _loadDouble(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_f32")
+@pragma("vm:external-name", "DartForge_ffi_load_f32")
 external double _loadFloatUnaligned(Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_carregar_f64")
+@pragma("vm:external-name", "DartForge_ffi_load_f64")
 external double _loadDoubleUnaligned(Object typedDataBase, int offsetInBytes);
 
 // Os alvos do nativo são de 64 bits: um ponteiro é um `Int64`.
@@ -539,28 +539,28 @@ Pointer<S> _loadPointer<S extends NativeType>(
         Object typedDataBase, int offsetInBytes) =>
     new Pointer<S>._comEndereco(_loadInt64(typedDataBase, offsetInBytes));
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_i8")
+@pragma("vm:external-name", "DartForge_ffi_store_i8")
 external void _storeInt8(Object typedDataBase, int offsetInBytes, int value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_i16")
+@pragma("vm:external-name", "DartForge_ffi_store_i16")
 external void _storeInt16(Object typedDataBase, int offsetInBytes, int value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_i32")
+@pragma("vm:external-name", "DartForge_ffi_store_i32")
 external void _storeInt32(Object typedDataBase, int offsetInBytes, int value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_i64")
+@pragma("vm:external-name", "DartForge_ffi_store_i64")
 external void _storeInt64(Object typedDataBase, int offsetInBytes, int value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_u8")
+@pragma("vm:external-name", "DartForge_ffi_store_u8")
 external void _storeUint8(Object typedDataBase, int offsetInBytes, int value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_u16")
+@pragma("vm:external-name", "DartForge_ffi_store_u16")
 external void _storeUint16(Object typedDataBase, int offsetInBytes, int value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_u32")
+@pragma("vm:external-name", "DartForge_ffi_store_u32")
 external void _storeUint32(Object typedDataBase, int offsetInBytes, int value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_u64")
+@pragma("vm:external-name", "DartForge_ffi_store_u64")
 external void _storeUint64(Object typedDataBase, int offsetInBytes, int value);
 
 @pragma("vm:prefer-inline")
@@ -580,16 +580,16 @@ int _storeAbiSpecificIntAtIndex<T extends AbiSpecificInteger>(
 // O inteiro de largura dependente da ABI: o runtime resolve a largura e o
 // sinal pela classe (registrada pelo compilador a partir do
 // `@AbiSpecificIntegerMapping` do alvo).
-@pragma("vm:external-name", "DartForge_ffi_carregar_abi")
+@pragma("vm:external-name", "DartForge_ffi_load_abi")
 external int _carregarAbi(Type tipo, Object typedDataBase, int offsetInBytes);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_abi")
+@pragma("vm:external-name", "DartForge_ffi_store_abi")
 external void _gravarAbi(
     Type tipo, Object typedDataBase, int offsetInBytes, int value);
 
 /// A instância da struct/union `tipo` sobre `base` + `deslocamento` (o
 /// `S#fromTypedDataBase` que o transformador de FFI da VM gera).
-@pragma("vm:external-name", "DartForge_ffi_composto_de_tipo")
+@pragma("vm:external-name", "DartForge_ffi_compound_of_type")
 external Object _compostoDeTipo(Type tipo, Object base, int deslocamento);
 
 /// Copia o composto `valor` (por valor) para `base` + `deslocamento`.
@@ -607,19 +607,19 @@ Array<Never> _dartforgeArray(Object base, int deslocamento, int tamanho,
 Pointer<Never> _dartforgePonteiro(int endereco) =>
     new Pointer<Never>._comEndereco(endereco);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_f32")
+@pragma("vm:external-name", "DartForge_ffi_store_f32")
 external void _storeFloat(
     Object typedDataBase, int offsetInBytes, double value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_f64")
+@pragma("vm:external-name", "DartForge_ffi_store_f64")
 external void _storeDouble(
     Object typedDataBase, int offsetInBytes, double value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_f32")
+@pragma("vm:external-name", "DartForge_ffi_store_f32")
 external void _storeFloatUnaligned(
     Object typedDataBase, int offsetInBytes, double value);
 
-@pragma("vm:external-name", "DartForge_ffi_gravar_f64")
+@pragma("vm:external-name", "DartForge_ffi_store_f64")
 external void _storeDoubleUnaligned(
     Object typedDataBase, int offsetInBytes, double value);
 

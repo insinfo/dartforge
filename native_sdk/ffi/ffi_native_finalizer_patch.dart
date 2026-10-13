@@ -65,9 +65,9 @@ void _attachAsTypedListFinalizer(
       pointer.address, null, externalSize ?? 0);
 }
 
-@pragma("vm:external-name", "DartForge_finalizador_anexar_nativo")
+@pragma("vm:external-name", "DartForge_finalizer_attach_native")
 external void _anexarFinalizadorNativo(
     Object dono, Object valor, int funcao, int token, Object? desanexo, int tamanhoExterno);
 
-@pragma("vm:external-name", "DartForge_finalizador_desanexar")
+@pragma("vm:external-name", "DartForge_finalizer_detach")
 external void _desanexarFinalizadorNativo(Object dono, Object desanexo);

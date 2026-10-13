@@ -212,7 +212,7 @@ fn main() -> Result<(), String> {
         Some(other) => return Err(format!("incompatible control/path: {other}")),
     }
     let preload = if error {
-        "  call void @dartforge_arc_lancar_ref_v1(i64 85)\n"
+        "  call void @dartforge_arc_throw_ref_v1(i64 85)\n"
     } else {
         ""
     };
@@ -222,7 +222,7 @@ fn main() -> Result<(), String> {
 @prova.endereco = internal global i64 0
 @prova.iteracoes = internal global i64 0
 define void @prova_salvar(i64 %obj) {
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
   %owned = icmp eq i8 %estado, 3
   br i1 %owned, label %salvar, label %falha
 salvar:
@@ -237,7 +237,7 @@ falha:
 }
 define void @prova_sem_owner(i64 %ignorado) {
   %obj = load i64, ptr @prova.endereco
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
   %bit = and i8 %estado, 2
   %solto = icmp eq i8 %bit, 0
   br i1 %solto, label %passou, label %falha
@@ -262,7 +262,7 @@ conferir:
 identidade:
   br i1 %quer_erro, label %capturar, label %limpar
 capturar:
-  %excecao = call i64 @dartforge_arc_excecao_owned_v1()
+  %excecao = call i64 @dartforge_arc_exception_owned_v1()
   %mesma = icmp eq i64 %excecao, 85
   call void @dartforge_arc_release(i64 %excecao)
   br i1 %mesma, label %limpar, label %falha
@@ -270,7 +270,7 @@ limpar:
   call void @dartforge_exception_clear()
   call void @dartforge_arc_collect()
   %obj = load i64, ptr @prova.endereco
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %obj)
   %morto = icmp eq i8 %estado, 0
   br i1 %morto, label %passou, label %falha
 falha:

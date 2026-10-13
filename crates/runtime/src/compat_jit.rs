@@ -57,17 +57,17 @@ fn type_object_class(tipo: i64) -> Option<i64> {
 /// `DartForge_mirrors_uri`: the URI of the library of the `Type` object's class,
 /// or `null` when the type is not a class type (or the class was not registered).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_mirrors_uri(tipo: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_mirrors_uri(tipo: i64) -> i64 {
     match type_object_class(tipo).and_then(|c| CLASS_LIBRARIES.with(|m| m.borrow().get(&c).cloned())) {
         Some((uri, _)) => HEAP.with(|h| h.borrow_mut().allocate_str(&uri)),
         None => 0,
     }
 }
 
-/// `DartForge_mirrors_nome`: the declared name of the `Type` object's class, or
-/// `null` (see [`dartforge_nativo_DartForge_mirrors_uri`]).
+/// `DartForge_mirrors_name`: the declared name of the `Type` object's class, or
+/// `null` (see [`dartforge_native_DartForge_mirrors_uri`]).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_mirrors_nome(tipo: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_mirrors_name(tipo: i64) -> i64 {
     match type_object_class(tipo).and_then(|c| CLASS_LIBRARIES.with(|m| m.borrow().get(&c).cloned())) {
         Some((_, name)) => HEAP.with(|h| h.borrow_mut().allocate_str(&name)),
         None => 0,
@@ -77,17 +77,17 @@ pub extern "C" fn dartforge_nativo_DartForge_mirrors_nome(tipo: i64) -> i64 {
 /// `DartForge_package_config`: the path of the process's `package_config.json`
 /// (`DARTFORGE_PACKAGE_CONFIG`), or `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_package_config() -> i64 {
+pub extern "C" fn dartforge_native_DartForge_package_config() -> i64 {
     match std::env::var("DARTFORGE_PACKAGE_CONFIG") {
         Ok(c) if !c.is_empty() => HEAP.with(|h| h.borrow_mut().allocate_str(&c)),
         _ => 0,
     }
 }
 
-/// `DartForge_ler_texto`: the UTF-8 content of the file `file_path`, or `null`
+/// `DartForge_read_text`: the UTF-8 content of the file `file_path`, or `null`
 /// when it cannot be read.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_ler_texto(file_path: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_read_text(file_path: i64) -> i64 {
     let file_path = HEAP.with(|h| h.borrow().text(file_path).map(|t| t.para_string()).unwrap_or_default());
     match std::fs::read_to_string(&file_path) {
         Ok(t) => HEAP.with(|h| h.borrow_mut().allocate_str(&t)),

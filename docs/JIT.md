@@ -127,7 +127,7 @@ O arquivo é compilado de duas formas (`crates/runtime/src/lib.rs`):
 1. **pelo AOT**, como texto (`RUNTIME_MAIN`), com `rustc -O` avulso, virando a
    `.lib` que o executável liga. Com o `main` C que chama `@dartforge_entry`;
 2. **pelo crate `dartforge-runtime`**, como o módulo `dartforge_runtime::abi`,
-   que o JIT usa. O `build.rs` do crate liga a cfg `dartforge_runtime_embutido`,
+   que o JIT usa. O `build.rs` do crate liga a cfg `dartforge_runtime_embedded`,
    que tira o `main` C e a declaração de `dartforge_entry` (colidiriam com o
    `main` de qualquer binário Rust). Ele também gera `dartforge_runtime::simbolos`:
    a tabela `(nome, endereço)` de todo `#[unsafe(no_mangle)]` do arquivo.
@@ -478,8 +478,8 @@ novo (R1b de `docs/PESQUISA-HOT-RELOAD.md`, `crates/jit/src/vivo.rs`):
    geração nova em memória — tudo com o programa rodando;
 3. a publicação (a cópia dos estáticos, a troca das células das entradas
    estáveis e o registro das tabelas de métodos e das regras da RTI da geração
-   nova, `dartforge_publicar_geracao`) é entregue ao isolado principal como um
-   pedido no ponto seguro (`dartforge_pedir_no_ponto_seguro`, `portas.rs`): o
+   nova, `dartforge_publish_generation`) é entregue ao isolado principal como um
+   pedido no ponto seguro (`dartforge_request_at_safepoint`, `portas.rs`): o
    laço de eventos o atende **entre dois eventos**, quando nenhum quadro Dart
    está na pilha — o ponto em que a VM comita uma recarga. Um isolado ocioso
    (um servidor esperando conexão) acorda para ele;
@@ -509,13 +509,13 @@ estado. `--preservar-estado`, a forma antiga, é aceito e não muda nada.
 Custo medido (programa com timer e `async`, Linux x86-64): emissão ~90 ms e
 recarga ~35 ms (análise 7, ligação 24, espera do ponto seguro ~1). O registro
 da RTI de todas as classes vai numa tabela constante lida pelo runtime
-(`dartforge_rti_iniciar_tabela`), e não em código: antes eram ~13 mil
+(`dartforge_rti_init_table`), e não em código: antes eram ~13 mil
 instruções por programa, 0,7 s de ligação a cada recarga e a cada `run`.
 
 Os isolados criados por `Isolate.spawn` param também: no ponto seguro do
 principal, a publicação pede a cada isolado vivo que pare no ponto seguro
-dele (`dartforge_parar_isolados`), troca o código com todos parados e os
-libera (`dartforge_liberar_isolados`); cada um refaz os próprios registros da
+dele (`dartforge_stop_isolates`), troca o código com todos parados e os
+libera (`dartforge_release_isolates`); cada um refaz os próprios registros da
 geração nova antes de continuar.
 
 Limite: um trecho síncrono longo, em qualquer isolado, adia a publicação até
@@ -523,7 +523,7 @@ o próximo evento dele (a CLI avisa depois de 2 s). O controle do isolado não
 espera: cada volta de laço tem um ponto seguro (J01) — o código lê, atômico, o
 pedido de interrupção que a porta de controle liga
 (`Contexto::interrupcao`, deslocamento 32) e, com pedido, chama
-`dartforge_ponto_seguro`, que atende `ping`, pausa, ouvintes e `kill`; um
+`dartforge_safepoint`, que atende `ping`, pausa, ouvintes e `kill`; um
 `kill` imediato desenrola o isolado ocupado (sem rodar `finally`, como o
 `UnwindError` da VM) e os outros seguem (`corpus/native/35_interromper_laco.dart`).
 A publicação de uma geração **não** é atendida nesse ponto: a área de globais
@@ -553,7 +553,7 @@ Uma geração é descarregada (o `ResourceTracker` dela removido) na fase
 
 * **nenhum quadro** dela existe: a publicação roda sem programa em execução ou
   no ponto seguro de evento do isolado principal, com os demais isolados
-  parados no deles (`dartforge_parar_isolados`) — nenhum tem quadro Dart na
+  parados no deles (`dartforge_stop_isolates`) — nenhum tem quadro Dart na
   pilha (o ponto seguro das voltas de laço, J01, não atende publicação);
 * **nenhum endereço** dela está guardado: toda referência a função do
   programa — chamada, closure, tear-off, tabela de métodos, cache de ponto de
@@ -590,10 +590,10 @@ biblioteca do SDK, que fica carregada o processo inteiro); nos módulos do
 programa no JIT o literal é internado no heap (`dartforge_string_new`, com o
 cache no ponto de uso, raiz em `Heap::literais`) e os caches da área são
 esvaziados em cada publicação. As caixas estáticas de `bool`
-(`dartforge_verdadeiro`, `dartforge_falso`) são do runtime, que também vive o
+(`dartforge_true`, `dartforge_false`) são do runtime, que também vive o
 processo inteiro. Os cids das classes do runtime (1–127) são fixos e iguais em
 toda geração; uma migração de layout (J03) nunca os inclui — o runtime recusa
-um plano com cid < 128 (`seletores.rs`, `dartforge_definir_migracao`).
+um plano com cid < 128 (`seletores.rs`, `dartforge_set_migration`).
 
 ### Recarga proporcional à edição (J04)
 
@@ -618,7 +618,7 @@ apontando para a implementação viva.
   tabelas de métodos: o próximo uso de cada um busca a entrada vigente — do
   código novo e do que continua de uma geração anterior. O runtime aceita o
   descritor de área de uma geração anterior como prefixo do layout vigente e
-  devolve a mesma área, então o `df.obter_area` de uma função mantida lê os
+  devolve a mesma área, então o `df.get_area` de uma função mantida lê os
   mesmos estáticos. O descritor e o id da área (`@df.area`, `@df.area_id`)
   são infraestrutura da geração e não entram na impressão digital.
 * **É compilada de novo** a função que alcança uma global mutável do módulo,
@@ -664,8 +664,8 @@ Só mudança de corpo com contrato compatível. O resto é recusado na etapa
 | --- | --- |
 | Assinatura alterada | aceita (J03): a função ganha outra entrada estável, `nome$sigK` — a mesma para a mesma assinatura nas gerações seguintes —, e o código novo a chama (renomear a definição leva todos os usos dela no módulo novo: chamadas, tabelas de métodos, closures); a entrada original fica com o corpo antigo, como uma função que sumiu (um tear-off antigo a chama), e voltar à assinatura original reusa a entrada original (`assinatura_mudada_ganha_entrada_nova`, `cli_recarrega_com_assinatura_mudada`). *Histórico (até 2026-09-27):* recusada com `a assinatura de df_fn_0 mudou de i64 () para i64 (i64); …`. |
 | Função que desaparece | aceita: a função some do código novo e conserva o corpo antigo, que só uma closure ou um tear-off antigo ainda alcança, como na VM (`crates/jit/src/reload.rs:1035-1039`). *Histórico (até 2026-09-27):* era recusada com `a função df_fn_0 existe na versão em execução e não existe no código novo; …` |
-| Classe inserida, removida ou reordenada | aceita (J03): a geração nova dá o mesmo id à mesma classe (`; df.classe <id> <biblioteca> <classe>` no IR da geração viva, `Context::com_ids_anteriores`) e ids novos às classes novas; os objetos vivos continuam com o id deles (`cli_recarrega_com_classe_inserida`). A mensagem `a classe de id 7 era A e passou a ser B …` só aparece se a numeração divergir. *Histórico (até 2026-09-27):* recusada, porque os ids eram a ordem dos nomes. |
-| Campos de classe | aceita quando dá para migrar (J03): o IR descreve os campos de cada classe pelo nome (`; df.campos <id> <base> nome:flags:tipo,…`) e, na publicação — todos os isolados parados no ponto seguro de evento —, cada objeto vivo passa ao layout novo pelo nome (`crates/jit/src/migracao.rs`, `Heap::migrar_instancias`); campo removido some, campo novo anulável fica `null`, campo novo `late` fica não inicializado (a primeira leitura roda o inicializador, como na VM). Recusados, com a mensagem exata: campo novo não anulável e não `late` (`o campo novo \`z\` de a classe C (int) não é anulável nem \`late\`: os objetos vivos não têm valor para ele …`), campo que mudou de tipo ou de `late`, campos de enum. `cli_recarrega_com_campos_mudados`. |
+| Classe inserida, removida ou reordenada | aceita (J03): a geração nova dá o mesmo id à mesma classe (`; df.class <id> <biblioteca> <classe>` no IR da geração viva, `Context::com_ids_anteriores`) e ids novos às classes novas; os objetos vivos continuam com o id deles (`cli_recarrega_com_classe_inserida`). A mensagem `a classe de id 7 era A e passou a ser B …` só aparece se a numeração divergir. *Histórico (até 2026-09-27):* recusada, porque os ids eram a ordem dos nomes. |
+| Campos de classe | aceita quando dá para migrar (J03): o IR descreve os campos de cada classe pelo nome (`; df.fields <id> <base> nome:flags:tipo,…`) e, na publicação — todos os isolados parados no ponto seguro de evento —, cada objeto vivo passa ao layout novo pelo nome (`crates/jit/src/migracao.rs`, `Heap::migrar_instancias`); campo removido some, campo novo anulável fica `null`, campo novo `late` fica não inicializado (a primeira leitura roda o inicializador, como na VM). Recusados, com a mensagem exata: campo novo não anulável e não `late` (`o campo novo \`z\` de a classe C (int) não é anulável nem \`late\`: os objetos vivos não têm valor para ele …`), campo que mudou de tipo ou de `late`, campos de enum. `cli_recarrega_com_campos_mudados`. |
 | Referência não resolvível | `o código novo chama sqlite3_open, que esta sessão não define; o JIT publica apenas os 18 símbolos de runtime e as entradas estáveis já criadas` |
 | Variádica | `a função df_fn_0 é variádica, e o contrato do emissor nativo não prevê variádicas` |
 | Sessão envenenada (etapa `poisoned`) | `a promoção do módulo a recarregável falhou em '<etapa>' (<detalhe>); os nomes estáveis já haviam sido descarregados e esta sessão precisa ser reiniciada` |

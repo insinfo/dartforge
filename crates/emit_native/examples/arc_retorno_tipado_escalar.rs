@@ -20,10 +20,10 @@ fn module(ty: Type, value: Constant, abi: i64) -> Result<Module, String> {
         Function { symbol: "invocar".into(), name: "invocar".into(), debug_info: None,
             params: vec![(ValueId(0), "closure".into(), Type::Ref)], return_ty: ty,
             blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                (ValueId(1), Instruction::CallRuntime { name: "dartforge_arc_alvo_tipada_v1".into(), args: vec![
+                (ValueId(1), Instruction::CallRuntime { name: "dartforge_arc_typed_target_v1".into(), args: vec![
                     (Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(abi)), Type::I64),
                 ], ret_ty: Type::I64 }, Type::I64),
-                (ValueId(2), Instruction::CallRuntime { name: "dartforge_arc_contexto_closure_v1".into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::Ref }, Type::Ref),
+                (ValueId(2), Instruction::CallRuntime { name: "dartforge_arc_closure_context_v1".into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::Ref }, Type::Ref),
                 (ValueId(3), Instruction::TypedCall { alvo: Operand::Val(ValueId(1)), args: vec![(Operand::Val(ValueId(2)), Type::Ref)], ret: ty }, ty),
                 (ValueId(4), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
                 (ValueId(5), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(4)), Operand::Constant(Constant::Int(0))), Type::I1),
@@ -64,13 +64,13 @@ fn main() -> Result<(), String> {
         ir = ir.replace(alvo, "");
     }
     ir.push_str("declare void @dartforge_print_handle(i64)\ndefine void @prova() {\n");
-    if !arc { ir.push_str(&format!("  %pc = ptrtoint ptr @corpo to i64\n  %versao = call i64 @dartforge_arc_registrar_tipada_v1(i64 %pc, i64 {abi})\n")); }
-    ir.push_str(&format!("  %closure = call i64 @capturar()\n  %contexto = call i64 @dartforge_arc_contexto_closure_v1(i64 %closure)\n  %valor = call {} @invocar(i64 %closure)\n{check}", ty.llvm_ir()));
+    if !arc { ir.push_str(&format!("  %pc = ptrtoint ptr @corpo to i64\n  %versao = call i64 @dartforge_arc_register_typed_v1(i64 %pc, i64 {abi})\n")); }
+    ir.push_str(&format!("  %closure = call i64 @capturar()\n  %contexto = call i64 @dartforge_arc_closure_context_v1(i64 %closure)\n  %valor = call {} @invocar(i64 %closure)\n{check}", ty.llvm_ir()));
     ir.push_str(r#"  br i1 %ok, label %liberar, label %falha
 liberar:
   call void @dartforge_arc_release(i64 %closure)
   call void @dartforge_arc_collect()
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %contexto)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %contexto)
   %morto = icmp eq i8 %estado, 0
   br i1 %morto, label %passou, label %falha
 falha:

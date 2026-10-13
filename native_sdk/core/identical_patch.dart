@@ -3,7 +3,7 @@
 // com que o runtime do DartForge constrói os erros que ele mesmo lança
 // (cast que falha, `assert`, faixa, `!` sobre null) como os objetos da fonte
 // — o registro de `dart:core` entrega os endereços delas ao runtime
-// (`dartforge_registrar_ajudante`).
+// (`dartforge_register_helper`).
 
 part of "core_patch.dart";
 

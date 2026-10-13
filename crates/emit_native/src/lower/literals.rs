@@ -64,7 +64,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Appends a value to the list or to the set. The list is the `_GrowableList`
     /// that the literal just created (still without the reified `E`, written at the end
     /// by whoever lowers the literal): the runtime's direct `add`
-    /// (`dartforge_lista_acrescentar`, the value in a `Ref` position), without the
+    /// (`dartforge_list_append`, the value in a `Ref` position), without the
     /// dispatch nor the covariance check, which the static type of the
     /// element already guarantees. The set uses the `add` of `_Set`.
     fn append(&mut self, alvo: Operand, typ: Collection, v: Operand) {
@@ -75,7 +75,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let v = self.coerce(v, Type::Ref);
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_lista_acrescentar".to_string(),
+                name: "dartforge_list_append".to_string(),
                 args: vec![(alvo, Type::Ref), (v, Type::Ref)],
                 ret_ty: Type::Ref,
             },
@@ -115,7 +115,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// A large literal of only strings, bools and null (the name and entity
     /// tables of real packages) becomes DATA: the elements in a byte
     /// table that the runtime converts into a list
-    /// (`dartforge_lista_de_tabela`), and a Dart support function that copies it into the
+    /// (`dartforge_list_from_table`), and a Dart support function that copies it into the
     /// collection — instead of one `add`/`[]=` call per element, which
     /// made the getter of a 2-thousand-entry constant a function of 50
     /// thousand instructions. Numbers come in through the static type of the literal
@@ -127,7 +127,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// another constant (`C(…)`, another literal, `E.value`) comes in as `g` and the
     /// index of its canonical getter (`dfc.<hash>.get`) in a vector of
     /// addresses (`FunctionTable`), which the runtime calls
-    /// (`dartforge_lista_de_tabela_g`): large constant maps of
+    /// (`dartforge_list_from_table_g`): large constant maps of
     /// constant values (`{'a': C(1), …}`) did one `[]=` by selector per
     /// entry — 30 MB of IR in 234 getters in new_sali/backend
     /// (docs/NATIVO-PRODUCAO-GRANDE.md §6.5).
@@ -235,7 +235,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let values = if getters.is_empty() {
             self.emit(
                 Instruction::CallRuntime {
-                    name: "dartforge_lista_de_tabela".to_string(),
+                    name: "dartforge_list_from_table".to_string(),
                     args: vec![(data, Type::Ptr), size],
                     ret_ty: Type::Ref,
                 },
@@ -245,7 +245,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let fns = self.emit(Instruction::FunctionTable(getters), Type::Ptr);
             self.emit_call_with_check(
                 Instruction::CallRuntime {
-                    name: "dartforge_lista_de_tabela_g".to_string(),
+                    name: "dartforge_list_from_table_g".to_string(),
                     args: vec![(data, Type::Ptr), size, (fns, Type::Ptr)],
                     ret_ty: Type::Ref,
                 },

@@ -78,7 +78,7 @@ pub fn compile_and_link(
     let runtime = RuntimeCache::get_or_compile()?;
     // A program with the source SDK (P5c): the entry calls the registration of the
     // SDK libraries, which live in the cached objects.
-    let sdk = if llvm_ir.contains("declare void @df.registrar.") {
+    let sdk = if llvm_ir.contains("declare void @df.register.") {
         let dir = crate::sdk_do_dart()?;
         let profile = if options.optimize {
             crate::sdk_modulo::SdkProfile::Production

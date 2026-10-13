@@ -93,65 +93,65 @@ pub const EXTERNS: &[Extern] = &[
         // `_StackTrace.toString` (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
         // §13.14): the stored text, or the addresses of the `throw`
         // symbolized now (allocates the text).
-        decl: "declare i64 @dartforge_rastro_texto(i64)",
+        decl: "declare i64 @dartforge_stack_trace_string(i64)",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
         // The registration of the stack trace table of the image (§13.14): neither allocates nor
         // throws.
-        decl: "declare void @dartforge_registrar_rastro(ptr, ptr)",
+        decl: "declare void @dartforge_register_stack_trace(ptr, ptr)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // The position of a `dart:async` field that the stack trace walks
         // (§13.14): neither allocates on the collector heap nor throws.
-        decl: "declare void @dartforge_registrar_campo_do_rastro(i64, ptr, i64, i64)",
+        decl: "declare void @dartforge_register_stack_trace_field(i64, ptr, i64, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // The tear-off entries that the stream branches of the stack trace
         // recognize (§13.14). Neither allocates on the collector heap nor throws.
-        decl: "declare void @dartforge_registrar_tearoff_do_rastro(ptr, i64)",
+        decl: "declare void @dartforge_register_stack_trace_tearoff(ptr, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // The stack trace stack (§13.14): the frame of an `async` body or the
         // listener of `handleValue`, pushed at the entry; returns the
         // depth. Neither allocates on the collector heap nor throws.
-        decl: "declare i64 @dartforge_rastro_entrar(i64, i64)",
+        decl: "declare i64 @dartforge_stack_trace_enter(i64, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // The exit: cuts the stack trace stack at the depth of the entry.
-        decl: "declare void @dartforge_rastro_sair(i64)",
+        decl: "declare void @dartforge_stack_trace_exit(i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // The write barrier (`llvm/mod.rs`, `emit_barrier`): remembers the
         // old object; neither allocates nor throws.
-        decl: "declare void @dartforge_lembrar(i64) nounwind",
+        decl: "declare void @dartforge_remember(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // ARC memory (docs/ARC-IMPLEMENTACAO.md): turns ARC on at the entry
         // (a full tracing collection and the registration of the live objects).
-        decl: "declare void @dartforge_memoria_arc_v1()",
+        decl: "declare void @dartforge_memory_arc_v1()",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
         // The counted write of a `Ref` into a word of a `REFS` body (the
         // list element under ARC): neither allocates nor throws.
-        decl: "declare void @dartforge_arc_gravar_ref(i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_write_ref(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // Pure ARC: the references written inline into a freshly allocated
         // object start counting. Neither allocates nor throws.
-        decl: "declare void @dartforge_arc_inicial(i64) nounwind",
+        decl: "declare void @dartforge_arc_initial(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_global_receber_v1(i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_global_receive_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -159,47 +159,47 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_ler_campo_escalar_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_read_field_scalar_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_registrar_retorno_owned_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_register_return_owned_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_registrar_uniforme_owned_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_register_uniform_owned_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_registrar_tipada_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_register_typed_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_retirar_tipada_v1(i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_take_typed_v1(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_alvo_tipada_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_typed_target_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_invocar_uniforme_v1(i64, i64, i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_invoke_uniform_v1(i64, i64, i64, i64) nounwind",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_invocar_closure_uniforme_v1(i64, i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_invoke_uniform_closure_v1(i64, i64, i64) nounwind",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare void @dartforge_arc_retirar_retorno_owned_v1(i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_take_return_owned_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_escopo_nativo_abrir_v1() nounwind",
+        decl: "declare i64 @dartforge_arc_native_scope_open_v1() nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_escopo_nativo_fechar_v1(i64) nounwind",
+        decl: "declare void @dartforge_arc_native_scope_close_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -207,11 +207,11 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_env_escalar_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_scalar_env_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_contexto_closure_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_closure_context_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -219,59 +219,59 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_ler_campo_ref_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_read_field_ref_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_ler_campo_late_ref_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_read_field_late_ref_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_armazenamento_ref_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_storage_ref_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_forma_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_shape_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_capacidade_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_capacity_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_lista_gravar_len_v1(i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_list_write_len_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_lista_gravar_bits_v1(i64, i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_list_write_bits_v1(i64, i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_lista_gravar_ref_v1(i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_list_write_ref_v1(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_gravar_dados_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_write_data_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_len_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_len_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_ler_bits_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_read_bits_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_ref_owned_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_ref_owned_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_ref_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_ref_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_argumento_owned_v1(ptr, ptr, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_argument_owned_v1(ptr, ptr, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -283,75 +283,75 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_objeto_owned_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_object_owned_v1(i64, i64) nounwind",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_objeto_owned_t_v1(i64, i64, ptr) nounwind",
+        decl: "declare i64 @dartforge_arc_object_owned_t_v1(i64, i64, ptr) nounwind",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_gravar_campo_escalar_v1(i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_write_field_scalar_v1(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_gravar_campo_escalar_conferido_v1(i64, i64, i64, ptr, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_write_field_scalar_checked_v1(i64, i64, i64, ptr, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_ler_campo_escalar_conferido_v1(i64, i64, ptr, i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_read_field_scalar_checked_v1(i64, i64, ptr, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_gravar_campo_ref_conferido_v1(i64, i64, i64, ptr, i64) nounwind",
+        decl: "declare void @dartforge_arc_write_field_ref_checked_v1(i64, i64, i64, ptr, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_gravar_campo_ref_v1(i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_write_field_ref_v1(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_excecao_owned_v1() nounwind",
+        decl: "declare i64 @dartforge_arc_exception_owned_v1() nounwind",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_rastro_owned_v1() nounwind",
+        decl: "declare i64 @dartforge_arc_stack_trace_owned_v1() nounwind",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_lancar_com_rastro_ref_v1(i64, i64)",
+        decl: "declare void @dartforge_arc_throw_with_stack_trace_ref_v1(i64, i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_lancar_ref_v1(i64)",
+        decl: "declare void @dartforge_arc_throw_ref_v1(i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: false },
     },
     Extern {
-        decl: "declare i8 @dartforge_arc_observar_heap_v1(i64) nounwind",
+        decl: "declare i8 @dartforge_arc_observe_heap_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_quadro_abrir_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_frame_open_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_quadro_carregar_v1(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_frame_load_v1(i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_quadro_receber_v1(i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_frame_receive_v1(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_quadro_copiar_v1(i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_frame_copy_v1(i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_quadro_mover_v1(i64, i64, i64, i64) nounwind",
+        decl: "declare void @dartforge_arc_frame_move_v1(i64, i64, i64, i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_arc_quadro_fechar_v1(i64) nounwind",
+        decl: "declare void @dartforge_arc_frame_close_v1(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -367,7 +367,7 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i8 @dartforge_arc_verificar_abi(i64) nounwind",
+        decl: "declare i8 @dartforge_arc_verify_abi(i64) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -393,48 +393,48 @@ pub const EXTERNS: &[Extern] = &[
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        decl: "declare void @dartforge_marcar_constante(i64, i64)",
+        decl: "declare void @dartforge_mark_constant(i64, i64)",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        decl: "declare i8 @dartforge_exception_capturavel()",
+        decl: "declare i8 @dartforge_exception_catchable()",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_registrar_isolados(ptr, ptr)",
+        decl: "declare void @dartforge_register_isolates(ptr, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_ffi_registrar_tipo(i64, i64)",
+        decl: "declare void @dartforge_ffi_register_type(i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_ffi_registrar_trampolim(ptr, i64, ptr)",
+        decl: "declare void @dartforge_ffi_register_trampoline(ptr, i64, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_endereco_da_closure(i64)",
+        decl: "declare i64 @dartforge_ffi_closure_address(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_endereco_do_ponteiro(i64)",
+        decl: "declare i64 @dartforge_ffi_pointer_address(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_ponteiro_de_retorno(i64, i64)",
+        decl: "declare i64 @dartforge_ffi_return_pointer(i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
         // The same entry under ARC, with a code owner of the result.
-        decl: "declare i64 @dartforge_arc_ffi_ponteiro_de_retorno_owned_v1(i64, i64)",
+        decl: "declare i64 @dartforge_arc_ffi_return_pointer_owned_v1(i64, i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare i64 @dartforge_typed_novo(i64, i64, i64)",
+        decl: "declare i64 @dartforge_typed_new(i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_typed_novo_t(i64, i64, i64, ptr)",
+        decl: "declare i64 @dartforge_typed_new_t(i64, i64, i64, ptr)",
         effects: CONSERVATIVE,
     },
     // The fast path of typed lists (`lower/typed_items.rs`): pure
@@ -447,7 +447,7 @@ pub const EXTERNS: &[Extern] = &[
     // The thread context (`runtime/src/heap.rs`, `Context`): the same
     // address while the thread lives — pure for the code of an activation.
     Extern {
-        decl: "declare ptr @dartforge_contexto() memory(none) nounwind willreturn speculatable",
+        decl: "declare ptr @dartforge_context() memory(none) nounwind willreturn speculatable",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
@@ -466,32 +466,32 @@ pub const EXTERNS: &[Extern] = &[
     },
     // Interpolation with unboxed `int` parts: (kind, bits) pairs.
     Extern {
-        decl: "declare i64 @dartforge_string_juntar_tipado(ptr, i64) nounwind",
+        decl: "declare i64 @dartforge_string_join_typed(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
         // The same interpolation under ARC: roots the parts and hands over an owner.
-        decl: "declare i64 @dartforge_arc_string_juntar_owned_v1(ptr, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_string_join_owned_v1(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     // The ABI of the caller checked against that of the closure (`closures.rs`).
     Extern {
-        decl: "declare i64 @dartforge_closure_tipada(i64, i64) memory(inaccessiblemem: read) nounwind willreturn",
+        decl: "declare i64 @dartforge_closure_typed(i64, i64) memory(inaccessiblemem: read) nounwind willreturn",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     // The fields of inline objects (`GetField`/`SetField`): the address
     // comes from the field vector in the runtime heap, which only changes size through
     // calls without attributes; the fields are memory the module accesses.
     Extern {
-        decl: "declare i64 @dartforge_object_campos(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
+        decl: "declare i64 @dartforge_object_fields(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_view_nova(i64, i64, i64, i64, i64)",
+        decl: "declare i64 @dartforge_view_new(i64, i64, i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_view_nova_t(i64, i64, i64, i64, i64, ptr)",
+        decl: "declare i64 @dartforge_view_new_t(i64, i64, i64, i64, i64, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
@@ -516,13 +516,13 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         // The interrupt request of the isolate (J01): only reads a byte.
-        decl: "declare i8 @dartforge_interrupcao_pendente()",
+        decl: "declare i8 @dartforge_pending_interrupt()",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // The loop safepoint: serves the control; an immediate `kill`
         // leaves the exception pending (not catchable).
-        decl: "declare void @dartforge_ponto_seguro()",
+        decl: "declare void @dartforge_safepoint()",
         effects: CONSERVATIVE,
     },
     Extern {
@@ -697,7 +697,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     // The prologue found the stack at the limit (`Context::limite_da_pilha`).
     Extern {
-        decl: "declare void @dartforge_estouro_de_pilha()",
+        decl: "declare void @dartforge_stack_overflow()",
         effects: CONSERVATIVE,
     },
     Extern {
@@ -717,15 +717,15 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i8 @dartforge_args_casam(ptr, ptr)",
+        decl: "declare i8 @dartforge_args_match(ptr, ptr)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_arg_indice(ptr, i64)",
+        decl: "declare i64 @dartforge_arg_index(ptr, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_nsm_chamada()",
+        decl: "declare void @dartforge_nsm_call()",
         effects: CONSERVATIVE,
     },
     // --- P2 (α): operators over dynamic/num (stopgap until P5) ---
@@ -744,63 +744,63 @@ pub const EXTERNS: &[Extern] = &[
     },
     // --- P5c (δ): source SDK — selectors, method tables, rejections ---
     Extern {
-        decl: "declare ptr @dartforge_seletor(ptr, i64, i64, ptr, i64)",
+        decl: "declare ptr @dartforge_selector(ptr, i64, i64, ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_registrar_metodos(i64, ptr, i64)",
+        decl: "declare void @dartforge_register_methods(i64, ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_membro_recusado(i64)",
+        decl: "declare void @dartforge_member_rejected(i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_registrar_cids(ptr, i64)",
+        decl: "declare void @dartforge_register_cids(ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_registrar_ajudante(ptr, i64, ptr)",
+        decl: "declare void @dartforge_register_helper(ptr, i64, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_registrar_nome_de_argumento(ptr, i64)",
+        decl: "declare void @dartforge_register_argument_name(ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_encaminhar_nsm(i64, i64, i64, i64, i64, i64, i64)",
+        decl: "declare i64 @dartforge_forward_nsm(i64, i64, i64, i64, i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_registrar_versao_do_sdk(ptr, i64)",
+        decl: "declare void @dartforge_register_sdk_version(ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_preparar_embedder()",
+        decl: "declare void @dartforge_prepare_embedder()",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_argumentos_do_main()",
+        decl: "declare i64 @dartforge_main_arguments()",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare ptr @dartforge_area_de_globais(ptr)",
+        decl: "declare ptr @dartforge_globals_area(ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare ptr @dartforge_area_de_globais_id(ptr, ptr)",
+        decl: "declare ptr @dartforge_globals_area_id(ptr, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i32 @dartforge_iniciar(ptr, ptr)",
+        decl: "declare i32 @dartforge_init(ptr, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_rastro_entrada(ptr, i64)",
+        decl: "declare void @dartforge_call_trace_entry(ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_rastro_saida()",
+        decl: "declare void @dartforge_call_trace_exit()",
         effects: CONSERVATIVE,
     },
     Extern {
@@ -808,119 +808,119 @@ pub const EXTERNS: &[Extern] = &[
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        decl: "declare void @dartforge_registrar_tabela(i64, ptr)",
+        decl: "declare void @dartforge_register_table(i64, ptr)",
         effects: CONSERVATIVE,
     },
     // --- P6: event loop and the overlay natives (`events.rs`) ---
     Extern {
         // The only point where the runtime calls Dart code (G8).
-        decl: "declare void @dartforge_laco_de_eventos(ptr)",
+        decl: "declare void @dartforge_event_loop(ptr)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare void @dartforge_nativo_DartForge_scheduleImmediate(i64)",
+        decl: "declare void @dartforge_native_DartForge_scheduleImmediate(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_nativo_DartForge_Timer_novo(i64, i64, i8)",
+        decl: "declare i64 @dartforge_native_DartForge_Timer_new(i64, i64, i8)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_nativo_DartForge_Timer_cancelar(i64)",
+        decl: "declare void @dartforge_native_DartForge_Timer_cancel(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_nativo_Error_throwWithStackTrace(i64, i64)",
+        decl: "declare i64 @dartforge_native_Error_throwWithStackTrace(i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_nativo_Error_trySetStackTrace(i64, i64)",
+        decl: "declare void @dartforge_native_Error_trySetStackTrace(i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
         // Pure leaf (RTI universe, no heap): only aborts with a malformed table.
-        decl: "declare void @dartforge_rti_iniciar_tabela(ptr, i64)",
+        decl: "declare void @dartforge_rti_init_table(ptr, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_lista_de_tabela(ptr, i64)",
+        decl: "declare i64 @dartforge_list_from_table(ptr, i64)",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_lista_de_tabela_g(ptr, i64, ptr)",
+        decl: "declare i64 @dartforge_list_from_table_g(ptr, i64, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_ffi_registrar_composto(i64, i64, i64, i64, i64, i64, i64)",
+        decl: "declare void @dartforge_ffi_register_compound(i64, i64, i64, i64, i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_composto(i64, i64, i64)",
+        decl: "declare i64 @dartforge_ffi_compound(i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_ponteiro_novo(i64)",
+        decl: "declare i64 @dartforge_ffi_pointer_new(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_endereco_do_composto(i64)",
+        decl: "declare i64 @dartforge_ffi_compound_address(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_composto_novo(i64)",
+        decl: "declare i64 @dartforge_ffi_compound_new(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_handles_abrir()",
+        decl: "declare i64 @dartforge_ffi_handles_open()",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_ffi_handles_fechar(i64)",
+        decl: "declare void @dartforge_ffi_handles_close(i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_handle_novo(i64)",
+        decl: "declare i64 @dartforge_ffi_handle_new(i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_objeto_do_handle(i64)",
+        decl: "declare i64 @dartforge_ffi_handle_object(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_handles_fechar_com_objeto(i64, i64)",
+        decl: "declare i64 @dartforge_ffi_handles_close_with_object(i64, i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
         // The same reads under ARC, with a code owner of the object.
-        decl: "declare i64 @dartforge_arc_ffi_handles_fechar_com_objeto_owned_v1(i64, i64)",
+        decl: "declare i64 @dartforge_arc_ffi_handles_close_with_object_owned_v1(i64, i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_ffi_objeto_do_handle_owned_v1(i64)",
+        decl: "declare i64 @dartforge_arc_ffi_handle_object_owned_v1(i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_composto_copia(i64, i64)",
+        decl: "declare i64 @dartforge_ffi_compound_copy(i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_ffi_copiar_composto(ptr, i64, i64)",
+        decl: "declare void @dartforge_ffi_copy_compound(ptr, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_ffi_registrar_callback(ptr, i64, ptr)",
+        decl: "declare void @dartforge_ffi_register_callback(ptr, i64, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_callback_entrar(ptr)",
+        decl: "declare i64 @dartforge_ffi_callback_enter(ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i8 @dartforge_ffi_callback_sair(ptr, ptr)",
+        decl: "declare i8 @dartforge_ffi_callback_exit(ptr, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare void @dartforge_ffi_callback_postar(ptr, ptr, i64)",
+        decl: "declare void @dartforge_ffi_callback_post(ptr, ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
@@ -928,7 +928,7 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_callback_ponteiro(i64, i64, i64)",
+        decl: "declare i64 @dartforge_ffi_callback_pointer(i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
@@ -937,45 +937,45 @@ pub const EXTERNS: &[Extern] = &[
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_ffi_callback_ponteiro_owned_v1(i64, i64, i64)",
+        decl: "declare i64 @dartforge_arc_ffi_callback_pointer_owned_v1(i64, i64, i64)",
         effects: Effects { allocates: true, throws: true, calls_dart: true },
     },
     Extern {
-        decl: "declare i64 @dartforge_ffi_simbolo_nativo(ptr, i64)",
+        decl: "declare i64 @dartforge_ffi_native_symbol(ptr, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_typed_externo(i64, i64, i64, i64)",
+        decl: "declare i64 @dartforge_typed_external(i64, i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_typed_externo_t(i64, i64, i64, i64, ptr)",
+        decl: "declare i64 @dartforge_typed_external_t(i64, i64, i64, i64, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_rti_receita(i64)",
+        decl: "declare i64 @dartforge_rti_recipe(i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_rti_avaliar(i64, i64, i64, i64)",
+        decl: "declare i64 @dartforge_rti_eval(i64, i64, i64, i64)",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_rti_avaliar_cache(ptr, i64, i64, i64)",
+        decl: "declare i64 @dartforge_rti_eval_cache(ptr, i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_rti_tupla_juntar(i64, i64, i64, i64)",
+        decl: "declare i64 @dartforge_rti_tuple_join(i64, i64, i64, i64)",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_rti_definir(i64, i64)",
+        decl: "declare void @dartforge_rti_set(i64, i64)",
         // Interns IDs and may reformat the list with boxes/GC, without throwing a
         // Dart exception nor running Dart getters/callbacks.
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_rti_registro_nomeado(i64, i64, i64)",
+        decl: "declare void @dartforge_rti_named_record(i64, i64, i64)",
         effects: Effects { allocates: true, throws: false, calls_dart: false },
     },
     Extern {
@@ -983,40 +983,40 @@ pub const EXTERNS: &[Extern] = &[
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_rti_como_em(i64, i64, i64, i64)",
+        decl: "declare void @dartforge_rti_as_with_context(i64, i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {
-        decl: "declare i64 @dartforge_rti_texto(i64)",
+        decl: "declare i64 @dartforge_rti_string(i64)",
         effects: CONSERVATIVE,
     },
     Extern {
         // The same text under ARC, with a code owner of the result.
-        decl: "declare i64 @dartforge_arc_rti_texto_owned_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_rti_string_owned_v1(i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_rti_objeto_tipo_owned_v1(i64) nounwind",
+        decl: "declare i64 @dartforge_arc_rti_object_type_owned_v1(i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        decl: "declare i64 @dartforge_rti_objeto_tipo(i64)",
+        decl: "declare i64 @dartforge_rti_object_type(i64)",
         effects: CONSERVATIVE,
     },
     // ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ──────────────
     Extern {
-        // (cid, words, flags): the slow allocation of `@df.alocar` (P0).
-        decl: "declare i64 @dartforge_alocar(i64, i64, i64) nounwind",
+        // (cid, words, flags): the slow allocation of `@df.allocate` (P0).
+        decl: "declare i64 @dartforge_allocate(i64, i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // (len, two): the slow path of `@df.texto_alocar` (P1).
-        decl: "declare i64 @dartforge_texto_novo(i64, i64) nounwind",
+        // (len, two): the slow path of `@df.string_allocate` (P1).
+        decl: "declare i64 @dartforge_string_allocate(i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        // `@df.texto_alocar` under ARC: the new string with a code owner.
-        decl: "declare i64 @dartforge_arc_texto_novo_owned_v1(i64, i64) nounwind",
+        // `@df.string_allocate` under ARC: the new string with a code owner.
+        decl: "declare i64 @dartforge_arc_string_allocate_owned_v1(i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
@@ -1026,46 +1026,46 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         // The string of a constant becomes the canonical literal (`constants.rs`).
-        decl: "declare i64 @dartforge_constante_canonica(i64) nounwind",
+        decl: "declare i64 @dartforge_canonical_constant(i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
         // Computes and writes the hash into the header of the string (P1).
-        decl: "declare i64 @dartforge_texto_hash(i64) nounwind willreturn",
+        decl: "declare i64 @dartforge_string_hash(i64) nounwind willreturn",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
-        // The same code units? The slow path of `@df.texto_igual` (P1).
-        decl: "declare i8 @dartforge_texto_iguais(i64, i64) memory(read) nounwind willreturn",
+        // The same code units? The slow path of `@df.string_equals` (P1).
+        decl: "declare i8 @dartforge_string_equals(i64, i64) memory(read) nounwind willreturn",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // (words, n, cid, shape): the literal list (P3).
-        decl: "declare i64 @dartforge_lista_nova(ptr, i64, i64, i64) nounwind",
+        decl: "declare i64 @dartforge_list_new(ptr, i64, i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
-        decl: "declare i64 @dartforge_arc_lista_nova_owned_v1(ptr, i64, i64, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_list_new_owned_v1(ptr, i64, i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
         // The literal record under ARC (`AllocRecord`), with a code owner.
-        decl: "declare i64 @dartforge_arc_record_novo_owned_v1(ptr, i64) nounwind",
+        decl: "declare i64 @dartforge_arc_record_from_refs_owned_v1(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
         // (list, Ref): the `add` that grows the storage (P3).
-        decl: "declare i64 @dartforge_lista_acrescentar(i64, i64) nounwind",
+        decl: "declare i64 @dartforge_list_append(i64, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
         // (start, end): the section of the static objects of an image (P0).
-        decl: "declare void @dartforge_registrar_imagem(ptr, ptr) nounwind",
+        decl: "declare void @dartforge_register_image(ptr, ptr) nounwind",
         effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         // (Refs, n): the positional record (P2).
-        decl: "declare i64 @dartforge_record_novo(ptr, i64) nounwind",
+        decl: "declare i64 @dartforge_record_from_refs(ptr, i64) nounwind",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
 ];
@@ -1100,7 +1100,7 @@ pub fn effects_of(name: &str) -> Effects {
         }
     }
     static TABLE: std::sync::OnceLock<std::collections::HashMap<&'static str, Effects>> = std::sync::OnceLock::new();
-    // The source is the runtime table (`crates/runtime/efeitos.tsv`,
+    // The source is the runtime table (`crates/runtime/effects.tsv`,
     // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8), with one line per
     // extern; the marks of [`EXTERNS`] are the same information next to the
     // declaration, and the `runtime_table_agrees_with_declarations` test
@@ -1119,7 +1119,7 @@ pub fn effects_of(name: &str) -> Effects {
 
 /// The compilation checks the effects table (`DARTFORGE_EFEITOS=conferir`):
 /// each call to an extern marked as not collecting or not throwing goes between
-/// `dartforge_efeitos_antes` and `dartforge_efeitos_depois`, and the runtime
+/// `dartforge_effects_before` and `dartforge_effects_after`, and the runtime
 /// terminates the process, naming it, if the extern collects or leaves a
 /// pending exception (`runtime/src/efeitos_conferir.rs`). Only for the tests:
 /// that is how a mark goes from 1 to 0.
@@ -1132,10 +1132,10 @@ pub fn check_effects() -> bool {
 /// bit 1, does not throw. 0 = nothing to check (or it is not an extern of the table).
 pub fn marks_to_check(name: &str) -> i64 {
     if !dartforge_runtime::efeitos::EFEITOS.iter().any(|(n, ..)| *n == name)
-        || name == "dartforge_efeitos_antes"
-        || name == "dartforge_efeitos_depois"
-        || name == "dartforge_efeitos_nivel"
-        || name == "dartforge_efeitos_restaurar"
+        || name == "dartforge_effects_before"
+        || name == "dartforge_effects_after"
+        || name == "dartforge_effects_level"
+        || name == "dartforge_effects_restore"
     {
         return 0;
     }
@@ -1170,7 +1170,7 @@ mod tests {
             assert_eq!(
                 (t.allocates, t.throws),
                 (e.effects.allocates, e.effects.throws),
-                "{}: the mark next to the declaration differs from that of crates/runtime/efeitos.tsv",
+                "{}: the mark next to the declaration differs from that of crates/runtime/effects.tsv",
                 e.nome()
             );
             assert!(!e.effects.calls_dart || t.calls_dart, "{}: runs Dart in the declaration and not in the table", e.nome());

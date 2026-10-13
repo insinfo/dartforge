@@ -30,10 +30,10 @@
 //
 // Without the `Heap` (docs/NATIVO-PLANO.md §13.2, item 1): the blocks are read
 // through the offsets of the `layout` contract, the way generated code reads them
-// (`@df.lista_*`, `@df.texto_*`), without `HEAP.with`, `borrow` or the
+// (`@df.list_*`, `@df.string_*`), without `HEAP.with`, `borrow` or the
 // `live_block` checks; each object's header tells the class and the shape before
 // any read of the body. A write into `_data` applies generated code's element
-// barrier (`@df.barreira_elemento`). Nothing here allocates, throws or calls Dart.
+// barrier (`@df.element_barrier`). Nothing here allocates, throws or calls Dart.
 
 use crate::layout::{Header, DESLOCAMENTO_DO_HANDLE};
 
@@ -183,7 +183,7 @@ impl Data {
                 unsafe { crate::space::dirty_card((self.h - DESLOCAMENTO_DO_HANDLE) as *mut Header, self.len, i) };
             }
             if e == estado::VELHO {
-                dartforge_lembrar(self.h);
+                dartforge_remember(self.h);
             }
         }
     }
@@ -323,7 +323,7 @@ fn raw_string_hash(h: i64, u: Units) -> u32 {
 #[inline(always)]
 fn hash_key(k: i64) -> Option<(HashKey, i64)> {
     if let Some(v) = integer(k) {
-        return Some((HashKey::Int(v), dartforge_nativo_DartForge_int_hashCode(v)));
+        return Some((HashKey::Int(v), dartforge_native_DartForge_int_hashCode(v)));
     }
     let u = Units::de(k)?;
     Some((HashKey::Texto(k), i64::from(raw_string_hash(k, u))))
@@ -477,7 +477,7 @@ fn set_add(ix: Index, data: Data, mask: i64, used_count: i64, key: i64) -> i64 {
 /// key of another type, `int` against `double`, a full table: `_rehash` belongs to
 /// Dart).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_gravar(ix: i64, data: i64, mask: i64, used_count: i64, key: i64, value: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_hash_map_store(ix: i64, data: i64, mask: i64, used_count: i64, key: i64, value: i64) -> i64 {
     match (Index::de(ix), Data::de(data, true)) {
         (Some(i), Some(d)) => map_write(i, d, mask, used_count, key, value),
         _ => -1,
@@ -488,7 +488,7 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_gravar(ix: i64, data: i64
 /// `_data`) when the key is missing — the SDK's protocol —, or `ix` (never a map
 /// value) when Dart has to search.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_buscar(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_hash_map_lookup(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
     let (Some(ind), Some(el), Some((k, hash))) = (Index::de(ix), Data::de(data, false), hash_key(key)) else {
         return ix;
     };
@@ -502,7 +502,7 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_buscar(ix: i64, data: i64
 /// `_Set.add(key)` for an `int`/`String` key: the new `_usedData` (the same, if the
 /// key was already there), or -1 when Dart has to do the operation.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_adicionar(ix: i64, data: i64, mask: i64, used_count: i64, key: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_hash_set_add(ix: i64, data: i64, mask: i64, used_count: i64, key: i64) -> i64 {
     match (Index::de(ix), Data::de(data, true)) {
         (Some(i), Some(d)) => set_add(i, d, mask, used_count, key),
         _ => -1,
@@ -512,7 +512,7 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_adicionar(ix: i64, da
 /// `_Set._getKeyOrData(key)` for an `int`/`String` key: the key that is in the set,
 /// or `data` when it is missing, or `ix` when Dart has to search.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_buscar(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_hash_set_lookup(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
     let (Some(ind), Some(el), Some((k, hash))) = (Index::de(ix), Data::de(data, false), hash_key(key)) else {
         return ix;
     };
@@ -545,7 +545,7 @@ fn entries(pair_list: i64) -> Option<Data> {
 /// `double`, a full table) and returns [`batch`]: Dart writes that pair and calls
 /// again from the next one.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_preencher(ix: i64, data: i64, mask: i64, used_count: i64, pair_list: i64, de: i64, until: i64, skip_removed: u8) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_hash_map_fill(ix: i64, data: i64, mask: i64, used_count: i64, pair_list: i64, de: i64, until: i64, skip_removed: u8) -> i64 {
     let (Some(ind), Some(d), Some(p)) = (Index::de(ix), Data::de(data, true), entries(pair_list)) else {
         return batch(de.max(0) as usize, used_count);
     };
@@ -569,7 +569,7 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_preencher(ix: i64, data: 
 /// to `until`, skipping the removed ones (the key that is the list itself). Stops at
 /// the first element the runtime cannot insert and returns [`batch`].
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_preencher(ix: i64, data: i64, mask: i64, used_count: i64, olds_set: i64, de: i64, until: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_hash_set_fill(ix: i64, data: i64, mask: i64, used_count: i64, olds_set: i64, de: i64, until: i64) -> i64 {
     let (Some(ind), Some(d), Some(p)) = (Index::de(ix), Data::de(data, true), entries(olds_set)) else {
         return batch(de.max(0) as usize, used_count);
     };
@@ -594,7 +594,7 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_preencher(ix: i64, da
 /// without evaluating `List<Object?>`: the list never leaves the table). May
 /// collect.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_hash_novos_dados(n: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_hash_new_data(n: i64) -> i64 {
     let n = usize::try_from(n).unwrap_or(0);
     HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, n, crate::lists::Element::General))
 }

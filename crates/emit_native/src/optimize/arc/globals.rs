@@ -226,7 +226,7 @@ mod tests {
         prepare_arc_dart_module(&mut m, &mut ps).unwrap();
         assert_eq!(ps["f"].classes[&ValueId(2)], Ownership::Owned);
         assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
-            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_ler_campo_ref_v1")));
+            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_read_field_ref_v1")));
         verify_dart_function_contract(
             &m.functions[0],
             &ps["f"].classes,

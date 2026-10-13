@@ -14,7 +14,7 @@
 //! ```
 //!
 //! Publication only runs with no Dart frame of the isolate on the stack: between
-//! two events of the loop (`dartforge_pedir_no_ponto_seguro`, `ports.rs`), which
+//! two events of the loop (`dartforge_request_at_safepoint`, `ports.rs`), which
 //! is where the VM also commits a reload. With the program stopped (`main` has
 //! finished, or has not started yet), it runs on the program thread between two
 //! commands — the runtime state (heap, statics, registrations) is per thread, and

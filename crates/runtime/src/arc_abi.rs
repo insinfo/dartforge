@@ -60,13 +60,13 @@ fn read_audited_ref_element(heap: &Heap, list: i64, ix: i64) -> Result<i64, &'st
 /// ```
 /// use dartforge_runtime::abi::*;
 /// // SAFETY: Ref elements valid during the list creation.
-/// let list = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
+/// let list = unsafe { dartforge_list_new([0, 0].as_ptr(), 2, 8, 0) };
 /// dartforge_arc_retain(list);
-/// assert_eq!(dartforge_arc_lista_len_v1(list), 2);
+/// assert_eq!(dartforge_arc_list_len_v1(list), 2);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_len_v1(list: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_len_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
         let (_, length) = audited_list_storage(&heap, list)
@@ -86,13 +86,13 @@ pub extern "C" fn dartforge_arc_lista_len_v1(list: i64) -> i64 {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// // SAFETY: one Ref element valid during the creation.
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
-/// assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(list), list);
+/// assert_eq!(dartforge_arc_list_storage_ref_v1(list), list);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(list: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_storage_ref_v1(list: i64) -> i64 {
     HEAP.with(|h| audited_list_storage(&h.borrow(), list)
         .expect("invalid ARC storage").0)
 }
@@ -106,13 +106,13 @@ pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(list: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
-/// assert_eq!(dartforge_arc_lista_forma_v1(list), 4);
+/// assert_eq!(dartforge_arc_list_shape_v1(list), 4);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_forma_v1(list: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_shape_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
         let (data, _) = audited_list_storage(&heap, list).expect("invalid ARC shape");
@@ -129,13 +129,13 @@ pub extern "C" fn dartforge_arc_lista_forma_v1(list: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let list = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
+/// let list = unsafe { dartforge_list_new([0, 0].as_ptr(), 2, 8, 0) };
 /// dartforge_arc_retain(list);
-/// assert_eq!(dartforge_arc_lista_capacidade_v1(list), 2);
+/// assert_eq!(dartforge_arc_list_capacity_v1(list), 2);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_capacidade_v1(list: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_capacity_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
         let (data, _) = audited_list_storage(&heap, list).expect("invalid ARC capacity");
@@ -164,14 +164,14 @@ fn check_arc_list_len(heap: &Heap, list: i64, new: i64) -> Result<usize, &'stati
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 10, 0) };
 /// dartforge_arc_retain(list);
-/// dartforge_arc_lista_gravar_len_v1(list, 0);
-/// assert_eq!(dartforge_arc_lista_len_v1(list), 0);
+/// dartforge_arc_list_write_len_v1(list, 0);
+/// assert_eq!(dartforge_arc_list_len_v1(list), 0);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_len_v1(list: i64, new: i64) {
+pub extern "C" fn dartforge_arc_list_write_len_v1(list: i64, new: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         let new = check_arc_list_len(&heap, list, new).expect("invalid ARC length write");
@@ -209,13 +209,13 @@ fn check_arc_list_bits(heap: &Heap, data: i64, ix: i64, bits: i64, shape: i64)
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 1) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 8, 1) };
 /// dartforge_arc_retain(list);
-/// dartforge_arc_lista_gravar_bits_v1(list, 0, 42, 0x22);
+/// dartforge_arc_list_write_bits_v1(list, 0, 42, 0x22);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_bits_v1(data: i64, ix: i64, bits: i64, shape: i64) {
+pub extern "C" fn dartforge_arc_list_write_bits_v1(data: i64, ix: i64, bits: i64, shape: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         let i = check_arc_list_bits(&heap, data, ix, bits, shape).expect("invalid ARC scalar write");
@@ -233,13 +233,13 @@ pub extern "C" fn dartforge_arc_lista_gravar_bits_v1(data: i64, ix: i64, bits: i
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
-/// dartforge_arc_lista_gravar_ref_v1(list, 0, 0);
+/// dartforge_arc_list_write_ref_v1(list, 0, 0);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(data: i64, ix: i64, value: i64) {
+pub extern "C" fn dartforge_arc_list_write_ref_v1(data: i64, ix: i64, value: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         assert!(heap.e_lista(data) && heap.header(data).class_id == crate::layout::cid::LIST,
@@ -261,14 +261,14 @@ pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(data: i64, ix: i64, value: i
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 10, 0) };
 /// dartforge_arc_retain(list);
-/// let data = dartforge_arc_lista_armazenamento_ref_v1(list);
-/// assert_eq!(dartforge_arc_lista_gravar_dados_v1(list, data), 1);
+/// let data = dartforge_arc_list_storage_ref_v1(list);
+/// assert_eq!(dartforge_arc_list_write_data_v1(list, data), 1);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(list: i64, data: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_write_data_v1(list: i64, data: i64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         let (old_gen, _, _) = audited_list_map(&heap, list).expect("invalid ARC list map");
@@ -295,14 +295,14 @@ pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(list: i64, data: i64) -> i
 /// ```
 /// use dartforge_runtime::abi::*;
 /// // SAFETY: scalar elements during the creation of the compact list.
-/// let list = unsafe { dartforge_lista_nova([7].as_ptr(), 1, 8, 1) };
+/// let list = unsafe { dartforge_list_new([7].as_ptr(), 1, 8, 1) };
 /// dartforge_arc_retain(list);
-/// dartforge_arc_lista_gravar_bits_v1(list, 0, 42, 0x22);
-/// assert_eq!(dartforge_arc_lista_ler_bits_v1(list, 0), 42);
+/// dartforge_arc_list_write_bits_v1(list, 0, 42, 0x22);
+/// assert_eq!(dartforge_arc_list_read_bits_v1(list, 0), 42);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_ler_bits_v1(list: i64, ix: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_read_bits_v1(list: i64, ix: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
         read_arc_list_bits(&heap, list, ix).expect("invalid ARC scalar read")
@@ -339,13 +339,13 @@ fn read_arc_list_bits(heap: &Heap, list: i64, ix: i64) -> Result<i64, &'static s
 /// ```
 /// use dartforge_runtime::abi::*;
 /// // SAFETY: one Ref element alive and aligned during the copy.
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
-/// assert_eq!(dartforge_arc_lista_ref_owned_v1(list, 0), 0);
+/// assert_eq!(dartforge_arc_list_ref_owned_v1(list, 0), 0);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_ref_owned_v1(list: i64, ix: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_ref_owned_v1(list: i64, ix: i64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         let value = read_audited_ref_element(&heap, list, ix).expect("invalid ARC list read");
@@ -356,7 +356,7 @@ pub extern "C" fn dartforge_arc_lista_ref_owned_v1(list: i64, ix: i64) -> i64 {
 
 /// Reads an element of the general list borrowed from the list, without a code token.
 ///
-/// The same checks as [`dartforge_arc_lista_ref_owned_v1`]. It is the
+/// The same checks as [`dartforge_arc_list_ref_owned_v1`]. It is the
 /// ARC read without preparation (the legacy regime), in which nobody consumes
 /// tokens: the element stays alive through the list and the frame roots.
 ///
@@ -366,13 +366,13 @@ pub extern "C" fn dartforge_arc_lista_ref_owned_v1(list: i64, ix: i64) -> i64 {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// // SAFETY: one Ref element alive and aligned during the copy.
-/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// let list = unsafe { dartforge_list_new([0].as_ptr(), 1, 8, 0) };
 /// dartforge_arc_retain(list);
-/// assert_eq!(dartforge_arc_lista_ref_v1(list, 0), 0);
+/// assert_eq!(dartforge_arc_list_ref_v1(list, 0), 0);
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_ref_v1(list: i64, ix: i64) -> i64 {
+pub extern "C" fn dartforge_arc_list_ref_v1(list: i64, ix: i64) -> i64 {
     HEAP.with(|h| read_audited_ref_element(&h.borrow(), list, ix).expect("invalid ARC list read"))
 }
 
@@ -412,7 +412,7 @@ mod tests_owned_ref_list {
                             (list, value)
                         });
                         let stats = HEAP.with(|h| h.borrow().stats());
-                        let r = dartforge_lista_acrescentar(list, value);
+                        let r = dartforge_list_append(list, value);
                         assert_eq!(r, list);
                         HEAP.with(|h| {
                             let heap = h.borrow();
@@ -472,13 +472,13 @@ mod tests_owned_ref_list {
                     list
                 });
                 let stats = HEAP.with(|h| h.borrow().stats());
-                let data = dartforge_arc_lista_armazenamento_ref_v1(list);
+                let data = dartforge_arc_list_storage_ref_v1(list);
                 assert_ne!(data, list);
-                assert_eq!(dartforge_arc_lista_capacidade_v1(list), 3);
-                assert_eq!(dartforge_arc_lista_len_v1(data), 3);
-                assert_eq!(dartforge_arc_lista_forma_v1(data), i64::from(shape.flags()));
-                dartforge_arc_lista_gravar_bits_v1(data, 0, bits, i64::from(shape.flags()));
-                dartforge_arc_lista_gravar_len_v1(list, 1);
+                assert_eq!(dartforge_arc_list_capacity_v1(list), 3);
+                assert_eq!(dartforge_arc_list_len_v1(data), 3);
+                assert_eq!(dartforge_arc_list_shape_v1(data), i64::from(shape.flags()));
+                dartforge_arc_list_write_bits_v1(data, 0, bits, i64::from(shape.flags()));
+                dartforge_arc_list_write_len_v1(list, 1);
                 HEAP.with(|h| {
                     let heap = h.borrow();
                     assert_eq!(heap.words(data)[1], bits);
@@ -493,10 +493,10 @@ mod tests_owned_ref_list {
                     heap.retain_code_owner(new);
                     new
                 });
-                assert_eq!(dartforge_arc_lista_gravar_dados_v1(list, new), 1);
+                assert_eq!(dartforge_arc_list_write_data_v1(list, new), 1);
                 assert!(HEAP.with(|h| audited_list_storage(&h.borrow(), list).is_err()));
-                dartforge_arc_lista_gravar_len_v1(list, 0);
-                assert_eq!(dartforge_arc_lista_len_v1(list), 0);
+                dartforge_arc_list_write_len_v1(list, 0);
+                assert_eq!(dartforge_arc_list_len_v1(list), 0);
                 dartforge_arc_release(new);
                 dartforge_arc_collect();
                 assert!(HEAP.with(|h| h.borrow().is_live_object(data)));
@@ -524,16 +524,16 @@ mod tests_owned_ref_list {
                 list
             });
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let data = dartforge_arc_lista_armazenamento_ref_v1(list);
+            let data = dartforge_arc_list_storage_ref_v1(list);
             let stats = HEAP.with(|h| h.borrow().stats());
-            dartforge_arc_lista_gravar_ref_v1(data, 0, child);
+            dartforge_arc_list_write_ref_v1(data, 0, child);
             assert_eq!(HEAP.with(|h| h.borrow().stats().allocations), stats.allocations);
             assert_eq!(HEAP.with(|h| h.borrow().stats().collections), stats.collections);
             dartforge_arc_release(child);
             dartforge_arc_collect();
             assert!(HEAP.with(|h| h.borrow().is_live_object(child)));
-            let received = dartforge_arc_lista_ref_owned_v1(data, 0);
-            dartforge_arc_lista_gravar_ref_v1(data, 0, 0);
+            let received = dartforge_arc_list_ref_owned_v1(data, 0);
+            dartforge_arc_list_write_ref_v1(data, 0, 0);
             dartforge_arc_release(list);
             dartforge_arc_collect();
             assert_eq!(dartforge_unbox_int(received), i64::MAX);
@@ -556,9 +556,9 @@ mod tests_owned_ref_list {
             heap.retain_code_owner(new);
             (list, new)
         });
-        let data = dartforge_arc_lista_armazenamento_ref_v1(list);
-        assert_eq!(dartforge_arc_lista_gravar_dados_v1(list, new), 0);
-        assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(list), data);
+        let data = dartforge_arc_list_storage_ref_v1(list);
+        assert_eq!(dartforge_arc_list_write_data_v1(list, new), 0);
+        assert_eq!(dartforge_arc_list_storage_ref_v1(list), data);
         HEAP.with(|h| {
             let heap = h.borrow();
             for (i, bits, shape) in [(-1, 1, 0x62), (2, 1, 0x62), (0, 2, 0x62),
@@ -592,7 +592,7 @@ mod tests_owned_ref_list {
                         list
                     });
                     let stats = HEAP.with(|h| h.borrow().stats().clone());
-                    assert_eq!(dartforge_arc_lista_len_v1(list), 2);
+                    assert_eq!(dartforge_arc_list_len_v1(list), 2);
                     HEAP.with(|h| {
                         let heap = h.borrow();
                         assert_eq!(heap.stats().allocations, stats.allocations);
@@ -600,7 +600,7 @@ mod tests_owned_ref_list {
                     });
                     dartforge_arc_release(list);
                     dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(list), 0);
+                    assert_eq!(dartforge_arc_observe_heap_v1(list), 0);
                     assert!(HEAP.with(|h| audited_list_storage(&h.borrow(), list).is_err()));
                     HEAP.with(|h| h.replace(previous));
                 }
@@ -659,10 +659,10 @@ mod tests_owned_ref_list {
                 });
                 dartforge_arc_release(child);
                 let stats = HEAP.with(|h| h.borrow().stats());
-                let received = dartforge_arc_lista_ref_owned_v1(list, 1);
+                let received = dartforge_arc_list_ref_owned_v1(list, 1);
                 assert_eq!(received, child);
-                assert_eq!(dartforge_arc_lista_ref_owned_v1(list, 0), 0);
-                assert_eq!(dartforge_arc_lista_ref_owned_v1(list, 2), smi::de(7).unwrap());
+                assert_eq!(dartforge_arc_list_ref_owned_v1(list, 0), 0);
+                assert_eq!(dartforge_arc_list_ref_owned_v1(list, 2), smi::de(7).unwrap());
                 HEAP.with(|h| {
                     let mut heap = h.borrow_mut();
                     assert_eq!(heap.stats().allocations, stats.allocations);
@@ -671,12 +671,12 @@ mod tests_owned_ref_list {
                 });
                 dartforge_arc_release(list);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(list), 0);
-                assert_eq!(dartforge_arc_observar_heap_v1(received), 3);
+                assert_eq!(dartforge_arc_observe_heap_v1(list), 0);
+                assert_eq!(dartforge_arc_observe_heap_v1(received), 3);
                 assert_eq!(dartforge_unbox_int(received), i64::MAX);
                 dartforge_arc_release(received);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(received), 0);
+                assert_eq!(dartforge_arc_observe_heap_v1(received), 0);
                 HEAP.with(|h| h.replace(previous));
             }
         }
@@ -729,17 +729,17 @@ fn arc_argument_index(positional: i64, named: i64, ix: i64) -> Result<usize, &'s
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let object = dartforge_arc_objeto_owned_v1(123, 0);
+/// let object = dartforge_arc_object_owned_v1(123, 0);
 /// let arguments = [object];
 /// let descriptor = [1, 0];
 /// // SAFETY: live and immutable vectors; object sustained by the caller.
-/// let received = unsafe { dartforge_arc_argumento_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 0) };
+/// let received = unsafe { dartforge_arc_argument_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 0) };
 /// dartforge_arc_release(object);
-/// assert_eq!(dartforge_arc_observar_heap_v1(received), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(received), 3);
 /// dartforge_arc_release(received);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_argumento_owned_v1(arguments: *const i64, descriptor: *const i64, ix: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_argument_owned_v1(arguments: *const i64, descriptor: *const i64, ix: i64) -> i64 {
     assert!(!descriptor.is_null() && !arguments.is_null(), "null ARC ABI vectors");
     // SAFETY: two valid elements per the ABI contract.
     let ix = arc_argument_index(unsafe { *descriptor }, unsafe { *descriptor.add(1) }, ix)
@@ -764,20 +764,20 @@ mod tests_owned_argument {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(crate::heap::Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
-            let object = dartforge_arc_objeto_owned_v1(32001, 0);
+            let object = dartforge_arc_object_owned_v1(32001, 0);
             let arguments = [0, object, crate::layout::smi::de(7).unwrap(), i64::MAX];
             let descriptor = [1, 2, 101, 102];
             let stats = HEAP.with(|h| h.borrow().stats());
             // SAFETY: three valid arguments followed by an RTI that will not be read.
-            let received = unsafe { dartforge_arc_argumento_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 1) };
+            let received = unsafe { dartforge_arc_argument_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 1) };
             assert_eq!(received, object);
             dartforge_arc_release(object);
-            assert_eq!(dartforge_arc_observar_heap_v1(received), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(received), 3);
             HEAP.with(|h| { assert_eq!(h.borrow().stats().allocations, stats.allocations);
                 assert_eq!(h.borrow().stats().collections, stats.collections); });
             dartforge_arc_release(received);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(received), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(received), 0);
             HEAP.with(|h| h.replace(previous));
         }
     }
@@ -798,16 +798,16 @@ mod tests_owned_argument {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// let object = dartforge_arc_object_owned_v1(123, 40);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 39), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(object), 3);
+/// assert_eq!(dartforge_arc_read_field_scalar_v1(object, 39), 0);
 /// dartforge_arc_release(object);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(object), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_objeto_owned_v1(class: i64, fields: i64) -> i64 {
+pub extern "C" fn dartforge_arc_object_owned_v1(class: i64, fields: i64) -> i64 {
     let (class, fields) = owned_instance_parameters(class, fields)
         .expect("ARC instance allocation contract violated");
     HEAP.with(|heap| {
@@ -835,7 +835,7 @@ pub extern "C" fn dartforge_arc_objeto_owned_v1(class: i64, fields: i64) -> i64 
 /// extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
 /// let closure = dartforge_arc_closure_owned_v1(input as usize as i64, 0, 0, 0);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(closure), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(closure), 3);
 /// dartforge_arc_release(closure);
 /// ```
 #[unsafe(no_mangle)]
@@ -862,11 +862,11 @@ pub extern "C" fn dartforge_arc_closure_owned_v1(code: i64, contexto: i64, typed
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
 /// let closure = dartforge_arc_closure_owned_v1(input as usize as i64, 0, 0, 0);
-/// assert_eq!(dartforge_arc_contexto_closure_v1(closure), 0);
+/// assert_eq!(dartforge_arc_closure_context_v1(closure), 0);
 /// dartforge_arc_release(closure);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
+pub extern "C" fn dartforge_arc_closure_context_v1(closure: i64) -> i64 {
     HEAP.with(|heap| audited_closure_context(&heap.borrow(), closure)
         .expect("ARC closure context contract violated"))
 }
@@ -883,8 +883,8 @@ pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::{abi::*, layout::cid};
-/// let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 1);
-/// dartforge_arc_gravar_campo_ref_v1(env, 0, 0);
+/// let env = dartforge_arc_object_owned_v1(i64::from(cid::CONTEXTO), 1);
+/// dartforge_arc_write_field_ref_v1(env, 0, 0);
 /// assert_eq!(dartforge_arc_env_ref_v1(env, 0), 0);
 /// dartforge_arc_release(env);
 /// ```
@@ -906,13 +906,13 @@ pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, ix: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::{abi::*, layout::cid};
-/// let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 1);
-/// dartforge_arc_gravar_campo_escalar_v1(env, 0, 42);
-/// assert_eq!(dartforge_arc_env_escalar_v1(env, 0), 42);
+/// let env = dartforge_arc_object_owned_v1(i64::from(cid::CONTEXTO), 1);
+/// dartforge_arc_write_field_scalar_v1(env, 0, 42);
+/// assert_eq!(dartforge_arc_scalar_env_v1(env, 0), 42);
 /// dartforge_arc_release(env);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_env_escalar_v1(env: i64, ix: i64) -> i64 {
+pub extern "C" fn dartforge_arc_scalar_env_v1(env: i64, ix: i64) -> i64 {
     HEAP.with(|heap| audited_env_scalar(&heap.borrow(), env, ix)
         .expect("ARC scalar capture contract violated"))
 }
@@ -999,7 +999,7 @@ fn owned_instance_parameters(class: i64, fields: i64) -> Result<(i32, usize), &'
 /// `{cid, n, [hash, input]…}`, without running Dart, collecting or throwing. The memory
 /// and the entries must stay valid according to the generations protocol.
 /// Registration happens before allocation; the token has the same contract as
-/// [`dartforge_arc_objeto_owned_v1`]. Does not run the Dart constructor.
+/// [`dartforge_arc_object_owned_v1`]. Does not run the Dart constructor.
 ///
 /// # Safety
 /// `tabela` must fulfill the protocol above: readable pointer, valid count and
@@ -1017,18 +1017,18 @@ fn owned_instance_parameters(class: i64, fields: i64) -> Result<(i32, usize), &'
 ///     TABLE.as_ptr()
 /// }
 /// // SAFETY: pure thunk, valid static table without entries.
-/// let object = unsafe { dartforge_arc_objeto_owned_t_v1(32000, 0, tabela) };
+/// let object = unsafe { dartforge_arc_object_owned_t_v1(32000, 0, tabela) };
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(object), 3);
 /// dartforge_arc_release(object);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(object), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(class: i64, fields: i64, tabela: extern "C" fn() -> *const i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_object_owned_t_v1(class: i64, fields: i64, tabela: extern "C" fn() -> *const i64) -> i64 {
     owned_instance_parameters(class, fields).expect("ARC instance allocation contract violated");
-    dartforge_registrar_tabela(class, tabela);
-    dartforge_arc_objeto_owned_v1(class, fields)
+    dartforge_register_table(class, tabela);
+    dartforge_arc_object_owned_v1(class, fields)
 }
 
 /// Writes scalar bits into a field of a borrowed instance.
@@ -1045,13 +1045,13 @@ pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(class: i64, fields: i64
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let object = dartforge_arc_objeto_owned_v1(123, 40);
-/// dartforge_arc_gravar_campo_escalar_v1(object, 39, i64::MAX);
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 39), i64::MAX);
+/// let object = dartforge_arc_object_owned_v1(123, 40);
+/// dartforge_arc_write_field_scalar_v1(object, 39, i64::MAX);
+/// assert_eq!(dartforge_arc_read_field_scalar_v1(object, 39), i64::MAX);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(object: i64, ix: i64, bits: i64) {
+pub extern "C" fn dartforge_arc_write_field_scalar_v1(object: i64, ix: i64, bits: i64) {
     HEAP.with(|heap| write_audited_field(&mut heap.borrow_mut(), object, ix, bits, false)
         .expect("ARC scalar write contract violated"));
 }
@@ -1070,19 +1070,19 @@ pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(object: i64, ix: i64, bi
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// let object = dartforge_arc_object_owned_v1(123, 40);
 /// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_gravar_campo_ref_v1(object, 39, child);
+/// dartforge_arc_write_field_ref_v1(object, 39, child);
 /// dartforge_arc_release(child);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
-/// dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(child), 1);
+/// dartforge_arc_write_field_ref_v1(object, 39, 0);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(object: i64, ix: i64, value: i64) {
+pub extern "C" fn dartforge_arc_write_field_ref_v1(object: i64, ix: i64, value: i64) {
     HEAP.with(|heap| write_audited_field(&mut heap.borrow_mut(), object, ix, value, true)
         .expect("ARC Ref write contract violated"));
 }
@@ -1107,17 +1107,17 @@ pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(object: i64, ix: i64, value:
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 40];
-/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// let object = dartforge_arc_object_owned_v1(123, 40);
 /// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
 /// // SAFETY: live and immutable vector, field 39 declared Ref in this image.
-/// unsafe { dartforge_arc_gravar_campo_ref_conferido_v1(object, 39, child, layouts.as_ptr(), 1); }
+/// unsafe { dartforge_arc_write_field_ref_checked_v1(object, 39, child, layouts.as_ptr(), 1); }
 /// dartforge_arc_release(child);
-/// assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 39), child);
+/// assert_eq!(dartforge_arc_read_field_ref_v1(object, 39), child);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub unsafe extern "C" fn dartforge_arc_gravar_campo_ref_conferido_v1(
+pub unsafe extern "C" fn dartforge_arc_write_field_ref_checked_v1(
     object: i64, ix: i64, value: i64, layouts: *const i64, pair_list: i64,
 ) {
     let words = usize::try_from(pair_list).ok().and_then(|n| n.checked_mul(2))
@@ -1183,15 +1183,15 @@ fn layout_fields(layouts: &[i64], cid: i64) -> Option<i64> {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 1];
-/// let object = dartforge_arc_objeto_owned_v1(123, 1);
+/// let object = dartforge_arc_object_owned_v1(123, 1);
 /// // SAFETY: live vector; field 0 is int in the current layout of the image.
-/// unsafe { dartforge_arc_gravar_campo_escalar_conferido_v1(object, 0, 42, layouts.as_ptr(), 1, 1); }
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 0), 42);
+/// unsafe { dartforge_arc_write_field_scalar_checked_v1(object, 0, 42, layouts.as_ptr(), 1, 1); }
+/// assert_eq!(dartforge_arc_read_field_scalar_v1(object, 0), 42);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
+pub unsafe extern "C" fn dartforge_arc_write_field_scalar_checked_v1(
     object: i64, ix: i64, bits: i64, layouts: *const i64, pair_list: i64, representation: i64,
 ) {
     assert!((1..=4).contains(&representation), "invalid ARC scalar representation");
@@ -1227,16 +1227,16 @@ pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 1];
-/// let object = dartforge_arc_objeto_owned_v1(123, 1);
-/// dartforge_arc_gravar_campo_escalar_v1(object, 0, 42);
+/// let object = dartforge_arc_object_owned_v1(123, 1);
+/// dartforge_arc_write_field_scalar_v1(object, 0, 42);
 /// // SAFETY: live vector; field 0 is int in the current layout of the image.
-/// let bits = unsafe { dartforge_arc_ler_campo_escalar_conferido_v1(object, 0, layouts.as_ptr(), 1, 1) };
+/// let bits = unsafe { dartforge_arc_read_field_scalar_checked_v1(object, 0, layouts.as_ptr(), 1, 1) };
 /// assert_eq!(bits, 42);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
-pub unsafe extern "C" fn dartforge_arc_ler_campo_escalar_conferido_v1(
+pub unsafe extern "C" fn dartforge_arc_read_field_scalar_checked_v1(
     object: i64, ix: i64, layouts: *const i64, pair_list: i64, representation: i64,
 ) -> i64 {
     assert!((1..=4).contains(&representation), "invalid ARC scalar representation");
@@ -1279,11 +1279,11 @@ fn write_audited_field(heap: &mut Heap, object: i64, ix: i64, bits: i64, referen
 /// let object = dartforge_object_new(123, 1);
 /// dartforge_arc_retain(object);
 /// dartforge_object_set(object, 0, i64::MAX, 0);
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 0), i64::MAX);
+/// assert_eq!(dartforge_arc_read_field_scalar_v1(object, 0), i64::MAX);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ler_campo_escalar_v1(object: i64, ix: i64) -> i64 {
+pub extern "C" fn dartforge_arc_read_field_scalar_v1(object: i64, ix: i64) -> i64 {
     HEAP.with(|heap| read_audited_scalar_field(&heap.borrow(), object, ix)
         .expect("ARC scalar read contract violated"))
 }
@@ -1316,21 +1316,21 @@ fn read_audited_scalar_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// let object = dartforge_arc_object_owned_v1(123, 40);
 /// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_gravar_campo_ref_v1(object, 39, child);
+/// dartforge_arc_write_field_ref_v1(object, 39, child);
 /// dartforge_arc_release(child);
-/// let borrowed = dartforge_arc_ler_campo_ref_v1(object, 39);
+/// let borrowed = dartforge_arc_read_field_ref_v1(object, 39);
 /// assert_eq!(borrowed, child);
 /// dartforge_arc_retain(borrowed); // Copies the borrow before the replacement.
-/// dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
+/// dartforge_arc_write_field_ref_v1(object, 39, 0);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(borrowed), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(borrowed), 3);
 /// dartforge_arc_release(borrowed);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ler_campo_ref_v1(object: i64, ix: i64) -> i64 {
+pub extern "C" fn dartforge_arc_read_field_ref_v1(object: i64, ix: i64) -> i64 {
     HEAP.with(|heap| read_audited_ref_field(&heap.borrow(), object, ix)
         .expect("ARC Ref read contract violated"))
 }
@@ -1364,15 +1364,15 @@ fn read_audited_ref_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'st
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let object = dartforge_arc_objeto_owned_v1(123, 1);
-/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 0), 0);
-/// dartforge_arc_gravar_campo_ref_v1(object, 0, 0);
+/// let object = dartforge_arc_object_owned_v1(123, 1);
+/// assert_eq!(dartforge_arc_read_field_late_ref_v1(object, 0), 0);
+/// dartforge_arc_write_field_ref_v1(object, 0, 0);
 /// dartforge_late_field_mark_initialized(object, 0);
-/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 0), 0);
+/// assert_eq!(dartforge_arc_read_field_late_ref_v1(object, 0), 0);
 /// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ler_campo_late_ref_v1(object: i64, ix: i64) -> i64 {
+pub extern "C" fn dartforge_arc_read_field_late_ref_v1(object: i64, ix: i64) -> i64 {
     HEAP.with(|heap| read_audited_late_ref_field(&heap.borrow(), object, ix)
         .expect("ARC late Ref read contract violated"))
 }
@@ -1399,16 +1399,16 @@ fn read_audited_late_ref_field(heap: &Heap, object: i64, ix: i64) -> Result<i64,
 /// Internal failure of the exception/heap protocol; aborts at the C boundary.
 ///
 /// ```
-/// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_lancar_ref_v1,
+/// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_throw_ref_v1,
 ///     dartforge_arc_release, dartforge_exception_pending, dartforge_exception_clear};
 /// let value = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_lancar_ref_v1(value);
+/// dartforge_arc_throw_ref_v1(value);
 /// assert_ne!(dartforge_exception_pending(), 0);
 /// dartforge_arc_release(value);
 /// dartforge_exception_clear();
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lancar_ref_v1(value: i64) {
+pub extern "C" fn dartforge_arc_throw_ref_v1(value: i64) {
     dartforge_exception_throw(value, 3);
 }
 
@@ -1425,8 +1425,8 @@ pub extern "C" fn dartforge_arc_lancar_ref_v1(value: i64) {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let original = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_lancar_ref_v1(original);
-/// let captured = dartforge_arc_excecao_owned_v1();
+/// dartforge_arc_throw_ref_v1(original);
+/// let captured = dartforge_arc_exception_owned_v1();
 /// assert_eq!(captured, original);
 /// dartforge_arc_release(original);
 /// dartforge_exception_clear();
@@ -1434,7 +1434,7 @@ pub extern "C" fn dartforge_arc_lancar_ref_v1(value: i64) {
 /// dartforge_arc_release(captured);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_excecao_owned_v1() -> i64 {
+pub extern "C" fn dartforge_arc_exception_owned_v1() -> i64 {
     let Some(value) = EXCEPTION.with(|slot| *slot.borrow()) else { return 0; };
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
@@ -1455,12 +1455,12 @@ pub extern "C" fn dartforge_arc_excecao_owned_v1() -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let trace = dartforge_arc_rastro_owned_v1();
+/// let trace = dartforge_arc_stack_trace_owned_v1();
 /// dartforge_arc_collect();
 /// dartforge_arc_release(trace);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_rastro_owned_v1() -> i64 {
+pub extern "C" fn dartforge_arc_stack_trace_owned_v1() -> i64 {
     let trace = dartforge_stack_trace_get();
     HEAP.with(|h| h.borrow_mut().retain_code_owner(trace));
     trace
@@ -1479,9 +1479,9 @@ pub extern "C" fn dartforge_arc_rastro_owned_v1() -> i64 {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let value = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// let trace = dartforge_arc_rastro_owned_v1();
-/// dartforge_arc_lancar_com_rastro_ref_v1(value, trace);
-/// let copy = dartforge_arc_rastro_owned_v1();
+/// let trace = dartforge_arc_stack_trace_owned_v1();
+/// dartforge_arc_throw_with_stack_trace_ref_v1(value, trace);
+/// let copy = dartforge_arc_stack_trace_owned_v1();
 /// assert_eq!(copy, trace);
 /// dartforge_arc_release(value);
 /// dartforge_arc_release(trace);
@@ -1490,7 +1490,7 @@ pub extern "C" fn dartforge_arc_rastro_owned_v1() -> i64 {
 /// dartforge_arc_release(copy);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lancar_com_rastro_ref_v1(value: i64, trace: i64) {
+pub extern "C" fn dartforge_arc_throw_with_stack_trace_ref_v1(value: i64, trace: i64) {
     dartforge_throw_with_stack_trace(value, 3, trace);
 }
 
@@ -1530,10 +1530,10 @@ pub extern "C" fn dartforge_arc_box_int_owned_v1(value: i64) -> i64 {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let value = dartforge_arc_box_double_owned_v1(-0.0);
-/// assert_eq!(dartforge_arc_observar_heap_v1(value), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(value), 3);
 /// dartforge_arc_release(value);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(value), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(value), 0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_box_double_owned_v1(value: f64) -> i64 {
@@ -1556,10 +1556,10 @@ pub extern "C" fn dartforge_arc_box_double_owned_v1(value: f64) -> i64 {
 /// ```
 /// use dartforge_runtime::{abi::*, layout::cid};
 /// let value = dartforge_arc_box_simd_owned_v1(cid::FLOAT32X4 as i64, 0, 0);
-/// assert_eq!(dartforge_arc_observar_heap_v1(value), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(value), 3);
 /// dartforge_arc_release(value);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(value), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(value), 0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_box_simd_owned_v1(cid: i64, low: i64, high: i64) -> i64 {
@@ -1591,7 +1591,7 @@ mod tests_owned_simd_boxes {
                     (-1, i64::MAX), (0x7fc0_0123_8000_0000, 0x0000_0001_7f80_0000)] {
                     let h = dartforge_arc_box_simd_owned_v1(cid as i64, low, high);
                     dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(h), 3);
+                    assert_eq!(dartforge_arc_observe_heap_v1(h), 3);
                     HEAP.with(|heap| {
                         let heap = heap.borrow();
                         assert_eq!(heap.header(h).class_id, cid);
@@ -1601,7 +1601,7 @@ mod tests_owned_simd_boxes {
                     });
                     dartforge_arc_release(h);
                     dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(h), 0);
+                    assert_eq!(dartforge_arc_observe_heap_v1(h), 0);
                 }
             }
         }
@@ -1623,13 +1623,13 @@ mod tests_owned_simd_boxes {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let address = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// assert_eq!(dartforge_arc_observar_heap_v1(address), 3);
+/// assert_eq!(dartforge_arc_observe_heap_v1(address), 3);
 /// dartforge_arc_release(address);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(address), 0);
+/// assert_eq!(dartforge_arc_observe_heap_v1(address), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_observar_heap_v1(address: i64) -> u8 {
+pub extern "C" fn dartforge_arc_observe_heap_v1(address: i64) -> u8 {
     HEAP.with(|h| h.borrow().observe_code_owner(address))
 }
 
@@ -1692,10 +1692,10 @@ pub extern "C" fn dartforge_arc_collect() {
 /// Does not certify the contracts of a module nor the return ABI of the externs.
 ///
 /// ```
-/// assert_eq!(dartforge_runtime::abi::dartforge_arc_verificar_abi(-1), 0);
+/// assert_eq!(dartforge_runtime::abi::dartforge_arc_verify_abi(-1), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_verificar_abi(version: i64) -> i8 {
+pub extern "C" fn dartforge_arc_verify_abi(version: i64) -> i8 {
     i8::from(version == 1 && HEAP.with(|h| h.borrow().arc_active()))
 }
 
@@ -1706,12 +1706,12 @@ pub extern "C" fn dartforge_arc_verificar_abi(version: i64) -> i8 {
 /// aborts, without unwinding into the generated code.
 ///
 /// ```
-/// use dartforge_runtime::abi::{dartforge_arc_quadro_abrir_v1, dartforge_arc_quadro_fechar_v1};
-/// let frame = dartforge_arc_quadro_abrir_v1(0);
-/// dartforge_arc_quadro_fechar_v1(frame);
+/// use dartforge_runtime::abi::{dartforge_arc_frame_open_v1, dartforge_arc_frame_close_v1};
+/// let frame = dartforge_arc_frame_open_v1(0);
+/// dartforge_arc_frame_close_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_abrir_v1(slots: i64) -> i64 {
+pub extern "C" fn dartforge_arc_frame_open_v1(slots: i64) -> i64 {
     let slots = usize::try_from(slots).expect("invalid ARC slot count");
     HEAP.with(|h| h.borrow_mut().push_owning_frame(slots))
 }
@@ -1726,12 +1726,12 @@ pub extern "C" fn dartforge_arc_quadro_abrir_v1(slots: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let frame = dartforge_arc_quadro_abrir_v1(1);
-/// dartforge_arc_quadro_copiar_v1(frame, 0, 0);
-/// dartforge_arc_quadro_fechar_v1(frame);
+/// let frame = dartforge_arc_frame_open_v1(1);
+/// dartforge_arc_frame_copy_v1(frame, 0, 0);
+/// dartforge_arc_frame_close_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_copiar_v1(frame: i64, slot: i64, value: i64) {
+pub extern "C" fn dartforge_arc_frame_copy_v1(frame: i64, slot: i64, value: i64) {
     let slot = usize::try_from(slot).expect("invalid ARC slot index");
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
@@ -1750,13 +1750,13 @@ pub extern "C" fn dartforge_arc_quadro_copiar_v1(frame: i64, slot: i64, value: i
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let frame = dartforge_arc_quadro_abrir_v1(1);
-/// let value = dartforge_arc_quadro_carregar_v1(frame, 0);
-/// dartforge_arc_quadro_fechar_v1(frame);
+/// let frame = dartforge_arc_frame_open_v1(1);
+/// let value = dartforge_arc_frame_load_v1(frame, 0);
+/// dartforge_arc_frame_close_v1(frame);
 /// dartforge_arc_release(value);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_carregar_v1(frame: i64, slot: i64) -> i64 {
+pub extern "C" fn dartforge_arc_frame_load_v1(frame: i64, slot: i64) -> i64 {
     let slot = usize::try_from(slot).expect("invalid ARC slot index");
     HEAP.with(|h| h.borrow_mut().copy_root_to_code(frame, slot))
 }
@@ -1772,12 +1772,12 @@ pub extern "C" fn dartforge_arc_quadro_carregar_v1(frame: i64, slot: i64) -> i64
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let frame = dartforge_arc_quadro_abrir_v1(1);
-/// dartforge_arc_quadro_receber_v1(frame, 0, 0);
-/// dartforge_arc_quadro_fechar_v1(frame);
+/// let frame = dartforge_arc_frame_open_v1(1);
+/// dartforge_arc_frame_receive_v1(frame, 0, 0);
+/// dartforge_arc_frame_close_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_receber_v1(frame: i64, slot: i64, value: i64) {
+pub extern "C" fn dartforge_arc_frame_receive_v1(frame: i64, slot: i64, value: i64) {
     let slot = usize::try_from(slot).expect("invalid ARC slot index");
     HEAP.with(|h| h.borrow_mut().move_code_to_root(frame, slot, value));
 }
@@ -1793,10 +1793,10 @@ pub extern "C" fn dartforge_arc_quadro_receber_v1(frame: i64, slot: i64, value: 
 /// Dead handle or without a code token; internal failure aborts at the C boundary.
 ///
 /// ```
-/// dartforge_runtime::abi::dartforge_arc_global_receber_v1(17, 0);
+/// dartforge_runtime::abi::dartforge_arc_global_receive_v1(17, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_global_receber_v1(id: i64, value: i64) {
+pub extern "C" fn dartforge_arc_global_receive_v1(id: i64, value: i64) {
     HEAP.with(|h| h.borrow_mut().move_code_to_global(id, value));
 }
 
@@ -1810,12 +1810,12 @@ pub extern "C" fn dartforge_arc_global_receber_v1(id: i64, value: i64) {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let frame = dartforge_arc_quadro_abrir_v1(2);
-/// dartforge_arc_quadro_mover_v1(frame, 0, frame, 1);
-/// dartforge_arc_quadro_fechar_v1(frame);
+/// let frame = dartforge_arc_frame_open_v1(2);
+/// dartforge_arc_frame_move_v1(frame, 0, frame, 1);
+/// dartforge_arc_frame_close_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_mover_v1(
+pub extern "C" fn dartforge_arc_frame_move_v1(
     origin: i64,
     source_slot: i64,
     dest: i64,
@@ -1833,11 +1833,11 @@ pub extern "C" fn dartforge_arc_quadro_mover_v1(
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let frame = dartforge_arc_quadro_abrir_v1(1);
-/// dartforge_arc_quadro_fechar_v1(frame);
+/// let frame = dartforge_arc_frame_open_v1(1);
+/// dartforge_arc_frame_close_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_fechar_v1(frame: i64) {
+pub extern "C" fn dartforge_arc_frame_close_v1(frame: i64) {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         h.check_owning_frame(frame);
@@ -1855,7 +1855,7 @@ mod tests_arc_abi_frames {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             let value = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_lancar_ref_v1(value);
+            dartforge_arc_throw_ref_v1(value);
             assert_ne!(dartforge_exception_pending(), 0);
             dartforge_arc_release(value);
             dartforge_arc_collect();
@@ -1875,10 +1875,10 @@ mod tests_arc_abi_frames {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             dartforge_exception_clear();
-            assert_eq!(dartforge_arc_excecao_owned_v1(), 0);
+            assert_eq!(dartforge_arc_exception_owned_v1(), 0);
             let original = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_lancar_ref_v1(original);
-            let captured = dartforge_arc_excecao_owned_v1();
+            dartforge_arc_throw_ref_v1(original);
+            let captured = dartforge_arc_exception_owned_v1();
             assert_eq!(captured, original);
             assert_ne!(dartforge_exception_pending(), 0);
             dartforge_arc_release(original);
@@ -1900,11 +1900,11 @@ mod tests_arc_abi_frames {
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             dartforge_exception_clear();
             let original = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let trace = dartforge_arc_rastro_owned_v1();
+            let trace = dartforge_arc_stack_trace_owned_v1();
             assert!(CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()));
-            dartforge_arc_lancar_com_rastro_ref_v1(original, trace);
-            let captured_value = dartforge_arc_rastro_owned_v1();
-            let value = dartforge_arc_excecao_owned_v1();
+            dartforge_arc_throw_with_stack_trace_ref_v1(original, trace);
+            let captured_value = dartforge_arc_stack_trace_owned_v1();
+            let value = dartforge_arc_exception_owned_v1();
             assert_eq!(captured_value, trace);
             assert_eq!(value, original);
             assert_eq!(CURRENT_STACK_TRACE.with(|slot| *slot.borrow()), Some(trace));
@@ -1939,7 +1939,7 @@ mod tests_arc_abi_frames {
                 (0, 3, Value::Ref(0)),
             ] {
                 dartforge_exception_throw(bits, tag);
-                let captured = dartforge_arc_excecao_owned_v1();
+                let captured = dartforge_arc_exception_owned_v1();
                 assert_eq!(EXCEPTION.with(|slot| *slot.borrow()), Some(expected));
                 dartforge_exception_clear();
                 dartforge_arc_collect();
@@ -1961,17 +1961,17 @@ mod tests_arc_abi_frames {
                 let previous = HEAP.with(|h| h.replace(Heap::new(validate)));
                 if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
                 for address in [0, 2, i64::MIN, i64::MAX, smi::de(42).unwrap()] {
-                    assert_eq!(dartforge_arc_observar_heap_v1(address), 0);
+                    assert_eq!(dartforge_arc_observe_heap_v1(address), 0);
                 }
                 let address = dartforge_arc_box_int_owned_v1(i64::MAX);
-                assert_eq!(dartforge_arc_observar_heap_v1(address), 3);
+                assert_eq!(dartforge_arc_observe_heap_v1(address), 3);
                 dartforge_arc_retain(address);
                 dartforge_arc_release(address);
-                assert_eq!(dartforge_arc_observar_heap_v1(address), 3);
+                assert_eq!(dartforge_arc_observe_heap_v1(address), 3);
                 dartforge_arc_release(address);
-                assert_eq!(dartforge_arc_observar_heap_v1(address), 1);
+                assert_eq!(dartforge_arc_observe_heap_v1(address), 1);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(address), 0);
+                assert_eq!(dartforge_arc_observe_heap_v1(address), 0);
                 HEAP.with(|h| { h.replace(previous); });
             }
         }
@@ -2011,25 +2011,25 @@ mod tests_arc_abi_frames {
             // root that could hide the loss of the owning owner.
             let mut global = 0_i64;
             let id = (&mut global as *mut i64) as i64;
-            let frame = dartforge_arc_quadro_abrir_v1(1);
+            let frame = dartforge_arc_frame_open_v1(1);
             let value = HEAP.with(|h| h.borrow_mut().allocate_str("global mortal"));
-            dartforge_arc_quadro_copiar_v1(frame, 0, value);
-            global = dartforge_arc_quadro_carregar_v1(frame, 0);
-            dartforge_arc_global_receber_v1(id, global);
-            dartforge_arc_quadro_fechar_v1(frame);
+            dartforge_arc_frame_copy_v1(frame, 0, value);
+            global = dartforge_arc_frame_load_v1(frame, 0);
+            dartforge_arc_global_receive_v1(id, global);
+            dartforge_arc_frame_close_v1(frame);
             dartforge_arc_collect();
             assert!(HEAP.with(|h| h.borrow().is_live_object(global)));
 
             // Reassigning the same object consumes the new token and the old owner;
             // identity cannot skip the transfer or leak a retain.
             dartforge_arc_retain(global);
-            dartforge_arc_global_receber_v1(id, global);
+            dartforge_arc_global_receive_v1(id, global);
             dartforge_arc_collect();
             assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
 
             dartforge_arc_retain(global);
             global = smi::de(42).unwrap();
-            dartforge_arc_global_receber_v1(id, global);
+            dartforge_arc_global_receive_v1(id, global);
             dartforge_arc_collect();
             assert_eq!(global, smi::de(42).unwrap());
             assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
@@ -2037,7 +2037,7 @@ mod tests_arc_abi_frames {
             dartforge_arc_collect();
             assert!(!HEAP.with(|h| h.borrow().is_live_object(value)));
             global = 0;
-            dartforge_arc_global_receber_v1(id, global);
+            dartforge_arc_global_receive_v1(id, global);
             HEAP.with(|h| {
                 h.replace(previous);
             });
@@ -2051,26 +2051,26 @@ mod tests_arc_abi_frames {
             if arc {
                 HEAP.with(|h| h.borrow_mut().enable_arc());
             }
-            let frame = dartforge_arc_quadro_abrir_v1(1);
+            let frame = dartforge_arc_frame_open_v1(1);
             let value = HEAP.with(|h| h.borrow_mut().allocate_str("slot e SSA"));
-            dartforge_arc_quadro_copiar_v1(frame, 0, value);
-            let token = dartforge_arc_quadro_carregar_v1(frame, 0);
+            dartforge_arc_frame_copy_v1(frame, 0, value);
+            let token = dartforge_arc_frame_load_v1(frame, 0);
             assert_eq!(token, value);
-            dartforge_arc_quadro_receber_v1(frame, 0, token);
-            let token = dartforge_arc_quadro_carregar_v1(frame, 0);
-            dartforge_arc_quadro_fechar_v1(frame);
+            dartforge_arc_frame_receive_v1(frame, 0, token);
+            let token = dartforge_arc_frame_load_v1(frame, 0);
+            dartforge_arc_frame_close_v1(frame);
             dartforge_arc_collect();
             assert!(HEAP.with(|h| h.borrow().is_live_object(token)));
             dartforge_arc_release(token);
             dartforge_arc_collect();
             assert!(!HEAP.with(|h| h.borrow().is_live_object(token)));
-            let frame = dartforge_arc_quadro_abrir_v1(1);
+            let frame = dartforge_arc_frame_open_v1(1);
             for scalar in [0, smi::de(42).unwrap()] {
-                dartforge_arc_quadro_receber_v1(frame, 0, scalar);
-                assert_eq!(dartforge_arc_quadro_carregar_v1(frame, 0), scalar);
+                dartforge_arc_frame_receive_v1(frame, 0, scalar);
+                assert_eq!(dartforge_arc_frame_load_v1(frame, 0), scalar);
                 dartforge_arc_release(scalar);
             }
-            dartforge_arc_quadro_fechar_v1(frame);
+            dartforge_arc_frame_close_v1(frame);
             HEAP.with(|h| {
                 h.replace(previous);
             });
@@ -2080,10 +2080,10 @@ mod tests_arc_abi_frames {
     #[test]
     fn minimal_abi_checks_mode_and_keeps_tokens_until_release() {
         let previous = HEAP.with(|h| h.replace(Heap::new(false)));
-        assert_eq!(dartforge_arc_verificar_abi(1), 0);
+        assert_eq!(dartforge_arc_verify_abi(1), 0);
         HEAP.with(|h| h.borrow_mut().enable_arc());
-        assert_eq!(dartforge_arc_verificar_abi(1), 1);
-        assert_eq!(dartforge_arc_verificar_abi(2), 0);
+        assert_eq!(dartforge_arc_verify_abi(1), 1);
+        assert_eq!(dartforge_arc_verify_abi(2), 0);
         let value = HEAP.with(|h| h.borrow_mut().allocate_str("token ABI"));
         dartforge_arc_retain(value);
         dartforge_arc_retain(value);
@@ -2115,26 +2115,26 @@ mod tests_arc_abi_frames {
             if arc {
                 HEAP.with(|h| h.borrow_mut().enable_arc());
             }
-            let origin = dartforge_arc_quadro_abrir_v1(2);
-            let dest = dartforge_arc_quadro_abrir_v1(1);
+            let origin = dartforge_arc_frame_open_v1(2);
+            let dest = dartforge_arc_frame_open_v1(1);
             let value = HEAP.with(|h| h.borrow_mut().allocate_str("owner ABI"));
-            dartforge_arc_quadro_copiar_v1(origin, 0, value);
-            dartforge_arc_quadro_copiar_v1(origin, 1, value);
-            dartforge_arc_quadro_mover_v1(origin, 0, dest, 0);
-            dartforge_arc_quadro_mover_v1(dest, 0, dest, 0);
-            dartforge_arc_quadro_copiar_v1(origin, 1, 0);
+            dartforge_arc_frame_copy_v1(origin, 0, value);
+            dartforge_arc_frame_copy_v1(origin, 1, value);
+            dartforge_arc_frame_move_v1(origin, 0, dest, 0);
+            dartforge_arc_frame_move_v1(dest, 0, dest, 0);
+            dartforge_arc_frame_copy_v1(origin, 1, 0);
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
                 assert!(h.is_live_object(value));
             });
-            dartforge_arc_quadro_fechar_v1(dest);
+            dartforge_arc_frame_close_v1(dest);
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
                 assert!(!h.is_live_object(value));
             });
-            dartforge_arc_quadro_fechar_v1(origin);
+            dartforge_arc_frame_close_v1(origin);
             HEAP.with(|h| {
                 h.replace(previous);
             });
@@ -2156,10 +2156,10 @@ mod tests_owned_double_box {
                 dartforge_arc_release(value);
                 dartforge_arc_collect();
                 assert_eq!(HEAP.with(|h| h.borrow().double_of(value).unwrap().to_bits()), bits);
-                assert_eq!(dartforge_arc_observar_heap_v1(value), 3);
+                assert_eq!(dartforge_arc_observe_heap_v1(value), 3);
                 dartforge_arc_release(value);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(value), 0);
+                assert_eq!(dartforge_arc_observe_heap_v1(value), 0);
             }
             HEAP.with(|h| { h.replace(previous); });
         }
@@ -2205,7 +2205,7 @@ mod testes_campo_ref {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
-            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let object = dartforge_arc_object_owned_v1(123, 40);
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
             HEAP.with(|h| {
                 let mut heap = h.borrow_mut();
@@ -2222,10 +2222,10 @@ mod testes_campo_ref {
             });
             dartforge_arc_release(child);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 1);
             HEAP.with(|h| assert!(write_checked_ref_field(&mut h.borrow_mut(), object, 39, 0, &[123, 40]).is_ok()));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
             dartforge_arc_release(object);
             HEAP.with(|h| h.replace(previous));
         }
@@ -2236,19 +2236,19 @@ mod testes_campo_ref {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
-            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let object = dartforge_arc_object_owned_v1(123, 40);
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_gravar_campo_ref_v1(object, 0, 0);
-            dartforge_arc_gravar_campo_ref_v1(object, 1, smi::de(42).unwrap());
-            dartforge_arc_gravar_campo_ref_v1(object, 39, child);
-            dartforge_arc_gravar_campo_escalar_v1(object, 37, child);
+            dartforge_arc_write_field_ref_v1(object, 0, 0);
+            dartforge_arc_write_field_ref_v1(object, 1, smi::de(42).unwrap());
+            dartforge_arc_write_field_ref_v1(object, 39, child);
+            dartforge_arc_write_field_scalar_v1(object, 37, child);
             dartforge_arc_release(child);
             dartforge_arc_collect();
             let stats = HEAP.with(|h| h.borrow().stats());
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 0), 0);
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 1), smi::de(42).unwrap());
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 39), child);
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+            assert_eq!(dartforge_arc_read_field_ref_v1(object, 0), 0);
+            assert_eq!(dartforge_arc_read_field_ref_v1(object, 1), smi::de(42).unwrap());
+            assert_eq!(dartforge_arc_read_field_ref_v1(object, 39), child);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 1);
             HEAP.with(|h| {
                 let h = h.borrow();
                 for (receiver, ix) in [(object, 37), (object, -1), (object, 40), (0, 0), (child, 0)] {
@@ -2259,23 +2259,23 @@ mod testes_campo_ref {
                 assert_eq!(h.stats().allocations, stats.allocations);
                 assert_eq!(h.stats().collections, stats.collections);
             });
-            dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
+            dartforge_arc_write_field_ref_v1(object, 39, 0);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_gravar_campo_ref_v1(object, 39, child);
+            dartforge_arc_write_field_ref_v1(object, 39, child);
             dartforge_arc_release(child);
-            let copy = dartforge_arc_ler_campo_ref_v1(object, 39);
+            let copy = dartforge_arc_read_field_ref_v1(object, 39);
             assert_eq!(copy, child);
             dartforge_arc_retain(copy);
-            dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
+            dartforge_arc_write_field_ref_v1(object, 39, 0);
             dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
-            assert_eq!(dartforge_arc_observar_heap_v1(copy), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(object), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(copy), 3);
             dartforge_arc_release(copy);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(copy), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(copy), 0);
             HEAP.with(|h| { h.replace(previous); });
         }
     }
@@ -2290,10 +2290,10 @@ mod tests_late_ref_read {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
-            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let object = dartforge_arc_object_owned_v1(123, 40);
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
             let before = HEAP.with(|h| h.borrow().stats());
-            assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 39), 0);
+            assert_eq!(dartforge_arc_read_field_late_ref_v1(object, 39), 0);
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.mark_late((object, 39));
@@ -2311,22 +2311,22 @@ mod tests_late_ref_read {
                 assert_eq!(h.stats().collections, before.collections);
             });
             for value in [0, smi::de(42).unwrap(), child] {
-                dartforge_arc_gravar_campo_ref_v1(object, 39, value);
+                dartforge_arc_write_field_ref_v1(object, 39, value);
                 HEAP.with(|h| h.borrow_mut().mark_late((object, 39)));
-                assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 39), value);
+                assert_eq!(dartforge_arc_read_field_late_ref_v1(object, 39), value);
             }
             dartforge_arc_release(child);
-            let copy = dartforge_arc_ler_campo_late_ref_v1(object, 39);
+            let copy = dartforge_arc_read_field_late_ref_v1(object, 39);
             dartforge_arc_retain(copy);
-            dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
+            dartforge_arc_write_field_ref_v1(object, 39, 0);
             dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(copy), 3);
-            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(copy), 3);
+            assert_eq!(dartforge_arc_observe_heap_v1(object), 0);
             HEAP.with(|h| assert!(read_audited_late_ref_field(&h.borrow(), object, 39).is_err()));
             dartforge_arc_release(copy);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(copy), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(copy), 0);
             HEAP.with(|h| { h.replace(previous); });
         }
     }
@@ -2341,16 +2341,16 @@ mod tests_field_write {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
-            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let object = dartforge_arc_object_owned_v1(123, 40);
             let child = dartforge_arc_box_int_owned_v1(i64::MAX);
             let before = HEAP.with(|h| h.borrow().stats());
             for ix in [0, 37, 38] {
-                dartforge_arc_gravar_campo_ref_v1(object, ix, child);
-                dartforge_arc_gravar_campo_ref_v1(object, ix, child);
+                dartforge_arc_write_field_ref_v1(object, ix, child);
+                dartforge_arc_write_field_ref_v1(object, ix, child);
             }
             for (ix, bits) in [(1, i64::MAX), (32, (-0.0_f64).to_bits() as i64), (39, 0x7ff80000deadbeef)] {
-                dartforge_arc_gravar_campo_escalar_v1(object, ix, bits);
-                assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, ix), bits);
+                dartforge_arc_write_field_scalar_v1(object, ix, bits);
+                assert_eq!(dartforge_arc_read_field_scalar_v1(object, ix), bits);
             }
             HEAP.with(|h| {
                 let h = h.borrow();
@@ -2361,21 +2361,21 @@ mod tests_field_write {
             });
             dartforge_arc_release(child);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 1);
             // The same bits stop constituting an edge in both maps.
-            for ix in [0, 37] { dartforge_arc_gravar_campo_escalar_v1(object, ix, child); }
+            for ix in [0, 37] { dartforge_arc_write_field_scalar_v1(object, ix, child); }
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
-            dartforge_arc_gravar_campo_ref_v1(object, 38, 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 1);
+            dartforge_arc_write_field_ref_v1(object, 38, 0);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
-            for ix in [0, 37] { assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, ix), child); }
-            dartforge_arc_gravar_campo_ref_v1(object, 33, object);
+            assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
+            for ix in [0, 37] { assert_eq!(dartforge_arc_read_field_scalar_v1(object, ix), child); }
+            dartforge_arc_write_field_ref_v1(object, 33, object);
             dartforge_arc_collect();
-            dartforge_arc_gravar_campo_escalar_v1(object, 33, 0);
+            dartforge_arc_write_field_scalar_v1(object, 33, 0);
             dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(object), 0);
             HEAP.with(|h| { h.replace(previous); });
         }
     }
@@ -2418,14 +2418,14 @@ mod tests_owned_instance {
         HEAP.with(|h| h.borrow_mut().enable_arc());
         for _ in 0..2 {
             // SAFETY: valid static table with one durable native entry.
-            let object = unsafe { dartforge_arc_objeto_owned_t_v1(32001, 1, tabela) };
+            let object = unsafe { dartforge_arc_object_owned_t_v1(32001, 1, tabela) };
             assert_eq!(class_method(32001, 42), Some(input as *const () as usize));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
-            assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 0), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(object), 3);
+            assert_eq!(dartforge_arc_read_field_scalar_v1(object, 0), 0);
             dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+            assert_eq!(dartforge_arc_observe_heap_v1(object), 0);
         }
         assert_eq!(CALLS.load(Ordering::Relaxed), 1);
         HEAP.with(|h| { h.replace(previous); });
@@ -2437,10 +2437,10 @@ mod tests_owned_instance {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             for fields in [0, 1, 32, 33, 40] {
-                let object = dartforge_arc_objeto_owned_v1(123, fields);
-                assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
+                let object = dartforge_arc_object_owned_v1(123, fields);
+                assert_eq!(dartforge_arc_observe_heap_v1(object), 3);
                 // The next factory may collect before publishing its token.
-                let other_one = dartforge_arc_objeto_owned_v1(124, 1);
+                let other_one = dartforge_arc_object_owned_v1(124, 1);
                 dartforge_arc_collect();
                 HEAP.with(|h| {
                     let h = h.borrow();
@@ -2454,17 +2454,17 @@ mod tests_owned_instance {
                     dartforge_object_set(object, fields - 1, child, 1);
                     dartforge_arc_release(child);
                     dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+                    assert_eq!(dartforge_arc_observe_heap_v1(child), 1);
                     assert_eq!(HEAP.with(|h| h.borrow().object(object).unwrap().field(fields as usize - 1)), (child, true));
                     Some(child)
                 } else { None };
                 dartforge_arc_release(other_one);
                 dartforge_arc_release(object);
-                assert_eq!(dartforge_arc_observar_heap_v1(object) & 2, 0);
+                assert_eq!(dartforge_arc_observe_heap_v1(object) & 2, 0);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
-                assert_eq!(dartforge_arc_observar_heap_v1(other_one), 0);
-                if let Some(child) = child { assert_eq!(dartforge_arc_observar_heap_v1(child), 0); }
+                assert_eq!(dartforge_arc_observe_heap_v1(object), 0);
+                assert_eq!(dartforge_arc_observe_heap_v1(other_one), 0);
+                if let Some(child) = child { assert_eq!(dartforge_arc_observe_heap_v1(child), 0); }
             }
             HEAP.with(|h| { h.replace(previous); });
         }
@@ -2514,7 +2514,7 @@ mod tests_scalar_field {
             let before = HEAP.with(|h| h.borrow().stats());
             for i in [0, 2, 3, 32, 39] {
                 let expected = HEAP.with(|h| h.borrow().object(object).unwrap().field(i).0);
-                assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, i as i64), expected);
+                assert_eq!(dartforge_arc_read_field_scalar_v1(object, i as i64), expected);
             }
             HEAP.with(|h| {
                 let h = h.borrow();

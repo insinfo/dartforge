@@ -32,7 +32,7 @@ Automatic collection happens before allocating, after a threshold of 256 allocat
 
 ## ABI
 
-- dartforge_gc_empilhar(frame:*mut RootFrame); dartforge_gc_desempilhar(frame); dartforge_gc_collect(). The frame `{ previous, n, [n x i64] }` lives on the stack of the generated function, which writes each root into its slot with a `store`.
+- dartforge_gc_push(frame:*mut RootFrame); dartforge_gc_desempilhar(frame); dartforge_gc_collect(). The frame `{ previous, n, [n x i64] }` lives on the stack of the generated function, which writes each root into its slot with a `store`.
 - dartforge_object_new(class_id:i64, field_count:i64) -> i64; dartforge_object_get(handle:i64,index:i64) -> i64; dartforge_object_set(handle:i64,index:i64,bits:i64,is_ref:i8); dartforge_object_class(handle:i64) -> i64.
 - dartforge_string_new(ptr:*const u8,len:i64) -> i64; dartforge_string_concat(a:i64,b:i64) -> i64; dartforge_string_equal(a:i64,b:i64) -> i8; dartforge_print_string(handle:i64).
 - Strings are UTF-8 and immutable. Concatenation requires non-null operands; equality and printing accept a zero handle. There is no Unicode normalization.

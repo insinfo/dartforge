@@ -24,7 +24,7 @@ thread_local! {
 /// The positions of the table of 32 runtime classes that the emitter writes
 /// (`sdk_modulo::cids_do_runtime`, `@df.cids`). With the fixed cids
 /// (docs/NATIVO-ESPACO-UNIFICADO.md §2.4) the table is only the ABI check of
-/// [`dartforge_registrar_cids`]; the positions remain for whoever still asks for
+/// [`dartforge_register_cids`]; the positions remain for whoever still asks for
 /// the cid through them.
 const CID_NULL: usize = 0;
 const CID_SMI: usize = 1;
@@ -132,7 +132,7 @@ unsafe fn copy_table(pair_list: *const i64, n: usize) -> MethodTable {
 /// # Safety
 /// `pair_list` points to `2 * n` readable words.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pair_list: *const i64, n: i64) {
+pub unsafe extern "C" fn dartforge_register_methods(cid: i64, pair_list: *const i64, n: i64) {
     // SAFETY: guaranteed by the caller.
     let t = unsafe { copy_table(pair_list, n as usize) };
     METHODS.with(|m| m.borrow_mut().insert(cid, t));
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pair_list: *const
 /// Registers the method table of class `cid` through the function that returns it
 /// (`df.mt.<library>.<Class>`, `{cid, n, [hash, input]…}`), if not registered yet.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *const i64) {
+pub extern "C" fn dartforge_register_table(cid: i64, f: extern "C" fn() -> *const i64) {
     if already_registered(cid) && !REPUBLISHING.with(|r| r.get()) {
         return;
     }
@@ -199,7 +199,7 @@ thread_local! {
 
 /// The publication of a new generation of the program (the JIT reload), at the
 /// isolate's safepoint: extends the globals area to the generation's layout
-/// (`area`, its `df.preparar_area` — now, with no frame at all on the stack, so
+/// (`area`, its `df.prepare_area` — now, with no frame at all on the stack, so
 /// that a growth needing another allocation does not leave an old `%area` pointing
 /// to the retired one); redoes the program's registrations (`register`, the
 /// generation's `df.register.program`: names, subtype edges and method tables,
@@ -207,7 +207,7 @@ thread_local! {
 /// methods) and the RTI's supertype rules (`rti`). The registrations that add
 /// (edges, rules) do not duplicate.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_publicar_geracao(
+pub extern "C" fn dartforge_publish_generation(
     area: Option<extern "C" fn()>,
     register: Option<extern "C" fn()>,
     rti: Option<extern "C" fn()>,
@@ -242,7 +242,7 @@ pub extern "C" fn dartforge_publicar_geracao(
 /// allocation (SDK from source).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_new_t(cid: i64, fields: i64, f: extern "C" fn() -> *const i64) -> i64 {
-    dartforge_registrar_tabela(cid, f);
+    dartforge_register_table(cid, f);
     dartforge_object_new(cid, fields)
 }
 
@@ -256,7 +256,7 @@ pub extern "C" fn dartforge_object_new_t(cid: i64, fields: i64, f: extern "C" fn
 /// # Safety
 /// `ids` points to `n` readable words.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_cids(ids: *const i64, n: i64) {
+pub unsafe extern "C" fn dartforge_register_cids(ids: *const i64, n: i64) {
     // SAFETY: the emitter passes a module constant with `n` words.
     let v = unsafe { std::slice::from_raw_parts(ids, usize::try_from(n).unwrap_or(0)) };
     let expected: Vec<i64> = if v.len() == crate::layout::cid::DO_SDK.len() {
@@ -298,7 +298,7 @@ fn argument_names() -> &'static std::sync::RwLock<HashMap<i64, String>> {
 /// # Safety
 /// `name` points to `len` UTF-8 bytes of a module constant.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_nome_de_argumento(name: *const u8, len: i64) {
+pub unsafe extern "C" fn dartforge_register_argument_name(name: *const u8, len: i64) {
     // SAFETY: a module constant with `len` bytes.
     let bytes = unsafe { std::slice::from_raw_parts(name, len as usize) };
     let name = String::from_utf8_lossy(bytes).into_owned();
@@ -319,7 +319,7 @@ fn name_hash(name: &str) -> i64 {
 /// The entry of a selector that the receiver's class does not have: as in the VM,
 /// the receiver's `noSuchMethod` receives the `Invocation` (`Object`'s throws
 /// `NoSuchMethodError`; a class may override it and return a value).
-extern "C" fn dartforge_nsm_seletor(recv: i64, args: *const i64, desc: *const i64) -> i64 {
+extern "C" fn dartforge_nsm_selector(recv: i64, args: *const i64, desc: *const i64) -> i64 {
     let text = MISSING_SELECTOR.with(|s| s.borrow().clone());
     let (tipo, name) = text.split_once(':').unwrap_or(("c", text.as_str()));
     let name = name.split_once('@').map_or(name, |(n, _)| n);
@@ -389,7 +389,7 @@ fn invocar_no_such_method(recv: i64, code: i64, name: i64, value_list: &[i64], n
     let textos: Vec<i64> = names.iter().map(|t| root_it(HEAP.with(|h| h.borrow_mut().allocate_str(t)))).collect();
     let names = root_it(dart_fixed_list(&textos));
     let vals = root_it(dart_fixed_list(&value_list[npos..]));
-    let objects: Vec<i64> = types.iter().map(|&t| root_it(dartforge_rti_objeto_tipo(t))).collect();
+    let objects: Vec<i64> = types.iter().map(|&t| root_it(dartforge_rti_object_type(t))).collect();
     let types = root_it(dart_fixed_list(&objects));
     // SAFETY: registered by `dart:core` with the signature
     // (Object?, int, String, List, List, List, List) -> Object?.
@@ -404,7 +404,7 @@ fn invocar_no_such_method(recv: i64, code: i64, name: i64, value_list: &[i64], n
 /// `env` has the `npos` positionals, the `nnom` named ones (all of them, with the
 /// defaults) and then their names, in declaration order.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_encaminhar_nsm(recv: i64, code: i64, name: i64, env: i64, npos: i64, nnom: i64, tuple: i64) -> i64 {
+pub extern "C" fn dartforge_forward_nsm(recv: i64, code: i64, name: i64, env: i64, npos: i64, nnom: i64, tuple: i64) -> i64 {
     let (npos, nnom) = (npos as usize, nnom as usize);
     // The forwarder's `_Contexto` (`lower/sdk_fonte.rs`, `gerar_encaminhador_nsm`)
     // keeps all the values as `Ref` (boxed by the compiler) and then the names.
@@ -444,7 +444,7 @@ pub extern "C" fn dartforge_encaminhar_nsm(recv: i64, code: i64, name: i64, env:
 /// `cache` points to two writable words of the module; `name` to `len` readable
 /// bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64, name: *const u8, len: i64) -> usize {
+pub unsafe extern "C" fn dartforge_selector(cache: *mut i64, recv: i64, hash: i64, name: *const u8, len: i64) -> usize {
     let cid = dartforge_value_class(recv);
     // SAFETY: the cache is a `[2 x i64]` private to the call site.
     unsafe {
@@ -479,7 +479,7 @@ pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64
                 eprintln!("[debug] missing selector: {text} in class {cid} {class}");
             }
             MISSING_SELECTOR.with(|s| *s.borrow_mut() = text);
-            dartforge_nsm_seletor as usize
+            dartforge_nsm_selector as usize
         }
     }
 }
@@ -488,7 +488,7 @@ pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64
 /// reached it at run time. Never a wrong output: the message names the member and
 /// the reason, and the process exits with 254 (the harness's "compile error" code).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_membro_recusado(text: i64) {
+pub extern "C" fn dartforge_member_rejected(text: i64) {
     let t = HEAP.with(|heap| heap.borrow().text(text).map(|t| t.para_string()).unwrap_or_default());
     use std::io::Write;
     let _ = std::io::stdout().flush();
@@ -515,13 +515,13 @@ thread_local! {
 /// # Safety
 /// `name` points to `len` bytes of a module constant.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_rastro_entrada(name: *const u8, len: i64) {
+pub unsafe extern "C" fn dartforge_call_trace_entry(name: *const u8, len: i64) {
     TRACE.with(|r| r.borrow_mut().push((name as usize, len as usize)));
 }
 
 /// Exit of a function (debug call trace).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rastro_saida() {
+pub extern "C" fn dartforge_call_trace_exit() {
     TRACE.with(|r| {
         r.borrow_mut().pop();
     });
@@ -531,7 +531,7 @@ pub extern "C" fn dartforge_rastro_saida() {
 fn show_trace() {
     TRACE.with(|r| {
         for &(p, n) in r.borrow().iter().rev().take(25) {
-            // SAFETY: module constants registered by `dartforge_rastro_entrada`.
+            // SAFETY: module constants registered by `dartforge_call_trace_entry`.
             let b = unsafe { std::slice::from_raw_parts(p as *const u8, n) };
             eprintln!("    at {}", String::from_utf8_lossy(b));
         }
@@ -549,12 +549,12 @@ fn pending_migration() -> &'static std::sync::Mutex<Option<(u64, std::sync::Arc<
 /// Sets the migration of the publication in progress (J03): `data` is
 /// `[n, (class, new_len, origin…)…]`. Called by the JIT at the main isolate's
 /// safepoint, with the others stopped; each isolate applies it to its heap in
-/// [`dartforge_publicar_geracao`].
+/// [`dartforge_publish_generation`].
 ///
 /// # Safety
 /// `data` points to `n` readable words.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_definir_migracao(data: *const i64, n: i64) {
+pub unsafe extern "C" fn dartforge_set_migration(data: *const i64, n: i64) {
     // SAFETY: guaranteed by the caller; copied here.
     let v = unsafe { std::slice::from_raw_parts(data, usize::try_from(n).unwrap_or(0)) };
     let mut plan: HashMap<i64, Vec<i64>> = HashMap::default();

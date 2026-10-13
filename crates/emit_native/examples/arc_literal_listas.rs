@@ -85,24 +85,24 @@ fn main() -> Result<(), String> {
         r#"
 define void @prova_literal() {{
 entry:
-  %filho = call i64 @dartforge_arc_lista_nova_owned_v1(ptr null, i64 0, i64 8, i64 0)
+  %filho = call i64 @dartforge_arc_list_new_owned_v1(ptr null, i64 0, i64 8, i64 0)
   %lista = call i64 @literal_misto(i64 %filho)
 {retention}  call void @dartforge_arc_release(i64 %filho)
   call void @dartforge_arc_collect()
-  %estado = call i8 @dartforge_arc_observar_heap_v1(i64 %lista)
+  %estado = call i8 @dartforge_arc_observe_heap_v1(i64 %lista)
   %owner = icmp eq i8 %estado, 3
-  %fe = call i8 @dartforge_arc_observar_heap_v1(i64 %filho)
+  %fe = call i8 @dartforge_arc_observe_heap_v1(i64 %filho)
   %aresta = icmp eq i8 %fe, 1
   %vivo = and i1 %owner, %aresta
   br i1 %vivo, label %ler, label %falha
 ler:
-  %n = call i64 @dartforge_arc_lista_len_v1(i64 %lista)
+  %n = call i64 @dartforge_arc_list_len_v1(i64 %lista)
   %n_ok = icmp eq i64 %n, 5
-  %r0 = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %lista, i64 0)
-  %r1 = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %lista, i64 1)
-  %r2 = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %lista, i64 2)
-  %r3 = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %lista, i64 3)
-  %r4 = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %lista, i64 4)
+  %r0 = call i64 @dartforge_arc_list_ref_owned_v1(i64 %lista, i64 0)
+  %r1 = call i64 @dartforge_arc_list_ref_owned_v1(i64 %lista, i64 1)
+  %r2 = call i64 @dartforge_arc_list_ref_owned_v1(i64 %lista, i64 2)
+  %r3 = call i64 @dartforge_arc_list_ref_owned_v1(i64 %lista, i64 3)
+  %r4 = call i64 @dartforge_arc_list_ref_owned_v1(i64 %lista, i64 4)
   %int = call i64 @dartforge_unbox_int(i64 %r1)
   %double = call double @dartforge_unbox_double(i64 %r2)
   %dbits = bitcast double %double to i64
@@ -126,12 +126,12 @@ ler:
 soltar:
   call void @dartforge_arc_release(i64 %lista)
   call void @dartforge_arc_collect()
-  %fim = call i8 @dartforge_arc_observar_heap_v1(i64 %lista)
-  %ff = call i8 @dartforge_arc_observar_heap_v1(i64 %filho)
+  %fim = call i8 @dartforge_arc_observe_heap_v1(i64 %lista)
+  %ff = call i8 @dartforge_arc_observe_heap_v1(i64 %filho)
   %morta = icmp eq i8 %fim, 0
   %filhomorto = icmp eq i8 %ff, 0
-  %fi = call i8 @dartforge_arc_observar_heap_v1(i64 %r1)
-  %fd = call i8 @dartforge_arc_observar_heap_v1(i64 %r2)
+  %fi = call i8 @dartforge_arc_observe_heap_v1(i64 %r1)
+  %fd = call i8 @dartforge_arc_observe_heap_v1(i64 %r2)
   %imorto = icmp eq i8 %fi, 0
   %dmorto = icmp eq i8 %fd, 0
   %caixasmortas = and i1 %imorto, %dmorto

@@ -3,7 +3,7 @@
 // `DartForge_int_hashCode` and `DartForge_math_*` came from `natives_lists.rs`).
 //
 // Each function is the VM native of the same name (`runtime/lib/integers.cc`,
-// `double.cc`), with the symbol `dartforge_nativo_<Name>` and the signature in the
+// `double.cc`), with the symbol `dartforge_native_<Name>` and the signature in the
 // HIR representation (R1): the receiver of `_IntegerImplementation`/`_Smi`/`_Mint`
 // is the `i64`, that of `_Double` the `f64`; `bool` comes back as `u8`. The table
 // that lowering consults is `crates/emit_native/src/nativos.rs`.
@@ -15,26 +15,26 @@
 
 /// `Integer_addFromInteger`: `other + this` with wrapping overflow.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_addFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_addFromInteger(this: i64, other_one: i64) -> i64 {
     other_one.wrapping_add(this)
 }
 
 /// `Integer_subFromInteger`: `other - this`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_subFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_subFromInteger(this: i64, other_one: i64) -> i64 {
     other_one.wrapping_sub(this)
 }
 
 /// `Integer_mulFromInteger`: `other * this`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_mulFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_mulFromInteger(this: i64, other_one: i64) -> i64 {
     other_one.wrapping_mul(this)
 }
 
 /// `Integer_truncDivFromInteger`: `other ~/ this`. `MIN ~/ -1` is `MIN`
 /// (`Integer::ArithmeticOp`, kTRUNCDIV). `this == 0` does not get here.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_truncDivFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_truncDivFromInteger(this: i64, other_one: i64) -> i64 {
     if this == 0 {
         throw_division_by_zero();
         return 0;
@@ -45,7 +45,7 @@ pub extern "C" fn dartforge_nativo_Integer_truncDivFromInteger(this: i64, other_
 /// `Integer_moduloFromInteger`: `other % this`, always non-negative
 /// (`Integer::ArithmeticOp`, kMOD: a negative remainder adds `|this|`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_moduloFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_moduloFromInteger(this: i64, other_one: i64) -> i64 {
     if this == 0 {
         throw_division_by_zero();
         return 0;
@@ -67,19 +67,19 @@ fn throw_division_by_zero() {
 
 /// `Integer_bitAndFromInteger`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_bitAndFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_bitAndFromInteger(this: i64, other_one: i64) -> i64 {
     other_one & this
 }
 
 /// `Integer_bitOrFromInteger`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_bitOrFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_bitOrFromInteger(this: i64, other_one: i64) -> i64 {
     other_one | this
 }
 
 /// `Integer_bitXorFromInteger`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_bitXorFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_bitXorFromInteger(this: i64, other_one: i64) -> i64 {
     other_one ^ this
 }
 
@@ -102,42 +102,42 @@ fn shift(value: i64, amount: i64, tipo: u8) -> i64 {
 
 /// `Integer_shlFromInteger`: `other << this`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_shlFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_shlFromInteger(this: i64, other_one: i64) -> i64 {
     shift(other_one, this, 0)
 }
 
 /// `Integer_shrFromInteger`: `other >> this`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_shrFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_shrFromInteger(this: i64, other_one: i64) -> i64 {
     shift(other_one, this, 1)
 }
 
 /// `Integer_ushrFromInteger`: `other >>> this`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_ushrFromInteger(this: i64, other_one: i64) -> i64 {
+pub extern "C" fn dartforge_native_Integer_ushrFromInteger(this: i64, other_one: i64) -> i64 {
     shift(other_one, this, 2)
 }
 
 /// `Integer_greaterThanFromInteger`: `other > this`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_greaterThanFromInteger(this: i64, other_one: i64) -> u8 {
+pub extern "C" fn dartforge_native_Integer_greaterThanFromInteger(this: i64, other_one: i64) -> u8 {
     u8::from(other_one > this)
 }
 
 /// `Integer_equalToInteger`: `this == other`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Integer_equalToInteger(this: i64, other_one: i64) -> u8 {
+pub extern "C" fn dartforge_native_Integer_equalToInteger(this: i64, other_one: i64) -> u8 {
     u8::from(this == other_one)
 }
 
 /// `Smi_bitNegate` and `Mint_bitNegate`: `~this`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Smi_bitNegate(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Smi_bitNegate(this: i64) -> i64 {
     !this
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Mint_bitNegate(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Mint_bitNegate(this: i64) -> i64 {
     !this
 }
 
@@ -149,87 +149,87 @@ fn bit_length(v: i64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Smi_bitLength(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Smi_bitLength(this: i64) -> i64 {
     bit_length(this)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Mint_bitLength(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_Mint_bitLength(this: i64) -> i64 {
     bit_length(this)
 }
 
 /// `Double_add` and family: IEEE arithmetic with the receiver on the left
 /// (`_Double.+` calls `_add(other.toDouble())`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_add(this: f64, other_one: f64) -> f64 {
+pub extern "C" fn dartforge_native_Double_add(this: f64, other_one: f64) -> f64 {
     this + other_one
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_sub(this: f64, other_one: f64) -> f64 {
+pub extern "C" fn dartforge_native_Double_sub(this: f64, other_one: f64) -> f64 {
     this - other_one
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_mul(this: f64, other_one: f64) -> f64 {
+pub extern "C" fn dartforge_native_Double_mul(this: f64, other_one: f64) -> f64 {
     this * other_one
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_div(this: f64, other_one: f64) -> f64 {
+pub extern "C" fn dartforge_native_Double_div(this: f64, other_one: f64) -> f64 {
     this / other_one
 }
 
 /// `Double_doubleFromInteger`: `_Double.fromInteger(int)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_doubleFromInteger(value: i64) -> f64 {
+pub extern "C" fn dartforge_native_Double_doubleFromInteger(value: i64) -> f64 {
     value as f64
 }
 
 /// `Double_equal`: IEEE `==` (NaN differs from everything).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_equal(this: f64, other_one: f64) -> u8 {
+pub extern "C" fn dartforge_native_Double_equal(this: f64, other_one: f64) -> u8 {
     u8::from(this == other_one)
 }
 
 /// `Double_equalToInteger`: `this == other.toDouble()`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_equalToInteger(this: f64, other_one: i64) -> u8 {
+pub extern "C" fn dartforge_native_Double_equalToInteger(this: f64, other_one: i64) -> u8 {
     u8::from(this == other_one as f64)
 }
 
 /// `Double_greaterThan`: `this > other`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_greaterThan(this: f64, other_one: f64) -> u8 {
+pub extern "C" fn dartforge_native_Double_greaterThan(this: f64, other_one: f64) -> u8 {
     u8::from(this > other_one)
 }
 
 /// `Double_greaterThanFromInteger`: `other > this` (swapped operands, like `int`'s
 /// `*FromInteger`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_greaterThanFromInteger(this: f64, other_one: i64) -> u8 {
+pub extern "C" fn dartforge_native_Double_greaterThanFromInteger(this: f64, other_one: i64) -> u8 {
     u8::from((other_one as f64) > this)
 }
 
 /// `Double_flipSignBit`: `-this` (including for 0.0 and NaN).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_flipSignBit(this: f64) -> f64 {
+pub extern "C" fn dartforge_native_Double_flipSignBit(this: f64) -> f64 {
     f64::from_bits(this.to_bits() ^ (1 << 63))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_getIsNaN(this: f64) -> u8 {
+pub extern "C" fn dartforge_native_Double_getIsNaN(this: f64) -> u8 {
     u8::from(this.is_nan())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_getIsInfinite(this: f64) -> u8 {
+pub extern "C" fn dartforge_native_Double_getIsInfinite(this: f64) -> u8 {
     u8::from(this.is_infinite())
 }
 
 /// `Double_getIsNegative`: the sign bit, except NaN (`-0.0` is negative).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_getIsNegative(this: f64) -> u8 {
+pub extern "C" fn dartforge_native_Double_getIsNegative(this: f64) -> u8 {
     u8::from(!this.is_nan() && this.is_sign_negative())
 }
 
@@ -410,7 +410,7 @@ fn vm_double_string_old(d: f64) -> String {
 
 /// `Double_toString`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_toString(this: f64) -> i64 {
+pub extern "C" fn dartforge_native_Double_toString(this: f64) -> i64 {
     let mut buf = [0u8; VM_DOUBLE_SIZE];
     let n = write_vm_double(this, &mut buf);
     HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Um(&buf[..n])))
@@ -420,20 +420,20 @@ pub extern "C" fn dartforge_nativo_Double_toString(this: f64) -> i64 {
 /// the key of the `toString` cache (the VM's `identical` of two `double`s compares
 /// the bits).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_bits(d: f64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_double_bits(d: f64) -> i64 {
     d.to_bits() as i64
 }
 
 /// The overlay's `_Smi._deInteiro(v)` (`integers.dart`): the decimal digits of
 /// `v`, the text of the VM's `_Smi.toString`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_int_toString(v: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_int_toString(v: i64) -> i64 {
     dartforge_to_string_i64(v)
 }
 
-/// `has63BitSmis()` (`DartForge_verdadeiro`): the `Smi` here has 63 bits (R10).
+/// `has63BitSmis()` (`DartForge_true`): the `Smi` here has 63 bits (R10).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_verdadeiro() -> u8 {
+pub extern "C" fn dartforge_native_DartForge_true() -> u8 {
     1
 }
 
@@ -441,7 +441,7 @@ pub extern "C" fn dartforge_nativo_DartForge_verdadeiro() -> u8 {
 /// of `this` (unsigned) by `0x2d51`, the three 32-bit words combined by xor, cut to
 /// 30 bits. Lowering does it inline (`lower/boxes.rs`); this remains for the call.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_int_hashCode(this: i64) -> i64 {
     let p = u128::from(this as u64) * 0x2d51;
     let x = (p as u32) ^ ((p >> 32) as u32) ^ ((p >> 64) as u32);
     i64::from(x & 0x3fff_ffff)
@@ -450,7 +450,7 @@ pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
 /// `_Double.toInt()`: truncated, saturated outside the 64-bit range (like the VM);
 /// NaN and infinity throw `UnsupportedError("Infinity or NaN toInt")`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_toInt(this: f64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_double_toInt(this: f64) -> i64 {
     if !this.is_finite() {
         let m = HEAP.with(|heap| heap.borrow_mut().allocate_str("Infinity or NaN toInt"));
         let e = with_roots(&[m], || dartforge_unsupported_error_new(m));
@@ -462,30 +462,30 @@ pub extern "C" fn dartforge_nativo_DartForge_double_toInt(this: f64) -> i64 {
 
 /// `_Double.floorToDouble()` and the like.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_floor(this: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_double_floor(this: f64) -> f64 {
     this.floor()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_ceil(this: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_double_ceil(this: f64) -> f64 {
     this.ceil()
 }
 
 /// `roundToDouble`: half away from zero (the VM's `round`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_round(this: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_double_round(this: f64) -> f64 {
     this.round()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_truncate(this: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_double_truncate(this: f64) -> f64 {
     this.trunc()
 }
 
 /// `_Double._modulo(other)`: the Euclidean `%` of `double` (the result is never
 /// negative), like the VM's `DoubleModulo`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_modulo(this: f64, other_one: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_double_modulo(this: f64, other_one: f64) -> f64 {
     let r = this % other_one;
     if r < 0.0 {
         r + other_one.abs()
@@ -499,7 +499,7 @@ pub extern "C" fn dartforge_nativo_DartForge_double_modulo(this: f64, other_one:
 
 /// `_Double._remainder(other)`: the remainder with the sign of the dividend.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_remainder(this: f64, other_one: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_double_remainder(this: f64, other_one: f64) -> f64 {
     this % other_one
 }
 
@@ -507,9 +507,9 @@ pub extern "C" fn dartforge_nativo_DartForge_double_remainder(this: f64, other_o
 /// integral and fits in 64 bits (`1.0.hashCode == 1.hashCode`, required by `num`
 /// equality); otherwise the folded bits, `(b ^ b >>> 32)` in 62 bits.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_double_hashCode(this: f64) -> i64 {
     if this.is_finite() && this == this.trunc() && (-9.223_372_036_854_775_808e18..9.223_372_036_854_775_808e18).contains(&this) {
-        return dartforge_nativo_DartForge_int_hashCode(this as i64);
+        return dartforge_native_DartForge_int_hashCode(this as i64);
     }
     let b = this.to_bits();
     ((b ^ (b >> 32)) & 0x3fff_ffff_ffff_ffff) as i64
@@ -520,7 +520,7 @@ pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
 /// with a sign (the VM's `CStringToDouble`; lowercase `inf`/`nan` are not
 /// accepted, as in the VM). Returns the box (`RETORNO_REF`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_parse(text: i64, start: i64, end: i64) -> i64 {
+pub extern "C" fn dartforge_native_Double_parse(text: i64, start: i64, end: i64) -> i64 {
     // Only the slice: `_JsonStringParser` passes the whole document (`chunk`) for
     // every number, and copying the whole text made `jsonDecode` quadratic. A
     // short ASCII number (that of all JSON) goes through a stack buffer, without
@@ -575,54 +575,54 @@ pub extern "C" fn dartforge_nativo_Double_parse(text: i64, start: i64, end: i64)
 
 /// `dart:math` intrinsics (`_sqrt`, `_sin`…): the function from Rust's libm.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_sqrt(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_sqrt(x: f64) -> f64 {
     x.sqrt()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_sin(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_sin(x: f64) -> f64 {
     x.sin()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_cos(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_cos(x: f64) -> f64 {
     x.cos()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_tan(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_tan(x: f64) -> f64 {
     x.tan()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_acos(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_acos(x: f64) -> f64 {
     x.acos()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_asin(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_asin(x: f64) -> f64 {
     x.asin()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_atan(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_atan(x: f64) -> f64 {
     x.atan()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_atan2(a: f64, b: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_atan2(a: f64, b: f64) -> f64 {
     a.atan2(b)
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_exp(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_exp(x: f64) -> f64 {
     x.exp()
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_log(x: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_log(x: f64) -> f64 {
     x.ln()
 }
 /// `_doublePow(base, exponent)`: C's `pow` (the VM calls `pow`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_math_pow(base: f64, exponent: f64) -> f64 {
+pub extern "C" fn dartforge_native_DartForge_math_pow(base: f64, exponent: f64) -> f64 {
     base.powf(exponent)
 }
 
 #[cfg(test)]
 mod testes_modulo_double {
-    use super::dartforge_nativo_DartForge_double_modulo as modulo;
+    use super::dartforge_native_DartForge_double_modulo as modulo;
 
     #[test]
     fn follows_vm_signs_and_zero() {
@@ -707,23 +707,23 @@ mod tests_native_numbers {
             (i64::MAX, 63, i64::MIN),
             (i64::MIN, 63, i64::MAX),
         ] {
-            assert_eq!(dartforge_nativo_Smi_bitLength(v), bits, "{v}.bitLength");
-            assert_eq!(dartforge_nativo_Mint_bitNegate(v), neg, "~{v}");
+            assert_eq!(dartforge_native_Smi_bitLength(v), bits, "{v}.bitLength");
+            assert_eq!(dartforge_native_Mint_bitNegate(v), neg, "~{v}");
         }
         // Swapped operands: `a op b` is `b._opFromInteger(a)`.
         let op = |f: extern "C" fn(i64, i64) -> i64, a: i64, b: i64| f(b, a);
-        assert_eq!(op(dartforge_nativo_Integer_truncDivFromInteger, i64::MIN, -1), i64::MIN);
-        assert_eq!(op(dartforge_nativo_Integer_moduloFromInteger, -7, 3), 2);
-        assert_eq!(op(dartforge_nativo_Integer_moduloFromInteger, 7, -3), 1);
-        assert_eq!(op(dartforge_nativo_Integer_moduloFromInteger, -7, -3), 2);
-        assert_eq!(op(dartforge_nativo_Integer_truncDivFromInteger, -7, 2), -3);
-        assert_eq!(op(dartforge_nativo_Integer_shlFromInteger, 1, 63), i64::MIN);
-        assert_eq!(op(dartforge_nativo_Integer_shlFromInteger, 1, 64), 0);
-        assert_eq!(op(dartforge_nativo_Integer_shrFromInteger, -1, 70), -1);
-        assert_eq!(op(dartforge_nativo_Integer_ushrFromInteger, -1, 1), i64::MAX);
-        assert_eq!(op(dartforge_nativo_Integer_ushrFromInteger, -1, 64), 0);
-        assert_eq!(op(dartforge_nativo_Integer_subFromInteger, 10, 3), 7);
-        assert_eq!(dartforge_nativo_Integer_greaterThanFromInteger(3, 10), 1, "10 > 3");
+        assert_eq!(op(dartforge_native_Integer_truncDivFromInteger, i64::MIN, -1), i64::MIN);
+        assert_eq!(op(dartforge_native_Integer_moduloFromInteger, -7, 3), 2);
+        assert_eq!(op(dartforge_native_Integer_moduloFromInteger, 7, -3), 1);
+        assert_eq!(op(dartforge_native_Integer_moduloFromInteger, -7, -3), 2);
+        assert_eq!(op(dartforge_native_Integer_truncDivFromInteger, -7, 2), -3);
+        assert_eq!(op(dartforge_native_Integer_shlFromInteger, 1, 63), i64::MIN);
+        assert_eq!(op(dartforge_native_Integer_shlFromInteger, 1, 64), 0);
+        assert_eq!(op(dartforge_native_Integer_shrFromInteger, -1, 70), -1);
+        assert_eq!(op(dartforge_native_Integer_ushrFromInteger, -1, 1), i64::MAX);
+        assert_eq!(op(dartforge_native_Integer_ushrFromInteger, -1, 64), 0);
+        assert_eq!(op(dartforge_native_Integer_subFromInteger, 10, 3), 7);
+        assert_eq!(dartforge_native_Integer_greaterThanFromInteger(3, 10), 1, "10 > 3");
     }
 }
 
@@ -948,19 +948,19 @@ pub fn double_with_precision(d: f64, p: i64) -> String {
 
 /// `Double_toStringAsFixed`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_toStringAsFixed(this: f64, digits: i64) -> i64 {
+pub extern "C" fn dartforge_native_Double_toStringAsFixed(this: f64, digits: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate_str(&double_with_fixed(this, digits)))
 }
 
 /// `Double_toStringAsExponential`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_toStringAsExponential(this: f64, digits: i64) -> i64 {
+pub extern "C" fn dartforge_native_Double_toStringAsExponential(this: f64, digits: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate_str(&double_with_exponent(this, digits)))
 }
 
 /// `Double_toStringAsPrecision`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Double_toStringAsPrecision(this: f64, precision: i64) -> i64 {
+pub extern "C" fn dartforge_native_Double_toStringAsPrecision(this: f64, precision: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate_str(&double_with_precision(this, precision)))
 }
 

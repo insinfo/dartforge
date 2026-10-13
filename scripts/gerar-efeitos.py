@@ -1,4 +1,4 @@
-# Gera crates/runtime/efeitos.tsv: a tabela de efeitos por extern (E1.1).
+# Gera crates/runtime/effects.tsv: a tabela de efeitos por extern (E1.1).
 # Primeira versão = o que o emissor supõe hoje (EXTERNS de llvm/externs.rs);
 # o que ele não declara é conservador. `roda_dart` vem da análise do grafo de
 # chamadas (scripts/dados/efeitos-runtime/efeitos.tsv, gerado por
@@ -55,15 +55,15 @@ if os.path.exists(p):
 
 fora = [n for n in marcas if n not in set(nomes)]
 print('declaradas pelo emissor e ausentes do runtime:', fora)
-saida = ['# A tabela de efeitos das externs do runtime (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8).',
-         '# Uma linha por função `#[unsafe(no_mangle)]` dos fragmentos, em ordem alfabética:',
-         '#   coleta    pode alocar no heap (logo, coletar)',
-         '#   lanca     pode deixar uma exceção pendente',
-         '#   roda_dart pode chamar código Dart gerado (implica coleta = 1 e lanca = 1)',
-         '# O `build.rs` do runtime confere a lista contra os fragmentos e gera a tabela que o',
-         '# emissor lê (`dartforge_runtime::efeitos`). Uma marca só passa de 1 para 0 junto com a',
-         '# execução que a confere (`DARTFORGE_EFEITOS=conferir`).',
-         '# nome\tcoleta\tlanca\troda_dart']
+saida = ['# The effects table of the runtime externs (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8).',
+         '# One line per `#[unsafe(no_mangle)]` function of the fragments, in alphabetical order:',
+         '#   collects   may allocate on the heap (and so collect)',
+         '#   throws     may leave a pending exception',
+         '#   runs_dart  may call generated Dart code (implies collects = 1 and throws = 1)',
+         "# The runtime's `build.rs` checks the list against the fragments and generates the table that the",
+         '# emitter reads (`dartforge_runtime::effects`). A mark only goes from 1 to 0 together with the',
+         '# run that checks it (`DARTFORGE_EFEITOS=conferir`).',
+         '# name\tcollects\tthrows\truns_dart']
 cont = {}
 for n in sorted(nomes):
     a, l, d = marcas.get(n, (1, 1, 0))
@@ -73,7 +73,7 @@ for n in sorted(nomes):
         d = 0
     cont[(a, l, d)] = cont.get((a, l, d), 0) + 1
     saida.append('%s\t%d\t%d\t%d' % (n, a, l, d))
-open(R + 'runtime/efeitos.tsv', 'w', encoding='utf-8', newline='\n').write('\n'.join(saida) + '\n')
+open(R + 'runtime/effects.tsv', 'w', encoding='utf-8', newline='\n').write('\n'.join(saida) + '\n')
 print(len(nomes), 'externs;', cont)
 # as marcas de chama_dart que o emissor já tinha
 print('chama_dart no emissor:', [n for n, v in marcas.items() if v[2]])

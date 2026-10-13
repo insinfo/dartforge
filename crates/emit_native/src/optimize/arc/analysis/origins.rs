@@ -19,7 +19,7 @@ pub(crate) fn allocation(i: &Instruction) -> bool {
             | Instruction::ConcatStrings { .. }
     ) || matches!(i, Instruction::CallRuntime { name, .. }
             if matches!(name.as_str(), "dartforge_object_new" | "dartforge_object_new_t"
-                | "dartforge_arc_objeto_owned_v1" | "dartforge_arc_objeto_owned_t_v1"))
+                | "dartforge_arc_object_owned_v1" | "dartforge_arc_object_owned_t_v1"))
 }
 
 /// Records the origin of freshly produced bodies, only in the ARC lowering.

@@ -177,30 +177,30 @@ class _RegExp implements RegExp {
   _RegExp._(this.pattern, this.isMultiLine, this.isCaseSensitive,
       this.isUnicode, this.isDotAll, this._programa, this._groupCount);
 
-  @pragma("vm:external-name", "DartForge_regexp_compilar")
+  @pragma("vm:external-name", "DartForge_regexp_compile")
   external static Object? _compilar(String padrao, bool multiLinha, bool sensivel,
       bool unicode, bool pontoTudo);
 
-  @pragma("vm:external-name", "DartForge_regexp_erro")
+  @pragma("vm:external-name", "DartForge_regexp_error")
   external static String _erro();
 
-  @pragma("vm:external-name", "DartForge_regexp_grupos")
+  @pragma("vm:external-name", "DartForge_regexp_groups")
   external static int _grupos(Object programa);
 
-  @pragma("vm:external-name", "DartForge_regexp_n_nomes")
+  @pragma("vm:external-name", "DartForge_regexp_n_names")
   external static int _nNomes(Object programa);
 
-  @pragma("vm:external-name", "DartForge_regexp_nome")
+  @pragma("vm:external-name", "DartForge_regexp_name")
   external static String _nome(Object programa, int i);
 
-  @pragma("vm:external-name", "DartForge_regexp_indice_do_nome")
+  @pragma("vm:external-name", "DartForge_regexp_name_index")
   external static int _indiceDoNome(Object programa, int i);
 
-  @pragma("vm:external-name", "DartForge_regexp_executar")
+  @pragma("vm:external-name", "DartForge_regexp_exec")
   external static bool _executar(
       Object programa, String alvo, int inicio, bool pegajoso);
 
-  @pragma("vm:external-name", "DartForge_regexp_captura")
+  @pragma("vm:external-name", "DartForge_regexp_capture")
   external static int _captura(int i);
 
   Iterable<String> get _groupNames sync* {

@@ -60,7 +60,7 @@ fn main() -> Result<(), String> {
     prepare_arc_dart_module(&mut m, &mut plans)?;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     for (name, decl) in [
-        ("dartforge_arc_observar_heap_v1", "declare i8 @dartforge_arc_observar_heap_v1(i64)"),
+        ("dartforge_arc_observe_heap_v1", "declare i8 @dartforge_arc_observe_heap_v1(i64)"),
         ("dartforge_arc_collect", "declare void @dartforge_arc_collect()"),
         ("dartforge_print_handle", "declare void @dartforge_print_handle(i64)"),
         ("dartforge_arc_retain", "declare void @dartforge_arc_retain(i64)"),
@@ -85,14 +85,14 @@ fn main() -> Result<(), String> {
         if !arc {
             writeln!(ir, "  call void @dartforge_arc_retain(i64 %caixa{n})").unwrap();
         }
-        writeln!(ir, "  %estado{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %caixa{n})\n  %owned{n} = icmp eq i8 %estado{n}, 3").unwrap();
+        writeln!(ir, "  %estado{n} = call i8 @dartforge_arc_observe_heap_v1(i64 %caixa{n})\n  %owned{n} = icmp eq i8 %estado{n}, 3").unwrap();
         writeln!(ir, "  %dados{n} = add i64 %caixa{n}, 14\n  %ptr{n} = inttoptr i64 %dados{n} to ptr\n  %bits{n} = load <2 x i64>, ptr %ptr{n}, align 8").unwrap();
         writeln!(ir, "  %lo{n} = extractelement <2 x i64> %bits{n}, i32 0\n  %hi{n} = extractelement <2 x i64> %bits{n}, i32 1\n  %oklo{n} = icmp eq i64 %lo{n}, -9223372036854775808\n  %okhi{n} = icmp eq i64 %hi{n}, 9221120237041090851").unwrap();
         writeln!(ir, "  %okbits{n} = and i1 %oklo{n}, %okhi{n}\n  %ok{n} = and i1 %owned{n}, %okbits{n}\n  br i1 %ok{n}, label %liberar{n}, label %falha\nliberar{n}:").unwrap();
         if release {
             writeln!(ir, "  call void @dartforge_arc_release(i64 %caixa{n})").unwrap();
         }
-        writeln!(ir, "  call void @dartforge_arc_collect()\n  %final{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %caixa{n})\n  %morta{n} = icmp eq i8 %final{n}, 0\n  br i1 %morta{n}, label %passou{n}, label %falha\npassou{n}:").unwrap();
+        writeln!(ir, "  call void @dartforge_arc_collect()\n  %final{n} = call i8 @dartforge_arc_observe_heap_v1(i64 %caixa{n})\n  %morta{n} = icmp eq i8 %final{n}, 0\n  br i1 %morta{n}, label %passou{n}, label %falha\npassou{n}:").unwrap();
     }
     ir.push_str("  call void @dartforge_print_handle(i64 3)\n  ret void\nfalha:\n  call void @llvm.trap()\n  unreachable\n}\n");
     if let Some(dir) = exit.parent() {

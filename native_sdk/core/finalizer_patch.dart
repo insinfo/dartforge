@@ -46,9 +46,9 @@ final class _FinalizerImpl<T> implements Finalizer<T> {
 void Function() _acaoDeFinalizador<T>(void Function(T) callback, T token) =>
     () => callback(token);
 
-@pragma("vm:external-name", "DartForge_finalizador_anexar")
+@pragma("vm:external-name", "DartForge_finalizer_attach")
 external void _anexarFinalizador(
     Object dono, Object valor, void Function() acao, Object? desanexo);
 
-@pragma("vm:external-name", "DartForge_finalizador_desanexar")
+@pragma("vm:external-name", "DartForge_finalizer_detach")
 external void _desanexarFinalizador(Object dono, Object desanexo);

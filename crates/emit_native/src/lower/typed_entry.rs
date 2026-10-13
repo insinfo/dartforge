@@ -18,10 +18,10 @@
 //! typed receiver uses the selector `t` + the usual one (`tc:m`, `ts:x`); the
 //! class table binds it to the `$tc`/`$ts` entry of the method when it
 //! exists — only when the `$c` checks some parameter that the typed one waives
-//! ([`needs_typed_entry`]) — and the runtime (`dartforge_seletor`) falls back to the
+//! ([`needs_typed_entry`]) — and the runtime (`dartforge_selector`) falls back to the
 //! selector without the `t` when the class does not have the typed one (methods with nothing to
 //! waive, `noSuchMethod` forwarders, program classes). The
-//! typed entry does not check the arity either (`dartforge_args_casam`): a
+//! typed entry does not check the arity either (`dartforge_args_match`): a
 //! valid override accepts the arguments of the interface.
 //!
 //! The implicit cast of `dynamic` arguments (and the rule for when the call

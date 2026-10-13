@@ -50,7 +50,7 @@ class _Capability implements Capability {
   /// A capacidade de id conhecido (a de um isolado, que o runtime guarda).
   _Capability._comId(this._id);
 
-  @pragma("vm:external-name", "DartForge_capacidade_nova")
+  @pragma("vm:external-name", "DartForge_capability_new")
   external static int _nova();
 
   bool operator ==(Object other) {
@@ -109,7 +109,7 @@ final class _ReceivePortImpl extends Stream implements ReceivePort {
 
 /// Marca a classe de `objeto` como não enviável numa mensagem (a
 /// `@pragma('vm:isolate-unsendable')` da VM).
-@pragma("vm:external-name", "DartForge_classe_nao_enviavel")
+@pragma("vm:external-name", "DartForge_class_not_sendable")
 external void _naoEnviavel(Object objeto);
 
 /// A porta de recepção: o id da porta no runtime (`crates/runtime/src/
@@ -136,25 +136,25 @@ final class _RawReceivePort implements RawReceivePort {
 
   static bool _despachanteRegistrado = false;
 
-  @pragma("vm:external-name", "DartForge_porta_abrir")
+  @pragma("vm:external-name", "DartForge_port_open")
   external static int _abrir(_RawReceivePort porta);
 
-  @pragma("vm:external-name", "DartForge_porta_fechar")
+  @pragma("vm:external-name", "DartForge_port_close")
   external static void _fechar(int id);
 
-  @pragma("vm:external-name", "DartForge_porta_manter_vivo")
+  @pragma("vm:external-name", "DartForge_port_set_keep_alive")
   external static void _manterVivo(int id, bool manter);
 
-  @pragma("vm:external-name", "DartForge_porta_mantem_vivo")
+  @pragma("vm:external-name", "DartForge_port_keeps_alive")
   external static bool _mantemVivo(int id);
 
-  @pragma("vm:external-name", "DartForge_portas_despachante")
+  @pragma("vm:external-name", "DartForge_ports_dispatcher")
   external static void _registrarDespachante(void Function() despachar);
 
-  @pragma("vm:external-name", "DartForge_porta_atual")
+  @pragma("vm:external-name", "DartForge_port_current")
   external static int _portaAtual();
 
-  @pragma("vm:external-name", "DartForge_mensagem_atual")
+  @pragma("vm:external-name", "DartForge_current_message")
   external static Object? _mensagemAtual();
 
   close() {
@@ -269,10 +269,10 @@ final class _SendPort implements SendPort {
 
   String toString() => "SendPort";
 
-  @pragma("vm:external-name", "DartForge_porta_enviar")
+  @pragma("vm:external-name", "DartForge_port_send")
   external static bool _enviar(int id, Object? message);
 
-  @pragma("vm:external-name", "DartForge_porta_recusa")
+  @pragma("vm:external-name", "DartForge_port_refusal")
   external static String _recusa();
 }
 
@@ -379,7 +379,7 @@ final class Isolate {
   @pragma("vm:external-name", "DartForge_package_config")
   external static String? _packageConfigDoProcesso();
 
-  @pragma("vm:external-name", "DartForge_ler_texto")
+  @pragma("vm:external-name", "DartForge_read_text")
   external static String? _lerTexto(String caminho);
 
   static Map<String, Uri>? _mapaDePacotes;
@@ -827,6 +827,6 @@ final class _TransferableTypedDataImpl implements TransferableTypedData {
     return dados.buffer;
   }
 
-  @pragma("vm:external-name", "DartForge_classe_transferivel")
+  @pragma("vm:external-name", "DartForge_class_transferable")
   external static void _transferivel(Object objeto);
 }

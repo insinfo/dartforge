@@ -227,23 +227,23 @@ o JIT (módulo `dartforge_runtime::abi`) —, mais os módulos `heap`, `layout`,
   começam em 128. O `cid` de um objeto nunca muda depois de publicado: `_List`
   é a lista fixa, `_ImmutableList` a imutável e `_GrowableList` a expansível,
   escolhidas na alocação. O código gerado lê a classe em linha
-  (`@df.classe`: `0` → 1, ímpar → 2, senão o `cid` do cabeçalho), e o módulo
+  (`@df.class`: `0` → 1, ímpar → 2, senão o `cid` do cabeçalho), e o módulo
   confere na partida que a tabela de classes do runtime é a dele
-  (`dartforge_registrar_cids`, o marcador de ABI).
+  (`dartforge_register_cids`, o marcador de ABI).
 - **Objeto de classe do programa:** `INSTANCIA`, cada campo uma palavra (bits
   crus ou `Ref`) com o bit de referência no mapa (E1). O código gerado aloca
-  em linha pela TLAB do isolado (`@df.alocar`, qualquer bloco de até 16
+  em linha pela TLAB do isolado (`@df.allocate`, qualquer bloco de até 16
   palavras), lê e grava campos em `h + 14` sem chamar o runtime e, depois de
-  gravar um `Ref`, passa pela barreira de escrita (`@df.barreira`: um pai
+  gravar um `Ref`, passa pela barreira de escrita (`@df.barrier`: um pai
   velho que recebe um filho jovem é lembrado; a lista grande marca o cartão do
   elemento). As classes de erro do runtime têm ids fixos 1000–1012.
 - **`int`:** `i64` com estouro modular, como a VM. **`double`:** `f64`.
   **`bool`:** `i1` no IR, `u8` na fronteira com o runtime. Numa posição `Ref`
   (`Object?`, `dynamic`) o `int` vira `Smi` quando cabe em 63 bits e `_Mint`
   (bloco `BRUTO` de uma palavra) quando não cabe; `double` vira `_Double`;
-  `bool` é uma das duas caixas **estáticas** do runtime (`dartforge_falso`,
-  `dartforge_verdadeiro`). `identical` compara o handle, ou o valor de dois
-  `_Mint`/`_Double` (`@df.identico`, como `Instance::IsIdenticalTo` da VM).
+  `bool` é uma das duas caixas **estáticas** do runtime (`dartforge_false`,
+  `dartforge_true`). `identical` compara o handle, ou o valor de dois
+  `_Mint`/`_Double` (`@df.identical`, como `Instance::IsIdenticalTo` da VM).
 - **`String`:** `_OneByteString` (toda unidade ≤ 0xFF, um byte cada) ou
   `_TwoByteString` (dois bytes), blocos `BRUTO` com o comprimento em `h + 14` e
   as unidades a partir de `h + 22`, escolhidos pelo conteúdo e canônicos — um
@@ -251,7 +251,7 @@ o JIT (módulo `dartforge_runtime::abi`) —, mais os módulos `heap`, `layout`,
   `StringHasher` da VM (`layout::hash_de_texto`), guardado no cabeçalho na
   primeira consulta. `length`, `codeUnitAt`, a alocação e a gravação de
   unidades do SDK (`allocateOneByteString`, `writeIntoOneByteString`) são em
-  linha (`@df.texto_*`). Um surrogate solto é uma unidade como outra; só o
+  linha (`@df.string_*`). Um surrogate solto é uma unidade como outra; só o
   `print` o troca por U+FFFD, como a VM (`Utf8::Encode`). **Literais:** no AOT,
   cada literal é um objeto estático do módulo (`@df.s.<chave>`,
   `linkonce_odr` numa seção própria, estado `PERMANENTE`), sem chamada no ponto

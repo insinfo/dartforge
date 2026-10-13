@@ -1,6 +1,6 @@
 //! Emission of strings (P1, docs/NATIVO-ESPACO-UNIFICADO.md §2.11, §3.5 and
 //! §4.3): the literals (`Const(String/StringWtf8)`), interpolation
-//! (`ConcatStrings`) and the `@df.texto_*` helpers of the prelude.
+//! (`ConcatStrings`) and the `@df.string_*` helpers of the prelude.
 //!
 //! A string is a `BRUTO` block of cid 6 (`_OneByteString`) or 7
 //! (`_TwoByteString`): with the handle `h = block + 2`, the cid at `h+2` (`i32`), the
@@ -26,29 +26,29 @@ use crate::hir::*;
 use dartforge_runtime::layout::{self, cid, desl, estado, flags};
 use std::fmt::Write;
 
-/// The `@df.texto_*` helpers (§3.5), printed in the prelude of each module by
+/// The `@df.string_*` helpers (§3.5), printed in the prelude of each module by
 /// `emit_runtime_decls`.
 ///
-/// * `@df.texto_len(s)`: the length (`s` is a string);
-/// * `@df.texto_unidade(s, i)`: code unit `i`, without checking bounds;
-/// * `@df.texto_alocar(len, two)`: a string of `len` zeroed code units, inline
-///   through `@df.alocar` up to 16 words, otherwise `@dartforge_texto_novo`;
-/// * `@df.texto_gravar(s, i, u)`: the `writeInto*String` (writes without a barrier: the
+/// * `@df.string_len(s)`: the length (`s` is a string);
+/// * `@df.string_code_unit(s, i)`: code unit `i`, without checking bounds;
+/// * `@df.string_allocate(len, two)`: a string of `len` zeroed code units, inline
+///   through `@df.allocate` up to 16 words, otherwise `@dartforge_string_allocate`;
+/// * `@df.string_write(s, i, u)`: the `writeInto*String` (writes without a barrier: the
 ///   string is `BRUTO` and has not been published yet);
-/// * `@df.texto_hash(s)`: the hash in the header, or `@dartforge_texto_hash` on the
+/// * `@df.string_hash(s)`: the hash in the header, or `@dartforge_string_hash` on the
 ///   first query;
-/// * `@df.texto_igual(a, b)`: `==` between two strings (identity; different lengths and
+/// * `@df.string_equals(a, b)`: `==` between two strings (identity; different lengths and
 ///   different computed hashes give false without a call);
-/// * `@df.texto_igual_a(a, b)`: `==` of a string with an `Object?` (the
+/// * `@df.string_equals_object(a, b)`: `==` of a string with an `Object?` (the
 ///   overlay's `_StringBase.==`): what is not a string is different.
 pub const HELPERS: &str = "\
-define internal i64 @df.texto_len(i64 %s) alwaysinline nounwind {
+define internal i64 @df.string_len(i64 %s) alwaysinline nounwind {
   %p = inttoptr i64 %s to ptr
   %q = getelementptr inbounds i8, ptr %p, i64 14
   %n = load i64, ptr %q, align 8
   ret i64 %n
 }
-define internal i64 @df.texto_unidade(i64 %s, i64 %i) alwaysinline nounwind {
+define internal i64 @df.string_code_unit(i64 %s, i64 %i) alwaysinline nounwind {
 entrada:
   %p = inttoptr i64 %s to ptr
   %pc = getelementptr inbounds i8, ptr %p, i64 2
@@ -67,7 +67,7 @@ dois:
   %r2 = zext i16 %b2 to i64
   ret i64 %r2
 }
-define internal i64 @df.texto_alocar(i64 %len, i1 %dois) alwaysinline {
+define internal i64 @df.string_allocate(i64 %len, i1 %dois) alwaysinline {
 entrada:
   %d = zext i1 %dois to i64
   %bytes = shl i64 %len, %d
@@ -82,16 +82,16 @@ rapido:
   %ws = shl i64 %w, 16
   %c0 = or i64 %cs, %ws
   %cab = or i64 %c0, 513
-  %h = call i64 @df.alocar(i64 %cab, i64 %w)
+  %h = call i64 @df.allocate(i64 %cab, i64 %w)
   %p = inttoptr i64 %h to ptr
   %q = getelementptr inbounds i8, ptr %p, i64 14
   store i64 %len, ptr %q, align 8
   ret i64 %h
 lento:
-  %hl = call i64 @dartforge_texto_novo(i64 %len, i64 %d)
+  %hl = call i64 @dartforge_string_allocate(i64 %len, i64 %d)
   ret i64 %hl
 }
-define internal void @df.texto_gravar(i64 %s, i64 %i, i64 %x) alwaysinline nounwind {
+define internal void @df.string_write(i64 %s, i64 %i, i64 %x) alwaysinline nounwind {
 entrada:
   %p = inttoptr i64 %s to ptr
   %pc = getelementptr inbounds i8, ptr %p, i64 2
@@ -110,7 +110,7 @@ dois:
   store i16 %t2, ptr %a2, align 2
   ret void
 }
-define internal i64 @df.texto_hash(i64 %s) alwaysinline nounwind {
+define internal i64 @df.string_hash(i64 %s) alwaysinline nounwind {
 entrada:
   %p = inttoptr i64 %s to ptr
   %q = getelementptr inbounds i8, ptr %p, i64 6
@@ -122,10 +122,10 @@ rapido:
   %r = zext i32 %x to i64
   ret i64 %r
 lento:
-  %l = call i64 @dartforge_texto_hash(i64 %s)
+  %l = call i64 @dartforge_string_hash(i64 %s)
   ret i64 %l
 }
-define internal i1 @df.texto_igual(i64 %a, i64 %b) alwaysinline nounwind {
+define internal i1 @df.string_equals(i64 %a, i64 %b) alwaysinline nounwind {
 entrada:
   %id = icmp eq i64 %a, %b
   br i1 %id, label %sim, label %compr
@@ -150,7 +150,7 @@ hashes:
   %talvez = or i1 %algum, %mh
   br i1 %talvez, label %lento, label %nao
 lento:
-  %r = call i8 @dartforge_texto_iguais(i64 %a, i64 %b)
+  %r = call i8 @dartforge_string_equals(i64 %a, i64 %b)
   %rb1 = icmp ne i8 %r, 0
   ret i1 %rb1
 sim:
@@ -158,7 +158,7 @@ sim:
 nao:
   ret i1 false
 }
-define internal i1 @df.texto_igual_a(i64 %a, i64 %b) alwaysinline nounwind {
+define internal i1 @df.string_equals_object(i64 %a, i64 %b) alwaysinline nounwind {
 entrada:
   %id = icmp eq i64 %a, %b
   br i1 %id, label %sim, label %objeto
@@ -174,7 +174,7 @@ classe:
   %texto = icmp ult i32 %c6, 2
   br i1 %texto, label %comparar, label %nao
 comparar:
-  %r = call i1 @df.texto_igual(i64 %a, i64 %b)
+  %r = call i1 @df.string_equals(i64 %a, i64 %b)
   ret i1 %r
 sim:
   ret i1 true
@@ -187,13 +187,13 @@ nao:
 /// `CallRuntime`: `(name, allocates, throws)`. `externs::effects_of` consults them
 /// before the extern table (a helper outside here is conservative).
 pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
-    ("df.texto_len", false, false),
-    ("df.texto_unidade", false, false),
-    ("df.texto_alocar", true, false),
-    ("df.texto_gravar", false, false),
-    ("df.texto_hash", false, false),
-    ("df.texto_igual", false, false),
-    ("df.texto_igual_a", false, false),
+    ("df.string_len", false, false),
+    ("df.string_code_unit", false, false),
+    ("df.string_allocate", true, false),
+    ("df.string_write", false, false),
+    ("df.string_hash", false, false),
+    ("df.string_equals", false, false),
+    ("df.string_equals_object", false, false),
 ];
 
 /// The per-module emission state of strings.
@@ -305,7 +305,7 @@ impl LlvmEmitter<'_> {
     }
 
     /// Interpolation: the parts (a `Ref` string or an unboxed `int`) into one string.
-    /// The runtime (`dartforge_string_juntar_tipado`) measures the parts through the views
+    /// The runtime (`dartforge_string_join_typed`) measures the parts through the views
     /// of the blocks, allocates once and copies the code units, without an intermediate copy.
     pub(super) fn emit_concat_strings(&mut self, v: u32, parts: &[Operand]) {
         // Pairs (kind, bits): 0 and the `Ref` of a string, 1 and an `int`.
@@ -322,7 +322,7 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  store i64 {s}, ptr %jp{v}_{i}").unwrap();
         }
         // Under ARC, the factory roots the parts and hands over the owner of the result.
-        let name = if self.arc_owned_factories() { "dartforge_arc_string_juntar_owned_v1" } else { "dartforge_string_juntar_tipado" };
+        let name = if self.arc_owned_factories() { "dartforge_arc_string_join_owned_v1" } else { "dartforge_string_join_typed" };
         writeln!(self.out, "  %v{v} = call i64 @{name}(ptr %jbuf{v}, i64 {n})").unwrap();
     }
 
@@ -360,7 +360,7 @@ mod tests {
     fn string_helpers_follow_layout() {
         // The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
         assert!(HELPERS.contains(&format!("and i64 %b, {}", 7 | i64::MIN)));
-        // The header word built in `@df.texto_alocar` is the one from `layout`.
+        // The header word built in `@df.string_allocate` is the one from `layout`.
         for (len, two) in [(0usize, false), (5, false), (9, true), (60, false)] {
             let w = layout::palavras_de_texto(len, two);
             let c = if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING };

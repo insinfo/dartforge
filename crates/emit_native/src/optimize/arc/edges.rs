@@ -295,7 +295,7 @@ mod tests {
             (
                 ValueId(v),
                 Instruction::CallRuntime {
-                    name: "dartforge_arc_ler_campo_ref_v1".into(),
+                    name: "dartforge_arc_read_field_ref_v1".into(),
                     args: vec![
                         (Operand::Val(ValueId(2)), Type::Ref),
                         (Operand::Constant(Constant::Int(0)), Type::I64),

@@ -297,7 +297,7 @@ fn answer_path_request(request: i64, d: &[Portable]) -> Option<Portable> {
 /// `IOService_NewServicePort`: the `SendPort` of a native port served by the
 /// thread pool.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_IOService_NewServicePort() -> i64 {
+pub extern "C" fn dartforge_native_IOService_NewServicePort() -> i64 {
     let id = open_native_port(std::sync::Arc::new(|_port, graph| service_pool().enviar(graph)));
     let Some(f) = ajudante("_dartforgeSendPort") else {
         panic!("compiler bug: dart:isolate without a registered `_dartforgeSendPort`");
