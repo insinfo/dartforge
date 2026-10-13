@@ -285,6 +285,6 @@ mod tests {
     #[test]
     fn syntax_error() {
         assert!(ler("a: [\n").is_err());
-        assert_eq!(ler("# só comentário\n").unwrap(), None);
+        assert_eq!(ler("# only a comment\n").unwrap(), None);
     }
 }

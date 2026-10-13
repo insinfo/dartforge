@@ -399,7 +399,7 @@ mod tests {
     fn features_permissions_and_activities() {
         let source = concat!(
             "<?xml version=\"1.0\"?>\n",
-            "<!-- comentário -->\n",
+            "<!-- comment -->\n",
             "<manifest xmlns:android=\"x\">\n",
             "  <uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\" />\n",
             "  <uses-feature android:name=\"android.hardware.nfc\" />\n",
@@ -425,6 +425,6 @@ mod tests {
     #[test]
     fn broken_xml_does_not_report() {
         assert!(findings("<manifest attr>").is_empty());
-        assert!(findings("sem marcas").is_empty());
+        assert!(findings("no tags").is_empty());
     }
 }

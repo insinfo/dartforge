@@ -2001,19 +2001,19 @@ mod tests {
             }
         }
         // Before class modifiers (`// @dart=2.19`), nothing.
-        let legado =
+        let legacy_source =
             corpus("class_used_as_mixin/ClassUsedAsMixin__inside_beforeClassModifiers.dart")
                 .replace(
                     "// %before-language-feature: class-modifiers",
                     "// @dart=2.19",
                 );
-        assert!(run("antes-dos-modificadores", &legado).is_empty());
+        assert!(run("before-modifiers", &legacy_source).is_empty());
     }
 
     #[test]
     fn imported_legacy_class_may_be_used_as_mixin_in_current_code() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "../../target/tmp-agent/clausulas-legado-{}",
+            "../../target/tmp-agent/clauses-legacy-{}",
             std::process::id()
         ));
         let sdk = sdk(&root);
@@ -2218,12 +2218,12 @@ mod tests {
     #[test]
     fn clause_that_does_not_name_a_class() {
         let v = run(
-            "nao-classe",
-            "import 'nao_existe.dart' as p;\nint v = 0;\nenum En { a }\nmixin M {}\nclass A extends v {}\nclass B extends Indefinida {}\nclass C<T> implements T, En {}\nclass D extends M {}\nclass E with dynamic {}\nclass F extends p.X {}\nclass G = v with M;\nclass H extends v with M {}\n",
+            "not-a-class",
+            "import 'does_not_exist.dart' as p;\nint v = 0;\nenum En { a }\nmixin M {}\nclass A extends v {}\nclass B extends Undefined {}\nclass C<T> implements T, En {}\nclass D extends M {}\nclass E with dynamic {}\nclass F extends p.X {}\nclass G = v with M;\nclass H extends v with M {}\n",
         );
         let expected = [
-            ("extends_non_class", "Indefinida", "Classes can only extend other classes."),
             ("extends_non_class", "M", "Classes can only extend other classes."),
+            ("extends_non_class", "Undefined", "Classes can only extend other classes."),
             ("extends_non_class", "v", "Classes can only extend other classes."),
             ("implements_non_class", "En", "Classes and mixins can only implement other classes and mixins."),
             ("implements_non_class", "T", "Classes and mixins can only implement other classes and mixins."),

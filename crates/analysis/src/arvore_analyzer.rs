@@ -2152,7 +2152,7 @@ impl<'a> Builder<'a> {
             1 => Some(groups[0]),
             _ => {
                 let start = self.nos[groups[0]].inicio;
-                let end = self.nos[*groups.last().expect("não vazio")].fim;
+                let end = self.nos[*groups.last().expect("non-empty")].fim;
                 self.node("AdjacentStrings", start, end, groups)
             }
         }

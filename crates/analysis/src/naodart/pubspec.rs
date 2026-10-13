@@ -292,7 +292,7 @@ mod tests {
     /// `(code name, range text)` of each report.
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         // A folder that does not exist: every relative path is missing.
-        let folder = Path::new("pasta-que-nao-existe-para-o-teste");
+        let folder = Path::new("folder-that-does-not-exist-for-the-test");
         validate(source, folder).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
     }
 
