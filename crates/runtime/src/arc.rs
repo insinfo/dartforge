@@ -1,127 +1,129 @@
-//! O núcleo do ARC com coleta de ciclos (docs/ARC-CICLOS-ESPECIFICACAO.md §19,
-//! §22): os metadados laterais por objeto, o `retain_ref`/`release` de uma
-//! ocorrência forte, a fila de zeros com o descarte em cascata e a coleta de
-//! ciclos por *trial deletion* lateral, sem alterar o RC real (§22.1).
+//! The ARC core with cycle collection (docs/ARC-CICLOS-ESPECIFICACAO.md §19, §22):
+//! the per-object side metadata, the `retain_ref`/`release` of a strong
+//! occurrence, the zero queue with cascading discard and cycle collection by side
+//! *trial deletion*, without changing the real RC (§22.1).
 //!
-//! O módulo não conhece o layout dos blocos: as arestas de cada objeto vêm de
-//! um [`crate::arc::ArcGraph`] (no heap, a enumeração pela forma do corpo; nos testes, um
-//! grafo de mentira). Nenhuma operação daqui aloca objeto Dart, lança exceção
-//! Dart ou chama código Dart (§19.3).
+//! The module does not know the block layout: each object's edges come from an
+//! [`crate::arc::ArcGraph`] (in the heap, the enumeration by the body's shape; in
+//! the tests, a fake graph). No operation here allocates a Dart object, throws a
+//! Dart exception or calls Dart code (§19.3).
 //!
-//! Contratos:
-//! * o contador é por **ocorrência** forte (§18.1, decisão 2): duas posições
-//!   de uma lista apontando para `x` contam duas vezes;
-//! * `null` (0) e `Smi` (ímpar) não são gerenciados; um handle sem metadados
-//!   (objeto da imagem, permanente) é tratado como imortal;
-//! * a geração é monotônica por registro; as filas guardam [`crate::arc::ArcId`] e
-//!   descartam a entrada cuja geração não bate (§19.1);
-//! * a coleta de ciclos roda com o mutador parado e sem reentrada (§18.1,
-//!   decisão 5): o chamador garante isso.
+//! Contracts:
+//! * the counter is per strong **occurrence** (§18.1, decision 2): two positions of
+//!   a list pointing to `x` count twice;
+//! * `null` (0) and a `Smi` (odd) are not managed; a handle without metadata (an
+//!   image object, permanent) is treated as immortal;
+//! * the generation is monotonic per registration; the queues keep
+//!   [`crate::arc::ArcId`] and discard an entry whose generation does not match
+//!   (§19.1);
+//! * cycle collection runs with the mutator stopped and without reentry (§18.1,
+//!   decision 5): the caller guarantees that.
 
 use crate::hash::{HashMap, HashSet};
 
-/// Um valor em posição de referência (o `Ref` de `layout`).
+/// A value in a reference position (the `Ref` of `layout`).
 pub type Ref = i64;
 
-/// O ciclo de vida lógico de um objeto (§19.1).
+/// The logical life cycle of an object (§19.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArcState {
-    /// Alocado, campos ainda sendo inicializados: não morre por RC zero.
+    /// Allocated, fields still being initialized: it does not die by a zero RC.
     Building,
     Live,
-    /// Dentro da transação de descarte de um conjunto.
+    /// Inside the discard transaction of a set.
     Collecting,
-    /// Logicamente morto: aguarda o reclamador físico.
+    /// Logically dead: waits for the physical reclaimer.
     Dead,
 }
 
-/// Os metadados laterais de um objeto gerenciado (§19.1).
+/// The side metadata of a managed object (§19.1).
 #[derive(Clone, Copy, Debug)]
 pub struct MetaArc {
     pub generation: u64,
-    /// Owners mais ocorrências fortes; não inclui weak.
+    /// Owners plus strong occurrences; does not include weak ones.
     pub rc: u64,
     pub estado: ArcState,
-    /// Está (ou esteve) na fila de candidatos a ciclo desde a última rodada.
+    /// Is (or was) in the queue of cycle candidates since the last round.
     pub candidate: bool,
-    /// Valor de ephemeron (ou clausura dele) protegido entre rodadas (§22.2):
-    /// RC zero não inicia o descarte.
+    /// An ephemeron value (or its closure) protected between rounds (§22.2): a zero
+    /// RC does not start the discard.
     pub conditionally_protected: bool,
     pub immortal: bool,
-    /// Está na lista dos adiados (RC zero com raiz), uma vez só.
+    /// Is on the deferred list (zero RC with a root), only once.
     pub deferred: bool,
-    /// O corpo não basta para provar ausência de arestas nesta geração.
+    /// The body is not enough to prove the absence of edges in this generation.
     pub side_edges: bool,
 }
 
-/// Identidade de um objeto nas filas: o handle e a geração do registro.
+/// The identity of an object in the queues: the handle and the registration's generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ArcId {
     pub handle: Ref,
     pub generation: u64,
 }
 
-/// As arestas fortes dos objetos e o rompimento delas na morte (§19.2).
+/// The strong edges of the objects and breaking them at death (§19.2).
 pub trait ArcGraph {
-    /// Cada ocorrência forte do objeto `h`, com multiplicidade.
+    /// Each strong occurrence of object `h`, with multiplicity.
     fn edges(&self, h: Ref, f: &mut dyn FnMut(Ref));
-    /// Zera as ocorrências fortes de `h` (o descarte já debitou os destinos).
+    /// Clears the strong occurrences of `h` (the discard already debited the targets).
     fn break_off(&mut self, h: Ref);
-    /// [`Self::edges`] e [`Self::break_off`] num percurso só: cada ocorrência
-    /// forte de `h`, que sai zerada (o descarte de um objeto só, a cascata).
+    /// [`Self::edges`] and [`Self::break_off`] in a single walk: each strong
+    /// occurrence of `h`, which leaves cleared (the discard of a single object, the
+    /// cascade).
     fn take_edges(&mut self, h: Ref, f: &mut dyn FnMut(Ref)) {
         self.edges(h, f);
         self.break_off(h);
     }
 }
 
-/// Violação interna do contador (não é erro Dart): diagnóstico fatal (§19.3).
+/// An internal counter violation (not a Dart error): a fatal diagnostic (§19.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArcError {
-    /// `release` com RC já zero.
+    /// `release` with the RC already zero.
     RcZero(Ref),
-    /// Incremento além de `u64::MAX`.
+    /// An increment beyond `u64::MAX`.
     Overflow(Ref),
-    /// Operação num objeto `Collecting`/`Dead`.
+    /// An operation on a `Collecting`/`Dead` object.
     InvalidState(Ref, ArcState),
-    /// Registro de um handle ainda vivo.
+    /// Registration of a handle that is still alive.
     AlreadyRegistered(Ref),
-    /// O trial deletion achou mais arestas internas que o RC (inventário ou
-    /// contagem errados): a coleta é abortada sem mudar nada (§22.1).
+    /// Trial deletion found more internal edges than the RC (wrong inventory or
+    /// count): the collection is aborted without changing anything (§22.1).
     NegativeTrial(Ref),
-    /// A auditoria recontou um RC diferente.
+    /// The audit recounted a different RC.
     Audit { handle: Ref, rc: u64, recounted: u64 },
 }
 
-/// Contadores de trabalho (§22.5, §26.3).
+/// Work counters (§22.5, §26.3).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ArcStats {
     pub registered_set: u64,
     pub retains: u64,
     pub releases: u64,
-    /// Mortos pelo RC zero (cascata acíclica).
+    /// Dead by a zero RC (acyclic cascade).
     pub dead_by_rc: u64,
-    /// Mortos pela coleta de ciclos.
+    /// Dead by cycle collection.
     pub dead_by_cycle: u64,
     pub cycle_rounds: u64,
-    /// Objetos na região `R` de todas as rodadas.
+    /// Objects in region `R` over all rounds.
     pub examined: u64,
-    /// Entradas tiradas da fila de zeros e, delas, as adiadas (RC zero com
-    /// raiz): o diagnóstico do custo da cascata.
+    /// Entries taken from the zero queue and, of those, the deferred ones (zero RC
+    /// with a root): the diagnostic of the cascade's cost.
     pub seen_zeros: u64,
     pub deferred_zeros: u64,
 }
 
-/// `null` e `Smi` não são referências gerenciadas.
+/// `null` and `Smi` are not managed references.
 #[inline]
 pub fn e_handle(h: Ref) -> bool {
     h != 0 && h & 1 == 0
 }
 
-/// A geometria da página de um bloco do espaço, que o heap informa no
-/// registro: o endereço do primeiro bloco, os bytes de cada bloco e quantos
-/// cabem na página. O tamanho é positivo e `size * blocks` cabe em u64:
-/// a extensão descreve memória contígua, sem volta no espaço de endereços.
+/// The page geometry of a space block, which the heap reports at registration: the
+/// address of the first block, the bytes of each block and how many fit in the
+/// page. The size is positive and `size * blocks` fits in u64: the extent describes
+/// contiguous memory, without wrapping around the address space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geometry {
     pub first: u64,
@@ -129,11 +131,11 @@ pub struct Geometry {
     pub blocks: u32,
 }
 
-/// Os metadados dos blocos de uma página, pelo índice do bloco.
+/// The metadata of a page's blocks, by block index.
 struct ArcPage {
     geometry: Geometry,
-    /// Inverso da parte ímpar do tamanho, módulo 2⁶⁴, e a potência de dois
-    /// retirada: a divisão exata vira multiplicação e rotação.
+    /// The inverse of the odd part of the size, modulo 2⁶⁴, and the removed power of
+    /// two: exact division becomes multiplication and rotation.
     inverse: u64,
     offset: u32,
     metas: Vec<Option<MetaArc>>,
@@ -141,15 +143,15 @@ struct ArcPage {
 }
 
 impl ArcPage {
-    /// Prepara uma vez a divisão exata pelo tamanho dos blocos. A extensão
-    /// precisa caber em u64: com isso, um índice menor que `blocks` não pode
-    /// representar um produto que deu a volta no espaço de endereços.
+    /// Prepares the exact division by the block size once. The extent must fit in
+    /// u64: thanks to that, an index smaller than `blocks` cannot represent a product
+    /// that wrapped around the address space.
     fn factors(g: Geometry) -> (u64, u32) {
-        assert!(g.size != 0 && g.size.checked_mul(u64::from(g.blocks)).is_some(), "bug do ARC: geometria inválida");
+        assert!(g.size != 0 && g.size.checked_mul(u64::from(g.blocks)).is_some(), "ARC bug: invalid geometry");
         let offset = g.size.trailing_zeros();
         let odd = g.size >> offset;
         let mut inverse = odd;
-        // Newton: cada passo dobra os bits corretos do inverso ímpar.
+        // Newton: each step doubles the correct bits of the odd inverse.
         for _ in 0..6 {
             inverse = inverse.wrapping_mul(2u64.wrapping_sub(odd.wrapping_mul(inverse)));
         }
@@ -161,10 +163,10 @@ impl ArcPage {
         Self { geometry: g, inverse, offset, metas: (0..g.blocks).map(|_| None).collect(), occupied: 0 }
     }
 
-    /// Índice de um início de bloco; a rotação leva os bits que não são
-    /// divisíveis pela potência de dois para o alto, fora de `blocks`.
-    /// O produto pelo inverso recusa igualmente os múltiplos inexatos da
-    /// parte ímpar. Não há divisão nem resto no caminho de consulta.
+    /// The index of a block start; the rotation moves the bits that are not
+    /// divisible by the power of two to the top, outside `blocks`. The product by
+    /// the inverse likewise rejects the inexact multiples of the odd part. There is
+    /// no division or remainder on the query path.
     #[inline]
     fn ix(&self, h: Ref) -> Option<usize> {
         let d = (h.wrapping_sub(crate::layout::DESLOCAMENTO_DO_HANDLE) as u64).checked_sub(self.geometry.first)?;
@@ -173,13 +175,12 @@ impl ArcPage {
     }
 }
 
-/// A tabela dos metadados por handle (§19.1: "medir depois uma tabela por
-/// página/índice de bloco, evitando um hash por retain"). O handle de um bloco
-/// do espaço acha a página pelo número dela (`h >> 16`), num mapa radix de
-/// 2¹⁶ posições por região de 4 GiB — como o mapa de páginas do espaço —, e o
-/// metadado pelo índice do bloco: nenhum hash. O handle registrado sem
-/// geometria (os testes do núcleo, os objetos da imagem) fica numa tabela de
-/// reserva por hash.
+/// The table of metadata by handle (§19.1: "measure later a table per page/block
+/// index, avoiding a hash per retain"). A space block's handle finds the page by its
+/// number (`h >> 16`), in a radix map of 2¹⁶ positions per 4 GiB region — like the
+/// space's page map —, and the metadata by the block index: no hash. A handle
+/// registered without a geometry (the core tests, the image objects) goes into a
+/// fallback hash table.
 #[derive(Default)]
 struct Table {
     regions: Vec<(u64, Box<[u32]>)>,
@@ -188,13 +189,13 @@ struct Table {
     n: usize,
 }
 
-/// `PAGINA` = 64 KiB; uma região do mapa radix cobre 2¹⁶ páginas.
+/// `PAGINA` = 64 KiB; a radix map region covers 2¹⁶ pages.
 const BITS_DA_PAGINA: u32 = 16;
 const REGION_BITS: u32 = 16;
 
-// Localização privada, válida apenas enquanto não registrar/reclamar objetos.
-// A drenagem de um zero altera contadores/filas, não a geometria das páginas
-// ou a identidade dos slots. Não conservar este valor entre drenagens.
+// A private location, valid only while no objects are registered/reclaimed. Draining
+// a zero changes counters/queues, not the page geometry or the identity of the
+// slots. Do not keep this value across drains.
 #[derive(Clone, Copy)]
 enum MetadataLocation {
     Page { page: usize, ix: usize },
@@ -208,7 +209,7 @@ impl Table {
         (k >> REGION_BITS, (k & ((1 << REGION_BITS) - 1)) as usize)
     }
 
-    /// A página registrada de `h`, se há.
+    /// The registered page of `h`, if there is one.
     #[inline]
     fn page(&self, h: Ref) -> Option<usize> {
         let (r, i) = Self::key(h);
@@ -217,7 +218,7 @@ impl Table {
         (v != 0).then(|| v as usize - 1)
     }
 
-    /// (página, índice) do metadado de `h` numa página registrada.
+    /// (page, index) of the metadata of `h` in a registered page.
     #[inline]
     fn place(&self, h: Ref) -> Option<(usize, usize)> {
         let p = self.page(h)?;
@@ -269,10 +270,10 @@ impl Table {
         self.n
     }
 
-    /// Põe o metadado de `h`: pela página, com a geometria dela, ou na
-    /// reserva, sem. A página que o espaço reformatou para outra classe (a
-    /// página vazia reaproveitada) chega com outra geometria e não pode ter
-    /// metadado ocupado: todo morto já saiu da tabela.
+    /// Puts the metadata of `h`: through the page, with its geometry, or in the
+    /// fallback, without one. A page the space reformatted for another class (a reused
+    /// empty page) arrives with another geometry and cannot have occupied metadata:
+    /// every dead one has already left the table.
     fn insert(&mut self, h: Ref, m: MetaArc, geometry: Option<Geometry>) {
         let Some(g) = geometry else {
             if self.loose.insert(h, m).is_none() {
@@ -286,13 +287,13 @@ impl Table {
         };
         let pg = &mut self.pages[p];
         if pg.geometry != g {
-            assert!(pg.occupied == 0, "bug do ARC: página reformatada com {} metadados vivos", pg.occupied);
+            assert!(pg.occupied == 0, "ARC bug: page reformatted with {} live metadata entries", pg.occupied);
             pg.geometry = g;
             (pg.inverse, pg.offset) = ArcPage::factors(g);
             pg.metas.clear();
             pg.metas.resize_with(g.blocks as usize, || None);
         }
-        let i = pg.ix(h).expect("bug do ARC: handle fora da geometria da página");
+        let i = pg.ix(h).expect("ARC bug: handle outside the page geometry");
         if pg.metas[i].replace(m).is_none() {
             pg.occupied += 1;
             self.n += 1;
@@ -310,7 +311,7 @@ impl Table {
         };
         self.pages.push(ArcPage::new_area(g));
         let p = self.pages.len() - 1;
-        self.regions[k].1[i] = u32::try_from(p + 1).expect("ARC: páginas demais");
+        self.regions[k].1[i] = u32::try_from(p + 1).expect("ARC: too many pages");
         p
     }
 
@@ -331,7 +332,7 @@ impl Table {
         m
     }
 
-    /// Cada handle registrado com o metadado.
+    /// Each registered handle with its metadata.
     fn iter(&self) -> impl Iterator<Item = (Ref, &MetaArc)> + '_ {
         self.pages
             .iter()
@@ -352,34 +353,34 @@ impl Table {
 impl std::ops::Index<&Ref> for Table {
     type Output = MetaArc;
     fn index(&self, h: &Ref) -> &MetaArc {
-        self.get(h).expect("bug do ARC: handle sem metadado")
+        self.get(h).expect("ARC bug: handle without metadata")
     }
 }
 
-/// O estado do ARC de um isolate (§19.1).
+/// The ARC state of an isolate (§19.1).
 #[derive(Default)]
 pub struct EstadoDoArc {
     objects: Table,
     candidates: Vec<ArcId>,
     zeros: Vec<ArcId>,
-    /// Os de RC zero que uma raiz segurava na última drenagem dos zeros, uma
-    /// entrada por objeto ([`MetaArc::deferred`]); voltam à fila uma vez por
-    /// coleta ([`Self::resume_deferred`]), quando as raízes podem ter mudado.
+    /// The zero-RC objects that a root held at the last drain of the zeros, one entry
+    /// per object ([`MetaArc::deferred`]); they go back to the queue once per
+    /// collection ([`Self::resume_deferred`]), when the roots may have changed.
     deferred_set: Vec<ArcId>,
     dead_set: Vec<Ref>,
     next_generation: u64,
-    /// Uma transação de descarte está em curso (não reentrar).
+    /// A discard transaction is in progress (do not reenter).
     transaction: bool,
-    /// As saídas do conjunto em descarte, reaproveitado ([`Self::discard`]).
+    /// The exits of the set being discarded, reused ([`Self::discard`]).
     exits: Vec<Ref>,
     pub statistics: ArcStats,
-    /// Uma linha no stderr por evento (registro, retain, release, morte): o
-    /// diagnóstico de `DARTFORGE_ARC_TRACO=1`.
+    /// One line on stderr per event (registration, retain, release, death): the
+    /// diagnostic of `DARTFORGE_ARC_TRACO=1`.
     pub trace_log: bool,
-    /// O objeto não tem posição de referência nenhuma (no heap, o corpo
-    /// `BRUTO`: string, caixa numérica, dados tipados)? Sem aresta de saída
-    /// ele nunca está num ciclo, e não entra entre os candidatos (o filtro
-    /// mínimo do §32). `None` (os testes do núcleo): todo objeto pode.
+    /// Does the object have no reference position at all (in the heap, the `BRUTO`
+    /// body: string, numeric box, typed data)? Without an outgoing edge it is never
+    /// in a cycle, and it does not enter the candidates (the minimal filter of §32).
+    /// `None` (the core tests): any object may.
     pub without_edges: Option<fn(Ref) -> bool>,
 }
 
@@ -388,20 +389,20 @@ impl EstadoDoArc {
         EstadoDoArc { next_generation: 1, ..Default::default() }
     }
 
-    /// Os metadados de `h`, se gerenciado.
+    /// The metadata of `h`, if managed.
     pub fn meta(&self, h: Ref) -> Option<&MetaArc> {
         self.objects.get(&h)
     }
 
-    /// Quantos objetos têm metadados (vivos, em construção ou mortos ainda
-    /// não reclamados).
+    /// How many objects have metadata (alive, under construction or dead and not yet
+    /// reclaimed).
     pub fn registered_set(&self) -> usize {
         self.objects.len()
     }
 
-    /// Registra o bloco recém-reservado `h` (§19.3): `rc=1` (o owner de
-    /// construção), estado `Building`, geração nova. Falha antes de o
-    /// handle ser publicado.
+    /// Registers the freshly reserved block `h` (§19.3): `rc=1` (the construction
+    /// owner), state `Building`, a new generation. Fails before the handle is
+    /// published.
     pub fn register(&mut self, h: Ref) -> Result<ArcId, ArcError> {
         debug_assert!(e_handle(h));
         if let Some(m) = self.objects.get(&h)
@@ -410,8 +411,8 @@ impl EstadoDoArc {
             return Err(ArcError::AlreadyRegistered(h));
         }
         let generation = self.next_generation;
-        // Geração monotônica; overflow é falha interna, nunca reuso (§19.1).
-        self.next_generation = self.next_generation.checked_add(1).expect("ARC: geração esgotada");
+        // Monotonic generation; overflow is an internal failure, never reuse (§19.1).
+        self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
         self.objects.insert(
             h,
             MetaArc { generation, rc: 1, estado: ArcState::Building, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false },
@@ -421,11 +422,11 @@ impl EstadoDoArc {
         Ok(ArcId { handle: h, generation })
     }
 
-    /// Registra um objeto da imagem comprovadamente vivo pela imagem inteira
-    /// (§19.1): não morre nem entra em filas; suas arestas continuam contadas.
+    /// Registers an image object provably alive for the whole image (§19.1): it
+    /// neither dies nor enters queues; its edges are still counted.
     ///
     /// # Panics
-    /// A geração monotônica se esgotou; nenhum registro é publicado nesse caso.
+    /// The monotonic generation was exhausted; no registration is published then.
     ///
     /// ```
     /// use dartforge_runtime::arc::EstadoDoArc;
@@ -435,20 +436,20 @@ impl EstadoDoArc {
     /// ```
     pub fn register_immortal(&mut self, h: Ref) {
         let generation = self.next_generation;
-        self.next_generation = self.next_generation.checked_add(1).expect("ARC: geração esgotada");
+        self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
         self.objects.insert(h, MetaArc { generation, rc: 0, estado: ArcState::Live, candidate: false, conditionally_protected: false, immortal: true, deferred: false, side_edges: false }, None);
     }
 
-    /// Registra um objeto que já existe e passa a ser contado (o jovem
-    /// promovido pela coleta menor, os vivos na ativação): `rc=0`, `Live`; o
-    /// chamador conta as ocorrências que chegam a ele e depois chama
-    /// [`EstadoDoArc::review`].
+    /// Registers an object that already exists and starts being counted (the young
+    /// object promoted by the minor collection, the live ones at activation):
+    /// `rc=0`, `Live`; the caller counts the occurrences that reach it and then
+    /// calls [`EstadoDoArc::review`].
     pub fn register_live(&mut self, h: Ref) -> ArcId {
         self.register_live_at(h, None)
     }
 
-    /// [`Self::register_live`] de um bloco do espaço, com a geometria da
-    /// página dele: o metadado vai para a tabela por página, sem hash.
+    /// [`Self::register_live`] of a space block, with its page's geometry: the
+    /// metadata goes to the per-page table, without a hash.
     ///
     /// ```
     /// use dartforge_runtime::arc::{EstadoDoArc, Geometry};
@@ -460,23 +461,23 @@ impl EstadoDoArc {
     /// ```
     ///
     /// # Panics
-    /// A geometria tem tamanho zero ou extensão que transborda u64; `h` não
-    /// começa um bloco dela; a página mudou de geometria com objetos vivos;
-    /// ou a geração monotônica se esgotou.
+    /// The geometry has size zero or an extent that overflows u64; `h` does not start
+    /// one of its blocks; the page changed geometry with live objects; or the
+    /// monotonic generation was exhausted.
     pub fn register_live_at(&mut self, h: Ref, geometry: Option<Geometry>) -> ArcId {
         debug_assert!(e_handle(h));
         let generation = self.next_generation;
-        self.next_generation = self.next_generation.checked_add(1).expect("ARC: geração esgotada");
+        self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
         if self.trace_log {
-            eprintln!("[arc-traco] registrar {h} ja={}", self.objects.contains_key(&h));
+            eprintln!("[arc-trace] register {h} already={}", self.objects.contains_key(&h));
         }
         self.objects.insert(h, MetaArc { generation, rc: 0, estado: ArcState::Live, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false }, geometry);
         self.statistics.registered_set += 1;
         ArcId { handle: h, generation }
     }
 
-    /// Põe `h` na fila de zeros se o RC dele é zero (o registrado sem
-    /// ocorrências: só raízes o veem, ou ninguém).
+    /// Puts `h` in the zero queue if its RC is zero (one registered without
+    /// occurrences: only roots see it, or nobody).
     pub fn review(&mut self, h: Ref) {
         if let Some(m) = self.objects.get(&h)
             && m.rc == 0
@@ -487,24 +488,24 @@ impl EstadoDoArc {
         }
     }
 
-    /// O objeto `h` é contado e está vivo (nem morto nem em descarte).
+    /// Object `h` is counted and alive (neither dead nor being discarded).
     pub fn alive(&self, h: Ref) -> bool {
         self.objects.get(&h).is_some_and(|m| matches!(m.estado, ArcState::Live | ArcState::Building))
     }
 
-    /// O objeto `h` morreu (logicamente) e espera o reclamador.
+    /// Object `h` has died (logically) and waits for the reclaimer.
     pub fn dead(&self, h: Ref) -> bool {
         self.objects.get(&h).is_some_and(|m| m.estado == ArcState::Dead)
     }
 
-    /// Os handles contados ainda vivos.
+    /// The counted handles still alive.
     pub fn live_set(&self) -> impl Iterator<Item = Ref> + '_ {
         self.objects.iter().filter(|(_, m)| matches!(m.estado, ArcState::Live | ArcState::Building)).map(|(h, _)| h)
     }
 
-    /// Põe o vivo `h` entre os candidatos da próxima rodada de ciclos: o
-    /// objeto que uma raiz observacional vê pode perder essa raiz sem
-    /// decremento (as raízes não contam), e só a rodada o examina de novo.
+    /// Puts the live `h` among the candidates of the next cycle round: an object that
+    /// an observational root sees may lose that root without a decrement (roots do
+    /// not count), and only the round examines it again.
     pub fn add_candidate(&mut self, h: Ref) {
         let without_edges = self.without_edges;
         if let Some(m) = self.objects.get_mut(&h)
@@ -518,17 +519,17 @@ impl EstadoDoArc {
         }
     }
 
-    /// Impede o filtro do corpo de excluir um objeto com arestas laterais.
-    /// A indicação é conservadora até o próximo registro da identidade.
+    /// Prevents the body filter from excluding an object with side edges. The hint
+    /// is conservative until the identity's next registration.
     pub(crate) fn mark_side_edges(&mut self, h: Ref) {
         if let Some(m) = self.objects.get_mut(&h) { m.side_edges = true; }
         self.add_candidate(h);
     }
 
-    /// O jovem `h` sobreviveu à drenagem (tem metadados): o RC zero vai para
-    /// a fila de zeros ([`Self::review`]) e, sem ser imortal, ele vira
-    /// candidato a ciclo ([`Self::add_candidate`]) — numa consulta só. Devolve
-    /// se `h` tinha metadados.
+    /// The young `h` survived the drain (it has metadata): the zero RC goes to the
+    /// zero queue ([`Self::review`]) and, unless immortal, it becomes a cycle
+    /// candidate ([`Self::add_candidate`]) — in a single lookup. Returns whether `h`
+    /// had metadata.
     pub fn decide_young(&mut self, h: Ref) -> bool {
         let without_edges = self.without_edges;
         let Some(m) = self.objects.get_mut(&h) else { return false };
@@ -546,12 +547,12 @@ impl EstadoDoArc {
         true
     }
 
-    /// Quantos candidatos a ciclo esperam a próxima rodada.
+    /// How many cycle candidates wait for the next round.
     pub fn candidates(&self) -> usize {
         self.candidates.len()
     }
 
-    /// A construção terminou: o owner de construção passa a ser o resultado.
+    /// Construction finished: the construction owner becomes the result.
     pub fn finish_construction(&mut self, h: Ref) {
         if let Some(m) = self.objects.get_mut(&h)
             && m.estado == ArcState::Building
@@ -560,14 +561,14 @@ impl EstadoDoArc {
         }
     }
 
-    /// Uma ocorrência forte a mais de `h` (§19.3).
+    /// One more strong occurrence of `h` (§19.3).
     pub fn retain_ref(&mut self, h: Ref) -> Result<(), ArcError> {
         self.retain_if_registered(h).map(|_| ())
     }
 
-    // Retém numa única consulta, informando se o handle já foi resolvido.
-    // false é só ausência de metadados, nunca um estado inválido/imortal;
-    // o heap pode registrar o destino ausente antes de contar a ocorrência.
+    // Retains in a single lookup, reporting whether the handle was already resolved.
+    // false is only the absence of metadata, never an invalid/immortal state; the
+    // heap may register the absent target before counting the occurrence.
     pub(crate) fn retain_if_registered(&mut self, h: Ref) -> Result<bool, ArcError> {
         if !e_handle(h) {
             return Ok(true);
@@ -582,13 +583,13 @@ impl EstadoDoArc {
         m.rc = m.rc.checked_add(1).ok_or(ArcError::Overflow(h))?;
         self.statistics.retains += 1;
         if self.trace_log {
-            eprintln!("[arc-traco] reter {h} rc={}", m.rc);
+            eprintln!("[arc-trace] retain {h} rc={}", m.rc);
         }
         Ok(true)
     }
 
-    /// Uma ocorrência forte a menos de `h` (§19.3): zero vai para a fila de
-    /// zeros; positivo vira candidato a ciclo.
+    /// One strong occurrence of `h` fewer (§19.3): zero goes to the zero queue;
+    /// positive becomes a cycle candidate.
     pub fn release(&mut self, h: Ref) -> Result<(), ArcError> {
         if !e_handle(h) {
             return Ok(());
@@ -606,7 +607,7 @@ impl EstadoDoArc {
         m.rc -= 1;
         self.statistics.releases += 1;
         if self.trace_log {
-            eprintln!("[arc-traco] soltar {h} rc={}", m.rc);
+            eprintln!("[arc-trace] release {h} rc={}", m.rc);
         }
         let id = ArcId { handle: h, generation: m.generation };
         if m.rc == 0 {
@@ -618,8 +619,8 @@ impl EstadoDoArc {
         Ok(())
     }
 
-    /// Marca a clausura forte de `h` como protegida condicionalmente (§22.2):
-    /// RC zero de um protegido não inicia o descarte.
+    /// Marks the strong closure of `h` as conditionally protected (§22.2): the zero
+    /// RC of a protected object does not start the discard.
     pub fn protect(&mut self, graph: &dyn ArcGraph, h: Ref) {
         let mut stack = vec![h];
         while let Some(x) = stack.pop() {
@@ -636,22 +637,22 @@ impl EstadoDoArc {
         }
     }
 
-    /// Retira toda proteção condicional (o ponto fixo da rodada a refaz).
+    /// Removes all conditional protection (the round's fixpoint redoes it).
     pub fn clear_protections(&mut self) {
         for m in self.objects.values_mut() {
             m.conditionally_protected = false;
         }
     }
 
-    /// Processa a fila de zeros (§19.3): cada objeto vivo, da geração da
-    /// entrada, com RC ainda zero e sem proteção morre; os destinos das suas
-    /// arestas perdem uma ocorrência, o que pode encadear mais zeros (fila
-    /// iterativa, sem recursão). `limit` conta objetos descartados.
+    /// Processes the zero queue (§19.3): each live object, of the entry's
+    /// generation, with an RC still zero and without protection dies; the targets of
+    /// its edges lose one occurrence, which may chain more zeros (an iterative queue,
+    /// without recursion). `limit` counts discarded objects.
     ///
-    /// `protected` são as raízes observacionais (§21.3): as ocorrências que o
-    /// RC não conta (a pilha, os quadros do runtime, os globais). Um zero que
-    /// elas veem não morre e fica na fila para a próxima drenagem (a tabela
-    /// de contagem zero do RC adiado).
+    /// `protected` are the observational roots (§21.3): the occurrences the RC does
+    /// not count (the stack, the runtime's frames, the globals). A zero that they see
+    /// does not die and stays in the queue for the next drain (the zero-count table
+    /// of deferred RC).
     pub fn drain_zeros(&mut self, graph: &mut dyn ArcGraph, limit: usize, protected: &dyn Fn(Ref) -> bool) -> Result<usize, ArcError> {
         let mut done = 0;
         while done < limit {
@@ -660,10 +661,10 @@ impl EstadoDoArc {
             let local = self.objects.locate(id.handle);
             let Some(m) = self.objects.in_local(local).filter(|m| m.generation == id.generation) else { continue };
             if m.estado == ArcState::Live && m.rc > 0 {
-                // Desceu a zero e voltou a subir antes da drenagem: a
-                // ocorrência nova pode fechar um ciclo sem raiz (o
-                // autociclo `x[i] = x` depois de soltar a última de fora),
-                // então ele é candidato como quem desce a um RC positivo.
+                // It went down to zero and back up before the drain: the new
+                // occurrence may close a rootless cycle (the self-cycle `x[i] = x`
+                // after releasing the last outside one), so it is a candidate like
+                // one that goes down to a positive RC.
                 self.add_candidate(id.handle);
                 continue;
             }
@@ -671,10 +672,10 @@ impl EstadoDoArc {
                 continue;
             }
             if protected(id.handle) {
-                // Fica fora da fila até a próxima coleta: dentro desta as
-                // raízes não mudam, e reexaminá-lo a cada passada (e cada
-                // cópia dele, a cada vez que o RC voltou a zero) era o custo
-                // maior da cascata.
+                // It stays out of the queue until the next collection: within this
+                // one the roots do not change, and reexamining it on every pass (and
+                // each copy of it, each time the RC went back to zero) was the
+                // largest cost of the cascade.
                 self.statistics.deferred_zeros += 1;
                 if let Some(m) = self.objects.in_local_mut(local)
                     && !m.deferred
@@ -691,9 +692,9 @@ impl EstadoDoArc {
         Ok(done)
     }
 
-    /// Os adiados voltam à fila de zeros, uma vez por coleta (no começo dela:
-    /// a raiz que os segurava pode ter sumido). O que não é mais válido, ou
-    /// já não tem RC zero, sai.
+    /// The deferred ones go back to the zero queue, once per collection (at its
+    /// start: the root that held them may have disappeared). Whatever is no longer
+    /// valid, or no longer has a zero RC, leaves.
     pub fn resume_deferred(&mut self) {
         let deferred_set = std::mem::take(&mut self.deferred_set);
         for id in deferred_set {
@@ -706,30 +707,30 @@ impl EstadoDoArc {
         }
     }
 
-    /// Há zeros esperando.
+    /// There are zeros waiting.
     pub fn ha_zeros(&self) -> bool {
         !self.zeros.is_empty()
     }
 
-    /// A transação de descarte do conjunto `d` (§19.4): marca todos
-    /// `Collecting`; para cada ocorrência forte `u→v` com `u` em `d`, solta
-    /// `v` se `v` não pertence a `d`; rompe as arestas; marca `Dead` e
-    /// publica os mortos para o reclamador.
+    /// The discard transaction of set `d` (§19.4): marks them all `Collecting`; for
+    /// each strong occurrence `u→v` with `u` in `d`, releases `v` if `v` is not in
+    /// `d`; breaks the edges; marks them `Dead` and publishes the dead ones to the
+    /// reclaimer.
     pub fn discard(&mut self, graph: &mut dyn ArcGraph, d: &[Ref]) -> Result<(), ArcError> {
         self.discard_located(graph, d, None)
     }
 
-    // O slot já validado pela geração vale durante esta transação: soltar
-    // saídas não registra nem remove metadados. O descarte coletivo continua
-    // resolvendo cada handle, sem reutilizar localização de outro objeto.
+    // The slot already validated by the generation stays valid during this
+    // transaction: releasing exits neither registers nor removes metadata. The
+    // collective discard still resolves each handle, without reusing another
+    // object's location.
     fn discard_located(&mut self, graph: &mut dyn ArcGraph, d: &[Ref], local: Option<MetadataLocation>) -> Result<(), ArcError> {
         debug_assert!(local.is_none() || d.len() == 1);
-        assert!(!self.transaction, "ARC: descarte reentrante");
+        assert!(!self.transaction, "ARC: reentrant discard");
         self.transaction = true;
-        // A cascata dos zeros descarta um objeto por vez: aí a única
-        // aresta interna é a do próprio objeto, o conjunto (uma alocação
-        // por morte) não é montado, e as arestas são lidas e zeradas num
-        // percurso só.
+        // The zero cascade discards one object at a time: there the only internal
+        // edge is the object's own, the set (one allocation per death) is not
+        // built, and the edges are read and cleared in a single walk.
         let single = if d.len() == 1 { Some(d[0]) } else { None };
         let item_set: HashSet<Ref> = if single.is_some() { HashSet::default() } else { d.iter().copied().collect() };
         let internal = |v: Ref| match single {
@@ -745,8 +746,8 @@ impl EstadoDoArc {
                 m.estado = ArcState::Collecting;
             }
         }
-        // As saídas do conjunto, uma vez cada ocorrência (o vetor é
-        // reaproveitado entre descartes).
+        // The set's exits, once per occurrence (the vector is reused between
+        // discards).
         let mut exits = std::mem::take(&mut self.exits);
         if let Some(u) = single {
             graph.take_edges(u, &mut |v| {
@@ -772,7 +773,7 @@ impl EstadoDoArc {
         self.exits = exits;
         for &u in d {
             if self.trace_log {
-                eprintln!("[arc-traco] morrer {u}");
+                eprintln!("[arc-trace] die {u}");
             }
             if single.is_none() {
                 graph.break_off(u);
@@ -795,13 +796,13 @@ impl EstadoDoArc {
         }
     }
 
-    /// A coleta de ciclos por *trial deletion* lateral (§22.1): a região `R`
-    /// é a clausura forte dos candidatos válidos; `trial[v] = rc[v]` menos as
-    /// ocorrências internas a `R`; os de trial positivo (e os imortais, em
-    /// construção ou protegidos) sobrevivem e propagam sobrevivência; o resto
-    /// é um conjunto morto, descartado em lote. Nenhum RC real muda antes do
-    /// commit; um trial negativo aborta com diagnóstico. `protected`: as
-    /// raízes observacionais, que fazem sobreviver como uma referência externa.
+    /// Cycle collection by side *trial deletion* (§22.1): region `R` is the strong
+    /// closure of the valid candidates; `trial[v] = rc[v]` minus the occurrences
+    /// internal to `R`; those with a positive trial (and the immortal ones, those
+    /// under construction or protected) survive and propagate survival; the rest is a
+    /// dead set, discarded in a batch. No real RC changes before the commit; a
+    /// negative trial aborts with a diagnostic. `protected`: the observational roots,
+    /// which make objects survive like an external reference.
     pub fn collect_cycles(&mut self, graph: &mut dyn ArcGraph, protected: &dyn Fn(Ref) -> bool) -> Result<usize, ArcError> {
         let candidates = std::mem::take(&mut self.candidates);
         let mut seeds: Vec<Ref> = Vec::new();
@@ -820,11 +821,11 @@ impl EstadoDoArc {
             return Ok(0);
         }
         self.statistics.cycle_rounds += 1;
-        // A raiz protegida fica fora de R: suas arestas continuam entradas
-        // externas no trial. Reenfileirá-la permite coletar quando a raiz sumir.
+        // The protected root stays out of R: its edges remain external inputs in the
+        // trial. Requeuing it allows collecting it when the root disappears.
         let mut r: Vec<Ref> = Vec::new();
-        // Um índice denso por handle; contadores e marcas ficam em vetores,
-        // sem três tabelas de hash distintas para a mesma região.
+        // A dense index per handle; counters and marks live in vectors, without three
+        // distinct hash tables for the same region.
         let mut in_r: HashMap<Ref, usize> = HashMap::default();
         let mut stack = seeds;
         while let Some(x) = stack.pop() {
@@ -846,7 +847,7 @@ impl EstadoDoArc {
             });
         }
         self.statistics.examined += r.len() as u64;
-        // trial = rc − ocorrências internas.
+        // trial = rc − internal occurrences.
         let mut trial: Vec<i128> = r.iter().map(|x| self.objects[x].rc as i128).collect();
         for &u in &r {
             graph.edges(u, &mut |v| {
@@ -858,7 +859,7 @@ impl EstadoDoArc {
         if let Some(ix) = trial.iter().position(|&t| t < 0) {
             return Err(ArcError::NegativeTrial(r[ix]));
         }
-        // Sobreviventes: trial positivo, em construção ou protegido; propagam.
+        // Survivors: positive trial, under construction or protected; they propagate.
         let mut live_set = vec![false; r.len()];
         let mut stack: Vec<usize> = Vec::new();
         for (ix, &x) in r.iter().enumerate() {
@@ -868,10 +869,10 @@ impl EstadoDoArc {
                 stack.push(ix);
             }
         }
-        // Marca ao enfileirar: convergência de caminhos e posições repetidas
-        // não multiplicam entradas na pilha. O trial acima continua contando
-        // cada ocorrência. A propagação usa índices, sem buscar o handle de
-        // novo ao retirar da pilha; destinos fora de R não são percorridos.
+        // Marks when enqueuing: converging paths and repeated positions do not
+        // multiply stack entries. The trial above still counts each occurrence.
+        // Propagation uses indices, without looking the handle up again when popping
+        // from the stack; targets outside R are not walked.
         while let Some(ix) = stack.pop() {
             graph.edges(r[ix], &mut |v| {
                 if e_handle(v)
@@ -883,8 +884,8 @@ impl EstadoDoArc {
                 }
             });
         }
-        // O sobrevivente que só a raiz observacional segura volta a ser
-        // candidato: a raiz pode sumir sem decremento.
+        // A survivor that only the observational root holds becomes a candidate
+        // again: the root may disappear without a decrement.
         for (ix, &x) in r.iter().enumerate() {
             if live_set[ix] && protected(x) {
                 self.add_candidate(x);
@@ -900,17 +901,17 @@ impl EstadoDoArc {
         Ok(n)
     }
 
-    /// Os mortos lógicos publicados desde a última chamada, para o reclamador
-    /// físico; os metadados deles saem aqui (§19.4, passo 2).
+    /// The logical deaths published since the last call, for the physical reclaimer;
+    /// their metadata leaves here (§19.4, step 2).
     pub fn take_dead(&mut self) -> Vec<Ref> {
         let mut dead_set = Vec::new();
         self.transfer_dead(&mut dead_set);
         dead_set
     }
 
-    /// Remove metadados e transfere mortos para o reclamador físico.
-    /// Destino vazio recebe o buffer por troca, sem copiar cada handle;
-    /// rodadas posteriores acrescentam seus mortos, preservando os anteriores.
+    /// Removes metadata and transfers the dead to the physical reclaimer. An empty
+    /// destination receives the buffer by swap, without copying each handle; later
+    /// rounds append their dead, preserving the previous ones.
     pub(crate) fn transfer_dead(&mut self, dest: &mut Vec<Ref>) -> usize {
         let amount = self.dead_set.len();
         for h in &self.dead_set {
@@ -926,9 +927,9 @@ impl EstadoDoArc {
         amount
     }
 
-    /// Reconta, com o heap estabilizado, `owners de root + edges fortes` de
-    /// cada objeto vivo e compara com o RC (§20.3, modo auditor). `roots`
-    /// são as ocorrências proprietárias (não as observacionais, §21.3).
+    /// Recounts, with the heap stabilized, `root owners + strong edges` of each live
+    /// object and compares with the RC (§20.3, audit mode). `roots` are the owning
+    /// occurrences (not the observational ones, §21.3).
     pub fn audit(&self, graph: &dyn ArcGraph, roots: &[Ref]) -> Result<(), ArcError> {
         let mut count: HashMap<Ref, u64> = HashMap::default();
         for &h in roots {
@@ -988,11 +989,11 @@ mod tests_mod {
             let page = ArcPage::new_area(Geometry { first, size, blocks });
             assert_eq!(page.ix(first as Ref + DESLOCAMENTO_DO_HANDLE - 1), None);
             for d in 0..=PAGINA as u64 {
-                // Oráculo deliberadamente pela divisão original: todos os
-                // inícios, interiores e bytes além do último bloco.
+                // A deliberate oracle through the original division: every start,
+                // interior and byte beyond the last block.
                 let expected = (d % size == 0 && d / size < u64::from(blocks)).then_some((d / size) as usize);
                 let h = (first + d) as Ref + DESLOCAMENTO_DO_HANDLE;
-                assert_eq!(page.ix(h), expected, "classe {class}, deslocamento {d}");
+                assert_eq!(page.ix(h), expected, "class {class}, offset {d}");
             }
         }
     }
@@ -1005,14 +1006,14 @@ mod tests_mod {
             let query = |d: u64| page.ix(d.wrapping_add(crate::layout::DESLOCAMENTO_DO_HANDLE as u64) as Ref);
             for i in 0..u64::from(blocks) {
                 let d = i * size;
-                assert_eq!(query(d), Some(i as usize), "tamanho {size}, índice {i}");
+                assert_eq!(query(d), Some(i as usize), "size {size}, index {i}");
                 if size > 1 {
                     assert_eq!(query(d + 1), None);
                 }
             }
             let end = size * u64::from(blocks);
             for d in [end, end.saturating_add(1), u64::MAX] {
-                assert_eq!(query(d), None, "tamanho {size}, deslocamento {d}");
+                assert_eq!(query(d), None, "size {size}, offset {d}");
             }
         }
     }
@@ -1033,7 +1034,7 @@ mod tests_mod {
         assert!(a.meta(h + 24).is_none());
     }
 
-    /// Um grafo de mentira: handle → lista de destinos (com multiplicidade).
+    /// A fake graph: handle → list of targets (with multiplicity).
     #[derive(Default)]
     struct Graph(HashMap<Ref, Vec<Ref>>);
 
@@ -1048,13 +1049,13 @@ mod tests_mod {
         }
     }
 
-    /// Aloca `h` (rc=1 do owner de construção) e o conclui.
+    /// Allocates `h` (rc=1 of the construction owner) and finishes it.
     fn new(a: &mut EstadoDoArc, h: Ref) {
         a.register(h).unwrap();
         a.finish_construction(h);
     }
 
-    /// `u.campo = v`: o destino ganha a ocorrência.
+    /// `u.field = v`: the target gains the occurrence.
     fn enable(a: &mut EstadoDoArc, g: &mut Graph, u: Ref, v: Ref) {
         a.retain_ref(v).unwrap();
         g.0.entry(u).or_default().push(v);
@@ -1133,7 +1134,7 @@ mod tests_mod {
         }
         enable(&mut a, &mut g, 2, 4);
         enable(&mut a, &mut g, 4, 6);
-        // Os owners de construção de 4 e 6 saem: só as arestas os mantêm.
+        // The construction owners of 4 and 6 leave: only the edges keep them.
         a.release(4).unwrap();
         a.release(6).unwrap();
         a.audit(&g, &[2]).unwrap();
@@ -1149,7 +1150,7 @@ mod tests_mod {
         let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
         new(&mut a, 2);
         new(&mut a, 4);
-        // Duas posições da lista 2 apontam para 4: contam duas vezes.
+        // Two positions of list 2 point to 4: they count twice.
         enable(&mut a, &mut g, 2, 4);
         enable(&mut a, &mut g, 2, 4);
         a.release(4).unwrap();
@@ -1170,7 +1171,7 @@ mod tests_mod {
         a.release(4).unwrap();
         a.release(2).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
-        assert!(!dead(&a, 2) && !dead(&a, 4), "o RC sozinho não fecha o ciclo");
+        assert!(!dead(&a, 2) && !dead(&a, 4), "the RC alone does not close the cycle");
         assert_eq!(a.collect_cycles(&mut g, &|_| false).unwrap(), 2);
         assert!(dead(&a, 2) && dead(&a, 4));
         assert_eq!(a.statistics.dead_by_cycle, 2);
@@ -1224,8 +1225,8 @@ mod tests_mod {
         assert_eq!(g.0, before);
         assert_eq!([x, y, z, w, root].map(|h| a.meta(h).unwrap().rc).as_slice(), counts);
         a.audit(&g, &[root]).unwrap();
-        // A mesma região, agora sem entrada externa, morre de uma vez;
-        // todas as ocorrências internas são abatidas, sem soltar RC interno.
+        // The same region, now without an external input, dies at once; all the
+        // internal occurrences are cut down, without releasing internal RC.
         a.release(root).unwrap();
         assert_eq!(a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap(), 1);
         assert_eq!(a.collect_cycles(&mut g, &|_| false).unwrap(), 4);
@@ -1262,7 +1263,7 @@ mod tests_mod {
         let (x, y) = (2, 0x1_0002);
         new(&mut a, x);
         new(&mut a, y);
-        // Inventário adulterado: duas arestas internas, mas RC de y é um.
+        // A tampered inventory: two internal edges, but the RC of y is one.
         g.0.insert(x, vec![y, y]);
         g.0.insert(y, vec![x]);
         a.add_candidate(x);
@@ -1274,8 +1275,8 @@ mod tests_mod {
             assert_eq!(a.meta(h).unwrap().estado, ArcState::Live);
         }
         assert!(a.take_dead().is_empty());
-        // Corrigir o inventário e reenfileirar não pode herdar índices/trial
-        // do diagnóstico anterior nem aplicar um descarte parcial dele.
+        // Fixing the inventory and requeuing must neither inherit indices/trial from
+        // the previous diagnostic nor apply a partial discard of it.
         g.0.insert(x, vec![y]);
         a.add_candidate(x);
         assert_eq!(a.collect_cycles(&mut g, &|_| false), Ok(2));
@@ -1294,16 +1295,16 @@ mod tests_mod {
         a.release(y).unwrap();
         a.add_candidate(x);
         let generation = a.meta(x).unwrap().generation;
-        // O owner externo de x preserva os dois nós; na rodada seguinte
-        // nenhum deles pode herdar a marca de sobrevivente.
+        // The external owner of x preserves both nodes; in the next round neither
+        // of them may inherit the survivor mark.
         assert_eq!(a.collect_cycles(&mut g, &|_| false), Ok(0));
         assert_eq!((a.meta(x).unwrap().rc, a.meta(y).unwrap().rc), (2, 1));
         a.release(x).unwrap();
         assert_eq!(a.collect_cycles(&mut g, &|_| false), Ok(2));
         assert_eq!(a.take_dead().len(), 2);
         assert_eq!(a.collect_cycles(&mut g, &|_| false), Ok(0));
-        // Mesmo endereço, região menor e geração nova: o mapa e os vetores
-        // antigos não podem impedir a descoberta ou proteger o autociclo.
+        // Same address, a smaller region and a new generation: the old map and
+        // vectors must not prevent the discovery or protect the self-cycle.
         new(&mut a, x);
         assert!(a.meta(x).unwrap().generation > generation);
         enable(&mut a, &mut g, x, x);
@@ -1321,7 +1322,7 @@ mod tests_mod {
         }
         enable(&mut a, &mut g, 2, 4);
         enable(&mut a, &mut g, 4, 2);
-        // 6 (raiz) aponta para 4.
+        // 6 (root) points to 4.
         enable(&mut a, &mut g, 6, 4);
         a.release(4).unwrap();
         a.release(2).unwrap();
@@ -1329,7 +1330,7 @@ mod tests_mod {
         assert_eq!(a.collect_cycles(&mut g, &|_| false).unwrap(), 0);
         assert_eq!((a.meta(2).unwrap().rc, a.meta(4).unwrap().rc), before);
         a.audit(&g, &[6]).unwrap();
-        // Sem a raiz, o ciclo morre na próxima rodada; 6 morre pelo RC.
+        // Without the root, the cycle dies in the next round; 6 dies by RC.
         a.release(6).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(dead(&a, 6));
@@ -1357,7 +1358,7 @@ mod tests_mod {
     fn under_construction_and_protected_do_not_die() {
         let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
         a.register(2).unwrap();
-        // Em construção: RC zero não descarta.
+        // Under construction: a zero RC does not discard.
         a.release(2).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(!dead(&a, 2));
@@ -1365,7 +1366,7 @@ mod tests_mod {
         a.protect(&g, 4);
         a.release(4).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
-        assert!(!dead(&a, 4), "protegido condicionalmente espera o ponto fixo");
+        assert!(!dead(&a, 4), "a conditionally protected object waits for the fixpoint");
     }
 
     #[test]
@@ -1397,13 +1398,13 @@ mod tests_mod {
         a.release(2).unwrap();
         a.release(4).unwrap();
         a.release(6).unwrap();
-        // 6 só é visto pela pilha; o ciclo 2-4 também.
+        // 6 is only seen by the stack; the 2-4 cycle too.
         let root = |h: Ref| h == 6 || h == 2;
         a.drain_zeros(&mut g, usize::MAX, &root).unwrap();
         assert!(!dead(&a, 6));
         assert_eq!(a.collect_cycles(&mut g, &root).unwrap(), 0);
-        // A pilha soltou: morrem na próxima drenagem (que começa retomando
-        // os adiados) e rodada.
+        // The stack released: they die in the next drain (which starts by resuming
+        // the deferred ones) and round.
         a.resume_deferred();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(dead(&a, 6));
@@ -1429,7 +1430,7 @@ mod tests_mod {
         a.release(2).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         a.take_dead();
-        // O endereço é reaproveitado: geração nova, a entrada velha não vale.
+        // The address is reused: a new generation, the old entry is not valid.
         new(&mut a, 2);
         a.zeros.push(ArcId { handle: 2, generation: 1 });
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
@@ -1451,7 +1452,7 @@ mod tests_mod {
             let first = (1u64 << 32) + 1024;
             let h1 = first as Ref + DESLOCAMENTO_DO_HANDLE;
             let h2 = h1 + 24;
-            let h3 = 2; // Reserva por hash, mesmo quando os outros usam página.
+            let h3 = 2; // Hash fallback, even when the others use a page.
             let geometry = paged.then_some(Geometry { first, size: 24, blocks: 4 });
             let (mut a, mut g) = (EstadoDoArc::new(), Graph::default());
             let id1 = a.register_live_at(h1, geometry);
@@ -1477,8 +1478,8 @@ mod tests_mod {
             assert_eq!(a.drain_zeros(&mut g, 1, &|_| false), Ok(1));
             assert_eq!(a.take_dead(), vec![h2, h3]);
             assert_eq!(a.registered_set(), 0);
-            // Todos os slots da página morreram; outro tamanho pode ocupar
-            // o mesmo endereço. Nenhuma localização atravessa esta fronteira.
+            // All the page's slots died; another size may occupy the same address.
+            // No location crosses this boundary.
             let new_area = paged.then_some(Geometry { first, size: 48, blocks: 2 });
             let current = a.register_live_at(h1, new_area);
             a.retain_ref(h1).unwrap();

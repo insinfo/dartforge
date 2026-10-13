@@ -1,23 +1,21 @@
-// Runtime nativo: o manipulador de eventos do `dart:io` no Windows
-// (`runtime/bin/eventhandler_win.cc` da VM), sobre uma porta de conclusão
-// de E/S (IOCP).
+// Native runtime: the `dart:io` event handler on Windows (the VM's
+// `runtime/bin/eventhandler_win.cc`), on top of an I/O completion port (IOCP).
 //
-// No Windows o "descritor" de um `_NativeSocket` é um [`Handle`] (o
-// `Handle` da VM): o `SOCKET`/`HANDLE` do sistema, as fichas e portas Dart
-// ([`DescriptorInfo`], o mesmo do Unix) e a E/S sobreposta em andamento.
-// Não há prontidão para vigiar como no epoll: o manipulador mantém uma
-// leitura emitida (`WSARecv`/`ReadFile`/`AcceptEx`) e guarda o que chegou;
-// o Dart lê desse buffer (`Socket_Read`), e cada leitura que o esvazia
-// emite a seguinte. A escrita copia os bytes e emite `WSASend`/`WriteFile`;
-// enquanto ela não conclui o soquete está "cheio" (escreve 0). As
-// conclusões e os comandos do Dart chegam pela mesma porta de conclusão e
-// são atendidos por uma thread só, como na VM.
+// On Windows the "descriptor" of a `_NativeSocket` is a [`Handle`] (the VM's
+// `Handle`): the system `SOCKET`/`HANDLE`, the Dart tokens and ports
+// ([`DescriptorInfo`], the same as on Unix) and the overlapped I/O in progress.
+// There is no readiness to watch as with epoll: the handler keeps one read issued
+// (`WSARecv`/`ReadFile`/`AcceptEx`) and keeps what arrived; Dart reads from that
+// buffer (`Socket_Read`), and each read that drains it issues the next one. A write
+// copies the bytes and issues `WSASend`/`WriteFile`; until it completes the socket
+// is "full" (writes 0). The completions and Dart's commands arrive through the
+// same completion port and are served by a single thread, as in the VM.
 //
-// A entrada padrão não aceita E/S sobreposta: uma thread faz o `ReadFile`
-// síncrono e posta a conclusão na porta.
+// Standard input does not accept overlapped I/O: a thread does the synchronous
+// `ReadFile` and posts the completion to the port.
 //
-// Tudo o que é do Windows fica neste módulo; a raiz do runtime vê só os
-// nomes que os natives comuns usam.
+// Everything Windows-specific stays in this module; the runtime root only sees the
+// names that the common natives use.
 
 #[cfg(windows)]
 mod io_windows {
@@ -25,9 +23,9 @@ mod io_windows {
     use std::ffi::c_void;
     use std::sync::Arc;
 
-    /// Um `HANDLE` ou `SOCKET` do sistema.
+    /// A system `HANDLE` or `SOCKET`.
     pub(super) type Bruto = usize;
-    /// `INVALID_HANDLE_VALUE` e `INVALID_SOCKET`.
+    /// `INVALID_HANDLE_VALUE` and `INVALID_SOCKET`.
     pub(super) const INVALID: Bruto = usize::MAX;
 
     pub(super) const ERROR_BROKEN_PIPE: u32 = 109;
@@ -60,22 +58,21 @@ mod io_windows {
     const SIO_GET_EXTENSION_FUNCTION_POINTER: u32 = 0xc800_0006;
     const TF_REUSE_SOCKET: u32 = 0x2;
 
-    /// O tamanho do buffer de leitura (`kBufferSize`), que comporta um
-    /// datagrama UDP inteiro.
+    /// The size of the read buffer (`kBufferSize`), which holds a whole UDP
+    /// datagram.
     const BUFFER_SIZE: usize = 64 * 1024;
-    /// O que um `ReadFile` de console lê por vez (`kStdOverlappedBufferSize`).
+    /// What one console `ReadFile` reads at a time (`kStdOverlappedBufferSize`).
     const CONSOLE_READ_SIZE: usize = 16 * 1024;
-    /// O maior datagrama UDP (`kMaxUDPPackageLength`).
+    /// The largest UDP datagram (`kMaxUDPPackageLength`).
     const MAX_DATAGRAM_SIZE: usize = 64 * 1024;
-    /// O espaço de cada endereço do `AcceptEx`: um `SOCKADDR_STORAGE` e
-    /// mais 16 bytes (`kAcceptExAddressStorageSize`).
+    /// The space of each `AcceptEx` address: a `SOCKADDR_STORAGE` plus 16 bytes
+    /// (`kAcceptExAddressStorageSize`).
     const ACCEPT_ADDRESS_SIZE: u32 = 128 + 16;
-    /// Os `AcceptEx` que um soquete de escuta mantém emitidos
-    /// (`kMinIssuedAccepts`).
+    /// The `AcceptEx`s that a listening socket keeps issued (`kMinIssuedAccepts`).
     const ACCEPTS_ISSUED: usize = 5;
 
-    /// A chave de conclusão dos comandos do Dart (o `InterruptMessage`); a
-    /// da E/S é [`IO_KEY`].
+    /// The completion key of Dart's commands (the `InterruptMessage`); that of I/O
+    /// is [`IO_KEY`].
     const COMMAND_KEY: usize = 0;
     const IO_KEY: usize = 1;
 
@@ -91,7 +88,7 @@ mod io_windows {
     }
 
     impl OverlappedOp {
-        /// Um `OVERLAPPED` com o evento dado.
+        /// An `OVERLAPPED` with the given event.
         pub(super) fn with_event(event: usize) -> OverlappedOp {
             OverlappedOp { event, ..OverlappedOp::default() }
         }
@@ -164,16 +161,16 @@ mod io_windows {
     }
 
     // -----------------------------------------------------------------------
-    // Winsock e as extensões (`AcceptEx`, `ConnectEx`…).
+    // Winsock and the extensions (`AcceptEx`, `ConnectEx`…).
 
-    /// `SocketBase::Initialize`: o `WSAStartup`, uma vez por processo.
+    /// `SocketBase::Initialize`: `WSAStartup`, once per process.
     pub(super) fn start_winsock() {
         static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         STARTED.get_or_init(|| {
             let mut data = [0u8; 512];
-            // SAFETY: o `WSADATA` cabe em 512 bytes.
+            // SAFETY: `WSADATA` fits in 512 bytes.
             if unsafe { WSAStartup(0x0202, data.as_mut_ptr()) } != 0 {
-                panic!("dart:io: falha ao iniciar o Winsock ({})", unsafe { WSAGetLastError() });
+                panic!("dart:io: failed to start Winsock ({})", unsafe { WSAGetLastError() });
             }
         });
     }
@@ -183,7 +180,7 @@ mod io_windows {
     type FnDisconnectEx = unsafe extern "system" fn(Bruto, *mut OverlappedOp, u32, u32) -> i32;
     type FnGetAcceptExSockaddrs = unsafe extern "system" fn(*mut u8, u32, u32, u32, *mut *mut u8, *mut i32, *mut *mut u8, *mut i32);
 
-    /// As funções de extensão do Winsock (`InitializeSocketExtensions`).
+    /// The Winsock extension functions (`InitializeSocketExtensions`).
     struct Extensions {
         accept_conn: FnAcceptEx,
         connect_socket: FnConnectEx,
@@ -195,15 +192,15 @@ mod io_windows {
         static E: std::sync::OnceLock<Extensions> = std::sync::OnceLock::new();
         E.get_or_init(|| {
             start_winsock();
-            // SAFETY: um soquete provisório só para consultar as extensões.
+            // SAFETY: a provisional socket only to query the extensions.
             let s = unsafe { WSASocketW(i32::from(AF_INET), SOCK_STREAM, IPPROTO_TCP, std::ptr::null(), 0, WSA_FLAG_OVERLAPPED) };
             if s == INVALID {
-                panic!("dart:io: falha ao criar o soquete das extensões do Winsock");
+                panic!("dart:io: failed to create the Winsock extensions socket");
             }
             let function = |guid: Guid| -> usize {
                 let mut f = 0usize;
                 let mut n = 0u32;
-                // SAFETY: consulta o ponteiro da extensão `guid`.
+                // SAFETY: queries the pointer of extension `guid`.
                 let r = unsafe {
                     WSAIoctl(
                         s,
@@ -218,12 +215,12 @@ mod io_windows {
                     )
                 };
                 if r != 0 || f == 0 {
-                    panic!("dart:io: extensão do Winsock indisponível");
+                    panic!("dart:io: Winsock extension unavailable");
                 }
                 f
             };
-            // SAFETY: os ponteiros vieram do `WSAIoctl` com os GUIDs
-            // (`WSAID_*`) de cada função, com estas assinaturas.
+            // SAFETY: the pointers came from `WSAIoctl` with each function's GUIDs
+            // (`WSAID_*`), with these signatures.
             let e = unsafe {
                 Extensions {
                     accept_conn: std::mem::transmute::<usize, FnAcceptEx>(function(Guid(
@@ -252,16 +249,16 @@ mod io_windows {
                     ))),
                 }
             };
-            // SAFETY: o soquete provisório não é mais usado.
+            // SAFETY: the provisional socket is no longer used.
             unsafe { closesocket(s) };
             e
         })
     }
 
-    /// Um soquete sobreposto que os filhos não herdam.
+    /// An overlapped socket that children do not inherit.
     pub(super) fn new_socket(family: u16, tipo: i32, protocol: i32) -> IoResult<Bruto> {
         start_winsock();
-        // SAFETY: cria um soquete.
+        // SAFETY: creates a socket.
         let s = unsafe {
             WSASocketW(i32::from(family), tipo, protocol, std::ptr::null(), 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT)
         };
@@ -272,7 +269,7 @@ mod io_windows {
     }
 
     // -----------------------------------------------------------------------
-    // As operações sobrepostas (`OverlappedBuffer`).
+    // The overlapped operations (`OverlappedBuffer`).
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum OperationKind {
@@ -285,24 +282,24 @@ mod io_windows {
         Connection,
     }
 
-    /// Uma operação em andamento: o `OVERLAPPED` (primeiro campo, para a
-    /// conclusão achar a operação), o buffer e a referência do
-    /// [`Handle`] que ela mantém viva até concluir.
+    /// An operation in progress: the `OVERLAPPED` (the first field, so that the
+    /// completion finds the operation), the buffer and the reference of the
+    /// [`Handle`] that it keeps alive until it completes.
     #[repr(C)]
     struct Operation {
         overlapped: OverlappedOp,
         tipo: OperationKind,
         handle: Option<Arc<Handle>>,
         data: Vec<u8>,
-        /// O próximo byte a ler e quantos há (leituras).
+        /// The next byte to read and how many there are (reads).
         ix: usize,
         size: usize,
         buffer_wsa: BufferWsa,
         flag_bits: u32,
-        /// O endereço de origem (`WSARecvFrom`) ou de destino (`WSASendTo`).
+        /// The source address (`WSARecvFrom`) or the destination (`WSASendTo`).
         address: [u8; 128],
         address_size: i32,
-        /// O soquete que o `AcceptEx` preenche.
+        /// The socket that `AcceptEx` fills.
         client: Bruto,
     }
 
@@ -344,54 +341,53 @@ mod io_windows {
             n
         }
 
-        /// Entrega a operação ao sistema, que a devolve na conclusão.
+        /// Hands the operation to the system, which returns it on completion.
         fn issued(self: Box<Self>) {
             let _ = Box::into_raw(self);
         }
     }
 
-    // SAFETY: o único ponteiro da operação (`buffer_wsa.data`) aponta para
-    // o próprio `data`; a operação passa entre threads inteira (a do Dart,
-    // o sistema e a do manipulador), nunca compartilhada.
+    // SAFETY: the operation's only pointer (`buffer_wsa.data`) points to its own
+    // `data`; the operation passes between threads whole (Dart's, the system's and
+    // the handler's), never shared.
     unsafe impl Send for Operation {}
 
     impl Drop for Operation {
         fn drop(&mut self) {
             if self.client != INVALID {
-                // SAFETY: o soquete do `AcceptEx` que ninguém adotou.
+                // SAFETY: the `AcceptEx` socket that nobody adopted.
                 unsafe { closesocket(self.client) };
             }
         }
     }
 
     // -----------------------------------------------------------------------
-    // O `Handle`.
+    // The `Handle`.
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub(super) enum HandleKind {
-        /// Um arquivo ou pipe sobreposto (os pipes dos processos e dos
-        /// sinais).
+        /// An overlapped file or pipe (the pipes of processes and signals).
         File,
-        /// A entrada padrão, sem E/S sobreposta.
+        /// Standard input, without overlapped I/O.
         Pattern,
         Client,
         Listen,
         Datagram,
-        /// Um diretório observado (`DirectoryWatchHandle`): a leitura é o
+        /// A watched directory (`DirectoryWatchHandle`): the read is
         /// `ReadDirectoryChangesW`.
         Directory,
     }
 
-    /// O `Handle` da VM.
+    /// The VM's `Handle`.
     pub(super) struct Handle {
         pub(super) tipo: HandleKind,
         pub(super) raw: Bruto,
         overlapped: bool,
-        /// Diretório observado: o filtro do `ReadDirectoryChangesW`
-        /// (`FILE_NOTIFY_CHANGE_*`) e se a subárvore entra.
+        /// Watched directory: the `ReadDirectoryChangesW` filter
+        /// (`FILE_NOTIFY_CHANGE_*`) and whether the subtree is included.
         watch: (u32, bool),
         estado: std::sync::Mutex<State>,
-        /// Acorda a thread de leitura síncrona (entrada padrão).
+        /// Wakes the synchronous read thread (standard input).
         read_request: std::sync::Condvar,
     }
 
@@ -401,30 +397,30 @@ mod io_windows {
         read_closed: bool,
         write_closed: bool,
         error: bool,
-        /// O objeto do sistema ainda precisa ser fechado.
+        /// The system object still needs to be closed.
         is_open: bool,
         info: DescriptorInfo,
-        /// Os dados lidos que o Dart ainda não consumiu (`data_ready_`).
+        /// The data read that Dart has not consumed yet (`data_ready_`).
         ready_flag: Option<Box<Operation>>,
         pending_read: bool,
         pending_write: bool,
         pub(super) last_error: u32,
-        // Cliente.
+        // Client.
         connected: bool,
         disconnected: bool,
         pub(super) remote: Option<OsAddress>,
-        // Escuta.
+        // Listen.
         pub(super) family: u16,
         pending_accepts: usize,
         accepted_list: std::collections::VecDeque<Arc<Handle>>,
-        // Entrada padrão: a leitura entregue à thread e se ela existe.
+        // Standard input: the read handed to the thread and whether it exists.
         sync_read: Option<Box<Operation>>,
         reader_thread: bool,
     }
 
     impl State {
-        /// O handle passa a quem chama (`Process::Wait`): o manipulador não
-        /// o fecha nem faz mais E/S nele.
+        /// The handle passes to the caller (`Process::Wait`): the handler neither
+        /// closes it nor does more I/O on it.
         pub(super) fn take_handle(&mut self) {
             self.closing = true;
             self.is_open = false;
@@ -432,8 +428,8 @@ mod io_windows {
     }
 
     impl Handle {
-        /// Cria o manipulador de `raw`, associado à porta de conclusão
-        /// quando faz E/S sobreposta.
+        /// Creates the handle object of `raw`, associated with the completion port
+        /// when it does overlapped I/O.
         pub(super) fn new(tipo: HandleKind, raw: Bruto) -> Arc<Handle> {
             Handle::new_with(tipo, raw, (0, false))
         }
@@ -469,9 +465,9 @@ mod io_windows {
             });
             if overlapped {
                 let port = event_handler().port;
-                // SAFETY: associa um handle aberto à porta de conclusão.
+                // SAFETY: associates an open handle with the completion port.
                 if unsafe { CreateIoCompletionPort(raw, port, IO_KEY, 0) } == 0 {
-                    panic!("dart:io: falha ao associar o handle à porta de conclusão ({})", unsafe { GetLastError() });
+                    panic!("dart:io: failed to associate the handle with the completion port ({})", unsafe { GetLastError() });
                 }
             }
             m
@@ -490,8 +486,8 @@ mod io_windows {
         fn drop(&mut self) {
             let e = self.estado.get_mut().unwrap_or_else(|e| e.into_inner());
             if e.is_open {
-                // SAFETY: o objeto do sistema é deste manipulador, que não
-                // o fechou.
+                // SAFETY: the system object belongs to this handle object, which
+                // has not closed it.
                 unsafe {
                     if self.is_socket() {
                         closesocket(self.raw);
@@ -503,56 +499,56 @@ mod io_windows {
         }
     }
 
-    /// O descritor Dart de um manipulador (a referência passa ao objeto).
+    /// The Dart descriptor of a handle object (the reference passes to the object).
     pub(super) fn descriptor_of(m: Arc<Handle>) -> i64 {
         Arc::into_raw(m) as i64
     }
 
-    /// O manipulador de um descritor, com uma referência nova.
+    /// The handle object of a descriptor, with a new reference.
     ///
     /// # Safety
-    /// `d` veio de [`descriptor_of`] e a referência dele ainda existe.
+    /// `d` came from [`descriptor_of`] and its reference still exists.
     pub(super) unsafe fn retained_handle(d: i64) -> Arc<Handle> {
         let p = d as *const Handle;
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe {
             Arc::increment_strong_count(p);
             Arc::from_raw(p)
         }
     }
 
-    /// `Socket::CloseFd` do Windows: solta a referência do objeto.
+    /// Windows's `Socket::CloseFd`: releases the object's reference.
     pub(super) fn close_socket_descriptor(d: i64) {
-        // SAFETY: a referência do objeto, solta uma vez (o descritor vira
-        // -1 antes).
+        // SAFETY: the object's reference, released once (the descriptor becomes -1
+        // before).
         drop(unsafe { Arc::from_raw(d as *const Handle) });
     }
 
     pub(super) fn retain_descriptor(d: i64) -> i64 {
-        // SAFETY: `d` é o descritor vivo de um soquete de escuta registrado.
+        // SAFETY: `d` is the live descriptor of a registered listening socket.
         std::mem::forget(unsafe { retained_handle(d) });
         d
     }
 
-    /// O manipulador de um descritor que o objeto Dart mantém vivo durante
-    /// o native (`None` se o objeto já o soltou: -1).
+    /// The handle object of a descriptor that the Dart object keeps alive during the
+    /// native (`None` if the object has already released it: -1).
     pub(super) fn handle_of(d: i64) -> Option<Arc<Handle>> {
-        // SAFETY: um descritor não negativo é uma referência viva do objeto.
+        // SAFETY: a non-negative descriptor is a live reference of the object.
         (d >= 0).then(|| unsafe { retained_handle(d) })
     }
 
-    /// O manipulador do soquete de um objeto Dart (`None` se fechado).
+    /// The handle object of a Dart object's socket (`None` if closed).
     pub(super) fn socket_handle(s: &NativeSocket) -> Option<Arc<Handle>> {
         handle_of(s.descriptor())
     }
 
-    /// `ERROR_INVALID_HANDLE`: o soquete já foi fechado.
+    /// `ERROR_INVALID_HANDLE`: the socket was already closed.
     pub(super) fn invalid_handle() -> OsError {
         OsError::from_code(6)
     }
 
     // -----------------------------------------------------------------------
-    // Eventos para o Dart.
+    // Events for Dart.
 
     const IN_MASK: i64 = 1 << EVENT_IN;
     const OUT_MASK: i64 = 1 << EVENT_OUT;
@@ -583,8 +579,8 @@ mod io_windows {
         }
     }
 
-    /// `HandleIssueError`: o fim do pipe ou a conexão desfeita é
-    /// fechamento; o resto é erro.
+    /// `HandleIssueError`: the end of the pipe or a dropped connection is a close;
+    /// the rest is an error.
     fn issue_failure(m: &Handle, e: &mut State, code: u32) {
         let end = if m.is_socket() { WSAECONNRESET } else { ERROR_BROKEN_PIPE };
         if code == end {
@@ -594,7 +590,7 @@ mod io_windows {
         }
     }
 
-    /// `IsClosed` de cada tipo.
+    /// `IsClosed` of each type.
     fn is_closed(m: &Handle, e: &State) -> bool {
         match m.tipo {
             HandleKind::Listen => e.closing && e.pending_accepts == 0,
@@ -612,15 +608,15 @@ mod io_windows {
     }
 
     // -----------------------------------------------------------------------
-    // Emissão de E/S (com o estado travado).
+    // Issuing I/O (with the state locked).
 
     fn last_system_error() -> u32 {
-        // SAFETY: lê o erro da thread.
+        // SAFETY: reads the thread's error.
         unsafe { GetLastError() }
     }
 
-    /// `IssueReadLocked`: mantém uma leitura em andamento enquanto o Dart
-    /// não tem dados para consumir.
+    /// `IssueReadLocked`: keeps a read in progress while Dart has no data to
+    /// consume.
     fn issue_read(m: &Arc<Handle>, e: &mut State) -> bool {
         match m.tipo {
             HandleKind::Datagram => return issue_receive(m, e),
@@ -633,8 +629,8 @@ mod io_windows {
         let mut op = Operation::new_area(OperationKind::Read, m, BUFFER_SIZE);
         e.pending_read = true;
         if !m.overlapped {
-            // A thread de leitura faz o `ReadFile` síncrono e posta a
-            // conclusão.
+            // The read thread does the synchronous `ReadFile` and posts the
+            // completion.
             e.sync_read = Some(op);
             if !e.reader_thread {
                 e.reader_thread = true;
@@ -642,7 +638,7 @@ mod io_windows {
                 std::thread::Builder::new()
                     .name("dart:io ReadFile".to_string())
                     .spawn(move || sync_read_loop(&m2))
-                    .expect("dart:io: falha ao criar a thread de leitura");
+                    .expect("dart:io: failed to create the read thread");
             }
             m.read_request.notify_one();
             return true;
@@ -651,23 +647,23 @@ mod io_windows {
             let b = op.buffer_wsa();
             let f: *mut u32 = &mut op.flag_bits;
             let ov = op.clean_overlapped();
-            // SAFETY: a operação (buffer, bandeiras, `OVERLAPPED`) vive
-            // até a conclusão.
+            // SAFETY: the operation (buffer, flags, `OVERLAPPED`) lives until the
+            // completion.
             unsafe { WSARecv(m.raw, b, 1, std::ptr::null_mut(), f, ov, 0) == 0 }
         } else if m.tipo == HandleKind::Directory {
-            // `DirectoryWatchHandle::IssueReadLocked`: os registros
-            // `FILE_NOTIFY_INFORMATION` chegam no buffer da operação.
+            // `DirectoryWatchHandle::IssueReadLocked`: the `FILE_NOTIFY_INFORMATION`
+            // records arrive in the operation's buffer.
             let (filter_obj, subtree) = m.watch;
             let (p, n) = (op.data.as_mut_ptr(), op.data.len() as u32);
             let ov = op.clean_overlapped();
-            // SAFETY: como acima. O `ReadDirectoryChangesW` exige o buffer
-            // alinhado a `DWORD`; o do `Vec` vem do `HeapAlloc` (o alocador
-            // do sistema no Windows), alinhado a 16.
+            // SAFETY: as above. `ReadDirectoryChangesW` requires the buffer aligned
+            // to `DWORD`; the `Vec`'s comes from `HeapAlloc` (the system allocator on
+            // Windows), aligned to 16.
             unsafe { ReadDirectoryChangesW(m.raw, p, n, i32::from(subtree), filter_obj, std::ptr::null_mut(), ov, 0) != 0 }
         } else {
             let (p, n) = (op.data.as_mut_ptr(), op.data.len() as u32);
             let ov = op.clean_overlapped();
-            // SAFETY: como acima.
+            // SAFETY: as above.
             unsafe { ReadFile(m.raw, p, n, std::ptr::null_mut(), ov) != 0 }
         };
         let code = last_system_error();
@@ -677,9 +673,9 @@ mod io_windows {
         }
         e.pending_read = false;
         drop(op);
-        // O `DirectoryWatchHandle::IssueReadLocked` da VM devolve a falha
-        // sem avisar o Dart (um arquivo no lugar do diretório, por exemplo,
-        // fica sem eventos); os outros manipuladores avisam.
+        // The VM's `DirectoryWatchHandle::IssueReadLocked` returns the failure
+        // without notifying Dart (a file in place of the directory, for example,
+        // gets no events); the other handle objects notify.
         if m.tipo != HandleKind::Directory {
             issue_failure(m, e, code);
         }
@@ -698,7 +694,7 @@ mod io_windows {
         let from_n: *mut i32 = &mut op.address_size;
         let ov = op.clean_overlapped();
         e.pending_read = true;
-        // SAFETY: a operação vive até a conclusão.
+        // SAFETY: the operation lives until the completion.
         let ok = unsafe { WSARecvFrom(m.raw, b, 1, std::ptr::null_mut(), f, de, from_n, ov, 0) == 0 };
         let code = last_system_error();
         if ok || code == ERROR_IO_PENDING {
@@ -725,8 +721,8 @@ mod io_windows {
         let p = op.data.as_mut_ptr();
         let ov = op.clean_overlapped();
         let mut received_list = 0u32;
-        // SAFETY: a operação (buffer dos endereços, `OVERLAPPED`) vive até
-        // a conclusão.
+        // SAFETY: the operation (the addresses buffer, `OVERLAPPED`) lives until the
+        // completion.
         let ok = unsafe {
             (extensions().accept_conn)(m.raw, client, p, 0, ACCEPT_ADDRESS_SIZE, ACCEPT_ADDRESS_SIZE, &mut received_list, ov) != 0
         };
@@ -741,13 +737,13 @@ mod io_windows {
         false
     }
 
-    /// O `ConnectEx` de `Socket::CreateConnect`: conclui pela porta, mesmo
-    /// quando termina de imediato.
+    /// The `ConnectEx` of `Socket::CreateConnect`: completes through the port, even
+    /// when it finishes immediately.
     pub(super) fn start_connect(m: &Arc<Handle>, dest: &OsAddress) -> IoResult<()> {
         let mut op = Operation::new_area(OperationKind::Connection, m, 0);
         let ov = op.clean_overlapped();
-        // SAFETY: `dest` é um `sockaddr` válido; a operação vive até a
-        // conclusão.
+        // SAFETY: `dest` is a valid `sockaddr`; the operation lives until the
+        // completion.
         let ok = unsafe {
             (extensions().connect_socket)(m.raw, dest.bytes.as_ptr(), dest.family_size() as i32, std::ptr::null(), 0, std::ptr::null_mut(), ov) != 0
         };
@@ -760,22 +756,22 @@ mod io_windows {
         Err(OsError::from_code(code as i32))
     }
 
-    /// `ListenSocket::StartAccept`: `false` com o erro em `last_error`.
+    /// `ListenSocket::StartAccept`: `false` with the error in `last_error`.
     pub(super) fn start_accepting(m: &Arc<Handle>) -> bool {
         let mut e = m.estado();
         (0..ACCEPTS_ISSUED).all(|_| issue_accept(m, &mut e))
     }
 
-    /// `ClientSocket::IssueDisconnectLocked`: a desconexão e o aviso de
-    /// destruição às portas.
+    /// `ClientSocket::IssueDisconnectLocked`: the disconnection and the destruction
+    /// notice to the ports.
     fn issue_disconnect(m: &Arc<Handle>, e: &mut State) {
         let mut op = Operation::new_area(OperationKind::Disconnect, m, 0);
         let ov = op.clean_overlapped();
-        // SAFETY: a operação vive até a conclusão.
+        // SAFETY: the operation lives until the completion.
         let ok = unsafe { (extensions().disconnect)(m.raw, ov, TF_REUSE_SOCKET, 0) != 0 };
         let code = last_system_error();
         if ok || code == ERROR_IO_PENDING {
-            // Mesmo concluída de imediato, a conclusão passa pela porta.
+            // Even when it completes immediately, the completion goes through the port.
             op.issued();
         } else {
             drop(op);
@@ -788,7 +784,7 @@ mod io_windows {
     /// `ClientSocket::DisconnectComplete`.
     fn finish_disconnect(m: &Handle, e: &mut State) {
         if e.is_open {
-            // SAFETY: o soquete é deste manipulador.
+            // SAFETY: the socket belongs to this handle object.
             unsafe { closesocket(m.raw) };
             e.is_open = false;
         }
@@ -798,8 +794,7 @@ mod io_windows {
 
     /// `ClientSocket::ConnectComplete`.
     fn finish_connect(m: &Arc<Handle>, e: &mut State) {
-        // SAFETY: atualiza o contexto do soquete conectado pelo
-        // `ConnectEx`.
+        // SAFETY: updates the context of the socket connected by `ConnectEx`.
         unsafe { setsockopt(m.raw, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, std::ptr::null(), 0) };
         if !e.read_closed && e.info.mask() & IN_MASK != 0 {
             issue_read(m, e);
@@ -824,8 +819,8 @@ mod io_windows {
     /// `Handle::CloseLocked`.
     fn close_handle(m: &Arc<Handle>, e: &mut State) {
         if !m.overlapped && e.is_open {
-            // Destrava o `ReadFile` síncrono da thread de leitura.
-            // SAFETY: cancela a E/S do handle.
+            // Unblocks the synchronous `ReadFile` of the read thread.
+            // SAFETY: cancels the handle's I/O.
             unsafe { CancelIoEx(m.raw, std::ptr::null_mut()) };
         }
         if e.closing {
@@ -835,9 +830,9 @@ mod io_windows {
         match m.tipo {
             HandleKind::File | HandleKind::Pattern | HandleKind::Directory => {
                 if e.is_open {
-                    // SAFETY: o handle é deste manipulador; a E/S pendente
-                    // conclui com `ERROR_OPERATION_ABORTED` (a do diretório
-                    // observado também: `DirectoryWatchHandle::Stop`).
+                    // SAFETY: the handle belongs to this handle object; the pending
+                    // I/O completes with `ERROR_OPERATION_ABORTED` (that of the
+                    // watched directory too: `DirectoryWatchHandle::Stop`).
                     unsafe { CloseHandle(m.raw) };
                     e.is_open = false;
                 }
@@ -851,7 +846,7 @@ mod io_windows {
             }
             HandleKind::Listen => {
                 if e.is_open {
-                    // SAFETY: os `AcceptEx` pendentes concluem abortados.
+                    // SAFETY: the pending `AcceptEx`s complete aborted.
                     unsafe { closesocket(m.raw) };
                     e.is_open = false;
                 }
@@ -862,13 +857,13 @@ mod io_windows {
                 }
             }
             HandleKind::Client => {
-                // SAFETY: encerra os dois sentidos antes de desconectar.
+                // SAFETY: shuts down both directions before disconnecting.
                 unsafe { shutdown(m.raw, SD_BOTH) };
                 issue_disconnect(m, e);
             }
             HandleKind::Datagram => {
                 if e.is_open {
-                    // SAFETY: a E/S pendente conclui abortada.
+                    // SAFETY: the pending I/O completes aborted.
                     unsafe { closesocket(m.raw) };
                     e.is_open = false;
                 }
@@ -878,12 +873,12 @@ mod io_windows {
         }
     }
 
-    /// Fecha um manipulador que nenhum objeto Dart chegou a usar.
+    /// Closes a handle object that no Dart object got to use.
     pub(super) fn discard(m: &Arc<Handle>) {
         let mut e = m.estado();
         match m.tipo {
             HandleKind::Client => {
-                // Nunca conectou: fecha já, sem `DisconnectEx`.
+                // Never connected: closes right away, without `DisconnectEx`.
                 e.closing = true;
                 finish_disconnect(m, &mut e);
             }
@@ -891,8 +886,8 @@ mod io_windows {
         }
     }
 
-    /// A thread da leitura síncrona (`Handle::ReadSyncCompleteAsync`):
-    /// atende um pedido por vez e posta a conclusão na porta.
+    /// The synchronous read thread (`Handle::ReadSyncCompleteAsync`): serves one
+    /// request at a time and posts the completion to the port.
     fn sync_read_loop(m: &Arc<Handle>) {
         let port = event_handler().port;
         loop {
@@ -909,37 +904,37 @@ mod io_windows {
                     e = m.read_request.wait(e).unwrap_or_else(|x| x.into_inner());
                 }
             };
-            // SAFETY: consulta o tipo do handle.
+            // SAFETY: queries the handle's type.
             let n = if unsafe { GetFileType(m.raw) } == FILE_TYPE_CHAR { CONSOLE_READ_SIZE } else { op.data.len() };
             let mut read_list = 0u32;
-            // SAFETY: leitura síncrona no buffer da operação.
+            // SAFETY: a synchronous read into the operation's buffer.
             if unsafe { ReadFile(m.raw, op.data.as_mut_ptr(), n as u32, &mut read_list, std::ptr::null_mut()) } == 0 {
                 read_list = 0;
             }
             let ov = op.clean_overlapped();
             op.issued();
-            // SAFETY: a operação volta pela porta, como uma sobreposta.
+            // SAFETY: the operation comes back through the port, like an overlapped one.
             if unsafe { PostQueuedCompletionStatus(port, read_list, IO_KEY, ov) } == 0 {
-                panic!("dart:io: PostQueuedCompletionStatus falhou ({})", unsafe { GetLastError() });
+                panic!("dart:io: PostQueuedCompletionStatus failed ({})", unsafe { GetLastError() });
             }
         }
     }
 
     // -----------------------------------------------------------------------
-    // A entrada padrão.
+    // Standard input.
 
     fn stdin_entry() -> std::sync::MutexGuard<'static, Option<Arc<Handle>>> {
         static E: std::sync::Mutex<Option<Arc<Handle>>> = std::sync::Mutex::new(None);
         E.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// `SocketBase::GetStdioHandle`: só a entrada (`StdHandle::Stdin`, um
-    /// por processo).
+    /// `SocketBase::GetStdioHandle`: only the input (`StdHandle::Stdin`, one per
+    /// process).
     pub(super) fn default_handle(num: i64) -> i64 {
         if num != 0 {
             return -1;
         }
-        // SAFETY: lê o handle do processo (STD_INPUT_HANDLE = -10).
+        // SAFETY: reads the process's handle (STD_INPUT_HANDLE = -10).
         let h = unsafe { GetStdHandle(-10i32 as u32) };
         if h == INVALID || h == 0 {
             return -1;
@@ -950,15 +945,15 @@ mod io_windows {
     }
 
     // -----------------------------------------------------------------------
-    // As operações que os natives fazem (`Handle::Read`, `Write`…).
+    // The operations the natives do (`Handle::Read`, `Write`…).
 
     /// `Handle::Available`.
     pub(super) fn available(s: &NativeSocket) -> i64 {
         socket_handle(s).map_or(0, |m| m.estado().ready_flag.as_ref().map_or(0, |p| p.remaining() as i64))
     }
 
-    /// `Handle::Read`: o que já chegou; esvaziar o buffer emite a próxima
-    /// leitura.
+    /// `Handle::Read`: what has already arrived; draining the buffer issues the next
+    /// read.
     pub(super) fn read_from(s: &NativeSocket, dest: &mut [u8]) -> IoResult<usize> {
         let Some(m) = socket_handle(s) else { return Ok(0) };
         read_from_handle(&m, dest)
@@ -978,7 +973,7 @@ mod io_windows {
     }
 
     // -----------------------------------------------------------------------
-    // Observação de diretórios (`file_system_watcher_win.cc`).
+    // Directory watching (`file_system_watcher_win.cc`).
 
     /// `FILE_LIST_DIRECTORY`.
     const FILE_LIST_DIRECTORY: u32 = 0x0001;
@@ -988,11 +983,11 @@ mod io_windows {
     const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     const FILE_FLAG_OVERLAPPED: u32 = 0x4000_0000;
 
-    /// `FileSystemWatcher::WatchPath`: abre o diretório para E/S
-    /// sobreposta, cria o manipulador (o `DirectoryWatchHandle`, associado
-    /// à porta de conclusão) e já emite a primeira leitura, para os eventos
-    /// contarem desde agora (`Start`). O descritor devolvido é o id do
-    /// caminho e o do soquete interno que o Dart cria com ele.
+    /// `FileSystemWatcher::WatchPath`: opens the directory for overlapped I/O,
+    /// creates the handle object (the `DirectoryWatchHandle`, associated with the
+    /// completion port) and issues the first read right away, so that events count
+    /// from now on (`Start`). The returned descriptor is the path id and that of the
+    /// internal socket Dart creates with it.
     pub(super) fn watch_directory(file_path: &str, filter_obj: u32, recursive: bool) -> IoResult<i64> {
         use std::os::windows::fs::OpenOptionsExt;
         use std::os::windows::io::IntoRawHandle;
@@ -1010,9 +1005,9 @@ mod io_windows {
         Ok(descriptor_of(m))
     }
 
-    /// `FileSystemWatcher::UnwatchPath` (`DirectoryWatchHandle::Stop`):
-    /// cancela a leitura e fecha o handle; a referência continua com o
-    /// soquete interno, que o Dart fecha em seguida.
+    /// `FileSystemWatcher::UnwatchPath` (`DirectoryWatchHandle::Stop`): cancels the
+    /// read and closes the handle; the reference stays with the internal socket,
+    /// which Dart closes right after.
     pub(super) fn stop_watch(d: i64) {
         if let Some(m) = handle_of(d) {
             let mut e = m.estado();
@@ -1021,8 +1016,8 @@ mod io_windows {
         }
     }
 
-    /// `FileSystemWatcher::ReadEvents`: os registros que já chegaram
-    /// (`Available` e `Read`; esvaziar emite a próxima leitura).
+    /// `FileSystemWatcher::ReadEvents`: the records that have already arrived
+    /// (`Available` and `Read`; draining issues the next read).
     pub(super) fn directory_events(d: i64) -> IoResult<Vec<u8>> {
         let Some(m) = handle_of(d) else { return Ok(Vec::new()) };
         let available = m.estado().ready_flag.as_ref().map_or(0, |p| p.remaining());
@@ -1032,8 +1027,8 @@ mod io_windows {
         Ok(buf)
     }
 
-    /// `Handle::Write`: copia até 64 KiB e emite a escrita; 0 enquanto
-    /// outra está em andamento.
+    /// `Handle::Write`: copies up to 64 KiB and issues the write; 0 while another
+    /// one is in progress.
     pub(super) fn write_to_handle(m: &Arc<Handle>, data: &[u8]) -> IoResult<usize> {
         let mut e = m.estado();
         if e.pending_write || is_closed(m, &e) {
@@ -1041,10 +1036,10 @@ mod io_windows {
         }
         let n = data.len().min(BUFFER_SIZE);
         if !m.overlapped {
-            // A entrada padrão não é escrita pelo Dart; um handle síncrono
-            // escreve na hora.
+            // Standard input is not written by Dart; a synchronous handle writes
+            // right away.
             let mut written = 0u32;
-            // SAFETY: escrita síncrona dos bytes dados.
+            // SAFETY: a synchronous write of the given bytes.
             if unsafe { WriteFile(m.raw, data.as_ptr(), n as u32, &mut written, std::ptr::null_mut()) } == 0 {
                 return Err(OsError::from_code(last_system_error() as i32));
             }
@@ -1057,12 +1052,12 @@ mod io_windows {
         let ok = if m.tipo == HandleKind::Client {
             let b = op.buffer_wsa();
             let ov = op.clean_overlapped();
-            // SAFETY: a operação vive até a conclusão.
+            // SAFETY: the operation lives until the completion.
             unsafe { WSASend(m.raw, b, 1, std::ptr::null_mut(), 0, ov, 0) == 0 }
         } else {
             let p = op.data.as_ptr();
             let ov = op.clean_overlapped();
-            // SAFETY: como acima.
+            // SAFETY: as above.
             unsafe { WriteFile(m.raw, p, n as u32, std::ptr::null_mut(), ov) != 0 }
         };
         let code = last_system_error();
@@ -1088,8 +1083,8 @@ mod io_windows {
         socket_handle(s).is_some_and(|m| m.estado().pending_write)
     }
 
-    /// `ServerSocket::Accept`: a próxima conexão aceita (o descritor dela)
-    /// ou -1; repõe os `AcceptEx` emitidos.
+    /// `ServerSocket::Accept`: the next accepted connection (its descriptor) or -1;
+    /// replenishes the issued `AcceptEx`s.
     pub(super) fn accept_conn(fd: i64) -> i64 {
         let Some(m) = handle_of(fd) else { return -1 };
         let mut e = m.estado();
@@ -1105,8 +1100,8 @@ mod io_windows {
         handle_of(fd).is_some_and(|m| m.estado().ready_flag.is_some())
     }
 
-    /// `Handle::RecvFrom`: o datagrama recebido (o buffer inteiro sai, como
-    /// o `recvfrom`) e a origem.
+    /// `Handle::RecvFrom`: the received datagram (the whole buffer comes out, like
+    /// `recvfrom`) and the source.
     pub(super) fn receive_datagram(fd: i64, maximum: usize) -> IoResult<Option<(Vec<u8>, OsAddress)>> {
         let Some(m) = handle_of(fd) else { return Ok(None) };
         let mut e = m.estado();
@@ -1141,8 +1136,8 @@ mod io_windows {
         let to = op.address.as_ptr();
         let ov = op.clean_overlapped();
         e.pending_write = true;
-        // SAFETY: a operação (dados, endereço, `OVERLAPPED`) vive até a
-        // conclusão.
+        // SAFETY: the operation (data, address, `OVERLAPPED`) lives until the
+        // completion.
         let ok = unsafe { WSASendTo(m.raw, b, 1, std::ptr::null_mut(), 0, to, n_dest as i32, ov, 0) == 0 };
         let code = last_system_error();
         if ok || code == ERROR_IO_PENDING {
@@ -1156,29 +1151,29 @@ mod io_windows {
     }
 
     // -----------------------------------------------------------------------
-    // A thread do manipulador.
+    // The handler thread.
 
     pub(super) fn start_handler() -> EventHandler {
-        // SAFETY: cria a porta de conclusão (uma thread concorrente).
+        // SAFETY: creates the completion port (one concurrent thread).
         let port = unsafe { CreateIoCompletionPort(INVALID, 0, 0, 1) };
         if port == 0 {
-            panic!("dart:io: falha ao criar a porta de conclusão ({})", unsafe { GetLastError() });
+            panic!("dart:io: failed to create the completion port ({})", unsafe { GetLastError() });
         }
         std::thread::Builder::new()
             .name("dart:io EventHandler".to_string())
             .spawn(move || event_loop(port))
-            .expect("dart:io: falha ao criar a thread do manipulador de eventos");
+            .expect("dart:io: failed to create the event handler thread");
         EventHandler { port }
     }
 
     impl EventHandler {
-        /// `SendData`: o comando vai pela porta de conclusão.
+        /// `SendData`: the command goes through the completion port.
         pub(super) fn enviar(&self, c: EventCommand) {
             let p = Box::into_raw(Box::new(c));
-            // SAFETY: o laço recebe o ponteiro com a chave de comando e o
-            // retoma.
+            // SAFETY: the loop receives the pointer with the command key and takes
+            // it back.
             if unsafe { PostQueuedCompletionStatus(self.port, 0, COMMAND_KEY, p.cast()) } == 0 {
-                panic!("dart:io: PostQueuedCompletionStatus falhou ({})", unsafe { GetLastError() });
+                panic!("dart:io: PostQueuedCompletionStatus failed ({})", unsafe { GetLastError() });
             }
         }
     }
@@ -1188,30 +1183,30 @@ mod io_windows {
             let mut bytes = 0u32;
             let mut key = 0usize;
             let mut ov: *mut OverlappedOp = std::ptr::null_mut();
-            // SAFETY: espera uma conclusão na porta.
+            // SAFETY: waits for a completion on the port.
             let ok = unsafe { GetQueuedCompletionStatus(port, &mut bytes, &mut key, &mut ov, INFINITE) } != 0;
             if ov.is_null() {
                 continue;
             }
             if key == COMMAND_KEY {
-                // SAFETY: postado por `enviar` com um `EventCommand`.
+                // SAFETY: posted by `enviar` with an `EventCommand`.
                 let c = unsafe { Box::from_raw(ov.cast::<EventCommand>()) };
                 handle_command(*c);
             } else {
                 let error = if ok { 0 } else { last_system_error() };
-                // SAFETY: o `OVERLAPPED` é o primeiro campo de uma
-                // `Operation` emitida.
+                // SAFETY: the `OVERLAPPED` is the first field of an issued
+                // `Operation`.
                 let op = unsafe { Box::from_raw(ov.cast::<Operation>()) };
                 handle_completion(op, ok, bytes, error);
             }
         }
     }
 
-    /// `HandleCompletionOrInterrupt` e `HandleIOCompletion`.
+    /// `HandleCompletionOrInterrupt` and `HandleIOCompletion`.
     fn handle_completion(mut op: Box<Operation>, ok: bool, bytes: u32, error: u32) {
         let Some(m) = op.handle.take() else { return };
-        // O fechamento da conexão ou do handle, e as operações abortadas
-        // pelo fechamento, contam como 0 bytes; o resto é erro (-1).
+        // The closing of the connection or the handle, and the operations aborted
+        // by the closing, count as 0 bytes; the rest is an error (-1).
         let bytes: i64 = if ok {
             i64::from(bytes)
         } else if [ERROR_CONNECTION_ABORTED, ERROR_OPERATION_ABORTED, ERROR_NETNAME_DELETED, ERROR_BROKEN_PIPE].contains(&error) {
@@ -1278,22 +1273,22 @@ mod io_windows {
         notify_destroy_if_closed(&m, &mut e);
     }
 
-    /// `ListenSocket::AcceptComplete`: a conexão aceita entra na fila e o
-    /// Dart é avisado.
+    /// `ListenSocket::AcceptComplete`: the accepted connection goes into the queue
+    /// and Dart is notified.
     fn finish_accept(m: &Arc<Handle>, e: &mut State, mut op: Box<Operation>) {
         if !e.closing {
             let listener = m.raw;
-            // SAFETY: herda o contexto do soquete de escuta.
+            // SAFETY: inherits the listening socket's context.
             let r = unsafe {
                 setsockopt(op.client, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (&listener as *const Bruto).cast(), std::mem::size_of::<Bruto>() as i32)
             };
             if r == 0 {
                 let client = std::mem::replace(&mut op.client, INVALID);
-                // O `getpeername` não vale para um soquete aceito com E/S
-                // sobreposta: o endereço remoto vem do `AcceptEx`.
+                // `getpeername` does not work for a socket accepted with overlapped
+                // I/O: the remote address comes from `AcceptEx`.
                 let (mut local, mut remote) = (std::ptr::null_mut(), std::ptr::null_mut());
                 let (mut n_local, mut n_remote) = (0i32, 0i32);
-                // SAFETY: o buffer é o que o `AcceptEx` preencheu.
+                // SAFETY: the buffer is the one `AcceptEx` filled.
                 unsafe {
                     (extensions().accept_addresses)(
                         op.data.as_mut_ptr(),
@@ -1321,11 +1316,11 @@ mod io_windows {
         dispatch_accepts(e);
     }
 
-    /// `HandleInterrupt`: um comando do Dart para um soquete.
+    /// `HandleInterrupt`: a command from Dart for a socket.
     fn handle_command(c: EventCommand) {
-        // O comando carrega uma referência do soquete (solta ao fim).
-        // SAFETY: `c.sock` veio de `NativeSocket::new`, retido para o
-        // comando.
+        // The command carries a reference to the socket (released at the end).
+        // SAFETY: `c.sock` came from `NativeSocket::new`, retained for the
+        // command.
         let sock = unsafe { Arc::from_raw(c.sock as *const NativeSocket) };
         let fd = sock.descriptor();
         if fd < 0 {
@@ -1334,7 +1329,7 @@ mod io_windows {
         if is_command(c.data, COMMAND_CLOSE) && c.data & (1 << SIGNAL_SOCKET) != 0 {
             clear_signal_by_descriptor(fd);
         }
-        // SAFETY: o objeto mantém a referência enquanto o descritor vale.
+        // SAFETY: the object keeps the reference while the descriptor is valid.
         let m = unsafe { retained_handle(fd) };
         let mut e = m.estado();
         if is_command(c.data, COMMAND_RETURN_TOKENS) {
@@ -1348,8 +1343,8 @@ mod io_windows {
                 if e.info.mask() & IN_MASK != 0 && (m.tipo != HandleKind::Client || e.connected) {
                     issue_read(&m, &mut e);
                 }
-                // Pronto para escrever se nada está em andamento (o cliente,
-                // depois de conectado).
+                // Ready to write if nothing is in progress (the client, after it
+                // has connected).
                 if events & OUT_MASK != 0 && !e.pending_write && (m.tipo != HandleKind::Client || e.connected) {
                     dispatch_events(&mut e, OUT_MASK);
                 }
@@ -1360,28 +1355,28 @@ mod io_windows {
             }
         } else if is_command(c.data, COMMAND_SHUTDOWN_READ) {
             if m.tipo == HandleKind::Client {
-                // SAFETY: soquete aberto deste manipulador.
+                // SAFETY: an open socket of this handle object.
                 unsafe { shutdown(m.raw, SD_RECEIVE) };
                 e.read_closed = true;
             }
         } else if is_command(c.data, COMMAND_SHUTDOWN_WRITE) {
             if m.tipo == HandleKind::Client {
-                // SAFETY: soquete aberto deste manipulador.
+                // SAFETY: an open socket of this handle object.
                 unsafe { shutdown(m.raw, SD_SEND) };
                 e.write_closed = true;
             }
         } else if is_command(c.data, COMMAND_CLOSE) {
             let mut do_close = true;
             if m.tipo == HandleKind::Listen && !listen_record().do_close(c.sock) {
-                // Outros objetos escutam no mesmo soquete do sistema: este
-                // sai, e o soquete fica.
+                // Other objects listen on the same system socket: this one leaves,
+                // and the socket stays.
                 do_close = false;
                 e.info.remove_port(c.port);
                 post_event(c.port, 1 << EVENT_DESTROYED);
                 sock.release_descriptor();
             }
             if do_close {
-                // A porta recebe o aviso de destruição.
+                // The port receives the destruction notice.
                 e.info.set_port_and_mask(c.port, 0);
                 close_handle(&m, &mut e);
                 sock.release_descriptor();
