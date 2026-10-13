@@ -116,7 +116,9 @@ pub fn invalid_accesses(
                 out.push(d);
             }
         };
-        if has(tgt.annotations, "internal") && !same_package(owner.library) {
+        // `isInternal`: the getter of `package:meta`, not a package's own `internal`.
+        let internal = tgt.annotations.iter().any(|m| crate::annotations::is_getter_of(program, interner, tgt.unit, m, "meta", "internal"));
+        if internal && !same_package(owner.library) {
             report(Diagnostic::with_code(w::INVALID_USE_OF_INTERNAL_MEMBER, span, [the_name]));
         }
         let protected = has(tgt.annotations, "protected");

@@ -691,6 +691,30 @@ fn non_final_fields(program: &Program, interner: &Interner, c: ClassId, out: &mu
 
 /// The annotations of a top-level element's declaration (those of the
 /// variable, for an implicit accessor).
+/// The unit of [`top_level_annotations`]'s declaration.
+fn element_unit(program: &Program, e: Element) -> Option<UnitId> {
+    match e {
+        Element::Class(c) => program.class(c).decl.map(|d| d.unit),
+        Element::Typedef(t) => Some(program.typedef(t).decl.unit),
+        Element::Extension(x) => Some(program.extension(x).decl.unit),
+        Element::Variable(v) => match program.variable(v).node {
+            VariableRef::TopLevel { unit, .. } => Some(unit),
+            _ => None,
+        },
+        Element::Function(f) => {
+            let element = program.function(f);
+            if let Some(v) = element.variable {
+                return element_unit(program, Element::Variable(v));
+            }
+            match element.node {
+                FunctionRef::Function { unit, .. } => Some(unit),
+                _ => None,
+            }
+        }
+        Element::Prefix(..) => None,
+    }
+}
+
 fn top_level_annotations(program: &Program, e: Element) -> &[ast::Annotation] {
     let from_decl = |unit: UnitId, decl: ast::DeclId| &program.unit(unit).ast.decl(decl).metadata[..];
     match e {
@@ -733,8 +757,14 @@ fn top_level_annotations(program: &Program, e: Element) -> &[ast::Annotation] {
 /// an `@internal` `typedef` (`invalid_export_of_internal_element_indirectly`).
 /// The bounds of the function's type parameters are not looked at.
 fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out: &mut Vec<(UnitId, Diagnostic)>) {
-    let Some(internal_sym) = interner.lookup("internal") else { return };
-    let internal = |m: &[ast::Annotation]| m.iter().any(|x| x.arguments.is_none() && x.name.last().is_some_and(|n| n.sym == internal_sym));
+    if interner.lookup("internal").is_none() {
+        return;
+    }
+    // `ElementAnnotation.isInternal`: the `internal` getter of `package:meta`
+    // (a package's own `const internal = …` is not it).
+    let internal = |u: Option<UnitId>, m: &[ast::Annotation]| {
+        u.is_some_and(|u| m.iter().any(|x| dartforge_types::annotations::is_getter_of(program, interner, u, x, "meta", "internal")))
+    };
     let library = program.library(lib);
     for exp in library.exports.iter() {
         let Some(directive) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
@@ -745,7 +775,7 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
             .first()
             .and_then(|u| program.unit(*u).unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. })));
         if let Some(d) = from_library
-            && internal(&d.metadata)
+            && internal(target.units.first().copied(), &d.metadata)
         {
             let name = target.name.as_ref().map(|parts| parts.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default();
             out.push((exp.unit, Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [name.as_str()])));
@@ -767,7 +797,7 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
             let Some(binding) = target.exported.get(&k) else { continue };
             let text = interner.resolve(k);
             for e in binding.getter.into_iter().chain(binding.setter.filter(|s| Some(*s) != binding.getter)) {
-                if internal(top_level_annotations(program, e)) {
+                if internal(element_unit(program, e), top_level_annotations(program, e)) {
                     out.push((exp.unit, Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [text])));
                     continue;
                 }
@@ -786,7 +816,7 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
                         _ => None,
                     };
                     if let Some(alias @ Element::Typedef(td)) = found.and_then(|b| b.getter)
-                        && internal(top_level_annotations(program, alias))
+                        && internal(element_unit(program, alias), top_level_annotations(program, alias))
                     {
                         let alias_name = interner.resolve(program.typedef(td).name);
                         out.push((

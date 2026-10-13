@@ -484,3 +484,40 @@ fn root_spelled_differently_from_the_file_system() {
     let found: Vec<(String, String, usize)> = r.records.iter().map(|x| (x.file.clone(), x.code.clone(), x.line)).collect();
     assert_eq!(found, vec![("bin/main.dart".to_string(), "deprecated_member_use_from_same_package".to_string(), 2)]);
 }
+
+/// `@internal` is the getter of `package:meta`: a package's own
+/// `const internal = …` does not make an export invalid (image; checked
+/// against `dart analyze` 3.6.2, 2026-10-13).
+#[test]
+fn internal_is_the_meta_getter() {
+    let Ok(engine) = Engine::discover() else {
+        eprintln!("SDK missing: test skipped");
+        return;
+    };
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = repo.join(format!("target/tmp-agent/interno-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("lib/src")).unwrap();
+    std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
+    std::fs::write(root.join("pubspec.yaml"), "name: interno\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    let meta = std::fs::canonicalize(repo.join("corpus/diagnosticos/pacotes/meta")).unwrap();
+    let cfg = serde_json::json!({ "configVersion": 2, "packages": [
+        { "name": "interno", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6" },
+        { "name": "meta", "rootUri": format!("file://{}", meta.display()), "packageUri": "lib/", "languageVersion": "2.12" },
+    ]});
+    std::fs::write(root.join(".dart_tool/package_config.json"), cfg.to_string()).unwrap();
+    std::fs::write(root.join("lib/src/i.dart"), "class _I { const _I(); }\nconst internal = _I();\n").unwrap();
+    std::fs::write(
+        root.join("lib/src/a.dart"),
+        "import 'i.dart';\nimport 'package:meta/meta.dart' as meta;\n@internal\nclass A {}\n@meta.internal\nclass B {}\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("lib/p.dart"), "export 'src/a.dart';\n").unwrap();
+    let sources = vec![root.join("lib/p.dart")];
+    let ex = Execution { workers: 1, batch_size: 1, progress: false, isolate: None, max_time: std::time::Duration::from_secs(600) };
+    let r = run_ours(&engine, &root, &sources, Some(&root.join(".dart_tool/package_config.json")), &filters::AnalysisOptions::default(), &ex);
+    let _ = std::fs::remove_dir_all(&root);
+    let found: Vec<(String, String, usize)> = r.records.iter().map(|x| (x.file.clone(), x.code.clone(), x.line)).collect();
+    assert_eq!(found, vec![("lib/p.dart".to_string(), "invalid_export_of_internal_element".to_string(), 1)]);
+    assert!(r.records[0].problem_message.contains("'B'"), "{}", r.records[0].problem_message);
+}
