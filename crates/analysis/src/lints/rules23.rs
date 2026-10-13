@@ -1,21 +1,21 @@
-//! O vigésimo terceiro lote de regras de lint
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), pela
-//! semântica da unidade:
+//! The twenty-third batch of lint rules
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`),
+//! through the unit's semantics:
 //!
-//! * `comment_references`: os `[this]`/`[null]`/`[true]`/`[false]` de cada
-//!   token do comentário, e as referências (`_parseReferences`, fora de
-//!   código) que o `CommentReferenceResolver` não resolve (o escopo da
-//!   declaração documentada: parâmetros e parâmetros de tipo, membros
-//!   declarados da classe, os da biblioteca; e os membros herdados da classe
-//!   ou do tipo estendido), fora as definições de link (`[x]: …`).
-//!   Desvio conhecido: os comentários de parâmetros, de parâmetros de tipo e
-//!   de variáveis locais não são lidos.
-//! * `prefer_void_to_null`: o tipo `Null` escrito, fora as posições que o
-//!   emissor pula.
-//! * `type_annotate_public_apis`: as declarações públicas sem tipo.
+//! * `comment_references`: the `[this]`/`[null]`/`[true]`/`[false]` of each
+//!   comment token, and the references (`_parseReferences`, outside code)
+//!   that the `CommentReferenceResolver` does not resolve (the scope of the
+//!   documented declaration: parameters and type parameters, the class's
+//!   declared members, the library's; and the inherited members of the class
+//!   or of the extended type), except link definitions (`[x]: …`).
+//!   Known deviation: the comments of parameters, type parameters and local
+//!   variables are not read.
+//! * `prefer_void_to_null`: the written `Null` type, except the positions the
+//!   emitter skips.
+//! * `type_annotate_public_apis`: the public declarations without a type.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -30,28 +30,28 @@ use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::table::Type;
 use std::collections::HashSet;
 
-fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
     (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
-/// O dono de um comentário de documentação e o escopo dele.
-struct Dono<'a> {
-    /// Os nomes declarados pela própria declaração (parâmetros e
-    /// parâmetros de tipo).
-    proprios: Vec<SymbolId>,
-    /// Os membros declarados da classe que envolve (o `InstanceScope`) e os
-    /// parâmetros de tipo dela.
-    da_classe: Vec<SymbolId>,
-    classe: Option<ClassId>,
-    extensao: Option<ExtensionId>,
+/// The owner of a documentation comment and its scope.
+struct DocOwner<'a> {
+    /// The names declared by the declaration itself (parameters and type
+    /// parameters).
+    own_names: Vec<SymbolId>,
+    /// The declared members of the enclosing class (the `InstanceScope`) and
+    /// its type parameters.
+    class_names: Vec<SymbolId>,
+    class_id: Option<ClassId>,
+    extension: Option<ExtensionId>,
     metadata: &'a [Annotation],
-    inicio: usize,
+    start: usize,
 }
 
-/// Os nomes declarados de uma lista de membros (acessores e métodos).
-fn nomes_dos_membros(a: &Ast, membros: &[dartforge_frontend::ast::MemberId]) -> Vec<SymbolId> {
+/// The declared names of a member list (accessors and methods).
+fn member_names(a: &Ast, members: &[dartforge_frontend::ast::MemberId]) -> Vec<SymbolId> {
     let mut v = Vec::new();
-    for &m in membros {
+    for &m in members {
         match &a.member(m).kind {
             MemberKind::Field(l) => v.extend(l.variables.iter().map(|x| x.name.sym)),
             MemberKind::Method(f) => v.extend(a.function(*f).name.map(|n| n.sym)),
@@ -61,36 +61,36 @@ fn nomes_dos_membros(a: &Ast, membros: &[dartforge_frontend::ast::MemberId]) -> 
     v
 }
 
-fn nomes_dos_parametros(ps: &[Parameter]) -> Vec<SymbolId> {
+fn parameter_names(ps: &[Parameter]) -> Vec<SymbolId> {
     ps.iter().filter_map(|p| p.name.map(|n| n.sym)).collect()
 }
 
-/// O elemento que um nome resolve no escopo do dono.
+/// The element that a name resolves to in the owner's scope.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Elem {
-    Nada,
-    Prefixo,
-    Classe(ClassId),
-    Extensao(ExtensionId),
-    Outro,
+enum ResolvedElem {
+    Nothing,
+    Prefix,
+    Class(ClassId),
+    Extension(ExtensionId),
+    Other,
 }
 
-/// O membro `nome` (instância, estático ou construtor nomeado) da classe.
-fn membro_da_classe(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, nome: &str, herdados: bool) -> bool {
+/// The member `name` (instance, static or named constructor) of the class.
+fn has_class_member(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, name: &str, inherited: bool) -> bool {
     let program = s.program;
-    let Some(sym) = interner.lookup(nome) else { return false };
-    let setter = interner.lookup(&format!("{nome}_="));
-    let tem = |k: ClassId| {
+    let Some(sym) = interner.lookup(name) else { return false };
+    let setter = interner.lookup(&format!("{name}_="));
+    let has = |k: ClassId| {
         let x = program.class(k);
         x.instance_members.contains_key(&sym) || setter.is_some_and(|st| x.instance_members.contains_key(&st)) || x.static_members.contains_key(&sym) || setter.is_some_and(|st| x.static_members.contains_key(&st))
     };
-    if tem(c) || program.class(c).constructors.contains_key(&sym) {
+    if has(c) || program.class(c).constructors.contains_key(&sym) {
         return true;
     }
-    if herdados {
-        let mut todas: Vec<ClassId> = s.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect()).unwrap_or_default();
-        todas.extend(s.core.object_class);
-        return todas.into_iter().any(|k| {
+    if inherited {
+        let mut all_found: Vec<ClassId> = s.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect()).unwrap_or_default();
+        all_found.extend(s.core.object_class);
+        return all_found.into_iter().any(|k| {
             let x = program.class(k);
             x.instance_members.contains_key(&sym) || setter.is_some_and(|st| x.instance_members.contains_key(&st))
         });
@@ -98,44 +98,44 @@ fn membro_da_classe(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, n
     false
 }
 
-fn membro_da_extensao(s: &super::Semantics<'_>, interner: &Interner, e: ExtensionId, nome: &str) -> bool {
+fn has_extension_member(s: &super::Semantics<'_>, interner: &Interner, e: ExtensionId, name: &str) -> bool {
     let x = &s.program.extensions[e.0 as usize];
-    let Some(sym) = interner.lookup(nome) else { return false };
-    let setter = interner.lookup(&format!("{nome}_="));
+    let Some(sym) = interner.lookup(name) else { return false };
+    let setter = interner.lookup(&format!("{name}_="));
     x.instance_members.contains_key(&sym) || x.static_members.contains_key(&sym) || setter.is_some_and(|st| x.instance_members.contains_key(&st) || x.static_members.contains_key(&st))
 }
 
 /// `_resolveSimpleIdentifier`.
-fn resolver_simples(s: &super::Semantics<'_>, interner: &Interner, dono: &Dono<'_>, nome: &str) -> Elem {
+fn resolve_simple(s: &super::Semantics<'_>, interner: &Interner, owner: &DocOwner<'_>, name: &str) -> ResolvedElem {
     let program = s.program;
-    if let Some(sym) = interner.lookup(nome) {
-        if dono.proprios.contains(&sym) || dono.da_classe.contains(&sym) {
-            return Elem::Outro;
+    if let Some(sym) = interner.lookup(name) {
+        if owner.own_names.contains(&sym) || owner.class_names.contains(&sym) {
+            return ResolvedElem::Other;
         }
         if program.prefixos_na_unidade(s.unit).contains_key(&sym) {
-            return Elem::Prefixo;
+            return ResolvedElem::Prefix;
         }
         if let Some(b) = program.lookup_na_unidade(s.unit, sym)
             && let Some(e) = b.getter.or(b.setter)
         {
             return match e {
-                Element::Class(c) => Elem::Classe(c),
-                Element::Extension(x) => Elem::Extensao(x),
-                Element::Prefix(..) => Elem::Prefixo,
-                _ => Elem::Outro,
+                Element::Class(c) => ResolvedElem::Class(c),
+                Element::Extension(x) => ResolvedElem::Extension(x),
+                Element::Prefix(..) => ResolvedElem::Prefix,
+                _ => ResolvedElem::Other,
             };
         }
     }
-    // O tipo da classe (ou o estendido) que envolve: os membros, também os
-    // herdados.
-    if let Some(c) = dono.classe
-        && membro_da_classe(s, interner, c, nome, true)
+    // The type of the enclosing class (or the extended one): the members, also
+    // the inherited ones.
+    if let Some(c) = owner.class_id
+        && has_class_member(s, interner, c, name, true)
     {
-        return Elem::Outro;
+        return ResolvedElem::Other;
     }
-    if let Some(e) = dono.extensao {
+    if let Some(e) = owner.extension {
         let on = s.outline.extensions.get(e.0 as usize).map(|x| x.on);
-        let alvo = on.and_then(|t| match s.table.get(t) {
+        let on_class = on.and_then(|t| match s.table.get(t) {
             Type::Interface { class, .. } => Some(*class),
             Type::Function { .. } => s.core.function_class,
             Type::TypeParameter { param, .. } => match s.table.get(s.table.param(*param).bound) {
@@ -144,35 +144,35 @@ fn resolver_simples(s: &super::Semantics<'_>, interner: &Interner, dono: &Dono<'
             },
             _ => None,
         });
-        if alvo.is_some_and(|c| membro_da_classe(s, interner, c, nome, true)) {
-            return Elem::Outro;
+        if on_class.is_some_and(|c| has_class_member(s, interner, c, name, true)) {
+            return ResolvedElem::Other;
         }
     }
-    Elem::Nada
+    ResolvedElem::Nothing
 }
 
-/// A referência resolve.
-fn resolve(s: &super::Semantics<'_>, interner: &Interner, dono: &Dono<'_>, partes: &[&str]) -> bool {
+/// The reference resolves.
+fn resolve(s: &super::Semantics<'_>, interner: &Interner, owner: &DocOwner<'_>, parts: &[&str]) -> bool {
     let program = s.program;
-    match partes {
-        [x] => resolver_simples(s, interner, dono, x) != Elem::Nada,
-        [p, x] => match resolver_simples(s, interner, dono, p) {
-            Elem::Prefixo => {
+    match parts {
+        [x] => resolve_simple(s, interner, owner, x) != ResolvedElem::Nothing,
+        [p, x] => match resolve_simple(s, interner, owner, p) {
+            ResolvedElem::Prefix => {
                 let (Some(ps), Some(xs)) = (interner.lookup(p), interner.lookup(x)) else { return false };
                 program.lookup_prefixed_na_unidade(s.unit, ps, xs).is_some()
             }
-            Elem::Classe(c) => membro_da_classe(s, interner, c, x, true),
-            Elem::Extensao(e) => membro_da_extensao(s, interner, e, x),
+            ResolvedElem::Class(c) => has_class_member(s, interner, c, x, true),
+            ResolvedElem::Extension(e) => has_extension_member(s, interner, e, x),
             _ => false,
         },
         [p, k, x] => {
-            if resolver_simples(s, interner, dono, p) != Elem::Prefixo {
+            if resolve_simple(s, interner, owner, p) != ResolvedElem::Prefix {
                 return false;
             }
             let (Some(ps), Some(ks)) = (interner.lookup(p), interner.lookup(k)) else { return false };
             match program.lookup_prefixed_na_unidade(s.unit, ps, ks).and_then(|b| b.getter.or(b.setter)) {
-                Some(Element::Class(c)) => membro_da_classe(s, interner, c, x, false),
-                Some(Element::Extension(e)) => membro_da_extensao(s, interner, e, x),
+                Some(Element::Class(c)) => has_class_member(s, interner, c, x, false),
+                Some(Element::Extension(e)) => has_extension_member(s, interner, e, x),
                 _ => false,
             }
         }
@@ -180,35 +180,35 @@ fn resolve(s: &super::Semantics<'_>, interner: &Interner, dono: &Dono<'_>, parte
     }
 }
 
-/// As referências de um comentário (`_parseReferences`, fora dos blocos de
-/// código e dos trechos entre crases), com as partes e as posições.
-fn referencias(fonte: &str, linhas: &[(usize, &str)], em_bloco: &dyn Fn(usize) -> bool) -> Vec<Vec<(String, Span)>> {
-    let _ = fonte;
+/// The references of a comment (`_parseReferences`, outside code blocks and
+/// backtick spans), with the parts and the positions.
+fn references(source: &str, lines: &[(usize, &str)], in_block: &dyn Fn(usize) -> bool) -> Vec<Vec<(String, Span)>> {
+    let _ = source;
     let mut v = Vec::new();
-    for (k, &(base, conteudo)) in linhas.iter().enumerate() {
-        if em_bloco(k) {
+    for (k, &(base, content)) in lines.iter().enumerate() {
+        if in_block(k) {
             continue;
         }
-        let b = conteudo.as_bytes();
+        let b = content.as_bytes();
         let mut i = 0;
-        let mut so_brancos = true;
+        let mut only_blanks = true;
         while i < b.len() {
             match b[i] {
                 b'[' => {
                     i += 1;
                     if b.get(i) == Some(&b':') {
-                        match conteudo[i + 1..].find(":]") {
+                        match content[i + 1..].find(":]") {
                             Some(k) => i = i + 1 + k + 1,
                             None => break,
                         }
                     } else {
-                        let ini = i;
-                        let Some(k) = conteudo[i..].find(']') else { break };
-                        let fim = i + k;
-                        let mut j = fim + 1;
-                        let link = match b.get(j) {
+                        let start_rel = i;
+                        let Some(k) = content[i..].find(']') else { break };
+                        let end = i + k;
+                        let mut j = end + 1;
+                        let is_link = match b.get(j) {
                             Some(b'(') => true,
-                            Some(b':') if so_brancos => true,
+                            Some(b':') if only_blanks => true,
                             _ => {
                                 while b.get(j).is_some_and(|c| c.is_ascii_whitespace()) {
                                     j += 1;
@@ -216,22 +216,22 @@ fn referencias(fonte: &str, linhas: &[(usize, &str)], em_bloco: &dyn Fn(usize) -
                                 b.get(j) == Some(&b'[')
                             }
                         };
-                        if !link {
-                            // As partes com as posições.
-                            let mut texto_ini = ini;
-                            let mut texto = &conteudo[ini..fim];
-                            let corte = texto.len() - texto.trim_start().len();
-                            texto_ini += corte;
-                            texto = texto.trim();
-                            if let Some(r) = texto.strip_prefix("new ") {
-                                let c2 = texto.len() - r.trim_start().len();
-                                texto_ini += c2;
-                                texto = r.trim_start();
+                        if !is_link {
+                            // The parts with the positions.
+                            let mut text_start = start_rel;
+                            let mut text = &content[start_rel..end];
+                            let cut = text.len() - text.trim_start().len();
+                            text_start += cut;
+                            text = text.trim();
+                            if let Some(r) = text.strip_prefix("new ") {
+                                let c2 = text.len() - r.trim_start().len();
+                                text_start += c2;
+                                text = r.trim_start();
                             }
-                            let mut partes: Vec<(String, Span)> = Vec::new();
-                            let mut pos = texto_ini;
+                            let mut parts: Vec<(String, Span)> = Vec::new();
+                            let mut pos = text_start;
                             let mut ok = true;
-                            for p in texto.split('.') {
+                            for p in text.split('.') {
                                 let lead = p.len() - p.trim_start().len();
                                 let t = p.trim();
                                 let id = !t.is_empty() && t.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
@@ -239,24 +239,24 @@ fn referencias(fonte: &str, linhas: &[(usize, &str)], em_bloco: &dyn Fn(usize) -
                                     ok = false;
                                     break;
                                 }
-                                partes.push((t.to_string(), Span { start: base + pos + lead, end: base + pos + lead + t.len() }));
+                                parts.push((t.to_string(), Span { start: base + pos + lead, end: base + pos + lead + t.len() }));
                                 pos += p.len() + 1;
                             }
-                            if ok && !partes.is_empty() && partes.len() <= 3 {
-                                v.push(partes);
+                            if ok && !parts.is_empty() && parts.len() <= 3 {
+                                v.push(parts);
                             }
                         }
-                        i = fim;
+                        i = end;
                     }
-                    so_brancos = false;
+                    only_blanks = false;
                 }
                 b'`' => {
-                    if let Some(k) = conteudo[i + 1..].find('`') {
+                    if let Some(k) = content[i + 1..].find('`') {
                         i = i + 1 + k;
                     }
-                    so_brancos = false;
+                    only_blanks = false;
                 }
-                c if !c.is_ascii_whitespace() => so_brancos = false,
+                c if !c.is_ascii_whitespace() => only_blanks = false,
                 _ => {}
             }
             i += 1;
@@ -265,30 +265,30 @@ fn referencias(fonte: &str, linhas: &[(usize, &str)], em_bloco: &dyn Fn(usize) -
     v
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let fonte = u.fonte;
+    let source = u.fonte;
     let program = s.program;
     let table = s.table;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `comment_references`.
-    if ligada("comment_references") {
-        let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
-        // Os donos: diretivas, declarações de topo, membros, constantes.
-        let mut donos: Vec<Dono<'_>> = Vec::new();
+    if enabled("comment_references") {
+        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
+        // The owners: directives, top-level declarations, members, constants.
+        let mut owners: Vec<DocOwner<'_>> = Vec::new();
         for d in &u.unit.directives {
-            donos.push(Dono { proprios: Vec::new(), da_classe: Vec::new(), classe: None, extensao: None, metadata: &d.metadata, inicio: d.span.start });
+            owners.push(DocOwner { own_names: Vec::new(), class_names: Vec::new(), class_id: None, extension: None, metadata: &d.metadata, start: d.span.start });
         }
         for (k, d) in a.decls.iter().enumerate() {
             let did = DeclId(k as u32);
-            let mut dono = Dono { proprios: Vec::new(), da_classe: Vec::new(), classe: None, extensao: None, metadata: &d.metadata, inicio: d.span.start };
-            let (membros, tps, constantes): (&[dartforge_frontend::ast::MemberId], Vec<SymbolId>, &[dartforge_frontend::ast::EnumConstant]) = match &d.kind {
+            let mut owner = DocOwner { own_names: Vec::new(), class_names: Vec::new(), class_id: None, extension: None, metadata: &d.metadata, start: d.span.start };
+            let (members, tps, constants): (&[dartforge_frontend::ast::MemberId], Vec<SymbolId>, &[dartforge_frontend::ast::EnumConstant]) = match &d.kind {
                 DeclKind::Class(x) => (&x.members, x.type_params.iter().map(|t| t.name.sym).collect(), &[]),
                 DeclKind::Mixin(x) => (&x.members, x.type_params.iter().map(|t| t.name.sym).collect(), &[]),
                 DeclKind::Enum(x) => (&x.members, x.type_params.iter().map(|t| t.name.sym).collect(), &x.constants),
@@ -296,202 +296,202 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 DeclKind::Extension(x) => (&x.members, x.type_params.iter().map(|t| t.name.sym).collect(), &[]),
                 DeclKind::Function(f) => {
                     let f = a.function(*f);
-                    dono.proprios = f.type_params.iter().map(|t| t.name.sym).collect();
-                    dono.proprios.extend(f.parameters.as_deref().map(nomes_dos_parametros).unwrap_or_default());
-                    donos.push(dono);
+                    owner.own_names = f.type_params.iter().map(|t| t.name.sym).collect();
+                    owner.own_names.extend(f.parameters.as_deref().map(parameter_names).unwrap_or_default());
+                    owners.push(owner);
                     continue;
                 }
                 DeclKind::Typedef(x) => {
-                    dono.proprios = x.type_params.iter().map(|t| t.name.sym).collect();
+                    owner.own_names = x.type_params.iter().map(|t| t.name.sym).collect();
                     if let TypedefKind::Legacy { parameters, .. } = &x.kind {
-                        dono.proprios.extend(nomes_dos_parametros(parameters));
+                        owner.own_names.extend(parameter_names(parameters));
                     }
-                    donos.push(dono);
+                    owners.push(owner);
                     continue;
                 }
                 DeclKind::Variables(_) => {
-                    donos.push(dono);
+                    owners.push(owner);
                     continue;
                 }
             };
-            let classe = if matches!(d.kind, DeclKind::Extension(_)) { None } else { classe_da_decl(s, did) };
-            let extensao = if matches!(d.kind, DeclKind::Extension(_)) {
+            let class_id = if matches!(d.kind, DeclKind::Extension(_)) { None } else { class_of_decl(s, did) };
+            let extension = if matches!(d.kind, DeclKind::Extension(_)) {
                 program.extensions.iter().position(|x| x.decl.unit == s.unit && x.decl.decl == did).map(|i| ExtensionId(i as u32))
             } else {
                 None
             };
-            let mut da_classe = nomes_dos_membros(a, membros);
-            da_classe.extend(constantes.iter().map(|k| k.name.sym));
-            da_classe.extend(tps.iter().copied());
-            dono.da_classe = da_classe.clone();
-            dono.classe = classe;
-            dono.extensao = extensao;
-            donos.push(dono);
-            for kc in constantes {
-                donos.push(Dono { proprios: Vec::new(), da_classe: da_classe.clone(), classe, extensao, metadata: &kc.metadata, inicio: kc.name.span.start });
+            let mut class_names = member_names(a, members);
+            class_names.extend(constants.iter().map(|k| k.name.sym));
+            class_names.extend(tps.iter().copied());
+            owner.class_names = class_names.clone();
+            owner.class_id = class_id;
+            owner.extension = extension;
+            owners.push(owner);
+            for kc in constants {
+                owners.push(DocOwner { own_names: Vec::new(), class_names: class_names.clone(), class_id, extension, metadata: &kc.metadata, start: kc.name.span.start });
             }
-            for &mid in membros {
+            for &mid in members {
                 let m = a.member(mid);
-                let proprios = match &m.kind {
+                let own_names = match &m.kind {
                     MemberKind::Method(f) => {
                         let f = a.function(*f);
                         let mut v: Vec<SymbolId> = f.type_params.iter().map(|t| t.name.sym).collect();
-                        v.extend(f.parameters.as_deref().map(nomes_dos_parametros).unwrap_or_default());
+                        v.extend(f.parameters.as_deref().map(parameter_names).unwrap_or_default());
                         v
                     }
-                    MemberKind::Constructor(kc) => nomes_dos_parametros(&kc.parameters),
+                    MemberKind::Constructor(kc) => parameter_names(&kc.parameters),
                     MemberKind::Field(_) => Vec::new(),
                 };
-                donos.push(Dono { proprios, da_classe: da_classe.clone(), classe, extensao, metadata: &m.metadata, inicio: m.span.start });
+                owners.push(DocOwner { own_names, class_names: class_names.clone(), class_id, extension, metadata: &m.metadata, start: m.span.start });
             }
         }
-        let mut vistos: HashSet<usize> = HashSet::new();
-        for dono in &donos {
-            let depois = match dono.metadata.last() {
-                Some(m) => dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), m.span.end),
-                None => dono.inicio,
+        let mut seen: HashSet<usize> = HashSet::new();
+        for owner in &owners {
+            let after = match owner.metadata.last() {
+                Some(m) => dartforge_frontend::fonte::pular_brancos(source.as_bytes(), m.span.end),
+                None => owner.start,
             };
-            let Some(inicio_doc) = comentarios.dart_doc(fonte, depois).or_else(|| dono.metadata.iter().rev().find_map(|m| comentarios.dart_doc(fonte, m.span.start))) else {
+            let Some(doc_start) = comments.dart_doc(source, after).or_else(|| owner.metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start))) else {
                 continue;
             };
-            if !vistos.insert(inicio_doc.start) {
+            if !seen.insert(doc_start.start) {
                 continue;
             }
-            // Os tokens do `Comment`.
-            let pai = if comentarios.dart_doc(fonte, depois) == Some(inicio_doc) { depois } else { dono.metadata.iter().rev().find(|m| comentarios.dart_doc(fonte, m.span.start) == Some(inicio_doc)).map_or(depois, |m| m.span.start) };
-            let cadeia: Vec<Span> = comentarios.antes_de(fonte, pai).into_iter().filter(|x| x.start >= inicio_doc.start).collect();
-            let mut tokens = vec![inicio_doc];
-            if fonte[inicio_doc.start..inicio_doc.end].starts_with("///") {
-                tokens.extend(cadeia.iter().skip(1).filter(|x| fonte[x.start..x.end].starts_with("///")).copied());
+            // The `Comment`'s tokens.
+            let parent = if comments.dart_doc(source, after) == Some(doc_start) { after } else { owner.metadata.iter().rev().find(|m| comments.dart_doc(source, m.span.start) == Some(doc_start)).map_or(after, |m| m.span.start) };
+            let chain: Vec<Span> = comments.antes_de(source, parent).into_iter().filter(|x| x.start >= doc_start.start).collect();
+            let mut tokens = vec![doc_start];
+            if source[doc_start.start..doc_start.end].starts_with("///") {
+                tokens.extend(chain.iter().skip(1).filter(|x| source[x.start..x.end].starts_with("///")).copied());
             }
-            // `visitComment`: as definições de link e os casos especiais.
+            // `visitComment`: the link definitions and the special cases.
             let mut links: Vec<String> = Vec::new();
             for t in &tokens {
-                let lexema = &fonte[t.start..t.end];
-                let mut inicio = 0usize;
-                let mut primeira = true;
-                while let Some(l) = lexema[inicio..].find('[').map(|x| x + inicio) {
-                    let Some(r) = lexema[l..].find(']').map(|x| x + l) else { break };
-                    let referencia = &lexema[l + 1..r];
-                    if primeira {
-                        let prefixo = &lexema[..l];
-                        let e_comeco = prefixo.starts_with("///") && prefixo.trim_start_matches('/').chars().all(char::is_whitespace);
-                        if e_comeco && lexema[r + 1..].starts_with(':') {
-                            links.push(referencia.to_string());
+                let lexeme = &source[t.start..t.end];
+                let mut start = 0usize;
+                let mut first = true;
+                while let Some(l) = lexeme[start..].find('[').map(|x| x + start) {
+                    let Some(r) = lexeme[l..].find(']').map(|x| x + l) else { break };
+                    let reference = &lexeme[l + 1..r];
+                    if first {
+                        let prefix = &lexeme[..l];
+                        let is_start = prefix.starts_with("///") && prefix.trim_start_matches('/').chars().all(char::is_whitespace);
+                        if is_start && lexeme[r + 1..].starts_with(':') {
+                            links.push(reference.to_string());
                         }
-                        primeira = false;
+                        first = false;
                     }
-                    if matches!(referencia, "this" | "null" | "true" | "false") {
-                        relatar(&c::COMMENT_REFERENCES, Span { start: t.start + l + 1, end: t.start + l + 1 + referencia.len() }, &[]);
+                    if matches!(reference, "this" | "null" | "true" | "false") {
+                        report(&c::COMMENT_REFERENCES, Span { start: t.start + l + 1, end: t.start + l + 1 + reference.len() }, &[]);
                     }
-                    inicio = r;
+                    start = r;
                 }
             }
-            // As referências não resolvidas.
-            let doc = super::rules14::Doc { tokens: tokens.clone(), chain: cadeia.clone(), anchor: pai };
-            let linhas = super::rules14::doc_lines(fonte, &doc);
-            let blocos = super::rules14::code_blocks(&linhas);
-            let em_bloco = |k: usize| {
-                let pos = linhas[k].0;
-                blocos.iter().any(|b| b.lines.iter().any(|(p, _)| *p == pos))
+            // The unresolved references.
+            let doc = super::rules14::Doc { tokens: tokens.clone(), chain: chain.clone(), anchor: parent };
+            let lines = super::rules14::doc_lines(source, &doc);
+            let blocks = super::rules14::code_blocks(&lines);
+            let in_block = |k: usize| {
+                let pos = lines[k].0;
+                blocks.iter().any(|b| b.lines.iter().any(|(p, _)| *p == pos))
             };
-            for partes in referencias(fonte, &linhas, &em_bloco) {
-                let nomes: Vec<&str> = partes.iter().map(|(n, _)| n.as_str()).collect();
-                if resolve(s, interner, dono, &nomes) {
+            for parts in references(source, &lines, &in_block) {
+                let names: Vec<&str> = parts.iter().map(|(n, _)| n.as_str()).collect();
+                if resolve(s, interner, owner, &names) {
                     continue;
                 }
-                let texto = nomes.join(".");
-                if links.contains(&texto) {
+                let text = names.join(".");
+                if links.contains(&text) {
                     continue;
                 }
-                // `[p.C.x]`: só relata o acesso com o alvo prefixado.
-                let sp = Span { start: partes[0].1.start, end: partes[partes.len() - 1].1.end };
-                relatar(&c::COMMENT_REFERENCES, sp, &[]);
+                // `[p.C.x]`: only reports the access with the prefixed target.
+                let sp = Span { start: parts[0].1.start, end: parts[parts.len() - 1].1.end };
+                report(&c::COMMENT_REFERENCES, sp, &[]);
             }
         }
     }
 
     // `prefer_void_to_null`.
-    if ligada("prefer_void_to_null") {
-        let mut excluidos: HashSet<TypeId> = HashSet::new();
+    if enabled("prefer_void_to_null") {
+        let mut excluded: HashSet<TypeId> = HashSet::new();
         for t in a.types.iter() {
             if let TypeKind::Function { return_type, parameters, .. } = &t.kind {
-                excluidos.extend(*return_type);
-                excluidos.extend(parameters.iter().filter_map(|p| p.ty));
+                excluded.extend(*return_type);
+                excluded.extend(parameters.iter().filter_map(|p| p.ty));
             }
         }
         for p in a.patterns.iter() {
             if let PatternKind::Cast { ty, .. } = &p.kind {
-                excluidos.insert(*ty);
+                excluded.insert(*ty);
             }
         }
         for e in a.exprs.iter() {
             match &e.kind {
                 ExprKind::As { ty, .. } => {
-                    excluidos.insert(*ty);
+                    excluded.insert(*ty);
                 }
                 ExprKind::List { type_args, elements, .. } | ExprKind::SetOrMap { type_args, elements, .. } if elements.is_empty() => {
-                    excluidos.extend(type_args.iter().copied());
+                    excluded.extend(type_args.iter().copied());
                 }
                 _ => {}
             }
         }
         for st in a.stmts.iter() {
             match &st.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => excluidos.extend(l.ty),
+                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => excluded.extend(l.ty),
                 _ => {}
             }
         }
-        let mut aumentados: Vec<Span> = Vec::new();
+        let mut augmented: Vec<Span> = Vec::new();
         for d in a.decls.iter() {
             match &d.kind {
-                DeclKind::Variables(l) => excluidos.extend(l.ty),
+                DeclKind::Variables(l) => excluded.extend(l.ty),
                 DeclKind::Extension(x) => {
-                    excluidos.insert(x.on);
+                    excluded.insert(x.on);
                 }
                 DeclKind::ExtensionType(x) => {
-                    excluidos.insert(x.representation_type);
+                    excluded.insert(x.representation_type);
                 }
                 _ => {}
             }
             if d.augment {
-                aumentados.push(d.span);
+                augmented.push(d.span);
             }
         }
         for m in a.members.iter() {
             if m.augment {
-                aumentados.push(m.span);
+                augmented.push(m.span);
             }
         }
-        // O retorno de um método que sobrescreve um membro de retorno que
-        // não é `void` nem `FutureOr<void>`.
+        // The return of a method that overrides a member whose return is
+        // neither `void` nor `FutureOr<void>`.
         for (k, d) in a.decls.iter().enumerate() {
-            let membros = match &d.kind {
+            let members = match &d.kind {
                 DeclKind::Class(x) => &x.members,
                 DeclKind::Mixin(x) => &x.members,
                 DeclKind::Enum(x) => &x.members,
                 DeclKind::ExtensionType(x) => &x.members,
                 _ => continue,
             };
-            let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            for &mid in membros {
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
+            for &mid in members {
                 let MemberKind::Method(fid) = &a.member(mid).kind else { continue };
                 let f = a.function(*fid);
                 let (Some(rt), Some(n)) = (f.return_type, f.name) else { continue };
-                // O membro sobrescrito (`overriddenMember`): o primeiro dos
-                // supertipos com o nome.
-                let chave = if f.kind == dartforge_frontend::ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", interner.resolve(n.sym))) } else { Some(n.sym) };
-                let Some(ch) = chave else { continue };
-                let mut sup: Vec<ClassId> = s.outline.hierarchy.get(classe).map(|h| h.supertypes.keys().copied().collect()).unwrap_or_default();
+                // The overridden member (`overriddenMember`): the first of the
+                // supertypes with the name.
+                let key = if f.kind == dartforge_frontend::ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", interner.resolve(n.sym))) } else { Some(n.sym) };
+                let Some(ch) = key else { continue };
+                let mut sup: Vec<ClassId> = s.outline.hierarchy.get(class_id).map(|h| h.supertypes.keys().copied().collect()).unwrap_or_default();
                 sup.sort();
-                let sobrescrito = sup.iter().find_map(|sc| program.class(*sc).instance_members.get(&ch).copied());
-                if let Some(g) = sobrescrito
-                    && let Some(dados) = s.outline.functions.get(g.0 as usize)
+                let overridden = sup.iter().find_map(|sc| program.class(*sc).instance_members.get(&ch).copied());
+                if let Some(g) = overridden
+                    && let Some(data) = s.outline.functions.get(g.0 as usize)
                 {
-                    let r = dados.return_type;
-                    let e_void = matches!(table.get(r), Type::Void) || matches!(table.get(r), Type::FutureOr { arg, .. } if matches!(table.get(*arg), Type::Void));
-                    if !e_void {
-                        excluidos.insert(rt);
+                    let r = data.return_type;
+                    let is_void = matches!(table.get(r), Type::Void) || matches!(table.get(r), Type::FutureOr { arg, .. } if matches!(table.get(*arg), Type::Void));
+                    if !is_void {
+                        excluded.insert(rt);
                     }
                 }
             }
@@ -499,28 +499,28 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         for (k, t) in a.types.iter().enumerate() {
             let id = TypeId(k as u32);
             let TypeKind::Named { name, .. } = &t.kind else { continue };
-            if excluidos.contains(&id) || aumentados.iter().any(|sp| t.span.start >= sp.start && t.span.end <= sp.end) {
+            if excluded.contains(&id) || augmented.iter().any(|sp| t.span.start >= sp.start && t.span.end <= sp.end) {
                 continue;
             }
-            let tipo = s.body.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, id)).copied());
-            if tipo.is_some_and(|x| matches!(table.get(x), Type::Null)) {
-                relatar(&c::PREFER_VOID_TO_NULL, name[name.len() - 1].span, &[]);
+            let ty = s.body.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, id)).copied());
+            if ty.is_some_and(|x| matches!(table.get(x), Type::Null)) {
+                report(&c::PREFER_VOID_TO_NULL, name[name.len() - 1].span, &[]);
             }
         }
     }
 
     // `type_annotate_public_apis`.
-    if ligada("type_annotate_public_apis") {
-        let privado = |n: SymbolId| interner.resolve(n).starts_with('_');
-        let sublinhados = |n: SymbolId| {
+    if enabled("type_annotate_public_apis") {
+        let is_private = |n: SymbolId| interner.resolve(n).starts_with('_');
+        let underscores = |n: SymbolId| {
             let t = interner.resolve(n);
             !t.is_empty() && t.bytes().all(|c| c == b'_')
         };
-        let mut achados: Vec<Span> = Vec::new();
-        fn parametros(ps: &[Parameter], sublinhados: &dyn Fn(SymbolId) -> bool, achados: &mut Vec<Span>) {
+        let mut findings: Vec<Span> = Vec::new();
+        fn check_params(ps: &[Parameter], underscores: &dyn Fn(SymbolId) -> bool, findings: &mut Vec<Span>) {
             for p in ps {
-                if let Some(internos) = &p.function_parameters {
-                    parametros(internos, sublinhados, achados);
+                if let Some(inner) = &p.function_parameters {
+                    check_params(inner, underscores, findings);
                     continue;
                 }
                 if p.this_ || p.super_ {
@@ -528,25 +528,25 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
                 if p.ty.is_none()
                     && let Some(n) = p.name
-                    && !sublinhados(n.sym)
+                    && !underscores(n.sym)
                 {
-                    achados.push(p.span);
+                    findings.push(p.span);
                 }
             }
         }
-        let variaveis = |l: &dartforge_frontend::ast::VariableList, achados: &mut Vec<Span>| {
+        let variables = |l: &dartforge_frontend::ast::VariableList, findings: &mut Vec<Span>| {
             if l.ty.is_some() {
                 return;
             }
             for v in l.variables.iter() {
-                if privado(v.name.sym) || l.const_ {
+                if is_private(v.name.sym) || l.const_ {
                     continue;
                 }
-                let inferido = v.initializer.and_then(|i| s.body.get_type(i)).is_some_and(|t| !matches!(table.get(t), Type::Dynamic | Type::Null));
-                if l.final_ && inferido {
+                let inferred = v.initializer.and_then(|i| s.body.get_type(i)).is_some_and(|t| !matches!(table.get(t), Type::Dynamic | Type::Null));
+                if l.final_ && inferred {
                     continue;
                 }
-                achados.push(v.name.span);
+                findings.push(v.name.span);
             }
         };
         for d in a.decls.iter() {
@@ -554,28 +554,28 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 continue;
             }
             match &d.kind {
-                DeclKind::Variables(l) => variaveis(l, &mut achados),
+                DeclKind::Variables(l) => variables(l, &mut findings),
                 DeclKind::Function(f) => {
                     let f = a.function(*f);
                     let Some(n) = f.name else { continue };
-                    if privado(n.sym) {
+                    if is_private(n.sym) {
                         continue;
                     }
                     if f.return_type.is_none() && f.kind != dartforge_frontend::ast::FunctionKind::Setter {
-                        achados.push(n.span);
+                        findings.push(n.span);
                     } else if let Some(ps) = &f.parameters {
-                        parametros(ps, &sublinhados, &mut achados);
+                        check_params(ps, &underscores, &mut findings);
                     }
                 }
                 DeclKind::Typedef(x) => {
-                    if privado(x.name.sym) {
+                    if is_private(x.name.sym) {
                         continue;
                     }
                     if let TypedefKind::Legacy { return_type, parameters } = &x.kind {
                         if return_type.is_none() {
-                            achados.push(x.name.span);
+                            findings.push(x.name.span);
                         } else {
-                            parametros(parameters, &sublinhados, &mut achados);
+                            check_params(parameters, &underscores, &mut findings);
                         }
                     }
                 }
@@ -587,25 +587,25 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 continue;
             }
             match &m.kind {
-                MemberKind::Field(l) => variaveis(l, &mut achados),
+                MemberKind::Field(l) => variables(l, &mut findings),
                 MemberKind::Method(f) => {
                     let f = a.function(*f);
                     let Some(n) = f.name else { continue };
-                    if privado(n.sym) {
+                    if is_private(n.sym) {
                         continue;
                     }
                     if f.return_type.is_none() && f.kind != dartforge_frontend::ast::FunctionKind::Setter {
-                        achados.push(n.span);
+                        findings.push(n.span);
                     } else if let Some(ps) = &f.parameters {
-                        parametros(ps, &sublinhados, &mut achados);
+                        check_params(ps, &underscores, &mut findings);
                     }
                 }
                 MemberKind::Constructor(_) => {}
             }
         }
-        achados.sort_by_key(|x| x.start);
-        for sp in achados {
-            relatar(&c::TYPE_ANNOTATE_PUBLIC_APIS, sp, &[]);
+        findings.sort_by_key(|x| x.start);
+        for sp in findings {
+            report(&c::TYPE_ANNOTATE_PUBLIC_APIS, sp, &[]);
         }
     }
 
