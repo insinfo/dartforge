@@ -102,7 +102,7 @@ static void* topo() {
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "arc") == 0) dartforge_memory_arc_v1();
     classe_dart_no_forcado = argc >= 3 && std::strcmp(argv[2], "forced_dart") == 0;
-    forcar_unwind = classe_dart_no_forcado || (argc >= 3 && std::strcmp(argv[2], "forcado") == 0);
+    forcar_unwind = classe_dart_no_forcado || (argc >= 3 && std::strcmp(argv[2], "forced") == 0);
     void* anterior = topo();
     topo_anterior = anterior;
     bool capturada = false;
