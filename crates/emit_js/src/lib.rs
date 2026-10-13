@@ -13,6 +13,7 @@ pub mod js;
 pub mod module;
 pub mod pattern;
 pub mod own_sdk;
+pub mod sdk_patches;
 pub mod extension_type;
 
 /// The property of a private name (or of a field storage, `C.x`/`_#C#x`) of a
@@ -535,6 +536,11 @@ pub fn compile_with_options<R>(
     };
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
     language.apply(&mut sdk);
+    // The production profile compiles the SDK too: the patches that drop
+    // dynamic dispatch from the runtime (`sdk_patches`).
+    if infer_sdk && std::env::var("DARTFORGE_JSPROD_SDK_PATCHES").map_or(true, |v| v != "0") {
+        sdk_patches::apply(&mut sdk, &dartforge_elements::SdkCache::directory().join("js-sdk-patches"));
+    }
     rel.phase("SDK layout", t);
     // Cache of the analyzed SDK (`target/dartforge/sdk-<hash>.bin`); the first
     // compilation builds it. `DARTFORGE_SDK_CACHE=0` turns it off.
