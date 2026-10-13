@@ -175,7 +175,7 @@ pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<j
         let Ok(text) = std::fs::read_to_string(&file) else { continue };
         let lines = json::Linhas::new(&text);
         let path = file.to_string_lossy();
-        out.extend(dartforge_analysis::naodart::manifest::validar(&text).iter().map(|r| report_to_json(&path, &lines, r)));
+        out.extend(dartforge_analysis::naodart::manifest::validate(&text).iter().map(|r| report_to_json(&path, &lines, r)));
     }
     out
 }

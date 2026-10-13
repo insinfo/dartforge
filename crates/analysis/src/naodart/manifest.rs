@@ -1,22 +1,22 @@
-//! O `ManifestValidator` do analyzer
-//! (`analyzer/lib/src/manifest/manifest_validator.dart` e
-//! `manifest_values.dart`, lidos por inteiro na 6.11.0;
-//! docs/ANALYZER-ESPECIFICACAO-INFRA.md, lote II.10): as checagens de
-//! Chrome OS sobre o `AndroidManifest.xml`, que só rodam com
+//! The analyzer's `ManifestValidator`
+//! (`analyzer/lib/src/manifest/manifest_validator.dart` and
+//! `manifest_values.dart`, read entirely in 6.11.0;
+//! docs/ANALYZER-ESPECIFICACAO-INFRA.md, batch II.10): the Chrome OS checks
+//! over `AndroidManifest.xml`, which only run with
 //! `analyzer: optional-checks: chrome-os-manifest-checks`.
 //!
-//! O analisador de XML é o do original, transcrito: só guarda os elementos
-//! `manifest`, `application`, `activity`, `uses-feature` e
-//! `uses-permission`, com nomes de marca e de atributo em minúsculas.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The XML parser is the original's, transcribed: it only keeps the
+//! `manifest`, `application`, `activity`, `uses-feature` and
+//! `uses-permission` elements, with tag and attribute names in lower case.
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g::manifesto as c;
 use super::Relato;
 use dartforge_diagnostics::Span;
 
-const RELEVANTES: [&str; 5] = ["activity", "application", "manifest", "uses-feature", "uses-permission"];
+const RELEVANT: [&str; 5] = ["activity", "application", "manifest", "uses-feature", "uses-permission"];
 
-const HARDWARE_SEM_SUPORTE: [&str; 37] = [
+const UNSUPPORTED_HARDWARE: [&str; 37] = [
     "android.hardware.camera",
     "android.hardware.camera.autofocus",
     "android.hardware.camera.capability.manual_post_processing",
@@ -56,12 +56,12 @@ const HARDWARE_SEM_SUPORTE: [&str; 37] = [
     "android.software.sip.voip",
 ];
 
-const ORIENTACOES_SEM_SUPORTE: [&str; 8] =
+const UNSUPPORTED_ORIENTATIONS: [&str; 8] =
     ["landscape", "portrait", "reverseLandscape", "reversePortrait", "sensorLandscape", "sensorPortrait", "userLandscape", "userPortrait"];
 
-/// `getImpliedUnsupportedHardware`: o hardware que a permissão supõe.
-fn hardware_da_permissao(permissao: &str) -> Option<&'static str> {
-    match permissao {
+/// `getImpliedUnsupportedHardware`: the hardware the permission implies.
+fn implied_hardware(permission: &str) -> Option<&'static str> {
+    match permission {
         "android.permission.CAMERA" => Some("android.hardware.camera"),
         "android.permission.CALL_PHONE"
         | "android.permission.CALL_PRIVILEGED"
@@ -78,81 +78,81 @@ fn hardware_da_permissao(permissao: &str) -> Option<&'static str> {
     }
 }
 
-struct Atributo {
-    nome: String,
-    valor: String,
-    /// Do nome à aspa de fecho, exclusive.
+struct Attribute {
+    name: String,
+    value: String,
+    /// From the name to the closing quote, exclusive.
     span: Span,
 }
 
-struct Elemento {
-    nome: String,
-    atributos: Vec<Atributo>,
-    filhos: Vec<Elemento>,
+struct Element {
+    name: String,
+    attributes: Vec<Attribute>,
+    children: Vec<Element>,
     span: Span,
 }
 
-impl Elemento {
-    fn atributo(&self, nome: &str) -> Option<&Atributo> {
-        // Um nome repetido: o último vale (o mapa do original).
-        self.atributos.iter().rev().find(|a| a.nome == nome)
+impl Element {
+    fn attribute(&self, name: &str) -> Option<&Attribute> {
+        // A repeated name: the last one wins (the original's map).
+        self.attributes.iter().rev().find(|a| a.name == name)
     }
 
-    fn valor(&self, nome: &str) -> Option<&str> {
-        self.atributo(nome).map(|a| a.valor.as_str())
+    fn value(&self, name: &str) -> Option<&str> {
+        self.attribute(name).map(|a| a.value.as_str())
     }
 }
 
-/// O que `parseXmlTag` achou.
-enum Marca {
-    /// Um elemento; `None` quando não é dos relevantes (ou é comentário ou
-    /// declaração).
-    Elemento(Option<Elemento>),
-    Fecho,
-    Fim,
-    Erro,
+/// What `parseXmlTag` found.
+enum Tag {
+    /// An element; `None` when it is not one of the relevant ones (or is a
+    /// comment or a declaration).
+    Element(Option<Element>),
+    TagEnd,
+    End,
+    Error,
 }
 
-/// O fecho de uma lista de atributos.
-enum Fecho {
-    Marca,
-    ElementoVazio,
+/// How an attribute list ends.
+enum TagEnd {
+    Tag,
+    EmptyElement,
 }
 
-struct Leitor<'a> {
+struct Reader<'a> {
     b: &'a [u8],
-    fonte: &'a str,
+    source: &'a str,
     pos: usize,
 }
 
-impl Leitor<'_> {
-    fn fechando(&self) -> bool {
+impl Reader<'_> {
+    fn closing(&self) -> bool {
         self.b.get(self.pos) == Some(&b'>')
     }
 
-    fn fechando_em_dois(&self) -> bool {
+    fn closing_in_two(&self) -> bool {
         self.pos + 1 < self.b.len() && (self.b[self.pos] == b'?' || self.b[self.pos] == b'/') && self.b[self.pos + 1] == b'>'
     }
 
-    fn branco(&self) -> bool {
+    fn blank(&self) -> bool {
         self.b.get(self.pos).is_some_and(u8::is_ascii_whitespace)
     }
 
     /// `parseXmlTag`.
-    fn marca(&mut self) -> Marca {
+    fn tag(&mut self) -> Tag {
         while self.pos < self.b.len() && self.b[self.pos] != b'<' {
             self.pos += 1;
         }
         if self.pos >= self.b.len() {
-            return Marca::Fim;
+            return Tag::End;
         }
         let p = self.pos;
         if p + 3 < self.b.len() && &self.b[p + 1..p + 4] == b"!--" {
-            // Comentário: até `-->`.
+            // Comment: up to `-->`.
             self.pos += 4;
             loop {
                 if self.pos + 2 >= self.b.len() {
-                    return Marca::Erro;
+                    return Tag::Error;
                 }
                 if &self.b[self.pos..self.pos + 3] == b"-->" {
                     break;
@@ -160,51 +160,51 @@ impl Leitor<'_> {
                 self.pos += 1;
             }
             self.pos += 2;
-            return Marca::Elemento(None);
+            return Tag::Element(None);
         }
         if p + 1 < self.b.len() && self.b[p + 1] == b'!' {
-            // Declaração: até `>`.
+            // Declaration: up to `>`.
             self.pos += 2;
-            while !self.fechando() {
+            while !self.closing() {
                 self.pos += 1;
                 if self.pos >= self.b.len() {
-                    return Marca::Erro;
+                    return Tag::Error;
                 }
             }
-            return Marca::Elemento(None);
+            return Tag::Element(None);
         }
         self.normal()
     }
 
     /// `_parseAttribute`.
-    fn atributos(&mut self, relevante: bool) -> Option<(Vec<Atributo>, Fecho)> {
-        let mut saida = Vec::new();
-        let fecho = loop {
+    fn attributes(&mut self, relevant: bool) -> Option<(Vec<Attribute>, TagEnd)> {
+        let mut out = Vec::new();
+        let end_ = loop {
             if self.pos >= self.b.len() {
                 return None;
             }
-            if self.fechando() {
-                break Fecho::Marca;
-            } else if self.fechando_em_dois() {
+            if self.closing() {
+                break TagEnd::Tag;
+            } else if self.closing_in_two() {
                 self.pos += 1;
-                break Fecho::ElementoVazio;
-            } else if !self.branco() {
+                break TagEnd::EmptyElement;
+            } else if !self.blank() {
                 return None;
             }
-            while self.branco() {
+            while self.blank() {
                 self.pos += 1;
             }
             if self.pos >= self.b.len() {
                 return None;
             }
-            if self.fechando() {
-                break Fecho::Marca;
-            } else if self.fechando_em_dois() {
+            if self.closing() {
+                break TagEnd::Tag;
+            } else if self.closing_in_two() {
                 self.pos += 1;
-                break Fecho::ElementoVazio;
+                break TagEnd::EmptyElement;
             }
-            // O nome, até o `=`.
-            let inicio_do_nome = self.pos;
+            // The name, up to the `=`.
+            let name_start = self.pos;
             self.pos += 1;
             loop {
                 if self.pos >= self.b.len() {
@@ -213,168 +213,168 @@ impl Leitor<'_> {
                 if self.b[self.pos] == b'=' {
                     break;
                 }
-                // Atributo sem valor não existe em XML.
-                if self.branco() || self.fechando() || self.fechando_em_dois() {
+                // An attribute without a value does not exist in XML.
+                if self.blank() || self.closing() || self.closing_in_two() {
                     return None;
                 }
                 self.pos += 1;
             }
-            let nome = self.fonte.get(inicio_do_nome..self.pos)?.to_lowercase();
+            let name = self.source.get(name_start..self.pos)?.to_lowercase();
             self.pos += 1;
-            // O valor, entre aspas.
-            let aspa = *self.b.get(self.pos)?;
-            if aspa != b'\'' && aspa != b'"' {
+            // The value, between quotes.
+            let quote = *self.b.get(self.pos)?;
+            if quote != b'\'' && quote != b'"' {
                 return None;
             }
             self.pos += 1;
-            let inicio_do_valor = self.pos;
-            while *self.b.get(self.pos)? != aspa {
+            let value_start = self.pos;
+            while *self.b.get(self.pos)? != quote {
                 self.pos += 1;
             }
-            if relevante {
-                let valor = self.fonte.get(inicio_do_valor..self.pos)?.to_string();
-                saida.push(Atributo { nome, valor, span: Span { start: inicio_do_nome, end: self.pos } });
+            if relevant {
+                let value = self.source.get(value_start..self.pos)?.to_string();
+                out.push(Attribute { name, value, span: Span { start: name_start, end: self.pos } });
             }
             self.pos += 1;
         };
-        Some((saida, fecho))
+        Some((out, end_))
     }
 
     /// `_parseNormalTag`.
-    fn normal(&mut self) -> Marca {
-        let inicio = self.pos;
+    fn normal(&mut self) -> Tag {
+        let start = self.pos;
         self.pos += 1;
-        if self.pos >= self.b.len() || self.branco() {
-            return Marca::Erro;
+        if self.pos >= self.b.len() || self.blank() {
+            return Tag::Error;
         }
-        let de_fecho = self.b[self.pos] == b'/';
-        if de_fecho {
+        let closing = self.b[self.pos] == b'/';
+        if closing {
             self.pos += 1;
         }
-        let inicio_do_nome = self.pos;
-        while !self.fechando() && !self.fechando_em_dois() && !self.branco() {
+        let name_start = self.pos;
+        while !self.closing() && !self.closing_in_two() && !self.blank() {
             self.pos += 1;
             if self.pos >= self.b.len() {
-                return Marca::Erro;
+                return Tag::Error;
             }
         }
-        let Some(nome) = self.fonte.get(inicio_do_nome..self.pos).map(str::to_lowercase) else { return Marca::Erro };
-        // `None`: ainda não fechou; `Some(vazio)`: fechou a marca.
-        let mut fechada: Option<bool> = None;
-        if self.fechando() {
-            fechada = Some(false);
-        } else if self.fechando_em_dois() {
-            fechada = Some(true);
+        let Some(name) = self.source.get(name_start..self.pos).map(str::to_lowercase) else { return Tag::Error };
+        // `None`: not closed yet; `Some(empty)`: closed the tag.
+        let mut closed: Option<bool> = None;
+        if self.closing() {
+            closed = Some(false);
+        } else if self.closing_in_two() {
+            closed = Some(true);
             self.pos += 1;
         }
-        if de_fecho {
-            while self.branco() {
+        if closing {
+            while self.blank() {
                 self.pos += 1;
             }
-            // Marca de fecho não tem atributos.
-            return if self.fechando() { Marca::Fecho } else { Marca::Erro };
+            // A closing tag has no attributes.
+            return if self.closing() { Tag::TagEnd } else { Tag::Error };
         }
-        let relevante = RELEVANTES.contains(&nome.as_str());
-        let (atributos, mut vazio) = match fechada {
-            Some(vazio) => (Vec::new(), vazio),
-            None => match self.atributos(relevante) {
-                Some((atributos, fecho)) => (atributos, matches!(fecho, Fecho::ElementoVazio)),
-                None => return Marca::Erro,
+        let relevant = RELEVANT.contains(&name.as_str());
+        let (attributes, mut empty) = match closed {
+            Some(empty) => (Vec::new(), empty),
+            None => match self.attributes(relevant) {
+                Some((attributes, end_)) => (attributes, matches!(end_, TagEnd::EmptyElement)),
+                None => return Tag::Error,
             },
         };
-        if nome.starts_with('!') {
-            vazio = true;
+        if name.starts_with('!') {
+            empty = true;
         }
-        let mut filhos = Vec::new();
-        if !vazio {
+        let mut children = Vec::new();
+        if !empty {
             self.pos += 1;
             loop {
-                match self.marca() {
-                    Marca::Fecho => break,
-                    Marca::Fim => return Marca::Fim,
-                    Marca::Erro => return Marca::Erro,
-                    Marca::Elemento(None) => {}
-                    Marca::Elemento(Some(filho)) => {
-                        filhos.push(filho);
+                match self.tag() {
+                    Tag::TagEnd => break,
+                    Tag::End => return Tag::End,
+                    Tag::Error => return Tag::Error,
+                    Tag::Element(None) => {}
+                    Tag::Element(Some(child)) => {
+                        children.push(child);
                         self.pos += 1;
                     }
                 }
             }
         }
-        if relevante {
-            let fim = (self.pos + 1).min(self.b.len());
-            Marca::Elemento(Some(Elemento { nome, atributos, filhos, span: Span { start: inicio, end: fim } }))
+        if relevant {
+            let end = (self.pos + 1).min(self.b.len());
+            Tag::Element(Some(Element { name, attributes, children, span: Span { start: start, end: end } }))
         } else {
-            Marca::Elemento(None)
+            Tag::Element(None)
         }
     }
 }
 
-/// `_reportErrorForNode`: no atributo `chave`, ou no elemento inteiro.
-fn relatar(out: &mut Vec<Relato>, elemento: &Elemento, chave: Option<&str>, codigo: &'static super::CodigoNaoDart, args: &[&str]) {
-    let span = chave.and_then(|k| elemento.atributo(k)).map_or(elemento.span, |a| a.span);
-    out.push(Relato::novo(codigo, span, args));
+/// `_reportErrorForNode`: on attribute `key`, or on the whole element.
+fn report(out: &mut Vec<Relato>, element: &Element, key: Option<&str>, code: &'static super::CodigoNaoDart, args: &[&str]) {
+    let span = key.and_then(|k| element.attribute(k)).map_or(element.span, |a| a.span);
+    out.push(Relato::novo(code, span, args));
 }
 
-/// `ManifestValidator.validate` com `checkManifest` ligado: os relatos do
-/// `AndroidManifest.xml` de texto `fonte`.
-pub fn validar(fonte: &str) -> Vec<Relato> {
+/// `ManifestValidator.validate` with `checkManifest` on: the reports of the
+/// `AndroidManifest.xml` with text `source`.
+pub fn validate(source: &str) -> Vec<Relato> {
     let mut out = Vec::new();
-    let mut leitor = Leitor { b: fonte.as_bytes(), fonte, pos: 0 };
-    // Até o elemento `manifest`.
+    let mut reader = Reader { b: source.as_bytes(), source, pos: 0 };
+    // Up to the `manifest` element.
     let manifesto = loop {
-        match leitor.marca() {
-            Marca::Fim | Marca::Erro => return out,
-            Marca::Elemento(Some(e)) if e.nome == "manifest" => break e,
+        match reader.tag() {
+            Tag::End | Tag::Error => return out,
+            Tag::Element(Some(e)) if e.name == "manifest" => break e,
             _ => {}
         }
     };
-    let nome = "android:name";
-    let exigido = "android:required";
-    let recursos: Vec<&Elemento> = manifesto.filhos.iter().filter(|e| e.nome == "uses-feature").collect();
-    let permissoes: Vec<&Elemento> = manifesto.filhos.iter().filter(|e| e.nome == "uses-permission").collect();
+    let name = "android:name";
+    let required = "android:required";
+    let features: Vec<&Element> = manifesto.children.iter().filter(|e| e.name == "uses-feature").collect();
+    let permissoes: Vec<&Element> = manifesto.children.iter().filter(|e| e.name == "uses-permission").collect();
     // `_validateTouchScreenFeature`.
     let tela = "android.hardware.touchscreen";
-    match recursos.iter().find(|e| e.valor(nome) == Some(tela)) {
-        Some(recurso) => {
-            if recurso.atributo(exigido).is_none() {
-                relatar(&mut out, recurso, Some(nome), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[tela]);
-            } else if recurso.valor(exigido) == Some("true") {
-                relatar(&mut out, recurso, Some(nome), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[tela]);
+    match features.iter().find(|e| e.value(name) == Some(tela)) {
+        Some(feature) => {
+            if feature.attribute(required).is_none() {
+                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[tela]);
+            } else if feature.value(required) == Some("true") {
+                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[tela]);
             }
         }
-        None => relatar(&mut out, &manifesto, None, &c::NO_TOUCHSCREEN_FEATURE, &[]),
+        None => report(&mut out, &manifesto, None, &c::NO_TOUCHSCREEN_FEATURE, &[]),
     }
     // `_validateFeatures`.
-    for recurso in &recursos {
-        let Some(valor) = recurso.valor(nome).filter(|v| HARDWARE_SEM_SUPORTE.contains(v)) else { continue };
-        if recurso.atributo(exigido).is_none() {
-            relatar(&mut out, recurso, Some(nome), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[valor]);
-        } else if recurso.valor(exigido) == Some("true") {
-            relatar(&mut out, recurso, Some(nome), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[valor]);
+    for feature in &features {
+        let Some(value) = feature.value(name).filter(|v| UNSUPPORTED_HARDWARE.contains(v)) else { continue };
+        if feature.attribute(required).is_none() {
+            report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[value]);
+        } else if feature.value(required) == Some("true") {
+            report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[value]);
         }
     }
     // `_validatePermissions`.
-    let tem = |recurso: &str| recursos.iter().any(|e| e.valor(nome) == Some(recurso));
-    for permissao in &permissoes {
-        if permissao.valor(nome) == Some("android.permission.CAMERA") {
-            if !tem("android.hardware.camera") || !tem("android.hardware.camera.autofocus") {
-                relatar(&mut out, permissao, Some(nome), &c::CAMERA_PERMISSIONS_INCOMPATIBLE, &[]);
+    let has = |feature: &str| features.iter().any(|e| e.value(name) == Some(feature));
+    for permission in &permissoes {
+        if permission.value(name) == Some("android.permission.CAMERA") {
+            if !has("android.hardware.camera") || !has("android.hardware.camera.autofocus") {
+                report(&mut out, permission, Some(name), &c::CAMERA_PERMISSIONS_INCOMPATIBLE, &[]);
             }
-        } else if let Some(hardware) = permissao.valor(nome).and_then(hardware_da_permissao) {
-            relatar(&mut out, permissao, Some(nome), &c::PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE, &[hardware]);
+        } else if let Some(hardware) = permission.value(name).and_then(implied_hardware) {
+            report(&mut out, permission, Some(name), &c::PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE, &[hardware]);
         }
     }
-    // `_validateActivity`, nas atividades da primeira `application`.
-    if let Some(aplicacao) = manifesto.filhos.iter().find(|e| e.nome == "application") {
-        for atividade in aplicacao.filhos.iter().filter(|e| e.nome == "activity") {
-            let orientacao = "android:screenorientation";
-            if atividade.valor(orientacao).is_some_and(|v| ORIENTACOES_SEM_SUPORTE.contains(&v)) {
-                relatar(&mut out, atividade, Some(orientacao), &c::SETTING_ORIENTATION_ON_ACTIVITY, &[]);
+    // `_validateActivity`, on the activities of the first `application`.
+    if let Some(aplicacao) = manifesto.children.iter().find(|e| e.name == "application") {
+        for activity in aplicacao.children.iter().filter(|e| e.name == "activity") {
+            let orientation = "android:screenorientation";
+            if activity.value(orientation).is_some_and(|v| UNSUPPORTED_ORIENTATIONS.contains(&v)) {
+                report(&mut out, activity, Some(orientation), &c::SETTING_ORIENTATION_ON_ACTIVITY, &[]);
             }
             let redimensionavel = "android:resizeableactivity";
-            if atividade.valor(redimensionavel) == Some("false") {
-                relatar(&mut out, atividade, Some(redimensionavel), &c::NON_RESIZABLE_ACTIVITY, &[]);
+            if activity.value(redimensionavel) == Some("false") {
+                report(&mut out, activity, Some(redimensionavel), &c::NON_RESIZABLE_ACTIVITY, &[]);
             }
         }
     }
@@ -385,19 +385,19 @@ pub fn validar(fonte: &str) -> Vec<Relato> {
 mod testes {
     use super::*;
 
-    fn achados(fonte: &str) -> Vec<(&'static str, String)> {
-        validar(fonte).into_iter().map(|r| (r.codigo.nome, fonte[r.span.start..r.span.end].to_string())).collect()
+    fn findings(source: &str) -> Vec<(&'static str, String)> {
+        validate(source).into_iter().map(|r| (r.codigo.nome, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
     fn sem_tela_de_toque() {
-        let fonte = "<manifest>\n</manifest>\n";
-        assert_eq!(achados(fonte), vec![("no_touchscreen_feature", "<manifest>\n</manifest>".to_string())]);
+        let source = "<manifest>\n</manifest>\n";
+        assert_eq!(findings(source), vec![("no_touchscreen_feature", "<manifest>\n</manifest>".to_string())]);
     }
 
     #[test]
     fn recursos_permissoes_e_atividades() {
-        let fonte = concat!(
+        let source = concat!(
             "<?xml version=\"1.0\"?>\n",
             "<!-- comentário -->\n",
             "<manifest xmlns:android=\"x\">\n",
@@ -411,7 +411,7 @@ mod testes {
             "</manifest>\n",
         );
         assert_eq!(
-            achados(fonte),
+            findings(source),
             vec![
                 ("unsupported_chrome_os_hardware", "android:name=\"android.hardware.nfc".to_string()),
                 ("camera_permissions_incompatible", "android:name=\"android.permission.CAMERA".to_string()),
@@ -424,7 +424,7 @@ mod testes {
 
     #[test]
     fn xml_quebrado_nao_relata() {
-        assert!(achados("<manifest attr>").is_empty());
-        assert!(achados("sem marcas").is_empty());
+        assert!(findings("<manifest attr>").is_empty());
+        assert!(findings("sem marcas").is_empty());
     }
 }
