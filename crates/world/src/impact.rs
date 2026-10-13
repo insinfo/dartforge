@@ -413,7 +413,7 @@ fn use_receiver(m: &Engine<'_>, ctx: &Context, id: ExprId) -> Option<ClassId> {
 /// What a bare `name` records as an instance selector: not every identifier
 /// is dispatch on `this` — locals, parameters, types, top-level and statics
 /// are not, and recording them (even restricted) would poison
-/// `tem_restricao` and block the verifier's fix-up in the classes outside the
+/// `has_restriction` and block the verifier's fix-up in the classes outside the
 /// cone. The resolution decides; without a resolution or with `dynamic`, the
 /// earlier conservative choice (restricted to the enclosing class, or
 /// unrestricted when dynamic).
@@ -511,9 +511,9 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
         }
         StmtKind::Function(f) => walk_function(m, ctx, *f),
         StmtKind::Expression(x) => expr(m, ctx, *x),
-        StmtKind::If { condition, case_pattern: None, guard: None, then, else_ } if constante(m, ctx, *condition).is_some() => {
+        StmtKind::If { condition, case_pattern: None, guard: None, then, else_ } if constant_condition(m, ctx, *condition).is_some() => {
             // Dead branch by a constant condition: the emitter does not write it either.
-            if constante(m, ctx, *condition) == Some(true) {
+            if constant_condition(m, ctx, *condition) == Some(true) {
                 stmt(m, ctx, *then);
             } else if let Some(x) = else_ {
                 stmt(m, ctx, *x);
@@ -845,22 +845,22 @@ fn static_member(m: &mut Engine<'_>, ctx: &Context, target: StaticTarget, name: 
 
 /// `assert`s disabled in the production profile.
 fn no_asserts(m: &Engine<'_>) -> bool {
-    m.constants.as_ref().is_some_and(|c| c.sem_asserts())
+    m.constants.as_ref().is_some_and(|c| c.without_asserts())
 }
 
 /// Is the condition `x` constant (`constants.rs`)? Only for the forms that
 /// the emitter also folds (identifier, property, `!`, `&&`, `||`,
 /// parentheses); a literal does not count (there is nothing to save).
-pub(crate) fn constante(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<bool> {
+pub(crate) fn constant_condition(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<bool> {
     let c = m.constants.as_ref()?;
     match &m.e.program.unit(ctx.unit).ast.expr(x).kind {
-        ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => c.bool_de(ctx.unit, x),
+        ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => c.bool_of(ctx.unit, x),
         _ => None,
     }
 }
 
 fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
-    if constante(m, ctx, id).is_some() {
+    if constant_condition(m, ctx, id).is_some() {
         return;
     }
     let e = m.e;
@@ -1104,7 +1104,7 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             expr(m, ctx, *left);
             expr(m, ctx, *right);
         }
-        ExprKind::Conditional { condition, then, else_ } => match constante(m, ctx, *condition) {
+        ExprKind::Conditional { condition, then, else_ } => match constant_condition(m, ctx, *condition) {
             Some(true) => expr(m, ctx, *then),
             Some(false) => expr(m, ctx, *else_),
             None => {

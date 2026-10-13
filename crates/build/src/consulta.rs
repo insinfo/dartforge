@@ -28,7 +28,7 @@ pub enum Consulta {
     ApiBiblioteca(String),
     /// Surface of a declaration: signature, annotations, public members.
     Declaracao { biblioteca: String, nome: String },
-    /// Term of an engine index (e.g. `("ng.seletor", "x-y")`).
+    /// Term of an engine index (e.g. `("ng.selector", "x-y")`).
     Indice { espaco: &'static str, termo: String },
     /// Conservative: the text of all the library's units.
     FonteBiblioteca(String),

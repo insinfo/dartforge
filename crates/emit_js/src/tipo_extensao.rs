@@ -34,7 +34,7 @@ use dartforge_types::table::Type;
 use std::collections::HashMap;
 
 /// `c` is an erased extension type (not JS interop).
-pub fn e_tipo_extensao_apagado(ctx: &Ctx, c: ClassId) -> bool {
+pub fn is_erased_extension_type(ctx: &Ctx, c: ClassId) -> bool {
     ctx.program.class(c).kind == ClassKind::ExtensionType && !ctx.interop_ext_types.contains(&c) && !ctx.is_js_class(c)
 }
 
@@ -57,8 +57,8 @@ fn constructor_js_name(name: &str) -> String {
 }
 
 /// `c` has constructor `name` (`""` is the unnamed one), the primary one included.
-pub fn tem_construtor(ctx: &Ctx, c: ClassId, name: &str) -> bool {
-    if nome_do_primario(ctx, c).as_deref() == Some(name) {
+pub fn has_constructor(ctx: &Ctx, c: ClassId, name: &str) -> bool {
+    if primary_constructor_name(ctx, c).as_deref() == Some(name) {
         return true;
     }
     let key = if name.is_empty() { ctx.empty_sym } else { ctx.sym(name) };
@@ -66,7 +66,7 @@ pub fn tem_construtor(ctx: &Ctx, c: ClassId, name: &str) -> bool {
 }
 
 /// Name of the primary constructor (the representation) of `c`: `""` for the unnamed one.
-pub(crate) fn nome_do_primario(ctx: &Ctx, c: ClassId) -> Option<String> {
+pub(crate) fn primary_constructor_name(ctx: &Ctx, c: ClassId) -> Option<String> {
     let decl = ctx.program.class(c).decl?;
     match &ctx.program.unit(decl.unit).ast.decl(decl.decl).kind {
         DeclKind::ExtensionType(ed) => Some(ed.constructor.map(|n| ctx.name(n.sym).to_string()).unwrap_or_default()),
@@ -79,9 +79,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// inference resolved for `e` (read, call, write or operator): the type that
     /// declares it and the member. Statics are left out (the support object has
     /// them the way a class has them).
-    pub fn membro_de_tipo_extensao(&self, e: ExprId) -> Option<(ClassId, MemberRef)> {
-        let Resolved::Member { class, member, via_super: false } = self.resolucao_comum(e)? else { return None };
-        if !e_tipo_extensao_apagado(self.ctx, *class) {
+    pub fn ext_type_member(&self, e: ExprId) -> Option<(ClassId, MemberRef)> {
+        let Resolved::Member { class, member, via_super: false } = self.common_resolution(e)? else { return None };
+        if !is_erased_extension_type(self.ctx, *class) {
             return None;
         }
         let is_static = match member {
@@ -123,7 +123,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// `recv.member` (getter, representation or method tear-off).
-    pub fn tipo_ext_ler(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, member: MemberRef) -> (Js, Ty) {
+    pub fn ext_type_read(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, member: MemberRef) -> (Js, Ty) {
         let (targs, subst) = self.receiver_type_args(recv_e, owner);
         let fid = match member {
             MemberRef::Variable(_) => return (recv.clone(), self.representation(owner, &subst)),
@@ -161,7 +161,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn ext_type_tearoff(&mut self, recv: &Js, support: &str, key: &str, targs: Vec<String>, fid: FunctionElementId, subst: &HashMap<u32, Ty>) -> (Js, Ty) {
         let ty = self.ctx.fn_ty(fid).subst_prop(subst);
         let Ty::Fn { type_params, pos, opt, named, .. } = &ty else { return (Js::prim("null"), Ty::Dynamic) };
-        let mut ps: Vec<String> = type_params.iter().map(|p| self.nome_js_parametro_de_tipo(&p.name)).collect();
+        let mut ps: Vec<String> = type_params.iter().map(|p| self.type_param_js_name(&p.name)).collect();
         let tps = ps.clone();
         ps.extend((0..pos.len() + opt.len()).map(|i| format!("a{i}")));
         if !named.is_empty() {
@@ -189,11 +189,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// `recv.member(args)`: method or operator through the support function; a
     /// getter or a representation of function type calls the value read.
-    pub fn tipo_ext_chamar(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, member: MemberRef, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+    pub fn ext_type_call(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, member: MemberRef, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
         let fid = match member {
             MemberRef::Function(f) if !matches!(self.ctx.program.function(f).kind, FunctionKind::Getter) => f,
             _ => {
-                let (g, gty) = self.tipo_ext_ler(recv, recv_e, owner, member);
+                let (g, gty) = self.ext_type_read(recv, recv_e, owner, member);
                 return self.emit_fn_value_call(&g, &gty, arguments, expected);
             }
         };
@@ -211,7 +211,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Instance operator (`a + b`, `-a`, `a[i]`) with already emitted operands.
-    pub fn tipo_ext_operador(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, fid: FunctionElementId, operands: &[Js]) -> (Js, Ty) {
+    pub fn ext_type_operator(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, fid: FunctionElementId, operands: &[Js]) -> (Js, Ty) {
         let (targs, subst) = self.receiver_type_args(recv_e, owner);
         let f = self.ctx.program.function(fid);
         let key = instance_key(f.kind, self.name(f.name));
@@ -228,7 +228,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Type of parameter `i` of an extension type member (context of an
     /// operator's operand), with the receiver's type arguments.
-    pub fn tipo_ext_parametro(&self, recv_e: Option<ExprId>, owner: ClassId, fid: FunctionElementId, i: usize) -> Option<Ty> {
+    pub fn ext_type_param(&self, recv_e: Option<ExprId>, owner: ClassId, fid: FunctionElementId, i: usize) -> Option<Ty> {
         let (_, subst) = self.receiver_type_args(recv_e, owner);
         match self.ctx.fn_ty(fid).subst_prop(&subst) {
             Ty::Fn { pos, opt, .. } => pos.iter().chain(opt.iter()).nth(i).cloned(),
@@ -239,7 +239,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `recv.name = v` through an extension type setter. The value of the
     /// expression is `v` (the setter's support function does not return it), kept
     /// in a temporary after the receiver is evaluated.
-    pub fn tipo_ext_escrever(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, fid: FunctionElementId, v: &Js, vty: &Ty) -> (Js, Ty) {
+    pub fn ext_type_write(&mut self, recv: &Js, recv_e: Option<ExprId>, owner: ClassId, fid: FunctionElementId, v: &Js, vty: &Ty) -> (Js, Ty) {
         let (targs, _) = self.receiver_type_args(recv_e, owner);
         let f = self.ctx.program.function(fid);
         let key = instance_key(FunctionKind::Setter, self.name(f.name).trim_end_matches("_="));
@@ -258,14 +258,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// The instance operator `op` (`[]`, `[]=`) of `owner`.
-    pub fn operador_de_tipo_extensao(&self, owner: ClassId, op: &str) -> Option<FunctionElementId> {
+    pub fn ext_type_operator_fn(&self, owner: ClassId, op: &str) -> Option<FunctionElementId> {
         self.ctx.program.class(owner).instance_members.get(&self.ctx.sym(op)?).copied()
     }
 
     /// The instance setter `name` of `owner` (or of an extension type it
     /// implements), for a write whose shared resolution points to the getter with
     /// the same name.
-    pub fn setter_de_tipo_extensao(&self, owner: ClassId, name: &str) -> Option<FunctionElementId> {
+    pub fn ext_type_setter(&self, owner: ClassId, name: &str) -> Option<FunctionElementId> {
         let sym = self.ctx.sym(&format!("{name}_="))?;
         let f = *self.ctx.program.class(owner).instance_members.get(&sym)?;
         (self.ctx.program.function(f).kind == FunctionKind::Setter).then_some(f)
@@ -275,10 +275,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// The primary constructor is the value of the argument; the others are the
     /// support function, with the type arguments (explicit or inferred from the
     /// arguments) in front.
-    pub fn tipo_ext_construir(&mut self, c: ClassId, class_args: Vec<Ty>, explicit_args: bool, ctor_name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+    pub fn ext_type_construct(&mut self, c: ClassId, class_args: Vec<Ty>, explicit_args: bool, ctor_name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
         let params = self.ctx.class_params[c.0 as usize].clone();
         let explicit: HashMap<u32, Ty> = if explicit_args { params.iter().zip(class_args.iter()).map(|(p, a)| (p.id, a.clone())).collect() } else { HashMap::new() };
-        if nome_do_primario(self.ctx, c).as_deref() == Some(ctor_name) {
+        if primary_constructor_name(self.ctx, c).as_deref() == Some(ctor_name) {
             // The argument's context is the representation only when it does not
             // depend on type arguments still to be inferred.
             let rep = if explicit_args || params.is_empty() { Some(self.representation(c, &explicit)) } else { None };
@@ -301,7 +301,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.emit_args_infer(&ctor_fn.subst(&subst), arguments, &[], &mut HashMap::new(), expected).0
         } else {
             let (a, _) = self.emit_args_infer(&ctor_fn, arguments, &free, &mut subst, None);
-            self.restringir_pelos_limites(&params, &free, &mut subst);
+            self.constrain_by_bounds(&params, &free, &mut subst);
             a
         };
         let mut all: Vec<String> = Vec::new();
@@ -317,12 +317,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Tear-off `E.name` / `E.new` of an erased extension type constructor.
-    pub fn tipo_ext_tearoff_construtor(&mut self, c: ClassId, targs: Vec<Ty>, name: &str) -> Option<(Js, Ty)> {
+    pub fn ext_type_ctor_tearoff(&mut self, c: ClassId, targs: Vec<Ty>, name: &str) -> Option<(Js, Ty)> {
         let ctor_name = if name == "new" { "" } else { name };
         let params = self.ctx.class_params[c.0 as usize].clone();
         let subst: HashMap<u32, Ty> = params.iter().zip(targs.iter()).map(|(p, a)| (p.id, a.clone())).collect();
         let rep = self.representation(c, &subst);
-        let ty = if nome_do_primario(self.ctx, c).as_deref() == Some(ctor_name) {
+        let ty = if primary_constructor_name(self.ctx, c).as_deref() == Some(ctor_name) {
             Ty::Fn { type_params: vec![], ret: Box::new(rep.clone()), pos: vec![rep], opt: vec![], named: vec![], nullable: false }
         } else {
             let key = if ctor_name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(ctor_name) };
@@ -357,8 +357,8 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
     let cref = format!("{lvar}.{cname}");
     let ast = &ctx.program.unit(unit).ast;
     let mut cw = Writer { indent: 1, ..Default::default() };
-    let live = |f: FunctionElementId| ctx.estado_fn(f) != crate::filtro::Estado::Morta;
-    let pruned = |f: FunctionElementId| ctx.estado_fn(f) == crate::filtro::Estado::Stub;
+    let live = |f: FunctionElementId| ctx.fn_state(f) != crate::filtro::Estado::Dead;
+    let pruned = |f: FunctionElementId| ctx.fn_state(f) == crate::filtro::Estado::Stub;
     let mut static_fields = Vec::new();
     // The primary constructor: identity.
     let tps: Vec<String> = ctx.class_params[c.0 as usize].iter().map(|p| js::ident(&p.name)).collect();
@@ -402,7 +402,7 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
                     format!("static [{}]", js::string_literal(&instance_key(f.kind, &name)))
                 };
                 if pruned(feid) {
-                    let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &name));
+                    let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &name));
                     let text = match af.kind {
                         ast::FunctionKind::Getter if af.static_ => format!("{head}() {{ return dart_podado({r}); }}"),
                         ast::FunctionKind::Setter if af.static_ => format!("{head}(v) {{ dart_podado({r}); }}"),
@@ -439,7 +439,7 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
     }
     for &vid in &class.fields {
         let v = ctx.program.variable(vid);
-        if v.static_ && ctx.estado_var(vid) != crate::filtro::Estado::Morta {
+        if v.static_ && ctx.var_state(vid) != crate::filtro::Estado::Dead {
             static_fields.push(vid);
         }
     }
@@ -451,8 +451,8 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
     for vid in static_fields {
         let v = ctx.program.variable(vid);
         let name = static_member_name(ctx.name(v.name));
-        if ctx.estado_var(vid) == crate::filtro::Estado::Stub {
-            let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &name));
+        if ctx.var_state(vid) == crate::filtro::Estado::Stub {
+            let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &name));
             lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(&name)));
             continue;
         }
@@ -497,7 +497,7 @@ fn member_emitter<'m, 'a>(ctx: &'m Ctx<'a>, m: &'m ModState, c: ClassId, unit: d
     let mut tps = Vec::new();
     let mut params = Vec::new();
     for p in ctx.class_params[c.0 as usize].iter() {
-        let jsn = e.nome_js_parametro_de_tipo(&p.name);
+        let jsn = e.type_param_js_name(&p.name);
         e.fn_type_params.push((p.id, jsn.clone()));
         tps.push(jsn);
         params.push(Ty::Param { id: p.id, name: p.name.clone(), nullable: false });
@@ -524,7 +524,7 @@ fn member_text(ctx: &Ctx, m: &ModState, c: ClassId, fid: FunctionElementId, head
     let data = &ctx.outline.functions[fid.0 as usize];
     for &pid in data.type_params.iter() {
         let p = ctx.ty_param_of(pid);
-        let jsn = e.nome_js_parametro_de_tipo(&p.name);
+        let jsn = e.type_param_js_name(&p.name);
         e.fn_type_params.insert(0, (p.id, jsn.clone()));
         ps.push(jsn);
     }
@@ -574,7 +574,7 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
                 let mut named = Vec::new();
                 for (k, dart, jsn) in &names {
                     match k {
-                        ast::ParameterKind::Named => named.push(format!("{}: {jsn}", js::prop_key(&ctx.nomeado(dart)))),
+                        ast::ParameterKind::Named => named.push(format!("{}: {jsn}", js::prop_key(&ctx.named_key(dart)))),
                         _ => args.push(jsn.clone()),
                     }
                 }
@@ -582,7 +582,7 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
                     args.push(format!("{{{}}}", named.join(", ")));
                 }
                 let tref = e.class_ref(tc);
-                if e_tipo_extensao_apagado(ctx, tc) {
+                if is_erased_extension_type(ctx, tc) {
                     format!("return {tref}.{}({});", constructor_js_name(&tname), args.join(", "))
                 } else {
                     String::new()
@@ -630,11 +630,11 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
             ast::Initializer::Redirect { constructor, arguments, .. } => {
                 let n = constructor.map(|n| ctx.name(n.sym).to_string()).unwrap_or_default();
                 let args: Vec<Ty> = ctx.class_params[c.0 as usize].iter().map(|p| Ty::Param { id: p.id, name: p.name.clone(), nullable: false }).collect();
-                let (js, _) = e.tipo_ext_construir(c, args, true, &n, arguments, None);
+                let (js, _) = e.ext_type_construct(c, args, true, &n, arguments, None);
                 flush_stmts(&mut e, &mut body);
                 crate::linha!(body, "$this = {};", js.code);
             }
-            ast::Initializer::Assert { .. } if e.ctx.filtro.is_some_and(|f| !f.manter_asserts()) => {}
+            ast::Initializer::Assert { .. } if e.ctx.filtro.is_some_and(|f| !f.keep_asserts()) => {}
             ast::Initializer::Assert { condition, message, .. } => {
                 let (cjs, _) = e.emit_cond(*condition);
                 let msg = message.map(|mm| e.emit_expr(mm, None).0.code).unwrap_or("null".into());

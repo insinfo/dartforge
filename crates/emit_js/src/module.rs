@@ -5,7 +5,7 @@ use crate::body::{js_member_name, static_member_name, AsyncKind, FnEmitter};
 use crate::ctx::Ctx;
 use crate::js::{self, Js, Writer, P_ASSIGN};
 use crate::ty::Ty;
-use crate::Emitido;
+use crate::Emitted;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, FunctionBody, MemberKind};
@@ -60,7 +60,7 @@ impl ModState {
         // libraries. No `dart.privateName` declaration per name, and property
         // renaming shortens it (`docs/JS-PRODUCAO-TAMANHO.md` §3.4).
         if ctx.sdk.is_some() && !ctx.libs[lib.0 as usize].is_sdk {
-            return js::string_literal(&crate::nome_privado_de_producao(name, lib));
+            return js::string_literal(&crate::production_private_name(name, lib));
         }
         let _ = self.lib_var(ctx, lib);
         let ident = ctx.lib_ident(lib).to_string();
@@ -134,20 +134,20 @@ pub enum FragmentKey {
 
 /// Cache of fragments across compilations, owned by the session.
 #[derive(Default)]
-pub struct CacheFragmentos {
+pub struct FragmentCache {
     pub(crate) map: HashMap<FragmentKey, Fragment>,
 }
 
-impl CacheFragmentos {
+impl FragmentCache {
     /// Discards the fragments of the given libraries (the ones that changed).
-    pub fn invalidar(&mut self, ctx: &Ctx, libs: &[LibraryId]) {
+    pub fn invalidate(&mut self, ctx: &Ctx, libs: &[LibraryId]) {
         let target: HashSet<u32> = libs.iter().map(|l| l.0).collect();
         self.map.retain(|k, _| match k {
             FragmentKey::Rest(l) => !target.contains(l),
             FragmentKey::Class(c) => !target.contains(&ctx.program.classes[*c as usize].library.0),
         });
     }
-    pub fn limpar(&mut self) {
+    pub fn clear(&mut self) {
         self.map.clear();
     }
     pub fn len(&self) -> usize {
@@ -188,7 +188,7 @@ pub fn dartx_var(name: &str) -> String {
 }
 
 /// Emits all modules of the program.
-pub fn emit(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
+pub fn emit(ctx: &Ctx) -> Result<Emitted, Vec<Diagnostic>> {
     emit_filtered(ctx, None)
 }
 
@@ -196,9 +196,9 @@ pub fn emit(ctx: &Ctx) -> Result<Emitido, Vec<Diagnostic>> {
 /// libraries in `only` (resident session: the rest stays valid from the previous
 /// compilation). `None` emits everything.
 ///
-/// The skipped modules do not go into `Emitido::modulos`; the caller merges them
+/// The skipped modules do not go into `Emitted::modulos`; the caller merges them
 /// with what it already had.
-pub fn emit_filtered(ctx: &Ctx, only: Option<&HashSet<u32>>) -> Result<Emitido, Vec<Diagnostic>> {
+pub fn emit_filtered(ctx: &Ctx, only: Option<&HashSet<u32>>) -> Result<Emitted, Vec<Diagnostic>> {
     emit_with_cache(ctx, only, None)
 }
 
@@ -206,8 +206,8 @@ pub fn emit_filtered(ctx: &Ctx, only: Option<&HashSet<u32>>) -> Result<Emitido, 
 pub fn emit_with_cache(
     ctx: &Ctx,
     only: Option<&HashSet<u32>>,
-    cache: Option<&RefCell<CacheFragmentos>>,
-) -> Result<Emitido, Vec<Diagnostic>> {
+    cache: Option<&RefCell<FragmentCache>>,
+) -> Result<Emitted, Vec<Diagnostic>> {
     // Pruned text never goes into the fragment cache of `dartforge serve`.
     debug_assert!(ctx.filtro.is_none() || cache.is_none(), "production filter with a fragment cache");
     let mut modules = Vec::new();
@@ -242,7 +242,7 @@ pub fn emit_with_cache(
     if let Some(c) = &ctx.conferencia {
         c.borrow().report();
     }
-    let errors = std::mem::take(&mut *ctx.erros.borrow_mut());
+    let errors = std::mem::take(&mut *ctx.errors.borrow_mut());
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -251,7 +251,7 @@ pub fn emit_with_cache(
     let entry = format!(
         "if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
     );
-    Ok(Emitido { modulos: modules, entrada: entry })
+    Ok(Emitted { modulos: modules, entrada: entry })
 }
 
 fn lib_main_is_async(ctx: &Ctx, lib: LibraryId) -> bool {
@@ -295,7 +295,7 @@ pub(crate) fn order_classes(ctx: &Ctx, classes: &[ClassId]) -> Vec<ClassId> {
     out
 }
 
-fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<CacheFragmentos>>) -> String {
+fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCache>>) -> String {
     let lib = group[0];
     let mut m = ModState::new(lib);
     m.group = group.to_vec();
@@ -306,7 +306,7 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<CacheFragme
     let in_group = |l: LibraryId| group.contains(&l);
     let mut classes: Vec<ClassId> = Vec::new();
     for (i, c) in ctx.program.classes.iter().enumerate() {
-        if in_group(c.library) && c.decl.is_some() && ctx.nivel_classe(ClassId(i as u32)) != crate::filtro::Nivel::Morta {
+        if in_group(c.library) && c.decl.is_some() && ctx.class_level(ClassId(i as u32)) != crate::filtro::Nivel::Dead {
             classes.push(ClassId(i as u32));
         }
     }
@@ -447,13 +447,13 @@ pub(crate) fn emit_library_rest_parts(ctx: &Ctx, m: &ModState, lib: LibraryId, b
     let mut functions: Vec<FunctionElementId> = Vec::new();
     let mut variables: Vec<VariableId> = Vec::new();
     for (i, f) in ctx.program.functions.iter().enumerate() {
-        if f.library == lib && f.class.is_none() && f.kind != FunctionKind::ImplicitAccessor && ctx.estado_fn(FunctionElementId(i as u32)) != crate::filtro::Estado::Morta {
+        if f.library == lib && f.class.is_none() && f.kind != FunctionKind::ImplicitAccessor && ctx.fn_state(FunctionElementId(i as u32)) != crate::filtro::Estado::Dead {
             functions.push(FunctionElementId(i as u32));
         }
     }
     let mut ext_variables: Vec<VariableId> = Vec::new();
     for (i, v) in ctx.program.variables.iter().enumerate() {
-        if v.library == lib && v.class.is_none() && ctx.estado_var(VariableId(i as u32)) != crate::filtro::Estado::Morta {
+        if v.library == lib && v.class.is_none() && ctx.var_state(VariableId(i as u32)) != crate::filtro::Estado::Dead {
             if v.extension.is_none() {
                 variables.push(VariableId(i as u32));
             } else {
@@ -552,7 +552,7 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
             continue; // erased to `_interceptors|JSObject` in the recipes
         }
         if ctx.is_js_class(c) {
-            entries.push(format!("{}:{}", json_str(&ctx.class_recipe(c)), json_str(&ctx.receita_de("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject"))));
+            entries.push(format!("{}:{}", json_str(&ctx.class_recipe(c)), json_str(&ctx.recipe_of("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject"))));
             interop.push(ctx.class_recipe(c));
             continue;
         }
@@ -580,8 +580,8 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
             let Ty::Iface { class: sc, args, .. } = &s else { continue };
             // The supertype's `addRules` takes one argument per parameter it
             // declares; a raw supertype (`implements Box`) counts as
-            // `Box<dynamic>` (`Ctx::args_na_aridade`).
-            let args = ctx.args_na_aridade(*sc, args);
+            // `Box<dynamic>` (`Ctx::args_at_arity`).
+            let args = ctx.args_at_arity(*sc, args);
             let sparams = &ctx.class_params[sc.0 as usize];
             for (p, a) in sparams.iter().zip(args.iter()) {
                 items.push(format!("\"{}.{}\":{}", ctx.class_name(*sc), p.name, json_str(&rule_recipe(ctx, a, c))));
@@ -605,7 +605,7 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         interop.sort();
         m.use_sdk("_interceptors");
         let update: Vec<String> = interop.iter().map(|r| format!("{}:[]", json_str(r))).collect();
-        let ljo = ctx.receita_de("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject");
+        let ljo = ctx.recipe_of("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject");
         out.push_str(&format!(
             "dart_rti._Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse({}));\n",
             js::string_literal(&format!("{{{}:{{{}}}}}", json_str(&ljo), update.join(",")))
@@ -646,8 +646,8 @@ fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
         Ty::Null => ctx.null_.map(|n| ctx.class_recipe(n)).unwrap_or("core|Null".into()),
         Ty::Iface { class: c, args, nullable } => {
             let mut s = ctx.class_recipe(*c);
-            // Declared arity, always (`Ctx::args_na_aridade`).
-            let args = ctx.args_na_aridade(*c, args);
+            // Declared arity, always (`Ctx::args_at_arity`).
+            let args = ctx.args_at_arity(*c, args);
             if !args.is_empty() {
                 s.push('<');
                 let parts: Vec<String> = args.iter().map(|a| rule_recipe(ctx, a, class)).collect();
@@ -725,7 +725,7 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
     let mut tp_js: Vec<String> = Vec::new();
     for &pid in data.type_params.iter() {
         let p = ctx.ty_param_of(pid);
-        let jsn = e.nome_js_parametro_de_tipo(&p.name);
+        let jsn = e.type_param_js_name(&p.name);
         e.fn_type_params.push((p.id, jsn.clone()));
         tp_js.push(jsn);
     }
@@ -741,7 +741,7 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
     e.ret_ty = ret_ty.clone();
     let mut extra_prologue = String::new();
     // SDK mode: `@NoReifyGeneric` does not declare the type parameters.
-    let mut params_js: Vec<String> = if crate::sdk_proprio::sem_generico(ctx, fid) { Vec::new() } else { tp_js };
+    let mut params_js: Vec<String> = if crate::sdk_proprio::no_reify_generic_fn(ctx, fid) { Vec::new() } else { tp_js };
     if let Some(t) = extension_this {
         // `$this` is the extension's receiver.
         params_js.push("$this".into());
@@ -834,7 +834,7 @@ fn nsm_forwarder(ctx: &Ctx, m: &ModState, c: ClassId, class_unit: UnitId, fid: F
                 }
                 for (i, (n, _, _)) in named.iter().enumerate() {
                     let jsn = format!("n{i}");
-                    let key = ctx.nomeado(n);
+                    let key = ctx.named_key(n);
                     prologue.push_str(&format!("let {jsn} = opts && {} in opts ? opts{} : null;
 ", js::string_literal(&key), js::prop_access(&key)));
                     names.push((ast::ParameterKind::Named, n.clone(), jsn));
@@ -912,8 +912,8 @@ pub(crate) fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId,
         emit_extension_function(ctx, m, fid, ext, w);
         return;
     }
-    if ctx.estado_fn(fid) == crate::filtro::Estado::Stub {
-        let r = js::string_literal(&ctx.rotulo_podado(f.library, None, name));
+    if ctx.fn_state(fid) == crate::filtro::Estado::Stub {
+        let r = js::string_literal(&ctx.pruned_label(f.library, None, name));
         match f.kind {
             FunctionKind::Getter => accessors.push((name.to_string(), format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(name)))),
             FunctionKind::Setter => accessors.push((name.to_string(), format!("set {}(v) {{ dart_podado({r}); }}", js::prop_key(name)))),
@@ -1022,8 +1022,8 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
         if ctx.is_js_var(vid) {
             continue;
         }
-        if ctx.estado_var(vid) == crate::filtro::Estado::Stub {
-            let r = js::string_literal(&ctx.rotulo_podado(lib, None, name));
+        if ctx.var_state(vid) == crate::filtro::Estado::Stub {
+            let r = js::string_literal(&ctx.pruned_label(lib, None, name));
             lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(name)));
             continue;
         }
@@ -1244,7 +1244,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         if ctx.filtro.is_some() {
             // The field's accessors: live if the implicit getter or setter is live.
             let vv = ctx.program.variable(f.vid);
-            let live = |x: Option<FunctionElementId>| x.is_some_and(|g| ctx.estado_fn(g) != crate::filtro::Estado::Morta);
+            let live = |x: Option<FunctionElementId>| x.is_some_and(|g| ctx.fn_state(g) != crate::filtro::Estado::Dead);
             if !live(vv.getter) && !live(vv.setter) {
                 continue;
             }
@@ -1343,8 +1343,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 if matches!(af.body, FunctionBody::Empty) && !af.external {
                     continue; // abstract
                 }
-                let state = ctx.estado_fn(feid);
-                if state == crate::filtro::Estado::Morta {
+                let state = ctx.fn_state(feid);
+                if state == crate::filtro::Estado::Dead {
                     continue;
                 }
                 // SDK mode: a static `external` without a body does not exist in
@@ -1381,7 +1381,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     _ => head,
                 };
                 if state == crate::filtro::Estado::Stub {
-                    let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &name));
+                    let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &name));
                     match af.kind {
                         ast::FunctionKind::Getter => cw.line(&format!("{head}() {{ return dart_podado({r}); }}")),
                         ast::FunctionKind::Setter => cw.line(&format!("{head}(v) {{ dart_podado({r}); }}")),
@@ -1449,13 +1449,13 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 if effective.is_some_and(|f| ctx.program.function(f).node != (FunctionRef::Constructor { unit: mu, member: mid })) {
                     continue;
                 }
-                let state = effective.map_or(crate::filtro::Estado::Viva, |f| ctx.estado_fn(f));
-                if state == crate::filtro::Estado::Morta {
+                let state = effective.map_or(crate::filtro::Estado::Live, |f| ctx.fn_state(f));
+                if state == crate::filtro::Estado::Dead {
                     continue;
                 }
                 if ctor.factory && state == crate::filtro::Estado::Stub {
                     let n = ctor.name.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into());
-                    let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &n));
+                    let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &n));
                     cw.line(&format!("static {}(...a) {{ return dart_podado({r}); }}", js::prop_key(&static_member_name(&n))));
                     static_methods.push(n);
                 } else if ctor.factory {
@@ -1471,7 +1471,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let _ = has_equals;
 
     // `[Symbol.iterator]` for Iterable classes whose superclass is not Iterable.
-    if !is_mixin && !native_class && ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada {
+    if !is_mixin && !native_class && ctx.class_level(c) == crate::filtro::Nivel::Instantiated {
         if let Some(it) = ctx.iterable_ {
             let declares_iterator = ctx.sym("iterator").is_some_and(|s| class.instance_members.contains_key(&s));
             let super_is_iterable = ctx.superclass_of(c).is_some_and(|sc| ctx.is_subclass(sc, it) && Some(sc) != ctx.object);
@@ -1482,7 +1482,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
 
     // `noSuchMethod` forwarders in concrete classes with abstract members.
-    if !class.modifiers.abstract_ && !is_mixin && ctx.has_user_nsm(c) && ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada {
+    if !class.modifiers.abstract_ && !is_mixin && ctx.has_user_nsm(c) && ctx.class_level(c) == crate::filtro::Nivel::Instantiated {
         m.use_sdk("_internal");
         m.use_sdk("core");
         let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
@@ -1493,8 +1493,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             // Abstract setter: the forwarder exists only if someone writes;
             // getter and method, if someone reads or calls.
             let live = match mk {
-                crate::ctx::MemberKind::Setter(_) => ctx.seletor_escrita(&name),
-                _ => ctx.seletor_vivo(&name),
+                crate::ctx::MemberKind::Setter(_) => ctx.write_selector(&name),
+                _ => ctx.selector_live(&name),
             };
             if !live {
                 continue;
@@ -1537,7 +1537,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
             // With its own type parameters the static tear-off does not exist
             // (the value is built at the use site, with the arguments).
-            if !ctx.class_params[c.0 as usize].is_empty() || !ctx.tearoff_vivo(cfid) {
+            if !ctx.class_params[c.0 as usize].is_empty() || !ctx.tearoff_live(cfid) {
                 continue;
             }
             let mut args = String::from("...args");
@@ -1654,16 +1654,16 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // With a filter: the synthetic one lives by its element; without an element
     // (class without constructors) or for an enum, by the instantiated class.
     let synthetic_state = if ctx.filtro.is_none() {
-        crate::filtro::Estado::Viva
+        crate::filtro::Estado::Live
     } else {
-        let by_class = if ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada { crate::filtro::Estado::Viva } else { crate::filtro::Estado::Morta };
+        let by_class = if ctx.class_level(c) == crate::filtro::Nivel::Instantiated { crate::filtro::Estado::Live } else { crate::filtro::Estado::Dead };
         match class.constructors.values().find(|f| ctx.program.function(**f).kind == FunctionKind::SyntheticConstructor) {
-            Some(f) if !is_enum => ctx.estado_fn(*f),
+            Some(f) if !is_enum => ctx.fn_state(*f),
             _ => by_class,
         }
     };
     if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && synthetic_state == crate::filtro::Estado::Stub {
-        let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), "new"));
+        let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), "new"));
         crate::linha!(w, "({cref}.new = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
     } else if ctor_members.is_empty() && !is_mixin && is_mixin_application(ctx, c) && !ctx.mixins_of(c).is_empty() {
         // `class C = S with M;`: a forwarding constructor for each generative
@@ -1680,7 +1680,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     .class(s)
                     .construtores()
                     .into_iter()
-                    .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.estado_fn(*f) != crate::filtro::Estado::Morta)
+                    .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.fn_state(*f) != crate::filtro::Estado::Dead)
                     .map(|(n, _)| {
                         let n = ctx.name(n);
                         if n.is_empty() { "new".to_string() } else { static_member_name(n) }
@@ -1702,7 +1702,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             let ti = if generic { "this.$ti = this.$ti || _ti || dart.getReifiedType(this); " } else { "" };
             crate::linha!(w, "({cref}.{n} = function({params}) {{ {ti}{call} }}).prototype = {cref}.prototype;");
         }
-    } else if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && synthetic_state == crate::filtro::Estado::Viva {
+    } else if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && synthetic_state == crate::filtro::Estado::Live {
         // Synthetic constructor.
         let jsname = "new";
         ctor_names.push(jsname.into());
@@ -1729,9 +1729,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let name = ctor.name.map(|n| ctx.name(n.sym).to_string());
         let jsname = name.clone().map(|n| static_member_name(&n)).unwrap_or("new".into());
         ctor_names.push(jsname.clone());
-        let state = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied()).map_or(crate::filtro::Estado::Viva, |f| ctx.estado_fn(f));
+        let state = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied()).map_or(crate::filtro::Estado::Live, |f| ctx.fn_state(f));
         if state == crate::filtro::Estado::Stub {
-            let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &jsname));
+            let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &jsname));
             crate::linha!(w, "({cref}.{jsname} = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
             continue;
         }
@@ -1794,12 +1794,12 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         }
     };
     // Production profile: only the entries that dynamic dispatch and the
-    // *tear-off* read (`Vivos::assinatura`); without a filter, all of them.
-    method_sigs.retain(|(n, _)| ctx.assinatura_viva(n));
-    generic_methods.retain(|(n, _)| ctx.assinatura_viva(n));
-    getter_sigs.retain(|(n, _)| ctx.assinatura_viva(n));
-    setter_sigs.retain(|(n, _)| ctx.assinatura_viva(n));
-    let fields_sig: Vec<&FieldInfo> = fields.iter().filter(|f| ctx.assinatura_viva(&f.name)).collect();
+    // *tear-off* read (`Liveness::signature`); without a filter, all of them.
+    method_sigs.retain(|(n, _)| ctx.signature_live(n));
+    generic_methods.retain(|(n, _)| ctx.signature_live(n));
+    getter_sigs.retain(|(n, _)| ctx.signature_live(n));
+    setter_sigs.retain(|(n, _)| ctx.signature_live(n));
+    let fields_sig: Vec<&FieldInfo> = fields.iter().filter(|f| ctx.signature_live(&f.name)).collect();
     if !method_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
         for (n, t) in method_sigs.iter() {
@@ -1837,7 +1837,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     // Production profile: only the statics that dynamic dispatch reads
     // (`dload`/`dsend` on a `Type`), like the instance signatures.
-    static_methods.retain(|n| ctx.assinatura_viva(n));
+    static_methods.retain(|n| ctx.signature_live(n));
     if !static_methods.is_empty() {
         let items: Vec<String> = static_methods.iter().map(|n| js::string_literal(&static_member_name(n))).collect();
         w.line(&format!("dart.setStaticMethodSignature({cref}, () => [{}]);", items.join(", ")));
@@ -1862,7 +1862,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         w.line(&format!("dart.setFieldSignature({cref}, {});", sig(&items, "getFields")));
     }
     // Statics: fields.
-    let static_fields: Vec<VariableId> = class.fields.iter().copied().filter(|v| ctx.program.variable(*v).static_ && ctx.estado_var(*v) != crate::filtro::Estado::Morta).collect();
+    let static_fields: Vec<VariableId> = class.fields.iter().copied().filter(|v| ctx.program.variable(*v).static_ && ctx.var_state(*v) != crate::filtro::Estado::Dead).collect();
     let mut static_names: Vec<String> = static_fields.iter().map(|v| ctx.name(ctx.program.variable(*v).name).to_string()).collect();
     if is_enum {
         static_names.insert(0, "values".into());
@@ -1870,7 +1870,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             static_names.push(ctx.name(ec.name.sym).to_string());
         }
     }
-    static_names.retain(|n| ctx.assinatura_viva(n));
+    static_names.retain(|n| ctx.signature_live(n));
     if !static_names.is_empty() {
         let items: Vec<String> = static_names.iter().map(|n| js::string_literal(&static_member_name(n))).collect();
         w.line(&format!("dart.setStaticFieldSignature({cref}, () => [{}]);", items.join(", ")));
@@ -1934,8 +1934,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     for vid in static_fields {
         let v = ctx.program.variable(vid);
         let name = static_member_name(ctx.name(v.name));
-        if ctx.estado_var(vid) == crate::filtro::Estado::Stub {
-            let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &name));
+        if ctx.var_state(vid) == crate::filtro::Estado::Stub {
+            let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &name));
             lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(&name)));
             continue;
         }
@@ -2076,11 +2076,11 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 .filter_map(|p| p.name.map(|n| ctx.name(n).to_string()))
                 .collect();
             // The literal's key is the JS name (interop); the read from `opts`
-            // uses the call's key (`Ctx::nomeado`).
+            // uses the call's key (`Ctx::named_key`).
             let props: Vec<String> = names
                 .iter()
                 .map(|n| {
-                    let c = ctx.nomeado(n);
+                    let c = ctx.named_key(n);
                     format!("{}: opts && {} in opts ? opts{} : null", js::prop_key(n), js::string_literal(&c), js::prop_access(&c))
                 })
                 .collect();
@@ -2185,7 +2185,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
                 .construtores()
                 .into_iter()
                 // With a filter: only forwards to a base constructor that is live.
-                .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.estado_fn(*f) != crate::filtro::Estado::Morta)
+                .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.fn_state(*f) != crate::filtro::Estado::Dead)
                 .map(|(s, _)| {
                     let n = ctx.name(s);
                     if n.is_empty() { "new".to_string() } else { n.to_string() }
@@ -2196,7 +2196,7 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
         // Base without a declared constructor: its synthetic `new` (with a filter,
         // it exists only if the base is instantiated).
         let base_without_ctor = base_class.is_some_and(|b| ctx.program.class(b).constructors.values().all(|f| ctx.program.function(*f).factory));
-        if ctor_names.is_empty() && (ctx.filtro.is_none() || (base_without_ctor && base_class.is_some_and(|b| ctx.nivel_classe(b) == crate::filtro::Nivel::Instanciada))) {
+        if ctor_names.is_empty() && (ctx.filtro.is_none() || (base_without_ctor && base_class.is_some_and(|b| ctx.class_level(b) == crate::filtro::Nivel::Instantiated))) {
             ctor_names.push("new".into());
         }
         for n in ctor_names {
@@ -2431,7 +2431,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                 let target = field_target(fields, &n);
                 crate::linha!(body, "{target} = {};", js.code);
             }
-            ast::Initializer::Assert { .. } if ctx.filtro.is_some_and(|f| !f.manter_asserts()) => {}
+            ast::Initializer::Assert { .. } if ctx.filtro.is_some_and(|f| !f.keep_asserts()) => {}
             ast::Initializer::Assert { condition, message, .. } => {
                 let (cjs, _) = e.emit_cond(*condition);
                 let msg = message.map(|mm| e.emit_expr(mm, None).0.code).unwrap_or("null".into());
@@ -2472,7 +2472,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                             let Some(n) = p.name else { continue };
                             let jsn = e.param_js_name(n);
                             if p.kind == ast::ParameterKind::Named {
-                                named_js.push(format!("{}: {jsn}", js::prop_key(&ctx.nomeado(ctx.name(n.sym)))));
+                                named_js.push(format!("{}: {jsn}", js::prop_key(&ctx.named_key(ctx.name(n.sym)))));
                             } else {
                                 pos_js.push(jsn);
                             }
@@ -2510,7 +2510,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                     let Some(n) = p.name else { continue };
                     let jsn = e.param_js_name(n);
                     if p.kind == ast::ParameterKind::Named {
-                        let named_key = ctx.nomeado(ctx.name(n.sym));
+                        let named_key = ctx.named_key(ctx.name(n.sym));
                         let key = js::prop_key(&named_key);
                         if p.default_value.is_none() && !p.required {
                             super_named.push(format!("...(opts && {} in opts ? {{{key}: {jsn}}} : {{}})", js::string_literal(&named_key)));

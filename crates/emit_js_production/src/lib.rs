@@ -65,7 +65,7 @@ pub struct Production {
 /// a report, not just a number).
 #[derive(Debug, Clone, Default)]
 pub struct WorldReport {
-    pub stats: dartforge_world::Estatisticas,
+    pub stats: dartforge_world::Statistics,
     /// World computation (all rounds).
     pub world_time: Duration,
     /// Filtered emission (all rounds).
@@ -143,7 +143,7 @@ pub fn compile_own_sdk(
     op: Options,
     language: &dartforge_elements::sdk::Linguagem,
 ) -> Result<Production, String> {
-    let ((e, report, names, rti), _) = dartforge_emit_js::compilar_com_opcoes(input, sdk_lib, packages, language, None, true, |a| {
+    let ((e, report, names, rti), _) = dartforge_emit_js::compile_with_options(input, sdk_lib, packages, language, None, true, |a| {
         let (e, report) = own_sdk::emit(a, op)?;
         let empty = std::collections::HashSet::new();
         let names = properties::compute(a, report.as_ref().map_or(&empty, |r| &r.js_names), report.as_ref().and_then(|r| r.named_args.as_ref()).map(|n| &n.map));
@@ -177,7 +177,7 @@ pub fn compile(
     let t = Instant::now();
     let (index, origin) = cache::load(&sdk_text, op.per_member);
     let index_time = t.elapsed();
-    let ((emitted, report), _) = dartforge_emit_js::compilar_com(input, sdk_lib, packages, language, |a| emit_with_world(a, &index, op))?;
+    let ((emitted, report), _) = dartforge_emit_js::compile_with(input, sdk_lib, packages, language, |a| emit_with_world(a, &index, op))?;
     let mut p = assemble_with_index(&emitted, &sdk_text, op, &index);
     p.world = report;
     p.index = Some((origin, index_time));
@@ -187,7 +187,7 @@ pub fn compile(
 /// Roots of the user's world as seen from JS: `main` and the names that
 /// `dart_sdk.js` calls by string (`sdk::dynamic_selectors`, stored in the
 /// index).
-fn roots(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex) -> dartforge_world::Raizes {
+fn roots(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex) -> dartforge_world::Raizes {
     use dartforge_elements::model::Element;
     let mut r = dartforge_world::Raizes::default();
     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
@@ -205,9 +205,9 @@ fn roots(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex) -> dartforge
 /// # Errors
 ///
 /// Those of the emission.
-pub fn emit_with_world(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex, op: Options) -> Result<(dartforge_emit_js::Emitido, Option<WorldReport>), String> {
+pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex, op: Options) -> Result<(dartforge_emit_js::Emitted, Option<WorldReport>), String> {
     if !op.prune_user {
-        return Ok((a.emitir(None)?, None));
+        return Ok((a.emit(None)?, None));
     }
     let input = dartforge_world::Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
     let mut report = WorldReport::default();
@@ -223,7 +223,7 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex
         report.world_time += t.elapsed();
         let ad = filter::Adapter { world: &world, program: a.program, stub: op.stub, signatures: None, constants: None, named_args: None, omit_checks: false };
         let t = Instant::now();
-        let emitted = a.emitir(Some(&ad))?;
+        let emitted = a.emit(Some(&ad))?;
         report.emit_time += t.elapsed();
         let t = Instant::now();
         // JS identifier → library, to translate `L$x.Name` into an element.
@@ -242,14 +242,14 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex
                 // never with the pruned version that still references what it
                 // removed.
                 let t = Instant::now();
-                emitted = a.emitir(None)?;
+                emitted = a.emit(None)?;
                 report.emit_time += t.elapsed();
                 report.pruning_disabled = true;
                 report.fixes.push("user code pruning disabled: the analysis did not converge".to_string());
             }
             report.stats = world.estat.clone();
             if std::env::var("DARTFORGE_JSPROD_CONFERIR").is_ok_and(|v| v != "0") {
-                let inc = dartforge_world::conferir(input, &roots, &world);
+                let inc = dartforge_world::check_consistency(input, &roots, &world);
                 for i in inc.iter().take(10) {
                     eprintln!("[jsprod] world inconsistency: {i:?}");
                 }
@@ -263,7 +263,7 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex
         report.fixes.extend(missing.description.iter().cloned());
         roots.funcoes.extend(missing.functions);
         roots.variaveis.extend(missing.variables);
-        roots.classes_tipo.extend(missing.classes);
+        roots.type_classes.extend(missing.classes);
         roots.classes_instanciadas.extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
         roots.seletores.extend(missing.selectors);
@@ -273,24 +273,24 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex
 
 /// `DARTFORGE_JSPROD_POR=Name`: why the class (or function) `Name` is in the
 /// file — the chain of causes up to the root.
-fn explain(a: &dartforge_emit_js::Analise<'_>, world: &dartforge_world::Mundo, target: &str) {
+fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo, target: &str) {
     use dartforge_elements::model::{ClassId, FunctionElementId};
-    use dartforge_world::Causa;
+    use dartforge_world::Cause;
     let p = a.program;
     let fn_name = |f: FunctionElementId| {
         let func = p.function(f);
         let c = func.class.map(|c| format!("{}.", a.interner.resolve(p.class(c).name))).unwrap_or_default();
         format!("{}::{c}{}", p.library(func.library).uri, a.interner.resolve(func.name))
     };
-    let mut start: Vec<Causa> = Vec::new();
+    let mut start: Vec<Cause> = Vec::new();
     for (i, c) in p.classes.iter().enumerate() {
         if a.interner.resolve(c.name) == target && !p.library(c.library).is_sdk {
-            start.push(Causa::Classe(ClassId(i as u32)));
+            start.push(Cause::Classe(ClassId(i as u32)));
         }
     }
     for (i, f) in p.functions.iter().enumerate() {
         if a.interner.resolve(f.name) == target && !p.library(f.library).is_sdk && world.funcao(FunctionElementId(i as u32)) {
-            start.push(Causa::Funcao(FunctionElementId(i as u32)));
+            start.push(Cause::Funcao(FunctionElementId(i as u32)));
         }
     }
     for c in start {
@@ -301,10 +301,10 @@ fn explain(a: &dartforge_emit_js::Analise<'_>, world: &dartforge_world::Mundo, t
                 break;
             }
             let (txt, next) = match x {
-                Causa::Raiz => ("(root)".to_string(), None),
-                Causa::Funcao(f) => (fn_name(f), world.causa_funcao(f)),
-                Causa::Classe(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.classe(k)), world.causa_classe(k)),
-                Causa::Variavel(v) => (format!("variable {}", a.interner.resolve(p.variable(v).name)), world.causa_variavel(v)),
+                Cause::Raiz => ("(root)".to_string(), None),
+                Cause::Funcao(f) => (fn_name(f), world.function_cause(f)),
+                Cause::Classe(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.classe(k)), world.class_cause(k)),
+                Cause::Variavel(v) => (format!("variable {}", a.interner.resolve(p.variable(v).name)), world.variable_cause(v)),
             };
             chain.push(txt);
             cur = next;
@@ -316,13 +316,13 @@ fn explain(a: &dartforge_emit_js::Analise<'_>, world: &dartforge_world::Mundo, t
 /// Like [`compile`], starting from a development emission already done.
 /// Kept separate so that the test needs neither disk nor SDK; the runtime
 /// index is built here, without the cache.
-pub fn assemble(emitted: &dartforge_emit_js::Emitido, sdk_text: &str, op: Options) -> Production {
+pub fn assemble(emitted: &dartforge_emit_js::Emitted, sdk_text: &str, op: Options) -> Production {
     assemble_with_index(emitted, sdk_text, op, &sdk::index(sdk_text, op.per_member))
 }
 
 /// Like [`assemble`], with the index of `sdk_text` already obtained (from
 /// the cache).
-pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitido, sdk_text: &str, op: Options, index: &sdk::SdkIndex) -> Production {
+pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitted, sdk_text: &str, op: Options, index: &sdk::SdkIndex) -> Production {
     let modules: Vec<bundle::Module> = emitted
         .modulos
         .iter()
@@ -381,8 +381,8 @@ pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitido, sdk_text: &str,
 mod tests {
     use super::*;
 
-    fn emitted() -> dartforge_emit_js::Emitido {
-        dartforge_emit_js::Emitido {
+    fn emitted() -> dartforge_emit_js::Emitted {
+        dartforge_emit_js::Emitted {
             modulos: vec![
                 (
                     "main.js".into(),

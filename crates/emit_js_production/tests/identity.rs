@@ -4,8 +4,8 @@
 //! is compiled through three paths and the modules are compared:
 //!
 //! 1. `dartforge_emit_js::compilar` (the `compile-js` path);
-//! 2. `Analise::emitir(None)`;
-//! 3. `Analise::emitir(Some(&TudoVivo))` — the filter that says everything
+//! 2. `Analysis::emit(None)`;
+//! 3. `Analysis::emit(Some(&AllLive))` — the filter that says everything
 //!    is live.
 //!
 //! If `DARTFORGE_IDENTIDADE_REF` points to a directory with the output of
@@ -29,7 +29,7 @@ fn programs() -> Vec<PathBuf> {
     v
 }
 
-fn modules(e: &dartforge_emit_js::Emitido) -> Vec<(String, String)> {
+fn modules(e: &dartforge_emit_js::Emitted) -> Vec<(String, String)> {
     let mut m = e.modulos.clone();
     m.sort();
     m
@@ -42,9 +42,9 @@ fn no_filter_and_all_live_emit_the_same_text() {
     for p in programs() {
         let packages = p.parent().map(|d| d.join(".dart_tool/package_config.json")).filter(|x| x.is_file());
         let a = dartforge_emit_js::compilar(&p, None, packages.as_deref()).expect("compilar");
-        let ((b, c), _) = dartforge_emit_js::compilar_com(&p, None, packages.as_deref(), &Default::default(), |an| {
-            let b = an.emitir(None)?;
-            let c = an.emitir(Some(&dartforge_emit_js::filtro::TudoVivo))?;
+        let ((b, c), _) = dartforge_emit_js::compile_with(&p, None, packages.as_deref(), &Default::default(), |an| {
+            let b = an.emit(None)?;
+            let c = an.emit(Some(&dartforge_emit_js::filtro::AllLive))?;
             Ok((b, c))
         })
         .expect("compilar_com");

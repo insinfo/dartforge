@@ -114,9 +114,9 @@ fn main() {
         use std::sync::atomic::Ordering::Relaxed;
         println!(
             "emission: Js built {} ({:.2} MB of intermediate text), at() borrows {} + parentheses {}, names/literals {}",
-            js::JS_CONSTRUIDOS.load(Relaxed),
+            js::JS_BUILT.load(Relaxed),
             js::JS_BYTES.load(Relaxed) as f64 / MB,
-            js::AT_EMPRESTIMOS.load(Relaxed),
+            js::AT_BORROWS.load(Relaxed),
             js::AT_PARENS.load(Relaxed),
             js::NOMES.load(Relaxed)
         );
@@ -129,7 +129,7 @@ fn main() {
     drop(interner);
     probe.phase("free memory");
 
-    let written = dartforge_emit_js::escrever(&emitted, &out_dir, &dartforge_emit_js::dart_sdk_js_padrao()).expect("write");
+    let written = dartforge_emit_js::escrever(&emitted, &out_dir, &dartforge_emit_js::default_dart_sdk_js()).expect("write");
     probe.phase("write");
     let modules = emitted.modulos.len();
     let js_bytes: usize = emitted.modulos.iter().map(|(_, t)| t.len()).sum::<usize>() + emitted.entrada.len();

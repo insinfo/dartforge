@@ -32,25 +32,25 @@ enum Value {
 }
 
 /// The evaluator, memoized per *getter* and per variable.
-pub struct Constantes<'a> {
+pub struct Constants<'a> {
     e: Entrada<'a>,
     no_asserts: bool,
     memo_fn: RefCell<HashMap<FunctionElementId, Option<Value>>>,
     memo_var: RefCell<HashMap<VariableId, Option<Value>>>,
 }
 
-impl<'a> Constantes<'a> {
-    pub fn nova(e: Entrada<'a>, no_asserts: bool) -> Constantes<'a> {
-        Constantes { e, no_asserts, memo_fn: RefCell::new(HashMap::new()), memo_var: RefCell::new(HashMap::new()) }
+impl<'a> Constants<'a> {
+    pub fn nova(e: Entrada<'a>, no_asserts: bool) -> Constants<'a> {
+        Constants { e, no_asserts, memo_fn: RefCell::new(HashMap::new()), memo_var: RefCell::new(HashMap::new()) }
     }
 
     /// `assert`s are disabled (the emitter does not write them).
-    pub fn sem_asserts(&self) -> bool {
+    pub fn without_asserts(&self) -> bool {
         self.no_asserts
     }
 
     /// The constant boolean value of `x` (in unit `u`), if proved.
-    pub fn bool_de(&self, u: UnitId, x: ExprId) -> Option<bool> {
+    pub fn bool_of(&self, u: UnitId, x: ExprId) -> Option<bool> {
         match self.expr(u, x, &HashMap::new(), 0)? {
             Value::Bool(b) => Some(b),
             Value::Null => None,

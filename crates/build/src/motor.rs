@@ -145,7 +145,7 @@ pub enum Demanda {
     Tudo,
 }
 
-/// Report of one update (goes into the `dev` crate's `Relatorio`).
+/// Report of one update (goes into the `dev` crate's `Report`).
 #[derive(Debug, Clone, Default)]
 pub struct RelMotor {
     pub checked_actions: usize,

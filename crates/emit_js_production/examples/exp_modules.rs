@@ -9,7 +9,7 @@ fn main() {
         .stack_size(1 << 30)
         .spawn(move || {
             let l = dartforge_elements::sdk::Linguagem::default();
-            let (e, _) = dartforge_emit_js::compilar_com(&input, None, None, &l, |a| a.emitir(None)).unwrap();
+            let (e, _) = dartforge_emit_js::compile_with(&input, None, None, &l, |a| a.emit(None)).unwrap();
             std::fs::create_dir_all(&output).unwrap();
             for (p, t) in &e.modulos {
                 let d = output.join(p);

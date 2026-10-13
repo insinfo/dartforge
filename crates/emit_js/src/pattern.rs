@@ -72,7 +72,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // `== .x` / `!= .x` (3.10): the shorthand uses the type of the matched value.
                 let (c, cty) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
                     let matched = vty.clone();
-                    self.com_contexto_de_atalho(*value, &matched, |s| s.emit_expr(*value, None))
+                    self.with_shorthand_context(*value, &matched, |s| s.emit_expr(*value, None))
                 } else {
                     self.emit_expr(*value, None)
                 };

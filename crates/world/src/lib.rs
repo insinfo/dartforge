@@ -34,9 +34,9 @@
 //!   `docs/PESQUISA-OTIMIZACAO.md` §5.
 
 mod constants;
-mod impacto;
+mod impact;
 
-pub use constants::Constantes;
+pub use constants::Constants;
 
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, VariableId, VariableRef};
 use dartforge_frontend::ast;
@@ -178,9 +178,9 @@ pub struct Raizes {
     /// Instantiated by code we do not see.
     pub classes_instanciadas: Vec<ClassId>,
     /// At least type identity (shell and rti rules).
-    pub classes_tipo: Vec<ClassId>,
+    pub type_classes: Vec<ClassId>,
     /// Instantiated and with **all** members live (`@JSExport`).
-    pub classes_todos_os_membros: Vec<ClassId>,
+    pub all_members_classes: Vec<ClassId>,
     /// Names called from outside the program (`dart.dsend(o, "toJson")` in
     /// the runtime): they apply to every instantiated class.
     pub seletores: Vec<String>,
@@ -189,17 +189,17 @@ pub struct Raizes {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum NivelClasse {
-    Morta,
+pub enum ClassLevel {
+    Dead,
     /// Identity: shell, `addRtiResources`, rti rules, live statics.
     Tipo,
     /// Constructed: instance members eligible by selector.
-    Instanciada,
+    Instantiated,
 }
 
 /// Who pulled an element into the world (the first one that did).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Causa {
+pub enum Cause {
     Raiz,
     Funcao(FunctionElementId),
     Variavel(VariableId),
@@ -207,22 +207,22 @@ pub enum Causa {
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct Estatisticas {
-    pub classes_usuario: usize,
+pub struct Statistics {
+    pub user_classes: usize,
     pub classes_instanciadas: usize,
-    pub classes_tipo: usize,
+    pub type_classes: usize,
     pub funcoes_usuario: usize,
     pub funcoes_vivas: usize,
-    pub variaveis_vivas: usize,
+    pub live_variables: usize,
     pub seletores: usize,
     /// Selectors with a receiver restriction (`foo` only in the cone of `T`).
-    pub seletores_restritos: usize,
-    pub itens_processados: usize,
+    pub restricted_selectors: usize,
+    pub processed_items: usize,
 }
 
 /// The result: what is live.
 pub struct Mundo {
-    classes: Vec<NivelClasse>,
+    classes: Vec<ClassLevel>,
     functions: Vec<bool>,
     variables: Vec<bool>,
     tearoffs: Vec<bool>,
@@ -231,22 +231,22 @@ pub struct Mundo {
     /// receivers of known static type is live only in the listed cones. The
     /// list per name is sorted (determinism).
     sel_cone: HashMap<String, Vec<ClassId>>,
-    cause_fn: Vec<Option<Causa>>,
-    cause_class: Vec<Option<Causa>>,
-    cause_var: Vec<Option<Causa>>,
-    pub estat: Estatisticas,
-    /// Computed with the SDK in the fixed point (`Opcoes::incluir_sdk`).
-    pub incluir_sdk: bool,
+    cause_fn: Vec<Option<Cause>>,
+    cause_class: Vec<Option<Cause>>,
+    cause_var: Vec<Option<Cause>>,
+    pub estat: Statistics,
+    /// Computed with the SDK in the fixed point (`Opcoes::include_sdk`).
+    pub include_sdk: bool,
     hier: Arc<Hierarchy>,
     /// Instantiated subtypes of each class (the cone rule, [`reaches`]).
     inst_sub: Vec<Vec<ClassId>>,
     /// Words of the live `JS()` *templates* (JavaScript names).
-    pub nomes_js: HashSet<String>,
+    pub js_names: HashSet<String>,
 }
 
 impl Mundo {
-    pub fn classe(&self, c: ClassId) -> NivelClasse {
-        self.classes.get(c.0 as usize).copied().unwrap_or(NivelClasse::Morta)
+    pub fn classe(&self, c: ClassId) -> ClassLevel {
+        self.classes.get(c.0 as usize).copied().unwrap_or(ClassLevel::Dead)
     }
     pub fn funcao(&self, f: FunctionElementId) -> bool {
         self.functions.get(f.0 as usize).copied().unwrap_or(false)
@@ -254,19 +254,19 @@ impl Mundo {
     pub fn variavel(&self, v: VariableId) -> bool {
         self.variables.get(v.0 as usize).copied().unwrap_or(false)
     }
-    pub fn seletor(&self, name: &str) -> bool {
+    pub fn selector(&self, name: &str) -> bool {
         self.selectors.contains(name)
     }
     /// Some use with a receiver of known type recorded `name` (even if
     /// restricted to another cone). The forwarder filter uses it so as not to
-    /// emit too little; member pruning uses [`Mundo::seletor_vivo_para`].
-    pub fn tem_restricao(&self, name: &str) -> bool {
+    /// emit too little; member pruning uses [`Mundo::selector_live_for`].
+    pub fn has_restriction(&self, name: &str) -> bool {
         self.sel_cone.contains_key(name)
     }
     /// `name` keeps a member of `class` live: an unrestricted selector applies
     /// to all classes; a restricted one, only to the classes reachable from
     /// the receiver's cone (the same rule as the fixed point, `reaches`).
-    pub fn seletor_vivo_para(&self, _program: &Program, name: &str, class: ClassId) -> bool {
+    pub fn selector_live_for(&self, _program: &Program, name: &str, class: ClassId) -> bool {
         if self.selectors.contains(name) {
             return true;
         }
@@ -279,16 +279,16 @@ impl Mundo {
         v.sort_unstable();
         v.into_iter()
     }
-    pub fn tearoff_de_construtor(&self, f: FunctionElementId) -> bool {
+    pub fn ctor_tearoff(&self, f: FunctionElementId) -> bool {
         self.tearoffs.get(f.0 as usize).copied().unwrap_or(false)
     }
-    pub fn causa_funcao(&self, f: FunctionElementId) -> Option<Causa> {
+    pub fn function_cause(&self, f: FunctionElementId) -> Option<Cause> {
         self.cause_fn.get(f.0 as usize).copied().flatten()
     }
-    pub fn causa_classe(&self, c: ClassId) -> Option<Causa> {
+    pub fn class_cause(&self, c: ClassId) -> Option<Cause> {
         self.cause_class.get(c.0 as usize).copied().flatten()
     }
-    pub fn causa_variavel(&self, v: VariableId) -> Option<Causa> {
+    pub fn variable_cause(&self, v: VariableId) -> Option<Cause> {
         self.cause_var.get(v.0 as usize).copied().flatten()
     }
 }
@@ -309,11 +309,11 @@ pub struct Opcoes {
     /// production profile with the SDK compiled by our own pipeline,
     /// `docs/JS-PRODUCAO-SDK-PROPRIO.md` §4). Requires the SDK bodies to be
     /// inferred. Without it, the SDK is a boundary, as always.
-    pub incluir_sdk: bool,
+    pub include_sdk: bool,
     /// `assert`s disabled (the production profile's default, as in
     /// `dart2js`): their bodies are not traversed, and the conditions that
     /// only they changed become constants (`constants.rs`).
-    pub sem_asserts: bool,
+    pub without_asserts: bool,
 }
 
 /// Computes the world. Deterministic: the queue is FIFO, the roots are
@@ -327,8 +327,8 @@ pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
 /// `shouldInlineConstant`, `kernel/constants.dart:105-120`): a `const` with a
 /// numeric, boolean or null literal initializer, or a *string* of fewer than
 /// 32 units. It is the same criterion as
-/// `emit_js::sdk_proprio::literal_inlinavel`.
-pub fn constante_inlinavel(p: &Program, v: VariableId) -> bool {
+/// `emit_js::sdk_proprio::inlinable_literal`.
+pub fn is_inlinable_constant(p: &Program, v: VariableId) -> bool {
     let var = p.variable(v);
     // An extension static is read through the key `L['Ext|x']`, without folding.
     if !var.const_ || var.extension.is_some() {
@@ -450,8 +450,8 @@ fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
 
 /// Like [`calcular`], with [`Opcoes`].
 pub fn compute_with(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
-    let mut c = Calculo::novo(e, op);
-    c.semear(r);
+    let mut c = Computation::novo(e, op);
+    c.seed(r);
     c.engine.finish()
 }
 
@@ -460,24 +460,24 @@ pub fn compute_with(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
 /// roots, and the world is monotonic, so the engine stays alive between them
 /// and each round processes only what the new roots reach
 /// (`docs/JS-PRODUCAO-TAMANHO.md` §2.1).
-pub struct Calculo<'a> {
+pub struct Computation<'a> {
     engine: Engine<'a>,
 }
 
-impl<'a> Calculo<'a> {
-    pub fn novo(e: Entrada<'a>, op: Opcoes) -> Calculo<'a> {
+impl<'a> Computation<'a> {
+    pub fn novo(e: Entrada<'a>, op: Opcoes) -> Computation<'a> {
         let mut m = Engine::new(e);
-        if op.incluir_sdk {
+        if op.include_sdk {
             m.include_sdk = true;
             m.natives = native_classes(&e);
             m.int_num = int_num(&e);
             m.natives_by_interface = natives_by_interface(&e, &m.natives);
-            m.constants = Some(Constantes::nova(e, op.sem_asserts));
+            m.constants = Some(Constants::nova(e, op.without_asserts));
         }
-        Calculo { engine: m }
+        Computation { engine: m }
     }
     /// Adds roots and runs until the fixed point.
-    pub fn semear(&mut self, r: &Raizes) {
+    pub fn seed(&mut self, r: &Raizes) {
         seed(&mut self.engine, r);
     }
     /// The current world (a copy; the engine stays resumable).
@@ -487,7 +487,7 @@ impl<'a> Calculo<'a> {
 }
 
 fn seed(m: &mut Engine<'_>, r: &Raizes) {
-    m.cause = Causa::Raiz;
+    m.cause = Cause::Raiz;
     for s in {
         let mut v = r.seletores.clone();
         v.sort();
@@ -495,7 +495,7 @@ fn seed(m: &mut Engine<'_>, r: &Raizes) {
     } {
         m.new_external_selector(&s);
     }
-    let mut all: Vec<ClassId> = r.classes_todos_os_membros.clone();
+    let mut all: Vec<ClassId> = r.all_members_classes.clone();
     all.sort();
     for c in all {
         m.all_members.insert(c);
@@ -506,7 +506,7 @@ fn seed(m: &mut Engine<'_>, r: &Raizes) {
     for c in cs {
         m.instantiate(c);
     }
-    let mut ts = r.classes_tipo.clone();
+    let mut ts = r.type_classes.clone();
     ts.sort();
     for c in ts {
         m.mark_type(c);
@@ -546,11 +546,11 @@ pub enum Inconsistency {
 /// recomputes the impact of **all** live elements, without reusing the fixed
 /// point's state, and reports every use that points to something the world
 /// says is dead. A non-empty result is a defect of the fixed point.
-pub fn conferir(e: Entrada<'_>, r: &Raizes, world: &Mundo) -> Vec<Inconsistency> {
+pub fn check_consistency(e: Entrada<'_>, r: &Raizes, world: &Mundo) -> Vec<Inconsistency> {
     // Recompute in a new engine, seeded with the finished world, and compare:
     // if the engine finds anything new, the world was not a fixed point.
     let mut m = Engine::new(e);
-    if world.incluir_sdk {
+    if world.include_sdk {
         m.include_sdk = true;
         m.natives = native_classes(&e);
         m.int_num = int_num(&e);
@@ -570,12 +570,12 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, world: &Mundo) -> Vec<Inconsistency>
             }
         }
     }
-    for c in &r.classes_todos_os_membros {
+    for c in &r.all_members_classes {
         m.all_members.insert(*c);
     }
     // Pending: members of instantiated classes whose name is not live yet.
     for (i, n) in world.classes.iter().enumerate() {
-        if *n == NivelClasse::Instanciada {
+        if *n == ClassLevel::Instantiated {
             m.process_chain_members(ClassId(i as u32), true);
         }
     }
@@ -592,7 +592,7 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, world: &Mundo) -> Vec<Inconsistency>
         }
     }
     for (i, n) in world.classes.iter().enumerate() {
-        if *n == NivelClasse::Instanciada {
+        if *n == ClassLevel::Instantiated {
             m.queue.push_back(Item::Fields(ClassId(i as u32)));
         }
     }
@@ -635,7 +635,7 @@ const NO_OWNER: ClassId = ClassId(u32::MAX);
 
 pub(crate) struct Engine<'a> {
     pub(crate) e: Entrada<'a>,
-    classes: Vec<NivelClasse>,
+    classes: Vec<ClassLevel>,
     fn_live: Vec<bool>,
     var_live: Vec<bool>,
     tearoff: Vec<bool>,
@@ -651,7 +651,7 @@ pub(crate) struct Engine<'a> {
     /// renaming must not touch.
     js_names: HashSet<String>,
     /// Constant conditions (production profile with the SDK in the world).
-    pub(crate) constants: Option<Constantes<'a>>,
+    pub(crate) constants: Option<Constants<'a>>,
     /// Names recorded with a receiver of each cone class (the "new class"
     /// side of the matching wakes up the pending members of these names).
     names_by_cone: Vec<Vec<String>>,
@@ -668,10 +668,10 @@ pub(crate) struct Engine<'a> {
     universal_names: HashSet<String>,
     /// Instantiated classes whose SDK protocol rule has already been applied.
     protocol_done: HashSet<ClassId>,
-    cause: Causa,
-    cause_fn: Vec<Option<Causa>>,
-    cause_class: Vec<Option<Causa>>,
-    cause_var: Vec<Option<Causa>>,
+    cause: Cause,
+    cause_fn: Vec<Option<Cause>>,
+    cause_class: Vec<Option<Cause>>,
+    cause_var: Vec<Option<Cause>>,
     items: usize,
     extensions_ready: bool,
     /// The target of a simple `Assign` being traversed: its outermost member
@@ -682,7 +682,7 @@ pub(crate) struct Engine<'a> {
     /// creates through the constructor without the static *tearoff*, which
     /// only the reference without a call cites.
     pub(crate) call_target: Option<dartforge_frontend::ast::ExprId>,
-    /// The SDK enters the fixed point like the program (`Opcoes::incluir_sdk`).
+    /// The SDK enters the fixed point like the program (`Opcoes::include_sdk`).
     include_sdk: bool,
     /// Native classes (`@Native`/`@JsPeerInterface`): live as a type means
     /// instantiated, because the object is born in the browser.
@@ -711,7 +711,7 @@ impl<'a> Engine<'a> {
         }
         Engine {
             e,
-            classes: vec![NivelClasse::Morta; p.classes.len()],
+            classes: vec![ClassLevel::Dead; p.classes.len()],
             fn_live: vec![false; p.functions.len()],
             var_live: vec![false; p.variables.len()],
             tearoff: vec![false; p.functions.len()],
@@ -728,7 +728,7 @@ impl<'a> Engine<'a> {
             seen_types: HashSet::new(),
             universal_names: universal,
             protocol_done: HashSet::new(),
-            cause: Causa::Raiz,
+            cause: Cause::Raiz,
             cause_fn: vec![None; p.functions.len()],
             cause_class: vec![None; p.classes.len()],
             cause_var: vec![None; p.variables.len()],
@@ -786,7 +786,7 @@ impl<'a> Engine<'a> {
         // With the SDK in the world (the production profile of our own SDK),
         // the primitive constant is folded at the use site by the emitter:
         // the variable is not read at run time and does not need to exist.
-        if self.include_sdk && constante_inlinavel(self.e.program, v) {
+        if self.include_sdk && is_inlinable_constant(self.e.program, v) {
             return;
         }
         // An instance field is storage: it lives with the instantiated class,
@@ -1079,10 +1079,10 @@ impl<'a> Engine<'a> {
 
     pub(crate) fn mark_type(&mut self, c: ClassId) {
         let i = c.0 as usize;
-        if i >= self.classes.len() || !self.is_user_class(c) || self.classes[i] >= NivelClasse::Tipo {
+        if i >= self.classes.len() || !self.is_user_class(c) || self.classes[i] >= ClassLevel::Tipo {
             return;
         }
-        self.classes[i] = NivelClasse::Tipo;
+        self.classes[i] = ClassLevel::Tipo;
         self.cause_class[i] = Some(self.cause);
         let p = self.e.program;
         let class = p.class(c);
@@ -1249,11 +1249,11 @@ impl<'a> Engine<'a> {
 
     fn raise_to_instantiated(&mut self, k: ClassId) {
         let i = k.0 as usize;
-        if self.classes[i] == NivelClasse::Instanciada {
+        if self.classes[i] == ClassLevel::Instantiated {
             return;
         }
         self.mark_type(k);
-        self.classes[i] = NivelClasse::Instanciada;
+        self.classes[i] = ClassLevel::Instantiated;
         if self.cause_class[i].is_none() {
             self.cause_class[i] = Some(self.cause);
         }
@@ -1462,14 +1462,14 @@ impl<'a> Engine<'a> {
         while let Some(it) = self.queue.pop_front() {
             self.items += 1;
             self.cause = match it {
-                Item::Function(f) => Causa::Funcao(f),
-                Item::Variable(v) => Causa::Variavel(v),
-                Item::Fields(c) => Causa::Classe(c),
+                Item::Function(f) => Cause::Funcao(f),
+                Item::Variable(v) => Cause::Variavel(v),
+                Item::Fields(c) => Cause::Classe(c),
             };
             match it {
-                Item::Function(f) => impacto::of_function(self, f),
-                Item::Variable(v) => impacto::of_variable(self, v),
-                Item::Fields(c) => impacto::of_fields(self, c),
+                Item::Function(f) => impact::of_function(self, f),
+                Item::Variable(v) => impact::of_variable(self, v),
+                Item::Fields(c) => impact::of_fields(self, c),
             }
         }
     }
@@ -1477,7 +1477,7 @@ impl<'a> Engine<'a> {
     /// The current world without consuming the engine.
     fn snapshot(&self) -> Mundo {
         let mut stats = self.statistics();
-        stats.itens_processados = self.items;
+        stats.processed_items = self.items;
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
         for (n, cs) in &self.sel_cone {
             let mut v: Vec<ClassId> = cs.iter().copied().collect();
@@ -1495,25 +1495,25 @@ impl<'a> Engine<'a> {
             cause_class: self.cause_class.clone(),
             cause_var: self.cause_var.clone(),
             estat: stats,
-            incluir_sdk: self.include_sdk,
+            include_sdk: self.include_sdk,
             hier: Arc::clone(&self.hier),
             inst_sub: self.inst_sub.clone(),
-            nomes_js: self.js_names.clone(),
+            js_names: self.js_names.clone(),
         }
     }
 
-    fn statistics(&self) -> Estatisticas {
+    fn statistics(&self) -> Statistics {
         let p = self.e.program;
-        let mut stats = Estatisticas::default();
+        let mut stats = Statistics::default();
         for (i, c) in p.classes.iter().enumerate() {
             if p.library(c.library).is_sdk {
                 continue;
             }
-            stats.classes_usuario += 1;
+            stats.user_classes += 1;
             match self.classes[i] {
-                NivelClasse::Instanciada => stats.classes_instanciadas += 1,
-                NivelClasse::Tipo => stats.classes_tipo += 1,
-                NivelClasse::Morta => {}
+                ClassLevel::Instantiated => stats.classes_instanciadas += 1,
+                ClassLevel::Tipo => stats.type_classes += 1,
+                ClassLevel::Dead => {}
             }
         }
         for (i, f) in p.functions.iter().enumerate() {
@@ -1525,24 +1525,24 @@ impl<'a> Engine<'a> {
                 stats.funcoes_vivas += 1;
             }
         }
-        stats.variaveis_vivas = self.var_live.iter().filter(|v| **v).count();
+        stats.live_variables = self.var_live.iter().filter(|v| **v).count();
         stats.seletores = self.sel.len();
-        stats.seletores_restritos = self.sel_cone.len();
+        stats.restricted_selectors = self.sel_cone.len();
         stats
     }
 
     fn finish(self) -> Mundo {
         let p = self.e.program;
-        let mut stats = Estatisticas::default();
+        let mut stats = Statistics::default();
         for (i, c) in p.classes.iter().enumerate() {
             if p.library(c.library).is_sdk {
                 continue;
             }
-            stats.classes_usuario += 1;
+            stats.user_classes += 1;
             match self.classes[i] {
-                NivelClasse::Instanciada => stats.classes_instanciadas += 1,
-                NivelClasse::Tipo => stats.classes_tipo += 1,
-                NivelClasse::Morta => {}
+                ClassLevel::Instantiated => stats.classes_instanciadas += 1,
+                ClassLevel::Tipo => stats.type_classes += 1,
+                ClassLevel::Dead => {}
             }
         }
         for (i, f) in p.functions.iter().enumerate() {
@@ -1554,10 +1554,10 @@ impl<'a> Engine<'a> {
                 stats.funcoes_vivas += 1;
             }
         }
-        stats.variaveis_vivas = self.var_live.iter().filter(|v| **v).count();
+        stats.live_variables = self.var_live.iter().filter(|v| **v).count();
         stats.seletores = self.sel.len();
-        stats.seletores_restritos = self.sel_cone.len();
-        stats.itens_processados = self.items;
+        stats.restricted_selectors = self.sel_cone.len();
+        stats.processed_items = self.items;
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
         for (n, cs) in self.sel_cone {
             let mut v: Vec<ClassId> = cs.into_iter().collect();
@@ -1575,10 +1575,10 @@ impl<'a> Engine<'a> {
             cause_class: self.cause_class,
             cause_var: self.cause_var,
             estat: stats,
-            incluir_sdk: self.include_sdk,
+            include_sdk: self.include_sdk,
             hier: self.hier,
             inst_sub: self.inst_sub,
-            nomes_js: self.js_names,
+            js_names: self.js_names,
         }
     }
 
@@ -1616,7 +1616,7 @@ impl<'a> Engine<'a> {
 
     /// Every binding of `name` visible without a prefix in `lib`, plus the
     /// statics of the enclosing class and extension.
-    pub(crate) fn use_name(&mut self, ctx: &impacto::Context, name: SymbolId) {
+    pub(crate) fn use_name(&mut self, ctx: &impact::Context, name: SymbolId) {
         let p = self.e.program;
         let text = self.name(name);
         let setter = self.e.interner.lookup(&format!("{text}_="));

@@ -50,7 +50,7 @@ pub struct Divergence {
     /// Node kind (`Identifier`, `Call`, …).
     pub node: String,
     /// `tipo` (type) or `alvo` (target); kept in Portuguese because it is a
-    /// column value of the `.tsv` read by `scripts/conferir-tipos-js.mjs`.
+    /// column value of the `.tsv` read by `scripts/check_consistency-tipos-js.mjs`.
     pub kind: &'static str,
     pub category: String,
     /// Text of the expression in the source (one line, truncated).
@@ -66,24 +66,24 @@ pub struct Divergence {
 
 /// State of the check for one emission.
 #[derive(Default)]
-pub struct Conferencia {
+pub struct TypeCheck {
     /// Nodes already checked: the emitter emits the same expression more than
     /// once (different contexts, re-emissions); the first real emission counts.
     types_seen: HashSet<(u32, u32)>,
     targets_seen: HashSet<(u32, u32)>,
     /// Targets of compound assignment and of `++`/`--` that were emitted but
-    /// not checked ([`Ctx::e_alvo_de_escrita`]).
+    /// not checked ([`Ctx::is_write_target`]).
     pub skipped_write_targets: usize,
     pub checked_types: usize,
     pub checked_targets: usize,
     /// Identifiers whose target came from the shared resolution
-    /// ([`FnEmitter::alvo_do_identificador`]) and those that kept the emitter's
+    /// ([`FnEmitter::ident_target`]) and those that kept the emitter's
     /// own lookup, counted once per node.
     origin_seen: HashSet<(u32, u32)>,
     pub targets_from_shared: usize,
     pub targets_from_own_lookup: usize,
     /// Member accesses with an explicit receiver (`a.b`, `a.m()`, `a.b = v`)
-    /// whose member came from the shared resolution ([`FnEmitter::membro_do_acesso`])
+    /// whose member came from the shared resolution ([`FnEmitter::access_member`])
     /// and those that kept the own lookup, once per node and kind.
     member_seen: HashSet<(u32, u32, bool)>,
     pub members_from_shared: usize,
@@ -99,14 +99,14 @@ pub struct Conferencia {
     output: Option<std::path::PathBuf>,
 }
 
-impl Conferencia {
+impl TypeCheck {
     /// The check requested by the environment, or `None` when it is off.
-    pub fn do_ambiente() -> Option<Conferencia> {
+    pub fn from_env() -> Option<TypeCheck> {
         let v = std::env::var(ENV_VAR)
             .ok()
             .filter(|v| !v.is_empty() && v != "0")?;
         let output = v.ends_with(".tsv").then(|| std::path::PathBuf::from(&v));
-        Some(Conferencia {
+        Some(TypeCheck {
             output,
             ..Default::default()
         })
@@ -191,11 +191,11 @@ impl Conferencia {
 impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Counts where the target of identifier `e` came from (shared resolution or
     /// own lookup), once per node, outside speculative emission.
-    pub(crate) fn contar_origem_do_alvo(&self, e: ExprId, from_shared: bool) {
+    pub(crate) fn count_target_origin(&self, e: ExprId, from_shared: bool) {
         let Some(c) = &self.ctx.conferencia else {
             return;
         };
-        if self.especulando > 0 || e.0 == u32::MAX {
+        if self.speculating > 0 || e.0 == u32::MAX {
             return;
         }
         let mut c = c.borrow_mut();
@@ -213,11 +213,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// it came from (shared resolution or own lookup) and records the divergence
     /// when the two find different declarations. Once per node and kind (read or
     /// write), outside speculative emission.
-    pub(crate) fn conferir_membro(&self, e: ExprId, name: &str, shared: Option<&Member>, own: Option<&Member>) {
+    pub(crate) fn check_member(&self, e: ExprId, name: &str, shared: Option<&Member>, own: Option<&Member>) {
         let Some(c) = &self.ctx.conferencia else {
             return;
         };
-        if self.especulando > 0 || e.0 == u32::MAX {
+        if self.speculating > 0 || e.0 == u32::MAX {
             return;
         }
         let write = matches!(shared.or(own).map(|m| m.kind), Some(MemberKind::Setter(_)));
@@ -240,11 +240,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Counts where the instantiation of the generic call whose argument list
     /// starts at `offset` came from, once per call.
-    pub(crate) fn contar_origem_da_instanciacao(&self, offset: usize, from_shared: bool) {
+    pub(crate) fn count_instantiation_origin(&self, offset: usize, from_shared: bool) {
         let Some(c) = &self.ctx.conferencia else {
             return;
         };
-        if self.especulando > 0 {
+        if self.speculating > 0 {
             return;
         }
         let mut c = c.borrow_mut();
@@ -259,19 +259,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Checks the type `ty` that emission follows for `e` (the one deduced by the
-    /// emitter, already refined by the shared one, `FnEmitter::refinar_pelo_comum`,
+    /// emitter, already refined by the shared one, `FnEmitter::refine_by_common`,
     /// before context coercions) against the shared static type.
-    pub(crate) fn conferir_tipo(&self, e: ExprId, ty: &Ty) {
+    pub(crate) fn check_type(&self, e: ExprId, ty: &Ty) {
         let Some(c) = &self.ctx.conferencia else {
             return;
         };
-        if self.especulando > 0 || e.0 == u32::MAX {
+        if self.speculating > 0 || e.0 == u32::MAX {
             return;
         }
         if !c.borrow_mut().types_seen.insert((self.unit.0, e.0)) {
             return;
         }
-        if self.ctx.e_alvo_de_escrita(self.unit, e) {
+        if self.ctx.is_write_target(self.unit, e) {
             c.borrow_mut().skipped_write_targets += 1;
             return;
         }
@@ -298,11 +298,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Checks the target the emitter resolved for identifier `e` against the
     /// shared `Resolved`. Targets without a stable identity in the emitter
     /// (members looked up by name on the extension's `$this`) are not checked.
-    pub(crate) fn conferir_alvo(&self, e: ExprId, target: &IdentTarget) {
+    pub(crate) fn check_target(&self, e: ExprId, target: &IdentTarget) {
         let Some(c) = &self.ctx.conferencia else {
             return;
         };
-        if self.especulando > 0 || e.0 == u32::MAX {
+        if self.speculating > 0 || e.0 == u32::MAX {
             return;
         }
         if !c.borrow_mut().targets_seen.insert((self.unit.0, e.0)) {
@@ -415,7 +415,7 @@ pub fn ty_from_table(ctx: &Ctx, id: TypeId) -> Ty {
             nullable,
         } => {
             let args: Vec<Ty> = args.iter().map(|a| ty_from_table(ctx, *a)).collect();
-            let args = ctx.args_na_aridade(*class, &args).into_owned();
+            let args = ctx.args_at_arity(*class, &args).into_owned();
             Ty::Iface {
                 class: *class,
                 args,
@@ -510,7 +510,7 @@ pub fn ty_from_table(ctx: &Ctx, id: TypeId) -> Ty {
         } => {
             if ctx.interop_ext_types.contains(decl) {
                 let args: Vec<Ty> = args.iter().map(|a| ty_from_table(ctx, *a)).collect();
-                let args = ctx.args_na_aridade(*decl, &args).into_owned();
+                let args = ctx.args_at_arity(*decl, &args).into_owned();
                 return Ty::Iface {
                     class: *decl,
                     args,

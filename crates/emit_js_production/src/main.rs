@@ -69,7 +69,7 @@ fn run() -> Result<(), String> {
         i += 1;
     }
     let (Some(input), Some(output)) = (input, output) else { return Err(USAGE.to_string()) };
-    let runtime = dart_sdk_js.unwrap_or_else(dartforge_emit_js::dart_sdk_js_padrao);
+    let runtime = dart_sdk_js.unwrap_or_else(dartforge_emit_js::default_dart_sdk_js);
 
     // Deep bodies recurse deeply, as in `compile-js`: a dedicated stack.
     let (e2, s2, p2, r2) = (input.clone(), sdk.clone(), packages.clone(), runtime.clone());
@@ -127,7 +127,7 @@ fn run() -> Result<(), String> {
         let e = &m.stats;
         println!(
             "world: classes {}/{} instantiated + {} type only; functions {}/{}; {} selectors; {} round(s); world {:.0} ms, emission {:.0} ms, verifier {:.0} ms",
-            e.classes_instanciadas, e.classes_usuario, e.classes_tipo, e.funcoes_vivas, e.funcoes_usuario, e.seletores, m.rounds,
+            e.classes_instanciadas, e.user_classes, e.type_classes, e.funcoes_vivas, e.funcoes_usuario, e.seletores, m.rounds,
             ms(m.world_time), ms(m.emit_time), ms(m.verify_time),
         );
         let limit = std::env::var("DARTFORGE_JSPROD_CURAS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);

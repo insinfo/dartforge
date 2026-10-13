@@ -129,32 +129,32 @@ pub struct Ctx<'a> {
     /// calls, 1.78 M allocations.
     pub rti_memo: RefCell<HashMap<Ty, String>>,
     /// The short ids of the classes in SDK-mode recipes
-    /// ([`crate::ids_de_receita`]), computed on first use.
+    /// ([`crate::recipe_ids`]), computed on first use.
     recipe_ids: std::cell::OnceCell<Vec<String>>,
     /// `DARTFORGE_JSPROD_RECEITA_CURTA=0` keeps the library in every recipe.
     short_recipe: bool,
     /// Per unit, the nodes that are the target of a compound assignment or of
-    /// `++`/`--` ([`Ctx::e_alvo_de_escrita`]).
+    /// `++`/`--` ([`Ctx::is_write_target`]).
     write_targets: RefCell<HashMap<u32, std::rc::Rc<HashSet<u32>>>>,
     /// Memo of `as_super`: `(class, target)` → the target written in terms of
     /// the class's parameters. 78 thousand calls, 525 thousand allocations.
     super_memo: RefCell<HashMap<(ClassId, ClassId), Option<Ty>>>,
     /// Reachability filter of the production profile (`crate::filtro`). `None`
     /// is the development profile: everything emitted, exactly as before.
-    pub filtro: Option<&'a dyn crate::filtro::Vivos>,
+    pub filtro: Option<&'a dyn crate::filtro::Liveness>,
     /// Language errors found during emission (a dot shorthand without a
     /// context or without a member, docs/VERSOES-LINGUAGEM.md §3): emission
     /// fails with them. The emitter is the one with the complete inference of
     /// the context.
-    pub erros: RefCell<Vec<dartforge_diagnostics::Diagnostic>>,
+    pub errors: RefCell<Vec<dartforge_diagnostics::Diagnostic>>,
     /// Check of the emitter's types against the common inference
     /// (`DARTFORGE_JS_CONFERIR_TIPOS`, see `crate::conferencia`); `None` when
     /// it is off.
-    pub conferencia: Option<RefCell<crate::conferencia::Conferencia>>,
+    pub conferencia: Option<RefCell<crate::conferencia::TypeCheck>>,
     /// SDK mode (`crate::sdk_proprio`): the `dart:` libraries are compiled
     /// too, through our own pipeline. `None` on every path that links against
     /// `dart_sdk.js` — the mode's hooks do not fire.
-    pub sdk: Option<Box<crate::sdk_proprio::ModoSdk>>,
+    pub sdk: Option<Box<crate::sdk_proprio::SdkMode>>,
 }
 
 /// JS interop class (the DDC's `js_interop.dart`: `usesJSInterop`,
@@ -252,9 +252,9 @@ impl<'a> Ctx<'a> {
             short_recipe: std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0"),
             write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
-            erros: RefCell::new(Vec::new()),
+            errors: RefCell::new(Vec::new()),
             filtro: None,
-            conferencia: crate::conferencia::Conferencia::do_ambiente().map(RefCell::new),
+            conferencia: crate::conferencia::TypeCheck::from_env().map(RefCell::new),
             sdk: None,
         };
         // Interop comes before the hierarchy: interop extension types are not
@@ -541,43 +541,43 @@ impl<'a> Ctx<'a> {
         Some(self.ty_of(t).subst_prop(&map))
     }
 
-    /// Reachability level of the class; without a filter, `Instanciada` (everything emitted).
-    pub fn nivel_classe(&self, c: ClassId) -> crate::filtro::Nivel {
-        self.filtro.map_or(crate::filtro::Nivel::Instanciada, |f| f.classe(c))
+    /// Reachability level of the class; without a filter, `Instantiated` (everything emitted).
+    pub fn class_level(&self, c: ClassId) -> crate::filtro::Nivel {
+        self.filtro.map_or(crate::filtro::Nivel::Instantiated, |f| f.classe(c))
     }
 
-    /// State of the function; without a filter, `Viva`.
-    pub fn estado_fn(&self, f: FunctionElementId) -> crate::filtro::Estado {
-        self.filtro.map_or(crate::filtro::Estado::Viva, |x| x.funcao(f))
+    /// State of the function; without a filter, `Live`.
+    pub fn fn_state(&self, f: FunctionElementId) -> crate::filtro::Estado {
+        self.filtro.map_or(crate::filtro::Estado::Live, |x| x.funcao(f))
     }
 
-    /// State of the variable; without a filter, `Viva`.
-    pub fn estado_var(&self, v: VariableId) -> crate::filtro::Estado {
-        self.filtro.map_or(crate::filtro::Estado::Viva, |x| x.variavel(v))
+    /// State of the variable; without a filter, `Live`.
+    pub fn var_state(&self, v: VariableId) -> crate::filtro::Estado {
+        self.filtro.map_or(crate::filtro::Estado::Live, |x| x.variavel(v))
     }
 
     /// Name invoked somewhere; without a filter, always.
-    pub fn seletor_vivo(&self, name: &str) -> bool {
-        self.filtro.is_none_or(|x| x.seletor(name))
+    pub fn selector_live(&self, name: &str) -> bool {
+        self.filtro.is_none_or(|x| x.selector(name))
     }
 
     /// Name written somewhere (`x.name = v`); without a filter, always.
-    pub fn seletor_escrita(&self, base_name: &str) -> bool {
-        self.filtro.is_none_or(|x| x.seletor_escrita(base_name))
+    pub fn write_selector(&self, base_name: &str) -> bool {
+        self.filtro.is_none_or(|x| x.write_selector(base_name))
     }
 
     /// Static tearoff of the referenced constructor; without a filter, always.
-    pub fn tearoff_vivo(&self, f: FunctionElementId) -> bool {
+    pub fn tearoff_live(&self, f: FunctionElementId) -> bool {
         self.filtro.is_none_or(|x| x.tearoff_ctor(f))
     }
 
-    /// The signature entry of the member `name` is emitted ([`crate::filtro::Vivos::assinatura`]).
-    pub fn assinatura_viva(&self, name: &str) -> bool {
-        self.filtro.is_none_or(|x| x.assinatura(name))
+    /// The signature entry of the member `name` is emitted ([`crate::filtro::Liveness::signature`]).
+    pub fn signature_live(&self, name: &str) -> bool {
+        self.filtro.is_none_or(|x| x.signature(name))
     }
 
     /// Label of a pruned element for the *stub* (`dart_podado("…")`).
-    pub fn rotulo_podado(&self, lib: LibraryId, class: Option<ClassId>, name: &str) -> String {
+    pub fn pruned_label(&self, lib: LibraryId, class: Option<ClassId>, name: &str) -> String {
         let uri = &self.program.library(lib).uri;
         match class {
             Some(c) => format!("{uri}::{}.{name}", self.class_name(c)),
@@ -963,9 +963,9 @@ impl<'a> Ctx<'a> {
                 // Raw type coming from the table (`Caixa` for `Caixa<dynamic>`):
                 // complete the arity here, at the single entry point, so that
                 // recipes, rti rules, substitutions and member lookup always
-                // see the same shape (see `args_na_aridade`).
+                // see the same shape (see `args_at_arity`).
                 let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
-                let args = self.args_na_aridade(*class, &args).into_owned();
+                let args = self.args_at_arity(*class, &args).into_owned();
                 Ty::Iface { class: *class, args, nullable: *nullable }
             }
             Type::Function { type_params, ret, positional, optional, named, nullable } => Ty::Fn {
@@ -1014,7 +1014,7 @@ impl<'a> Ctx<'a> {
                 // erased to the representation type.
                 if self.interop_ext_types.contains(decl) {
                     let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
-                    let args = self.args_na_aridade(*decl, &args).into_owned();
+                    let args = self.args_at_arity(*decl, &args).into_owned();
                     return Ty::Iface { class: *decl, args, nullable: *nullable };
                 }
                 let class = self.program.class(*decl);
@@ -2006,16 +2006,16 @@ impl<'a> Ctx<'a> {
     }
 
     /// The JS key of a named parameter: the Dart name, or the short one of the
-    /// production profile (`Vivos::nome_nomeado`). The same map applies at the
+    /// production profile (`Liveness::named_key_of`). The same map applies at the
     /// call, in the function's prologue and in the rti recipe of the function
     /// type.
-    pub fn nomeado(&self, name: &str) -> String {
-        self.filtro.and_then(|f| f.nome_nomeado(name)).unwrap_or(name).to_string()
+    pub fn named_key(&self, name: &str) -> String {
+        self.filtro.and_then(|f| f.named_key_of(name)).unwrap_or(name).to_string()
     }
 
     /// rti recipe prefix of the class: `core|int`, `main|P`. In SDK mode
     /// (production profile), the program's library is a short label
-    /// ([`crate::tag_de_receita`]): the part before the `|` is opaque to the
+    /// ([`crate::recipe_tag`]): the part before the `|` is opaque to the
     /// runtime (`_rtiToString` only reads what comes after it), and the full
     /// library name repeated in every recipe was ~20% of the file
     /// (`docs/JS-PRODUCAO-TAMANHO.md` §3.2).
@@ -2029,18 +2029,18 @@ impl<'a> Ctx<'a> {
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
         if self.sdk.is_some() && self.short_recipe {
-            let ids = self.recipe_ids.get_or_init(|| crate::ids_de_receita(self.program, self.interner));
+            let ids = self.recipe_ids.get_or_init(|| crate::recipe_ids(self.program, self.interner));
             return format!("|{}", ids[c.0 as usize]);
         }
         if self.sdk.is_some() && !self.libs[lib.0 as usize].is_sdk {
-            return format!("{}|{}", crate::tag_de_receita(lib), self.class_name(c));
+            return format!("{}|{}", crate::recipe_tag(lib), self.class_name(c));
         }
         format!("{}|{}", self.lib_ident(lib), self.class_name(c))
     }
 
     /// [`Ctx::class_recipe`] of the class `name` of `uri`; `fallback` if it
     /// does not exist in the program.
-    pub fn receita_de(&self, uri: &str, name: &str, fallback: &str) -> String {
+    pub fn recipe_of(&self, uri: &str, name: &str, fallback: &str) -> String {
         let class = self.program.libraries.iter().position(|l| l.uri == uri).and_then(|i| {
             let sym = self.interner.lookup(name)?;
             match self.program.library(LibraryId(i as u32)).declared.get(&sym)?.getter {
@@ -2068,7 +2068,7 @@ impl<'a> Ctx<'a> {
     /// (like the analyzer, which gives `readType` to the
     /// `AssignmentExpression`), so the static type of the target does not
     /// count as the read type. Computed once per unit.
-    pub fn e_alvo_de_escrita(&self, unit: dartforge_elements::model::UnitId, e: ast::ExprId) -> bool {
+    pub fn is_write_target(&self, unit: dartforge_elements::model::UnitId, e: ast::ExprId) -> bool {
         let targets = self
             .write_targets
             .borrow_mut()
@@ -2106,7 +2106,7 @@ impl<'a> Ctx<'a> {
     /// `dartdevc` emits `raw|Caixa<@>` and never `raw|Caixa` (the name without
     /// arguments only appears as a **key** of `addRules`/`addRtiResources`,
     /// which is something else).
-    pub fn args_na_aridade<'t>(&self, class: ClassId, args: &'t [Ty]) -> std::borrow::Cow<'t, [Ty]> {
+    pub fn args_at_arity<'t>(&self, class: ClassId, args: &'t [Ty]) -> std::borrow::Cow<'t, [Ty]> {
         let n = self.class_arity(class);
         if args.len() >= n {
             return std::borrow::Cow::Borrowed(args);

@@ -19,7 +19,7 @@ fn compile_and_run(file: &Path) -> String {
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/emit_js_tests").join(&name);
     let _ = std::fs::remove_dir_all(&out_dir);
     let emitted = dartforge_emit_js::compilar(file, None, None).expect("compilation");
-    dartforge_emit_js::escrever(&emitted, &out_dir, &dartforge_emit_js::dart_sdk_js_padrao()).expect("write");
+    dartforge_emit_js::escrever(&emitted, &out_dir, &dartforge_emit_js::default_dart_sdk_js()).expect("write");
     let out = Command::new("node").arg(out_dir.join("main.mjs")).output().expect("node on PATH");
     let stdout = String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n");
     if !out.status.success() {

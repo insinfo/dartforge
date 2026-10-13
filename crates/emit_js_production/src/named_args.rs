@@ -9,7 +9,7 @@
 //!
 //! Here the emitter replaces the name with a short key (`$a`, `$bK`) from a
 //! **global, per-name** map, applied at the same time in the call, in the
-//! prologue and in the recipe (`Ctx::nomeado`). Since it is a function of the
+//! prologue and in the recipe (`Ctx::named_key`). Since it is a function of the
 //! name alone, caller and callee agree without knowing about each other,
 //! dynamic calls included.
 //!
@@ -31,9 +31,9 @@ use dartforge_types::table::{Type, TypeId};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// The `n`-th key suffix: one letter out of 54, then the following ones out
-/// of 64 (the numbering of recipe ids, `dartforge_emit_js::numero_de_id`).
+/// of 64 (the numbering of recipe ids, `dartforge_emit_js::id_number`).
 fn suffix(mut n: usize) -> String {
-    let (a, b) = (dartforge_emit_js::ID_PRIMEIRA, dartforge_emit_js::ID_OUTRAS);
+    let (a, b) = (dartforge_emit_js::ID_FIRST, dartforge_emit_js::ID_NEXT);
     let mut s = vec![a[n % a.len()]];
     n /= a.len();
     while n > 0 {
@@ -46,7 +46,7 @@ fn suffix(mut n: usize) -> String {
 
 /// The name → short key map, or `None` when the program needs the source
 /// names at run time.
-pub fn compute(a: &dartforge_emit_js::Analise<'_>, world: &dartforge_world::Mundo) -> Option<NamedArgs> {
+pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo) -> Option<NamedArgs> {
     let p = a.program;
     let i = a.interner;
     let mut table = false;
@@ -74,7 +74,7 @@ pub fn compute(a: &dartforge_emit_js::Analise<'_>, world: &dartforge_world::Mund
     // How many functions declare each name: the most common ones get the
     // one-letter keys.
     let mut frequency: HashMap<String, usize> = HashMap::new();
-    let mut fixed: HashSet<String> = world.nomes_js.clone();
+    let mut fixed: HashSet<String> = world.js_names.clone();
     for (k, f) in p.functions.iter().enumerate() {
         let Some(ft) = a.outline.functions.get(k) else { continue };
         let interop = f.external || f.class.is_some_and(|c| ctx.is_js_class(c) || p.class(c).kind == ClassKind::ExtensionType);

@@ -44,7 +44,7 @@ const JS_PROTOCOL: &[&str] = &[
 pub struct Names {
     pub renamable: HashSet<String>,
     pub reserved: HashSet<String>,
-    /// Labels of the program's libraries (`dartforge_emit_js::tag_de_receita`):
+    /// Labels of the program's libraries (`dartforge_emit_js::recipe_tag`):
     /// the properties of private names end with them.
     pub tags: HashSet<String>,
 }
@@ -57,8 +57,8 @@ fn has_interop_annotation(p: &Program, i: &Interner, c: ClassId) -> bool {
 }
 
 /// Computes the sets from the model. `js_names` are the words of the live
-/// `JS()` *templates* (`dartforge_world::Mundo::nomes_js`).
-pub fn compute(a: &dartforge_emit_js::Analise<'_>, js_names: &HashSet<String>, named_args: Option<&std::collections::HashMap<String, String>>) -> Names {
+/// `JS()` *templates* (`dartforge_world::Mundo::js_names`).
+pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, named_args: Option<&std::collections::HashMap<String, String>>) -> Names {
     use dartforge_elements::model::ClassKind;
     use dartforge_emit_js::body::{js_member_name, static_member_name, top_level_name};
     let (p, i, table) = (a.program, a.interner, a.table);
@@ -66,7 +66,7 @@ pub fn compute(a: &dartforge_emit_js::Analise<'_>, js_names: &HashSet<String>, n
     let mut n = Names::default();
     for (k, l) in p.libraries.iter().enumerate() {
         if !l.is_sdk {
-            n.tags.insert(dartforge_emit_js::tag_de_receita(dartforge_elements::model::LibraryId(k as u32)));
+            n.tags.insert(dartforge_emit_js::recipe_tag(dartforge_elements::model::LibraryId(k as u32)));
         }
     }
     // Interop: `@JS` classes, extension types (those of `package:web` are the

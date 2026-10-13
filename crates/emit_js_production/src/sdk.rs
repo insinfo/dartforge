@@ -912,7 +912,7 @@ pub fn dynamic_selectors_by_kind(src: &str) -> (Vec<String>, Vec<String>) {
                 let s = &src[start..k];
                 // A production-profile private name (`"_n$1c"`): the
                 // selector is `_n`.
-                let s = dartforge_emit_js::nome_dart_de_privado(s).unwrap_or(s);
+                let s = dartforge_emit_js::dart_name_of_private(s).unwrap_or(s);
                 if !s.is_empty() && s.len() < 64 && is_selector_name(s) {
                     if write {
                         writes.push(s.to_string());

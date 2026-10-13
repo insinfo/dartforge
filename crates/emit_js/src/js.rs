@@ -22,9 +22,9 @@ pub const P_COMMA: u8 = 1;
 /// Measurement counters (the `memory_emit_js` example): how many `Js` values were built,
 /// how many bytes they carry, how many times `at` borrowed the text, how many
 /// times it needed parentheses, and how many names/literals were formatted.
-pub static JS_CONSTRUIDOS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static JS_BUILT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub static JS_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub static AT_EMPRESTIMOS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static AT_BORROWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub static AT_PARENS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub static NOMES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -43,7 +43,7 @@ pub struct Js {
 impl Js {
     pub fn new(code: impl Into<String>, prec: u8) -> Js {
         let code = code.into();
-        bump(&JS_CONSTRUIDOS, 1);
+        bump(&JS_BUILT, 1);
         bump(&JS_BYTES, code.len());
         Js { code, prec }
     }
@@ -58,7 +58,7 @@ impl Js {
             bump(&AT_PARENS, 1);
             std::borrow::Cow::Owned(format!("({})", self.code))
         } else {
-            bump(&AT_EMPRESTIMOS, 1);
+            bump(&AT_BORROWS, 1);
             std::borrow::Cow::Borrowed(&self.code)
         }
     }

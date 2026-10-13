@@ -133,8 +133,8 @@ impl Report {
 /// Resident session: keeps alive across compilations what did not change.
 pub struct Sessao {
     /// Text already emitted per class and per library, reused across
-    /// compilations (see `emitir_modulos_com_cache`).
-    fragments: std::cell::RefCell<dartforge_emit_js::module::CacheFragmentos>,
+    /// compilations (see `emit_modules_with_cache`).
+    fragments: std::cell::RefCell<dartforge_emit_js::module::FragmentCache>,
     input: PathBuf,
     sdk: SdkLayout,
     packages: Option<PathBuf>,
@@ -209,7 +209,7 @@ impl Sessao {
             sdk,
             packages: packages.map(|p| p.to_path_buf()),
             output: output.to_path_buf(),
-            dart_sdk_js: dartforge_emit_js::dart_sdk_js_padrao(),
+            dart_sdk_js: dartforge_emit_js::default_dart_sdk_js(),
             interner: Interner::new(),
             units: CacheUnidades::nova(),
             hashes: HashMap::new(),
@@ -413,8 +413,8 @@ impl Sessao {
         let mut emitted = match affected {
             // First compilation (or a graph change): emit everything.
             None => {
-                self.fragments.borrow_mut().limpar();
-                let e = dartforge_emit_js::emitir_programa_com_cache(&program, &self.interner, &table, &core, &outline, &bodies, Some(&self.fragments))
+                self.fragments.borrow_mut().clear();
+                let e = dartforge_emit_js::emit_program_with_cache(&program, &self.interner, &table, &core, &outline, &bodies, Some(&self.fragments))
                     .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emission failed".into()))?;
                 rel.reemitted_libraries = usize::MAX;
                 e
@@ -425,9 +425,9 @@ impl Sessao {
                 // rest of the module is reused as text.
                 {
                     let ctx_tmp = dartforge_emit_js::ctx::Ctx::new(&program, &self.interner, &table, &core, &outline, &bodies);
-                    self.fragments.borrow_mut().invalidar(&ctx_tmp, &libs);
+                    self.fragments.borrow_mut().invalidate(&ctx_tmp, &libs);
                 }
-                let (e, context) = dartforge_emit_js::emitir_modulos_com_cache(
+                let (e, context) = dartforge_emit_js::emit_modules_with_cache(
                     &program, &self.interner, &table, &core, &outline, &bodies, &libs, Some(&self.fragments),
                 )
                 .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emission failed".into()))?;
@@ -468,7 +468,7 @@ impl Sessao {
         // previous compilation's, in memory).
         let compare = rel.first;
         rel.modulos_escritos =
-            dartforge_emit_js::escrever_opcoes(&emitted, &self.output, &self.dart_sdk_js, compare)?;
+            dartforge_emit_js::write_with_options(&emitted, &self.output, &self.dart_sdk_js, compare)?;
         rel.write = t.elapsed();
 
         // The units go back to the cache; the rest of the compilation dies here.

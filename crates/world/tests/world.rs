@@ -3,7 +3,7 @@
 
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, Program, VariableId};
 use dartforge_intern::Interner;
-use dartforge_world::{Entrada, Mundo, NivelClasse, Raizes, calcular, conferir};
+use dartforge_world::{Entrada, Mundo, ClassLevel, Raizes, calcular, check_consistency};
 use std::path::Path;
 
 struct Case<'a> {
@@ -68,7 +68,7 @@ impl Case<'_> {
             .unwrap_or_else(|| panic!("function {name} (write={write})"));
         self.m.funcao(f)
     }
-    fn level(&self, name: &str) -> NivelClasse {
+    fn level(&self, name: &str) -> ClassLevel {
         self.m.classe(self.class(name))
     }
 }
@@ -77,7 +77,7 @@ impl Case<'_> {
 #[ignore = "compiles against the SDK; run with --ignored"]
 fn closed_world_cases() {
     let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs/cases.dart");
-    let (r, _) = dartforge_emit_js::compilar_com(&file, None, None, &Default::default(), |a| {
+    let (r, _) = dartforge_emit_js::compile_with(&file, None, None, &Default::default(), |a| {
         let e = Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
         let mut roots = Raizes::default();
         let lib = a.program.entry.expect("entry library");
@@ -96,39 +96,39 @@ fn closed_world_cases() {
         // dynamic by name, in every instantiated class
         check(c.live("A.f") && c.live("B.f"), "A.f and B.f live (dynamic d.f())");
         check(!c.live("A.g") && !c.live("A.morto"), "A.g and A.morto dead");
-        check(c.level("NaoInstanciada") == NivelClasse::Morta && !c.live("NaoInstanciada.f"), "non-instantiated class dead even with a live selector");
-        check(c.level("SoTipo") == NivelClasse::Tipo, "class only in `is` is Tipo");
-        check(c.level("I") == NivelClasse::Tipo, "implemented interface is Tipo");
+        check(c.level("NaoInstanciada") == ClassLevel::Dead && !c.live("NaoInstanciada.f"), "non-instantiated class dead even with a live selector");
+        check(c.level("SoTipo") == ClassLevel::Tipo, "class only in `is` is Tipo");
+        check(c.level("I") == ClassLevel::Tipo, "implemented interface is Tipo");
         // SDK and Object protocol
         check(c.live("Comp.compareTo"), "compareTo live through Comparable (rule i)");
         check(c.live("Comp.toString"), "toString live (rule ii)");
         check(!c.live("Comp.naoUsado"), "Comp.naoUsado dead");
         check(c.live("Nsm.noSuchMethod"), "noSuchMethod live");
         // super, mixin
-        check(c.live("Base.s") && c.level("Base") == NivelClasse::Instanciada, "Base.s live through the chain");
+        check(c.live("Base.s") && c.level("Base") == ClassLevel::Instantiated, "Base.s live through the chain");
         check(c.live("M.doMixin") && !c.live("M.mixinMorto"), "mixin member by selector");
         // statics and top-level
         check(c.live("Estat.usado") && !c.live("Estat.naoUsado"), "used static live, the other dead");
         check(c.m.variavel(c.variable("contador")), "static read/written live");
         check(c.live("topoUsado") && !c.live("topoMorto") && !c.live("topoMorto2"), "top-level functions");
         check(!c.m.variavel(c.variable("preguicoso")), "unread top-level variable dead");
-        check(c.level("Cor") == NivelClasse::Instanciada, "used enum instantiated");
+        check(c.level("Cor") == ClassLevel::Instantiated, "used enum instantiated");
         // extension
         check(c.live("ext:grita") && !c.live("ext:cala"), "extension members by name");
         // constructors
-        check(c.level("Fab") == NivelClasse::Instanciada && c.live("Fab._"), "redirecting factory instantiates the target");
-        check(c.m.tearoff_de_construtor(c.function("Tear.")), "constructor tearoff");
-        check(c.level("ConstUsada") == NivelClasse::Instanciada && c.level("ConstMorta") == NivelClasse::Morta, "used and unused const");
-        check(c.level("Json") == NivelClasse::Morta, "unreferenced class dead");
+        check(c.level("Fab") == ClassLevel::Instantiated && c.live("Fab._"), "redirecting factory instantiates the target");
+        check(c.m.ctor_tearoff(c.function("Tear.")), "constructor tearoff");
+        check(c.level("ConstUsada") == ClassLevel::Instantiated && c.level("ConstMorta") == ClassLevel::Dead, "used and unused const");
+        check(c.level("Json") == ClassLevel::Dead, "unreferenced class dead");
         // selector kind: read and write are independent
         check(c.live_kind("SoLeitura.v", false) && !c.live_kind("SoLeitura.v", true), "read getter lives, never-written setter dies");
         check(c.live_kind("SoEscrita.w", true) && !c.live_kind("SoEscrita.w", false), "written setter lives, never-read getter dies");
         // restriction by receiver type: `toca` on `Sopro` does not keep `Flauta`'s `toca`
         check(c.live("Sopro.toca") && c.live("Gaita.toca"), "toca live in the receiver's cone (base and subclass)");
         check(!c.live("Flauta.toca") && !c.live("Flauta.assobia"), "toca/assobia dead in the disjoint instantiated class");
-        check(c.level("Flauta") == NivelClasse::Instanciada, "Flauta instantiated even with its members pruned");
+        check(c.level("Flauta") == ClassLevel::Instantiated, "Flauta instantiated even with its members pruned");
         // dry-run check and determinism
-        let inc = conferir(e, &roots, &m);
+        let inc = check_consistency(e, &roots, &m);
         check(inc.is_empty(), &format!("consistency check: {inc:?}"));
         let mut perm = roots.clone();
         perm.seletores.insert(0, "toJson".into());

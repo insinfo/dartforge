@@ -187,22 +187,22 @@ impl Ty {
     /// bound by a function type. Does not allocate (unlike
     /// [`Ty::mentions_params`]) and is conservative: it decides whether the
     /// result of a conversion depends on the runtime type environment.
-    pub fn sem_parametros(&self) -> bool {
+    pub fn has_no_params(&self) -> bool {
         match self {
             Ty::Dynamic | Ty::Void | Ty::Never | Ty::Null => true,
             Ty::Param { .. } => false,
-            Ty::Iface { args, .. } => args.iter().all(|a| a.sem_parametros()),
+            Ty::Iface { args, .. } => args.iter().all(|a| a.has_no_params()),
             Ty::Fn { type_params, ret, pos, opt, named, .. } => {
                 type_params.is_empty()
-                    && ret.sem_parametros()
-                    && pos.iter().all(|a| a.sem_parametros())
-                    && opt.iter().all(|a| a.sem_parametros())
-                    && named.iter().all(|(_, t, _)| t.sem_parametros())
+                    && ret.has_no_params()
+                    && pos.iter().all(|a| a.has_no_params())
+                    && opt.iter().all(|a| a.has_no_params())
+                    && named.iter().all(|(_, t, _)| t.has_no_params())
             }
             Ty::Record { pos, named, .. } => {
-                pos.iter().all(|a| a.sem_parametros()) && named.iter().all(|(_, t)| t.sem_parametros())
+                pos.iter().all(|a| a.has_no_params()) && named.iter().all(|(_, t)| t.has_no_params())
             }
-            Ty::FutureOr { arg, .. } => arg.sem_parametros(),
+            Ty::FutureOr { arg, .. } => arg.has_no_params(),
         }
     }
 }

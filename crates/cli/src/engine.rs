@@ -114,7 +114,7 @@ pub fn generate_once(
 pub fn with_generator<R>(
     input: &Path,
     packages: Option<&Path>,
-    compile: impl FnOnce(Option<dartforge_emit_native::Gerador<'_>>) -> Result<R, String>,
+    compile: impl FnOnce(Option<dartforge_emit_native::Generator<'_>>) -> Result<R, String>,
 ) -> Result<R, String> {
     let Some((root, cfg, cfg_path)) = detect(input, packages) else {
         return compile(None);

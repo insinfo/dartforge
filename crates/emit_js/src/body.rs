@@ -102,22 +102,22 @@ pub struct FnEmitter<'m, 'a> {
     /// the field and to forward to the super constructor.
     pub wildcard_params: HashMap<usize, String>,
     /// The library has dot shorthands (Dart 3.10).
-    pub atalhos: bool,
+    pub shorthands: bool,
     /// Context (*shorthand context*) of each dot shorthand at the root of a
     /// selector chain being emitted: registered by the outermost node of the
     /// chain, and undone when it finishes.
-    pub contextos_atalho: HashMap<ExprId, Option<Ty>>,
+    pub shorthand_contexts: HashMap<ExprId, Option<Ty>>,
     /// Depth of speculative emission (`type_of`): language errors count only
     /// outside it.
-    pub especulando: u32,
+    pub speculating: u32,
     /// Type parameters of local generic functions in scope, from the `TypeTable`
     /// (the ones the shared inference uses) to the `Ty::Param` with its own id
     /// that the emitter created ([`Ctx::fresh_param`]): translates the shared
-    /// types that mention them ([`FnEmitter::ty_comum_em_escopo`]).
-    pub params_comuns: HashMap<u32, Ty>,
+    /// types that mention them ([`FnEmitter::common_ty_in_scope`]).
+    pub shared_params: HashMap<u32, Ty>,
     /// Emitting an argument of `JS()` in SDK mode (`crate::sdk_proprio`): a type
     /// literal comes out as a raw rti and a static *tear-off* without `dart.fn`.
-    pub em_js_estrangeiro: bool,
+    pub in_foreign_js: bool,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -185,11 +185,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 .then(|| ctx.sym("_"))
                 .flatten(),
             wildcard_params: HashMap::new(),
-            atalhos: ctx.program.library(lib).features.tem(dartforge_frontend::Feature::DotShorthands),
-            contextos_atalho: HashMap::new(),
-            especulando: 0,
-            params_comuns: HashMap::new(),
-            em_js_estrangeiro: false,
+            shorthands: ctx.program.library(lib).features.tem(dartforge_frontend::Feature::DotShorthands),
+            shorthand_contexts: HashMap::new(),
+            speculating: 0,
+            shared_params: HashMap::new(),
+            in_foreign_js: false,
         }
     }
 
@@ -251,7 +251,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// JS name of a type parameter of a generic function: `<_>` in a library
     /// with wildcards does not bind a name, and two of them cannot share the
     /// same JS parameter name.
-    pub fn nome_js_parametro_de_tipo(&mut self, name: &str) -> String {
+    pub fn type_param_js_name(&mut self, name: &str) -> String {
         if name == "_" && self.wildcard.is_some() {
             self.wildcard_name()
         } else {
@@ -726,8 +726,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 let mut s = self.ctx.class_recipe(*class);
                 // Declared arity, always: `raw|Caixa<@>`, never `raw|Caixa`
-                // (`Ctx::args_na_aridade`).
-                let args = self.ctx.args_na_aridade(*class, args);
+                // (`Ctx::args_at_arity`).
+                let args = self.ctx.args_at_arity(*class, args);
                 if !args.is_empty() {
                     s.push('<');
                     let parts: Vec<String> = args.iter().map(|a| self.recipe(a, unbound, used_fn, used_class)).collect();
@@ -787,8 +787,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 if !named.is_empty() {
                     // The rti compares named parameters in name order: the order
-                    // is that of the name that goes into the JS (`Ctx::nomeado`).
-                    let mut ns: Vec<(String, &Ty, bool)> = named.iter().map(|(n, t, r)| (self.ctx.nomeado(n), t, *r)).collect();
+                    // is that of the name that goes into the JS (`Ctx::named_key`).
+                    let mut ns: Vec<(String, &Ty, bool)> = named.iter().map(|(n, t, r)| (self.ctx.named_key(n), t, *r)).collect();
                     ns.sort_by(|a, b| a.0.cmp(&b.0));
                     let n: Vec<String> = ns
                         .iter()
@@ -833,7 +833,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // environment (`used_fn`/`used_class` are only set in the `Ty::Param`
         // branch), so the expression is the same anywhere in the program and is
         // memoized in the `Ctx`. The classes used are still registered in the module.
-        if t.sem_parametros() {
+        if t.has_no_params() {
             if let Some(s) = self.ctx.rti_memo.borrow().get(t) {
                 self.register_recipe_classes(t);
                 return s.clone();
@@ -1036,7 +1036,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     // The `noSuchMethod` `Invocation` sees the external name.
                     let key = self.name(external.sym);
                     names.push((p.kind, key.to_string(), jsn.clone()));
-                    let named_key = self.ctx.nomeado(key);
+                    let named_key = self.ctx.named_key(key);
                     prologue.push_str(&format!(
                         "let {jsn} = opts && {} in opts ? opts{} : {def};\n",
                         js::string_literal(&named_key),
@@ -1083,7 +1083,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     _ => None,
                 };
                 let (js, ty) = match future {
-                    Some(ctx) => self.com_contexto_de_atalho(*e, &ctx, |s| s.emit_expr(*e, Some(&expected))),
+                    Some(ctx) => self.with_shorthand_context(*e, &ctx, |s| s.emit_expr(*e, Some(&expected))),
                     None => self.emit_expr(*e, Some(&expected)),
                 };
                 self.returns.push(ty);
@@ -1497,7 +1497,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             // is invalid (shadowing one from an outer scope is allowed).
             if self.wildcard != Some(v.name.sym) && self.scopes.last().is_some_and(|s| s.contains_key(&v.name.sym)) {
                 let name = self.name(v.name.sym).to_string();
-                self.erro_de_linguagem(v.name.span, format!("'{name}' is already declared in this scope."));
+                self.language_error(v.name.span, format!("'{name}' is already declared in this scope."));
             }
             match v.initializer {
                 Some(e) => {
@@ -1562,7 +1562,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let mut scope_params = Vec::new();
         for tp in f.type_params.iter() {
             let p = self.ctx.fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
-            let jsn = self.nome_js_parametro_de_tipo(&p.name);
+            let jsn = self.type_param_js_name(&p.name);
             scope_params.push((p.id, jsn));
             tps.push(p);
         }
@@ -1617,7 +1617,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.m.use_sdk("async");
             let it = self.temp();
             let elem_rti = self.rti(&elem_ty);
-            let recipe = self.ctx.receita_de("dart:async", "StreamIterator", "async|StreamIterator");
+            let recipe = self.ctx.recipe_of("dart:async", "StreamIterator", "async|StreamIterator");
             crate::linha!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{recipe}<0>\"), {});", ijs.code);
             self.w.open("try {");
             crate::abre!(self.w, "while ((yield {it}.moveNext())) {{");

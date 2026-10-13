@@ -18,7 +18,7 @@
 use crate::scan;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId, Program, VariableId};
 use dartforge_intern::Interner;
-use dartforge_world::{Mundo, NivelClasse};
+use dartforge_world::{Mundo, ClassLevel};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Debug)]
@@ -399,7 +399,7 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                 i = f;
             }
             // The program's private name in the production profile:
-            // `x["_n$1c"]` (`dartforge_emit_js::nome_privado_de_producao`).
+            // `x["_n$1c"]` (`dartforge_emit_js::production_private_name`).
             b'[' if i + 2 < b.len() && b[i + 1] == b'"' && b[i + 2] == b'_' => {
                 let start = i + 2;
                 let mut f = start;
@@ -407,7 +407,7 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                     f += 1;
                 }
                 if b.get(f + 1) == Some(&b']') {
-                    if let Some(n) = dartforge_emit_js::nome_dart_de_privado(&text[start..f]) {
+                    if let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f]) {
                         let e = access_after(b, f + 2);
                         record(n, e, reads, writes);
                     }
@@ -476,15 +476,15 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
         };
         by_recipe.insert(ident, var.as_str());
         // The production profile writes the program's library with the
-        // short label (`dartforge_emit_js::tag_de_receita`).
+        // short label (`dartforge_emit_js::recipe_tag`).
         if !lib.uri.starts_with("dart:") {
-            by_recipe.insert(dartforge_emit_js::tag_de_receita(*l), var.as_str());
+            by_recipe.insert(dartforge_emit_js::recipe_tag(*l), var.as_str());
         }
     }
     let recipes: HashMap<&str, &str> = by_recipe.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     // Short recipe id (`|id`) → `var.Class`.
     let lib_var: HashMap<LibraryId, &str> = libs.iter().map(|(v, l)| (*l, v.as_str())).collect();
-    let ids: HashMap<String, String> = dartforge_emit_js::ids_de_receita(program, interner)
+    let ids: HashMap<String, String> = dartforge_emit_js::recipe_ids(program, interner)
         .into_iter()
         .enumerate()
         .filter_map(|(i, id)| {
@@ -521,7 +521,7 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
     }
     let mut new: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
-        if (program.library(c.library).is_sdk && !world.incluir_sdk) || world.classe(ClassId(i as u32)) != NivelClasse::Instanciada {
+        if (program.library(c.library).is_sdk && !world.include_sdk) || world.classe(ClassId(i as u32)) != ClassLevel::Instantiated {
             continue;
         }
         for (&key, &f) in c.instance_members.iter() {
@@ -551,7 +551,7 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
             // did not see) — a gap, it comes back as an unrestricted root. A
             // name only restricted to the cones of other classes is pruning
             // by design, not a fix.
-            if world.seletor_vivo_para(program, &name, ClassId(i as u32)) || !world.tem_restricao(&name) {
+            if world.selector_live_for(program, &name, ClassId(i as u32)) || !world.has_restriction(&name) {
                 new.insert(name);
             }
         }

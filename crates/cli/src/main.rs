@@ -127,15 +127,15 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
                     Err(e) => Err(format!("build engine: {e}")),
                 }
             };
-            let generator: Option<dartforge_emit_js::Gerador<'_>> = engine.as_ref().map(|_| &generate as _);
-            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), &language, generator)?;
+            let generator: Option<dartforge_emit_js::Generator<'_>> = engine.as_ref().map(|_| &generate as _);
+            let (e, r) = dartforge_emit_js::compile_with_report_and_generator(&i2, s2.as_deref(), p2.as_deref(), &language, generator)?;
             Ok((e, r, engine_report.into_inner()))
         })
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "the compilation aborted")??;
     let t = std::time::Instant::now();
-    let written = dartforge_emit_js::escrever(&emitted, &out, &dartforge_emit_js::dart_sdk_js_padrao())?;
+    let written = dartforge_emit_js::escrever(&emitted, &out, &dartforge_emit_js::default_dart_sdk_js())?;
     report.fase("write", t);
     println!(
         "{} -> {} ({} modules, {} file(s) rewritten)",

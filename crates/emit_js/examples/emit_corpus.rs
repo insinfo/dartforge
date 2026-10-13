@@ -29,7 +29,7 @@ fn main() {
             Ok(e) => {
                 if std::env::var_os("EMITIR_CORPUS_EXECUTAVEL").is_some() {
                     let dir = out_dir.join(&name);
-                    dartforge_emit_js::escrever(&e, &dir, &dartforge_emit_js::dart_sdk_js_padrao())
+                    dartforge_emit_js::escrever(&e, &dir, &dartforge_emit_js::default_dart_sdk_js())
                         .expect("write the runnable program");
                 }
                 let mut modules = e.modulos;
