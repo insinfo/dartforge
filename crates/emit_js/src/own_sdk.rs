@@ -1270,9 +1270,12 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, late_fields: bool) -> Stri
 };
 ");
     }
-    for n in dartx {
-        let key = if js::is_js_ident(n) { format!(".{n}") } else { format!("[{}]", js::string_literal(n)) };
-        out.push_str(&format!("dartx{key} = Symbol({});\n", js::string_literal(&format!("dartx.{n}"))));
+    // One loop instead of a `dartx.n = Symbol("dartx.n");` line per name
+    // (65 in the smallest program). The names stay *strings* of the runtime,
+    // which the property renaming keeps (`minify::IdentifierStrings`).
+    let names: Vec<String> = dartx.into_iter().map(|n| js::string_literal(n)).collect();
+    if !names.is_empty() {
+        out.push_str(&format!("for (const n of [{}]) dartx[n] = Symbol(\"dartx.\" + n);\n", names.join(", ")));
     }
     out
 }
