@@ -856,6 +856,19 @@ pub fn getters_and_setters(
 
 /// Start of an annotated node (`AnnotatedNodeImpl.beginToken`): the
 /// documentation comment right before it, if any.
+/// The source before `pos` without the whitespace and comments that end
+/// there (`// … method.` before a member is not a `.` before its name).
+fn before_skipping_comments<'s>(source: &'s str, comments: &dartforge_frontend::comments::Comments, pos: usize) -> &'s str {
+    let mut end = pos;
+    loop {
+        let trimmed = source[..end].trim_end();
+        match comments.all().iter().find(|c| c.end <= end && source[c.end..end].trim().is_empty() && c.end > 0 && c.start < trimmed.len()) {
+            Some(c) => end = c.start,
+            None => return trimmed,
+        }
+    }
+}
+
 fn start_with_documentation(source: &str, start: usize) -> usize {
     let without_space = source[..start].trim_end();
     if let Some(without_end) = without_space.strip_suffix("*/") {
@@ -1015,11 +1028,15 @@ pub fn abstract_members(
         // An `augment` member, or a method whose name comes after `.` (a
         // constructor with the wrong class name): the parser's recovery
         // differs from the analyzer's and the class is undecided.
+        let mut comments: Option<dartforge_frontend::comments::Comments> = None;
         let recovered = members.iter().any(|&m| {
             let mem = ast_.member(m);
             mem.augment
                 || matches!(&mem.kind, MemberKind::Method(f)
-                    if ast_.function(*f).name.is_some_and(|n| source[..n.span.start].trim_end().ends_with('.')))
+                    if ast_.function(*f).name.is_some_and(|n| {
+                        let cs = comments.get_or_insert_with(|| dartforge_frontend::comments::Comments::scan(source));
+                        before_skipping_comments(source, cs, n.span.start).ends_with('.')
+                    }))
         });
         // The word `augment` at the start of a member, without the experiment,
         // is read differently by the analyzer's parser.

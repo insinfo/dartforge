@@ -397,6 +397,17 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
             ("deprecated_member_use_from_same_package", 18, 11, 1),
         ],
     ),
+    // A comment ending in `.` before a member is not the `.` of a recovered
+    // constructor name (2026-10-13).
+    (
+        "comentario_antes_do_membro.dart",
+        "class A2 {\n  // Intentionally abstract method.\n  method();\n}\nclass B {\n  B();\n  A.make() {}\n  method();\n}\n",
+        &[
+            ("concrete_class_with_abstract_member", 3, 3, 9),
+            ("invalid_constructor_name", 7, 3, 1),
+            ("concrete_class_with_abstract_member", 8, 3, 9),
+        ],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",
