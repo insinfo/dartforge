@@ -973,6 +973,9 @@ pub struct ObjectSpace {
     /// The ranges `[start, end)` of free blocks of each class, zeroed
     /// (header included) or with the garbage of the dead (zeroed on the way out).
     free_list: Vec<Vec<(*mut u8, *mut u8)>>,
+    /// How many free ranges each class had after the last rebuild in address order
+    /// (the full sweep or [`ObjectSpace::merge_free_ranges`]).
+    merged_free: Vec<usize>,
     /// Live blocks (handed out and not returned).
     pub live_set: usize,
     /// Blocks in all pages.
@@ -981,6 +984,16 @@ pub struct ObjectSpace {
     /// class ([`LARGE`] in the large regions): with
     /// [`ObjectSpace::ranges`], what the minor collection sweeps.
     young_set: Vec<(*mut Header, usize)>,
+    /// The young blocks that survived the last minor collection (a survivor state),
+    /// in runs `(start, end, class)` of contiguous blocks (a large region: its
+    /// start, the start + 1 and [`LARGE`]): the next minor collection promotes the
+    /// ones it reaches and frees the others. Their mark bit stays clear between
+    /// collections (only an old block keeps its bit).
+    pub(crate) survivors: Vec<(*mut u8, *mut u8, usize)>,
+    /// The survivors the last minor collection found (from the one before it) and
+    /// how many of them it promoted: the survival rate that decides whether
+    /// aging pays off (`Heap::run_collection`).
+    pub(crate) survivors_seen: (usize, usize),
     /// The ranges `(start, end, class)` handed to the TLABs since the last
     /// collection.
     ranges: Vec<(*mut u8, *mut u8, usize)>,
@@ -1035,9 +1048,12 @@ impl ObjectSpace {
             pages: Vec::new(),
             map: PageMap::default(),
             free_list: vec![Vec::new(); N_CLASSES],
+            merged_free: vec![0; N_CLASSES],
             live_set: 0,
             blocks: 0,
             young_set: Vec::new(),
+            survivors: Vec::new(),
+            survivors_seen: (0, 0),
             ranges: Vec::new(),
             region: vec![(std::ptr::null_mut(), std::ptr::null_mut()); N_CLASSES],
             empties_list: Vec::new(),
@@ -1405,62 +1421,127 @@ impl ObjectSpace {
         Some((p.start() as u64, p.size() as u64, u32::try_from(p.blocks).ok()?))
     }
 
-    pub(crate) fn sweep_young(&mut self) -> (usize, usize) {
+    ///
+    /// With `aging`, a reached block handed out since the last collection (marking
+    /// already gave it the survivor state) stays young: it loses the mark bit and
+    /// goes to [`ObjectSpace::survivors`]; the survivors of the previous one were
+    /// promoted by marking (bit set) or die here. The remembered list was
+    /// rebuilt by the collection (`Heap::run_collection`). Without it, every reached
+    /// young object is already old and the remembered ones become old again.
+    pub(crate) fn sweep_young(&mut self, aging: bool) -> (usize, usize) {
         let (mut dead_set, mut released_set) = (0, 0);
         released_set += self.release_dead_out_of_line();
+        let previous = std::mem::take(&mut self.survivors);
+        // The survivors of the previous minor collection, in runs of contiguous blocks
+        // of one class: each run is swept by the bitmap like a TLAB range (the
+        // promoted ones are marked; the dead go back as whole chunks — a structure
+        // that dies together, the tree under construction at the last collection, gives
+        // back runs of blocks instead of fragmenting the free ranges).
+        let (mut seen, mut dead_survivors) = (0, 0);
+        for &(start, end, class) in &previous {
+            if class == LARGE {
+                seen += 1;
+                // SAFETY: a survivor of the previous minor collection, in a live page.
+                unsafe {
+                    if !marked(start.cast()) {
+                        dead_survivors += 1;
+                        released_set += self.release_young(start.cast(), LARGE);
+                    }
+                }
+                continue;
+            }
+            let size = block_bytes(class_words(class));
+            let mut chunk: *mut u8 = std::ptr::null_mut();
+            let mut dead_in_run = 0;
+            let mut p = start;
+            while p < end {
+                // SAFETY: a survivor block, in a live page.
+                if unsafe { marked(p.cast()) } {
+                    if !chunk.is_null() {
+                        // SAFETY: dead survivors of the run.
+                        unsafe { self.release_range(class, chunk, p) };
+                        chunk = std::ptr::null_mut();
+                    }
+                } else {
+                    dead_in_run += 1;
+                    if chunk.is_null() {
+                        chunk = p;
+                    }
+                }
+                p = p.wrapping_add(size);
+            }
+            if !chunk.is_null() {
+                // SAFETY: dead survivors of the run.
+                unsafe { self.release_range(class, chunk, end) };
+            }
+            seen += (end as usize - start as usize) / size;
+            dead_survivors += dead_in_run;
+            released_set += dead_in_run * size;
+            self.in_use[class] -= dead_in_run;
+        }
+        dead_set += dead_survivors;
+        self.survivors_seen = (seen, seen - dead_survivors);
+        let mut survivors = previous;
+        survivors.clear();
         let young_set = std::mem::take(&mut self.young_set);
         for &(b, class) in &young_set {
             // SAFETY: block handed out since the last collection, of a page
             // still alive (pages only leave in the full collection).
             unsafe {
                 if marked(b) {
+                    if aging {
+                        Self::keep_young(b);
+                        let size = if class == LARGE { 1 } else { block_bytes(class_words(class)) };
+                        survivors.push((b.cast(), b.cast::<u8>().wrapping_add(size), class));
+                    }
                     continue;
                 }
                 dead_set += 1;
-                if class == LARGE {
-                    // The region of a dead large object goes back to their cache right away
-                    // (Julia's sweep of large objects, `sweep_big`): until the
-                    // full collection, it would be memory that no trigger
-                    // counts (docs/NATIVO-PLANO.md §14.2).
-                    if let Some(i) = self.map.get(b as usize & !(PAGE - 1)) {
-                        let p = self.remove_page(i);
-                        released_set += p.bytes;
-                        self.large_ones.give_back(p.base, p.bytes);
-                    }
-                } else {
-                    let size = block_bytes(class_words(class));
-                    released_set += size;
-                    self.in_use[class] -= 1;
-                    let start = b.cast::<u8>();
-                    self.release_range(class, start, start.wrapping_add(size));
-                }
+                released_set += self.release_young(b, class);
             }
         }
         self.young_set = young_set;
         self.young_set.clear();
         let ranges = std::mem::take(&mut self.ranges);
-        // All handed-out blocks marked: no dead in the ranges.
-        let all_live = self.marked_set >= self.handed_out;
+        // All handed-out blocks marked: no dead in the ranges (with aging, the
+        // reached ones still become survivors).
+        let all_live = !aging && self.marked_set >= self.handed_out;
         for &(start, end, class) in if all_live { &ranges[..0] } else { &ranges[..] } {
             let size = block_bytes(class_words(class));
             let mut chunk: *mut u8 = std::ptr::null_mut();
+            // The run of survivors in progress (with aging).
+            let mut kept: *mut u8 = std::ptr::null_mut();
             let mut dead_in_range = 0;
             let mut p = start;
             while p < end {
                 // SAFETY: block of the range, in a live page.
                 if unsafe { marked(p.cast()) } {
+                    if aging {
+                        // SAFETY: a reached block of the range.
+                        unsafe { Self::keep_young(p.cast()) };
+                        if kept.is_null() {
+                            kept = p;
+                        }
+                    }
                     if !chunk.is_null() {
                         // SAFETY: dead blocks of the range.
                         unsafe { self.release_range(class, chunk, p) };
                         chunk = std::ptr::null_mut();
                     }
                 } else {
+                    if !kept.is_null() {
+                        survivors.push((kept, p, class));
+                        kept = std::ptr::null_mut();
+                    }
                     dead_in_range += 1;
                     if chunk.is_null() {
                         chunk = p;
                     }
                 }
                 p = p.wrapping_add(size);
+            }
+            if !kept.is_null() {
+                survivors.push((kept, end, class));
             }
             if !chunk.is_null() {
                 // SAFETY: dead blocks of the range.
@@ -1472,9 +1553,23 @@ impl ObjectSpace {
         }
         self.ranges = ranges;
         self.ranges.clear();
-        for b in std::mem::take(&mut self.remembered) {
-            // SAFETY: remembered block, old.
-            unsafe { (*b).state = OLD };
+        self.survivors = survivors;
+        if aging {
+            // The survivors that die a collection later leave holes among the blocks
+            // handed out since then: without the full sweep's rebuild (rarer with
+            // aging), the free ranges of the class end up in pieces of a few blocks,
+            // and each TLAB refill hands out only one piece.
+            for class in 1..N_CLASSES {
+                if self.free_list[class].len() > 2 * self.merged_free[class] + 64 {
+                    self.merge_free_ranges(class);
+                }
+            }
+        }
+        if !aging {
+            for b in std::mem::take(&mut self.remembered) {
+                // SAFETY: remembered block, old.
+                unsafe { (*b).state = OLD };
+            }
         }
         self.live_set -= dead_set;
         self.handed_out = 0;
@@ -1483,6 +1578,126 @@ impl ObjectSpace {
             *d = 0;
         }
         (dead_set, released_set)
+    }
+
+    /// Sorts the free ranges of the class by address and merges the neighbours (the
+    /// low addresses go out first, like after the full sweep).
+    fn merge_free_ranges(&mut self, class: usize) {
+        let list = &mut self.free_list[class];
+        list.sort_unstable_by_key(|&(start, _)| std::cmp::Reverse(start as usize));
+        // Descending: the range at `i` ends where the one at `i - 1` begins.
+        let mut out = 0;
+        for i in 0..list.len() {
+            let (start, end) = list[i];
+            if out > 0 && list[out - 1].0 == end {
+                list[out - 1].0 = start;
+            } else {
+                list[out] = (start, end);
+                out += 1;
+            }
+        }
+        list.truncate(out);
+        self.merged_free[class] = out;
+    }
+
+    /// A reached block handed out since the last collection stays young (the
+    /// marking gave it the survivor state): without the mark bit, which only an old
+    /// block keeps between collections. Only the bitmap is written.
+    ///
+    /// # Safety
+    /// `b` is a marked block of a page of this space.
+    #[inline]
+    unsafe fn keep_young(b: *mut Header) {
+        // SAFETY: the function contract.
+        unsafe {
+            debug_assert!(crate::layout::state::is_young((*b).state), "a kept young block in state {}", (*b).state);
+            unmark_block(b);
+        }
+    }
+
+    /// Frees the dead young block `b` of class `class` (one handed out by the runtime
+    /// or a survivor): back to the free ranges, or its large region to the cache.
+    /// Returns the freed bytes.
+    ///
+    /// # Safety
+    /// `b` is an unmarked young block of a live page of this space.
+    unsafe fn release_young(&mut self, b: *mut Header, class: usize) -> usize {
+        if class == LARGE {
+            // The region of a dead large object goes back to their cache right away
+            // (Julia's sweep of large objects, `sweep_big`): until the
+            // full collection, it would be memory that no trigger
+            // counts (docs/NATIVO-PLANO.md §14.2).
+            if let Some(i) = self.map.get(b as usize & !(PAGE - 1)) {
+                let p = self.remove_page(i);
+                self.large_ones.give_back(p.base, p.bytes);
+                return p.bytes;
+            }
+            return 0;
+        }
+        let size = block_bytes(class_words(class));
+        self.in_use[class] -= 1;
+        let start = b.cast::<u8>();
+        // SAFETY: the function contract.
+        unsafe { self.release_range(class, start, start.wrapping_add(size)) };
+        size
+    }
+
+    /// Pushes the references of the remembered block `b` (as
+    /// [`ObjectSpace::push_remembered`]) for a minor collection with aging, and says
+    /// whether `b` must stay remembered: whether one of them is [`YOUNG`] — reached
+    /// now through `b`, it stays young after the collection. A survivor
+    /// child is promoted by this collection and does not count. A dirty card of a list
+    /// with `CARDS` stays dirty only when it holds a young element.
+    ///
+    /// # Safety
+    /// `b` is a remembered block of a page of this space.
+    pub(crate) unsafe fn scan_remembered(&self, b: *mut Header, stack: &mut Vec<i64>) -> (usize, bool) {
+        #[inline(always)]
+        fn young(r: i64) -> bool {
+            // SAFETY: a reference of a live object: a block or a static.
+            is_object(r) && unsafe { (*((r - HANDLE_OFFSET) as *const Header)).state } == YOUNG
+        }
+        // SAFETY: the function contract.
+        unsafe {
+            let start = stack.len();
+            match shape(b) {
+                REFS if (*b).flags & CARDS != 0 => {
+                    let len = body_refs(b, self.body_words(b));
+                    let c = cards_of(b, len);
+                    let elements = fields_of(b).wrapping_add(1);
+                    let (mut work, mut keep) = (0, false);
+                    for w in 0..len.div_ceil(ELEMENTS_PER_CARD_WORD) {
+                        let mut m = *c.add(w);
+                        let mut still = 0u64;
+                        while m != 0 {
+                            let k = w * 64 + m.trailing_zeros() as usize;
+                            let (of, until) = (k * ELEMENTS_PER_CARD, ((k + 1) * ELEMENTS_PER_CARD).min(len));
+                            let mut card_young = false;
+                            for i in of..until {
+                                let r = *elements.add(i);
+                                if r != 0 && r & 1 == 0 {
+                                    stack.push(r);
+                                    card_young |= young(r);
+                                }
+                            }
+                            if card_young {
+                                still |= m & m.wrapping_neg();
+                            }
+                            work += until.saturating_sub(of);
+                            m &= m - 1;
+                        }
+                        *c.add(w) = still;
+                        keep |= still != 0;
+                    }
+                    (work, keep)
+                }
+                _ => {
+                    let work = self.push_body(b, stack);
+                    let keep = stack[start..].iter().any(|&r| young(r));
+                    (work, keep)
+                }
+            }
+        }
     }
 
     /// Frees the out-of-line body of the dead object of block `b`, if it has one.
@@ -1790,8 +2005,9 @@ impl ObjectSpace {
             self.pages.push(p);
         }
         // The low-address ranges go first (`pop`).
-        for l in self.free_list.iter_mut() {
+        for (l, merged) in self.free_list.iter_mut().zip(self.merged_free.iter_mut()) {
             l.reverse();
+            *merged = l.len();
         }
         // The quarantine: what exceeded the capacity goes back to the free list.
         if let Some(q) = self.quarantine.as_mut() {
@@ -1808,6 +2024,7 @@ impl ObjectSpace {
         self.handed_out = 0;
         self.marked_set = 0;
         self.young_set.clear();
+        self.survivors.clear();
         self.ranges.clear();
         self.remembered.clear();
         for d in self.demand.iter_mut() {
@@ -2057,6 +2274,31 @@ mod tests_ranges {
                 assert_eq!((*blocks[3]).class_id, 129);
             }
         }
+    }
+
+    #[test]
+    fn merge_free_ranges_joins_neighbours_in_address_order() {
+        let mut e = ObjectSpace::new(false);
+        e.quarantine = None;
+        let class = size_class(2).unwrap();
+        let blocks: Vec<_> = (0..6).map(|_| {
+            let h = e.allocate(129, 2, INSTANCE, 2);
+            e.block_of(h).unwrap()
+        }).collect();
+        e.young_set.clear();
+        // Out of order, with block 3 alive: two runs, 0..3 and 4..6.
+        // SAFETY: the released blocks died; block 3 is still alive.
+        unsafe {
+            for i in [4, 1, 0, 5, 2] {
+                e.release_dead(blocks[i]);
+            }
+        }
+        assert!(e.free_list[class].len() > 2);
+        e.merge_free_ranges(class);
+        let size = block_bytes(class_words(class));
+        let b = |i: usize| blocks[i].cast::<u8>();
+        assert_eq!(e.free_list[class], vec![(b(4), b(5).wrapping_add(size)), (b(0), b(2).wrapping_add(size))]);
+        assert_eq!(e.merged_free[class], 2);
     }
 
     #[test]

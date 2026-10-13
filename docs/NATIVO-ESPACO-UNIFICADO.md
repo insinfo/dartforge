@@ -485,7 +485,7 @@ e o `mapa` das strings.
 
 | Byte | Campo | Conteúdo |
 |---|---|---|
-| 0 | `estado: u8` | `LIVRE` 0, `JOVEM` 1, (2 reservado), `VELHO` 3, `LEMBRADO` 4, **`PERMANENTE` 5** (objeto estático fora do heap: nunca marcado, varrido, lembrado nem gravado) |
+| 0 | `estado: u8` | `LIVRE` 0, `JOVEM` 1, `SOBREVIVENTE` 2 (`SURVIVOR`), `VELHO` 3, `LEMBRADO` 4, **`PERMANENTE` 5** (objeto estático fora do heap: nunca marcado, varrido, lembrado nem gravado), `SOBREVIVENTE_B` 6 (`SURVIVOR_B`; os dois sobreviventes se alternam a cada coleta menor, §2.8.1) |
 | 1 | `flags: u8` | bit 0 `FORA` (0x01, inalterado); bits 1-2 **`FORMA`**: `INSTANCIA` 0x00, `BRUTO` 0x02, `REFS` 0x04 (0x06 reservado); bit 3 **`CARTOES`** 0x08; bit 4 **`ANEXO`** 0x10; bits 5-6 **`ELEMENTO`** da lista compacta: `INT` 0x20, `DOUBLE` 0x40, `BOOL` 0x60; bit 7 **`EXTERNO`** 0x80 (lista tipada sobre memória de fora) |
 | 2-3 | `n: u16` | `INSTANCIA`: número de campos; `BRUTO`/`REFS`: palavras do corpo; saturado em `u16::MAX` no objeto grande (a região sabe o real) |
 | 4-7 | `class_id: i32` | o cid |
@@ -638,8 +638,11 @@ gatilhos continua em `estimated_bytes`, agora `Σ tamanho dos blocos em uso + by
 **Barreira de objeto** (depois de gravar o `Ref` `v` num campo ou elemento do objeto `o`):
 
 ```
-se o.estado == VELHO e v é objeto e v.estado == JOVEM: dartforge_remember(o)
+se o.estado == VELHO e v é objeto e v.estado ∈ {JOVEM, SOBREVIVENTE, SOBREVIVENTE_B}: dartforge_remember(o)
 ```
+
+(Desde 2026-10-13 o filho jovem inclui os sobreviventes, §2.8.1: `layout::state::is_young`, e
+o `@df.young_child` gerado faz `(e - 1) ≤ 1 ou e == 6`.)
 
 É a de hoje (`EN/llvm/mod.rs:2707-2728`) mais o teste do filho, como a VM (`StoreBarrier`, o filho
 precisa estar no *new space*) e a Julia (`jl_gc_wb`, filho não marcado): gravar num velho um
@@ -674,6 +677,40 @@ referências e não têm barreira.
   `REFS` percorre as palavras `1..w` (w do cabeçalho ou, no objeto grande, da região), empilhando
   as pares e não nulas. O "primeiro filho sem pilha" continua valendo para `INSTANCIA` e `REFS`.
 * **Lembrados** na menor: `INSTANCIA` pelo mapa, `REFS` inteiro ou pelos cartões (§2.7).
+
+#### 2.8.1 Envelhecimento (2026-10-13)
+
+O coletor promovia na primeira coleta menor sobrevivida: uma estrutura em construção no momento
+da coleta (a árvore dos `objetos_escapam`, os temporários de uma conta em andamento) virava velha
+e morria velha, à espera da completa. Agora o objeto alcançado pela primeira vez fica jovem como
+**sobrevivente** e só a coleta menor seguinte que o alcança o promove (idade 2).
+
+* **Dois estados de sobrevivente.** Os sobreviventes da última coleta têm o estado `s_velho`
+  (`Heap::survivor_state`); a marcação da menor percorre `JOVEM` e `s_velho`, grava `s_novo` (o
+  outro) no jovem que guarda e `VELHO` no sobrevivente que promove. Assim a marcação distingue,
+  sem ler o mapa de bits, o sobrevivente que promove do jovem que acabou de guardar, e a varredura
+  não volta aos cabeçalhos.
+* **Bit de marca.** Só o velho guarda o bit entre coletas. A varredura menor apaga o bit dos que
+  ficam jovens e os anota em `survivors`, em **corridas** `(início, fim, classe)` de blocos
+  contíguos de uma faixa de TLAB; a menor seguinte varre essas corridas pelo mapa de bits como
+  uma faixa: o marcado foi promovido, o resto morre e volta em pedaços inteiros.
+* **Conjunto lembrado.** Um velho que aponta para um jovem que fica jovem continua lembrado: a
+  menor percorre os lembrados antes da marcação e mantém os que têm filho `JOVEM` (num `REFS`
+  com cartões, só os cartões com elemento jovem continuam sujos); o promovido pela marcação com
+  filho que fica jovem (`JOVEM` ou `s_novo`) vira `LEMBRADO`, com todos os cartões sujos. As
+  marcas de `late` de um objeto que fica jovem continuam em `new_lates` até ele morrer ou ser
+  promovido.
+* **Fragmentação.** O sobrevivente que morre uma coleta depois deixa buracos entre os blocos
+  entregues nesse meio-tempo; com menos coletas completas (que refazem as faixas livres em ordem
+  de endereço), as faixas de uma classe viravam pedaços de poucos blocos (23 mil faixas contra
+  mil nas árvores) e cada recarga da TLAB entregava um pedaço só. A varredura menor ordena e junta
+  as faixas da classe quando elas passam do dobro (+64) do que havia na última reconstrução.
+* **Pausa adaptativa.** Quando três quartos ou mais dos sobreviventes (com ao menos 1 024) são
+  promovidos — a estrutura que fica (a lista ligada, o JSON decodificado) —, envelhecer só os
+  marca duas vezes: as próximas 1, 2, 4… até 16 coletas menores promovem na primeira
+  sobrevivência; quando a maioria morre, a pausa volta a 1.
+* **Fora do envelhecimento:** a completa promove tudo e esvazia `survivors`; o ARC (que registra
+  os promovidos de cada menor) nunca envelhece; `DARTFORGE_GC_AGING=0` desliga (medida).
 * **Varredura:** a de hoje (só bits), por classe; a região grande sem bit volta ao sistema
   (`VirtualFree(MEM_RELEASE)`/`munmap`). Os **anexos** (`ANEXO`): lista `anexos_nativos` de
   `(bloco, soltar: unsafe fn(*mut u8), ptr, bytes)` percorrida como `com_fora`

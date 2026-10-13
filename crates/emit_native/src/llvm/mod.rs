@@ -4614,7 +4614,8 @@ fn out_of_line(text: &str, names: &[String]) -> String {
 /// §3.5), with the offsets of the layout contract:
 ///
 /// * `@df.is_object(h)`: `h & (7 | i64::MIN) == 2`;
-/// * `@df.young_child(v)`: the stored child requires the barrier (young object);
+/// * `@df.young_child(v)`: the stored child requires the barrier (young object:
+///   state `YOUNG`, `SURVIVOR` or `SURVIVOR_B`, `layout::state::is_young`);
 /// * `@df.barrier(o, v)`: old `o` receiving a young child → `dartforge_remember`
 ///   (weight 1:9 on the slow branch, like Julia's barrier);
 /// * `@df.element_barrier(o, i, v)`: the same with cards (`o` old or
@@ -4687,7 +4688,10 @@ obj:\n\
   %p = inttoptr i64 %v to ptr\n\
   %ep = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
   %e = load i8, ptr %ep, align 8\n\
-  %j = icmp eq i8 %e, {young}\n\
+  %ey = sub i8 %e, {young}\n\
+  %j1 = icmp ule i8 %ey, {young_span}\n\
+  %j2 = icmp eq i8 %e, {survivor_b}\n\
+  %j = or i1 %j1, %j2\n\
   ret i1 %j\n\
 nao:\n\
   ret i1 false\n\
@@ -4786,6 +4790,8 @@ lento:\n\
         length_h = d(offsets::LENGTH),
         elements_h = d(offsets::ELEMENTS),
         young = state::YOUNG,
+        young_span = state::SURVIVOR - state::YOUNG,
+        survivor_b = state::SURVIVOR_B,
         old_one = state::OLD,
         cards = flags::CARDS,
         log_word = layout::ELEMENTS_PER_CARD_WORD.trailing_zeros(),

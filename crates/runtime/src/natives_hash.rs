@@ -189,11 +189,12 @@ impl Data {
     }
 }
 
-/// Does the written `Ref` require the barrier (`@df.young_child`)? Only a young object.
+/// Does the written `Ref` require the barrier (`@df.young_child`)? Only a young object
+/// (born after the last collection or a survivor of one).
 #[inline(always)]
 fn young_child(v: i64) -> bool {
     // SAFETY: live object.
-    crate::layout::is_object(v) && unsafe { raw_header(v) }.state == crate::layout::state::YOUNG
+    crate::layout::is_object(v) && crate::layout::state::is_young(unsafe { raw_header(v) }.state)
 }
 
 /// A key that the runtime compares and hashes by itself.

@@ -66,8 +66,11 @@ pub use crate::layout::{
 
 /// States of a block ([`Header::state`]; `crate::layout::state`). The
 /// collector is generational without moving objects ("sticky" marks): an object is born
-/// [`YOUNG`] (inline allocation writes 1), and one that survives a collection becomes
-/// [`OLD`]. The minor collection only marks and sweeps the young; old ones count as
+/// [`YOUNG`] (inline allocation writes 1); one that survives a minor collection becomes a
+/// survivor (still young: [`SURVIVOR`] or [`SURVIVOR_B`], alternating per minor
+/// collection), and one that survives the next one (or a full one) becomes
+/// [`OLD`] — the aging, so that a structure under construction at a minor collection does
+/// not die old. The minor collection only marks and sweeps the young; old ones count as
 /// live, and old-to-young references are found through the [`REMEMBERED`] ones
 /// — the write barrier (`Heap::get_mut` and the runtime's field writes,
 /// and the generated code's one after writing a `Ref` into a field,
@@ -75,7 +78,8 @@ pub use crate::layout::{
 /// buffer*. [`PERMANENT`] is the static object, outside the heap.
 pub const FREE: u8 = crate::layout::state::FREE;
 pub const YOUNG: u8 = crate::layout::state::YOUNG;
-pub const MARKED: u8 = 2;
+pub const SURVIVOR: u8 = crate::layout::state::SURVIVOR;
+pub const SURVIVOR_B: u8 = crate::layout::state::SURVIVOR_B;
 pub const OLD: u8 = crate::layout::state::OLD;
 pub const REMEMBERED: u8 = crate::layout::state::REMEMBERED;
 pub const PERMANENT: u8 = crate::layout::state::PERMANENT;
@@ -126,6 +130,11 @@ const MINORS_PER_FULL_UNDER_STRESS: u64 = 8;
 /// allocation). This way the cost of full collections per allocation stays at ~64 words
 /// visited; the minor one still comes before every allocation.
 const WORK_PER_MINOR_UNDER_STRESS: usize = 64;
+/// The longest pause of aging (in minor collections) when the survivors keep
+/// living on ([`Heap::run_collection`]).
+const AGING_MAX_PAUSE: u32 = 16;
+/// Below this many survivors, their survival rate does not change the aging.
+const AGING_MIN_SAMPLE: usize = 1024;
 
 /// Nobody's object: zeroed header and zeroed fields. The inline read
 /// of a field of something that is not an object of the space reads from here (what
@@ -195,11 +204,18 @@ impl std::fmt::Debug for Obj<'_> {
     }
 }
 
+/// The survivor state that alternates with `s` ([`SURVIVOR`] ↔ [`SURVIVOR_B`]).
+#[inline(always)]
+fn other_survivor_state(s: u8) -> u8 {
+    if s == SURVIVOR { SURVIVOR_B } else { SURVIVOR }
+}
+
 /// Was handle `h` marked by the collection in progress (live)? Null, `Smi` and
 /// any scalar: no.
 ///
-/// In the minor collection, an old object counts as live.
-fn marked_in_collection(objects: &ObjectSpace, minor: bool, h: i64) -> bool {
+/// In the minor collection, an old object counts as live, as does a young one in the
+/// survivor state `kept` that the marking gave it (with aging; otherwise `OLD`).
+fn marked_in_collection(objects: &ObjectSpace, minor: bool, kept: u8, h: i64) -> bool {
     if is_object(h) {
         // SAFETY: block of a page of the space.
         #[allow(unsafe_code)]
@@ -207,7 +223,7 @@ fn marked_in_collection(objects: &ObjectSpace, minor: bool, h: i64) -> bool {
             Some(b) => unsafe {
                 if minor {
                     let e = (*b).state;
-                    e == OLD || e == REMEMBERED
+                    e == OLD || e == REMEMBERED || e == kept
                 } else {
                     marked(b)
                 }
@@ -1498,6 +1514,21 @@ pub struct Heap {
     young_bytes: usize,
     /// The collection in progress is minor (young only).
     minor_collection: bool,
+    /// Aging (`DARTFORGE_GC_AGING=0` turns it off): a young object is promoted
+    /// by the second minor collection it survives, not the first. Never under
+    /// ARC (which registers the promoted ones of each minor collection).
+    aging: bool,
+    /// The minor collection in progress ages (`aging` and no ARC).
+    aging_now: bool,
+    /// The state of the survivors of the last minor collection ([`SURVIVOR`] or
+    /// [`SURVIVOR_B`]): the next one promotes the ones it reaches and gives the
+    /// other state to the young ones it keeps.
+    survivor_state: u8,
+    /// Minor collections that still promote on the first survival, and the length
+    /// of the last such pause: when most survivors live on (a structure under
+    /// construction that stays, the linked list), aging only marks them twice, and
+    /// it backs off for 1, 2, 4… up to [`AGING_MAX_PAUSE`] collections.
+    aging_pause: (u32, u32),
     /// `--gc-stress`: collections since the last full one and its marking
     /// work (the spacing of full ones, [`Heap::collect_automatic`]).
     minors_since_full: u64,
@@ -1650,6 +1681,10 @@ impl Heap {
             young_bytes: 0,
             arc: None,
             minor_collection: false,
+            aging: std::env::var("DARTFORGE_GC_AGING").as_deref() != Ok("0"),
+            aging_now: false,
+            survivor_state: SURVIVOR,
+            aging_pause: (0, 0),
             minors_since_full: 0,
             work_in_full: 0,
             verify: std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1"),
@@ -2461,7 +2496,7 @@ impl Heap {
         }
         // SAFETY: block of the space.
         #[allow(unsafe_code)]
-        self.space_block(v).is_some_and(|b| unsafe { (*b).state } == YOUNG)
+        self.space_block(v).is_some_and(|b| crate::layout::state::is_young(unsafe { (*b).state }))
     }
     /// The N4 panic of a handle that is not an object's.
     #[cold]
@@ -2715,10 +2750,20 @@ impl Heap {
         // One copy of the marking for each kind of collection: the test of the state
         // of each object (young in the minor one, unmarked in the full one) runs without
         // branching on the kind.
-        if self.minor_collection { self.mark::<true>() } else { self.mark::<false>() }
+        match (self.minor_collection, self.aging_now) {
+            (true, true) => self.mark::<true, true>(),
+            (true, false) => self.mark::<true, false>(),
+            _ => self.mark::<false, false>(),
+        }
     }
 
-    fn mark<const MINOR: bool>(&mut self) -> usize {
+    /// Marks from `pending`. The minor one walks the [`YOUNG`] objects and the
+    /// survivors of the previous minor collection (state `survivor_state`). With
+    /// `AGING` (minor only), a reached young object takes the other survivor state
+    /// (it stays young) and a reached survivor is promoted; a promoted object with a
+    /// child that stays young is remembered, its cards all dirty. Without it,
+    /// every reached object becomes old.
+    fn mark<const MINOR: bool, const AGING: bool>(&mut self) -> usize {
         let minor = MINOR;
         let mut live = 0_usize;
         // The stack and the counters in local variables: writing to `self` for
@@ -2728,6 +2773,8 @@ impl Heap {
         let mut stack = std::mem::take(&mut self.pending);
         let mut work = 0usize;
         let mut marked_objects = 0usize;
+        // The promoted objects that point to a young one (aging).
+        let mut remembered: Vec<*mut Header> = Vec::new();
         // The edges come from roots and from `is_ref` fields: the full
         // validation of the handle (the page and the block start) is left to
         // `--gc-stress`, the mode that hunts missing roots (N4).
@@ -2735,9 +2782,11 @@ impl Heap {
         // Marking adds no attachment: without any, the lookup per marked object
         // (a call through `dyn FnMut`, ~10% of a linked list's marking) is skipped.
         let attachments = !self.attachments_by_owner.is_empty();
+        let (s_old, s_new) = (self.survivor_state, other_survivor_state(self.survivor_state));
         // Does this collection walk the object in state `e`? In the minor one, only the young
-        // (an old one counts as live, and its references to young objects are
-        // among the remembered); in the full one, what has not been marked yet.
+        // and the survivors of the previous one (an old one counts as live, and its
+        // references to young objects are among the remembered); in the full one,
+        // what has not been marked yet.
         // In the full one, marked means the bit in the page's mark bitmap (the
         // sweep reads only the bits).
         // SAFETY (of the uses): `b` is a block of a page of the space.
@@ -2745,16 +2794,41 @@ impl Heap {
         // The static (`PERMANENT`) is checked before the mark bitmap: its
         // bitmap would fall outside a heap page (§2.8).
         let walks = |b: *const Header| unsafe {
-            if minor { (*b).state == YOUNG } else { (*b).state != PERMANENT && !marked(b) }
+            if minor {
+                let e = (*b).state;
+                e == YOUNG || e == s_old
+            } else {
+                (*b).state != PERMANENT && !marked(b)
+            }
+        };
+        let objects = &self.objects;
+        // With aging: does the child `bits` stay young after this collection?
+        #[allow(unsafe_code)]
+        let stays_young = |bits: i64| {
+            let b = if validate {
+                match objects.block_of(bits) {
+                    Some(b) => b,
+                    None => return false,
+                }
+            } else {
+                (bits - HANDLE_OFFSET) as *mut Header
+            };
+            // SAFETY: block of the space.
+            let e = unsafe { (*b).state };
+            e == YOUNG || e == s_new
         };
         // An edge: the first object child still to be marked goes to
         // `next_offset` (followed without the stack); the others, to the stack.
+        // With aging, `kid` records a child that stays young.
         #[allow(unsafe_code)]
-        let visit_ref = |bits: i64, next_offset: &mut i64, stack: &mut Vec<i64>| {
+        let visit_ref = |bits: i64, next_offset: &mut i64, stack: &mut Vec<i64>, kid: &mut bool| {
             if !smi::e_handle(bits) {
                 return;
             }
             if is_object(bits) {
+                if AGING && stays_young(bits) {
+                    *kid = true;
+                }
                 if !validate && !walks((bits - HANDLE_OFFSET) as *const Header) {
                     return;
                 }
@@ -2786,6 +2860,8 @@ impl Heap {
                         (current - HANDLE_OFFSET) as *mut Header
                     };
                     let mut next_offset = 0;
+                    // A child that stays young (aging only).
+                    let mut kid = false;
                     // SAFETY: live block of the space.
                     #[allow(unsafe_code)]
                     unsafe {
@@ -2794,15 +2870,19 @@ impl Heap {
                         }
                         // Both promote already during marking (the reached young object
                         // becomes old, the remembered one becomes old again in the full one:
-                        // the sweep reads only the bits) and set the bit.
-                        if (*b).state != OLD {
-                            (*b).state = OLD;
+                        // the sweep reads only the bits) and set the bit. With aging,
+                        // only the survivor is promoted; the young one stays young.
+                        let was = (*b).state;
+                        let promoted = !AGING || was == s_old;
+                        let now = if promoted { OLD } else { s_new };
+                        if was != now {
+                            (*b).state = now;
                         }
                         mark_block(b);
                         live += 1;
                         marked_objects += 1;
                         if attachments {
-                            self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack));
+                            self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack, &mut kid));
                         }
                         // The body by format (§2.8): `RAW` has no
                         // references; `REFS`, the words `1..=word 0`;
@@ -2818,11 +2898,21 @@ impl Heap {
                                 work += n;
                                 let p = fields_of(b);
                                 for i in 1..=n {
-                                    visit_ref(*p.add(i), &mut next_offset, &mut stack);
+                                    visit_ref(*p.add(i), &mut next_offset, &mut stack, &mut kid);
                                 }
                                 if !minor && (*b).flags & block_flags::CARDS != 0 {
                                     crate::space::clear_cards(b, n);
                                 }
+                                if AGING && promoted && kid {
+                                    if (*b).flags & block_flags::CARDS != 0 {
+                                        crate::space::dirty_all_cards(b, n);
+                                    }
+                                    (*b).state = REMEMBERED;
+                                    remembered.push(b);
+                                }
+                            } else if AGING && promoted && kid {
+                                (*b).state = REMEMBERED;
+                                remembered.push(b);
                             }
                             current = next_offset;
                             continue;
@@ -2835,7 +2925,7 @@ impl Heap {
                         let mut m = (*c).map;
                         while m != 0 {
                             let i = m.trailing_zeros() as usize;
-                            visit(*fields.add(i), &mut next_offset, &mut stack);
+                            visit(*fields.add(i), &mut next_offset, &mut stack, &mut kid);
                             m &= m - 1;
                         }
                         if n > 32 {
@@ -2844,10 +2934,14 @@ impl Heap {
                                 let mut m = *ext.add(w);
                                 while m != 0 {
                                     let i = 32 + w * 64 + m.trailing_zeros() as usize;
-                                    visit(*fields.add(i), &mut next_offset, &mut stack);
+                                    visit(*fields.add(i), &mut next_offset, &mut stack, &mut kid);
                                     m &= m - 1;
                                 }
                             }
+                        }
+                        if AGING && promoted && kid {
+                            (*b).state = REMEMBERED;
+                            remembered.push(b);
                         }
                     }
                     current = next_offset;
@@ -2860,6 +2954,7 @@ impl Heap {
         self.pending = stack;
         self.marking_work += work;
         self.objects.marked_set += marked_objects;
+        self.objects.remembered.append(&mut remembered);
         live
     }
 
@@ -3029,7 +3124,9 @@ impl Heap {
                 // SAFETY: live block of the space.
                 #[allow(unsafe_code)]
                 let state = unsafe { (*b).state };
-                if state == YOUNG {
+                // Young and not walked by this marking: born after the last
+                // collection, or a survivor of it (the kept ones have the other state).
+                if state == YOUNG || state == self.survivor_state {
                     // The parent: cid, state, flags and the child's position in the body.
                     let parent_node = origin.get(&h).copied();
                     let desc = |x: i64| {
@@ -3075,6 +3172,12 @@ impl Heap {
         // What the TLAB did not use becomes free again.
         self.return_tlabs();
         self.minor_collection = minor;
+        let mut aging = minor && self.aging && self.arc.is_none();
+        if aging && self.aging_pause.0 > 0 {
+            self.aging_pause.0 -= 1;
+            aging = false;
+        }
+        self.aging_now = aging;
         self.stats.collections += 1;
         self.stats.roots_scanned += self.enum_values.len() as u64;
         self.stats.roots_scanned += self.tearoffs.len() as u64;
@@ -3093,7 +3196,34 @@ impl Heap {
         let mut pending_list = std::mem::take(&mut self.pending);
         pending_list.clear();
         self.root_list(&mut pending_list);
-        if minor {
+        if aging {
+            // The remembered old objects: their references may be young. One
+            // that points to a young object (which stays young after this collection)
+            // stays remembered; the others become old again.
+            let previous = std::mem::take(&mut self.objects.remembered);
+            let mut kept = Vec::new();
+            for &b in &previous {
+                // SAFETY: remembered block, live.
+                #[allow(unsafe_code)]
+                let (work, mut keep) = unsafe { self.objects.scan_remembered(b, &mut pending_list) };
+                self.marking_work += work;
+                let owner = b as i64 + HANDLE_OFFSET;
+                self.visit_attachment_edges(owner, &mut |action| {
+                    keep |= self.young_child(action);
+                    pending_list.push(action);
+                });
+                if keep {
+                    kept.push(b);
+                } else {
+                    // SAFETY: remembered block, live.
+                    #[allow(unsafe_code)]
+                    unsafe {
+                        (*b).state = OLD;
+                    }
+                }
+            }
+            self.objects.remembered = kept;
+        } else if minor {
             // The remembered old objects: their references may be young.
             for &b in &self.objects.remembered {
                 // SAFETY: remembered block, live.
@@ -3105,13 +3235,16 @@ impl Heap {
             }
         }
         self.pending = pending_list;
+        // The survivor state the marking gives the young objects it keeps (with
+        // aging; without it nothing stays young, and `OLD` repeats the old test).
+        let kept = if aging { other_survivor_state(self.survivor_state) } else { OLD };
         let mut live = self.mark_pending();
         // Ephemerons: the value of a live holder is reached when the
         // key is — which may make other keys live, up to the fixed point.
         if !self.ephemerons.is_empty() {
             loop {
                 let objects = &self.objects;
-                let marked = |h: i64| marked_in_collection(objects, minor, h);
+                let marked = |h: i64| marked_in_collection(objects, minor, kept, h);
                 let before = self.pending.len();
                 for (&holder, &(key, value)) in &self.ephemerons {
                     if marked(holder) && (marked(key) || !smi::e_handle(key)) && smi::e_handle(value) && !marked(value) {
@@ -3137,7 +3270,7 @@ impl Heap {
         }
         let promotion = if self.arc.is_some() { Some(self.promotion_data()) } else { None };
         let objects = &self.objects;
-        let alive = |h: &i64| marked_in_collection(objects, minor, *h);
+        let alive = |h: &i64| marked_in_collection(objects, minor, kept, *h);
         self.weak_refs.retain(|holder, target| {
             if smi::e_handle(*target) && !alive(target) {
                 *target = 0;
@@ -3155,9 +3288,18 @@ impl Heap {
         // belong to a young object (old ones do not die in it): check only those, and
         // not the whole table (one per live object with a `late` field).
         if minor {
-            for key in self.new_lates.drain(..) {
+            // With aging, the mark of an object that stays young is checked again
+            // by the next minor collection.
+            let lates = std::mem::take(&mut self.new_lates);
+            for &key in &lates {
                 if !alive(&key.0) {
                     self.late_fields_initialized.remove(&key);
+                } else if aging && objects.block_of(key.0).is_some_and(|b| {
+                    // SAFETY: block of the space.
+                    #[allow(unsafe_code)]
+                    unsafe { (*b).state == kept }
+                }) {
+                    self.new_lates.push(key);
                 }
             }
         } else {
@@ -3217,8 +3359,17 @@ impl Heap {
         // out-of-line bodies and attachments of the dead); the full one rebuilds it from the live ones, with
         // the external bytes.
         if minor {
-            let (dead_set, released_bytes) = self.objects.sweep_young();
+            let (dead_set, released_bytes) = self.objects.sweep_young(aging);
             self.stats.reclaimed += dead_set as u64;
+            // Most survivors promoted: aging pauses (doubling the pause while
+            // that repeats); most dead, it goes on.
+            let (seen, promoted) = self.objects.survivors_seen;
+            if seen >= AGING_MIN_SAMPLE && promoted * 4 >= seen * 3 {
+                let pause = (self.aging_pause.1 * 2).clamp(1, AGING_MAX_PAUSE);
+                self.aging_pause = (pause, pause);
+            } else if seen >= AGING_MIN_SAMPLE {
+                self.aging_pause.1 = 0;
+            }
             self.subtract_estimated_bytes(released_bytes);
         } else {
             let (dead_set, _, object_bytes) = self.objects.sweep();
@@ -3239,6 +3390,10 @@ impl Heap {
         self.allocations = 0;
         self.young_bytes = 0;
         self.minor_collection = false;
+        self.aging_now = false;
+        if aging {
+            self.survivor_state = kept;
+        }
         if let Some((promoted, remembered)) = promotion {
             self.sync_arc(full_arc, promoted, remembered);
         } else if minor {
@@ -3254,13 +3409,15 @@ impl Heap {
         }
         if self.trace {
             eprintln!(
-                "[gc] {} marked={live} work={} estimated={} trigger={} pages={} live={}",
+                "[gc] {} marked={live} work={} estimated={} trigger={} pages={} live={} survivor_runs={} remembered={}",
                 if minor { "minor" } else { "full" },
                 self.marking_work,
                 self.stats.estimated_bytes,
                 self.byte_threshold,
                 self.objects.n_pages(),
-                self.objects.live_set
+                self.objects.live_set,
+                self.objects.survivors.len(),
+                self.objects.remembered.len()
             );
         }
     }
@@ -4694,15 +4851,124 @@ mod unified_space {
             assert!(heap.is_live_object(j), "young object in element {i} collected (card not walked)");
             assert_eq!(heap.words(l)[1 + i], j);
         }
-        // The minor collection cleared the cards.
+        // With aging, the young elements stay young (survivors): only their
+        // cards stay dirty, and the list stays remembered.
+        let dirty: u32 = heap.words(l)[1 + len..].iter().map(|&c| c.count_ones()).sum();
+        assert_eq!(dirty, 4, "only the cards of the young elements stay dirty");
+        assert_eq!(heap.header(l).state, REMEMBERED);
+        // The next minor collection promotes them and clears the cards.
+        heap.run_collection(true);
+        for &(i, j) in &young_set {
+            assert!(heap.is_live_object(j), "survivor in element {i} collected");
+            assert_eq!(heap.header(j).state, OLD);
+        }
         let cards = &heap.words(l)[1 + len..];
         assert!(cards.iter().all(|&c| c == 0), "cards not cleared");
+        assert_eq!(heap.header(l).state, OLD);
         // The explicit barrier (write from outside) dirties all of them.
         let k = heap.allocate_object(201, 0);
         heap.words_mut(l)[1 + 77_777] = k;
         heap.remember(l);
         heap.run_collection(true);
         assert!(heap.is_live_object(k));
+        heap.pop_frame(frame);
+    }
+
+    #[test]
+    fn aging_promotes_on_the_second_minor_collection() {
+        let mut heap = heap();
+        let frame = heap.push_frame_with_slots(1);
+        let a = heap.allocate_object(200, 1);
+        heap.set_root(frame, 0, a);
+        let garbage = heap.allocate_object(201, 0);
+        heap.run_collection(true);
+        assert!(layout::state::is_young(heap.header(a).state) && heap.header(a).state != YOUNG);
+        assert!(!heap.is_live_object(garbage));
+        // A survivor that dies is freed by the next minor collection.
+        let b = heap.allocate_object(202, 0);
+        heap.set_field(a, 0, b, true);
+        heap.run_collection(true);
+        assert_eq!(heap.header(a).state, REMEMBERED, "the survivor is promoted, remembered for its young child");
+        assert!(layout::state::is_young(heap.header(b).state) && heap.header(b).state != YOUNG);
+        heap.set_field(a, 0, 0, false);
+        heap.run_collection(true);
+        assert!(!heap.is_live_object(b), "a dead survivor is freed by the minor collection");
+        assert_eq!(heap.stats().live_objects, 1);
+        heap.pop_frame(frame);
+    }
+
+    #[test]
+    fn promoted_object_with_young_child_stays_remembered() {
+        let mut heap = heap();
+        let frame = heap.push_frame_with_slots(1);
+        let a = heap.allocate_object(200, 1);
+        heap.set_root(frame, 0, a);
+        heap.run_collection(true);
+        // `a` is a survivor (young): generated code writes into it without a barrier.
+        let b = heap.allocate_object(201, 1);
+        let c = heap.allocate_object(202, 0);
+        // SAFETY: test; field 0 of live instances, marked as references.
+        #[allow(unsafe_code)]
+        unsafe {
+            *fields_of(body(heap.live_block(a))) = b;
+            mark_reference(body(heap.live_block(a)), 0, true);
+            *fields_of(body(heap.live_block(b))) = c;
+            mark_reference(body(heap.live_block(b)), 0, true);
+        }
+        heap.run_collection(true);
+        // `a` was promoted pointing to `b`, which stays young: remembered.
+        assert_eq!(heap.header(a).state, REMEMBERED);
+        assert!(layout::state::is_young(heap.header(b).state) && heap.header(b).state != YOUNG);
+        heap.run_collection(true);
+        // `b` promoted through the remembered `a`; `b` itself points to the young `c`.
+        assert_eq!(heap.header(b).state, OLD);
+        assert_eq!(heap.header(a).state, OLD, "nothing young left under `a`");
+        assert!(heap.is_live_object(c));
+        heap.run_collection(true);
+        assert!(heap.is_live_object(c));
+        assert_eq!(heap.header(c).state, OLD);
+        heap.run_collection(false);
+        assert_eq!(heap.stats().live_objects, 3);
+        heap.pop_frame(frame);
+    }
+
+    #[test]
+    fn old_object_pointing_to_survivor_stays_remembered() {
+        let mut heap = heap();
+        let frame = heap.push_frame_with_slots(1);
+        let old_gen = heap.allocate_object(200, 1);
+        heap.set_root(frame, 0, old_gen);
+        heap.run_collection(false);
+        let young = heap.allocate_object(201, 0);
+        heap.set_field(old_gen, 0, young, true);
+        heap.mark_late((young, 0));
+        heap.run_collection(true);
+        assert!(layout::state::is_young(heap.header(young).state) && heap.header(young).state != YOUNG);
+        assert_eq!(heap.header(old_gen).state, REMEMBERED, "it still points to a young object");
+        heap.run_collection(true);
+        assert_eq!(heap.header(young).state, OLD);
+        assert_eq!(heap.header(old_gen).state, OLD);
+        assert!(heap.late_initialized((young, 0)));
+        // The late mark of a survivor that dies goes away.
+        let other = heap.allocate_object(202, 0);
+        heap.mark_late((other, 1));
+        heap.set_field(old_gen, 0, other, true);
+        heap.run_collection(true);
+        heap.set_field(old_gen, 0, 0, false);
+        heap.run_collection(true);
+        assert!(!heap.late_initialized((other, 1)), "the dead survivor loses the mark");
+        heap.pop_frame(frame);
+    }
+
+    #[test]
+    fn aging_off_promotes_on_the_first_minor_collection() {
+        let mut heap = heap();
+        heap.aging = false;
+        let frame = heap.push_frame_with_slots(1);
+        let a = heap.allocate_object(200, 0);
+        heap.set_root(frame, 0, a);
+        heap.run_collection(true);
+        assert_eq!(heap.header(a).state, OLD);
         heap.pop_frame(frame);
     }
 
@@ -5873,7 +6139,7 @@ impl Heap {
             phases.push(start.elapsed().as_micros());
         }
         // 6. Memory.
-        let (dead_swept, mut released_set) = self.objects.sweep_young();
+        let (dead_swept, mut released_set) = self.objects.sweep_young(false);
         for &h in &dead_rc {
             if let Some(b) = self.space_block(h) {
                 // SAFETY: block of the RC dead, outside the young list

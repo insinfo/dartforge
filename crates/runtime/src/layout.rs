@@ -18,8 +18,9 @@ pub type Ref = i64;
 /// The header of every block of the object space (16 bytes, fixed C layout: a
 /// contract with the emitter).
 ///
-/// * `state`: [`state::FREE`], [`state::YOUNG`], [`state::OLD`],
-///   [`state::REMEMBERED`] or [`state::PERMANENT`];
+/// * `state`: [`state::FREE`], [`state::YOUNG`], [`state::SURVIVOR`] or
+///   [`state::SURVIVOR_B`], [`state::OLD`], [`state::REMEMBERED`] or
+///   [`state::PERMANENT`];
 /// * `flags`: the bits of [`flags`] (out-of-line body, body format, cards,
 ///   attachment, compact shape, external memory);
 /// * `n`: for `INSTANCE`, the number of fields; for `RAW`/`REFS`, the words of
@@ -91,14 +92,20 @@ const _: () = {
     assert!(TLAB_N <= LARGEST_CLASS);
 };
 
-/// States of a block ([`Header::state`]). 2 is reserved (the `MARKED` that today's
-/// collector still uses during a collection in progress).
+/// States of a block ([`Header::state`]).
 pub mod state {
     /// Free block (on the free list or never used).
     pub const FREE: u8 = 0;
     /// Allocated since the last collection.
     pub const YOUNG: u8 = 1;
-    /// Survived a collection.
+    /// Young that survived one minor collection (the aging of the generational
+    /// collector): still young for the write barrier, promoted to [`OLD`] by the
+    /// next collection that finds it alive. The survivors of consecutive minor
+    /// collections alternate between this state and [`SURVIVOR_B`], so that the marking
+    /// tells the survivor it promotes from the young object it keeps without a
+    /// second pass over the headers.
+    pub const SURVIVOR: u8 = 2;
+    /// Survived the collections that promote (or a full one).
     pub const OLD: u8 = 3;
     /// An old block that received a reference to a young one after the last
     /// collection (the barrier put it on the remembered list).
@@ -106,6 +113,16 @@ pub mod state {
     /// Static object, outside the heap (image section): never marked, swept,
     /// remembered or written.
     pub const PERMANENT: u8 = 5;
+    /// The other survivor state (see [`SURVIVOR`]).
+    pub const SURVIVOR_B: u8 = 6;
+
+    /// Is a block in state `s` young for the write barrier ([`YOUNG`],
+    /// [`SURVIVOR`] or [`SURVIVOR_B`])? The generated code's `@df.young_child`
+    /// compiles the same test.
+    #[inline(always)]
+    pub const fn is_young(s: u8) -> bool {
+        s.wrapping_sub(YOUNG) <= SURVIVOR - YOUNG || s == SURVIVOR_B
+    }
 }
 
 /// Bits of [`Header::flags`].
