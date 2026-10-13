@@ -717,6 +717,10 @@ pub(crate) struct Engine<'a> {
     /// creates through the constructor without the static *tearoff*, which
     /// only the reference without a call cites.
     pub(crate) call_target: Option<dartforge_frontend::ast::ExprId>,
+    /// `JS_CLASS_REF(C)` calls that a `JS()` *template* only compares
+    /// (`# instanceof #`, `# === #`): the class is live as a type, not
+    /// instantiated.
+    pub(crate) compared_class_refs: HashSet<(dartforge_elements::model::UnitId, dartforge_frontend::ast::ExprId)>,
     /// The SDK enters the fixed point like the program (`Options::include_sdk`).
     include_sdk: bool,
     /// Native classes (`@Native`/`@JsPeerInterface`): live as a type means
@@ -824,6 +828,7 @@ impl<'a> Engine<'a> {
             extensions_ready: false,
             write_target: None,
             call_target: None,
+            compared_class_refs: HashSet::new(),
             include_sdk: false,
             natives: HashSet::new(),
             int_num: None,

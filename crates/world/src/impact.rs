@@ -188,6 +188,42 @@ pub(crate) fn of_fields(m: &mut Engine<'_>, c: ClassId) {
     }
 }
 
+/// Records the `JS_CLASS_REF(C)` arguments of a `JS(type, template, …)`
+/// call whose placeholder the template only compares: right after
+/// `instanceof`, or next to `===`/`!==`. Such a use tests the class and
+/// never constructs or extends it, so `C` does not need to be instantiated
+/// (`_isJsObject`'s `# instanceof #` with `RecordImpl` kept the whole record
+/// runtime alive).
+fn compared_class_refs(m: &mut Engine<'_>, ctx: &Context, arguments: &ast::Arguments) {
+    let ast = &m.e.program.unit(ctx.unit).ast;
+    let Some(t) = arguments.args.get(1) else { return };
+    let ExprKind::String(lit) = &ast.expr(t.value).kind else { return };
+    let Some(template) = lit.constant_value().map(|v| v.to_string_lossy().to_string()) else { return };
+    let holes: Vec<usize> = template.match_indices('#').map(|(p, _)| p).collect();
+    for (k, a) in arguments.args.iter().skip(2).enumerate() {
+        let ExprKind::Call { target, .. } = &ast.expr(a.value).kind else { continue };
+        let is_ref = match &ast.expr(*target).kind {
+            ExprKind::Identifier(n) => m.e.interner.resolve(n.sym) == "JS_CLASS_REF",
+            _ => false,
+        };
+        let Some(&p) = holes.get(k) else { continue };
+        // A template with `#` used any other way (numbered holes) is not read.
+        if !is_ref || holes.len() != arguments.args.len() - 2 {
+            continue;
+        }
+        let before = template[..p].trim_end();
+        let after = template[p + 1..].trim_start();
+        let compared = before.ends_with("instanceof")
+            || before.ends_with("===")
+            || before.ends_with("!==")
+            || after.starts_with("===")
+            || after.starts_with("!==");
+        if compared {
+            m.compared_class_refs.insert((ctx.unit, a.value));
+        }
+    }
+}
+
 // ---------------------------------------------------------------- functions
 
 fn walk_function(m: &mut Engine<'_>, ctx: &Context, id: ast::FunctionId) {
@@ -1018,6 +1054,7 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 // *template* is called on an untyped receiver — an
                 // unrestricted selector, of both kinds.
                 if m.include_sdk && callee.is_some_and(|s| m.e.interner.resolve(s) == "JS") {
+                    compared_class_refs(m, ctx, arguments);
                     if let Some(a) = arguments.args.get(1) {
                         if let ExprKind::String(lit) = &ast.expr(a.value).kind {
                             let mut names: Vec<String> = Vec::new();
@@ -1069,8 +1106,13 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                     _ => None,
                 };
                 if callee.is_some_and(|s| m.e.interner.resolve(s) == "JS_CLASS_REF") {
+                    let compared = m.compared_class_refs.contains(&(ctx.unit, id));
                     if let Some(a) = arguments.args.first() {
-                        if let Some(StaticTarget::Class(c)) = static_target(m, ctx, a.value) {
+                        if compared {
+                            if let Some(StaticTarget::Class(c)) = static_target(m, ctx, a.value) {
+                                m.mark_type(c);
+                            }
+                        } else if let Some(StaticTarget::Class(c)) = static_target(m, ctx, a.value) {
                             m.instantiate(c);
                             // The constructor is called by the *template*
                             // (`Object.getPrototypeOf(#).new.call(…)`).
