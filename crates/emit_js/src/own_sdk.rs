@@ -564,9 +564,16 @@ pub fn inlinable_literal(ast: &ast::Ast, x: ExprId) -> bool {
 /// production profile): `dart_rti.interfaceTypeRecipePropertyName` comes out as
 /// `"$interfaceRecipe"`, and the variable no longer exists in the file.
 pub fn inline_constant(e: &FnEmitter, vid: VariableId) -> Option<Js> {
+    inline_constant_depth(e, vid, 0)
+}
+
+/// [`inline_constant`], following aliases (`static const String
+/// separatorString = _commaString;`): the alias folds to the value of the
+/// constant it names. The same rule is `dartforge_world::is_inlinable_constant`.
+fn inline_constant_depth(e: &FnEmitter, vid: VariableId, depth: usize) -> Option<Js> {
     e.ctx.sdk.as_ref()?;
     let v = e.ctx.program.variable(vid);
-    if !v.const_ || v.extension.is_some() {
+    if !v.const_ || v.extension.is_some() || depth > 8 {
         return None;
     }
     let (unit, init) = match v.node {
@@ -581,12 +588,33 @@ pub fn inline_constant(e: &FnEmitter, vid: VariableId) -> Option<Js> {
         _ => return None,
     };
     if !inlinable_literal(&e.ctx.program.unit(unit).ast, init) {
-        return None;
+        let target = const_alias(e.ctx.program, vid, &e.ctx.program.unit(unit).ast, init)?;
+        return inline_constant_depth(e, target, depth + 1);
     }
     let mut sub = FnEmitter::new(e.ctx, e.m, unit, None, true);
     let ty = e.ctx.var_ty(vid);
     let (js, _) = sub.emit_expr(init, Some(&ty));
     Some(js)
+}
+
+/// The constant variable that the initializer `x` of `v` names with a plain
+/// identifier: a static of `v`'s class or a declaration of its library (the
+/// same lookup as `dartforge_world::const_alias`).
+fn const_alias(p: &dartforge_elements::model::Program, v: VariableId, a: &ast::Ast, x: ExprId) -> Option<VariableId> {
+    let ExprKind::Identifier(n) = &a.expr(x).kind else { return None };
+    let var = p.variable(v);
+    let as_variable = |el: Element| match el {
+        Element::Variable(t) => Some(t),
+        Element::Function(f) => p.function(f).variable,
+        _ => None,
+    };
+    if let Some(c) = var.class {
+        if let Some(f) = p.class(c).static_members.get(&n.sym) {
+            return p.function(*f).variable;
+        }
+    }
+    let lib = p.library(var.library);
+    lib.declared.get(&n.sym).or_else(|| lib.scope.get(&n.sym)).and_then(|b| b.getter).and_then(as_variable)
 }
 
 /// No covariance checks with `--omitir-checagens`.

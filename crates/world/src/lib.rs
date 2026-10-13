@@ -329,9 +329,17 @@ pub fn compute(e: WorldInput<'_>, r: &Roots) -> World {
 /// 32 units. It is the same criterion as
 /// `emit_js::own_sdk::inlinable_literal`.
 pub fn is_inlinable_constant(p: &Program, v: VariableId) -> bool {
+    inlinable_constant_depth(p, v, 0)
+}
+
+/// [`is_inlinable_constant`], following aliases (`static const String
+/// separatorString = _commaString;` in `dart:_recipe_syntax`): the alias
+/// folds to the value of the constant it names, which DDC's constant
+/// evaluator also does. The same rule is `dartforge_emit_js::own_sdk::inline_constant`.
+fn inlinable_constant_depth(p: &Program, v: VariableId, depth: usize) -> bool {
     let var = p.variable(v);
     // An extension static is read through the key `L['Ext|x']`, without folding.
-    if !var.const_ || var.extension.is_some() {
+    if !var.const_ || var.extension.is_some() || depth > 8 {
         return false;
     }
     let (unit, init) = match var.node {
@@ -355,7 +363,33 @@ pub fn is_inlinable_constant(p: &Program, v: VariableId) -> bool {
             _ => false,
         }
     }
-    literal(&p.unit(unit).ast, x)
+    let a = &p.unit(unit).ast;
+    if literal(a, x) {
+        return true;
+    }
+    match const_alias(p, v, a, x) {
+        Some(target) => inlinable_constant_depth(p, target, depth + 1),
+        None => false,
+    }
+}
+
+/// The constant variable that the initializer `x` of `v` names with a plain
+/// identifier: a static of `v`'s class or a declaration of its library.
+pub fn const_alias(p: &Program, v: VariableId, a: &ast::Ast, x: ast::ExprId) -> Option<VariableId> {
+    let ast::ExprKind::Identifier(n) = &a.expr(x).kind else { return None };
+    let var = p.variable(v);
+    let as_variable = |el: Element| match el {
+        Element::Variable(t) => Some(t),
+        Element::Function(f) => p.function(f).variable,
+        _ => None,
+    };
+    if let Some(c) = var.class {
+        if let Some(f) = p.class(c).static_members.get(&n.sym) {
+            return p.function(*f).variable;
+        }
+    }
+    let lib = p.library(var.library);
+    lib.declared.get(&n.sym).or_else(|| lib.scope.get(&n.sym)).and_then(|b| b.getter).and_then(as_variable)
 }
 
 /// `@Native`/`@JsPeerInterface` classes of the SDK libraries (DDC's
