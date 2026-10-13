@@ -1,21 +1,21 @@
-//! Os ajudantes menores do `InScopeCompletionPass` do analysis server 3.6.2:
-//! o `IdentifierHelper` (`identifier_helper.dart`), o `LabelHelper`
-//! (`label_helper.dart`), o `OverrideHelper` (`override_helper.dart`, com o
-//! `writeOverride` de `change_builder_dart.dart:515-642`), o `UriHelper`
-//! (`uri_helper.dart`) e as sugestões de closure, de argumento nomeado e de
-//! campo nomeado de record (`_addClosureSuggestion`, `NamedArgumentSuggestion`,
+//! The smaller helpers of the analysis server 3.6.2 `InScopeCompletionPass`:
+//! `IdentifierHelper` (`identifier_helper.dart`), `LabelHelper`
+//! (`label_helper.dart`), `OverrideHelper` (`override_helper.dart`, with the
+//! `writeOverride` of `change_builder_dart.dart:515-642`), `UriHelper`
+//! (`uri_helper.dart`) and the closure, named argument and record named
+//! field suggestions (`_addClosureSuggestion`, `NamedArgumentSuggestion`,
 //! `_suggestRecordLiteralNamedFields`; `candidate_suggestion.dart`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::isp::Isp;
 use super::isp_visits::InvokedParameter;
 use super::*;
 use dartforge_frontend::token::Op;
 
-/// As bibliotecas `dart:` que o `_addDartSuggestions` oferece: as de
-/// `sdk_library_metadata/lib/libraries.dart` do SDK 3.6.2 com categorias
-/// (não internas), sem `implementation: true` e sem `dart:_`, na ordem do
-/// arquivo.
+/// The `dart:` libraries that `_addDartSuggestions` offers: those of the
+/// 3.6.2 SDK's `sdk_library_metadata/lib/libraries.dart` with categories
+/// (not internal), without `implementation: true` and without `dart:_`, in
+/// file order.
 const LIBRARIES_DART: &[&str] = &[
     "dart:async",
     "dart:collection",
@@ -104,8 +104,8 @@ fn camel_upper(s: &str) -> Option<String> {
     Some(r)
 }
 
-/// Uma regra de lint ligada no `analysis_options.yaml` que vale para o
-/// arquivo (`codeStyleOptions`).
+/// A lint rule enabled in the `analysis_options.yaml` that applies to the
+/// file (`codeStyleOptions`).
 fn enabled_rule(path: Option<&std::path::Path>, name: &str) -> bool {
     path.is_some_and(|c| crate::refactorings_exec::rule_enabled_in(c, name))
 }
@@ -113,8 +113,8 @@ fn enabled_rule(path: Option<&std::path::Path>, name: &str) -> bool {
 impl<'a, 'c> Isp<'a, 'c> {
     // -- IdentifierHelper ------------------------------------------------------------
 
-    /// `identifierHelper(includePrivateIdentifiers: …)`: a primeira chamada
-    /// fixa a opção.
+    /// `identifierHelper(includePrivateIdentifiers: …)`: the first call fixes
+    /// the option.
     pub(super) fn ih(&mut self, private: bool) {
         if self.private.is_none() {
             self.private = Some(private);
@@ -154,7 +154,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `addVariable(type)`: só um `NamedType`.
+    /// `addVariable(type)`: only a `NamedType`.
     pub(super) fn ih_variable(&mut self, ty: Option<usize>) {
         if let Some(t) = ty
             && self.kind(t) == "NamedType"
@@ -164,8 +164,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `addTopLevelName`: o nome do arquivo em `UpperCamelCase`, se a
-    /// biblioteca ainda não declara esse nome.
+    /// `addTopLevelName`: the file name in `UpperCamelCase`, if the library does
+    /// not declare that name yet.
     pub(super) fn top_name_ih(&mut self, body: bool) {
         let Some(path) = self.path.clone() else { return };
         let Some(base) = path.file_stem().and_then(|s| s.to_str()) else { return };
@@ -179,7 +179,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     // -- LabelHelper ----------------------------------------------------------------
 
-    /// `addLabels`: os rótulos visíveis no `break`/`continue`.
+    /// `addLabels`: the labels visible at the `break`/`continue`.
     pub(super) fn labels(&mut self, command: usize) {
         let with_cases = self.kind(command) == "ContinueStatement";
         let mut current = Some(command);
@@ -222,8 +222,8 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     // -- OverrideHelper -------------------------------------------------------------
 
-    /// `interface.isSuperImplemented(name)`: há implementação concreta na
-    /// cadeia de superclasses (com os mixins).
+    /// `interface.isSuperImplemented(name)`: there is a concrete implementation
+    /// in the superclass chain (with the mixins).
     pub(super) fn implemented_super(&self, c: ClassId, name: SymbolId) -> bool {
         let p = &self.query.program;
         let mut current = p.class(p.dono_da_classe(c)).supertype_class;
@@ -242,8 +242,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         false
     }
 
-    /// `containingNode.hasOverride`: o membro que contém o ponto já tem
-    /// `@override`.
+    /// `containingNode.hasOverride`: the member containing the point already
+    /// has `@override`.
     pub(super) fn member_has_override(&self) -> bool {
         let Some(c) = self.covered_node() else { return false };
         let Some(m) = self.ancestor(c, &["MethodDeclaration", "FieldDeclaration"]) else { return false };
@@ -281,7 +281,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `suggestOverride`: o texto do `writeOverride`, a seleção e o rótulo.
+    /// `suggestOverride`: the text of `writeOverride`, the selection and the label.
     pub(super) fn item_override(&mut self, c: ClassId, f: FunctionElementId, invoke_super: bool, without_at_sign: bool, already_has_override: bool, score: f64) {
         let fe = self.query.program.function(f).clone();
         let raw_name = self.query.name(fe.name).to_string();
@@ -289,8 +289,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         let setter = fe.kind == FunctionKind::Setter || (fe.kind == FunctionKind::ImplicitAccessor && raw_name.ends_with('='));
         let getter = !setter && matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor);
         let operator = fe.kind == FunctionKind::Operator;
-        // O membro como a classe o vê (os parâmetros de tipo dos supertipos
-        // substituídos).
+        // The member as the class sees it (the supertypes' type parameters
+        // substituted).
         let this = self.type_this(c);
         let lib = self.library();
         let search = if setter { self.query.names.lookup(&name) } else { Some(fe.name) };
@@ -464,8 +464,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let import: Vec<LibraryId> = writer.import.iter().copied().collect();
         drop(writer);
-        // `completion = replacement.trim()`, sem o `@override` que o membro
-        // já tem, ou sem o `@` já digitado.
+        // `completion = replacement.trim()`, without the `@override` the member
+        // already has, or without the already typed `@`.
         let mut completion = s.trim().to_string();
         let mut start = s.find(&completion).unwrap_or(0);
         if already_has_override && completion.starts_with("@override") {
@@ -505,8 +505,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.mark(before, score, false);
     }
 
-    /// Os parâmetros declarados de um membro, na ordem (nome, espécie,
-    /// `required`, `covariant`, o texto do valor padrão).
+    /// The declared parameters of a member, in order (name, kind, `required`,
+    /// `covariant`, the text of the default value).
     pub(super) fn member_parameters(&self, f: FunctionElementId) -> Vec<WrittenParameter> {
         let p = &self.query.program;
         let fe = p.function(f);
@@ -540,7 +540,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     .collect()
             }
             _ => {
-                // O setter implícito de um campo: `_x`.
+                // The implicit setter of a field: `_x`.
                 if fe.kind == FunctionKind::ImplicitAccessor && self.query.name(fe.name).ends_with('=') {
                     let base = self.query.name(fe.name).trim_end_matches('=').to_string();
                     let covariant = fe.variable.is_some_and(|v| match p.variable(v).node {
@@ -560,7 +560,7 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     // -- UriHelper ------------------------------------------------------------------
 
-    /// `addSuggestions(uri)`: o nó é o `SimpleStringLiteral` da diretiva.
+    /// `addSuggestions(uri)`: the node is the directive's `SimpleStringLiteral`.
     pub(super) fn uris(&mut self, n: usize) {
         let (start, end) = (self.start(n), self.end(n));
         let size = self.source.len();
@@ -599,7 +599,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `contentsOffset` do literal (depois de `r` e das aspas).
+    /// The literal's `contentsOffset` (after the `r` and the quotes).
     pub(super) fn content_start(&self, n: usize) -> usize {
         let t = &self.source[self.start(n)..self.end(n)];
         let mut k = 0usize;
@@ -746,17 +746,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- Closures, argumentos nomeados e campos de record ------------------------------
+    // -- Closures, named arguments and record fields -----------------------------------
 
-    /// `_addClosureSuggestion` sem os nomes dos posicionais (gerados `p0`…).
+    /// `_addClosureSuggestion` without the positional names (generated `p0`…).
     pub(super) fn suggest_closure(&mut self, ty: TypeId, comma: bool) {
         self.suggest_closure_with_names(ty, &[], comma);
     }
 
-    /// `_addClosureSuggestion`: a de bloco e a de seta, ambas com
-    /// `matcherScore` 0 (`Relevance.closure`, 900). `names` são os dos
-    /// posicionais do tipo de função escrito (o tipo do DartForge não os
-    /// guarda).
+    /// `_addClosureSuggestion`: the block one and the arrow one, both with
+    /// `matcherScore` 0 (`Relevance.closure`, 900). `names` are those of the
+    /// positionals of the written function type (DartForge's type does not
+    /// keep them).
     pub(super) fn suggest_closure_with_names(&mut self, ty: TypeId, names: &[String], comma: bool) {
         let Type::Function { positional, optional, named, .. } = self.query.table.get(ty).clone() else { return };
         let include_types = enabled_rule(self.path.as_deref(), "always_specify_types");
@@ -768,7 +768,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         for (i, &t) in optional.iter().enumerate() {
             parameters.push((names.get(positional.len() + i).cloned().unwrap_or_default(), t, 1, false));
         }
-        // `FunctionType.parameters`: os nomeados em ordem lexical.
+        // `FunctionType.parameters`: the named ones in lexical order.
         let mut named2: Vec<(String, TypeId, bool)> = named.iter().map(|(n, t, r)| (self.query.name(*n).to_string(), *t, *r)).collect();
         named2.sort_by(|a, b| a.0.cmp(&b.0));
         for (n, t, r) in named2 {
@@ -848,8 +848,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `NamedArgumentSuggestion` (`Relevance.requiredNamedArgument` 950 /
-    /// `namedArgument` 900): `name: ` (+ `[]` num parâmetro lista de widget,
-    /// + `,`); `replace == Some(0)` é o `replacementLength: 0`.
+    /// `namedArgument` 900): `name: ` (+ `[]` for a widget-list parameter, +
+    /// `,`); `replace == Some(0)` is `replacementLength: 0`.
     pub(super) fn suggest_named_argument(&mut self, p: &InvokedParameter, colon: bool, comma: bool, replace: Option<usize>) {
         let Some(s) = self.match_score(&p.name) else { return };
         let mut completion = p.name.clone();
@@ -883,16 +883,16 @@ impl<'a, 'c> Isp<'a, 'c> {
         matches!(self.query.table.get(t), Type::Interface { class, .. } if Some(*class) == self.query.core.list_class)
     }
 
-    /// `_suggestRecordLiteralNamedFields`: `container` é o nó visitado,
-    /// `literal` o `RecordLiteral` (ou nenhum), `new` se é campo novo
-    /// (`name: `, com a vírgula quando o token deslocado não é `,` nem `)`).
+    /// `_suggestRecordLiteralNamedFields`: `container` is the visited node,
+    /// `literal` the `RecordLiteral` (or none), `new` whether it is a new field
+    /// (`name: `, with the comma when the displaced token is neither `,` nor
+    /// `)`).
     pub(super) fn suggest_record_named_fields(&mut self, container: usize, literal: Option<usize>, new: bool) {
         let target = literal.unwrap_or(container);
         let context = self.parent(target).and_then(|p| self.context_type_in(p, self.start(target)));
         let Some(t) = context else { return };
         let Type::Record { named, .. } = self.query.table.get(t).clone() else { return };
-        // `_computeDisplacedToken`: o primeiro token do nó em `offset` ou
-        // depois.
+        // `_computeDisplacedToken`: the first token of the node at `offset` or after.
         let shifted = self.tok_after(self.offset).filter(|&i| self.span_tok(i).start < self.end(container).max(self.offset + 1));
         let Some(d) = shifted else { return };
         let included: HashSet<String> = match literal {
@@ -933,7 +933,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 }
 
-/// Um parâmetro declarado, para o `writeParameters` da sobrescrita.
+/// A declared parameter, for the override's `writeParameters`.
 #[derive(Debug, Clone)]
 pub(super) struct WrittenParameter {
     pub name: Option<String>,
@@ -942,6 +942,6 @@ pub(super) struct WrittenParameter {
     pub required_named: bool,
     pub covariant: bool,
     pub pattern: Option<String>,
-    /// A posição entre os posicionais (para o tipo substituído).
+    /// The position among the positionals (for the substituted type).
     pub position: usize,
 }

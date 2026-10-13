@@ -1,9 +1,10 @@
-//! Move top-level to file (`AS:src/services/refactoring/move_top_level_to_file.dart`,
-//! docs/LSP-ESPECIFICACAO.md §13.11.9 e): o `compute`, com o
-//! `ImportAnalyzer` (`AS:src/utilities/import_analyzer.dart`), o cabeçalho do
-//! arquivo, as faixas dos grupos e o `importLibrary`/`_addLibraryImports` do
+//! Move top-level to file
+//! (`AS:src/services/refactoring/move_top_level_to_file.dart`,
+//! docs/LSP-ESPECIFICACAO.md §13.11.9 e): `compute`, with the
+//! `ImportAnalyzer` (`AS:src/utilities/import_analyzer.dart`), the file
+//! header, the group ranges and the `importLibrary`/`_addLibraryImports` of
 //! `DartFileEditBuilderImpl` (`analyzer_plugin`, `change_builder_dart.dart`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use crate::refactorings::{Context, RefactoringResult};
 use crate::refactorings_exec::{Change, Text, enabled_rule};
@@ -16,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 type R = RefactoringResult;
 
-/// As linhas de um texto (`LineInfo`): `\r\n`, `\r` e `\n` terminam linha.
+/// The lines of a text (`LineInfo`): `\r\n`, `\r` and `\n` end a line.
 struct Lines {
     starts: Vec<usize>,
 }
@@ -42,25 +43,25 @@ impl Lines {
         Lines { starts }
     }
 
-    /// `getLocation(offset).lineNumber` (a partir de 1).
+    /// `getLocation(offset).lineNumber` (1-based).
     fn number(&self, offset: usize) -> usize {
         self.starts.partition_point(|&s| s <= offset)
     }
 
-    /// `getOffsetOfLine(index)` (a partir de 0).
+    /// `getOffsetOfLine(index)` (0-based).
     fn start(&self, index: usize) -> usize {
         self.starts.get(index).copied().unwrap_or_else(|| *self.starts.last().unwrap())
     }
 }
 
-/// Uma diretiva do arquivo (lida do texto).
+/// A directive of the file (read from the text).
 #[derive(Debug, Clone)]
 struct Directive {
     kind: &'static str,
-    /// O texto da URI (sem as aspas).
+    /// The URI text (without the quotes).
     uri: String,
     prefix: String,
-    /// Com o comentário de documentação e as anotações.
+    /// With the documentation comment and the annotations.
     start: usize,
     start_without_meta: usize,
     end: usize,
@@ -68,18 +69,18 @@ struct Directive {
     hidden: Vec<(Span, Vec<String>)>,
 }
 
-/// Uma unidade preparada para os imports (`DartFileEditBuilderImpl`).
+/// A unit prepared for the imports (`DartFileEditBuilderImpl`).
 struct Constructor {
     uri: String,
     path: Option<PathBuf>,
-    /// O texto (vazio num arquivo novo).
+    /// The text (empty for a new file).
     source: String,
-    /// A unidade, quando existe no programa (as opções de lint).
+    /// The unit, when it exists in the program (the lint options).
     unit: Option<UnitId>,
     directives: Vec<Directive>,
-    /// O início da primeira declaração.
+    /// The start of the first declaration.
     first_declaration: Option<usize>,
-    /// `librariesToImport`, na ordem de inserção.
+    /// `librariesToImport`, in insertion order.
     import: Vec<PendingImport>,
     header: Option<String>,
 }
@@ -133,7 +134,7 @@ impl PendingImport {
     }
 }
 
-/// `DirectiveSortPriority` de um import.
+/// `DirectiveSortPriority` of an import.
 fn priority(uri: &str) -> u8 {
     if uri.starts_with("dart:") {
         0
@@ -155,8 +156,8 @@ fn compare_uris(a: &str, b: &str) -> std::cmp::Ordering {
     a[..ia].cmp(&b[..ib]).then_with(|| a[ia + 1..].cmp(&b[ib + 1..]))
 }
 
-/// O `pathToUri` do conversor da sessão: `package:` para um arquivo sob o
-/// `lib/` de um pacote, senão `file:`.
+/// The `pathToUri` of the session's converter: `package:` for a file under a
+/// package's `lib/`, otherwise `file:`.
 fn path_uri(path: &Path) -> String {
     let configuration = dartforge_elements::config::PackageConfig::discover(path).and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
     let canonical = match (path.parent().and_then(|p| p.canonicalize().ok()), path.file_name()) {
@@ -220,7 +221,7 @@ impl Constructor {
         Constructor { uri, path, source, unit, directives, first_declaration, import: Vec::new(), header }
     }
 
-    /// A URI canônica de uma URI escrita num import deste arquivo.
+    /// The canonical URI of a URI written in an import of this file.
     fn canonical_uri(&self, write: &str) -> String {
         if write.contains(':') {
             return write.to_string();
@@ -253,7 +254,7 @@ impl Constructor {
                 && a == b
                 && let Some(folder) = &folder
             {
-                // `uriToPath`: pelo `package_config`.
+                // `uriToPath`: through the `package_config`.
                 let configuration = self
                     .path
                     .as_deref()
@@ -274,7 +275,7 @@ impl Constructor {
         self.forced_import(cx, uri, prefix, show, use_show, false, false);
     }
 
-    /// `_importLibrary` com `forceAbsolute`/`forceRelative`: o `uriText`.
+    /// `_importLibrary` with `forceAbsolute`/`forceRelative`: the `uriText`.
     fn forced_import(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool, absolute: bool, relative: bool) -> String {
         if let Some(i) = self.import.iter_mut().find(|i| i.key == uri) {
             if let Some(p) = prefix
@@ -288,7 +289,7 @@ impl Constructor {
             return i.text.clone();
         }
         let text = self.forced_uri_text(cx, uri, absolute, relative);
-        // Os `show`/`hide` dos imports existentes com a mesma URI e prefixo.
+        // The `show`/`hide` of the existing imports with the same URI and prefix.
         let (mut shown, mut hidden): (Vec<Vec<String>>, Vec<Vec<String>>) = (Vec::new(), Vec::new());
         for d in self.directives.iter().filter(|d| d.kind == "import") {
             if d.prefix != prefix.unwrap_or("") {
@@ -315,7 +316,7 @@ impl Constructor {
         text
     }
 
-    /// `finalize`: os imports (`_addLibraryImports`) e o cabeçalho.
+    /// `finalize`: the imports (`_addLibraryImports`) and the header.
     fn finish(&self, cx: &Context<'_>, m: &mut Change, eol: &str) {
         if !self.import.is_empty() {
             self.add_imports(cx, m, eol);
@@ -342,7 +343,7 @@ impl Constructor {
             if pa == pb { compare_uris(&a.text, &b.text) } else { pa.cmp(&pb) }
         });
         let sort = self.unit.is_some_and(|u| enabled_rule(cx.p, u, "combinators_ordering"));
-        // As aspas preferidas, pelos imports.
+        // The preferred quotes, from the imports.
         let quotes = match self.unit {
             Some(u) if enabled_rule(cx.p, u, "prefer_single_quotes") => '\'',
             Some(u) if enabled_rule(cx.p, u, "prefer_double_quotes") => '"',
@@ -405,7 +406,7 @@ impl Constructor {
                         if let Some(a) = previous {
                             let d = &imports[a];
                             let mut offset = d.end;
-                            // Comentários na mesma linha depois do anterior.
+                            // Comments on the same line after the previous one.
                             let lines = Lines::de(source);
                             let line = lines.number(offset);
                             for c in dartforge_frontend::comentarios::Comentarios::de(source).todos() {
@@ -492,7 +493,7 @@ impl Constructor {
             m.add(&self.uri, Span { start: o, end: o }, t);
             return;
         }
-        // Antes da primeira declaração, ou junto das outras edições.
+        // Before the first declaration, or together with the other edits.
         let file_edits: Vec<usize> = m.files.iter().find(|(u, _)| *u == self.uri).map(|(_, l)| l.iter().map(|e| e.span.start).collect()).unwrap_or_default();
         let (offset, line_after) = if let Some(o) = first_declaration {
             (o, true)
@@ -512,8 +513,7 @@ impl Constructor {
         insert_before(m, &self.uri, offset, t);
     }
 
-    /// `updateHideCombinators` e `updateShowCombinators` de um import que já
-    /// existe.
+    /// `updateHideCombinators` and `updateShowCombinators` of an existing import.
     fn update_combinators(&self, m: &mut Change, i: &PendingImport, shown: &[(Span, Vec<String>)], hidden: &[(Span, Vec<String>)], sort: bool) {
         let source = self.source.as_str();
         let all_hidden = i.all_hidden();
@@ -521,7 +521,7 @@ impl Constructor {
         for (s, names) in hidden {
             let new: Vec<String> = names.iter().filter(|n| all_hidden.contains(n) && !all_shown.contains(n)).cloned().collect();
             if new.is_empty() {
-                // Do fim do token anterior ao fim do `hide`.
+                // From the end of the previous token to the end of the `hide`.
                 let previous = source[..s.start].trim_end().len();
                 m.add(&self.uri, Span { start: previous, end: s.end }, "");
             } else if new.len() != names.len() {
@@ -559,11 +559,11 @@ impl Constructor {
     }
 }
 
-/// `addInsertion(offset, insertBeforeExisting: true)`: a inserção fica antes
-/// das outras do mesmo offset no texto.
+/// `addInsertion(offset, insertBeforeExisting: true)`: the insertion goes
+/// before the others at the same offset in the text.
 fn insert_before(m: &mut Change, uri: &str, offset: usize, text: String) {
-    // Na ordem do `SourceFileEdit` (decrescente), a inserção entra depois de
-    // todas as de offset maior ou igual: no texto, antes delas.
+    // In `SourceFileEdit` order (descending), the insertion goes after all
+    // those with a greater or equal offset: in the text, before them.
     let list = match m.files.iter().position(|(u, _)| u == uri) {
         Some(i) => &mut m.files[i].1,
         None => {
@@ -578,8 +578,8 @@ fn insert_before(m: &mut Change, uri: &str, offset: usize, text: String) {
     list.insert(i, crate::Edit { uri: uri.to_string(), span: Span { start: offset, end: offset }, text });
 }
 
-/// O início de uma diretiva ou declaração com o comentário de documentação
-/// e as anotações.
+/// The start of a directive or declaration with the documentation comment
+/// and the annotations.
 fn start_with_meta(source: &str, start_: usize, meta: &[ast::Annotation]) -> usize {
     let mut start = meta.iter().map(|a| a.span.start).min().unwrap_or(start_).min(start_);
     if let Some(d) = dartforge_frontend::comentarios::Comentarios::de(source).dart_doc(source, start) {
@@ -588,7 +588,7 @@ fn start_with_meta(source: &str, start_: usize, meta: &[ast::Annotation]) -> usi
     start
 }
 
-/// O intervalo de um combinador `show`/`hide` (da palavra ao último nome).
+/// The range of a `show`/`hide` combinator (from the keyword to the last name).
 fn combinator_span(source: &str, names: &[ast::Name], word: &str) -> Span {
     let first = names.first().map_or(0, |n| n.span.start);
     let last = names.last().map_or(first, |n| n.span.end);
@@ -597,8 +597,8 @@ fn combinator_span(source: &str, names: &[ast::Name], word: &str) -> Span {
     Span { start: start, end: last }
 }
 
-/// `fileHeader`: o primeiro comentário antes do primeiro token (depois do
-/// `#!`): um `/* */` não doc, ou as linhas `//` consecutivas.
+/// `fileHeader`: the first comment before the first token (after the `#!`):
+/// a non-doc `/* */`, or the consecutive `//` lines.
 fn file_header(source: &str) -> Option<(usize, usize)> {
     let tokens = dartforge_frontend::lexer::lex(source).ok()?;
     let mut first = tokens.first()?;
@@ -641,12 +641,12 @@ fn file_header(source: &str) -> Option<(usize, usize)> {
     Some((c0.start, end))
 }
 
-/// O `ImportAnalyzer`.
+/// The `ImportAnalyzer`.
 #[derive(Default)]
 struct ImportsAnalyzer {
     moving: Vec<Element>,
     staying: Vec<Element>,
-    /// Elemento → os índices (em `imports` da biblioteca) usados.
+    /// Element → the indexes (in the library's `imports`) used.
     refs_moving: Vec<(Element, Vec<usize>)>,
     refs_staying: Vec<(Element, Vec<usize>)>,
 }
@@ -677,15 +677,15 @@ impl ImportsAnalyzer {
 }
 
 /// `dart.refactor.move_top_level_to_file` (`compute`).
-/// Os imports que um `DartFileEditBuilder` dos fixes agendou
-/// (`_writeLibraryReference` → `_importLibrary(uri)`), inseridos pelo
-/// `_addLibraryImports` na unidade definidora da biblioteca de `cx`.
+/// The imports that a fixes `DartFileEditBuilder` scheduled
+/// (`_writeLibraryReference` → `_importLibrary(uri)`), inserted by
+/// `_addLibraryImports` in the defining unit of `cx`'s library.
 pub(crate) fn builder_imports(cx: &Context<'_>, m: &mut Change, libraries: &std::collections::BTreeSet<dartforge_elements::model::LibraryId>) {
     uris_imports(cx, m, &libraries.iter().map(|&b| cx.p.program().library(b).uri.clone()).collect::<Vec<_>>());
 }
 
-/// `importLibraryWithAbsoluteUri`/`importLibraryWithRelativeUri` de uma URI
-/// na biblioteca de `cx`: o `uriText` e as edições (em ordem crescente).
+/// `importLibraryWithAbsoluteUri`/`importLibraryWithRelativeUri` of a URI in
+/// `cx`'s library: the `uriText` and the edits (in ascending order).
 pub(crate) fn import_one(cx: &Context<'_>, uri: &str, relative: bool) -> Option<(String, Vec<crate::Edit>)> {
     let prog = cx.p.program();
     let lib = prog.unit(cx.unit).library;
@@ -703,8 +703,8 @@ pub(crate) fn import_one(cx: &Context<'_>, uri: &str, relative: bool) -> Option<
     Some((text, m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect()))
 }
 
-/// `importLibrary(uri)` de cada URI e o `finalize` do builder da unidade
-/// definidora da biblioteca de `cx`.
+/// `importLibrary(uri)` of each URI and the `finalize` of the builder of the
+/// defining unit of `cx`'s library.
 pub(crate) fn uris_imports(cx: &Context<'_>, m: &mut Change, uris: &[String]) {
     if uris.is_empty() {
         return;
@@ -737,7 +737,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
     let tx = Text::new(cx.source);
     let eol = tx.eol();
     let lines = Lines::de(cx.source);
-    // O destino existe (no disco ou aberto)?
+    // Does the destination exist (on disk or open)?
     let target_unit = p.uri_unit(&target_uri);
     let target_text: Option<String> = match target_unit {
         Some(u) => Some(prog.unit(u).source.clone()),
@@ -755,7 +755,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
         position = target_text.as_ref().map_or(0, |t| t.len());
         line_before = true;
     }
-    // A faixa do grupo.
+    // The group's range.
     let nos: Vec<usize> = members
         .iter()
         .filter_map(|(d, _)| cx.tree.nos.iter().position(|k| k.marca == crate::arvore_analyzer::Marca::Decl(*d) || top_function(cx, k.marca, *d)))
@@ -766,8 +766,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
         let mut start = cx.tree.nos[first].inicio;
         if with_previous_line {
             let initial_line = lines.number(start);
-            // `beginToken.previous`: nulo quando o membro começa num
-            // comentário.
+            // `beginToken.previous`: null when the member starts at a comment.
             let starts_in_comment = cx.comments.iter().any(|c| c.start == start);
             if !starts_in_comment {
                 let previous = cx.tokens.iter().rev().find(|t| t.span.end <= start && t.kind != Kind::Eof);
@@ -794,7 +793,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
     };
     let range_without = range(false);
     let range_with = range(true);
-    // O `ImportAnalyzer`.
+    // The `ImportAnalyzer`.
     let analyzer = analyze_imports(cx, range_without);
     let lib = prog.unit(cx.unit).library;
     let lib_imports: Vec<&dartforge_elements::model::Import> = {
@@ -802,7 +801,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
         prog.library(lib).imports.iter().filter(|i| Some(i.unit) == defining).collect()
     };
     let mut m = Change::default();
-    // O destino.
+    // The destination.
     let mut target_b = Constructor::new(
         target_uri.clone(),
         Some(target_path.clone()),
@@ -838,14 +837,14 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
         }
     }
     target_b.finish(cx, &mut m, eol);
-    // A origem.
+    // The source.
     let mut origin_b = Constructor::new(uri.to_string(), prog.unit(cx.unit).path.clone(), cx.source.to_string(), Some(cx.unit), None);
     if analyzer.has_staying_to_moving() {
         origin_b.import_library(cx, &target_import, None, None, false);
     }
     m.add(uri, Span { start: range_with.0, end: range_with.1 }, "");
     origin_b.finish(cx, &mut m, eol);
-    // As outras bibliotecas que referem os movidos.
+    // The other libraries that refer to the moved ones.
     let mut by_library: Vec<(LibraryId, Vec<String>)> = Vec::new();
     for el in &analyzer.moving {
         for (b, prefixes) in used_prefixes(cx, *el) {
@@ -875,12 +874,12 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
         }
         cb.finish(cx, &mut m, eol);
     }
-    // O arquivo novo: a criação, com o conteúdo das edições dele.
+    // The new file: the creation, with the content of its edits.
     if !exists {
         let edits = m.files.iter().position(|(u, _)| *u == target_uri).map(|i| m.files.remove(i).1).unwrap_or_default();
         let mut content = String::new();
-        // As edições estão em ordem decrescente (no mesmo offset, a nova
-        // antes): aplicadas em sequência sobre o texto vazio.
+        // The edits are in descending order (at the same offset, the new one
+        // first): applied in sequence over the empty text.
         for e in edits.iter() {
             content.insert_str(e.span.start.min(content.len()), &e.text);
         }
@@ -889,7 +888,7 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, tar
     m.result()
 }
 
-/// A marca de uma `FunctionDeclaration` de topo é a da função.
+/// The mark of a top-level `FunctionDeclaration` is the function's.
 fn top_function(cx: &Context<'_>, mark: crate::arvore_analyzer::Marca, d: ast::DeclId) -> bool {
     match (mark, &cx.ast.decl(d).kind) {
         (crate::arvore_analyzer::Marca::Funcao(f), DeclKind::Function(g)) => f == *g,
@@ -897,8 +896,8 @@ fn top_function(cx: &Context<'_>, mark: crate::arvore_analyzer::Marca, d: ast::D
     }
 }
 
-/// A URI da biblioteca dona da unidade (`unitResult.uri`: a da própria
-/// unidade, também numa parte).
+/// The URI of the unit's owning library (`unitResult.uri`: the unit's own,
+/// also for a part).
 fn unit_library_uri(cx: &Context<'_>, unit_uri: &str) -> String {
     let prog = cx.p.program();
     let lib = prog.unit(cx.unit).library;
@@ -911,7 +910,7 @@ fn unit_library_uri(cx: &Context<'_>, unit_uri: &str) -> String {
     }
 }
 
-/// O nome de um elemento de topo.
+/// The name of a top-level element.
 fn element_name(cx: &Context<'_>, el: Element) -> Option<String> {
     let p = cx.p;
     let prog = p.program();
@@ -925,9 +924,9 @@ fn element_name(cx: &Context<'_>, el: Element) -> Option<String> {
     })
 }
 
-/// O elemento interessante (`isInterestingReference`) de uma resolução: de
-/// topo, sem prefixo; o acessor sintético vira a variável; o membro de
-/// instância de extensão vira a extensão.
+/// The interesting element (`isInterestingReference`) of a resolution:
+/// top-level, without a prefix; a synthetic accessor becomes the variable;
+/// an extension instance member becomes the extension.
 fn interesting_element(cx: &Context<'_>, r: &Resolved) -> Option<Element> {
     let prog = cx.p.program();
     match r {
@@ -947,7 +946,8 @@ fn interesting_element(cx: &Context<'_>, r: &Resolved) -> Option<Element> {
     }
 }
 
-/// `_getImportForElement`: o import (pelo prefixo usado) que dá o elemento.
+/// `_getImportForElement`: the import (by the prefix used) that provides
+/// the element.
 fn element_import(cx: &Context<'_>, unit: UnitId, el: Element, prefix: Option<dartforge_intern::SymbolId>) -> Option<usize> {
     let p = cx.p;
     let prog = p.program();
@@ -973,7 +973,7 @@ fn element_import(cx: &Context<'_>, unit: UnitId, el: Element, prefix: Option<da
     found
 }
 
-/// O `ImportAnalyzer` da biblioteca da unidade, com a faixa movida.
+/// The `ImportAnalyzer` of the unit's library, with the moved range.
 fn analyze_imports(cx: &Context<'_>, range: (usize, usize)) -> ImportsAnalyzer {
     let p = cx.p;
     let prog = p.program();
@@ -984,7 +984,7 @@ fn analyze_imports(cx: &Context<'_>, range: (usize, usize)) -> ImportsAnalyzer {
         let unit = prog.unit(u);
         let ast = &unit.ast;
         let bodies = &p.query.bodies.units[u.0 as usize];
-        // As declarações (pelo offset do nome).
+        // The declarations (by name offset).
         for &d in unit.unit.declarations.iter() {
             let decl = ast.decl(d);
             let mut register = |el: Element, name_: usize| {
@@ -1042,7 +1042,7 @@ fn analyze_imports(cx: &Context<'_>, range: (usize, usize)) -> ImportsAnalyzer {
                 DeclKind::ExtensionType(_) => {}
             }
         }
-        // As referências nas expressões.
+        // The references in the expressions.
         for (i, e) in ast.exprs.iter().enumerate() {
             let x = ExprId(i as u32);
             let Some(r) = bodies.get_resolved(x) else { continue };
@@ -1068,7 +1068,7 @@ fn analyze_imports(cx: &Context<'_>, range: (usize, usize)) -> ImportsAnalyzer {
                 ImportsAnalyzer::register(&mut a.refs_staying, el, imp);
             }
         }
-        // As referências nos tipos escritos.
+        // The references in the written types.
         for t in ast.types.iter() {
             let ast::TypeKind::Named { name, .. } = &t.kind else { continue };
             let (el, prefix) = match &name[..] {
@@ -1088,7 +1088,7 @@ fn analyze_imports(cx: &Context<'_>, range: (usize, usize)) -> ImportsAnalyzer {
             }
         }
     }
-    // Sem as referências que ficam no mesmo arquivo.
+    // Without the references that stay in the same file.
     let moving = a.moving.clone();
     let staying = a.staying.clone();
     a.refs_moving.retain(|(e, _)| !moving.contains(e));
@@ -1096,8 +1096,8 @@ fn analyze_imports(cx: &Context<'_>, range: (usize, usize)) -> ImportsAnalyzer {
     a
 }
 
-/// As bibliotecas (fora a de origem) que referem `el`, com os prefixos
-/// usados (`searchPrefixesUsedInLibrary`; `''` sem prefixo).
+/// The libraries (other than the source one) that refer to `el`, with the
+/// prefixes used (`searchPrefixesUsedInLibrary`; `''` without a prefix).
 fn used_prefixes(cx: &Context<'_>, el: Element) -> Vec<(LibraryId, Vec<String>)> {
     let p = cx.p;
     let prog = p.program();

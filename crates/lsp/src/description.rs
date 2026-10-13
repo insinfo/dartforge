@@ -1,11 +1,11 @@
-//! Descrição de um elemento para o hover, no formato do servidor do Dart
-//! (`ElementDisplayStringBuilder` do analyzer): `int soma(int a, [int b =
+//! Description of an element for hover, in the Dart server's format (the
+//! analyzer's `ElementDisplayStringBuilder`): `int soma(int a, [int b =
 //! 0])`, `String get nome`, `abstract class B<T> extends A implements C`,
-//! mais o tipo estático (variáveis e getters) e a documentação.
+//! plus the static type (variables and getters) and the documentation.
 //!
-//! Tipos vêm da tabela da inferência comum (`TypeTable::format`); nomes e
-//! valores padrão, da árvore da declaração. Nada é inventado: um elemento sem
-//! forma conhecida não tem hover.
+//! Types come from the common inference's table (`TypeTable::format`);
+//! names and default values, from the declaration's tree. Nothing is made
+//! up: an element without a known shape has no hover.
 
 use crate::Hover;
 use crate::dartdoc;
@@ -17,10 +17,10 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
 use dartforge_types::{Type, TypeId};
 
 impl Project {
-    /// O hover do que `d` denota na unidade `unit`.
+    /// The hover of what `d` denotes in unit `unit`.
     pub(crate) fn hover(&self, unit: UnitId, d: &Denoted) -> Option<Hover> {
-        // `_targetNode`: o nome do tipo de `A.n(…)` (o `NamedType` de um
-        // `ConstructorName` de criação) mostra a criação, o construtor.
+        // `_targetNode`: the type name of `A.n(…)` (the `NamedType` of a creation's
+        // `ConstructorName`) shows the creation, the constructor.
         let adjusted;
         let d = match (&d.target, d.concrete, d.expr) {
             (Target::Top(Element::Class(_)), None, Some(e)) => match self.constructor_by_type(unit, e) {
@@ -32,7 +32,7 @@ impl Project {
             },
             _ => d,
         };
-        // Declaração de constante de enum: o analyzer não tem hover ali.
+        // Enum constant declaration: the analyzer has no hover there.
         if d.expr.is_none()
             && let Some(Concrete::Variable(v)) = d.concrete
             && self.program().variable(v).class.is_some_and(|c| self.program().class(c).enum_constants.contains(&v))
@@ -51,8 +51,8 @@ impl Project {
                 let (description, ty) = self.describe_local(*u, *declaration, d.expr, unit)?;
                 (description, ty, None)
             }
-            // A declaração do parâmetro de tipo (`TypeParameter`) não é nó
-            // com hover no analyzer.
+            // The type parameter declaration (`TypeParameter`) is not a node with a
+            // hover in the analyzer.
             (Target::TypeParameter { unit: u, declaration }, _) if *u == unit && d.name.start == *declaration => return None,
             (
                 Target::TypeParameter {
@@ -80,7 +80,7 @@ impl Project {
             }
             (_, Some(Concrete::Function(f))) => {
                 let fe = self.program().function(f);
-                // Na declaração (sem expressão), o analyzer não mostra tipo.
+                // At the declaration (no expression), the analyzer shows no type.
                 let ty = (matches!(fe.kind, FunctionKind::Getter) && d.expr.is_some())
                     .then(|| {
                         self.reference_type(unit, d.expr)
@@ -118,21 +118,21 @@ impl Project {
             ),
             (Target::Member { .. }, None) => return None,
         };
-        // `this.x` num construtor: o elemento do hover é o parâmetro.
+        // `this.x` in a constructor: the hover's element is the parameter.
         let formal_field = d.expr.is_none()
             && crate::project::parameter_in(&self.program().unit(unit).ast, d.name.start).is_some_and(|(x, _)| x.this_);
         let documentation = self.computed_documentation(unit, d, doc_start, formal_field);
-        // Sem expressão e fora da declaração (metadados, `show`/`hide`,
-        // `[ref]`): o analyzer não tem tipo estático para mostrar.
+        // Without an expression and outside the declaration (metadata,
+        // `show`/`hide`, `[ref]`): the analyzer has no static type to show.
         let ty = if d.expr.is_none() && !matches!(d.target, Target::Local { .. }) && !self.declaration(d).is_some_and(|(u, s)| u == unit && s == d.name) {
             None
         } else {
             ty
         };
-        // `this.x`: o `type` do `FieldFormalParameterElement` (um
-        // `VariableElement`), como na declaração de um parâmetro.
+        // `this.x`: the `type` of the `FieldFormalParameterElement` (a
+        // `VariableElement`), as in a parameter declaration.
         let ty = if formal_field { ty.or_else(|| self.field_formal_type(unit, d.name.start)) } else { ty };
-        // Chamada: o tipo da invocação (`staticInvokeType`), como o Dart.
+        // Call: the invocation's type (`staticInvokeType`), like Dart.
         let ty = ty.or_else(|| match d.concrete {
             Some(Concrete::Function(f))
                 if matches!(self.program().function(f).kind, FunctionKind::Function | FunctionKind::Operator)
@@ -142,7 +142,7 @@ impl Project {
                     .filter(|t| !matches!(self.query.table.get(*t), Type::Dynamic))
                     .map(|t| self.query.format(t))
             }
-            // Função local chamada.
+            // Called local function.
             None if matches!(d.target, Target::Local { .. })
                 && d.expr.is_some_and(|e| self.is_call_target(unit, e))
                 && d.expr.and_then(|e| self.reference_type(unit, Some(e))).is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. })) =>
@@ -151,7 +151,7 @@ impl Project {
             }
             _ => None,
         });
-        // Criação sem `new`/`const`: `(new) ` antes da descrição.
+        // Creation without `new`/`const`: `(new) ` before the description.
         let mut description = description;
         if let Some(Concrete::Function(f)) = d.concrete
             && matches!(self.program().function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor)
@@ -171,10 +171,10 @@ impl Project {
         })
     }
 
-    /// A substituição do `Member` que o hover mostra: um método ou operador
-    /// de instância lido por `target.m`, pelos argumentos do tipo do alvo; um
-    /// construtor, pelos do tipo criado. Getters, setters e campos passam
-    /// pelo `nonSynthetic` e ficam como declarados.
+    /// The `Member` substitution the hover shows: an instance method or
+    /// operator read through `target.m`, by the target type's arguments; a
+    /// constructor, by those of the created type. Getters, setters and fields go
+    /// through `nonSynthetic` and stay as declared.
     fn member_replacement(&self, unit: UnitId, d: &Denoted, f: FunctionElementId) -> Option<Replacement> {
         let p = self.program();
         let fe = p.function(f);
@@ -188,8 +188,8 @@ impl Project {
                 _ => return None,
             },
             FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
-                // A criação: `C(…)`, `C.n(…)`, `p.C(…)` (a chamada cujo alvo
-                // é o nome, ou a propriedade sobre ele).
+                // The creation: `C(…)`, `C.n(…)`, `p.C(…)` (the call whose target is the
+                // name, or the property on it).
                 let call = ast.exprs.iter().enumerate().find_map(|(i, x)| match &x.kind {
                     ast::ExprKind::Call { target, .. } if *target == e => Some(i),
                     ast::ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
@@ -213,8 +213,8 @@ impl Project {
         Some((params.iter().copied().zip(args.iter().copied()).collect(), table))
     }
 
-    /// O construtor de `A.n(…)`, `A<T>.n(…)` ou `p.A.n(…)` quando `e` é o
-    /// nome do tipo (`A`).
+    /// The constructor of `A.n(…)`, `A<T>.n(…)` or `p.A.n(…)` when `e` is the
+    /// type name (`A`).
     fn constructor_by_type(&self, unit: UnitId, e: ast::ExprId) -> Option<FunctionElementId> {
         let ast = &self.program().unit(unit).ast;
         let bodies = self.query.bodies.units.get(unit.0 as usize)?;
@@ -240,7 +240,7 @@ impl Project {
         })
     }
 
-    /// O tipo de `this.x` (o do parâmetro no outline do construtor).
+    /// The type of `this.x` (that of the parameter in the constructor's outline).
     fn field_formal_type(&self, unit: UnitId, name: usize) -> Option<String> {
         let p = self.program();
         let ast = &p.unit(unit).ast;
@@ -252,13 +252,13 @@ impl Project {
         Some(self.query.format(t))
     }
 
-    /// `DartUnitHoverComputer.computeDocumentation`: o elemento (o campo de
-    /// `this.x`; o executável dono de um parâmetro), ele e os membros que ele
-    /// sobrescreve (`findOverriddenElements`: as superclasses e os mixins,
-    /// depois as interfaces), o primeiro com comentário de documentação; um
-    /// setter sem ela usa a do getter correspondente. Vinda de outra classe,
-    /// a documentação ganha o `Copied from` dela. Acessor sintético de campo
-    /// não tem comentário.
+    /// `DartUnitHoverComputer.computeDocumentation`: the element (the field of
+    /// `this.x`; the owning executable of a parameter), it and the members it
+    /// overrides (`findOverriddenElements`: the superclasses and the mixins,
+    /// then the interfaces), the first one with a documentation comment; a
+    /// setter without one uses the corresponding getter's. Coming from another
+    /// class, the documentation gets its `Copied from`. A synthetic field
+    /// accessor has no comment.
     fn computed_documentation(&self, unit: UnitId, d: &Denoted, doc_start: Option<(UnitId, usize)>, formal_field: bool) -> Option<String> {
         let p = self.program();
         let seed: Option<Documentable> = if formal_field {
@@ -274,7 +274,7 @@ impl Project {
                     match crate::project::parameter_in(ast, *declaration)?.1 {
                         crate::project::OwnerParameter::Function(fid) => match self.node_function(*u, fid) {
                             Some(f) => Some(Documentable::Function(f)),
-                            // Função local: o comentário dela; closure não tem.
+                            // Local function: its comment; a closure has none.
                             None => {
                                 ast.function(fid).name?;
                                 return dartdoc::documentation(&p.unit(*u).source, ast.function(fid).span.start);
@@ -386,8 +386,8 @@ impl Project {
         Some(text)
     }
 
-    /// A superclasse declarada (pulando as aplicações de mixin sintéticas) e
-    /// os mixins na ordem escrita.
+    /// The declared superclass (skipping the synthetic mixin applications) and
+    /// the mixins in written order.
     fn super_and_mixins(&self, c: ClassId) -> (Option<ClassId>, Vec<ClassId>) {
         let p = self.program();
         let mut synthetic: Vec<ClassId> = Vec::new();
@@ -445,8 +445,8 @@ impl Project {
         }
     }
 
-    /// `_lookupMember`: o método, o getter ou o setter declarado em `c` com
-    /// o nome (privado só na mesma biblioteca).
+    /// `_lookupMember`: the method, getter or setter declared in `c` with the
+    /// name (a private one only in the same library).
     fn override_member(&self, c: ClassId, name: &str, kinds: &[FunctionKind], library: dartforge_elements::model::LibraryId) -> Option<FunctionElementId> {
         let p = self.program();
         let k = p.class(c);
@@ -475,12 +475,12 @@ impl Project {
         None
     }
 
-    /// `e` é o alvo de uma chamada (`e(…)`).
+    /// `e` is the target of a call (`e(…)`).
     fn is_call_target(&self, unit: UnitId, e: ast::ExprId) -> bool {
         self.program().unit(unit).ast.exprs.iter().any(|x| matches!(&x.kind, ast::ExprKind::Call { target, .. } if *target == e))
     }
 
-    /// `e` é a classe de `A.name(…)` (o alvo da propriedade chamada).
+    /// `e` is the class of `A.name(…)` (the target of the called property).
     fn is_call_target_by_property(&self, unit: UnitId, e: ast::ExprId) -> bool {
         let ast = &self.program().unit(unit).ast;
         ast.exprs.iter().enumerate().any(|(i, x)| {
@@ -489,16 +489,16 @@ impl Project {
         })
     }
 
-    /// A biblioteca do elemento não local, como o hover do Dart a mostra.
+    /// The library of the non-local element, as Dart's hover shows it.
     fn displayed_library(&self, d: &Denoted) -> Option<String> {
         let p = self.program();
         let lib = match (&d.target, d.concrete) {
-            // A variável de um `for` de coleção não tem executável como
-            // `enclosingElement3`: o analyzer mostra a biblioteca.
+            // The variable of a collection `for` has no executable as its
+            // `enclosingElement3`: the analyzer shows the library.
             (Target::Local { unit, declaration }, _) if in_collection_for(&p.unit(*unit).ast, *declaration) => p.unit(*unit).library,
             (Target::Local { .. }, _) | (Target::Prefix { .. }, _) => return None,
             (Target::TypeParameter { unit, declaration }, _) => {
-                // Parâmetro de tipo de método ou função: local.
+                // Type parameter of a method or function: local.
                 let ast = &p.unit(*unit).ast;
                 if ast.functions.iter().any(|f| f.type_params.iter().any(|t| t.name.span.start == *declaration)) {
                     return None;
@@ -520,7 +520,7 @@ impl Project {
         let relative = dartforge_elements::config::sem_verbatim(path.clone());
         let relative = relative.strip_prefix(dartforge_elements::config::sem_verbatim(root.clone())).ok()?;
         let parts: Vec<String> = relative.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-        // Em `lib/` de um pacote, o analyzer vê a URI `package:`.
+        // In a package's `lib/`, the analyzer sees the `package:` URI.
         if parts.first().is_some_and(|c| c == "lib")
             && let Some(package) = crate::index::package_name(&root)
         {
@@ -529,7 +529,7 @@ impl Project {
         Some(parts.join("/"))
     }
 
-    /// A declaração do elemento tem `@deprecated` ou `@Deprecated(…)`.
+    /// The element's declaration has `@deprecated` or `@Deprecated(…)`.
     fn deprecated(&self, d: &Denoted) -> bool {
         let p = self.program();
         let metadata: Option<(UnitId, &[ast::Annotation])> = match (&d.target, d.concrete) {
@@ -554,13 +554,13 @@ impl Project {
         })
     }
 
-    /// O tipo estático da expressão (com promoções), quando o cursor está
-    /// num uso.
+    /// The static type of the expression (with promotions), when the cursor is
+    /// on a use.
     fn reference_type(&self, unit: UnitId, expr: Option<ast::ExprId>) -> Option<TypeId> {
         let e = expr?;
         let bodies = self.query.bodies.units.get(unit.0 as usize)?;
-        // O alvo de uma atribuição (`x = …`, `x += …`, `o.x = …`): o
-        // `writeType` dela (`_getTypeOfDeclarationOrReference`).
+        // The target of an assignment (`x = …`, `x += …`, `o.x = …`): its
+        // `writeType` (`_getTypeOfDeclarationOrReference`).
         let ast = &self.program().unit(unit).ast;
         if let Some(i) = ast.exprs.iter().position(|x| matches!(&x.kind, ast::ExprKind::Assign { target, .. } if *target == e))
             && let Some(&t) = bodies.tipos_de_escrita.get(&ast::ExprId(i as u32))
@@ -570,7 +570,7 @@ impl Project {
         bodies.get_type(e)
     }
 
-    /// Local, parâmetro ou função local.
+    /// Local, parameter or local function.
     fn describe_local(
         &self,
         u: UnitId,
@@ -583,7 +583,7 @@ impl Project {
         let name = &unit.source[name_span.start..name_span.end];
         let bodies = &self.query.bodies.units[u.0 as usize];
         let declared = bodies.tipo_local(declaration)?;
-        // Função local: a assinatura escrita.
+        // Local function: the written signature.
         if let Some(fid) = unit
             .ast
             .functions
@@ -596,8 +596,8 @@ impl Project {
         let current = self
             .reference_type(unit_expr, expr)
             .unwrap_or(declared);
-        // Parâmetro: com os delimitadores do tipo dele (`[int b = 0]`,
-        // `{required int c}`), como o `writeFormalParameter` do analyzer.
+        // Parameter: with the delimiters of its kind (`[int b = 0]`,
+        // `{required int c}`), like the analyzer's `writeFormalParameter`.
         let mut text = format!("{} {name}", self.query.format(declared));
         if let Some((p, _)) = crate::project::parameter_in(&unit.ast, declaration)
             && p.name.is_some_and(|n| n.span.start == declaration)
@@ -615,7 +615,7 @@ impl Project {
         Some((text, Some(self.query.format(current))))
     }
 
-    /// Assinatura de uma função local pelo tipo inferido e pela árvore.
+    /// Signature of a local function from the inferred type and the tree.
     fn local_signature(&self, u: UnitId, f: &ast::Function, name: &str, ty: TypeId) -> String {
         let Type::Function {
             ret,
@@ -628,8 +628,8 @@ impl Project {
             return format!("{} {name}", self.query.format(ty));
         };
         let parameters = f.parameters.as_deref().unwrap_or(&[]);
-        // Posicionais pela ordem; nomeados pelo nome (o tipo os guarda
-        // na ordem canônica, não na escrita).
+        // Positionals by order; named ones by name (the type keeps them in
+        // canonical order, not in written order).
         let mut positional_ = positional.iter().chain(optional.iter());
         let types: Vec<Option<TypeId>> = parameters
             .iter()
@@ -652,7 +652,7 @@ impl Project {
         )
     }
 
-    /// `<T extends B, U>` como escrito na fonte (vazio sem parâmetros).
+    /// `<T extends B, U>` as written in the source (empty without parameters).
     fn written_type_parameters(&self, ps: &[ast::TypeParameter], source: &str) -> String {
         if ps.is_empty() {
             return String::new();
@@ -664,8 +664,8 @@ impl Project {
         format!("<{}>", parts.join(", "))
     }
 
-    /// `(int a, [int b = 0], {required int c})`: `types` alinhados com os
-    /// parâmetros escritos em `u`.
+    /// `(int a, [int b = 0], {required int c})`: `types` aligned with the
+    /// parameters written in `u`.
     fn parameter_list(
         &self,
         u: Option<UnitId>,
@@ -675,7 +675,7 @@ impl Project {
         self.parameter_list_with(u, ps, types, &|t| self.query.format(t))
     }
 
-    /// [`Project::parameter_list`] com os tipos formatados por `fmt`.
+    /// [`Project::parameter_list`] with the types formatted by `fmt`.
     fn parameter_list_with(
         &self,
         u: Option<UnitId>,
@@ -690,8 +690,8 @@ impl Project {
             ),
             None => ("", None),
         };
-        // Como o `_writeFormalParameters` do analyzer com `multiline`: com
-        // três parâmetros ou mais, um por linha, com vírgula final.
+        // Like the analyzer's `_writeFormalParameters` with `multiline`: with three
+        // or more parameters, one per line, with a trailing comma.
         let multiline = ps.len() >= 3;
         let mut items: Vec<(ParameterKind, String)> = Vec::new();
         for (i, p) in ps.iter().enumerate() {
@@ -759,13 +759,13 @@ impl Project {
         s
     }
 
-    /// Assinatura de uma função, método, getter, setter ou construtor.
+    /// Signature of a function, method, getter, setter or constructor.
     pub(crate) fn describe_function(&self, f: FunctionElementId) -> String {
         self.describe_function_with(f, None)
     }
 
-    /// [`Project::describe_function`] do `Member` substituído (`map`: os
-    /// parâmetros de tipo da classe pelos argumentos do receptor).
+    /// [`Project::describe_function`] of the substituted `Member` (`map`: the
+    /// class's type parameters by the receiver's arguments).
     fn describe_function_with(&self, f: FunctionElementId, replacement: Option<Replacement>) -> String {
         let p = self.program();
         let fe = p.function(f);
@@ -837,7 +837,7 @@ impl Project {
         }
     }
 
-    /// Classe, mixin, enum, extension type, extensão ou typedef.
+    /// Class, mixin, enum, extension type, extension or typedef.
     fn describe_type(&self, el: Element) -> Option<String> {
         let p = self.program();
         let fmt = |t: TypeId| self.query.format(t);
@@ -961,12 +961,12 @@ impl Project {
         }
     }
 
-    /// `t` é `Object` (não se escreve `extends Object`).
+    /// `t` is `Object` (`extends Object` is not written).
     fn is_object(&self, t: TypeId) -> bool {
         matches!(self.query.table.get(t), Type::Interface { class, .. } if Some(*class) == self.query.core.object_class)
     }
 
-    /// `T extends B` como declarado.
+    /// `T extends B` as declared.
     fn describe_type_parameter(&self, u: UnitId, declaration: usize) -> Option<String> {
         let unit = self.program().unit(u);
         let ast = &unit.ast;
@@ -998,19 +998,20 @@ impl Project {
     }
 }
 
-/// O elemento cuja documentação o hover procura.
+/// The element whose documentation the hover looks for.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Documentable {
     Function(FunctionElementId),
     Variable(dartforge_elements::model::VariableId),
 }
 
-/// Os parâmetros de tipo da classe pelos argumentos do receptor, com a
-/// cópia da tabela em que esses argumentos existem.
+/// The class's type parameters by the receiver's arguments, with the copy of
+/// the table in which those arguments exist.
 type Replacement = (std::collections::HashMap<dartforge_types::TypeParamId, TypeId>, dartforge_types::TypeTable);
 
-/// A declaração em `declaration` é variável de um `for` de coleção
-/// (`[for (var i = 0; …) …]`, `{for (var x in l) …}`, inclusive por padrão).
+/// The declaration at `declaration` is a variable of a collection `for`
+/// (`[for (var i = 0; …) …]`, `{for (var x in l) …}`, including through a
+/// pattern).
 fn in_collection_for(ast: &ast::Ast, declaration: usize) -> bool {
     fn node_pattern(ast: &ast::Ast, p: ast::PatternId, d: usize) -> bool {
         let s = ast.pattern(p).span;

@@ -1,7 +1,7 @@
-//! O analisador semântico do LSP. O programa, as árvores e a tabela de tipos
-//! de uma consulta ficam, no máximo, na sessão limitada de [`crate::session`]
-//! (uma entrada, descartada a cada mudança de texto); o completar, que
-//! analisa um texto com sentinela, é sempre transitório.
+//! The LSP semantic analyzer. The program, the trees and the type table of a
+//! query live, at most, in the bounded session of [`crate::session`] (one
+//! entry, discarded at each text change); completion, which analyzes a text
+//! with a sentinel, is always transient.
 
 use crate::{Analyzer, SyntacticAnalyzer, DocumentStore, Hover, References};
 use dartforge_diagnostics::{Diagnostic, Span};
@@ -9,43 +9,42 @@ use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::
 use dartforge_intern::Interner;
 use url::Url;
 
-/// Analisador com a resolução e os tipos da inferência comum: definição,
-/// hover e referências pela identidade da declaração (`crate::project`),
-/// completar, renomear e ações. Na falta do SDK, mantém as respostas
-/// sintáticas.
+/// Analyzer with the resolution and the types of the common inference:
+/// definition, hover and references by declaration identity
+/// (`crate::project`), completion, rename and actions. Without an SDK, it
+/// keeps the syntactic answers.
 pub struct SemanticAnalyzer {
     syntactic: SyntacticAnalyzer,
     sdk: Option<SdkLayout>,
-    /// Nomes públicos de topo do SDK (importar biblioteca), montado na
-    /// primeira vez que um nome indefinido pede. Tamanho fixo pelo SDK.
+    /// Public top-level names of the SDK (import library), built the first time
+    /// an undefined name asks for it. Fixed size per SDK.
     sdk_index: Option<crate::index::SdkIndex>,
-    /// Nomes públicos de topo do projeto do último documento consultado,
-    /// atualizado por arquivo (importação automática e ação de importar).
+    /// Public top-level names of the project of the last queried document,
+    /// updated per file (auto-import and the import action).
     project_index: crate::index::ProjectIndex,
-    /// O último programa carregado, reaproveitado enquanto nada mudou.
+    /// The last loaded program, reused while nothing changed.
     session: crate::session::Session,
-    /// A carga ampla das buscas não locais (`references`, `implementation`:
-    /// o projeto, o SDK inteiro e os pacotes), retida à parte da sessão
-    /// principal para não ser trocada a cada `hover`; os corpos das
-    /// bibliotecas de fora do projeto são inferidos sob demanda e ficam
+    /// The wide load of the non-local searches (`references`, `implementation`:
+    /// the project, the whole SDK and the packages), retained apart from the
+    /// main session so it is not swapped at every `hover`; the bodies of the
+    /// libraries outside the project are inferred on demand and stay
     /// (docs/LSP-ESPECIFICACAO.md §11.9 B).
     wide_session: crate::session::Session,
-    /// Os resumos das bibliotecas conhecidas (namespace de exportação) do
-    /// `ImportLibrary`.
+    /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
-    /// O `maxCompletionItems` vigente.
+    /// The current `maxCompletionItems`.
     completion_max: usize,
     not_imported_in_completion: bool,
-    /// O caminho incremental (docs/LSP-ESPECIFICACAO.md §16.10 I3 e I4):
-    /// `didChange` só de corpos troca a unidade retida no lugar, e o
-    /// completar infere só o corpo do sentinela. Desligado por
-    /// `DARTFORGE_LSP_INCREMENTAL=0` ou [`SemanticAnalyzer::without_incremental`]
-    /// (a comparação com o caminho completo).
+    /// The incremental path (docs/LSP-ESPECIFICACAO.md §16.10 I3 and I4): a
+    /// body-only `didChange` swaps the retained unit in place, and completion
+    /// infers only the sentinel's body. Turned off by
+    /// `DARTFORGE_LSP_INCREMENTAL=0` or [`SemanticAnalyzer::without_incremental`]
+    /// (the comparison with the full path).
     incremental: bool,
 }
 
 impl SemanticAnalyzer {
-    /// Analisador com o SDK dado; sem SDK, só as respostas sintáticas.
+    /// Analyzer with the given SDK; without an SDK, only the syntactic answers.
     ///
     /// ```
     /// let a = dartforge_lsp::SemanticAnalyzer::new(None);
@@ -55,8 +54,8 @@ impl SemanticAnalyzer {
         Self { syntactic: SyntacticAnalyzer::new(), sdk, sdk_index: None, project_index: crate::index::ProjectIndex::default(), session: crate::session::Session::new(), wide_session: crate::session::Session::wide(), known: Default::default(), completion_max: crate::completion::MAX_PATTERN, not_imported_in_completion: true, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
     }
 
-    /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
-    /// desliga a retenção). O padrão vem de `DARTFORGE_LSP_SESSAO_MIB`.
+    /// Changes the semantic session budget (MiB of retained source; `0` turns
+    /// retention off). The default comes from `DARTFORGE_LSP_SESSAO_MIB`.
     ///
     /// ```
     /// use dartforge_lsp::SemanticAnalyzer;
@@ -68,8 +67,8 @@ impl SemanticAnalyzer {
         self
     }
 
-    /// Sem o caminho incremental: cada edição derruba a sessão e o completar
-    /// carrega e infere a biblioteca inteira.
+    /// Without the incremental path: each edit drops the session and completion
+    /// loads and infers the whole library.
     ///
     /// ```
     /// let a = dartforge_lsp::SemanticAnalyzer::new(None).without_incremental();
@@ -80,13 +79,13 @@ impl SemanticAnalyzer {
         self
     }
 
-    /// Contadores da sessão semântica (reaproveitamentos, cargas,
-    /// invalidações, fonte retida).
+    /// Counters of the semantic session (reuses, loads, invalidations, retained
+    /// source).
     pub fn session_stats(&self) -> crate::session::SessionStats {
         self.session.stats
     }
 
-    /// A biblioteca de `uri` (definição, hover, ações), da sessão ou carregada.
+    /// The library of `uri` (definition, hover, actions), from the session or loaded.
     pub(crate) fn library(&mut self, documents: &DocumentStore, uri: &str) -> Option<crate::session::Use<'_>> {
         let sdk = self.sdk.as_ref()?;
         let file = crate::project::uri_file(uri)?;
@@ -95,7 +94,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    /// O projeto inteiro de `uri` (referências, renomear), da sessão ou carregado.
+    /// The whole project of `uri` (references, rename), from the session or loaded.
     pub(crate) fn project(&mut self, documents: &DocumentStore, uri: &str) -> Option<crate::session::Use<'_>> {
         let sdk = self.sdk.as_ref()?;
         let root = crate::project::project_root(&crate::project::uri_file(uri)?);
@@ -104,9 +103,9 @@ impl SemanticAnalyzer {
         })
     }
 
-    /// A carga ampla de `uri` com os corpos das bibliotecas que citam ou
-    /// declaram `name` inferidos (os candidatos de `_addResults`, §11.2), da
-    /// sessão ampla ou carregada.
+    /// The wide load of `uri` with the bodies of the libraries that cite or
+    /// declare `name` inferred (the candidates of `_addResults`, §11.2), from
+    /// the wide session or loaded.
     pub(crate) fn wide(&mut self, documents: &DocumentStore, uri: &str, name: &str) -> Option<crate::session::Use<'_>> {
         let SemanticAnalyzer { wide_session, sdk: Some(sdk), .. } = self else { return None };
         let root = crate::project::project_root(&crate::project::uri_file(uri)?);
@@ -117,28 +116,28 @@ impl SemanticAnalyzer {
         Some(usage)
     }
 
-    /// Descobre o SDK pelos mesmos caminhos usados pelo compilador.
+    /// Discovers the SDK through the same paths the compiler uses.
     pub fn discover() -> Self {
-        // O SDK como o analyzer o enxerga (M1): sem patches, com as
-        // bibliotecas internas do dart2js.
+        // The SDK as the analyzer sees it (M1): without patches, with the dart2js
+        // internal libraries.
         let sdk = SdkLayout::discover().and_then(|p| SdkLayout::load_como_analyzer(&p).ok());
         Self::new(sdk)
     }
 
-    /// Índice dos nomes públicos do SDK, montado na primeira chamada.
+    /// Index of the public names of the SDK, built on the first call.
     pub(crate) fn sdk_index(&mut self) -> &crate::index::SdkIndex {
         let sdk = self.sdk.as_ref();
         self.sdk_index.get_or_insert_with(|| sdk.map(crate::index::index_sdk).unwrap_or_default())
     }
 
-    /// Geração em memória com os textos vigentes dos documentos `.dart`
-    /// abertos: na carga, eles valem mais que o disco.
+    /// In-memory generation with the current texts of the open `.dart`
+    /// documents: during the load, they win over the disk.
     pub(crate) fn open(documents: &DocumentStore) -> Construtor {
         let mut generator = Construtor::nova();
         for open in documents.uris() {
             let Some(source) = documents.get(open) else { continue };
-            // O caminho canônico (a caixa do disco num sistema de arquivos
-            // que não distingue caixa), o mesmo de `uri_file`.
+            // The canonical path (the disk's case on a case-insensitive file system),
+            // the same as `uri_file`'s.
             let Some(file) = crate::project::uri_file(open) else { continue };
             if file.extension().is_some_and(|e| e == "dart") {
                 generator.por(file, source.to_owned(), "lsp", vec![]);
@@ -147,18 +146,18 @@ impl SemanticAnalyzer {
         generator
     }
 
-    /// Um [`DocumentStore`] só com `uri`, para as chamadas da trait que
-    /// recebem o texto sem a coleção de abertos.
+    /// A [`DocumentStore`] with only `uri`, for the trait calls that receive the
+    /// text without the collection of open documents.
     fn only_this(uri: &str, text: &str) -> DocumentStore {
         let mut docs = DocumentStore::new();
         docs.open(uri.to_string(), 0, text.to_string());
         docs
     }
 
-    /// Definição pela identidade semântica (`crate::project`): o literal de
-    /// diretiva continua sintático (o arquivo apontado); nomes vêm da
-    /// resolução da inferência comum. Sem SDK, ou se a biblioteca não
-    /// carrega, valem as respostas sintáticas conservadoras.
+    /// Definition through semantic identity (`crate::project`): the directive
+    /// literal stays syntactic (the pointed-to file); names come from the common
+    /// inference's resolution. Without an SDK, or if the library does not load,
+    /// the conservative syntactic answers apply.
     fn define(&mut self, uri: &str, text: &str, offset: usize, documents: &DocumentStore) -> Option<(String, Option<Span>)> {
         if let Some((target, None)) = self.syntactic.definition(uri, text, offset) {
             return Some((target, None));
@@ -173,7 +172,7 @@ impl SemanticAnalyzer {
         self.syntactic.definition_in_workspace(uri, text, offset, documents)
     }
 
-    /// Hover pela identidade semântica; sem ela, o sintático conservador.
+    /// Hover through semantic identity; without it, the conservative syntactic one.
     fn pass_hover(&mut self, uri: &str, text: &str, offset: usize, documents: &DocumentStore) -> Option<Hover> {
         if let Some(project) = self.library(documents, uri)
             && let Some(unit) = project.uri_unit(uri)
@@ -185,13 +184,13 @@ impl SemanticAnalyzer {
         self.syntactic.hover_in_workspace(uri, text, offset, documents)
     }
 
-    /// Referências pela identidade da declaração, em todas as bibliotecas
-    /// do projeto (abertas ou só no disco). Declarações de dependências (SDK,
-    /// pacotes) entram como declaração, mas os usos só são procurados no
-    /// projeto.
+    /// References through declaration identity, in every library of the project
+    /// (open or only on disk). Declarations from dependencies (SDK, packages)
+    /// come in as declarations, but uses are only searched for in the project.
     fn semantic_references(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<References> {
-        // Busca não local: a carga ampla, com o SDK e os pacotes que citam o
-        // nome (docs/LSP-ESPECIFICACAO.md §11.9 B); a local fica no projeto.
+        // Non-local search: the wide load, with the SDK and the packages that cite
+        // the name (docs/LSP-ESPECIFICACAO.md §11.9 B); a local one stays in the
+        // project.
         let name = {
             let project = self.project(documents, uri)?;
             let unit = project.uri_unit(uri)?;
@@ -208,7 +207,7 @@ impl SemanticAnalyzer {
     }
 }
 
-/// As referências do que está em `offset` de `uri`, no projeto dado.
+/// The references of what is at `offset` of `uri`, in the given project.
 fn references_in(project: &crate::project::Project, uri: &str, offset: usize) -> Option<References> {
     {
         let unit = project.uri_unit(uri)?;
@@ -222,9 +221,9 @@ fn references_in(project: &crate::project::Project, uri: &str, offset: usize) ->
         }
         let declaration = project.declaration_to_references(&d);
         let declarations = project.declarations(&d.target);
-        // Busca não local: só os arquivos candidatos de `_addResults`
-        // (docs/LSP-ESPECIFICACAO.md §11.2), inclusive os buracos do Dart
-        // (redirecionamento de fábrica, operadores fora da biblioteca).
+        // Non-local search: only the candidate files of `_addResults`
+        // (docs/LSP-ESPECIFICACAO.md §11.2), including Dart's gaps (factory
+        // redirection, operators outside the library).
         let candidates = project.search_name(&d.target).map(|name| {
             let mut units: Vec<UnitId> = declarations.iter().map(|(u, _, _)| *u).collect();
             if let Some((u, _)) = project.declaration(&d) {
@@ -234,7 +233,7 @@ fn references_in(project: &crate::project::Project, uri: &str, offset: usize) ->
             project.candidate_files(&name, &units)
         });
         let mut uses: Vec<(String, Span)> = Vec::new();
-        // Só os candidatos aceitam usos: a varredura fica neles.
+        // Only the candidates accept uses: the scan stays within them.
         for (u, de, until) in project.occurrences_in(&d.target, false, candidates.as_ref()).ok()? {
             if declarations.contains(&(u, de, until)) {
                 continue;
@@ -250,18 +249,19 @@ fn references_in(project: &crate::project::Project, uri: &str, offset: usize) ->
     }
 }
 
-/// Carrega o programa de `uri` com `text` e os demais documentos abertos
-/// nos textos vigentes (os outros arquivos vêm do disco). Uma parte entra
-/// pela biblioteca dona.
+/// Loads the program of `uri` with `text` and the other open documents with
+/// their current texts (the other files come from disk). A part comes in
+/// through its owning library.
 pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
     let path = crate::project::uri_file(uri)?;
     if path.extension().is_none_or(|e| e != "dart") { return None; }
     let mut generator = documents.map_or_else(Construtor::nova, SemanticAnalyzer::open);
-    // A chamada direta da trait também usa o texto recebido, mesmo sem
-    // DocumentStore. O arquivo da requisição prevalece sobre a coleção.
+    // A direct trait call also uses the received text, even without a
+    // DocumentStore. The request's file wins over the collection.
     generator.por(path.clone(), text.to_owned(), "lsp", vec![]);
-    // Uma parte não é biblioteca: a carga entra pela dona, que a inclui.
-    // Se a dona não a declara (`part` ausente), a parte entra sozinha.
+    // A part is not a library: the load goes through the owner, which includes
+    // it. If the owner does not declare it (missing `part`), the part comes in
+    // alone.
     let owning = owning_library(&path, text, documents);
     let generation = generator.concluir(1).ok()?;
     let chave = dartforge_elements::gerado::chave(&path);
@@ -276,9 +276,9 @@ pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&Do
     None
 }
 
-/// A biblioteca dona de `path` quando o texto é uma parte (`part of`):
-/// pela URI escrita (relativa ou `package:`), ou, na forma antiga
-/// `part of name;`, pelo arquivo do projeto que declara `part` para ela.
+/// The owning library of `path` when the text is a part (`part of`): through
+/// the written URI (relative or `package:`), or, in the old `part of name;`
+/// form, through the project file that declares `part` for it.
 pub(crate) fn owning_library(path: &std::path::Path, text: &str, documents: Option<&DocumentStore>) -> Option<std::path::PathBuf> {
     use dartforge_elements::gerado::chave;
     use dartforge_frontend::ast::DirectiveKind;
@@ -414,29 +414,29 @@ impl Analyzer for SemanticAnalyzer {
 
     fn actions(&mut self, documents: &DocumentStore, uri: &str, start: usize, end: usize, published_: &[Diagnostic]) -> Vec<crate::CodeAction> {
         let Some(text) = documents.get(uri) else { return Vec::new() };
-        // Os imediatos da versão vigente e os tipados já publicados para ela.
+        // The immediate ones of the current version and the typed ones already
+        // published for it.
         let mut diagnostics = self.diagnose(uri, text);
         for d in published_ {
             if !diagnostics.iter().any(|x| x.code == d.code && x.span == d.span) {
                 diagnostics.push(d.clone());
             }
         }
-        // As correções valem para os diagnósticos das linhas pedidas (o
-        // servidor do Dart filtra por linha); as assistências, para o
-        // cursor.
+        // The fixes apply to the diagnostics of the requested lines (the Dart
+        // server filters by line); the assists, to the cursor.
         let (line_start_, line_end) = {
             let a = text[..start.min(text.len())].rfind('\n').map_or(0, |i| i + 1);
             let b = text[end.min(text.len())..].find('\n').map_or(text.len(), |i| end + i);
             (a, b)
         };
         let mut output = crate::actions::fix_syntax(uri, text, &diagnostics, line_start_, line_end);
-        // "Fix all in file" das sintáticas.
+        // "Fix all in file" of the syntactic ones.
         let all = crate::actions::fix_in_whole_file(&output, &diagnostics, text, |o, a, b| {
             crate::actions::fix_syntax(uri, text, std::slice::from_ref(o), a, b)
         });
         output.extend(all);
         output.push(crate::actions::organize_imports(uri, text));
-        // As de ignorar vêm por último, como a prioridade do Dart.
+        // The ignore ones come last, like Dart's priority.
         let ignore = crate::ignore_diagnostic::ignore(uri, text, &diagnostics, line_start_, line_end);
         if self.sdk.is_none() {
             output.extend(ignore);
@@ -460,7 +460,7 @@ impl Analyzer for SemanticAnalyzer {
             });
             output.extend(published);
             output.extend(all);
-            // Importar antes de criar: a prioridade das correções do Dart.
+            // Import before create: the priority of Dart's fixes.
             output.extend(crate::actions::import(&project, Some(&*sdk), known, documents, uri, line_start_, line_end));
             let fixed = crate::fixes::fix(&mut project, uri, &diagnostics, line_start_, line_end);
             let all = crate::actions::fix_in_whole_file(&fixed, &diagnostics, text, |o, a, b| {
@@ -489,8 +489,8 @@ impl Analyzer for SemanticAnalyzer {
                     output.extend(cx.flutter_to_stateful(uri, start, end));
                     output.extend(cx.flutter_to_stateless(uri, start, end));
                     output.extend(cx.convert_to_async_body(uri, start, end));
-                    // `ConvertIntoBlockBody.missingBody` como assistência: o
-                    // nó da seleção (`NodeLocator`).
+                    // `ConvertIntoBlockBody.missingBody` as an assist: the selection node
+                    // (`NodeLocator`).
                     if let Some((span, text)) = cx.convert_to_block_body(dartforge_diagnostics::Span { start: start, end: end }) {
                         output.push(crate::fixes::block_body(crate::actions::CodeAction {
                             title: "Convert to block body".into(),
@@ -585,9 +585,9 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn implementations(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Vec<(String, Span)> {
-        // `searchAllSubtypes` procura em todo arquivo conhecido, inclusive o
-        // SDK inteiro (`JSString` de `dart:_interceptors` implementa
-        // `String`): a carga ampla, como a das referências.
+        // `searchAllSubtypes` searches every known file, including the whole SDK
+        // (`JSString` from `dart:_interceptors` implements `String`): the wide
+        // load, like the references'.
         let name = self.project(documents, uri).and_then(|project| {
             let unit = project.uri_unit(uri)?;
             let d = project.identify(unit, offset).ok()??;
@@ -609,8 +609,8 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn colors(&mut self, documents: &DocumentStore, uri: &str) -> Vec<(Span, [u8; 4])> {
-        // As bibliotecas das constantes de cor (o `Colors` do Flutter) precisam
-        // dos corpos: sem elas inferidas, a carga própria com elas.
+        // The libraries of the color constants (Flutter's `Colors`) need their
+        // bodies: without them inferred, a dedicated load with them.
         let extras = {
             let Some(project) = self.library(documents, uri) else { return Vec::new() };
             let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
@@ -703,7 +703,7 @@ impl Analyzer for SemanticAnalyzer {
         let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
         let Some((e, _)) = project.item_target(unit, offset, name, constructor) else { return Vec::new() };
         if received {
-            // Só executáveis recebem chamadas.
+            // Only executables receive calls.
             if !matches!(e, crate::call_hierarchy::CallElem::Function(_) | crate::call_hierarchy::CallElem::Local(..)) {
                 return Vec::new();
             }
@@ -745,9 +745,9 @@ impl Analyzer for SemanticAnalyzer {
         };
         let sdk: &SdkLayout = sdk;
         let indices = crate::completion::Indices { sdk: index, project: project_index, known };
-        // O estado retido da biblioteca (o do texto do documento), para o
-        // caminho incremental (docs/LSP-ESPECIFICACAO.md §16.7); carregado e
-        // retido aqui se faltar, para que as teclas seguintes o achem.
+        // The retained state of the library (that of the document's text), for the
+        // incremental path (docs/LSP-ESPECIFICACAO.md §16.7); loaded and retained
+        // here if missing, so that the following keystrokes find it.
         let file = crate::project::uri_file(uri)?;
         let mut retained = if *incremental {
             session.get(crate::session::Scope::Library(file), documents, || crate::project::load_library(sdk, documents, uri))

@@ -1,25 +1,25 @@
-//! Mais correções rápidas dos códigos publicados, com os títulos, espécies e
-//! edições dos produtores do Dart 3.6.2
-//! (`pkg/analysis_server/lib/src/services/correction/dart/*.dart`, ligados
-//! aos códigos em `fix_internal.dart`):
+//! More quick fixes for the published codes, with the titles, kinds and
+//! edits of the Dart 3.6.2 producers
+//! (`pkg/analysis_server/lib/src/services/correction/dart/*.dart`, bound to
+//! the codes in `fix_internal.dart`):
 //!
-//! | Código | Correções |
+//! | Code | Fixes |
 //! | --- | --- |
 //! | `non_abstract_class_inherits_abstract_member` | `Create N missing override(s)`, `Create 'noSuchMethod' method`, `Make class 'C' abstract` |
 //! | `concrete_class_with_abstract_member` | `Convert to block body`, `Make class 'C' abstract` |
 //! | `unused_field` | `Remove unused field` |
 //! | `unused_catch_clause` / `unused_catch_stack` | `Remove unused 'catch' clause` / `Remove unused stack trace variable` |
 //! | `assignment_to_final_local` | `Make variable 'x' not final` |
-//! | `missing_default_value_for_parameter` | `Add 'required' keyword` (nomeado), `Make 'x' nullable` |
-//! | `await_in_wrong_context` | `Add 'async' modifier` (com `Future<…>` no retorno) |
+//! | `missing_default_value_for_parameter` | `Add 'required' keyword` (named), `Make 'x' nullable` |
+//! | `await_in_wrong_context` | `Add 'async' modifier` (with `Future<…>` on the return) |
 //! | `nullable_type_in_{extends,implements,on,with}_clause` | `Remove the '?'` |
 //! | `const_instance_field` | `Add 'static' modifier` |
 //! | `non_final_field_in_enum` | `Make final` |
 //! | `extension_declares_member_of_object`, `extension_type_declares_member_of_object` | `Remove method declaration` |
 //! | `assert_in_redirecting_constructor` | `Remove the assertion` |
 //!
-//! Cada edição é conferida contra a árvore do texto vigente: diagnóstico
-//! que não corresponde ao nó esperado não gera ação.
+//! Each edit is checked against the tree of the current text: a diagnostic
+//! that does not match the expected node produces no action.
 
 use crate::actions::CodeAction;
 use crate::project::{Project, base_name};
@@ -30,9 +30,9 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind, StmtKin
 use dartforge_types::{Type, TypeId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// Uma ação cujas edições (num arquivo) vêm com os imports que o
-/// `writeType`/`writeReference` agendou (`Change`, com a detecção de
-/// conflito do `ChangeBuilder`).
+/// An action whose edits (in one file) come with the imports that
+/// `writeType`/`writeReference` scheduled (`Change`, with the
+/// `ChangeBuilder`'s conflict detection).
 fn action_with_imports(
     cx: &crate::refactorings::Context<'_>,
     uri: &str,
@@ -59,9 +59,9 @@ fn action_with_imports(
     })
 }
 
-/// `AddMissingRequiredArgument` nas chamadas das linhas pedidas (o código
-/// `missing_required_argument` não é publicado; a ação sai sem
-/// diagnóstico).
+/// `AddMissingRequiredArgument` on the calls of the requested lines (the
+/// `missing_required_argument` code is not published; the action comes out
+/// without a diagnostic).
 pub(crate) fn required_arguments(project: &Project, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
     let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
     let cx = crate::refactorings::Context::new(project, unit);
@@ -84,8 +84,8 @@ pub(crate) fn required_arguments(project: &Project, uri: &str, start: usize, end
         .collect()
 }
 
-/// `ConvertIntoBlockBody.missingBody`: `selectHere` antes da quebra de linha
-/// que precede o `}` final (`convert_into_block_body.dart:52-53`).
+/// `ConvertIntoBlockBody.missingBody`: `selectHere` before the line break
+/// that precedes the final `}` (`convert_into_block_body.dart:52-53`).
 pub(crate) fn block_body(a: CodeAction) -> CodeAction {
     match a.edits.first().and_then(|e| e.text.rfind('\n')) {
         Some(k) => a.with_selection(0, k, 0),
@@ -103,7 +103,7 @@ fn action(uri: &str, title: String, kind: &str, edits: Vec<(Span, String)>, d: &
     }
 }
 
-/// O trecho estendido à linha inteira quando ele ocupa a linha sozinho.
+/// The span extended to the whole line when it is alone on the line.
 fn whole_lines(text: &str, span: Span) -> Span {
     let start = text[..span.start].rfind('\n').map_or(0, |i| i + 1);
     let end = text[span.end..].find('\n').map_or(text.len(), |i| span.end + i);
@@ -114,7 +114,7 @@ fn whole_lines(text: &str, span: Span) -> Span {
     }
 }
 
-/// As correções desta lista para os diagnósticos que tocam `start..end`.
+/// The fixes of this list for the diagnostics touching `start..end`.
 pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], start_: usize, end: usize) -> Vec<CodeAction> {
     let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
     let mut output = Vec::new();
@@ -131,8 +131,8 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
             "non_abstract_class_inherits_abstract_member" => {
                 let Some((c, decl)) = class_with_name(project, unit, d.span) else { continue };
                 if let Some((title, edit, selection, groups)) = missing_overrides(project, c, unit, decl) {
-                    // Os grupos `<método>:TYPE<i>`/`PARAM<i>` dos parâmetros
-                    // (`writeParameters` com `methodBeingCopied`) e a seleção.
+                    // The `<method>:TYPE<i>`/`PARAM<i>` groups of the parameters
+                    // (`writeParameters` with `methodBeingCopied`) and the selection.
                     let mut a = action(uri, title, "quickfix.create.missingOverrides", vec![edit], d);
                     for (r, n, suggestions) in groups {
                         a = a.with_group(0, &[r], n, suggestions);
@@ -143,7 +143,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                     });
                 }
                 if let Some(e) = no_such_method(project, unit, decl) {
-                    // `selectHere` antes de tudo (`create_no_such_method.dart:33`).
+                    // `selectHere` before everything (`create_no_such_method.dart:33`).
                     output.push(action(uri, "Create 'noSuchMethod' method".into(), "quickfix.create.noSuchMethod", vec![e], d).with_selection(0, 0, 0));
                 }
                 if let Some((name, e)) = abstract_class(project, unit, decl) {
@@ -151,9 +151,9 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                 }
             }
             "concrete_class_with_abstract_member" => {
-                // `ConvertIntoBlockBody.missingBody`, `CreateNoSuchMethod`
-                // (só com `node` na `ClassDeclaration`: aqui o erro está no
-                // membro, nunca sai) e `MakeClassAbstract`.
+                // `ConvertIntoBlockBody.missingBody`, `CreateNoSuchMethod` (only with
+                // `node` on the `ClassDeclaration`: here the error is on the member, so it
+                // never comes out) and `MakeClassAbstract`.
                 let cx = crate::refactorings::Context::new(project, unit);
                 if let Some(e) = cx.convert_to_block_body(d.span) {
                     output.push(block_body(action(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d)));
@@ -165,7 +165,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                 }
             }
             "unused_field" => {
-                // `RemoveUnusedField`: a declaração e cada referência.
+                // `RemoveUnusedField`: the declaration and each reference.
                 let cx = crate::refactorings::Context::new(project, unit);
                 if let Some(ranges) = cx.remove_field(d.span) {
                     let edits = ranges.into_iter().map(|s| (s, String::new())).collect();
@@ -179,7 +179,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                     for k in catches.iter() {
                         let body = ast.stmt(k.body).span.start;
                         if code == "unused_catch_clause" && k.exception.is_some_and(|n| n.span == d.span) {
-                            // De `catch` ao corpo (fica o `on T`).
+                            // From `catch` to the body (the `on T` stays).
                             let Some(c) = text[k.span.start..body].find("catch").map(|i| k.span.start + i) else { continue };
                             if k.on_type.is_some() {
                                 output.push(action(uri, "Remove unused 'catch' clause".into(), "quickfix.remove.unusedCatchClause", vec![(Span { start: c, end: body }, String::new())], d));
@@ -217,8 +217,8 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                 }
             }
             "await_in_wrong_context" => {
-                // `AddAsync` com o `convertFunctionFromSyncToAsync`; as
-                // bibliotecas que o `writeType` agendou entram como imports.
+                // `AddAsync` with `convertFunctionFromSyncToAsync`; the libraries that
+                // `writeType` scheduled come in as imports.
                 let cx = crate::refactorings::Context::new(project, unit);
                 if let Some((edits, import)) = cx.add_async(d.span) {
                     let mut m = crate::refactorings_exec::Change::default();
@@ -287,8 +287,8 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
             "undefined_extension_method" => output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::ExtensionMethod)),
             "undefined_extension_setter" => output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::ExtensionSetter)),
             "implements_repeated" | "implements_super_class" | "mixin_super_class_constraint_non_interface" | "subtype_of_disallowed_type" | "invalid_use_of_type_outside_library" | "extends_non_class" => {
-                // `RemoveNameFromDeclarationClause` (no `extends_non_class`,
-                // depois de `ChangeTo.classOrMixin` e `CreateClass`).
+                // `RemoveNameFromDeclarationClause` (on `extends_non_class`, after
+                // `ChangeTo.classOrMixin` and `CreateClass`).
                 if code == "extends_non_class" {
                     output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::NonClass));
                 }
@@ -298,8 +298,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
                 }
             }
             "subtype_of_base_or_final_is_not_base_final_or_sealed" => {
-                // `AddClassModifier.baseModifier`, `.finalModifier`,
-                // `.sealedModifier`.
+                // `AddClassModifier.baseModifier`, `.finalModifier`, `.sealedModifier`.
                 let cx = crate::refactorings::Context::new(project, unit);
                 if let Some(o) = cx.modifier_dot(d.span) {
                     for m in ["base", "final", "sealed"] {
@@ -417,7 +416,7 @@ pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], 
     output
 }
 
-/// `span` estendido para cima pelas linhas `///` logo acima dele.
+/// `span` extended upwards through the `///` lines right above it.
 fn with_documentation(text: &str, span: Span) -> Span {
     let mut start = span.start;
     while start > 0 {
@@ -432,7 +431,7 @@ fn with_documentation(text: &str, span: Span) -> Span {
     Span { start: start, end: span.end }
 }
 
-/// O parâmetro (de função, método ou construtor) cujo nome está em `name`.
+/// The parameter (of a function, method or constructor) whose name is at `name`.
 fn parameter_with_name(ast: &ast::Ast, name: Span) -> Option<&ast::Parameter> {
     let functions = ast.functions.iter().flat_map(|f| f.parameters.iter().flatten());
     let constructors = ast.members.iter().flat_map(|m| match &m.kind {
@@ -442,7 +441,7 @@ fn parameter_with_name(ast: &ast::Ast, name: Span) -> Option<&ast::Parameter> {
     functions.chain(constructors).find(|p| p.name.is_some_and(|n| n.span == name))
 }
 
-/// A classe (elemento e declaração) cujo nome está em `name`.
+/// The class (element and declaration) whose name is at `name`.
 fn class_with_name(project: &Project, unit: UnitId, name: Span) -> Option<(ClassId, ast::DeclId)> {
     let p = project.program();
     let ast = &p.unit(unit).ast;
@@ -456,7 +455,7 @@ fn class_with_name(project: &Project, unit: UnitId, name: Span) -> Option<(Class
     Some((c, decl))
 }
 
-/// A declaração de classe que contém `offset`.
+/// The class declaration that contains `offset`.
 fn containing_class(project: &Project, unit: UnitId, offset: usize) -> Option<ast::DeclId> {
     let ast = &project.program().unit(unit).ast;
     ast.decls
@@ -466,7 +465,7 @@ fn containing_class(project: &Project, unit: UnitId, offset: usize) -> Option<as
         .map(|(i, _)| ast::DeclId(i as u32))
 }
 
-/// `abstract ` antes da palavra `class` (depois dos metadados).
+/// `abstract ` before the `class` keyword (after the metadata).
 fn abstract_class(project: &Project, unit: UnitId, decl: ast::DeclId) -> Option<(String, (Span, String))> {
     let u = project.program().unit(unit);
     let d = u.ast.decl(decl);
@@ -480,7 +479,7 @@ fn abstract_class(project: &Project, unit: UnitId, decl: ast::DeclId) -> Option<
     Some((u.source[k.name.span.start..k.name.span.end].to_string(), (Span { start: start, end: start }, "abstract ".into())))
 }
 
-/// `noSuchMethod` antes do `}` da classe.
+/// `noSuchMethod` before the class's `}`.
 fn no_such_method(project: &Project, unit: UnitId, decl: ast::DeclId) -> Option<(Span, String)> {
     let u = project.program().unit(unit);
     let d = u.ast.decl(decl);
@@ -493,7 +492,7 @@ fn no_such_method(project: &Project, unit: UnitId, decl: ast::DeclId) -> Option<
     Some((Span { start: pos, end: pos }, format!("{separator}  @override\n  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);\n")))
 }
 
-/// `Make variable 'x' not final` para a atribuição em `usage`.
+/// `Make variable 'x' not final` for the assignment at `usage`.
 fn local_not_final(project: &Project, unit: UnitId, usage: Span) -> Option<(String, Vec<(Span, String)>)> {
     let u = project.program().unit(unit);
     let ast = &u.ast;
@@ -518,10 +517,12 @@ fn local_not_final(project: &Project, unit: UnitId, usage: Span) -> Option<(Stri
     Some((name, vec![edit]))
 }
 
-/// O título, a inserção e a seleção relativa do `Create N missing override(s)`.
+/// The title, the insertion and the relative selection of `Create N missing
+/// override(s)`.
 type Overrides = (String, (Span, String), Option<(usize, usize)>, Vec<Mark>);
 
-/// Um membro a sobrescrever: nome exibido, se é getter/setter e o elemento.
+/// A member to override: displayed name, whether it is a getter/setter, and
+/// the element.
 struct Missing {
     name: String,
     getter: bool,
@@ -530,16 +531,16 @@ struct Missing {
     owner: ClassId,
 }
 
-/// `Create N missing override(s)`: os membros abstratos ou de interface sem
-/// implementação concreta na cadeia de `c`, ordenados pelo nome (getter
-/// antes de setter; um par getter/setter vira campo), inseridos depois do
-/// último membro (ou logo depois do `{`). Os pares viram campos antes dos
-/// demais membros, como no laço do Dart (`create_missing_overrides.dart:78-114`).
+/// `Create N missing override(s)`: the abstract or interface members without
+/// a concrete implementation in the chain of `c`, sorted by name (getter
+/// before setter; a getter/setter pair becomes a field), inserted after the
+/// last member (or right after the `{`). The pairs become fields before the
+/// other members, as in Dart's loop (`create_missing_overrides.dart:78-114`).
 ///
-/// A seleção (relativa ao texto inserido): com mais de um membro, no começo
-/// do primeiro (`selectHere`); com um só, a do `writeOverride(setSelection:
-/// true)` (o body `throw` integer, or logo after do `// TODO`); um campo
-/// sozinho não tem seleção.
+/// The selection (relative to the inserted text): with more than one
+/// member, at the start of the first (`selectHere`); with a single one,
+/// that of `writeOverride(setSelection: true)` (the whole `throw` body, or
+/// right after the `// TODO`); a lone field has no selection.
 fn missing_overrides(project: &mut Project, c: ClassId, unit: UnitId, decl: ast::DeclId) -> Option<Overrides> {
     let missing = missing(project, c);
     if missing.is_empty() {
@@ -599,8 +600,8 @@ fn missing_overrides(project: &mut Project, c: ClassId, unit: UnitId, decl: ast:
     } else {
         None
     };
-    // O texto: os campos, depois as sobrescritas; os grupos dos parâmetros
-    // passam a valer no texto inteiro.
+    // The text: the fields, then the overrides; the parameter groups become
+    // valid over the whole text.
     let mut text = prefix.clone();
     let mut groups: Vec<Mark> = Vec::new();
     let parts: Vec<(String, Vec<Mark>)> = fields.into_iter().map(|c| (c, Vec::new())).chain(texts).collect();
@@ -619,11 +620,11 @@ fn missing_overrides(project: &mut Project, c: ClassId, unit: UnitId, decl: ast:
     Some((title, (Span { start: position, end: position }, text), selection, groups))
 }
 
-/// Os membros sem implementação concreta na cadeia de `c`.
+/// The members without a concrete implementation in the chain of `c`.
 fn missing(project: &Project, c: ClassId) -> Vec<Missing> {
     let p = project.program();
-    // Cadeia de implementação: a classe, os mixins (do último ao primeiro) e
-    // a superclasse, recursivamente.
+    // Implementation chain: the class, the mixins (from the last to the first)
+    // and the superclass, recursively.
     let mut chain = Vec::new();
     let mut current = Some(c);
     let mut seen = HashSet::new();
@@ -664,12 +665,12 @@ fn missing(project: &Project, c: ClassId) -> Vec<Missing> {
             Missing { name: base_name(&name).to_string(), getter, setter, function: f, owner }
         })
         .collect();
-    // Pelo nome exibido; getter antes de setter.
+    // By displayed name; getter before setter.
     output.sort_by(|a, b| (a.name.as_str(), !a.getter).cmp(&(b.name.as_str(), !b.getter)));
     output
 }
 
-/// Para cada supertipo de `c`, os argumentos de tipo como `c` o vê.
+/// For each supertype of `c`, the type arguments as `c` sees it.
 fn mapping(project: &mut Project, c: ClassId) -> HashMap<ClassId, HashMap<dartforge_types::TypeParamId, TypeId>> {
     let supers: Vec<ClassId> = project.supertypes(c).into_iter().collect();
     let query = &mut project.query;
@@ -701,7 +702,7 @@ fn format(project: &mut Project, t: TypeId, map: Option<&HashMap<dartforge_types
     project.query.format(t)
 }
 
-/// O tipo de retorno (ou do getter) de `f` como `c` o vê.
+/// The return type (or the getter's type) of `f` as `c` sees it.
 fn return_(project: &mut Project, f: FunctionElementId, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> String {
     let fe = project.program().function(f);
     let t = match (fe.kind, fe.variable) {
@@ -711,9 +712,9 @@ fn return_(project: &mut Project, f: FunctionElementId, map: Option<&HashMap<dar
     format(project, t, map)
 }
 
-/// O texto de uma sobrescrita (`writeOverride` do Dart).
-/// O texto de `writeOverride` e os grupos ligados dos parâmetros (em bytes
-/// do texto).
+/// The text of an override (Dart's `writeOverride`).
+/// The text of `writeOverride` and the linked groups of the parameters (in
+/// bytes of the text).
 fn override_(project: &mut Project, a: &Missing, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Mark>) {
     let name = a.name.clone();
     if a.getter {
@@ -730,20 +731,20 @@ fn override_(project: &mut Project, a: &Missing, map: Option<&HashMap<dartforge_
     let ty = return_(project, a.function, map);
     let operator = if project.program().function(a.function).kind == FunctionKind::Operator { "operator " } else { "" };
     let body = if ty == "void" { String::new() } else { "\n    throw UnimplementedError();".to_string() };
-    // `writeType` não escreve o retorno `dynamic`.
+    // `writeType` does not write a `dynamic` return.
     let before = if ty == "dynamic" { format!("@override\n  {operator}{name}") } else { format!("@override\n  {ty} {operator}{name}") };
     (format!("{before}{parameters} {{\n    // TODO: implement {name}{body}\n  }}"), shift(before.len(), marks))
 }
 
-/// `<T>(int a, [int b = 0], {required int c})` de `f`, com os tipos como a
-/// classe os vê.
-/// Um grupo ligado de um texto gerado: posição e comprimento (bytes do
-/// texto) e as sugestões.
+/// `<T>(int a, [int b = 0], {required int c})` of `f`, with the types as the
+/// class sees them.
+/// A linked group of a generated text: position and length (bytes of the
+/// text) and the suggestions.
 pub(crate) type Mark = (usize, usize, Vec<String>);
 
-/// `addSuperTypesAsSuggestions(type)`: num tipo de interface, o próprio tipo
-/// e os de `allSupertypes` (a ordem de `implementedInterfaces`), como o Dart
-/// os exibe; nos demais, nada.
+/// `addSuperTypesAsSuggestions(type)`: for an interface type, the type
+/// itself and those of `allSupertypes` (in `implementedInterfaces` order),
+/// as Dart displays them; for the others, nothing.
 pub(crate) fn supertype_suggestions(project: &mut Project, t: TypeId) -> Vec<String> {
     let Type::Interface { class, args, nullable } = project.query.table.get(t).clone() else { return Vec::new() };
     let mut v = vec![project.query.format(t)];
@@ -751,7 +752,7 @@ pub(crate) fn supertype_suggestions(project: &mut Project, t: TypeId) -> Vec<Str
     for s in crate::create::all_supertypes(project, class) {
         let query = &mut project.query;
         if let Some(mut st) = query.outline.hierarchy.supertype_of(base, s, &mut query.table, &query.core) {
-            // Os supertipos de `T?` saem anuláveis (`Object?`, `Pattern?`).
+            // The supertypes of `T?` come out nullable (`Object?`, `Pattern?`).
             if nullable && let Type::Interface { class, args, .. } = query.table.get(st).clone() {
                 st = query.table.intern(Type::Interface { class, args, nullable: true });
             }
@@ -761,9 +762,10 @@ pub(crate) fn supertype_suggestions(project: &mut Project, t: TypeId) -> Vec<Str
     v
 }
 
-/// `writeParameters(parameters, methodBeingCopied: f)` de `writeOverride`:
-/// o texto e os grupos ligados `TYPE<i>` (com as sugestões de supertipos) e
-/// `PARAM<i>` (só nos não nomeados), em bytes do texto.
+/// `writeParameters(parameters, methodBeingCopied: f)` of `writeOverride`:
+/// the text and the linked groups `TYPE<i>` (with the supertype
+/// suggestions) and `PARAM<i>` (only for unnamed ones), in bytes of the
+/// text.
 fn parameter_list(project: &mut Project, f: FunctionElementId, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Mark>) {
     let p = project.program();
     let (unit, ps, tps): (UnitId, Vec<(ParameterKind, bool, Option<String>, Option<String>)>, String) = match p.function(f).node {
@@ -791,14 +793,14 @@ fn parameter_list(project: &mut Project, f: FunctionElementId, map: Option<&Hash
             (unit, ps, tps)
         }
         _ => {
-            // Setter implícito de campo: um parâmetro com o tipo do campo.
+            // Implicit setter of a field: one parameter with the field's type.
             let ps = vec![(ParameterKind::Required, false, Some("value".to_string()), None)];
             (UnitId(0), ps, String::new())
         }
     };
     let _ = unit;
     let types: Vec<TypeId> = project.query.outline.functions[f.0 as usize].parameters.iter().map(|q| q.ty).collect();
-    // Cada parâmetro: (espécie, texto, marcas relativas ao texto dele).
+    // Each parameter: (kind, text, marks relative to its text).
     let mut required: Vec<(String, Vec<Mark>)> = Vec::new();
     let mut optional: Vec<(String, Vec<Mark>)> = Vec::new();
     let mut named: Vec<(String, Vec<Mark>)> = Vec::new();
@@ -819,8 +821,8 @@ fn parameter_list(project: &mut Project, f: FunctionElementId, map: Option<&Hash
             }
             None => Vec::new(),
         };
-        // `_writeType` não escreve `dynamic` (nem o tipo inválido) num
-        // parâmetro: sem tipo, sem o grupo.
+        // `_writeType` does not write `dynamic` (nor the invalid type) for a
+        // parameter: without a type, without the group.
         let dynamic = types.get(i).is_some_and(|t| matches!(project.query.table.get(*t), Type::Dynamic));
         if !dynamic {
             marks.push((s.len(), ty.len(), suggestions));
