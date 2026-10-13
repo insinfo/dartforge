@@ -1035,6 +1035,11 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
 /// runtime function is declared `speculatable` (`llvm/externs.rs`): called
 /// directly, LLVM turned the branch into a `select` and called it in every
 /// prologue; behind `@df.context.slow` (`noinline cold`) it stays off the path.
+/// Like that declaration, the helper is `memory(none)` and its loads
+/// `!invariant.load`: the answer is the same in the whole thread, so LLVM merges
+/// the reads of the inlined callees (a sort with its comparisons inlined had 197
+/// calls to `@df.context` in one function). A stale read only sees the zero of
+/// before the first call, which goes to the runtime again.
 ///
 /// ```
 /// let ir = dartforge_emit_native::sdk_module::with_context_in_tls(
@@ -1049,13 +1054,13 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
 fn context_in_tsd(attribute: &str) -> String {
     format!(
         "\n@dartforge_context_slot = external global i64, align 8\n\
-         define internal ptr @df.context() nounwind{attribute} {{\n\
-         \x20 %o = load i64, ptr @dartforge_context_slot, align 8\n\
+         define internal ptr @df.context() nounwind willreturn memory(none){attribute} {{\n\
+         \x20 %o = load i64, ptr @dartforge_context_slot, align 8, !invariant.load !{{}}\n\
          \x20 %t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)\n\
          \x20 %b = and i64 %t, -8\n\
          \x20 %a = add i64 %b, %o\n\
          \x20 %p = inttoptr i64 %a to ptr\n\
-         \x20 %c = load ptr, ptr %p, align 8\n\
+         \x20 %c = load ptr, ptr %p, align 8, !invariant.load !{{}}\n\
          \x20 %z0 = icmp eq i64 %o, 0\n\
          \x20 %z1 = icmp eq ptr %c, null\n\
          \x20 %z = or i1 %z0, %z1\n\
