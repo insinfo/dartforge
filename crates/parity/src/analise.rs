@@ -608,11 +608,11 @@ impl Motor {
         struct ClearDecisions;
         impl Drop for ClearDecisions {
             fn drop(&mut self) {
-                dartforge_analysis::clauses::definir_decisoes_de_mixins(None);
+                dartforge_analysis::clauses::set_mixin_decisions(None);
             }
         }
         let _clear_decisions = ClearDecisions;
-        dartforge_analysis::clauses::definir_decisoes_de_mixins(Some(dartforge_types::fase_mixins::decisoes(
+        dartforge_analysis::clauses::set_mixin_decisions(Some(dartforge_types::fase_mixins::decisoes(
             &program,
             &interner,
             &mut table,
@@ -726,9 +726,9 @@ impl Motor {
                     analysis.report(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::clauses::verificar(&program, *lib, &interner))
+            for (u, d, f) in with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::clauses::check(&program, *lib, &interner))
                 .into_iter()
-                .chain(with_phase(phase::MEMBER_DUPLICATE_DEFINITION, dartforge_analysis::members::verificar(&program, *lib, &interner)))
+                .chain(with_phase(phase::MEMBER_DUPLICATE_DEFINITION, dartforge_analysis::members::check(&program, *lib, &interner)))
                 .chain(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::simple_bounds::check(&program, *lib, &interner, &simple_bounds)))
             {
                 if let Some(p) = &program.unit(u).path {
@@ -938,7 +938,7 @@ impl Motor {
         // Invalid overrides, in the classes where the `verify()` of the
         // `InheritanceOverrideVerifier` gets to check them.
         for lib in &own_libs {
-            let classes = dartforge_analysis::clauses::verificador_de_heranca_prossegue(&program, *lib, &interner);
+            let classes = dartforge_analysis::clauses::inheritance_verifier_proceeds(&program, *lib, &interner);
             // `verify()`: the interface conflicts before the members.
             attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::fase_heranca::inconsistencias(&program, &interner, &mut table, &core, &outline, &classes)));
             attributed.extend(with_phase(phase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::sobrescritas_invalidas(
@@ -967,7 +967,7 @@ impl Motor {
             // `conflicting_generic_interfaces`, with the clauses' gate.
             {
                 let open = |id: dartforge_elements::model::ClassId| {
-                    dartforge_analysis::clauses::porta(&program, *lib, &interner, id) == dartforge_analysis::clauses::Porta::Aberta
+                    dartforge_analysis::clauses::gate(&program, *lib, &interner, id) == dartforge_analysis::clauses::Gate::Open
                 };
                 attributed.extend(with_phase(phase::ERROR_VERIFIER, dartforge_types::fase_genericos::conflitos_genericos(&program, &interner, &mut table, &core, &outline, *lib, &open)));
             }
@@ -1140,7 +1140,7 @@ impl Motor {
         // is the `*_non_class` of `analise::clausulas`.
         let clause_names: BTreeSet<(UnitId, usize)> = own_libs
             .iter()
-            .flat_map(|lib| dartforge_analysis::clauses::nomes_de_clausulas(&program, *lib))
+            .flat_map(|lib| dartforge_analysis::clauses::clause_name_starts(&program, *lib))
             .collect();
         let mut seen: BTreeSet<(UnitId, Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
         for (unit, d, emitter_phase) in &attributed {

@@ -10,7 +10,7 @@
 //! `extends`/`with`/`implements`/`on` clauses is resolved by name in the
 //! library's scope. A clause that does not resolve to a class or mixin is not
 //! checked, and the `ErrorVerifier` checks only run with the
-//! `_checkClassInheritance` gate open (`clauses::porta`): a class with a
+//! `_checkClassInheritance` gate open (`clauses::gate`): a class with a
 //! forbidden supertype (`extends int`, `extends Enum`), a deferred clause or a
 //! mixin error is left out, as in the analyzer.
 
@@ -163,7 +163,7 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
 
         // `ErrorVerifier`: only with the `_checkClassInheritance` gate open (no
         // forbidden supertype, deferred clause or mixin error).
-        if crate::clauses::porta(program, lib, names, id) == crate::clauses::Porta::Aberta {
+        if crate::clauses::gate(program, lib, names, id) == crate::clauses::Gate::Open {
             // base implemented outside the library.
             for &(t, target) in &cl.implements {
                 let Some(target) = target else { continue };
