@@ -963,7 +963,7 @@ teste que não falha com a sabotagem não conta.
   ponto de coleta em que o valor está vivo). Hoje isso não existe e vale para A0 também.
 
   **Estado em 2026-10-05 (escrito, não compilado).** `EN/llvm/verificar_sombra.rs`, com
-  `DARTFORGE_CONFERIR_SOMBRA=1` (o harness `crates/cli/tests/mapas_dirigidos.rs` o liga nos casos da
+  `DARTFORGE_CONFERIR_SOMBRA=1` (o harness `crates/cli/tests/directed_maps.rs` o liga nos casos da
   pilha-sombra): o emissor escreve antes de cada `define` o comentário `; df.refs v1 v5 …` com os
   valores `Ref` da HIR (os candidatos de `raizes::analisar`), e o conferidor calcula, só do texto do
   módulo, a vivacidade de cada `%v<n>` (os `phi` no fim do predecessor) e o conteúdo de cada slot
@@ -2136,7 +2136,7 @@ x86-64, LLVM 22.1.8):
 | verificação | resultado |
 |---|---|
 | testes do workspace, inclusive `dartforge-jit` e `dartforge-llvm` com os ignorados (o `bin` do LLVM no `PATH`) | verdes |
-| `reload_estado` e `io_regressao` (`--features nativo,jit`, release) | 7/7 e 7/7 |
+| `reload_state` e `io_regression` (`--features nativo,jit`, release) | 7/7 e 7/7 |
 | `corpus/js` em A0 e em A1 | 238/238 e 238/238 |
 | `corpus/native` em A0, em A1 e em A1 com `--gc-stress` | 129/129, 127/129 e 127/129 |
 
@@ -2566,7 +2566,7 @@ padrão). A decodificação preguiçosa foi escrita em 2026-10-05 (§14.10).
 | as sabotagens (`DARTFORGE_SABOTAGEM`, na chave do SDK): `folha:<extern>`, `pouso_sem_topo`, `sem_uso_ficticio`, `bruto_no_mapa` no emissor; `sem_nop` no runtime | `EN/alvo.rs` (`sabotagem`), `EN/llvm/mod.rs`, `RT/heap.rs` |
 | a recusa do conversor e do leitor para constante par não nula como raiz (§3.5) | `EN/gcmap.rs`, `RT/heap.rs` (`decodificar_funcao`) |
 | os instrumentos do §7.5: a prova de que coletou (`dartforge_gc_stats`, e `DARTFORGE_GC_STATS=exigir`, que sai com 70 sem coleta ou sem raiz lida de mapa), a coleta agendada por semente (`DARTFORGE_GC_AGENDA=<semente>,<taxa>`) e o veneno com quarentena (`DARTFORGE_GC_VENENO=1` ou `=<n>` blocos) | `RT/gc_raizes.rs`, `RT/nucleo.rs`, `RT/heap.rs` (`Agenda`), `RT/espaco.rs` (`Quarentena`) |
-| os testes dirigidos D1, D2, D3, D4, D6, D7, D10, D11, D13 e D14, cada um com a saída calculada e, quando o §7.3 dá uma sabotagem implementável, o teste que exige a falha com ela; a conferência do E2.5 e a agenda | `corpus/native/gc_d*.dart`, `crates/cli/tests/mapas_dirigidos.rs` (com `DARTFORGE_TESTES_MAPAS=1`) |
+| os testes dirigidos D1, D2, D3, D4, D6, D7, D10, D11, D13 e D14, cada um com a saída calculada e, quando o §7.3 dá uma sabotagem implementável, o teste que exige a falha com ela; a conferência do E2.5 e a agenda | `corpus/native/gc_d*.dart`, `crates/cli/tests/directed_maps.rs` (com `DARTFORGE_TESTES_MAPAS=1`) |
 
 Do veneno: o bloco morto recebe a palavra `0xDFDF_DFDF_DFDF_DFDE` (o estado lido é `0xDE`, que a
 validação de handle recusa com "bloco envenenado") e só volta à lista livre depois que outros `n` blocos
@@ -2676,7 +2676,7 @@ com as saídas calculadas à mão, e as sabotagens:
 
 O D9 usa `Function.apply`, que o runtime faz pela porta `dart_r3` (`RT/closures.rs`): a exceção do
 closure sai certamente por um quadro Rust. O `then` que lança fica no programa, mas o tratador da
-microtarefa é Dart e não prova a fronteira sozinho. O harness (`crates/cli/tests/mapas_dirigidos.rs`)
+microtarefa é Dart e não prova a fronteira sozinho. O harness (`crates/cli/tests/directed_maps.rs`)
 ganhou o campo `sombra` e liga o conferidor do RS4GC em toda compilação em modo mapas, inclusive nas
 das sabotagens (onde ele pode ser o primeiro a acusar). O callback da FFI que lança está escrito
 desde 2026-10-05 sem biblioteca C própria: `gc_d09_callback_ffi.dart` (saída
@@ -2706,7 +2706,7 @@ Nesta máquina (Windows 11, x86-64, LLVM 22.1.8), com o gerador embutido.
 |---|---|
 | `corpus/js` em B0, com e sem `--gc-stress` | 238/238 e 238/238 |
 | `corpus/native` em B0, com e sem `--gc-stress` | 128/130 e 128/130 (as duas diferenças são do ambiente, iguais em A0: §13.16) |
-| `mapas_dirigidos` (`DARTFORGE_TESTES_MAPAS=1`): os casos do §7.3 passam e cada um cai com a sua sabotagem; o percurso conferido contra a pilha-sombra; a folha que coleta achada pelo nome; a coleta agendada | 4/4 |
+| `directed_maps` (`DARTFORGE_TESTES_MAPAS=1`): os casos do §7.3 passam e cada um cai com a sua sabotagem; o percurso conferido contra a pilha-sombra; a folha que coleta achada pelo nome; a coleta agendada | 4/4 |
 | `aot --optimize` em B0 dos programas do `bench/performance`, com `--gc-stress` | roda |
 
 Defeitos achados ao rodar, todos consertados:
@@ -2764,7 +2764,7 @@ seguem enquanto o saldo de tamanho for este.
 ### 14.12 A forma por `"deopt"`: a raiz no registrador preservado (2026-10-08)
 
 **Verificação contínua (2026-10-09).** O job `nativo-modos` do Pesado, na célula
-B0 sem estresse, executa também `mapas_dirigidos` com `DARTFORGE_TESTES_MAPAS=1`.
+B0 sem estresse, executa também `directed_maps` com `DARTFORGE_TESTES_MAPAS=1`.
 São quatro testes: os casos e sabotagens do §7.3, percurso contra pilha-sombra,
 folha falsa pela conferência dos efeitos e coleta agendada. O corpus comum não
 ativa essa porta; seu placar não substitui estes testes. Os temporários ficam

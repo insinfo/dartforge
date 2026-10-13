@@ -115,7 +115,7 @@ incompletos**.
 O `main` estava vermelho desde `aa05983e`, e ninguém tinha percebido:
 * Windows: `runtime/tests/ownership.rs` não listava `dartforge_value_class`
   e `dartforge_list_append`, auditadas no catálogo (75 ≠ 77).
-* Linux, macOS e Windows: `memoria_cli` (AOT e JIT com `--memoria=arc`)
+* Linux, macOS e Windows: `memory_cli` (AOT e JIT com `--memoria=arc`)
   entrava em pânico. Desde `a1edd273`, closures, chamadas tipadas e, depois,
   seletores exigiam portas certificadas sob ARC. Mas a CLI não prepara nem
   certifica os corpos. Agora `Module::arc_preparado` marca a publicação da
@@ -123,7 +123,7 @@ O `main` estava vermelho desde `aa05983e`, e ninguém tinha percebido:
   uniformes (guarda preservada). Sem preparação, a imagem ARC segue o regime
   legado da CLI, com chamada direta. As fábricas com owner do código
   (literal de lista, interpolação) só são emitidas em corpos preparados, que
-  inserem a liberação desse owner. `memoria_cli` (AOT) passa localmente.
+  inserem a liberação desse owner. `memory_cli` (AOT) passa localmente.
 
 Runtime no macOS: os testes de `rastro.rs` alocavam seção e registros em
 blocos separados do heap e gravavam deslocamentos `i32` entre eles. No
@@ -134,7 +134,7 @@ usam uma área única; as asserções não mudaram. Também foi removido um
 
 ### Preparação conjunta com o SDK da fonte
 
-`arc_auditar_pipeline --memoria=arc --sdk-no-grupo --inventario-externs`
+`arc_audit_pipeline --memoria=arc --sdk-no-grupo --inventario-externs`
 em `bench/performance/numerico.dart` passou, em ordem, por:
 * `Stopwatch.start` (`CallSeletor`): a mudança dos seletores preservada no
   fechamento foi validada, inclusive pela prova AOT ampliada.
@@ -285,7 +285,7 @@ Depois, até o fim do SDK (16 módulos):
   `Process_Start` (o gerador do lote aceita atributos entre `no_mangle` e a
   assinatura).
 
-`arc_auditar_pipeline` termina com `Preparação conjunta com SDK da fonte:
+`arc_audit_pipeline` termina com `Preparação conjunta com SDK da fonte:
 Ok((21945, 240417))` (cópias, drops). É a preparação conjunta em memória,
 ainda **não publicada** na CLI: nenhum binário AOT roda com ela, e as
 entradas novas (`env_escalar`, trampolins, captura por endereço) só têm
@@ -463,9 +463,9 @@ leituras de campo `final` emprestadas sem retain; depois §§27–34 e o gate AR
 | `Handle` AOT, tracing/ARC, normal/GC stress, efeitos conferidos | 8 execuções, saída igual ao Dart (`prova-handles/`) |
 | listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
 | efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
-| `memoria_cli` (nativo), incluindo ignorados | 2 passaram (`arc-lote3-memoria-cli.log`) |
-| `provar-arc-aot.py arc_porta_nativa_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
-| `memoria_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
+| `memory_cli` (nativo), incluindo ignorados | 2 passaram (`arc-lote3-memoria-cli.log`) |
+| `provar-arc-aot.py arc_native_port_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
+| `memory_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
 | interpolação/lista/`runtimeType` pela CLI, tracing e ARC, GC stress | saída igual ao `dart run` 3.6.2 |
 
 As novas fábricas Owned têm testes unitários e de preparação, mas ainda
@@ -553,7 +553,7 @@ A mudança dos seletores incluída neste fechamento encaminha `CallSeletor`
 em ARC ao adaptador uniforme certificado, confere receiver/argumentos Ref,
 descritor, tupla RTI e guarda pending; tracing conserva a chamada legada.
 Há teste de preparação/recusa transacional e extensão da prova
-`arc_porta_nativa_owned` para um seletor com vetor local.
+`arc_native_port_owned` para um seletor com vetor local.
 A primeira bateria terminou com 451 aprovados e uma falha no teste novo:
 emissão tentada sem certificar a imagem AOT. O teste foi corrigido para
 certificar os corpos preparados, preservando a guarda de emissão. O teste
@@ -575,8 +575,8 @@ ARC levou aproximadamente 2 vezes o tempo do padrão no agregado. Não existe
 medição posterior comprovando melhora; rodadas distintas não isolam mudanças.
 
 Na retomada, concluir a bateria do emissor incluindo ignorados e executar
-`python scripts/provar-arc-aot.py arc_porta_nativa_owned --debug`. Repetir
-`arc_auditar_pipeline --memoria=arc --sdk-no-grupo --inventario-externs` em
+`python scripts/provar-arc-aot.py arc_native_port_owned --debug`. Repetir
+`arc_audit_pipeline --memoria=arc --sdk-no-grupo --inventario-externs` em
 `bench/performance/numerico.dart` e resolver o próximo erro observado, sem
 afrouxar ownership, certificação ou guardas. Fechar preparação do SDK e
 publicação conjunta no CLI AOT/JIT; conferir portas, lifetimes, exceções,
@@ -768,7 +768,7 @@ CI 38057171425: Windows, Linux e mensagens passaram; macOS está nos testes
 emit_native com ignorados. Alteração local para preservar essa rodada.
 
 Preparação compartilhada de tipos/raízes validada também em AOT real:
-python scripts/provar-arc-aot.py arc_retorno_da_fonte --debug passou as
+python scripts/provar-arc-aot.py arc_source_return --debug passou as
 16 execuções ARC/tracing × O0/O2 da revisão 5cb4e56d, sem mudanças nos fontes.
 Quatro positivas e 12 controles por trap conferem sobrevivência/morte do Mint
 na cadeia identidade(identidade(valor)); retirar retain, drop do retorno ou
@@ -1217,7 +1217,7 @@ target/arc-scc-compartilhado-{suite,doc,aot}.log. Extração não certifica
 points-to, aciclicidade de instâncias, regiões/grupos ou o gate ARC/A0;
 seleção de ARC continua exclusiva de --memoria=arc. Mudança ainda local.
 
-Prova arc_retorno_da_fonte ampliada para repassar(valor) chamar
+Prova arc_source_return ampliada para repassar(valor) chamar
 identidade(identidade(valor)), usando os dois corpos reais do lowering.
 Planos continuam padrão, preenchidos pelos produtores: retorno Ref Owned,
 retenção no callee e liberação automática do resultado intermediário.
@@ -1278,7 +1278,7 @@ preparação ARC e LLVM sem um plano manual de retorno; produz retain do
 argumento emprestado. Tracing não recebe os fatos nem a preparação.
 Passaram 258 testes do emissor (sete ignorados) e 55 exemplos públicos.
 
-Prova AOT arc_retorno_da_fonte baixa uma identidade Object? da fonte Dart
+Prova AOT arc_source_return baixa uma identidade Object? da fonte Dart
 com o SDK 3.6.2, extrai seu corpo no grupo fechado e usa a nova entrada de
 preparação. Harness nativo recebe Mint real, solta o argumento, confere
 sobrevivência/identidade do retorno e morte após soltá-lo. ARC/tracing ×
@@ -1312,7 +1312,7 @@ ownership depois da importação conserva módulo e planos; repetição é
 idempotente. Contratos de ownership/callees/escopos ainda são fornecidos;
 essa entrada não constitui cobertura automática completa da fonte/SDK.
 Passaram 257 testes do emissor (sete ignorados) e 54 exemplos públicos.
-Fixture arc_retornos_guardados exercita a entrada integrada no caminho ARC
+Fixture arc_guarded_returns exercita a entrada integrada no caminho ARC
 automático: AOT normal Windows com auditoria, ARC puro e GC stress terminou
 em zero com saída 9223372036854775807. Nessa fixture o inventário inicial é
 explícito; o teste unitário usa o passe real de exceções. Logs finais em
@@ -1330,7 +1330,7 @@ o modo de exceções nem ativa ARC implicitamente.
 Regressão cobre seis situações: publicação, plano ausente, tracing, modo
 de tabelas desligado, falha posterior em um corpo e ordem invertida das
 funções; confere invoke LLVM e idempotência. Passaram 254 testes do emissor
-(sete ignorados) e 52 exemplos públicos. A fixture arc_retornos_guardados
+(sete ignorados) e 52 exemplos públicos. A fixture arc_guarded_returns
 passa a usar a publicação pelo módulo no caminho ARC automático; prova
 AOT normal no Windows, com auditoria/puro/GC stress, terminou em zero e
 imprimiu 9223372036854775807. Logs target/arc-publicacao-tabelas-*. Isso
@@ -1368,7 +1368,7 @@ recusa essa entrada sem proveniência do emissor, sem publicar mapas.
 
 Regressões aprovadas: 253 testes do emissor, 182 do runtime, 52 exemplos
 públicos do emissor e 42 do runtime; sete/três testes ignorados das respectivas
-bibliotecas permanecem fora desta rodada. Exemplo arc_instancia_zerada usa
+bibliotecas permanecem fora desta rodada. Exemplo arc_zeroed_instance usa
 o thunk real emitido para uma biblioteca e registra somente na fábrica.
 Matriz nativa Windows aprovou quatro positivos e 12 controles por trap,
 ARC/tracing × O0/O2: owner vivo, campo zero, lookup/chamada do método e morte
@@ -1435,7 +1435,7 @@ sobrescrita, escalares/escopos, aliases publicados, entrada opaca em Phi,
 layouts divergentes, Phi de dois sítios/classes e Phi ancorado em laço.
 Passaram 248 testes do emissor (7 ignorados) e 52 exemplos de documentação.
 
-Prova AOT arc_campos_locais passou no Windows com llvm-embutido:
+Prova AOT arc_local_fields passou no Windows com llvm-embutido:
 ARC/tracing × O0/O2, quatro positivas e doze controles por trap, retirando
 keepalive, cleanup do receiver ou release final do retorno. HIR aloca 40
 campos/Mint, muda e relê int 85, double -0.0, bool true e byte 255, lê o
@@ -1467,7 +1467,7 @@ do grupo, sem duplicar a cópia do módulo. Tracing permanece intacto.
 Teste adicional confere keepalive de campo borrowed antes do safepoint da
 alocação e release depois da inicialização. Passaram 242 testes do emissor
 (7 ignorados) e 52 exemplos de documentação.
-Prova AOT arc_alocacao_campos passou no Windows com llvm-embutido:
+Prova AOT arc_field_allocation passou no Windows com llvm-embutido:
 ARC/tracing × O0/O2, quatro positivas e oito controles por trap sem owner
 do objeto ou sem release do filho. HIR cria objeto de 40 campos/Mint;
 confere bits 85, -0.0, true e byte 255, aresta Ref no índice 39, owner do
@@ -1508,7 +1508,7 @@ sucesso; macOS ainda em execução ao registrar. Não certifica o workflow
 inteiro, o script compartilhado novo ou mudanças posteriores de pending,
 Phi/cleanup/laços. Limites de HIR explícita e tracing de comparação mantidos.
 
-Prova AOT arc_cleanup_laco passou no Windows: ARC/tracing × O0/O2 ×
+Prova AOT arc_loop_cleanup passou no Windows: ARC/tracing × O0/O2 ×
 normal/erro, oito execuções positivas e oito controles negativos por trap.
 A HIR aloca Mint Owned em cada volta; preparação produz release na aresta
 normal antes da coleta e na saída de erro. Hooks LLVM com assinatura Borrow
@@ -1602,7 +1602,7 @@ fonte Dart, suspensão/recarga ou unwind. Tracing mantém tokens explícitos
 somente no harness de comparação; ARC no produto continua exclusivo de
 --memoria=arc.
 
-Prova AOT arc_keepalive_campos passou no Windows: ARC/tracing × O0/O2,
+Prova AOT arc_field_keepalive passou no Windows: ARC/tracing × O0/O2,
 quatro execuções positivas e oito controles negativos sem retenção ou sem
 liberação final, todos recusados por trap (-1073741795). HIR de leitura Ref
 seguida de substituição da aresta recebe keepalive automaticamente e retorna
@@ -2115,7 +2115,7 @@ validados. Aviso preexistente atribuir_slots não utilizado continua presente.
 
 
 Prova de unwind C++ com heap real preparada para CI Unix:
-`arc_unwind_estrangeiro` gera HIR com contrato auditado de print_handle Borrow,
+`arc_foreign_unwind` gera HIR com contrato auditado de print_handle Borrow,
 catch preparado e Mint Owned; depois injeta o hook C++ por troca explícita de
 símbolo no IR. Hook conserva assinatura/ownership, lança objeto C++ e não cria
 pendência Dart. Fixture confere identidade nativa, destrutores, catch Dart não
@@ -2278,7 +2278,7 @@ antes de entrar no tratador Dart. Isso é necessário quando o inliner combina
 cleanup e catch. Atualiza o rótulo predecessor dos Phis do sucessor do pouso.
 Passaram 42 testes LLVM, incluindo objetos Linux O0/O2 do corpo real com
 catch+cleanup e Phi; não é execução de estrangeira com heap ARC.
-A prova AOT `arc_retornos_guardados` aceita `automatico misto`: o caller
+A prova AOT `arc_guarded_returns` aceita `automatico misto`: o caller
 mantém seu catch e ganha um segundo invoke automático sem tratador, ficando
 com ambos os modos em Unix. Quatro variantes mistas Windows passaram sob
 ARC_CONFERIR=1, BER=0, GC_STRESS=1, stdout byte exato (normal MAX, erro vazio).
@@ -2439,7 +2439,7 @@ o erro como Lanca. Fecha o borrow depois da retenção normal, transportando
 os eventos de saída para ambas as folhas. IDs reservam definições e
 metadados, sem wrap. Publica CFG, tabelas e escopos somente após verificar
 o conjunto. Passaram 85 testes ARC, 39 LLVM e 45 doctests.
-Nova prova `arc_retornos_guardados`: quatro execuções AOT ARC/tracing sob
+Nova prova `arc_guarded_returns`: quatro execuções AOT ARC/tracing sob
 stress e auditoria, código 0. Normal imprime i64::MAX após liberar a cópia
 de retorno e coletar; erro desenrola do callee por df.throw, chega ao
 landingpad do invoke no caller, limpa a exceção e libera o token da fábrica.
@@ -2582,7 +2582,7 @@ exigem Trivial semanticamente classificado. Chamadas diretas no corpo
 conservadoramente tornam o resumo falível; o caller precisa de saída
 excepcional preparada. Resumos devem ser refeitos após mudança do corpo;
 contratos externos fornecidos e proveniência continuam premissas.
-A prova `arc_slots_fortes` usa agora esse resumo, sem contrato manual de
+A prova `arc_strong_slots` usa agora esse resumo, sem contrato manual de
 CallStatic. AOT com Mint mortal e cleanup automático passou em ARC auditor
 sem berçário e tracing sob stress: i64::MAX, 42, null, código 0.
 75 testes ARC e 43 doctests passaram. Logs locais
@@ -2599,7 +2599,7 @@ comum: contratos de chamadas e proveniência produzidos pelo lowering
 continuam necessários.
 
 Prova AOT do cleanup automático de saídas: a variante
-`retorno-mortal-auto-cleanup` de `arc_slots_fortes` deixa os três retornos
+`retorno-mortal-auto-cleanup` de `arc_strong_slots` deixa os três retornos
 de erro sem drops manuais. `inserir_arc_saidas_dart` insere exatamente
 três liberações e nenhuma cópia; LLVM b1/b3/b5 libera v8/v14/v18 antes
 do retorno. ARC com auditoria, berçário desligado e GC stress, e tracing
@@ -2683,7 +2683,7 @@ sistemas, os relatórios com e sem a toolchain mostram corpus AOT 238/238 e
 `dart:io` 130/130, também 130/130 com `--gc-stress`. Isso valida a
 distribuição; a nova etapa dirigida de mapas segue pendente no Pesado.
 
-O Pesado passou a ativar também os quatro testes de `mapas_dirigidos` na
+O Pesado passou a ativar também os quatro testes de `directed_maps` na
 célula B0 sem estresse: o corpus sozinho não exercita as sabotagens. O YAML
 e a compilação do código de teste foram conferidos; os quatro testes passaram
 na rodada `37889904811`, sem ignorados ou filtrados (log conferido, 777 s).
@@ -3659,7 +3659,7 @@ Da rodada pesada 37970899962, SDK da fonte AOT 238/238 (56,6 s), JIT
 nos dois; Windows B0 238/238 (116,3 s). Artefatos conferidos em
 `target/ci-37970899962`. Só macOS permanecia ativo na consulta.
 
-Prova AOT dirigida no exemplo `arc_slots_fortes`: HIR explícita
+Prova AOT dirigida no exemplo `arc_strong_slots`: HIR explícita
 usa quadro proprietário, global Ref, carga após fecho do quadro, coleta,
 substituição por Smi e null. Emite IR e liga pelo driver real com otimização.
 Resultado esperado: `slots ARC`, `42`, `null`, uma linha por valor. O literal
@@ -3699,7 +3699,7 @@ públicos aprovados (`target/runtime-arc-global-mortal-completo.log`;
 auditor em `target/runtime-arc-global-mortal-auditor.log`). Isso testa o
 runtime, não a execução AOT da HIR nem a inserção automática de ownership.
 
-Prova AOT mortal no exemplo `arc_slots_mortais`: a produtora aloca um alvo
+Prova AOT mortal no exemplo `arc_mortal_slots`: a produtora aloca um alvo
 não permanente, transfere seu token SSA ao global forte e retorna antes das
 coletas. Um contêiner weak com token próprio observa o alvo sem torná-lo raiz
 no chamador; auxiliares LLVM conferem vivo antes e morto depois da remoção do
@@ -3934,7 +3934,7 @@ Adicionado ao ownership.tsv, agora 19 externs, com pending conservador igual
 catálogo passaram (`target/ownership-print-audit.log`), incluindo coerção da
 assinatura Rust C e modos de parâmetro/resultado. Quarenta e seis testes ARC
 HIR também passaram (`target/ownership-print-hir.log`). Essa extern é necessária
-para ligar o produtor à prova AOT arc_slots_fortes; antes da publicação dos
+para ligar o produtor à prova AOT arc_strong_slots; antes da publicação dos
 planos, a prova ainda precisa representar invoke/cleanup de impressão no CFG.
 
 Revisão da integração da prova AOT após 23fd911a encontrou lacuna no modelo
@@ -3948,7 +3948,7 @@ sintéticos provam a transferência lógica do token, mas não essa integração
 com a emissão real de externs pending. Não publicar esse formato como tabelas
 LLVM de impressão. Próxima dependência: representar e verificar saídas de
 pendência runtime separadamente de invoke Dart, incluindo disponibilidade do
-resultado só no sucesso e cleanup por aresta, então ligar arc_slots_fortes.
+resultado só no sucesso e cleanup por aresta, então ligar arc_strong_slots.
 
 PlanoTokens.pendencias agora descreve chamada runtime e bloco de erro sem
 publicar invoke/pouso LLVM. Exige sufixo CallRuntime, exception_pending I8,
@@ -3979,7 +3979,7 @@ Formas não reconhecidas não recebem mapa implícito e continuam recusadas na
 verificação completa quando pode_falhar não tem saída. Demais formas de
 conferência, testes runtime sintéticos e integração AOT continuam pendentes.
 
-Prova AOT arc_slots_fortes agora passa a HIR final por
+Prova AOT arc_strong_slots agora passa a HIR final por
 produzir_e_verificar_tokens antes de emitir LLVM. Impressões têm leitura
 exception_pending I8, comparação e bifurcação explícita; no erro, drop do
 owner carregado e limpeza do global. Produtor gera classes das primitivas,
@@ -4440,13 +4440,13 @@ reprova seleção vazia. O filtro PowerShell foi conferido com listagens de
 binários anteriores: dois testes com JIT, rejeição da lista vazia sem JIT;
 isso valida a proteção do script, não os testes na revisão atual. A
 validação local de recarga da revisão `7217e888` concluiu com sucesso:
-`cargo test --locked --release -p dartforge-cli --features jit --test reload_estado -- --ignored --nocapture`,
+`cargo test --locked --release -p dartforge-cli --features jit --test reload_state -- --ignored --nocapture`,
 com `DARTFORGE_SDK_DA_FONTE=1`: dois testes passaram, zero falhas ou
 ignorados, cinco filtrados (os não ignorados), em 14,43 s. Executados
 `cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart` e
 `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`. A listagem
 `--ignored --list` do binário novo também seleciona esses dois pelo filtro
-do CI. SHA-256 do harness `reload_estado-a53f60c187219ad4.exe`:
+do CI. SHA-256 do harness `reload_state-a53f60c187219ad4.exe`:
 `44CD0183FE465FDCA8F7FA0B675335BABABF8D67A384379A037439519F17980C`.
 Essa execução é local; a etapa corrigida foi posteriormente validada no
 runner da rodada `37908897460` (resultados acima).
@@ -4463,9 +4463,9 @@ microbenchmark só valem presos a um núcleo P).
 | frente | o que já funciona | o que falta |
 | --- | --- | --- |
 | **Nativo AOT** (`crates/emit_native`, `runtime`) | corpus 238/238 em Windows, Linux x86-64 e macOS arm64; `--gc-stress` 238/238; `dart:io` 130/130 nos três; `new_sali/backend` compila e responde 39/42 rotas no e2e; produção com LTO e o SDK da fonte | `bench/performance`: A0/dart = 1,22 (média geométrica; JSON, objetos e textos 1,5–2,4×, numérico e listas abaixo do Dart); e2e do backend precisa do banco |
-| **JIT** (`crates/jit`, `dartforge run`/`reload`) | 238/238 e JIT × AOT sem divergência nos três sistemas; recarga de estado e `io_regressao` verdes | recarga com mudança de layout em todos os casos do R0 |
+| **JIT** (`crates/jit`, `dartforge run`/`reload`) | 238/238 e JIT × AOT sem divergência nos três sistemas; recarga de estado e `io_regression` verdes | recarga com mudança de layout em todos os casos do R0 |
 | **Exceções por tabelas (A1)** | 238/238 (+ `--gc-stress`); o pouso pega-tudo do `$ent` saiu (`a4b5ac42`): A1/A0 = 1,001 | tamanho: +3,2% no `new_sali/backend` (meta −3%); segue opt-in |
-| **Raízes por mapas (B0/B1)** | forma nova por `"deopt"` (§14.12, abaixo): raiz no registrador preservado, sem derrame por chamada. Windows: corpus 238/238 em desenvolvimento com `--gc-stress` e as três conferências, e 238/238 em produção com o conferidor do RS4GC | testes dirigidos (`mapas_dirigidos`) caem num esgotamento de registradores do LLVM em `dart:convert` no modo de desenvolvimento (em curso); B1; Linux/macOS com a forma nova; o `bench/performance` inteiro; commit |
+| **Raízes por mapas (B0/B1)** | forma nova por `"deopt"` (§14.12, abaixo): raiz no registrador preservado, sem derrame por chamada. Windows: corpus 238/238 em desenvolvimento com `--gc-stress` e as três conferências, e 238/238 em produção com o conferidor do RS4GC | testes dirigidos (`directed_maps`) caem num esgotamento de registradores do LLVM em `dart:convert` no modo de desenvolvimento (em curso); B1; Linux/macOS com a forma nova; o `bench/performance` inteiro; commit |
 | **ARC** (`--memoria=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,000274 em 55beeb34 (árvores 12,82×, lista ligada 5,28×); gate reprovado. Metadados por página já disponíveis; análise, provas, políticas e integração dos §§27–34 continuam incompletas. Evidência: `bench/results/2026-10-10-modos-55beeb34-windows` |
 | **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
 | **JS produção** (`crates/emit_js_production`) | corpus `--producao` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
@@ -4727,12 +4727,12 @@ como na tabela (o `resumo.py` voltou a contar lista vazia contra lista vazia no 
 
 **Nativo, depois do fechamento (2026-10-06, `abcaf6fc`…`a14d2270`).**
 * Testes do `dartforge-jit` e do `dartforge-llvm` verdes, inclusive os ignorados (era só o `bin` do LLVM
-  fora do `PATH`); `reload_estado` e `io_regressao` 7/7.
+  fora do `PATH`); `reload_state` e `io_regression` 7/7.
 * **Etapa 1 (A1) verificada e arquivada** (§13.16): corpus/js 238/238, corpus/native igual a A0 com e
   sem `--gc-stress`; no `new_sali/backend` o `.text` não cai e as tabelas somam 1,57 MB (+3,2% contra a
   meta de −3%). O padrão segue `checagem` com o E1.1.
 * **Etapa 2 (B0) verificada e arquivada** (§14.11): corpus B0 com e sem `--gc-stress` igual a A0, os 4
-  testes dirigidos de `mapas_dirigidos` verdes com cada sabotagem pegando, produção B0 correta (ThinLTO
+  testes dirigidos de `directed_maps` verdes com cada sabotagem pegando, produção B0 correta (ThinLTO
   distribuído, o passe depois da otimização); no mesmo pipeline o `.text` do `bench/performance` em B0
   é 25% maior, mais 100 KB de mapa. As raízes por mapas ficam experimentais.
 * Defeitos achados ao rodar e consertados: pouso com `fake.use` fora dos mapas, chamada C variádica em
@@ -6114,7 +6114,7 @@ o executável passa a exigir a `LLVM-C.dll` da distribuição completa no
   a geração nova é publicada no programa vivo, no ponto seguro do laço de
   eventos, sem rodar o `main` de novo — heap, estáticos, timers e portas
   continuam (`crates/cli/src/jit.rs:237-256`; teste
-  `crates/cli/tests/reload_estado.rs`, no `ci.yml`). Edição que a recarga não
+  `crates/cli/tests/reload_state.rs`, no `ci.yml`). Edição que a recarga não
   sabe aplicar é recusada com o motivo e o programa reinicia; edição que não
   compila mantém a geração em execução. `--reiniciar` é o R0 (reinício a
   quente sem estado, um processo por geração).

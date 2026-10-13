@@ -1346,7 +1346,7 @@ fechamento (`CloseFd`) ou com o objeto.
 
 **Soquete de escuta compartilhado.** Só o último objeto fecha o soquete do
 sistema (`CloseSafe` do registro); os outros soltam a própria referência.
-Regressão em `crates/cli/tests/io_regressao.rs`.
+Regressão em `crates/cli/tests/io_regression.rs`.
 
 **Sinais.** No Unix, cada inscrição é um pipe **não bloqueante** nos dois
 lados: com o pipe cheio o tratador descarta o byte (a notificação se funde
@@ -1375,7 +1375,7 @@ sinais e escuta compartilhada.
 
 **Validação por sistema.** `cargo check --target` só filtra erros de
 compilação; o que vale é o CI de cada sistema (build, testes do emissor e do
-JIT, `io_regressao` e o corpus nativo). A camada Windows ainda precisa do
+JIT, `io_regression` e o corpus nativo). A camada Windows ainda precisa do
 corpus `corpus/native` rodando no runner Windows e de medições sob carga
 (vazão, latência, CPU, memória e threads com muitas conexões, consumidores
 lentos e processos com muita saída).
@@ -1571,7 +1571,7 @@ IOService (`io_service_patch.dart`).
   pedido de renegociação do servidor (TLS 1.2) é recusado com ou sem a
   opção — sem ela a conexão termina com `TlsException`, como na VM (o texto
   do erro é o do rustls, não o `NO_RENEGOTIATION` do BoringSSL); com ela a VM
-  renegociaria (`tls_renegociacao.dart` em `io_regressao.rs`, contra o
+  renegociaria (`tls_renegociacao.dart` em `io_regression.rs`, contra o
   `openssl s_server -www`, que pede a renegociação ao receber `GET /reneg`:
   a entrada padrão do `s_server` não serve, porque no Windows ele bloqueia
   nela antes de atender o soquete).
@@ -1579,10 +1579,10 @@ IOService (`io_service_patch.dart`).
   (`crates/runtime/src/tls_formatos.rs`): PEM, PEM cifrado legado, PKCS#8
   cifrado e PKCS#12 (PBES2 e as PBE legadas), com a mesma ordem de decisão
   (PKCS#12 só sem linha de início PEM; DER solto recusado) e os mesmos erros
-  (`tls_formatos.dart` em `io_regressao.rs`). O resto — cadeia e chave,
+  (`tls_formatos.dart` em `io_regression.rs`). O resto — cadeia e chave,
   autoridades de cliente, ALPN, versão mínima 1.2/1.3, `keyLog`, `peerCertificate`, `selectedProtocol` — segue a
   VM.
-* **Verificado** (`crates/cli/tests/io_regressao.rs`, `tls_e_https_como_a_vm`,
+* **Verificado** (`crates/cli/tests/io_regression.rs`, `tls_e_https_como_a_vm`,
   saída idêntica à do `dart run`, também no JIT e com
   `DARTFORGE_GC_STRESS=1`): cliente e servidor no mesmo isolado, ALPN, os
   campos do `X509Certificate`, a recusa sem a CA, o `onBadCertificate`, 200 KB
@@ -1604,7 +1604,7 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   Agora a próxima coleta vem quando se gasta metade da folga até o teto
   (no mínimo 256 KB; sem teto, o heap pode dobrar), e só a alocação que
   passaria do teto força uma última coleta antes da falta de memória. O
-  mesmo programa: 2,8 s. Teste: `io_regressao::heap_perto_do_teto…`.
+  mesmo programa: 2,8 s. Teste: `io_regression::heap_perto_do_teto…`.
 * **`alloca` só no bloco de entrada** (`llvm/mod.rs`,
   `emit_buffers_de_closure`). Os vetores dos literais de lista, mapa e
   record e os locais nasciam onde a instrução estava: num laço, cada volta
@@ -1675,11 +1675,11 @@ DWARF 5 no Linux, DWARF 4 no macOS, CodeView no Windows.
   Windows, `-g` na ligação (o `/DEBUG` do ligador: o PDB ao lado do
   executável). No macOS o mapa de depuração do executável aponta para o
   objeto do programa, que fica no cache de objetos.
-* **Medido.** `crates/cli/tests/depuracao.rs` (CI do Linux, com o `gdb`):
+* **Medido.** `crates/cli/tests/debugging.rs` (CI do Linux, com o `gdb`):
   `break main.dart:3` para no `return` de `dobro` com a pilha
   `dobro main.dart:3 ← main main.dart:17`, e `break main.dart:9` em
   `Conta.depositar main.dart:9 ← main main.dart:20`; a saída do programa não
-  muda. `crates/emit_native/tests/depuracao.rs` confere o IR (todo `!dbg`, o
+  muda. `crates/emit_native/tests/debugging.rs` confere o IR (todo `!dbg`, o
   `ret` com a linha do `return`, nada sem a opção). CodeView conferido no
   objeto COFF do mesmo IR (`llvm-readobj --codeview`: `DisplayName`
   `dobro`/`Conta.depositar`/`main`, linhas de `main.dart`); o PDB e o macOS
@@ -3150,7 +3150,7 @@ integração (§5 da especificação) valida na ordem: testes de unidade do runt
 e do emissor, o módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`, o corpus nativo
 (82 programas de antes mais os novos 90–99) no AOT, no JIT e com
 `--gc-stress`, o corpus `js`, a produção (`aot --optimize`), os benchmarks com
-a saída da VM e a recarga (`crates/cli/tests/reload_estado.rs`,
+a saída da VM e a recarga (`crates/cli/tests/reload_state.rs`,
 `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`).
 
 Integrado em 2026-09-30, tudo verde: `corpus/native` (92 programas) no AOT, no

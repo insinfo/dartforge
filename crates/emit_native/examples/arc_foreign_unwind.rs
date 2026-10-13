@@ -236,7 +236,7 @@ fn main() -> Result<(), String> {
     let cpp = exit.with_extension("cpp");
     std::fs::write(
         &cpp,
-        include_str!("../tests/fixtures/arc_unwind_estrangeiro.cpp"),
+        include_str!("../tests/fixtures/arc_foreign_unwind.cpp"),
     )
     .map_err(|e| e.to_string())?;
     let runtime = RuntimeCache::for_production()?;

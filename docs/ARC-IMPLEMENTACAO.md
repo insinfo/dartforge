@@ -16,7 +16,7 @@ opção define `DARTFORGE_MEMORIA`, lida uma vez por `alvo::memoria_arc` e
 transportada em `Module::memoria_arc` (programa e SDK). O padrão continua
 `tracing`.
 
-Regressão `crates/cli/tests/memoria_cli.rs` consulta o modo do heap pela
+Regressão `crates/cli/tests/memory_cli.rs` consulta o modo do heap pela
 ABI versionada: AOT/JIT/reload retornam 0 sem a opção e 1 com ARC explícito,
 inclusive com ambiente ARC herdado e recarga com reinício. Também prende
 a separação entre opção do compilador e argumento de `main`.
@@ -575,7 +575,7 @@ obsoletos ou conflitantes antes de publicar. A preparação ainda precisa
 provar a transferência no corpo e reter resultados emprestados. Thunks,
 callbacks FFI e funções extras não recebem essa convenção por largura;
 seus produtores precisam de contratos próprios. A prova AOT
-`arc_retorno_da_fonte` verifica identidade, vida e morte de um Mint devolvido
+`arc_source_return` verifica identidade, vida e morte de um Mint devolvido
 pelo corpo realmente baixado da fonte, com controles sem retain/release.
 
 Na API explícita `preparar_arc_modulo_dart`, corpos, planos e tabelas de

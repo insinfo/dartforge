@@ -1,4 +1,4 @@
-// Reload with the state of the unified space (crates/cli/tests/reload_estado.rs,
+// Reload with the state of the unified space (crates/cli/tests/reload_state.rs,
 // `cli_preserves_unified_space_state_across_three_reloads`): generation 2.
 // The globals survive the reload (`--preservar-estado`) and `main` runs again
 // with the generation's code.

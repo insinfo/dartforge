@@ -351,7 +351,7 @@ io, developer, mirrors. Sem sobreposição: `typed_data_patch.dart`, `internal_p
 * O caminho sem SDK da fonte (`DARTFORGE_SDK_DA_FONTE=0`, `EN/sdk_modulo.rs:122-128`) ainda
   existe: `lower/sdk_por_nome.rs` (congelado; com o SDK ligado só encaminha ao despacho por
   seletor) e os externs `dartforge_string_*`/`list_*`/`map_*`/`set_*` de `RT/strings.rs` e
-  `RT/colecoes.rs`. É usado por `EN/tests/contrato.rs:36` e `crates/jit/tests/sessao_persistente.rs:148`.
+  `RT/colecoes.rs`. É usado por `EN/tests/contract.rs:36` e `crates/jit/tests/sessao_persistente.rs:148`.
 
 ### 1.9 Isolados, recarga, RTI e E/S
 
@@ -1505,7 +1505,7 @@ braços SIMD, `tipada_em_linha`, o acesso em linha a listas tipadas e a `List<E>
 **Pronto quando:** compila; no fim, `corpus/native` 01–06, 08, 09, 11–13, 15–20, 24, 31, 32, 34,
 38, 39, 55, 62, 67, 69, 77, 78 e 98 iguais à VM;
 `bench/simd` e `bench/performance/tipados.dart` com a saída da VM;
-`crates/cli/tests/io_regressao.rs` verde.
+`crates/cli/tests/io_regression.rs` verde.
 
 ### 4.7 P5 — Transversais e remoção do legado
 
@@ -1541,7 +1541,7 @@ emissor sem o legado; os testes e a documentação.
    `identical` por `@df.identical`, `==` de strings por `@df.string_equals`. `verificador.rs`:
    recusa `EnvGet`/`CellGet` em tipo diferente do gravado e as instruções que sumiram.
    `optimize/*`: efeitos das externs novas; `escape.rs` continua só para objetos do programa.
-7. Testes: `EN/tests/contrato.rs:36` e `crates/jit/tests/sessao_persistente.rs:148` sem o modo
+7. Testes: `EN/tests/contract.rs:36` e `crates/jit/tests/sessao_persistente.rs:148` sem o modo
    legado; `EN/llvm/testes.rs`; os programas 90–99 (§5.3) com as saídas da VM.
 8. Documentação: `NATIVO.md` (a representação), `NATIVO-PLANO.md` (seção nova com os números),
    `PLANO-TAMANHO-DESEMPENHO.md` (fases B–D), `JIT.md` (sem estáticos nos módulos do programa),
@@ -1907,10 +1907,10 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
 46. **P5 — natives recebidos (§4.9):** `Object_equals`, `_toString`, `_haveSameRuntimeType`,
     `_runtimeType` e `WeakReference_*`/`WeakProperty_*` em `nativos_sistema.rs` (movidos por quem
     recebe, regra do coordenador).
-47. **P5 — testes:** `EN/tests/contrato.rs` e `crates/jit/tests/sessao_persistente.rs` no modo
+47. **P5 — testes:** `EN/tests/contract.rs` e `crates/jit/tests/sessao_persistente.rs` no modo
     com SDK da fonte (três asserções sobre `print_i64`, que só o `print` por nome emitia, saíram);
     `EN/llvm/testes.rs` ganhou o literal estático e as regras novas do verificador;
-    `crates/cli/tests/reload_estado.rs` perdeu a variante sem SDK e ganhou
+    `crates/cli/tests/reload_state.rs` perdeu a variante sem SDK e ganhou
     `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas` (§5.2 item 9, fixtures
     `reload_espaco_v1..4.dart`, saída conferida na VM); os testes da CLI não passam mais
     `DARTFORGE_SDK_DA_FONTE`. Os programas 90–99 estão em `corpus/native` (o 92 é um diretório
@@ -2089,7 +2089,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
   tem `todo!()` até cada pacote terminar.
 * **Testes de unidade do `heap`** (`RT/heap.rs` 4931-6216, ~70 testes sobre `Value`, slots e
   coleções legadas): reescritos por P0.
-* **`EN/tests/contrato.rs:36`** e **`crates/jit/tests/sessao_persistente.rs:148`** compilam no
+* **`EN/tests/contract.rs:36`** e **`crates/jit/tests/sessao_persistente.rs:148`** compilam no
   modo sem SDK da fonte: passam ao modo com SDK (P5).
 * **`EN/llvm/testes.rs`**: usa externs de string que saem (P5).
 * **`crates/runtime/tests/tipos_e_eventos.rs`** usa só a ABI (`dartforge_string_new`,
@@ -2102,7 +2102,7 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 
 1. `cargo build --release -p dartforge-cli --features nativo`.
 2. `cargo test --release -p dartforge-runtime -p dartforge-emit-native -p dartforge-jit -p dartforge-cli`
-   (inclui `tests/hot_reload.rs`, `reload_estado.rs`, `io_regressao.rs`, `jit_programa.rs`).
+   (inclui `tests/hot_reload.rs`, `reload_state.rs`, `io_regression.rs`, `jit_program.rs`).
 3. Módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`.
 4. `env -u HOME cargo run --release -p dartforge-differential -- --nativo --corpus corpus/native`
    (82 programas de hoje + 90–99).
@@ -2113,7 +2113,7 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 8. `bench/performance/*.dart`, `bench/simd` e `bench/http/servidor.dart` com a saída igual à da VM.
 9. Recarga: um programa que guarda strings, listas compactas e gerais, closures, `double` em
    caixa e uma lista grande com cartões em globais, recarregado três vezes (`crates/cli/tests/
-   reload_estado.rs` ganha o caso), com a saída igual antes e depois.
+   reload_state.rs` ganha o caso), com a saída igual antes e depois.
 
 ### 5.3 Programas novos (`corpus/native`, P5 escreve, os pacotes conferem)
 

@@ -18,36 +18,36 @@ import tempfile
 
 
 PROVAS = {
-    "arc_literal_listas": ("prova-literal-listas", False, [
+    "arc_list_literal": ("prova-literal-listas", False, [
         ("normal", None), ("normal", "sem-owner"), ("normal", "sem-liberar"),
     ]),
-    "arc_armazenamento_listas": ("prova-armazenamento-listas", False, [
+    "arc_list_storage": ("prova-armazenamento-listas", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
         ("--crescer", None), ("--crescer", "sem-retencao"), ("--crescer", "sem-liberar"),
     ]),
-    "arc_caixas_simd": ("prova-caixas-simd", False, [("normal", None), ("normal", "sem-liberar")]),
-    "arc_retorno_tipado_escalar": ("prova-retorno-tipado-escalar", False, [
+    "arc_simd_boxes": ("prova-caixas-simd", False, [("normal", None), ("normal", "sem-liberar")]),
+    "arc_typed_scalar_return": ("prova-retorno-tipado-escalar", False, [
         (tipo, controle) for tipo in ("--int", "--double", "--bool")
         for controle in (None, "sem-liberar-contexto")
     ]),
-    "arc_porta_nativa_owned": ("prova-porta-nativa-owned", True, [
+    "arc_native_port_owned": ("prova-porta-nativa-owned", True, [
         (modo, controle) for modo in ("checagem", "tabelas")
         for controle in (None, "sem-registro", "sem-fechamento")
     ]),
-    "arc_retorno_da_fonte": ("prova-retorno-da-fonte", False, [
+    "arc_source_return": ("prova-retorno-da-fonte", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-drop-retorno"),
         ("normal", "sem-drop-intermediario"),
     ]),
-    "arc_instancia_zerada": ("prova-instancia-zerada", False, [
+    "arc_zeroed_instance": ("prova-instancia-zerada", False, [
         ("normal", None), ("normal", "sem-owner"),
         ("normal", "sem-tabela"), ("normal", "sem-drop"),
         ("normal", "layout-obsoleto"),
     ]),
-    "arc_campos_locais": ("prova-campos-locais", False, [
+    "arc_local_fields": ("prova-campos-locais", False, [
         ("normal", None), ("normal", "sem-retencao"),
         ("normal", "sem-drop-objeto"), ("normal", "sem-drop-retorno"),
     ]),
-    "arc_alocacao_campos": ("prova-alocacao-campos", False, [
+    "arc_field_allocation": ("prova-alocacao-campos", False, [
         ("normal", None), ("normal", "sem-drop-filho"), ("normal", "sem-owner-objeto"),
         ("--quadro", None), ("--quadro", "sem-drop-filho"), ("--quadro", "sem-owner-objeto"),
         ("--quadro", "sem-retencao-leitura"),
@@ -55,7 +55,7 @@ PROVAS = {
         ("--tipada", "sem-liberar-contexto"),
         ("--tipada-erro", None), ("--tipada-erro", "sem-liberar-contexto"),
     ]),
-    "arc_keepalive_campos": ("prova-keepalive-campos", False, [
+    "arc_field_keepalive": ("prova-keepalive-campos", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
         ("--vizinho", None), ("--vizinho", "sem-retencao"), ("--vizinho", "sem-liberar"),
         ("--argumento", None), ("--argumento", "sem-retencao"), ("--argumento", "sem-liberar"),
@@ -72,7 +72,7 @@ PROVAS = {
         ("normal", None), ("erro", None), ("normal", "sem-retencao"),
         ("normal", "sem-liberar"), ("erro", "copia-no-erro"),
     ]),
-    "arc_cleanup_laco": ("prova-cleanup-laco", True, [
+    "arc_loop_cleanup": ("prova-cleanup-laco", True, [
         ("normal", None), ("erro", None), ("normal", "sem-drop-normal"),
         ("erro", "sem-drop-erro"),
     ]),
@@ -116,7 +116,7 @@ def main():
         "execucoes": [],
     }
     manifesto_path = destino / "evidencia.json"
-    if args.exemplo == "arc_retorno_da_fonte":
+    if args.exemplo == "arc_source_return":
         sdk_lib = ambiente.get("DARTFORGE_SDK_LIB")
         if not sdk_lib:
             raise RuntimeError("a prova da fonte exige DARTFORGE_SDK_LIB")
@@ -162,7 +162,7 @@ def main():
                     code = processo.returncode
                     registro["exit"] = code
                     (destino / f"{stem}.exit").write_bytes(f"{code}\n".encode("ascii"))
-                    if args.exemplo == "arc_instancia_zerada" and controle == "layout-obsoleto":
+                    if args.exemplo == "arc_zeroed_instance" and controle == "layout-obsoleto":
                         aborts = {0xC0000409, -1073740791} if os.name == "nt" else {-int(signal.SIGABRT)}
                         diagnostico = stderr.read_bytes()
                         if code not in aborts or stdout.read_bytes() != b"" or not all(
@@ -177,7 +177,7 @@ def main():
                     elif code != 0 or stdout.read_bytes() != b"1\n":
                         raise RuntimeError(f"prova falhou: {stem} ({code}); consulte {stdout} e {stderr}")
                     arquivos = [log, exe.with_suffix(".ll"), stdout, stderr, destino / f"{stem}.exit"]
-                    if args.exemplo == "arc_retorno_da_fonte":
+                    if args.exemplo == "arc_source_return":
                         arquivos.append(exe.with_suffix(".dart"))
                     for arquivo in arquivos:
                         dados = arquivo.read_bytes()

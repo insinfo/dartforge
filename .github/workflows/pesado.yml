@@ -480,7 +480,7 @@ jobs:
           DARTFORGE_TESTES_MAPAS: '1'
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test mapas_dirigidos -- --test-threads=1 --nocapture
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test directed_maps -- --test-threads=1 --nocapture
 
   # A memória ARC (docs/ARC-IMPLEMENTACAO.md): o corpus nativo inteiro com
   # --memoria=arc e a auditoria a cada sincronização (nenhum alcançável morto,
@@ -599,40 +599,40 @@ jobs:
           aceitar-placar-parcial: 'true'
       - name: Aridade de closure lança NoSuchMethodError da fonte
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato closure_arity_throws_no_such_method_error_from_source -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract closure_arity_throws_no_such_method_error_from_source -- --ignored --nocapture
       - name: Getter estático de função executa com ordem correta
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato static_getter_returning_function_is_called_as_value -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract static_getter_returning_function_is_called_as_value -- --ignored --nocapture
       - name: Factory redirecionadora preserva RTI do destino
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato redirecting_factory_preserves_target_rti -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract redirecting_factory_preserves_target_rti -- --ignored --nocapture
       - name: Getter de interface despacha campo e getter
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato interface_getter_dispatches_field_and_getter -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract interface_getter_dispatches_field_and_getter -- --ignored --nocapture
       - name: Escrita covariante de List Map Set preserva tipo e conteúdo
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato covariant_collection_write_throws_type_error_without_mutating -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract covariant_collection_write_throws_type_error_without_mutating -- --ignored --nocapture
       - name: Argumento dinâmico errado do SDK lança TypeError
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato wrong_dynamic_sdk_argument_throws_type_error -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract wrong_dynamic_sdk_argument_throws_type_error -- --ignored --nocapture
       - name: Iterable.generate confere função genérica no SDK
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato iterable_generate_checks_generic_signature_in_sdk -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract iterable_generate_checks_generic_signature_in_sdk -- --ignored --nocapture
       - name: Enum lê name e index implícitos no SDK
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato implicit_enum_name_index_in_sdk -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract implicit_enum_name_index_in_sdk -- --ignored --nocapture
       - name: Enum lê values implícito no SDK
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato implicit_enum_values_in_sdk -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract implicit_enum_values_in_sdk -- --ignored --nocapture
       - name: toString padrão de genérica inclui argumentos no SDK
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato generic_class_default_tostring_in_sdk -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract generic_class_default_tostring_in_sdk -- --ignored --nocapture
       - name: Enum do programa é subtipo de Enum no SDK
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato enum_is_subtype_of_enum_in_sdk -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract enum_is_subtype_of_enum_in_sdk -- --ignored --nocapture
       - name: Encaminhador noSuchMethod estático de método no SDK
         shell: pwsh
-        run: cargo test --locked --release -p dartforge-emit-native --test contrato nsm_forwarder_method_in_sdk -- --ignored --nocapture
+        run: cargo test --locked --release -p dartforge-emit-native --test contract nsm_forwarder_method_in_sdk -- --ignored --nocapture
       # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
       # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
       # nativo do portão de custo (comparar com o job `jit`).
@@ -650,16 +650,16 @@ jobs:
       - name: Recarga JIT da CLI com SDK da fonte
         shell: pwsh
         run: |
-          $testes = @(cargo test --locked -p dartforge-cli --features jit --test reload_estado -- --ignored --list)
+          $testes = @(cargo test --locked -p dartforge-cli --features jit --test reload_state -- --ignored --list)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $selecionados = @($testes | Where-Object { $_ -match ': test$' })
           if ($selecionados.Count -eq 0) {
             Write-Error 'A etapa de recarga com SDK da fonte não selecionou nenhum teste.'
             exit 1
           }
-          cargo test --locked -p dartforge-cli --features jit --test reload_estado -- --ignored --nocapture
+          cargo test --locked -p dartforge-cli --features jit --test reload_state -- --ignored --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p dartforge-cli --features jit --test jit_programa -- --ignored --nocapture
+          cargo test --locked -p dartforge-cli --features jit --test jit_program -- --ignored --nocapture
       - name: Produção autocontida (um .exe, sem DLL do DartForge)
         shell: pwsh
         env:
@@ -717,7 +717,7 @@ jobs:
       - name: Testes do JIT (com os ignorados)
         run: cargo test --locked --release -p dartforge-jit -- --include-ignored
       - name: Recarga JIT da CLI (com e sem o SDK da fonte)
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado --test jit_programa -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_state --test jit_program -- --include-ignored
       - name: Corpus nativo (AOT) e JIT × AOT
         shell: bash
         env:

@@ -88,7 +88,7 @@ no corpus inteiro (ver «JIT × AOT no corpus inteiro» abaixo e `ESTADO.md` §1
   | `Platform.script` | o executável | o `.dart` | o `.dart` | o executável |
 
   O URI relativo do `spawnUri` resolve contra o script, como na VM
-  (`crates/cli/tests/jit_programa.rs`).
+  (`crates/cli/tests/jit_program.rs`).
 * **Execução em outra thread.** O heap gerenciado é `thread_local`, como no
   harness AOT. `JitSession` contém ponteiros crus e por isso não é `Send` nem
   `Sync`: o compilador impede o engano em vez de deixá-lo virar heap vazio em
@@ -489,7 +489,7 @@ novo (R1b de `docs/PESQUISA-HOT-RELOAD.md`, `crates/jit/src/vivo.rs`):
 
 Se o programa já terminou, a geração é publicada na thread dele (o estado do
 runtime é por thread, e a thread é a mesma a sessão inteira) e o `main` roda
-de novo sobre o mesmo estado — é o que `crates/cli/tests/reload_estado.rs`
+de novo sobre o mesmo estado — é o que `crates/cli/tests/reload_state.rs`
 confirma (contador estático `1 → 11`, lista no heap `1 → 2`).
 
 Uma edição que não compila não derruba nada: a geração em execução continua.

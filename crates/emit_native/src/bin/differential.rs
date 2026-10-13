@@ -2,9 +2,9 @@
 //!
 //! Runs the programs of `corpus/js/`, compiles them natively and compares the output byte by byte.
 //! Usage:
-//!   cargo run -p dartforge-emit-native --bin diferencial
-//!   cargo run -p dartforge-emit-native --bin diferencial -- 01_print
-//!   cargo run -p dartforge-emit-native --bin diferencial --bloco 1
+//!   cargo run -p dartforge-emit-native --bin differential
+//!   cargo run -p dartforge-emit-native --bin differential -- 01_print
+//!   cargo run -p dartforge-emit-native --bin differential --bloco 1
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

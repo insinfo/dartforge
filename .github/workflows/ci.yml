@@ -96,15 +96,15 @@ jobs:
       # de debug levava ~60 s até a primeira linha de cada uma, o prazo do teste.
       - name: recarga JIT com estado pela CLI
         if: success() || failure()
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_state
       - name: Getters e setters de campos locais (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
+        run: python scripts/provar-arc-aot.py arc_local_fields --features llvm-embutido
       - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memory_cli -- --include-ignored
       - name: Retorno Owned pela fronteira nativa (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_porta_nativa_owned --features llvm-embutido
+        run: python scripts/provar-arc-aot.py arc_native_port_owned --features llvm-embutido
       - name: Artefatos da fronteira nativa Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -119,7 +119,7 @@ jobs:
             target/prova-porta-nativa-owned/evidencia.json
       - name: Retorno Owned do corpo Dart da fonte (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_retorno_da_fonte --features llvm-embutido
+        run: python scripts/provar-arc-aot.py arc_source_return --features llvm-embutido
       - name: Artefatos do retorno da fonte Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -135,7 +135,7 @@ jobs:
             target/prova-retorno-da-fonte/evidencia.json
       - name: Instâncias zeradas Owned e registro de métodos (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_instancia_zerada --features llvm-embutido
+        run: python scripts/provar-arc-aot.py arc_zeroed_instance --features llvm-embutido
       - name: Artefatos das instâncias zeradas Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -176,7 +176,7 @@ jobs:
             target/prova-campos-locais/evidencia.json
       - name: Alocação e inicialização de campos Owned (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_alocacao_campos --features llvm-embutido
+        run: python scripts/provar-arc-aot.py arc_field_allocation --features llvm-embutido
       - name: Artefatos da alocação Owned Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -191,7 +191,7 @@ jobs:
             target/prova-alocacao-campos/evidencia.json
       - name: Keepalive de campos com heap real (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_keepalive_campos --features llvm-embutido
+        run: python scripts/provar-arc-aot.py arc_field_keepalive --features llvm-embutido
       - name: Artefatos do keepalive de campos Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -221,7 +221,7 @@ jobs:
             target/prova-keepalive-pending/evidencia.json
       - name: Cleanup de laços com heap real (AOT Windows)
         shell: pwsh
-        run: python scripts/provar-arc-aot.py arc_cleanup_laco --features llvm-embutido
+        run: python scripts/provar-arc-aot.py arc_loop_cleanup --features llvm-embutido
       - name: Artefatos do cleanup de laços Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -236,7 +236,7 @@ jobs:
             target/prova-cleanup-laco/evidencia.json
       - name: regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
         if: success() || failure()
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regression -- --include-ignored
       # Os #[ignore] que o runner consegue satisfazer: SDK Dart,
       # Clang e rustc. Ficam de fora, pelo nome:
       #   *pub_corpus*      references/pub é baixado pelo proprietário, fora do git
@@ -359,10 +359,10 @@ jobs:
       - name: Compilar dartforge (nativo, jit)
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
       - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memory_cli -- --include-ignored
       - name: Retorno Owned pela fronteira nativa (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_porta_nativa_owned --features llvm-embutido
+        run: python3 scripts/provar-arc-aot.py arc_native_port_owned --features llvm-embutido
       - name: Artefatos da fronteira nativa Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -377,7 +377,7 @@ jobs:
             target/prova-porta-nativa-owned/evidencia.json
       - name: Retorno Owned do corpo Dart da fonte (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_retorno_da_fonte --features llvm-embutido
+        run: python3 scripts/provar-arc-aot.py arc_source_return --features llvm-embutido
       - name: Artefatos do retorno da fonte Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -393,7 +393,7 @@ jobs:
             target/prova-retorno-da-fonte/evidencia.json
       - name: Instâncias zeradas Owned e registro de métodos (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_instancia_zerada --features llvm-embutido
+        run: python3 scripts/provar-arc-aot.py arc_zeroed_instance --features llvm-embutido
       - name: Artefatos das instâncias zeradas Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -422,7 +422,7 @@ jobs:
             target/prova-campos-tipados/evidencia.json
       - name: Getters e setters de campos locais (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
+        run: python3 scripts/provar-arc-aot.py arc_local_fields --features llvm-embutido
       - name: Artefatos dos campos locais Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -437,7 +437,7 @@ jobs:
             target/prova-campos-locais/evidencia.json
       - name: Alocação e inicialização de campos Owned (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_alocacao_campos --features llvm-embutido
+        run: python3 scripts/provar-arc-aot.py arc_field_allocation --features llvm-embutido
       - name: Artefatos da alocação Owned Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -452,7 +452,7 @@ jobs:
             target/prova-alocacao-campos/evidencia.json
       - name: Keepalive de campos com heap real (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_keepalive_campos --features llvm-embutido
+        run: python3 scripts/provar-arc-aot.py arc_field_keepalive --features llvm-embutido
       - name: Artefatos do keepalive de campos Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -482,7 +482,7 @@ jobs:
             target/prova-keepalive-pending/evidencia.json
       - name: Cleanup de laços com heap real (AOT Unix)
         shell: bash
-        run: python3 scripts/provar-arc-aot.py arc_cleanup_laco --features llvm-embutido
+        run: python3 scripts/provar-arc-aot.py arc_loop_cleanup --features llvm-embutido
       - name: Artefatos do cleanup de laços Unix
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -505,7 +505,7 @@ jobs:
             for modo in arc tracing; do
               for caminho in normal erro; do
                 exe="target/prova-arc-resume/${perfil}-${modo}-${caminho}"
-                DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_retornos_guardados -- "$exe" "$modo" "$caminho" automatico "$perfil"
+                DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_guarded_returns -- "$exe" "$modo" "$caminho" automatico "$perfil"
                 grep -F 'personality ptr @dartforge_personality_cleanup_itanium' "${exe}.ll"
                 grep -F 'resume { ptr, i32 } %lpad' "${exe}.ll"
                 if [ "$perfil" = misto ]; then
@@ -534,7 +534,7 @@ jobs:
           for perfil in simples quadros retoma; do
             for nivel in 0 2; do
               exe="target/prova-unwind-estrangeiro/prova-${perfil}-O${nivel}"
-              DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_unwind_estrangeiro -- "$exe" "$nivel" "$perfil"
+              DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_foreign_unwind -- "$exe" "$nivel" "$perfil"
               for modo in arc tracing; do
                 for caminho in cpp forcado forcado_dart; do
                   DARTFORGE_ARC_CONFERIR=1 DARTFORGE_ARC_BERCARIO=0 DARTFORGE_GC_STRESS=1 "$exe" "$modo" "$caminho" > "${exe}-${modo}-${caminho}.stdout"
@@ -560,14 +560,14 @@ jobs:
       - name: Testes do JIT (com os ignorados)
         run: cargo test --locked --release -p dartforge-jit -- --include-ignored
       - name: Recarga JIT da CLI (com e sem o SDK da fonte)
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado --test jit_programa -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_state --test jit_program -- --include-ignored
       - name: Regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regression -- --include-ignored
       - name: gdb (depuração nativa, J05)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y -qq gdb
       - name: Depuração nativa — o gdb para em arquivo.dart:linha
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test depuracao -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test debugging -- --include-ignored
       - name: Olá, mundo — AOT de desenvolvimento, produção e JIT
         shell: bash
         env:
