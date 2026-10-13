@@ -1,8 +1,9 @@
-// Regressão: os formatos de chave e certificado do `SecurityContext`
-// (crates/runtime/src/tls_formatos.rs), como a VM: PEM, PKCS#8 cifrado, PEM
-// cifrado legado, PKCS#12 (PBES2, legado RC2/3DES, sem senha), senha errada,
-// lixo e DER solto (a VM não aceita); e um aperto de mão com o servidor
-// carregado do PKCS#12 e da chave cifrada. Os arquivos estão em tls/.
+// Regression: the key and certificate formats of `SecurityContext`
+// (crates/runtime/src/tls_formatos.rs), like the VM: PEM, encrypted PKCS#8,
+// legacy encrypted PEM, PKCS#12 (PBES2, legacy RC2/3DES, without a password),
+// wrong password, garbage and bare DER (the VM does not accept it); and a
+// handshake with the server loaded from the PKCS#12 and from the encrypted
+// key. The files are in tls/.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -18,8 +19,8 @@ void tentar(String nome, void Function(SecurityContext) f) {
   }
 }
 
-/// Um servidor com `contexto`, e um cliente que confia em `confianca`:
-/// o eco de uma linha.
+/// A server with `contexto`, and a client that trusts `confianca`: the echo
+/// of one line.
 Future<void> aperto(String nome, SecurityContext contexto, SecurityContext confianca) async {
   final server = await SecureServerSocket.bind('127.0.0.1', 0, contexto);
   server.listen((s) {

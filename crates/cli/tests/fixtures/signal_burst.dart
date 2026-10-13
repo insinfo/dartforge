@@ -1,13 +1,13 @@
-// Regressão: uma rajada de sinais maior que o pipe de notificação, com o
-// consumidor parado (o laço não cede ao laço de eventos), não pode travar o
-// tratador de sinais; depois o cancelamento e uma nova inscrição funcionam.
-// (A VM do Dart trava neste programa: o pipe dela é bloqueante.)
+// Regression: a burst of signals larger than the notification pipe, with the
+// consumer stalled (the loop does not yield to the event loop), must not hang
+// the signal handler; afterwards cancelling and subscribing again work.
+// (The Dart VM hangs on this program: its pipe is blocking.)
 import 'dart:async';
 import 'dart:io';
 
 Future<void> main() async {
   if (Platform.isWindows) {
-    // Sem SIGUSR2 no Windows (os sinais são os eventos de console).
+    // No SIGUSR2 on Windows (the signals are the console events).
     print('rajada: ok');
     print('reinscricao: ok');
     return;

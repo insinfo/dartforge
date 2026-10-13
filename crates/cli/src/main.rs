@@ -1,24 +1,24 @@
-//! Interface de linha de comando do compilador DartForge.
+//! Command-line interface of the DartForge compiler.
 use std::{env, path::PathBuf, process::ExitCode};
-mod analisar;
-mod formatar;
+mod analyze;
 #[cfg(feature = "nativo")]
 mod empacotar;
+mod engine;
+mod format;
 mod jit;
 mod macros;
-mod motor;
-mod nativo;
+mod native;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "abi-info") {
-        return nativo::abi_info(&args);
+        return native::abi_info(&args);
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
-       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<entrada.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]\n       dartforge aot|abi-info ...  (compile com --features nativo)
-       dartforge run|reload <input.dart> ...  (compile com --features jit)
-       dartforge empacotar <destino>  (a distribuição: executável, runtime, SDK, ligador)\n       dartforge analyze [--format=json] [--todos] [<dir|arquivo>]  (o JSON do dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <arquivos|dirs>  (o dart format 3.6.2)\n       dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <exe>]\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
+            "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
+       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]\n       dartforge aot|abi-info ...  (build with --features nativo)
+       dartforge run|reload <input.dart> ...  (build with --features jit)
+       dartforge empacotar <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--todos] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge macros <input.dart> [--materializar] [--forma 3.6|atual] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
         );
         return Ok(());
     }
@@ -28,9 +28,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "serve" {
         return run_dev(&args[1..], true);
     }
-    if args[0] == "compile-native" { return nativo::run_compile_native(&args[1..]); }
+    if args[0] == "compile-native" { return native::run_compile_native(&args[1..]); }
     if args[0] == "build" {
-        return motor::run_build(&args[1..]);
+        return engine::run_build(&args[1..]);
     }
     if args[0] == "compile-js" {
         return run_compile_js(&args[1..]);
@@ -45,25 +45,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return jit::reload(&args[1..]);
     }
     if args[0] == "aot" {
-        return nativo::aot(&args);
+        return native::aot(&args);
     }
     if args[0] == "empacotar" {
         #[cfg(feature = "nativo")]
         return empacotar::run(&args[1..]);
         #[cfg(not(feature = "nativo"))]
-        return Err("empacotar: compile com --features nativo".into());
+        return Err("empacotar: build with --features nativo".into());
     }
-    Err(format!("comando desconhecido: {}", args[0].to_string_lossy()).into())
+    Err(format!("unknown command: {}", args[0].to_string_lossy()).into())
 }
 
-/// Converte o resultado do comando em mensagem e código de saída do processo.
+/// Turns the command's result into a message and the process exit code.
 fn main() -> ExitCode {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.first().is_some_and(|a| a == "format") {
-        return formatar::run(&args[1..]);
+        return format::run(&args[1..]);
     }
     if args.first().is_some_and(|a| a == "analyze") {
-        return match analisar::run(&args[1..]) {
+        return match analyze::run(&args[1..]) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -80,7 +80,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// `compile-js`: pipeline inteiro e escrita dos módulos ES no diretório dado.
+/// `compile-js`: the whole pipeline and the writing of the ES modules into the given directory.
 fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--versao-linguagem x.y] [--enable-experiment=a,b]";
     let mut input: Option<PathBuf> = None;
@@ -88,11 +88,11 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
-    let mut linguagem = dartforge_emit_js::Linguagem::default();
-    let textos: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
-    let mut it = textos.iter().map(String::as_str);
+    let mut language = dartforge_emit_js::Linguagem::default();
+    let texts: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let mut it = texts.iter().map(String::as_str);
     while let Some(a) = it.next() {
-        if linguagem.ler_opcao(a, &mut it)? {
+        if language.ler_opcao(a, &mut it)? {
             continue;
         }
         match a {
@@ -105,59 +105,59 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
         }
     }
     let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
-    // Corpos profundos (cadeias longas de `+`, árvores de widgets) recursam fundo: pilha própria.
+    // Deep bodies (long chains of `+`, widget trees) recurse deeply: own stack.
     let (i2, s2, p2) = (input.clone(), sdk.clone(), packages.clone());
-    let (emitido, mut relatorio, rel_motor) = std::thread::Builder::new()
+    let (emitted, mut report, engine_report) = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || -> Result<_, String> {
-            // Motor de build só se o projeto usa builders (custo zero).
-            let motor = motor::detectar(&i2, p2.as_deref());
-            let rel_motor = std::cell::RefCell::new(None);
-            let gerar = |programa: &dartforge_elements::model::Program, nomes: &dartforge_intern::Interner| {
-                let (raiz, cfg, caminho_cfg) = motor.as_ref().ok_or("sem motor")?;
-                match motor::gerar_uma_vez(raiz, cfg, caminho_cfg, programa, nomes) {
-                    Ok((g, texto)) => {
-                        *rel_motor.borrow_mut() = Some(texto);
+            // Build engine only if the project uses builders (zero cost).
+            let engine = engine::detect(&i2, p2.as_deref());
+            let engine_report = std::cell::RefCell::new(None);
+            let generate = |program: &dartforge_elements::model::Program, names: &dartforge_intern::Interner| {
+                let (root, cfg, cfg_path) = engine.as_ref().ok_or("no engine")?;
+                match engine::generate_once(root, cfg, cfg_path, program, names) {
+                    Ok((g, text)) => {
+                        *engine_report.borrow_mut() = Some(text);
                         Ok(g)
                     }
-                    // Erro do motor (builder que falhou, configuração
-                    // ilegível) falha a compilação: uma geração vazia faria o
-                    // carregador ler do disco saídas antigas como se fossem
-                    // desta compilação (DF-BUILD-005).
-                    Err(e) => Err(format!("motor de build: {e}")),
+                    // An engine error (a builder that failed, an unreadable
+                    // configuration) fails the compilation: an empty generation
+                    // would make the loader read old outputs from disk as if they
+                    // belonged to this compilation (DF-BUILD-005).
+                    Err(e) => Err(format!("build engine: {e}")),
                 }
             };
-            let gerador: Option<dartforge_emit_js::Gerador<'_>> = motor.as_ref().map(|_| &gerar as _);
-            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), &linguagem, gerador)?;
-            Ok((e, r, rel_motor.into_inner()))
+            let generator: Option<dartforge_emit_js::Gerador<'_>> = engine.as_ref().map(|_| &generate as _);
+            let (e, r) = dartforge_emit_js::compilar_com_relatorio_e_gerador(&i2, s2.as_deref(), p2.as_deref(), &language, generator)?;
+            Ok((e, r, engine_report.into_inner()))
         })
         .map_err(|e| e.to_string())?
         .join()
-        .map_err(|_| "a compilação abortou")??;
+        .map_err(|_| "the compilation aborted")??;
     let t = std::time::Instant::now();
-    let escritos = dartforge_emit_js::escrever(&emitido, &out, &dartforge_emit_js::dart_sdk_js_padrao())?;
-    relatorio.fase("escrita", t);
+    let written = dartforge_emit_js::escrever(&emitted, &out, &dartforge_emit_js::dart_sdk_js_padrao())?;
+    report.fase("write", t);
     println!(
-        "{} -> {} ({} módulos, {} arquivo(s) reescrito(s))",
+        "{} -> {} ({} modules, {} file(s) rewritten)",
         input.display(),
         out.display(),
-        emitido.modulos.len(),
-        escritos
+        emitted.modulos.len(),
+        written
     );
-    if let Some(texto) = rel_motor {
-        println!("{texto}");
+    if let Some(text) = engine_report {
+        println!("{text}");
     }
     if timings {
-        print!("{}", relatorio.texto());
+        print!("{}", report.texto());
     }
     Ok(())
 }
 
-/// `dev`: compilador residente. Compila uma vez, observa os arquivos do
-/// projeto por mtime e recompila o mínimo, gravando só os módulos cujo texto
-/// mudou (PLANO.md, "o compilador residente").
-fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = if servir {
+/// `dev`: resident compiler. Compiles once, watches the project files by
+/// mtime and recompiles the minimum, writing only the modules whose text
+/// changed (PLANO.md, "o compilador residente").
+fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let usage = if serve {
         "usage: dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>]"
     } else {
         "usage: dartforge dev <input.dart> -o <dir> [--packages <package_config.json>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]"
@@ -166,10 +166,10 @@ fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std:
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
-    let mut intervalo_ms = 200u64;
-    let mut uma_vez = false;
+    let mut interval_ms = 200u64;
+    let mut once = false;
     let mut web: Option<PathBuf> = None;
-    let mut porta = 8080u16;
+    let mut port = 8080u16;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.to_str() {
@@ -177,21 +177,21 @@ fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std:
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--intervalo") => {
-                intervalo_ms = it
+                interval_ms = it
                     .next()
                     .and_then(|v| v.to_str())
                     .and_then(|v| v.parse().ok())
                     .filter(|v| (10..=10_000).contains(v))
-                    .ok_or("--intervalo exige milissegundos entre 10 e 10000")?;
+                    .ok_or("--intervalo requires milliseconds between 10 and 10000")?;
             }
-            Some("--uma-vez") => uma_vez = true,
+            Some("--uma-vez") => once = true,
             Some("--web") => web = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--porta") => {
-                porta = it
+                port = it
                     .next()
                     .and_then(|v| v.to_str())
                     .and_then(|v| v.parse().ok())
-                    .ok_or("--porta exige um número")?;
+                    .ok_or("--porta requires a number")?;
             }
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
@@ -199,69 +199,69 @@ fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std:
     }
     let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
 
-    // Corpos profundos recursam fundo: a sessão roda numa thread com pilha própria.
-    let saida = out.clone();
-    let entrada = input.clone();
+    // Deep bodies recurse deeply: the session runs on a thread with its own stack.
+    let output = out.clone();
+    let entry = input.clone();
     let web = web.clone();
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || -> Result<(), String> {
-            let mut sessao =
-                dartforge_dev::Sessao::nova(&entrada, sdk.as_deref(), packages.as_deref(), &saida)?;
-            let rel = sessao.compilar()?;
+            let mut session =
+                dartforge_dev::Sessao::nova(&entry, sdk.as_deref(), packages.as_deref(), &output)?;
+            let rep = session.compilar()?;
             println!(
-                "{} -> {} ({} módulos, {} escritos)",
-                entrada.display(),
-                saida.display(),
-                rel.modulos,
-                rel.modulos_escritos
+                "{} -> {} ({} modules, {} written)",
+                entry.display(),
+                output.display(),
+                rep.modulos,
+                rep.modulos_escritos
             );
-            print!("{}", rel.texto());
-            if uma_vez {
+            print!("{}", rep.texto());
+            if once {
                 return Ok(());
             }
-            // `serve`: o servidor sobe depois da primeira compilação, para que
-            // a primeira visita já encontre a saída pronta.
-            let recarga = std::sync::Arc::new(dartforge_dev::servidor::Recarga::default());
-            if servir {
+            // `serve`: the server starts after the first compilation, so that
+            // the first visit already finds the output ready.
+            let reload = std::sync::Arc::new(dartforge_dev::servidor::Recarga::default());
+            if serve {
                 let p = dartforge_dev::servidor::servir_com_gerados(
-                    &saida,
+                    &output,
                     web.as_deref(),
-                    porta,
-                    recarga.clone(),
-                    sessao.provedor_de_gerados(),
+                    port,
+                    reload.clone(),
+                    session.provedor_de_gerados(),
                 )?;
-                println!("servindo em http://127.0.0.1:{p}/ (recarga automática por WebSocket)");
+                println!("serving at http://127.0.0.1:{p}/ (automatic reload over WebSocket)");
             }
-            println!("observando {} arquivos a cada {intervalo_ms} ms (ctrl+c para sair)…", sessao.observados().len());
+            println!("watching {} files every {interval_ms} ms (ctrl+c to quit)…", session.observados().len());
             loop {
-                std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));
-                let mudados = sessao.mudancas();
-                if mudados.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(interval_ms));
+                let changed = session.mudancas();
+                if changed.is_empty() {
                     continue;
                 }
-                for p in &mudados {
-                    println!("mudou: {}", p.display());
-                    sessao.arquivo_mudou(p);
+                for p in &changed {
+                    println!("changed: {}", p.display());
+                    session.arquivo_mudou(p);
                 }
-                match sessao.compilar() {
-                    Ok(rel) => {
-                        print!("{}", rel.texto());
-                        if servir {
-                            // Só recarrega o navegador se algum módulo mudou.
-                            // Módulo novo, ou saída gerada servida (um `.css`).
-                            let gerou = rel.motor.as_ref().is_some_and(|m| m.saidas_alteradas > 0);
-                            if rel.modulos_escritos > 0 || gerou {
-                                recarga.disparar();
+                match session.compilar() {
+                    Ok(rep) => {
+                        print!("{}", rep.texto());
+                        if serve {
+                            // Only reload the browser if some module changed:
+                            // a new module, or a served generated output (a `.css`).
+                            let generated = rep.motor.as_ref().is_some_and(|m| m.saidas_alteradas > 0);
+                            if rep.modulos_escritos > 0 || generated {
+                                reload.disparar();
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("erro: {e}");
-                        if servir {
-                            // O navegador mostra o erro no console e segue
-                            // ligado: a próxima compilação boa recarrega.
-                            recarga.erro(&e);
+                        eprintln!("error: {e}");
+                        if serve {
+                            // The browser shows the error in the console and stays
+                            // connected: the next good compilation reloads.
+                            reload.erro(&e);
                         }
                     }
                 }
@@ -269,6 +269,6 @@ fn run_dev(args: &[std::ffi::OsString], servir: bool) -> Result<(), Box<dyn std:
         })
         .map_err(|e| e.to_string())?
         .join()
-        .map_err(|_| "a sessão abortou")??;
+        .map_err(|_| "the session aborted")??;
     Ok(())
 }

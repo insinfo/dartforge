@@ -1,46 +1,46 @@
-//! `dartforge macros`: roda o hospedeiro de macros e mostra ou **materializa**
-//! a augmentation de cada biblioteca (docs/MACROS-COMPATIBILIDADE.md).
+//! `dartforge macros`: runs the macro host and shows or **materializes** the
+//! augmentation of each library (docs/MACROS-COMPATIBILIDADE.md).
 //!
-//! O executor do produto é o nativo (D4, `--nativo`): o bootstrap compilado
-//! pelo `compile-native` deste mesmo executável (exige a feature `nativo`),
-//! sem VM Dart (`macros_host::nativo`). Com `--dart`, a mesma macro roda com a
-//! nossa API numa VM Dart (o executor de materialização, `macros_host::vm`) —
-//! o caminho de compatibilidade com a toolchain oficial, não uma dependência
-//! do compilador.
+//! The product's executor is the native one (D4, `--nativo`): the bootstrap
+//! compiled by the `compile-native` of this same executable (requires the
+//! `nativo` feature), without a Dart VM (`macros_host::nativo`). With
+//! `--dart`, the same macro runs with our API on a Dart VM (the
+//! materialization executor, `macros_host::vm`) — the compatibility path with
+//! the official toolchain, not a dependency of the compiler.
 use dartforge_elements::sdk::{Linguagem, SdkLayout};
 use dartforge_intern::Interner;
 use dartforge_macros_host::executor::{ExecutorMacros, Indisponivel};
 use std::path::{Path, PathBuf};
 
-const USO: &str = "usage: dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <executável dart> | --nativo] \
+const USAGE: &str = "usage: dartforge macros <input.dart> [--materializar] [--forma 3.6|atual] [--dart <dart executable> | --nativo] \
 [--api <packages/macros>] [--packages <package_config.json>] [--sdk <lib>] [--versao-linguagem x.y] [--enable-experiment=a,b]";
 
-/// A forma do arquivo materializado, por versão do SDK oficial.
+/// The shape of the materialized file, by version of the official SDK.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Forma {
-    /// `augment library 'x.dart';` — a biblioteca inclui com
+enum Shape {
+    /// `augment library 'x.dart';` — the library includes it with
     /// `import augment 'x.macro.dart';` (SDK 3.6.2, `--enable-experiment=macros`).
     Sdk36,
-    /// `part of 'x.dart';` — a biblioteca inclui com `part 'x.macro.dart';`
+    /// `part of 'x.dart';` — the library includes it with `part 'x.macro.dart';`
     /// (SDK 3.13.4, `--enable-experiment=augmentations,enhanced-parts`).
-    Atual,
+    Current,
 }
 
-/// O texto montado com o cabeçalho da forma pedida (o resto é o mesmo, byte
-/// a byte).
-fn com_cabecalho(texto: &str, biblioteca: &Path, forma: Forma) -> String {
-    let nome = biblioteca.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let resto = texto.split_once('\n').map_or("", |(_, r)| r);
-    match forma {
-        Forma::Sdk36 => format!("augment library '{nome}';\n{resto}"),
-        Forma::Atual => format!("part of '{nome}';\n{resto}"),
+/// The assembled text with the header of the requested shape (the rest is
+/// the same, byte for byte).
+fn with_header(text: &str, library: &Path, shape: Shape) -> String {
+    let name = library.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let rest = text.split_once('\n').map_or("", |(_, r)| r);
+    match shape {
+        Shape::Sdk36 => format!("augment library '{name}';\n{rest}"),
+        Shape::Current => format!("part of '{name}';\n{rest}"),
     }
 }
 
-/// A nossa API de macros: `--api`, `DARTFORGE_MACROS_API`, ou `packages/macros`
-/// num diretório acima do executável ou do diretório corrente.
-fn achar_api(explicita: Option<PathBuf>) -> Option<PathBuf> {
-    if let Some(p) = explicita.or_else(|| std::env::var_os("DARTFORGE_MACROS_API").map(PathBuf::from)) {
+/// Our macro API: `--api`, `DARTFORGE_MACROS_API`, or `packages/macros` in a
+/// directory above the executable or the current directory.
+fn find_api(explicit: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(p) = explicit.or_else(|| std::env::var_os("DARTFORGE_MACROS_API").map(PathBuf::from)) {
         return Some(p);
     }
     let bases = [std::env::current_exe().ok(), std::env::current_dir().ok()];
@@ -56,122 +56,122 @@ fn achar_api(explicita: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let textos: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
-    let mut it = textos.iter().map(String::as_str);
-    let mut entrada: Option<PathBuf> = None;
-    let mut materializar = false;
-    let mut forma = Forma::Sdk36;
+    let texts: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let mut it = texts.iter().map(String::as_str);
+    let mut input: Option<PathBuf> = None;
+    let mut materialize = false;
+    let mut shape = Shape::Sdk36;
     let mut dart: Option<PathBuf> = None;
-    let mut nativo = false;
+    let mut native = false;
     let mut api: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut sdk_lib: Option<PathBuf> = None;
-    let mut linguagem = Linguagem::default();
+    let mut language = Linguagem::default();
     while let Some(a) = it.next() {
-        if linguagem.ler_opcao(a, &mut it)? {
+        if language.ler_opcao(a, &mut it)? {
             continue;
         }
         match a {
-            "--materializar" => materializar = true,
+            "--materializar" => materialize = true,
             "--forma" => {
-                forma = match it.next() {
-                    Some("3.6") => Forma::Sdk36,
-                    Some("atual" | "3.13") => Forma::Atual,
-                    _ => return Err(USO.into()),
+                shape = match it.next() {
+                    Some("3.6") => Shape::Sdk36,
+                    Some("atual" | "3.13") => Shape::Current,
+                    _ => return Err(USAGE.into()),
                 }
             }
-            "--dart" => dart = Some(PathBuf::from(it.next().ok_or(USO)?)),
-            "--nativo" => nativo = true,
-            "--api" => api = Some(PathBuf::from(it.next().ok_or(USO)?)),
-            "--packages" => packages = Some(PathBuf::from(it.next().ok_or(USO)?)),
-            "--sdk" => sdk_lib = Some(PathBuf::from(it.next().ok_or(USO)?)),
-            _ if entrada.is_none() => entrada = Some(PathBuf::from(a)),
-            _ => return Err(USO.into()),
+            "--dart" => dart = Some(PathBuf::from(it.next().ok_or(USAGE)?)),
+            "--nativo" => native = true,
+            "--api" => api = Some(PathBuf::from(it.next().ok_or(USAGE)?)),
+            "--packages" => packages = Some(PathBuf::from(it.next().ok_or(USAGE)?)),
+            "--sdk" => sdk_lib = Some(PathBuf::from(it.next().ok_or(USAGE)?)),
+            _ if input.is_none() => input = Some(PathBuf::from(a)),
+            _ => return Err(USAGE.into()),
         }
     }
-    let entrada = entrada.ok_or(USO)?;
-    let sdk_dir = sdk_lib.or_else(SdkLayout::discover).ok_or("SDK não encontrado (use --sdk)")?;
+    let input = input.ok_or(USAGE)?;
+    let sdk_dir = sdk_lib.or_else(SdkLayout::discover).ok_or("SDK not found (use --sdk)")?;
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
-    linguagem.aplicar(&mut sdk);
-    let packages = packages.or_else(|| dartforge_elements::config::PackageConfig::discover(&entrada));
+    language.aplicar(&mut sdk);
+    let packages = packages.or_else(|| dartforge_elements::config::PackageConfig::discover(&input));
 
-    let mut nomes = Interner::new();
+    let mut names = Interner::new();
     let (program, diags) =
-        dartforge_elements::load::load_lenient_gerados(&entrada, &sdk, packages.as_deref(), &mut nomes, None, None, None);
+        dartforge_elements::load::load_lenient_gerados(&input, &sdk, packages.as_deref(), &mut names, None, None, None);
     if !diags.is_empty() {
         for d in &diags {
-            eprintln!("erro: {d}");
+            eprintln!("error: {d}");
         }
-        return Err(format!("{} erro(s) ao carregar o programa", diags.len()).into());
+        return Err(format!("{} error(s) loading the program", diags.len()).into());
     }
-    let apps = dartforge_macros_host::aplicacoes::detectar(&dartforge_macros_host::modelo::Vista { program: &program, interner: &nomes });
+    let apps = dartforge_macros_host::aplicacoes::detectar(&dartforge_macros_host::modelo::Vista { program: &program, interner: &names });
     if apps.is_empty() {
-        println!("nenhuma aplicação de macro");
+        println!("no macro applications");
         return Ok(());
     }
-    if nativo && dart.is_some() {
-        return Err("use --dart ou --nativo, não os dois".into());
+    if native && dart.is_some() {
+        return Err("use --dart or --nativo, not both".into());
     }
     let mut executor: Box<dyn ExecutorMacros> = match &dart {
-        None if nativo => {
+        None if native => {
             if !cfg!(feature = "nativo") {
-                return Err("--nativo exige o dartforge compilado com a feature nativo (o compile-native compila o executor)".into());
+                return Err("--nativo requires dartforge built with the nativo feature (compile-native compiles the executor)".into());
             }
-            let api = achar_api(api).ok_or("a API de macros (packages/macros) não foi encontrada: use --api")?;
-            let raiz = entrada.parent().unwrap_or(Path::new("."));
+            let api = find_api(api).ok_or("the macro API (packages/macros) was not found: use --api")?;
+            let root = input.parent().unwrap_or(Path::new("."));
             let cfg = dartforge_macros_host::nativo::ConfigNativa {
                 compilador: std::env::current_exe()?,
                 sdk_lib: sdk.root.clone(),
                 api,
-                trabalho: raiz.join(".dart_tool").join("dartforge").join("macros").join("nativo"),
+                trabalho: root.join(".dart_tool").join("dartforge").join("macros").join("nativo"),
             };
             Box::new(dartforge_macros_host::nativo::iniciar(&cfg, &apps, packages.as_deref())?)
         }
         Some(d) => {
-            let api = achar_api(api).ok_or("a API de macros (packages/macros) não foi encontrada: use --api")?;
-            let raiz = entrada.parent().unwrap_or(Path::new("."));
+            let api = find_api(api).ok_or("the macro API (packages/macros) was not found: use --api")?;
+            let root = input.parent().unwrap_or(Path::new("."));
             let cfg = dartforge_macros_host::vm::ConfigDaVm {
                 dart: d.clone(),
                 api,
-                trabalho: raiz.join(".dart_tool").join("dartforge").join("macros"),
+                trabalho: root.join(".dart_tool").join("dartforge").join("macros"),
             };
             Box::new(dartforge_macros_host::vm::iniciar(&cfg, &apps, packages.as_deref())?)
         }
         None => Box::new(Indisponivel::default()),
     };
-    let mut carregar = |i: &mut Interner, g| {
-        dartforge_elements::load::load_lenient_gerados(&entrada, &sdk, packages.as_deref(), i, None, None, g)
+    let mut load = |i: &mut Interner, g| {
+        dartforge_elements::load::load_lenient_gerados(&input, &sdk, packages.as_deref(), i, None, None, g)
     };
-    let saida = match dartforge_macros_host::aplicar(program, &mut nomes, None, &mut carregar, executor.as_mut()) {
+    let output = match dartforge_macros_host::aplicar(program, &mut names, None, &mut load, executor.as_mut()) {
         Ok(s) => s,
         Err(ds) => {
             for d in &ds {
-                eprintln!("erro: {d}");
+                eprintln!("error: {d}");
             }
-            return Err(format!("{} erro(s) nas macros", ds.len()).into());
+            return Err(format!("{} error(s) in the macros", ds.len()).into());
         }
     };
-    for a in &saida.avisos {
-        eprintln!("aviso: {a}");
+    for a in &output.avisos {
+        eprintln!("warning: {a}");
     }
-    for t in &saida.textos {
-        let biblioteca = t.caminho.with_file_name(
+    for t in &output.textos {
+        let library = t.caminho.with_file_name(
             t.caminho.file_name().map(|n| n.to_string_lossy().replace(".macro.dart", ".dart")).unwrap_or_default(),
         );
-        if materializar {
-            let texto = com_cabecalho(&t.texto, &biblioteca, forma);
-            std::fs::write(&t.caminho, texto).map_err(|e| format!("{}: {e}", t.caminho.display()))?;
-            let nome = t.caminho.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let diretiva = match forma {
-                Forma::Sdk36 => format!("import augment '{nome}';"),
-                Forma::Atual => format!("part '{nome}';"),
+        if materialize {
+            let text = with_header(&t.texto, &library, shape);
+            std::fs::write(&t.caminho, text).map_err(|e| format!("{}: {e}", t.caminho.display()))?;
+            let name = t.caminho.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let directive = match shape {
+                Shape::Sdk36 => format!("import augment '{name}';"),
+                Shape::Current => format!("part '{name}';"),
             };
-            println!("{} ({}; inclua `{diretiva}` em {})", t.caminho.display(), t.biblioteca, biblioteca.display());
+            println!("{} ({}; include `{directive}` in {})", t.caminho.display(), t.biblioteca, library.display());
         } else {
             println!("// {} ({})", t.caminho.display(), t.biblioteca);
             print!("{}", t.texto);
         }
     }
-    eprintln!("{} aplicação(ões), {} execução(ões) de macro", apps.len(), saida.macros_executadas);
+    eprintln!("{} application(s), {} macro run(s)", apps.len(), output.macros_executadas);
     Ok(())
 }

@@ -1,4 +1,4 @@
-//! A política é selecionada pela opção, inclusive com ambiente ARC herdado.
+//! The policy is selected by the option, even with an inherited ARC environment.
 #![cfg(feature = "nativo")]
 
 use std::{
@@ -12,7 +12,7 @@ fn cli() -> Command {
     cmd
 }
 
-fn conferir(output: Output, esperado: &str) {
+fn check(output: Output, expected: &str) {
     assert!(
         output.status.success(),
         "{}",
@@ -20,29 +20,29 @@ fn conferir(output: Output, esperado: &str) {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-        esperado,
+        expected,
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
 #[test]
-fn valor_invalido_e_recusado_antes_de_carregar_fonte() {
-    let mut casos = vec![
-        vec!["compile-native", "--memoria=errada", "ausente.dart"],
-        vec!["aot", "ausente.dart", "ausente.exe", "--memoria=errada"],
+fn invalid_value_is_rejected_before_loading_the_source() {
+    let mut cases = vec![
+        vec!["compile-native", "--memoria=wrong", "missing.dart"],
+        vec!["aot", "missing.dart", "missing.exe", "--memoria=wrong"],
     ];
     if cfg!(feature = "jit") {
-        casos.extend([
-            vec!["run", "--memoria=errada", "ausente.dart"],
-            vec!["reload", "ausente.dart", "--memoria=errada"],
+        cases.extend([
+            vec!["run", "--memoria=wrong", "missing.dart"],
+            vec!["reload", "missing.dart", "--memoria=wrong"],
         ]);
     }
-    for args in casos {
+    for args in cases {
         let output = cli().args(&args).output().unwrap();
         assert!(!output.status.success());
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("--memoria=errada: as políticas"),
+            String::from_utf8_lossy(&output.stderr).contains("--memoria=wrong: the memory policies"),
             "{args:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -50,21 +50,21 @@ fn valor_invalido_e_recusado_antes_de_carregar_fonte() {
 }
 
 #[test]
-#[ignore = "prova nativa com SDK da fonte e LLVM; executada na CI"]
-fn aot_so_ativa_arc_com_opcao_explicita() {
-    let raiz = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fonte = raiz.join("tests/fixtures/memoria_cli.dart");
-    let dir = raiz.join(format!("../../target/memoria-cli-{}", std::process::id()));
+#[ignore = "native proof with the source-built SDK and LLVM; run in CI"]
+fn aot_only_enables_arc_with_an_explicit_option() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = root.join("tests/fixtures/memory_cli.dart");
+    let dir = root.join(format!("../../target/memoria-cli-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     for arc in [false, true] {
         let exe = dir.join(format!(
             "{}.{}",
-            if arc { "arc" } else { "padrao" },
+            if arc { "arc" } else { "default" },
             if cfg!(windows) { "exe" } else { "bin" }
         ));
         let mut cmd = cli();
         cmd.arg("compile-native")
-            .arg(&fonte)
+            .arg(&source)
             .arg("-o")
             .arg(&exe)
             .env("TEMP", &dir)
@@ -78,7 +78,7 @@ fn aot_so_ativa_arc_com_opcao_explicita() {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        conferir(
+        check(
             Command::new(exe)
                 .env("DARTFORGE_MEMORIA", "arc")
                 .output()
@@ -90,17 +90,17 @@ fn aot_so_ativa_arc_com_opcao_explicita() {
 
 #[cfg(feature = "jit")]
 #[test]
-#[ignore = "prova JIT e reload com SDK da fonte e LLVM; executada na CI"]
-fn jit_e_reload_selecionam_politica_e_preservam_argumentos_do_programa() {
-    let fonte = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memoria_cli.dart");
+#[ignore = "JIT and reload proof with the source-built SDK and LLVM; run in CI"]
+fn jit_and_reload_select_the_policy_and_keep_the_program_arguments() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memory_cli.dart");
     for arc in [false, true] {
         let mut run = cli();
         run.arg("run");
         if arc {
             run.arg("--memoria=arc");
         }
-        run.arg(&fonte).arg("--memoria=arc");
-        conferir(
+        run.arg(&source).arg("--memoria=arc");
+        check(
             run.output().unwrap(),
             if arc {
                 "1\n--memoria=arc\n"
@@ -108,16 +108,16 @@ fn jit_e_reload_selecionam_politica_e_preservam_argumentos_do_programa() {
                 "0\n--memoria=arc\n"
             },
         );
-        for reiniciar in [false, true] {
+        for restart in [false, true] {
             let mut reload = cli();
-            reload.arg("reload").arg(&fonte).arg("--uma-vez");
+            reload.arg("reload").arg(&source).arg("--uma-vez");
             if arc {
                 reload.arg("--memoria=arc");
             }
-            if reiniciar {
+            if restart {
                 reload.arg("--reiniciar");
             }
-            conferir(
+            check(
                 reload.output().unwrap(),
                 if arc { "1\n\n" } else { "0\n\n" },
             );

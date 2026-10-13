@@ -1,8 +1,8 @@
-// Regressão: TLS do dart:io (crates/runtime/src/tls.rs e
-// native_sdk/io/secure_socket_patch.dart). Cliente e servidor no mesmo
-// isolado: ALPN, o X509Certificate do par, a recusa do certificado sem a CA
-// (a mensagem da VM), o onBadCertificate, um volume maior que os anéis do
-// filtro e o HTTPS do dart:_http. Os certificados de teste estão em tls/.
+// Regression: dart:io TLS (crates/runtime/src/tls.rs and
+// native_sdk/io/secure_socket_patch.dart). Client and server in the same
+// isolate: ALPN, the peer's X509Certificate, the rejection of the certificate
+// without the CA (the VM's message), onBadCertificate, a volume larger than
+// the filter's rings and dart:_http's HTTPS. The test certificates are in tls/.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -27,7 +27,7 @@ Future<void> soquetes(String dir) async {
     }, onError: (e) => print('servidor (leitura): ${e.runtimeType}'));
   }, onError: (e) => print('servidor: ${e.runtimeType}'));
 
-  // 1. Confiando na CA.
+  // 1. Trusting the CA.
   final cliente = SecurityContext()..setTrustedCertificates('$dir/ca.pem');
   final s = await SecureSocket.connect('localhost', server.port,
       context: cliente, supportedProtocols: ['http/1.1']);
@@ -43,7 +43,7 @@ Future<void> soquetes(String dir) async {
   print(await utf8.decoder.bind(s).join());
   await s.close();
 
-  // 2. Sem confiar: HandshakeException.
+  // 2. Without trusting: HandshakeException.
   try {
     await SecureSocket.connect('localhost', server.port,
         context: SecurityContext());
@@ -53,7 +53,7 @@ Future<void> soquetes(String dir) async {
     print(e.osError?.message.contains('CERTIFICATE_VERIFY_FAILED'));
   }
 
-  // 3. onBadCertificate aceita.
+  // 3. onBadCertificate accepts.
   String? visto;
   final s3 = await SecureSocket.connect('localhost', server.port,
       context: SecurityContext(), onBadCertificate: (cert) {
@@ -66,7 +66,7 @@ Future<void> soquetes(String dir) async {
   print(await utf8.decoder.bind(s3).join());
   await s3.close();
 
-  // 4. Grande volume nos dois sentidos.
+  // 4. Large volume in both directions.
   final grande = 'x' * 200000;
   final s4 = await SecureSocket.connect('localhost', server.port, context: cliente);
   s4.write('$grande\n');
@@ -104,7 +104,7 @@ Future<void> http(String dir) async {
     print('${resp.statusCode} ${resp.headers.contentType} '
         '${await utf8.decoder.bind(resp).join()}');
   }
-  // Certificado ruim no HttpClient: badCertificateCallback.
+  // Bad certificate in HttpClient: badCertificateCallback.
   final inseguro = HttpClient()..badCertificateCallback = (c, h, p) {
     print('callback: $h ${c.issuer}');
     return true;

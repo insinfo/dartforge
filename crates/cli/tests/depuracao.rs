@@ -1,58 +1,58 @@
-//! J05: o depurador nativo para num `arquivo.dart:linha` do executável
-//! compilado com `--depuracao` e mostra a pilha com os nomes e as linhas Dart.
-//! Roda com o `gdb` (Linux); sem ele, o teste avisa e passa.
+//! J05: the native debugger stops at a `file.dart:line` of the executable
+//! compiled with `--depuracao` and shows the stack with the Dart names and lines.
+//! Runs with `gdb` (Linux); without it, the test warns and passes.
 #![cfg(feature = "nativo")]
 
 use std::process::Command;
 
-const PROGRAMA: &str = "int dobro(int x) {
+const PROGRAM: &str = "int twice(int x) {
   final y = x * 2;
   return y;
 }
 
-class Conta {
-  int saldo = 0;
-  void depositar(int v) {
-    saldo += v;
-    print('saldo $saldo');
+class Account {
+  int balance = 0;
+  void deposit(int v) {
+    balance += v;
+    print('balance $balance');
   }
 }
 
 void main() {
   var total = 0;
   for (var i = 0; i < 3; i++) {
-    total += dobro(i);
+    total += twice(i);
   }
-  final c = Conta();
-  c.depositar(total);
+  final c = Account();
+  c.deposit(total);
   print(total);
 }
 ";
 
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI do Linux (gdb)"]
-fn gdb_para_na_linha_dart_e_mostra_a_pilha() {
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the Linux CI (gdb)"]
+fn gdb_stops_at_the_dart_line_and_shows_the_stack() {
     if Command::new("gdb").arg("--version").output().is_err() {
-        eprintln!("sem gdb: teste de depuração não roda");
+        eprintln!("no gdb: debugging test does not run");
         return;
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-depuracao-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório do teste");
-    let fonte = dir.join("main.dart");
-    std::fs::write(&fonte, PROGRAMA).unwrap();
+    std::fs::create_dir_all(&dir).expect("test directory");
+    let source = dir.join("main.dart");
+    std::fs::write(&source, PROGRAM).unwrap();
     let exe = dir.join(if cfg!(windows) { "main.exe" } else { "main" });
-    let compilacao = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+    let compilation = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("compile-native")
-        .arg(&fonte)
+        .arg(&source)
         .arg("-o")
         .arg(&exe)
         .arg("--depuracao")
         .output()
         .expect("CLI");
-    assert!(compilacao.status.success(), "{}", String::from_utf8_lossy(&compilacao.stderr));
+    assert!(compilation.status.success(), "{}", String::from_utf8_lossy(&compilation.stderr));
 
-    // Dois pontos de parada: no `return` de `dobro` (sem instrução própria) e
-    // no corpo do método; a pilha de cada um e a saída do programa.
+    // Two breakpoints: at the `return` of `twice` (without an instruction of
+    // its own) and in the method body; the stack of each and the program output.
     let gdb = Command::new("gdb")
         .args(["-batch", "-nx"])
         .args(["-ex", "break main.dart:3", "-ex", "break main.dart:9", "-ex", "run", "-ex", "bt 2"])
@@ -61,21 +61,21 @@ fn gdb_para_na_linha_dart_e_mostra_a_pilha() {
         .output()
         .expect("gdb");
     let _ = std::fs::remove_dir_all(&dir);
-    let saida = String::from_utf8_lossy(&gdb.stdout).replace("\r\n", "\n");
-    let quadros: Vec<&str> = saida.lines().filter(|l| l.starts_with('#')).collect();
-    let pilha = |l: &str| {
-        // `#0  0x… in dobro () at main.dart:3` ou `#0  dobro () at main.dart:3`.
-        let depois = l.split_once(" in ").map_or_else(|| l.splitn(2, "  ").nth(1).unwrap_or(l), |(_, r)| r);
-        let nome = depois.split(" (").next().unwrap_or("");
-        let local = depois.rsplit(" at ").next().unwrap_or("");
-        format!("{nome} {local}")
+    let output = String::from_utf8_lossy(&gdb.stdout).replace("\r\n", "\n");
+    let frames: Vec<&str> = output.lines().filter(|l| l.starts_with('#')).collect();
+    let frame = |l: &str| {
+        // `#0  0x… in twice () at main.dart:3` or `#0  twice () at main.dart:3`.
+        let after = l.split_once(" in ").map_or_else(|| l.splitn(2, "  ").nth(1).unwrap_or(l), |(_, r)| r);
+        let name = after.split(" (").next().unwrap_or("");
+        let location = after.rsplit(" at ").next().unwrap_or("");
+        format!("{name} {location}")
     };
-    let vista: Vec<String> = quadros.iter().map(|l| pilha(l)).collect();
+    let view: Vec<String> = frames.iter().map(|l| frame(l)).collect();
     assert_eq!(
-        vista,
-        ["dobro main.dart:3", "main main.dart:17", "Conta.depositar main.dart:9", "main main.dart:20"],
-        "saída do gdb:\n{saida}\n{}",
+        view,
+        ["twice main.dart:3", "main main.dart:17", "Account.deposit main.dart:9", "main main.dart:20"],
+        "gdb output:\n{output}\n{}",
         String::from_utf8_lossy(&gdb.stderr)
     );
-    assert!(saida.contains("saldo 6\n6\n"), "a saída do programa:\n{saida}");
+    assert!(output.contains("balance 6\n6\n"), "the program output:\n{output}");
 }

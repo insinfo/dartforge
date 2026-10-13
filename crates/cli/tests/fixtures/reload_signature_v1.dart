@@ -1,18 +1,18 @@
 import 'dart:async';
 
-// J03: na v2, `etiqueta` ganha um parâmetro opcional e `Caixa.vezes` um
-// nomeado: as assinaturas nativas mudam, e as funções ganham entradas novas.
-String etiqueta(int n, [String p = 'p']) => '$p$n';
+// J03: in v2, `etiqueta` gains an optional parameter and `Caixa.vezes` a
+// named one: the native signatures change, and the functions get new entries.
+String etiqueta(int n) => 'n$n';
 
 class Caixa {
   int base = 1;
-  int vezes(int x, {int k = 3}) => base * x * k;
+  int vezes(int x) => base * x;
 }
 
 final c = Caixa();
 var ticks = 0;
 
-String rotulo() => 'v2';
+String rotulo() => 'v1';
 
 void main() {
   print('main');

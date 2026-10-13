@@ -1,5 +1,5 @@
-// Regressão: dois ServerSocket compartilhados (`shared: true`) dividem o
-// mesmo soquete do sistema; fechar um não pode fechar o soquete do outro.
+// Regression: two shared ServerSockets (`shared: true`) share the same
+// system socket; closing one must not close the other's socket.
 import 'dart:async';
 import 'dart:io';
 
@@ -13,7 +13,7 @@ Future<int> conectarELer(int porta) async {
 void responder(Socket c) {
   c.add([1, 2, 3]);
   c.close();
-  // Escutar a entrada até o fim libera o soquete quando o cliente sai.
+  // Listening to the input until the end frees the socket when the client leaves.
   c.drain<void>();
 }
 
@@ -32,8 +32,8 @@ Future<void> main() async {
   }
   print('o compartilhado sobrevive: ok');
 
-  // Quando o último sai, o soquete do sistema fecha: a porta volta a ficar
-  // livre para um bind exclusivo.
+  // When the last one leaves, the system socket closes: the port becomes
+  // free again for an exclusive bind.
   for (var rodada = 0; rodada < 20; rodada++) {
     final a = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0, shared: true);
     final b = await ServerSocket.bind(InternetAddress.loopbackIPv4, a.port, shared: true);

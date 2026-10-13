@@ -1,76 +1,77 @@
-//! Regressões do `dart:io` nativo que o corpus diferencial não cobre (a VM
-//! não serve de referência ou o defeito só aparece sob carga): cada
-//! programa é compilado pelo AOT e tem de terminar, no prazo, com a saída
-//! esperada.
+//! Regressions of the native `dart:io` that the differential corpus does not
+//! cover (the VM does not serve as a reference, or the defect only shows up
+//! under load): each program is compiled by AOT and has to finish, within
+//! the deadline, with the expected output.
 #![cfg(feature = "nativo")]
 
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Compila `fixtures/<nome>.dart` com o SDK da fonte, roda (com `args`) e
-/// compara a saída; falha se o programa não termina em `prazo`.
-fn compilar_e_rodar(nome: &str, args: &[&std::ffi::OsStr], esperado: &str, prazo: Duration) {
-    compilar_e_rodar_com_ambiente(nome, args, &[], esperado, prazo);
+/// Compiles `fixtures/<name>.dart` with the source-built SDK, runs it (with
+/// `args`) and compares the output; fails if the program does not finish
+/// within `deadline`.
+fn compile_and_run(name: &str, args: &[&std::ffi::OsStr], expected: &str, deadline: Duration) {
+    compile_and_run_with_env(name, args, &[], expected, deadline);
 }
 
-/// [`compilar_e_rodar`] com variáveis de ambiente para o programa.
-fn compilar_e_rodar_com_ambiente(nome: &str, args: &[&std::ffi::OsStr], ambiente: &[(&str, &str)], esperado: &str, prazo: Duration) {
-    let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let dir = raiz.join(format!("../../target/tmp-io-regressao-{}-{nome}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório do teste");
-    let exe = dir.join(if cfg!(windows) { format!("{nome}.exe") } else { nome.to_string() });
-    let compilacao = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+/// [`compile_and_run`] with environment variables for the program.
+fn compile_and_run_with_env(name: &str, args: &[&std::ffi::OsStr], env: &[(&str, &str)], expected: &str, deadline: Duration) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dir = root.join(format!("../../target/tmp-io-regressao-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("test directory");
+    let exe = dir.join(if cfg!(windows) { format!("{name}.exe") } else { name.to_string() });
+    let compilation = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("compile-native")
-        .arg(raiz.join("tests/fixtures").join(format!("{nome}.dart")))
+        .arg(root.join("tests/fixtures").join(format!("{name}.dart")))
         .arg("-o")
         .arg(&exe)
         .output()
         .expect("CLI");
-    assert!(compilacao.status.success(), "compilação de {nome}: {}", String::from_utf8_lossy(&compilacao.stderr));
+    assert!(compilation.status.success(), "compilation of {name}: {}", String::from_utf8_lossy(&compilation.stderr));
 
-    let mut filho = Command::new(&exe).args(args).envs(ambiente.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("programa");
-    let inicio = Instant::now();
+    let mut child = Command::new(&exe).args(args).envs(env.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("program");
+    let start = Instant::now();
     let status = loop {
-        if let Some(s) = filho.try_wait().expect("estado do programa") {
+        if let Some(s) = child.try_wait().expect("program status") {
             break Some(s);
         }
-        if inicio.elapsed() > prazo {
-            let _ = filho.kill();
-            let _ = filho.wait();
+        if start.elapsed() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
             break None;
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    let mut saida = String::new();
-    let mut erro = String::new();
-    filho.stdout.take().expect("stdout").read_to_string(&mut saida).expect("saída");
-    filho.stderr.take().expect("stderr").read_to_string(&mut erro).expect("erro");
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    child.stdout.take().expect("stdout").read_to_string(&mut stdout).expect("stdout");
+    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("stderr");
     let _ = std::fs::remove_dir_all(&dir);
-    let status = status.unwrap_or_else(|| panic!("{nome} não terminou em {prazo:?} (travou)\nsaída: {saida}\nerro: {erro}"));
-    assert!(status.success(), "{nome} saiu com {status}\nsaída: {saida}\nerro: {erro}");
-    assert_eq!(saida.replace("\r\n", "\n"), esperado, "{nome}\nerro: {erro}");
+    let status = status.unwrap_or_else(|| panic!("{name} did not finish within {deadline:?} (hung)\nstdout: {stdout}\nstderr: {stderr}"));
+    assert!(status.success(), "{name} exited with {status}\nstdout: {stdout}\nstderr: {stderr}");
+    assert_eq!(stdout.replace("\r\n", "\n"), expected, "{name}\nstderr: {stderr}");
 }
 
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
-fn soquete_de_escuta_compartilhado_so_fecha_com_o_ultimo() {
-    compilar_e_rodar("escuta_compartilhada", &[], "o compartilhado sobrevive: ok\no ultimo fecha: ok\n", Duration::from_secs(60));
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
+fn shared_listening_socket_only_closes_with_the_last_one() {
+    compile_and_run("shared_listener", &[], "o compartilhado sobrevive: ok\no ultimo fecha: ok\n", Duration::from_secs(60));
 }
 
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
-fn rajada_de_sinais_nao_trava_o_tratador() {
-    compilar_e_rodar("rajada_de_sinais", &[], "rajada: ok\nreinscricao: ok\n", Duration::from_secs(60));
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
+fn signal_burst_does_not_hang_the_handler() {
+    compile_and_run("signal_burst", &[], "rajada: ok\nreinscricao: ok\n", Duration::from_secs(60));
 }
 
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
-fn tls_e_https_como_a_vm() {
-    let certificados = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
-    compilar_e_rodar(
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
+fn tls_and_https_like_the_vm() {
+    let certificates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+    compile_and_run(
         "tls_https",
-        &[certificados.as_os_str()],
+        &[certificates.as_os_str()],
         "protocolo: http/1.1
 sujeito: /C=BR/O=DartForge/CN=localhost
 emissor: /C=BR/O=DartForge Teste/CN=CA de Teste
@@ -96,15 +97,15 @@ recusado: CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate(hand
     );
 }
 
-/// Os formatos de chave e certificado (PKCS#12, chaves cifradas) e as recusas
-/// com os textos da VM; a saída é a do `dart run` 3.6.2.
+/// The key and certificate formats (PKCS#12, encrypted keys) and the
+/// rejections with the VM's texts; the output is that of `dart run` 3.6.2.
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
-fn formatos_de_chave_e_certificado_como_a_vm() {
-    let certificados = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
-    compilar_e_rodar(
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
+fn key_and_certificate_formats_like_the_vm() {
+    let certificates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+    compile_and_run(
         "tls_formatos",
-        &[certificados.as_os_str()],
+        &[certificates.as_os_str()],
         "pkcs8 cifrada: ok
 pkcs8 senha errada: ArgumentError Invalid argument(s): Expected private key, but none was found
 pkcs8 sem senha: ArgumentError Invalid argument(s): Expected private key, but none was found
@@ -148,45 +149,45 @@ rsa cifrada: /C=BR/O=DartForge/CN=localhost -> ola rsa cifrada
     );
 }
 
-/// O contrato de `allowLegacyUnsafeRenegotiation` (o rustls não renegocia):
-/// sem a opção, a recusa é a da VM; com ela, a VM renegociaria e aqui o
-/// pedido é recusado igual (documentado em NATIVO-PLANO). Precisa do
-/// `openssl` do OpenSSL (o `s_server -www` pede a renegociação ao receber
-/// `GET /reneg`; a entrada padrão dele não serve, porque no Windows o
-/// `s_server` bloqueia nela antes do aperto de mão); sem ele, o teste não
-/// roda.
+/// The contract of `allowLegacyUnsafeRenegotiation` (rustls does not
+/// renegotiate): without the option, the rejection is the VM's; with it, the
+/// VM would renegotiate and here the request is rejected all the same
+/// (documented in NATIVO-PLANO). Needs OpenSSL's `openssl` (`s_server -www`
+/// requests renegotiation on receiving `GET /reneg`; its standard input is of
+/// no use, because on Windows `s_server` blocks on it before the handshake);
+/// without it, the test does not run.
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
-fn renegociacao_legada_e_recusada() {
-    // O OpenSSL (o LibreSSL do macOS não tem `-legacy_renegotiation`).
-    let versao = Command::new("openssl").arg("version").output().map(|s| String::from_utf8_lossy(&s.stdout).into_owned()).unwrap_or_default();
-    if !versao.starts_with("OpenSSL") {
-        eprintln!("sem o openssl do OpenSSL ({}): teste de renegociação não roda", versao.trim());
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
+fn legacy_renegotiation_is_rejected() {
+    // OpenSSL (macOS's LibreSSL has no `-legacy_renegotiation`).
+    let version = Command::new("openssl").arg("version").output().map(|s| String::from_utf8_lossy(&s.stdout).into_owned()).unwrap_or_default();
+    if !version.starts_with("OpenSSL") {
+        eprintln!("no OpenSSL openssl ({}): renegotiation test does not run", version.trim());
         return;
     }
-    let certificados = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
-    compilar_e_rodar(
+    let certificates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+    compile_and_run(
         "tls_renegociacao",
-        &[certificados.as_os_str()],
+        &[certificates.as_os_str()],
         "controle: recebido: HTTP/1.0 200 ok\npadrão: erro: TlsException\ncom a opção: erro: TlsException\n",
-        // Cada etapa do programa tem prazo próprio (a soma no pior caso das
-        // três rodadas fica abaixo disto): travar aqui é o laço de eventos.
+        // Each step of the program has its own deadline (the worst-case sum of
+        // the three rounds stays below this): hanging here is the event loop.
         Duration::from_secs(300),
     );
 }
 
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
-fn main_recebe_os_argumentos() {
-    let args = [std::ffi::OsStr::new("um"), std::ffi::OsStr::new("dois três")];
-    compilar_e_rodar("argumentos_do_main", &args, "[um, dois três]\ntrue\nfixa\n", Duration::from_secs(60));
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
+fn main_receives_the_arguments() {
+    let args = [std::ffi::OsStr::new("one"), std::ffi::OsStr::new("two three")];
+    compile_and_run("main_arguments", &args, "[one, two three]\ntrue\nfixa\n", Duration::from_secs(60));
 }
 
 #[test]
-#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
-fn heap_perto_do_teto_nao_coleta_a_cada_alocacao() {
-    compilar_e_rodar_com_ambiente(
-        "pressao_do_heap",
+#[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
+fn heap_near_the_ceiling_does_not_collect_on_every_allocation() {
+    compile_and_run_with_env(
+        "heap_pressure",
         &[],
         &[("DARTFORGE_HEAP_MAX_MB", "64")],
         "9000 45000150000\n",

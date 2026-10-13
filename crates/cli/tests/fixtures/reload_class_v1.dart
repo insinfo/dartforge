@@ -1,7 +1,7 @@
 import 'dart:async';
 
-// J03: a v2 insere uma classe antes desta (na ordem dos nomes); o objeto vivo
-// continua sendo desta classe, com o estado e o corpo novo do getter.
+// J03: v2 inserts a class before this one (in name order); the live object
+// still belongs to this class, with its state and the getter's new body.
 class Zeta {
   int valor = 0;
   void subir() => valor += 1;

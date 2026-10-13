@@ -1,6 +1,6 @@
-// J06: o `Platform.script` do JIT é o `.dart` (como no `dart run`), o
-// `Isolate.spawnUri` resolve contra ele e é recusado (um programa por
-// processo), e o `Isolate.spawn` do próprio programa funciona.
+// J06: the JIT's `Platform.script` is the `.dart` (as in `dart run`),
+// `Isolate.spawnUri` resolves against it and is rejected (one program per
+// process), and `Isolate.spawn` of the program itself works.
 import 'dart:io';
 import 'dart:isolate';
 

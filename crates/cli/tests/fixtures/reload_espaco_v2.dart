@@ -1,7 +1,7 @@
-// Recarga com o estado do espaço unificado (crates/cli/tests/reload_estado.rs,
-// `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`): geração 2.
-// Os globais sobrevivem à recarga (`--preservar-estado`) e o `main` roda de
-// novo com o código da geração.
+// Reload with the state of the unified space (crates/cli/tests/reload_estado.rs,
+// `cli_preserves_unified_space_state_across_three_reloads`): generation 2.
+// The globals survive the reload (`--preservar-estado`) and `main` runs again
+// with the generation's code.
 
 int geracao = 0;
 String texto = '';
@@ -11,8 +11,8 @@ final objetos = <Object?>[];
 double caixa = 0.5;
 Object? emCaixa;
 int Function() contador = () => 0;
-// Maior que 2014 palavras: uma lista geral com cartões, velha depois da
-// primeira coleta, recebendo objetos novos entre as gerações.
+// Larger than 2014 words: a general list with cards, old after the first
+// collection, receiving new objects between generations.
 final grande = List<Object?>.filled(3000, null);
 
 String resumo() {

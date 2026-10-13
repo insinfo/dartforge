@@ -1,60 +1,61 @@
-//! DF-BUILD-009: o `compile-native` e o `run` (JIT) ligam o motor de build
-//! do projeto. `corpus/builders/i18n` importa `mensagens*.i18n.dart`, que não
-//! existem no disco (o builder do i18n os gera em `source`, e o oráculo os
-//! guarda à parte); o motor os gera em memória pelo gerador nativo, sem
-//! `build_runner` executado antes nem apoio, e a saída do programa é a da VM
-//! oficial (`oraculo/saida.txt`).
+//! DF-BUILD-009: `compile-native` and `run` (JIT) hook up the project's build
+//! engine. `corpus/builders/i18n` imports `mensagens*.i18n.dart`, which do
+//! not exist on disk (the i18n builder generates them into `source`, and the
+//! oracle keeps them apart); the engine generates them in memory through the
+//! native generator, without `build_runner` having run before and without a
+//! fallback, and the program output is that of the official VM
+//! (`oraculo/saida.txt`).
 #![cfg(feature = "nativo")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn caso() -> Option<PathBuf> {
-    let raiz = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/builders/i18n");
-    if !raiz.join(".dart_tool/package_config.json").is_file() {
-        eprintln!("sem package_config.json em {}: rode `dart pub get` no caso", raiz.display());
+fn case() -> Option<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/builders/i18n");
+    if !root.join(".dart_tool/package_config.json").is_file() {
+        eprintln!("no package_config.json in {}: run `dart pub get` in the case", root.display());
         return None;
     }
-    // Nada materializado antes: nem o `.i18n.dart` em `lib/`, nem a árvore
-    // do `build_runner`.
+    // Nothing materialized beforehand: neither the `.i18n.dart` in `lib/`, nor
+    // the `build_runner` tree.
     for p in ["lib/mensagens.i18n.dart", ".dart_tool/build"] {
-        assert!(!raiz.join(p).exists(), "{p} existe: o teste exige geração só em memória");
+        assert!(!root.join(p).exists(), "{p} exists: the test requires generation in memory only");
     }
-    Some(raiz)
+    Some(root)
 }
 
-fn esperado(raiz: &Path) -> String {
-    std::fs::read_to_string(raiz.join("oraculo/saida.txt")).unwrap().replace("\r\n", "\n")
+fn expected(root: &Path) -> String {
+    std::fs::read_to_string(root.join("oraculo/saida.txt")).unwrap().replace("\r\n", "\n")
 }
 
 #[test]
-fn compile_native_gera_as_fontes_pelo_motor() {
-    let Some(raiz) = caso() else { return };
+fn compile_native_generates_the_sources_through_the_engine() {
+    let Some(root) = case() else { return };
     let dir = std::env::temp_dir().join(format!("dartforge-gerado-nativo-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let exe = dir.join(if cfg!(windows) { "app.exe" } else { "app" });
     let c = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("compile-native")
-        .arg(raiz.join("bin/main.dart"))
+        .arg(root.join("bin/main.dart"))
         .arg("-o")
         .arg(&exe)
         .output()
         .expect("CLI");
     assert!(c.status.success(), "compile-native: {}", String::from_utf8_lossy(&c.stderr));
-    let s = Command::new(&exe).output().expect("executável");
+    let s = Command::new(&exe).output().expect("executable");
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"), esperado(&raiz));
+    assert_eq!(String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"), expected(&root));
 }
 
 #[cfg(feature = "jit")]
 #[test]
-fn run_gera_as_fontes_pelo_motor() {
-    let Some(raiz) = caso() else { return };
+fn run_generates_the_sources_through_the_engine() {
+    let Some(root) = case() else { return };
     let s = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("run")
-        .arg(raiz.join("bin/main.dart"))
+        .arg(root.join("bin/main.dart"))
         .output()
         .expect("CLI");
     assert!(s.status.success(), "run: {}", String::from_utf8_lossy(&s.stderr));
-    assert_eq!(String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"), esperado(&raiz));
+    assert_eq!(String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"), expected(&root));
 }

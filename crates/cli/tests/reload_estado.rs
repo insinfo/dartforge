@@ -5,81 +5,81 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-/// Prazo por linha da saída. A primeira linha só sai depois de o JIT
-/// compilar o programa e, com o cache frio, as bibliotecas do SDK que ele
-/// usa: no CI do Windows (2 núcleos, os testes em paralelo, cache vazio)
-/// isso passou de 60 s. Só pesa quando o teste falha.
-const PRAZO: Duration = Duration::from_secs(300);
+/// Deadline per output line. The first line only comes out after the JIT
+/// compiles the program and, with a cold cache, the SDK libraries it uses:
+/// on the Windows CI (2 cores, tests in parallel, empty cache) this took
+/// more than 60 s. It only matters when the test fails.
+const DEADLINE: Duration = Duration::from_secs(300);
 
-/// Encerra a CLI e devolve o stderr dela. Com `esperado`, antes espera a
-/// linha que o contém (até [`PRAZO`]): a CLI escreve o diagnóstico da geração
-/// logo depois de publicá-la, e o programa, que já roda o código novo, pode
-/// escrever a saída nova antes — matar a CLI ao ver a saída perderia o
-/// diagnóstico.
-fn encerrar(child: &mut Child, esperado: Option<&str>) -> String {
+/// Ends the CLI and returns its stderr. With `expected`, first waits for the
+/// line that contains it (up to [`DEADLINE`]): the CLI writes the generation's
+/// diagnostic right after publishing it, and the program, already running the
+/// new code, may write the new output before — killing the CLI on seeing the
+/// output would lose the diagnostic.
+fn shut_down(child: &mut Child, expected: Option<&str>) -> String {
     let stderr = child.stderr.take().expect("stderr");
     let (tx, rx) = mpsc::channel::<String>();
-    let leitor = std::thread::spawn(move || {
-        for linha in BufReader::new(stderr).lines() {
-            let Ok(linha) = linha else { break };
-            if tx.send(linha).is_err() {
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
                 break;
             }
         }
     });
-    let mut texto = String::new();
-    if let Some(esperado) = esperado {
-        let prazo = Instant::now() + PRAZO;
-        while let Ok(linha) = rx.recv_timeout(prazo.saturating_duration_since(Instant::now())) {
-            texto.push_str(&linha);
-            texto.push('\n');
-            if linha.contains(esperado) {
+    let mut text = String::new();
+    if let Some(expected) = expected {
+        let deadline = Instant::now() + DEADLINE;
+        while let Ok(line) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            text.push_str(&line);
+            text.push('\n');
+            if line.contains(expected) {
                 break;
             }
         }
     }
     let _ = child.kill();
     let _ = child.wait();
-    for linha in rx {
-        texto.push_str(&linha);
-        texto.push('\n');
+    for line in rx {
+        text.push_str(&line);
+        text.push('\n');
     }
-    leitor.join().expect("leitor do stderr");
-    texto
+    reader.join().expect("stderr reader");
+    text
 }
 
-/// Grava a fixture como um editor grava: conteúdo novo no mesmo arquivo, com
-/// o mtime de agora. (`fs::copy` no Windows — `CopyFileW` — preserva o mtime
-/// da origem, e duas fixtures do mesmo tamanho, gravadas juntas no checkout,
-/// deixariam o arquivo com a mesma assinatura de antes.)
-fn editar(origem: &std::path::Path, destino: &std::path::Path) {
-    let conteudo = std::fs::read(origem).expect("fixture");
-    std::fs::write(destino, conteudo).expect("edição");
+/// Writes the fixture the way an editor does: new content into the same file,
+/// with the current mtime. (`fs::copy` on Windows — `CopyFileW` — preserves
+/// the source's mtime, and two fixtures of the same size, written together in
+/// the checkout, would leave the file with the same signature as before.)
+fn edit(source: &std::path::Path, destination: &std::path::Path) {
+    let content = std::fs::read(source).expect("fixture");
+    std::fs::write(destination, content).expect("edit");
 }
 
-/// A CLI com a biblioteca do SDK da fonte (o único modo desde o espaço
-/// unificado, docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
-fn cli_com_sdk() -> Command {
-    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("DLL do SDK da fonte");
+/// The CLI with the source-built SDK library (the only mode since the
+/// unified space, docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
+fn cli_with_sdk() -> Command {
+    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("source-built SDK DLL");
     let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge"));
     command.env("DARTFORGE_SDK_DLL", dll);
     command
 }
 
 #[test]
-#[ignore = "compila DLL do SDK da fonte; executar no job sdk-fonte do Pesado"]
-fn cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart() {
+#[ignore = "compiles the source-built SDK DLL; run in the sdk-fonte job of the Pesado workflow"]
+fn cli_preserves_static_after_editing_the_same_dart_file() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    // Um diretório por teste: eles rodam em paralelo no mesmo processo, e a
-    // limpeza de um apagava a fixture do outro.
+    // One directory per test: they run in parallel in the same process, and
+    // one's cleanup used to delete the other's fixture.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-reload-cli-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório da fixture");
-    let entrada = dir.join("main.dart");
-    editar(&fixtures.join("reload_estado_v1.dart"), &entrada);
+    std::fs::create_dir_all(&dir).expect("fixture directory");
+    let input = dir.join("main.dart");
+    edit(&fixtures.join("reload_state_v1.dart"), &input);
 
-    let mut command = cli_com_sdk();
-    command.arg("reload").arg(&entrada).arg("--preservar-estado")
+    let mut command = cli_with_sdk();
+    command.arg("reload").arg(&input).arg("--preservar-estado")
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().expect("CLI");
@@ -87,16 +87,16 @@ fn cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart() {
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            let _ = tx.send(line.expect("linha"));
+            let _ = tx.send(line.expect("line"));
         }
     });
 
-    // A primeira geração compila o programa inteiro (o perfil `test` do CI
-    // é debug): o mesmo prazo do teste ao vivo.
-    let first = rx.recv_timeout(PRAZO);
-    let first_len = rx.recv_timeout(PRAZO);
+    // The first generation compiles the whole program (CI's `test` profile
+    // is debug): the same deadline as the live test.
+    let first = rx.recv_timeout(DEADLINE);
+    let first_len = rx.recv_timeout(DEADLINE);
     if first.as_deref() == Ok("1") && first_len.as_deref() == Ok("1") {
-        editar(&fixtures.join("reload_estado_v2.dart"), &entrada);
+        edit(&fixtures.join("reload_state_v2.dart"), &input);
     }
     let second = if first.as_deref() == Ok("1") && first_len.as_deref() == Ok("1") {
         rx.recv_timeout(Duration::from_secs(20))
@@ -108,36 +108,36 @@ fn cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart() {
     } else {
         Err(mpsc::RecvTimeoutError::Disconnected)
     };
-    let stderr = encerrar(&mut child, Some("geração 2: estado preservado"));
-    reader.join().expect("leitor");
-    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+    let stderr = shut_down(&mut child, Some("generation 2: state preserved"));
+    reader.join().expect("reader");
+    std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
     assert_eq!(first.as_deref(), Ok("1"), "{stderr}");
     assert_eq!(first_len.as_deref(), Ok("1"), "{stderr}");
     assert_eq!(second.as_deref(), Ok("11"), "{stderr}");
     assert_eq!(second_len.as_deref(), Ok("2"), "{stderr}");
-    assert!(stderr.contains("geração 1: estado preservado"), "{stderr}");
-    assert!(stderr.contains("geração 2: estado preservado"), "{stderr}");
+    assert!(stderr.contains("generation 1: state preserved"), "{stderr}");
+    assert!(stderr.contains("generation 2: state preserved"), "{stderr}");
 }
 
-/// Recarga com o estado do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
-/// §5.2, item 9): os globais guardam strings, listas compactas (`<int>`,
-/// `<double>`) e gerais, uma closure que encadeia as das gerações
-/// anteriores, um `double` em caixa e uma lista grande (com cartões, §2.7)
-/// gravada entre gerações; o programa é recarregado três vezes, e cada
-/// geração vê o estado de todas as anteriores.
+/// Reload with the state of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §5.2, item 9): the globals hold strings, compact (`<int>`, `<double>`) and
+/// general lists, a closure that chains those of the previous generations, a
+/// boxed `double` and a large list (with cards, §2.7) written between
+/// generations; the program is reloaded three times, and each generation sees
+/// the state of all the previous ones.
 #[test]
-#[ignore = "compila DLL do SDK da fonte; executar no job sdk-fonte do Pesado"]
-fn cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas() {
+#[ignore = "compiles the source-built SDK DLL; run in the sdk-fonte job of the Pesado workflow"]
+fn cli_preserves_unified_space_state_across_three_reloads() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-reload-espaco-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório da fixture");
-    let entrada = dir.join("main.dart");
-    editar(&fixtures.join("reload_espaco_v1.dart"), &entrada);
+    std::fs::create_dir_all(&dir).expect("fixture directory");
+    let input = dir.join("main.dart");
+    edit(&fixtures.join("reload_espaco_v1.dart"), &input);
 
-    let mut command = cli_com_sdk();
-    command.arg("reload").arg(&entrada).arg("--preservar-estado")
+    let mut command = cli_with_sdk();
+    command.arg("reload").arg(&input).arg("--preservar-estado")
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().expect("CLI");
@@ -145,50 +145,50 @@ fn cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas() {
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            let _ = tx.send(line.expect("linha"));
+            let _ = tx.send(line.expect("line"));
         }
     });
 
-    // Cada geração imprime uma linha; a edição seguinte só depois dela.
-    let esperadas = [
+    // Each generation prints one line; the next edit only after it.
+    let expected_lines = [
         "v1 1 a1 1 1.5 s1 1.5 1 1",
         "v2 2 a1a2 1,2 1.5,2.5 s1,s2 2.5 3 2",
         "v3 3 a1a2a3 1,2,3 1.5,2.5,3.5 s1,s2,s3 3.5 6 3",
         "v4 4 a1a2a3a4 1,2,3,4 1.5,2.5,3.5,4.5 s1,s2,s3,s4 4.5 10 4",
     ];
-    let mut vistas = Vec::new();
-    for (i, _) in esperadas.iter().enumerate() {
-        let prazo = if i == 0 { PRAZO } else { Duration::from_secs(20) };
-        let Ok(linha) = rx.recv_timeout(prazo) else { break };
-        vistas.push(linha);
-        if i + 1 < esperadas.len() {
-            editar(&fixtures.join(format!("reload_espaco_v{}.dart", i + 2)), &entrada);
+    let mut seen = Vec::new();
+    for (i, _) in expected_lines.iter().enumerate() {
+        let deadline = if i == 0 { DEADLINE } else { Duration::from_secs(20) };
+        let Ok(line) = rx.recv_timeout(deadline) else { break };
+        seen.push(line);
+        if i + 1 < expected_lines.len() {
+            edit(&fixtures.join(format!("reload_espaco_v{}.dart", i + 2)), &input);
         }
     }
-    let stderr = encerrar(&mut child, Some("geração 4: estado preservado"));
-    reader.join().expect("leitor");
-    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+    let stderr = shut_down(&mut child, Some("generation 4: state preserved"));
+    reader.join().expect("reader");
+    std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
-    assert_eq!(vistas, esperadas, "{stderr}");
+    assert_eq!(seen, expected_lines, "{stderr}");
     for g in 1..=4 {
-        assert!(stderr.contains(&format!("geração {g}: estado preservado")), "{stderr}");
+        assert!(stderr.contains(&format!("generation {g}: state preserved")), "{stderr}");
     }
 }
 
-/// Hot reload ao vivo: a edição chega ao programa em execução (um timer
-/// periódico), no ponto seguro do laço, sem executar o `main` de novo, e o
-/// estático continua a contagem.
+/// Live hot reload: the edit reaches the running program (a periodic timer),
+/// at the event loop's safepoint, without running `main` again, and the
+/// static keeps counting.
 #[test]
-fn cli_recarrega_o_programa_em_execucao() {
+fn cli_reloads_the_running_program() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-reload-vivo-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório da fixture");
-    let entrada = dir.join("main.dart");
-    editar(&fixtures.join("reload_vivo_v1.dart"), &entrada);
+    std::fs::create_dir_all(&dir).expect("fixture directory");
+    let input = dir.join("main.dart");
+    edit(&fixtures.join("reload_live_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&entrada)
+        .arg("reload").arg(&input)
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
@@ -196,55 +196,55 @@ fn cli_recarrega_o_programa_em_execucao() {
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            let _ = tx.send(line.expect("linha"));
+            let _ = tx.send(line.expect("line"));
         }
     });
 
-    let mut linhas = Vec::new();
-    let mut ultimo_v1 = None;
-    let mut primeiro_v2 = None;
-    let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(PRAZO) {
-        linhas.push(linha.clone());
-        if let Some(n) = linha.strip_prefix("v1 ").and_then(|n| n.parse::<u32>().ok()) {
-            ultimo_v1 = Some(n);
-            if n == 3 && !editado {
-                editado = true;
-                editar(&fixtures.join("reload_vivo_v2.dart"), &entrada);
+    let mut lines = Vec::new();
+    let mut last_v1 = None;
+    let mut first_v2 = None;
+    let mut edited = false;
+    while let Ok(line) = rx.recv_timeout(DEADLINE) {
+        lines.push(line.clone());
+        if let Some(n) = line.strip_prefix("v1 ").and_then(|n| n.parse::<u32>().ok()) {
+            last_v1 = Some(n);
+            if n == 3 && !edited {
+                edited = true;
+                edit(&fixtures.join("reload_live_v2.dart"), &input);
             }
         }
-        if let Some(n) = linha.strip_prefix("v2 ").and_then(|n| n.parse::<u32>().ok()) {
-            primeiro_v2 = Some(n);
+        if let Some(n) = line.strip_prefix("v2 ").and_then(|n| n.parse::<u32>().ok()) {
+            first_v2 = Some(n);
             break;
         }
     }
-    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
-    reader.join().expect("leitor");
-    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    reader.join().expect("reader");
+    std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
-    let (Some(v1), Some(v2)) = (ultimo_v1, primeiro_v2) else {
-        panic!("sem as duas versões na saída: {linhas:?}\n{stderr}");
+    let (Some(v1), Some(v2)) = (last_v1, first_v2) else {
+        panic!("missing the two versions in the output: {lines:?}\n{stderr}");
     };
-    assert_eq!(v2, v1 + 1, "a contagem continua do estático vivo: {linhas:?}");
-    assert_eq!(linhas.iter().filter(|l| *l == "main").count(), 1, "o main não roda de novo: {linhas:?}");
-    assert!(stderr.contains("geração 2: publicada no programa em execução"), "{stderr}");
+    assert_eq!(v2, v1 + 1, "the count continues from the live static: {lines:?}");
+    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
+    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
 }
 
-/// Recarga estrutural (J03): uma classe nova inserida antes de uma classe
-/// com objeto vivo (na ordem dos nomes, que numerava as classes) é aceita —
-/// a mesma classe fica com o mesmo id na geração nova — e o objeto vivo
-/// continua com o estado e o corpo novo dos membros.
+/// Structural reload (J03): a new class inserted before a class with a live
+/// object (in name order, which used to number the classes) is accepted —
+/// the same class keeps the same id in the new generation — and the live
+/// object keeps its state and the members' new body.
 #[test]
-fn cli_recarrega_com_classe_inserida() {
+fn cli_reloads_with_an_inserted_class() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-reload-classe-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório da fixture");
-    let entrada = dir.join("main.dart");
-    editar(&fixtures.join("reload_classe_v1.dart"), &entrada);
+    std::fs::create_dir_all(&dir).expect("fixture directory");
+    let input = dir.join("main.dart");
+    edit(&fixtures.join("reload_class_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&entrada)
+        .arg("reload").arg(&input)
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
@@ -252,59 +252,59 @@ fn cli_recarrega_com_classe_inserida() {
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            let _ = tx.send(line.expect("linha"));
+            let _ = tx.send(line.expect("line"));
         }
     });
 
-    let mut linhas = Vec::new();
-    let mut ultimo_v1 = None;
-    let mut primeira_v2 = None;
-    let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(PRAZO) {
-        linhas.push(linha.clone());
-        let partes: Vec<&str> = linha.split(' ').collect();
-        match partes.as_slice() {
+    let mut lines = Vec::new();
+    let mut last_v1 = None;
+    let mut first_v2 = None;
+    let mut edited = false;
+    while let Ok(line) = rx.recv_timeout(DEADLINE) {
+        lines.push(line.clone());
+        let parts: Vec<&str> = line.split(' ').collect();
+        match parts.as_slice() {
             ["v1", n, "z"] => {
-                let n: u32 = n.parse().expect("contagem");
-                ultimo_v1 = Some(n);
-                if n == 3 && !editado {
-                    editado = true;
-                    editar(&fixtures.join("reload_classe_v2.dart"), &entrada);
+                let n: u32 = n.parse().expect("count");
+                last_v1 = Some(n);
+                if n == 3 && !edited {
+                    edited = true;
+                    edit(&fixtures.join("reload_class_v2.dart"), &input);
                 }
             }
             ["v2", ..] => {
-                primeira_v2 = Some(linha.clone());
+                first_v2 = Some(line.clone());
                 break;
             }
             _ => {}
         }
     }
-    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
-    reader.join().expect("leitor");
-    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    reader.join().expect("reader");
+    std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
-    let (Some(v1), Some(v2)) = (ultimo_v1, primeira_v2) else {
-        panic!("sem as duas versões na saída: {linhas:?}\n{stderr}");
+    let (Some(v1), Some(v2)) = (last_v1, first_v2) else {
+        panic!("missing the two versions in the output: {lines:?}\n{stderr}");
     };
-    assert_eq!(v2, format!("v2 {} zz alfa true", v1 + 1), "{linhas:?}\n{stderr}");
-    assert_eq!(linhas.iter().filter(|l| *l == "main").count(), 1, "o main não roda de novo: {linhas:?}");
-    assert!(stderr.contains("geração 2: publicada no programa em execução"), "{stderr}");
+    assert_eq!(v2, format!("v2 {} zz alfa true", v1 + 1), "{lines:?}\n{stderr}");
+    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
+    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
 }
 
-/// Uma classe que some numa geração e volta na seguinte fica com o mesmo id
-/// (J03): o objeto vivo dela, guardado num global, continua sendo dela
-/// (`z is Zeta`). A geração do meio não tem a classe nem o global.
+/// A class that disappears in one generation and comes back in the next keeps
+/// the same id (J03): its live object, held in a global, still belongs to it
+/// (`z is Zeta`). The middle generation has neither the class nor the global.
 #[test]
-fn cli_classe_que_some_e_volta_mantem_o_id() {
+fn cli_class_that_disappears_and_returns_keeps_its_id() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-reload-volta-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório da fixture");
-    let entrada = dir.join("main.dart");
-    editar(&fixtures.join("reload_classe_v1.dart"), &entrada);
+    std::fs::create_dir_all(&dir).expect("fixture directory");
+    let input = dir.join("main.dart");
+    edit(&fixtures.join("reload_class_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&entrada)
+        .arg("reload").arg(&input)
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
@@ -312,55 +312,55 @@ fn cli_classe_que_some_e_volta_mantem_o_id() {
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            let _ = tx.send(line.expect("linha"));
+            let _ = tx.send(line.expect("line"));
         }
     });
 
-    let mut linhas = Vec::new();
-    let mut fase = 0;
-    let mut primeira_v2 = None;
-    while let Ok(linha) = rx.recv_timeout(PRAZO) {
-        linhas.push(linha.clone());
-        let partes: Vec<&str> = linha.split(' ').collect();
-        match partes.as_slice() {
-            ["v1", "3", "z"] if fase == 0 => {
-                fase = 1;
-                editar(&fixtures.join("reload_classe_sem.dart"), &entrada);
+    let mut lines = Vec::new();
+    let mut phase = 0;
+    let mut first_v2 = None;
+    while let Ok(line) = rx.recv_timeout(DEADLINE) {
+        lines.push(line.clone());
+        let parts: Vec<&str> = line.split(' ').collect();
+        match parts.as_slice() {
+            ["v1", "3", "z"] if phase == 0 => {
+                phase = 1;
+                edit(&fixtures.join("reload_class_removed.dart"), &input);
             }
-            ["vb", ..] if fase == 1 => {
-                fase = 2;
-                editar(&fixtures.join("reload_classe_v2.dart"), &entrada);
+            ["vb", ..] if phase == 1 => {
+                phase = 2;
+                edit(&fixtures.join("reload_class_v2.dart"), &input);
             }
             ["v2", ..] => {
-                primeira_v2 = Some(linha.clone());
+                first_v2 = Some(line.clone());
                 break;
             }
             _ => {}
         }
     }
-    let stderr = encerrar(&mut child, None);
-    reader.join().expect("leitor");
-    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+    let stderr = shut_down(&mut child, None);
+    reader.join().expect("reader");
+    std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
-    let v2 = primeira_v2.unwrap_or_else(|| panic!("sem a v2 na saída: {linhas:?}\n{stderr}"));
-    assert!(v2.ends_with(" zz alfa true"), "o objeto vivo deixou de ser Zeta: {v2}\n{linhas:?}\n{stderr}");
+    let v2 = first_v2.unwrap_or_else(|| panic!("missing v2 in the output: {lines:?}\n{stderr}"));
+    assert!(v2.ends_with(" zz alfa true"), "the live object stopped being a Zeta: {v2}\n{lines:?}\n{stderr}");
 }
 
-/// Recarga estrutural (J03): campo removido, campo anulável novo (antes de
-/// um existente) e `late` novo com inicializador. O objeto vivo migra pelo
-/// nome: `valor` continua, `rotulo` é `null` e `dobro` roda o inicializador
-/// na primeira leitura.
+/// Structural reload (J03): a removed field, a new nullable field (before an
+/// existing one) and a new `late` field with an initializer. The live object
+/// migrates by name: `valor` carries on, `rotulo` is `null` and `dobro` runs
+/// the initializer on first read.
 #[test]
-fn cli_recarrega_com_campos_mudados() {
+fn cli_reloads_with_changed_fields() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-reload-campos-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório da fixture");
-    let entrada = dir.join("main.dart");
-    editar(&fixtures.join("reload_campos_v1.dart"), &entrada);
+    std::fs::create_dir_all(&dir).expect("fixture directory");
+    let input = dir.join("main.dart");
+    edit(&fixtures.join("reload_fields_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&entrada)
+        .arg("reload").arg(&input)
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
@@ -368,59 +368,59 @@ fn cli_recarrega_com_campos_mudados() {
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            let _ = tx.send(line.expect("linha"));
+            let _ = tx.send(line.expect("line"));
         }
     });
 
-    let mut linhas = Vec::new();
-    let mut ultimo_v1 = None;
-    let mut primeira_v2 = None;
-    let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(PRAZO) {
-        linhas.push(linha.clone());
-        let partes: Vec<&str> = linha.split(' ').collect();
-        match partes.as_slice() {
+    let mut lines = Vec::new();
+    let mut last_v1 = None;
+    let mut first_v2 = None;
+    let mut edited = false;
+    while let Ok(line) = rx.recv_timeout(DEADLINE) {
+        lines.push(line.clone());
+        let parts: Vec<&str> = line.split(' ').collect();
+        match parts.as_slice() {
             ["v1", n, "7"] => {
-                let n: u32 = n.parse().expect("contagem");
-                ultimo_v1 = Some(n);
-                if n == 3 && !editado {
-                    editado = true;
-                    editar(&fixtures.join("reload_campos_v2.dart"), &entrada);
+                let n: u32 = n.parse().expect("count");
+                last_v1 = Some(n);
+                if n == 3 && !edited {
+                    edited = true;
+                    edit(&fixtures.join("reload_fields_v2.dart"), &input);
                 }
             }
             ["v2", ..] => {
-                primeira_v2 = Some(linha.clone());
+                first_v2 = Some(line.clone());
                 break;
             }
             _ => {}
         }
     }
-    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
-    reader.join().expect("leitor");
-    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    reader.join().expect("reader");
+    std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
-    let (Some(v1), Some(v2)) = (ultimo_v1, primeira_v2) else {
-        panic!("sem as duas versões na saída: {linhas:?}\n{stderr}");
+    let (Some(v1), Some(v2)) = (last_v1, first_v2) else {
+        panic!("missing the two versions in the output: {lines:?}\n{stderr}");
     };
-    assert_eq!(v2, format!("v2 {} null true", v1 + 1), "{linhas:?}\n{stderr}");
-    assert_eq!(linhas.iter().filter(|l| *l == "main").count(), 1, "o main não roda de novo: {linhas:?}");
-    assert!(stderr.contains("geração 2: publicada no programa em execução"), "{stderr}");
+    assert_eq!(v2, format!("v2 {} null true", v1 + 1), "{lines:?}\n{stderr}");
+    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
+    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
 }
 
-/// Recarga estrutural (J03): a assinatura de uma função de topo e de um
-/// método muda (parâmetro opcional, nomeado). As funções ganham entradas
-/// estáveis novas e o código novo as chama; o objeto vivo continua.
+/// Structural reload (J03): the signature of a top-level function and of a
+/// method changes (optional, named parameter). The functions get new stable
+/// entries and the new code calls them; the live object carries on.
 #[test]
-fn cli_recarrega_com_assinatura_mudada() {
+fn cli_reloads_with_a_changed_signature() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-reload-assinatura-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("diretório da fixture");
-    let entrada = dir.join("main.dart");
-    editar(&fixtures.join("reload_assinatura_v1.dart"), &entrada);
+    std::fs::create_dir_all(&dir).expect("fixture directory");
+    let input = dir.join("main.dart");
+    edit(&fixtures.join("reload_signature_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&entrada)
+        .arg("reload").arg(&input)
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().expect("CLI");
@@ -428,42 +428,42 @@ fn cli_recarrega_com_assinatura_mudada() {
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            let _ = tx.send(line.expect("linha"));
+            let _ = tx.send(line.expect("line"));
         }
     });
 
-    let mut linhas = Vec::new();
-    let mut ultimo_v1 = None;
-    let mut primeira_v2 = None;
-    let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(PRAZO) {
-        linhas.push(linha.clone());
-        let partes: Vec<&str> = linha.split(' ').collect();
-        match partes.as_slice() {
+    let mut lines = Vec::new();
+    let mut last_v1 = None;
+    let mut first_v2 = None;
+    let mut edited = false;
+    while let Ok(line) = rx.recv_timeout(DEADLINE) {
+        lines.push(line.clone());
+        let parts: Vec<&str> = line.split(' ').collect();
+        match parts.as_slice() {
             ["v1", _, n] => {
-                let n: u32 = n.parse().expect("contagem");
-                ultimo_v1 = Some(n);
-                if n == 3 && !editado {
-                    editado = true;
-                    editar(&fixtures.join("reload_assinatura_v2.dart"), &entrada);
+                let n: u32 = n.parse().expect("count");
+                last_v1 = Some(n);
+                if n == 3 && !edited {
+                    edited = true;
+                    edit(&fixtures.join("reload_signature_v2.dart"), &input);
                 }
             }
             ["v2", ..] => {
-                primeira_v2 = Some(linha.clone());
+                first_v2 = Some(line.clone());
                 break;
             }
             _ => {}
         }
     }
-    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
-    reader.join().expect("leitor");
-    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    reader.join().expect("reader");
+    std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
-    let (Some(v1), Some(v2)) = (ultimo_v1, primeira_v2) else {
-        panic!("sem as duas versões na saída: {linhas:?}\n{stderr}");
+    let (Some(v1), Some(v2)) = (last_v1, first_v2) else {
+        panic!("missing the two versions in the output: {lines:?}\n{stderr}");
     };
     let n = v1 + 1;
-    assert_eq!(v2, format!("v2 p{n} {}", 3 * n), "{linhas:?}\n{stderr}");
-    assert_eq!(linhas.iter().filter(|l| *l == "main").count(), 1, "o main não roda de novo: {linhas:?}");
-    assert!(stderr.contains("geração 2: publicada no programa em execução"), "{stderr}");
+    assert_eq!(v2, format!("v2 p{n} {}", 3 * n), "{lines:?}\n{stderr}");
+    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
+    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
 }
