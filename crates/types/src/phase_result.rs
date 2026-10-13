@@ -213,7 +213,7 @@ pub fn unused_results(program: &Program, interner: &Interner, the_body: &UnitBod
     }
     unused.sort_by_key(|e| e.0);
     unused.dedup();
-    let resolved = |e: ExprId| the_body.resolved.get(e.0 as usize).and_then(|r| r.as_ref());
+    let resolved = |e: ExprId| the_body.get_resolved(e);
     for e in unused {
         let expr = a.expr(e);
         // The element, the node to mark, the name to show and the arguments (only

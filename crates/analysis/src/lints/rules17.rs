@@ -196,7 +196,8 @@ impl PrivateTypeValidator<'_, '_> {
             _ => false,
         };
         if p.this_ {
-            let v = program.variables.iter().position(|x| {
+            let v = program.index().unit_variables[s.unit.0 as usize].iter().map(|v| v.0 as usize).find(|&i| {
+                let x = &program.variables[i];
                 x.name == name && matches!(x.node, VariableRef::Field { unit, member, .. } if unit == s.unit && self.same_class(member, p.span))
             });
             let t = v.and_then(|v| s.outline.variables.get(v)).and_then(|d| d.declared_type.or(d.inferred));
@@ -572,7 +573,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     }
 
     // `conditional_uri_does_not_exist`.
-    if enabled("conditional_uri_does_not_exist") {
+    // Only units with a conditional import or export pay for reading the
+    // package configuration.
+    let has_configurations = u.unit.directives.iter().any(|d| {
+        matches!(&d.kind, DirectiveKind::Import { configurations, .. } | DirectiveKind::Export { configurations, .. } if !configurations.is_empty())
+    });
+    if enabled("conditional_uri_does_not_exist") && has_configurations {
         let file = program.unit(s.unit).path.clone();
         let base = file.as_ref().and_then(|p| p.parent().map(std::path::Path::to_path_buf));
         let config = file.as_ref().and_then(|p| p.ancestors().skip(1).find(|d| d.join(".dart_tool").join("package_config.json").is_file()).map(|d| d.join(".dart_tool").join("package_config.json")));
@@ -699,7 +705,7 @@ fn leak_candidates(s: &super::Semantics<'_>, a: &Ast) -> Vec<(LeakCandidate, Opt
         let MemberKind::Field(l) = &m.kind else { continue };
         for (index, x) in l.variables.iter().enumerate() {
             let r = VariableRef::Field { unit: s.unit, member: dartforge_frontend::ast::MemberId(k as u32), index };
-            if let Some(i) = s.program.variables.iter().position(|y| y.node == r) {
+            if let Some(i) = s.program.variable_of_node(r).map(|v| v.0 as usize) {
                 v.push((LeakCandidate::Field { v: VariableId(i as u32), name: x.name, init: x.initializer }, None));
             }
         }

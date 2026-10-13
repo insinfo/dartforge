@@ -231,6 +231,30 @@ pub fn infer_bodies(
     }
 }
 
+/// What the inference passes over one program share when they run one after
+/// the other (the analysis engine runs one pass per library): results that
+/// do not depend on the pass. Without it, each pass recomputed the interfaces
+/// of the classes it used, the types of the variables it read, the field promotability of every library it
+/// touched and the extensions each library sees.
+///
+/// Only what is a function of the program, the outline and the type table is
+/// kept: the class interfaces built after override inference without any
+/// provisional member type or inference cycle, the variables already
+/// inferred (a pass takes those of the other libraries as ready), the field
+/// promotability ([`crate::field_promotion::compute`]) and the accessible
+/// extensions.
+#[derive(Default)]
+pub struct SharedInference {
+    interfaces: std::cell::RefCell<rustc_hash::FxHashMap<dartforge_elements::model::ClassId, Rc<crate::inheritance::Interface>>>,
+    promotion: std::cell::RefCell<rustc_hash::FxHashMap<LibraryId, Rc<crate::field_promotion::LibraryPromotion>>>,
+    extensions: std::cell::RefCell<rustc_hash::FxHashMap<u32, Rc<[ExtensionId]>>>,
+    /// The variables whose type some pass already inferred (the type is in the
+    /// outline): a later pass over other libraries takes it as ready instead
+    /// of inferring the initializer again.
+    ready: std::cell::RefCell<Vec<VariableId>>,
+    ready_mark: std::cell::RefCell<Vec<bool>>,
+}
+
 /// Body inference context for the whole program.
 pub struct BodyInferrer<'a> {
     pub program: &'a Program,
@@ -246,6 +270,9 @@ pub struct BodyInferrer<'a> {
     /// are still inferred in all libraries, because the inferred type of a
     /// variable (`var x = 1;`) is read by whoever uses it.
     pub only_libraries: Option<HashSet<u32>>,
+    /// [`Self::only_libraries`] by library index, made when the inference
+    /// starts.
+    only_mask: Vec<bool>,
     /// Incremental inference (LSP completion): when `Some`, only these bodies
     /// (functions/methods/constructors and variable initializers) are inferred;
     /// the types of top-level variables they read are still on demand. Unit
@@ -340,6 +367,14 @@ pub struct BodyInferrer<'a> {
     pub(crate) declared_untyped: Option<dartforge_elements::model::ClassId>,
     /// Some interface in the cache was built with an untyped field.
     pub(crate) provisional_inheritance: bool,
+    /// How many times [`Self::provisional_inheritance`] was set: an interface
+    /// built while it did not change has no provisional member type.
+    pub(crate) provisional_events: u64,
+    /// The results shared with the other passes over the program.
+    pub(crate) shared: Option<&'a SharedInference>,
+    /// The interfaces may be read from and written to [`Self::shared`]:
+    /// after override inference (before it, member types still change).
+    pub(crate) share_interfaces: bool,
     /// The name (without the `=`) looked up in the interface during a top-level
     /// inference: fields not yet inferred with another name stay provisional
     /// ([`crate::inheritance::Provider::member_type`]).
@@ -428,6 +463,7 @@ impl<'a> BodyInferrer<'a> {
             diagnostics: Vec::new(),
             body_types: BodyTypes { units, used_extensions: std::collections::HashSet::new() },
             only_libraries: None,
+            only_mask: Vec::new(),
             only_bodies: None,
             vars_state: vec![VarState::Pending; nvars],
             visited_initializer: vec![false; nvars],
@@ -449,6 +485,9 @@ impl<'a> BodyInferrer<'a> {
             inheritance: crate::inheritance::InheritanceManager::default(),
             declared_untyped: None,
             provisional_inheritance: false,
+            provisional_events: 0,
+            shared: None,
+            share_interfaces: false,
             lookup_name: None,
             parents: HashMap::new(),
             variable_stack: Vec::new(),
@@ -471,7 +510,7 @@ impl<'a> BodyInferrer<'a> {
     /// cite the searched name (docs/LSP-ESPECIFICACAO.md §11.9 B).
     pub fn allocate_bodies_of(&mut self, libs: &[LibraryId]) {
         for (i, u) in self.program.units.iter().enumerate() {
-            if libs.contains(&u.library) && self.program.library(u.library).is_sdk && self.body_types.units[i].static_types.is_empty() {
+            if libs.contains(&u.library) && self.program.library(u.library).is_sdk && !self.body_types.units[i].has_tables() {
                 self.body_types.units[i] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
             }
         }
@@ -520,7 +559,37 @@ impl<'a> BodyInferrer<'a> {
     /// Like [`BodyInferrer::infer_all`], with the unit of each diagnostic.
     pub fn infer_all_with_units(mut self) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<UnitId>>) {
         self.infer_everything();
+        self.offer_ready_variables();
         (self.body_types, self.diagnostics, self.warning_units)
+    }
+
+    /// With [`Self::shared`]: the variables of libraries outside this pass
+    /// that an earlier pass inferred start ready (their type is the outline's).
+    fn take_ready_variables(&mut self) {
+        let Some(shared) = self.shared else { return };
+        for &v in shared.ready.borrow().iter() {
+            let lib = self.program.variable(v).library;
+            if !self.infer_bodies_of(lib) && self.vars_state[v.0 as usize] == VarState::Pending {
+                self.vars_state[v.0 as usize] = VarState::Ready;
+            }
+        }
+    }
+
+    /// With [`Self::shared`]: records the variables this pass inferred.
+    fn offer_ready_variables(&self) {
+        let Some(shared) = self.shared else { return };
+        let mut mark = shared.ready_mark.borrow_mut();
+        if mark.len() != self.vars_state.len() {
+            *mark = vec![false; self.vars_state.len()];
+            shared.ready.borrow_mut().clear();
+        }
+        let mut ready = shared.ready.borrow_mut();
+        for (i, s) in self.vars_state.iter().enumerate() {
+            if *s == VarState::Ready && !mark[i] && !self.in_cycle.contains(&VariableId(i as u32)) {
+                mark[i] = true;
+                ready.push(VariableId(i as u32));
+            }
+        }
     }
 
     /// Like [`BodyInferrer::infer_all`], also returning the scope captured by
@@ -532,6 +601,20 @@ impl<'a> BodyInferrer<'a> {
 
     /// Infers initializers, bodies and metadata, filling the tables.
     fn infer_everything(&mut self) {
+        // [`Self::infer_bodies_of`] is asked for every element of the program
+        // on each pass: a mask by library instead of hashing.
+        self.only_mask = match &self.only_libraries {
+            Some(s) => {
+                let mut m = vec![false; self.program.libraries.len()];
+                for &l in s {
+                    if let Some(x) = m.get_mut(l as usize) {
+                        *x = true;
+                    }
+                }
+                m
+            }
+            None => Vec::new(),
+        };
         // SDK libraries requested explicitly (the native backend compiles the
         // SDK from source) get side tables like the user's.
         if let Some(requested) = self.only_libraries.clone() {
@@ -545,6 +628,8 @@ impl<'a> BodyInferrer<'a> {
         // `_performOverrideInference`: the combined signature of the overridden
         // members in the omitted types of instance members.
         self.infer_overrides();
+        self.share_interfaces = self.shared.is_some();
+        self.take_ready_variables();
         if let Some(bodies) = self.only_bodies.clone() {
             for c in bodies {
                 match c {
@@ -554,6 +639,35 @@ impl<'a> BodyInferrer<'a> {
                     }
                     BodyRef::Function(f) => functions::infer_declared_function(self, f),
                 }
+            }
+            return;
+        }
+        // With a request, only the requested libraries' elements, through the
+        // program's index (in id order, like the walks below).
+        if let Some(requested) = &self.only_libraries {
+            let index = self.program.index();
+            let mut libs: Vec<u32> = requested.iter().copied().filter(|&l| (l as usize) < self.program.libraries.len()).collect();
+            libs.sort_unstable();
+            let mut vars: Vec<VariableId> = libs.iter().flat_map(|&l| index.library_variables[l as usize].iter().copied()).collect();
+            let mut funcs: Vec<FunctionElementId> = libs.iter().flat_map(|&l| index.library_functions[l as usize].iter().copied()).collect();
+            if libs.len() > 1 {
+                vars.sort_unstable();
+                funcs.sort_unstable();
+            }
+            for vid in vars {
+                self.variable_type(vid);
+                self.visit_initializer(vid);
+            }
+            for f in funcs {
+                functions::infer_declared_function(self, f);
+            }
+            for ui in 0..self.program.units.len() {
+                let lib = self.program.units[ui].library;
+                if !self.infer_bodies_of(lib) {
+                    continue;
+                }
+                self.current_unit = Some(UnitId(ui as u32));
+                functions::infer_unit_metadata(self, UnitId(ui as u32));
             }
             return;
         }
@@ -589,6 +703,7 @@ impl<'a> BodyInferrer<'a> {
     /// request (including the SDK's); otherwise all except the SDK's.
     pub(crate) fn infer_bodies_of(&self, lib: LibraryId) -> bool {
         match &self.only_libraries {
+            Some(_) if self.only_mask.len() == self.program.libraries.len() => self.only_mask[lib.0 as usize],
             Some(s) => s.contains(&lib.0),
             None => !self.program.library(lib).is_sdk,
         }
@@ -645,6 +760,8 @@ impl<'a> BodyInferrer<'a> {
     /// `resolver.dart:4009-4030`, only the non-`const` ones) at the name, with
     /// the names in the cycle in order.
     fn inference_cycle(&mut self, vid: VariableId) {
+        // An interface built across a cycle is not shared with other passes.
+        self.provisional_events += 1;
         let Some(start) = self.variable_stack.iter().position(|&v| v == vid) else { return };
         let cycle: Vec<VariableId> = self.variable_stack[start..].iter().copied().filter(|v| !self.in_cycle.contains(v)).collect();
         if cycle.is_empty() {
@@ -794,9 +911,7 @@ impl<'a> BodyInferrer<'a> {
         };
         let Some(mem) = primary else { return };
         let ast::MemberKind::Constructor(k) = &ast_unit.member(mem).kind else { return };
-        let Some(f) = self.program.functions.iter().position(|f| {
-            matches!(f.node, dartforge_elements::model::FunctionRef::Constructor { unit, member } if unit == d.unit && member == mem)
-        }) else {
+        let Some(f) = self.program.constructor_of_member(d.unit, mem).map(|x| x.0 as usize) else {
             return;
         };
         let types: Vec<TypeId> = self.outline.functions[f].parameters.iter().map(|p| p.ty).collect();
@@ -839,6 +954,10 @@ impl<'a> BodyInferrer<'a> {
         if let Some(e) = self.extensions.get(&lib.0) {
             return e.clone();
         }
+        if let Some(e) = self.shared.and_then(|s| s.extensions.borrow().get(&lib.0).cloned()) {
+            self.extensions.insert(lib.0, e.clone());
+            return e;
+        }
         let l = self.program.library(lib);
         let mut v: Vec<ExtensionId> = Vec::new();
         fn the_push(e: ExtensionId, v: &mut Vec<ExtensionId>) {
@@ -880,6 +999,9 @@ impl<'a> BodyInferrer<'a> {
         }
         let rc: Rc<[ExtensionId]> = v.into();
         self.extensions.insert(lib.0, rc.clone());
+        if let Some(s) = self.shared {
+            s.extensions.borrow_mut().insert(lib.0, rc.clone());
+        }
         rc
     }
 

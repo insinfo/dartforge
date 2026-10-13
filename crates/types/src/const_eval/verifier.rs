@@ -256,7 +256,7 @@ pub fn the_verify(m: &mut Engine<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic
     let mut the_fields = HashMap::new();
     let mut top = HashMap::new();
     let mut member_class = HashMap::new();
-    for (i, v) in program.variables.iter().enumerate() {
+    for (i, v) in program.index().library_variables[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.variable(x))) {
         if v.library != lib {
             continue;
         }
@@ -476,7 +476,7 @@ impl Verifier<'_, '_> {
             DeclKind::Mixin(k) => self.members(a, &k.members),
             DeclKind::Enum(k) => {
                 let unit_id = self.unit;
-                let cls = self.m.program.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == unit_id && r.decl == d));
+                let cls = self.m.program.class_of_decl(unit_id, d).map(|c| c.0 as usize);
                 for (i, cst) in k.constants.iter().enumerate() {
                     if let Some(args) = &cst.arguments {
                         for arg in args.args.iter() {

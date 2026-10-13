@@ -106,8 +106,8 @@ fn sdk_without_bodies_and_typed_user() {
         if program.library(u.library).is_sdk {
             sdk_units += 1;
             assert!(u.ast.exprs.len() > 0, "{}: the SDK unit has expressions in the AST", u.uri);
-            assert!(bodies.units[i].static_types.is_empty(), "{}: the SDK must not have inferred bodies", u.uri);
-            assert!(bodies.units[i].resolved.is_empty(), "{}: the SDK must not have resolutions", u.uri);
+            assert!(!bodies.units[i].has_tables(), "{}: the SDK must not have inferred bodies", u.uri);
+            assert_eq!(bodies.units[i].resolved_targets().count(), 0, "{}: the SDK must not have resolutions", u.uri);
         }
     }
     assert_eq!(sdk_units, 4, "core, int.dart (parte), core_patch e convert");
@@ -117,13 +117,13 @@ fn sdk_without_bodies_and_typed_user() {
     let entry_unit = program.library(program.entry.unwrap()).units[0];
     let unit = program.unit(entry_unit);
     let the_table = &bodies.units[entry_unit.0 as usize];
-    assert_eq!(the_table.static_types.len(), unit.ast.exprs.len());
+    assert_eq!(the_table.expression_count(), unit.ast.exprs.len());
     let int_class = program.classes.iter().position(|c| interner.resolve(c.name) == "int").unwrap();
     let mut y_int = false;
     for (i, e) in unit.ast.exprs.iter().enumerate() {
         if let dartforge_frontend::ast::ExprKind::Identifier(n) = &e.kind {
             if interner.resolve(n.sym) == "y" {
-                let ty = table.get(the_table.static_types[i]);
+                let ty = table.get(the_table.get_type(dartforge_frontend::ast::ExprId(i as u32)).expect("typed"));
                 if let Type::Interface { class, .. } = ty {
                     y_int |= class.0 as usize == int_class;
                 }

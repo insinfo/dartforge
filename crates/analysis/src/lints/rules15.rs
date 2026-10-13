@@ -112,12 +112,12 @@ impl FunctionIndex {
                 f.methods.insert(*g);
             }
         }
-        for (k, fe) in s.program.functions.iter().enumerate() {
-            if let FunctionRef::Function { unit, function } = fe.node
+        for &k in s.program.index().unit_functions.get(s.unit.0 as usize).map_or(&[][..], |l| &l[..]) {
+            if let FunctionRef::Function { unit, function } = s.program.function(k).node
                 && unit == s.unit
                 && !f.methods.contains(&function)
             {
-                f.top_level.insert(function, dartforge_elements::model::FunctionElementId(k as u32));
+                f.top_level.insert(function, k);
             }
         }
         f
@@ -143,7 +143,7 @@ impl FunctionIndex {
 
 /// The declared type of a variable's element (`declaredElement.type`).
 fn variable_type(s: &super::Semantics<'_>, ref_: VariableRef, name_pos: usize, initializer: ExprId) -> Option<TypeId> {
-    let v = s.program.variables.iter().position(|x| x.node == ref_)?;
+    let v = s.program.variable_of_node(ref_).map(|v| v.0 as usize)?;
     let d = s.outline.variables.get(v)?;
     d.declared_type.or(d.inferred).or_else(|| s.body.get_type(initializer)).or_else(|| s.body.local_type(name_pos))
 }

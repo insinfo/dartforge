@@ -125,7 +125,7 @@ pub fn inference_failures(
     };
     // The class of the declaration (the `InterfaceElement` that contains it).
     let decl_class = |d: ast::DeclId| -> Option<ClassId> {
-        program.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == u && r.decl == d)).map(|i| ClassId(i as u32))
+        program.class_of_decl(u, d)
     };
     // `getOverridden2` (the same as in `phase_override`), by the member key.
     let lib = unit.library;

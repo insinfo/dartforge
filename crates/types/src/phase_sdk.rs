@@ -214,7 +214,7 @@ pub fn sdk_constraint(
     }
     if let Some(body) = body {
         for (i, expr) in a.exprs.iter().enumerate() {
-            let Some(Some(r)) = body.resolved.get(i) else { continue };
+            let Some(r) = body.get_resolved(ast::ExprId(i as u32)) else { continue };
             let at_name = match &expr.kind {
                 ExprKind::Identifier(n) => n,
                 ExprKind::Property { name, .. } => name,

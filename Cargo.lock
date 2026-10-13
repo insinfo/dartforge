@@ -574,6 +574,7 @@ dependencies = [
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
+ "rustc-hash",
  "tempfile",
 ]
 

@@ -120,7 +120,7 @@ pub struct Engine<'a> {
     pub witnesses: Option<HashMap<(UnitId, usize), Vec<Vec<super::exhaustiveness::WitnessPart>>>>,
     /// Offsets of the names of formal parameters, per inferred unit (inference
     /// resolves a read of a parameter as that of a local).
-    parameters: HashMap<UnitId, HashSet<usize>>,
+    parameters: std::cell::RefCell<HashMap<UnitId, HashSet<usize>>>,
     depth: u32,
     sym_identical: Option<SymbolId>,
     sym_length: Option<SymbolId>,
@@ -142,12 +142,6 @@ impl<'a> Engine<'a> {
         body: &'a BodyTypes,
         the_inferred: &'a HashSet<LibraryId>,
     ) -> Self {
-        let mut params_list: HashMap<UnitId, HashSet<usize>> = HashMap::new();
-        for (i, u) in program.units.iter().enumerate() {
-            if the_inferred.contains(&u.library) {
-                params_list.insert(UnitId(i as u32), parameter_offsets(&u.ast));
-            }
-        }
         Engine {
             program,
             interner,
@@ -168,7 +162,7 @@ impl<'a> Engine<'a> {
             reports: Vec::new(),
             analyzer_break: false,
             witnesses: None,
-            parameters: params_list,
+            parameters: std::cell::RefCell::new(HashMap::new()),
             depth: 0,
             sym_identical: interner.lookup("identical"),
             sym_length: interner.lookup("length"),
@@ -2352,7 +2346,14 @@ impl<'a> Engine<'a> {
     /// The local read by `e` is a formal parameter.
     pub fn parameter_local(&self, u: UnitId, e: ExprId) -> bool {
         let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.local_declaration(e)) else { return false };
-        self.parameters.get(&u).is_some_and(|s| s.contains(&offset))
+        // The parameter names of a unit, computed on the first question (an
+        // engine is made per verifier and library; walking every inferred unit
+        // up front made that quadratic).
+        if !self.inferred_(u) {
+            return false;
+        }
+        let mut cache = self.parameters.borrow_mut();
+        cache.entry(u).or_insert_with(|| parameter_offsets(&self.program.unit(u).ast)).contains(&offset)
     }
 
     /// The local read by `e` is a constant (`const`).

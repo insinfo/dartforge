@@ -227,7 +227,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         }
                         for (index, v) in l.variables.iter().enumerate() {
                             let r = dartforge_elements::model::VariableRef::Field { unit: s.unit, member: mid, index };
-                            let ty = program.variables.iter().position(|y| y.node == r).and_then(|i| s.outline.variables.get(i)).and_then(|d| d.declared_type.or(d.inferred));
+                            let ty = program.variable_of_node(r).map(|v| v.0 as usize).and_then(|i| s.outline.variables.get(i)).and_then(|d| d.declared_type.or(d.inferred));
                             if interner.resolve(v.name.sym).starts_with('_') || inherited(v.name.sym) || ty.is_some_and(|t| super::rules20::is_widget_property(s, interner, t, 0)) {
                                 continue;
                             }

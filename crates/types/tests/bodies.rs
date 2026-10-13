@@ -192,7 +192,7 @@ fn promotion_and_inference() {
     // Unit 0 is `dart:core` (without body inference); the user's is the entry one.
     let entry_unit = prog.library(prog.entry.unwrap()).units[0];
     let unit = &body_types.units[entry_unit.0 as usize];
-    assert!(unit.static_types.len() > 10, "Expressions must be typed");
+    assert!(unit.expression_count() > 10, "Expressions must be typed");
 
     // Checks that there were no spurious diagnostics
     assert!(diags.is_empty(), "Valid bodies must not emit diagnostics: {diags:?}");
@@ -1452,8 +1452,8 @@ fn sdk_bodies_type_check() {
     let mut total_exprs = 0;
     let mut resolved_exprs = 0;
     for u in &body_types.units {
-        total_exprs += u.static_types.len();
-        resolved_exprs += u.resolved.iter().filter(|r| r.is_some()).count();
+        total_exprs += u.expression_count();
+        resolved_exprs += u.resolved_targets().count();
     }
 
     println!("============================================================");
@@ -1517,7 +1517,7 @@ fn pub_corpus_type_checks() {
 
                 let mut total_exprs = 0;
                 for u in &body_types.units {
-                    total_exprs += u.static_types.len();
+                    total_exprs += u.expression_count();
                 }
                 println!("Package {}: {} typed expressions", pkg_path.file_name().unwrap().to_string_lossy(), total_exprs);
                 break;
@@ -1559,8 +1559,8 @@ fn new_sali_type_checks() {
         let mut total_exprs = 0;
         let mut resolved_exprs = 0;
         for u in &body_types.units {
-            total_exprs += u.static_types.len();
-            resolved_exprs += u.resolved.iter().filter(|r| r.is_some()).count();
+            total_exprs += u.expression_count();
+            resolved_exprs += u.resolved_targets().count();
         }
 
         println!("new_sali {label}: {} units, {} typed expressions, {} resolved",

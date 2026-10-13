@@ -44,7 +44,7 @@ impl Context<'_> {
         // has it under its name; a prefixed import indexes by `p.x`.
         if imp.prefix.is_none() {
             let exported_entry = &prog.library(imp.library).exported;
-            for r in self.bodies.resolved.iter().flatten() {
+            for (_, r) in self.bodies.resolved_targets() {
                 let Resolved::ExtensionMember { extension, .. } = r else { continue };
                 let Some(name) = prog.extension(*extension).name else { continue };
                 if exported_entry.get(&name).and_then(|b| b.getter) == Some(Element::Extension(*extension)) {

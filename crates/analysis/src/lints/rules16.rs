@@ -374,7 +374,7 @@ fn variable_list_context(s: &super::Semantics<'_>, a: &Ast, m: Option<dartforge_
 
 /// The element type of a top-level variable or field.
 pub(super) fn declared_variable_type(s: &super::Semantics<'_>, r: VariableRef) -> Option<TypeId> {
-    let v = s.program.variables.iter().position(|x| x.node == r)?;
+    let v = s.program.variable_of_node(r).map(|v| v.0 as usize)?;
     let d = s.outline.variables.get(v)?;
     d.declared_type.or(d.inferred)
 }
@@ -1079,7 +1079,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     if !text.starts_with('_') {
                         continue;
                     }
-                    let Some(vid) = program.variables.iter().position(|x| x.node == VariableRef::Field { unit: s.unit, member: mid, index }) else { continue };
+                    let Some(vid) = program.variable_of_node(VariableRef::Field { unit: s.unit, member: mid, index }).map(|v| v.0 as usize) else { continue };
                     // `overridesField`: an inherited concrete setter.
                     let overrides = class_id.is_some_and(|cl| {
                         let key = interner.lookup(&format!("{text}_="));

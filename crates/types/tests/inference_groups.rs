@@ -62,7 +62,7 @@ fn infer_file(main: &std::path::Path) -> Result_ {
             let mut types = Vec::new();
             for (i, e) in unit.ast.exprs.iter().enumerate() {
                 let text = unit.source[e.span.start..e.span.end].to_string();
-                let t = bt.static_types[i];
+                let t = bt.get_type(dartforge_frontend::ast::ExprId(i as u32)).expect("typed");
                 types.push((e.span.start, text, the_format(&table, t, &interner, &prog)));
             }
             types.sort_by_key(|(s, _, _)| *s);

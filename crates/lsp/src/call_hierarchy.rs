@@ -249,7 +249,7 @@ impl Project {
             return e;
         }
         let ast::ExprKind::Binary { left, .. } = &cx.ast.expr(x).kind else { return e };
-        let Some(&t) = cx.bodies.static_types.get(left.0 as usize) else { return e };
+        let Some(t) = cx.bodies.get_type(*left) else { return e };
         let dartforge_types::Type::Interface { class, .. } = self.query.table.get(t) else { return e };
         let mut queue = std::collections::VecDeque::from([*class]);
         let mut seen = std::collections::HashSet::new();

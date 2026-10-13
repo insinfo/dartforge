@@ -158,7 +158,319 @@ fn collection_scopes(a: &ast::Ast, el: &ast::CollectionElement, output: &mut Vec
 /// The name `n` is declared in a local or member scope that contains position
 /// `pos` of the unit (the analyzer's lexical lookup would stop before the
 /// library scope).
+///
+/// Answered from the unit's [`ShadowIndex`], built once per tree on the first
+/// question (the verifiers ask for every identifier of the unit; walking the
+/// whole tree per question was quadratic in the unit's size).
 pub fn is_shadowed(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> bool {
+    match a.derived.get_or_init(|| ShadowIndex::build(a)) {
+        Some(index) => index.shadows(interner, pos, n),
+        None => is_shadowed_walk(a, interner, pos, n),
+    }
+}
+
+/// A scope that declares a name: the name is shadowed at the positions
+/// `start <= pos < end` that come after `after` (when there is one: a name
+/// only in scope after its declaration).
+#[derive(Debug, Clone, Copy)]
+struct Shadow {
+    start: usize,
+    end: usize,
+    after: Option<usize>,
+}
+
+impl Shadow {
+    fn covers(&self, pos: usize) -> bool {
+        self.start <= pos && pos < self.end && self.after.is_none_or(|x| x < pos)
+    }
+}
+
+/// Every local and member scope of a unit by the name it declares: the
+/// answers of [`is_shadowed`] without walking the tree. Built from the same
+/// rules as [`is_shadowed_walk`], which stays as the reference.
+#[derive(Debug, Default)]
+pub struct ShadowIndex {
+    by_name: std::collections::HashMap<SymbolId, Vec<Shadow>>,
+    /// The bodies of the enums, where the synthetic `values` is in scope.
+    enum_bodies: Vec<Shadow>,
+}
+
+impl ShadowIndex {
+    /// `n` is declared in a scope that contains `pos`.
+    pub fn shadows(&self, interner: &Interner, pos: usize, n: SymbolId) -> bool {
+        if self.by_name.get(&n).is_some_and(|v| v.iter().any(|s| s.covers(pos))) {
+            return true;
+        }
+        !self.enum_bodies.is_empty() && interner.resolve(n) == "values" && self.enum_bodies.iter().any(|s| s.covers(pos))
+    }
+
+    fn add(&mut self, n: SymbolId, scope: Span, after: Option<usize>) {
+        if scope.start < scope.end {
+            self.by_name.entry(n).or_default().push(Shadow { start: scope.start, end: scope.end, after });
+        }
+    }
+
+    /// The scopes of every declaration of the unit.
+    pub fn build(a: &ast::Ast) -> ShadowIndex {
+        let mut x = ShadowIndex::default();
+        // Block locals: in scope in the smallest block that contains the
+        // statement (the whole block, also before the declaration).
+        let mut whole_block: Vec<(Span, Vec<ast::Name>)> = Vec::new();
+        for s in a.stmts.iter() {
+            let mut names: Vec<ast::Name> = Vec::new();
+            match &s.kind {
+                StmtKind::Variables(l) => {
+                    names.extend(l.variables.iter().map(|v| v.name));
+                    whole_block.push((s.span, names));
+                }
+                StmtKind::Function(f) => {
+                    if let Some(n) = a.function(*f).name {
+                        whole_block.push((s.span, vec![n]));
+                    }
+                }
+                StmtKind::PatternVariables { pattern, .. } => {
+                    declared_in_pattern(a, *pattern, false, &mut names);
+                    whole_block.push((s.span, names));
+                }
+                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
+                    for v in l.variables.iter() {
+                        x.add(v.name.sym, s.span, Some(v.name.span.start));
+                    }
+                }
+                StmtKind::For { init: Some(ForInit::Pattern { pattern, .. }), .. } => {
+                    declared_in_pattern(a, *pattern, false, &mut names);
+                    for v in names {
+                        x.add(v.sym, s.span, Some(v.span.start));
+                    }
+                }
+                StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => x.add(name.sym, s.span, Some(name.span.start)),
+                StmtKind::ForIn { target: ForInTarget::Pattern { pattern, .. }, .. } => {
+                    declared_in_pattern(a, *pattern, false, &mut names);
+                    for v in names {
+                        x.add(v.sym, s.span, Some(v.span.start));
+                    }
+                }
+                StmtKind::If { case_pattern: Some(p), then, .. } => {
+                    declared_in_pattern(a, *p, true, &mut names);
+                    let scope = Span { start: a.pattern(*p).span.start, end: a.stmt(*then).span.end };
+                    for v in names {
+                        x.add(v.sym, scope, Some(v.span.start));
+                    }
+                }
+                StmtKind::Switch { cases, .. } => {
+                    for c in cases.iter() {
+                        let Some(p) = c.pattern else { continue };
+                        let mut vs = Vec::new();
+                        declared_in_pattern(a, p, true, &mut vs);
+                        for v in vs {
+                            x.add(v.sym, c.span, Some(v.span.start));
+                        }
+                    }
+                }
+                StmtKind::Try { catches, .. } => {
+                    for c in catches.iter() {
+                        let the_body = a.stmt(c.body).span;
+                        for n in c.exception.iter().chain(c.stack_trace.iter()) {
+                            x.add(n.sym, the_body, None);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let blocks = smallest_blocks(a, whole_block.iter().map(|(s, _)| *s).collect());
+        for ((_, names), block) in whole_block.into_iter().zip(blocks) {
+            for n in names {
+                x.add(n.sym, block, None);
+            }
+        }
+        // The cases of a `switch` expression and the collection elements.
+        for e in a.exprs.iter() {
+            match &e.kind {
+                ExprKind::Switch { cases, .. } => {
+                    for c in cases.iter() {
+                        let mut vs = Vec::new();
+                        declared_in_pattern(a, c.pattern, true, &mut vs);
+                        for v in vs {
+                            x.add(v.sym, c.span, Some(v.span.start));
+                        }
+                    }
+                }
+                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
+                    let mut scopes = Vec::new();
+                    for el in elements.iter() {
+                        collection_scopes(a, el, &mut scopes);
+                    }
+                    for (s, names) in scopes {
+                        // In scope where both the literal and the element's scope are.
+                        let scope = Span { start: s.start.max(e.span.start), end: s.end.min(e.span.end) };
+                        for v in names {
+                            x.add(v.sym, scope, Some(v.span.start));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        // The parameters (in the body) and the type parameters (in the whole
+        // function) of the functions.
+        let common = |p: &ast::Parameter| !p.this_ && !p.super_;
+        for f in a.functions.iter() {
+            for t in f.type_params.iter() {
+                x.add(t.name.sym, f.span, None);
+            }
+            let the_body = match &f.body {
+                FunctionBody::Block(s) => a.stmt(*s).span,
+                FunctionBody::Expression(e) => a.expr(*e).span,
+                _ => continue,
+            };
+            for p in f.parameters.as_deref().unwrap_or(&[]) {
+                if let Some(n) = p.name
+                    && common(p)
+                {
+                    x.add(n.sym, the_body, None);
+                }
+            }
+        }
+        // The constructor: in the initializer list all parameters are in scope
+        // (`this.x` and `super.x` too); in the body, the ordinary ones.
+        for m in a.members.iter() {
+            let MemberKind::Constructor(k) = &m.kind else { continue };
+            for i in k.initializers.iter() {
+                let span = match i {
+                    Initializer::Field { span, .. } | Initializer::Super { span, .. } | Initializer::Redirect { span, .. } | Initializer::Assert { span, .. } => *span,
+                };
+                for p in k.parameters.iter() {
+                    if let Some(n) = p.name {
+                        x.add(n.sym, span, None);
+                    }
+                }
+            }
+            let the_body = match &k.body {
+                FunctionBody::Block(s) => Some(a.stmt(*s).span),
+                FunctionBody::Expression(e) => Some(a.expr(*e).span),
+                _ => None,
+            };
+            if let Some(b) = the_body {
+                for p in k.parameters.iter() {
+                    if let Some(n) = p.name
+                        && common(p)
+                    {
+                        x.add(n.sym, b, None);
+                    }
+                }
+            }
+        }
+        // The type parameters of a `Function<T>(…)` type and of a
+        // function-typed parameter `f<T>(…)`.
+        fn parameter_types(x: &mut ShadowIndex, ps: &[ast::Parameter]) {
+            for p in ps {
+                for t in p.function_type_params.iter() {
+                    x.add(t.name.sym, p.span, None);
+                }
+                if let Some(fs) = p.function_parameters.as_deref() {
+                    parameter_types(x, fs);
+                }
+            }
+        }
+        for t in a.types.iter() {
+            if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+                for tp in type_params.iter() {
+                    x.add(tp.name.sym, t.span, None);
+                }
+                parameter_types(&mut x, parameters);
+            }
+        }
+        for f in a.functions.iter() {
+            if let Some(ps) = f.parameters.as_deref() {
+                parameter_types(&mut x, ps);
+            }
+        }
+        // The declared members (and the type parameters) of the type, after
+        // its name; the type parameters of the typedef.
+        for d in a.decls.iter() {
+            let (the_name, types, members, extras): (Option<ast::Name>, &[ast::TypeParameter], &[ast::MemberId], Vec<SymbolId>) = match &d.kind {
+                DeclKind::Class(c) => (Some(c.name), &c.type_params[..], &c.members[..], Vec::new()),
+                DeclKind::Mixin(c) => (Some(c.name), &c.type_params[..], &c.members[..], Vec::new()),
+                DeclKind::Enum(c) => (Some(c.name), &c.type_params[..], &c.members[..], c.constants.iter().map(|k| k.name.sym).collect()),
+                DeclKind::Extension(c) => (c.name, &c.type_params[..], &c.members[..], Vec::new()),
+                DeclKind::ExtensionType(c) => (Some(c.name), &c.type_params[..], &c.members[..], vec![c.representation_name.sym]),
+                DeclKind::Typedef(t) => {
+                    for tp in t.type_params.iter() {
+                        x.add(tp.name.sym, d.span, None);
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            let after_name = the_name.map_or(d.span.start, |n| n.span.end);
+            // `pos > after_name && pos < end`.
+            let scope = Span { start: after_name + 1, end: d.span.end };
+            if matches!(d.kind, DeclKind::Enum(_)) && scope.start < scope.end {
+                x.enum_bodies.push(Shadow { start: scope.start, end: scope.end, after: None });
+            }
+            for t in types {
+                x.add(t.name.sym, scope, None);
+            }
+            for n in extras {
+                x.add(n, scope, None);
+            }
+            for &mid in members {
+                match &a.member(mid).kind {
+                    MemberKind::Method(f) => {
+                        if let Some(n) = a.function(*f).name {
+                            x.add(n.sym, scope, None);
+                        }
+                    }
+                    MemberKind::Field(l) => {
+                        for v in l.variables.iter() {
+                            x.add(v.name.sym, scope, None);
+                        }
+                    }
+                    MemberKind::Constructor(_) => {}
+                }
+            }
+        }
+        x
+    }
+}
+
+/// For each span, the smallest block statement that contains it, starting
+/// strictly before it (the scope of a block local); the span itself without
+/// one. One sweep over the blocks and the spans sorted by start.
+fn smallest_blocks(a: &ast::Ast, spans: Vec<Span>) -> Vec<Span> {
+    let mut blocks: Vec<Span> = a.stmts.iter().filter(|x| matches!(x.kind, StmtKind::Block(_))).map(|x| x.span).collect();
+    blocks.sort_by(|x, y| x.start.cmp(&y.start).then(y.end.cmp(&x.end)));
+    let mut order: Vec<usize> = (0..spans.len()).collect();
+    order.sort_by_key(|&i| spans[i].start);
+    let mut out = spans.clone();
+    let mut stack: Vec<Span> = Vec::new();
+    let mut next = 0;
+    for i in order {
+        let s = spans[i];
+        while next < blocks.len() && blocks[next].start < s.start {
+            let b = blocks[next];
+            while stack.last().is_some_and(|t| t.end <= b.start) {
+                stack.pop();
+            }
+            stack.push(b);
+            next += 1;
+        }
+        // The innermost open block that reaches the end of the span; with
+        // blocks that nest (a tree), it is the smallest one.
+        out[i] = stack
+            .iter()
+            .rev()
+            .filter(|b| b.start < s.start && s.end <= b.end)
+            .min_by_key(|b| b.end - b.start)
+            .copied()
+            .unwrap_or(s);
+    }
+    out
+}
+
+/// [`is_shadowed`] by walking the whole tree: the reference for the index.
+pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> bool {
     let in_ = |s: Span| s.start <= pos && pos < s.end;
     let declares = |names: &[ast::Name]| names.iter().any(|x| x.sym == n && x.span.start < pos);
     // The smallest block that contains the span `s` (the scope of a local

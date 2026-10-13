@@ -361,6 +361,20 @@ pub fn invalid_overrides(
     // `_checkDeclaredMember` (`inheritance_override.dart:259-263`).
     let without_signature: std::collections::HashSet<FunctionElementId> =
         crate::phase_inheritance::methods_without_combined_signature(program, interner, table, core, outline, classes).into_iter().map(|(_, f, _, _)| f).collect();
+    // The classes whose declared members are read: the checked ones and the
+    // mixins they apply (the engine calls this once per library, so the maps
+    // below cover only these, not every class of the program).
+    let mut needed = vec![false; program.classes.len()];
+    for &cid in classes {
+        needed[cid.0 as usize] = true;
+        if let Some(data) = outline.classes.get(cid.0 as usize) {
+            for &mt in &data.mixins {
+                if let Type::Interface { class: m, .. } = table.get(mt) {
+                    needed[m.0 as usize] = true;
+                }
+            }
+        }
+    }
     let mut cx = Ctx { program, interner, table, core, outline, inheritance: crate::inheritance::InheritanceManager::default(), library: dartforge_elements::model::LibraryId(0) };
     let mut output = Vec::new();
     // Accessors and methods by source node.
@@ -368,7 +382,7 @@ pub fn invalid_overrides(
     type Accessors = (Option<FunctionElementId>, Option<FunctionElementId>);
     let mut by_variable: HashMap<(UnitId, u32, usize), Accessors> = HashMap::new();
     for (i, f) in program.functions.iter().enumerate() {
-        if f.class.is_none() || f.static_ {
+        if f.static_ || !f.class.is_some_and(|c| needed[c.0 as usize]) {
             continue;
         }
         let id = FunctionElementId(i as u32);
@@ -624,7 +638,7 @@ pub fn getters_and_setters(
             }
         }
     }
-    for (i, f) in program.functions.iter().enumerate() {
+    for (i, f) in program.index().library_functions[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.function(x))) {
         if f.library != lib || f.patched_by.is_some() {
             continue;
         }
@@ -676,7 +690,7 @@ pub fn getters_and_setters(
     // Variables without an access function: the enum constant (static
     // getter), the representation (instance getter of the extension type) and
     // the extension field (getter, and setter if neither `final` nor `const`).
-    for (i, v) in program.variables.iter().enumerate() {
+    for (i, v) in program.index().library_variables[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.variable(x))) {
         if v.library != lib || v.getter.is_some() {
             continue;
         }
@@ -1233,7 +1247,7 @@ pub fn uninitialized_variables(
 ) -> Vec<(UnitId, Diagnostic)> {
     use dartforge_elements::model::VariableRef;
     let mut output = Vec::new();
-    for (i, v) in program.variables.iter().enumerate() {
+    for (i, v) in program.index().library_variables[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.variable(x))) {
         if v.library != lib {
             continue;
         }
@@ -1414,7 +1428,7 @@ pub fn default_values_with(
     lib: dartforge_elements::model::LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    for (i, f) in program.functions.iter().enumerate() {
+    for (i, f) in program.index().library_functions[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.function(x))) {
         if f.library != lib || f.patched_by.is_some() {
             continue;
         }

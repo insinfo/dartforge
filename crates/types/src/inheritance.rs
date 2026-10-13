@@ -28,6 +28,9 @@ use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionK
 use dartforge_frontend::ast::{self, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
+// Fx hashing for the interface maps: they are rebuilt on every inference pass
+// and their keys are small integers.
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
 
 /// `Name`: the member key and, if private, the library.
@@ -114,12 +117,12 @@ pub enum Conflict {
 #[derive(Clone, Debug)]
 pub struct Map<V> {
     entries: Vec<(MemberName, V)>,
-    index: HashMap<MemberName, usize>,
+    index: FxHashMap<MemberName, usize>,
 }
 
 impl<V> Default for Map<V> {
     fn default() -> Self {
-        Map { entries: Vec::new(), index: HashMap::new() }
+        Map { entries: Vec::new(), index: FxHashMap::default() }
     }
 }
 
@@ -201,6 +204,19 @@ pub trait Provider<'p> {
     fn sub(&mut self, a: TypeId, b: TypeId) -> bool;
     /// `TypeSystem.normalize`.
     fn normalize_(&mut self, t: TypeId) -> TypeId;
+    /// The interface of `c` kept by an earlier pass over the same program
+    /// ([`crate::SharedInference`]).
+    fn shared_interface(&self, _c: ClassId) -> Option<Rc<Interface>> {
+        None
+    }
+    /// A counter that changes whenever a member type was given provisionally
+    /// (an interface built while it changed must not be shared).
+    fn provisional_events(&self) -> u64 {
+        0
+    }
+    /// Offers the interface of `c`, built without provisional member types,
+    /// to the later passes.
+    fn share_interface(&mut self, _c: ClassId, _i: &Rc<Interface>) {}
 }
 
 /// The provider for the passes that run after inference: the outline types
@@ -286,9 +302,12 @@ impl<'p> Provider<'p> for OutlineProvider<'p, '_> {
 /// `InheritanceManager3`.
 #[derive(Default)]
 pub struct InheritanceManager {
-    interfaces: HashMap<ClassId, Rc<Interface>>,
-    processing: HashSet<ClassId>,
-    the_inherited: HashMap<ClassId, Rc<Map<InterfaceMember>>>,
+    interfaces: FxHashMap<ClassId, Rc<Interface>>,
+    processing: FxHashSet<ClassId>,
+    the_inherited: FxHashMap<ClassId, Rc<Map<InterfaceMember>>>,
+    /// How many times a class asked for its own interface while building it
+    /// (and got the empty placeholder).
+    cycle_cuts: u64,
 }
 
 /// The kind of a declared member.
@@ -375,12 +394,21 @@ impl InheritanceManager {
         // T1.1: same-named members of the same kind are a single key.
         let c = p.program().class_owner(c);
         if let Some(i) = self.interfaces.get(&c) {
+            if self.processing.contains(&c) {
+                self.cycle_cuts += 1;
+            }
             return i.clone();
+        }
+        if let Some(i) = p.shared_interface(c) {
+            self.interfaces.insert(c, i.clone());
+            return i;
         }
         self.interfaces.insert(c, Rc::new(Interface::empty()));
         if !self.processing.insert(c) {
             return Rc::new(Interface::empty());
         }
+        let events = p.provisional_events();
+        let cuts = self.cycle_cuts;
         let r = match p.program().class(c).kind {
             ClassKind::ExtensionType => self.of_extension_type(p, c),
             ClassKind::Mixin => self.of_mixin(p, c),
@@ -389,6 +417,11 @@ impl InheritanceManager {
         self.processing.remove(&c);
         let r = Rc::new(r);
         self.interfaces.insert(c, r.clone());
+        // Shared only when no member type was provisional and no cycle cut an
+        // interface short during the computation.
+        if self.cycle_cuts == cuts && p.provisional_events() == events {
+            p.share_interface(c, &r);
+        }
         r
     }
 

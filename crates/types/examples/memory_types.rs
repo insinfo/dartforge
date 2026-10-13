@@ -75,8 +75,8 @@ fn main() {
     let mut total_exprs = 0;
     let mut resolved_exprs = 0;
     for u in &body_types.units {
-        total_exprs += u.static_types.len();
-        resolved_exprs += u.resolved.iter().filter(|r| r.is_some()).count();
+        total_exprs += u.expression_count();
+        resolved_exprs += u.resolved_targets().count();
     }
 
     println!("\n--- Structural Metrics ---");

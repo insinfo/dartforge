@@ -285,7 +285,7 @@ fn runtime_type_to_string(
             // The extension whose extended type is an interface that is not
             // a concrete class.
             DeclKind::Extension(_) => {
-                let Some(i) = program.extensions.iter().position(|x| x.decl.unit == u && x.decl.decl == ast::DeclId(di as u32)) else { continue };
+                let Some(i) = program.extension_of_decl(u, ast::DeclId(di as u32)).map(|e| e.0 as usize) else { continue };
                 let Some(data) = outline.extensions.get(i) else { continue };
                 let skips = match table.get(data.on) {
                     Type::Interface { class, .. } => {

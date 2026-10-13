@@ -1657,7 +1657,7 @@ fn catch_error_without_return(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, 
     if inf.interner.resolve(name.sym) != "catchError" {
         return;
     }
-    let Some(recv) = inf.body_types.units[cx.unit.0 as usize].static_types.get(tgt.0 as usize).copied() else { return };
+    let Some(recv) = inf.body_types.units[cx.unit.0 as usize].get_type(*tgt) else { return };
     if !matches!(inf.table.get(recv), Type::Interface { .. }) {
         return;
     }
@@ -2535,7 +2535,7 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
         let owner = match &d.kind {
             ast::DeclKind::Extension(_) => {
                 let decl = ast::DeclId(di as u32);
-                let x = inf.program.extensions.iter().position(|x| x.decl.unit == unit && x.decl.decl == decl);
+                let x = inf.program.extension_of_decl(unit, decl).map(|e| e.0 as usize);
                 (None, x.map(|i| dartforge_elements::model::ExtensionId(i as u32)))
             }
             _ => decl_class(inf, unit, d),
@@ -2577,8 +2577,10 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
     // that the annotation may cite: they stay without name validation).
     let the_declared: std::collections::HashMap<u32, (Option<ClassId>, Option<dartforge_elements::model::ExtensionId>)> = inf
         .program
-        .functions
+        .index()
+        .unit_functions[unit.0 as usize]
         .iter()
+        .map(|&k| inf.program.function(k))
         .filter_map(|fe| match fe.node {
             dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit => Some((function.0, (fe.class, fe.extension))),
             _ => None,
@@ -2592,9 +2594,7 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
         let (owner, owner_extension) = the_declared.get(&(i as u32)).copied().unwrap_or((None, None));
         // The function's own type parameters are also in scope.
         let scope: Vec<(dartforge_intern::SymbolId, TypeParamId)> = if f.type_params.iter().any(|tp| !tp.metadata.is_empty()) {
-            let fid = inf.program.functions.iter().position(|fe| {
-                matches!(fe.node, dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit && function.0 == i as u32)
-            });
+            let fid = inf.program.function_of_node(unit, ast::FunctionId(i as u32)).map(|x| x.0 as usize);
             match fid.and_then(|x| inf.outline.functions.get(x)) {
                 Some(data) if data.type_params.len() == f.type_params.len() => {
                     f.type_params.iter().map(|tp| tp.name.sym).zip(data.type_params.iter().copied()).collect()

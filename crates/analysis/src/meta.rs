@@ -880,7 +880,7 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
     let mut out: Vec<(UnitId, Diagnostic)> = Vec::new();
     // This library's classes, by declaration.
     let class_of = |u: UnitId, d: ast::DeclId| {
-        program.classes.iter().position(|c| c.library == lib && c.decl.is_some_and(|x| x.unit == u && x.decl == d)).map(|i| ClassId(i as u32))
+        program.class_of_decl(u, d).filter(|c| program.class(*c).library == lib)
     };
     for &u in &library.units {
         let unit = program.unit(u);

@@ -44,7 +44,7 @@ pub fn nullable_equality_parameter(
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    for (i, f) in program.functions.iter().enumerate() {
+    for (i, f) in program.index().library_functions[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.function(x))) {
         if f.library != lib || (f.class.is_none() && f.extension.is_none()) || interner.resolve(f.name) != "==" {
             continue;
         }

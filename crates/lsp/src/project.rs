@@ -889,7 +889,7 @@ impl Project {
         let ast = &self.program().unit(unit).ast;
         let ExprKind::Property { target, name, .. } = &ast.expr(id).kind else { return None };
         let bodies = &self.query.bodies.units[unit.0 as usize];
-        let t = *bodies.static_types.get(target.0 as usize)?;
+        let t = bodies.get_type(*target)?;
         if !matches!(self.query.table.get(t), dartforge_types::Type::Dynamic) || self.query.table.is_invalid(t) {
             return None;
         }

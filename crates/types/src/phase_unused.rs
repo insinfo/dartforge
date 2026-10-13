@@ -420,14 +420,10 @@ pub fn unused_elements(
     let mut used = Used::default();
     let units: Vec<UnitId> = program.library(lib).units.iter().copied().filter(|u| program.unit(*u).role != UnitRole::Patch).collect();
     let decl_class = |u: UnitId, d: ast::DeclId| {
-        program.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == u && r.decl == d)).map(|i| ClassId(i as u32))
+        program.class_of_decl(u, d)
     };
     let node_function = |u: UnitId, f: ast::FunctionId| {
-        program
-            .functions
-            .iter()
-            .position(|e| matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == u && function == f))
-            .map(|i| FunctionElementId(i as u32))
+        program.function_of_node(u, f)
     };
     let member_constructor = |u: UnitId, m: ast::MemberId| {
         program
@@ -1009,7 +1005,7 @@ pub fn unused_elements(
     };
     let variables_of = |u: UnitId, decl: Option<ast::DeclId>, mem: Option<ast::MemberId>| -> HashMap<usize, VariableId> {
         let mut m = HashMap::new();
-        for (i, x) in program.variables.iter().enumerate() {
+        for (i, x) in program.index().unit_variables[u.0 as usize].iter().map(|&v| (v.0 as usize, program.variable(v))) {
             match x.node {
                 dartforge_elements::model::VariableRef::TopLevel { unit, decl: d, index } if unit == u && Some(d) == decl => {
                     m.insert(index, VariableId(i as u32));
@@ -1085,7 +1081,7 @@ pub fn unused_elements(
                 }
                 DeclKind::Extension(x) => members = &x.members,
                 DeclKind::Typedef(t) => {
-                    let tgt = program.typedefs.iter().position(|e| e.decl.unit == u && e.decl.decl == did).map(|i| TypedefId(i as u32));
+                    let tgt = program.typedef_of_decl(u, did);
                     if let Some(tid) = tgt
                         && private(interner, t.name.sym)
                         && !used_element(El::Typedef(tid), &d.metadata, u, &mut engine)

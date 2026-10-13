@@ -55,10 +55,17 @@ pub enum Resolved {
 /// costs or heap pointers.
 #[derive(Debug, Clone, Default)]
 pub struct UnitBodyTypes {
-    /// Inferred static type of each expression in the `ast.exprs` arena.
-    pub static_types: Vec<TypeId>,
+    /// Inferred static type of each expression in the `ast.exprs` arena
+    /// (empty while [`Self::lazy`] holds the size).
+    static_types: Vec<TypeId>,
     /// Resolved target of identifier, property or call expressions.
-    pub resolved: Vec<Option<Resolved>>,
+    resolved: Vec<Option<Resolved>>,
+    /// The expression count and the fallback type of tables that nobody wrote
+    /// yet: the two vectors are only allocated on the first write. A pass of
+    /// inference creates tables for every unit that may be inferred, and most
+    /// of them are never touched (one pass per library would otherwise be
+    /// quadratic in the number of libraries).
+    lazy: Option<(u32, TypeId)>,
     /// Declared type (or inferred from the initializer) of each local variable,
     /// by the offset of the name in the declaration. The native backend stores
     /// the local in that type's representation (`int?` is a box, `int` is an
@@ -158,8 +165,9 @@ impl UnitBodyTypes {
     /// Creates side tables allocated with the exact size of the unit's AST expressions.
     pub fn new(num_exprs: usize, fallback_type: TypeId) -> Self {
         Self {
-            static_types: vec![fallback_type; num_exprs],
-            resolved: vec![None; num_exprs],
+            static_types: Vec::new(),
+            resolved: Vec::new(),
+            lazy: (num_exprs > 0).then_some((num_exprs as u32, fallback_type)),
             local_types: std::collections::HashMap::new(),
             local_declarations: std::collections::HashMap::new(),
             with_function_type: std::collections::HashSet::new(),
@@ -181,6 +189,40 @@ impl UnitBodyTypes {
             field_elements: std::collections::HashMap::new(),
             relational_operators: std::collections::HashMap::new(),
         }
+    }
+
+    /// Allocates the vectors of tables created lazily (see [`Self::new`]).
+    fn materialize(&mut self) {
+        if let Some((n, fallback)) = self.lazy.take() {
+            self.static_types = vec![fallback; n as usize];
+            self.resolved = vec![None; n as usize];
+        }
+    }
+
+    /// The number of expressions these tables cover: zero for a unit without
+    /// tables (an SDK unit whose bodies are not inferred).
+    pub fn expression_count(&self) -> usize {
+        match self.lazy {
+            Some((n, _)) => n as usize,
+            None => self.static_types.len(),
+        }
+    }
+
+    /// The unit has tables (its bodies may be inferred).
+    pub fn has_tables(&self) -> bool {
+        self.expression_count() > 0
+    }
+
+    /// The resolved targets recorded, in expression order.
+    pub fn resolved_targets(&self) -> impl Iterator<Item = (ast::ExprId, &Resolved)> + '_ {
+        self.resolved.iter().enumerate().filter_map(|(i, r)| r.as_ref().map(|r| (ast::ExprId(i as u32), r)))
+    }
+
+    /// Sets the static type of every expression to `ty` (the dump's
+    /// "not visited" mark before inference).
+    pub fn fill_types(&mut self, ty: TypeId) {
+        self.materialize();
+        self.static_types.fill(ty);
     }
 
     /// The type arguments of the implicit instantiation of tear-off `e` (see
@@ -221,20 +263,25 @@ impl UnitBodyTypes {
     /// Sets the static type of an expression.
     pub fn set_type(&mut self, expr: ast::ExprId, ty: TypeId) {
         let idx = expr.0 as usize;
-        if idx < self.static_types.len() {
+        if idx < self.expression_count() {
+            self.materialize();
             self.static_types[idx] = ty;
         }
     }
 
     /// Gets the static type associated with an expression.
     pub fn get_type(&self, expr: ast::ExprId) -> Option<TypeId> {
-        self.static_types.get(expr.0 as usize).copied()
+        match self.lazy {
+            Some((n, fallback)) => ((expr.0) < n).then_some(fallback),
+            None => self.static_types.get(expr.0 as usize).copied(),
+        }
     }
 
     /// Records the semantic resolution of an expression.
     pub fn set_resolved(&mut self, expr: ast::ExprId, target: Resolved) {
         let idx = expr.0 as usize;
-        if idx < self.resolved.len() {
+        if idx < self.expression_count() {
+            self.materialize();
             self.resolved[idx] = Some(target);
         }
     }

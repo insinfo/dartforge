@@ -58,7 +58,7 @@ impl Context<'_> {
             return None;
         }
         let list = self.p.query.core.list_class?;
-        let ty = *self.bodies.static_types.get(x.0 as usize)?;
+        let ty = self.bodies.get_type(x)?;
         if !matches!(self.p.query.table.get(ty), Type::Interface { class, .. } if *class == list) {
             return None;
         }

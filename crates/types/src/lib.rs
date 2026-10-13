@@ -74,7 +74,7 @@ pub use codes::*;
 pub use constant::{ConstValue, ConstantEvaluator};
 pub use constraints::GenericInferrer;
 pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
-pub use inference::{body_at_offset, unit_bodies, applicable_extensions, applicable_extensions_among, infer_bodies, BodyInferrer, BodyRef, InferredBodies};
+pub use inference::{body_at_offset, unit_bodies, applicable_extensions, applicable_extensions_among, infer_bodies, BodyInferrer, BodyRef, InferredBodies, SharedInference};
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,
@@ -166,6 +166,27 @@ pub fn infer_library_bodies_with_units(
     let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
     inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
     inferrer.record_locals = record_locals;
+    inferrer.infer_all_with_units()
+}
+
+/// Like [`infer_library_bodies_with_units`], sharing with the other passes
+/// over the same program, table and outline what does not depend on the pass
+/// ([`SharedInference`]): the engine's one-pass-per-library loop.
+#[allow(clippy::too_many_arguments)]
+pub fn infer_library_bodies_shared(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut OutlineTypes,
+    libraries: &[dartforge_elements::model::LibraryId],
+    record_locals: bool,
+    shared: &SharedInference,
+) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<dartforge_elements::model::UnitId>>) {
+    let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
+    inferrer.record_locals = record_locals;
+    inferrer.shared = Some(shared);
     inferrer.infer_all_with_units()
 }
 

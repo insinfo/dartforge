@@ -62,12 +62,10 @@ pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outl
             _ => None,
         })
         .collect();
-    let elements: HashMap<dartforge_frontend::ast::FunctionId, usize> = program
-        .functions
+    let elements: HashMap<dartforge_frontend::ast::FunctionId, usize> = program.index().unit_functions[u.0 as usize]
         .iter()
-        .enumerate()
-        .filter_map(|(k, f)| match f.node {
-            FunctionRef::Function { unit, function } if unit == u => Some((function, k)),
+        .filter_map(|&k| match program.function(k).node {
+            FunctionRef::Function { unit, function } if unit == u => Some((function, k.0 as usize)),
             _ => None,
         })
         .collect();

@@ -19,7 +19,7 @@ use super::rules::LintReport;
 use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{Element, FunctionRef};
+use dartforge_elements::model::Element;
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ExprKind, ForInTarget, ForInit, MemberKind, ParameterKind, PatternKind, StmtKind, TypeKind};
 use dartforge_frontend::token::Token;
 use dartforge_intern::Interner;
@@ -225,7 +225,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // The element type of each parameter: that of the declared function, of
     // the constructor, the closure's inferred one, that of the local function.
     let function_param_types = |f: ast::FunctionId| -> Option<Vec<TypeId>> {
-        let fid = program.functions.iter().position(|x| matches!(x.node, FunctionRef::Function { unit, function } if unit == s.unit && function == f));
+        let fid = program.function_of_node(s.unit, f).map(|x| x.0 as usize);
         if let Some(i) = fid {
             return s.outline.functions.get(i).map(|d| d.parameters.iter().map(|p| p.ty).collect());
         }
@@ -262,7 +262,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     }
     for (k, m) in a.members.iter().enumerate() {
         if let MemberKind::Constructor(kc) = &m.kind {
-            let fid = program.functions.iter().position(|x| matches!(x.node, FunctionRef::Constructor { unit, member } if unit == s.unit && member == ast::MemberId(k as u32)));
+            let fid = program.constructor_of_member(s.unit, ast::MemberId(k as u32)).map(|x| x.0 as usize);
             let types = fid.and_then(|i| s.outline.functions.get(i)).map(|d| d.parameters.iter().map(|p| p.ty).collect());
             lists.push((&kc.parameters, types));
         }

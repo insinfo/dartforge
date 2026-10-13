@@ -752,7 +752,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // nearest to the library's file), its name, its dependencies and, outside
     // `lib/`, `bin/` and the `hook/build.dart` and `hook/link.dart` hooks,
     // its dev dependencies.
-    if enabled("depend_on_referenced_packages") {
+    let imports_packages = u.unit.directives.iter().any(|d| match &d.kind {
+        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => {
+            uri.constant_value().is_some_and(|v| v.to_string_lossy().starts_with("package:"))
+        }
+        _ => false,
+    });
+    if enabled("depend_on_referenced_packages") && imports_packages {
         let lib = program.library(program.unit(s.unit).library);
         let lib_path = lib.units.first().and_then(|x| program.unit(*x).path.clone());
         let root = lib_path.as_ref().and_then(|c| c.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf));

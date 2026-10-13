@@ -45,8 +45,15 @@ impl BodyInferrer<'_> {
         if let Some(p) = self.promotion_by_library.get(&lib) {
             return p.clone();
         }
+        if let Some(p) = self.shared.and_then(|s| s.promotion.borrow().get(&lib).cloned()) {
+            self.promotion_by_library.insert(lib, p.clone());
+            return p;
+        }
         let p = Rc::new(field_promotion::compute(self.program, self.interner, lib));
         self.promotion_by_library.insert(lib, p.clone());
+        if let Some(s) = self.shared {
+            s.promotion.borrow_mut().insert(lib, p.clone());
+        }
         p
     }
 

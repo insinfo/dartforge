@@ -97,6 +97,31 @@ pub struct Program {
     /// application, and the macro host is not even consulted (zero-cost rule,
     /// docs/MACROS-PROTOCOLO.md §2).
     pub classes_macro: Vec<ClassId>,
+    /// The elements by unit and by library, built on the first question
+    /// ([`Program::index`]): the verifiers that run once per library or per
+    /// unit would otherwise walk every element of the program each time.
+    pub element_index: std::sync::OnceLock<ElementIndex>,
+}
+
+/// The program's elements grouped by unit and by library, each list in
+/// increasing id order (a walk over a list visits the elements in the same
+/// order as a filtered walk over the whole arena).
+#[derive(Debug, Default)]
+pub struct ElementIndex {
+    /// The functions whose node ([`FunctionRef`]) is in each unit.
+    pub unit_functions: Vec<Vec<FunctionElementId>>,
+    /// The functions of each library ([`FunctionElement::library`]).
+    pub library_functions: Vec<Vec<FunctionElementId>>,
+    /// The variables of each library ([`VariableElement::library`]).
+    pub library_variables: Vec<Vec<VariableId>>,
+    /// The variables whose node ([`VariableRef`]) is in each unit.
+    pub unit_variables: Vec<Vec<VariableId>>,
+    /// The class declared by each declaration node, by unit.
+    pub unit_classes: Vec<HashMap<DeclId, ClassId>>,
+    /// The typedef declared by each declaration node, by unit.
+    pub unit_typedefs: Vec<HashMap<DeclId, TypedefId>>,
+    /// The extension declared by each declaration node, by unit.
+    pub unit_extensions: Vec<HashMap<DeclId, ExtensionId>>,
 }
 
 /// Role of a file within its library.
@@ -469,6 +494,19 @@ pub enum VariableRef {
     None,
 }
 
+impl VariableRef {
+    /// The unit of the node, when there is one.
+    pub fn unit(&self) -> Option<UnitId> {
+        match *self {
+            VariableRef::TopLevel { unit, .. }
+            | VariableRef::Field { unit, .. }
+            | VariableRef::EnumConstant { unit, .. }
+            | VariableRef::Representation { unit, .. } => Some(unit),
+            VariableRef::None => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VariableElement {
     pub name: SymbolId,
@@ -488,6 +526,110 @@ pub struct VariableElement {
 impl Program {
     pub fn unit(&self, id: UnitId) -> &Unit {
         &self.units[id.0 as usize]
+    }
+
+    /// The elements by unit and by library ([`ElementIndex`]), built on the
+    /// first call. Whoever changes the element arenas or the nodes calls
+    /// [`Program::forget_index`].
+    pub fn index(&self) -> &ElementIndex {
+        self.element_index.get_or_init(|| {
+            let mut x = ElementIndex {
+                unit_functions: vec![Vec::new(); self.units.len()],
+                library_functions: vec![Vec::new(); self.libraries.len()],
+                library_variables: vec![Vec::new(); self.libraries.len()],
+                unit_variables: vec![Vec::new(); self.units.len()],
+                unit_classes: vec![HashMap::new(); self.units.len()],
+                unit_typedefs: vec![HashMap::new(); self.units.len()],
+                unit_extensions: vec![HashMap::new(); self.units.len()],
+            };
+            for (i, e) in self.extensions.iter().enumerate() {
+                if let Some(m) = x.unit_extensions.get_mut(e.decl.unit.0 as usize) {
+                    m.entry(e.decl.decl).or_insert(ExtensionId(i as u32));
+                }
+            }
+            // The first element of each node, like a `position` over the arena.
+            for (i, c) in self.classes.iter().enumerate() {
+                if let Some(d) = c.decl
+                    && let Some(m) = x.unit_classes.get_mut(d.unit.0 as usize)
+                {
+                    m.entry(d.decl).or_insert(ClassId(i as u32));
+                }
+            }
+            for (i, t) in self.typedefs.iter().enumerate() {
+                if let Some(m) = x.unit_typedefs.get_mut(t.decl.unit.0 as usize) {
+                    m.entry(t.decl.decl).or_insert(TypedefId(i as u32));
+                }
+            }
+            for (i, f) in self.functions.iter().enumerate() {
+                let id = FunctionElementId(i as u32);
+                if let Some(l) = x.library_functions.get_mut(f.library.0 as usize) {
+                    l.push(id);
+                }
+                let unit = match f.node {
+                    FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit,
+                    FunctionRef::None => continue,
+                };
+                if let Some(l) = x.unit_functions.get_mut(unit.0 as usize) {
+                    l.push(id);
+                }
+            }
+            for (i, v) in self.variables.iter().enumerate() {
+                let id = VariableId(i as u32);
+                if let Some(l) = x.library_variables.get_mut(v.library.0 as usize) {
+                    l.push(id);
+                }
+                if let Some(unit) = v.node.unit()
+                    && let Some(l) = x.unit_variables.get_mut(unit.0 as usize)
+                {
+                    l.push(id);
+                }
+            }
+            x
+        })
+    }
+
+    /// Drops the [`ElementIndex`] (after a change to the arenas or nodes).
+    pub fn forget_index(&mut self) {
+        self.element_index = std::sync::OnceLock::new();
+    }
+
+    /// The element of the function (or method) declared by node `function`
+    /// of unit `unit`: the first one, in id order.
+    pub fn function_of_node(&self, unit: UnitId, function: FunctionId) -> Option<FunctionElementId> {
+        let l = self.index().unit_functions.get(unit.0 as usize)?;
+        l.iter().copied().find(|&f| matches!(self.function(f).node, FunctionRef::Function { unit: u, function: g } if u == unit && g == function))
+    }
+
+    /// The class declared by node `decl` of unit `unit` (the first one, in id
+    /// order).
+    pub fn class_of_decl(&self, unit: UnitId, decl: DeclId) -> Option<ClassId> {
+        self.index().unit_classes.get(unit.0 as usize)?.get(&decl).copied()
+    }
+
+    /// The typedef declared by node `decl` of unit `unit` (the first one, in
+    /// id order).
+    pub fn typedef_of_decl(&self, unit: UnitId, decl: DeclId) -> Option<TypedefId> {
+        self.index().unit_typedefs.get(unit.0 as usize)?.get(&decl).copied()
+    }
+
+    /// The extension declared by node `decl` of unit `unit` (the first one,
+    /// in id order).
+    pub fn extension_of_decl(&self, unit: UnitId, decl: DeclId) -> Option<ExtensionId> {
+        self.index().unit_extensions.get(unit.0 as usize)?.get(&decl).copied()
+    }
+
+    /// The variable whose node is `node` (the first one, in id order).
+    pub fn variable_of_node(&self, node: VariableRef) -> Option<VariableId> {
+        let unit = node.unit()?;
+        let l = self.index().unit_variables.get(unit.0 as usize)?;
+        l.iter().copied().find(|&v| self.variable(v).node == node)
+    }
+
+    /// The element of the constructor declared by member `member` of unit
+    /// `unit`: the first one, in id order.
+    pub fn constructor_of_member(&self, unit: UnitId, member: MemberId) -> Option<FunctionElementId> {
+        let l = self.index().unit_functions.get(unit.0 as usize)?;
+        l.iter().copied().find(|&f| matches!(self.function(f).node, FunctionRef::Constructor { unit: u, member: m } if u == unit && m == member))
     }
     /// The reference of file `u` (docs/ANALYZER-ESPECIFICACAO.md, T2): the
     /// corpus rule is per file.

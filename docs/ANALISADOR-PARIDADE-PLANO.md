@@ -824,3 +824,64 @@ perfil: `UnitBodyTypes::new` (cada passada por biblioteca aloca tabelas de
 todas as unidades que não são do SDK, quadrático no número de bibliotecas) e
 hashing SipHash em mapas por biblioteca. Medidas com a máquina carregada
 (carga 60–76) não são comparáveis; refazer com a máquina livre.
+
+## 11. Rodada de 2026-10-13, noite: velocidade do motor (macOS)
+
+Placar, saída do `analyze`, projetos reais e pub-cache idênticos antes e
+depois (23.001/23.012, FP 0; reais FP 0; pub-cache FP 0, FN 6). Medido com o
+exemplo novo `cargo run --release -p dartforge-parity --example
+analyze_project -- <pacote>` (o motor inteiro num processo;
+`DARTFORGE_ENGINE_TIMES=1` dá o tempo de cada fase) e `/usr/bin/time -l`,
+binários alternados com a máquina carregada (carga 25–60):
+
+| `new_sali/backend` (369 arquivos) | antes | depois |
+| --- | ---: | ---: |
+| CPU (user+sys) | 13,9–14,9 s | **4,8–5,3 s** |
+| *physical footprint* do processo | 681–685 MiB | **603 MiB** |
+| pico vivo (alocador contador) | 563 MiB | 496 MiB |
+| `openssl_bindings` (pub-cache, 58 arquivos) | 63 s | **4,8 s** |
+
+Referência: `dart analyze` 21,7 s frio e 2,6 s com cache (rodada anterior).
+
+O que era quadrático:
+
+* `UnitBodyTypes::new`: cada passada por biblioteca alocava as tabelas de
+  todas as unidades fora do SDK. Agora as tabelas guardam só o tamanho e o
+  tipo de reserva até a primeira escrita (`lazy`), e as leituras respondem
+  como antes (`get_type` dá o tipo de reserva). Os campos `static_types` e
+  `resolved` ficaram privados (`expression_count`, `resolved_targets`,
+  `fill_types`).
+* `infer_bodies_of` e os laços de `infer_everything` percorriam todas as
+  variáveis e funções do programa a cada passada; agora percorrem só as das
+  bibliotecas pedidas, pelo índice novo do programa.
+* `Program::index()` (`ElementIndex`, feito na primeira pergunta): funções e
+  variáveis por unidade e por biblioteca, classe, typedef e extensão por nó de
+  declaração. Trocou ~40 varreduras `program.functions.iter().position(…)`
+  por unidade/declaração em `types` e `analysis` (`function_of_node`,
+  `constructor_of_member`, `class_of_decl`, `variable_of_node`…).
+* `SharedInference`: as passadas por biblioteca do motor (`Engine`) dividem
+  as interfaces das classes (construídas depois da inferência de
+  sobrescritas, sem tipo provisório nem ciclo de inferência), as variáveis já
+  inferidas (de outras bibliotecas: entram prontas), a promoção de campos e as
+  extensões acessíveis. Os mapas das interfaces usam hash Fx.
+* `is_shadowed` andava a árvore inteira por pergunta (por identificador):
+  `ShadowIndex`, montado uma vez por árvore (`Ast::derived`), com teste de
+  equivalência contra o percurso antigo em ~4 mil arquivos do corpus
+  (`crates/types/tests/shadow_index.rs`). Era o `openssl_bindings`.
+* `invalid_overrides` montava mapas de todas as funções de instância do
+  programa por biblioteca; `const_eval::Engine::new` calculava os parâmetros
+  de todas as unidades inferidas por verificador; a regra
+  `conditional_uri_does_not_exist` lia o `package_config.json` por unidade e
+  `depend_on_referenced_packages` lia e analisava o `pubspec.yaml` por
+  unidade.
+
+Perfil restante (`new_sali/backend`): inferência dos corpos ~45% (um quarto
+dela em interfaces provisórias das classes do próprio pacote), carga ~15%
+(leitura e parse de 37 MiB de fonte, quase tudo de dependências), regras de
+lint ~12%, *outline* ~7%.
+
+Trabalho em andamento (não integrado, guardado como patch): ler as
+dependências sem os corpos de bloco das declarações (o parser pula `{ … }`
+dos membros e funções de topo dos arquivos fora do lote) e, no LSP, analisar
+só os arquivos afetados por uma edição (o resto do pacote carregado como
+dependência).

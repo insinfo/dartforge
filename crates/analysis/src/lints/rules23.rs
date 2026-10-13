@@ -316,7 +316,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             };
             let class_id = if matches!(d.kind, DeclKind::Extension(_)) { None } else { class_of_decl(s, did) };
             let extension = if matches!(d.kind, DeclKind::Extension(_)) {
-                program.extensions.iter().position(|x| x.decl.unit == s.unit && x.decl.decl == did).map(|i| ExtensionId(i as u32))
+                program.extension_of_decl(s.unit, did)
             } else {
                 None
             };

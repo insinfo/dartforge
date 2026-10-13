@@ -131,7 +131,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         if l.late {
             return;
         }
-        let Some(v) = program.variables.iter().position(|x| x.node == r).map(|i| VariableId(i as u32)) else { return };
+        let Some(v) = program.variable_of_node(r) else { return };
         let Some(t) = declared_variable_type(s, r) else { return };
         if is_non_nullable(table, t) {
             return;

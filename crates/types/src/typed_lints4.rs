@@ -57,11 +57,11 @@ fn inside(a: Span, b: Span) -> bool {
 /// The `FunctionElementId` of each written function of the unit.
 fn function_elements(program: &Program, u: UnitId) -> HashMap<ast::FunctionId, FunctionElementId> {
     let mut m = HashMap::new();
-    for (k, f) in program.functions.iter().enumerate() {
-        if let FunctionRef::Function { unit, function } = f.node
+    for &k in program.index().unit_functions.get(u.0 as usize).map_or(&[][..], |l| &l[..]) {
+        if let FunctionRef::Function { unit, function } = program.function(k).node
             && unit == u
         {
-            m.insert(function, FunctionElementId(k as u32));
+            m.insert(function, k);
         }
     }
     m
@@ -222,7 +222,7 @@ fn the_collections(
                     table.intern(Type::Interface { class: c, args: params.into(), nullable: false })
                 }
                 DeclKind::Extension(_) => {
-                    let e = program.extensions.iter().position(|x| x.decl.unit == u && x.decl.decl == did)?;
+                    let e = program.extension_of_decl(u, did).map(|e| e.0 as usize)?;
                     outline.extensions.get(e)?.on
                 }
                 _ => return None,

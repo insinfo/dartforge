@@ -70,6 +70,7 @@ impl<'a> crate::inheritance::Provider<'a> for BodyInferrer<'a> {
                     && self.program.variable(v).class == self.declared_untyped =>
             {
                 self.provisional_inheritance = true;
+                self.provisional_events += 1;
                 self.core.dynamic_
             }
             // The field being inferred (`late final a = m();` looks up `m` in the
@@ -79,6 +80,7 @@ impl<'a> crate::inheritance::Provider<'a> for BodyInferrer<'a> {
             // whoever actually reads it goes through `variable_type` (the cycle).
             Some(v) if self.program.function(f).kind == FunctionKind::ImplicitAccessor && matches!(self.vars_state[v.0 as usize], super::VarState::InProgress) => {
                 self.provisional_inheritance = true;
+                self.provisional_events += 1;
                 self.core.dynamic_
             }
             // Another field not yet inferred, in a lookup made during top-level
@@ -95,6 +97,7 @@ impl<'a> crate::inheritance::Provider<'a> for BodyInferrer<'a> {
                     && self.outline.variables.get(v.0 as usize).is_some_and(|d| d.declared_type.is_none()) =>
             {
                 self.provisional_inheritance = true;
+                self.provisional_events += 1;
                 self.core.dynamic_
             }
             Some(v) if self.program.function(f).kind == FunctionKind::ImplicitAccessor => self.variable_type(v),
@@ -107,6 +110,23 @@ impl<'a> crate::inheritance::Provider<'a> for BodyInferrer<'a> {
     }
     fn normalize_(&mut self, t: TypeId) -> TypeId {
         crate::ops::normalize(t, &mut *self.table, self.core)
+    }
+    fn shared_interface(&self, c: ClassId) -> Option<std::rc::Rc<crate::inheritance::Interface>> {
+        if !self.share_interfaces {
+            return None;
+        }
+        self.shared?.interfaces.borrow().get(&c).cloned()
+    }
+    fn provisional_events(&self) -> u64 {
+        self.provisional_events
+    }
+    fn share_interface(&mut self, c: ClassId, i: &std::rc::Rc<crate::inheritance::Interface>) {
+        if !self.share_interfaces {
+            return;
+        }
+        if let Some(s) = self.shared {
+            s.interfaces.borrow_mut().insert(c, i.clone());
+        }
     }
 }
 

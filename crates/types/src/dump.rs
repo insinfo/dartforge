@@ -16,7 +16,7 @@ use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::model::{Program, UnitId};
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_frontend::ast::ExprKind;
+use dartforge_frontend::ast::{self, ExprKind};
 use dartforge_intern::Interner;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -61,7 +61,7 @@ pub fn dump(entry: &Path, sdk: &SdkLayout, packages: Option<&Path>) -> Dump {
     let t = std::time::Instant::now();
     let mut inf = BodyInferrer::new(&prog, &interner, &mut table, &core, &mut outline);
     for u in &mut inf.body_types.units {
-        u.static_types.fill(NOT_VISITED);
+        u.fill_types(NOT_VISITED);
     }
     let (bodies, diags) = inf.infer_all();
     let inference_time = t.elapsed();
@@ -99,7 +99,7 @@ pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interne
         .iter()
         .enumerate()
         .map(|(i, e)| {
-            let ty = bt.static_types.get(i).copied().unwrap_or(NOT_VISITED);
+            let ty = bt.get_type(ast::ExprId(i as u32)).unwrap_or(NOT_VISITED);
             let typ = if ty == NOT_VISITED {
                 "?".to_string()
             } else if bt.invalid_types.contains(&dartforge_frontend::ast::ExprId(i as u32)) {
@@ -108,9 +108,7 @@ pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interne
                 display_string(table, ty, interner, prog)
             };
             let resolution = bt
-                .resolved
-                .get(i)
-                .and_then(|r| r.as_ref())
+                .get_resolved(ast::ExprId(i as u32))
                 .map(|r| format_resolution(r, prog, interner))
                 .unwrap_or_else(|| "-".into());
             let (start, end) = (utf16(e.span.start), utf16(e.span.end));

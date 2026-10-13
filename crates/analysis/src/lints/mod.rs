@@ -296,10 +296,7 @@ pub fn variable_type(sem: &Semantics<'_>, v: dartforge_elements::model::Variable
 /// The element of function `f` of the unit's tree (top-level, method,
 /// accessor).
 pub fn function_element(sem: &Semantics<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_elements::model::FunctionElementId> {
-    let i = sem.program.functions.iter().position(|e| {
-        matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == sem.unit && function == f)
-    })?;
-    Some(dartforge_elements::model::FunctionElementId(i as u32))
+    sem.program.function_of_node(sem.unit, f)
 }
 
 /// The implementation chain of `c` (`_implementationsOfGetter`): the class, the
@@ -436,10 +433,8 @@ pub fn function_return(sem: &Semantics<'_>, f: dartforge_frontend::ast::Function
     {
         return Some(*ret);
     }
-    let i = sem.program.functions.iter().position(|e| {
-        matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == sem.unit && function == f)
-    })?;
-    sem.outline.functions.get(i).map(|d| d.return_type)
+    let i = sem.program.function_of_node(sem.unit, f)?;
+    sem.outline.functions.get(i.0 as usize).map(|d| d.return_type)
 }
 
 /// The unit's library has language version `major.minor` or later.

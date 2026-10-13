@@ -68,7 +68,7 @@ pub fn missing_required(program: &Program, interner: &Interner, body: &UnitBodyT
         return out;
     }
     let a = &program.unit(u).ast;
-    let resolved = |e: ast::ExprId| body.resolved.get(e.0 as usize).and_then(|r| r.as_ref());
+    let resolved = |e: ast::ExprId| body.get_resolved(e);
     let function_of = |r: &Resolved| match r {
         Resolved::Constructor(f) | Resolved::Element(Element::Function(f)) => Some(*f),
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => Some(*f),

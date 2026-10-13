@@ -246,6 +246,26 @@ pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
 /// What `depend_on_referenced_packages` reads: the package name, the
 /// dependencies and the dev dependencies.
 pub fn available_dependencies(source: &str, with_dev: bool) -> Option<Vec<String>> {
+    // Every unit of a package asks for the same `pubspec.yaml`: the answer by
+    // text, per thread.
+    thread_local! {
+        static CACHE: std::cell::RefCell<std::collections::HashMap<(String, bool), Option<Vec<String>>>> = Default::default();
+    }
+    if let Some(hit) = CACHE.with(|c| c.borrow().get(&(source.to_string(), with_dev)).cloned()) {
+        return hit;
+    }
+    let r = available_dependencies_uncached(source, with_dev);
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() > 64 {
+            c.clear();
+        }
+        c.insert((source.to_string(), with_dev), r.clone());
+    });
+    r
+}
+
+fn available_dependencies_uncached(source: &str, with_dev: bool) -> Option<Vec<String>> {
     let root = yaml::parse(source).ok()??;
     let p = read(&root);
     let mut v = vec![text(p.name?)?];

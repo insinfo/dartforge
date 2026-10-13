@@ -94,6 +94,27 @@ pub mod phase {
     pub const IGNORE_VALIDATOR: u16 = 100;
 }
 
+/// The time of each phase of an analysis on standard error, with
+/// `DARTFORGE_ENGINE_TIMES=1` (the `analyze_project` example's breakdown).
+struct PhaseTimes {
+    last: Option<std::time::Instant>,
+}
+
+impl PhaseTimes {
+    fn from_env() -> Self {
+        let on = std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some_and(|v| v != "0");
+        PhaseTimes { last: on.then(std::time::Instant::now) }
+    }
+
+    /// Prints the time since the previous mark under `name`.
+    fn mark(&mut self, name: &str) {
+        if let Some(t) = self.last {
+            eprintln!("engine: {name}: {:.3} s", t.elapsed().as_secs_f64());
+            self.last = Some(std::time::Instant::now());
+        }
+    }
+}
+
 /// Tags each report of an iterator with the emitter's phase.
 fn with_phase<A, I: IntoIterator<Item = (A, Diagnostic)>>(f: u16, it: I) -> impl Iterator<Item = (A, Diagnostic, u16)> {
     it.into_iter().map(move |(a, d)| (a, d, f))
@@ -456,6 +477,7 @@ impl Engine {
         cancelled: &dyn Fn() -> bool,
     ) -> Option<AnalysisResult> {
         let mut analysis = AnalysisResult::default();
+        let mut times = PhaseTimes::from_env();
         let mut own: BTreeMap<PathBuf, String> = BTreeMap::new();
         let mut imports = String::new();
         let read: Vec<(usize, &PathBuf, String)> = files
@@ -535,6 +557,7 @@ impl Engine {
         if cancelled() {
             return None;
         }
+        times.mark("load");
 
         // The batch's units.
         let mut unit_of: HashMap<PathBuf, UnitId> = HashMap::new();
@@ -655,6 +678,7 @@ impl Engine {
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
         let (mut outline, outline_diags, outline_units) =
             dartforge_types::resolve_outline_with_units(&program, &interner, &mut table, &core);
+        times.mark("directives, outline");
         /// Clears the mixin decisions on exit (on any path).
         struct ClearDecisions;
         impl Drop for ClearDecisions {
@@ -793,6 +817,7 @@ impl Engine {
         }
 
         // 4. Types (the outline was already resolved before the clauses).
+        times.mark("declaration verifiers");
         let index = Index::new(&program, &own_units);
         // Initializers: `types` infers them on every pass, from any library.
         // A pass with no bodies at all (`&[]`) stabilizes the inferred types;
@@ -807,18 +832,21 @@ impl Engine {
             &[],
             false,
         );
+        times.mark("initializer passes");
         let mut attributed: Vec<(UnitId, Diagnostic, u16)> = Vec::new();
         // The libraries on which analyzer 3.6.2 throws (`phase_ffi::AnalyzerCrash`).
         let mut crashed: BTreeSet<dartforge_elements::model::LibraryId> = BTreeSet::new();
         // The side tables of the batch's libraries, each unit from its own
         // library's pass (constant evaluation reads all of them).
         let mut bodies: Option<dartforge_types::BodyTypes> = None;
-        // Bodies: one pass per library of the batch.
+        // Bodies: one pass per library of the batch, sharing what does not
+        // depend on the pass (interfaces, inferred variables, field promotability).
+        let shared = dartforge_types::SharedInference::default();
         for lib in &own_libs {
             if cancelled() {
                 return None;
             }
-            let (bt, ds, us) = dartforge_types::infer_library_bodies_with_units(
+            let (bt, ds, us) = dartforge_types::infer_library_bodies_shared(
                 &program,
                 &interner,
                 &mut table,
@@ -826,6 +854,7 @@ impl Engine {
                 &mut outline,
                 std::slice::from_ref(lib),
                 true,
+                &shared,
             );
             match &mut bodies {
                 None => bodies = Some(bt),
@@ -864,6 +893,7 @@ impl Engine {
             }
         }
         // Initializers, in order, in the first initializer that contains them.
+        times.mark("bodies");
         let inits = initializers(&program);
         let mut pos = 0;
         for (d, registered) in init_diags.iter().zip(&init_units) {
@@ -905,7 +935,7 @@ impl Engine {
                     if cancelled() {
                         return None;
                     }
-                    let (mut bt, _, _) = dartforge_types::infer_library_bodies_with_units(
+                    let (mut bt, _, _) = dartforge_types::infer_library_bodies_shared(
                         &program,
                         &interner,
                         &mut table,
@@ -913,6 +943,7 @@ impl Engine {
                         &mut outline,
                         std::slice::from_ref(&lib),
                         true,
+                        &shared,
                     );
                     for u in &program.library(lib).units {
                         let i = u.0 as usize;
@@ -925,6 +956,7 @@ impl Engine {
             }
         }
         // Constants (`ConstantVerifier`), reported only on the batch's.
+        times.mark("cited constants");
         if let Some(bodies) = &bodies {
             // The exhaustiveness on which 3.6.2 throws removes the whole library.
             let (reports, crashes) = dartforge_types::const_eval::verify_with_crashes(
@@ -953,6 +985,7 @@ impl Engine {
             )));
         }
         // `_checkForFinalNotInitializedInClass` and the `ConstructorFieldsVerifier`
+        times.mark("constant verification");
         // (`crates/analysis`), with the `isPotentiallyNonNullable` of the type of
         // each instance field (the written or the inferred one, already with
         // the bodies).
@@ -1238,6 +1271,7 @@ impl Engine {
         }
 
         // 5. Unused imports, after everything (the suppression looks at the
+        times.mark("type verifiers");
         // library's diagnostics).
         for lib in &own_libs {
             let keys: Vec<PathBuf> =
@@ -1350,6 +1384,7 @@ impl Engine {
         }
         // The library on which the analyzer throws gets no result: no
         // diagnostic (neither syntactic nor lints) of its files.
+        times.mark("unused imports, lints");
         for lib in &crashed {
             for u in &program.library(*lib).units {
                 if let Some(p) = &program.unit(*u).path

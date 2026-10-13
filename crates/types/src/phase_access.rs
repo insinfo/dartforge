@@ -173,7 +173,7 @@ pub fn invalid_accesses(
     // Resolved identifiers and properties (`verify`).
     if let Some(body) = body {
         for (i, expr) in a.exprs.iter().enumerate() {
-            let Some(Some(r)) = body.resolved.get(i) else { continue };
+            let Some(r) = body.get_resolved(ast::ExprId(i as u32)) else { continue };
             let (at_name, via_super) = match &expr.kind {
                 ExprKind::Identifier(n) => (*n, false),
                 ExprKind::Property { name, target, .. } => (*name, matches!(a.expr(*target).kind, ExprKind::Super)),

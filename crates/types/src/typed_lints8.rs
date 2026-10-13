@@ -630,7 +630,7 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
             }
             if d.is_none() {
                 let variable_type = |r: VariableRef| {
-                    program.variables.iter().position(|x| x.node == r).and_then(|i| outline.variables.get(i)).and_then(|x| x.declared_type.or(x.inferred))
+                    program.variable_of_node(r).map(|v| v.0 as usize).and_then(|i| outline.variables.get(i)).and_then(|x| x.declared_type.or(x.inferred))
                 };
                 for (mi, m) in a.members.iter().enumerate() {
                     if let MemberKind::Field(l) = &m.kind
