@@ -77,8 +77,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         // Statics of the extension type whose member is being emitted (instance
-        // ones arrive through the common resolution, `crate::tipo_extensao`).
-        if let Some(c) = self.tipo_extensao {
+        // ones arrive through the common resolution, `crate::extension_type`).
+        if let Some(c) = self.extension_type {
             if let Some(mk) = self.ctx.declared_static(c, n, false).or_else(|| self.ctx.declared_static(c, n, true)) {
                 return IdentTarget::Static(c, mk);
             }
@@ -382,7 +382,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// only in the forms the world also folds (the same as in
     /// `dartforge_world::impact::constant_condition`).
     pub fn constant(&self, x: ExprId) -> Option<bool> {
-        let f = self.ctx.filtro?;
+        let f = self.ctx.filter?;
         match &self.expr(x).kind {
             ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => f.const_bool(self.unit, x),
             _ => None,
@@ -404,7 +404,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => self.emit_expr_inner(e, expected),
         };
         let ty = self.refine_by_common(e, ty);
-        if self.ctx.conferencia.is_some() {
+        if self.ctx.type_check.is_some() {
             self.check_type(e, &ty);
         }
         if let Some((root, previous)) = registration {
@@ -534,7 +534,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Ty::Fn { .. } | Ty::Record { .. } | Ty::FutureOr { .. } => true,
                 _ => false,
             };
-            if needs_cast && !expected.mentions_params() && js.code != "null" && !self.ctx.filtro.is_some_and(|f| f.omit_implicit_checks()) {
+            if needs_cast && !expected.mentions_params() && js.code != "null" && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks()) {
                 return (self.as_cast(&js, expected), expected.clone());
             }
             return (js, ty);
@@ -1632,7 +1632,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if n == "this" {
             return self.emit_this();
         }
-        if self.ctx.conferencia.is_some() {
+        if self.ctx.type_check.is_some() {
             self.check_target(e, &self.resolve_ident(sym));
         }
         // Instance member of an extension type through the implicit `this`.
@@ -1743,7 +1743,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match el {
             Element::Function(fid) => {
                 // SDK mode: `staticInteropGlobalContext` is `dart.global`.
-                if crate::sdk_proprio::intrinsic_of(self.ctx, fid) == Some(crate::sdk_proprio::Intrinsic::GlobalContext) {
+                if crate::own_sdk::intrinsic_of(self.ctx, fid) == Some(crate::own_sdk::Intrinsic::GlobalContext) {
                     return (Js::prim("dart.global"), Ty::Dynamic);
                 }
                 let (js, ty) = self.element_ref(el).expect("function");
@@ -1761,13 +1761,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     FunctionKind::Setter => (Js::prim(js), Ty::Dynamic),
                     // SDK mode: inside `JS()` and for runtime functions, the
                     // *tearoff* is the raw function (`compiler.dart:7331-7338, 7366`).
-                    _ if self.in_foreign_js || crate::sdk_proprio::function_without_reify(self.ctx, fid) => (Js::prim(js), ty),
+                    _ if self.in_foreign_js || crate::own_sdk::function_without_reify(self.ctx, fid) => (Js::prim(js), ty),
                     _ => (self.tearoff_static(&js, &ty), ty),
                 }
             }
             Element::Variable(vid) => {
                 // SDK mode: a primitive constant folded at the use site.
-                if let Some(js) = crate::sdk_proprio::inline_constant(self, vid) {
+                if let Some(js) = crate::own_sdk::inline_constant(self, vid) {
                     return (js, self.ctx.var_ty(vid));
                 }
                 let (js, ty) = self.element_ref(el).expect("variable");
@@ -1831,14 +1831,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let js = format!("{cls}{}", js::prop_access(&static_member_name(n)));
         match mk {
             // SDK mode: inside `JS()` and in the runtime, the *tearoff* is raw.
-            MemberKind::Method(fid) if self.in_foreign_js || crate::sdk_proprio::function_without_reify(self.ctx, fid) => (Js::prim(js), self.ctx.fn_ty(fid)),
+            MemberKind::Method(fid) if self.in_foreign_js || crate::own_sdk::function_without_reify(self.ctx, fid) => (Js::prim(js), self.ctx.fn_ty(fid)),
             MemberKind::Method(fid) => {
                 let ty = self.ctx.fn_ty(fid);
                 (self.tearoff_static(&js, &ty), ty)
             }
             MemberKind::Getter(fid) => (Js::prim(js), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
             MemberKind::Setter(_) => (Js::prim(js), Ty::Dynamic),
-            MemberKind::Field(vid) => match crate::sdk_proprio::inline_constant(self, vid) {
+            MemberKind::Field(vid) => match crate::own_sdk::inline_constant(self, vid) {
                 Some(v) => (v, self.ctx.var_ty(vid)),
                 None => (Js::prim(js), self.ctx.var_ty(vid)),
             },
@@ -2399,7 +2399,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Tearoff of the constructor `C<args>.name` as a closure.
     pub fn ctor_tearoff(&mut self, c: ClassId, targs: Vec<Ty>, name: &str) -> Option<(Js, Ty)> {
-        if crate::tipo_extensao::is_erased_extension_type(self.ctx, c) {
+        if crate::extension_type::is_erased_extension_type(self.ctx, c) {
             return self.ext_type_ctor_tearoff(c, targs, name);
         }
         let class = self.ctx.program.class(c);
@@ -2464,8 +2464,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         // Constructor as a tearoff: `C.new`/`C.named` (in an extension type,
         // the primary one too, which is not an element).
-        if crate::tipo_extensao::is_erased_extension_type(self.ctx, c) {
-            if !crate::tipo_extensao::has_constructor(self.ctx, c, if name == "new" { "" } else { name }) {
+        if crate::extension_type::is_erased_extension_type(self.ctx, c) {
+            if !crate::extension_type::has_constructor(self.ctx, c, if name == "new" { "" } else { name }) {
                 return None;
             }
             let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
@@ -3509,7 +3509,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             // Without `-D` on the command line, no variable is declared.
             return (Js::prim("false"), self.ctx.t_bool());
         }
-        if crate::tipo_extensao::is_erased_extension_type(self.ctx, class) {
+        if crate::extension_type::is_erased_extension_type(self.ctx, class) {
             let _ = is_const;
             return self.ext_type_construct(class, class_args, explicit_args, ctor_name, arguments, expected);
         }

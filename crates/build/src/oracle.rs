@@ -1,7 +1,7 @@
 //! Reading of the `.dart_tool/build/entrypoint/build.dart` that `build_runner`
 //! generated — the plan's oracle. It is **read, never generated** (running
 //! `build_runner` in the user's project is not allowed). From it comes the
-//! same canonical form as `Aplicacao::texto_canonico`, to compare line by
+//! same canonical form as `Application::canonical_text`, to compare line by
 //! line.
 //!
 //! The grammar is the one `code_builder` + `dart_style` produce in that file:
@@ -9,8 +9,8 @@
 //! type arguments and `const`, strings (`r'…'` and regular ones), numbers,
 //! `true`/`false`/`null` and `_iN.name` references.
 use crate::config::InputSet;
-use crate::plano::{Aplicacao, Filtro};
-use crate::valor::{Mapa, Valor};
+use crate::plan::{Application, ApplyFilter};
+use crate::value::{Map, Value};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -241,22 +241,22 @@ impl Lx<'_> {
     }
 }
 
-fn value(e: &Expr) -> Result<Valor, String> {
+fn value(e: &Expr) -> Result<Value, String> {
     Ok(match e {
-        Expr::Str(t) => Valor::Texto(t.clone()),
+        Expr::Str(t) => Value::Text(t.clone()),
         Expr::Num(n) => match n.parse::<i64>() {
-            Ok(i) if !n.contains('.') && !n.contains('e') => Valor::Int(i),
-            _ => Valor::Real(n.clone()),
+            Ok(i) if !n.contains('.') && !n.contains('e') => Value::Int(i),
+            _ => Value::Real(n.clone()),
         },
-        Expr::Bool(b) => Valor::Bool(*b),
-        Expr::Null => Valor::Nulo,
-        Expr::List(l) => Valor::Lista(l.iter().map(value).collect::<Result<_, _>>()?),
+        Expr::Bool(b) => Value::Bool(*b),
+        Expr::Null => Value::Null,
+        Expr::List(l) => Value::List(l.iter().map(value).collect::<Result<_, _>>()?),
         Expr::Map(m) => {
-            let mut r = Mapa::default();
+            let mut r = Map::default();
             for (k, v) in m {
-                r.inserir(value(k)?, value(v)?);
+                r.insert(value(k)?, value(v)?);
             }
-            Valor::Mapa(r)
+            Value::Map(r)
         }
         other => return Err(format!("build.dart: unexpected option value: {other:?}")),
     })
@@ -275,10 +275,10 @@ fn strings(e: &Expr) -> Result<Vec<String>, String> {
     }
 }
 
-fn options(e: &Expr) -> Result<Mapa, String> {
+fn options(e: &Expr) -> Result<Map, String> {
     match e {
         Expr::Call { pos, .. } if pos.len() == 1 => match value(&pos[0])? {
-            Valor::Mapa(m) => Ok(m),
+            Value::Map(m) => Ok(m),
             o => Err(format!("build.dart: BuilderOptions without a map: {o:?}")),
         },
         o => Err(format!(
@@ -291,9 +291,9 @@ fn method(target: &str) -> &str {
     target.rsplit('.').next().unwrap_or(target)
 }
 
-/// The applications of `build.dart`, in order, as `Aplicacao` (the fields the
+/// The applications of `build.dart`, in order, as `Application` (the fields the
 /// script does not carry are left empty).
-pub fn read_build_dart(text: &str) -> Result<Vec<Aplicacao>, String> {
+pub fn read_build_dart(text: &str) -> Result<Vec<Application>, String> {
     let mut lx = Lx {
         s: text.as_bytes(),
         i: 0,
@@ -362,15 +362,15 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Aplicacao>, String> {
             .map(|r| r.split_once('#').map(|(_, n)| n).unwrap_or(r).to_string())
             .collect();
         let filter = if is_post {
-            Filtro::Nenhum
+            ApplyFilter::Nenhum
         } else {
             match pos.get(2) {
                 Some(Expr::Call { target, pos, .. }) => match method(target) {
-                    "toNoneByDefault" => Filtro::Nenhum,
-                    "toAllPackages" => Filtro::Todos,
-                    "toRoot" => Filtro::Raiz,
+                    "toNoneByDefault" => ApplyFilter::Nenhum,
+                    "toAllPackages" => ApplyFilter::All,
+                    "toRoot" => ApplyFilter::Root,
                     "toDependentsOf" => match pos.first() {
-                        Some(Expr::Str(p)) => Filtro::DependentesDe(p.clone()),
+                        Some(Expr::Str(p)) => ApplyFilter::DependentsOf(p.clone()),
                         _ => return Err("build.dart: toDependentsOf without a package".into()),
                     },
                     o => return Err(format!("build.dart: unexpected filter `{o}`")),
@@ -378,26 +378,26 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Aplicacao>, String> {
                 _ => return Err(format!("build.dart: `{key}` without a filter")),
             }
         };
-        let mut a = Aplicacao {
-            chave: key,
+        let mut a = Application {
+            key: key,
             pos: is_post,
             import,
             fabricas: factories,
-            filtro: filter,
-            opcional: false,
-            oculta: is_post,
-            generate_for_padrao: None,
-            opcoes_padrao: Mapa::default(),
-            opcoes_dev: Mapa::default(),
-            opcoes_release: Mapa::default(),
-            aplica: Vec::new(),
-            pacote: String::new(),
-            extensoes_declaradas: Vec::new(),
+            filter: filter,
+            optional: false,
+            hidden: is_post,
+            generate_for_pattern: None,
+            default_options: Map::default(),
+            dev_options: Map::default(),
+            release_options: Map::default(),
+            applies: Vec::new(),
+            package: String::new(),
+            declared_extensions: Vec::new(),
         };
         for (n, e) in &named {
             match n.as_str() {
-                "isOptional" => a.opcional = matches!(e, Expr::Bool(true)),
-                "hideOutput" => a.oculta = matches!(e, Expr::Bool(true)),
+                "isOptional" => a.optional = matches!(e, Expr::Bool(true)),
+                "hideOutput" => a.hidden = matches!(e, Expr::Bool(true)),
                 "defaultGenerateFor" => {
                     let Expr::Call { named, .. } = e else {
                         return Err("build.dart: defaultGenerateFor is not an InputSet".into());
@@ -410,12 +410,12 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Aplicacao>, String> {
                             o => return Err(format!("build.dart: InputSet.{o}")),
                         }
                     }
-                    a.generate_for_padrao = Some(s);
+                    a.generate_for_pattern = Some(s);
                 }
-                "defaultOptions" => a.opcoes_padrao = options(e)?,
-                "defaultDevOptions" => a.opcoes_dev = options(e)?,
-                "defaultReleaseOptions" => a.opcoes_release = options(e)?,
-                "appliesBuilders" => a.aplica = strings(e)?,
+                "defaultOptions" => a.default_options = options(e)?,
+                "defaultDevOptions" => a.dev_options = options(e)?,
+                "defaultReleaseOptions" => a.release_options = options(e)?,
+                "appliesBuilders" => a.applies = strings(e)?,
                 o => return Err(format!("build.dart: unexpected named argument `{o}`")),
             }
         }
@@ -426,12 +426,12 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Aplicacao>, String> {
 
 /// Compares the plan with `build.dart`: `Ok(())` if they are equal, otherwise
 /// the list of differences per line (`-` oracle, `+` engine).
-pub fn comparar(plan: &[Aplicacao], build_dart: &str) -> Result<Result<(), Vec<String>>, String> {
+pub fn compare(plan: &[Application], build_dart: &str) -> Result<Result<(), Vec<String>>, String> {
     let oracle: Vec<String> = read_build_dart(build_dart)?
         .iter()
-        .map(Aplicacao::texto_canonico)
+        .map(Application::canonical_text)
         .collect();
-    let ours: Vec<String> = plan.iter().map(Aplicacao::texto_canonico).collect();
+    let ours: Vec<String> = plan.iter().map(Application::canonical_text).collect();
     if oracle == ours {
         return Ok(Ok(()));
     }
@@ -503,11 +503,11 @@ void main(
         let v = read_build_dart(EXCERPT).unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(
-            v[1].texto_canonico(),
+            v[1].canonical_text(),
             r#"apply "sass_builder:sass_builder" ["package:sass_builder/sass_builder.dart#sassBuilder"] toDependentsOf("sass_builder") isOptional=false hideOutput=true defaultGenerateFor=- defaultOptions={} defaultDevOptions={"sourceMaps": true} defaultReleaseOptions={"outputStyle": "compressed", "sourceMaps": false} appliesBuilders=["sass_builder:sass_source_cleanup"]"#
         );
         assert_eq!(
-            v[2].texto_canonico(),
+            v[2].canonical_text(),
             r#"applyPostProcess "source_gen:part_cleanup" ["package:source_gen/builder.dart#partCleanup"] defaultGenerateFor=InputSet(include: ["lib/**"], exclude: -) defaultOptions={} defaultDevOptions={} defaultReleaseOptions={}"#
         );
     }

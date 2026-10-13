@@ -40,7 +40,7 @@ pub struct Constants<'a> {
 }
 
 impl<'a> Constants<'a> {
-    pub fn nova(e: Entrada<'a>, no_asserts: bool) -> Constants<'a> {
+    pub fn new(e: Entrada<'a>, no_asserts: bool) -> Constants<'a> {
         Constants { e, no_asserts, memo_fn: RefCell::new(HashMap::new()), memo_var: RefCell::new(HashMap::new()) }
     }
 

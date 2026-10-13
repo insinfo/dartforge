@@ -8,49 +8,49 @@
 //!
 //! **Zero cost for those who do not use it** (PLANO.md, governing rule):
 //! nothing in this crate is built if no resolved package defines builders
-//! ([`detectar`]); [`instancias`] counts the engines created, for the gate.
-pub mod cliente;
+//! ([`detect`]); [`instance_count`] counts the engines created, for the gate.
+pub mod client;
 pub mod config;
-pub mod consulta;
-pub mod dependencias_executor;
-pub mod descritor;
-pub mod equivalente;
+pub mod query;
+pub mod executor_deps;
+pub mod descriptor;
+pub mod equivalent;
 pub mod executor;
-pub mod executor_nativo;
-pub mod extensoes;
-pub mod gatilhos;
+pub mod native_executor;
+pub mod extensions;
+pub mod triggers;
 pub mod glob;
-pub mod grafo;
-pub mod linha_de_comando;
-pub mod motor;
+pub mod graph;
+pub mod command_line;
+pub mod engine;
 #[cfg(feature = "nativos")]
-pub mod nativos;
-pub mod oraculo;
-pub mod pacotes;
-pub mod perfil;
-pub mod persistencia;
-pub mod plano;
-pub mod valor;
+pub mod natives;
+pub mod oracle;
+pub mod packages;
+pub mod profile;
+pub mod persistence;
+pub mod plan;
+pub mod value;
 pub mod vm;
 
-pub use motor::{Atualizacao, Contexto, Demanda, Motor, OpcoesMotor, Placar, RelMotor};
+pub use engine::{Update, UpdateContext, Demand, Engine, EngineOptions, Scoreboard, EngineReport};
 
 use dartforge_elements::config::PackageConfig;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Engine version: it goes into the fingerprint of every action.
-pub const VERSAO: &str = concat!("dartforge-build/", env!("CARGO_PKG_VERSION"), "/1");
+pub const VERSION: &str = concat!("dartforge-build/", env!("CARGO_PKG_VERSION"), "/1");
 
 static INSTANCES: AtomicUsize = AtomicUsize::new(0);
 
 /// How many engines this process has built so far (the zero-cost gate requires
 /// 0 in a project without builders).
-pub fn instancias() -> usize {
+pub fn instance_count() -> usize {
     INSTANCES.load(Ordering::Relaxed)
 }
 
-pub(crate) fn contar_instancia() {
+pub(crate) fn count_instance() {
     INSTANCES.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -61,7 +61,7 @@ pub(crate) fn contar_instancia() {
 /// `build_runner`, also generates. It costs one `stat` per package plus
 /// reading the few `build.yaml` files that exist; with none, nothing is
 /// created.
-pub fn detectar(cfg: &PackageConfig) -> bool {
+pub fn detect(cfg: &PackageConfig) -> bool {
     cfg.packages.contains_key("build_runner")
         || cfg
             .root_dirs
@@ -83,7 +83,7 @@ fn defines_builders(build_yaml: &Path) -> bool {
 
 /// Directory of the root package: the one of the nearest `pubspec.yaml` above
 /// `path` (a file or a directory).
-pub fn raiz_do_pacote(path: &Path) -> Option<PathBuf> {
+pub fn package_root(path: &Path) -> Option<PathBuf> {
     let start = if path.is_dir() { path } else { path.parent()? };
     start
         .ancestors()
@@ -93,12 +93,12 @@ pub fn raiz_do_pacote(path: &Path) -> Option<PathBuf> {
 
 /// The plan of a project's `build.dart` (the list of applications), together
 /// with the package graph and the configurations read.
-pub fn plano_do_projeto(
+pub fn project_plan(
     root: &Path,
     cfg: &PackageConfig,
-) -> Result<(pacotes::GrafoPacotes, plano::Configs, plano::Plano), String> {
-    let graph = pacotes::GrafoPacotes::montar(root, cfg, None)?;
-    let configs = plano::Configs::ler(&graph, false)?;
-    let plan = plano::Plano::do_script(&graph, &configs)?;
+) -> Result<(packages::PackageGraph, plan::Configs, plan::Plan), String> {
+    let graph = packages::PackageGraph::build(root, cfg, None)?;
+    let configs = plan::Configs::read(&graph, false)?;
+    let plan = plan::Plan::from_script(&graph, &configs)?;
     Ok((graph, configs, plan))
 }

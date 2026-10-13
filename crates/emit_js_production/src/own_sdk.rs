@@ -67,7 +67,7 @@ fn libraries(a: &dartforge_emit_js::Analysis<'_>, modules: &[(String, String)]) 
 /// modules) — in a single file, neither has a consumer. Removed before
 /// verification, the runtime functions they call leave the world too.
 fn strip_unused(e: &mut EmittedWithSdk) {
-    for (_, t) in e.emitted.modulos.iter_mut() {
+    for (_, t) in e.emitted.modules.iter_mut() {
         let mut out = String::with_capacity(t.len());
         let mut skip = false;
         for line in t.split_inclusive('\n') {
@@ -186,15 +186,15 @@ fn fixed_point(
 ) -> Result<Option<EmittedWithSdk>, String> {
     let mut roots = roots(a, &input);
     let opm = dartforge_world::Opcoes { include_sdk: true, without_asserts: !op.asserts };
-    let constants = dartforge_world::Constants::nova(input, !op.asserts);
+    let constants = dartforge_world::Constants::new(input, !op.asserts);
     let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(40).max(1);
     let trace = std::env::var("DARTFORGE_JSPROD_RASTRO").is_ok();
     // The engine stays alive between rounds: each one only adds roots.
-    let mut computation = dartforge_world::Computation::novo(input, opm);
+    let mut computation = dartforge_world::Computation::new(input, opm);
     for round in 1..=max_rounds {
         let t = Instant::now();
         computation.seed(&roots);
-        let world = computation.mundo();
+        let world = computation.world();
         report.world_time += t.elapsed();
         // `DARTFORGE_JSPROD_NOMEADOS=0` keeps the source names.
         let named_args = if std::env::var("DARTFORGE_JSPROD_NOMEADOS").map_or(true, |v| v != "0") { crate::named_args::compute(a, &world) } else { None };
@@ -203,11 +203,11 @@ fn fixed_point(
         let mut e = a.emit_with_sdk(Some(&ad))?;
         // The namespace → library map comes from `trackLibraries`, which
         // `strip_unused` removes: read before.
-        let libs = libraries(a, &e.emitted.modulos);
+        let libs = libraries(a, &e.emitted.modules);
         strip_unused(&mut e);
         report.emit_time += t.elapsed();
         let t = Instant::now();
-        let mut texts = e.emitted.modulos.clone();
+        let mut texts = e.emitted.modules.clone();
         texts.push(("dart_sdk.js".to_string(), format!("{}{}", e.bootstrap, e.sdk)));
         let missing = verify::check(&texts, &libs, a.program, a.interner, &world);
         report.verify_time += t.elapsed();
@@ -273,7 +273,7 @@ pub fn emit(a: &dartforge_emit_js::Analysis<'_>, op: Options) -> Result<(Emitted
         return Ok((first, Some(report)));
     }
     let texts = |e: &EmittedWithSdk| {
-        let mut v = e.emitted.modulos.clone();
+        let mut v = e.emitted.modules.clone();
         v.push(("dart_sdk.js".to_string(), e.sdk.clone()));
         v
     };
@@ -389,7 +389,7 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
 pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::properties::Names>, rti: Option<&HashMap<String, String>>) -> Production {
     let modules: Vec<bundle::Module> = e
         .emitted
-        .modulos
+        .modules
         .iter()
         .filter(|(p, _)| p != "preambulo.js")
         .map(|(p, t)| bundle::split(p, t))

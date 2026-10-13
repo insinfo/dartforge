@@ -227,8 +227,8 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
         report.emit_time += t.elapsed();
         let t = Instant::now();
         // JS identifier → library, to translate `L$x.Name` into an element.
-        let libs = verify::libraries_from_text(&emitted.modulos, a.program);
-        let missing = verify::check(&emitted.modulos, &libs, a.program, a.interner, &world);
+        let libs = verify::libraries_from_text(&emitted.modules, a.program);
+        let missing = verify::check(&emitted.modules, &libs, a.program, a.interner, &world);
         report.verify_time += t.elapsed();
         report.rounds = round;
         report.no_element = missing.no_element.clone();
@@ -285,12 +285,12 @@ fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo, 
     let mut start: Vec<Cause> = Vec::new();
     for (i, c) in p.classes.iter().enumerate() {
         if a.interner.resolve(c.name) == target && !p.library(c.library).is_sdk {
-            start.push(Cause::Classe(ClassId(i as u32)));
+            start.push(Cause::Class(ClassId(i as u32)));
         }
     }
     for (i, f) in p.functions.iter().enumerate() {
         if a.interner.resolve(f.name) == target && !p.library(f.library).is_sdk && world.funcao(FunctionElementId(i as u32)) {
-            start.push(Cause::Funcao(FunctionElementId(i as u32)));
+            start.push(Cause::Function(FunctionElementId(i as u32)));
         }
     }
     for c in start {
@@ -301,10 +301,10 @@ fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo, 
                 break;
             }
             let (txt, next) = match x {
-                Cause::Raiz => ("(root)".to_string(), None),
-                Cause::Funcao(f) => (fn_name(f), world.function_cause(f)),
-                Cause::Classe(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.classe(k)), world.class_cause(k)),
-                Cause::Variavel(v) => (format!("variable {}", a.interner.resolve(p.variable(v).name)), world.variable_cause(v)),
+                Cause::Root => ("(root)".to_string(), None),
+                Cause::Function(f) => (fn_name(f), world.function_cause(f)),
+                Cause::Class(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.classe(k)), world.class_cause(k)),
+                Cause::Variable(v) => (format!("variable {}", a.interner.resolve(p.variable(v).name)), world.variable_cause(v)),
             };
             chain.push(txt);
             cur = next;
@@ -324,7 +324,7 @@ pub fn assemble(emitted: &dartforge_emit_js::Emitted, sdk_text: &str, op: Option
 /// the cache).
 pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitted, sdk_text: &str, op: Options, index: &sdk::SdkIndex) -> Production {
     let modules: Vec<bundle::Module> = emitted
-        .modulos
+        .modules
         .iter()
         // The development profile's `preambulo.js` exists only to give
         // `self` to `dart_sdk.js` on Node; in the bundle that is the first
@@ -383,7 +383,7 @@ mod tests {
 
     fn emitted() -> dartforge_emit_js::Emitted {
         dartforge_emit_js::Emitted {
-            modulos: vec![
+            modules: vec![
                 (
                     "main.js".into(),
                     concat!(

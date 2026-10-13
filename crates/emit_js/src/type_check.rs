@@ -49,8 +49,8 @@ pub struct Divergence {
     pub location: String,
     /// Node kind (`Identifier`, `Call`, …).
     pub node: String,
-    /// `tipo` (type) or `alvo` (target); kept in Portuguese because it is a
-    /// column value of the `.tsv` read by `scripts/check_consistency-tipos-js.mjs`.
+    /// `kind` (type) or `target` (target); kept in Portuguese because it is a
+    /// column value of the `.tsv` read by `scripts/conferir-tipos-js.mjs`.
     pub kind: &'static str,
     pub category: String,
     /// Text of the expression in the source (one line, truncated).
@@ -192,7 +192,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Counts where the target of identifier `e` came from (shared resolution or
     /// own lookup), once per node, outside speculative emission.
     pub(crate) fn count_target_origin(&self, e: ExprId, from_shared: bool) {
-        let Some(c) = &self.ctx.conferencia else {
+        let Some(c) = &self.ctx.type_check else {
             return;
         };
         if self.speculating > 0 || e.0 == u32::MAX {
@@ -214,7 +214,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// when the two find different declarations. Once per node and kind (read or
     /// write), outside speculative emission.
     pub(crate) fn check_member(&self, e: ExprId, name: &str, shared: Option<&Member>, own: Option<&Member>) {
-        let Some(c) = &self.ctx.conferencia else {
+        let Some(c) = &self.ctx.type_check else {
             return;
         };
         if self.speculating > 0 || e.0 == u32::MAX {
@@ -241,7 +241,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Counts where the instantiation of the generic call whose argument list
     /// starts at `offset` came from, once per call.
     pub(crate) fn count_instantiation_origin(&self, offset: usize, from_shared: bool) {
-        let Some(c) = &self.ctx.conferencia else {
+        let Some(c) = &self.ctx.type_check else {
             return;
         };
         if self.speculating > 0 {
@@ -262,7 +262,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// emitter, already refined by the shared one, `FnEmitter::refine_by_common`,
     /// before context coercions) against the shared static type.
     pub(crate) fn check_type(&self, e: ExprId, ty: &Ty) {
-        let Some(c) = &self.ctx.conferencia else {
+        let Some(c) = &self.ctx.type_check else {
             return;
         };
         if self.speculating > 0 || e.0 == u32::MAX {
@@ -299,7 +299,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// shared `Resolved`. Targets without a stable identity in the emitter
     /// (members looked up by name on the extension's `$this`) are not checked.
     pub(crate) fn check_target(&self, e: ExprId, target: &IdentTarget) {
-        let Some(c) = &self.ctx.conferencia else {
+        let Some(c) = &self.ctx.type_check else {
             return;
         };
         if self.speculating > 0 || e.0 == u32::MAX {

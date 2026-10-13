@@ -73,7 +73,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Identifier(id) => {
                 let n = self.name(id.sym).to_string();
-                if self.ctx.conferencia.is_some() {
+                if self.ctx.type_check.is_some() {
                     self.check_target(target, &self.resolve_ident(id.sym));
                 }
                 // Instance member of an extension type through the implicit `this`.
@@ -650,12 +650,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // SDK mode: the representation constructor of an interop extension
         // type (`JSNumber._(x)` in the `dart:js_interop` *patches*) is the
         // value itself, as with erased ones.
-        if self.ctx.sdk.is_some() && self.ctx.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType && crate::tipo_extensao::primary_constructor_name(self.ctx, c).as_deref() == Some(cname) {
+        if self.ctx.sdk.is_some() && self.ctx.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType && crate::extension_type::primary_constructor_name(self.ctx, c).as_deref() == Some(cname) {
             return Some(self.ext_type_construct(c, vec![], false, cname, arguments, expected));
         }
-        if crate::tipo_extensao::is_erased_extension_type(self.ctx, c) {
+        if crate::extension_type::is_erased_extension_type(self.ctx, c) {
             // The primary constructor is not an element: `ext_type_construct` recognizes it.
-            if !crate::tipo_extensao::has_constructor(self.ctx, c, cname) {
+            if !crate::extension_type::has_constructor(self.ctx, c, cname) {
                 return None;
             }
             return Some(self.ext_type_construct(c, vec![], false, cname, arguments, expected));
@@ -741,7 +741,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Element::Function(fid) => {
                 // SDK mode: `JS(...)`, `JS_GET_FLAG(...)`, `TYPE_REF<T>()`…
                 if self.ctx.sdk.is_some() {
-                    if let Some(r) = crate::sdk_proprio::emit_intrinsic(self, fid, arguments, expected) {
+                    if let Some(r) = crate::own_sdk::emit_intrinsic(self, fid, arguments, expected) {
                         return r;
                     }
                 }
@@ -760,7 +760,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
                 // SDK mode: `@NoReifyGeneric` does not pass the type arguments.
-                let mut all = if crate::sdk_proprio::no_reify_generic_fn(self.ctx, fid) { Vec::new() } else { targs };
+                let mut all = if crate::own_sdk::no_reify_generic_fn(self.ctx, fid) { Vec::new() } else { targs };
                 all.extend(args);
                 (Js::prim(format!("{js}({})", all.join(", "))), ret)
             }
@@ -771,7 +771,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Element::Class(c) => {
                 // Extension type: `E(x)` is the represented value (in interop
                 // ones, `X(...)` is the JS constructor).
-                if crate::tipo_extensao::is_erased_extension_type(self.ctx, c) {
+                if crate::extension_type::is_erased_extension_type(self.ctx, c) {
                     return self.ext_type_construct(c, vec![], false, "", arguments, expected);
                 }
                 let is_const = self.in_const;
@@ -937,7 +937,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.fn_type_params = saved_tps;
         self.shared_params = saved_common_params;
         // SDK mode: `@ReifyFunctionTypes(false)` (the runtime) — a raw JS function.
-        if crate::sdk_proprio::no_reify(self.ctx, self.lib) {
+        if crate::own_sdk::no_reify(self.ctx, self.lib) {
             return (Js::prim(format!("({text})")), fn_ty);
         }
         let rti = self.rti(&fn_ty);

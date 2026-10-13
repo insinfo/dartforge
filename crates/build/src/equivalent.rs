@@ -15,8 +15,8 @@
 //! with literal named arguments that the native generator knows, and the
 //! extensions declared in `build.yaml` must be the ones the object writes.
 //! Any other shape goes to the builder executor.
-use crate::pacotes::GrafoPacotes;
-use crate::valor::{Mapa, Valor};
+use crate::packages::PackageGraph;
+use crate::value::{Map, Value};
 use dartforge_frontend::Interner;
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind, ExprKind, FunctionBody, StmtKind};
 
@@ -24,35 +24,35 @@ const SASS_BUILDER: &str = "package:sass_builder/sass_builder.dart";
 
 /// A factory that, at run time, is a builder DartForge already has.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Equivalente {
+pub struct Equivalent {
     /// The key of the known builder (`sass_builder:sass_builder`).
-    pub chave: &'static str,
+    pub key: &'static str,
     /// The options its generator runs with — those of the constructor, not
     /// those of `build.yaml` (the factory ignores them).
-    pub opcoes: Mapa,
+    pub options: Map,
 }
 
 /// Is the factory `factory` of `import` (`package:p/x.dart`) a known
 /// builder? `declared`: the extensions from `build.yaml`.
-pub fn equivalente(
-    graph: &GrafoPacotes,
+pub fn equivalent(
+    graph: &PackageGraph,
     import: &str,
     factory: &str,
     declared: &[(String, Vec<String>)],
-) -> Option<Equivalente> {
+) -> Option<Equivalent> {
     let rest = import.strip_prefix("package:")?;
     let (package, path) = rest.split_once('/')?;
-    let file = graph.no(package)?.raiz.join("lib").join(path);
+    let file = graph.no(package)?.root.join("lib").join(path);
     let source = std::fs::read_to_string(file).ok()?;
     from_source(&source, factory, declared)
 }
 
-/// [`equivalente`] over the library's text.
+/// [`equivalent`] over the library's text.
 pub fn from_source(
     source: &str,
     factory: &str,
     declared: &[(String, Vec<String>)],
-) -> Option<Equivalente> {
+) -> Option<Equivalent> {
     let mut interner = Interner::default();
     let p = dartforge_frontend::parser::parse(source, &mut interner);
     if !p.diagnostics.is_empty() {
@@ -162,7 +162,7 @@ pub fn from_source(
     }
     // `SassBuilder({outputExtension = '.css', outputStyle, generateSourceMaps = false})`.
     let mut extension = ".css".to_string();
-    let mut style = Valor::Nulo;
+    let mut style = Value::Null;
     let mut source_maps = false;
     for a in args.args.iter() {
         let n = name_of(a.name.as_ref()?);
@@ -172,9 +172,9 @@ pub fn from_source(
                 extension = s.constant_value()?.to_string_lossy()
             }
             ("outputStyle", ExprKind::String(s)) => {
-                style = Valor::Texto(s.constant_value()?.to_string_lossy())
+                style = Value::Text(s.constant_value()?.to_string_lossy())
             }
-            ("outputStyle", ExprKind::Null) => style = Valor::Nulo,
+            ("outputStyle", ExprKind::Null) => style = Value::Null,
             ("generateSourceMaps", ExprKind::Bool(b)) => source_maps = *b,
             _ => return None,
         }
@@ -193,12 +193,12 @@ pub fn from_source(
     {
         return None;
     }
-    let mut options = Mapa::default();
-    options.inserir(Valor::Texto("outputStyle".into()), style);
-    options.inserir(Valor::Texto("sourceMaps".into()), Valor::Bool(source_maps));
-    Some(Equivalente {
-        chave: "sass_builder:sass_builder",
-        opcoes: options,
+    let mut options = Map::default();
+    options.insert(Value::Text("outputStyle".into()), style);
+    options.insert(Value::Text("sourceMaps".into()), Value::Bool(source_maps));
+    Some(Equivalent {
+        key: "sass_builder:sass_builder",
+        options: options,
     })
 }
 
@@ -225,9 +225,9 @@ mod tests {
             &ext(&[(".scss", &[".scss.css"]), (".sass", &[".scss.css"])]),
         )
         .expect("recognized");
-        assert_eq!(e.chave, "sass_builder:sass_builder");
-        assert_eq!(e.opcoes.obter("outputStyle"), Some(&Valor::Nulo));
-        assert_eq!(e.opcoes.obter("sourceMaps"), Some(&Valor::Bool(false)));
+        assert_eq!(e.key, "sass_builder:sass_builder");
+        assert_eq!(e.options.get("outputStyle"), Some(&Value::Null));
+        assert_eq!(e.options.get("sourceMaps"), Some(&Value::Bool(false)));
     }
 
     #[test]
@@ -252,9 +252,9 @@ mod tests {
         let e =
             from_source(pref, "b", &ext(&[(".scss", &[".x.css", ".css.map"])])).expect("prefixed");
         assert_eq!(
-            e.opcoes.obter("outputStyle"),
-            Some(&Valor::Texto("compressed".into()))
+            e.options.get("outputStyle"),
+            Some(&Value::Text("compressed".into()))
         );
-        assert_eq!(e.opcoes.obter("sourceMaps"), Some(&Valor::Bool(true)));
+        assert_eq!(e.options.get("sourceMaps"), Some(&Value::Bool(true)));
     }
 }

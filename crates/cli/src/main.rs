@@ -135,20 +135,20 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
         .join()
         .map_err(|_| "the compilation aborted")??;
     let t = std::time::Instant::now();
-    let written = dartforge_emit_js::escrever(&emitted, &out, &dartforge_emit_js::default_dart_sdk_js())?;
-    report.fase("write", t);
+    let written = dartforge_emit_js::write(&emitted, &out, &dartforge_emit_js::default_dart_sdk_js())?;
+    report.phase("write", t);
     println!(
         "{} -> {} ({} modules, {} file(s) rewritten)",
         input.display(),
         out.display(),
-        emitted.modulos.len(),
+        emitted.modules.len(),
         written
     );
     if let Some(text) = engine_report {
         println!("{text}");
     }
     if timings {
-        print!("{}", report.texto());
+        print!("{}", report.text());
     }
     Ok(())
 }
@@ -207,52 +207,52 @@ fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::
         .stack_size(1 << 30)
         .spawn(move || -> Result<(), String> {
             let mut session =
-                dartforge_dev::Sessao::nova(&entry, sdk.as_deref(), packages.as_deref(), &output)?;
-            let rep = session.compilar()?;
+                dartforge_dev::Session::new(&entry, sdk.as_deref(), packages.as_deref(), &output)?;
+            let rep = session.compile()?;
             println!(
                 "{} -> {} ({} modules, {} written)",
                 entry.display(),
                 output.display(),
-                rep.modulos,
-                rep.modulos_escritos
+                rep.modules,
+                rep.written_modules
             );
-            print!("{}", rep.texto());
+            print!("{}", rep.text());
             if once {
                 return Ok(());
             }
             // `serve`: the server starts after the first compilation, so that
             // the first visit already finds the output ready.
-            let reload = std::sync::Arc::new(dartforge_dev::servidor::Recarga::default());
+            let reload = std::sync::Arc::new(dartforge_dev::server::Reload::default());
             if serve {
-                let p = dartforge_dev::servidor::servir_com_gerados(
+                let p = dartforge_dev::server::serve_with_generated(
                     &output,
                     web.as_deref(),
                     port,
                     reload.clone(),
-                    session.provedor_de_gerados(),
+                    session.generated_provider(),
                 )?;
                 println!("serving at http://127.0.0.1:{p}/ (automatic reload over WebSocket)");
             }
-            println!("watching {} files every {interval_ms} ms (ctrl+c to quit)…", session.observados().len());
+            println!("watching {} files every {interval_ms} ms (ctrl+c to quit)…", session.watched().len());
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(interval_ms));
-                let changed = session.mudancas();
+                let changed = session.changes();
                 if changed.is_empty() {
                     continue;
                 }
                 for p in &changed {
                     println!("changed: {}", p.display());
-                    session.arquivo_mudou(p);
+                    session.file_changed(p);
                 }
-                match session.compilar() {
+                match session.compile() {
                     Ok(rep) => {
-                        print!("{}", rep.texto());
+                        print!("{}", rep.text());
                         if serve {
                             // Only reload the browser if some module changed:
                             // a new module, or a served generated output (a `.css`).
-                            let generated = rep.motor.as_ref().is_some_and(|m| m.saidas_alteradas > 0);
-                            if rep.modulos_escritos > 0 || generated {
-                                reload.disparar();
+                            let generated = rep.engine.as_ref().is_some_and(|m| m.changed_outputs > 0);
+                            if rep.written_modules > 0 || generated {
+                                reload.trigger();
                             }
                         }
                     }

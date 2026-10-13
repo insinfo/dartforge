@@ -81,8 +81,8 @@ pub struct FnEmitter<'m, 'a> {
     pub extension_this: Option<Ty>,
     pub current_extension: Option<dartforge_elements::model::ExtensionId>,
     /// Extension type (erased, not interop) that owns the member being emitted:
-    /// its statics are reachable without qualification (`crate::tipo_extensao`).
-    pub tipo_extensao: Option<ClassId>,
+    /// its statics are reachable without qualification (`crate::extension_type`).
+    pub extension_type: Option<ClassId>,
     /// Explicitly applied extension (`Ext(x).m`), consumed by the next access.
     pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
     /// Assignment pattern: the variables already exist.
@@ -115,7 +115,7 @@ pub struct FnEmitter<'m, 'a> {
     /// that the emitter created ([`Ctx::fresh_param`]): translates the shared
     /// types that mention them ([`FnEmitter::common_ty_in_scope`]).
     pub shared_params: HashMap<u32, Ty>,
-    /// Emitting an argument of `JS()` in SDK mode (`crate::sdk_proprio`): a type
+    /// Emitting an argument of `JS()` in SDK mode (`crate::own_sdk`): a type
     /// literal comes out as a raw rti and a static *tear-off* without `dart.fn`.
     pub in_foreign_js: bool,
 }
@@ -171,7 +171,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             pending_prefix: Vec::new(),
             extension_this: None,
             current_extension: None,
-            tipo_extensao: None,
+            extension_type: None,
             forced_ext: None,
             pattern_assign: false,
             in_const: false,
@@ -427,7 +427,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if self.ctx.sdk.is_some() {
             if let Some(m) = self.ctx.lookup_member(recv_ty, name, setter) {
                 if let MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) = m.kind {
-                    if let Some(x) = crate::sdk_proprio::export_name(self.ctx, f) {
+                    if let Some(x) = crate::own_sdk::export_name(self.ctx, f) {
                         return if x.contains('.') { format!("[{x}]") } else { js::prop_access(x) };
                     }
                 }
@@ -456,8 +456,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return format!("[{}]", self.private_sym(lib, name));
         }
         // SDK mode: a member of a native class is declared by the `dartx` symbol.
-        if crate::sdk_proprio::is_native_class(self.ctx, class) {
-            return crate::sdk_proprio::native_key(self.m, name);
+        if crate::own_sdk::is_native_class(self.ctx, class) {
+            return crate::own_sdk::native_key(self.m, name);
         }
         js::prop_key(&js_member_name(name))
     }
@@ -486,7 +486,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return Some((self.ctx.js_static_ref(None, lib, &mk, n), ty));
                 }
                 // SDK mode: `@JSExportName('throw')` on `throw_`.
-                if let Some(x) = crate::sdk_proprio::export_name(self.ctx, fid) {
+                if let Some(x) = crate::own_sdk::export_name(self.ctx, fid) {
                     return Some((format!("{}{}", self.lib_var(lib), js::prop_access(x)), ty));
                 }
                 let js = format!("{}{}", self.lib_var(lib), js::prop_access(&top_level_name(n)));
@@ -498,7 +498,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if self.ctx.is_js_var(vid) {
                     return Some((self.ctx.js_static_ref(None, v.library, &MemberKind::Field(vid), n), self.ctx.var_ty(vid)));
                 }
-                if let Some(x) = crate::sdk_proprio::export_name_var(self.ctx, vid) {
+                if let Some(x) = crate::own_sdk::export_name_var(self.ctx, vid) {
                     return Some((format!("{}{}", self.lib_var(v.library), js::prop_access(x)), self.ctx.var_ty(vid)));
                 }
                 let js = format!("{}{}", self.lib_var(v.library), js::prop_access(&top_level_name(n)));
@@ -1206,7 +1206,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             StmtKind::Expression(e) => {
                 // SDK mode: `JS('', 'throw #', x)` is a statement.
                 if self.ctx.sdk.is_some() {
-                    if let Some(t) = crate::sdk_proprio::js_statement(self, *e) {
+                    if let Some(t) = crate::own_sdk::js_statement(self, *e) {
                         crate::linha!(self.w, "{t};");
                         return;
                     }
@@ -1459,7 +1459,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 }
             }
             StmtKind::Assert { condition, message } => {
-                if crate::sdk_proprio::omit_assert(self.ctx, self.lib) {
+                if crate::own_sdk::omit_assert(self.ctx, self.lib) {
                     return;
                 }
                 let (cjs, _) = self.emit_cond(*condition);

@@ -18,7 +18,7 @@
 //! filed with the owner of `types`, not an approximation.
 use crate::assembly::{AugmentedType, Code, IdentifierKind, Part, ResolvedIdentifier, Resolver};
 use crate::executor::{QueryError, QueryService};
-use crate::modelo::{Key, Table, Vista};
+use crate::model::{Key, Table, View};
 use dartforge_elements::model::*;
 use serde_json::{Value, json};
 
@@ -61,7 +61,7 @@ impl Statics {
 
 /// The query service of an execution.
 pub struct QueryHandler<'a, 'p> {
-    pub view: &'a Vista<'p>,
+    pub view: &'a View<'p>,
     pub table: &'a mut Table,
     pub statics: &'a mut Statics,
 }
@@ -243,7 +243,7 @@ impl QueryService for QueryHandler<'_, '_> {
 
 /// The assembly's [`Resolver`] over the current program.
 pub struct ProgramResolver<'a, 'p> {
-    pub view: &'a Vista<'p>,
+    pub view: &'a View<'p>,
     pub table: &'a std::cell::RefCell<&'a mut Table>,
 }
 

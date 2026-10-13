@@ -5,7 +5,7 @@
 //! `dfexec/1` over stdio and serves the `build.*` service with the Dart side
 //! of `packages/build_executor`. No Dart VM, no `dart` and no `build_runner`
 //! are on the path: the process is born at the session's first Dart action
-//! and stays warm until [`ExecutorDart::encerrar`], like the VM one.
+//! and stays warm until [`DartExecutor::shutdown`], like the VM one.
 //!
 //! The executable is cached in `.dart_tool/dartforge/build/` (the same
 //! directory as the VM bootstrap: the plan's relative imports work without
@@ -15,21 +15,21 @@
 //! bootstrap program loads (the equivalent of `dart compile kernel`'s
 //! `--depfile`): if one of them is newer than the executable, or gone, it is
 //! compiled again. It is also the builders' code that the engine records
-//! ([`ExecutorDart::codigo`]).
+//! ([`DartExecutor::code`]).
 //!
 //! Before compiling, the host checks that the project's `package_config.json`
 //! resolves the packages the executor needs ([`DEPENDENCIES`]); the missing
 //! ones (the project does not need to use `build_runner` or
 //! `build_resolvers`, DF-BUILD-004) come from the pub cache
-//! ([`crate::dependencias_executor`]), and what the cache lacks is diagnosed
+//! ([`crate::executor_deps`]), and what the cache lacks is diagnosed
 //! by name.
-use crate::cliente::ClienteBuild;
-use crate::dependencias_executor::DEPENDENCIES;
+use crate::client::BuildClient;
+use crate::executor_deps::DEPENDENCIES;
 use crate::executor::{
-    Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, PedidoAcao, PedidoExtensoes,
-    ResultadoAcao, ScriptDeBuilders, ServicoBuildStep,
+    Availability, ExecutorError, DartExecutor, RuntimeExtensions, ActionRequest, ExtensionsRequest,
+    ActionResult, BuilderScript, BuildStepService,
 };
-use crate::vm::{Gravados, deps_do_depfile, gravar_bootstrap};
+use crate::vm::{WrittenBootstrap, depfile_deps, gravar_bootstrap};
 use dartforge_dfexec::CanalDeProcesso;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -37,7 +37,7 @@ use std::time::{Duration, Instant, SystemTime};
 /// Environment variable of the native executor: `0` turns it off where it
 /// would be the default (`dartforge build`); any other value also turns it on
 /// in the compilers.
-pub const VARIAVEL: &str = "DARTFORGE_BUILD_NATIVO";
+pub const ENV_VAR: &str = "DARTFORGE_BUILD_NATIVO";
 
 /// Who compiles, and where.
 #[derive(Debug, Clone)]
@@ -113,7 +113,7 @@ fn executable_is_valid(exe: &Path, depfile: &Path) -> bool {
     let (Some(t), Ok(text)) = (mtime(exe), std::fs::read_to_string(depfile)) else {
         return false;
     };
-    let deps = deps_do_depfile(&text);
+    let deps = depfile_deps(&text);
     !deps.is_empty() && deps.iter().all(|d| mtime(d).is_some_and(|m| m <= t))
 }
 
@@ -197,7 +197,7 @@ pub struct NativeMeasurement {
 /// first Dart action, creates the process and keeps it warm.
 pub struct NativeExecutor {
     cfg: NativeConfig,
-    client: Option<ClienteBuild<CanalDeProcesso>>,
+    client: Option<BuildClient<CanalDeProcesso>>,
     /// Key of the executable that the current process runs.
     key: Option<String>,
     failure: Option<String>,
@@ -223,11 +223,11 @@ impl NativeExecutor {
     /// Executor dependencies that the project does not resolve, writing to
     /// the work directory, or the compilation (the compiler's message goes
     /// into the error).
-    pub fn compile(&mut self, script: &ScriptDeBuilders) -> Result<(PathBuf, String), String> {
+    pub fn compile(&mut self, script: &BuilderScript) -> Result<(PathBuf, String), String> {
         let t = &self.cfg.work_dir;
         std::fs::create_dir_all(t).map_err(|e| format!("{}: {e}", t.display()))?;
         let project_config = self.complete_package_config()?;
-        let Gravados {
+        let WrittenBootstrap {
             principal: main,
             package_config: pc,
             mut hasher,
@@ -331,13 +331,13 @@ impl NativeExecutor {
         if missing_dependencies(&self.cfg.package_config)?.is_empty() {
             return Ok(self.cfg.package_config.clone());
         }
-        let cache = crate::dependencias_executor::pub_cache_dir()
+        let cache = crate::executor_deps::pub_cache_dir()
             .ok_or("the pub cache was not found (set PUB_CACHE)")?;
         // The project's relative URIs become absolute (the new file lives in
         // another directory); the executor package comes out again in the
         // bootstrap.
         let absolute = crate::vm::package_config(&self.cfg.package_config, &self.cfg.work_dir)?;
-        let (v, added) = crate::dependencias_executor::complete(&absolute, &cache)?;
+        let (v, added) = crate::executor_deps::complete(&absolute, &cache)?;
         eprintln!(
             "builder executor: {} come from the pub cache ({})",
             added.join(", "),
@@ -353,7 +353,7 @@ impl NativeExecutor {
     }
 
     /// Compiles (or reuses) and starts the process; returns the key.
-    fn start(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
+    fn start(&mut self, script: &BuilderScript) -> Result<String, String> {
         let (exe, key) = self.compile(script)?;
         let mut cmd = std::process::Command::new(&exe);
         // The VM's `--packages`: the executable's `Isolate.resolvePackageUri`
@@ -377,25 +377,25 @@ impl NativeExecutor {
         {
             cmd.env("DARTFORGE_DART_SDK", root);
         }
-        self.client = Some(ClienteBuild::iniciar(cmd)?);
+        self.client = Some(BuildClient::start(cmd)?);
         Ok(key)
     }
 
     /// One action (build or post-processing) through the process.
     fn action(
         &mut self,
-        request: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
+        request: &ActionRequest,
+        service: &mut dyn BuildStepService,
         post: bool,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+    ) -> Result<ActionResult, ExecutorError> {
         let client = self
             .client
             .as_mut()
-            .ok_or_else(|| ErroExecutor("build.executar before build.carregar".into()))?;
+            .ok_or_else(|| ExecutorError("build.executar before build.carregar".into()))?;
         let r = if post {
-            client.pos_processar(request, service)
+            client.post_process_step(request, service)
         } else {
-            client.executar(request, service)
+            client.execute(request, service)
         };
         if let Err(e) = &r {
             // Broken channel (the process died, the protocol was violated):
@@ -408,25 +408,25 @@ impl NativeExecutor {
     }
 }
 
-impl ExecutorDart for NativeExecutor {
-    fn disponibilidade(&self) -> Disponibilidade {
+impl DartExecutor for NativeExecutor {
+    fn availability(&self) -> Availability {
         match &self.failure {
-            Some(m) => Disponibilidade::Indisponivel(m.clone()),
-            None => Disponibilidade::Disponivel,
+            Some(m) => Availability::Unavailable(m.clone()),
+            None => Availability::Available,
         }
     }
 
-    fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
+    fn prepare(&mut self, script: &BuilderScript) -> Result<(), ExecutorError> {
         if let Some(m) = &self.failure {
-            return Err(ErroExecutor(m.clone()));
+            return Err(ExecutorError(m.clone()));
         }
         if self.key.is_some() {
-            self.encerrar();
+            self.shutdown();
         }
         let t0 = Instant::now();
         let r = self.start(script).and_then(|key| {
             let client = self.client.as_mut().ok_or("executor without a process")?;
-            client.preparar(script).map_err(|e| e.0)?;
+            client.prepare(script).map_err(|e| e.0)?;
             self.key = Some(key);
             Ok(())
         });
@@ -434,83 +434,83 @@ impl ExecutorDart for NativeExecutor {
         r.map_err(|m| {
             self.client = None;
             self.failure = Some(m.clone());
-            ErroExecutor(m)
+            ExecutorError(m)
         })
     }
 
-    fn nova_rodada(&mut self) {
+    fn new_round(&mut self) {
         if let Some(c) = self.client.as_mut() {
-            c.nova_rodada();
+            c.new_round();
         }
     }
 
-    fn extensoes(
+    fn extensions(
         &mut self,
-        request: &PedidoExtensoes,
-    ) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
+        request: &ExtensionsRequest,
+    ) -> Result<Option<RuntimeExtensions>, ExecutorError> {
         match self.client.as_mut() {
-            Some(c) => c.extensoes(request),
+            Some(c) => c.extensions(request),
             None => Ok(None),
         }
     }
 
-    fn executar(
+    fn execute(
         &mut self,
-        request: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+        request: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
         self.action(request, service, false)
     }
 
-    fn codigo(&self) -> Option<Vec<PathBuf>> {
+    fn code(&self) -> Option<Vec<PathBuf>> {
         let key = self.key.as_ref()?;
         let text =
             std::fs::read_to_string(self.cfg.work_dir.join(format!("executor-{key}.d"))).ok()?;
-        let deps = deps_do_depfile(&text);
+        let deps = depfile_deps(&text);
         (!deps.is_empty()).then_some(deps)
     }
 
-    fn entradas_pos(
+    fn post_inputs(
         &mut self,
-        request: &PedidoExtensoes,
-    ) -> Result<Option<Vec<String>>, ErroExecutor> {
+        request: &ExtensionsRequest,
+    ) -> Result<Option<Vec<String>>, ExecutorError> {
         match self.client.as_mut() {
-            Some(c) => c.entradas_pos(request),
+            Some(c) => c.post_inputs(request),
             None => Ok(None),
         }
     }
 
-    fn pos_processar(
+    fn post_process_step(
         &mut self,
-        request: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+        request: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
         self.action(request, service, true)
     }
 
-    fn encerrar(&mut self) {
+    fn shutdown(&mut self) {
         if let Some(mut c) = self.client.take() {
-            c.encerrar();
+            c.shutdown();
         }
         self.key = None;
     }
 }
 
-/// Hooks the native executor into `motor`, with the given `compiler` (the
+/// Hooks the native executor into `engine`, with the given `compiler` (the
 /// `dartforge` itself with the `nativo` feature): the process is only born at
 /// the session's first Dart action.
-pub fn ligar(
-    motor: &mut crate::Motor,
+pub fn attach(
+    engine: &mut crate::Engine,
     compiler: PathBuf,
     sdk_lib: Option<PathBuf>,
     package_config: &Path,
 ) {
-    let root = motor.grafo_pacotes.dir_raiz.clone();
+    let root = engine.package_graph.root_dir.clone();
     let cfg = NativeConfig {
         package_config: package_config.to_path_buf(),
         ..NativeConfig::for_project(compiler, sdk_lib, &root)
     };
-    motor.definir_executor_dart(Box::new(NativeExecutor::new(cfg)));
+    engine.set_dart_executor(Box::new(NativeExecutor::new(cfg)));
 }
 
 #[cfg(test)]
@@ -533,7 +533,7 @@ mod tests {
             PathBuf::from("/c/with space.dart"),
         ];
         let text = depfile(Path::new("/t/executor"), &deps);
-        assert_eq!(deps_do_depfile(&text), deps);
+        assert_eq!(depfile_deps(&text), deps);
     }
 
     #[test]

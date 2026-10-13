@@ -8,11 +8,11 @@
 //! `build_extensions` in the options. Without a descriptor, the `build.yaml`
 //! ones apply — correct by convention in `source_gen`, and any divergence
 //! shows up in the corpus.
-use crate::valor::{Mapa, Valor};
+use crate::value::{Map, Value};
 
 /// Builders that DartForge replaces instead of running
 /// (`docs/BUILD-MOTOR.md` §6): they stay in the plan but produce no action.
-pub fn substituido(key: &str) -> Option<&'static str> {
+pub fn replaced_by(key: &str) -> Option<&'static str> {
     let package = key.split(':').next().unwrap_or_default();
     match package {
         "build_web_compilers" | "build_modules" => Some(
@@ -28,8 +28,8 @@ pub fn substituido(key: &str) -> Option<&'static str> {
 /// (checked against `pubspec.lock`): for each package, the accepted versions
 /// — the generator only covers the phase when the lock brings one of them,
 /// and it picks its mode by the one that came
-/// ([`crate::executor::PedidoNativo::versoes`]).
-pub fn imita(key: &str) -> &'static [(&'static str, &'static [&'static str])] {
+/// ([`crate::executor::NativeRequest::versions`]).
+pub fn imitates(key: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match key {
         "ngdart:ngdart" => &[("ngdart", &["8.0.0-dev.4"])],
         // The fork with `package:web` (`ngx_compiler` 9.0.0-dev.2): the same
@@ -48,20 +48,20 @@ pub fn imita(key: &str) -> &'static [(&'static str, &'static [&'static str])] {
     }
 }
 
-fn extensions_map(v: &Valor, list_or_string: bool) -> Result<Vec<(String, Vec<String>)>, String> {
-    let Valor::Mapa(m) = v else {
+fn extensions_map(v: &Value, list_or_string: bool) -> Result<Vec<(String, Vec<String>)>, String> {
+    let Value::Map(m) = v else {
         return Err("build_extensions should be a map from inputs to outputs".into());
     };
     let mut r = Vec::new();
     for (k, s) in &m.0 {
-        let Some(k) = k.como_texto() else {
+        let Some(k) = k.as_text() else {
             return Err("build_extensions key is not a string".into());
         };
         let outputs: Vec<String> = match s {
-            Valor::Texto(t) => vec![t.clone()],
-            Valor::Lista(l) if list_or_string => l
+            Value::Text(t) => vec![t.clone()],
+            Value::List(l) if list_or_string => l
                 .iter()
-                .map(|x| x.como_texto().map(str::to_string))
+                .map(|x| x.as_text().map(str::to_string))
                 .collect::<Option<_>>()
                 .ok_or("output is not a string")?,
             _ => return Err(format!("invalid value in build_extensions for `{k}`")),
@@ -76,11 +76,11 @@ fn extensions_map(v: &Valor, list_or_string: bool) -> Result<Vec<(String, Vec<St
 
 /// Run-time extensions of the factory `factory` of the builder `key` with the
 /// effective options.
-pub fn extensoes_de_execucao(
+pub fn runtime_extensions(
     key: &str,
     factory: &str,
     factories: &[String],
-    options: &Mapa,
+    options: &Map,
     declared: &[(String, Vec<String>)],
 ) -> Result<Vec<(String, Vec<String>)>, String> {
     let e = |pairs: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
@@ -95,7 +95,7 @@ pub fn extensoes_de_execucao(
         // StylesheetCompiler).
         ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templatePlaceholder") => e(&[(".dart", &[".ng_placeholder"])]),
         ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templateCompiler") => {
-            if options.obter("outline-only").is_some() {
+            if options.get("outline-only").is_some() {
                 e(&[(".dart", &[".outline.template.dart"])])
             } else {
                 e(&[(".dart", &[".template.dart"])])
@@ -108,12 +108,12 @@ pub fn extensoes_de_execucao(
             (".sass", &[".css", ".css.map"]),
         ]),
         // `source_gen-2.0.0/lib/builder.dart` (`validatedBuildExtensionsFrom`).
-        ("source_gen:combining_builder", _) => match options.obter("build_extensions") {
+        ("source_gen:combining_builder", _) => match options.get("build_extensions") {
             Some(v) => extensions_map(v, true)?,
             None => e(&[(".dart", &[".g.dart"])]),
         },
         // `mockito-5.4.4/lib/src/builder.dart:2281-2303`.
-        ("mockito:mockBuilder", _) => match options.obter("build_extensions") {
+        ("mockito:mockBuilder", _) => match options.get("build_extensions") {
             Some(v) => extensions_map(v, false)?,
             None => e(&[(".dart", &[".mocks.dart"])]),
         },

@@ -1,5 +1,5 @@
 //! `pubspec.yaml`, `pubspec.lock` and `build.yaml`, read the way the locked
-//! `build_config` reads them ([`crate::perfil`]): 1.1.2 by default, 1.2.0
+//! `build_config` reads them ([`crate::profile`]): 1.1.2 by default, 1.2.0
 //! with the top-level `triggers` key, 1.3.x with `build_to` in
 //! `post_process_builders` and the definition key tied to the package.
 //!
@@ -7,8 +7,8 @@
 //! files: an unknown key is an error, a missing required field is an error, a
 //! wrong type is an error. Builder and target keys are normalized like
 //! `key_normalization.dart`.
-use crate::perfil::Perfil;
-use crate::valor::{Mapa, Valor};
+use crate::profile::Profile;
+use crate::value::{Map, Value};
 use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
 
@@ -33,14 +33,14 @@ fn string_keys(y: &Yaml) -> Vec<String> {
 
 #[derive(Debug, Clone, Default)]
 pub struct Pubspec {
-    pub nome: Option<String>,
+    pub name: Option<String>,
     /// Keys of `dependencies`, in file order.
-    pub dependencias: Vec<String>,
-    pub dev_dependencias: Vec<String>,
+    pub dependencies: Vec<String>,
+    pub dev_dependencies: Vec<String>,
 }
 
 impl Pubspec {
-    pub fn ler(dir: &Path) -> Result<Pubspec, String> {
+    pub fn read(dir: &Path) -> Result<Pubspec, String> {
         let path = dir.join("pubspec.yaml");
         let text = std::fs::read_to_string(&path).map_err(|_| {
             format!(
@@ -48,22 +48,22 @@ impl Pubspec {
                 path.display()
             )
         })?;
-        Self::de_texto(&text, &path.display().to_string())
+        Self::from_text(&text, &path.display().to_string())
     }
 
-    pub fn de_texto(text: &str, origin: &str) -> Result<Pubspec, String> {
+    pub fn from_text(text: &str, origin: &str) -> Result<Pubspec, String> {
         let y = load_yaml(text, origin)?;
         Ok(Pubspec {
-            nome: y["name"].as_str().map(str::to_string),
-            dependencias: string_keys(&y["dependencies"]),
-            dev_dependencias: string_keys(&y["dev_dependencies"]),
+            name: y["name"].as_str().map(str::to_string),
+            dependencies: string_keys(&y["dependencies"]),
+            dev_dependencies: string_keys(&y["dev_dependencies"]),
         })
     }
 }
 
 /// Dependency type (`package_graph.dart`, `DependencyType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TipoDependencia {
+pub enum DependencyType {
     Github,
     Path,
     Hosted,
@@ -71,19 +71,19 @@ pub enum TipoDependencia {
 
 /// One entry of `pubspec.lock`.
 #[derive(Debug, Clone)]
-pub struct Travado {
-    pub tipo: TipoDependencia,
-    pub versao: String,
+pub struct LockedPackage {
+    pub kind: DependencyType,
+    pub version: String,
     /// `description.url` of a `hosted` package (the server it came from).
     pub server: Option<String>,
 }
 
-impl Travado {
+impl LockedPackage {
     /// The package is the one published on pub.dev with this version —
     /// immutable, so the version identifies the code. A fork (`path`, `git`,
     /// another server) with the same version is not (DF-BUILD-022).
     pub fn is_from_pub_dev(&self) -> bool {
-        self.tipo == TipoDependencia::Hosted
+        self.kind == DependencyType::Hosted
             && self.server.as_deref().is_some_and(|u| {
                 matches!(
                     u.trim_end_matches('/'),
@@ -93,7 +93,7 @@ impl Travado {
     }
 }
 
-pub fn ler_lock(text: &str, origin: &str) -> Result<Vec<(String, Travado)>, String> {
+pub fn ler_lock(text: &str, origin: &str) -> Result<Vec<(String, LockedPackage)>, String> {
     let y = load_yaml(text, origin)?;
     let Yaml::Hash(packages) = &y["packages"] else {
         return Err(format!("{origin}: no `packages`"));
@@ -101,19 +101,19 @@ pub fn ler_lock(text: &str, origin: &str) -> Result<Vec<(String, Travado)>, Stri
     let mut v = Vec::new();
     for (k, p) in packages {
         let Some(name) = k.as_str() else { continue };
-        let tipo = match p["source"].as_str() {
-            Some("git") => TipoDependencia::Github,
-            Some("hosted") => TipoDependencia::Hosted,
-            Some("path") | Some("sdk") => TipoDependencia::Path,
+        let kind = match p["source"].as_str() {
+            Some("git") => DependencyType::Github,
+            Some("hosted") => DependencyType::Hosted,
+            Some("path") | Some("sdk") => DependencyType::Path,
             other => return Err(format!("Unable to determine dependency type:\n{other:?}")),
         };
-        let versao = p["version"].as_str().unwrap_or_default().to_string();
+        let version = p["version"].as_str().unwrap_or_default().to_string();
         let server = p["description"]["url"].as_str().map(str::to_string);
         v.push((
             name.to_string(),
-            Travado {
-                tipo,
-                versao,
+            LockedPackage {
+                kind,
+                version,
                 server,
             },
         ));
@@ -139,7 +139,7 @@ fn check_owner(normalized_key: &str, package: &str) -> Result<(), String> {
     }
 }
 
-pub fn chave_builder_uso(key: &str, package: &str) -> String {
+pub fn builder_usage_key(key: &str, package: &str) -> String {
     normalize_usage(&key.replacen('|', ":", 1), package)
 }
 
@@ -202,11 +202,11 @@ pub struct InputSet {
 }
 
 impl InputSet {
-    pub fn texto_canonico(&self) -> String {
+    pub fn canonical_text(&self) -> String {
         let l = |v: &Option<Vec<String>>| match v {
             None => "-".to_string(),
             Some(v) => {
-                Valor::Lista(v.iter().map(|s| Valor::Texto(s.clone())).collect()).texto_canonico()
+                Value::List(v.iter().map(|s| Value::Text(s.clone())).collect()).canonical_text()
             }
         };
         format!(
@@ -222,31 +222,31 @@ pub struct Defaults {
     /// `None` = `InputSet.anything` (identical): it does not appear in
     /// `build.dart`.
     pub generate_for: Option<InputSet>,
-    pub options: Mapa,
-    pub dev_options: Mapa,
-    pub release_options: Mapa,
+    pub options: Map,
+    pub dev_options: Map,
+    pub release_options: Map,
 }
 
 #[derive(Debug, Clone)]
 pub struct BuilderDefinition {
-    pub chave: String,
-    pub pacote: String,
+    pub key: String,
+    pub package: String,
     pub fabricas: Vec<String>,
     pub import: String,
-    pub extensoes: Vec<(String, Vec<String>)>,
+    pub extensions: Vec<(String, Vec<String>)>,
     pub auto_apply: AutoApply,
     pub required_inputs: Vec<String>,
     pub runs_before: Vec<String>,
     pub applies_builders: Vec<String>,
-    pub opcional: bool,
+    pub optional: bool,
     pub build_to: BuildTo,
     pub defaults: Defaults,
 }
 
 #[derive(Debug, Clone)]
 pub struct PostProcessDefinition {
-    pub chave: String,
-    pub pacote: String,
+    pub key: String,
+    pub package: String,
     pub fabrica: String,
     pub import: String,
     /// `build_to` (`build_config` ≥ 1.3.0; before that, always `cache`).
@@ -258,22 +258,22 @@ pub struct PostProcessDefinition {
 pub struct TargetBuilderConfig {
     pub enabled: bool,
     pub generate_for: Option<InputSet>,
-    pub options: Mapa,
-    pub dev_options: Mapa,
-    pub release_options: Mapa,
+    pub options: Map,
+    pub dev_options: Map,
+    pub release_options: Map,
 }
 
 #[derive(Debug, Clone)]
-pub struct Alvo {
-    pub chave: String,
-    pub pacote: String,
+pub struct Target {
+    pub key: String,
+    pub package: String,
     pub auto_apply_builders: bool,
     pub builders: Vec<(String, TargetBuilderConfig)>,
-    pub dependencias: Vec<String>,
+    pub dependencies: Vec<String>,
     pub sources: InputSet,
 }
 
-impl Alvo {
+impl Target {
     pub fn cfg(&self, key: &str) -> Option<&TargetBuilderConfig> {
         self.builders.iter().find(|(k, _)| k == key).map(|(_, c)| c)
     }
@@ -281,47 +281,47 @@ impl Alvo {
 
 #[derive(Debug, Clone, Default)]
 pub struct GlobalBuilderConfig {
-    pub options: Mapa,
-    pub dev_options: Mapa,
-    pub release_options: Mapa,
+    pub options: Map,
+    pub dev_options: Map,
+    pub release_options: Map,
     pub runs_before: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
-    pub pacote: String,
+    pub package: String,
     pub builders: Vec<BuilderDefinition>,
     pub pos: Vec<PostProcessDefinition>,
-    pub alvos: Vec<Alvo>,
+    pub targets: Vec<Target>,
     pub global: Vec<(String, GlobalBuilderConfig)>,
-    pub publicos_adicionais: Vec<String>,
+    pub additional_public: Vec<String>,
     /// `triggers` (`build_config` ≥ 1.2.0): by builder name, **not
     /// normalized**, with the value as the YAML had it. Validity and meaning
-    /// belong to `build_runner` ([`crate::gatilhos`]).
-    pub gatilhos: Vec<(String, Valor)>,
+    /// belong to `build_runner` ([`crate::triggers`]).
+    pub triggers: Vec<(String, Value)>,
 }
 
 impl BuildConfig {
     /// `BuildConfig.useDefault`.
-    pub fn padrao(package: &str, dependencies: &[String]) -> BuildConfig {
+    pub fn pattern(package: &str, dependencies: &[String]) -> BuildConfig {
         BuildConfig {
-            pacote: package.to_string(),
+            package: package.to_string(),
             builders: Vec::new(),
             pos: Vec::new(),
-            alvos: vec![Alvo {
-                chave: format!("{package}:{package}"),
-                pacote: package.to_string(),
+            targets: vec![Target {
+                key: format!("{package}:{package}"),
+                package: package.to_string(),
                 auto_apply_builders: true,
                 builders: Vec::new(),
-                dependencias: dependencies
+                dependencies: dependencies
                     .iter()
                     .map(|d| target_usage_key(d, package))
                     .collect(),
                 sources: InputSet::default(),
             }],
             global: Vec::new(),
-            publicos_adicionais: Vec::new(),
-            gatilhos: Vec::new(),
+            additional_public: Vec::new(),
+            triggers: Vec::new(),
         }
     }
 
@@ -341,7 +341,7 @@ impl BuildConfig {
         dependencies: &[String],
         dir: &Path,
     ) -> Result<BuildConfig, String> {
-        Self::from_dir_with_profile(package, dependencies, dir, Perfil::default())
+        Self::from_dir_with_profile(package, dependencies, dir, Profile::default())
     }
 
     /// [`BuildConfig::from_dir`] with the rules of the `build_config` of
@@ -353,11 +353,11 @@ impl BuildConfig {
         package: &str,
         dependencies: &[String],
         dir: &Path,
-        profile: Perfil,
+        profile: Profile,
     ) -> Result<BuildConfig, String> {
         let path = dir.join("build.yaml");
         match std::fs::read_to_string(&path) {
-            Ok(text) => Self::de_texto_no_perfil(
+            Ok(text) => Self::from_text_with_profile(
                 package,
                 dependencies,
                 &text,
@@ -369,7 +369,7 @@ impl BuildConfig {
             // (permissions, bytes that are not UTF-8, a directory with that
             // name) is an error, not an empty configuration (DF-BUILD-017).
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok(Self::padrao(package, dependencies))
+                Ok(Self::pattern(package, dependencies))
             }
             Err(e) => Err(format!("could not read {}: {e}", path.display())),
         }
@@ -388,13 +388,13 @@ impl BuildConfig {
     /// # Errors
     /// Invalid YAML, unknown key, missing required field or wrong type, like
     /// `$checkKeys`.
-    pub fn de_texto(
+    pub fn from_text(
         package: &str,
         dependencies: &[String],
         text: &str,
         origin: &str,
     ) -> Result<BuildConfig, String> {
-        Self::de_texto_no_perfil(package, dependencies, text, origin, Perfil::default())
+        Self::from_text_with_profile(package, dependencies, text, origin, Profile::default())
     }
 
     /// `BuildConfig.parse` of the `build_config` of `profile`.
@@ -409,13 +409,13 @@ impl BuildConfig {
     /// ```
     ///
     /// # Errors
-    /// As [`BuildConfig::de_texto`], with the keys of that version.
-    pub fn de_texto_no_perfil(
+    /// As [`BuildConfig::from_text`], with the keys of that version.
+    pub fn from_text_with_profile(
         package: &str,
         dependencies: &[String],
         text: &str,
         origin: &str,
-        profile: Perfil,
+        profile: Profile,
     ) -> Result<BuildConfig, String> {
         let y = load_yaml(text, origin)?;
         let ctx = Ctx {
@@ -432,7 +432,7 @@ struct Ctx<'a> {
     package: &'a str,
     deps: &'a [String],
     origin: &'a str,
-    profile: Perfil,
+    profile: Profile,
 }
 
 type R<T> = Result<T, String>;
@@ -522,18 +522,18 @@ impl Ctx<'_> {
         }
     }
 
-    fn options(&self, y: &Yaml, at: &str) -> R<Mapa> {
+    fn options(&self, y: &Yaml, at: &str) -> R<Map> {
         match self.map(y, at)? {
-            None => Ok(Mapa::default()),
+            None => Ok(Map::default()),
             Some(h) => {
-                let mut m = Mapa::default();
+                let mut m = Map::default();
                 for (k, v) in h {
                     let k = k
                         .as_str()
                         .ok_or_else(|| self.error(at, "option key is not a string"))?;
-                    m.inserir(
-                        Valor::Texto(k.to_string()),
-                        Valor::de_yaml(v).map_err(|e| self.error(at, &e))?,
+                    m.insert(
+                        Value::Text(k.to_string()),
+                        Value::from_yaml(v).map_err(|e| self.error(at, &e))?,
                     );
                 }
                 Ok(m)
@@ -654,26 +654,26 @@ impl Ctx<'_> {
         let usage = |v: Option<Vec<String>>| {
             v.unwrap_or_default()
                 .iter()
-                .map(|b| chave_builder_uso(b, self.package))
+                .map(|b| builder_usage_key(b, self.package))
                 .collect::<Vec<_>>()
         };
         let normalized_key = builder_definition_key(key, self.package);
-        if self.profile.exige_chave_do_pacote() {
+        if self.profile.requires_package_key() {
             check_owner(&normalized_key, self.package).map_err(|e| self.error(at, &e))?;
         }
         Ok(BuilderDefinition {
-            chave: normalized_key,
-            pacote: self.package.to_string(),
+            key: normalized_key,
+            package: self.package.to_string(),
             fabricas: factories,
             import: self.string(&y["import"], at)?.unwrap_or_default(),
-            extensoes: extensions,
+            extensions: extensions,
             auto_apply,
             required_inputs: self
                 .string_list(&y["required_inputs"], at)?
                 .unwrap_or_default(),
             runs_before: usage(self.string_list(&y["runs_before"], at)?),
             applies_builders: usage(self.string_list(&y["applies_builders"], at)?),
-            opcional: self.boolean(&y["is_optional"], at)?.unwrap_or(false),
+            optional: self.boolean(&y["is_optional"], at)?.unwrap_or(false),
             build_to,
             defaults: match &y["defaults"] {
                 Yaml::Null | Yaml::BadValue => Defaults::default(),
@@ -710,12 +710,12 @@ impl Ctx<'_> {
             Some(o) => return Err(self.error(at, &format!("unknown build_to: {o}"))),
         };
         let normalized_key = builder_definition_key(key, self.package);
-        if self.profile.exige_chave_do_pacote() {
+        if self.profile.requires_package_key() {
             check_owner(&normalized_key, self.package).map_err(|e| self.error(at, &e))?;
         }
         Ok(PostProcessDefinition {
-            chave: normalized_key,
-            pacote: self.package.to_string(),
+            key: normalized_key,
+            package: self.package.to_string(),
             fabrica: self.string(&y["builder_factory"], at)?.unwrap_or_default(),
             import: self.string(&y["import"], at)?.unwrap_or_default(),
             build_to,
@@ -726,7 +726,7 @@ impl Ctx<'_> {
         })
     }
 
-    fn target(&self, key: &str, y: &Yaml) -> R<Alvo> {
+    fn target(&self, key: &str, y: &Yaml) -> R<Target> {
         let at = &format!("targets.{key}");
         if !matches!(y, Yaml::Hash(_)) {
             return Err(self.error(at, "expected a map"));
@@ -766,7 +766,7 @@ impl Ctx<'_> {
                     dev_options: self.options(&v["dev_options"], o)?,
                     release_options: self.options(&v["release_options"], o)?,
                 };
-                let builder_key = chave_builder_uso(k, self.package);
+                let builder_key = builder_usage_key(k, self.package);
                 if let Some(p) = builders
                     .iter_mut()
                     .find(|(c, _): &&mut (String, TargetBuilderConfig)| *c == builder_key)
@@ -782,15 +782,15 @@ impl Ctx<'_> {
             None => self.deps.to_vec(),
         };
         let target_key = target_definition_key(key, self.package);
-        if self.profile.exige_chave_do_pacote() {
+        if self.profile.requires_package_key() {
             check_owner(&target_key, self.package).map_err(|e| self.error(at, &e))?;
         }
-        Ok(Alvo {
-            chave: target_key,
-            pacote: self.package.to_string(),
+        Ok(Target {
+            key: target_key,
+            package: self.package.to_string(),
             auto_apply_builders: self.boolean(&y["auto_apply_builders"], at)?.unwrap_or(true),
             builders,
-            dependencias: dependencies
+            dependencies: dependencies
                 .iter()
                 .map(|d| target_usage_key(d, self.package))
                 .collect(),
@@ -831,14 +831,14 @@ impl Ctx<'_> {
                         "null value (expected a list of triggers)",
                     ));
                 }
-                let value = Valor::de_yaml(v).map_err(|e| self.error("triggers", &e))?;
-                triggers.retain(|(x, _): &(String, Valor)| x != k);
+                let value = Value::from_yaml(v).map_err(|e| self.error("triggers", &e))?;
+                triggers.retain(|(x, _): &(String, Value)| x != k);
                 triggers.push((k.to_string(), value));
             }
         }
         let mut targets = Vec::new();
         match self.map(&y["targets"], "targets")? {
-            None => targets = BuildConfig::padrao(self.package, self.deps).alvos,
+            None => targets = BuildConfig::pattern(self.package, self.deps).targets,
             Some(h) => {
                 for (k, v) in h {
                     let k = k
@@ -847,7 +847,7 @@ impl Ctx<'_> {
                     targets.push(self.target(k, v)?);
                 }
                 let default = format!("{0}:{0}", self.package);
-                if !targets.iter().any(|a| a.chave == default) {
+                if !targets.iter().any(|a| a.key == default) {
                     return Err(self.error(
                         "targets",
                         &format!(
@@ -875,7 +875,7 @@ impl Ctx<'_> {
                     &[],
                 )?;
                 global.push((
-                    chave_builder_uso(k, self.package),
+                    builder_usage_key(k, self.package),
                     GlobalBuilderConfig {
                         options: self.options(&v["options"], o)?,
                         dev_options: self.options(&v["dev_options"], o)?,
@@ -884,7 +884,7 @@ impl Ctx<'_> {
                             .string_list(&v["runs_before"], o)?
                             .unwrap_or_default()
                             .iter()
-                            .map(|b| chave_builder_uso(b, self.package))
+                            .map(|b| builder_usage_key(b, self.package))
                             .collect(),
                     },
                 ));
@@ -897,7 +897,7 @@ impl Ctx<'_> {
                     .as_str()
                     .ok_or_else(|| self.error("builders", "key is not a string"))?;
                 let b = self.builder(k, v)?;
-                builders.retain(|x: &BuilderDefinition| x.chave != b.chave);
+                builders.retain(|x: &BuilderDefinition| x.key != b.key);
                 builders.push(b);
             }
         }
@@ -908,20 +908,20 @@ impl Ctx<'_> {
                     .as_str()
                     .ok_or_else(|| self.error("post_process_builders", "key is not a string"))?;
                 let p = self.post_process(k, v)?;
-                post.retain(|x: &PostProcessDefinition| x.chave != p.chave);
+                post.retain(|x: &PostProcessDefinition| x.key != p.key);
                 post.push(p);
             }
         }
         Ok(BuildConfig {
-            pacote: self.package.to_string(),
+            package: self.package.to_string(),
             builders,
             pos: post,
-            alvos: targets,
+            targets: targets,
             global,
-            publicos_adicionais: self
+            additional_public: self
                 .string_list(&y["additional_public_assets"], "additional_public_assets")?
                 .unwrap_or_default(),
-            gatilhos: triggers,
+            triggers: triggers,
         })
     }
 }
@@ -934,10 +934,10 @@ mod tests {
     fn key_normalization() {
         assert_eq!(builder_definition_key("x", "p"), "p:x");
         assert_eq!(builder_definition_key("q|x", "p"), "q:x");
-        assert_eq!(chave_builder_uso("ngdart", "p"), "ngdart:ngdart");
-        assert_eq!(chave_builder_uso(":x", "p"), "p:x");
+        assert_eq!(builder_usage_key("ngdart", "p"), "ngdart:ngdart");
+        assert_eq!(builder_usage_key(":x", "p"), "p:x");
         assert_eq!(
-            chave_builder_uso("ngdart|placeholder_cleanup", "p"),
+            builder_usage_key("ngdart|placeholder_cleanup", "p"),
             "ngdart:placeholder_cleanup"
         );
         assert_eq!(target_definition_key("$default", "p"), "p:p");
@@ -993,48 +993,48 @@ post_process_builders:
       release_options:
         enabled: true
 "#;
-        let c = BuildConfig::de_texto("sass_builder", &["sass".into()], t, "test").unwrap();
+        let c = BuildConfig::from_text("sass_builder", &["sass".into()], t, "test").unwrap();
         let b = &c.builders[0];
-        assert_eq!(b.chave, "sass_builder:sass_builder");
+        assert_eq!(b.key, "sass_builder:sass_builder");
         assert_eq!(b.auto_apply, AutoApply::Dependents);
         assert_eq!(b.build_to, BuildTo::Cache);
         assert_eq!(
-            b.defaults.release_options.texto_canonico(),
+            b.defaults.release_options.canonical_text(),
             r#"{"outputStyle": "compressed", "sourceMaps": false}"#
         );
-        assert_eq!(c.pos[0].chave, "sass_builder:sass_source_cleanup");
-        assert_eq!(c.alvos[0].chave, "sass_builder:sass_builder");
-        assert_eq!(c.alvos[0].dependencias, vec!["sass:sass"]);
+        assert_eq!(c.pos[0].key, "sass_builder:sass_source_cleanup");
+        assert_eq!(c.targets[0].key, "sass_builder:sass_builder");
+        assert_eq!(c.targets[0].dependencies, vec!["sass:sass"]);
     }
 
     #[test]
     fn keys_by_profile() {
-        let old = Perfil::default();
-        let p12 = Perfil::das_versoes(Some("1.2.0"), Some("2.7.0"));
-        let p13 = Perfil::das_versoes(Some("1.3.3"), Some("2.16.1"));
+        let old = Profile::default();
+        let p12 = Profile::from_versions(Some("1.2.0"), Some("2.7.0"));
+        let p13 = Profile::from_versions(Some("1.3.3"), Some("2.16.1"));
         let trig = "triggers:\n  p:b: [annotation A]\n";
-        assert!(BuildConfig::de_texto_no_perfil("p", &[], trig, "t", old).is_err());
-        assert!(BuildConfig::de_texto_no_perfil("p", &[], trig, "t", p12).is_ok());
+        assert!(BuildConfig::from_text_with_profile("p", &[], trig, "t", old).is_err());
+        assert!(BuildConfig::from_text_with_profile("p", &[], trig, "t", p12).is_ok());
         // `e as Object`: a null value is an error.
         assert!(
-            BuildConfig::de_texto_no_perfil("p", &[], "triggers:\n  p:b:\n", "t", p12).is_err()
+            BuildConfig::from_text_with_profile("p", &[], "triggers:\n  p:b:\n", "t", p12).is_err()
         );
         let post = "post_process_builders:\n  x:\n    import: a.dart\n    builder_factory: f\n    build_to: source\n";
-        assert!(BuildConfig::de_texto_no_perfil("p", &[], post, "t", p12).is_err());
-        let c = BuildConfig::de_texto_no_perfil("p", &[], post, "t", p13).unwrap();
+        assert!(BuildConfig::from_text_with_profile("p", &[], post, "t", p12).is_err());
+        let c = BuildConfig::from_text_with_profile("p", &[], post, "t", p13).unwrap();
         assert_eq!(c.pos[0].build_to, BuildTo::Source);
         // A key from another package: accepted up to 1.3.1, an error in 1.3.2.
         let other = "builders:\n  q:x:\n    import: a.dart\n    builder_factories: [f]\n    build_extensions: {.a: [.b]}\n";
-        assert!(BuildConfig::de_texto_no_perfil("p", &[], other, "t", p12).is_ok());
-        assert!(BuildConfig::de_texto_no_perfil("p", &[], other, "t", p13).is_err());
+        assert!(BuildConfig::from_text_with_profile("p", &[], other, "t", p12).is_ok());
+        assert!(BuildConfig::from_text_with_profile("p", &[], other, "t", p13).is_err());
     }
 
     #[test]
     fn unknown_key_is_an_error() {
         assert!(
-            BuildConfig::de_texto("p", &[], "targets:\n  $default:\n    srcs: []\n", "t").is_err()
+            BuildConfig::from_text("p", &[], "targets:\n  $default:\n    srcs: []\n", "t").is_err()
         );
-        assert!(BuildConfig::de_texto("p", &[], "targets:\n  other: {}\n", "t").is_err());
-        assert!(BuildConfig::de_texto("p", &[], "", "t").is_ok());
+        assert!(BuildConfig::from_text("p", &[], "targets:\n  other: {}\n", "t").is_err());
+        assert!(BuildConfig::from_text("p", &[], "", "t").is_ok());
     }
 }

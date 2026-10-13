@@ -1,4 +1,4 @@
-//! The **native** builder executor (`crates/build/src/executor_nativo.rs`,
+//! The **native** builder executor (`crates/build/src/native_executor.rs`,
 //! B01) against the `build_runner` oracle (`corpus/builders/`): the bootstrap
 //! of `packages/build_executor` compiled by DartForge's own `compile-native`,
 //! with no VM, no `dart` and no `build_runner` support on disk. The yardstick
@@ -13,10 +13,10 @@
 //! which is deleted at the end of the case — they fit on disk one at a time.
 //! `DARTFORGE_CORPUS_BUILDERS` changes the corpus root; `DARTFORGE_CASOS`
 //! (comma-separated names) limits the cases.
-use dartforge_build::consulta::SemBanco;
-use dartforge_build::executor_nativo::{NativeConfig, NativeExecutor};
-use dartforge_build::grafo::AssetId;
-use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor, RelMotor};
+use dartforge_build::query::NoDb;
+use dartforge_build::native_executor::{NativeConfig, NativeExecutor};
+use dartforge_build::graph::AssetId;
+use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,13 +44,13 @@ fn references(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
     let m: serde_json::Value = serde_json::from_str(&text).expect("manifest JSON");
     let mut r = BTreeMap::new();
     for s in m["saidas"].as_array().into_iter().flatten() {
-        let id = AssetId::de_texto(s["asset"].as_str().expect("asset")).expect("package|path");
+        let id = AssetId::from_text(s["asset"].as_str().expect("asset")).expect("package|path");
         let file = match s["build_to"].as_str() {
-            Some("source") => dir.join("oraculo/source").join(id.caminho.as_ref()),
+            Some("source") => dir.join("oraculo/source").join(id.path.as_ref()),
             _ => dir
                 .join("oraculo/cache")
-                .join(id.pacote.as_ref())
-                .join(id.caminho.as_ref()),
+                .join(id.package.as_ref())
+                .join(id.path.as_ref()),
         };
         r.insert(id, std::fs::read(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display())));
     }
@@ -106,12 +106,12 @@ fn apply(step: &Path, copy: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn native_engine(dir: &Path) -> Motor {
+fn native_engine(dir: &Path) -> Engine {
     let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json"))
         .expect("package_config.json (dart pub get)");
-    let mut m = Motor::novo(dir, &cfg, OpcoesMotor::default()).expect("engine");
+    let mut m = Engine::new(dir, &cfg, EngineOptions::default()).expect("engine");
     let sdk = std::env::var_os("DARTFORGE_SDK_LIB").map(PathBuf::from);
-    m.definir_executor_dart(Box::new(NativeExecutor::new(NativeConfig::for_project(
+    m.set_dart_executor(Box::new(NativeExecutor::new(NativeConfig::for_project(
         compiler(),
         sdk,
         dir,
@@ -119,12 +119,12 @@ fn native_engine(dir: &Path) -> Motor {
     m
 }
 
-fn update(m: &mut Motor, changed: &[PathBuf]) -> (RelMotor, f64) {
+fn update(m: &mut Engine, changed: &[PathBuf]) -> (EngineReport, f64) {
     let t0 = Instant::now();
     let at = m
-        .atualizar(&Contexto { banco: &SemBanco, programa: None }, changed, Demanda::Tudo)
+        .update(&UpdateContext { db: &NoDb, program: None }, changed, Demand::Everything)
         .expect("update");
-    for a in &at.avisos {
+    for a in &at.warnings {
         println!("warning: {a}");
     }
     (at.rel, t0.elapsed().as_secs_f64() * 1000.0)
@@ -164,7 +164,7 @@ fn corpus_builders_through_the_native_executor() {
         let mut m = native_engine(&dir);
         let (_, clean) = update(&mut m, &[]);
         let (_, warm) = update(&mut m, &[]);
-        let p = m.placar(&references(&origin));
+        let p = m.scoreboard(&references(&origin));
         let reasons: Vec<String> = p
             .motivos()
             .into_iter()
@@ -173,8 +173,8 @@ fn corpus_builders_through_the_native_executor() {
         lines.push(format!(
             "| {name} | {} | {} | {} | {clean:.0} | {warm:.1} | {} |",
             p.iguais.len(),
-            p.pendentes.len(),
-            p.diferentes.len(),
+            p.pending.len(),
+            p.different.len(),
             reasons.join("; ")
         ));
         println!("{}", lines.last().unwrap());
@@ -186,11 +186,11 @@ fn corpus_builders_through_the_native_executor() {
                 println!("{name}: {n}× full reason:\n{k}");
             }
         }
-        for (id, reason) in &p.diferentes {
-            different.push(format!("{name}: {} ({reason})", id.texto()));
+        for (id, reason) in &p.different {
+            different.push(format!("{name}: {} ({reason})", id.text()));
         }
-        if !p.pendentes.is_empty() {
-            different.push(format!("{name}: {} pending ({})", p.pendentes.len(), reasons.join("; ")));
+        if !p.pending.is_empty() {
+            different.push(format!("{name}: {} pending ({})", p.pending.len(), reasons.join("; ")));
         }
         let mut steps: Vec<PathBuf> = std::fs::read_dir(origin.join("edicoes"))
             .map(|l| l.flatten().map(|e| e.path()).collect())
@@ -203,8 +203,8 @@ fn corpus_builders_through_the_native_executor() {
             let mut fresh = native_engine(&dir);
             update(&mut fresh, &[]);
             let step_name = step.file_name().unwrap().to_string_lossy().to_string();
-            println!("{name}/{step_name}: {ms:.0} ms, {} actions run", rel.acoes_executadas);
-            if m.estado_canonico() != fresh.estado_canonico() {
+            println!("{name}/{step_name}: {ms:.0} ms, {} actions run", rel.executed_actions);
+            if m.canonical_state() != fresh.canonical_state() {
                 different.push(format!("{name}: incremental ≠ from scratch after {step_name}"));
             }
         }

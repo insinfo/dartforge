@@ -7,8 +7,8 @@
 //!
 //! Requires `dart pub get` in `corpus/ngdart` (the `package_config.json`):
 //! hence `#[ignore]`, in the group that `ci.yml` satisfies.
-use dartforge_build::consulta::SemBanco;
-use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor};
+use dartforge_build::query::NoDb;
+use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions};
 use dartforge_elements::config::{PackageConfig, sem_verbatim};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
@@ -35,17 +35,17 @@ fn program(root: &Path) -> (dartforge_elements::model::Program, Interner) {
     (p, names)
 }
 
-fn engine(root: &Path, p: &dartforge_elements::model::Program, names: &Interner) -> Motor {
+fn engine(root: &Path, p: &dartforge_elements::model::Program, names: &Interner) -> Engine {
     let cfg = PackageConfig::load(&root.join(".dart_tool/package_config.json"))
         .expect("package_config.json (dart pub get)");
-    let mut m = Motor::novo(root, &cfg, OpcoesMotor::default()).expect("engine");
-    m.atualizar(
-        &Contexto {
-            banco: &SemBanco,
-            programa: Some((p, names)),
+    let mut m = Engine::new(root, &cfg, EngineOptions::default()).expect("engine");
+    m.update(
+        &UpdateContext {
+            db: &NoDb,
+            program: Some((p, names)),
         },
         &[],
-        Demanda::Tudo,
+        Demand::Everything,
     )
     .expect("update");
     m
@@ -57,7 +57,7 @@ fn ng_through_the_engine_equals_direct_generator_and_oracle() {
     let root = corpus();
     let (p, names) = program(&root);
     let m = engine(&root, &p, &names);
-    let g = m.geracao();
+    let g = m.generation();
 
     // Directly, through ng_generator's public API.
     let resolver = dartforge_ng_generator::resolucao::Resolvedor::novo(&p, &names);
@@ -69,7 +69,7 @@ fn ng_through_the_engine_equals_direct_generator_and_oracle() {
     };
     let (direct, _) =
         dartforge_ng_generator::gerar_com_apoio(&package, &mut i, None, Some(&resolver));
-    let expected: std::collections::HashSet<&PathBuf> = m.naturais.values().collect();
+    let expected: std::collections::HashSet<&PathBuf> = m.natural_paths_map.values().collect();
     let mut equal = 0;
     for (path, f) in direct.iter().filter(|(_, f)| f.gerador == "ngdart") {
         let k = dartforge_elements::gerado::chave(path);
@@ -199,22 +199,22 @@ fn ng_incremental_equals_from_scratch() {
         std::fs::write(&file, &current).unwrap();
         let (p, names) = program(&root);
         let result = live
-            .atualizar(
-                &Contexto {
-                    banco: &SemBanco,
-                    programa: Some((&p, &names)),
+            .update(
+                &UpdateContext {
+                    db: &NoDb,
+                    program: Some((&p, &names)),
                 },
                 &[file.clone()],
-                Demanda::Tudo,
+                Demand::Everything,
             )
             .expect("update");
         if file.extension().is_some_and(|e| e == "html" || e == "css") {
             assert_eq!(
-                result.rel.unidades_nativas, 1,
+                result.rel.native_unit_count, 1,
                 "editing a resource must regenerate only its component"
             );
             assert_eq!(
-                result.rel.consultas_gerador, 1,
+                result.rel.generator_queries, 1,
                 "only the digest of the changed resource must be recorded again"
             );
         }
@@ -225,19 +225,19 @@ fn ng_incremental_equals_from_scratch() {
             println!(
                 "{}: {} units regenerated",
                 file.display(),
-                result.rel.unidades_nativas
+                result.rel.native_unit_count
             );
             assert!(
-                (1..=20).contains(&result.rel.unidades_nativas),
+                (1..=20).contains(&result.rel.native_unit_count),
                 "{}: {} units regenerated",
                 file.display(),
-                result.rel.unidades_nativas
+                result.rel.native_unit_count
             );
         }
         let fresh = engine(&root, &p, &names);
         assert_eq!(
-            live.estado_canonico(),
-            fresh.estado_canonico(),
+            live.canonical_state(),
+            fresh.canonical_state(),
             "incremental ≠ from scratch after {}",
             file.display()
         );
@@ -273,23 +273,23 @@ fn ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero() {
         std::fs::write(file, &text).unwrap();
         let (p, names) = program(&root);
         let at = live
-            .atualizar(
-                &Contexto {
-                    banco: &SemBanco,
-                    programa: Some((&p, &names)),
+            .update(
+                &UpdateContext {
+                    db: &NoDb,
+                    program: Some((&p, &names)),
                 },
                 std::slice::from_ref(file),
-                Demanda::Tudo,
+                Demand::Everything,
             )
             .expect("update");
         total += 1;
-        if at.rel.unidades_nativas < 100 {
+        if at.rel.native_unit_count < 100 {
             selective += 1;
         }
         let fresh = engine(&root, &p, &names);
         assert_eq!(
-            live.estado_canonico(),
-            fresh.estado_canonico(),
+            live.canonical_state(),
+            fresh.canonical_state(),
             "incremental ≠ from scratch after {}",
             file.display()
         );
@@ -336,21 +336,21 @@ fn ng_dependency_through_the_engine_equals_oracle() {
     let fresh = |app: &Path, p: &dartforge_elements::model::Program, names: &Interner| {
         let cfg = PackageConfig::load(&app.join(".dart_tool/package_config.json"))
             .expect("package_config.json (dart pub get)");
-        let mut m = Motor::novo(app, &cfg, OpcoesMotor::default()).expect("engine");
-        m.atualizar(
-            &Contexto {
-                banco: &SemBanco,
-                programa: Some((p, names)),
+        let mut m = Engine::new(app, &cfg, EngineOptions::default()).expect("engine");
+        m.update(
+            &UpdateContext {
+                db: &NoDb,
+                program: Some((p, names)),
             },
             &[],
-            Demanda::Tudo,
+            Demand::Everything,
         )
         .expect("update");
         m
     };
     let (p, names) = program(&app);
     let mut live = fresh(&app, &p, &names);
-    let g = live.geracao();
+    let g = live.generation();
     let mut checked = 0;
     for (package, root) in [("app_ng", &app), ("dep_ng", &dep)] {
         let dir = origin.join("oraculo").join(package);
@@ -407,19 +407,19 @@ fn ng_dependency_through_the_engine_equals_oracle() {
         assert!(current.contains(snippet), "{}: snippet missing", file.display());
         std::fs::write(&file, current.replacen(snippet, text, 1)).unwrap();
         let (p, names) = program(&app);
-        live.atualizar(
-            &Contexto {
-                banco: &SemBanco,
-                programa: Some((&p, &names)),
+        live.update(
+            &UpdateContext {
+                db: &NoDb,
+                program: Some((&p, &names)),
             },
             &[file.clone()],
-            Demanda::Tudo,
+            Demand::Everything,
         )
         .expect("update");
         let zero = fresh(&app, &p, &names);
         assert_eq!(
-            live.estado_canonico(),
-            zero.estado_canonico(),
+            live.canonical_state(),
+            zero.canonical_state(),
             "incremental ≠ from scratch after {}",
             file.display()
         );

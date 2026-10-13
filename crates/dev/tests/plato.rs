@@ -12,7 +12,7 @@
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-use dartforge_dev::Sessao;
+use dartforge_dev::Session;
 use std::path::{Path, PathBuf};
 
 /// Simulated SDK: `dart:core` with the minimum to type the test project.
@@ -93,26 +93,26 @@ fn successive_edits_settle_on_a_plateau() {
     let (main, support) = project(tmp.path());
     let output = tmp.path().join("js");
 
-    let mut session = Sessao::nova(&main, Some(&sdk), None, &output).expect("session");
-    session.compilar().expect("first compilation");
+    let mut session = Session::new(&main, Some(&sdk), None, &output).expect("session");
+    session.compile().expect("first compilation");
 
     // Warm-up: the first edits still intern new names and grow the arenas;
     // the plateau is measured once the shape of the project repeats.
     for i in 0..4 {
         edit(&support, &main, i);
-        session.arquivo_mudou(&support);
-        session.arquivo_mudou(&main);
-        session.compilar().expect("warm-up compilation");
+        session.file_changed(&support);
+        session.file_changed(&main);
+        session.compile().expect("warm-up compilation");
     }
 
     let base = dartforge_instrument::live_bytes();
     let mut largest = base;
     for i in 4..24 {
         edit(&support, &main, i);
-        session.arquivo_mudou(&support);
-        session.arquivo_mudou(&main);
-        let r = session.compilar().expect("compilation of the edit");
-        assert!(r.modulos >= 2, "the project has at least two modules");
+        session.file_changed(&support);
+        session.file_changed(&main);
+        let r = session.compile().expect("compilation of the edit");
+        assert!(r.modules >= 2, "the project has at least two modules");
         largest = largest.max(dartforge_instrument::live_bytes());
     }
     let end = dartforge_instrument::live_bytes();

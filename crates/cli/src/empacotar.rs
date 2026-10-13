@@ -75,8 +75,8 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         }
         Sistema::Windows => {
             use dartforge_emit_native::ligador_windows as lw;
-            let generator = dartforge_emit_native::gerador::Generator::escolher(&clang);
-            lw::gerar(&lib.join("sysroot").join(lw::TRIPLE), &lw::CompiladorDaCrt::Generator(&generator))?;
+            let generator = dartforge_emit_native::gerador::Gerador::escolher(&clang);
+            lw::gerar(&lib.join("sysroot").join(lw::TRIPLE), &lw::CompiladorDaCrt::Gerador(&generator))?;
         }
         Sistema::MacOs => {
             use dartforge_emit_native::ligador_macos as lm;

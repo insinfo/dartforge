@@ -1,17 +1,17 @@
 //! Client of the `build.*` service of `dfexec/1`. The channel and the framing
 //! are the same ones used by macros; the real executor can serve both.
 use crate::executor::{
-    Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, Nivel, PedidoAcao,
-    PedidoExtensoes, ResultadoAcao, ScriptDeBuilders, ServicoBuildStep,
+    Availability, ExecutorError, DartExecutor, RuntimeExtensions, Level, ActionRequest,
+    ExtensionsRequest, ActionResult, BuilderScript, BuildStepService,
 };
-use crate::grafo::AssetId;
-use crate::valor::{Mapa, Valor};
+use crate::graph::AssetId;
+use crate::value::{Map, Value};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use dartforge_dfexec::{Canal, CanalDeProcesso, PROTOCOLO};
-use serde_json::{Value, json};
+use serde_json::{Value as JsonValue, json};
 use std::sync::Arc;
 
-pub struct ClienteBuild<C: Canal> {
+pub struct BuildClient<C: Canal> {
     channel: C,
     next_id: u64,
     started: bool,
@@ -19,16 +19,16 @@ pub struct ClienteBuild<C: Canal> {
     prepare_failure: Option<String>,
 }
 
-impl ClienteBuild<CanalDeProcesso> {
+impl BuildClient<CanalDeProcesso> {
     /// Starts a compatible process. The handshake and the loading are left
     /// for the first Dart action; the engine should build this client on
     /// demand so that the process is kept warm only when needed.
     ///
     /// Each response from the process has the deadline of
-    /// [`prazo_do_executor`]: a hung builder becomes a failure of the action
-    /// (`Origem::Falha`), not a stuck `dartforge build`.
-    pub fn iniciar(command: std::process::Command) -> Result<Self, String> {
-        CanalDeProcesso::iniciar(command).map(|c| Self::novo(c.com_prazo(prazo_do_executor())))
+    /// [`executor_timeout`]: a hung builder becomes a failure of the action
+    /// (`Origin::Failure`), not a stuck `dartforge build`.
+    pub fn start(command: std::process::Command) -> Result<Self, String> {
+        CanalDeProcesso::iniciar(command).map(|c| Self::new(c.com_prazo(executor_timeout())))
     }
 }
 
@@ -37,7 +37,7 @@ impl ClienteBuild<CanalDeProcesso> {
 /// seconds (`0` disables it), 600 s by default — slack for the SDK summary and
 /// the resolution of the first builder on a loaded machine; the `build.*`
 /// queries in the middle of an action restart the count.
-pub fn prazo_do_executor() -> Option<std::time::Duration> {
+pub fn executor_timeout() -> Option<std::time::Duration> {
     let s = match std::env::var("DARTFORGE_BUILD_PRAZO") {
         Ok(v) => v.trim().parse::<f64>().ok().filter(|s| s.is_finite() && *s >= 0.0).unwrap_or(600.0),
         Err(_) => 600.0,
@@ -45,8 +45,8 @@ pub fn prazo_do_executor() -> Option<std::time::Duration> {
     (s > 0.0).then(|| std::time::Duration::from_secs_f64(s))
 }
 
-impl<C: Canal> ClienteBuild<C> {
-    pub fn novo(channel: C) -> Self {
+impl<C: Canal> BuildClient<C> {
+    pub fn new(channel: C) -> Self {
         Self {
             channel,
             next_id: 1,
@@ -56,7 +56,7 @@ impl<C: Canal> ClienteBuild<C> {
         }
     }
 
-    pub fn canal(&self) -> &C {
+    pub fn channel(&self) -> &C {
         &self.channel
     }
 
@@ -70,11 +70,11 @@ impl<C: Canal> ClienteBuild<C> {
         &mut self,
         id: u64,
         expected: &str,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<Value, ErroExecutor> {
+        service: &mut dyn BuildStepService,
+    ) -> Result<JsonValue, ExecutorError> {
         loop {
-            let message = self.channel.receber().map_err(ErroExecutor)?;
-            let kind = message.get("t").and_then(Value::as_str).unwrap_or("");
+            let message = self.channel.receber().map_err(ExecutorError)?;
+            let kind = message.get("t").and_then(JsonValue::as_str).unwrap_or("");
             if matches!(
                 kind,
                 "build.ler"
@@ -90,31 +90,31 @@ impl<C: Canal> ClienteBuild<C> {
                     Ok(response) => response,
                     Err(error) => {
                         let request =
-                            message.get("id").and_then(Value::as_u64).ok_or_else(|| {
-                                ErroExecutor(format!("build query without id: {message}"))
+                            message.get("id").and_then(JsonValue::as_u64).ok_or_else(|| {
+                                ExecutorError(format!("build query without id: {message}"))
                             })?;
                         json!({"t":"build.resposta","id":request,"erro":error.0})
                     }
                 };
-                self.channel.enviar(&response).map_err(ErroExecutor)?;
+                self.channel.enviar(&response).map_err(ExecutorError)?;
                 continue;
             }
-            if message.get("id").and_then(Value::as_u64) != Some(id) {
-                return Err(ErroExecutor(format!(
+            if message.get("id").and_then(JsonValue::as_u64) != Some(id) {
+                return Err(ExecutorError(format!(
                     "out-of-order response from the executor: {message}"
                 )));
             }
             if kind == "erro" {
-                return Err(ErroExecutor(
+                return Err(ExecutorError(
                     message
                         .get("mensagem")
-                        .and_then(Value::as_str)
+                        .and_then(JsonValue::as_str)
                         .unwrap_or("error without a message")
                         .into(),
                 ));
             }
             if kind != expected {
-                return Err(ErroExecutor(format!(
+                return Err(ExecutorError(format!(
                     "expected {expected}, got {message}"
                 )));
             }
@@ -122,23 +122,23 @@ impl<C: Canal> ClienteBuild<C> {
         }
     }
 
-    fn serve(&self, m: &Value, s: &mut dyn ServicoBuildStep) -> Result<Value, ErroExecutor> {
-        let kind = m.get("t").and_then(Value::as_str).unwrap_or("");
+    fn serve(&self, m: &JsonValue, s: &mut dyn BuildStepService) -> Result<JsonValue, ExecutorError> {
+        let kind = m.get("t").and_then(JsonValue::as_str).unwrap_or("");
         let id = m
             .get("id")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| ErroExecutor("build query without id".into()))?;
+            .and_then(JsonValue::as_u64)
+            .ok_or_else(|| ExecutorError("build query without id".into()))?;
         let asset = || {
             m.get("asset")
-                .and_then(Value::as_str)
-                .and_then(AssetId::de_texto)
-                .ok_or_else(|| ErroExecutor(format!("{kind}: invalid AssetId")))
+                .and_then(JsonValue::as_str)
+                .and_then(AssetId::from_text)
+                .ok_or_else(|| ExecutorError(format!("{kind}: invalid AssetId")))
         };
         let mut response = json!({"t":"build.resposta","id":id});
         match kind {
             "build.ler" => {
                 let asset = asset()?;
-                match s.ler(&asset) {
+                match s.read(&asset) {
                     Some(bytes) => response["bytes_base64"] = json!(STANDARD.encode(bytes)),
                     None => response["erro"] = json!("AssetNotFound"),
                 }
@@ -147,12 +147,12 @@ impl<C: Canal> ClienteBuild<C> {
             "build.glob" => {
                 let pattern = m
                     .get("padrao")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| ErroExecutor("glob without a pattern".into()))?;
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| ExecutorError("glob without a pattern".into()))?;
                 response["assets"] = json!(
                     s.find_assets(pattern)
                         .into_iter()
-                        .map(|a| a.texto())
+                        .map(|a| a.text())
                         .collect::<Vec<_>>()
                 );
             }
@@ -160,95 +160,95 @@ impl<C: Canal> ClienteBuild<C> {
                 response["hex"] = s
                     .digest(&asset()?)
                     .map(|d| d.iter().map(|b| format!("{b:02x}")).collect::<String>())
-                    .map_or(Value::Null, Value::String);
+                    .map_or(JsonValue::Null, JsonValue::String);
             }
             "build.escrever" => {
                 let asset = asset()?;
                 let bytes = m
                     .get("bytes_base64")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| ErroExecutor("write without bytes".into()))?;
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| ExecutorError("write without bytes".into()))?;
                 let bytes: Arc<[u8]> = STANDARD
                     .decode(bytes)
-                    .map_err(|e| ErroExecutor(format!("invalid base64: {e}")))?
+                    .map_err(|e| ExecutorError(format!("invalid base64: {e}")))?
                     .into();
-                if s.escrever(&asset, bytes).is_err() {
+                if s.write(&asset, bytes).is_err() {
                     response["erro"] = json!("SaidaNaoPermitida");
                 }
             }
             "build.log" => {
-                let level = match m.get("nivel").and_then(Value::as_str).unwrap_or("info") {
-                    "fino" => Nivel::Fino,
-                    "aviso" => Nivel::Aviso,
-                    "severo" => Nivel::Severo,
-                    _ => Nivel::Info,
+                let level = match m.get("nivel").and_then(JsonValue::as_str).unwrap_or("info") {
+                    "fino" => Level::Fine,
+                    "aviso" => Level::Warning,
+                    "severo" => Level::Severe,
+                    _ => Level::Info,
                 };
                 s.log(
                     level,
-                    m.get("mensagem").and_then(Value::as_str).unwrap_or(""),
+                    m.get("mensagem").and_then(JsonValue::as_str).unwrap_or(""),
                 );
             }
             "build.resolver" => response["erro"] = json!("indisponivel"),
             t if t.starts_with("build.resolver.") => response["erro"] = json!("indisponivel"),
-            _ => return Err(ErroExecutor(format!("unknown query: {kind}"))),
+            _ => return Err(ExecutorError(format!("unknown query: {kind}"))),
         }
         Ok(response)
     }
 
     /// `build.executar` and `build.posprocessar`: the same request and the
-    /// same `build.resultado` response; the post-processor adds `apagados`.
+    /// same `build.resultado` response; the post-processor adds `deleted_outputs`.
     fn action(
         &mut self,
         kind: &str,
-        p: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+        p: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
         if !self.loaded {
-            return Err(ErroExecutor(format!("{kind} before build.carregar")));
+            return Err(ExecutorError(format!("{kind} before build.carregar")));
         }
         let id = self.id();
-        self.channel.enviar(&json!({"t":kind,"id":id,"fase":p.fase,"chave":p.chave,
-            "fabrica":p.fabrica,"opcoes":map_json(&p.opcoes),"isRoot":p.raiz,"entrada":p.entrada.texto(),
-            "saidas_permitidas":p.saidas_permitidas.iter().map(AssetId::texto).collect::<Vec<_>>()
-        })).map_err(ErroExecutor)?;
+        self.channel.enviar(&json!({"t":kind,"id":id,"fase":p.phase,"chave":p.key,
+            "fabrica":p.fabrica,"opcoes":map_json(&p.options),"isRoot":p.root,"entrada":p.entrada.text(),
+            "saidas_permitidas":p.allowed_outputs.iter().map(AssetId::text).collect::<Vec<_>>()
+        })).map_err(ExecutorError)?;
         let response = self.receive(id, "build.resultado", service)?;
         let mut outputs = Vec::new();
         let list = response
             .get("saidas")
-            .and_then(Value::as_array)
-            .ok_or_else(|| ErroExecutor("build.resultado without a list of outputs".into()))?;
+            .and_then(JsonValue::as_array)
+            .ok_or_else(|| ExecutorError("build.resultado without a list of outputs".into()))?;
         for output in list {
             let asset = output
                 .get("asset")
-                .and_then(Value::as_str)
-                .and_then(AssetId::de_texto)
-                .ok_or_else(|| ErroExecutor("result with an invalid AssetId".into()))?;
+                .and_then(JsonValue::as_str)
+                .and_then(AssetId::from_text)
+                .ok_or_else(|| ExecutorError("result with an invalid AssetId".into()))?;
             let bytes = output
                 .get("bytes_base64")
-                .and_then(Value::as_str)
-                .ok_or_else(|| ErroExecutor("result without bytes".into()))?;
+                .and_then(JsonValue::as_str)
+                .ok_or_else(|| ExecutorError("result without bytes".into()))?;
             outputs.push((
                 asset,
                 Arc::from(
                     STANDARD
                         .decode(bytes)
-                        .map_err(|e| ErroExecutor(e.to_string()))?,
+                        .map_err(|e| ExecutorError(e.to_string()))?,
                 ),
             ));
         }
         let logs = response
             .get("logs")
-            .and_then(Value::as_array)
+            .and_then(JsonValue::as_array)
             .into_iter()
             .flatten()
             .map(|log| {
                 (
                     log.get("nivel")
-                        .and_then(Value::as_str)
+                        .and_then(JsonValue::as_str)
                         .unwrap_or("info")
                         .to_string(),
                     log.get("mensagem")
-                        .and_then(Value::as_str)
+                        .and_then(JsonValue::as_str)
                         .unwrap_or("")
                         .to_string(),
                 )
@@ -256,38 +256,38 @@ impl<C: Canal> ClienteBuild<C> {
             .collect();
         let failed = response
             .get("falhou")
-            .and_then(Value::as_bool)
-            .ok_or_else(|| ErroExecutor("build.resultado without the falhou flag".into()))?;
+            .and_then(JsonValue::as_bool)
+            .ok_or_else(|| ExecutorError("build.resultado without the falhou flag".into()))?;
         let mut deleted = Vec::new();
         for a in response
             .get("apagados")
-            .and_then(Value::as_array)
+            .and_then(JsonValue::as_array)
             .into_iter()
             .flatten()
         {
             deleted.push(
                 a.as_str()
-                    .and_then(AssetId::de_texto)
-                    .ok_or_else(|| ErroExecutor("result with an invalid deleted AssetId".into()))?,
+                    .and_then(AssetId::from_text)
+                    .ok_or_else(|| ExecutorError("result with an invalid deleted AssetId".into()))?,
             );
         }
-        Ok(ResultadoAcao {
-            saidas: outputs,
+        Ok(ActionResult {
+            outputs: outputs,
             logs,
             falhou: failed,
-            apagados: deleted,
+            deleted_outputs: deleted,
         })
     }
 
-    fn handshake(&mut self) -> Result<(), ErroExecutor> {
-        self.channel.enviar(&json!({"t":"ola","protocolo":PROTOCOLO,"servicos":["build"],"motor":crate::VERSAO})).map_err(ErroExecutor)?;
-        let response = self.channel.receber().map_err(ErroExecutor)?;
-        let services = response.get("servicos").and_then(Value::as_array);
-        if response.get("t").and_then(Value::as_str) != Some("ola")
-            || response.get("protocolo").and_then(Value::as_str) != Some(PROTOCOLO)
+    fn handshake(&mut self) -> Result<(), ExecutorError> {
+        self.channel.enviar(&json!({"t":"ola","protocolo":PROTOCOLO,"servicos":["build"],"motor":crate::VERSION})).map_err(ExecutorError)?;
+        let response = self.channel.receber().map_err(ExecutorError)?;
+        let services = response.get("servicos").and_then(JsonValue::as_array);
+        if response.get("t").and_then(JsonValue::as_str) != Some("ola")
+            || response.get("protocolo").and_then(JsonValue::as_str) != Some(PROTOCOLO)
             || !services.is_some_and(|s| s.iter().any(|v| v.as_str() == Some("build")))
         {
-            return Err(ErroExecutor(format!(
+            return Err(ExecutorError(format!(
                 "incompatible build handshake: {response}"
             )));
         }
@@ -297,11 +297,11 @@ impl<C: Canal> ClienteBuild<C> {
 }
 
 struct NoService;
-impl ServicoBuildStep for NoService {
+impl BuildStepService for NoService {
     fn can_read(&mut self, _: &AssetId) -> bool {
         false
     }
-    fn ler(&mut self, _: &AssetId) -> Option<Arc<[u8]>> {
+    fn read(&mut self, _: &AssetId) -> Option<Arc<[u8]>> {
         None
     }
     fn find_assets(&mut self, _: &str) -> Vec<AssetId> {
@@ -310,40 +310,40 @@ impl ServicoBuildStep for NoService {
     fn digest(&mut self, _: &AssetId) -> Option<[u8; 32]> {
         None
     }
-    fn escrever(
+    fn write(
         &mut self,
         id: &AssetId,
         _: Arc<[u8]>,
-    ) -> Result<(), crate::executor::SaidaNaoPermitida> {
-        Err(crate::executor::SaidaNaoPermitida(id.clone()))
+    ) -> Result<(), crate::executor::DisallowedOutput> {
+        Err(crate::executor::DisallowedOutput(id.clone()))
     }
-    fn resolver(&mut self) -> Option<&mut dyn crate::executor::ServicoResolver> {
+    fn resolver(&mut self) -> Option<&mut dyn crate::executor::ResolverService> {
         None
     }
-    fn log(&mut self, _: Nivel, _: &str) {}
+    fn log(&mut self, _: Level, _: &str) {}
 }
 
-impl<C: Canal> ExecutorDart for ClienteBuild<C> {
-    fn disponibilidade(&self) -> Disponibilidade {
+impl<C: Canal> DartExecutor for BuildClient<C> {
+    fn availability(&self) -> Availability {
         self.prepare_failure
             .as_ref()
-            .map_or(Disponibilidade::Disponivel, |e| {
-                Disponibilidade::Indisponivel(e.clone())
+            .map_or(Availability::Available, |e| {
+                Availability::Unavailable(e.clone())
             })
     }
 
-    fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
+    fn prepare(&mut self, script: &BuilderScript) -> Result<(), ExecutorError> {
         if let Some(error) = &self.prepare_failure {
-            return Err(ErroExecutor(error.clone()));
+            return Err(ExecutorError(error.clone()));
         }
-        let result: Result<(), ErroExecutor> = (|| {
+        let result: Result<(), ExecutorError> = (|| {
             if !self.started {
                 self.handshake()?;
             }
             let id = self.id();
-            let applications: Vec<_> = script.aplicacoes.iter().map(|(key, import, factories)|
+            let applications: Vec<_> = script.applications.iter().map(|(key, import, factories)|
                 json!({"chave":key,"import":import,"fabricas":factories})).collect();
-            self.channel.enviar(&json!({"t":"build.carregar","id":id,"script":{"aplicacoes":applications,"chave_de_cache":script.chave_de_cache}})).map_err(ErroExecutor)?;
+            self.channel.enviar(&json!({"t":"build.carregar","id":id,"script":{"aplicacoes":applications,"chave_de_cache":script.cache_key}})).map_err(ExecutorError)?;
             self.receive(id, "build.carregado", &mut NoService)?;
             self.loaded = true;
             Ok(())
@@ -354,7 +354,7 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         result
     }
 
-    fn nova_rodada(&mut self) {
+    fn new_round(&mut self) {
         if self.loaded {
             // Notification without a response: the executor resets its
             // per-build state before the next action, which comes through the
@@ -366,34 +366,34 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         }
     }
 
-    fn extensoes(
+    fn extensions(
         &mut self,
-        p: &PedidoExtensoes,
-    ) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
+        p: &ExtensionsRequest,
+    ) -> Result<Option<RuntimeExtensions>, ExecutorError> {
         if !self.loaded {
-            return Err(ErroExecutor(
+            return Err(ExecutorError(
                 "build.extensoes before build.carregar".into(),
             ));
         }
         let id = self.id();
         self.channel
             .enviar(
-                &json!({"t":"build.extensoes","id":id,"chave":p.chave,"fabrica":p.fabrica,
-            "opcoes":map_json(&p.opcoes),"isRoot":p.raiz}),
+                &json!({"t":"build.extensoes","id":id,"chave":p.key,"fabrica":p.fabrica,
+            "opcoes":map_json(&p.options),"isRoot":p.root}),
             )
-            .map_err(ErroExecutor)?;
+            .map_err(ExecutorError)?;
         let response = self.receive(id, "build.extensoes", &mut NoService)?;
-        let invalid = || ErroExecutor(format!("invalid build.extensoes: {response}"));
+        let invalid = || ExecutorError(format!("invalid build.extensoes: {response}"));
         let pairs = response
             .get("extensoes")
-            .and_then(Value::as_array)
+            .and_then(JsonValue::as_array)
             .ok_or_else(invalid)?;
         let mut v = Vec::with_capacity(pairs.len());
         for pair in pairs {
-            let input = pair.get(0).and_then(Value::as_str).ok_or_else(invalid)?;
+            let input = pair.get(0).and_then(JsonValue::as_str).ok_or_else(invalid)?;
             let outputs = pair
                 .get(1)
-                .and_then(Value::as_array)
+                .and_then(JsonValue::as_array)
                 .ok_or_else(invalid)?
                 .iter()
                 .map(|s| s.as_str().map(str::to_string))
@@ -404,32 +404,32 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         Ok(Some(v))
     }
 
-    fn executar(
+    fn execute(
         &mut self,
-        p: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+        p: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
         self.action("build.executar", p, service)
     }
 
-    fn entradas_pos(&mut self, p: &PedidoExtensoes) -> Result<Option<Vec<String>>, ErroExecutor> {
+    fn post_inputs(&mut self, p: &ExtensionsRequest) -> Result<Option<Vec<String>>, ExecutorError> {
         if !self.loaded {
-            return Err(ErroExecutor(
+            return Err(ExecutorError(
                 "build.entradas_pos before build.carregar".into(),
             ));
         }
         let id = self.id();
         self.channel
             .enviar(
-                &json!({"t":"build.entradas_pos","id":id,"chave":p.chave,"fabrica":p.fabrica,
-            "opcoes":map_json(&p.opcoes),"isRoot":p.raiz}),
+                &json!({"t":"build.entradas_pos","id":id,"chave":p.key,"fabrica":p.fabrica,
+            "opcoes":map_json(&p.options),"isRoot":p.root}),
             )
-            .map_err(ErroExecutor)?;
+            .map_err(ExecutorError)?;
         let response = self.receive(id, "build.entradas_pos", &mut NoService)?;
-        let invalid = || ErroExecutor(format!("invalid build.entradas_pos: {response}"));
+        let invalid = || ExecutorError(format!("invalid build.entradas_pos: {response}"));
         let v = response
             .get("entradas")
-            .and_then(Value::as_array)
+            .and_then(JsonValue::as_array)
             .ok_or_else(invalid)?
             .iter()
             .map(|s| s.as_str().map(str::to_string))
@@ -438,15 +438,15 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         Ok(Some(v))
     }
 
-    fn pos_processar(
+    fn post_process_step(
         &mut self,
-        p: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+        p: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
         self.action("build.posprocessar", p, service)
     }
 
-    fn encerrar(&mut self) {
+    fn shutdown(&mut self) {
         if self.started {
             let _ = self.channel.enviar(&json!({"t":"fim"}));
             let _ = self.channel.receber();
@@ -457,21 +457,21 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
     }
 }
 
-fn map_json(map: &Mapa) -> Value {
-    value_json(&Valor::Mapa(map.clone()))
+fn map_json(map: &Map) -> JsonValue {
+    value_json(&Value::Map(map.clone()))
 }
 
-fn value_json(value: &Valor) -> Value {
+fn value_json(value: &Value) -> JsonValue {
     match value {
-        Valor::Nulo => Value::Null,
-        Valor::Bool(v) => json!(v),
-        Valor::Int(v) => json!(v),
-        Valor::Real(v) => serde_json::from_str(v).unwrap_or_else(|_| json!(v)),
-        Valor::Texto(v) => json!(v),
-        Valor::Lista(v) => Value::Array(v.iter().map(value_json).collect()),
-        Valor::Mapa(v) => Value::Object(
+        Value::Null => JsonValue::Null,
+        Value::Bool(v) => json!(v),
+        Value::Int(v) => json!(v),
+        Value::Real(v) => serde_json::from_str(v).unwrap_or_else(|_| json!(v)),
+        Value::Text(v) => json!(v),
+        Value::List(v) => JsonValue::Array(v.iter().map(value_json).collect()),
+        Value::Map(v) => JsonValue::Object(
             v.0.iter()
-                .filter_map(|(k, v)| k.como_texto().map(|k| (k.to_string(), value_json(v))))
+                .filter_map(|(k, v)| k.as_text().map(|k| (k.to_string(), value_json(v))))
                 .collect(),
         ),
     }
@@ -485,15 +485,15 @@ mod tests {
     use std::sync::Mutex;
 
     struct FakeChannel {
-        received: VecDeque<Value>,
-        sent: Arc<Mutex<Vec<Value>>>,
+        received: VecDeque<JsonValue>,
+        sent: Arc<Mutex<Vec<JsonValue>>>,
     }
     impl Canal for FakeChannel {
-        fn enviar(&mut self, m: &Value) -> Result<(), String> {
+        fn enviar(&mut self, m: &JsonValue) -> Result<(), String> {
             self.sent.lock().unwrap().push(m.clone());
             Ok(())
         }
-        fn receber(&mut self) -> Result<Value, String> {
+        fn receber(&mut self) -> Result<JsonValue, String> {
             self.received
                 .pop_front()
                 .ok_or_else(|| "fake executor finished".into())
@@ -503,34 +503,34 @@ mod tests {
     struct FakeService {
         writes: Vec<(AssetId, Arc<[u8]>)>,
     }
-    impl ServicoBuildStep for FakeService {
+    impl BuildStepService for FakeService {
         fn can_read(&mut self, id: &AssetId) -> bool {
-            id.texto() == "p|lib/a.dart"
+            id.text() == "p|lib/a.dart"
         }
-        fn ler(&mut self, id: &AssetId) -> Option<Arc<[u8]>> {
+        fn read(&mut self, id: &AssetId) -> Option<Arc<[u8]>> {
             self.can_read(id).then(|| Arc::from(&b"source"[..]))
         }
         fn find_assets(&mut self, _: &str) -> Vec<AssetId> {
-            vec![AssetId::novo("p", "lib/a.dart")]
+            vec![AssetId::new("p", "lib/a.dart")]
         }
         fn digest(&mut self, _: &AssetId) -> Option<[u8; 32]> {
             None
         }
-        fn escrever(
+        fn write(
             &mut self,
             id: &AssetId,
             bytes: Arc<[u8]>,
-        ) -> Result<(), crate::executor::SaidaNaoPermitida> {
-            if id.texto() != "p|lib/a.g.dart" {
-                return Err(crate::executor::SaidaNaoPermitida(id.clone()));
+        ) -> Result<(), crate::executor::DisallowedOutput> {
+            if id.text() != "p|lib/a.g.dart" {
+                return Err(crate::executor::DisallowedOutput(id.clone()));
             }
             self.writes.push((id.clone(), bytes));
             Ok(())
         }
-        fn resolver(&mut self) -> Option<&mut dyn crate::executor::ServicoResolver> {
+        fn resolver(&mut self) -> Option<&mut dyn crate::executor::ResolverService> {
             None
         }
-        fn log(&mut self, _: Nivel, _: &str) {}
+        fn log(&mut self, _: Level, _: &str) {}
     }
 
     #[test]
@@ -544,29 +544,29 @@ mod tests {
             json!({"t":"build.escrever","id":11,"asset":"p|lib/other.dart","bytes_base64":STANDARD.encode(b"improper")}),
             json!({"t":"build.resultado","id":2,"saidas":[],"falhou":false}),
         ].into();
-        let mut client = ClienteBuild::novo(FakeChannel {
+        let mut client = BuildClient::new(FakeChannel {
             received,
             sent: sent.clone(),
         });
         client
-            .preparar(&ScriptDeBuilders {
-                aplicacoes: vec![("p:b".into(), "package:p/b.dart".into(), vec!["b".into()])],
-                chave_de_cache: "digest".into(),
+            .prepare(&BuilderScript {
+                applications: vec![("p:b".into(), "package:p/b.dart".into(), vec!["b".into()])],
+                cache_key: "digest".into(),
             })
             .unwrap();
         let mut service = FakeService {
             writes: Vec::new(),
         };
-        let request = PedidoAcao {
-            fase: 0,
-            chave: "p:b".into(),
+        let request = ActionRequest {
+            phase: 0,
+            key: "p:b".into(),
             fabrica: "b".into(),
-            opcoes: Mapa::default(),
-            raiz: true,
-            entrada: AssetId::novo("p", "lib/a.dart"),
-            saidas_permitidas: vec![AssetId::novo("p", "lib/a.g.dart")],
+            options: Map::default(),
+            root: true,
+            entrada: AssetId::new("p", "lib/a.dart"),
+            allowed_outputs: vec![AssetId::new("p", "lib/a.g.dart")],
         };
-        let result = client.executar(&request, &mut service).unwrap();
+        let result = client.execute(&request, &mut service).unwrap();
         assert!(!result.falhou);
         assert_eq!(service.writes[0].1.as_ref(), b"generated");
         let sent = sent.lock().unwrap();
@@ -589,27 +589,27 @@ mod tests {
             ].into(),
             sent: sent.clone(),
         };
-        let mut client = ClienteBuild::novo(channel);
-        let request = PedidoExtensoes {
-            chave: "p:b".into(),
+        let mut client = BuildClient::new(channel);
+        let request = ExtensionsRequest {
+            key: "p:b".into(),
             fabrica: "b".into(),
-            opcoes: Mapa::default(),
-            raiz: true,
+            options: Map::default(),
+            root: true,
         };
         assert!(
-            client.extensoes(&request).is_err(),
+            client.extensions(&request).is_err(),
             "extensions before loading"
         );
         client
-            .preparar(&ScriptDeBuilders {
-                aplicacoes: vec![],
-                chave_de_cache: "x".into(),
+            .prepare(&BuilderScript {
+                applications: vec![],
+                cache_key: "x".into(),
             })
             .unwrap();
-        client.nova_rodada();
+        client.new_round();
         // The order of the `buildExtensions` map is preserved (the first match wins).
         assert_eq!(
-            client.extensoes(&request).unwrap(),
+            client.extensions(&request).unwrap(),
             Some(vec![
                 (".b".to_string(), vec![".c".to_string(), ".d".to_string()]),
                 (".a".to_string(), vec![".e".to_string()]),
@@ -634,37 +634,37 @@ mod tests {
             ].into(),
             sent: sent.clone(),
         };
-        let mut client = ClienteBuild::novo(channel);
+        let mut client = BuildClient::new(channel);
         client
-            .preparar(&ScriptDeBuilders {
-                aplicacoes: vec![],
-                chave_de_cache: "x".into(),
+            .prepare(&BuilderScript {
+                applications: vec![],
+                cache_key: "x".into(),
             })
             .unwrap();
-        let ext_request = PedidoExtensoes {
-            chave: "p:cleanup".into(),
+        let ext_request = ExtensionsRequest {
+            key: "p:cleanup".into(),
             fabrica: "cleanup".into(),
-            opcoes: Mapa::default(),
-            raiz: true,
+            options: Map::default(),
+            root: true,
         };
         assert_eq!(
-            client.entradas_pos(&ext_request).unwrap(),
+            client.post_inputs(&ext_request).unwrap(),
             Some(vec![".draft".to_string()])
         );
-        let request = PedidoAcao {
-            fase: 1,
-            chave: "p:cleanup".into(),
+        let request = ActionRequest {
+            phase: 1,
+            key: "p:cleanup".into(),
             fabrica: "cleanup".into(),
-            opcoes: Mapa::default(),
-            raiz: true,
-            entrada: AssetId::novo("p", "lib/a.dart"),
-            saidas_permitidas: Vec::new(),
+            options: Map::default(),
+            root: true,
+            entrada: AssetId::new("p", "lib/a.dart"),
+            allowed_outputs: Vec::new(),
         };
         let mut service = FakeService {
             writes: Vec::new(),
         };
-        let r = client.pos_processar(&request, &mut service).unwrap();
-        assert_eq!(r.apagados, vec![AssetId::novo("p", "lib/a.dart")]);
+        let r = client.post_process_step(&request, &mut service).unwrap();
+        assert_eq!(r.deleted_outputs, vec![AssetId::new("p", "lib/a.dart")]);
         assert_eq!(service.writes.len(), 1);
         let sent = sent.lock().unwrap();
         assert_eq!(sent[2]["t"], "build.entradas_pos");
@@ -682,18 +682,18 @@ mod tests {
                 received: [response].into(),
                 sent: Arc::new(Mutex::new(Vec::new())),
             };
-            let mut client = ClienteBuild::novo(channel);
+            let mut client = BuildClient::new(channel);
             assert!(
                 client
-                    .preparar(&ScriptDeBuilders {
-                        aplicacoes: vec![],
-                        chave_de_cache: "x".into()
+                    .prepare(&BuilderScript {
+                        applications: vec![],
+                        cache_key: "x".into()
                     })
                     .is_err()
             );
             assert!(matches!(
-                client.disponibilidade(),
-                Disponibilidade::Indisponivel(_)
+                client.availability(),
+                Availability::Unavailable(_)
             ));
         }
     }
@@ -709,26 +709,26 @@ mod tests {
             .into(),
             sent: Arc::new(Mutex::new(Vec::new())),
         };
-        let mut client = ClienteBuild::novo(channel);
+        let mut client = BuildClient::new(channel);
         client
-            .preparar(&ScriptDeBuilders {
-                aplicacoes: vec![],
-                chave_de_cache: "x".into(),
+            .prepare(&BuilderScript {
+                applications: vec![],
+                cache_key: "x".into(),
             })
             .unwrap();
-        let request = PedidoAcao {
-            fase: 0,
-            chave: "p:b".into(),
+        let request = ActionRequest {
+            phase: 0,
+            key: "p:b".into(),
             fabrica: "b".into(),
-            opcoes: Mapa::default(),
-            raiz: true,
-            entrada: AssetId::novo("p", "lib/a.dart"),
-            saidas_permitidas: Vec::new(),
+            options: Map::default(),
+            root: true,
+            entrada: AssetId::new("p", "lib/a.dart"),
+            allowed_outputs: Vec::new(),
         };
         let mut service = FakeService {
             writes: Vec::new(),
         };
-        assert!(client.executar(&request, &mut service).is_err());
+        assert!(client.execute(&request, &mut service).is_err());
     }
 
     #[test]
@@ -746,26 +746,26 @@ mod tests {
             .into(),
             sent: sent.clone(),
         };
-        let mut client = ClienteBuild::novo(channel);
+        let mut client = BuildClient::new(channel);
         client
-            .preparar(&ScriptDeBuilders {
-                aplicacoes: vec![],
-                chave_de_cache: "x".into(),
+            .prepare(&BuilderScript {
+                applications: vec![],
+                cache_key: "x".into(),
             })
             .unwrap();
-        let request = PedidoAcao {
-            fase: 0,
-            chave: "p:b".into(),
+        let request = ActionRequest {
+            phase: 0,
+            key: "p:b".into(),
             fabrica: "b".into(),
-            opcoes: Mapa::default(),
-            raiz: true,
-            entrada: AssetId::novo("p", "lib/a.dart"),
-            saidas_permitidas: Vec::new(),
+            options: Map::default(),
+            root: true,
+            entrada: AssetId::new("p", "lib/a.dart"),
+            allowed_outputs: Vec::new(),
         };
         let mut service = FakeService {
             writes: Vec::new(),
         };
-        assert!(!client.executar(&request, &mut service).unwrap().falhou);
+        assert!(!client.execute(&request, &mut service).unwrap().falhou);
         let sent = sent.lock().unwrap();
         assert_eq!(sent[3]["id"], 9);
         assert!(sent[3]["erro"].as_str().unwrap().contains("AssetId"));
@@ -779,7 +779,7 @@ mod tests {
     }
 
     /// An executor that loads and then hangs on the action: once the deadline
-    /// runs out, the action fails (the engine records it as `Origem::Falha`)
+    /// runs out, the action fails (the engine records it as `Origin::Failure`)
     /// and the process is terminated, without blocking the host.
     #[cfg(unix)]
     #[test]
@@ -799,22 +799,22 @@ mod tests {
         let channel = CanalDeProcesso::iniciar(c)
             .unwrap()
             .com_prazo(Some(std::time::Duration::from_millis(500)));
-        let mut client = ClienteBuild::novo(channel);
+        let mut client = BuildClient::new(channel);
         client
-            .preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() })
+            .prepare(&BuilderScript { applications: vec![], cache_key: "x".into() })
             .unwrap();
-        let request = PedidoAcao {
-            fase: 0,
-            chave: "p:b".into(),
+        let request = ActionRequest {
+            phase: 0,
+            key: "p:b".into(),
             fabrica: "b".into(),
-            opcoes: Mapa::default(),
-            raiz: true,
-            entrada: AssetId::novo("p", "lib/a.dart"),
-            saidas_permitidas: vec![AssetId::novo("p", "lib/a.g.dart")],
+            options: Map::default(),
+            root: true,
+            entrada: AssetId::new("p", "lib/a.dart"),
+            allowed_outputs: vec![AssetId::new("p", "lib/a.g.dart")],
         };
         let mut service = FakeService { writes: Vec::new() };
         let t0 = std::time::Instant::now();
-        let e = client.executar(&request, &mut service).unwrap_err();
+        let e = client.execute(&request, &mut service).unwrap_err();
         assert!(e.0.contains("não respondeu"), "{}", e.0);
         assert!(t0.elapsed() < std::time::Duration::from_secs(20));
     }

@@ -14,7 +14,7 @@
 //! function types and records, private members and `noSuchMethod`
 //! forwarders also arrive with their names interned in a swapped order.
 
-use dartforge_dev::Sessao;
+use dartforge_dev::Session;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -154,21 +154,21 @@ fn incremental_recompilation_equals_clean_compilation() {
     let session_output = tmp.path().join("js_session");
     std::fs::write(&support, SUPPORT[0]).unwrap();
     std::fs::write(&main, MAIN[0]).unwrap();
-    let mut session = Sessao::nova(&main, Some(&sdk), None, &session_output).expect("session");
-    session.compilar().expect("first compilation");
+    let mut session = Session::new(&main, Some(&sdk), None, &session_output).expect("session");
+    session.compile().expect("first compilation");
     for i in 1..3 {
         std::fs::write(&support, SUPPORT[i]).unwrap();
         std::fs::write(&main, MAIN[i]).unwrap();
-        session.arquivo_mudou(&support);
-        session.arquivo_mudou(&main);
-        let r = session.compilar().expect("recompilation");
+        session.file_changed(&support);
+        session.file_changed(&main);
+        let r = session.compile().expect("recompilation");
         assert!(!r.first);
     }
 
     // A clean compilation of the same final source, with a new name arena.
     let clean_output = tmp.path().join("js_clean");
-    let mut clean = Sessao::nova(&main, Some(&sdk), None, &clean_output).expect("clean session");
-    clean.compilar().expect("clean compilation");
+    let mut clean = Session::new(&main, Some(&sdk), None, &clean_output).expect("clean session");
+    clean.compile().expect("clean compilation");
 
     let a = files(&session_output);
     let b = files(&clean_output);

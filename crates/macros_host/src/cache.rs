@@ -37,10 +37,10 @@
 //! same process (`dartforge dev`, the LSP, the tests): the build engine does
 //! not write records to disk either (docs/BUILD-MOTOR.md §4, D-B1), and
 //! governing rule 6 of macros forbids bookkeeping on disk.
-use crate::aplicacoes::{Application, Target};
+use crate::applications::{Application, Target};
 use crate::assembly::ExecutionResult;
 use crate::executor::{Phase, QueryError, QueryService};
-use crate::modelo::{Key, Table};
+use crate::model::{Key, Table};
 use crate::protocol::HOST_VERSION;
 use crate::queries::Statics;
 use dartforge_elements::model::{LibraryId, Program};

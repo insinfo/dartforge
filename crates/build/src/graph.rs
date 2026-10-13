@@ -6,8 +6,8 @@
 //! the source listing of `build_definition.dart` (`_listAssetIds`) with the
 //! visibility of `target_graph.dart`.
 use crate::glob::Glob;
-use crate::pacotes::{GrafoPacotes, SDK};
-use crate::plano::{Casador, Configs, Fase, NoAlvo};
+use crate::packages::{PackageGraph, SDK};
+use crate::plan::{InputMatcher, Configs, Phase, TargetNode};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,32 +15,32 @@ use std::sync::Arc;
 /// `AssetId`: package and POSIX path relative to the package.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AssetId {
-    pub pacote: Arc<str>,
-    pub caminho: Arc<str>,
+    pub package: Arc<str>,
+    pub path: Arc<str>,
 }
 
 impl AssetId {
-    pub fn novo(package: &str, path: &str) -> AssetId {
+    pub fn new(package: &str, path: &str) -> AssetId {
         AssetId {
-            pacote: package.into(),
-            caminho: path.into(),
+            package: package.into(),
+            path: path.into(),
         }
     }
 
     /// `package|path`, as `build` writes it.
-    pub fn texto(&self) -> String {
-        format!("{}|{}", self.pacote, self.caminho)
+    pub fn text(&self) -> String {
+        format!("{}|{}", self.package, self.path)
     }
 
-    pub fn de_texto(s: &str) -> Option<AssetId> {
+    pub fn from_text(s: &str) -> Option<AssetId> {
         let (p, c) = s.split_once('|')?;
-        Some(AssetId::novo(p, c))
+        Some(AssetId::new(p, c))
     }
 }
 
 /// The visible patterns of a package that is not the root
 /// (`options.dart`, `defaultNonRootVisibleAssets`).
-pub const VISIVEIS_FORA_DA_RAIZ: &[&str] = &[
+pub const VISIBLE_OUTSIDE_ROOT: &[&str] = &[
     "CHANGELOG*",
     "lib/**",
     "bin/**",
@@ -78,65 +78,65 @@ pub const SYNTHETIC: &[&str] = &["lib/$lib$", "test/$test$", "web/$web$", "$pack
 /// (`pos`), whose outputs are only known when it runs
 /// (`PostProcessAnchorNode`).
 #[derive(Debug, Clone)]
-pub struct Acao {
-    pub fase: usize,
+pub struct Action {
+    pub phase: usize,
     pub entrada: AssetId,
-    pub saidas: Vec<AssetId>,
+    pub outputs: Vec<AssetId>,
     pub pos: bool,
 }
 
-impl Acao {
+impl Action {
     /// The action exists in the current graph (it was not removed by
     /// `_removeRecursive`).
-    pub fn viva(&self) -> bool {
-        self.pos || !self.saidas.is_empty()
+    pub fn live(&self) -> bool {
+        self.pos || !self.outputs.is_empty()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct NoGerado {
-    pub acao: usize,
-    pub fase: usize,
-    pub oculto: bool,
+pub struct GeneratedNode {
+    pub action: usize,
+    pub phase: usize,
+    pub hidden: bool,
 }
 
 #[derive(Debug, Default)]
-pub struct Grafo {
+pub struct Graph {
     /// Sources (including the synthetic ones), by package.
-    pub fontes: BTreeMap<Arc<str>, BTreeSet<Arc<str>>>,
-    pub gerados: BTreeMap<AssetId, NoGerado>,
-    pub acoes: Vec<Acao>,
+    pub sources: BTreeMap<Arc<str>, BTreeSet<Arc<str>>>,
+    pub generated: BTreeMap<AssetId, GeneratedNode>,
+    pub actions: Vec<Action>,
     /// Packages whose sources were listed (those with some generating phase).
-    pub listados: BTreeSet<Arc<str>>,
+    pub listed: BTreeSet<Arc<str>>,
     /// Source filters of the unlisted packages: a builder read in one of them
     /// is decided path by path, without listing the package.
-    pub externos: BTreeMap<Arc<str>, FiltroFontes>,
+    pub externos: BTreeMap<Arc<str>, SourceFilter>,
 }
 
 /// Which paths of a package are sources: some target includes them (and does
 /// not exclude them) and, outside the root, they are visible
 /// (`target_graph.dart`).
 #[derive(Debug, Clone)]
-pub struct FiltroFontes {
-    pub alvos: Vec<Casador>,
-    pub visiveis: Option<Vec<Glob>>,
+pub struct SourceFilter {
+    pub targets: Vec<InputMatcher>,
+    pub visible: Option<Vec<Glob>>,
 }
 
-impl FiltroFontes {
+impl SourceFilter {
     pub fn admits(&self, path: &str) -> bool {
-        self.visiveis
+        self.visible
             .as_ref()
-            .is_none_or(|g| g.iter().any(|x| x.casa(path)))
+            .is_none_or(|g| g.iter().any(|x| x.matches(path)))
             && self
-                .alvos
+                .targets
                 .iter()
-                .any(|c| c.include.as_ref().is_some_and(|i| !i.is_empty()) && c.casa(path))
+                .any(|c| c.include.as_ref().is_some_and(|i| !i.is_empty()) && c.matches(path))
     }
 }
 
 /// Lists, under `root`, the files that some of `globs` matches, pruning the
 /// directories none of them can reach.
-pub fn listar(root: &Path, globs: &[Glob]) -> BTreeSet<String> {
+pub fn list(root: &Path, globs: &[Glob]) -> BTreeSet<String> {
     let mut v = BTreeSet::new();
     let mut stack: Vec<(PathBuf, String)> = vec![(root.to_path_buf(), String::new())];
     while let Some((dir, rel)) = stack.pop() {
@@ -156,7 +156,7 @@ pub fn listar(root: &Path, globs: &[Glob]) -> BTreeSet<String> {
                 if globs.iter().any(|g| g.may_descend(&r)) {
                     stack.push((e.path(), r));
                 }
-            } else if globs.iter().any(|g| g.casa(&r)) {
+            } else if globs.iter().any(|g| g.matches(&r)) {
                 v.insert(r);
             }
         }
@@ -165,25 +165,25 @@ pub fn listar(root: &Path, globs: &[Glob]) -> BTreeSet<String> {
 }
 
 fn globs(patterns: &[String]) -> Result<Vec<Glob>, String> {
-    patterns.iter().map(|p| Glob::novo(p)).collect()
+    patterns.iter().map(|p| Glob::new(p)).collect()
 }
 
-impl Grafo {
-    pub fn tem_fonte(&self, id: &AssetId) -> bool {
-        self.fontes
-            .get(&id.pacote)
-            .is_some_and(|s| s.contains(&id.caminho))
+impl Graph {
+    pub fn has_source(&self, id: &AssetId) -> bool {
+        self.sources
+            .get(&id.package)
+            .is_some_and(|s| s.contains(&id.path))
     }
 
     pub fn existe(&self, id: &AssetId) -> bool {
-        self.tem_fonte(id) || self.gerados.contains_key(id)
+        self.has_source(id) || self.generated.contains_key(id)
     }
 
     /// Original source of a chain of outputs.
-    pub fn origem<'a>(&'a self, id: &'a AssetId) -> &'a AssetId {
+    pub fn origin<'a>(&'a self, id: &'a AssetId) -> &'a AssetId {
         let mut current = id;
-        while let Some(g) = self.gerados.get(current) {
-            current = &self.acoes[g.acao].entrada;
+        while let Some(g) = self.generated.get(current) {
+            current = &self.actions[g.action].entrada;
         }
         current
     }
@@ -192,44 +192,44 @@ impl Grafo {
     /// target over the patterns, and the visibility outside the root. `None`
     /// for `$sdk` and packages without a directory.
     fn package_filter(
-        graph: &GrafoPacotes,
+        graph: &PackageGraph,
         configs: &Configs,
         package: usize,
-    ) -> Result<Option<FiltroFontes>, String> {
+    ) -> Result<Option<SourceFilter>, String> {
         let node = &graph.nos[package];
-        let cfg = &configs.por_pacote[package];
-        if node.nome == SDK || node.raiz.as_os_str().is_empty() {
+        let cfg = &configs.by_package[package];
+        if node.name == SDK || node.root.as_os_str().is_empty() {
             return Ok(None);
         }
-        let base: &[&str] = if node.e_raiz {
+        let base: &[&str] = if node.is_root {
             ROOT_SOURCES
         } else {
-            VISIVEIS_FORA_DA_RAIZ
+            VISIBLE_OUTSIDE_ROOT
         };
         let default: Vec<String> = base
             .iter()
             .map(|s| s.to_string())
-            .chain(cfg.publicos_adicionais.iter().cloned())
+            .chain(cfg.additional_public.iter().cloned())
             .collect();
-        let visible = if node.e_raiz {
+        let visible = if node.is_root {
             None
         } else {
             Some(globs(&default)?)
         };
         let targets = cfg
-            .alvos
+            .targets
             .iter()
-            .map(|target| Casador::novo(&target.sources, Some(&default)))
+            .map(|target| InputMatcher::new(&target.sources, Some(&default)))
             .collect::<Result<_, _>>()?;
-        Ok(Some(FiltroFontes {
-            alvos: targets,
-            visiveis: visible,
+        Ok(Some(SourceFilter {
+            targets: targets,
+            visible: visible,
         }))
     }
 
     /// Sources of a package, by its targets (`_listAssetIds`).
     fn package_sources(
-        graph: &GrafoPacotes,
+        graph: &PackageGraph,
         configs: &Configs,
         package: usize,
     ) -> Result<BTreeSet<String>, String> {
@@ -237,12 +237,12 @@ impl Grafo {
         let Some(filter) = Self::package_filter(graph, configs, package)? else {
             return Ok(v);
         };
-        for matcher in &filter.alvos {
+        for matcher in &filter.targets {
             let inc = matcher.include.clone().unwrap_or_default();
             if inc.is_empty() {
                 continue;
             }
-            for c in listar(&graph.nos[package].raiz, &inc) {
+            for c in list(&graph.nos[package].root, &inc) {
                 if filter.admits(&c) {
                     v.insert(c);
                 }
@@ -256,31 +256,31 @@ impl Grafo {
     /// at the disk. It is what `build_runner` answers to a builder that reads
     /// a dependency — `BuildStep.resolver` reads every imported library this
     /// way.
-    pub fn fonte_externa(&self, id: &AssetId) -> bool {
-        !id.caminho.contains('$')
+    pub fn external_source(&self, id: &AssetId) -> bool {
+        !id.path.contains('$')
             && self
                 .externos
-                .get(&id.pacote)
-                .is_some_and(|f| f.admits(&id.caminho))
+                .get(&id.package)
+                .is_some_and(|f| f.admits(&id.path))
     }
 
     /// Builds the graph: sources of the packages with generating phases,
     /// synthetic nodes for all of them, and the expected outputs phase by
     /// phase.
-    pub fn montar(
-        graph: &GrafoPacotes,
+    pub fn build(
+        graph: &PackageGraph,
         configs: &Configs,
-        phases: &[Fase],
-        _targets: &[NoAlvo],
-    ) -> Result<Grafo, String> {
-        let mut g = Grafo::default();
+        phases: &[Phase],
+        _targets: &[TargetNode],
+    ) -> Result<Graph, String> {
+        let mut g = Graph::default();
         let packages_with_phase: BTreeSet<usize> = phases
             .iter()
-            .filter(|f| f.extensoes.is_some())
-            .map(|f| f.pacote)
+            .filter(|f| f.extensions.is_some())
+            .map(|f| f.package)
             .collect();
         for (i, node) in graph.nos.iter().enumerate() {
-            let set = g.fontes.entry(node.nome.as_str().into()).or_default();
+            let set = g.sources.entry(node.name.as_str().into()).or_default();
             for s in SYNTHETIC {
                 set.insert((*s).into());
             }
@@ -288,25 +288,25 @@ impl Grafo {
                 for c in Self::package_sources(graph, configs, i)? {
                     set.insert(c.into());
                 }
-                g.listados.insert(node.nome.as_str().into());
+                g.listed.insert(node.name.as_str().into());
             } else if let Some(f) = Self::package_filter(graph, configs, i)? {
-                g.externos.insert(node.nome.as_str().into(), f);
+                g.externos.insert(node.name.as_str().into(), f);
             }
         }
         // `allInputs`: sources + synthetic nodes, and the accumulated outputs.
-        let mut inputs: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = g.fontes.clone();
+        let mut inputs: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = g.sources.clone();
         for (fi, phase) in phases.iter().enumerate() {
             if phase.pos {
                 g.anchors(fi, phase, graph, &inputs);
                 continue;
             }
-            let Some(ext) = &phase.extensoes else { continue };
-            let package: Arc<str> = graph.nos[phase.pacote].nome.as_str().into();
+            let Some(ext) = &phase.extensions else { continue };
+            let package: Arc<str> = graph.nos[phase.package].name.as_str().into();
             let candidates: Vec<Arc<str>> = inputs
                 .get(&package)
                 .map(|s| {
                     s.iter()
-                        .filter(|c| phase.generate_for.casa(c) && ext.has_output(c))
+                        .filter(|c| phase.generate_for.matches(c) && ext.has_output(c))
                         .cloned()
                         .collect()
                 })
@@ -319,51 +319,51 @@ impl Grafo {
                     continue;
                 }
                 let id = AssetId {
-                    pacote: package.clone(),
-                    caminho: c.clone(),
+                    package: package.clone(),
+                    path: c.clone(),
                 };
-                if !phase.fontes_alvo.casa(&g.origem(&id).caminho) {
+                if !phase.target_sources.matches(&g.origin(&id).path) {
                     continue;
                 }
                 let outputs: Vec<AssetId> = ext
                     .outputs(&c)?
                     .into_iter()
                     .map(|s| AssetId {
-                        pacote: package.clone(),
-                        caminho: s.into(),
+                        package: package.clone(),
+                        path: s.into(),
                     })
                     .collect();
-                let ai = g.acoes.len();
+                let ai = g.actions.len();
                 for s in &outputs {
-                    if let Some(other) = g.gerados.get(s) {
+                    if let Some(other) = g.generated.get(s) {
                         return Err(format!(
                             "Both {} and {} may output {}, which is not allowed.",
-                            phases[other.fase].fabrica,
+                            phases[other.phase].fabrica,
                             phase.fabrica,
-                            s.texto()
+                            s.text()
                         ));
                     }
                     // A source in the place of an output (a `source` output of
                     // a previous build): the output replaces it, and whatever
                     // had been expected from it goes away too
                     // (`_removeRecursive`).
-                    if g.tem_fonte(s) {
+                    if g.has_source(s) {
                         g.remove_recursive(s, &mut inputs, &mut new);
                     }
-                    g.gerados.insert(
+                    g.generated.insert(
                         s.clone(),
-                        NoGerado {
-                            acao: ai,
-                            fase: fi,
-                            oculto: phase.oculta,
+                        GeneratedNode {
+                            action: ai,
+                            phase: fi,
+                            hidden: phase.hidden,
                         },
                     );
-                    new.push(s.caminho.clone());
+                    new.push(s.path.clone());
                 }
-                g.acoes.push(Acao {
-                    fase: fi,
+                g.actions.push(Action {
+                    phase: fi,
                     entrada: id,
-                    saidas: outputs,
+                    outputs: outputs,
                     pos: false,
                 });
             }
@@ -382,32 +382,32 @@ impl Grafo {
     fn anchors(
         &mut self,
         fi: usize,
-        phase: &Fase,
-        graph: &GrafoPacotes,
+        phase: &Phase,
+        graph: &PackageGraph,
         inputs: &BTreeMap<Arc<str>, BTreeSet<Arc<str>>>,
     ) {
-        let Some(ext) = &phase.entradas_pos else {
+        let Some(ext) = &phase.post_inputs else {
             return;
         };
-        let package: Arc<str> = graph.nos[phase.pacote].nome.as_str().into();
+        let package: Arc<str> = graph.nos[phase.package].name.as_str().into();
         let Some(candidates) = inputs.get(&package) else {
             return;
         };
         for c in candidates {
-            if !phase.generate_for.casa(c) || !ext.iter().any(|e| c.ends_with(e.as_str())) {
+            if !phase.generate_for.matches(c) || !ext.iter().any(|e| c.ends_with(e.as_str())) {
                 continue;
             }
             let id = AssetId {
-                pacote: package.clone(),
-                caminho: c.clone(),
+                package: package.clone(),
+                path: c.clone(),
             };
-            if !phase.fontes_alvo.casa(&self.origem(&id).caminho) {
+            if !phase.target_sources.matches(&self.origin(&id).path) {
                 continue;
             }
-            self.acoes.push(Acao {
-                fase: fi,
+            self.actions.push(Action {
+                phase: fi,
                 entrada: id,
-                saidas: Vec::new(),
+                outputs: Vec::new(),
                 pos: true,
             });
         }
@@ -421,21 +421,21 @@ impl Grafo {
         inputs: &mut BTreeMap<Arc<str>, BTreeSet<Arc<str>>>,
         new: &mut Vec<Arc<str>>,
     ) {
-        if let Some(f) = self.fontes.get_mut(&id.pacote) {
-            f.remove(&id.caminho);
+        if let Some(f) = self.sources.get_mut(&id.package) {
+            f.remove(&id.path);
         }
-        if let Some(e) = inputs.get_mut(&id.pacote) {
-            e.remove(&id.caminho);
+        if let Some(e) = inputs.get_mut(&id.package) {
+            e.remove(&id.path);
         }
         // Outputs always belong to the input's package: `new` is from the
         // same phase.
-        new.retain(|c| *c != id.caminho);
-        self.gerados.remove(id);
-        let dependents: Vec<usize> = (0..self.acoes.len())
-            .filter(|&a| self.acoes[a].entrada == *id && self.acoes[a].viva())
+        new.retain(|c| *c != id.path);
+        self.generated.remove(id);
+        let dependents: Vec<usize> = (0..self.actions.len())
+            .filter(|&a| self.actions[a].entrada == *id && self.actions[a].live())
             .collect();
         for a in dependents {
-            let outputs = std::mem::take(&mut self.acoes[a].saidas);
+            let outputs = std::mem::take(&mut self.actions[a].outputs);
             for s in outputs {
                 self.remove_recursive(&s, inputs, new);
             }
@@ -445,9 +445,9 @@ impl Grafo {
     /// `build_impl.dart:443-463`: is the output readable by an action of the
     /// phase `reader`? A later phase, no; the same phase, only its own output.
     pub fn is_readable(&self, id: &AssetId, reader: usize, own: Option<usize>) -> bool {
-        match self.gerados.get(id) {
-            None => self.tem_fonte(id),
-            Some(g) => g.fase < reader || (g.fase == reader && Some(g.acao) == own),
+        match self.generated.get(id) {
+            None => self.has_source(id),
+            Some(g) => g.phase < reader || (g.phase == reader && Some(g.action) == own),
         }
     }
 }

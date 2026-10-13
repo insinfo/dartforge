@@ -8,7 +8,7 @@
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-use dartforge_dev::Sessao;
+use dartforge_dev::Session;
 use std::path::{Path, PathBuf};
 
 fn simulated_sdk(dir: &Path) -> PathBuf {
@@ -76,26 +76,26 @@ fn project_without_builders_costs_zero() {
     let (main, support, cfg) = project(tmp.path());
     // Same output path length in both sessions.
     let (s1, s2) = (tmp.path().join("output1"), tmp.path().join("output2"));
-    let mut with_detection = Sessao::nova(&main, Some(&sdk), Some(&cfg), &s1).expect("session with detection");
+    let mut with_detection = Session::new(&main, Some(&sdk), Some(&cfg), &s1).expect("session with detection");
     let mut without_stages =
-        Sessao::with_stages(&main, Some(&sdk), Some(&cfg), &s2, Vec::new()).expect("session without stages");
+        Session::with_stages(&main, Some(&sdk), Some(&cfg), &s2, Vec::new()).expect("session without stages");
     assert!(!with_detection.has_stages(), "a project without build_runner got a generation stage");
-    let r1 = with_detection.compilar().expect("first compilation");
-    let r2 = without_stages.compilar().expect("first compilation");
-    assert!(r1.motor.is_none() && r2.motor.is_none(), "report with an engine in a project without builders");
-    assert_eq!(r1.modulos, r2.modulos);
+    let r1 = with_detection.compile().expect("first compilation");
+    let r2 = without_stages.compile().expect("first compilation");
+    assert!(r1.engine.is_none() && r2.engine.is_none(), "report with an engine in a project without builders");
+    assert_eq!(r1.modules, r2.modules);
     for i in 0..4 {
         std::fs::write(&support, format!("int twice(int x) {{ var y = {i:03}; return x + x; }}\n")).unwrap();
         let mut counts = Vec::new();
         for s in [&mut with_detection, &mut without_stages] {
             let before = dartforge_instrument::allocation_count();
-            for p in s.mudancas() {
-                s.arquivo_mudou(&p);
+            for p in s.changes() {
+                s.file_changed(&p);
             }
-            s.arquivo_mudou(&support);
-            let r = s.compilar().expect("edit");
+            s.file_changed(&support);
+            let r = s.compile().expect("edit");
             counts.push(dartforge_instrument::allocation_count() - before);
-            assert!(r.motor.is_none());
+            assert!(r.engine.is_none());
             assert_eq!(r.reanalyzed_units, 1, "a body edit reanalyzes only the edited unit");
         }
         assert_eq!(
@@ -104,5 +104,5 @@ fn project_without_builders_costs_zero() {
             counts[0], counts[1]
         );
     }
-    assert_eq!(dartforge_build::instancias(), 0, "a build engine was built");
+    assert_eq!(dartforge_build::instance_count(), 0, "a build engine was built");
 }

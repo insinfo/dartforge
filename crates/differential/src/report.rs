@@ -6,7 +6,7 @@
 //! ok`, `Pendentes (PENDENTES): …`, `DDC×VM: …`), the failure-group headings
 //! (`Falhas por primeira linha do stderr …`), the `--jit-aot` section
 //! (`JIT × AOT: …`, `JIT≠AOT `, `Tempos pós-IR`, `  JIT `/`  AOT `,
-//! `  razão `, `  tempo esgotado nos dois`) and the IR report footer
+//! `  razão `, `  elapsed_time esgotado nos dois`) and the IR report footer
 //! (`N programas: …`). Those texts stay in Portuguese, byte for byte, until
 //! the CI scripts are migrated with them.
 

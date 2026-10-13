@@ -11,7 +11,7 @@
 //! sabotage proves nothing.
 //!
 //! Also: the checking build (`DARTFORGE_RAIZES_CONFERIR=1` with
-//! `DARTFORGE_GC_PERCURSO=check_consistency`, E2.5) and the seed-scheduled collection
+//! `DARTFORGE_GC_PERCURSO=conferir`, E2.5) and the seed-scheduled collection
 //! (`DARTFORGE_GC_AGENDA`).
 //!
 //! Heavy (one compilation per case and per sabotage): runs with
@@ -338,7 +338,7 @@ fn walk_checked_against_the_shadow_stack() {
 }
 
 /// D7 per extern (§7.3, §7.5): with the effects table check
-/// (`DARTFORGE_EFEITOS=check_consistency`), each extern marked as a leaf runs watched,
+/// (`DARTFORGE_EFEITOS=conferir`), each extern marked as a leaf runs watched,
 /// and a collection inside it ends the process naming it. D1 passes; with the
 /// fake leaf (`folha:dartforge_string_concat`), it fails, and the message
 /// names the extern.

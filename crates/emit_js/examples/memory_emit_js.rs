@@ -129,10 +129,10 @@ fn main() {
     drop(interner);
     probe.phase("free memory");
 
-    let written = dartforge_emit_js::escrever(&emitted, &out_dir, &dartforge_emit_js::default_dart_sdk_js()).expect("write");
+    let written = dartforge_emit_js::write(&emitted, &out_dir, &dartforge_emit_js::default_dart_sdk_js()).expect("write");
     probe.phase("write");
-    let modules = emitted.modulos.len();
-    let js_bytes: usize = emitted.modulos.iter().map(|(_, t)| t.len()).sum::<usize>() + emitted.entrada.len();
+    let modules = emitted.modules.len();
+    let js_bytes: usize = emitted.modules.iter().map(|(_, t)| t.len()).sum::<usize>() + emitted.entrada.len();
     drop(emitted);
     probe.phase("end (JS freed)");
 

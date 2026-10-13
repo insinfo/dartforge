@@ -12,7 +12,7 @@
 pub mod generation;
 pub mod hashes;
 
-pub mod servidor;
+pub mod server;
 pub mod ws;
 
 use dartforge_elements::load::load_lenient_entradas;
@@ -46,7 +46,7 @@ pub struct Report {
     /// Dependents invalidated by an API change.
     pub invalidated_dependents: usize,
     /// Number of modules (the name is read by `crates/cli`).
-    pub modulos: usize,
+    pub modules: usize,
     /// Modules whose text was actually generated in this compilation.
     pub reemitted_modules: usize,
     /// Reemitted libraries (`usize::MAX` = the whole program).
@@ -54,7 +54,7 @@ pub struct Report {
     /// Cost of building the emission context (hierarchy, groups, interop).
     pub emit_context: Duration,
     /// Modules written to disk (the name is read by `crates/cli`).
-    pub modulos_escritos: usize,
+    pub written_modules: usize,
     pub type_warnings: usize,
     /// First compilation of the session (nothing reused).
     pub first: bool,
@@ -62,7 +62,7 @@ pub struct Report {
     pub load_detail: dartforge_elements::model::TemposCarga,
     /// Code generation engine (`crates/build`): `None` when the project
     /// uses no builders — that is what the zero-cost gate checks.
-    pub motor: Option<dartforge_build::RelMotor>,
+    pub engine: Option<dartforge_build::EngineReport>,
     /// Warnings from the engine (possibly stale support, D-B5).
     pub engine_warnings: Vec<String>,
     /// Whole generation stages (engine + reload of the generated units that
@@ -78,7 +78,7 @@ impl Report {
     }
 
     /// One line per phase, in the same format as `compile-js --timings`.
-    pub fn texto(&self) -> String {
+    pub fn text(&self) -> String {
         let ms = |d: Duration| d.as_secs_f64() * 1000.0;
         let mut s = String::new();
         let c = &self.load_detail;
@@ -110,13 +110,13 @@ impl Report {
             self.body_changed.len(),
             self.api_changed.len(),
             self.invalidated_dependents,
-            self.modulos,
+            self.modules,
             self.reemitted_modules,
-            self.modulos_escritos,
+            self.written_modules,
             self.type_warnings
         ));
-        if let Some(m) = &self.motor {
-            s.push_str(&m.texto());
+        if let Some(m) = &self.engine {
+            s.push_str(&m.text());
             s.push_str(&format!(
                 "\ngeneration stages: {:.1} ms (reload of the generated units: {:.1} ms)\n",
                 self.stages.as_secs_f64() * 1000.0,
@@ -131,7 +131,7 @@ impl Report {
 }
 
 /// Resident session: keeps alive across compilations what did not change.
-pub struct Sessao {
+pub struct Session {
     /// Text already emitted per class and per library, reused across
     /// compilations (see `emit_modules_with_cache`).
     fragments: std::cell::RefCell<dartforge_emit_js::module::FragmentCache>,
@@ -160,7 +160,7 @@ pub struct Sessao {
     generated: Option<std::sync::Arc<dartforge_elements::gerado::Geracao>>,
 }
 
-impl Sessao {
+impl Session {
     /// Opens a session for an input; does not compile yet.
     ///
     /// `sdk_lib` is the SDK's `lib/` (discovered from the environment when
@@ -171,12 +171,12 @@ impl Sessao {
     /// # Errors
     ///
     /// When the SDK cannot be loaded.
-    pub fn nova(
+    pub fn new(
         input: &Path,
         sdk_lib: Option<&Path>,
         packages: Option<&Path>,
         output: &Path,
-    ) -> Result<Sessao, String> {
+    ) -> Result<Session, String> {
         let mut stages: Vec<Box<dyn generation::GenerationStage>> = Vec::new();
         match generation::build_stage(input, packages) {
             None => {}
@@ -186,7 +186,7 @@ impl Sessao {
         Self::with_stages(input, sdk_lib, packages, output, stages)
     }
 
-    /// Like [`Sessao::nova`], with the given stages (no detection).
+    /// Like [`Session::new`], with the given stages (no detection).
     ///
     /// # Errors
     ///
@@ -197,13 +197,13 @@ impl Sessao {
         packages: Option<&Path>,
         output: &Path,
         stages: Vec<Box<dyn generation::GenerationStage>>,
-    ) -> Result<Sessao, String> {
+    ) -> Result<Session, String> {
         let dir = match sdk_lib {
             Some(p) => p.to_path_buf(),
             None => SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
         };
         let sdk = SdkLayout::load(&dir, "dartdevc")?;
-        Ok(Sessao {
+        Ok(Session {
             fragments: Default::default(),
             input: input.to_path_buf(),
             sdk,
@@ -228,7 +228,7 @@ impl Sessao {
     }
 
     /// Reader of the generated outputs for `serve`.
-    pub fn provedor_de_gerados(&self) -> Option<generation::Provider> {
+    pub fn generated_provider(&self) -> Option<generation::Provider> {
         self.stages.iter().find_map(|e| e.provider())
     }
 
@@ -244,7 +244,7 @@ impl Sessao {
     /// Files whose mtime or size changed since the last analysis: it is what
     /// `dartforge dev` checks at every interval (one `stat` per unit, without
     /// reading contents).
-    pub fn mudancas(&mut self) -> Vec<PathBuf> {
+    pub fn changes(&mut self) -> Vec<PathBuf> {
         let mut v = self.units.alterados();
         for e in &mut self.stages {
             v.extend(e.changes());
@@ -253,7 +253,7 @@ impl Sessao {
     }
 
     /// Files watched by the session.
-    pub fn observados(&self) -> Vec<PathBuf> {
+    pub fn watched(&self) -> Vec<PathBuf> {
         let mut v = self.units.caminhos();
         for e in &self.stages {
             v.extend(e.watched());
@@ -267,7 +267,7 @@ impl Sessao {
     /// change in the next compilation —, but it saves a useless `stat` and
     /// covers the case of an edit with the same size within the clock
     /// granularity.
-    pub fn arquivo_mudou(&mut self, path: &Path) {
+    pub fn file_changed(&mut self, path: &Path) {
         let p = dartforge_elements::config::sem_verbatim(
             std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
         );
@@ -283,7 +283,7 @@ impl Sessao {
     ///
     /// Load diagnostics, a failure of a generation stage, an emission error
     /// or a write error.
-    pub fn compilar(&mut self) -> Result<Report, String> {
+    pub fn compile(&mut self) -> Result<Report, String> {
         let mut rel = Report { first: self.first, ..Default::default() };
 
         let t = Instant::now();
@@ -334,7 +334,7 @@ impl Sessao {
                     Ok(up) => {
                         altered.extend(up.changed);
                         rel.engine_warnings.extend(up.warnings);
-                        rel.motor = Some(up.report);
+                        rel.engine = Some(up.report);
                         new_generation = Some(up.generation);
                     }
                     Err(e) => {
@@ -435,7 +435,7 @@ impl Sessao {
                 e
             }
         };
-        rel.reemitted_modules = emitted.modulos.len();
+        rel.reemitted_modules = emitted.modules.len();
         // The text of the modules that were not reemitted still holds from the
         // previous compilation. Of the reemitted ones, only those whose text
         // changed go to disk — the comparison is with what the session has in
@@ -443,7 +443,7 @@ impl Sessao {
         // megabytes).
         let previous = std::mem::take(&mut self.modules);
         let mut changed_modules = Vec::new();
-        for (path, text) in emitted.modulos.drain(..) {
+        for (path, text) in emitted.modules.drain(..) {
             let same = previous.get(&path).is_some_and(|t| *t == text);
             if !same {
                 changed_modules.push((path.clone(), text.clone()));
@@ -453,12 +453,12 @@ impl Sessao {
         for (path, text) in previous {
             self.modules.entry(path).or_insert(text);
         }
-        emitted.modulos = changed_modules;
+        emitted.modules = changed_modules;
         rel.emit = t.elapsed();
-        rel.modulos = self.modules.len();
+        rel.modules = self.modules.len();
 
         // Write: only the reemitted modules can have text different from what
-        // is on disk, so only they go to `escrever` (which still compares byte
+        // is on disk, so only they go to `write` (which still compares byte
         // for byte before writing). Comparing the 352 modules of `new_sali` on
         // every edit cost one read per file.
         let t = Instant::now();
@@ -467,7 +467,7 @@ impl Sessao {
         // session already knows the text changed (it compared it with the
         // previous compilation's, in memory).
         let compare = rel.first;
-        rel.modulos_escritos =
+        rel.written_modules =
             dartforge_emit_js::write_with_options(&emitted, &self.output, &self.dart_sdk_js, compare)?;
         rel.write = t.elapsed();
 

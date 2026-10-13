@@ -1,14 +1,14 @@
 //! Generation stages in the `dartforge dev` session: the point where the
 //! build engine (`crates/build`) — and, later, the macro host — enter the
-//! compilation without reopening `Sessao::compilar`.
+//! compilation without reopening `Session::compile`.
 //!
 //! **Zero cost for those who do not use it** (PLANO.md, governing rule): the
 //! session only creates a stage if [`build_stage`] detects builders defined
 //! in the resolved packages — once per session.
-//! Without a stage, `Sessao.stages` is empty and the cost per edit is that of
+//! Without a stage, `Session.stages` is empty and the cost per edit is that of
 //! iterating over an empty `Vec`.
-use dartforge_build::consulta::{BancoSemantico, Consulta, Digest};
-use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor, RelMotor};
+use dartforge_build::query::{SemanticDb, Query, Digest};
+use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
 use dartforge_elements::gerado::{chave, Geracao};
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
@@ -28,7 +28,7 @@ pub struct StageUpdate {
     /// Natural paths whose generated text changed: only those units are
     /// invalidated.
     pub changed: Vec<PathBuf>,
-    pub report: RelMotor,
+    pub report: EngineReport,
     pub warnings: Vec<String>,
 }
 
@@ -63,7 +63,7 @@ pub trait GenerationStage: Send {
 
 /// The build engine stage.
 pub struct BuildStage {
-    engine: Arc<Mutex<Motor>>,
+    engine: Arc<Mutex<Engine>>,
     /// Root of the input's package.
     root: PathBuf,
     expected: HashSet<PathBuf>,
@@ -77,28 +77,28 @@ pub struct BuildStage {
 pub fn build_stage(input: &Path, packages: Option<&Path>) -> Option<Result<BuildStage, String>> {
     let path = packages.map(Path::to_path_buf).or_else(|| dartforge_elements::config::PackageConfig::discover(input))?;
     let cfg = dartforge_elements::config::PackageConfig::load(&path).ok()?;
-    if !dartforge_build::detectar(&cfg) {
+    if !dartforge_build::detect(&cfg) {
         return None;
     }
-    let root = dartforge_build::raiz_do_pacote(input)?;
+    let root = dartforge_build::package_root(input)?;
     // The state saved across processes (§4.1 of BUILD-MOTOR.md), only when
     // the user asks for it (`DARTFORGE_BUILD_ESTADO=1`): the session starts
     // from the actions that are still valid.
-    let options = OpcoesMotor { persistir: dartforge_build::persistencia::pedido_no_ambiente(), ..OpcoesMotor::default() };
-    Some(Motor::novo(&root, &cfg, options).map(|mut m| {
+    let options = EngineOptions { persist: dartforge_build::persistence::requested_in_env(), ..EngineOptions::default() };
+    Some(Engine::new(&root, &cfg, options).map(|mut m| {
         // Dart builders on the VM only when asked for (DARTFORGE_BUILD_DART).
-        dartforge_build::vm::ligar_do_ambiente(&mut m, &path);
+        dartforge_build::vm::attach_from_env(&mut m, &path);
         m
     }).map(|m| BuildStage {
         root: root.clone(),
-        expected: m.saidas_esperadas().clone(),
+        expected: m.expected_outputs().clone(),
         engine: Arc::new(Mutex::new(m)),
         sources: Mutex::new(HashMap::new()),
     }))
 }
 
 impl BuildStage {
-    pub fn engine(&self) -> Arc<Mutex<Motor>> {
+    pub fn engine(&self) -> Arc<Mutex<Engine>> {
         self.engine.clone()
     }
 }
@@ -110,10 +110,10 @@ struct SessionDb<'a> {
     sources: &'a Mutex<HashMap<String, Digest>>,
 }
 
-impl BancoSemantico for SessionDb<'_> {
-    fn digest(&self, c: &Consulta) -> Option<Digest> {
+impl SemanticDb for SessionDb<'_> {
+    fn digest(&self, c: &Query) -> Option<Digest> {
         match c {
-            Consulta::FonteBiblioteca(uri) => {
+            Query::FonteBiblioteca(uri) => {
                 if let Some(d) = self.sources.lock().ok()?.get(uri) {
                     return Some(*d);
                 }
@@ -134,7 +134,7 @@ impl BancoSemantico for SessionDb<'_> {
             // metadata, and for a generator the annotation is everything (a
             // new `@Component` in a file that used to be trivial must wake
             // ngdart up).
-            Consulta::ApiBiblioteca(uri) => {
+            Query::ApiBiblioteca(uri) => {
                 let key = format!("api {uri}");
                 if let Some(d) = self.sources.lock().ok()?.get(&key) {
                     return Some(*d);
@@ -161,7 +161,7 @@ impl BancoSemantico for SessionDb<'_> {
                 self.sources.lock().ok()?.insert(key, d);
                 Some(d)
             }
-            // `Declaracao` and `Indice` come with stage B of ngdart (fine
+            // `Declaration` and `Indice` come with stage B of ngdart (fine
             // queries); until then nobody registers them.
             _ => None,
         }
@@ -174,9 +174,9 @@ impl GenerationStage for BuildStage {
         // The plan's ngdart builder: the one of `ngdart` 8 or that of the
         // `ngx_dart` 9 fork.
         let ng_key =
-            if m.entradas_de("ngx_dart:ngx_dart").is_empty() { "ngdart:ngdart" } else { "ngx_dart:ngx_dart" };
-        let mut v = m.entradas_de(ng_key);
-        let hidden = m.saidas_invisiveis_a(ng_key);
+            if m.inputs_of("ngx_dart:ngx_dart").is_empty() { "ngdart:ngdart" } else { "ngx_dart:ngx_dart" };
+        let mut v = m.inputs_of(ng_key);
+        let hidden = m.outputs_invisible_to(ng_key);
         // Only those in the input package's `lib/` and `web/` (`test/` and the
         // test packages are not part of the application; the dependencies
         // arrive through the libraries the application imports), and only
@@ -196,11 +196,11 @@ impl GenerationStage for BuildStage {
     }
 
     fn watched(&self) -> Vec<PathBuf> {
-        self.engine.lock().map(|m| m.observados()).unwrap_or_default()
+        self.engine.lock().map(|m| m.watched()).unwrap_or_default()
     }
 
     fn changes(&mut self) -> Vec<PathBuf> {
-        self.engine.lock().map(|mut m| m.mudancas()).unwrap_or_default()
+        self.engine.lock().map(|mut m| m.changes()).unwrap_or_default()
     }
 
     fn update(&mut self, ctx: &SessionCtx<'_>, changed: &[PathBuf]) -> Result<StageUpdate, String> {
@@ -225,27 +225,27 @@ impl GenerationStage for BuildStage {
             sources: &self.sources,
         };
         let mut m = self.engine.lock().map_err(|_| "engine poisoned")?;
-        let up = m.atualizar(
-            &Contexto { banco: &db, programa: Some((ctx.program, ctx.interner)) },
+        let up = m.update(
+            &UpdateContext { db: &db, program: Some((ctx.program, ctx.interner)) },
             changed,
-            Demanda::Carregador,
+            Demand::Loader,
         )?;
-        self.expected = m.saidas_esperadas().clone();
+        self.expected = m.expected_outputs().clone();
         // D-B2: `build_to: source` outputs of a native generator go to disk
         // when the text changes (like `build_runner watch`).
-        for (p, c) in m.saidas_source_nativas(&up.alterados) {
+        for (p, c) in m.native_source_outputs(&up.altered_outputs) {
             if std::fs::read(&p).ok().as_deref() != Some(&c[..]) {
                 std::fs::write(&p, &c[..]).map_err(|e| format!("{}: {e}", p.display()))?;
             }
         }
-        Ok(StageUpdate { generation: up.geracao, changed: up.alterados, report: up.rel, warnings: up.avisos })
+        Ok(StageUpdate { generation: up.generation, changed: up.altered_outputs, report: up.rel, warnings: up.warnings })
     }
 
     fn provider(&self) -> Option<Provider> {
         let engine = self.engine.clone();
         Some(Arc::new(move |p: &Path| {
             let mut m = engine.lock().ok()?;
-            m.materializar(&Contexto { banco: &dartforge_build::consulta::SemBanco, programa: None }, p)
+            m.materialize(&UpdateContext { db: &dartforge_build::query::NoDb, program: None }, p)
         }))
     }
 }

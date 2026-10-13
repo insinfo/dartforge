@@ -8,7 +8,7 @@
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-use dartforge_dev::{Report, Sessao};
+use dartforge_dev::{Report, Session};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -42,7 +42,7 @@ fn row(name: &str, r: &Report) {
         ms(r.write),
         ms(r.total()),
         r.reanalyzed_units,
-        r.modulos_escritos,
+        r.written_modules,
         r.body_changed.len(),
     );
 }
@@ -68,7 +68,7 @@ fn main() {
         return;
     }
 
-    let mut session = match Sessao::nova(&input, None, packages.as_deref(), &output) {
+    let mut session = match Session::new(&input, None, packages.as_deref(), &output) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{e}");
@@ -82,7 +82,7 @@ fn main() {
         "compilation", "load", "outline", "bodies", "emission", "hashes", "write", "total ms", "reanal", "written", "body≠"
     );
 
-    let r = session.compilar().expect("first compilation");
+    let r = session.compile().expect("first compilation");
     row("first", &r);
     let detail = |n: &str, r: &Report| {
         let c = &r.load_detail;
@@ -102,16 +102,16 @@ fn main() {
     // keystroke inside a method) and shifts everything that comes after,
     // which is where the API hash by text range used to slip.
     let base = append(&target, "\nvoid _forgeA() { print('a'); }\nvoid _forgeB() { print('b'); }\n").expect("edit");
-    session.arquivo_mudou(&target);
-    session.compilar().expect("preparation of the body edit");
+    session.file_changed(&target);
+    session.compile().expect("preparation of the body edit");
     restore(&target, base);
     let size = append(
         &target,
         "\nvoid _forgeA() { print('a'); print('x'); }\nvoid _forgeB() { print('b'); }\n",
     )
     .expect("edit");
-    session.arquivo_mudou(&target);
-    let r = session.compilar().expect("body edit");
+    session.file_changed(&target);
+    let r = session.compile().expect("body edit");
     row("body edit", &r);
     detail("load of the body edit", &r);
     println!(
@@ -129,8 +129,8 @@ fn main() {
 
     // 2. Public API edit: a new public top-level function.
     let size = append(&target, "\nvoid forgeApi0() { print('api 0'); }\n").expect("edit");
-    session.arquivo_mudou(&target);
-    let r = session.compilar().expect("API edit");
+    session.file_changed(&target);
+    let r = session.compile().expect("API edit");
     row("API edit", &r);
     println!(
         "   API changed: {} library(ies), {} dependent(s) invalidated | reemitted libraries: {} | reemitted modules: {} | emission context {:.1} ms",
@@ -149,8 +149,8 @@ fn main() {
     let mut sum_ms = 0.0;
     for i in 0..edits {
         let size = append(&target, &format!("\nvoid _forgePlateau{i}() {{ print('p{i}'); }}\n")).expect("edit");
-        session.arquivo_mudou(&target);
-        let r = session.compilar().expect("plateau compilation");
+        session.file_changed(&target);
+        let r = session.compile().expect("plateau compilation");
         sum_ms += r.total().as_secs_f64() * 1000.0;
         restore(&target, size);
         let v = dartforge_instrument::live_bytes();

@@ -97,8 +97,8 @@ fn closed_world_cases() {
         check(c.live("A.f") && c.live("B.f"), "A.f and B.f live (dynamic d.f())");
         check(!c.live("A.g") && !c.live("A.morto"), "A.g and A.morto dead");
         check(c.level("NaoInstanciada") == ClassLevel::Dead && !c.live("NaoInstanciada.f"), "non-instantiated class dead even with a live selector");
-        check(c.level("SoTipo") == ClassLevel::Tipo, "class only in `is` is Tipo");
-        check(c.level("I") == ClassLevel::Tipo, "implemented interface is Tipo");
+        check(c.level("SoTipo") == ClassLevel::Type, "class only in `is` is Tipo");
+        check(c.level("I") == ClassLevel::Type, "implemented interface is Tipo");
         // SDK and Object protocol
         check(c.live("Comp.compareTo"), "compareTo live through Comparable (rule i)");
         check(c.live("Comp.toString"), "toString live (rule ii)");

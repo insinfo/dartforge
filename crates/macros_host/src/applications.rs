@@ -5,7 +5,7 @@
 //! **Detection** (zero-cost rule): an annotation is an application only if
 //! its name resolves to a constructor of a class declared with `macro`
 //! ([`Program::classes_macro`]); with no `macro` class in the program,
-//! [`detectar`] returns on its first line, without looking at any
+//! [`detect`] returns on its first line, without looking at any
 //! annotation. An application is always a constructor call (`@M()`,
 //! `@M.name(…)`, `@p.M(…)`).
 //!
@@ -21,7 +21,7 @@
 //!   members, then the class —, and only then, per library, those on the
 //!   directive and the top-level ones.
 use crate::executor::Phase;
-use crate::modelo::{Key, Vista};
+use crate::model::{Key, View};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::*;
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind, ExprKind, MemberKind};
@@ -68,7 +68,7 @@ pub struct Application {
 }
 
 /// The `macro` class that an annotation invokes, and the constructor name.
-fn annotation_macro(v: &Vista<'_>, lib: LibraryId, a: &ast::Annotation, macros: &HashSet<ClassId>) -> Option<(ClassId, String)> {
+fn annotation_macro(v: &View<'_>, lib: LibraryId, a: &ast::Annotation, macros: &HashSet<ClassId>) -> Option<(ClassId, String)> {
     a.arguments.as_ref()?;
     let class = |el: Option<Element>| match el {
         Some(Element::Class(c)) if macros.contains(&c) => Some(c),
@@ -168,7 +168,7 @@ fn arguments(u: &Unit, a: &ast::Annotation) -> Value {
 
 /// The program's applications, in source order (the phase order comes from
 /// [`order`]). Empty — at no cost — when there is no `macro` class.
-pub fn detectar(v: &Vista<'_>) -> Vec<Application> {
+pub fn detect(v: &View<'_>) -> Vec<Application> {
     if v.program.classes_macro.is_empty() {
         return Vec::new();
     }
@@ -253,7 +253,7 @@ type Collector<'c> = dyn FnMut(&mut Vec<Application>, UnitId, &[ast::Annotation]
 
 /// Members of a class: fields and methods in order, then constructors
 /// (CFE's `localMemberIterator` and `localConstructorIterator`).
-fn members(v: &Vista<'_>, out: &mut Vec<Application>, collect: &mut Collector<'_>, uid: UnitId, ids: &[ast::MemberId], class: &Key) {
+fn members(v: &View<'_>, out: &mut Vec<Application>, collect: &mut Collector<'_>, uid: UnitId, ids: &[ast::MemberId], class: &Key) {
     let u = v.program.unit(uid);
     let Key::Type { lib, name: owner } = class else { return };
     let n = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
@@ -288,7 +288,7 @@ fn members(v: &Vista<'_>, out: &mut Vec<Application>, collect: &mut Collector<'_
 
 /// The execution order of the applications in a phase (indices into
 /// `apps`).
-pub fn order(phase: Phase, apps: &[Application], v: &Vista<'_>) -> Vec<usize> {
+pub fn order(phase: Phase, apps: &[Application], v: &View<'_>) -> Vec<usize> {
     let mut libraries: Vec<&str> = Vec::new();
     for a in apps {
         if !libraries.contains(&a.library.as_str()) {
@@ -331,7 +331,7 @@ pub fn order(phase: Phase, apps: &[Application], v: &Vista<'_>) -> Vec<usize> {
             let all: Vec<Key> = libraries.iter().flat_map(|l| library_classes(l)).collect();
             let ids: Vec<Option<ClassId>> = all.iter().map(|c| v.class_of(c)).collect();
             let mut done: HashSet<usize> = HashSet::new();
-            fn visit(i: usize, ids: &[Option<ClassId>], v: &Vista<'_>, done: &mut HashSet<usize>, seq: &mut Vec<usize>, stack: &mut HashSet<usize>) {
+            fn visit(i: usize, ids: &[Option<ClassId>], v: &View<'_>, done: &mut HashSet<usize>, seq: &mut Vec<usize>, stack: &mut HashSet<usize>) {
                 if done.contains(&i) || !stack.insert(i) {
                     return;
                 }

@@ -2,7 +2,7 @@
 //! §4.1): the equivalent of `build_runner`'s `asset_graph.json`. A new
 //! process reuses the actions whose queries still have the same digest,
 //! instead of running them again. **Only when the user asks for it**
-//! (`--estado`, [`VARIAVEL`]): governing rule 6 of `PLANO.md` forbids on-disk
+//! (`--estado`, [`ENV_VAR`]): governing rule 6 of `PLANO.md` forbids on-disk
 //! bookkeeping that nobody asked for.
 //!
 //! The file stores, per action, the action key (phase, options, input and
@@ -11,7 +11,7 @@
 //! addressed by blake3. Only what can be revalidated without the previous
 //! process goes in:
 //!
-//! * file queries (`Arquivo`, `Existe`, `Glob`, `GlobAtivos`) — a semantic
+//! * file queries (`File`, `Exists`, `Glob`, `ActiveGlobs`) — a semantic
 //!   query depends on the session's database, which a new process does not
 //!   have in the same form (in a single pass it does not even answer);
 //! * actions that do not belong to a per-package generator (its
@@ -23,29 +23,29 @@
 //! the lock versions and the mode (`--release`). For an action of the Dart
 //! executor, the builder code — the bootstrap depfile's files outside the
 //! `hosted` packages, by content.
-use crate::consulta::{Consulta, Digest};
-use crate::grafo::AssetId;
+use crate::query::{Query, Digest};
+use crate::graph::AssetId;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Environment variable that turns on the on-disk state in `dev`, `serve`
 /// and `compile-js` (and in `dartforge build`, besides `--estado`).
-pub const VARIAVEL: &str = "DARTFORGE_BUILD_ESTADO";
+pub const ENV_VAR: &str = "DARTFORGE_BUILD_ESTADO";
 
 /// Did the user ask for the on-disk state through the environment
 /// (`DARTFORGE_BUILD_ESTADO` with a non-empty value other than `0`)? Without a
 /// request nothing goes to disk: governing rule 6 of `PLANO.md` ("the disk
 /// only receives what the user asks for").
-pub fn pedido_no_ambiente() -> bool {
-    std::env::var_os(VARIAVEL).is_some_and(|v| !v.is_empty() && v != "0")
+pub fn requested_in_env() -> bool {
+    std::env::var_os(ENV_VAR).is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 /// File format; it changes when the content changes shape.
 const FORMAT: u64 = 1;
 
 /// A project's state directory.
-pub fn diretorio(root_dir: &Path) -> PathBuf {
+pub fn directory(root_dir: &Path) -> PathBuf {
     root_dir
         .join(".dart_tool")
         .join("dartforge")
@@ -55,39 +55,39 @@ pub fn diretorio(root_dir: &Path) -> PathBuf {
 
 /// Who produced the saved action.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OrigemSalva {
-    Nativo(String),
+pub enum SavedOrigin {
+    Native(String),
     Dart,
-    Apoio,
-    Omitida,
+    Support,
+    Skipped,
 }
 
 /// A saved action.
 #[derive(Debug, Clone)]
-pub struct AcaoSalva {
-    pub chave: String,
-    pub origem: OrigemSalva,
+pub struct SavedAction {
+    pub key: String,
+    pub origin: SavedOrigin,
     pub motivo: Option<String>,
-    pub consultas: Vec<(Consulta, Option<Digest>)>,
-    pub saidas: Vec<(AssetId, Option<Digest>)>,
-    pub do_apoio: Vec<AssetId>,
-    pub apagados: Vec<AssetId>,
+    pub queries: Vec<(Query, Option<Digest>)>,
+    pub outputs: Vec<(AssetId, Option<Digest>)>,
+    pub from_support: Vec<AssetId>,
+    pub deleted_outputs: Vec<AssetId>,
 }
 
 /// A project's saved state.
 #[derive(Debug, Clone, Default)]
-pub struct Estado {
+pub struct State {
     /// Global key (engine, executable, plan, lock, mode).
-    pub chave: String,
+    pub key: String,
     /// The code of the Dart builders: file and digest of its content. `None`:
     /// there is no saved Dart action.
-    pub codigo_dart: Option<Vec<(PathBuf, Digest)>>,
-    pub acoes: Vec<AcaoSalva>,
+    pub dart_code: Option<Vec<(PathBuf, Digest)>>,
+    pub actions: Vec<SavedAction>,
 }
 
 /// Identity of the executable that runs the engine: the code of the native
 /// generators is not in any query. Path, size and date of the file.
-pub fn identidade_do_executavel() -> String {
+pub fn executable_identity() -> String {
     let Ok(exe) = std::env::current_exe() else {
         return "?".into();
     };
@@ -121,42 +121,42 @@ fn path_str(p: &Path) -> Option<String> {
 }
 
 /// A query that can be persisted as JSON; `None` for the semantic ones.
-fn query_json(c: &Consulta) -> Option<Value> {
+fn query_json(c: &Query) -> Option<Value> {
     Some(match c {
-        Consulta::Arquivo(p) => json!({"t": "arquivo", "p": path_str(p)?}),
-        Consulta::Existe(p) => json!({"t": "existe", "p": path_str(p)?}),
-        Consulta::Glob { dir, padrao } => {
-            json!({"t": "glob", "p": path_str(dir)?, "padrao": padrao})
+        Query::File(p) => json!({"t": "arquivo", "p": path_str(p)?}),
+        Query::Exists(p) => json!({"t": "existe", "p": path_str(p)?}),
+        Query::Glob { dir, pattern } => {
+            json!({"t": "glob", "p": path_str(dir)?, "padrao": pattern})
         }
-        Consulta::GlobAtivos {
+        Query::ActiveGlobs {
             dir,
-            padrao,
+            pattern,
             candidatos,
         } => {
-            json!({"t": "glob_ativos", "p": path_str(dir)?, "padrao": padrao, "candidatos": candidatos})
+            json!({"t": "glob_ativos", "p": path_str(dir)?, "padrao": pattern, "candidatos": candidatos})
         }
         _ => return None,
     })
 }
 
-fn query_from_json(v: &Value) -> Option<Consulta> {
+fn query_from_json(v: &Value) -> Option<Query> {
     let p = || v.get("p").and_then(Value::as_str).map(PathBuf::from);
     let pattern = || v.get("padrao").and_then(Value::as_str).map(str::to_string);
     Some(match v.get("t")?.as_str()? {
-        "arquivo" => Consulta::Arquivo(p()?),
-        "existe" => Consulta::Existe(p()?),
-        "glob" => Consulta::Glob {
+        "arquivo" => Query::File(p()?),
+        "existe" => Query::Exists(p()?),
+        "glob" => Query::Glob {
             dir: p()?,
-            padrao: pattern()?,
+            pattern: pattern()?,
         },
         "glob_ativos" => {
             let mut candidates = Vec::new();
             for c in v.get("candidatos")?.as_array()? {
                 candidates.push((c.get(0)?.as_str()?.to_string(), c.get(1)?.as_bool()?));
             }
-            Consulta::GlobAtivos {
+            Query::ActiveGlobs {
                 dir: p()?,
-                padrao: pattern()?,
+                pattern: pattern()?,
                 candidatos: candidates,
             }
         }
@@ -165,30 +165,30 @@ fn query_from_json(v: &Value) -> Option<Consulta> {
 }
 
 /// Can the query be saved (is it a file query)?
-pub fn persistivel(c: &Consulta) -> bool {
+pub fn persistable(c: &Query) -> bool {
     query_json(c).is_some()
 }
 
 fn ids(v: &[AssetId]) -> Value {
-    Value::Array(v.iter().map(|id| Value::String(id.texto())).collect())
+    Value::Array(v.iter().map(|id| Value::String(id.text())).collect())
 }
 
 fn ids_from(v: Option<&Value>) -> Option<Vec<AssetId>> {
     v?.as_array()?
         .iter()
-        .map(|x| AssetId::de_texto(x.as_str()?))
+        .map(|x| AssetId::from_text(x.as_str()?))
         .collect()
 }
 
-fn action_json(a: &AcaoSalva) -> Option<Value> {
-    let origin = match &a.origem {
-        OrigemSalva::Nativo(n) => json!({"nativo": n}),
-        OrigemSalva::Dart => json!("dart"),
-        OrigemSalva::Apoio => json!("apoio"),
-        OrigemSalva::Omitida => json!("omitida"),
+fn action_json(a: &SavedAction) -> Option<Value> {
+    let origin = match &a.origin {
+        SavedOrigin::Native(n) => json!({"nativo": n}),
+        SavedOrigin::Dart => json!("dart"),
+        SavedOrigin::Support => json!("apoio"),
+        SavedOrigin::Skipped => json!("omitida"),
     };
-    let mut queries = Vec::with_capacity(a.consultas.len());
-    for (c, d) in &a.consultas {
+    let mut queries = Vec::with_capacity(a.queries.len());
+    for (c, d) in &a.queries {
         let mut v = query_json(c)?;
         v["d"] = d
             .as_ref()
@@ -197,27 +197,27 @@ fn action_json(a: &AcaoSalva) -> Option<Value> {
         queries.push(v);
     }
     let outputs: Vec<Value> = a
-        .saidas
+        .outputs
         .iter()
-        .map(|(id, d)| json!([id.texto(), d.as_ref().map(hex)]))
+        .map(|(id, d)| json!([id.text(), d.as_ref().map(hex)]))
         .collect();
     Some(json!({
-        "chave": a.chave,
+        "chave": a.key,
         "origem": origin,
         "motivo": a.motivo,
         "consultas": queries,
         "saidas": outputs,
-        "do_apoio": ids(&a.do_apoio),
-        "apagados": ids(&a.apagados),
+        "do_apoio": ids(&a.from_support),
+        "apagados": ids(&a.deleted_outputs),
     }))
 }
 
-fn action_from_json(v: &Value) -> Option<AcaoSalva> {
+fn action_from_json(v: &Value) -> Option<SavedAction> {
     let origin = match v.get("origem")? {
-        Value::String(s) if s == "dart" => OrigemSalva::Dart,
-        Value::String(s) if s == "apoio" => OrigemSalva::Apoio,
-        Value::String(s) if s == "omitida" => OrigemSalva::Omitida,
-        o => OrigemSalva::Nativo(o.get("nativo")?.as_str()?.to_string()),
+        Value::String(s) if s == "dart" => SavedOrigin::Dart,
+        Value::String(s) if s == "apoio" => SavedOrigin::Support,
+        Value::String(s) if s == "omitida" => SavedOrigin::Skipped,
+        o => SavedOrigin::Native(o.get("nativo")?.as_str()?.to_string()),
     };
     let mut queries = Vec::new();
     for c in v.get("consultas")?.as_array()? {
@@ -229,27 +229,27 @@ fn action_from_json(v: &Value) -> Option<AcaoSalva> {
     }
     let mut outputs = Vec::new();
     for s in v.get("saidas")?.as_array()? {
-        let id = AssetId::de_texto(s.get(0)?.as_str()?)?;
+        let id = AssetId::from_text(s.get(0)?.as_str()?)?;
         let d = match s.get(1)? {
             Value::Null => None,
             d => Some(from_hex(d.as_str()?)?),
         };
         outputs.push((id, d));
     }
-    Some(AcaoSalva {
-        chave: v.get("chave")?.as_str()?.to_string(),
-        origem: origin,
+    Some(SavedAction {
+        key: v.get("chave")?.as_str()?.to_string(),
+        origin: origin,
         motivo: v.get("motivo").and_then(Value::as_str).map(str::to_string),
-        consultas: queries,
-        saidas: outputs,
-        do_apoio: ids_from(v.get("do_apoio"))?,
-        apagados: ids_from(v.get("apagados"))?,
+        queries: queries,
+        outputs: outputs,
+        from_support: ids_from(v.get("do_apoio"))?,
+        deleted_outputs: ids_from(v.get("apagados"))?,
     })
 }
 
 /// Reads the saved state. A missing file, one of another format or a
 /// corrupted one: `None` (the engine starts from scratch, as without state).
-pub fn ler(dir: &Path) -> Option<Estado> {
+pub fn read(dir: &Path) -> Option<State> {
     let text = std::fs::read_to_string(dir.join("estado.json")).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
     if v.get("formato")?.as_u64()? != FORMAT {
@@ -274,10 +274,10 @@ pub fn ler(dir: &Path) -> Option<Estado> {
         .iter()
         .map(action_from_json)
         .collect::<Option<Vec<_>>>()?;
-    Some(Estado {
-        chave: v.get("chave")?.as_str()?.to_string(),
-        codigo_dart: dart_code,
-        acoes: actions,
+    Some(State {
+        key: v.get("chave")?.as_str()?.to_string(),
+        dart_code: dart_code,
+        actions: actions,
     })
 }
 
@@ -294,9 +294,9 @@ pub fn ler_blob(dir: &Path, d: &Digest) -> Option<Arc<[u8]>> {
 /// # Errors
 ///
 /// Write failure in the state directory.
-pub fn gravar(
+pub fn write_state(
     dir: &Path,
-    state: &Estado,
+    state: &State,
     contents: &[(Digest, Arc<[u8]>)],
 ) -> Result<(), String> {
     let blobs = dir.join("blobs");
@@ -312,8 +312,8 @@ pub fn gravar(
         }
         live.insert(name);
     }
-    let actions: Vec<Value> = state.acoes.iter().filter_map(action_json).collect();
-    let code = state.codigo_dart.as_ref().map(|l| {
+    let actions: Vec<Value> = state.actions.iter().filter_map(action_json).collect();
+    let code = state.dart_code.as_ref().map(|l| {
         Value::Array(
             l.iter()
                 .filter_map(|(p, d)| Some(json!([path_str(p)?, hex(d)])))
@@ -322,7 +322,7 @@ pub fn gravar(
     });
     let v = json!({
         "formato": FORMAT,
-        "chave": state.chave,
+        "chave": state.key,
         "codigo_dart": code,
         "acoes": actions,
     });
@@ -351,55 +351,55 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let content: Arc<[u8]> = Arc::from(&b"output"[..]);
         let d = *blake3::hash(&content).as_bytes();
-        let action = AcaoSalva {
-            chave: "k".into(),
-            origem: OrigemSalva::Nativo("sass_builder:sass_builder".into()),
+        let action = SavedAction {
+            key: "k".into(),
+            origin: SavedOrigin::Native("sass_builder:sass_builder".into()),
             motivo: None,
-            consultas: vec![
-                (Consulta::Arquivo("/p/lib/a.scss".into()), Some(d)),
-                (Consulta::Existe("/p/lib/b.scss".into()), None),
+            queries: vec![
+                (Query::File("/p/lib/a.scss".into()), Some(d)),
+                (Query::Exists("/p/lib/b.scss".into()), None),
                 (
-                    Consulta::GlobAtivos {
+                    Query::ActiveGlobs {
                         dir: "/p".into(),
-                        padrao: "lib/**".into(),
+                        pattern: "lib/**".into(),
                         candidatos: vec![("lib/a.g.dart".into(), true)],
                     },
                     Some(d),
                 ),
             ],
-            saidas: vec![
-                (AssetId::novo("p", "lib/a.css"), Some(d)),
-                (AssetId::novo("p", "lib/a.css.map"), None),
+            outputs: vec![
+                (AssetId::new("p", "lib/a.css"), Some(d)),
+                (AssetId::new("p", "lib/a.css.map"), None),
             ],
-            do_apoio: vec![],
-            apagados: vec![AssetId::novo("p", "lib/a.scss")],
+            from_support: vec![],
+            deleted_outputs: vec![AssetId::new("p", "lib/a.scss")],
         };
-        let e = Estado {
-            chave: "c".into(),
-            codigo_dart: Some(vec![("/p/tool/b.dart".into(), d)]),
-            acoes: vec![action],
+        let e = State {
+            key: "c".into(),
+            dart_code: Some(vec![("/p/tool/b.dart".into(), d)]),
+            actions: vec![action],
         };
-        gravar(dir.path(), &e, &[(d, content.clone())]).unwrap();
-        let read = ler(dir.path()).unwrap();
-        assert_eq!(read.chave, "c");
-        assert_eq!(read.codigo_dart, e.codigo_dart);
-        assert_eq!(read.acoes[0].consultas, e.acoes[0].consultas);
-        assert_eq!(read.acoes[0].saidas, e.acoes[0].saidas);
-        assert_eq!(read.acoes[0].origem, e.acoes[0].origem);
-        assert_eq!(read.acoes[0].apagados, e.acoes[0].apagados);
+        write_state(dir.path(), &e, &[(d, content.clone())]).unwrap();
+        let read = read(dir.path()).unwrap();
+        assert_eq!(read.key, "c");
+        assert_eq!(read.dart_code, e.dart_code);
+        assert_eq!(read.actions[0].queries, e.actions[0].queries);
+        assert_eq!(read.actions[0].outputs, e.actions[0].outputs);
+        assert_eq!(read.actions[0].origin, e.actions[0].origin);
+        assert_eq!(read.actions[0].deleted_outputs, e.actions[0].deleted_outputs);
         assert_eq!(ler_blob(dir.path(), &d).as_deref(), Some(&b"output"[..]));
         // A tampered blob is not accepted.
         std::fs::write(dir.path().join("blobs").join(hex(&d)), b"other").unwrap();
         assert!(ler_blob(dir.path(), &d).is_none());
         // A semantic query cannot be persisted.
-        assert!(!persistivel(&Consulta::ApiBiblioteca(
+        assert!(!persistable(&Query::ApiBiblioteca(
             "package:p/a.dart".into()
         )));
         // An unreferenced blob goes away on the next write.
-        gravar(
+        write_state(
             dir.path(),
-            &Estado {
-                chave: "c".into(),
+            &State {
+                key: "c".into(),
                 ..Default::default()
             },
             &[],

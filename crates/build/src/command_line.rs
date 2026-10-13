@@ -9,17 +9,17 @@
 //! the target's `dev_options`/`release_options` < `global_options` (with its
 //! `dev`/`release`) < `--define`, the latter merged key by key over the
 //! global ones.
-use crate::config::chave_builder_uso;
+use crate::config::builder_usage_key;
 use crate::glob::Glob;
-use crate::grafo::AssetId;
-use crate::valor::{Mapa, Valor, real_dart};
+use crate::graph::AssetId;
+use crate::value::{Map, Value, dart_real};
 
 /// The `--define`s already grouped by builder (normalized key), in the order
 /// in which they appeared.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Definicoes(pub Vec<(String, Mapa)>);
+pub struct Defines(pub Vec<(String, Map)>);
 
-impl Definicoes {
+impl Defines {
     /// `_parseBuilderConfigOverrides`: each argument is
     /// `<builder>=<option>=<value>`; the rest after the second `=` is the
     /// value, read as JSON and, if it is not JSON, as a string. The builder
@@ -38,8 +38,8 @@ impl Definicoes {
     /// # Errors
     /// Fewer than two `=`, or the same option of the same builder twice —
     /// `build_runner`'s messages.
-    pub fn parse<S: AsRef<str>>(arguments: &[S], root: &str) -> Result<Definicoes, String> {
-        let mut d = Definicoes::default();
+    pub fn parse<S: AsRef<str>>(arguments: &[S], root: &str) -> Result<Defines, String> {
+        let mut d = Defines::default();
         for a in arguments {
             let a = a.as_ref();
             let mut parts = a.splitn(3, '=');
@@ -50,28 +50,28 @@ impl Definicoes {
                     "Invalid argument (define): Expected at least 2 `=` signs, should be of the format like --define \"<builder_key>=<option>=<value>\": \"{a}\""
                 ));
             };
-            let key = chave_builder_uso(builder, root);
-            let value = json(value).unwrap_or_else(|| Valor::Texto(value.to_string()));
+            let key = builder_usage_key(builder, root);
+            let value = json(value).unwrap_or_else(|| Value::Text(value.to_string()));
             let i = match d.0.iter().position(|(k, _)| *k == key) {
                 Some(i) => i,
                 None => {
-                    d.0.push((key.clone(), Mapa::default()));
+                    d.0.push((key.clone(), Map::default()));
                     d.0.len() - 1
                 }
             };
             let m = &mut d.0[i].1;
-            if m.obter(option).is_some() {
+            if m.get(option).is_some() {
                 return Err(format!(
                     "Invalid argument(s): Got duplicate overrides for the same builder option: {key}={option}. Only one is allowed."
                 ));
             }
-            m.inserir(Valor::Texto(option.to_string()), value);
+            m.insert(Value::Text(option.to_string()), value);
         }
         Ok(d)
     }
 
     /// The options defined for the builder `key`.
-    pub fn for_builder(&self, key: &str) -> Option<&Mapa> {
+    pub fn for_builder(&self, key: &str) -> Option<&Map> {
         self.0.iter().find(|(k, _)| k == key).map(|(_, m)| m)
     }
 }
@@ -89,7 +89,7 @@ impl Definicoes {
 /// assert_eq!(json("{a: 1}"), None);
 /// assert_eq!(json("~"), None);
 /// ```
-pub fn json(text: &str) -> Option<Valor> {
+pub fn json(text: &str) -> Option<Value> {
     let b = text.as_bytes();
     let mut i = 0;
     let v = json_value(b, &mut i)?;
@@ -103,20 +103,20 @@ fn skip_whitespace(b: &[u8], i: &mut usize) {
     }
 }
 
-fn json_value(b: &[u8], i: &mut usize) -> Option<Valor> {
+fn json_value(b: &[u8], i: &mut usize) -> Option<Value> {
     skip_whitespace(b, i);
     match *b.get(*i)? {
         b'{' => {
             *i += 1;
-            let mut m = Mapa::default();
+            let mut m = Map::default();
             skip_whitespace(b, i);
             if b.get(*i) == Some(&b'}') {
                 *i += 1;
-                return Some(Valor::Mapa(m));
+                return Some(Value::Map(m));
             }
             loop {
                 skip_whitespace(b, i);
-                let Valor::Texto(k) = json_string(b, i)? else {
+                let Value::Text(k) = json_string(b, i)? else {
                     return None;
                 };
                 skip_whitespace(b, i);
@@ -125,13 +125,13 @@ fn json_value(b: &[u8], i: &mut usize) -> Option<Valor> {
                 }
                 *i += 1;
                 let v = json_value(b, i)?;
-                m.inserir(Valor::Texto(k), v);
+                m.insert(Value::Text(k), v);
                 skip_whitespace(b, i);
                 match b.get(*i)? {
                     b',' => *i += 1,
                     b'}' => {
                         *i += 1;
-                        return Some(Valor::Mapa(m));
+                        return Some(Value::Map(m));
                     }
                     _ => return None,
                 }
@@ -143,7 +143,7 @@ fn json_value(b: &[u8], i: &mut usize) -> Option<Valor> {
             skip_whitespace(b, i);
             if b.get(*i) == Some(&b']') {
                 *i += 1;
-                return Some(Valor::Lista(l));
+                return Some(Value::List(l));
             }
             loop {
                 l.push(json_value(b, i)?);
@@ -152,22 +152,22 @@ fn json_value(b: &[u8], i: &mut usize) -> Option<Valor> {
                     b',' => *i += 1,
                     b']' => {
                         *i += 1;
-                        return Some(Valor::Lista(l));
+                        return Some(Value::List(l));
                     }
                     _ => return None,
                 }
             }
         }
         b'"' => json_string(b, i),
-        b't' => literal(b, i, "true", Valor::Bool(true)),
-        b'f' => literal(b, i, "false", Valor::Bool(false)),
-        b'n' => literal(b, i, "null", Valor::Nulo),
+        b't' => literal(b, i, "true", Value::Bool(true)),
+        b'f' => literal(b, i, "false", Value::Bool(false)),
+        b'n' => literal(b, i, "null", Value::Null),
         b'-' | b'0'..=b'9' => json_number(b, i),
         _ => None,
     }
 }
 
-fn literal(b: &[u8], i: &mut usize, t: &str, v: Valor) -> Option<Valor> {
+fn literal(b: &[u8], i: &mut usize, t: &str, v: Value) -> Option<Value> {
     if b[*i..].starts_with(t.as_bytes()) {
         *i += t.len();
         Some(v)
@@ -176,7 +176,7 @@ fn literal(b: &[u8], i: &mut usize, t: &str, v: Valor) -> Option<Valor> {
     }
 }
 
-fn json_number(b: &[u8], i: &mut usize) -> Option<Valor> {
+fn json_number(b: &[u8], i: &mut usize) -> Option<Value> {
     let start = *i;
     if b[*i] == b'-' {
         *i += 1;
@@ -214,12 +214,12 @@ fn json_number(b: &[u8], i: &mut usize) -> Option<Valor> {
     }
     let t = std::str::from_utf8(&b[start..*i]).ok()?;
     if !real && let Ok(n) = t.parse::<i64>() {
-        return Some(Valor::Int(n));
+        return Some(Value::Int(n));
     }
-    t.parse::<f64>().ok().map(|v| Valor::Real(real_dart(v)))
+    t.parse::<f64>().ok().map(|v| Value::Real(dart_real(v)))
 }
 
-fn json_string(b: &[u8], i: &mut usize) -> Option<Valor> {
+fn json_string(b: &[u8], i: &mut usize) -> Option<Value> {
     if b.get(*i) != Some(&b'"') {
         return None;
     }
@@ -230,7 +230,7 @@ fn json_string(b: &[u8], i: &mut usize) -> Option<Valor> {
         match c {
             b'"' => {
                 *i += 1;
-                return Some(Valor::Texto(String::from_utf16_lossy(&units)));
+                return Some(Value::Text(String::from_utf16_lossy(&units)));
             }
             b'\\' => {
                 *i += 1;
@@ -277,27 +277,27 @@ fn json_string(b: &[u8], i: &mut usize) -> Option<Valor> {
 /// relative paths) and `pubspec.lock` (the profile decides whether `asset:` is
 /// accepted).
 #[derive(Debug, Clone, Default)]
-pub struct OpcoesDoBuild {
+pub struct BuildOptions {
     pub config: Option<String>,
-    pub definitions: Definicoes,
-    pub filters: Vec<FiltroBuild>,
+    pub definitions: Defines,
+    pub filters: Vec<BuildFilter>,
 }
 
-impl OpcoesDoBuild {
+impl BuildOptions {
     /// Reads the options for the project in `root`.
     ///
     /// # Errors
     /// Unreadable `pubspec.yaml`/`pubspec.lock`, a malformed `--define` or an
     /// invalid `--build-filter`.
-    pub fn do_projeto<S: AsRef<str>>(
+    pub fn for_project<S: AsRef<str>>(
         root: &std::path::Path,
         config: Option<&str>,
         defines: &[S],
         filters: &[S],
-    ) -> Result<OpcoesDoBuild, String> {
-        let pubspec = crate::config::Pubspec::ler(root)?;
+    ) -> Result<BuildOptions, String> {
+        let pubspec = crate::config::Pubspec::read(root)?;
         let name = pubspec
-            .nome
+            .name
             .ok_or("The current package has no name, please add one to the pubspec.yaml.")?;
         let profile = match std::fs::read_to_string(root.join("pubspec.lock")) {
             Ok(t) => {
@@ -305,38 +305,38 @@ impl OpcoesDoBuild {
                 let v = |p: &str| {
                     lock.iter()
                         .find(|(n, _)| n == p)
-                        .map(|(_, t)| t.versao.as_str())
+                        .map(|(_, t)| t.version.as_str())
                 };
-                crate::perfil::Perfil::das_versoes(v("build_config"), v("build_runner"))
+                crate::profile::Profile::from_versions(v("build_config"), v("build_runner"))
             }
-            Err(_) => crate::perfil::Perfil::default(),
+            Err(_) => crate::profile::Profile::default(),
         };
-        Ok(OpcoesDoBuild {
+        Ok(BuildOptions {
             config: config.map(str::to_string),
-            definitions: Definicoes::parse(defines, &name)?,
+            definitions: Defines::parse(defines, &name)?,
             filters: filters
                 .iter()
-                .map(|f| FiltroBuild::from_arg(f.as_ref(), &name, profile.filtro_asset()))
+                .map(|f| BuildFilter::from_arg(f.as_ref(), &name, profile.asset_filter()))
                 .collect::<Result<_, _>>()?,
         })
     }
 
     /// Applies them to the engine options.
-    pub fn aplicar(self, options: &mut crate::motor::OpcoesMotor) {
+    pub fn apply(self, options: &mut crate::engine::EngineOptions) {
         options.config = self.config;
-        options.definicoes = self.definitions;
-        options.filtros = self.filters;
+        options.defines = self.definitions;
+        options.filters = self.filters;
     }
 }
 
 /// `BuildFilter`: a package glob and a path glob.
 #[derive(Debug, Clone)]
-pub struct FiltroBuild {
+pub struct BuildFilter {
     pub package: Glob,
     pub path: Glob,
 }
 
-impl FiltroBuild {
+impl BuildFilter {
     /// `BuildFilter.fromArg`: a relative path (from the root package),
     /// `package:` (under `lib/`) and, with `asset` (`build_runner` ≥ 2.14.0),
     /// `asset:` (the whole package).
@@ -354,7 +354,7 @@ impl FiltroBuild {
     ///
     /// # Errors
     /// Unsupported scheme or invalid glob, with `build_runner`'s message.
-    pub fn from_arg(arg: &str, root: &str, asset: bool) -> Result<FiltroBuild, String> {
+    pub fn from_arg(arg: &str, root: &str, asset: bool) -> Result<BuildFilter, String> {
         let error = |e: String| {
             format!(
                 "Invalid argument (--build-filter): Not a valid build filter, must be either a relative path or `package:` uri.\n\n{e}: \"{arg}\""
@@ -395,15 +395,15 @@ impl FiltroBuild {
             Some(e) => return Err(error(format!("Unsupported scheme {e}"))),
             None => (root.to_string(), escaped_path(&uri_path(arg))),
         };
-        Ok(FiltroBuild {
-            package: Glob::novo(&package).map_err(error)?,
-            path: Glob::novo(&path).map_err(error)?,
+        Ok(BuildFilter {
+            package: Glob::new(&package).map_err(error)?,
+            path: Glob::new(&path).map_err(error)?,
         })
     }
 
     /// `BuildFilter.matches`.
-    pub fn casa(&self, id: &AssetId) -> bool {
-        self.package.casa(&id.pacote) && self.path.casa(&id.caminho)
+    pub fn matches(&self, id: &AssetId) -> bool {
+        self.package.matches(&id.package) && self.path.matches(&id.path)
     }
 }
 
@@ -472,28 +472,28 @@ mod tests {
 
     #[test]
     fn json_like_dart() {
-        assert_eq!(json("true"), Some(Valor::Bool(true)));
-        assert_eq!(json("null"), Some(Valor::Nulo));
-        assert_eq!(json("-0.5"), Some(Valor::Real("-0.5".into())));
-        assert_eq!(json("2.0"), Some(Valor::Real("2.0".into())));
+        assert_eq!(json("true"), Some(Value::Bool(true)));
+        assert_eq!(json("null"), Some(Value::Null));
+        assert_eq!(json("-0.5"), Some(Value::Real("-0.5".into())));
+        assert_eq!(json("2.0"), Some(Value::Real("2.0".into())));
         assert_eq!(json("01"), None);
         assert_eq!(json("[1,"), None);
         assert_eq!(json("'x'"), None);
         assert_eq!(
-            json(r#"{"b": 1, "a": null, "b": 2}"#).map(|v| v.texto_canonico()),
+            json(r#"{"b": 1, "a": null, "b": 2}"#).map(|v| v.canonical_text()),
             Some(r#"{"b": 2, "a": null}"#.into())
         );
-        assert_eq!(json(r#""😀""#), Some(Valor::Texto("😀".into())));
-        assert_eq!(json("\"três\""), Some(Valor::Texto("três".into())));
+        assert_eq!(json(r#""😀""#), Some(Value::Text("😀".into())));
+        assert_eq!(json("\"três\""), Some(Value::Text("três".into())));
     }
 
     #[test]
     fn define_normalizes_and_keeps_the_rest() {
-        let d = Definicoes::parse(&["x=a=1", "q|y=b=text without json"], "root").unwrap();
+        let d = Defines::parse(&["x=a=1", "q|y=b=text without json"], "root").unwrap();
         assert_eq!(d.0[0].0, "x:x");
         assert_eq!(d.0[1].0, "q:y");
         assert_eq!(
-            d.for_builder("q:y").unwrap().texto_canonico(),
+            d.for_builder("q:y").unwrap().canonical_text(),
             r#"{"b": "text without json"}"#
         );
     }
@@ -501,20 +501,20 @@ mod tests {
     #[test]
     fn filter_with_escape_and_glob() {
         // Relative: the path is the `Uri.path`, escaped.
-        let f = FiltroBuild::from_arg("lib/a b.*", "r", false).unwrap();
-        assert!(f.casa(&AssetId::novo("r", "lib/a%20b.txt")));
-        assert!(!f.casa(&AssetId::novo("r", "lib/a b.txt")));
+        let f = BuildFilter::from_arg("lib/a b.*", "r", false).unwrap();
+        assert!(f.matches(&AssetId::new("r", "lib/a%20b.txt")));
+        assert!(!f.matches(&AssetId::new("r", "lib/a b.txt")));
         assert!(
-            !FiltroBuild::from_arg("lib/{a,b}.txt", "r", false)
+            !BuildFilter::from_arg("lib/{a,b}.txt", "r", false)
                 .unwrap()
-                .casa(&AssetId::novo("r", "lib/a.txt"))
+                .matches(&AssetId::new("r", "lib/a.txt"))
         );
         // `package:`: the segments, unescaped.
-        let p = FiltroBuild::from_arg("package:r/a%20b.*", "r", false).unwrap();
-        assert!(p.casa(&AssetId::novo("r", "lib/a b.txt")));
-        let g = FiltroBuild::from_arg("package:{a,b}/**", "r", false).unwrap();
-        assert!(g.casa(&AssetId::novo("b", "lib/x/y.dart")));
-        assert!(!g.casa(&AssetId::novo("b", "web/y.dart")));
-        assert!(FiltroBuild::from_arg("http://x/y", "r", true).is_err());
+        let p = BuildFilter::from_arg("package:r/a%20b.*", "r", false).unwrap();
+        assert!(p.matches(&AssetId::new("r", "lib/a b.txt")));
+        let g = BuildFilter::from_arg("package:{a,b}/**", "r", false).unwrap();
+        assert!(g.matches(&AssetId::new("b", "lib/x/y.dart")));
+        assert!(!g.matches(&AssetId::new("b", "web/y.dart")));
+        assert!(BuildFilter::from_arg("http://x/y", "r", true).is_err());
     }
 }

@@ -357,8 +357,8 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
     let cref = format!("{lvar}.{cname}");
     let ast = &ctx.program.unit(unit).ast;
     let mut cw = Writer { indent: 1, ..Default::default() };
-    let live = |f: FunctionElementId| ctx.fn_state(f) != crate::filtro::Estado::Dead;
-    let pruned = |f: FunctionElementId| ctx.fn_state(f) == crate::filtro::Estado::Stub;
+    let live = |f: FunctionElementId| ctx.fn_state(f) != crate::filter::State::Dead;
+    let pruned = |f: FunctionElementId| ctx.fn_state(f) == crate::filter::State::Stub;
     let mut static_fields = Vec::new();
     // The primary constructor: identity.
     let tps: Vec<String> = ctx.class_params[c.0 as usize].iter().map(|p| js::ident(&p.name)).collect();
@@ -439,7 +439,7 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
     }
     for &vid in &class.fields {
         let v = ctx.program.variable(vid);
-        if v.static_ && ctx.var_state(vid) != crate::filtro::Estado::Dead {
+        if v.static_ && ctx.var_state(vid) != crate::filter::State::Dead {
             static_fields.push(vid);
         }
     }
@@ -451,7 +451,7 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
     for vid in static_fields {
         let v = ctx.program.variable(vid);
         let name = static_member_name(ctx.name(v.name));
-        if ctx.var_state(vid) == crate::filtro::Estado::Stub {
+        if ctx.var_state(vid) == crate::filter::State::Stub {
             let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &name));
             lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(&name)));
             continue;
@@ -493,7 +493,7 @@ pub(crate) fn emit_extension_type(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut W
 /// reachable without qualification.
 fn member_emitter<'m, 'a>(ctx: &'m Ctx<'a>, m: &'m ModState, c: ClassId, unit: dartforge_elements::model::UnitId) -> (FnEmitter<'m, 'a>, Vec<String>, Ty) {
     let mut e = FnEmitter::new(ctx, m, unit, None, true);
-    e.tipo_extensao = Some(c);
+    e.extension_type = Some(c);
     let mut tps = Vec::new();
     let mut params = Vec::new();
     for p in ctx.class_params[c.0 as usize].iter() {
@@ -634,7 +634,7 @@ pub(crate) fn constructor_text(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartfo
                 flush_stmts(&mut e, &mut body);
                 crate::linha!(body, "$this = {};", js.code);
             }
-            ast::Initializer::Assert { .. } if e.ctx.filtro.is_some_and(|f| !f.keep_asserts()) => {}
+            ast::Initializer::Assert { .. } if e.ctx.filter.is_some_and(|f| !f.keep_asserts()) => {}
             ast::Initializer::Assert { condition, message, .. } => {
                 let (cjs, _) = e.emit_cond(*condition);
                 let msg = message.map(|mm| e.emit_expr(mm, None).0.code).unwrap_or("null".into());

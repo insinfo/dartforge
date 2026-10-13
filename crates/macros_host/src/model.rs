@@ -71,7 +71,7 @@ impl Key {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Omitted {
     pub owner: Key,
-    /// `retorno` (return), `tipo` (of a field/variable) or the parameter
+    /// `retorno` (return), `kind` (of a field/variable) or the parameter
     /// name.
     pub place: String,
 }
@@ -136,12 +136,12 @@ impl Table {
 type Scope = Vec<(SymbolId, Key)>;
 
 /// The current program as seen by the model.
-pub struct Vista<'p> {
+pub struct View<'p> {
     pub program: &'p Program,
     pub interner: &'p Interner,
 }
 
-impl<'p> Vista<'p> {
+impl<'p> View<'p> {
     fn n(&self, s: SymbolId) -> String {
         self.interner.resolve(s).to_string()
     }

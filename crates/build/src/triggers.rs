@@ -28,20 +28,20 @@
 //! triggered: the builder runs and reports the error, instead of the step
 //! silently disappearing.
 use crate::config::BuildConfig;
-use crate::valor::Valor;
+use crate::value::Value;
 use dartforge_frontend::token::{Kind, Op};
 use std::collections::BTreeMap;
 
 /// A trigger.
 ///
 /// The `Debug` form of the variants goes into the engine's fingerprint
-/// (`motor.rs` hashes `Gatilhos::por_builder`), so their names are kept.
+/// (`engine.rs` hashes `Triggers::by_builder`), so their names are kept.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Trigger {
     /// `import <library>`: compared with `package:<library>`.
     Import(String),
     /// `annotation <Name>`.
-    Anotacao(String),
+    Annotation(String),
 }
 
 impl Trigger {
@@ -53,7 +53,7 @@ impl Trigger {
         } else if let Some(a) = text.strip_prefix("annotation ") {
             let warning =
                 (!valid_annotation(a)).then(|| format!("Invalid annotation trigger: `{a}`"));
-            (Some(Trigger::Anotacao(a.to_string())), warning)
+            (Some(Trigger::Annotation(a.to_string())), warning)
         } else {
             (None, Some(format!("Invalid trigger: `{text}`")))
         }
@@ -61,7 +61,7 @@ impl Trigger {
 
     /// Does it need the parts (`checksParts`)?
     fn reads_parts(&self) -> bool {
-        matches!(self, Trigger::Anotacao(_))
+        matches!(self, Trigger::Annotation(_))
     }
 
     /// `triggersOn`.
@@ -71,7 +71,7 @@ impl Trigger {
                 let target = format!("package:{i}");
                 units.iter().any(|u| u.imports.contains(&target))
             }
-            Trigger::Anotacao(a) => units.iter().any(|u| {
+            Trigger::Annotation(a) => units.iter().any(|u| {
                 u.annotations.iter().any(|name| {
                     name == a || name.split_once('.').is_some_and(|(_, rest)| rest == a)
                 })
@@ -111,15 +111,15 @@ fn valid_builder_name(s: &str) -> bool {
 
 /// `BuildTriggers`: the triggers accumulated from all packages.
 #[derive(Debug, Clone, Default)]
-pub struct Gatilhos {
+pub struct Triggers {
     /// By builder name (as written in `build.yaml`), without repetition, in
     /// the order in which they appeared.
-    pub por_builder: BTreeMap<String, Vec<Trigger>>,
+    pub by_builder: BTreeMap<String, Vec<Trigger>>,
     /// Parsing warnings, by package (`warningsByPackage`).
     pub warnings: Vec<(String, Vec<String>)>,
 }
 
-impl Gatilhos {
+impl Triggers {
     /// `BuildTriggers.fromConfigs`, in the given package order.
     ///
     /// ```
@@ -133,18 +133,18 @@ impl Gatilhos {
     /// assert_eq!(g.por_builder["p:b"], [Trigger::Anotacao("A".into()), Trigger::Import("p/a.dart".into())]);
     /// assert_eq!(g.warnings[0].1, ["Invalid trigger: `other`"]);
     /// ```
-    pub fn das_configs<'a>(configs: impl IntoIterator<Item = &'a BuildConfig>) -> Gatilhos {
-        let mut g = Gatilhos::default();
+    pub fn from_configs<'a>(configs: impl IntoIterator<Item = &'a BuildConfig>) -> Triggers {
+        let mut g = Triggers::default();
         for c in configs {
             let mut warnings = Vec::new();
-            for (builder, value) in &c.gatilhos {
+            for (builder, value) in &c.triggers {
                 if !valid_builder_name(builder) {
                     warnings.push(format!("Invalid builder name: `{builder}`"));
                 }
-                let Valor::Lista(items) = value else {
+                let Value::List(items) = value else {
                     warnings.push(format!(
                         "Invalid `triggers`, should be a list of triggers: {}",
-                        value.texto_canonico()
+                        value.canonical_text()
                     ));
                     continue;
                 };
@@ -152,13 +152,13 @@ impl Gatilhos {
                 for item in items {
                     // An item that is not a string is neither a trigger nor a
                     // warning.
-                    let Valor::Texto(t) = item else { continue };
+                    let Value::Text(t) = item else { continue };
                     let (trigger, warning) = Trigger::parse(t);
                     new.extend(trigger);
                     warnings.extend(warning);
                 }
                 if !new.is_empty() {
-                    let v = g.por_builder.entry(builder.clone()).or_default();
+                    let v = g.by_builder.entry(builder.clone()).or_default();
                     for n in new {
                         if !v.contains(&n) {
                             v.push(n);
@@ -167,7 +167,7 @@ impl Gatilhos {
                 }
             }
             if !warnings.is_empty() {
-                g.warnings.push((c.pacote.clone(), warnings));
+                g.warnings.push((c.package.clone(), warnings));
             }
         }
         g
@@ -175,16 +175,16 @@ impl Gatilhos {
 
     /// The triggers of the builder `key` (`package:name`). `short`:
     /// `build_runner` between 2.7.0 and 2.10.0 looked up `p:p` as `p`.
-    pub fn do_builder(&self, key: &str, short: bool) -> Option<&[Trigger]> {
+    pub fn for_builder(&self, key: &str, short: bool) -> Option<&[Trigger]> {
         let name = match key.split_once(':') {
             Some((p, n)) if short && p == n => p,
             _ => key,
         };
-        self.por_builder.get(name).map(Vec::as_slice)
+        self.by_builder.get(name).map(Vec::as_slice)
     }
 
     /// `renderWarnings`.
-    pub fn texto_dos_avisos(&self) -> Option<String> {
+    pub fn warnings_text(&self) -> Option<String> {
         if self.warnings.is_empty() {
             return None;
         }
@@ -356,7 +356,7 @@ fn string_value(
 /// `_allowedByTriggers` after the option: does any trigger fire? `primary`:
 /// the input's source; `part(uri)`: the text of a part readable by the phase
 /// (the call records the query), or `None`.
-pub fn disparado(
+pub fn triggered(
     triggers: &[Trigger],
     primary: &str,
     mut part: impl FnMut(&str) -> Option<String>,
@@ -429,33 +429,33 @@ mod tests {
 
     #[test]
     fn firing() {
-        let a = [Trigger::Anotacao("Generate".into())];
-        assert!(disparado(&a, "@Generate() class X {}", |_| None));
-        assert!(disparado(&a, "@an.Generate() class X {}", |_| None));
-        assert!(!disparado(&a, "@an.Generate.named() class X {}", |_| None));
-        assert!(!disparado(&a, "@Generate.named() class X {}", |_| None));
-        assert!(disparado(
-            &[Trigger::Anotacao("Generate.named".into())],
+        let a = [Trigger::Annotation("Generate".into())];
+        assert!(triggered(&a, "@Generate() class X {}", |_| None));
+        assert!(triggered(&a, "@an.Generate() class X {}", |_| None));
+        assert!(!triggered(&a, "@an.Generate.named() class X {}", |_| None));
+        assert!(!triggered(&a, "@Generate.named() class X {}", |_| None));
+        assert!(triggered(
+            &[Trigger::Annotation("Generate.named".into())],
             "@Generate.named() class X {}",
             |_| None
         ));
         // Through the parts.
         let mut read = Vec::new();
-        assert!(disparado(&a, "part 'y.dart';\nclass X {}", |u| {
+        assert!(triggered(&a, "part 'y.dart';\nclass X {}", |u| {
             read.push(u.to_string());
             Some("part of 'x.dart';\n@Generate() class Y {}".into())
         }));
         assert_eq!(read, ["y.dart"]);
         // The import does not look at parts.
         let i = [Trigger::Import("a/b.dart".into())];
-        assert!(!disparado(&i, "part 'y.dart';", |_| Some(
+        assert!(!triggered(&i, "part 'y.dart';", |_| Some(
             "import 'package:a/b.dart';".into()
         )));
-        assert!(disparado(&i, "import 'package:a/b.dart';", |_| None));
-        assert!(!disparado(&i, "import 'b.dart';", |_| None));
+        assert!(triggered(&i, "import 'package:a/b.dart';", |_| None));
+        assert!(!triggered(&i, "import 'b.dart';", |_| None));
         // Without triggers, it does not fire; a source the lexer rejects fires.
-        assert!(!disparado(&[], "@Generate() class X {}", |_| None));
-        assert!(disparado(&a, "const s = 'unterminated", |_| None));
+        assert!(!triggered(&[], "@Generate() class X {}", |_| None));
+        assert!(triggered(&a, "const s = 'unterminated", |_| None));
     }
 
     #[test]

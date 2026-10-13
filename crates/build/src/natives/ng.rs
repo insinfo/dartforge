@@ -14,8 +14,8 @@
 //! through `import`/`export` (`try_dart`). The rest (new or deleted file,
 //! part, refusal, another package) follows stage A; the package is still the
 //! engine's revalidation unit.
-use crate::consulta::Consulta;
-use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
+use crate::query::Query;
+use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -48,7 +48,7 @@ impl NgStageA {
 }
 
 struct NgCache {
-    output: SaidaNativa,
+    output: NativeOutput,
     /// HTML/CSS/SCSS -> Dart sources that read the resource.
     resource_readers: BTreeMap<PathBuf, Vec<PathBuf>>,
     index: Option<dartforge_ng_generator::Indice>,
@@ -85,7 +85,7 @@ const EXTENSIONS: &[&str] = &["dart", "html", "scss", "sass", "css"];
 /// engine's memory): ngdart's shim starts from them, as in the official
 /// builder, with the project's `outputStyle`. A `.css` stylesheet on disk
 /// stays with the disk.
-fn generated_sheets(ctx: &mut CtxGerador<'_>, root: &Path) -> HashMap<PathBuf, String> {
+fn generated_sheets(ctx: &mut GeneratorCtx<'_>, root: &Path) -> HashMap<PathBuf, String> {
     let mut sources = Vec::new();
     for d in ["lib", "web", "test"] {
         collect_files(&root.join(d), &mut sources);
@@ -106,7 +106,7 @@ fn generated_sheets(ctx: &mut CtxGerador<'_>, root: &Path) -> HashMap<PathBuf, S
             if css.is_file() {
                 continue;
             }
-            if let Some(b) = ctx.ler(&css) {
+            if let Some(b) = ctx.read(&css) {
                 sheets.insert(css, String::from_utf8_lossy(&b).into_owned());
             }
         }
@@ -133,8 +133,8 @@ fn collect_files(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
     }
 }
 
-impl GeradorNativo for NgStageA {
-    fn chave(&self) -> &'static str {
+impl NativeGenerator for NgStageA {
+    fn key(&self) -> &'static str {
         self.key
     }
 
@@ -142,29 +142,29 @@ impl GeradorNativo for NgStageA {
         factory == "templateCompiler" || factory == "stylesheetCompiler"
     }
 
-    fn por_pacote(&self) -> bool {
+    fn by_package(&self) -> bool {
         true
     }
 
-    fn verificado(&self) -> bool {
+    fn verified(&self) -> bool {
         // Verified byte for byte: 0 differences against the oracle of the
         // ngdart corpus and of new_sali (ESTADO §1.7); what it does not know,
         // it refuses.
         true
     }
 
-    fn gerar(
+    fn generate(
         &self,
-        ctx: &mut CtxGerador<'_>,
-        request: &PedidoNativo,
-    ) -> Result<SaidaNativa, String> {
-        let root = &request.raiz_do_pacote;
+        ctx: &mut GeneratorCtx<'_>,
+        request: &NativeRequest,
+    ) -> Result<NativeOutput, String> {
+        let root = &request.package_root;
         // Any package ngdart applies to: the input's package and the
         // dependencies with components (a `path` one like the `example`'s
         // `limitless_ui`, and the `hosted` ngdart/ngcompiler, whose
         // `.template.dart` files DDC asks for). The files that the input's
         // program does not load are refused by the generator, with a reason.
-        let Some((program, program_names)) = ctx.programa else {
+        let Some((program, program_names)) = ctx.program else {
             return Err("ngdart (stage A): no program loaded".into());
         };
         // On an existing resource, the package's list of conservative queries
@@ -180,9 +180,9 @@ impl GeradorNativo for NgStageA {
         let mut v = Vec::new();
         for d in ["lib", "web", "test"] {
             let dir = root.join(d);
-            ctx.registrar(Consulta::Glob {
+            ctx.register(Query::Glob {
                 dir: dartforge_elements::gerado::chave(&dir),
-                padrao: "**".into(),
+                pattern: "**".into(),
             });
             collect_files(&dir, &mut v);
         }
@@ -212,12 +212,12 @@ impl GeradorNativo for NgStageA {
                 (true, Some(uri))
                     if !looks_angular(&std::fs::read_to_string(p).unwrap_or_default()) =>
                 {
-                    ctx.registrar(Consulta::ApiBiblioteca(uri.to_string()));
+                    ctx.register(Query::ApiBiblioteca(uri.to_string()));
                     // The file name decides the trivial template: its
                     // existence is also a query.
-                    ctx.registrar(Consulta::Existe(k));
+                    ctx.register(Query::Exists(k));
                 }
-                _ => ctx.registrar(Consulta::Arquivo(k)),
+                _ => ctx.register(Query::File(k)),
             }
         }
         // What the `Resolvedor` may ask from outside the package: the
@@ -226,7 +226,7 @@ impl GeradorNativo for NgStageA {
         // editing the application does not wake up the dependency's round.
         let in_package =
             |l: &dartforge_elements::model::Library| match l.uri.strip_prefix("package:") {
-                Some(r) => r.split('/').next() == Some(request.pacote.as_str()),
+                Some(r) => r.split('/').next() == Some(request.package.as_str()),
                 None => l
                     .units
                     .first()
@@ -249,12 +249,12 @@ impl GeradorNativo for NgStageA {
                     .chain(l.exports.iter().map(|x| x.library.0 as usize)),
             );
             if !l.is_sdk && !in_package(l) {
-                ctx.registrar(Consulta::FonteBiblioteca(l.uri.clone()));
+                ctx.register(Query::FonteBiblioteca(l.uri.clone()));
             }
         }
         let t_queries = t.elapsed();
         let package = dartforge_ng_generator::Pacote {
-            nome: request.pacote.clone(),
+            nome: request.package.clone(),
             raiz: root.clone(),
             folhas_geradas: generated_sheets(ctx, root),
         };
@@ -271,7 +271,7 @@ impl GeradorNativo for NgStageA {
                 (t.elapsed() - t_queries).as_secs_f64() * 1000.0
             );
         }
-        let mut s = SaidaNativa::default();
+        let mut s = NativeOutput::default();
         let mut resource_readers: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
         // The generator writes for every file in the directories; the engine
         // keeps only the outputs the plan expects (`build.yaml`'s
@@ -280,7 +280,7 @@ impl GeradorNativo for NgStageA {
         let planned = planned_outputs(request);
         for (p, f) in g.iter() {
             if f.gerador == "ngdart" && planned.contains(&dartforge_elements::gerado::chave(p)) {
-                s.saidas.insert(p.clone(), f.conteudo.as_bytes().to_vec());
+                s.outputs.insert(p.clone(), f.conteudo.as_bytes().to_vec());
                 if p.to_string_lossy().ends_with(".template.dart") {
                     if let Some(source) = f.entradas.first() {
                         for resource in f.entradas.iter().filter(|e| {
@@ -309,12 +309,12 @@ impl GeradorNativo for NgStageA {
                 .unwrap_or_else(|| "ngdart (stage A) refuses".into());
             s.recusas.insert(p.clone(), m);
         }
-        s.unidades_geradas = scoreboard.gerados;
+        s.generated_unit_count = scoreboard.gerados;
         self.cache
             .lock()
             .map_err(|_| "ngdart: poisoned cache")?
             .insert(
-                request.pacote.clone(),
+                request.package.clone(),
                 NgCache {
                     output: clone_output(&s),
                     resource_readers,
@@ -326,12 +326,12 @@ impl GeradorNativo for NgStageA {
 }
 
 /// The outputs the plan expects from the request's actions, by key.
-fn planned_outputs(request: &PedidoNativo) -> std::collections::HashSet<PathBuf> {
+fn planned_outputs(request: &NativeRequest) -> std::collections::HashSet<PathBuf> {
     request
-        .acoes
+        .actions
         .iter()
         .flat_map(|a| {
-            a.saidas
+            a.outputs
                 .iter()
                 .map(|(_, p)| dartforge_elements::gerado::chave(p))
         })
@@ -347,12 +347,12 @@ fn sheet_of_output(p: &Path) -> Option<PathBuf> {
     base.ends_with(".css").then(|| p.with_file_name(base))
 }
 
-fn clone_output(s: &SaidaNativa) -> SaidaNativa {
-    SaidaNativa {
-        saidas: s.saidas.clone(),
+fn clone_output(s: &NativeOutput) -> NativeOutput {
+    NativeOutput {
+        outputs: s.outputs.clone(),
         recusas: s.recusas.clone(),
-        unidades_geradas: s.unidades_geradas,
-        reutilizar_consultas: s.reutilizar_consultas,
+        generated_unit_count: s.generated_unit_count,
+        reuse_queries: s.reuse_queries,
     }
 }
 
@@ -370,12 +370,12 @@ impl NgStageA {
     /// Falls back to stage A (returns `None`) for what it cannot handle this
     /// way: a file outside the package, a part, a file without a previous
     /// template, a file refused before or now, an output that did not exist.
-    fn try_dart(&self, ctx: &mut CtxGerador<'_>, request: &PedidoNativo) -> Option<SaidaNativa> {
-        let root = &request.raiz_do_pacote;
+    fn try_dart(&self, ctx: &mut GeneratorCtx<'_>, request: &NativeRequest) -> Option<NativeOutput> {
+        let root = &request.package_root;
         let canon_root = std::fs::canonicalize(root).ok()?;
         // The events come in lexical and in canonical form: a single set.
         let mut changed: Vec<PathBuf> = Vec::new();
-        for p in ctx.mudados.iter() {
+        for p in ctx.changed_paths.iter() {
             let c = std::fs::canonicalize(p).ok()?;
             if !changed.contains(&c) {
                 changed.push(c);
@@ -390,7 +390,7 @@ impl NgStageA {
         {
             return None;
         }
-        let (program, program_names) = ctx.programa?;
+        let (program, program_names) = ctx.program?;
         // Unit (canonical) → library, and the reverse import/export graph of
         // all the loaded libraries.
         let mut library_of_unit: HashMap<PathBuf, usize> = HashMap::new();
@@ -465,9 +465,9 @@ impl NgStageA {
         }
         closure.sort();
         let mut cache = self.cache.lock().ok()?;
-        let cache = cache.get_mut(&request.pacote)?;
+        let cache = cache.get_mut(&request.package)?;
         let package = dartforge_ng_generator::Pacote {
-            nome: request.pacote.clone(),
+            nome: request.package.clone(),
             raiz: root.clone(),
             folhas_geradas: generated_sheets(ctx, root),
         };
@@ -475,7 +475,7 @@ impl NgStageA {
             dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
         for source in &closure {
             let target = dartforge_ng_generator::caminho_do_template(source);
-            if !cache.output.saidas.contains_key(&target)
+            if !cache.output.outputs.contains_key(&target)
                 || cache.output.recusas.contains_key(source)
             {
                 return None;
@@ -515,7 +515,7 @@ impl NgStageA {
             let target = dartforge_ng_generator::caminho_do_template(source);
             new.push((target, output.template.into_bytes()));
             for (target, text) in output.extras {
-                if !cache.output.saidas.contains_key(&target) {
+                if !cache.output.outputs.contains_key(&target) {
                     return None;
                 }
                 new.push((target, text.into_bytes()));
@@ -533,7 +533,7 @@ impl NgStageA {
             resources.push((source.clone(), read));
         }
         for (target, bytes) in new {
-            cache.output.saidas.insert(target, bytes);
+            cache.output.outputs.insert(target, bytes);
         }
         // The resources each file of the closure reads now.
         for (source, read) in resources {
@@ -557,8 +557,8 @@ impl NgStageA {
             );
         }
         let mut output = clone_output(&cache.output);
-        output.unidades_geradas = closure.len();
-        output.reutilizar_consultas = true;
+        output.generated_unit_count = closure.len();
+        output.reuse_queries = true;
         // Stage A's queries over the edited files, with the new digest: the
         // text (a file with Angular) and the API (without Angular).
         let library_of: HashMap<PathBuf, &str> = program
@@ -571,12 +571,12 @@ impl NgStageA {
                 ))
             })
             .collect();
-        for p in ctx.mudados.clone().iter() {
+        for p in ctx.changed_paths.clone().iter() {
             let k = dartforge_elements::gerado::chave(p);
-            ctx.registrar(Consulta::Arquivo(k.clone()));
-            ctx.registrar(Consulta::Existe(k.clone()));
+            ctx.register(Query::File(k.clone()));
+            ctx.register(Query::Exists(k.clone()));
             if let Some(uri) = library_of.get(&k) {
-                ctx.registrar(Consulta::ApiBiblioteca(uri.to_string()));
+                ctx.register(Query::ApiBiblioteca(uri.to_string()));
             }
         }
         Some(output)
@@ -584,11 +584,11 @@ impl NgStageA {
 
     fn try_resource(
         &self,
-        ctx: &mut CtxGerador<'_>,
-        request: &PedidoNativo,
-    ) -> Option<SaidaNativa> {
-        let resource = ctx.mudados.iter().find(|p| {
-            p.starts_with(&request.raiz_do_pacote)
+        ctx: &mut GeneratorCtx<'_>,
+        request: &NativeRequest,
+    ) -> Option<NativeOutput> {
+        let resource = ctx.changed_paths.iter().find(|p| {
+            p.starts_with(&request.package_root)
                 && p.extension()
                     .is_some_and(|e| matches!(e.to_str(), Some("html" | "css" | "scss" | "sass")))
         })?;
@@ -598,14 +598,14 @@ impl NgStageA {
         // file.
         let canon_resource = std::fs::canonicalize(resource).ok()?;
         if ctx
-            .mudados
+            .changed_paths
             .iter()
             .any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_resource))
         {
             return None;
         }
         let mut cache = self.cache.lock().ok()?;
-        let cache = cache.get_mut(&request.pacote)?;
+        let cache = cache.get_mut(&request.package)?;
         // A stylesheet (the `.css`, or the `.scss` that `sass_builder`
         // compiles): only its outputs, which do not depend on any component.
         if resource
@@ -613,9 +613,9 @@ impl NgStageA {
             .is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "sass")))
         {
             let package = dartforge_ng_generator::Pacote {
-                nome: request.pacote.clone(),
-                raiz: request.raiz_do_pacote.clone(),
-                folhas_geradas: generated_sheets(ctx, &request.raiz_do_pacote),
+                nome: request.package.clone(),
+                raiz: request.package_root.clone(),
+                folhas_geradas: generated_sheets(ctx, &request.package_root),
             };
             let css = resource.with_extension("css");
             let mut new = Vec::new();
@@ -623,26 +623,26 @@ impl NgStageA {
                 // An output that was not ours, or that stops being ours: the
                 // full path decides.
                 let bytes = r.ok()?.into_bytes();
-                if !cache.output.saidas.contains_key(&target) {
+                if !cache.output.outputs.contains_key(&target) {
                     return None;
                 }
                 new.push((target, bytes));
             }
             for (target, bytes) in new {
-                cache.output.saidas.insert(target, bytes);
+                cache.output.outputs.insert(target, bytes);
             }
             let mut output = clone_output(&cache.output);
-            output.unidades_geradas = 1;
-            output.reutilizar_consultas = true;
-            ctx.registrar(Consulta::Arquivo(resource.clone()));
+            output.generated_unit_count = 1;
+            output.reuse_queries = true;
+            ctx.register(Query::File(resource.clone()));
             return Some(output);
         }
         let sources = cache.resource_readers.get(resource)?.clone();
-        let (program, program_names) = ctx.programa?;
+        let (program, program_names) = ctx.program?;
         let package = dartforge_ng_generator::Pacote {
-            nome: request.pacote.clone(),
-            raiz: request.raiz_do_pacote.clone(),
-            folhas_geradas: generated_sheets(ctx, &request.raiz_do_pacote),
+            nome: request.package.clone(),
+            raiz: request.package_root.clone(),
+            folhas_geradas: generated_sheets(ctx, &request.package_root),
         };
         let resolver =
             dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
@@ -666,19 +666,19 @@ impl NgStageA {
             )
             .ok()?;
             let target = dartforge_ng_generator::caminho_do_template(&source);
-            if !cache.output.saidas.contains_key(&target) {
+            if !cache.output.outputs.contains_key(&target) {
                 return None;
             }
             new.push((target, output.template.into_bytes()));
             for (target, text) in output.extras {
-                if !cache.output.saidas.contains_key(&target) {
+                if !cache.output.outputs.contains_key(&target) {
                     return None;
                 }
                 new.push((target, text.into_bytes()));
             }
         }
         for (target, bytes) in new {
-            cache.output.saidas.insert(target, bytes);
+            cache.output.outputs.insert(target, bytes);
         }
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
@@ -688,9 +688,9 @@ impl NgStageA {
             );
         }
         let mut output = clone_output(&cache.output);
-        output.unidades_geradas = components;
-        output.reutilizar_consultas = true;
-        ctx.registrar(Consulta::Arquivo(resource.clone()));
+        output.generated_unit_count = components;
+        output.reuse_queries = true;
+        ctx.register(Query::File(resource.clone()));
         Some(output)
     }
 }

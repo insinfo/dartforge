@@ -2,7 +2,7 @@
 //! `docs/JS-PRODUCAO.md` §1.7).
 //!
 //! The emitter asks the filter whether a class, function or variable is live, and
-//! does not emit what is dead. **Without a filter (`Ctx::filtro == None`), nothing
+//! does not emit what is dead. **Without a filter (`Ctx::filter == None`), nothing
 //! changes**: that is the development profile and `dartforge serve`, byte for byte as
 //! before — the `identidade` test of `emit_js_production` compiles the same programs
 //! through both paths and compares them.
@@ -11,18 +11,18 @@ use dartforge_elements::model::{ClassId, FunctionElementId, VariableId};
 
 /// Reachability level of a class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Nivel {
+pub enum Level {
     /// Not emitted.
     Dead,
     /// Identity only: shell, `addRtiResources`, rti rules and live statics.
-    Tipo,
+    Type,
     /// Constructed: everything the filter says is live.
     Instantiated,
 }
 
 /// State of a function or variable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Estado {
+pub enum State {
     Live,
     Dead,
     /// Emitted as a *stub* that reports the call (`dart_podado("…")`): the
@@ -31,9 +31,9 @@ pub enum Estado {
 }
 
 pub trait Liveness {
-    fn classe(&self, c: ClassId) -> Nivel;
-    fn funcao(&self, f: FunctionElementId) -> Estado;
-    fn variavel(&self, v: VariableId) -> Estado;
+    fn classe(&self, c: ClassId) -> Level;
+    fn funcao(&self, f: FunctionElementId) -> State;
+    fn variavel(&self, v: VariableId) -> State;
     /// Name invoked somewhere (`noSuchMethod` forwarders).
     fn selector(&self, name: &str) -> bool;
     /// Name written somewhere (`x.name = v`): the `noSuchMethod` forwarders for
@@ -82,14 +82,14 @@ pub trait Liveness {
 pub struct AllLive;
 
 impl Liveness for AllLive {
-    fn classe(&self, _: ClassId) -> Nivel {
-        Nivel::Instantiated
+    fn classe(&self, _: ClassId) -> Level {
+        Level::Instantiated
     }
-    fn funcao(&self, _: FunctionElementId) -> Estado {
-        Estado::Live
+    fn funcao(&self, _: FunctionElementId) -> State {
+        State::Live
     }
-    fn variavel(&self, _: VariableId) -> Estado {
-        Estado::Live
+    fn variavel(&self, _: VariableId) -> State {
+        State::Live
     }
     fn selector(&self, _: &str) -> bool {
         true

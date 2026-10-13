@@ -5,13 +5,13 @@
 //! the builder's path for `build_runner` and for compatibility with the
 //! official toolchain. The JS compiler also uses it, by default, to run
 //! applications straight from source; the D4 native executor is
-//! [`crate::nativo`].
+//! [`crate::native`].
 //!
 //! The host generates the *bootstrap* (spec, "Macro execution"): a `main`
 //! that imports the libraries of the applied macros and maps `uri#Class` →
 //! constructor by *tear-off*, without mirrors; and a `package_config.json`
 //! that is the project's own with `macros` pointing at our API.
-use crate::aplicacoes::Application;
+use crate::applications::Application;
 use crate::executor::DfexecExecutor;
 use crate::protocol::CanalDeProcesso;
 use serde_json::{Value, json};
@@ -19,13 +19,13 @@ use std::path::{Path, PathBuf};
 
 /// Where the VM and our API are.
 #[derive(Debug, Clone)]
-pub struct ConfigDaVm {
+pub struct VmConfig {
     /// The `dart` executable.
     pub dart: PathBuf,
     /// The package root of our API (`packages/macros`).
     pub api: PathBuf,
     /// Where to write the bootstrap and the `package_config.json`.
-    pub trabalho: PathBuf,
+    pub work_dir: PathBuf,
 }
 
 /// The bootstrap text for the macros of `apps`.
@@ -124,11 +124,11 @@ fn file_uri(p: &Path, directory: bool) -> String {
 
 /// Writes the bootstrap and starts the VM with it. The channel is that of
 /// any process that speaks `dfexec/1`.
-pub fn iniciar(cfg: &ConfigDaVm, apps: &[Application], project_package_config: Option<&Path>) -> Result<DfexecExecutor<CanalDeProcesso>, String> {
-    std::fs::create_dir_all(&cfg.trabalho).map_err(|e| format!("{}: {e}", cfg.trabalho.display()))?;
-    let main = cfg.trabalho.join("bootstrap.dart");
+pub fn start(cfg: &VmConfig, apps: &[Application], project_package_config: Option<&Path>) -> Result<DfexecExecutor<CanalDeProcesso>, String> {
+    std::fs::create_dir_all(&cfg.work_dir).map_err(|e| format!("{}: {e}", cfg.work_dir.display()))?;
+    let main = cfg.work_dir.join("bootstrap.dart");
     std::fs::write(&main, bootstrap(apps)).map_err(|e| format!("{}: {e}", main.display()))?;
-    let pc = cfg.trabalho.join("package_config.json");
+    let pc = cfg.work_dir.join("package_config.json");
     let json = package_config(project_package_config, &cfg.api)?;
     std::fs::write(&pc, serde_json::to_string_pretty(&json).unwrap_or_default()).map_err(|e| format!("{}: {e}", pc.display()))?;
     let mut cmd = std::process::Command::new(&cfg.dart);

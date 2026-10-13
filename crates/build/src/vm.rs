@@ -5,7 +5,7 @@
 //! self-hosted executor will speak, with the official VM in place of our
 //! runtime. That is why it is optional and explicit
 //! (`dartforge build --dart <exe>`, or `DARTFORGE_BUILD_DART`): without it
-//! the engine keeps the [`crate::executor::Indisponivel`] executor.
+//! the engine keeps the [`crate::executor::Unavailable`] executor.
 //!
 //! The host generates, in the project's `.dart_tool/dartforge/build/`:
 //!
@@ -20,10 +20,10 @@
 //!   relative imports work without rewriting);
 //! * a *kernel* compiled once (`dart compile kernel`), reused across
 //!   sessions as long as no file in the `--depfile` changes.
-use crate::cliente::ClienteBuild;
+use crate::client::BuildClient;
 use crate::executor::{
-    Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, PedidoAcao, PedidoExtensoes,
-    ResultadoAcao, ScriptDeBuilders, ServicoBuildStep,
+    Availability, ExecutorError, DartExecutor, RuntimeExtensions, ActionRequest, ExtensionsRequest,
+    ActionResult, BuilderScript, BuildStepService,
 };
 use dartforge_dfexec::CanalDeProcesso;
 use serde_json::{Value, json};
@@ -53,30 +53,30 @@ const SOURCES: &[(&str, &str)] = &[
 pub const ENV_VAR: &str = "DARTFORGE_BUILD_DART";
 
 /// The `dart` executable requested by the environment ([`ENV_VAR`]), if any.
-pub fn dart_do_ambiente() -> Option<PathBuf> {
+pub fn dart_from_env() -> Option<PathBuf> {
     std::env::var_os(ENV_VAR)
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
 }
 
-/// Enables the VM executor on `motor` with the given `dart`: the process is
+/// Enables the VM executor on `engine` with the given `dart`: the process is
 /// only spawned on the session's first Dart action. `package_config` is the
 /// project's (the one the engine read).
-pub fn ligar(motor: &mut crate::Motor, dart: PathBuf, package_config: &Path) {
-    let root = motor.grafo_pacotes.dir_raiz.clone();
-    let cfg = ConfigDaVm {
+pub fn attach(engine: &mut crate::Engine, dart: PathBuf, package_config: &Path) {
+    let root = engine.package_graph.root_dir.clone();
+    let cfg = VmConfig {
         package_config: package_config.to_path_buf(),
-        ..ConfigDaVm::do_projeto(dart, &root)
+        ..VmConfig::for_project(dart, &root)
     };
-    motor.definir_executor_dart(Box::new(ExecutorVm::novo(cfg)));
+    engine.set_dart_executor(Box::new(VmExecutor::new(cfg)));
 }
 
-/// [`ligar`] with the `dart` from [`ENV_VAR`], if the environment asked for
+/// [`attach`] with the `dart` from [`ENV_VAR`], if the environment asked for
 /// it; returns whether it was enabled.
-pub fn ligar_do_ambiente(motor: &mut crate::Motor, package_config: &Path) -> bool {
-    match dart_do_ambiente() {
+pub fn attach_from_env(engine: &mut crate::Engine, package_config: &Path) -> bool {
+    match dart_from_env() {
         Some(d) => {
-            ligar(motor, d, package_config);
+            attach(engine, d, package_config);
             true
         }
         None => false,
@@ -85,7 +85,7 @@ pub fn ligar_do_ambiente(motor: &mut crate::Motor, package_config: &Path) -> boo
 
 /// Where the VM and the project are.
 #[derive(Debug, Clone)]
-pub struct ConfigDaVm {
+pub struct VmConfig {
     /// The `dart` executable.
     pub dart: PathBuf,
     /// Directory of the root package (the process runs in it, like
@@ -98,7 +98,7 @@ pub struct ConfigDaVm {
     pub work_dir: PathBuf,
 }
 
-impl ConfigDaVm {
+impl VmConfig {
     /// The default configuration of a project: `.dart_tool/package_config.json`
     /// and work directory `.dart_tool/dartforge/build` (the same depth as the
     /// official `.dart_tool/build/entrypoint`).
@@ -109,8 +109,8 @@ impl ConfigDaVm {
     /// let c = ConfigDaVm::do_projeto("dart".into(), Path::new("/p"));
     /// assert!(c.work_dir.ends_with(".dart_tool/dartforge/build"));
     /// ```
-    pub fn do_projeto(dart: PathBuf, root: &Path) -> ConfigDaVm {
-        ConfigDaVm {
+    pub fn for_project(dart: PathBuf, root: &Path) -> VmConfig {
+        VmConfig {
             dart,
             root: root.to_path_buf(),
             package_config: root.join(".dart_tool").join("package_config.json"),
@@ -151,9 +151,9 @@ fn literal(s: &str) -> String {
 /// assert!(text.contains("import 'package:p/builder.dart' as _i0;"));
 /// assert!(text.contains("'p:b': {'b': _i0.b}"));
 /// ```
-pub fn bootstrap(script: &ScriptDeBuilders, package_config: &Path) -> String {
+pub fn bootstrap(script: &BuilderScript, package_config: &Path) -> String {
     let mut imports: Vec<&str> = Vec::new();
-    for (_, import, _) in &script.aplicacoes {
+    for (_, import, _) in &script.applications {
         if !imports.contains(&import.as_str()) {
             imports.push(import);
         }
@@ -169,7 +169,7 @@ pub fn bootstrap(script: &ScriptDeBuilders, package_config: &Path) -> String {
         s.push_str(&format!("import {} as _i{i};\n", literal(imp)));
     }
     s.push_str("\nFuture<void> main() => _df.servir({\n");
-    for (key, import, factories) in &script.aplicacoes {
+    for (key, import, factories) in &script.applications {
         let i = imports.iter().position(|x| x == import).unwrap_or(0);
         let map: Vec<String> = factories
             .iter()
@@ -247,7 +247,7 @@ fn normalize(p: &Path) -> PathBuf {
 }
 
 /// Files of a Ninja depfile (`output: dep1 dep2`, spaces escaped with `\`).
-pub(crate) fn deps_do_depfile(text: &str) -> Vec<PathBuf> {
+pub(crate) fn depfile_deps(text: &str) -> Vec<PathBuf> {
     let Some((_, rest)) = text.split_once(": ") else {
         return Vec::new();
     };
@@ -285,12 +285,12 @@ fn kernel_is_valid(dill: &Path, depfile: &Path) -> bool {
     let (Some(t), Ok(text)) = (mtime(dill), std::fs::read_to_string(depfile)) else {
         return false;
     };
-    let deps = deps_do_depfile(&text);
+    let deps = depfile_deps(&text);
     !deps.is_empty() && deps.iter().all(|d| mtime(d).is_some_and(|m| m <= t))
 }
 
 /// The files the builder bootstrap needs, already written.
-pub(crate) struct Gravados {
+pub(crate) struct WrittenBootstrap {
     /// The `bootstrap.dart`.
     pub principal: PathBuf,
     /// The project's `package_config.json` plus the executor package.
@@ -308,12 +308,12 @@ pub(crate) struct Gravados {
 pub(crate) fn gravar_bootstrap(
     work_dir: &Path,
     project_package_config: &Path,
-    script: &ScriptDeBuilders,
-) -> Result<Gravados, String> {
+    script: &BuilderScript,
+) -> Result<WrittenBootstrap, String> {
     let error = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
     let package = work_dir.join(EXECUTOR_PACKAGE);
     let mut h = blake3::Hasher::new();
-    h.update(script.chave_de_cache.as_bytes());
+    h.update(script.cache_key.as_bytes());
     for (rel, text) in SOURCES {
         let destination = package.join("lib").join(rel);
         if let Some(parent) = destination.parent() {
@@ -341,7 +341,7 @@ pub(crate) fn gravar_bootstrap(
     }
     h.update(text.as_bytes());
     h.update(json.as_bytes());
-    Ok(Gravados {
+    Ok(WrittenBootstrap {
         principal: main,
         package_config: pc,
         hasher: h,
@@ -359,19 +359,19 @@ pub struct VmMeasurement {
 }
 
 /// The VM executor: spawns the process on the session's first Dart action
-/// and keeps it warm until [`ExecutorDart::encerrar`].
-pub struct ExecutorVm {
-    cfg: ConfigDaVm,
-    client: Option<ClienteBuild<CanalDeProcesso>>,
+/// and keeps it warm until [`DartExecutor::shutdown`].
+pub struct VmExecutor {
+    cfg: VmConfig,
+    client: Option<BuildClient<CanalDeProcesso>>,
     /// Key of the kernel the current process loaded.
     key: Option<String>,
     failure: Option<String>,
     pub measurement: VmMeasurement,
 }
 
-impl ExecutorVm {
-    pub fn novo(cfg: ConfigDaVm) -> ExecutorVm {
-        ExecutorVm {
+impl VmExecutor {
+    pub fn new(cfg: VmConfig) -> VmExecutor {
+        VmExecutor {
             cfg,
             client: None,
             key: None,
@@ -382,10 +382,10 @@ impl ExecutorVm {
 
     /// Writes the files, compiles (or reuses) the kernel and starts the
     /// process. Returns the kernel key.
-    fn start(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
+    fn start(&mut self, script: &BuilderScript) -> Result<String, String> {
         let t = &self.cfg.work_dir;
         let error = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
-        let Gravados {
+        let WrittenBootstrap {
             principal: main,
             package_config: pc,
             mut hasher,
@@ -436,27 +436,27 @@ impl ExecutorVm {
         cmd.current_dir(&self.cfg.root)
             .arg(format!("--packages={}", pc.display()))
             .arg(&dill);
-        self.client = Some(ClienteBuild::iniciar(cmd)?);
+        self.client = Some(BuildClient::start(cmd)?);
         Ok(key)
     }
 }
 
-impl ExecutorVm {
+impl VmExecutor {
     /// One action (build or post-processing) through the process.
     fn action(
         &mut self,
-        request: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
+        request: &ActionRequest,
+        service: &mut dyn BuildStepService,
         post: bool,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+    ) -> Result<ActionResult, ExecutorError> {
         let client = self
             .client
             .as_mut()
-            .ok_or_else(|| ErroExecutor("build.executar before build.carregar".into()))?;
+            .ok_or_else(|| ExecutorError("build.executar before build.carregar".into()))?;
         let r = if post {
-            client.pos_processar(request, service)
+            client.post_process_step(request, service)
         } else {
-            client.executar(request, service)
+            client.execute(request, service)
         };
         if let Err(e) = &r {
             // Broken channel (process died, protocol violated): the session
@@ -469,26 +469,26 @@ impl ExecutorVm {
     }
 }
 
-impl ExecutorDart for ExecutorVm {
-    fn disponibilidade(&self) -> Disponibilidade {
+impl DartExecutor for VmExecutor {
+    fn availability(&self) -> Availability {
         match &self.failure {
-            Some(m) => Disponibilidade::Indisponivel(m.clone()),
-            None => Disponibilidade::Disponivel,
+            Some(m) => Availability::Unavailable(m.clone()),
+            None => Availability::Available,
         }
     }
 
-    fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
+    fn prepare(&mut self, script: &BuilderScript) -> Result<(), ExecutorError> {
         if let Some(m) = &self.failure {
-            return Err(ErroExecutor(m.clone()));
+            return Err(ExecutorError(m.clone()));
         }
         // A new script (the configuration changed) requires another process.
         if self.key.is_some() {
-            self.encerrar();
+            self.shutdown();
         }
         let t0 = Instant::now();
         let r = self.start(script).and_then(|key| {
             let client = self.client.as_mut().ok_or("executor has no process")?;
-            client.preparar(script).map_err(|e| e.0)?;
+            client.prepare(script).map_err(|e| e.0)?;
             self.key = Some(key);
             Ok(())
         });
@@ -496,63 +496,63 @@ impl ExecutorDart for ExecutorVm {
         r.map_err(|m| {
             self.client = None;
             self.failure = Some(m.clone());
-            ErroExecutor(m)
+            ExecutorError(m)
         })
     }
 
-    fn nova_rodada(&mut self) {
+    fn new_round(&mut self) {
         if let Some(c) = self.client.as_mut() {
-            c.nova_rodada();
+            c.new_round();
         }
     }
 
-    fn extensoes(
+    fn extensions(
         &mut self,
-        request: &PedidoExtensoes,
-    ) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
+        request: &ExtensionsRequest,
+    ) -> Result<Option<RuntimeExtensions>, ExecutorError> {
         match self.client.as_mut() {
-            Some(c) => c.extensoes(request),
+            Some(c) => c.extensions(request),
             None => Ok(None),
         }
     }
 
-    fn executar(
+    fn execute(
         &mut self,
-        request: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+        request: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
         self.action(request, service, false)
     }
 
-    fn codigo(&self) -> Option<Vec<PathBuf>> {
+    fn code(&self) -> Option<Vec<PathBuf>> {
         let key = self.key.as_ref()?;
         let text =
             std::fs::read_to_string(self.cfg.work_dir.join(format!("bootstrap-{key}.d"))).ok()?;
-        let deps = deps_do_depfile(&text);
+        let deps = depfile_deps(&text);
         (!deps.is_empty()).then_some(deps)
     }
 
-    fn entradas_pos(
+    fn post_inputs(
         &mut self,
-        request: &PedidoExtensoes,
-    ) -> Result<Option<Vec<String>>, ErroExecutor> {
+        request: &ExtensionsRequest,
+    ) -> Result<Option<Vec<String>>, ExecutorError> {
         match self.client.as_mut() {
-            Some(c) => c.entradas_pos(request),
+            Some(c) => c.post_inputs(request),
             None => Ok(None),
         }
     }
 
-    fn pos_processar(
+    fn post_process_step(
         &mut self,
-        request: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
+        request: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
         self.action(request, service, true)
     }
 
-    fn encerrar(&mut self) {
+    fn shutdown(&mut self) {
         if let Some(mut c) = self.client.take() {
-            c.encerrar();
+            c.shutdown();
         }
         self.key = None;
     }
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn depfile_with_escaped_spaces() {
-        let d = deps_do_depfile("/t/x.dill: /a/b.dart /c/with\\ space.dart\n");
+        let d = depfile_deps("/t/x.dill: /a/b.dart /c/with\\ space.dart\n");
         assert_eq!(
             d,
             vec![

@@ -6,35 +6,35 @@
 use yaml_rust2::Yaml;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Valor {
-    Nulo,
+pub enum Value {
+    Null,
     Bool(bool),
     Int(i64),
     /// Text of Dart's `double.toString()` (`1.0`, `0.5`, `1e+21`).
     Real(String),
-    Texto(String),
-    Lista(Vec<Valor>),
-    Mapa(Mapa),
+    Text(String),
+    List(Vec<Value>),
+    Map(Map),
 }
 
-/// Map with insertion order. Duplicate keys do not exist: `inserir` replaces
+/// Map with insertion order. Duplicate keys do not exist: `insert` replaces
 /// in place, like Dart's `Map.operator[]=`.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct Mapa(pub Vec<(Valor, Valor)>);
+pub struct Map(pub Vec<(Value, Value)>);
 
-impl Mapa {
+impl Map {
     pub fn vazio(&self) -> bool {
         self.0.is_empty()
     }
 
-    pub fn obter(&self, key: &str) -> Option<&Valor> {
+    pub fn get(&self, key: &str) -> Option<&Value> {
         self.0
             .iter()
-            .find(|(k, _)| matches!(k, Valor::Texto(t) if t == key))
+            .find(|(k, _)| matches!(k, Value::Text(t) if t == key))
             .map(|(_, v)| v)
     }
 
-    pub fn inserir(&mut self, key: Valor, value: Valor) {
+    pub fn insert(&mut self, key: Value, value: Value) {
         if let Some(pair) = self.0.iter_mut().find(|(k, _)| *k == key) {
             pair.1 = value;
         } else {
@@ -45,21 +45,21 @@ impl Mapa {
     /// `BuilderOptions.overrideWith`: the keys of `other` win, key by key,
     /// without merging values; the order is that of `self` followed by the
     /// new keys.
-    pub fn sobrepor(&self, other: &Mapa) -> Mapa {
+    pub fn overlay(&self, other: &Map) -> Map {
         let mut m = self.clone();
         for (k, v) in &other.0 {
-            m.inserir(k.clone(), v.clone());
+            m.insert(k.clone(), v.clone());
         }
         m
     }
 
-    pub fn texto_canonico(&self) -> String {
-        Valor::Mapa(self.clone()).texto_canonico()
+    pub fn canonical_text(&self) -> String {
+        Value::Map(self.clone()).canonical_text()
     }
 }
 
 /// Dart's `double.toString()` for the values a YAML document produces.
-pub fn real_dart(v: f64) -> String {
+pub fn dart_real(v: f64) -> String {
     if v.is_nan() {
         return "NaN".into();
     }
@@ -85,35 +85,35 @@ pub fn real_dart(v: f64) -> String {
     }
 }
 
-impl Valor {
+impl Value {
     /// Converts what `yaml-rust2` read. An `Alias`/invalid value is an error:
     /// Dart's `package:yaml` does not deliver them as values either.
-    pub fn de_yaml(y: &Yaml) -> Result<Valor, String> {
+    pub fn from_yaml(y: &Yaml) -> Result<Value, String> {
         Ok(match y {
-            Yaml::Null => Valor::Nulo,
-            Yaml::Boolean(b) => Valor::Bool(*b),
-            Yaml::Integer(i) => Valor::Int(*i),
+            Yaml::Null => Value::Null,
+            Yaml::Boolean(b) => Value::Bool(*b),
+            Yaml::Integer(i) => Value::Int(*i),
             Yaml::Real(r) => match y.as_f64() {
-                Some(v) => Valor::Real(real_dart(v)),
-                None => Valor::Texto(r.clone()),
+                Some(v) => Value::Real(dart_real(v)),
+                None => Value::Text(r.clone()),
             },
-            Yaml::String(s) => Valor::Texto(s.clone()),
-            Yaml::Array(a) => Valor::Lista(a.iter().map(Valor::de_yaml).collect::<Result<_, _>>()?),
+            Yaml::String(s) => Value::Text(s.clone()),
+            Yaml::Array(a) => Value::List(a.iter().map(Value::from_yaml).collect::<Result<_, _>>()?),
             Yaml::Hash(h) => {
-                let mut m = Mapa::default();
+                let mut m = Map::default();
                 for (k, v) in h {
-                    m.inserir(Valor::de_yaml(k)?, Valor::de_yaml(v)?);
+                    m.insert(Value::from_yaml(k)?, Value::from_yaml(v)?);
                 }
-                Valor::Mapa(m)
+                Value::Map(m)
             }
             Yaml::Alias(_) => return Err("YAML alias not supported".into()),
             Yaml::BadValue => return Err("invalid YAML value".into()),
         })
     }
 
-    pub fn como_texto(&self) -> Option<&str> {
+    pub fn as_text(&self) -> Option<&str> {
         match self {
-            Valor::Texto(t) => Some(t),
+            Value::Text(t) => Some(t),
             _ => None,
         }
     }
@@ -121,7 +121,7 @@ impl Valor {
     /// Canonical form, stable and unambiguous (strings as JSON). It is the
     /// form compared with the oracle's `build.dart` and the one that goes into
     /// the digest of the options.
-    pub fn texto_canonico(&self) -> String {
+    pub fn canonical_text(&self) -> String {
         let mut s = String::new();
         self.write_to(&mut s);
         s
@@ -129,12 +129,12 @@ impl Valor {
 
     fn write_to(&self, s: &mut String) {
         match self {
-            Valor::Nulo => s.push_str("null"),
-            Valor::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
-            Valor::Int(i) => s.push_str(&i.to_string()),
-            Valor::Real(r) => s.push_str(r),
-            Valor::Texto(t) => s.push_str(&serde_json::Value::String(t.clone()).to_string()),
-            Valor::Lista(l) => {
+            Value::Null => s.push_str("null"),
+            Value::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
+            Value::Int(i) => s.push_str(&i.to_string()),
+            Value::Real(r) => s.push_str(r),
+            Value::Text(t) => s.push_str(&serde_json::Value::String(t.clone()).to_string()),
+            Value::List(l) => {
                 s.push('[');
                 for (i, v) in l.iter().enumerate() {
                     if i > 0 {
@@ -144,7 +144,7 @@ impl Valor {
                 }
                 s.push(']');
             }
-            Valor::Mapa(m) => {
+            Value::Map(m) => {
                 s.push('{');
                 for (i, (k, v)) in m.0.iter().enumerate() {
                     if i > 0 {
@@ -166,20 +166,20 @@ mod tests {
 
     #[test]
     fn real_like_dart() {
-        assert_eq!(real_dart(1.0), "1.0");
-        assert_eq!(real_dart(0.5), "0.5");
-        assert_eq!(real_dart(1000.0), "1000.0");
-        assert_eq!(real_dart(1e21), "1e+21");
-        assert_eq!(real_dart(1.5e-7), "1.5e-7");
+        assert_eq!(dart_real(1.0), "1.0");
+        assert_eq!(dart_real(0.5), "0.5");
+        assert_eq!(dart_real(1000.0), "1000.0");
+        assert_eq!(dart_real(1e21), "1e+21");
+        assert_eq!(dart_real(1.5e-7), "1.5e-7");
     }
 
     #[test]
     fn override_by_key_in_order() {
-        let t = |s: &str| Valor::Texto(s.into());
-        let a = Mapa(vec![(t("a"), Valor::Int(1)), (t("b"), Valor::Int(2))]);
-        let b = Mapa(vec![(t("b"), Valor::Int(3)), (t("c"), Valor::Int(4))]);
+        let t = |s: &str| Value::Text(s.into());
+        let a = Map(vec![(t("a"), Value::Int(1)), (t("b"), Value::Int(2))]);
+        let b = Map(vec![(t("b"), Value::Int(3)), (t("c"), Value::Int(4))]);
         assert_eq!(
-            a.sobrepor(&b).texto_canonico(),
+            a.overlay(&b).canonical_text(),
             r#"{"a": 1, "b": 3, "c": 4}"#
         );
     }

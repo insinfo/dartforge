@@ -1,9 +1,9 @@
-//! With `filtro: None` the emitter must be **byte for byte** the usual one —
+//! With `filter: None` the emitter must be **byte for byte** the usual one —
 //! this is what guarantees that the development profile and `dartforge
 //! serve` do not feel step 5 (`docs/JS-PRODUCAO.md` §1.7). The same program
 //! is compiled through three paths and the modules are compared:
 //!
-//! 1. `dartforge_emit_js::compilar` (the `compile-js` path);
+//! 1. `dartforge_emit_js::compile` (the `compile-js` path);
 //! 2. `Analysis::emit(None)`;
 //! 3. `Analysis::emit(Some(&AllLive))` — the filter that says everything
 //!    is live.
@@ -30,7 +30,7 @@ fn programs() -> Vec<PathBuf> {
 }
 
 fn modules(e: &dartforge_emit_js::Emitted) -> Vec<(String, String)> {
-    let mut m = e.modulos.clone();
+    let mut m = e.modules.clone();
     m.sort();
     m
 }
@@ -41,10 +41,10 @@ fn no_filter_and_all_live_emit_the_same_text() {
     let reference = std::env::var("DARTFORGE_IDENTIDADE_REF").ok().map(PathBuf::from);
     for p in programs() {
         let packages = p.parent().map(|d| d.join(".dart_tool/package_config.json")).filter(|x| x.is_file());
-        let a = dartforge_emit_js::compilar(&p, None, packages.as_deref()).expect("compilar");
+        let a = dartforge_emit_js::compile(&p, None, packages.as_deref()).expect("compilar");
         let ((b, c), _) = dartforge_emit_js::compile_with(&p, None, packages.as_deref(), &Default::default(), |an| {
             let b = an.emit(None)?;
-            let c = an.emit(Some(&dartforge_emit_js::filtro::AllLive))?;
+            let c = an.emit(Some(&dartforge_emit_js::filter::AllLive))?;
             Ok((b, c))
         })
         .expect("compilar_com");

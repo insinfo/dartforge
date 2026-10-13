@@ -139,22 +139,22 @@ pub struct Ctx<'a> {
     /// Memo of `as_super`: `(class, target)` → the target written in terms of
     /// the class's parameters. 78 thousand calls, 525 thousand allocations.
     super_memo: RefCell<HashMap<(ClassId, ClassId), Option<Ty>>>,
-    /// Reachability filter of the production profile (`crate::filtro`). `None`
+    /// Reachability filter of the production profile (`crate::filter`). `None`
     /// is the development profile: everything emitted, exactly as before.
-    pub filtro: Option<&'a dyn crate::filtro::Liveness>,
+    pub filter: Option<&'a dyn crate::filter::Liveness>,
     /// Language errors found during emission (a dot shorthand without a
     /// context or without a member, docs/VERSOES-LINGUAGEM.md §3): emission
     /// fails with them. The emitter is the one with the complete inference of
     /// the context.
     pub errors: RefCell<Vec<dartforge_diagnostics::Diagnostic>>,
     /// Check of the emitter's types against the common inference
-    /// (`DARTFORGE_JS_CONFERIR_TIPOS`, see `crate::conferencia`); `None` when
+    /// (`DARTFORGE_JS_CONFERIR_TIPOS`, see `crate::type_check`); `None` when
     /// it is off.
-    pub conferencia: Option<RefCell<crate::conferencia::TypeCheck>>,
-    /// SDK mode (`crate::sdk_proprio`): the `dart:` libraries are compiled
+    pub type_check: Option<RefCell<crate::type_check::TypeCheck>>,
+    /// SDK mode (`crate::own_sdk`): the `dart:` libraries are compiled
     /// too, through our own pipeline. `None` on every path that links against
     /// `dart_sdk.js` — the mode's hooks do not fire.
-    pub sdk: Option<Box<crate::sdk_proprio::SdkMode>>,
+    pub sdk: Option<Box<crate::own_sdk::SdkMode>>,
 }
 
 /// JS interop class (the DDC's `js_interop.dart`: `usesJSInterop`,
@@ -253,8 +253,8 @@ impl<'a> Ctx<'a> {
             write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
             errors: RefCell::new(Vec::new()),
-            filtro: None,
-            conferencia: crate::conferencia::TypeCheck::from_env().map(RefCell::new),
+            filter: None,
+            type_check: crate::type_check::TypeCheck::from_env().map(RefCell::new),
             sdk: None,
         };
         // Interop comes before the hierarchy: interop extension types are not
@@ -542,38 +542,38 @@ impl<'a> Ctx<'a> {
     }
 
     /// Reachability level of the class; without a filter, `Instantiated` (everything emitted).
-    pub fn class_level(&self, c: ClassId) -> crate::filtro::Nivel {
-        self.filtro.map_or(crate::filtro::Nivel::Instantiated, |f| f.classe(c))
+    pub fn class_level(&self, c: ClassId) -> crate::filter::Level {
+        self.filter.map_or(crate::filter::Level::Instantiated, |f| f.classe(c))
     }
 
     /// State of the function; without a filter, `Live`.
-    pub fn fn_state(&self, f: FunctionElementId) -> crate::filtro::Estado {
-        self.filtro.map_or(crate::filtro::Estado::Live, |x| x.funcao(f))
+    pub fn fn_state(&self, f: FunctionElementId) -> crate::filter::State {
+        self.filter.map_or(crate::filter::State::Live, |x| x.funcao(f))
     }
 
     /// State of the variable; without a filter, `Live`.
-    pub fn var_state(&self, v: VariableId) -> crate::filtro::Estado {
-        self.filtro.map_or(crate::filtro::Estado::Live, |x| x.variavel(v))
+    pub fn var_state(&self, v: VariableId) -> crate::filter::State {
+        self.filter.map_or(crate::filter::State::Live, |x| x.variavel(v))
     }
 
     /// Name invoked somewhere; without a filter, always.
     pub fn selector_live(&self, name: &str) -> bool {
-        self.filtro.is_none_or(|x| x.selector(name))
+        self.filter.is_none_or(|x| x.selector(name))
     }
 
     /// Name written somewhere (`x.name = v`); without a filter, always.
     pub fn write_selector(&self, base_name: &str) -> bool {
-        self.filtro.is_none_or(|x| x.write_selector(base_name))
+        self.filter.is_none_or(|x| x.write_selector(base_name))
     }
 
     /// Static tearoff of the referenced constructor; without a filter, always.
     pub fn tearoff_live(&self, f: FunctionElementId) -> bool {
-        self.filtro.is_none_or(|x| x.tearoff_ctor(f))
+        self.filter.is_none_or(|x| x.tearoff_ctor(f))
     }
 
-    /// The signature entry of the member `name` is emitted ([`crate::filtro::Liveness::signature`]).
+    /// The signature entry of the member `name` is emitted ([`crate::filter::Liveness::signature`]).
     pub fn signature_live(&self, name: &str) -> bool {
-        self.filtro.is_none_or(|x| x.signature(name))
+        self.filter.is_none_or(|x| x.signature(name))
     }
 
     /// Label of a pruned element for the *stub* (`dart_podado("…")`).
@@ -2010,7 +2010,7 @@ impl<'a> Ctx<'a> {
     /// call, in the function's prologue and in the rti recipe of the function
     /// type.
     pub fn named_key(&self, name: &str) -> String {
-        self.filtro.and_then(|f| f.named_key_of(name)).unwrap_or(name).to_string()
+        self.filter.and_then(|f| f.named_key_of(name)).unwrap_or(name).to_string()
     }
 
     /// rti recipe prefix of the class: `core|int`, `main|P`. In SDK mode

@@ -79,19 +79,19 @@ fn json_string(s: &str) -> String {
 
 /// Open browsers: each tab has a channel, as in Vite's model.
 #[derive(Default)]
-pub struct Recarga {
+pub struct Reload {
     subscribers: Mutex<Vec<Sender<Message>>>,
     generation: Mutex<u64>,
 }
 
-impl Recarga {
+impl Reload {
     /// Notifies every tab; the ones that closed leave the list.
     pub fn send(&self, m: Message) {
         let mut v = self.subscribers.lock().unwrap_or_else(|e| e.into_inner());
         v.retain(|s| s.send(m.clone()).is_ok());
     }
     /// A compilation changed modules: new generation and reload.
-    pub fn disparar(&self) {
+    pub fn trigger(&self) {
         let g = {
             let mut g = self.generation.lock().unwrap_or_else(|e| e.into_inner());
             *g += 1;
@@ -131,9 +131,9 @@ pub fn serve(
     output: &Path,
     web: Option<&Path>,
     port: u16,
-    reload: Arc<Recarga>,
+    reload: Arc<Reload>,
 ) -> Result<u16, String> {
-    servir_com_gerados(output, web, port, reload, None)
+    serve_with_generated(output, web, port, reload, None)
 }
 
 /// Like [`serve`], looking first at the build engine's outputs: a `.css`
@@ -143,11 +143,11 @@ pub fn serve(
 /// # Errors
 ///
 /// When the port cannot be bound or the thread cannot be spawned.
-pub fn servir_com_gerados(
+pub fn serve_with_generated(
     output: &Path,
     web: Option<&Path>,
     port: u16,
-    reload: Arc<Recarga>,
+    reload: Arc<Reload>,
     generated: Option<crate::generation::Provider>,
 ) -> Result<u16, String> {
     let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("port {port}: {e}"))?;
@@ -174,7 +174,7 @@ fn handle(
     mut stream: TcpStream,
     output: &Path,
     web: Option<&Path>,
-    reload: &Recarga,
+    reload: &Reload,
     generated: Option<&crate::generation::Provider>,
 ) {
     let mut reader = BufReader::new(match stream.try_clone() {

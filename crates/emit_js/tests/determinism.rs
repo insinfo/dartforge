@@ -19,7 +19,7 @@ fn programs() -> Vec<PathBuf> {
 }
 
 fn emit(p: &Path) -> Vec<(String, String)> {
-    let mut m = dartforge_emit_js::compilar(p, None, None).expect("compile").modulos;
+    let mut m = dartforge_emit_js::compile(p, None, None).expect("compile").modules;
     m.sort();
     m
 }

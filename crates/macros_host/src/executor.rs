@@ -1,7 +1,7 @@
-//! The macro executor as seen from the host: the [`ExecutorMacros`] trait and
+//! The macro executor as seen from the host: the [`MacroExecutor`] trait and
 //! its implementations.
 //!
-//! * [`Indisponivel`] — the one the product uses today. The real executor is
+//! * [`Unavailable`] — the one the product uses today. The real executor is
 //!   the **native** one (D4): the macro compiled by `emit_native` and run by
 //!   our executor in a separate process. It comes in once the native backend
 //!   compiles what the API uses (`async`/`Future`, collections,
@@ -80,7 +80,7 @@ pub struct ExecutionRequest {
 
 /// The executor, from the host's point of view. One persistent process per
 /// session (governing rule, item 3).
-pub trait ExecutorMacros: Send {
+pub trait MacroExecutor: Send {
     fn availability(&self) -> Availability;
     /// Handshake; returns the macros of the bootstrap.
     fn start(&mut self) -> Result<Handshake, String>;
@@ -93,11 +93,11 @@ pub trait ExecutorMacros: Send {
 }
 
 /// The product's implementation today: refuses, giving the reason.
-pub struct Indisponivel(pub String);
+pub struct Unavailable(pub String);
 
-impl Default for Indisponivel {
+impl Default for Unavailable {
     fn default() -> Self {
-        Indisponivel(
+        Unavailable(
             "DartForge does not run macros yet: the executor is the native backend (docs/MACROS-PROTOCOLO.md §3), which \
              does not compile what the macro API uses yet; to materialize the augmentation, use `dartforge macros \
              --materializar --dart <dart executable>`"
@@ -106,7 +106,7 @@ impl Default for Indisponivel {
     }
 }
 
-impl ExecutorMacros for Indisponivel {
+impl MacroExecutor for Unavailable {
     fn availability(&self) -> Availability {
         Availability::Unavailable(self.0.clone())
     }
@@ -185,7 +185,7 @@ impl QueryService for NoQueries {
     }
 }
 
-impl<C: Canal> ExecutorMacros for DfexecExecutor<C> {
+impl<C: Canal> MacroExecutor for DfexecExecutor<C> {
     fn availability(&self) -> Availability {
         Availability::Available
     }

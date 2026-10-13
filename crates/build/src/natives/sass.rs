@@ -9,9 +9,9 @@
 //! The stylesheets of `@use`/`@forward`/`@import` resolve as in
 //! `BuildImporter` (relative to the file, and `package:` through the package
 //! roots); every file read or probed is a dependency of the action.
-use crate::consulta::Consulta;
-use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
-use crate::valor::Valor;
+use crate::query::Query;
+use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
+use crate::value::Value;
 use dartforge_ng_generator::sass::{Estilo, Leitor, VersaoDartSass, compilar_ativo};
 use std::path::Path;
 use std::sync::Arc;
@@ -38,8 +38,8 @@ impl Leitor for StepReader<'_> {
 
 pub struct SassNative;
 
-impl GeradorNativo for SassNative {
-    fn chave(&self) -> &'static str {
+impl NativeGenerator for SassNative {
+    fn key(&self) -> &'static str {
         "sass_builder:sass_builder"
     }
 
@@ -47,31 +47,31 @@ impl GeradorNativo for SassNative {
         true
     }
 
-    fn por_pacote(&self) -> bool {
+    fn by_package(&self) -> bool {
         false
     }
 
-    fn verificado(&self) -> bool {
+    fn verified(&self) -> bool {
         true
     }
 
-    fn gerar(
+    fn generate(
         &self,
-        ctx: &mut CtxGerador<'_>,
-        request: &PedidoNativo,
-    ) -> Result<SaidaNativa, String> {
-        let mut s = SaidaNativa::default();
+        ctx: &mut GeneratorCtx<'_>,
+        request: &NativeRequest,
+    ) -> Result<NativeOutput, String> {
+        let mut s = NativeOutput::default();
         // The dart-sass from the lock (the engine only calls with an imitated
         // version).
-        let version = request.versoes.get("sass").map(String::as_str);
+        let version = request.versions.get("sass").map(String::as_str);
         let Some(version) = version.and_then(VersaoDartSass::do_lock) else {
             return Err(format!(
                 "sass: dart-sass version in the lock is not imitated: {}",
                 version.unwrap_or("missing")
             ));
         };
-        for a in &request.acoes {
-            let name = a.entrada.caminho.rsplit('/').next().unwrap_or_default();
+        for a in &request.actions {
+            let name = a.entrada.path.rsplit('/').next().unwrap_or_default();
             if name.starts_with('_') {
                 // Partial: the official builder generates nothing
                 // (`sass_builder.dart:43`).
@@ -80,33 +80,33 @@ impl GeradorNativo for SassNative {
             // A missing `outputStyle` is `sass_builder`'s `expanded`; for an
             // unknown value it warns and uses `expanded` — we do not have the
             // warning.
-            let style = match a.opcoes.obter("outputStyle") {
-                None | Some(Valor::Nulo) => Estilo::Expandido,
-                Some(Valor::Texto(v)) if v == "expanded" => Estilo::Expandido,
-                Some(Valor::Texto(v)) if v == "compressed" => Estilo::Comprimido,
+            let style = match a.options.get("outputStyle") {
+                None | Some(Value::Null) => Estilo::Expandido,
+                Some(Value::Text(v)) if v == "expanded" => Estilo::Expandido,
+                Some(Value::Text(v)) if v == "compressed" => Estilo::Comprimido,
                 Some(_) => {
                     s.recusas.insert(
-                        a.entrada_natural.clone(),
+                        a.natural_input.clone(),
                         "sass: unknown outputStyle (the official builder warns)".into(),
                     );
                     continue;
                 }
             };
-            let Some(source) = ctx.ler(&a.entrada_natural) else {
+            let Some(source) = ctx.read(&a.natural_input) else {
                 s.recusas
-                    .insert(a.entrada_natural.clone(), "sass: unreadable input".into());
+                    .insert(a.natural_input.clone(), "sass: unreadable input".into());
                 continue;
             };
             let text = String::from_utf8_lossy(&source);
-            let source_map = a.opcoes.obter("sourceMaps") == Some(&Valor::Bool(true));
+            let source_map = a.options.get("sourceMaps") == Some(&Value::Bool(true));
             let reader = StepReader {
-                memory: ctx.memoria,
+                memory: ctx.memory,
             };
             let sheet = match compilar_ativo(
                 &text,
-                &a.entrada.pacote,
-                &a.entrada.caminho,
-                &request.raizes,
+                &a.entrada.package,
+                &a.entrada.path,
+                &request.roots,
                 &reader,
                 style,
                 source_map,
@@ -116,27 +116,27 @@ impl GeradorNativo for SassNative {
                 Err(m) => {
                     let first = m.lines().next().unwrap_or_default().to_owned();
                     s.recusas.insert(
-                        a.entrada_natural.clone(),
+                        a.natural_input.clone(),
                         format!("sass: dart-sass rejects it: {first}"),
                     );
                     continue;
                 }
             };
             for file in sheet.lidos.iter().chain(&sheet.sondados) {
-                ctx.registrar(Consulta::Arquivo(dartforge_elements::gerado::chave(
+                ctx.register(Query::File(dartforge_elements::gerado::chave(
                     file,
                 )));
             }
-            if let Some((_, n)) = a.saidas.iter().find(|(id, _)| id.caminho.ends_with(".css")) {
-                s.saidas.insert(n.clone(), sheet.css.into_bytes());
+            if let Some((_, n)) = a.outputs.iter().find(|(id, _)| id.path.ends_with(".css")) {
+                s.outputs.insert(n.clone(), sheet.css.into_bytes());
             }
             if let Some(m) = sheet.mapa
                 && let Some((_, n)) = a
-                    .saidas
+                    .outputs
                     .iter()
-                    .find(|(id, _)| id.caminho.ends_with(".css.map"))
+                    .find(|(id, _)| id.path.ends_with(".css.map"))
             {
-                s.saidas.insert(n.clone(), m.into_bytes());
+                s.outputs.insert(n.clone(), m.into_bytes());
             }
         }
         Ok(s)

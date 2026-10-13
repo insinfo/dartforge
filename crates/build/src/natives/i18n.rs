@@ -15,8 +15,8 @@
 //! refused, like what the official builder rejects (a key repeated across
 //! languages out of order, an invalid language code, a value that is not a
 //! string, number or boolean).
-use crate::consulta::Consulta;
-use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
+use crate::query::Query;
+use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
 
@@ -451,8 +451,8 @@ fn default_file<'a>(current: &str, all: &'a [String]) -> Option<&'a String> {
     })
 }
 
-impl GeradorNativo for I18nNative {
-    fn chave(&self) -> &'static str {
+impl NativeGenerator for I18nNative {
+    fn key(&self) -> &'static str {
         "i18n:yamlBasedBuilder"
     }
 
@@ -460,60 +460,60 @@ impl GeradorNativo for I18nNative {
         true
     }
 
-    fn por_pacote(&self) -> bool {
+    fn by_package(&self) -> bool {
         false
     }
 
-    fn verificado(&self) -> bool {
+    fn verified(&self) -> bool {
         true
     }
 
-    fn gerar(
+    fn generate(
         &self,
-        ctx: &mut CtxGerador<'_>,
-        request: &PedidoNativo,
-    ) -> Result<SaidaNativa, String> {
-        let mut s = SaidaNativa::default();
+        ctx: &mut GeneratorCtx<'_>,
+        request: &NativeRequest,
+    ) -> Result<NativeOutput, String> {
+        let mut s = NativeOutput::default();
         // `findAssets(Glob('**.i18n.yaml'))` in the package's source folders.
-        let glob = crate::glob::Glob::novo("**.i18n.yaml").map_err(|e| e.to_string())?;
+        let glob = crate::glob::Glob::new("**.i18n.yaml").map_err(|e| e.to_string())?;
         let mut all: Vec<String> = Vec::new();
         for folder in SOURCE_FOLDERS {
-            let dir = request.raiz_do_pacote.join(folder);
-            ctx.registrar(Consulta::Glob {
+            let dir = request.package_root.join(folder);
+            ctx.register(Query::Glob {
                 dir: dartforge_elements::gerado::chave(&dir),
-                padrao: "**.i18n.yaml".into(),
+                pattern: "**.i18n.yaml".into(),
             });
             all.extend(
-                crate::grafo::listar(&dir, std::slice::from_ref(&glob))
+                crate::graph::list(&dir, std::slice::from_ref(&glob))
                     .into_iter()
                     .map(|r| format!("{folder}/{r}")),
             );
         }
         all.sort();
-        for a in &request.acoes {
+        for a in &request.actions {
             let name = a
                 .entrada
-                .caminho
+                .path
                 .rsplit('/')
                 .next()
                 .unwrap_or_default()
                 .to_string();
-            let Some(source) = ctx.ler(&a.entrada_natural) else {
+            let Some(source) = ctx.read(&a.natural_input) else {
                 s.recusas
-                    .insert(a.entrada_natural.clone(), "i18n: unreadable input".into());
+                    .insert(a.natural_input.clone(), "i18n: unreadable input".into());
                 continue;
             };
             let text = String::from_utf8_lossy(&source).into_owned();
             let result = (|| -> Result<String, String> {
-                let default = default_file(&a.entrada.caminho, &all)
+                let default = default_file(&a.entrada.path, &all)
                     .ok_or("i18n: no default file (the official builder throws)")?;
                 // Each key in the same place as in the default file (the
                 // official builder reports an error, `log.severe`, and the
                 // build fails).
-                if default.as_str() != &*a.entrada.caminho {
-                    let path = request.raiz_do_pacote.join(default);
+                if default.as_str() != &*a.entrada.path {
+                    let path = request.package_root.join(default);
                     let bytes = ctx
-                        .ler(Path::new(&path))
+                        .read(Path::new(&path))
                         .ok_or("i18n: unreadable default file")?;
                     let keys = |t: &str| -> Result<Vec<String>, String> {
                         let docs = YamlLoader::load_from_str(t)
@@ -536,12 +536,12 @@ impl GeradorNativo for I18nNative {
             })();
             match result {
                 Ok(dart) => {
-                    if let Some((_, n)) = a.saidas.first() {
-                        s.saidas.insert(n.clone(), dart.into_bytes());
+                    if let Some((_, n)) = a.outputs.first() {
+                        s.outputs.insert(n.clone(), dart.into_bytes());
                     }
                 }
                 Err(f) => {
-                    s.recusas.insert(a.entrada_natural.clone(), f);
+                    s.recusas.insert(a.natural_input.clone(), f);
                 }
             }
         }

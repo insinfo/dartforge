@@ -22,11 +22,11 @@
 //! versions, and the 2.4 `package_config.json` gives the engine the same
 //! package graph (no resolved package other than the root defines builders).
 //! What decides the profile is the 2.16 case's `pubspec.lock`.
-use dartforge_build::consulta::SemBanco;
-use dartforge_build::grafo::AssetId;
-use dartforge_build::linha_de_comando::OpcoesDoBuild;
-use dartforge_build::vm::{ConfigDaVm, ExecutorVm};
-use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor, RelMotor};
+use dartforge_build::query::NoDb;
+use dartforge_build::graph::AssetId;
+use dartforge_build::command_line::BuildOptions;
+use dartforge_build::vm::{VmConfig, VmExecutor};
+use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,7 +44,7 @@ fn case_2_16() -> PathBuf {
 }
 
 fn dart() -> PathBuf {
-    dartforge_build::vm::dart_do_ambiente()
+    dartforge_build::vm::dart_from_env()
         .or_else(|| {
             std::env::var_os("DARTFORGE_DART_SDK")
                 .map(|s| PathBuf::from(s).join("bin").join("dart"))
@@ -109,13 +109,13 @@ fn oracle(case: &Path, name: &str) -> Oracle {
         .collect();
     let mut outputs = BTreeMap::new();
     for s in m["saidas"].as_array().unwrap() {
-        let id = AssetId::de_texto(s["asset"].as_str().unwrap()).unwrap();
+        let id = AssetId::from_text(s["asset"].as_str().unwrap()).unwrap();
         let file = match s["build_to"].as_str() {
-            Some("source") => dir.join("source").join(id.caminho.as_ref()),
+            Some("source") => dir.join("source").join(id.path.as_ref()),
             _ => dir
                 .join("cache")
-                .join(id.pacote.as_ref())
-                .join(id.caminho.as_ref()),
+                .join(id.package.as_ref())
+                .join(id.path.as_ref()),
         };
         outputs.insert(id, std::fs::read(&file).unwrap());
     }
@@ -123,7 +123,7 @@ fn oracle(case: &Path, name: &str) -> Oracle {
 }
 
 /// The engine options for the oracle's `build_runner` arguments.
-fn options(dir: &Path, arguments: &[String]) -> OpcoesMotor {
+fn options(dir: &Path, arguments: &[String]) -> EngineOptions {
     let (mut release, mut config, mut defines, mut filters) = (false, None, Vec::new(), Vec::new());
     let mut it = arguments.iter();
     while let Some(a) = it.next() {
@@ -135,49 +135,49 @@ fn options(dir: &Path, arguments: &[String]) -> OpcoesMotor {
             o => panic!("argument without a translation: {o}"),
         }
     }
-    let mut o = OpcoesMotor {
+    let mut o = EngineOptions {
         release,
-        trabalhadores: 1,
-        ..OpcoesMotor::default()
+        workers: 1,
+        ..EngineOptions::default()
     };
-    OpcoesDoBuild::do_projeto(dir, config.as_deref(), &defines, &filters)
+    BuildOptions::for_project(dir, config.as_deref(), &defines, &filters)
         .expect("options")
-        .aplicar(&mut o);
+        .apply(&mut o);
     o
 }
 
-fn engine(dir: &Path, options: OpcoesMotor) -> Motor {
+fn engine(dir: &Path, options: EngineOptions) -> Engine {
     let cfg =
         PackageConfig::load(&dir.join(".dart_tool/package_config.json")).expect("package_config");
-    let mut m = Motor::novo(dir, &cfg, options).expect("engine");
-    m.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+    let mut m = Engine::new(dir, &cfg, options).expect("engine");
+    m.set_dart_executor(Box::new(VmExecutor::new(VmConfig::for_project(
         dart(),
         dir,
     ))));
     m
 }
 
-fn update(m: &mut Motor, changed: &[PathBuf]) -> RelMotor {
+fn update(m: &mut Engine, changed: &[PathBuf]) -> EngineReport {
     let at = m
-        .atualizar(
-            &Contexto {
-                banco: &SemBanco,
-                programa: None,
+        .update(
+            &UpdateContext {
+                db: &NoDb,
+                program: None,
             },
             changed,
-            Demanda::Tudo,
+            Demand::Everything,
         )
         .expect("update");
     at.rel
 }
 
 /// The outputs the engine wrote (`Some` content in the record).
-fn written(m: &Motor) -> BTreeMap<AssetId, Vec<u8>> {
+fn written(m: &Engine) -> BTreeMap<AssetId, Vec<u8>> {
     let mut v = BTreeMap::new();
-    for (id, g) in &m.grafo.gerados {
+    for (id, g) in &m.graph.generated {
         if let Some(c) = m
-            .registro(g.acao)
-            .and_then(|r| r.saidas.iter().find(|(s, _)| s == id))
+            .record(g.action)
+            .and_then(|r| r.outputs.iter().find(|(s, _)| s == id))
             .and_then(|(_, c)| c.clone())
         {
             v.insert(id.clone(), c.to_vec());
@@ -194,10 +194,10 @@ fn differences(
     let mut d = Vec::new();
     for (id, b) in expected {
         match actual.get(id) {
-            None => d.push(format!("missing {}", id.texto())),
+            None => d.push(format!("missing {}", id.text())),
             Some(o) if o != b => d.push(format!(
                 "differs {}:\n--- official\n{}\n--- engine\n{}",
-                id.texto(),
+                id.text(),
                 String::from_utf8_lossy(b),
                 String::from_utf8_lossy(o)
             )),
@@ -206,7 +206,7 @@ fn differences(
     }
     for id in actual.keys() {
         if !expected.contains_key(id) {
-            d.push(format!("extra {}", id.texto()));
+            d.push(format!("extra {}", id.text()));
         }
     }
     d
@@ -221,8 +221,8 @@ fn check(case: &Path, root: &str, name: &str) {
     package_config(&dir, root);
     let mut m = engine(&dir, options(&dir, &o.arguments));
     let rel = update(&mut m, &[]);
-    println!("{name}: {}", rel.texto());
-    assert!(rel.falhas.is_empty(), "{name}: {}", rel.texto());
+    println!("{name}: {}", rel.text());
+    assert!(rel.failures.is_empty(), "{name}: {}", rel.text());
     let d = differences(&written(&m), &o.outputs);
     assert!(
         d.is_empty(),
@@ -264,7 +264,7 @@ fn profile_2_16_incremental_triggers() {
         differences(&written(&m), &oracle(&case_2_16(), "padrao").outputs),
         Vec::<String>::new()
     );
-    let id = |c: &str| AssetId::novo(root, c);
+    let id = |c: &str| AssetId::new(root, c);
     let edits: [(&str, &str, &str, bool); 3] = [
         // The relative import becomes `package:`: `importacao` starts firing.
         (
@@ -292,7 +292,7 @@ fn profile_2_16_incremental_triggers() {
         let p = dir.join(file);
         std::fs::write(&p, text).unwrap();
         let rel = update(&mut m, &[p]);
-        println!("{file}: {}", rel.texto());
+        println!("{file}: {}", rel.text());
         let incremental = written(&m);
         assert_eq!(
             incremental.contains_key(&id(output)),

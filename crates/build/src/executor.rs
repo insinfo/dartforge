@@ -1,12 +1,12 @@
 //! The executors behind a single choice (`docs/BUILD-MOTOR.md` §6):
 //! **native** (Rust, reads the semantic database), **Dart** (`dfexec/1`: the
-//! VM process of [`crate::vm`], or [`Indisponivel`] when it was not enabled)
-//! and **fallback** (what `build_runner` left on disk, in `motor.rs`). An
+//! VM process of [`crate::vm`], or [`Unavailable`] when it was not enabled)
+//! and **fallback** (what `build_runner` left on disk, in `engine.rs`). An
 //! executor that cannot generate refuses with a reason.
-use crate::consulta::{BancoSemantico, Consulta, Digest, digest_arquivo, digest_bytes};
-use crate::grafo::{AssetId, Grafo};
-use crate::pacotes::GrafoPacotes;
-use crate::valor::Mapa;
+use crate::query::{SemanticDb, Query, Digest, digest_file, digest_bytes};
+use crate::graph::{AssetId, Graph};
+use crate::packages::PackageGraph;
+use crate::value::Map;
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
 use std::collections::{BTreeMap, HashSet};
@@ -20,107 +20,107 @@ use std::sync::Arc;
 pub struct NativeAction {
     pub fabrica: String,
     pub entrada: AssetId,
-    pub entrada_natural: PathBuf,
+    pub natural_input: PathBuf,
     /// Expected outputs and the natural path of each one.
-    pub saidas: Vec<(AssetId, PathBuf)>,
-    pub opcoes: Mapa,
+    pub outputs: Vec<(AssetId, PathBuf)>,
+    pub options: Map,
 }
 
 /// A request: one action (per-file generator) or all the actions of the
 /// phases the generator covers in a package (per-package generator — ngdart's
 /// stage A).
 #[derive(Debug, Clone)]
-pub struct PedidoNativo {
-    pub pacote: String,
-    pub raiz_do_pacote: PathBuf,
-    pub acoes: Vec<NativeAction>,
+pub struct NativeRequest {
+    pub package: String,
+    pub package_root: PathBuf,
+    pub actions: Vec<NativeAction>,
     /// The root of each package in `package_config.json` (Sass's `package:`
     /// resolves through them, like `AssetId.resolve` in `build`).
-    pub raizes: BTreeMap<String, PathBuf>,
+    pub roots: BTreeMap<String, PathBuf>,
     /// The `pubspec.lock` version of each package the generator imitates
-    /// ([`crate::descritor::imita`]): `sass_builder` picks the dart-sass
+    /// ([`crate::descriptor::imitates`]): `sass_builder` picks the dart-sass
     /// version by it.
-    pub versoes: BTreeMap<String, String>,
+    pub versions: BTreeMap<String, String>,
 }
 
 /// What a native generator returns: content by natural output path, and
 /// refusals by natural **input** path (the scoreboard counts the reasons).
 #[derive(Debug, Default)]
-pub struct SaidaNativa {
-    pub saidas: BTreeMap<PathBuf, Vec<u8>>,
+pub struct NativeOutput {
+    pub outputs: BTreeMap<PathBuf, Vec<u8>>,
     pub recusas: BTreeMap<PathBuf, String>,
     /// Files the generator actually regenerated in this call.
-    pub unidades_geradas: usize,
+    pub generated_unit_count: usize,
     /// The generator confirmed that the previous round's queries are still
-    /// valid; `CtxGerador` records only the answers that changed.
-    pub reutilizar_consultas: bool,
+    /// valid; `GeneratorCtx` records only the answers that changed.
+    pub reuse_queries: bool,
 }
 
 /// A Rust generator that imitates an ecosystem builder byte for byte.
-pub trait GeradorNativo: Send + Sync {
+pub trait NativeGenerator: Send + Sync {
     /// Builder key (`ngdart:ngdart`).
-    fn chave(&self) -> &'static str;
+    fn key(&self) -> &'static str;
     /// Covered factories.
     fn cobre(&self, factory: &str) -> bool;
     /// One call per package (with all the actions) instead of one per action.
-    fn por_pacote(&self) -> bool;
+    fn by_package(&self) -> bool;
     /// Equality gate: `false` = the output is not yet verified byte for byte
     /// against the official one; the engine only uses it to measure
     /// (`--comparar`) and publishes the fallback instead.
-    fn verificado(&self) -> bool;
-    fn gerar(
+    fn verified(&self) -> bool;
+    fn generate(
         &self,
-        ctx: &mut CtxGerador<'_>,
-        request: &PedidoNativo,
-    ) -> Result<SaidaNativa, String>;
+        ctx: &mut GeneratorCtx<'_>,
+        request: &NativeRequest,
+    ) -> Result<NativeOutput, String>;
 }
 
 /// The only read channel of a native generator: every read becomes a query
 /// (soundness rule — what it did not query cannot invalidate it).
-pub struct CtxGerador<'a> {
-    pub programa: Option<(&'a Program, &'a Interner)>,
+pub struct GeneratorCtx<'a> {
+    pub program: Option<(&'a Program, &'a Interner)>,
     /// Events of this update, already normalized by the engine.
-    pub mudados: &'a HashSet<PathBuf>,
-    pub(crate) banco: &'a dyn BancoSemantico,
-    pub(crate) memoria: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
-    pub(crate) consultas: Vec<(Consulta, Option<Digest>)>,
+    pub changed_paths: &'a HashSet<PathBuf>,
+    pub(crate) db: &'a dyn SemanticDb,
+    pub(crate) memory: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
+    pub(crate) queries: Vec<(Query, Option<Digest>)>,
 }
 
-impl<'a> CtxGerador<'a> {
+impl<'a> GeneratorCtx<'a> {
     pub(crate) fn new(
         program: Option<(&'a Program, &'a Interner)>,
         changed: &'a HashSet<PathBuf>,
-        database: &'a dyn BancoSemantico,
+        database: &'a dyn SemanticDb,
         memory: &'a dyn Fn(&Path) -> Option<Arc<[u8]>>,
     ) -> Self {
-        CtxGerador {
-            programa: program,
-            mudados: changed,
-            banco: database,
-            memoria: memory,
-            consultas: Vec::new(),
+        GeneratorCtx {
+            program: program,
+            changed_paths: changed,
+            db: database,
+            memory: memory,
+            queries: Vec::new(),
         }
     }
 
     /// Records a query with the digest of its current answer.
-    pub fn registrar(&mut self, c: Consulta) {
-        let d = query_digest(&c, self.banco, self.memoria);
-        self.consultas.push((c, d));
+    pub fn register(&mut self, c: Query) {
+        let d = query_digest(&c, self.db, self.memory);
+        self.queries.push((c, d));
     }
 
-    pub fn ler(&mut self, p: &Path) -> Option<Arc<[u8]>> {
+    pub fn read(&mut self, p: &Path) -> Option<Arc<[u8]>> {
         let key = dartforge_elements::gerado::chave(p);
-        let v = (self.memoria)(&key).or_else(|| std::fs::read(p).ok().map(Arc::from));
+        let v = (self.memory)(&key).or_else(|| std::fs::read(p).ok().map(Arc::from));
         let d = v.as_deref().map(digest_bytes);
-        self.consultas.push((Consulta::Arquivo(key), d));
+        self.queries.push((Query::File(key), d));
         v
     }
 
     pub fn existe(&mut self, p: &Path) -> bool {
         let key = dartforge_elements::gerado::chave(p);
-        let yes = (self.memoria)(&key).is_some() || p.is_file();
-        self.consultas
-            .push((Consulta::Existe(key), yes.then(|| digest_bytes(b"1"))));
+        let yes = (self.memory)(&key).is_some() || p.is_file();
+        self.queries
+            .push((Query::Exists(key), yes.then(|| digest_bytes(b"1"))));
         yes
     }
 }
@@ -131,33 +131,33 @@ impl<'a> CtxGerador<'a> {
 /// (`build_impl.dart:443-463`). The engine recomputes the list after a
 /// structural event to know whether the glob's answer actually changed.
 pub(crate) fn glob_candidates(
-    graph: &Grafo,
+    graph: &Graph,
     action: usize,
     pattern: &crate::glob::Glob,
 ) -> Vec<AssetId> {
-    let Some(a) = graph.acoes.get(action) else {
+    let Some(a) = graph.actions.get(action) else {
         return Vec::new();
     };
-    let (package, phase) = (a.entrada.pacote.clone(), a.fase);
-    let sources = graph.fontes.get(&package).into_iter().flat_map(|cs| {
+    let (package, phase) = (a.entrada.package.clone(), a.phase);
+    let sources = graph.sources.get(&package).into_iter().flat_map(|cs| {
         cs.iter().map(|c| AssetId {
-            pacote: package.clone(),
-            caminho: c.clone(),
+            package: package.clone(),
+            path: c.clone(),
         })
     });
     let generated = graph
-        .gerados
-        .range(AssetId::novo(&package, "")..)
-        .take_while(|(id, _)| id.pacote == package)
+        .generated
+        .range(AssetId::new(&package, "")..)
+        .take_while(|(id, _)| id.package == package)
         .map(|(id, _)| id.clone());
     let mut ids: Vec<_> = sources
         .chain(generated)
         .filter(|id| {
-            pattern.casa(&id.caminho)
+            pattern.matches(&id.path)
                 && graph
-                    .gerados
+                    .generated
                     .get(id)
-                    .is_none_or(|g| g.fase < phase || (g.fase == phase && g.acao == action))
+                    .is_none_or(|g| g.phase < phase || (g.phase == phase && g.action == action))
         })
         .collect();
     ids.sort();
@@ -167,23 +167,23 @@ pub(crate) fn glob_candidates(
 
 /// Current digest of a query's answer.
 pub(crate) fn query_digest(
-    c: &Consulta,
-    database: &dyn BancoSemantico,
+    c: &Query,
+    database: &dyn SemanticDb,
     memory: &dyn Fn(&Path) -> Option<Arc<[u8]>>,
 ) -> Option<Digest> {
     match c {
-        Consulta::Arquivo(p) => memory(p)
+        Query::File(p) => memory(p)
             .map(|b| digest_bytes(&b))
-            .or_else(|| digest_arquivo(p)),
-        Consulta::Existe(p) => (memory(p).is_some() || p.is_file()).then(|| digest_bytes(b"1")),
-        Consulta::Glob { dir, padrao } => {
-            let g = crate::glob::Glob::novo(padrao).ok()?;
-            let list = crate::grafo::listar(dir, std::slice::from_ref(&g));
+            .or_else(|| digest_file(p)),
+        Query::Exists(p) => (memory(p).is_some() || p.is_file()).then(|| digest_bytes(b"1")),
+        Query::Glob { dir, pattern } => {
+            let g = crate::glob::Glob::new(pattern).ok()?;
+            let list = crate::graph::list(dir, std::slice::from_ref(&g));
             Some(digest_bytes(
                 list.into_iter().collect::<Vec<_>>().join("\n").as_bytes(),
             ))
         }
-        Consulta::GlobAtivos {
+        Query::ActiveGlobs {
             dir, candidatos, ..
         } => {
             let list = candidatos
@@ -207,84 +207,84 @@ pub(crate) fn query_digest(
 // -------------------------------------------------------------------- Dart
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Disponibilidade {
-    Disponivel,
-    Indisponivel(String),
+pub enum Availability {
+    Available,
+    Unavailable(String),
 }
 
 #[derive(Debug, Clone)]
-pub struct ErroExecutor(pub String);
+pub struct ExecutorError(pub String);
 
 #[derive(Debug, Clone)]
-pub struct SaidaNaoPermitida(pub AssetId);
+pub struct DisallowedOutput(pub AssetId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Nivel {
-    Fino,
+pub enum Level {
+    Fine,
     Info,
-    Aviso,
-    Severo,
+    Warning,
+    Severe,
 }
 
 /// The equivalent of `.dart_tool/build/entrypoint/build.dart`: the factory
 /// imports and the key → factories map (`build_script_generate.dart`).
 #[derive(Debug, Clone)]
-pub struct ScriptDeBuilders {
-    pub aplicacoes: Vec<(String, String, Vec<String>)>,
+pub struct BuilderScript {
+    pub applications: Vec<(String, String, Vec<String>)>,
     /// Interim key from the plan, lock versions and engine version; sources
     /// and ABI will be added before enabling the real process cache.
-    pub chave_de_cache: String,
+    pub cache_key: String,
 }
 
 /// `build.executar` of `dfexec/1` (`docs/BUILD-PROTOCOLO.md` §3).
 #[derive(Debug, Clone)]
-pub struct PedidoAcao {
-    pub fase: usize,
-    pub chave: String,
+pub struct ActionRequest {
+    pub phase: usize,
+    pub key: String,
     pub fabrica: String,
-    pub opcoes: Mapa,
-    pub raiz: bool,
+    pub options: Map,
+    pub root: bool,
     pub entrada: AssetId,
-    pub saidas_permitidas: Vec<AssetId>,
+    pub allowed_outputs: Vec<AssetId>,
 }
 
 /// Run-time extensions in the order of the `buildExtensions` map: input →
 /// outputs.
-pub type ExtensoesDeExecucao = Vec<(String, Vec<String>)>;
+pub type RuntimeExtensions = Vec<(String, Vec<String>)>;
 
 /// `build.extensoes` of `dfexec/1`: a phase's factory, with its options.
 #[derive(Debug, Clone)]
-pub struct PedidoExtensoes {
-    pub chave: String,
+pub struct ExtensionsRequest {
+    pub key: String,
     pub fabrica: String,
-    pub opcoes: Mapa,
-    pub raiz: bool,
+    pub options: Map,
+    pub root: bool,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ResultadoAcao {
-    pub saidas: Vec<(AssetId, Arc<[u8]>)>,
+pub struct ActionResult {
+    pub outputs: Vec<(AssetId, Arc<[u8]>)>,
     pub logs: Vec<(String, String)>,
     pub falhou: bool,
     /// Post-processor: the inputs marked by `deletePrimaryInput` (the node's
     /// `deletedBy`; only the merged output directory and the official
     /// `serve` stop seeing them).
-    pub apagados: Vec<AssetId>,
+    pub deleted_outputs: Vec<AssetId>,
 }
 
 /// The `Resolver` served by the semantic database (Phase 3 of BUILD-RUST.md).
-pub trait ServicoResolver {}
+pub trait ResolverService {}
 
-/// The `BuildStep` served by the engine: every call becomes a `Consulta`.
-pub trait ServicoBuildStep {
+/// The `BuildStep` served by the engine: every call becomes a `Query`.
+pub trait BuildStepService {
     fn can_read(&mut self, id: &AssetId) -> bool;
-    fn ler(&mut self, id: &AssetId) -> Option<Arc<[u8]>>;
+    fn read(&mut self, id: &AssetId) -> Option<Arc<[u8]>>;
     fn find_assets(&mut self, glob: &str) -> Vec<AssetId>;
     fn digest(&mut self, id: &AssetId) -> Option<[u8; 32]>;
-    fn escrever(&mut self, id: &AssetId, bytes: Arc<[u8]>) -> Result<(), SaidaNaoPermitida>;
+    fn write(&mut self, id: &AssetId, bytes: Arc<[u8]>) -> Result<(), DisallowedOutput>;
     /// `None` ⇒ the analyzer runs inside the executor.
-    fn resolver(&mut self) -> Option<&mut dyn ServicoResolver>;
-    fn log(&mut self, level: Nivel, msg: &str);
+    fn resolver(&mut self) -> Option<&mut dyn ResolverService>;
+    fn log(&mut self, level: Level, msg: &str);
 }
 
 /// An action's view of the graph. The executor never receives free paths:
@@ -292,13 +292,13 @@ pub trait ServicoBuildStep {
 /// phase only become readable after the current action writes them
 /// (`build_impl.dart:443-463`).
 pub struct ActionService<'a> {
-    pub graph: &'a Grafo,
-    pub packages: &'a GrafoPacotes,
+    pub graph: &'a Graph,
+    pub packages: &'a PackageGraph,
     pub action: usize,
     pub memory: &'a dyn Fn(&AssetId) -> Option<Arc<[u8]>>,
     pub writes: BTreeMap<AssetId, Arc<[u8]>>,
-    pub queries: Vec<(Consulta, Option<Digest>)>,
-    pub logs: Vec<(Nivel, String)>,
+    pub queries: Vec<(Query, Option<Digest>)>,
+    pub logs: Vec<(Level, String)>,
     /// In a post-processor anchor: the outputs other anchors already wrote
     /// (the official `addAsset` rejects an asset the graph already has).
     pub occupied: std::collections::BTreeSet<AssetId>,
@@ -306,8 +306,8 @@ pub struct ActionService<'a> {
 
 impl<'a> ActionService<'a> {
     pub fn new(
-        graph: &'a Grafo,
-        packages: &'a GrafoPacotes,
+        graph: &'a Graph,
+        packages: &'a PackageGraph,
         action: usize,
         memory: &'a dyn Fn(&AssetId) -> Option<Arc<[u8]>>,
     ) -> Self {
@@ -326,39 +326,39 @@ impl<'a> ActionService<'a> {
     /// A source readable by path: from the graph, or from an unlisted
     /// package (a dependency the resolver reads).
     fn is_source(&self, id: &AssetId) -> bool {
-        self.graph.tem_fonte(id) || self.graph.fonte_externa(id)
+        self.graph.has_source(id) || self.graph.external_source(id)
     }
 
     fn path(&self, id: &AssetId) -> Option<PathBuf> {
-        if !self.graph.existe(id) && !self.graph.fonte_externa(id) {
+        if !self.graph.existe(id) && !self.graph.external_source(id) {
             return None;
         }
         self.query_path(id)
     }
 
     fn query_path(&self, id: &AssetId) -> Option<PathBuf> {
-        let node = self.packages.no(&id.pacote)?;
+        let node = self.packages.no(&id.package)?;
         // Negative queries must observe files that have not entered the
         // graph yet; even so, they cannot escape the package.
         if id
-            .caminho
+            .path
             .split('/')
             .any(|p| p.is_empty() || p == ".." || p == "." || p.contains('\\') || p.contains(':'))
         {
             return None;
         }
         Some(dartforge_elements::gerado::chave(
-            &node.raiz.join(id.caminho.as_ref()),
+            &node.root.join(id.path.as_ref()),
         ))
     }
 
     fn bytes(&self, id: &AssetId) -> Option<Arc<[u8]>> {
-        let phase = self.graph.acoes.get(self.action)?.fase;
-        if let Some(g) = self.graph.gerados.get(id) {
-            if g.fase > phase || (g.fase == phase && g.acao != self.action) {
+        let phase = self.graph.actions.get(self.action)?.phase;
+        if let Some(g) = self.graph.generated.get(id) {
+            if g.phase > phase || (g.phase == phase && g.action != self.action) {
                 return None;
             }
-            return if g.fase == phase {
+            return if g.phase == phase {
                 self.writes.get(id).cloned()
             } else {
                 (self.memory)(id)
@@ -371,14 +371,14 @@ impl<'a> ActionService<'a> {
     }
 
     fn is_available(&self, id: &AssetId) -> bool {
-        let Some(phase) = self.graph.acoes.get(self.action).map(|a| a.fase) else {
+        let Some(phase) = self.graph.actions.get(self.action).map(|a| a.phase) else {
             return false;
         };
-        if let Some(g) = self.graph.gerados.get(id) {
-            return if g.fase > phase {
+        if let Some(g) = self.graph.generated.get(id) {
+            return if g.phase > phase {
                 false
-            } else if g.fase == phase {
-                g.acao == self.action && self.writes.contains_key(id)
+            } else if g.phase == phase {
+                g.action == self.action && self.writes.contains_key(id)
             } else {
                 (self.memory)(id).is_some()
             };
@@ -389,9 +389,9 @@ impl<'a> ActionService<'a> {
     fn record(&mut self, id: &AssetId, exists: bool, bytes: Option<&[u8]>) {
         if let Some(p) = self.query_path(id) {
             let c = if exists {
-                Consulta::Existe(p)
+                Query::Exists(p)
             } else {
-                Consulta::Arquivo(p)
+                Query::File(p)
             };
             let d = if exists {
                 bytes.map(|_| digest_bytes(b"1"))
@@ -403,49 +403,49 @@ impl<'a> ActionService<'a> {
     }
 }
 
-impl ServicoBuildStep for ActionService<'_> {
+impl BuildStepService for ActionService<'_> {
     fn can_read(&mut self, id: &AssetId) -> bool {
         let yes = self.is_available(id);
         self.record(id, true, yes.then_some(&[]));
         yes
     }
 
-    fn ler(&mut self, id: &AssetId) -> Option<Arc<[u8]>> {
+    fn read(&mut self, id: &AssetId) -> Option<Arc<[u8]>> {
         let b = self.bytes(id);
         self.record(id, false, b.as_deref());
         b
     }
 
     fn find_assets(&mut self, glob: &str) -> Vec<AssetId> {
-        let Ok(pattern) = crate::glob::Glob::novo(glob) else {
+        let Ok(pattern) = crate::glob::Glob::new(glob) else {
             return Vec::new();
         };
         let Some(package) = self
             .graph
-            .acoes
+            .actions
             .get(self.action)
-            .map(|a| a.entrada.pacote.clone())
+            .map(|a| a.entrada.package.clone())
         else {
             return Vec::new();
         };
         let mut ids = glob_candidates(self.graph, self.action, &pattern);
         let candidates: Vec<_> = ids
             .iter()
-            .map(|id| (id.caminho.to_string(), self.graph.gerados.contains_key(id)))
+            .map(|id| (id.path.to_string(), self.graph.generated.contains_key(id)))
             .collect();
         ids.retain(|id| self.can_read(id));
         // An empty listing also depends on the generated outputs that do not
         // exist yet. An old fallback file does not count as a current output.
         if let Some(node) = self.packages.no(&package) {
             self.queries.push((
-                Consulta::GlobAtivos {
-                    dir: node.raiz.clone(),
-                    padrao: glob.to_string(),
+                Query::ActiveGlobs {
+                    dir: node.root.clone(),
+                    pattern: glob.to_string(),
                     candidatos: candidates,
                 },
                 Some(digest_bytes(
                     ids.iter()
-                        .map(|id| id.caminho.as_ref())
+                        .map(|id| id.path.as_ref())
                         .collect::<Vec<_>>()
                         .join("\n")
                         .as_bytes(),
@@ -456,12 +456,12 @@ impl ServicoBuildStep for ActionService<'_> {
     }
 
     fn digest(&mut self, id: &AssetId) -> Option<[u8; 32]> {
-        self.ler(id).as_deref().map(digest_bytes)
+        self.read(id).as_deref().map(digest_bytes)
     }
 
-    fn escrever(&mut self, id: &AssetId, bytes: Arc<[u8]>) -> Result<(), SaidaNaoPermitida> {
-        let Some(action) = self.graph.acoes.get(self.action) else {
-            return Err(SaidaNaoPermitida(id.clone()));
+    fn write(&mut self, id: &AssetId, bytes: Arc<[u8]>) -> Result<(), DisallowedOutput> {
+        let Some(action) = self.graph.actions.get(self.action) else {
+            return Err(DisallowedOutput(id.clone()));
         };
         if action.pos {
             // `PostProcessBuildStep.writeAsBytes` → `addAsset`
@@ -469,29 +469,29 @@ impl ServicoBuildStep for ActionService<'_> {
             // yet — not a source, not a predicted output, not another
             // anchor's output, nor the same asset twice in the action.
             let new = !self.graph.existe(id)
-                && !self.graph.fonte_externa(id)
+                && !self.graph.external_source(id)
                 && !self.occupied.contains(id)
                 && !self.writes.contains_key(id)
-                && self.packages.no(&id.pacote).is_some()
+                && self.packages.no(&id.package).is_some()
                 && self.query_path(id).is_some();
             if !new {
-                return Err(SaidaNaoPermitida(id.clone()));
+                return Err(DisallowedOutput(id.clone()));
             }
             self.writes.insert(id.clone(), bytes);
             return Ok(());
         }
-        if self.path(id).is_none() || !action.saidas.contains(id) {
-            return Err(SaidaNaoPermitida(id.clone()));
+        if self.path(id).is_none() || !action.outputs.contains(id) {
+            return Err(DisallowedOutput(id.clone()));
         }
         self.writes.insert(id.clone(), bytes);
         Ok(())
     }
 
-    fn resolver(&mut self) -> Option<&mut dyn ServicoResolver> {
+    fn resolver(&mut self) -> Option<&mut dyn ResolverService> {
         None
     }
 
-    fn log(&mut self, level: Nivel, msg: &str) {
+    fn log(&mut self, level: Level, msg: &str) {
         self.logs.push((level, msg.to_string()));
     }
 }
@@ -499,181 +499,181 @@ impl ServicoBuildStep for ActionService<'_> {
 /// The Dart builder executor (Phase 4): a persistent process that speaks
 /// `dfexec/1`. It will come from the self-hosted native executor, shared
 /// with macros.
-pub trait ExecutorDart: Send {
-    fn disponibilidade(&self) -> Disponibilidade;
-    fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor>;
+pub trait DartExecutor: Send {
+    fn availability(&self) -> Availability;
+    fn prepare(&mut self, script: &BuilderScript) -> Result<(), ExecutorError>;
     /// Starts an engine update: the interval between two `build_runner`
     /// builds, in which it resets the per-build state of the resolvers
-    /// (`build_impl.dart:94-96`). Only called after a successful `preparar`.
-    fn nova_rodada(&mut self) {}
+    /// (`build_impl.dart:94-96`). Only called after a successful `prepare`.
+    fn new_round(&mut self) {}
     /// The run-time extensions of the `Builder` the factory returns with
     /// these options (`builder.buildExtensions`, in map order): what
     /// `build_runner` uses to predict the outputs. `None` when the executor
     /// cannot answer; the engine keeps the ones from the descriptor or from
     /// `build.yaml`.
-    fn extensoes(
+    fn extensions(
         &mut self,
-        _request: &PedidoExtensoes,
-    ) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
+        _request: &ExtensionsRequest,
+    ) -> Result<Option<RuntimeExtensions>, ExecutorError> {
         Ok(None)
     }
-    fn executar(
+    fn execute(
         &mut self,
-        request: &PedidoAcao,
-        service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor>;
+        request: &ActionRequest,
+        service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError>;
     /// The `inputExtensions` of the `PostProcessBuilder` the factory returns
     /// with these options. `None` when the executor cannot answer: the
     /// post-processing phase gets no anchors and the scoreboard counts it as
     /// pending.
-    fn entradas_pos(
+    fn post_inputs(
         &mut self,
-        _request: &PedidoExtensoes,
-    ) -> Result<Option<Vec<String>>, ErroExecutor> {
+        _request: &ExtensionsRequest,
+    ) -> Result<Option<Vec<String>>, ExecutorError> {
         Ok(None)
     }
     /// `build.posprocessar`: `package:build`'s `runPostProcessBuilder` on the
-    /// anchor's input. `saidas_permitidas` comes empty; writes go through
-    /// [`ServicoBuildStep::escrever`], which applies the `addAsset` rule.
+    /// anchor's input. `allowed_outputs` comes empty; writes go through
+    /// [`BuildStepService::write`], which applies the `addAsset` rule.
     /// The files the builders' code depends on (the bootstrap's depfile), so
     /// that the state saved across processes knows when a Dart action became
     /// stale without any of its queries changing. `None` when the executor
     /// does not know: Dart actions are not saved.
-    fn codigo(&self) -> Option<Vec<PathBuf>> {
+    fn code(&self) -> Option<Vec<PathBuf>> {
         None
     }
-    fn pos_processar(
+    fn post_process_step(
         &mut self,
-        _request: &PedidoAcao,
-        _service: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
-        Err(ErroExecutor(
+        _request: &ActionRequest,
+        _service: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
+        Err(ExecutorError(
             "this executor does not run post-processors".into(),
         ))
     }
-    fn encerrar(&mut self);
+    fn shutdown(&mut self);
 }
 
 /// The executor when there is no Dart process: every Dart action is refused
 /// with the reason (the engine falls back). The VM executor is in
 /// [`crate::vm`].
-pub struct Indisponivel(pub String);
+pub struct Unavailable(pub String);
 
-impl Default for Indisponivel {
+impl Default for Unavailable {
     fn default() -> Self {
-        Indisponivel(
+        Unavailable(
             "Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART)"
                 .into(),
         )
     }
 }
 
-impl ExecutorDart for Indisponivel {
-    fn disponibilidade(&self) -> Disponibilidade {
-        Disponibilidade::Indisponivel(self.0.clone())
+impl DartExecutor for Unavailable {
+    fn availability(&self) -> Availability {
+        Availability::Unavailable(self.0.clone())
     }
-    fn preparar(&mut self, _script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
-        Err(ErroExecutor(self.0.clone()))
+    fn prepare(&mut self, _script: &BuilderScript) -> Result<(), ExecutorError> {
+        Err(ExecutorError(self.0.clone()))
     }
-    fn executar(
+    fn execute(
         &mut self,
-        _p: &PedidoAcao,
-        _s: &mut dyn ServicoBuildStep,
-    ) -> Result<ResultadoAcao, ErroExecutor> {
-        Err(ErroExecutor(self.0.clone()))
+        _p: &ActionRequest,
+        _s: &mut dyn BuildStepService,
+    ) -> Result<ActionResult, ExecutorError> {
+        Err(ExecutorError(self.0.clone()))
     }
-    fn encerrar(&mut self) {}
+    fn shutdown(&mut self) {}
 }
 
 #[cfg(test)]
 mod service_tests {
     use super::*;
-    use crate::config::TipoDependencia;
-    use crate::grafo::{Acao, NoGerado};
-    use crate::pacotes::No;
+    use crate::config::DependencyType;
+    use crate::graph::{Action, GeneratedNode};
+    use crate::packages::No;
 
     #[test]
     fn phase_visibility_and_the_actions_own_output() {
         let dir = tempfile::tempdir().unwrap();
-        let packages = GrafoPacotes {
+        let packages = PackageGraph {
             nos: vec![
                 No {
-                    nome: "p".into(),
-                    raiz: dir.path().join("p"),
-                    tipo: TipoDependencia::Path,
-                    e_raiz: true,
+                    name: "p".into(),
+                    root: dir.path().join("p"),
+                    kind: DependencyType::Path,
+                    is_root: true,
                     deps: vec![],
                 },
                 No {
-                    nome: "q".into(),
-                    raiz: dir.path().join("q"),
-                    tipo: TipoDependencia::Path,
-                    e_raiz: false,
+                    name: "q".into(),
+                    root: dir.path().join("q"),
+                    kind: DependencyType::Path,
+                    is_root: false,
                     deps: vec![],
                 },
             ],
-            raiz: 0,
-            por_nome: [("p".into(), 0), ("q".into(), 1)].into(),
+            root: 0,
+            by_name: [("p".into(), 0), ("q".into(), 1)].into(),
             lock: Default::default(),
-            dir_raiz: dir.path().to_path_buf(),
+            root_dir: dir.path().to_path_buf(),
         };
-        let source = AssetId::novo("p", "lib/a.dart");
-        let first = AssetId::novo("p", "lib/a.g.dart");
-        let foreign = AssetId::novo("q", "lib/other.dart");
-        let second = AssetId::novo("p", "lib/a.h.dart");
-        let future = AssetId::novo("p", "lib/a.i.dart");
-        let escape = AssetId::novo("p", "lib/../escape.dart");
+        let source = AssetId::new("p", "lib/a.dart");
+        let first = AssetId::new("p", "lib/a.g.dart");
+        let foreign = AssetId::new("q", "lib/other.dart");
+        let second = AssetId::new("p", "lib/a.h.dart");
+        let future = AssetId::new("p", "lib/a.i.dart");
+        let escape = AssetId::new("p", "lib/../escape.dart");
         std::fs::create_dir_all(dir.path().join("p/lib")).unwrap();
         std::fs::create_dir_all(dir.path().join("q/lib")).unwrap();
         std::fs::write(dir.path().join("p/lib/a.dart"), b"source").unwrap();
         std::fs::write(dir.path().join("q/lib/other.dart"), b"foreign").unwrap();
-        let mut graph = Grafo::default();
+        let mut graph = Graph::default();
         graph
-            .fontes
+            .sources
             .entry("p".into())
             .or_default()
             .insert("lib/a.dart".into());
         graph
-            .fontes
+            .sources
             .entry("q".into())
             .or_default()
             .insert("lib/other.dart".into());
-        graph.acoes = vec![
-            Acao {
-                fase: 0,
+        graph.actions = vec![
+            Action {
+                phase: 0,
                 entrada: source.clone(),
-                saidas: vec![first.clone()],
+                outputs: vec![first.clone()],
                 pos: false,
             },
-            Acao {
-                fase: 1,
+            Action {
+                phase: 1,
                 entrada: first.clone(),
-                saidas: vec![second.clone(), escape.clone()],
+                outputs: vec![second.clone(), escape.clone()],
                 pos: false,
             },
-            Acao {
-                fase: 2,
+            Action {
+                phase: 2,
                 entrada: second.clone(),
-                saidas: vec![future.clone()],
+                outputs: vec![future.clone()],
                 pos: false,
             },
         ];
         for (id, action, phase) in [(&first, 0, 0), (&second, 1, 1), (&future, 2, 2)] {
-            graph.gerados.insert(
+            graph.generated.insert(
                 id.clone(),
-                NoGerado {
-                    acao: action,
-                    fase: phase,
-                    oculto: false,
+                GeneratedNode {
+                    action: action,
+                    phase: phase,
+                    hidden: false,
                 },
             );
         }
-        graph.gerados.insert(
+        graph.generated.insert(
             escape.clone(),
-            NoGerado {
-                acao: 1,
-                fase: 1,
-                oculto: false,
+            GeneratedNode {
+                action: 1,
+                phase: 1,
+                hidden: false,
             },
         );
         let memory: BTreeMap<AssetId, Arc<[u8]>> = [
@@ -683,22 +683,22 @@ mod service_tests {
         .into();
         let read_memory = |id: &AssetId| memory.get(id).cloned();
         let mut s = ActionService::new(&graph, &packages, 1, &read_memory);
-        assert_eq!(s.ler(&source).as_deref(), Some(&b"source"[..]));
-        assert_eq!(s.ler(&first).as_deref(), Some(&b"prior"[..]));
+        assert_eq!(s.read(&source).as_deref(), Some(&b"source"[..]));
+        assert_eq!(s.read(&first).as_deref(), Some(&b"prior"[..]));
         assert!(!s.can_read(&second));
         assert!(!s.can_read(&future));
-        assert!(s.escrever(&future, Arc::from(&b"bad"[..])).is_err());
-        assert!(s.escrever(&escape, Arc::from(&b"bad"[..])).is_err());
-        let new = AssetId::novo("p", "lib/new.dart");
+        assert!(s.write(&future, Arc::from(&b"bad"[..])).is_err());
+        assert!(s.write(&escape, Arc::from(&b"bad"[..])).is_err());
+        let new = AssetId::new("p", "lib/new.dart");
         assert!(!s.can_read(&new));
         assert!(
             s.queries.iter().any(
-                |(c, d)| matches!(c, Consulta::Existe(p) if p.ends_with("new.dart")) && d.is_none()
+                |(c, d)| matches!(c, Query::Exists(p) if p.ends_with("new.dart")) && d.is_none()
             ),
             "a negative canRead must invalidate when the source appears"
         );
-        s.escrever(&second, Arc::from(&b"own"[..])).unwrap();
-        assert_eq!(s.ler(&second).as_deref(), Some(&b"own"[..]));
+        s.write(&second, Arc::from(&b"own"[..])).unwrap();
+        assert_eq!(s.read(&second).as_deref(), Some(&b"own"[..]));
         assert_eq!(s.find_assets("lib/**"), vec![source, first, second]);
         assert!(
             !s.find_assets("lib/**").contains(&foreign),
@@ -707,113 +707,113 @@ mod service_tests {
         assert!(
             s.queries
                 .iter()
-                .any(|(c, d)| matches!(c, Consulta::Existe(_)) && d.is_none())
+                .any(|(c, d)| matches!(c, Query::Exists(_)) && d.is_none())
         );
     }
 
     #[test]
     fn post_processor_anchor_writes_only_new_assets() {
         let dir = tempfile::tempdir().unwrap();
-        let packages = GrafoPacotes {
+        let packages = PackageGraph {
             nos: vec![No {
-                nome: "p".into(),
-                raiz: dir.path().join("p"),
-                tipo: TipoDependencia::Path,
-                e_raiz: true,
+                name: "p".into(),
+                root: dir.path().join("p"),
+                kind: DependencyType::Path,
+                is_root: true,
                 deps: vec![],
             }],
-            raiz: 0,
-            por_nome: [("p".into(), 0)].into(),
+            root: 0,
+            by_name: [("p".into(), 0)].into(),
             lock: Default::default(),
-            dir_raiz: dir.path().to_path_buf(),
+            root_dir: dir.path().to_path_buf(),
         };
         std::fs::create_dir_all(dir.path().join("p/lib")).unwrap();
         std::fs::write(dir.path().join("p/lib/a.draft"), b"x").unwrap();
-        let input = AssetId::novo("p", "lib/a.draft");
-        let predicted = AssetId::novo("p", "lib/a.g.dart");
-        let mut graph = Grafo::default();
+        let input = AssetId::new("p", "lib/a.draft");
+        let predicted = AssetId::new("p", "lib/a.g.dart");
+        let mut graph = Graph::default();
         graph
-            .fontes
+            .sources
             .entry("p".into())
             .or_default()
             .insert("lib/a.draft".into());
-        graph.acoes = vec![
-            Acao {
-                fase: 0,
+        graph.actions = vec![
+            Action {
+                phase: 0,
                 entrada: input.clone(),
-                saidas: vec![predicted.clone()],
+                outputs: vec![predicted.clone()],
                 pos: false,
             },
-            Acao {
-                fase: 1,
+            Action {
+                phase: 1,
                 entrada: input.clone(),
-                saidas: vec![],
+                outputs: vec![],
                 pos: true,
             },
         ];
-        graph.gerados.insert(
+        graph.generated.insert(
             predicted.clone(),
-            NoGerado {
-                acao: 0,
-                fase: 0,
-                oculto: true,
+            GeneratedNode {
+                action: 0,
+                phase: 0,
+                hidden: true,
             },
         );
         let memory = |_: &AssetId| None;
         let mut s = ActionService::new(&graph, &packages, 1, &memory);
-        s.occupied.insert(AssetId::novo("p", "lib/from_other.txt"));
+        s.occupied.insert(AssetId::new("p", "lib/from_other.txt"));
         let b = || Arc::from(&b"r"[..]);
         assert!(
-            s.escrever(&input, b()).is_err(),
+            s.write(&input, b()).is_err(),
             "the source already exists in the graph"
         );
         assert!(
-            s.escrever(&predicted, b()).is_err(),
+            s.write(&predicted, b()).is_err(),
             "predicted output of another phase"
         );
         assert!(
-            s.escrever(&AssetId::novo("p", "lib/from_other.txt"), b())
+            s.write(&AssetId::new("p", "lib/from_other.txt"), b())
                 .is_err(),
             "output of another anchor"
         );
         assert!(
-            s.escrever(&AssetId::novo("p", "lib/../outside.txt"), b())
+            s.write(&AssetId::new("p", "lib/../outside.txt"), b())
                 .is_err()
         );
         assert!(
-            s.escrever(&AssetId::novo("q", "lib/x.txt"), b()).is_err(),
+            s.write(&AssetId::new("q", "lib/x.txt"), b()).is_err(),
             "unknown package"
         );
-        let new = AssetId::novo("p", "lib/a.draft.summary");
-        s.escrever(&new, b()).unwrap();
-        assert!(s.escrever(&new, b()).is_err(), "the same asset twice");
+        let new = AssetId::new("p", "lib/a.draft.summary");
+        s.write(&new, b()).unwrap();
+        assert!(s.write(&new, b()).is_err(), "the same asset twice");
         assert_eq!(s.writes.keys().collect::<Vec<_>>(), vec![&new]);
     }
 
     #[test]
     fn unlisted_dependency_is_readable_through_the_package_filter() {
         let dir = tempfile::tempdir().unwrap();
-        let packages = GrafoPacotes {
+        let packages = PackageGraph {
             nos: vec![
                 No {
-                    nome: "p".into(),
-                    raiz: dir.path().join("p"),
-                    tipo: TipoDependencia::Path,
-                    e_raiz: true,
+                    name: "p".into(),
+                    root: dir.path().join("p"),
+                    kind: DependencyType::Path,
+                    is_root: true,
                     deps: vec![],
                 },
                 No {
-                    nome: "q".into(),
-                    raiz: dir.path().join("q"),
-                    tipo: TipoDependencia::Hosted,
-                    e_raiz: false,
+                    name: "q".into(),
+                    root: dir.path().join("q"),
+                    kind: DependencyType::Hosted,
+                    is_root: false,
                     deps: vec![],
                 },
             ],
-            raiz: 0,
-            por_nome: [("p".into(), 0), ("q".into(), 1)].into(),
+            root: 0,
+            by_name: [("p".into(), 0), ("q".into(), 1)].into(),
             lock: Default::default(),
-            dir_raiz: dir.path().to_path_buf(),
+            root_dir: dir.path().to_path_buf(),
         };
         std::fs::create_dir_all(dir.path().join("p/lib")).unwrap();
         std::fs::create_dir_all(dir.path().join("q/lib")).unwrap();
@@ -825,45 +825,45 @@ mod service_tests {
         .unwrap();
         std::fs::write(dir.path().join("q/lib/q.dart"), b"class Q {}").unwrap();
         std::fs::write(dir.path().join("q/tool/t.dart"), b"secret").unwrap();
-        let mut graph = Grafo::default();
+        let mut graph = Graph::default();
         graph
-            .fontes
+            .sources
             .entry("p".into())
             .or_default()
             .insert("lib/a.dart".into());
-        let lib = || vec![crate::glob::Glob::novo("lib/**").unwrap()];
+        let lib = || vec![crate::glob::Glob::new("lib/**").unwrap()];
         graph.externos.insert(
             "q".into(),
-            crate::grafo::FiltroFontes {
-                alvos: vec![crate::plano::Casador {
+            crate::graph::SourceFilter {
+                targets: vec![crate::plan::InputMatcher {
                     include: Some(lib()),
                     exclude: None,
                 }],
-                visiveis: Some(lib()),
+                visible: Some(lib()),
             },
         );
-        let input = AssetId::novo("p", "lib/a.dart");
-        graph.acoes = vec![Acao {
-            fase: 0,
+        let input = AssetId::new("p", "lib/a.dart");
+        graph.actions = vec![Action {
+            phase: 0,
             entrada: input.clone(),
-            saidas: vec![AssetId::novo("p", "lib/a.g.dart")],
+            outputs: vec![AssetId::new("p", "lib/a.g.dart")],
             pos: false,
         }];
         let memory = |_: &AssetId| None;
         let mut s = ActionService::new(&graph, &packages, 0, &memory);
-        assert!(s.can_read(&AssetId::novo("q", "lib/q.dart")));
+        assert!(s.can_read(&AssetId::new("q", "lib/q.dart")));
         assert_eq!(
-            s.ler(&AssetId::novo("q", "lib/q.dart")).as_deref(),
+            s.read(&AssetId::new("q", "lib/q.dart")).as_deref(),
             Some(&b"class Q {}"[..])
         );
         assert!(
-            !s.can_read(&AssetId::novo("q", "tool/t.dart")),
+            !s.can_read(&AssetId::new("q", "tool/t.dart")),
             "outside a dependency's visible set"
         );
-        assert!(s.ler(&AssetId::novo("q", "lib/missing.dart")).is_none());
+        assert!(s.read(&AssetId::new("q", "lib/missing.dart")).is_none());
         assert!(
             s.queries.iter().any(
-                |(c, d)| matches!(c, Consulta::Arquivo(p) if p.ends_with("q.dart")) && d.is_some()
+                |(c, d)| matches!(c, Query::File(p) if p.ends_with("q.dart")) && d.is_some()
             ),
             "reading the dependency is a query of the action"
         );
@@ -872,24 +872,24 @@ mod service_tests {
     #[test]
     fn buildstep_glob_revalidates_generated_output_in_memory() {
         let dir = tempfile::tempdir().unwrap();
-        let query = Consulta::GlobAtivos {
+        let query = Query::ActiveGlobs {
             dir: dir.path().to_path_buf(),
-            padrao: "lib/**".into(),
+            pattern: "lib/**".into(),
             candidatos: vec![("lib/a.g.dart".into(), true)],
         };
         let empty = |_: &Path| None;
         let full =
             |p: &Path| (p == dir.path().join("lib/a.g.dart")).then(|| Arc::from(&b"generated"[..]));
         assert_ne!(
-            query_digest(&query, &crate::consulta::SemBanco, &empty),
-            query_digest(&query, &crate::consulta::SemBanco, &full)
+            query_digest(&query, &crate::query::NoDb, &empty),
+            query_digest(&query, &crate::query::NoDb, &full)
         );
         // An old fallback file on disk does not make the current round's
         // output present when the generator did not publish it in memory.
         std::fs::create_dir(dir.path().join("lib")).unwrap();
         std::fs::write(dir.path().join("lib/a.g.dart"), b"old").unwrap();
         assert_eq!(
-            query_digest(&query, &crate::consulta::SemBanco, &empty),
+            query_digest(&query, &crate::query::NoDb, &empty),
             Some(digest_bytes(b""))
         );
     }

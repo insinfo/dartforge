@@ -25,14 +25,14 @@ enum Node {
 
 #[derive(Debug, Clone)]
 pub struct Glob {
-    pub padrao: String,
+    pub pattern: String,
     nodes: Vec<Node>,
     case_sensitive: bool,
 }
 
 impl PartialEq for Glob {
     fn eq(&self, o: &Self) -> bool {
-        self.padrao == o.padrao
+        self.pattern == o.pattern
     }
 }
 
@@ -213,7 +213,7 @@ fn in_range(c: char, ranges: &[(char, char)], case_sensitive: bool) -> bool {
 }
 
 impl Glob {
-    pub fn novo(pattern: &str) -> Result<Glob, String> {
+    pub fn new(pattern: &str) -> Result<Glob, String> {
         Self::with_case_sensitivity(pattern, !cfg!(windows))
     }
 
@@ -225,7 +225,7 @@ impl Glob {
         };
         let nodes = l.sequence(false)?;
         Ok(Glob {
-            padrao: pattern.to_string(),
+            pattern: pattern.to_string(),
             nodes,
             case_sensitive,
         })
@@ -233,7 +233,7 @@ impl Glob {
 
     /// Whether the whole path (POSIX, relative to the package) matches the
     /// pattern.
-    pub fn casa(&self, path: &str) -> bool {
+    pub fn matches(&self, path: &str) -> bool {
         let t: Vec<char> = path.chars().collect();
         let mut k = |end: usize| end == t.len();
         match_nodes(&self.nodes, 0, &t, 0, self.case_sensitive, &mut k)
@@ -343,61 +343,61 @@ mod tests {
     // Cases from `glob-2.1.3/test/match_test.dart`, the relative part.
     #[test]
     fn literals_and_stars() {
-        assert!(g("foo").casa("foo"));
-        assert!(!g("foo").casa("foo/bar"));
-        assert!(g("foo*").casa("foobar"));
-        assert!(g("foo*").casa("foo"));
-        assert!(!g("foo*").casa("foo/bar"));
-        assert!(g("*").casa("foo"));
-        assert!(!g("*").casa("foo/bar"));
-        assert!(g("**").casa("foo/bar/baz"));
-        assert!(g("foo/**").casa("foo/bar/baz"));
-        assert!(!g("foo/**").casa("foo"));
-        assert!(g("**/*.dart").casa("a/b/c.dart"));
+        assert!(g("foo").matches("foo"));
+        assert!(!g("foo").matches("foo/bar"));
+        assert!(g("foo*").matches("foobar"));
+        assert!(g("foo*").matches("foo"));
+        assert!(!g("foo*").matches("foo/bar"));
+        assert!(g("*").matches("foo"));
+        assert!(!g("*").matches("foo/bar"));
+        assert!(g("**").matches("foo/bar/baz"));
+        assert!(g("foo/**").matches("foo/bar/baz"));
+        assert!(!g("foo/**").matches("foo"));
+        assert!(g("**/*.dart").matches("a/b/c.dart"));
         // `**/` requires the slash: the regex is `^[^]*/[^/]*\.dart$`.
-        assert!(!g("**/*.dart").casa("c.dart"));
-        assert!(g("lib/**.dart").casa("lib/a/b.dart"));
-        assert!(g("lib/**.dart").casa("lib/b.dart"));
-        assert!(g("README*").casa("README.md"));
-        assert!(!g("README*").casa("doc/README.md"));
-        assert!(g("$package$").casa("$package$"));
-        assert!(g("lib/$lib$").casa("lib/$lib$"));
+        assert!(!g("**/*.dart").matches("c.dart"));
+        assert!(g("lib/**.dart").matches("lib/a/b.dart"));
+        assert!(g("lib/**.dart").matches("lib/b.dart"));
+        assert!(g("README*").matches("README.md"));
+        assert!(!g("README*").matches("doc/README.md"));
+        assert!(g("$package$").matches("$package$"));
+        assert!(g("lib/$lib$").matches("lib/$lib$"));
     }
 
     #[test]
     fn any_ranges_options() {
-        assert!(g("fo?").casa("foo"));
-        assert!(!g("fo?").casa("fo/"));
-        assert!(g("[a-c]x").casa("bx"));
-        assert!(!g("[a-c]x").casa("dx"));
-        assert!(g("[!a-c]x").casa("dx"));
-        assert!(!g("[!a-c]x").casa("/x"));
-        assert!(g("{foo,bar}.dart").casa("bar.dart"));
-        assert!(g("a{,/**}").casa("a"));
-        assert!(g("a{,/**}").casa("a/b/c"));
-        assert!(g("x[-]").casa("x-"));
-        assert!(g("x[a-]").casa("x-"));
-        assert!(g(r"a\*b").casa("a*b"));
-        assert!(!g(r"a\*b").casa("axb"));
+        assert!(g("fo?").matches("foo"));
+        assert!(!g("fo?").matches("fo/"));
+        assert!(g("[a-c]x").matches("bx"));
+        assert!(!g("[a-c]x").matches("dx"));
+        assert!(g("[!a-c]x").matches("dx"));
+        assert!(!g("[!a-c]x").matches("/x"));
+        assert!(g("{foo,bar}.dart").matches("bar.dart"));
+        assert!(g("a{,/**}").matches("a"));
+        assert!(g("a{,/**}").matches("a/b/c"));
+        assert!(g("x[-]").matches("x-"));
+        assert!(g("x[a-]").matches("x-"));
+        assert!(g(r"a\*b").matches("a*b"));
+        assert!(!g(r"a\*b").matches("axb"));
     }
 
     #[test]
     fn syntax_errors() {
-        assert!(Glob::novo("").is_err());
-        assert!(Glob::novo("{a}").is_err());
-        assert!(Glob::novo("a]").is_err());
-        assert!(Glob::novo("a(").is_err());
-        assert!(Glob::novo("[]").is_err());
-        assert!(Glob::novo("[b-a]").is_err());
-        assert!(Glob::novo("a}").is_err());
-        assert!(Glob::novo("[/]").is_err());
+        assert!(Glob::new("").is_err());
+        assert!(Glob::new("{a}").is_err());
+        assert!(Glob::new("a]").is_err());
+        assert!(Glob::new("a(").is_err());
+        assert!(Glob::new("[]").is_err());
+        assert!(Glob::new("[b-a]").is_err());
+        assert!(Glob::new("a}").is_err());
+        assert!(Glob::new("[/]").is_err());
     }
 
     #[test]
     fn case_on_windows() {
         let i = Glob::with_case_sensitivity("lib/**.DART", false).unwrap();
-        assert!(i.casa("lib/a.dart"));
-        assert!(!g("lib/**.DART").casa("lib/a.dart"));
+        assert!(i.matches("lib/a.dart"));
+        assert!(!g("lib/**.DART").matches("lib/a.dart"));
     }
 
     #[test]

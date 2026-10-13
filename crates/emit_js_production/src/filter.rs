@@ -1,8 +1,8 @@
 //! The closed world (`crates/world`) as seen by the emitter
-//! (`emit_js::filtro`).
+//! (`emit_js::filter`).
 
 use dartforge_elements::model::{ClassId, FunctionElementId, Program, VariableId};
-use dartforge_emit_js::filtro::{Estado, Nivel, Liveness};
+use dartforge_emit_js::filter::{State, Level, Liveness};
 use dartforge_world::{Mundo, ClassLevel};
 
 pub struct Adapter<'m> {
@@ -23,36 +23,36 @@ pub struct Adapter<'m> {
 }
 
 impl Liveness for Adapter<'_> {
-    fn classe(&self, c: ClassId) -> Nivel {
+    fn classe(&self, c: ClassId) -> Level {
         match self.world.classe(c) {
-            ClassLevel::Instantiated => Nivel::Instantiated,
-            ClassLevel::Tipo => Nivel::Tipo,
-            ClassLevel::Dead if self.stub => Nivel::Tipo,
-            ClassLevel::Dead => Nivel::Dead,
+            ClassLevel::Instantiated => Level::Instantiated,
+            ClassLevel::Type => Level::Type,
+            ClassLevel::Dead if self.stub => Level::Type,
+            ClassLevel::Dead => Level::Dead,
         }
     }
-    fn funcao(&self, f: FunctionElementId) -> Estado {
+    fn funcao(&self, f: FunctionElementId) -> State {
         if self.world.funcao(f) {
-            Estado::Live
+            State::Live
         } else if self.stub && self.program.function(f).extension.is_none() {
-            Estado::Stub
+            State::Stub
         } else if self.stub {
             // Extension member: the emitter has no stub form for the key
             // `L['Ext|m']`; in verifier mode it stays.
-            Estado::Live
+            State::Live
         } else {
-            Estado::Dead
+            State::Dead
         }
     }
-    fn variavel(&self, v: VariableId) -> Estado {
+    fn variavel(&self, v: VariableId) -> State {
         if self.world.variavel(v) {
-            Estado::Live
+            State::Live
         } else if self.stub && self.program.variable(v).extension.is_none() {
-            Estado::Stub
+            State::Stub
         } else if self.stub {
-            Estado::Live
+            State::Live
         } else {
-            Estado::Dead
+            State::Dead
         }
     }
     fn selector(&self, name: &str) -> bool {

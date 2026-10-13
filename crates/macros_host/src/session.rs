@@ -15,19 +15,19 @@
 //! after the parts. It is the same text that materialization writes
 //! (docs/MACROS-COMPATIBILIDADE.md).
 //!
-//! With a [`MacroCache`] ([`aplicar_incremental`]), each `(application,
+//! With a [`MacroCache`] ([`apply_incremental`]), each `(application,
 //! phase)` is revalidated before going to the executor, and the executor is
 //! only started if some application actually needs to run (`crate::cache`).
 //! With [`LoadByDiff`], each reload reuses the units already analyzed and
 //! only analyzes again the augmentation that changed.
-use crate::aplicacoes::{Application, Target, detectar, order};
+use crate::applications::{Application, Target, detect, order};
 use crate::assembly::{ExecutionResult, Header, assemble};
 use crate::cache::{
     ApplicationIdentity, Digest, InstanceKey, MacroCache, Recorder, Revalidation, implementation_identity, prune, record,
     request_digest, revalidate,
 };
-use crate::executor::{ExecutionRequest, ExecutorMacros, Phase, QueryError, QueryService};
-use crate::modelo::{Key, Table, Vista};
+use crate::executor::{ExecutionRequest, MacroExecutor, Phase, QueryError, QueryService};
+use crate::model::{Key, Table, View};
 use crate::queries::{ProgramResolver, QueryHandler};
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::gerado::{Construtor, Geracao};
@@ -46,7 +46,7 @@ static SESSIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// How many macro sessions this process has opened — the zero-cost gate
 /// requires 0 for a program without macro applications (like
-/// `dartforge_build::instancias`).
+/// `dartforge_build::instance_count`).
 pub fn sessions() -> usize {
     SESSIONS.load(Ordering::Relaxed)
 }
@@ -67,25 +67,25 @@ pub type LoadByDiff<'c> =
 /// The assembled text of a library.
 #[derive(Debug, Clone)]
 pub struct GeneratedText {
-    pub biblioteca: String,
+    pub library: String,
     /// `<library>.macro.dart`, next to it.
-    pub caminho: PathBuf,
-    pub texto: String,
+    pub path: PathBuf,
+    pub text: String,
 }
 
-/// What a macro session produced. The fields `textos`, `macros_executadas`
-/// and `avisos` keep their names because `crates/cli` and `crates/emit_js`
+/// What a macro session produced. The fields `texts`, `executed_macros`
+/// and `warnings` keep their names because `crates/cli` and `crates/emit_js`
 /// read them.
 pub struct Output {
     pub program: Program,
     pub generation: Option<Arc<Geracao>>,
     /// The texts of the augmented libraries.
-    pub textos: Vec<GeneratedText>,
+    pub texts: Vec<GeneratedText>,
     /// Executions actually sent to the executor (those reused from the cache
     /// do not count).
-    pub macros_executadas: usize,
+    pub executed_macros: usize,
     /// Warnings and infos reported by the macros.
-    pub avisos: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
     /// The expansions, in the order they entered the program — executed or
     /// reused. An incremental compilation must repeat the order of a clean
     /// one.
@@ -252,7 +252,7 @@ fn generate(
             None => by_library.push((lib.clone(), vec![r.clone()])),
         }
     }
-    let view = Vista { program, interner };
+    let view = View { program, interner };
     let cell = RefCell::new(table);
     let resolver = ProgramResolver { view: &view, table: &cell };
     let mut texts = Vec::new();
@@ -262,7 +262,7 @@ fn generate(
         let main = program.library(lib_id).units.first().and_then(|u| program.unit(*u).path.clone());
         let main = main.ok_or_else(|| format!("library {lib} has no file"))?;
         let path = dartforge_elements::load::caminho_da_augmentation_de_macro(&main);
-        texts.push(GeneratedText { biblioteca: lib, caminho: path, texto: text });
+        texts.push(GeneratedText { library: lib, path: path, text: text });
     }
     let mut c = Construtor::nova();
     if let Some(b) = base {
@@ -271,7 +271,7 @@ fn generate(
         }
     }
     for t in &texts {
-        c.por(t.caminho.clone(), t.texto.as_str(), "macros", vec![]);
+        c.por(t.path.clone(), t.text.as_str(), "macros", vec![]);
     }
     let id = base.map_or(0, |b| b.id) + 1;
     let g = c.concluir(id).map_err(|e| e.join("; "))?;
@@ -280,8 +280,8 @@ fn generate(
 
 /// Applications that still need to run; libraries with a materialized
 /// augmentation already have their members in the loaded program.
-pub fn aplicacoes_pendentes(program: &Program, interner: &Interner) -> Vec<Application> {
-    detectar(&Vista { program, interner })
+pub fn pending_applications(program: &Program, interner: &Interner) -> Vec<Application> {
+    detect(&View { program, interner })
         .into_iter()
         .filter(|a| !already_materialized(program, &a.library))
         .collect()
@@ -293,20 +293,20 @@ pub fn aplicacoes_pendentes(program: &Program, interner: &Interner) -> Vec<Appli
 /// that does not compile), it returns the diagnostics, each one pointing at
 /// the annotation.
 ///
-/// Without a cache and with a full reload; [`aplicar_incremental`] is the
+/// Without a cache and with a full reload; [`apply_incremental`] is the
 /// form with the expansion cache and the diff-based reload.
-pub fn aplicar(
+pub fn apply(
     program: Program,
     interner: &mut Interner,
     base: Option<Arc<Geracao>>,
     load: &mut Load<'_>,
-    executor: &mut dyn ExecutorMacros,
+    executor: &mut dyn MacroExecutor,
 ) -> Result<Output, Vec<Diagnostic>> {
     let mut cache = MacroCache::disabled();
     run_session(program, interner, base, Reload::Full(load), executor, &mut cache)
 }
 
-/// Like [`aplicar`], with the diff-based reload ([`LoadByDiff`]) and, if
+/// Like [`apply`], with the diff-based reload ([`LoadByDiff`]) and, if
 /// given, the expansion cache: what the previous compilation executed and
 /// still holds is reused without talking to the executor, which is only
 /// started if some application needs to run. The result — texts, order of
@@ -314,13 +314,13 @@ pub fn aplicar(
 ///
 /// # Errors
 ///
-/// The same as [`aplicar`].
-pub fn aplicar_incremental(
+/// The same as [`apply`].
+pub fn apply_incremental(
     program: Program,
     interner: &mut Interner,
     base: Option<Arc<Geracao>>,
     load: &mut LoadByDiff<'_>,
-    executor: &mut dyn ExecutorMacros,
+    executor: &mut dyn MacroExecutor,
     cache: Option<&mut MacroCache>,
 ) -> Result<Output, Vec<Diagnostic>> {
     let mut disabled;
@@ -358,7 +358,7 @@ impl Reload<'_, '_> {
             Reload::ByDiff(load, units) => {
                 units.recolher(std::mem::take(program));
                 for t in texts {
-                    units.invalidar(&t.caminho);
+                    units.invalidar(&t.path);
                 }
                 let r = load(interner, Some(g), units);
                 measurement.reused_units += units.reaproveitadas;
@@ -372,7 +372,7 @@ impl Reload<'_, '_> {
 
 /// The executor, started only when some application needs it.
 struct LazyExecutor<'e> {
-    executor: &'e mut dyn ExecutorMacros,
+    executor: &'e mut dyn MacroExecutor,
     started: bool,
     /// One instance per (macro, constructor, arguments), like the CFE.
     instances: HashMap<InstanceKey, (u64, Vec<String>)>,
@@ -425,20 +425,20 @@ fn run_session(
     interner: &mut Interner,
     base: Option<Arc<Geracao>>,
     mut reload: Reload<'_, '_>,
-    executor: &mut dyn ExecutorMacros,
+    executor: &mut dyn MacroExecutor,
     cache: &mut MacroCache,
 ) -> Result<Output, Vec<Diagnostic>> {
     // A library that already includes the materialized augmentation
     // (`import augment 'x.macro.dart'` or `part`, written by `dartforge macros
     // --materializar`) does not run the macros again: like a `.g.dart` on disk.
-    let apps = aplicacoes_pendentes(&program, interner);
+    let apps = pending_applications(&program, interner);
     if apps.is_empty() {
         return Ok(Output {
             program,
             generation: base,
-            textos: Vec::new(),
-            macros_executadas: 0,
-            avisos: Vec::new(),
+            texts: Vec::new(),
+            executed_macros: 0,
+            warnings: Vec::new(),
             expansions: Vec::new(),
             measurement: Measurement::default(),
         });
@@ -507,7 +507,7 @@ fn run_session(
 
     let mut texts = Vec::new();
     for phase in Phase::ALL {
-        let sequence = order(phase, &apps, &Vista { program: &program, interner });
+        let sequence = order(phase, &apps, &View { program: &program, interner });
         let mut changed = false;
         for i in sequence {
             let app = &apps[i];
@@ -534,7 +534,7 @@ fn run_session(
             }
             let record_key = (identities[i].clone(), phase);
             let result = {
-                let view = Vista { program: &program, interner };
+                let view = View { program: &program, interner };
                 let t = Instant::now();
                 let (target, model) = match target_and_model(&view, table, &app.target) {
                     Ok(x) => x,
@@ -651,9 +651,9 @@ fn run_session(
     Ok(Output {
         program,
         generation,
-        textos: texts,
-        macros_executadas: executed,
-        avisos: warnings,
+        texts: texts,
+        executed_macros: executed,
+        warnings: warnings,
         expansions,
         measurement,
     })
@@ -661,7 +661,7 @@ fn run_session(
 
 /// The target as JSON and the prefetch model: the target's library and, for
 /// a class, its members (`@JsonCodable` makes no round trip).
-fn target_and_model(v: &Vista<'_>, t: &mut Table, target: &Target) -> Result<(Value, Value), String> {
+fn target_and_model(v: &View<'_>, t: &mut Table, target: &Target) -> Result<(Value, Value), String> {
     match target {
         Target::Library(uri) => {
             let lib = v.library_by_uri(uri).ok_or_else(|| format!("library {uri} not found"))?;

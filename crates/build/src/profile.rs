@@ -23,9 +23,9 @@ use std::cmp::Ordering;
 /// Semantic version `major.minor.patch` (the `-dev`/`+build` suffix is
 /// ignored in comparisons: the engine only distinguishes published versions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Versao(pub u32, pub u32, pub u32);
+pub struct Version(pub u32, pub u32, pub u32);
 
-impl Versao {
+impl Version {
     /// Reads `1.2.3`, `1.2.3-dev.1` or `1.2.3+4`.
     ///
     /// ```
@@ -34,15 +34,15 @@ impl Versao {
     /// assert_eq!(Versao::ler("2.6.0-dev.2"), Some(Versao(2, 6, 0)));
     /// assert_eq!(Versao::ler("x"), None);
     /// ```
-    pub fn ler(text: &str) -> Option<Versao> {
+    pub fn read(text: &str) -> Option<Version> {
         let core = text.split(['-', '+']).next()?;
         let mut parts = core.split('.').map(|p| p.parse::<u32>().ok());
-        let v = Versao(parts.next()??, parts.next()??, parts.next()??);
+        let v = Version(parts.next()??, parts.next()??, parts.next()??);
         parts.next().is_none().then_some(v)
     }
 }
 
-impl std::fmt::Display for Versao {
+impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.0, self.1, self.2)
     }
@@ -50,28 +50,28 @@ impl std::fmt::Display for Versao {
 
 /// The rules that apply to a project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Perfil {
+pub struct Profile {
     /// `build_config` version from the lock (`None`: missing, 1.1.2 applies).
-    pub build_config: Option<Versao>,
+    pub build_config: Option<Version>,
     /// `build_runner` version from the lock.
-    pub build_runner: Option<Versao>,
+    pub build_runner: Option<Version>,
 }
 
-impl Default for Perfil {
+impl Default for Profile {
     /// The engine's historical profile: `build_runner` 2.4.15, `build_config` 1.1.2.
     fn default() -> Self {
-        Perfil {
-            build_config: Some(Versao(1, 1, 2)),
-            build_runner: Some(Versao(2, 4, 15)),
+        Profile {
+            build_config: Some(Version(1, 1, 2)),
+            build_runner: Some(Version(2, 4, 15)),
         }
     }
 }
 
-fn at_least(v: Option<Versao>, minimum: Versao) -> bool {
+fn at_least(v: Option<Version>, minimum: Version) -> bool {
     v.is_some_and(|v| v.cmp(&minimum) != Ordering::Less)
 }
 
-impl Perfil {
+impl Profile {
     /// The profile for the versions in the lock.
     ///
     /// ```
@@ -81,29 +81,29 @@ impl Perfil {
     /// let old = Perfil::das_versoes(Some("1.1.2"), Some("2.4.15"));
     /// assert!(!old.aceita_triggers() && !old.dispara());
     /// ```
-    pub fn das_versoes(build_config: Option<&str>, build_runner: Option<&str>) -> Perfil {
-        Perfil {
-            build_config: build_config.and_then(Versao::ler),
-            build_runner: build_runner.and_then(Versao::ler),
+    pub fn from_versions(build_config: Option<&str>, build_runner: Option<&str>) -> Profile {
+        Profile {
+            build_config: build_config.and_then(Version::read),
+            build_runner: build_runner.and_then(Version::read),
         }
     }
 
     /// `build_config` ≥ 1.2.0: the top-level `triggers` key exists (otherwise
     /// `$checkKeys` rejects it like any unknown key).
     pub fn aceita_triggers(&self) -> bool {
-        at_least(self.build_config, Versao(1, 2, 0))
+        at_least(self.build_config, Version(1, 2, 0))
     }
 
     /// `build_config` ≥ 1.3.0: `post_process_builders.<x>.build_to`.
     pub fn aceita_build_to_pos(&self) -> bool {
-        at_least(self.build_config, Versao(1, 3, 0))
+        at_least(self.build_config, Version(1, 3, 0))
     }
 
     /// `build_config` ≥ 1.3.2: a builder definition or target key written
     /// with another package (`other:x` in the `build.yaml` of `p`) is an
     /// error.
-    pub fn exige_chave_do_pacote(&self) -> bool {
-        at_least(self.build_config, Versao(1, 3, 2))
+    pub fn requires_package_key(&self) -> bool {
+        at_least(self.build_config, Version(1, 3, 2))
     }
 
     /// Triggers decide whether a step with `run_only_if_triggered: true`
@@ -111,31 +111,31 @@ impl Perfil {
     /// `build_config` ≥ 1.2.0.
     pub fn dispara(&self) -> bool {
         match self.build_runner {
-            Some(v) => v >= Versao(2, 7, 0),
+            Some(v) => v >= Version(2, 7, 0),
             None => self.aceita_triggers(),
         }
     }
 
     /// Between 2.7.0 and 2.10.0, `build_runner` looked up the triggers of a
     /// `p:p` builder by the short name `p` (fixed in 2.10.1).
-    pub fn trigger_pelo_nome_abreviado(&self) -> bool {
+    pub fn trigger_by_short_name(&self) -> bool {
         self.build_runner
-            .is_some_and(|v| v >= Versao(2, 7, 0) && v < Versao(2, 10, 1))
+            .is_some_and(|v| v >= Version(2, 7, 0) && v < Version(2, 10, 1))
     }
 
     /// `build_runner` ≥ 2.14.0: `--build-filter asset:<package>/<path>`.
-    pub fn filtro_asset(&self) -> bool {
-        at_least(self.build_runner, Versao(2, 14, 0))
+    pub fn asset_filter(&self) -> bool {
+        at_least(self.build_runner, Version(2, 14, 0))
     }
 
     /// `build_runner` ≥ 2.15.3: `findBuilderOrder` rejects a duplicate key.
-    pub fn recusa_chave_duplicada(&self) -> bool {
-        at_least(self.build_runner, Versao(2, 15, 3))
+    pub fn rejects_duplicate_key(&self) -> bool {
+        at_least(self.build_runner, Version(2, 15, 3))
     }
 
     /// Short text for reports (`build_runner 2.16.1, build_config 1.3.3`).
-    pub fn texto(&self) -> String {
-        let v = |x: Option<Versao>| x.map_or_else(|| "missing".to_string(), |v| v.to_string());
+    pub fn text(&self) -> String {
+        let v = |x: Option<Version>| x.map_or_else(|| "missing".to_string(), |v| v.to_string());
         format!(
             "build_runner {}, build_config {}",
             v(self.build_runner),

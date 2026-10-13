@@ -5,10 +5,10 @@ pub mod i18n;
 pub mod ng;
 pub mod sass;
 
-use crate::executor::GeradorNativo;
+use crate::executor::NativeGenerator;
 use std::sync::Arc;
 
-pub fn todos() -> Vec<Arc<dyn GeradorNativo>> {
+pub fn all() -> Vec<Arc<dyn NativeGenerator>> {
     vec![
         Arc::new(ng::NgStageA::default()),
         Arc::new(ng::NgStageA::with_key("ngx_dart:ngx_dart")),

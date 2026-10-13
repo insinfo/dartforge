@@ -31,10 +31,10 @@ enum Rule {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct Extensoes {
+pub struct Extensions {
     rules: Vec<Rule>,
     /// The declared form, in order: it goes into the phase's identity.
-    pub declaradas: Vec<(String, Vec<String>)>,
+    pub declared: Vec<(String, Vec<String>)>,
 }
 
 /// The `{{name}}` groups of a string: `(start, end, name)`.
@@ -59,10 +59,10 @@ fn groups(s: &str) -> Vec<(usize, usize, String)> {
     v
 }
 
-impl Extensoes {
-    pub fn novas(declaradas: &[(String, Vec<String>)], builder: &str) -> Result<Extensoes, String> {
+impl Extensions {
+    pub fn new_for(declared: &[(String, Vec<String>)], builder: &str) -> Result<Extensions, String> {
         let mut rules = Vec::new();
-        for (input, outputs) in declaradas {
+        for (input, outputs) in declared {
             let gs = groups(input);
             if !gs.is_empty() {
                 let anchored = input.starts_with('^');
@@ -124,9 +124,9 @@ impl Extensoes {
                 });
             }
         }
-        Ok(Extensoes {
+        Ok(Extensions {
             rules,
-            declaradas: declaradas.to_vec(),
+            declared: declared.to_vec(),
         })
     }
 
@@ -190,7 +190,7 @@ impl Extensoes {
 
     /// All declared outputs (for `required_inputs`).
     pub fn all_outputs(&self) -> impl Iterator<Item = &String> {
-        self.declaradas.iter().flat_map(|(_, s)| s)
+        self.declared.iter().flat_map(|(_, s)| s)
     }
 }
 
@@ -254,12 +254,12 @@ fn match_from(
 mod tests {
     use super::*;
 
-    fn ext(pairs: &[(&str, &[&str])]) -> Result<Extensoes, String> {
+    fn ext(pairs: &[(&str, &[&str])]) -> Result<Extensions, String> {
         let v: Vec<(String, Vec<String>)> = pairs
             .iter()
             .map(|(a, b)| (a.to_string(), b.iter().map(|s| s.to_string()).collect()))
             .collect();
-        Extensoes::novas(&v, "test")
+        Extensions::new_for(&v, "test")
     }
 
     // Cases from `build-2.4.2/test/generate/expected_outputs_test.dart`.

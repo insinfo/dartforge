@@ -23,9 +23,9 @@ use dartforge_frontend::{Feature, LanguageVersion};
 use dartforge_intern::Interner;
 use dartforge_macros_host::assembly::{Code, ExecutionResult, Part};
 use dartforge_macros_host::cache::MacroCache;
-use dartforge_macros_host::executor::{Availability, ExecutionRequest, ExecutorMacros, Phase, QueryService};
+use dartforge_macros_host::executor::{Availability, ExecutionRequest, MacroExecutor, Phase, QueryService};
 use dartforge_macros_host::protocol::Handshake;
-use dartforge_macros_host::{Output, aplicar, aplicar_incremental};
+use dartforge_macros_host::{Output, apply, apply_incremental};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -74,7 +74,7 @@ fn core(queries: &mut dyn QueryService, name: &str) -> u64 {
     r["id"].as_u64().unwrap()
 }
 
-impl ExecutorMacros for Fake {
+impl MacroExecutor for Fake {
     fn availability(&self) -> Availability {
         self.touch();
         Availability::Available
@@ -202,18 +202,18 @@ struct Product {
 
 fn product(s: &Output) -> Product {
     Product {
-        texts: s.textos.iter().map(|t| (t.caminho.clone(), t.texto.clone())).collect(),
-        warnings: s.avisos.iter().map(|d| format!("{:?} {}", d.span, d.message)).collect(),
+        texts: s.texts.iter().map(|t| (t.path.clone(), t.text.clone())).collect(),
+        warnings: s.warnings.iter().map(|d| format!("{:?} {}", d.span, d.message)).collect(),
         expansions: s.expansions.iter().map(|e| (e.application.to_string(), e.phase)).collect(),
     }
 }
 
-fn compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: Option<&mut MacroCache>) -> Output {
+fn compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn MacroExecutor, cache: Option<&mut MacroCache>) -> Output {
     let mut names = Interner::new();
     let (p, d) = load_lenient_gerados(input, sdk, None, &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
     let mut load = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, None, i, None, Some(u), g);
-    match aplicar_incremental(p, &mut names, None, &mut load, executor, cache) {
+    match apply_incremental(p, &mut names, None, &mut load, executor, cache) {
         Ok(s) => s,
         Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
     }
@@ -246,7 +246,7 @@ impl Scenario {
         let mut cache = MacroCache::new("fake");
         let mut executor = Fake::new();
         let s = compile(&input, &sdk, &mut executor, Some(&mut cache));
-        assert_eq!(s.macros_executadas, 4, "{:?}", executor.executions);
+        assert_eq!(s.executed_macros, 4, "{:?}", executor.executions);
         assert_eq!(s.measurement.reused, 0);
         assert!(!executor.started, "the session shuts the executor down");
         Some(Scenario { _dir: dir, input, sdk, cache })
@@ -268,7 +268,7 @@ fn recompilation_without_change_does_not_talk_to_the_executor() {
     let source = Source::default();
     let Some(mut c) = Scenario::new(&source) else { return };
     let s = c.recompile(&source, &mut Fake::forbidden());
-    assert_eq!(s.macros_executadas, 0);
+    assert_eq!(s.executed_macros, 0);
     assert_eq!(s.measurement.reused, 4);
     assert!(!s.measurement.executor_started);
     assert!(s.expansions.iter().all(|e| e.reused));
@@ -283,7 +283,7 @@ fn unobserved_edit_reuses() {
     // A method body: no macro sees bodies.
     let source = Source { body_of_m: "print('another body');", ..Source::default() };
     let s = c.recompile(&source, &mut Fake::forbidden());
-    assert_eq!((s.macros_executadas, s.measurement.reused), (0, 4));
+    assert_eq!((s.executed_macros, s.measurement.reused), (0, 4));
 }
 
 #[test]
@@ -294,7 +294,7 @@ fn new_field_invalidates_only_who_observes_it() {
     let s = c.recompile(&source, &mut executor);
     assert_eq!(executor.executions, vec![("Fields".to_string(), Phase::Declarations, "B".to_string())]);
     assert_eq!(s.measurement.reused, 3);
-    assert!(s.textos[0].texto.contains("field_y"), "{}", s.textos[0].texto);
+    assert!(s.texts[0].text.contains("field_y"), "{}", s.texts[0].text);
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn previously_missing_member_invalidates() {
     let mut executor = Fake::new();
     let s = c.recompile(&source, &mut executor);
     assert_eq!(executor.executions, vec![("Fields".to_string(), Phase::Declarations, "B".to_string())]);
-    assert!(s.textos[0].texto.contains("withHelper"));
+    assert!(s.texts[0].text.contains("withHelper"));
 
     // `toJson` in `A`: changes the model of @Label (which runs again and
     // gives the same) and the `membros` answer that @Consumer read (which
@@ -321,7 +321,7 @@ fn previously_missing_member_invalidates() {
             ("Label".to_string(), Phase::Definitions, "A".to_string()),
         ]
     );
-    assert!(s.textos[0].texto.contains("withToJson"));
+    assert!(s.texts[0].text.contains("withToJson"));
 }
 
 #[test]
@@ -355,14 +355,14 @@ fn edited_implementation_invalidates_its_applications() {
     std::fs::write(&macros, text).unwrap();
     let mut executor = Fake::new();
     let s = c.recompile(&source, &mut executor);
-    assert_eq!((s.macros_executadas, s.measurement.reused), (4, 0));
+    assert_eq!((s.executed_macros, s.measurement.reused), (4, 0));
     assert_eq!(s.measurement.rerun_unchanged, 4);
 }
 
 #[test]
 fn with_and_without_cache_give_the_same() {
-    // The full reload of `aplicar` and the diff-based one of
-    // `aplicar_incremental` produce the same program and the same text.
+    // The full reload of `apply` and the diff-based one of
+    // `apply_incremental` produce the same program and the same text.
     let Some(sdk) = sdk() else { return };
     let dir = tempfile::tempdir().unwrap();
     let input = directory(dir.path());
@@ -371,7 +371,7 @@ fn with_and_without_cache_give_the_same() {
     let mut names = Interner::new();
     let (p, _) = load_lenient_gerados(&input, &sdk, None, &mut names, None, None, None);
     let mut load = |i: &mut Interner, g| load_lenient_gerados(&input, &sdk, None, i, None, None, g);
-    let full = aplicar(p, &mut names, None, &mut load, &mut Fake::new()).unwrap_or_else(|_| panic!("error"));
+    let full = apply(p, &mut names, None, &mut load, &mut Fake::new()).unwrap_or_else(|_| panic!("error"));
     let by_diff = compile(&input, &sdk, &mut Fake::new(), None);
     assert_eq!(product(&full), product(&by_diff));
     assert!(by_diff.measurement.reused_units > 0);
@@ -379,12 +379,12 @@ fn with_and_without_cache_give_the_same() {
 }
 
 /// Compiles without panicking on error: what the host returns.
-fn try_compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: &mut MacroCache) -> Result<Output, String> {
+fn try_compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn MacroExecutor, cache: &mut MacroCache) -> Result<Output, String> {
     let mut names = Interner::new();
     let (p, d) = load_lenient_gerados(input, sdk, None, &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
     let mut load = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, None, i, None, Some(u), g);
-    aplicar_incremental(p, &mut names, None, &mut load, executor, Some(cache))
+    apply_incremental(p, &mut names, None, &mut load, executor, Some(cache))
         .map_err(|ds| ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"))
 }
 
@@ -418,7 +418,7 @@ fn macro_error_keeps_the_last_valid_generation() {
     let mut executor = Fake::new();
     let s = c.recompile(&edited, &mut executor);
     assert_eq!(executor.executions, vec![("Fields".to_string(), Phase::Declarations, "B".to_string())]);
-    assert!(s.textos[0].texto.contains("field_y"));
+    assert!(s.texts[0].text.contains("field_y"));
 }
 
 /// B07: with `main.macro.dart` materialized in both forms (the 3.6.2 one,
@@ -434,7 +434,7 @@ fn materialized_in_both_forms_does_not_duplicate() {
     std::fs::write(&input, &source).unwrap();
     let mut cache = MacroCache::new("fake");
     let s = compile(&input, &sdk, &mut Fake::new(), Some(&mut cache));
-    let (path, text) = (s.textos[0].caminho.clone(), s.textos[0].texto.clone());
+    let (path, text) = (s.texts[0].path.clone(), s.texts[0].text.clone());
     assert!(path.ends_with("main.macro.dart"), "{}", path.display());
     let body = text.split_once('\n').map(|(_, r)| r).unwrap();
     for (header, directive) in [
@@ -448,9 +448,9 @@ fn materialized_in_both_forms_does_not_duplicate() {
         assert!(d.is_empty(), "{directive}: {d:?}");
         let mut load =
             |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(&input, &sdk, None, i, None, Some(u), g);
-        let s = aplicar_incremental(p, &mut names, None, &mut load, &mut Fake::forbidden(), None)
+        let s = apply_incremental(p, &mut names, None, &mut load, &mut Fake::forbidden(), None)
             .unwrap_or_else(|ds| panic!("{directive}: {:?}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
-        assert_eq!(s.macros_executadas, 0, "{directive}");
-        assert!(s.textos.is_empty(), "{directive}: augmentation assembled again over the materialized one");
+        assert_eq!(s.executed_macros, 0, "{directive}");
+        assert!(s.texts.is_empty(), "{directive}: augmentation assembled again over the materialized one");
     }
 }

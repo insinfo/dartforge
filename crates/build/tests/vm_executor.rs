@@ -7,11 +7,11 @@
 //! `DARTFORGE_DART_SDK/bin/dart` or `dart` on the `PATH`) and `dart pub get
 //! --enforce-lockfile` in each case (the `package_config.json`), as `ci.yml`
 //! does for the other corpus tests.
-use dartforge_build::consulta::SemBanco;
-use dartforge_build::grafo::AssetId;
-use dartforge_build::motor::Origem;
-use dartforge_build::vm::{ConfigDaVm, ExecutorVm};
-use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor, RelMotor};
+use dartforge_build::query::NoDb;
+use dartforge_build::graph::AssetId;
+use dartforge_build::engine::Origin;
+use dartforge_build::vm::{VmConfig, VmExecutor};
+use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ fn corpus_root() -> PathBuf {
 }
 
 fn dart() -> PathBuf {
-    dartforge_build::vm::dart_do_ambiente()
+    dartforge_build::vm::dart_from_env()
         .or_else(|| {
             std::env::var_os("DARTFORGE_DART_SDK")
                 .map(|s| PathBuf::from(s).join("bin").join("dart"))
@@ -36,13 +36,13 @@ fn references(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
     let m: serde_json::Value = serde_json::from_str(&text).expect("manifest JSON");
     let mut r = BTreeMap::new();
     for s in m["saidas"].as_array().into_iter().flatten() {
-        let id = AssetId::de_texto(s["asset"].as_str().expect("asset")).expect("package|path");
+        let id = AssetId::from_text(s["asset"].as_str().expect("asset")).expect("package|path");
         let file = match s["build_to"].as_str() {
-            Some("source") => dir.join("oraculo/source").join(id.caminho.as_ref()),
+            Some("source") => dir.join("oraculo/source").join(id.path.as_ref()),
             _ => dir
                 .join("oraculo/cache")
-                .join(id.pacote.as_ref())
-                .join(id.caminho.as_ref()),
+                .join(id.package.as_ref())
+                .join(id.path.as_ref()),
         };
         r.insert(
             id,
@@ -81,30 +81,30 @@ fn copy_case(from: &Path, to: &Path) {
     }
 }
 
-fn vm_engine(dir: &Path) -> Motor {
+fn vm_engine(dir: &Path) -> Engine {
     let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json"))
         .expect("package_config.json (dart pub get)");
-    let mut m = Motor::novo(dir, &cfg, OpcoesMotor::default()).expect("engine");
-    m.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+    let mut m = Engine::new(dir, &cfg, EngineOptions::default()).expect("engine");
+    m.set_dart_executor(Box::new(VmExecutor::new(VmConfig::for_project(
         dart(),
         dir,
     ))));
     m
 }
 
-fn update(m: &mut Motor, changed: &[PathBuf]) -> (RelMotor, f64) {
+fn update(m: &mut Engine, changed: &[PathBuf]) -> (EngineReport, f64) {
     let t0 = Instant::now();
     let at = m
-        .atualizar(
-            &Contexto {
-                banco: &SemBanco,
-                programa: None,
+        .update(
+            &UpdateContext {
+                db: &NoDb,
+                program: None,
             },
             changed,
-            Demanda::Tudo,
+            Demand::Everything,
         )
         .expect("update");
-    for a in &at.avisos {
+    for a in &at.warnings {
         println!("warning: {a}");
     }
     (at.rel, t0.elapsed().as_secs_f64() * 1000.0)
@@ -146,25 +146,25 @@ fn json_serializable_through_the_vm_equals_build_runner_and_is_incremental() {
     // Clean build: the manifest's two outputs, byte for byte.
     let mut m = vm_engine(&dir);
     let (rel, ms) = update(&mut m, &[]);
-    println!("clean: {ms:.0} ms — {}", rel.texto());
+    println!("clean: {ms:.0} ms — {}", rel.text());
     // json_serializable and combining_builder on lib/modelos.dart and
     // bin/main.dart (the latter without an annotation: no output, as in the
     // official tool), and `source_gen:part_cleanup` on the written part (the
     // anchor of the part that was not written is omitted, as in the official
     // tool).
     assert_eq!(
-        (rel.dart, rel.acoes_executadas, rel.saidas_alteradas),
+        (rel.dart, rel.executed_actions, rel.changed_outputs),
         (5, 5, 2),
         "{}",
-        rel.texto()
+        rel.text()
     );
-    let p = m.placar(&references(&origin));
+    let p = m.scoreboard(&references(&origin));
     assert!(
-        p.diferentes.is_empty() && p.pendentes.is_empty(),
+        p.different.is_empty() && p.pending.is_empty(),
         "scoreboard {}: {:?} {:?}",
-        p.resumo(),
-        p.diferentes,
-        p.pendentes
+        p.summary(),
+        p.different,
+        p.pending
     );
     assert_eq!(p.iguais.len(), 2);
     // `source_gen:part_cleanup` deletes the hidden part: it disappears from
@@ -175,8 +175,8 @@ fn json_serializable_through_the_vm_equals_build_runner_and_is_incremental() {
 
     // Nothing changed: nothing runs.
     let (rel, ms) = update(&mut m, &[]);
-    println!("no change: {ms:.1} ms — {}", rel.texto());
-    assert_eq!(rel.acoes_executadas, 0);
+    println!("no change: {ms:.1} ms — {}", rel.text());
+    assert_eq!(rel.executed_actions, 0);
 
     // The corpus edits, cumulative; each state equal to that of a new engine.
     let expected: [(&str, usize, usize); 3] = [
@@ -195,33 +195,33 @@ fn json_serializable_through_the_vm_equals_build_runner_and_is_incremental() {
     for (step, run, changed_outputs) in expected {
         let changed = apply(&origin.join("edicoes").join(step), &dir);
         let (rel, ms) = update(&mut m, &changed);
-        println!("{step}: {ms:.0} ms — {}", rel.texto());
+        println!("{step}: {ms:.0} ms — {}", rel.text());
         assert_eq!(
-            (rel.acoes_executadas, rel.dart, rel.saidas_alteradas),
+            (rel.executed_actions, rel.dart, rel.changed_outputs),
             (run, run, changed_outputs),
             "{step}: {}",
-            rel.texto()
+            rel.text()
         );
         // New engine, new process, kernel reused from disk.
         let mut fresh = vm_engine(&dir);
         let (_, ms) = update(&mut fresh, &[]);
         println!("{step}: from scratch with the reused kernel: {ms:.0} ms");
         assert_eq!(
-            m.estado_canonico(),
-            fresh.estado_canonico(),
+            m.canonical_state(),
+            fresh.canonical_state(),
             "{step}: incremental ≠ from scratch"
         );
     }
     let product = m
-        .grafo
-        .gerados
+        .graph
+        .generated
         .keys()
-        .find(|id| id.caminho.as_ref() == "lib/produto.g.dart")
-        .and_then(|id| m.registro(m.grafo.gerados[id].acao))
+        .find(|id| id.path.as_ref() == "lib/produto.g.dart")
+        .and_then(|id| m.record(m.graph.generated[id].action))
         .expect("action of produto.g.dart");
-    assert_eq!(product.origem, Origem::Dart);
+    assert_eq!(product.origin, Origin::Dart);
     let text = product
-        .saidas
+        .outputs
         .iter()
         .find_map(|(_, c)| c.clone())
         .expect("produto.g.dart written");
@@ -236,19 +236,19 @@ fn json_serializable_through_the_vm_equals_build_runner_and_is_incremental() {
     // `.g.dart` would come out empty. With the Dart executor, only the
     // optional one stays lazy.
     let mut c = vm_engine(&dir);
-    c.atualizar(
-        &Contexto {
-            banco: &SemBanco,
-            programa: None,
+    c.update(
+        &UpdateContext {
+            db: &NoDb,
+            program: None,
         },
         &[],
-        Demanda::Carregador,
+        Demand::Loader,
     )
     .expect("update");
-    let g = |m: &Motor| {
-        let id = AssetId::novo("corpus_json_serializable", "lib/modelos.g.dart");
-        m.registro(m.grafo.gerados[&id].acao)
-            .and_then(|r| r.saidas.iter().find(|(s, _)| *s == id)?.1.clone())
+    let g = |m: &Engine| {
+        let id = AssetId::new("corpus_json_serializable", "lib/modelos.g.dart");
+        m.record(m.graph.generated[&id].action)
+            .and_then(|r| r.outputs.iter().find(|(s, _)| *s == id)?.1.clone())
     };
     assert!(g(&c).is_some(), "modelos.g.dart in the loader demand");
     assert_eq!(g(&c), g(&m));
@@ -287,7 +287,7 @@ fn corpus_builders_through_the_vm() {
         let mut m = vm_engine(&dir);
         let (_, clean) = update(&mut m, &[]);
         let (_, warm) = update(&mut m, &[]);
-        let p = m.placar(&references(&origin));
+        let p = m.scoreboard(&references(&origin));
         let reasons: Vec<String> = p
             .motivos()
             .into_iter()
@@ -296,12 +296,12 @@ fn corpus_builders_through_the_vm() {
         lines.push(format!(
             "| {name} | {} | {} | {} | {clean:.0} | {warm:.1} | {} |",
             p.iguais.len(),
-            p.pendentes.len(),
-            p.diferentes.len(),
+            p.pending.len(),
+            p.different.len(),
             reasons.join("; ")
         ));
-        for (id, reason) in &p.diferentes {
-            different.push(format!("{name}: {} ({reason})", id.texto()));
+        for (id, reason) in &p.different {
+            different.push(format!("{name}: {} ({reason})", id.text()));
         }
         // Incremental = from scratch on the case's edits, with the real
         // executor.
@@ -317,9 +317,9 @@ fn corpus_builders_through_the_vm() {
             let step_name = step.file_name().unwrap().to_string_lossy().to_string();
             println!(
                 "{name}/{step_name}: {ms:.0} ms, {} actions run",
-                rel.acoes_executadas
+                rel.executed_actions
             );
-            if m.estado_canonico() != fresh.estado_canonico() {
+            if m.canonical_state() != fresh.canonical_state() {
                 different.push(format!(
                     "{name}: incremental ≠ from scratch after {step_name}"
                 ));
@@ -346,37 +346,37 @@ fn state_saved_through_the_vm() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("json_serializable");
     copy_case(&origin, &dir);
-    let process = |persistir: bool| {
+    let process = |persist: bool| {
         let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
-        let options = OpcoesMotor {
-            persistir,
-            ..OpcoesMotor::default()
+        let options = EngineOptions {
+            persist,
+            ..EngineOptions::default()
         };
-        let mut m = Motor::novo(&dir, &cfg, options).unwrap();
-        m.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+        let mut m = Engine::new(&dir, &cfg, options).unwrap();
+        m.set_dart_executor(Box::new(VmExecutor::new(VmConfig::for_project(
             dart(),
             &dir,
         ))));
         let t0 = Instant::now();
         let at = m
-            .atualizar(
-                &Contexto {
-                    banco: &SemBanco,
-                    programa: None,
+            .update(
+                &UpdateContext {
+                    db: &NoDb,
+                    program: None,
                 },
                 &[],
-                Demanda::Tudo,
+                Demand::Everything,
             )
             .expect("update");
         // Like the CLI: the `source` outputs that changed go to disk.
-        for (p, c) in m.saidas_source_nativas(&at.alterados) {
+        for (p, c) in m.native_source_outputs(&at.altered_outputs) {
             std::fs::write(&p, &c[..]).unwrap();
         }
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
-        (m.estado_canonico(), at.rel, ms)
+        (m.canonical_state(), at.rel, ms)
     };
     let (first, rel, ms) = process(true);
-    println!("first process: {ms:.0} ms — {}", rel.texto());
+    println!("first process: {ms:.0} ms — {}", rel.text());
     assert!(rel.dart > 0);
     let state = std::fs::read_to_string(dir.join(".dart_tool/dartforge/build/estado/estado.json"))
         .expect("state written");
@@ -385,8 +385,8 @@ fn state_saved_through_the_vm() {
         "builders' code recorded"
     );
     let (second, rel, ms) = process(true);
-    println!("second process: {ms:.0} ms — {}", rel.texto());
-    assert_eq!(rel.acoes_executadas, 0, "{}", rel.texto());
+    println!("second process: {ms:.0} ms — {}", rel.text());
+    assert_eq!(rel.executed_actions, 0, "{}", rel.text());
     let (zero, _, _) = process(false);
     assert_eq!(first, zero);
     assert_eq!(second, zero, "restored ≠ from scratch");
@@ -396,30 +396,30 @@ fn state_saved_through_the_vm() {
 /// Outputs equal to the oracle in a new process that restores the state.
 fn restored_equal_count(dir: &Path, origin: &Path) -> usize {
     let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
-    let options = OpcoesMotor {
-        persistir: true,
-        ..OpcoesMotor::default()
+    let options = EngineOptions {
+        persist: true,
+        ..EngineOptions::default()
     };
-    let mut m = Motor::novo(dir, &cfg, options).unwrap();
+    let mut m = Engine::new(dir, &cfg, options).unwrap();
     update(&mut m, &[]);
-    let p = m.placar(&references(origin));
-    assert!(p.diferentes.is_empty(), "{:?}", p.diferentes);
+    let p = m.scoreboard(&references(origin));
+    assert!(p.different.is_empty(), "{:?}", p.different);
     p.iguais.len()
 }
 
 /// The post-processor output `notas.rascunho.resumo` in the anchor's record.
-fn summary(m: &Motor) -> Option<std::sync::Arc<[u8]>> {
-    (0..m.grafo.acoes.len())
-        .filter(|&a| m.grafo.acoes[a].pos)
-        .filter_map(|a| m.registro(a))
-        .flat_map(|r| r.saidas.iter())
-        .find(|(s, _)| s.caminho.as_ref() == "lib/entrada/notas.rascunho.resumo")
+fn summary(m: &Engine) -> Option<std::sync::Arc<[u8]>> {
+    (0..m.graph.actions.len())
+        .filter(|&a| m.graph.actions[a].pos)
+        .filter_map(|a| m.record(a))
+        .flat_map(|r| r.outputs.iter())
+        .find(|(s, _)| s.path.as_ref() == "lib/entrada/notas.rascunho.resumo")
         .and_then(|(_, c)| c.clone())
 }
 
 /// Does the published generation have a file ending in `suffix`?
-fn published(m: &Motor, suffix: &str) -> bool {
-    m.geracao()
+fn published(m: &Engine, suffix: &str) -> bool {
+    m.generation()
         .iter()
         .any(|(k, _)| k.to_string_lossy().replace('\\', "/").ends_with(suffix))
 }
@@ -446,13 +446,13 @@ fn post_processor_through_the_vm() {
     let mut m = vm_engine(&dir);
     update(&mut m, &[]);
     assert_eq!(summary(&m).as_deref(), Some(expected.as_slice()));
-    let anchors: Vec<usize> = (0..m.grafo.acoes.len())
-        .filter(|&a| m.grafo.acoes[a].pos)
+    let anchors: Vec<usize> = (0..m.graph.actions.len())
+        .filter(|&a| m.graph.actions[a].pos)
         .collect();
     assert_eq!(anchors.len(), 1, "one anchor: the only .rascunho input");
     assert!(
-        m.registro(anchors[0])
-            .is_some_and(|r| r.apagados.is_empty()),
+        m.record(anchors[0])
+            .is_some_and(|r| r.deleted_outputs.is_empty()),
         "apagar: false in dev"
     );
     assert!(published(&m, output), "output published in the generation");
@@ -466,20 +466,20 @@ fn post_processor_through_the_vm() {
     .unwrap();
     let (rel, _) = update(&mut m, std::slice::from_ref(&notes));
     assert_eq!(
-        (rel.acoes_executadas, rel.saidas_alteradas),
+        (rel.executed_actions, rel.changed_outputs),
         (1, 0),
         "{}",
-        rel.texto()
+        rel.text()
     );
 
     // The first line changed: the output changes; incremental = from scratch.
     std::fs::write(&notes, "nota nova\nsegunda").unwrap();
     let (rel, _) = update(&mut m, std::slice::from_ref(&notes));
     assert_eq!(
-        (rel.acoes_executadas, rel.saidas_alteradas),
+        (rel.executed_actions, rel.changed_outputs),
         (1, 1),
         "{}",
-        rel.texto()
+        rel.text()
     );
     let text = summary(&m).unwrap();
     assert!(
@@ -490,74 +490,74 @@ fn post_processor_through_the_vm() {
     let mut fresh = vm_engine(&dir);
     update(&mut fresh, &[]);
     assert_eq!(
-        m.estado_canonico(),
-        fresh.estado_canonico(),
+        m.canonical_state(),
+        fresh.canonical_state(),
         "incremental ≠ from scratch"
     );
 
     // Input deleted: the anchor and the output disappear.
     std::fs::remove_file(&notes).unwrap();
     let (rel, _) = update(&mut m, std::slice::from_ref(&notes));
-    assert!(rel.saidas_alteradas >= 1, "{}", rel.texto());
+    assert!(rel.changed_outputs >= 1, "{}", rel.text());
     assert!(summary(&m).is_none());
     assert!(!published(&m, output), "output withdrawn from the generation");
     let mut fresh = vm_engine(&dir);
     update(&mut fresh, &[]);
     assert_eq!(
-        m.estado_canonico(),
-        fresh.estado_canonico(),
+        m.canonical_state(),
+        fresh.canonical_state(),
         "incremental ≠ from scratch"
     );
 
     // Release: `apagar: true` calls `deletePrimaryInput`.
     std::fs::write(&notes, "nota do post_process_builder limpeza\n").unwrap();
     let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
-    let release = OpcoesMotor {
+    let release = EngineOptions {
         release: true,
-        ..OpcoesMotor::default()
+        ..EngineOptions::default()
     };
-    let context = Contexto {
-        banco: &SemBanco,
-        programa: None,
+    let context = UpdateContext {
+        db: &NoDb,
+        program: None,
     };
-    let mut r = Motor::novo(&dir, &cfg, release.clone()).unwrap();
-    r.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+    let mut r = Engine::new(&dir, &cfg, release.clone()).unwrap();
+    r.set_dart_executor(Box::new(VmExecutor::new(VmConfig::for_project(
         dart(),
         &dir,
     ))));
     let at = r
-        .atualizar(&context, &[], Demanda::Tudo)
+        .update(&context, &[], Demand::Everything)
         .expect("update in release");
-    let anchor = (0..r.grafo.acoes.len())
-        .find(|&a| r.grafo.acoes[a].pos)
+    let anchor = (0..r.graph.actions.len())
+        .find(|&a| r.graph.actions[a].pos)
         .unwrap();
     assert_eq!(
-        r.registro(anchor).unwrap().apagados,
-        vec![AssetId::novo(
+        r.record(anchor).unwrap().deleted_outputs,
+        vec![AssetId::new(
             "corpus_cadeia_configuracao",
             "lib/entrada/notas.rascunho"
         )]
     );
     assert!(
-        at.avisos.iter().any(|a| a.contains("deletePrimaryInput")),
+        at.warnings.iter().any(|a| a.contains("deletePrimaryInput")),
         "{:?}",
-        at.avisos
+        at.warnings
     );
-    let mut strict = Motor::novo(
+    let mut strict = Engine::new(
         &dir,
         &cfg,
-        OpcoesMotor {
-            estrito: true,
+        EngineOptions {
+            strict: true,
             ..release
         },
     )
     .unwrap();
-    strict.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+    strict.set_dart_executor(Box::new(VmExecutor::new(VmConfig::for_project(
         dart(),
         &dir,
     ))));
     let error = strict
-        .atualizar(&context, &[], Demanda::Tudo)
+        .update(&context, &[], Demand::Everything)
         .err()
         .expect("strict mode refuses the deletion that has no effect");
     assert!(error.contains("deletePrimaryInput"), "{error}");

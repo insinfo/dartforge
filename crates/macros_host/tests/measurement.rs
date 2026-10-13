@@ -5,9 +5,9 @@
 //! accumulated reassembly of the declarations phase shows up). For each
 //! case:
 //!
-//! 1. clean compilation with [`aplicar`] (full reload, no cache — the path
+//! 1. clean compilation with [`apply`] (full reload, no cache — the path
 //!    before this measurement);
-//! 2. clean compilation with [`aplicar_incremental`] (diff-based reload,
+//! 2. clean compilation with [`apply_incremental`] (diff-based reload,
 //!    empty cache);
 //! 3. recompilation without change with the cache (no executor at all);
 //! 4. recompilation after adding a field to a class (the cache reruns only
@@ -27,10 +27,10 @@ use dartforge_elements::unidades::CacheUnidades;
 use dartforge_frontend::{Feature, LanguageVersion};
 use dartforge_intern::Interner;
 use dartforge_macros_host::cache::MacroCache;
-use dartforge_macros_host::executor::{DfexecExecutor, ExecutorMacros};
-use dartforge_macros_host::modelo::Vista;
+use dartforge_macros_host::executor::{DfexecExecutor, MacroExecutor};
+use dartforge_macros_host::model::View;
 use dartforge_macros_host::protocol::CanalDeProcesso;
-use dartforge_macros_host::{Output, aplicar, aplicar_incremental};
+use dartforge_macros_host::{Output, apply, apply_incremental};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -58,25 +58,25 @@ fn dart() -> PathBuf {
 fn vm(input: &Path, config: &Path, sdk: &SdkLayout, work: &Path) -> DfexecExecutor<CanalDeProcesso> {
     let mut names = Interner::new();
     let (p, _) = load_lenient_gerados(input, sdk, Some(config), &mut names, None, None, None);
-    let apps = dartforge_macros_host::aplicacoes::detectar(&Vista { program: &p, interner: &names });
-    let cfg = dartforge_macros_host::vm::ConfigDaVm {
+    let apps = dartforge_macros_host::applications::detect(&View { program: &p, interner: &names });
+    let cfg = dartforge_macros_host::vm::VmConfig {
         dart: dart(),
         api: root().join("packages/macros"),
-        trabalho: work.to_path_buf(),
+        work_dir: work.to_path_buf(),
     };
-    dartforge_macros_host::vm::iniciar(&cfg, &apps, Some(config)).unwrap()
+    dartforge_macros_host::vm::start(&cfg, &apps, Some(config)).unwrap()
 }
 
 fn failed(ds: Vec<dartforge_diagnostics::Diagnostic>) -> ! {
     panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"))
 }
 
-/// One compilation; `cache: None` uses [`aplicar`] (full reload).
+/// One compilation; `cache: None` uses [`apply`] (full reload).
 fn compile(
     input: &Path,
     config: &Path,
     sdk: &SdkLayout,
-    executor: &mut dyn ExecutorMacros,
+    executor: &mut dyn MacroExecutor,
     cache: Option<&mut MacroCache>,
     by_diff: bool,
 ) -> Output {
@@ -86,10 +86,10 @@ fn compile(
     if by_diff {
         let mut load =
             |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, Some(config), i, None, Some(u), g);
-        aplicar_incremental(p, &mut names, None, &mut load, executor, cache).unwrap_or_else(|d| failed(d))
+        apply_incremental(p, &mut names, None, &mut load, executor, cache).unwrap_or_else(|d| failed(d))
     } else {
         let mut load = |i: &mut Interner, g| load_lenient_gerados(input, sdk, Some(config), i, None, None, g);
-        aplicar(p, &mut names, None, &mut load, executor).unwrap_or_else(|d| failed(d))
+        apply(p, &mut names, None, &mut load, executor).unwrap_or_else(|d| failed(d))
     }
 }
 
@@ -115,15 +115,15 @@ fn measure(case: &str, input: &Path, config: &Path, sdk: &SdkLayout, edit: impl 
     let mut cache = MacroCache::new("vm dart 3.6.2");
     let by_diff = compile(input, config, sdk, &mut executor, Some(&mut cache), true);
     report(case, "2 clean, diff-based reload", t.elapsed(), &by_diff);
-    let texts = |s: &Output| s.textos.iter().map(|t| t.texto.clone()).collect::<Vec<_>>();
+    let texts = |s: &Output| s.texts.iter().map(|t| t.text.clone()).collect::<Vec<_>>();
     assert_eq!(texts(&clean), texts(&by_diff));
 
     // No change: no executor is created.
     let t = Instant::now();
-    let mut unavailable = dartforge_macros_host::executor::Indisponivel::default();
+    let mut unavailable = dartforge_macros_host::executor::Unavailable::default();
     let unchanged = compile(input, config, sdk, &mut unavailable, Some(&mut cache), true);
     report(case, "3 recompilation without change", t.elapsed(), &unchanged);
-    assert_eq!(unchanged.macros_executadas, 0);
+    assert_eq!(unchanged.executed_macros, 0);
     assert_eq!(texts(&clean), texts(&unchanged));
 
     edit();

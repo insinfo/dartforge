@@ -7,7 +7,7 @@
 //!
 //! Uses `corpus/builders/i18n` (requires `dart pub get` in the case); without
 //! the `package_config.json`, the test says so and returns.
-use dartforge_build::{Motor, OpcoesMotor};
+use dartforge_build::{Engine, EngineOptions};
 use dartforge_elements::config::PackageConfig;
 use std::path::Path;
 
@@ -20,8 +20,8 @@ fn watches_dependency_build_yaml_and_overrides() {
         return;
     }
     let cfg = PackageConfig::load(&file).unwrap();
-    let m = Motor::novo(&root, &cfg, OpcoesMotor::default()).expect("engine");
-    let watched = m.observados();
+    let m = Engine::new(&root, &cfg, EngineOptions::default()).expect("engine");
+    let watched = m.watched();
     let has = |f: &dyn Fn(&Path) -> bool| watched.iter().any(|p| f(p));
     // The `build.yaml` of the `i18n` package (a dependency, in the pub cache).
     assert!(

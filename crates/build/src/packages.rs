@@ -1,59 +1,59 @@
 //! The package graph of `build_runner_core` 8.0.0
 //! (`package_graph/package_graph.dart`, `PackageGraph.forPath`) and the SCCs of
 //! `graphs` 2.3.2, which decide the order of packages and targets.
-use crate::config::{Pubspec, TipoDependencia, Travado, ler_lock};
+use crate::config::{Pubspec, DependencyType, LockedPackage, ler_lock};
 use dartforge_elements::config::PackageConfig;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct No {
-    pub nome: String,
-    pub raiz: PathBuf,
-    pub tipo: TipoDependencia,
-    pub e_raiz: bool,
+    pub name: String,
+    pub root: PathBuf,
+    pub kind: DependencyType,
+    pub is_root: bool,
     /// Direct dependencies, in the official order (sorted names).
     pub deps: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
-pub struct GrafoPacotes {
+pub struct PackageGraph {
     /// `allPackages`: those of `package_config.json` in name order, and
     /// `$sdk` at the end.
     pub nos: Vec<No>,
-    pub raiz: usize,
-    pub por_nome: HashMap<String, usize>,
+    pub root: usize,
+    pub by_name: HashMap<String, usize>,
     /// Versions from `pubspec.lock`.
-    pub lock: HashMap<String, Travado>,
+    pub lock: HashMap<String, LockedPackage>,
     /// Directory of `package_config.json` and `pubspec.lock`.
-    pub dir_raiz: PathBuf,
+    pub root_dir: PathBuf,
 }
 
 /// Name of the SDK pseudo-package.
 pub const SDK: &str = "$sdk";
 
-impl GrafoPacotes {
+impl PackageGraph {
     pub fn no(&self, name: &str) -> Option<&No> {
-        self.por_nome.get(name).map(|&i| &self.nos[i])
+        self.by_name.get(name).map(|&i| &self.nos[i])
     }
 
     /// The project's version profile: the `build_config` and `build_runner`
-    /// that `pubspec.lock` resolved ([`crate::perfil`]).
-    pub fn perfil(&self) -> crate::perfil::Perfil {
-        let v = |p: &str| self.lock.get(p).map(|t| t.versao.as_str());
-        crate::perfil::Perfil::das_versoes(v("build_config"), v("build_runner"))
+    /// that `pubspec.lock` resolved ([`crate::profile`]).
+    pub fn profile(&self) -> crate::profile::Profile {
+        let v = |p: &str| self.lock.get(p).map(|t| t.version.as_str());
+        crate::profile::Profile::from_versions(v("build_config"), v("build_runner"))
     }
 
     /// `PackageGraph.forPath(dir)`: `dir` has the root's `pubspec.yaml`;
     /// `package_config.json` is the one `cfg` already read.
-    pub fn montar(
+    pub fn build(
         dir: &Path,
         cfg: &PackageConfig,
         sdk: Option<&Path>,
-    ) -> Result<GrafoPacotes, String> {
-        let pubspec = Pubspec::ler(dir)?;
+    ) -> Result<PackageGraph, String> {
+        let pubspec = Pubspec::read(dir)?;
         let root_name = pubspec
-            .nome
+            .name
             .clone()
             .ok_or("The current package has no name, please add one to the pubspec.yaml.")?;
         let root_dir = cfg
@@ -67,7 +67,7 @@ impl GrafoPacotes {
         let lock_text = std::fs::read_to_string(&lock_path).map_err(|_| {
             "Unable to generate package graph, no `pubspec.lock` found. This program must be ran from the root directory of your package.".to_string()
         })?;
-        let lock: HashMap<String, Travado> =
+        let lock: HashMap<String, LockedPackage> =
             ler_lock(&lock_text, &lock_path.display().to_string())?
                 .into_iter()
                 .collect();
@@ -85,13 +85,13 @@ impl GrafoPacotes {
                 .map_err(|_| format!("invalid rootUri for {name}"))?;
             by_name.insert(name.clone(), nodes.len());
             nodes.push(No {
-                nome: name.clone(),
-                raiz: root,
-                tipo: lock
+                name: name.clone(),
+                root: root,
+                kind: lock
                     .get(name)
-                    .map(|t| t.tipo)
-                    .unwrap_or(TipoDependencia::Path),
-                e_raiz: *name == root_name,
+                    .map(|t| t.kind)
+                    .unwrap_or(DependencyType::Path),
+                is_root: *name == root_name,
                 deps: Vec::new(),
             });
         }
@@ -104,8 +104,8 @@ impl GrafoPacotes {
             })
         };
         // Root: dependencies ∪ dev_dependencies, sorted.
-        let mut d: Vec<String> = pubspec.dependencias.clone();
-        for x in &pubspec.dev_dependencias {
+        let mut d: Vec<String> = pubspec.dependencies.clone();
+        for x in &pubspec.dev_dependencies {
             if !d.contains(x) {
                 d.push(x.clone());
             }
@@ -119,11 +119,11 @@ impl GrafoPacotes {
             if i == root {
                 continue;
             }
-            let p = Pubspec::ler(&nodes[i].raiz)?;
-            let mut d = p.dependencias.clone();
+            let p = Pubspec::read(&nodes[i].root)?;
+            let mut d = p.dependencies.clone();
             d.sort();
             d.dedup();
-            let name = nodes[i].nome.clone();
+            let name = nodes[i].name.clone();
             nodes[i].deps = d
                 .iter()
                 .map(|n| find(n, &name, &by_name))
@@ -131,25 +131,25 @@ impl GrafoPacotes {
         }
         by_name.insert(SDK.to_string(), nodes.len());
         nodes.push(No {
-            nome: SDK.to_string(),
-            raiz: sdk.map(Path::to_path_buf).unwrap_or_default(),
-            tipo: TipoDependencia::Hosted,
-            e_raiz: false,
+            name: SDK.to_string(),
+            root: sdk.map(Path::to_path_buf).unwrap_or_default(),
+            kind: DependencyType::Hosted,
+            is_root: false,
             deps: Vec::new(),
         });
-        Ok(GrafoPacotes {
+        Ok(PackageGraph {
             nos: nodes,
-            raiz: root,
-            por_nome: by_name,
+            root: root,
+            by_name: by_name,
             lock,
-            dir_raiz: root_dir,
+            root_dir: root_dir,
         })
     }
 
     /// Package order for the build script: SCCs from the root, dependencies
     /// first (`build_script_generate.dart:86-92`).
-    pub fn ordem_do_script(&self) -> Vec<usize> {
-        scc(&[self.raiz], |n| self.nos[n].deps.clone())
+    pub fn script_order(&self) -> Vec<usize> {
+        scc(&[self.root], |n| self.nos[n].deps.clone())
             .into_iter()
             .flatten()
             .collect()

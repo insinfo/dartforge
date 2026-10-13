@@ -1,7 +1,7 @@
 //! The two hashes per library separate the body from the public API, and the
 //! session reuses what did not change.
 
-use dartforge_dev::Sessao;
+use dartforge_dev::Session;
 use std::path::{Path, PathBuf};
 
 fn simulated_sdk(dir: &Path) -> PathBuf {
@@ -54,27 +54,27 @@ fn private_body_does_not_change_the_api_and_signature_does() {
     std::fs::write(&main, "import 'support.dart';\nvoid main() { print(twice(2)); }\n").unwrap();
     let output = tmp.path().join("js");
 
-    let mut session = Sessao::nova(&main, Some(&sdk), None, &output).expect("session");
-    let r = session.compilar().expect("first");
+    let mut session = Session::new(&main, Some(&sdk), None, &output).expect("session");
+    let r = session.compile().expect("first");
     assert!(r.first);
-    assert!(r.modulos >= 2, "one library per file: {}", r.modulos);
+    assert!(r.modules >= 2, "one library per file: {}", r.modules);
     let units = session.cached_units();
     assert!(units >= 3, "input, support and the SDK core: {units}");
 
     // 1. Body edit: the value changes, the signature does not.
     std::fs::write(&support, "int twice(int x) { var s = 2; return x + s; }\n").unwrap();
-    session.arquivo_mudou(&support);
-    let r = session.compilar().expect("body edit");
+    session.file_changed(&support);
+    let r = session.compile().expect("body edit");
     assert_eq!(r.body_changed.len(), 1, "only `support.dart` changed: {:?}", r.body_changed);
     assert!(r.api_changed.is_empty(), "a body is not API: {:?}", r.api_changed);
     assert_eq!(r.invalidated_dependents, 0);
     assert_eq!(r.reanalyzed_units, 1, "only the edited file is reanalyzed");
-    assert_eq!(r.modulos_escritos, 1, "only the `support` module changes text");
+    assert_eq!(r.written_modules, 1, "only the `support` module changes text");
 
     // 2. API edit: a new public function.
     std::fs::write(&support, "int twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\n").unwrap();
-    session.arquivo_mudou(&support);
-    let r = session.compilar().expect("API edit");
+    session.file_changed(&support);
+    let r = session.compile().expect("API edit");
     assert_eq!(r.api_changed.len(), 1, "the API of `support` changed: {:?}", r.api_changed);
     assert_eq!(r.invalidated_dependents, 1, "`main.dart` imports `support.dart`");
 
@@ -84,8 +84,8 @@ fn private_body_does_not_change_the_api_and_signature_does() {
         "int twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    session.arquivo_mudou(&support);
-    let r = session.compilar().expect("private edit");
+    session.file_changed(&support);
+    let r = session.compile().expect("private edit");
     assert_eq!(r.body_changed.len(), 1);
     assert!(r.api_changed.is_empty(), "a private declaration is not API: {:?}", r.api_changed);
 
@@ -97,15 +97,15 @@ fn private_body_does_not_change_the_api_and_signature_does() {
         "class Account {\n  int balance = 0;\n  int add(int x) { balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    session.arquivo_mudou(&support);
-    session.compilar().expect("new class");
+    session.file_changed(&support);
+    session.compile().expect("new class");
     std::fs::write(
         &support,
         "class Account {\n  int balance = 0;\n  int add(int x) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    session.arquivo_mudou(&support);
-    let r = session.compilar().expect("new statement in the method");
+    session.file_changed(&support);
+    let r = session.compile().expect("new statement in the method");
     assert_eq!(r.body_changed.len(), 1, "the body changed: {:?}", r.body_changed);
     assert!(
         r.api_changed.is_empty(),
@@ -121,8 +121,8 @@ fn private_body_does_not_change_the_api_and_signature_does() {
         "class Account {\n  int balance = 0;\n  int add(int x, int y) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    session.arquivo_mudou(&support);
-    let r = session.compilar().expect("new parameter");
+    session.file_changed(&support);
+    let r = session.compile().expect("new parameter");
     assert_eq!(r.api_changed.len(), 1, "a new parameter is API: {:?}", r.api_changed);
     assert_eq!(r.invalidated_dependents, 1, "`main.dart` depends on `support.dart`");
 
@@ -132,8 +132,8 @@ fn private_body_does_not_change_the_api_and_signature_does() {
         "class Account {\n  int balance = 0;\n  int deposit(int x, int y) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    session.arquivo_mudou(&support);
-    let r = session.compilar().expect("rename method");
+    session.file_changed(&support);
+    let r = session.compile().expect("rename method");
     assert_eq!(r.api_changed.len(), 1, "renaming is API: {:?}", r.api_changed);
 
     // 3e. Comments and whitespace are neither API nor emitted body.
@@ -142,15 +142,15 @@ fn private_body_does_not_change_the_api_and_signature_does() {
         "// a new comment\nclass Account {\n  int balance = 0;\n\n  int deposit(int x, int y) { print(x); balance = balance + x; return balance; }\n}\nint twice(int x) { var s = 2; return x + s; }\nint thrice(int x) => x;\nint _hidden(int x) => x;\n",
     )
     .unwrap();
-    session.arquivo_mudou(&support);
-    let r = session.compilar().expect("comment");
+    session.file_changed(&support);
+    let r = session.compile().expect("comment");
     assert!(r.api_changed.is_empty(), "a comment is not API: {:?}", r.api_changed);
-    assert_eq!(r.modulos_escritos, 0, "the JS did not change, nothing to rewrite");
+    assert_eq!(r.written_modules, 0, "the JS did not change, nothing to rewrite");
 
     // 4. Nothing changes: no library reports a change and nothing is rewritten.
-    let r = session.compilar().expect("no edit");
+    let r = session.compile().expect("no edit");
     assert!(r.body_changed.is_empty(), "{:?}", r.body_changed);
     assert!(r.api_changed.is_empty());
     assert_eq!(r.reanalyzed_units, 0, "nothing to reanalyze");
-    assert_eq!(r.modulos_escritos, 0, "no module changed text");
+    assert_eq!(r.written_modules, 0, "no module changed text");
 }

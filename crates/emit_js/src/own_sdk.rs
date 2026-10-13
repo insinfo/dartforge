@@ -523,7 +523,7 @@ pub fn omit_assert(ctx: &Ctx, lib: LibraryId) -> bool {
     // function passed to JS without `allowInterop`), observable behavior that
     // DDC's `dart_sdk.js` keeps: it stays.
     (ctx.sdk.as_ref().is_some_and(|s| s.no_sdk_asserts && s.runtime != Some(lib)) && ctx.libs[lib.0 as usize].is_sdk)
-        || ctx.filtro.is_some_and(|f| !f.keep_asserts())
+        || ctx.filter.is_some_and(|f| !f.keep_asserts())
 }
 
 /// `@nullCheck` checks of the already declared parameters (`compiler.dart:3855`):
@@ -591,7 +591,7 @@ pub fn inline_constant(e: &FnEmitter, vid: VariableId) -> Option<Js> {
 
 /// No covariance checks with `--omitir-checagens`.
 fn checks_omitted(e: &FnEmitter) -> bool {
-    e.ctx.filtro.is_some_and(|f| f.omit_implicit_checks())
+    e.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
 }
 
 /// Covariance checks of the parameters of an instance method of a generic SDK
@@ -989,7 +989,7 @@ pub fn emit_intrinsic(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::Arg
             // with the short keys of named parameters
             // (`emit_js_production/src/nomeados.rs`), the source name is translated
             // at run time by `dart.nomeadoJS`.
-            if e.class.is_some() && e.class == e.ctx.function_ && e.ctx.filtro.is_some_and(|f| f.named_table().is_some()) {
+            if e.class.is_some() && e.class == e.ctx.function_ && e.ctx.filter.is_some_and(|f| f.named_table().is_some()) {
                 let tpl = pos.get(1).and_then(|t| constant_string(e, *t));
                 if tpl.as_deref() == Some("#[#] = #") && pos.len() == 5 {
                     let a = foreign_arg(e, pos[2]).code;
@@ -1219,7 +1219,7 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, late_fields: bool) -> Stri
     out.push_str(
         "const _privateNames = Symbol(\"_privateNames\");\ndart.privateName = function(library, name) {\n  let names = library[_privateNames];\n  if (names == null) names = library[_privateNames] = new Map();\n  let symbol = names.get(name);\n  if (symbol == null) names.set(name, symbol = Symbol(name));\n  return symbol;\n};\n",
     );
-    if let Some(t) = ctx.filtro.and_then(|f| f.named_table()) {
+    if let Some(t) = ctx.filter.and_then(|f| f.named_table()) {
         out.push_str(&format!(
             "dart.nomeadoJS = (function () {{\n  const t = JSON.parse({});\n  return n => t[n] !== void 0 ? t[n] : n;\n}})();\n",
             js::string_literal(&t)
@@ -1283,7 +1283,7 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
             if f.library != rt || f.class.is_some() || f.extension.is_some() || f.kind == FunctionKind::ImplicitAccessor {
                 continue;
             }
-            if ctx.fn_state(fid) == crate::filtro::Estado::Dead || external_without_body(ctx, fid) {
+            if ctx.fn_state(fid) == crate::filter::State::Dead || external_without_body(ctx, fid) {
                 continue;
             }
             crate::module::emit_top_function(ctx, &m, fid, &mut body, &mut accessors);
@@ -1296,7 +1296,7 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
         }
         for (i, v) in ctx.program.variables.iter().enumerate() {
             let vid = VariableId(i as u32);
-            if v.library != rt || v.class.is_some() || v.extension.is_some() || ctx.var_state(vid) == crate::filtro::Estado::Dead {
+            if v.library != rt || v.class.is_some() || v.extension.is_some() || ctx.var_state(vid) == crate::filter::State::Dead {
                 continue;
             }
             let VariableRef::TopLevel { unit, decl, index } = v.node else { continue };
@@ -1343,7 +1343,7 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
     let mut classes: Vec<ClassId> = Vec::new();
     for (i, c) in ctx.program.classes.iter().enumerate() {
         let cid = ClassId(i as u32);
-        if libs.contains(&c.library) && c.decl.is_some() && ctx.class_level(cid) != crate::filtro::Nivel::Dead {
+        if libs.contains(&c.library) && c.decl.is_some() && ctx.class_level(cid) != crate::filter::Level::Dead {
             classes.push(cid);
         }
     }

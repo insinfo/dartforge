@@ -5,15 +5,15 @@
 
 pub mod body;
 pub mod call;
-pub mod conferencia;
+pub mod type_check;
 pub mod ctx;
 pub mod expr;
-pub mod filtro;
+pub mod filter;
 pub mod js;
 pub mod module;
 pub mod pattern;
-pub mod sdk_proprio;
-pub mod tipo_extensao;
+pub mod own_sdk;
+pub mod extension_type;
 
 /// The property of a private name (or of a field storage, `C.x`/`_#C#x`) of a
 /// program library in the production profile ([`module::ModState::private_sym`]):
@@ -189,7 +189,7 @@ use dartforge_types::table::{CoreTypes, TypeTable};
 
 /// Emission result: the modules (file name, text) and `main.mjs`.
 pub struct Emitted {
-    pub modulos: Vec<(String, String)>,
+    pub modules: Vec<(String, String)>,
     pub entrada: String,
 }
 
@@ -211,34 +211,34 @@ impl<'a> Analysis<'a> {
     }
 
     /// Emits the program. `filter: None` is exactly [`emit_program`].
-    pub fn emit<'b>(&'b self, filter: Option<&'b dyn filtro::Liveness>) -> Result<Emitted, String> {
+    pub fn emit<'b>(&'b self, filter: Option<&'b dyn filter::Liveness>) -> Result<Emitted, String> {
         let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
-        ctx.filtro = filter;
+        ctx.filter = filter;
         module::emit_with_cache(&ctx, None, None).map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     }
 
     /// Emits the program **and the SDK** through our own pipeline (SDK mode,
-    /// [`sdk_proprio`]; `docs/JS-PRODUCAO-SDK-PROPRIO.md`). The SDK bodies must
+    /// [`own_sdk`]; `docs/JS-PRODUCAO-SDK-PROPRIO.md`). The SDK bodies must
     /// have been inferred ([`compile_with_options`] with `infer_sdk`).
     ///
     /// # Errors
     ///
     /// The language errors found during emission, one per line.
-    pub fn emit_with_sdk<'b>(&'b self, filter: Option<&'b dyn filtro::Liveness>) -> Result<EmittedWithSdk, String> {
+    pub fn emit_with_sdk<'b>(&'b self, filter: Option<&'b dyn filter::Liveness>) -> Result<EmittedWithSdk, String> {
         let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
-        ctx.filtro = filter;
-        let mode = sdk_proprio::SdkMode::new(&ctx);
+        ctx.filter = filter;
+        let mode = own_sdk::SdkMode::new(&ctx);
         ctx.sdk = Some(Box::new(mode));
         let join = |ds: Vec<Diagnostic>| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n");
         let emitted = module::emit_with_cache(&ctx, None, None).map_err(join)?;
-        let (sdk, mut dartx) = sdk_proprio::emit_sdk_module(&ctx);
+        let (sdk, mut dartx) = own_sdk::emit_sdk_module(&ctx);
         let errors = std::mem::take(&mut *ctx.errors.borrow_mut());
         if !errors.is_empty() {
             return Err(join(errors));
         }
         // The `dartx` symbols that the program modules reference in the prelude
         // (`var $x = dartx.x;`), so the *bootstrap* creates each of them once.
-        for (_, t) in &emitted.modulos {
+        for (_, t) in &emitted.modules {
             for line in t.lines() {
                 let Some(r) = line.strip_prefix("var $") else { continue };
                 let Some((_, value)) = r.split_once(" = dartx") else { continue };
@@ -250,8 +250,8 @@ impl<'a> Analysis<'a> {
                 }
             }
         }
-        let late = sdk.contains("dart.lateFields(") || emitted.modulos.iter().any(|(_, t)| t.contains("dart.lateFields("));
-        let bootstrap = sdk_proprio::bootstrap(&ctx, &dartx, late);
+        let late = sdk.contains("dart.lateFields(") || emitted.modules.iter().any(|(_, t)| t.contains("dart.lateFields("));
+        let bootstrap = own_sdk::bootstrap(&ctx, &dartx, late);
         Ok(EmittedWithSdk { emitted: emitted, sdk, bootstrap })
     }
 }
@@ -297,7 +297,7 @@ pub fn emit_program_with_cache(
 /// resident session (`dartforge dev`): the JS of a library that did not change,
 /// and whose dependencies did not change their API, is still valid.
 ///
-/// `Emitted::modulos` carries only the emitted modules; `Emitted::entrada` (the
+/// `Emitted::modules` carries only the emitted modules; `Emitted::entrada` (the
 /// `main.mjs`) always comes, because it is cheap and depends only on the entry
 /// point. Also returns how long building the emission context took.
 pub fn emit_modules(
@@ -357,12 +357,12 @@ pub struct Report {
 
 impl Report {
     /// Records a phase measured from `start`.
-    pub fn fase(&mut self, name: &'static str, start: std::time::Instant) {
+    pub fn phase(&mut self, name: &'static str, start: std::time::Instant) {
         self.phases.push((name, start.elapsed()));
     }
 
     /// One line of text per phase, with the total.
-    pub fn texto(&self) -> String {
+    pub fn text(&self) -> String {
         let mut out = String::new();
         let mut total = std::time::Duration::ZERO;
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
@@ -407,7 +407,7 @@ impl Report {
 /// Runs the whole pipeline (elements → outline → bodies → emission) for an entry point.
 ///
 /// `sdk_lib` is the SDK's `lib/` (discovered through `PATH` when `None`).
-pub fn compilar(
+pub fn compile(
     entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
@@ -435,7 +435,7 @@ fn package_filter() -> Option<std::collections::HashSet<String>> {
         .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
 }
 
-/// Like [`compilar`], also returning the per-phase timing [`Report`].
+/// Like [`compile`], also returning the per-phase timing [`Report`].
 pub fn compile_with_report(
     entry: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
@@ -480,7 +480,7 @@ pub fn compile_with_report_and_generator(
         emit_program(a.program, a.interner, a.table, a.core, a.outline, a.bodies)
             .map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     })?;
-    rel.modules = emitted.modulos.len();
+    rel.modules = emitted.modules.len();
     Ok((emitted, rel))
 }
 
@@ -535,7 +535,7 @@ pub fn compile_with_options<R>(
     };
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
     language.aplicar(&mut sdk);
-    rel.fase("SDK layout", t);
+    rel.phase("SDK layout", t);
     // Cache of the analyzed SDK (`target/dartforge/sdk-<hash>.bin`); the first
     // compilation builds it. `DARTFORGE_SDK_CACHE=0` turns it off.
     let t = Instant::now();
@@ -553,7 +553,7 @@ pub fn compile_with_options<R>(
             }
         }
     };
-    rel.fase("SDK cache", t);
+    rel.phase("SDK cache", t);
     let t = Instant::now();
     let mut interner = Interner::new();
     // In-memory generated sources. With `generator` (the build engine, wired in
@@ -578,10 +578,10 @@ pub fn compile_with_options<R>(
             let t_phase1 = Instant::now();
             let mut names_phase1 = Interner::new();
             let (program, _) = dartforge_elements::load::load_lenient(entry, &sdk, packages, &mut names_phase1);
-            rel.fase("engine: resolution load", t_phase1);
+            rel.phase("engine: resolution load", t_phase1);
             let t_engine = Instant::now();
             let g = g(&program, &names_phase1)?;
-            rel.fase("build engine", t_engine);
+            rel.phase("build engine", t_engine);
             Some(g)
         }
         (Some("build_runner"), _) => {
@@ -616,7 +616,7 @@ pub fn compile_with_options<R>(
         None,
         generated,
     );
-    rel.fase("load program", t);
+    rel.phase("load program", t);
     rel.load = program.tempos.clone();
     // Parts of the SDK have URI `file:///…/lib/core/int.dart`; what decides is the library.
     rel.sdk_units = program.units.iter().filter(|u| program.library(u.library).is_sdk).count();
@@ -637,9 +637,9 @@ pub fn compile_with_options<R>(
     // By default the Dart VM runs our API; with `DARTFORGE_MACROS_NATIVO` (a
     // `dartforge` built with the `nativo` feature) the executor is the native one
     // (D4). The host reloads the augmentation straight from memory.
-    let program = if dartforge_macros_host::tem_macros(&program) {
+    let program = if dartforge_macros_host::has_macros(&program) {
         let t = Instant::now();
-        let pending = dartforge_macros_host::aplicacoes_pendentes(&program, &interner);
+        let pending = dartforge_macros_host::pending_applications(&program, &interner);
         let mut vm = if pending.is_empty() {
             None
         } else {
@@ -653,10 +653,10 @@ pub fn compile_with_options<R>(
                     let in_sdk = sdk.root.parent().unwrap_or(&sdk.root).join("bin").join(exe);
                     if in_sdk.is_file() { in_sdk } else { std::path::PathBuf::from(exe) }
                 });
-            let cfg = dartforge_macros_host::vm::ConfigDaVm {
+            let cfg = dartforge_macros_host::vm::VmConfig {
                 dart,
                 api,
-                trabalho: entry.parent().unwrap_or(std::path::Path::new("."))
+                work_dir: entry.parent().unwrap_or(std::path::Path::new("."))
                     .join(".dart_tool/dartforge/macros"),
             };
             let package_config_path = packages.map(std::path::Path::to_path_buf)
@@ -665,19 +665,19 @@ pub fn compile_with_options<R>(
             // the given `dartforge`, with no Dart VM.
             match std::env::var_os("DARTFORGE_MACROS_NATIVO") {
                 Some(compiler) => {
-                    let native = dartforge_macros_host::nativo::ConfigNativa {
-                        compilador: std::path::PathBuf::from(compiler),
+                    let native = dartforge_macros_host::native::NativeConfig {
+                        compiler: std::path::PathBuf::from(compiler),
                         sdk_lib: sdk.root.clone(),
                         api: cfg.api.clone(),
-                        trabalho: cfg.trabalho.join("nativo"),
+                        work_dir: cfg.work_dir.join("nativo"),
                     };
-                    Some(dartforge_macros_host::nativo::iniciar(&native, &pending, package_config_path.as_deref())?)
+                    Some(dartforge_macros_host::native::start(&native, &pending, package_config_path.as_deref())?)
                 }
-                None => Some(dartforge_macros_host::vm::iniciar(&cfg, &pending, package_config_path.as_deref())?),
+                None => Some(dartforge_macros_host::vm::start(&cfg, &pending, package_config_path.as_deref())?),
             }
         };
-        let mut unavailable = dartforge_macros_host::executor::Indisponivel::default();
-        let executor: &mut dyn dartforge_macros_host::executor::ExecutorMacros = match vm.as_mut() {
+        let mut unavailable = dartforge_macros_host::executor::Unavailable::default();
+        let executor: &mut dyn dartforge_macros_host::executor::MacroExecutor = match vm.as_mut() {
             Some(vm) => vm,
             None => &mut unavailable,
         };
@@ -686,12 +686,12 @@ pub fn compile_with_options<R>(
         let mut reload = |i: &mut Interner, g, u: &mut dartforge_elements::unidades::CacheUnidades| {
             dartforge_elements::load::load_lenient_gerados(entry, &sdk, packages, i, None, Some(u), g)
         };
-        match dartforge_macros_host::aplicar_incremental(program, &mut interner, generated_for_macros, &mut reload, executor, None) {
+        match dartforge_macros_host::apply_incremental(program, &mut interner, generated_for_macros, &mut reload, executor, None) {
             Ok(s) => {
-                for a in &s.avisos {
+                for a in &s.warnings {
                     eprintln!("warning: {a}");
                 }
-                rel.fase("macros", t);
+                rel.phase("macros", t);
                 s.program
             }
             Err(ds) => {
@@ -708,7 +708,7 @@ pub fn compile_with_options<R>(
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    rel.fase("outline (types)", t);
+    rel.phase("outline (types)", t);
     let t = Instant::now();
     let (bodies, body_diags) = if infer_sdk {
         let all: Vec<dartforge_elements::model::LibraryId> =
@@ -717,7 +717,7 @@ pub fn compile_with_options<R>(
     } else {
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline)
     };
-    rel.fase("body inference", t);
+    rel.phase("body inference", t);
     // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3)
     // and reads of locals that are not definitely assigned abort like load errors
     // (`codes::e_erro_de_compilacao`); the rest of `types` is a warning.
@@ -757,14 +757,14 @@ pub fn compile_with_options<R>(
     }
     let t = Instant::now();
     let emitted = finish(&Analysis { program: &program, interner: &interner, table: &table, core: &core, outline: &outline, bodies: &bodies })?;
-    rel.fase("emission", t);
+    rel.phase("emission", t);
     let t = Instant::now();
     drop(bodies);
     drop(outline);
     drop(table);
     drop(program);
     drop(interner);
-    rel.fase("free memory", t);
+    rel.phase("free memory", t);
     Ok((emitted, rel))
 }
 
@@ -788,11 +788,11 @@ fn write_if_changed(p: &std::path::Path, text: &str, compare: bool) -> Result<bo
 ///
 /// Returns how many files were actually written (those identical to what was
 /// already on disk are not rewritten).
-pub fn escrever(emitted: &Emitted, dir: &std::path::Path, dart_sdk_js: &std::path::Path) -> Result<usize, String> {
+pub fn write(emitted: &Emitted, dir: &std::path::Path, dart_sdk_js: &std::path::Path) -> Result<usize, String> {
     write_with_options(emitted, dir, dart_sdk_js, true)
 }
 
-/// Like [`escrever`], optionally skipping the comparison with the file on disk.
+/// Like [`write`], optionally skipping the comparison with the file on disk.
 ///
 /// The resident session (`dartforge dev`) already knows which modules changed,
 /// from the text of the previous compilation that it keeps in memory: re-reading
@@ -805,7 +805,7 @@ pub fn write_with_options(
 ) -> Result<usize, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut written = 0usize;
-    for (path, text) in &emitted.modulos {
+    for (path, text) in &emitted.modules {
         let p = dir.join(path);
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;

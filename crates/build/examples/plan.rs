@@ -9,10 +9,10 @@ fn main() {
     let cfg =
         dartforge_elements::config::PackageConfig::load(&cfg_path).expect("package_config.json");
     let t = std::time::Instant::now();
-    let (_g, _c, plan) = dartforge_build::plano_do_projeto(&root, &cfg).expect("plan");
+    let (_g, _c, plan) = dartforge_build::project_plan(&root, &cfg).expect("plan");
     let ms = t.elapsed().as_secs_f64() * 1000.0;
-    print!("{}", plan.texto_canonico());
-    for a in &plan.avisos {
+    print!("{}", plan.canonical_text());
+    for a in &plan.warnings {
         eprintln!("warning: {a}");
     }
     let bd = args
@@ -20,13 +20,13 @@ fn main() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join(".dart_tool/build/entrypoint/build.dart"));
     if let Ok(text) = std::fs::read_to_string(&bd) {
-        match dartforge_build::oraculo::comparar(&plan.aplicacoes, &text)
+        match dartforge_build::oracle::compare(&plan.applications, &text)
             .expect("readable build.dart")
         {
             Ok(()) => println!(
                 "plan EQUAL to {} ({} applications, {ms:.1} ms)",
                 bd.display(),
-                plan.aplicacoes.len()
+                plan.applications.len()
             ),
             Err(d) => {
                 println!("plan DIFFERENT from {}:", bd.display());

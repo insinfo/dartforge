@@ -192,7 +192,7 @@ pub struct Raizes {
 pub enum ClassLevel {
     Dead,
     /// Identity: shell, `addRtiResources`, rti rules, live statics.
-    Tipo,
+    Type,
     /// Constructed: instance members eligible by selector.
     Instantiated,
 }
@@ -200,10 +200,10 @@ pub enum ClassLevel {
 /// Who pulled an element into the world (the first one that did).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cause {
-    Raiz,
-    Funcao(FunctionElementId),
-    Variavel(VariableId),
-    Classe(ClassId),
+    Root,
+    Function(FunctionElementId),
+    Variable(VariableId),
+    Class(ClassId),
 }
 
 #[derive(Default, Debug, Clone)]
@@ -327,7 +327,7 @@ pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
 /// `shouldInlineConstant`, `kernel/constants.dart:105-120`): a `const` with a
 /// numeric, boolean or null literal initializer, or a *string* of fewer than
 /// 32 units. It is the same criterion as
-/// `emit_js::sdk_proprio::inlinable_literal`.
+/// `emit_js::own_sdk::inlinable_literal`.
 pub fn is_inlinable_constant(p: &Program, v: VariableId) -> bool {
     let var = p.variable(v);
     // An extension static is read through the key `L['Ext|x']`, without folding.
@@ -450,7 +450,7 @@ fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
 
 /// Like [`calcular`], with [`Opcoes`].
 pub fn compute_with(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
-    let mut c = Computation::novo(e, op);
+    let mut c = Computation::new(e, op);
     c.seed(r);
     c.engine.finish()
 }
@@ -465,14 +465,14 @@ pub struct Computation<'a> {
 }
 
 impl<'a> Computation<'a> {
-    pub fn novo(e: Entrada<'a>, op: Opcoes) -> Computation<'a> {
+    pub fn new(e: Entrada<'a>, op: Opcoes) -> Computation<'a> {
         let mut m = Engine::new(e);
         if op.include_sdk {
             m.include_sdk = true;
             m.natives = native_classes(&e);
             m.int_num = int_num(&e);
             m.natives_by_interface = natives_by_interface(&e, &m.natives);
-            m.constants = Some(Constants::nova(e, op.without_asserts));
+            m.constants = Some(Constants::new(e, op.without_asserts));
         }
         Computation { engine: m }
     }
@@ -481,13 +481,13 @@ impl<'a> Computation<'a> {
         seed(&mut self.engine, r);
     }
     /// The current world (a copy; the engine stays resumable).
-    pub fn mundo(&self) -> Mundo {
+    pub fn world(&self) -> Mundo {
         self.engine.snapshot()
     }
 }
 
 fn seed(m: &mut Engine<'_>, r: &Raizes) {
-    m.cause = Cause::Raiz;
+    m.cause = Cause::Root;
     for s in {
         let mut v = r.seletores.clone();
         v.sort();
@@ -728,7 +728,7 @@ impl<'a> Engine<'a> {
             seen_types: HashSet::new(),
             universal_names: universal,
             protocol_done: HashSet::new(),
-            cause: Cause::Raiz,
+            cause: Cause::Root,
             cause_fn: vec![None; p.functions.len()],
             cause_class: vec![None; p.classes.len()],
             cause_var: vec![None; p.variables.len()],
@@ -1079,10 +1079,10 @@ impl<'a> Engine<'a> {
 
     pub(crate) fn mark_type(&mut self, c: ClassId) {
         let i = c.0 as usize;
-        if i >= self.classes.len() || !self.is_user_class(c) || self.classes[i] >= ClassLevel::Tipo {
+        if i >= self.classes.len() || !self.is_user_class(c) || self.classes[i] >= ClassLevel::Type {
             return;
         }
-        self.classes[i] = ClassLevel::Tipo;
+        self.classes[i] = ClassLevel::Type;
         self.cause_class[i] = Some(self.cause);
         let p = self.e.program;
         let class = p.class(c);
@@ -1462,9 +1462,9 @@ impl<'a> Engine<'a> {
         while let Some(it) = self.queue.pop_front() {
             self.items += 1;
             self.cause = match it {
-                Item::Function(f) => Cause::Funcao(f),
-                Item::Variable(v) => Cause::Variavel(v),
-                Item::Fields(c) => Cause::Classe(c),
+                Item::Function(f) => Cause::Function(f),
+                Item::Variable(v) => Cause::Variable(v),
+                Item::Fields(c) => Cause::Class(c),
             };
             match it {
                 Item::Function(f) => impact::of_function(self, f),
@@ -1512,7 +1512,7 @@ impl<'a> Engine<'a> {
             stats.user_classes += 1;
             match self.classes[i] {
                 ClassLevel::Instantiated => stats.classes_instanciadas += 1,
-                ClassLevel::Tipo => stats.type_classes += 1,
+                ClassLevel::Type => stats.type_classes += 1,
                 ClassLevel::Dead => {}
             }
         }
@@ -1541,7 +1541,7 @@ impl<'a> Engine<'a> {
             stats.user_classes += 1;
             match self.classes[i] {
                 ClassLevel::Instantiated => stats.classes_instanciadas += 1,
-                ClassLevel::Tipo => stats.type_classes += 1,
+                ClassLevel::Type => stats.type_classes += 1,
                 ClassLevel::Dead => {}
             }
         }
