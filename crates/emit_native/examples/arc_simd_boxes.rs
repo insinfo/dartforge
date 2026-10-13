@@ -19,7 +19,7 @@ fn main() -> Result<(), String> {
     };
     let release = match args.next().as_deref() {
         None => true,
-        Some("sem-liberar") => false,
+        Some("no-release") => false,
         Some(other) => return Err(format!("unknown control: {other}")),
     };
     if args.next().is_some() {

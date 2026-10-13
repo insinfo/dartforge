@@ -182,9 +182,9 @@ passou:
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");
     if let Some(control) = args.next() {
         let target = match control.as_str() {
-            "sem-retencao" => "  call void @dartforge_arc_retain(i64 %v0)\n".to_string(),
-            "sem-drop-retorno" => "  call void @dartforge_arc_release(i64 %retorno)\n".to_string(),
-            "sem-drop-intermediario" => {
+            "no-retain" => "  call void @dartforge_arc_retain(i64 %v0)\n".to_string(),
+            "no-return-drop" => "  call void @dartforge_arc_release(i64 %retorno)\n".to_string(),
+            "no-intermediate-drop" => {
                 let body = m.functions.iter().find(|f| f.name == "repassar").unwrap();
                 let drops: Vec<_> = body
                     .blocks

@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path -Parent $PSScriptRoot
 $caso = Join-Path $raiz 'corpus/macros/411_pedido_independente'
-$trabalho = Join-Path $raiz 'target/macros-aot-sonda'
+$trabalho = Join-Path $raiz 'target/macros-aot-probe'
 $binario = Join-Path $raiz 'target/release/dartforge.exe'
 $dart = (Get-Command dart).Source
 $entrada = Join-Path $caso 'main.dart'

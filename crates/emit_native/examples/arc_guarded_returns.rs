@@ -12,9 +12,9 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let exit = PathBuf::from(args.next().ok_or("provide the output executable")?);
     let arc = args.next().as_deref() != Some("tracing");
-    let throw = args.next().as_deref() == Some("erro");
+    let throw = args.next().as_deref() == Some("error");
     let automatic = args.next().as_deref() == Some("automatic");
-    let mixed = args.next().as_deref() == Some("misto");
+    let mixed = args.next().as_deref() == Some("mixed");
     if mixed && !automatic {
         return Err("mixed requires automatic preparation".into());
     }

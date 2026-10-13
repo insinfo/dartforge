@@ -59,5 +59,5 @@ if (-not ($ReusarBase -and (Test-Path (Join-Path $binBase 'measure.exe')))) {
     Compilar $fonteBase (Join-Path $trabalho 'base-target') $binBase
 }
 
-& (Join-Path $PSScriptRoot 'zero-cost.ps1') -Atual (Join-Path $trabalho 'bin-atual') -Base (Join-Path $trabalho 'bin-base') -Entrada $Entrada -Packages $Packages -Rodadas $Rodadas -Tolerancia $Tolerancia
+& (Join-Path $PSScriptRoot 'zero-cost.ps1') -Current (Join-Path $trabalho 'bin-atual') -Base (Join-Path $trabalho 'bin-base') -Entry $Entrada -Packages $Packages -Rounds $Rodadas -Tolerance $Tolerancia
 exit $LASTEXITCODE

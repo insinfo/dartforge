@@ -4,7 +4,7 @@
 //! Under tracing, the same body with explicit tokens tests the compatibility of the
 //! runtime protocol; it does not enable the ARC preparation in the default tracing pipeline.
 //! Does not certify source lowering, pending guards, reload or suspension.
-//! The negative controls `sem-retencao` and `sem-liberar` change only the final IR
+//! The negative controls `no-retain` and `no-release` change only the final IR
 //! of the harness, after the check; the execution must fail.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
@@ -408,7 +408,7 @@ passou:
     }
     match control.as_deref() {
         None => {}
-        Some("sem-retencao") => {
+        Some("no-retain") => {
             let borrowed = m.functions[0].blocks.iter().flat_map(|b| &b.instructions)
                 .find_map(|(v, i, _)| match i {
                     Instruction::ArcCopy { value: Operand::Val(of) }
@@ -421,7 +421,7 @@ passou:
             }
             ir = ir.replace(&call, "");
         }
-        Some("sem-liberar") => {
+        Some("no-release") => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %retorno)\n", "");
         }
         Some(other) => return Err(format!("unknown control: {other}")),

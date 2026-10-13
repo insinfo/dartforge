@@ -168,11 +168,10 @@ fn main() {
     }
     let first = live[0] as f64 / MB;
     let last = *live.last().unwrap() as f64 / MB;
-    // `scripts/zero-cost.ps1` reads the average from this line with the
-    // regex `m\S*dia (\d+(?:\.\d+)?) ms/edi`, against binaries of older
-    // commits too: the line keeps its original wording.
+    // `scripts/zero-cost.ps1` reads the average from this line (`mean N
+    // ms/edit`); it also accepts the Portuguese wording of older binaries.
     println!(
-        "vivos após 1ª edição {first:.2} MB → após {edits}ª {last:.2} MB (crescimento {:+.2} MB); pico {:.2} MB; média {:.2} ms/edição; vivos após a primeira compilação {:.2} MB",
+        "live after edit 1 {first:.2} MB → after edit {edits} {last:.2} MB (growth {:+.2} MB); peak {:.2} MB; mean {:.2} ms/edit; live after the first compilation {:.2} MB",
         last - first,
         dartforge_instrument::peak_bytes() as f64 / MB,
         sum_ms / edits as f64,

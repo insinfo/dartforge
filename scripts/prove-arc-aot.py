@@ -1,10 +1,10 @@
-"""Executa a matriz AOT ARC/tracing com controles negativos e artefatos brutos.
+"""Runs the AOT ARC/tracing matrix with negative controls and raw artifacts.
 
-Não aceita falha de compilação como resultado negativo. Os controles precisam
-terminar por trap; erro de carregamento, abort do runtime ou saída inesperada
-reprovam a prova. O controle layout-obsoleto exige o abort específico da guarda
-física e sua mensagem, pois a ABI não permite desenrolar o pânico para o Dart.
-O manifesto conserva comandos, versões e hashes dos arquivos.
+A compilation failure is not accepted as a negative result. The controls must
+end by a trap; a load error, a runtime abort or an unexpected output fails
+the proof. The stale-layout control requires the specific abort of the
+physical guard and its message, since the ABI does not allow unwinding the
+panic into Dart. The manifest keeps commands, versions and file hashes.
 """
 
 import argparse
@@ -17,186 +17,186 @@ import subprocess
 import tempfile
 
 
-PROVAS = {
-    "arc_list_literal": ("prova-literal-listas", False, [
-        ("normal", None), ("normal", "sem-owner"), ("normal", "sem-liberar"),
+PROOFS = {
+    "arc_list_literal": ("proof-list-literal", False, [
+        ("normal", None), ("normal", "no-owner"), ("normal", "no-release"),
     ]),
-    "arc_list_storage": ("prova-armazenamento-listas", False, [
-        ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
-        ("--grow", None), ("--grow", "sem-retencao"), ("--grow", "sem-liberar"),
+    "arc_list_storage": ("proof-list-storage", False, [
+        ("normal", None), ("normal", "no-retain"), ("normal", "no-release"),
+        ("--grow", None), ("--grow", "no-retain"), ("--grow", "no-release"),
     ]),
-    "arc_simd_boxes": ("prova-caixas-simd", False, [("normal", None), ("normal", "sem-liberar")]),
-    "arc_typed_scalar_return": ("prova-retorno-tipado-escalar", False, [
-        (tipo, controle) for tipo in ("--int", "--double", "--bool")
-        for controle in (None, "sem-liberar-contexto")
+    "arc_simd_boxes": ("proof-simd-boxes", False, [("normal", None), ("normal", "no-release")]),
+    "arc_typed_scalar_return": ("proof-typed-scalar-return", False, [
+        (kind, control) for kind in ("--int", "--double", "--bool")
+        for control in (None, "no-context-release")
     ]),
-    "arc_native_port_owned": ("prova-porta-nativa-owned", True, [
-        (modo, controle) for modo in ("checagem", "tabelas")
-        for controle in (None, "sem-registro", "sem-fechamento")
+    "arc_native_port_owned": ("proof-native-port-owned", True, [
+        (mode, control) for mode in ("check", "tables")
+        for control in (None, "no-registration", "no-close")
     ]),
-    "arc_source_return": ("prova-retorno-da-fonte", False, [
-        ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-drop-retorno"),
-        ("normal", "sem-drop-intermediario"),
+    "arc_source_return": ("proof-source-return", False, [
+        ("normal", None), ("normal", "no-retain"), ("normal", "no-return-drop"),
+        ("normal", "no-intermediate-drop"),
     ]),
-    "arc_zeroed_instance": ("prova-instancia-zerada", False, [
-        ("normal", None), ("normal", "sem-owner"),
-        ("normal", "sem-tabela"), ("normal", "sem-drop"),
-        ("normal", "layout-obsoleto"),
+    "arc_zeroed_instance": ("proof-zeroed-instance", False, [
+        ("normal", None), ("normal", "no-owner"),
+        ("normal", "no-table"), ("normal", "no-drop"),
+        ("normal", "stale-layout"),
     ]),
-    "arc_local_fields": ("prova-campos-locais", False, [
-        ("normal", None), ("normal", "sem-retencao"),
-        ("normal", "sem-drop-objeto"), ("normal", "sem-drop-retorno"),
+    "arc_local_fields": ("proof-local-fields", False, [
+        ("normal", None), ("normal", "no-retain"),
+        ("normal", "no-object-drop"), ("normal", "no-return-drop"),
     ]),
-    "arc_field_allocation": ("prova-alocacao-campos", False, [
-        ("normal", None), ("normal", "sem-drop-filho"), ("normal", "sem-owner-objeto"),
-        ("--frame", None), ("--frame", "sem-drop-filho"), ("--frame", "sem-owner-objeto"),
-        ("--frame", "sem-retencao-leitura"),
-        ("--typed", None), ("--typed", "sem-drop-filho"), ("--typed", "sem-owner-objeto"),
-        ("--typed", "sem-liberar-contexto"),
-        ("--typed-error", None), ("--typed-error", "sem-liberar-contexto"),
+    "arc_field_allocation": ("proof-field-allocation", False, [
+        ("normal", None), ("normal", "no-child-drop"), ("normal", "no-object-owner"),
+        ("--frame", None), ("--frame", "no-child-drop"), ("--frame", "no-object-owner"),
+        ("--frame", "no-read-retain"),
+        ("--typed", None), ("--typed", "no-child-drop"), ("--typed", "no-object-owner"),
+        ("--typed", "no-context-release"),
+        ("--typed-error", None), ("--typed-error", "no-context-release"),
     ]),
-    "arc_field_keepalive": ("prova-keepalive-campos", False, [
-        ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
-        ("--neighbor", None), ("--neighbor", "sem-retencao"), ("--neighbor", "sem-liberar"),
-        ("--argument", None), ("--argument", "sem-retencao"), ("--argument", "sem-liberar"),
-        ("--capture-neighbor", None), ("--capture-neighbor", "sem-retencao"), ("--capture-neighbor", "sem-liberar"),
-        ("--nullable", None), ("--nullable", "sem-retencao"), ("--nullable", "sem-liberar"),
-        ("--mixed", None), ("--mixed", "sem-retencao"), ("--mixed", "sem-liberar"),
-        ("--cycle", None), ("--cycle", "sem-retencao"), ("--cycle", "sem-liberar"),
-        ("--cell", None), ("--cell", "sem-retencao"), ("--cell", "sem-liberar"),
-        ("--context", None), ("--context", "sem-retencao"), ("--context", "sem-liberar"),
-        ("--global", None), ("--global", "sem-retencao"), ("--global", "sem-liberar"),
-        ("--late", None), ("--late", "sem-retencao"), ("--late", "sem-liberar"),
+    "arc_field_keepalive": ("proof-field-keepalive", False, [
+        ("normal", None), ("normal", "no-retain"), ("normal", "no-release"),
+        ("--neighbor", None), ("--neighbor", "no-retain"), ("--neighbor", "no-release"),
+        ("--argument", None), ("--argument", "no-retain"), ("--argument", "no-release"),
+        ("--capture-neighbor", None), ("--capture-neighbor", "no-retain"), ("--capture-neighbor", "no-release"),
+        ("--nullable", None), ("--nullable", "no-retain"), ("--nullable", "no-release"),
+        ("--mixed", None), ("--mixed", "no-retain"), ("--mixed", "no-release"),
+        ("--cycle", None), ("--cycle", "no-retain"), ("--cycle", "no-release"),
+        ("--cell", None), ("--cell", "no-retain"), ("--cell", "no-release"),
+        ("--context", None), ("--context", "no-retain"), ("--context", "no-release"),
+        ("--global", None), ("--global", "no-retain"), ("--global", "no-release"),
+        ("--late", None), ("--late", "no-retain"), ("--late", "no-release"),
     ]),
-    "arc_keepalive_pending": ("prova-keepalive-pending", True, [
-        ("normal", None), ("erro", None), ("normal", "sem-retencao"),
-        ("normal", "sem-liberar"), ("erro", "copia-no-erro"),
+    "arc_keepalive_pending": ("proof-keepalive-pending", True, [
+        ("normal", None), ("error", None), ("normal", "no-retain"),
+        ("normal", "no-release"), ("error", "copy-on-error"),
     ]),
-    "arc_loop_cleanup": ("prova-cleanup-laco", True, [
-        ("normal", None), ("erro", None), ("normal", "sem-drop-normal"),
-        ("erro", "sem-drop-erro"),
+    "arc_loop_cleanup": ("proof-loop-cleanup", True, [
+        ("normal", None), ("error", None), ("normal", "no-normal-drop"),
+        ("error", "no-error-drop"),
     ]),
 }
 
 
-def informacao(comando):
-    return subprocess.check_output(comando, text=True, encoding="utf-8").strip()
+def info(command):
+    return subprocess.check_output(command, text=True, encoding="utf-8").strip()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("exemplo", choices=PROVAS)
-    parser.add_argument("--debug", action="store_true", help="compilar o gerador sem --release")
-    parser.add_argument("--features", help="features do gerador, como embedded-llvm")
+    parser.add_argument("example", choices=PROOFS)
+    parser.add_argument("--debug", action="store_true", help="compile the generator without --release")
+    parser.add_argument("--features", help="generator features, such as embedded-llvm")
     args = parser.parse_args()
-    diretorio, tem_caminho, casos = PROVAS[args.exemplo]
+    directory, has_path, cases = PROOFS[args.example]
     root = Path(__file__).resolve().parent.parent
-    destino = root / "target" / diretorio
-    destino.mkdir(parents=True, exist_ok=True)
-    ambiente = os.environ.copy()
-    ambiente.update({
+    destination = root / "target" / directory
+    destination.mkdir(parents=True, exist_ok=True)
+    environment = os.environ.copy()
+    environment.update({
         "DARTFORGE_ARC_CHECK": "1",
         "DARTFORGE_ARC_NURSERY": "0",
         "DARTFORGE_GC_STRESS": "1",
     })
-    # Traps intencionais não precisam gerar dumps de memória no runner Unix.
+    # Intentional traps do not need to produce core dumps on the Unix runner.
     if os.name != "nt":
         import resource
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    manifesto = {
-        "fonte": informacao(["git", "-C", str(root), "rev-parse", "HEAD"]),
-        "exemplo": args.exemplo,
-        "exemplo_sha256": hashlib.sha256((root / "crates/emit_native/examples" / (args.exemplo + ".rs")).read_bytes()).hexdigest(),
+    manifest = {
+        "source": info(["git", "-C", str(root), "rev-parse", "HEAD"]),
+        "example": args.example,
+        "example_sha256": hashlib.sha256((root / "crates/emit_native/examples" / (args.example + ".rs")).read_bytes()).hexdigest(),
         "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        "estado_git_fontes": informacao(["git", "-C", str(root), "status", "--porcelain", "--",
+        "source_git_status": info(["git", "-C", str(root), "status", "--porcelain", "--",
             "crates/emit_native", "crates/runtime", "scripts/prove-arc-aot.py"]),
-        "rustc": informacao(["rustc", "--version"]),
-        "ambiente": {k: ambiente[k] for k in (
+        "rustc": info(["rustc", "--version"]),
+        "environment": {k: environment[k] for k in (
             "DARTFORGE_ARC_CHECK", "DARTFORGE_ARC_NURSERY", "DARTFORGE_GC_STRESS")},
-        "execucoes": [],
+        "runs": [],
     }
-    manifesto_path = destino / "evidencia.json"
-    if args.exemplo == "arc_source_return":
-        sdk_lib = ambiente.get("DARTFORGE_SDK_LIB")
+    manifest_path = destination / "evidence.json"
+    if args.example == "arc_source_return":
+        sdk_lib = environment.get("DARTFORGE_SDK_LIB")
         if not sdk_lib:
-            raise RuntimeError("a prova da fonte exige DARTFORGE_SDK_LIB")
-        manifesto["sdk_lib"] = str(Path(sdk_lib).resolve())
-        manifesto["sdk_versao"] = (Path(sdk_lib).parent / "version").read_text(encoding="utf-8").strip()
+            raise RuntimeError("the source proof requires DARTFORGE_SDK_LIB")
+        manifest["sdk_lib"] = str(Path(sdk_lib).resolve())
+        manifest["sdk_version"] = (Path(sdk_lib).parent / "version").read_text(encoding="utf-8").strip()
     target = (root / "target").resolve()
     if not target.is_relative_to(root):
-        raise RuntimeError("diretório de temporários fora do repositório")
-    temporario = tempfile.TemporaryDirectory(prefix="tmp-arc-aot-", dir=target)
-    ambiente["TEMP"] = ambiente["TMP"] = temporario.name
+        raise RuntimeError("temporary directory outside the repository")
+    temporary = tempfile.TemporaryDirectory(prefix="tmp-arc-aot-", dir=target)
+    environment["TEMP"] = environment["TMP"] = temporary.name
     try:
-        for nivel in (0, 2):
-            for modo in ("arc", "tracing"):
-                for caminho, controle in casos:
-                    stem = f"{modo}-O{nivel}-{caminho}"
-                    if controle:
-                        stem += "-" + controle
-                    exe = destino / (stem + (".exe" if os.name == "nt" else ""))
-                    comando = ["cargo", "run", "--locked"]
+        for level in (0, 2):
+            for mode in ("arc", "tracing"):
+                for path, control in cases:
+                    stem = f"{mode}-O{level}-{path}"
+                    if control:
+                        stem += "-" + control
+                    exe = destination / (stem + (".exe" if os.name == "nt" else ""))
+                    command = ["cargo", "run", "--locked"]
                     if not args.debug:
-                        comando.append("--release")
-                    comando += ["-p", "dartforge-emit-native"]
+                        command.append("--release")
+                    command += ["-p", "dartforge-emit-native"]
                     if args.features:
-                        comando += ["--features", args.features]
-                    comando += ["--example", args.exemplo, "--", str(exe), f"--memory={modo}", str(nivel)]
-                    if tem_caminho or caminho.startswith("--"):
-                        comando.append(caminho)
-                    if controle:
-                        comando.append(controle)
-                    registro = {"modo": modo, "nivel": nivel, "caminho": caminho,
-                        "controle": controle, "geracao": comando, "arquivos": []}
-                    manifesto["execucoes"].append(registro)
-                    log = destino / f"{stem}.build.log"
+                        command += ["--features", args.features]
+                    command += ["--example", args.example, "--", str(exe), f"--memory={mode}", str(level)]
+                    if has_path or path.startswith("--"):
+                        command.append(path)
+                    if control:
+                        command.append(control)
+                    record = {"mode": mode, "level": level, "path": path,
+                        "control": control, "generation": command, "files": []}
+                    manifest["runs"].append(record)
+                    log = destination / f"{stem}.build.log"
                     with log.open("wb") as out:
-                        geracao = subprocess.run(comando, cwd=root, env=ambiente, stdout=out, stderr=subprocess.STDOUT)
-                    registro["exit_geracao"] = geracao.returncode
-                    if geracao.returncode:
-                        raise RuntimeError(f"compilação falhou: {stem}; consulte {log}")
-                    stdout = destino / f"{stem}.stdout"
-                    stderr = destino / f"{stem}.stderr"
+                        generation = subprocess.run(command, cwd=root, env=environment, stdout=out, stderr=subprocess.STDOUT)
+                    record["generation_exit"] = generation.returncode
+                    if generation.returncode:
+                        raise RuntimeError(f"compilation failed: {stem}; see {log}")
+                    stdout = destination / f"{stem}.stdout"
+                    stderr = destination / f"{stem}.stderr"
                     with stdout.open("wb") as out, stderr.open("wb") as err:
-                        processo = subprocess.run([str(exe)], cwd=root, env=ambiente, stdout=out, stderr=err)
-                    code = processo.returncode
-                    registro["exit"] = code
-                    (destino / f"{stem}.exit").write_bytes(f"{code}\n".encode("ascii"))
-                    if args.exemplo == "arc_zeroed_instance" and controle == "layout-obsoleto":
+                        process = subprocess.run([str(exe)], cwd=root, env=environment, stdout=out, stderr=err)
+                    code = process.returncode
+                    record["exit"] = code
+                    (destination / f"{stem}.exit").write_bytes(f"{code}\n".encode("ascii"))
+                    if args.example == "arc_zeroed_instance" and control == "stale-layout":
                         aborts = {0xC0000409, -1073740791} if os.name == "nt" else {-int(signal.SIGABRT)}
-                        diagnostico = stderr.read_bytes()
+                        diagnostic = stderr.read_bytes()
                         if code not in aborts or stdout.read_bytes() != b"" or not all(
-                            trecho in diagnostico for trecho in (
+                            part in diagnostic for part in (
                                 b"incompatible ARC scalar layout", b"class/size outside the Ref layouts")):
-                            raise RuntimeError(f"guarda de layout não recusou pelo motivo esperado: {stem} ({code})")
-                        registro["rejeicao"] = "guarda de layout físico"
-                    elif controle:
+                            raise RuntimeError(f"the layout guard did not reject for the expected reason: {stem} ({code})")
+                        record["rejection"] = "physical layout guard"
+                    elif control:
                         traps = {0xC000001D, -1073741795} if os.name == "nt" else {-int(signal.SIGILL), -int(signal.SIGTRAP)}
                         if code not in traps or stdout.read_bytes() != b"":
-                            raise RuntimeError(f"controle negativo não terminou por trap: {stem} ({code})")
+                            raise RuntimeError(f"negative control did not end by a trap: {stem} ({code})")
                     elif code != 0 or stdout.read_bytes() != b"1\n":
-                        raise RuntimeError(f"prova falhou: {stem} ({code}); consulte {stdout} e {stderr}")
-                    arquivos = [log, exe.with_suffix(".ll"), stdout, stderr, destino / f"{stem}.exit"]
-                    if args.exemplo == "arc_source_return":
-                        arquivos.append(exe.with_suffix(".dart"))
-                    for arquivo in arquivos:
-                        dados = arquivo.read_bytes()
-                        registro["arquivos"].append({"nome": arquivo.name, "bytes": len(dados),
-                            "sha256": hashlib.sha256(dados).hexdigest()})
-                    resultado = "guarda de layout" if registro.get("rejeicao") else "trap" if controle else "passou"
-                    print(f"{args.exemplo}: {stem}: {resultado}", flush=True)
-        manifesto["resultado"] = "sucesso"
-    except Exception as erro:
-        manifesto["resultado"] = "falha"
-        manifesto["erro"] = str(erro)
+                        raise RuntimeError(f"proof failed: {stem} ({code}); see {stdout} and {stderr}")
+                    files = [log, exe.with_suffix(".ll"), stdout, stderr, destination / f"{stem}.exit"]
+                    if args.example == "arc_source_return":
+                        files.append(exe.with_suffix(".dart"))
+                    for file in files:
+                        data = file.read_bytes()
+                        record["files"].append({"name": file.name, "bytes": len(data),
+                            "sha256": hashlib.sha256(data).hexdigest()})
+                    result = "layout guard" if record.get("rejection") else "trap" if control else "passed"
+                    print(f"{args.example}: {stem}: {result}", flush=True)
+        manifest["result"] = "success"
+    except Exception as error:
+        manifest["result"] = "failure"
+        manifest["error"] = str(error)
         raise
     finally:
         try:
-            # `open(newline=)` em vez de `write_text(newline=)`, que exige Python 3.10.
-            with manifesto_path.open("w", encoding="utf-8", newline="\n") as saida:
-                saida.write(json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n")
+            # `open(newline=)` instead of `write_text(newline=)`, which requires Python 3.10.
+            with manifest_path.open("w", encoding="utf-8", newline="\n") as output:
+                output.write(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         finally:
-            temporario.cleanup()
+            temporary.cleanup()
 
 
 if __name__ == "__main__":

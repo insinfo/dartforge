@@ -218,10 +218,10 @@ fn main() -> Result<(), String> {
     if let Some(dir) = exit.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let profile = std::env::args().nth(3).unwrap_or_else(|| "simples".into());
+    let profile = std::env::args().nth(3).unwrap_or_else(|| "simple".into());
     let m = module(
-        profile == "quadros" || profile == "retoma",
-        profile == "retoma",
+        profile == "frames" || profile == "resume",
+        profile == "resume",
     )?;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
@@ -261,7 +261,7 @@ fn main() -> Result<(), String> {
             .arg("-o")
             .arg(&dylib);
         std::fs::write(
-            exit.with_extension("runtime.ligacao.txt"),
+            exit.with_extension("runtime.link.txt"),
             format!("{link_runtime:?}\n"),
         )
         .map_err(|e| e.to_string())?;
@@ -282,7 +282,7 @@ fn main() -> Result<(), String> {
         .arg("-o")
         .arg(&exit);
     cmd.args(dartforge_emit_native::target::system_libraries());
-    std::fs::write(exit.with_extension("ligacao.txt"), format!("{cmd:?}\n"))
+    std::fs::write(exit.with_extension("link.txt"), format!("{cmd:?}\n"))
         .map_err(|e| e.to_string())?;
     let result = cmd.output().map_err(|e| e.to_string())?;
     if !result.status.success() {

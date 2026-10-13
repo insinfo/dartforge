@@ -10,23 +10,23 @@ nativo (`dartforge aot`, perfil de desenvolvimento), com o diretório (uma
 cópia) do pacote como corrente; a saída padrão (sem os tempos `00:00` do
 `package:test` e as sementes `Random Seed: N`) e o código de saída são
 comparados. Programa que a VM não compila (código 254) fica fora do placar
-(`vm-invalido`), e também o que se reabre pelo `Platform.executable` — na VM
-o `dart`, num executável AOT ele mesmo (`aot-diferente`, uma diferença de
+(`vm-invalid`), e também o que se reabre pelo `Platform.executable` — na VM
+o `dart`, num executável AOT ele mesmo (`aot-different`, uma diferença de
 plataforma, não do DartForge: o `dart compile exe` faz o mesmo). Quando a
 saída difere, a VM roda de novo: se ela não repete a própria saída (chaves
 aleatórias, horas, tempos medidos), as linhas que mudam entre as duas rodadas
 dela não contam (`linhas_variaveis` no resultado); se muda até o número de
-linhas, o programa sai do placar (`vm-instavel`).
+linhas, o programa sai do placar (`vm-unstable`).
 
 uso:
   python3 scripts/pub-scoreboard.py --dartforge <dartforge> [--dart dart]
-      [--projeto corpus/pub] [--trabalho DIR] [--shard i/n]
-      [--limite-testes 3] [--tempo-compilacao 900] [--tempo-execucao 120]
-      [--filtro TEXTO]
+      [--project corpus/pub] [--work DIR] [--shard i/n]
+      [--test-limit 3] [--compile-time 900] [--run-time 120]
+      [--filter TEXT]
 
-Grava em <trabalho>: `relatorio.txt` (uma linha por programa, a linha
-`PLACAR:` e as falhas agrupadas pela primeira linha do erro) e
-`resultados.json`. Sai com 0 mesmo com falhas (o placar é o produto).
+Grava em <trabalho>: `report.txt` (uma linha por programa, a linha
+`SCOREBOARD:` e as falhas agrupadas pela primeira linha do erro) e
+`results.json`. Sai com 0 mesmo com falhas (o placar é o produto).
 """
 import argparse
 import hashlib
@@ -120,7 +120,7 @@ ARQUIVO_MAX = 512 * 1024 * 1024
 MAX_PROCESSOS = 64
 # Estados que não contam no placar: a VM não roda o programa, ou o programa
 # só faz sentido na VM (`aot-diferente`).
-FORA_DO_PLACAR = ('vm-invalido', 'aot-diferente', 'vm-instavel')
+FORA_DO_PLACAR = ('vm-invalid', 'aot-different', 'vm-unstable')
 
 
 def limitar_memoria(mb):
@@ -198,7 +198,7 @@ def ler_saida(f):
 
 def rodar(cmd, cwd, limite, env, memoria_mb=0, rotulo=''):
     """Roda `cmd` com os limites; devolve `(rc, saida, erro, segundos)`. O
-    `rc` é `'timeout'` no limite de tempo e `'memoria'` quando o vigia mata
+    `rc` é `'timeout'` no limite de tempo e `'memory'` quando o vigia mata
     o grupo pelo RSS somado. No fim (normal ou não), todo processo que o
     programa deixou para trás morre."""
     import tempfile
@@ -220,7 +220,7 @@ def rodar(cmd, cwd, limite, env, memoria_mb=0, rotulo=''):
                     except OSError:
                         continue
                     if total > TETO_RSS_MB * 1024 * 1024:
-                        estouro.append('memoria')
+                        estouro.append('memory')
                         print('  vigia: %d MiB no grupo de %s; matando' % (total >> 20, rotulo), flush=True)
                     elif len(grupo) > MAX_PROCESSOS:
                         estouro.append('processos')
@@ -264,7 +264,7 @@ def rodar(cmd, cwd, limite, env, memoria_mb=0, rotulo=''):
 
 
 def sem_memoria(rc, texto):
-    return rc == 'memoria' or rc in (-9, 137) or re.search(
+    return rc == 'memory' or rc in (-9, 137) or re.search(
         r'out of memory|Out of memory|memory allocation of|Cannot allocate memory|bad_alloc|Exhausted heap space', texto)
 
 
@@ -332,9 +332,9 @@ def um(a, cfg, k, nome, arq, env):
                               a.memoria_execucao, k + ' [vm]')
     desfazer_criados(cwd, antes)
     res['vm_rc'] = rc
-    if rc in ('timeout', 'memoria', 'processos') or rc == 254 or (rc != 0 and sem_memoria(rc, verr)):
-        res['estado'] = 'vm-invalido'
-        res['erro'] = ((verr.strip().splitlines() or ['timeout na VM'])[0])[:300]
+    if rc in ('timeout', 'memory', 'processos') or rc == 254 or (rc != 0 and sem_memoria(rc, verr)):
+        res['state'] = 'vm-invalid'
+        res['error'] = ((verr.strip().splitlines() or ['timeout na VM'])[0])[:300]
         return res
     sufixo = '.exe' if os.name == 'nt' else ''
     exe = os.path.join(a.trabalho, 'bin', hashlib.sha1(k.encode()).hexdigest()[:16] + sufixo)
@@ -348,14 +348,14 @@ def um(a, cfg, k, nome, arq, env):
                              a.memoria_compilacao, k + ' [compilacao]')
     res['t_compilacao'] = round(dt, 1)
     if rc != 0 and sem_memoria(rc, err + out):
-        res['estado'] = 'memoria'
-        res['erro'] = 'memória esgotada na compilação (limite %d MiB)' % a.memoria_compilacao
+        res['state'] = 'memory'
+        res['error'] = 'memória esgotada na compilação (limite %d MiB)' % a.memoria_compilacao
         res['saida_erro'] = (err + out)[-4000:]
         return res
     if rc != 0:
         linhas = [l for l in (err + out).strip().splitlines() if l.strip()]
-        res['estado'] = 'compilacao'
-        res['erro'] = (linhas[0] if linhas else 'timeout na compilação' if rc == 'timeout' else str(rc))[:300]
+        res['state'] = 'compile'
+        res['error'] = (linhas[0] if linhas else 'timeout na compilação' if rc == 'timeout' else str(rc))[:300]
         res['saida_erro'] = (err + out)[-4000:]
         return res
     # O equivalente do `--packages` que o oráculo recebe: `Isolate.packageConfig`
@@ -365,11 +365,11 @@ def um(a, cfg, k, nome, arq, env):
     rc, out, err, dt = rodar([exe], cwd, a.tempo_execucao, env_exe, a.memoria_execucao, k + ' [nativo]')
     res['t_execucao'] = round(dt, 1)
     if rc == 'processos':
-        # Diferença legítima AOT × VM, fora do placar como `vm-invalido`: o
+        # Diferença legítima AOT × VM, fora do placar como `vm-invalid`: o
         # `Platform.executable` do executável AOT (nosso ou do `dart compile
         # exe`) é ele mesmo, e o programa que o reabre se reabre sem fim.
-        res['estado'] = 'aot-diferente'
-        res['erro'] = 'mais de %d processos (o programa reabre Platform.executable, que no AOT é ele mesmo)' % MAX_PROCESSOS
+        res['state'] = 'aot-different'
+        res['error'] = 'mais de %d processos (o programa reabre Platform.executable, que no AOT é ele mesmo)' % MAX_PROCESSOS
         return res
     sdk_ao_lado = os.path.join(os.path.dirname(os.path.dirname(exe)), 'lib') + os.sep
     if rc != 0 and rc != res['vm_rc'] and sdk_ao_lado in err:
@@ -377,13 +377,13 @@ def um(a, cfg, k, nome, arq, env):
         # `Platform.resolvedExecutable` (`<sdk>/bin/dart` → `<sdk>/lib`), e o
         # executável AOT não mora num SDK (o do `dart compile exe` também
         # não). O erro cita um arquivo do "SDK" ao lado do executável.
-        res['estado'] = 'aot-diferente'
-        res['erro'] = 'o programa procura o SDK ao lado de Platform.resolvedExecutable, que no AOT é ele mesmo'
+        res['state'] = 'aot-different'
+        res['error'] = 'o programa procura o SDK ao lado de Platform.resolvedExecutable, que no AOT é ele mesmo'
         res['stderr'] = err[-3000:]
         return res
     if rc != 0 and rc != res['vm_rc'] and sem_memoria(rc, err):
-        res['estado'] = 'memoria'
-        res['erro'] = 'memória esgotada na execução (limite %d MiB)' % a.memoria_execucao
+        res['state'] = 'memory'
+        res['error'] = 'memória esgotada na execução (limite %d MiB)' % a.memoria_execucao
         res['stderr'] = err[-3000:]
         return res
     try:
@@ -392,32 +392,32 @@ def um(a, cfg, k, nome, arq, env):
         pass
     mesmo_codigo = rc == res['vm_rc'] or (isinstance(rc, int) and rc != 0 and res['vm_rc'] != 0)
     if rc == 'timeout':
-        res['estado'] = 'timeout'
-        res['erro'] = 'timeout na execução'
+        res['state'] = 'timeout'
+        res['error'] = 'timeout na execução'
     elif normalizar(out) == normalizar(vout) and mesmo_codigo:
-        res['estado'] = 'ok'
+        res['state'] = 'ok'
         return res
     elif mesmo_codigo and (variavel := comparar_com_saida_variavel(a, cfg, k, arq, cwd, env, vout, out)) is not None:
         # A VM não repete a própria saída (chaves aleatórias, horas, tempos
         # medidos): a comparação ignora as linhas que mudam entre duas
         # rodadas dela.
         if variavel == 'instavel':
-            res['estado'] = 'vm-instavel'
-            res['erro'] = 'a VM não repete a própria saída (número de linhas muda)'
+            res['state'] = 'vm-unstable'
+            res['error'] = 'a VM não repete a própria saída (número de linhas muda)'
             return res
         if variavel:
-            res['estado'] = 'ok'
+            res['state'] = 'ok'
             res['linhas_variaveis'] = variavel
             return res
-        res['estado'] = 'divergente'
-        res['erro'] = 'saída diferente nas linhas que a VM repete'
+        res['state'] = 'divergent'
+        res['error'] = 'saída diferente nas linhas que a VM repete'
     else:
         quebra = isinstance(rc, int) and (rc < 0 or rc > 255)
-        res['estado'] = 'crash' if quebra else 'divergente'
+        res['state'] = 'crash' if quebra else 'divergent'
         linhas = [l for l in err.strip().splitlines() if l.strip()]
-        res['erro'] = (linhas[0] if linhas else 'saída diferente (código %s, VM %s)' % (rc, res['vm_rc']))[:300]
+        res['error'] = (linhas[0] if linhas else 'saída diferente (código %s, VM %s)' % (rc, res['vm_rc']))[:300]
         if quebra:
-            res['erro'] = 'código de saída %#x: %s' % (rc & 0xFFFFFFFF, res['erro'])
+            res['error'] = 'código de saída %#x: %s' % (rc & 0xFFFFFFFF, res['error'])
     res['rc'] = rc
     res['stderr'] = err[-3000:]
     va, na = normalizar(vout).splitlines(), normalizar(out).splitlines()
@@ -432,17 +432,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--dartforge', required=True)
     ap.add_argument('--dart', default='dart')
-    ap.add_argument('--projeto', default=os.path.join(RAIZ, 'corpus', 'pub'))
-    ap.add_argument('--trabalho', default=os.path.join(RAIZ, 'target', 'pub-placar'))
+    ap.add_argument('--project', dest='projeto', default=os.path.join(RAIZ, 'corpus', 'pub'))
+    ap.add_argument('--work', dest='trabalho', default=os.path.join(RAIZ, 'target', 'pub-scoreboard'))
     ap.add_argument('--shard', default='1/1')
-    ap.add_argument('--limite-testes', type=int, default=3)
-    ap.add_argument('--tempo-compilacao', type=int, default=900)
-    ap.add_argument('--tempo-execucao', type=int, default=120)
-    ap.add_argument('--memoria-compilacao', type=int, default=6000,
-                    help='MiB de dados (RLIMIT_DATA) do dartforge e dos filhos (Linux; 0 = sem limite)')
-    ap.add_argument('--memoria-execucao', type=int, default=3000,
-                    help='MiB de dados da VM do oráculo e do executável (Linux; 0 = sem limite)')
-    ap.add_argument('--filtro', default='')
+    ap.add_argument('--test-limit', dest='limite_testes', type=int, default=3)
+    ap.add_argument('--compile-time', dest='tempo_compilacao', type=int, default=900)
+    ap.add_argument('--run-time', dest='tempo_execucao', type=int, default=120)
+    ap.add_argument('--compile-memory', dest='memoria_compilacao', type=int, default=6000,
+                    help='MiB of data (RLIMIT_DATA) for dartforge and its children (Linux; 0 = no limit)')
+    ap.add_argument('--run-memory', dest='memoria_execucao', type=int, default=3000,
+                    help='MiB of data for the oracle VM and the executable (Linux; 0 = no limit)')
+    ap.add_argument('--filter', dest='filtro', default='')
     a = ap.parse_args()
     a.trabalho = os.path.abspath(a.trabalho)
     a.dartforge = os.path.abspath(a.dartforge) if os.path.exists(a.dartforge) else a.dartforge
@@ -464,29 +464,29 @@ def main():
     for k, nome, arq in itens:
         res = um(a, cfg, k, nome, arq, env)
         resultados.append(res)
-        linha = '%-11s %s  %s' % (res['estado'], k, res.get('erro', ''))
+        linha = '%-11s %s  %s' % (res['state'], k, res.get('error', ''))
         relatorio.append(linha)
         print(linha, flush=True)
     cont = {}
     grupos = {}
     for r in resultados:
-        cont[r['estado']] = cont.get(r['estado'], 0) + 1
-        if r['estado'] not in FORA_DO_PLACAR + ('ok',):
-            g = re.sub(r'\(\S+:\d+:\d+\)', '', r.get('erro', ''))
+        cont[r['state']] = cont.get(r['state'], 0) + 1
+        if r['state'] not in FORA_DO_PLACAR + ('ok',):
+            g = re.sub(r'\(\S+:\d+:\d+\)', '', r.get('error', ''))
             g = re.sub(r'\d+', 'N', g)
-            grupos.setdefault((r['estado'], g), []).append(r['k'])
+            grupos.setdefault((r['state'], g), []).append(r['k'])
     validos = sum(v for e, v in cont.items() if e not in FORA_DO_PLACAR)
-    placar = 'PLACAR: %d/%d ok (%s)' % (cont.get('ok', 0), validos, ', '.join('%s %d' % kv for kv in sorted(cont.items())))
+    placar = 'SCOREBOARD: %d/%d ok (%s)' % (cont.get('ok', 0), validos, ', '.join('%s %d' % kv for kv in sorted(cont.items())))
     relatorio.append('')
     relatorio.append(placar)
     relatorio.append('')
-    relatorio.append('falhas por causa (primeira linha do erro):')
+    relatorio.append('failures by cause (first line of the error):')
     for (e, g), ks in sorted(grupos.items(), key=lambda x: (-len(x[1]), x[0])):
         relatorio.append('%4d %-11s %s' % (len(ks), e, g[:200]))
         for k in ks:
             relatorio.append('       ' + k)
-    open(os.path.join(a.trabalho, 'relatorio.txt'), 'w', encoding='utf8').write('\n'.join(relatorio) + '\n')
-    json.dump(resultados, open(os.path.join(a.trabalho, 'resultados.json'), 'w', encoding='utf8'), indent=1, ensure_ascii=False)
+    open(os.path.join(a.trabalho, 'report.txt'), 'w', encoding='utf8').write('\n'.join(relatorio) + '\n')
+    json.dump(resultados, open(os.path.join(a.trabalho, 'results.json'), 'w', encoding='utf8'), indent=1, ensure_ascii=False)
     print('\n' + placar)
 
 

@@ -181,14 +181,14 @@ fn main() -> Result<(), String> {
     }
     match control.as_deref() {
         None => {}
-        Some("sem-retencao") => {
+        Some("no-retain") => {
             let call = format!("  call void @dartforge_arc_retain(i64 %v{borrowed})\n");
             if ir.matches(&call).count() != 1 {
                 return Err("retention not located uniquely".into());
             }
             ir = ir.replace(&call, "");
         }
-        Some("sem-liberar") => {
+        Some("no-release") => {
             for n in 0..3 {
                 ir = ir.replace(
                     &format!("  call void @dartforge_arc_release(i64 %retorno{n})\n"),

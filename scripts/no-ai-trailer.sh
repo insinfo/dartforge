@@ -1,29 +1,29 @@
 #!/usr/bin/env sh
-# Regra do repositório: nenhuma mensagem de commit leva trailer ou assinatura
-# de assistente de IA (Claude, Opus, Sonnet, GPT, Copilot, Gemini, Codex...).
-# Ver CONTRIBUTING.md, "Commits".
+# Repository rule: no commit message carries an AI-assistant trailer or
+# signature (Claude, Opus, Sonnet, GPT, Copilot, Gemini, Codex...).
+# See CONTRIBUTING.md, "Commits".
 #
-# Uso:
-#   no-ai-trailer.sh <arquivo>            confere uma mensagem (hook commit-msg)
-#   no-ai-trailer.sh --historico [rev]    confere todo o histórico de rev (CI)
+# Usage:
+#   no-ai-trailer.sh <file>              checks one message (commit-msg hook)
+#   no-ai-trailer.sh --history [rev]     checks the whole history of rev (CI)
 #
-# Sai com 1 e lista o que achou quando a regra é violada.
+# Exits with 1 and lists what it found when the rule is broken.
 
-PADRAO='^[[:space:]]*(co-authored-by|signed-off-by|generated-by|assisted-by)[[:space:]]*:.*(claude|anthropic|opus|sonnet|haiku|fable|openai|chatgpt|gpt-|copilot|gemini|codex|cursor|devin)|generated with \[?(claude|copilot|chatgpt|codex|cursor)|🤖 generated'
+PATTERN='^[[:space:]]*(co-authored-by|signed-off-by|generated-by|assisted-by)[[:space:]]*:.*(claude|anthropic|opus|sonnet|haiku|fable|openai|chatgpt|gpt-|copilot|gemini|codex|cursor|devin)|generated with \[?(claude|copilot|chatgpt|codex|cursor)|🤖 generated'
 
-if [ "$1" = "--historico" ]; then
-  ruins=0
+if [ "$1" = "--history" ]; then
+  bad=0
   for c in $(git rev-list "${2:-HEAD}"); do
-    if git log -1 --format=%B "$c" | grep -qiE "$PADRAO"; then
-      [ "$ruins" = 0 ] && echo "Commits com trailer de assistente de IA (proibido, ver CONTRIBUTING.md):"
+    if git log -1 --format=%B "$c" | grep -qiE "$PATTERN"; then
+      [ "$bad" = 0 ] && echo "Commits with an AI-assistant trailer (forbidden, see CONTRIBUTING.md):"
       git log -1 --format='  %h %s' "$c"
-      ruins=1
+      bad=1
     fi
   done
-  exit "$ruins"
+  exit "$bad"
 fi
 
-if grep -inE "$PADRAO" "$1" >&2; then
-  echo "commit recusado: remova o trailer de assistente de IA acima (ver CONTRIBUTING.md, \"Commits\")." >&2
+if grep -inE "$PATTERN" "$1" >&2; then
+  echo "commit rejected: remove the AI-assistant trailer above (see CONTRIBUTING.md, \"Commits\")." >&2
   exit 1
 fi

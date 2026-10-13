@@ -430,7 +430,7 @@ local_concluido:
     }
     match control.as_deref() {
         None => {}
-        Some("sem-registro") => {
+        Some("no-registration") => {
             if arc {
                 ir = ir.replace(
                     "  %cv0 = call i64 @dartforge_arc_register_return_owned_v1(i64 %c0, i64 7)\n",
@@ -440,7 +440,7 @@ local_concluido:
                 ir = ir.replace("  %versao = call i64 @dartforge_arc_register_return_owned_v1(i64 %codigo, i64 7)\n", "  %versao = add i64 0, 0\n");
             }
         }
-        Some("sem-fechamento") => {
+        Some("no-close") => {
             ir = ir.replace(
                 "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo)\n",
                 "",

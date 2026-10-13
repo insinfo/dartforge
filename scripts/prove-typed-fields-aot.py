@@ -1,4 +1,4 @@
-"""Prova fonte Dart → AOT para campos tipados, com ARC opt-in e tracing padrão."""
+"""Proves Dart source → AOT for typed fields, with opt-in ARC and default tracing."""
 
 import argparse
 import hashlib
@@ -16,8 +16,8 @@ def sha(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dartforge", type=Path, required=True,
-                        help="CLI já compilada com a fonte que se deseja verificar")
-    parser.add_argument("--saida", type=Path, required=True)
+                        help="CLI already built from the source to check")
+    parser.add_argument("--output", dest="saida", type=Path, required=True)
     args = parser.parse_args()
     raiz = Path(__file__).resolve().parents[1]
     cli = args.dartforge.resolve()
@@ -40,7 +40,7 @@ def main():
     ambiente.update(TEMP=str(saida), TMP=str(saida))
     execucao = dict(ambiente, DARTFORGE_GC_STRESS="1",
                     DARTFORGE_ARC_CHECK="1", DARTFORGE_ARC_NURSERY="0")
-    (saida / "evidencia.json").write_text('{"status": "em_execucao"}\n', encoding="utf-8")
+    (saida / "evidence.json").write_text('{"status": "running"}\n', encoding="utf-8")
     evidencias = []
     for nome, texto in fontes.items():
         entrada = saida / f"{nome}.dart"
@@ -70,15 +70,15 @@ def main():
                     raise RuntimeError((caso, resultado.stdout))
                 evidencias.append(dict(caso=caso, comando=comando, fonte_sha256=sha(entrada),
                                        exe_sha256=sha(exe), stdout_sha256=sha(saida / f"{caso}.stdout")))
-                print(f"{caso}: aprovado", flush=True)
+                print(f"{caso}: passed", flush=True)
     fontes_verificadas = [fixture, layout, Path(__file__),
         raiz / "crates/emit_native/src/lower/members.rs",
         raiz / "crates/emit_native/src/llvm/mod.rs",
         raiz / "crates/emit_native/src/optimize/escape.rs"]
-    manifesto = dict(status="aprovado", base=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=raiz).decode().strip(),
+    manifesto = dict(status="passed", base=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=raiz).decode().strip(),
         cli_sha256=sha(cli), limite_inline=limite,
         fontes={str(p.relative_to(raiz)): sha(p) for p in fontes_verificadas}, casos=evidencias)
-    (saida / "evidencia.json").write_text(json.dumps(manifesto, indent=2) + "\n", encoding="utf-8")
+    (saida / "evidence.json").write_text(json.dumps(manifesto, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

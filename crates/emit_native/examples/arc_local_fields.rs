@@ -232,7 +232,7 @@ fn main() -> Result<(), String> {
         allocate,
         &format!("{allocate}  store i64 %v1, ptr @prova.objeto\n"),
     );
-    if control.as_deref() == Some("sem-retencao") {
+    if control.as_deref() == Some("no-retain") {
         let line = ir
             .lines()
             .filter(|l| l.contains("call void @dartforge_arc_retain(i64 %v"))
@@ -241,7 +241,7 @@ fn main() -> Result<(), String> {
             return Err("keepalive without a single target".into());
         }
         ir = ir.replace(&format!("{}\n", line[0]), "");
-    } else if control.as_deref() == Some("sem-drop-objeto") {
+    } else if control.as_deref() == Some("no-object-drop") {
         let line = "  call void @dartforge_arc_release(i64 %v1)\n";
         if !ir.contains(line) {
             return Err("missing object cleanup".into());
@@ -286,8 +286,8 @@ passou:
 "#,
     );
     match control.as_deref() {
-        None | Some("sem-retencao" | "sem-drop-objeto") => {}
-        Some("sem-drop-retorno") => {
+        None | Some("no-retain" | "no-object-drop") => {}
+        Some("no-return-drop") => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %ret)\n", "");
         }
         Some(other) => return Err(format!("unknown control: {other}")),

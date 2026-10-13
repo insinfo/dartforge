@@ -60,7 +60,7 @@ fn main() -> Result<(), String> {
     let mut ir = LlvmEmitter::new(&m).emit_all();
     if let Some(c) = control {
         let target = "  call void @dartforge_arc_release(i64 %v2)\n";
-        if c != "sem-liberar-contexto" || ir.matches(target).count() != 2 { return Err("control without a single target on both exits".into()); }
+        if c != "no-context-release" || ir.matches(target).count() != 2 { return Err("control without a single target on both exits".into()); }
         ir = ir.replace(target, "");
     }
     ir.push_str("declare void @dartforge_print_handle(i64)\ndefine void @prova() {\n");

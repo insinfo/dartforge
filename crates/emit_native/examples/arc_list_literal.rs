@@ -149,11 +149,11 @@ falha:
     ));
     match control.as_deref() {
         None => {}
-        Some("sem-owner") => {
+        Some("no-owner") => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %filho)\n",
                 "  call void @dartforge_arc_release(i64 %lista)\n  call void @dartforge_arc_release(i64 %filho)\n");
         }
-        Some("sem-liberar") => {
+        Some("no-release") => {
             ir = ir.replace(
                 "soltar:\n  call void @dartforge_arc_release(i64 %lista)\n",
                 "soltar:\n",

@@ -293,16 +293,16 @@ passou:
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");
     if let Some(control) = args.next() {
         let (before, after) = match control.as_str() {
-            "sem-owner" => (
+            "no-owner" => (
                 factory,
                 "call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)",
             ),
-            "sem-tabela" => (
+            "no-table" => (
                 factory,
                 "call i64 @dartforge_arc_object_owned_v1(i64 32001, i64 2)",
             ),
-            "sem-drop" => ("  call void @dartforge_arc_release(i64 %obj)\n", ""),
-            "layout-obsoleto" => (
+            "no-drop" => ("  call void @dartforge_arc_release(i64 %obj)\n", ""),
+            "stale-layout" => (
                 "constant [2 x i64] [i64 32001, i64 2]",
                 "constant [2 x i64] [i64 32001, i64 3]",
             ),

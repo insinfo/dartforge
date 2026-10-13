@@ -108,12 +108,12 @@ fn main() -> Result<(), String> {
     match sabotage.as_deref() {
         None => {}
         // Negative controls: one dies early, the other stays alive.
-        Some("sem-owner") => {
+        Some("no-owner") => {
             m.functions[0].blocks[0].instructions[2].1 = Instruction::ArcDrop {
                 value: Operand::Val(ValueId(1)),
             };
         }
-        Some("sem-liberar") => {
+        Some("no-release") => {
             m.functions[1].blocks[0].instructions[3].1 = call("dartforge_arc_collect", vec![]);
         }
         Some(other) => return Err(format!("unknown sabotage: {other}")),

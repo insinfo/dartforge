@@ -176,7 +176,7 @@ fn main() -> Result<(), String> {
         Some(other) => return Err(format!("unknown level: {other}")),
     };
     let error = match args.next().as_deref() {
-        Some("erro") => true,
+        Some("error") => true,
         Some("normal") | None => false,
         Some(other) => return Err(format!("unknown path: {other}")),
     };
@@ -195,14 +195,14 @@ fn main() -> Result<(), String> {
     }
     match control.as_deref() {
         None => {}
-        Some("sem-drop-normal") if !error => {
+        Some("no-normal-drop") if !error => {
             let excerpt = "b7:\n  call void @dartforge_arc_release(i64 %v2)\n";
             if ir.matches(excerpt).count() != 1 {
                 return Err("normal cleanup missing in the IR".into());
             }
             ir = ir.replace(excerpt, "b7:\n");
         }
-        Some("sem-drop-erro") if error => {
+        Some("no-error-drop") if error => {
             let excerpt = "b5:\n  call void @dartforge_arc_release(i64 %v2)\n";
             if ir.matches(excerpt).count() != 1 {
                 return Err("error cleanup missing in the IR".into());

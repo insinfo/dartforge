@@ -1,123 +1,123 @@
-# Atalho para o CI pesado (.github/workflows/pesado.yml): disparar, acompanhar
-# e ler o placar sem rodar nada pesado nesta máquina. Ver ESTADO.md §3.
+# Shortcut for the heavy CI (.github/workflows/heavy.yml): dispatch, follow
+# and read the scoreboard without running anything heavy on this machine. See ESTADO.md §3.
 #
-#   pwsh scripts/ci.ps1 -Frente nativo              # empurra HEAD para ci/nativo (roda `todos`)
-#   pwsh scripts/ci.ps1 -Frente nativo -Acompanhar  # ... e acompanha até o fim
-#   pwsh scripts/ci.ps1 -Suite nativo [-Ref ci/nativo] [-Fragmentos 8]
-#                                                   # workflow_dispatch (exige pesado.yml no main)
-#   pwsh scripts/ci.ps1 -Acompanhar [-Ref ci/nativo | -Run <id>]
-#   pwsh scripts/ci.ps1 -Placar <run-id>            # placar de cada job (baixa os artefatos pequenos)
-#   pwsh scripts/ci.ps1 -Listar                     # rodadas recentes de todas as branches ci/**, com placar
+#   pwsh scripts/ci.ps1 -Front native              # pushes HEAD to ci/native (runs `all`)
+#   pwsh scripts/ci.ps1 -Front native -Follow      # ... and follows it to the end
+#   pwsh scripts/ci.ps1 -Suite native [-Ref ci/native] [-Shards 8]
+#                                                  # workflow_dispatch (requires heavy.yml on main)
+#   pwsh scripts/ci.ps1 -Follow [-Ref ci/native | -Run <id>]
+#   pwsh scripts/ci.ps1 -Scoreboard <run-id>       # scoreboard of each job (downloads the small artifacts)
+#   pwsh scripts/ci.ps1 -List                      # recent runs of every ci/** branch, with scoreboard
 #
-# Convenção: cada frente de trabalho tem a sua branch ci/<frente>. Rodadas de
-# branches diferentes nunca se cancelam; uma rodada nova na MESMA branch
-# cancela a anterior. As branches ci/** são descartáveis — o push é forçado.
+# Convention: each work front has its own ci/<front> branch. Runs of
+# different branches never cancel each other; a new run on the SAME branch
+# cancels the previous one. The ci/** branches are disposable — the push is forced.
 param(
-    [string]$Frente,
-    [ValidateSet('todos', 'js', 'producao', 'nativo', 'determinismo', 'moderno', 'macros', 'custo-zero', 'analise')][string]$Suite,
+    [string]$Front,
+    [ValidateSet('all', 'js', 'production', 'native', 'determinism', 'modern', 'macros', 'zero-cost', 'analysis')][string]$Suite,
     [string]$Ref,
-    [int]$Fragmentos = 0,
-    [switch]$Acompanhar,
+    [int]$Shards = 0,
+    [switch]$Follow,
     [string]$Run,
-    [string]$Placar,
-    [switch]$Manter,
-    [switch]$Listar
+    [string]$Scoreboard,
+    [switch]$Keep,
+    [switch]$List
 )
 $ErrorActionPreference = 'Stop'
-$workflow = 'pesado.yml'
+$workflow = 'heavy.yml'
 $repo = gh repo view --json nameWithOwner -q .nameWithOwner
-if (!$repo) { throw 'gh não autenticado ou fora do repositório' }
+if (!$repo) { throw 'gh not authenticated or outside the repository' }
 
-function Rodada-Da-Branch([string]$branch, [string]$sha) {
-    # Espera o GitHub registrar a rodada (alguns segundos depois do push).
+function Run-Of-Branch([string]$branch, [string]$sha) {
+    # Waits for GitHub to register the run (a few seconds after the push).
     for ($i = 0; $i -lt 30; $i++) {
         $runs = gh run list --workflow $workflow --branch $branch -L 5 --json databaseId,headSha,status | ConvertFrom-Json
         $r = if ($sha) { $runs | Where-Object headSha -eq $sha | Select-Object -First 1 } else { $runs | Select-Object -First 1 }
         if ($r) { return $r.databaseId }
         Start-Sleep -Seconds 4
     }
-    throw "nenhuma rodada de $workflow em $branch" + $(if ($sha) { " para $sha" } else { '' })
+    throw "no run of $workflow on $branch" + $(if ($sha) { " for $sha" } else { '' })
 }
 
-# Placar publicado por cada job como anotação `::notice title=Placar <job>::…`.
-function Placares([string]$id) {
+# Scoreboard published by each job as a `::notice title=Scoreboard <job>::…` annotation.
+function Scoreboards([string]$id) {
     $jobs = (gh run view $id --json jobs | ConvertFrom-Json).jobs
     foreach ($j in $jobs) {
-        $notas = gh api "repos/$repo/check-runs/$($j.databaseId)/annotations" 2>$null | ConvertFrom-Json
-        foreach ($n in @($notas) | Where-Object { $_.title -like 'Placar*' }) {
-            [pscustomobject]@{ job = $j.name; placar = $n.message }
+        $notes = gh api "repos/$repo/check-runs/$($j.databaseId)/annotations" 2>$null | ConvertFrom-Json
+        foreach ($n in @($notes) | Where-Object { $_.title -like 'Scoreboard*' }) {
+            [pscustomobject]@{ job = $j.name; scoreboard = $n.message }
         }
     }
 }
 
-$branchAlvo = $null
-$shaAlvo = $null
+$targetBranch = $null
+$targetSha = $null
 
-if ($Frente) {
-    if ($Frente -notmatch '^[A-Za-z0-9._-]+$') { throw "nome de frente inválido: $Frente" }
-    $branchAlvo = "ci/$Frente"
-    $shaAlvo = git rev-parse HEAD
-    git push --force origin "HEAD:refs/heads/$branchAlvo"
-    if ($LASTEXITCODE -ne 0) { throw 'git push falhou' }
-    Write-Host ("empurrado $shaAlvo para $branchAlvo" + ' — pesado.yml roda a suíte "todos"')
+if ($Front) {
+    if ($Front -notmatch '^[A-Za-z0-9._-]+$') { throw "invalid front name: $Front" }
+    $targetBranch = "ci/$Front"
+    $targetSha = git rev-parse HEAD
+    git push --force origin "HEAD:refs/heads/$targetBranch"
+    if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
+    Write-Host ("pushed $targetSha to $targetBranch" + ' — heavy.yml runs the "all" suite')
 }
 
 if ($Suite) {
-    $refDisparo = if ($Ref) { $Ref } elseif ($branchAlvo) { $branchAlvo } else { git branch --show-current }
-    $a = @('workflow', 'run', $workflow, '--ref', $refDisparo, '-f', "suite=$Suite")
-    if ($Fragmentos -gt 0) { $a += @('-f', "fragmentos=$Fragmentos") }
+    $dispatchRef = if ($Ref) { $Ref } elseif ($targetBranch) { $targetBranch } else { git branch --show-current }
+    $a = @('workflow', 'run', $workflow, '--ref', $dispatchRef, '-f', "suite=$Suite")
+    if ($Shards -gt 0) { $a += @('-f', "shards=$Shards") }
     gh @a
-    if ($LASTEXITCODE -ne 0) { throw 'gh workflow run falhou (o pesado.yml já está no main? workflow_dispatch exige isso)' }
-    $branchAlvo = $refDisparo
-    $shaAlvo = $null
+    if ($LASTEXITCODE -ne 0) { throw 'gh workflow run failed (is heavy.yml already on main? workflow_dispatch requires it)' }
+    $targetBranch = $dispatchRef
+    $targetSha = $null
     Start-Sleep -Seconds 5
 }
 
-if ($Acompanhar) {
+if ($Follow) {
     $id = if ($Run) { $Run } else {
-        $b = if ($branchAlvo) { $branchAlvo } elseif ($Ref) { $Ref } else { git branch --show-current }
-        Rodada-Da-Branch $b $shaAlvo
+        $b = if ($targetBranch) { $targetBranch } elseif ($Ref) { $Ref } else { git branch --show-current }
+        Run-Of-Branch $b $targetSha
     }
-    Write-Host "acompanhando https://github.com/$repo/actions/runs/$id"
+    Write-Host "following https://github.com/$repo/actions/runs/$id"
     gh run watch $id --compact --exit-status --interval 30
     $status = $LASTEXITCODE
-    Placares $id | Format-Table -AutoSize | Out-String | Write-Host
+    Scoreboards $id | Format-Table -AutoSize | Out-String | Write-Host
     exit $status
 }
 
-if ($Placar) {
-    gh run view $Placar
-    # Fora do %TEMP%: o C: é pequeno e os downloads se acumulavam (10 GB em um
-    # dia somados a outras sobras). Vai para target/ do repositório (no D:,
-    # ignorado pelo git) e é apagado depois de impresso, salvo com -Manter.
-    $dir = Join-Path $PSScriptRoot "..\target\ci-placar\$Placar"
+if ($Scoreboard) {
+    gh run view $Scoreboard
+    # Outside %TEMP%: C: is small and the downloads piled up (10 GB in one day
+    # added to other leftovers). It goes to the repository's target/ (on D:,
+    # ignored by git) and is deleted after being printed, unless -Keep.
+    $dir = Join-Path $PSScriptRoot "..\target\ci-scoreboard\$Scoreboard"
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
-    # Os artefatos relatorio-* e placar-* são texto pequeno; os binários não vêm.
-    gh run download $Placar -D $dir -p 'relatorio-*' -p 'placar-*'
-    Get-ChildItem $dir -Recurse -Filter placar.md | Sort-Object FullName | ForEach-Object {
+    # The report-* and scoreboard-* artifacts are small text; the binaries do not come.
+    gh run download $Scoreboard -D $dir -p 'report-*' -p 'scoreboard-*'
+    Get-ChildItem $dir -Recurse -Filter scoreboard.md | Sort-Object FullName | ForEach-Object {
         Write-Host "`n=== $($_.Directory.Name) ===" -ForegroundColor Cyan
         Get-Content $_ -Encoding utf8 | Write-Host
     }
-    if ($Manter) {
-        Write-Host "`nrelatórios completos em $dir"
+    if ($Keep) {
+        Write-Host "`nfull reports in $dir"
     } else {
         Remove-Item -Recurse -Force $dir
-        Write-Host "`n(relatórios apagados; use -Manter para guardá-los em target/ci-placar)"
+        Write-Host "`n(reports deleted; use -Keep to keep them in target/ci-scoreboard)"
     }
 }
 
-if ($Listar) {
+if ($List) {
     $runs = gh run list --workflow $workflow -L 60 --json databaseId,headBranch,status,conclusion,createdAt,event,headSha | ConvertFrom-Json
-    # A mais recente de cada branch ci/** (e do main, que é o agendamento).
-    $ultimas = $runs | Where-Object { $_.headBranch -like 'ci/*' -or $_.headBranch -eq 'main' } |
+    # The latest of each ci/** branch (and of main, which is the schedule).
+    $latest = $runs | Where-Object { $_.headBranch -like 'ci/*' -or $_.headBranch -eq 'main' } |
         Group-Object headBranch | ForEach-Object { $_.Group | Sort-Object createdAt -Descending | Select-Object -First 1 }
-    foreach ($r in $ultimas | Sort-Object createdAt -Descending) {
-        $estado = if ($r.status -eq 'completed') { $r.conclusion } else { $r.status }
-        Write-Host ("{0,-22} {1,-12} {2}  {3}  https://github.com/{4}/actions/runs/{5}" -f $r.headBranch, $estado, $r.createdAt, $r.headSha.Substring(0, 8), $repo, $r.databaseId) -ForegroundColor Cyan
-        foreach ($p in Placares $r.databaseId) { Write-Host ("    {0,-32} {1}" -f $p.job, $p.placar) }
+    foreach ($r in $latest | Sort-Object createdAt -Descending) {
+        $state = if ($r.status -eq 'completed') { $r.conclusion } else { $r.status }
+        Write-Host ("{0,-22} {1,-12} {2}  {3}  https://github.com/{4}/actions/runs/{5}" -f $r.headBranch, $state, $r.createdAt, $r.headSha.Substring(0, 8), $repo, $r.databaseId) -ForegroundColor Cyan
+        foreach ($p in Scoreboards $r.databaseId) { Write-Host ("    {0,-32} {1}" -f $p.job, $p.scoreboard) }
     }
 }
 
-if (!$Frente -and !$Suite -and !$Acompanhar -and !$Placar -and !$Listar) {
+if (!$Front -and !$Suite -and !$Follow -and !$Scoreboard -and !$List) {
     Get-Content $PSCommandPath | Select-Object -Skip 2 -First 14
 }

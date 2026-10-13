@@ -118,7 +118,7 @@ fn main() -> Result<(), String> {
         Some(other) => return Err(format!("unknown level: {other}")),
     };
     let error = match args.next().as_deref() {
-        Some("erro") => true,
+        Some("error") => true,
         Some("normal") | None => false,
         Some(other) => return Err(format!("unknown path: {other}")),
     };
@@ -209,13 +209,13 @@ passou:
     }
     match control.as_deref() {
         None => {}
-        Some("sem-retencao") if !error => {
+        Some("no-retain") if !error => {
             ir = ir.replace(call, "");
         }
-        Some("sem-liberar") if !error => {
+        Some("no-release") if !error => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %retorno)\n", "");
         }
-        Some("copia-no-erro") if error => {
+        Some("copy-on-error") if error => {
             // The emitter reads the flag of the Context inline in this mode.
             let guard = "  %v3 = load i8, ptr %ctx, align 8\n";
             if ir.matches(guard).count() != 1 {

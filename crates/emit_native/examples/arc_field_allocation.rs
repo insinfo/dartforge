@@ -197,7 +197,7 @@ fn main() -> Result<(), String> {
     let typed_error = control.as_deref() == Some("--typed-error");
     let typed = control.as_deref() == Some("--typed") || typed_error;
     if frame || typed { control = args.next(); }
-    if args.next().is_some() { return Err("argumentos excedentes".into()); }
+    if args.next().is_some() { return Err("extra arguments".into()); }
     let mut m = module(frame, typed)?;
     m.arc_memory = arc;
     if !arc { m.arc_aot_ports = None; }
@@ -212,16 +212,16 @@ fn main() -> Result<(), String> {
             } else { None })).unwrap_or_default();
     if let Some(control) = control {
         let (before, after) = match control.as_str() {
-            "sem-drop-filho" => ("  call void @dartforge_arc_release(i64 %v0)\n", ""),
-            "sem-retencao-leitura" if frame => (retain_read.as_str(), ""),
-            "sem-liberar-contexto" if typed => ("  call void @dartforge_arc_release(i64 %v2)\n", ""),
-            "sem-owner-objeto" => (
+            "no-child-drop" => ("  call void @dartforge_arc_release(i64 %v0)\n", ""),
+            "no-read-retain" if frame => (retain_read.as_str(), ""),
+            "no-context-release" if typed => ("  call void @dartforge_arc_release(i64 %v2)\n", ""),
+            "no-object-owner" => (
                 owned.as_str(),
                 without_owner.as_str(),
             ),
             _ => return Err(format!("unknown control: {control}")),
         };
-        let quantity = if control == "sem-liberar-contexto" { 2 } else { 1 };
+        let quantity = if control == "no-context-release" { 2 } else { 1 };
         if ir.matches(before).count() != quantity {
             return Err(format!("control without a single target: {control}"));
         }

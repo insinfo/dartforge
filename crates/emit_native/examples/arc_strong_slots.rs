@@ -13,35 +13,35 @@ fn main() -> Result<(), String> {
     let arc = args.next().as_deref() != Some("tracing");
     let variant = args.next();
     let forced_error = match variant.as_deref() {
-        Some("retorno-mortal-erro-1") => Some(ValueId(9)),
-        Some("retorno-mortal-erro-2") => Some(ValueId(15)),
-        Some("retorno-mortal-erro-3") => Some(ValueId(19)),
+        Some("mortal-return-error-1") => Some(ValueId(9)),
+        Some("mortal-return-error-2") => Some(ValueId(15)),
+        Some("mortal-return-error-3") => Some(ValueId(19)),
         _ => None,
     };
     let auto_cleanup =
-        variant.as_deref() == Some("retorno-mortal-auto-cleanup") || forced_error.is_some();
+        variant.as_deref() == Some("mortal-return-auto-cleanup") || forced_error.is_some();
     let without_cleanup = matches!(
         variant.as_deref(),
         Some(
-            "sem-cleanup"
-                | "retorno-sem-cleanup"
-                | "retorno-mortal-sem-cleanup"
-                | "retorno-mortal-auto-cleanup"
+            "no-cleanup"
+                | "return-no-cleanup"
+                | "mortal-return-no-cleanup"
+                | "mortal-return-auto-cleanup"
         )
     ) || forced_error.is_some();
     let return_proof = matches!(
         variant.as_deref(),
         Some(
-            "retorno"
-                | "retorno-sem-cleanup"
-                | "retorno-mortal"
-                | "retorno-mortal-sem-cleanup"
-                | "retorno-mortal-auto-cleanup"
+            "return"
+                | "return-no-cleanup"
+                | "mortal-return"
+                | "mortal-return-no-cleanup"
+                | "mortal-return-auto-cleanup"
         )
     ) || forced_error.is_some();
     let mortal_proof = matches!(
         variant.as_deref(),
-        Some("retorno-mortal" | "retorno-mortal-sem-cleanup" | "retorno-mortal-auto-cleanup")
+        Some("mortal-return" | "mortal-return-no-cleanup" | "mortal-return-auto-cleanup")
     ) || forced_error.is_some();
     let mut m = Module::new();
     m.arc_memory = arc;
