@@ -521,3 +521,58 @@ O que resta, pelo perfil:
   de ids, como os *type testing stubs* da VM).
 * **Mapa de `String`:** busca no runtime e interpolação (`join_typed`,
   `write_decimal`).
+
+## 6. Segunda rodada de 2026-10-13 no modo padrão (A0, macOS arm64): o coletor
+
+Mesma medida da §5 (ciclos do processo, mediana de 5 execuções alternadas; máquina com
+carga 9–50 e o corpus de outro agente rodando em parte das medidas, então ±5% por programa é
+ruído). Commits `0d74c459` e `21d27ab2`; detalhes em `NATIVO-ESPACO-UNIFICADO.md` §2.8.1.
+
+* **Envelhecimento no coletor geracional.** O objeto alcançado pela primeira vez numa coleta
+  menor fica jovem como sobrevivente (dois estados que se alternam, `SURVIVOR`/`SURVIVOR_B`) e
+  só a menor seguinte o promove; o lembrado que aponta para um jovem que fica continua lembrado;
+  os sobreviventes são anotados em corridas de blocos e varridos pelo mapa de bits. Dois efeitos
+  colaterais precisaram de remédio: os sobreviventes mortos fragmentavam as faixas livres (23
+  mil faixas contra mil; cada recarga da TLAB entregava poucos blocos) — a varredura menor ordena
+  e junta as faixas da classe quando elas dobram —, e a estrutura que fica (lista ligada, JSON)
+  era marcada duas vezes — uma pausa adaptativa (1, 2, 4… até 16 menores) quando 3/4 dos
+  sobreviventes vivem. `DARTFORGE_GC_AGING=0` desliga.
+* **Slots mortos da pilha-sombra zerados.** O slot compartilhado guardava o valor morto até ser
+  reusado: nas árvores, a variável do laço que passava a árvore pronta ao `conta()` segurava a
+  árvore inteira durante a construção da seguinte (cada menor marcava duas árvores). Uma passada
+  para a frente (`roots::dead_slots`) zera, antes de cada ponto de coleta, o slot que pode guardar
+  valor e que nenhum valor vivo ocupa. Árvores de `objetos_escapam`: 4,54 → 1,76 milhão de
+  objetos marcados, 29 → 3 coletas completas.
+
+`bench/performance`, ciclos, nosso/Dart (média geométrica dos 9 programas):
+
+| | antes | slots zerados (envelhecimento desligado) | os dois |
+| --- | ---: | ---: | ---: |
+| média geométrica | 0,928 | 0,928 | **0,886** |
+| chamadas | 0,74 | 0,75 | 0,77 |
+| coleções | 0,57 | 0,49 | 0,52 |
+| JSON | 1,11 | 1,14 | 1,11 |
+| numérico | 0,70 | 0,66 | 0,67 |
+| objetos em coleções | 1,14 | 1,25 | 1,14 |
+| objetos que escapam | 2,06 | 2,04 | 2,03 |
+| temporários | 0,92 | 0,99 | **0,65** |
+| textos | 1,09 | 1,11 | 1,12 |
+| tipados | 0,66 | 0,67 | 0,66 |
+
+(A medida desta rodada parte de 0,928 e não do 0,877 da §5 porque a carga da máquina era
+outra; a comparação vale dentro da mesma rodada.) As árvores sozinhas (o núcleo de
+`objetos_escapam` em laço): 2,03 → 1,88 só com os slots zerados, 2,09 com os dois — com os
+slots zerados quase nada das árvores sobrevive a uma menor, e o envelhecimento só custa.
+Tamanhos sem mudança que conte.
+
+O que resta:
+
+* **Árvores e lista ligada** seguem 2× e 4× o Dart, agora pelo mutador e pela alocação: o
+  `conta()` recursivo, o prólogo e o cabeçalho de 16 bytes (o nó de 2 campos tem 32 bytes).
+  O envelhecimento poderia ser adaptativo também no sentido contrário (não envelhecer quando os
+  sobreviventes quase sempre morrem uma menor depois e são poucos).
+* **`DARTFORGE_ROOTS_IN_CALLEE=1`** (raízes pelo chamado) ficou de 0,951 contra 0,961 na
+  média de 11 programas com a zeragem — perto do ruído; vale medir de novo numa máquina parada
+  antes de ligar por padrão.
+* `List.[]=` covariante por faixa de ids, mapa de `String` e interpolação, e zerar na varredura
+  contra inicializar na alocação continuam como na §5.
