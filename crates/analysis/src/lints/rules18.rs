@@ -206,10 +206,10 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
         }
         let real = |x: ExprId| if matches!(a.expr(x).kind, ExprKind::CascadeTarget) { cascatas.get(&x).copied() } else { Some(x) };
-        let funcoes = super::rules15::Funcoes::de(s, a);
+        let funcoes = super::rules15::FunctionIndex::new(s, a);
         bangs.sort_by_key(|(e, _)| a.expr(*e).span.start);
         for (no, ancestrais) in bangs {
-            let esperado = super::rules15::tipo_esperado(s, a, interner, &funcoes, &pai, &ancestrais, no, &real);
+            let esperado = super::rules15::expected_type(s, a, interner, &funcoes, &pai, &ancestrais, no, &real);
             if esperado.is_some_and(|t| is_nullable(table, t)) {
                 let sp = a.expr(no).span;
                 relatar(&c::UNNECESSARY_NULL_CHECKS, Span { start: sp.end - 1, end: sp.end }, &[]);

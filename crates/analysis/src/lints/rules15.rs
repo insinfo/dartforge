@@ -1,25 +1,25 @@
-//! O décimo quinto lote de regras de lint (docs/ANALYZER-ESPECIFICACAO-INFRA.md
-//! §8), escritas direto dos emissores da 3.6.2
-//! (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), do conjunto
-//! `core`, pela semântica da unidade:
+//! The fifteenth batch of lint rules (docs/ANALYZER-ESPECIFICACAO-INFRA.md
+//! §8), written directly from the 3.6.2 emitters
+//! (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`), of the `core`
+//! set, through the unit's semantics:
 //!
-//! * `implicit_call_tearoffs`: as expressões que o resolvedor troca por um
-//!   `ImplicitCallReference` (`UnitBodyTypes::chamadas_implicitas`), fora as
-//!   formas que o `_shouldSkipImplicitCallReferenceDueToForm` pula (alvo de
-//!   cascata, ramo de `?:`, operando de `??`, através de parênteses).
-//! * `prefer_iterable_whereType`: `alvo.where((x) => x is T)` com o alvo
-//!   (o `realTarget`) de tipo de interface que é ou implementa o `Iterable`
-//!   do `dart:core`.
-//! * `null_check_on_nullable_type_parameter`: o `!` (pós-fixo e de padrão)
-//!   sobre um parâmetro de tipo anulável, com o `getExpectedType` de
-//!   `unnecessary_null_checks.dart` (retorno e corpo de expressão pela
-//!   `FunctionExpression` mais próxima, que um método não é; `yield`;
-//!   atribuição `=`; declaração de variável; operando direito de binário;
-//!   elemento direto de lista e de conjunto; entrada de mapa; argumento, pelo
-//!   `staticParameterElement`), e o `isNullable`/`isNonNullable` sintáticos
-//!   do `TypeSystemImpl`.
+//! * `implicit_call_tearoffs`: the expressions that the resolver replaces with
+//!   an `ImplicitCallReference` (`UnitBodyTypes::chamadas_implicitas`), except
+//!   the forms that `_shouldSkipImplicitCallReferenceDueToForm` skips (cascade
+//!   target, `?:` branch, `??` operand, through parentheses).
+//! * `prefer_iterable_whereType`: `target.where((x) => x is T)` with the
+//!   target (the `realTarget`) of an interface type that is or implements
+//!   `dart:core`'s `Iterable`.
+//! * `null_check_on_nullable_type_parameter`: the `!` (postfix and pattern)
+//!   on a nullable type parameter, with the `getExpectedType` of
+//!   `unnecessary_null_checks.dart` (return and expression body through the
+//!   nearest `FunctionExpression`, which a method is not; `yield`; `=`
+//!   assignment; variable declaration; right operand of a binary; direct list
+//!   and set element; map entry; argument, through the
+//!   `staticParameterElement`), and the syntactic `isNullable`/`isNonNullable`
+//!   of `TypeSystemImpl`.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::walk::{walk, Node};
 use super::codigos_g as c;
@@ -50,141 +50,141 @@ fn is_nullable(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: T
 }
 
 /// `TypeSystemImpl.isNonNullable` (sintático).
-fn nao_anulavel(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: TypeId) -> bool {
+fn is_non_nullable(table: &TypeTable, core: &dartforge_types::table::CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::Void | Type::Null => false,
-        Type::Intersection { bound, .. } => nao_anulavel(table, core, *bound),
-        Type::TypeParameter { param, nullable } => !*nullable && nao_anulavel(table, core, table.param(*param).bound),
-        Type::FutureOr { arg, nullable } => !*nullable && nao_anulavel(table, core, *arg),
+        Type::Intersection { bound, .. } => is_non_nullable(table, core, *bound),
+        Type::TypeParameter { param, nullable } => !*nullable && is_non_nullable(table, core, table.param(*param).bound),
+        Type::FutureOr { arg, nullable } => !*nullable && is_non_nullable(table, core, *arg),
         Type::Interface { nullable, .. } | Type::ExtensionType { nullable, .. } => !*nullable,
         Type::Function { nullable, .. } | Type::Record { nullable, .. } => !*nullable,
         _ => t != core.unknown,
     }
 }
 
-/// `promoteToNonNull(a) == promoteToNonNull(b)` quando `a` é parâmetro de
-/// tipo: o mesmo parâmetro (e o mesmo limite promovido) sem o `?`.
-fn mesmo_sem_nulo(table: &TypeTable, a: TypeId, b: TypeId) -> bool {
-    let chave = |t: TypeId| match table.get(t) {
+/// `promoteToNonNull(a) == promoteToNonNull(b)` when `a` is a type parameter:
+/// the same parameter (and the same promoted bound) without the `?`.
+fn same_without_null(table: &TypeTable, a: TypeId, b: TypeId) -> bool {
+    let key = |t: TypeId| match table.get(t) {
         Type::TypeParameter { param, .. } => Some((*param, None)),
         Type::Intersection { param, bound } => Some((*param, Some(*bound))),
         _ => None,
     };
-    match (chave(a), chave(b)) {
+    match (key(a), key(b)) {
         (Some((pa, ba)), Some((pb, bb))) => pa == pb && ba == bb,
         _ => false,
     }
 }
 
-fn sem_parenteses(a: &Ast, mut e: ExprId) -> ExprId {
+fn unparenthesized(a: &Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
     e
 }
 
-/// A função (`FunctionExpression` do analyzer) e o tipo dela: literal,
-/// local ou de topo (o método não é `FunctionExpression`).
-pub(super) struct Funcoes {
-    literais: HashMap<FunctionId, ExprId>,
-    locais: HashMap<FunctionId, usize>,
-    de_topo: HashMap<FunctionId, dartforge_elements::model::FunctionElementId>,
-    metodos: std::collections::HashSet<FunctionId>,
+/// The function (the analyzer's `FunctionExpression`) and its type: literal,
+/// local or top-level (a method is not a `FunctionExpression`).
+pub(super) struct FunctionIndex {
+    literals: HashMap<FunctionId, ExprId>,
+    locals: HashMap<FunctionId, usize>,
+    top_level: HashMap<FunctionId, dartforge_elements::model::FunctionElementId>,
+    methods: std::collections::HashSet<FunctionId>,
 }
 
-impl Funcoes {
-    pub(super) fn de(s: &super::Semantics<'_>, a: &Ast) -> Funcoes {
-        let mut f = Funcoes { literais: HashMap::new(), locais: HashMap::new(), de_topo: HashMap::new(), metodos: Default::default() };
+impl FunctionIndex {
+    pub(super) fn new(s: &super::Semantics<'_>, a: &Ast) -> FunctionIndex {
+        let mut f = FunctionIndex { literals: HashMap::new(), locals: HashMap::new(), top_level: HashMap::new(), methods: Default::default() };
         for (k, e) in a.exprs.iter().enumerate() {
             if let ExprKind::FunctionExpression(g) = &e.kind {
-                f.literais.insert(*g, ExprId(k as u32));
+                f.literals.insert(*g, ExprId(k as u32));
             }
         }
         for st in a.stmts.iter() {
             if let StmtKind::Function(g) = &st.kind
                 && let Some(n) = a.function(*g).name
             {
-                f.locais.insert(*g, n.span.start);
+                f.locals.insert(*g, n.span.start);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Method(g) = &m.kind {
-                f.metodos.insert(*g);
+                f.methods.insert(*g);
             }
         }
         for (k, fe) in s.program.functions.iter().enumerate() {
             if let FunctionRef::Function { unit, function } = fe.node
                 && unit == s.unit
-                && !f.metodos.contains(&function)
+                && !f.methods.contains(&function)
             {
-                f.de_topo.insert(function, dartforge_elements::model::FunctionElementId(k as u32));
+                f.top_level.insert(function, dartforge_elements::model::FunctionElementId(k as u32));
             }
         }
         f
     }
 
-    /// O tipo estático da `FunctionExpression` de `g`, se `g` é uma.
-    fn tipo(&self, s: &super::Semantics<'_>, g: FunctionId) -> Option<Option<TypeId>> {
-        if self.metodos.contains(&g) {
+    /// The static type of `g`'s `FunctionExpression`, if `g` is one.
+    fn fn_type(&self, s: &super::Semantics<'_>, g: FunctionId) -> Option<Option<TypeId>> {
+        if self.methods.contains(&g) {
             return None;
         }
-        if let Some(&e) = self.literais.get(&g) {
+        if let Some(&e) = self.literals.get(&g) {
             return Some(s.body.get_type(e));
         }
-        if let Some(&pos) = self.locais.get(&g) {
+        if let Some(&pos) = self.locals.get(&g) {
             return Some(s.body.tipo_local(pos));
         }
-        if let Some(fe) = self.de_topo.get(&g) {
+        if let Some(fe) = self.top_level.get(&g) {
             return Some(s.outline.functions.get(fe.0 as usize).map(|d| d.signature));
         }
         None
     }
 }
 
-/// O tipo declarado do elemento de uma variável (`declaredElement.type`).
-fn variable_type(s: &super::Semantics<'_>, ref_: VariableRef, nome_pos: usize, inicializador: ExprId) -> Option<TypeId> {
+/// The declared type of a variable's element (`declaredElement.type`).
+fn variable_type(s: &super::Semantics<'_>, ref_: VariableRef, name_pos: usize, initializer: ExprId) -> Option<TypeId> {
     let v = s.program.variables.iter().position(|x| x.node == ref_)?;
     let d = s.outline.variables.get(v)?;
-    d.declared_type.or(d.inferred).or_else(|| s.body.get_type(inicializador)).or_else(|| s.body.tipo_local(nome_pos))
+    d.declared_type.or(d.inferred).or_else(|| s.body.get_type(initializer)).or_else(|| s.body.tipo_local(name_pos))
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    let algum = ["implicit_call_tearoffs", "prefer_iterable_whereType", "null_check_on_nullable_type_parameter"].iter().any(|r| ligada(r));
-    if !algum {
+    let any_enabled = ["implicit_call_tearoffs", "prefer_iterable_whereType", "null_check_on_nullable_type_parameter"].iter().any(|r| enabled(r));
+    if !any_enabled {
         return out;
     }
-    // O pai de cada expressão e os ancestrais dos `!`.
-    let mut pai: HashMap<ExprId, Node> = HashMap::new();
-    let mut ancestrais_do_bang: HashMap<ExprId, Vec<Node>> = HashMap::new();
-    walk(u, &mut |no, ancestrais| {
-        if let Node::Expr(e) = no {
-            if let Some(p) = ancestrais.last() {
-                pai.insert(e, *p);
+    // The parent of each expression and the ancestors of the `!`s.
+    let mut parent: HashMap<ExprId, Node> = HashMap::new();
+    let mut bang_ancestors: HashMap<ExprId, Vec<Node>> = HashMap::new();
+    walk(u, &mut |node, ancestors| {
+        if let Node::Expr(e) = node {
+            if let Some(p) = ancestors.last() {
+                parent.insert(e, *p);
             }
             if matches!(a.expr(e).kind, ExprKind::Unary { op: UnaryOp::NullAssert, .. }) {
-                ancestrais_do_bang.insert(e, ancestrais.to_vec());
+                bang_ancestors.insert(e, ancestors.to_vec());
             }
         }
     });
-    let pai_expr = |e: ExprId| match pai.get(&e) {
+    let parent_expr = |e: ExprId| match parent.get(&e) {
         Some(Node::Expr(p)) => Some(*p),
         _ => None,
     };
-    // O `realTarget` de uma seção de cascata.
-    let mut cascatas: HashMap<ExprId, ExprId> = HashMap::new();
+    // The `realTarget` of a cascade section.
+    let mut cascades: HashMap<ExprId, ExprId> = HashMap::new();
     for e in a.exprs.iter() {
         let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
         for &sec in sections.iter() {
             let mut x = sec;
             loop {
-                let prox = match &a.expr(x).kind {
+                let next = match &a.expr(x).kind {
                     ExprKind::Property { target, .. }
                     | ExprKind::Index { target, .. }
                     | ExprKind::Call { target, .. }
@@ -192,66 +192,66 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     | ExprKind::Assign { target, .. } => *target,
                     ExprKind::Unary { operand, .. } => *operand,
                     ExprKind::CascadeTarget => {
-                        cascatas.insert(x, *target);
+                        cascades.insert(x, *target);
                         break;
                     }
                     _ => break,
                 };
-                x = prox;
+                x = next;
             }
         }
     }
-    let real = |x: ExprId| if matches!(a.expr(x).kind, ExprKind::CascadeTarget) { cascatas.get(&x).copied() } else { Some(x) };
+    let real = |x: ExprId| if matches!(a.expr(x).kind, ExprKind::CascadeTarget) { cascades.get(&x).copied() } else { Some(x) };
     let table = s.table;
     let core = s.core;
 
     // `implicit_call_tearoffs`.
-    if ligada("implicit_call_tearoffs") {
-        let mut implicitas: Vec<ExprId> = s.body.chamadas_implicitas.iter().copied().collect();
-        implicitas.sort_by_key(|e| (a.expr(*e).span.start, a.expr(*e).span.end));
-        for e in implicitas {
+    if enabled("implicit_call_tearoffs") {
+        let mut implicit: Vec<ExprId> = s.body.chamadas_implicitas.iter().copied().collect();
+        implicit.sort_by_key(|e| (a.expr(*e).span.start, a.expr(*e).span.end));
+        for e in implicit {
             let mut x = e;
-            let mut p = pai_expr(x);
+            let mut p = parent_expr(x);
             while let Some(q) = p
                 && matches!(a.expr(q).kind, ExprKind::Parenthesized(_))
             {
                 x = q;
-                p = pai_expr(q);
+                p = parent_expr(q);
             }
-            let pula = p.is_some_and(|q| match &a.expr(q).kind {
+            let skipped = p.is_some_and(|q| match &a.expr(q).kind {
                 ExprKind::Cascade { target, .. } => *target == x,
                 ExprKind::Conditional { then, else_, .. } => *then == x || *else_ == x,
                 ExprKind::Binary { op: BinaryOp::IfNull, .. } => true,
                 _ => false,
             });
-            if !pula {
-                relatar(&c::IMPLICIT_CALL_TEAROFFS, a.expr(e).span, &[]);
+            if !skipped {
+                report(&c::IMPLICIT_CALL_TEAROFFS, a.expr(e).span, &[]);
             }
         }
     }
 
     // `prefer_iterable_whereType`.
-    if ligada("prefer_iterable_whereType") {
-        let implementa_iterable = |t: TypeId| match table.get(t) {
+    if enabled("prefer_iterable_whereType") {
+        let implements_iterable = |t: TypeId| match table.get(t) {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
-                let e_iterable = |k: dartforge_elements::model::ClassId| {
+                let is_iterable = |k: dartforge_elements::model::ClassId| {
                     let cl = s.program.class(k);
                     interner.resolve(cl.name) == "Iterable" && s.program.library(cl.library).uri == "dart:core"
                 };
-                e_iterable(*class)
+                is_iterable(*class)
                     || (s.program.class(*class).decl.is_some()
-                        && s.outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.keys().any(|k| e_iterable(*k))))
+                        && s.outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.keys().any(|k| is_iterable(*k))))
             }
             _ => false,
         };
         for e in a.exprs.iter() {
             let ExprKind::Call { target, arguments } = &e.kind else { continue };
-            let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind else { continue };
+            let ExprKind::Property { target: recv, name, .. } = &a.expr(*target).kind else { continue };
             if interner.resolve(name.sym) != "where" {
                 continue;
             }
-            let Some(alvo) = real(*alvo) else { continue };
-            if !s.body.get_type(alvo).is_some_and(implementa_iterable) {
+            let Some(recv) = real(*recv) else { continue };
+            if !s.body.get_type(recv).is_some_and(implements_iterable) {
                 continue;
             }
             let [arg] = &arguments.args[..] else { continue };
@@ -259,7 +259,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let f = a.function(*f);
             let Some(ps) = &f.parameters else { continue };
             let [p] = &ps[..] else { continue };
-            let expressao = match &f.body {
+            let expr = match &f.body {
                 FunctionBody::Block(b) => match &a.stmt(*b).kind {
                     StmtKind::Block(cmds) if cmds.len() == 1 => match &a.stmt(cmds[0]).kind {
                         StmtKind::Return(v) => *v,
@@ -270,44 +270,44 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 FunctionBody::Expression(x) => Some(*x),
                 _ => None,
             };
-            let Some(x) = expressao.map(|x| sem_parenteses(a, x)) else { continue };
+            let Some(x) = expr.map(|x| unparenthesized(a, x)) else { continue };
             if let ExprKind::Is { value, negated: false, .. } = &a.expr(x).kind
                 && let ExprKind::Identifier(n) = &a.expr(*value).kind
                 && p.name.is_some_and(|pn| pn.sym == n.sym)
             {
-                relatar(&c::PREFER_ITERABLE_WHERETYPE, name.span, &[]);
+                report(&c::PREFER_ITERABLE_WHERETYPE, name.span, &[]);
             }
         }
     }
 
     // `null_check_on_nullable_type_parameter`.
-    if ligada("null_check_on_nullable_type_parameter") {
-        let e_parametro_anulavel = |t: TypeId| matches!(table.get(t), Type::TypeParameter { .. } | Type::Intersection { .. }) && is_nullable(table, core, t);
-        // O padrão `p!`: o tipo casado.
+    if enabled("null_check_on_nullable_type_parameter") {
+        let is_nullable_type_param = |t: TypeId| matches!(table.get(t), Type::TypeParameter { .. } | Type::Intersection { .. }) && is_nullable(table, core, t);
+        // The `p!` pattern: the matched type.
         for (k, p) in a.patterns.iter().enumerate() {
             if let PatternKind::NullAssert(_) = &p.kind
                 && let Some(&t) = s.body.tipos_casados.get(&PatternId(k as u32))
-                && e_parametro_anulavel(t)
+                && is_nullable_type_param(t)
             {
-                relatar(&c::NULL_CHECK_ON_NULLABLE_TYPE_PARAMETER, Span { start: p.span.end - 1, end: p.span.end }, &[]);
+                report(&c::NULL_CHECK_ON_NULLABLE_TYPE_PARAMETER, Span { start: p.span.end - 1, end: p.span.end }, &[]);
             }
         }
-        let funcoes = Funcoes::de(s, a);
-        let mut bangs: Vec<(&ExprId, &Vec<Node>)> = ancestrais_do_bang.iter().collect();
+        let functions = FunctionIndex::new(s, a);
+        let mut bangs: Vec<(&ExprId, &Vec<Node>)> = bang_ancestors.iter().collect();
         bangs.sort_by_key(|(e, _)| a.expr(**e).span.start);
-        for (&no, ancestrais) in bangs {
-            let ExprKind::Unary { operand, .. } = &a.expr(no).kind else { continue };
+        for (&node, ancestors) in bangs {
+            let ExprKind::Unary { operand, .. } = &a.expr(node).kind else { continue };
             let Some(t) = s.body.get_type(*operand) else { continue };
-            if !e_parametro_anulavel(t) {
+            if !is_nullable_type_param(t) {
                 continue;
             }
-            let esperado = tipo_esperado(s, a, interner, &funcoes, &pai, ancestrais, no, &real);
-            if let Some(esp) = esperado
-                && !nao_anulavel(table, core, esp)
-                && mesmo_sem_nulo(table, t, esp)
+            let expected = expected_type(s, a, interner, &functions, &parent, ancestors, node, &real);
+            if let Some(exp) = expected
+                && !is_non_nullable(table, core, exp)
+                && same_without_null(table, t, exp)
             {
-                let sp = a.expr(no).span;
-                relatar(&c::NULL_CHECK_ON_NULLABLE_TYPE_PARAMETER, Span { start: sp.end - 1, end: sp.end }, &[]);
+                let sp = a.expr(node).span;
+                report(&c::NULL_CHECK_ON_NULLABLE_TYPE_PARAMETER, Span { start: sp.end - 1, end: sp.end }, &[]);
             }
         }
     }
@@ -315,8 +315,8 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
     out
 }
 
-/// O argumento de tipo `i` de um tipo de interface (de `Future`, `Iterable`…).
-fn argumento(table: &TypeTable, t: TypeId, i: usize) -> Option<TypeId> {
+/// The type argument `i` of an interface type (of `Future`, `Iterable`…).
+fn type_argument(table: &TypeTable, t: TypeId, i: usize) -> Option<TypeId> {
     match table.get(t) {
         Type::Interface { args, .. } => args.get(i).copied(),
         Type::FutureOr { arg, .. } if i == 0 => Some(*arg),
@@ -324,106 +324,106 @@ fn argumento(table: &TypeTable, t: TypeId, i: usize) -> Option<TypeId> {
     }
 }
 
-/// O argumento `i` de `receptor.asInstanceOf(dc)`, quando o receptor é de
-/// interface: direto na própria classe; pelo supertipo instanciado em termos
-/// dos parâmetros da classe do receptor, nos outros casos.
-fn argumento_da_superclasse(s: &super::Semantics<'_>, receptor: TypeId, dc: ClassId, i: usize) -> Option<TypeId> {
+/// Argument `i` of `receiver.asInstanceOf(dc)`, when the receiver is an
+/// interface: directly on the class itself; through the supertype
+/// instantiated in terms of the receiver class's parameters, otherwise.
+fn super_type_argument(s: &super::Semantics<'_>, receiver: TypeId, dc: ClassId, i: usize) -> Option<TypeId> {
     let table = s.table;
-    let (rc, args) = match table.get(receptor) {
+    let (rc, args) = match table.get(receiver) {
         Type::Interface { class, args, .. } => (*class, args.to_vec()),
         _ => return None,
     };
     if rc == dc {
         return args.get(i).copied();
     }
-    let dados = s.outline.hierarchy.get(rc)?;
-    let molde = *dados.supertypes.get(&dc)?;
-    let Type::Interface { args: margs, .. } = table.get(molde) else { return None };
+    let data = s.outline.hierarchy.get(rc)?;
+    let template = *data.supertypes.get(&dc)?;
+    let Type::Interface { args: margs, .. } = table.get(template) else { return None };
     let m = *margs.get(i)?;
     match table.get(m) {
-        Type::TypeParameter { param, .. } => dados.type_params.iter().position(|q| q == param).and_then(|j| args.get(j).copied()),
+        Type::TypeParameter { param, .. } => data.type_params.iter().position(|q| q == param).and_then(|j| args.get(j).copied()),
         _ => Some(m),
     }
 }
 
 /// `getExpectedType` (`unnecessary_null_checks.dart:15`).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn tipo_esperado(
+pub(super) fn expected_type(
     s: &super::Semantics<'_>,
     a: &Ast,
     interner: &Interner,
-    funcoes: &Funcoes,
-    pai: &HashMap<ExprId, Node>,
-    ancestrais: &[Node],
-    no: ExprId,
-    real_alvo: &dyn Fn(ExprId) -> Option<ExprId>,
+    functions: &FunctionIndex,
+    parent: &HashMap<ExprId, Node>,
+    ancestors: &[Node],
+    node: ExprId,
+    real_target: &dyn Fn(ExprId) -> Option<ExprId>,
 ) -> Option<TypeId> {
     let table = s.table;
     let core = s.core;
-    let classe_e = |t: TypeId, nome: &str, lib: &str| match table.get(t) {
+    let is_class = |t: TypeId, name: &str, lib: &str| match table.get(t) {
         Type::Interface { class, .. } => {
             let cl = s.program.class(*class);
-            interner.resolve(cl.name) == nome && s.program.library(cl.library).uri == lib
+            interner.resolve(cl.name) == name && s.program.library(cl.library).uri == lib
         }
         _ => false,
     };
-    // `realNode`: o parêntese mais de fora.
-    let mut real = no;
-    while let Some(Node::Expr(p)) = pai.get(&real)
+    // `realNode`: the outermost parenthesis.
+    let mut real = node;
+    while let Some(Node::Expr(p)) = parent.get(&real)
         && matches!(a.expr(*p).kind, ExprKind::Parenthesized(_))
     {
         real = *p;
     }
-    let mut filho = real;
-    let mut pai_no = pai.get(&real).copied();
-    let com_await = matches!(pai_no, Some(Node::Expr(p)) if matches!(a.expr(p).kind, ExprKind::Await(_)));
-    if com_await && let Some(Node::Expr(p)) = pai_no {
-        filho = p;
-        pai_no = pai.get(&p).copied();
+    let mut child = real;
+    let mut parent_node = parent.get(&real).copied();
+    let with_await = matches!(parent_node, Some(Node::Expr(p)) if matches!(a.expr(p).kind, ExprKind::Await(_)));
+    if with_await && let Some(Node::Expr(p)) = parent_node {
+        child = p;
+        parent_node = parent.get(&p).copied();
     }
-    // A `FunctionExpression` mais próxima (o método não é uma).
-    let funcao_mais_proxima = || -> Option<(FunctionId, Option<TypeId>)> {
-        for n in ancestrais.iter().rev() {
+    // The nearest `FunctionExpression` (a method is not one).
+    let nearest_function = || -> Option<(FunctionId, Option<TypeId>)> {
+        for n in ancestors.iter().rev() {
             if let Node::Function(g) = n {
-                return funcoes.tipo(s, *g).map(|t| (*g, t));
+                return functions.fn_type(s, *g).map(|t| (*g, t));
             }
         }
         None
     };
-    let retorno_de = |t: Option<TypeId>| -> Option<TypeId> {
+    let return_of = |t: Option<TypeId>| -> Option<TypeId> {
         match table.get(t?) {
             Type::Function { ret, .. } => Some(*ret),
             _ => None,
         }
     };
-    // Retorno e corpo de expressão.
-    let e_retorno = match pai_no {
-        Some(Node::Stmt(st)) => matches!(a.stmt(st).kind, StmtKind::Return(Some(v)) if v == filho),
-        Some(Node::Function(g)) => matches!(a.function(g).body, FunctionBody::Expression(v) if v == filho),
+    // Return and expression body.
+    let is_return = match parent_node {
+        Some(Node::Stmt(st)) => matches!(a.stmt(st).kind, StmtKind::Return(Some(v)) if v == child),
+        Some(Node::Function(g)) => matches!(a.function(g).body, FunctionBody::Expression(v) if v == child),
         _ => false,
     };
-    if e_retorno {
-        let (g, t) = funcao_mais_proxima()?;
-        let ret = retorno_de(t)?;
-        if com_await || matches!(a.function(g).modifier, AsyncModifier::Async | AsyncModifier::AsyncStar) {
-            return if classe_e(ret, "Future", "dart:async") || matches!(table.get(ret), Type::FutureOr { .. }) { argumento(table, ret, 0) } else { None };
+    if is_return {
+        let (g, t) = nearest_function()?;
+        let ret = return_of(t)?;
+        if with_await || matches!(a.function(g).modifier, AsyncModifier::Async | AsyncModifier::AsyncStar) {
+            return if is_class(ret, "Future", "dart:async") || matches!(table.get(ret), Type::FutureOr { .. }) { type_argument(table, ret, 0) } else { None };
         }
         return Some(ret);
     }
     // `yield`.
-    if let Some(Node::Stmt(st)) = pai_no
+    if let Some(Node::Stmt(st)) = parent_node
         && matches!(a.stmt(st).kind, StmtKind::Yield { .. })
     {
-        let (_, t) = funcao_mais_proxima()?;
-        let ret = retorno_de(t)?;
-        return if classe_e(ret, "Iterable", "dart:core") || classe_e(ret, "Stream", "dart:async") { argumento(table, ret, 0) } else { None };
+        let (_, t) = nearest_function()?;
+        let ret = return_of(t)?;
+        return if is_class(ret, "Iterable", "dart:core") || is_class(ret, "Stream", "dart:async") { type_argument(table, ret, 0) } else { None };
     }
-    let Some(pai_no) = pai_no else { return None };
-    match pai_no {
+    let Some(parent_node) = parent_node else { return None };
+    match parent_node {
         Node::Expr(p) => match &a.expr(p).kind {
-            // Atribuição `=` (fora `x = x!`).
+            // `=` assignment (except `x = x!`).
             ExprKind::Assign { op: AssignOp::Assign, target, .. } => {
-                let nome = |e: ExprId| -> Option<String> {
+                let dotted_name = |e: ExprId| -> Option<String> {
                     match &a.expr(e).kind {
                         ExprKind::Identifier(n) => Some(interner.resolve(n.sym).to_string()),
                         ExprKind::Property { target, name, null_aware: false } => match &a.expr(*target).kind {
@@ -433,70 +433,70 @@ pub(super) fn tipo_esperado(
                         _ => None,
                     }
                 };
-                let ExprKind::Unary { operand, .. } = &a.expr(no).kind else { return None };
-                match (nome(*target), nome(*operand)) {
+                let ExprKind::Unary { operand, .. } = &a.expr(node).kind else { return None };
+                match (dotted_name(*target), dotted_name(*operand)) {
                     (Some(x), Some(y)) if x == y => None,
                     _ => s.body.tipos_de_escrita.get(&p).copied(),
                 }
             }
-            // Operando direito de binário: o primeiro parâmetro do operador.
+            // Right operand of a binary: the operator's first parameter.
             ExprKind::Binary { right, left, .. } if *right == real => {
                 let Some(Resolved::Member { member: dartforge_types::resolved::MemberRef::Function(f), .. }) = s.body.get_resolved(p) else {
                     return None;
                 };
                 let sig = s.outline.functions.get(f.0 as usize)?.signature;
                 let Type::Function { positional, .. } = table.get(sig) else { return None };
-                let declarado = *positional.first()?;
-                // O membro do tipo do receptor (`MethodMember`): um parâmetro
-                // de tipo da classe que declara o operador vira o argumento
-                // correspondente do receptor (o resto não pode ser igual a um
-                // parâmetro de tipo do `!`).
-                let dono = s.program.function(*f).class;
-                match (table.get(declarado), dono, s.body.get_type(*left)) {
-                    (Type::TypeParameter { param, .. }, Some(dc), Some(receptor)) => {
+                let declared = *positional.first()?;
+                // The member of the receiver's type (`MethodMember`): a type
+                // parameter of the class that declares the operator becomes the
+                // receiver's corresponding argument (the rest cannot be equal to
+                // a type parameter of the `!`).
+                let owner = s.program.function(*f).class;
+                match (table.get(declared), owner, s.body.get_type(*left)) {
+                    (Type::TypeParameter { param, .. }, Some(dc), Some(receiver)) => {
                         let i = s.outline.classes.get(dc.0 as usize).and_then(|d| d.type_params.iter().position(|q| q == param));
                         match i {
-                            Some(i) => argumento_da_superclasse(s, receptor, dc, i).or(Some(declarado)),
-                            None => Some(declarado),
+                            Some(i) => super_type_argument(s, receiver, dc, i).or(Some(declared)),
+                            None => Some(declared),
                         }
                     }
-                    _ => Some(declarado),
+                    _ => Some(declared),
                 }
             }
-            // Elemento direto de lista e de conjunto.
+            // Direct list and set element.
             ExprKind::List { elements, .. } => {
                 if !elements.iter().any(|el| matches!(el, CollectionElement::Expression(x) if *x == real)) {
                     return None;
                 }
-                argumento(table, s.body.get_type(p)?, 0)
+                type_argument(table, s.body.get_type(p)?, 0)
             }
             ExprKind::SetOrMap { elements, .. } => {
                 if elements.iter().any(|el| matches!(el, CollectionElement::Expression(x) if *x == real)) {
                     let t = s.body.get_type(p)?;
-                    return if classe_e(t, "Set", "dart:core") { argumento(table, t, 0) } else { None };
+                    return if is_class(t, "Set", "dart:core") { type_argument(table, t, 0) } else { None };
                 }
-                // A entrada de mapa (também dentro de `for`/`if`).
-                fn entrada(els: &[CollectionElement], x: ExprId) -> Option<(ExprId, ExprId)> {
+                // The map entry (also inside `for`/`if`).
+                fn map_entry(els: &[CollectionElement], x: ExprId) -> Option<(ExprId, ExprId)> {
                     for el in els {
-                        let achado = match el {
+                        let found = match el {
                             CollectionElement::MapEntry { key, value, .. } if *key == x || *value == x => Some((*key, *value)),
                             CollectionElement::If { then, else_, .. } => {
-                                entrada(std::slice::from_ref(then), x).or_else(|| else_.as_ref().and_then(|e| entrada(std::slice::from_ref(e), x)))
+                                map_entry(std::slice::from_ref(then), x).or_else(|| else_.as_ref().and_then(|e| map_entry(std::slice::from_ref(e), x)))
                             }
-                            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => entrada(std::slice::from_ref(body), x),
+                            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => map_entry(std::slice::from_ref(body), x),
                             _ => None,
                         };
-                        if achado.is_some() {
-                            return achado;
+                        if found.is_some() {
+                            return found;
                         }
                     }
                     None
                 }
-                let (chave, _) = entrada(elements, real)?;
+                let (key, _) = map_entry(elements, real)?;
                 let t = s.body.get_type(p)?;
-                argumento(table, t, if chave == no { 0 } else { 1 })
+                type_argument(table, t, if key == node { 0 } else { 1 })
             }
-            // Argumento (posicional ou nomeado).
+            // Argument (positional or named).
             ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } if arguments.args.iter().any(|x| x.value == real) => {
                 if let Some(Resolved::Constructor(f)) = s.body.get_resolved(p) {
                     // `Future.value`.
@@ -510,11 +510,11 @@ pub(super) fn tipo_esperado(
                         }
                     }
                 } else if let ExprKind::Call { target, .. } = &a.expr(p).kind
-                    && let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind
+                    && let ExprKind::Property { target: recv, name, .. } = &a.expr(*target).kind
                     && interner.resolve(name.sym) == "complete"
-                    && let Some(alvo) = real_alvo(*alvo)
-                    && let Some(t) = s.body.get_type(alvo)
-                    && classe_e(t, "Completer", "dart:async")
+                    && let Some(recv) = real_target(*recv)
+                    && let Some(t) = s.body.get_type(recv)
+                    && is_class(t, "Completer", "dart:async")
                 {
                     return None;
                 }
@@ -522,14 +522,14 @@ pub(super) fn tipo_esperado(
             }
             _ => None,
         },
-        // Declaração de variável.
+        // Variable declaration.
         Node::Stmt(st) => {
-            let lista = match &a.stmt(st).kind {
+            let list = match &a.stmt(st).kind {
                 StmtKind::Variables(l) => l,
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => l,
                 _ => return None,
             };
-            let v = lista.variables.iter().find(|v| v.initializer == Some(real))?;
+            let v = list.variables.iter().find(|v| v.initializer == Some(real))?;
             s.body.tipo_local(v.name.span.start).or_else(|| s.body.get_type(real)).filter(|t| *t != core.unknown)
         }
         Node::Member(m) => {
