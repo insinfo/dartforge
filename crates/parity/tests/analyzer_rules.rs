@@ -415,6 +415,12 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "extension<T> on T Function(T) {\n  T Function(T) operator*(T Function(T) other) {\n    return (value) => this(other(value));\n  }\n}\nextension on int {\n  int operator %(int o) => 0;\n}\nextension<T> on List<T> {\n  List<T> operator -(int o) => this;\n}\nextension<T> on Set<T> {\n  Set<T> operator ~/(int o) => this;\n}\nvoid f() {\n  var g = (int i) => i + 1;\n  g *= (i) => i + 10;\n  print(g(0));\n  var x = 1;\n  x %= 2;\n  var l = [1];\n  l -= 1;\n  l = l - 1;\n  var s = {1};\n  s ~/= 2;\n  print([x, l, s]);\n}\n",
         &[("unused_element", 2, 25, 1), ("unused_element", 7, 16, 1), ("unused_element", 13, 19, 2)],
     ),
+    // Only a non-nullable interface type tears off its `call` (2026-10-13).
+    (
+        "call_implicito_anulavel.dart",
+        "class C {\n  void call(int a) {}\n}\nvoid f(C? c, Iterable<C?> cs) {\n  void Function(int) g = c;\n  print(g);\n  for (void Function(int) h in cs) { h; }\n  for (var h in cs) { void Function(int) k = h; print(k); }\n}\n",
+        &[("invalid_assignment", 5, 26, 1), ("for_in_of_invalid_element_type", 7, 32, 2), ("invalid_assignment", 8, 46, 1)],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

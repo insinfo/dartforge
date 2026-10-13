@@ -227,7 +227,9 @@ impl<'a> BodyInferrer<'a> {
         if self.is_dynamic(of) || self.sub(of, for_) {
             return true;
         }
-        if matches!(self.table.get(of), Type::Interface { .. }) {
+        // `getImplicitCallMethod`: only a non-nullable interface type tears off
+        // its `call` (`C?` is not assignable to a function type).
+        if matches!(self.table.get(of), Type::Interface { nullable: false, .. }) {
             if let Some(call) = self.sym.call {
                 if let Some(m) = self.interface_member(of, call, false) {
                     if m.method {
