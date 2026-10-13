@@ -536,9 +536,9 @@ impl Motor {
             // `library` directive's doc with a missing target
             // (`URI_DOES_NOT_EXIST_IN_DOC_IMPORT`).
             let tree = dartforge_analysis::Unidade { ast: &unit.ast, unit: &unit.unit, fonte: &unit.source };
-            for i in dartforge_analysis::a_doc::imports_de_doc_da_biblioteca(tree) {
+            for i in dartforge_analysis::a_doc::library_doc_imports(tree) {
                 // The interpolated URI (`DirectiveUriWithInterpolation`, on the literal).
-                if i.interpolada {
+                if i.interpolated {
                     let d = Diagnostic::com_codigo(codigos::compile_time_error::URI_WITH_INTERPOLATION, i.literal, [] as [&str; 0]);
                     analysis.report(k, d, phase::DIRECTIVES);
                     continue;
@@ -658,7 +658,7 @@ impl Motor {
                 ));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::externos::inicializadores(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::a_context::check(*u).into_iter().map(|d| (i, d))));
-                found.extend(with_phase(phase::BEST_PRACTICES, dartforge_analysis::a_doc::verificar(*u).into_iter().map(|d| (i, d))));
+                found.extend(with_phase(phase::BEST_PRACTICES, dartforge_analysis::a_doc::check(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::c2_syntactic::verificar(*u, &interner).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::UNICODE_TEXT, dartforge_analysis::phases::bidi_text(*u).into_iter().map(|d| (i, d))));
                 found.extend(with_phase(phase::TODO_FINDER, dartforge_analysis::todos::check(u.fonte).into_iter().map(|d| (i, d))));
