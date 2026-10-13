@@ -1048,7 +1048,7 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
 /// ```
 fn context_in_tsd(attribute: &str) -> String {
     format!(
-        "\n@dartforge_context_slot = external dso_local global i64, align 8\n\
+        "\n@dartforge_context_slot = external global i64, align 8\n\
          define internal ptr @df.context() nounwind{attribute} {{\n\
          \x20 %o = load i64, ptr @dartforge_context_slot, align 8\n\
          \x20 %t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)\n\
