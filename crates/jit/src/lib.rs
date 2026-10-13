@@ -23,7 +23,7 @@
 //! executável AOT termina: asserção de não nulidade e teto do heap (255, como a VM). Um erro interno do runtime aborta. Dentro de
 //! `dartforge run` isso é o comportamento certo — o processo termina com o
 //! código do programa, como `dart run`. Para testes e para o harness
-//! diferencial, a execução isolada é o binário `dartforge-executar-ir`.
+//! diferencial, a execução isolada é o binário `dartforge-execute_fn-ir`.
 //!
 //! # Exemplo
 //!
@@ -35,8 +35,8 @@
 //!   ret void
 //! }
 //! ";
-//! let relatorio = dartforge_jit::run_ir(ir)?; // imprime 7 no stdout
-//! assert_eq!(relatorio.entry.exit_code, 0);
+//! let report_data = dartforge_jit::run_ir(ir)?; // imprime 7 no stdout
+//! assert_eq!(report_data.entry.exit_code, 0);
 //! # Ok::<(), dartforge_jit::JitError>(())
 //! ```
 //!
@@ -53,12 +53,12 @@
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod delta;
 mod ffi;
-mod migracao;
+mod migration;
 mod reload;
-mod vivo;
+mod live;
 
 pub use reload::{HotReloadReport, StableEntry};
-pub use vivo::ProgramaVivo;
+pub use live::ProgramaVivo;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -71,7 +71,7 @@ use std::time::{Duration, Instant};
 pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 
 /// Identifica o contrato do `main` emitido para o SDK da fonte. Uma simples
-/// declaração `df.registrar.*` também pode aparecer em IR que não chama o
+/// declaração `df.register.*` também pode aparecer em IR que não chama o
 /// runtime da DLL; a decisão depende da chamada real a `dartforge_iniciar`.
 pub fn ir_usa_sdk_da_fonte(ir: &str) -> bool {
     let main = ir.lines().any(|line| line.trim_start().starts_with("define i32 @main()"));
@@ -221,7 +221,7 @@ pub struct JitSession {
     /// SDK da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.9): os nomes que a DLL
     /// do SDK exporta (runtime e bibliotecas), publicados na sessão no lugar
     /// do runtime deste processo. Vazio no caminho de sempre.
-    externos_do_sdk: std::collections::HashSet<String>,
+    sdk_externals: std::collections::HashSet<String>,
     /// DLL usada pela sessão, para publicar exports que uma recarga passar a
     /// referenciar. Ausente quando o runtime vem deste processo.
     sdk_dll: Option<std::path::PathBuf>,
@@ -235,12 +235,12 @@ struct Module {
     removed: bool,
     /// Assinaturas das funções que ele define, para a verificação de contrato.
     signatures: Vec<ffi::FunctionSignature>,
-    /// Layout nominal das classes que ele constrói: `(class_id, campos)`.
+    /// Layout nominal das classes que ele constrói: `(class_id, fields)`.
     layouts: Vec<(i64, i64)>,
-    /// Nomes das classes que ele registra: `(class_id, nome)`.
+    /// Nomes das classes que ele registra: `(class_id, name)`.
     class_names: Vec<(i64, String)>,
-    /// Os campos de cada classe, pelo nome (`; df.campos`, J03).
-    campos: Vec<migracao::Layout>,
+    /// Os campos de cada classe, pelo nome (`; df.fields`, J03).
+    fields: Vec<migration::Layout>,
     /// Globais mutáveis (estáticos preguiçosos) zeradas antes de cada execução.
     globals: Vec<ffi::MutableGlobal>,
 }
@@ -270,15 +270,15 @@ impl JitSession {
     /// construída ou se algum símbolo de runtime já estiver definido.
     ///
     /// ```no_run
-    /// let sessao = dartforge_jit::JitSession::new()?;
-    /// assert!(sessao.module_names().is_empty());
+    /// let session = dartforge_jit::JitSession::new()?;
+    /// assert!(session.module_names().is_empty());
     /// # Ok::<(), dartforge_jit::JitError>(())
     /// ```
     pub fn new() -> Result<Self, JitError> {
         let lljit = ffi::Lljit::new()
             .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
         // Raízes por mapas: o runtime deste processo é o que coleta.
-        lljit.usar_registro_local();
+        lljit.use_local_registry();
         lljit.define_runtime_symbols().map_err(|detail| {
             JitError::new(
                 "runtime-symbols",
@@ -292,7 +292,7 @@ impl JitSession {
             reloadables: Vec::new(),
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-            externos_do_sdk: std::collections::HashSet::new(),
+            sdk_externals: std::collections::HashSet::new(),
             sdk_dll: None,
             lljit,
         })
@@ -304,27 +304,27 @@ impl JitSession {
     /// processo não é publicado (duas cópias do estado do runtime não
     /// conversariam). O programa roda pelo `main` que o emissor escreve
     /// ([`run_ir`]).
-    pub fn new_com_sdk(dll: &std::path::Path, usados: &[String]) -> Result<Self, JitError> {
+    pub fn new_with_sdk(dll: &std::path::Path, used_count: &[String]) -> Result<Self, JitError> {
         let lljit = ffi::Lljit::new()
             .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
         // Raízes por mapas: o runtime da biblioteca do SDK é o que coleta.
         lljit
-            .usar_registro_da_biblioteca(dll)
+            .use_library_registry(dll)
             .map_err(|detail| JitError::new("sdk", "não foi possível ligar os mapas de pilha ao runtime da DLL do SDK", detail))?;
-        let nomes = lljit
-            .define_symbols_from_dll(dll, usados, true)
+        let names = lljit
+            .define_symbols_from_dll(dll, used_count, true)
             .map_err(|detail| JitError::new("sdk", "não foi possível publicar os símbolos da DLL do SDK", detail))?;
         // O runtime do programa é o da biblioteca: os argumentos do `main`
         // vão para ele.
-        let mut argumentos = Vec::new();
-        for a in argumentos_do_programa().lock().unwrap_or_else(|e| e.into_inner()).iter() {
-            argumentos.extend_from_slice(a.as_bytes());
-            argumentos.push(0);
+        let mut arguments = Vec::new();
+        for a in program_arguments().lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            arguments.extend_from_slice(a.as_bytes());
+            arguments.push(0);
         }
-        ffi::definir_argumentos_na_biblioteca(dll, &argumentos)
+        ffi::set_arguments_in_library(dll, &arguments)
             .map_err(|detail| JitError::new("sdk", "não foi possível entregar os argumentos do main à DLL do SDK", detail))?;
-        if let Some(script) = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
-            ffi::definir_script_na_biblioteca(dll, script)
+        if let Some(script) = program_script().lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
+            ffi::set_script_in_library(dll, script)
                 .map_err(|detail| JitError::new("sdk", "não foi possível entregar o script à DLL do SDK", detail))?;
         }
         static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
@@ -333,7 +333,7 @@ impl JitSession {
             reloadables: Vec::new(),
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-            externos_do_sdk: nomes.into_iter().collect(),
+            sdk_externals: names.into_iter().collect(),
             sdk_dll: Some(dll.to_path_buf()),
             lljit,
         })
@@ -354,7 +354,7 @@ impl JitSession {
         let dll = sdk.map(|p| p.as_os_str().to_owned()).or_else(|| std::env::var_os("DARTFORGE_SDK_DLL")).ok_or_else(|| {
             JitError::new("sdk", "programa com o SDK da fonte sem DARTFORGE_SDK_DLL", String::new())
         })?;
-        let usados: Vec<String> = ir
+        let used_count: Vec<String> = ir
             .lines()
             .filter_map(|l| {
                 let r = l.strip_prefix("declare ")?;
@@ -363,7 +363,7 @@ impl JitSession {
                 Some(r[i..f].to_string())
             })
             .collect();
-        Self::new_com_sdk(std::path::Path::new(&dll), &usados)
+        Self::new_with_sdk(std::path::Path::new(&dll), &used_count)
     }
 
     /// O runtime desta sessão vem da DLL do SDK da fonte.
@@ -395,7 +395,7 @@ impl JitSession {
     ///
     /// Existe porque há duas instalações do LLVM 22.1.8 nesta máquina e só a
     /// completa serve; a DLL que o carregador acha primeiro no `PATH` é a que
-    /// vale, e `dartforge-executar-ir --timings` a registra.
+    /// vale, e `dartforge-execute_fn-ir --timings` a registra.
     pub fn llvm_version() -> (u32, u32, u32) {
         ffi::llvm_version()
     }
@@ -423,7 +423,7 @@ impl JitSession {
                 ),
             });
         }
-        if !triple.is_empty() && !alvos_compativeis(triple, &jit_triple) {
+        if !triple.is_empty() && !compatible_targets(triple, &jit_triple) {
             return Err(JitError {
                 stage: "layout",
                 message: format!(
@@ -467,30 +467,30 @@ impl JitSession {
     /// desconhecido (`símbolos`) ou símbolo já definido na sessão
     /// (`add-module`). Em nenhum caso a sessão fica em estado parcial.
     pub fn add_ir_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
-        self.add_ir_module_com(name, ir, None)
+        self.add_ir_module_with(name, ir, None)
     }
 
     /// [`JitSession::add_ir_module`] de um programa inteiro, executado de uma
     /// vez: só as entradas (`main`, `dartforge_entry`) ficam exportadas; as
-    /// demais funções são locais ao módulo (ver `internalizar_funcoes`).
+    /// demais funções são locais ao módulo (ver `internalize_functions`).
     pub fn add_program_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
-        self.add_ir_module_com(name, ir, Some(&["main", ENTRY_SYMBOL]))
+        self.add_ir_module_with(name, ir, Some(&["main", ENTRY_SYMBOL]))
     }
 
-    fn add_ir_module_com(&mut self, name: &str, ir: &str, exportar_so: Option<&[&str]>) -> Result<ModuleReport, JitError> {
+    fn add_ir_module_with(&mut self, name: &str, ir: &str, export_only: Option<&[&str]>) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
         let parsed = ffi::parse_module(name, ir)
             .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
-        if let Some(manter) = exportar_so {
-            parsed.internalizar_funcoes(manter);
+        if let Some(keep) = export_only {
+            parsed.internalize_functions(keep);
         }
         self.check_target(&parsed)?;
         let signatures = parsed.signatures();
         let defined = self.defined_names();
         if let Some(unknown) = parsed.declarations().into_iter().find(|reference| {
             !self.is_known_external(reference)
-                && !self.externos_do_sdk.contains(reference.as_str())
+                && !self.sdk_externals.contains(reference.as_str())
                 && !defined.contains(&reference.as_str())
                 && !signatures.iter().any(|s| &s.name == reference)
         }) {
@@ -525,7 +525,7 @@ impl JitSession {
             signatures,
             layouts,
             class_names,
-            campos: migracao::layouts_do_ir(ir),
+            fields: migration::ir_layouts(ir),
             globals,
         });
         Ok(ModuleReport {
@@ -557,7 +557,7 @@ impl JitSession {
         let defined = self.defined_names();
         if let Some(unknown) = parts.declarations.iter().find(|reference| {
             !self.is_known_external(reference)
-                && !self.externos_do_sdk.contains(reference.as_str())
+                && !self.sdk_externals.contains(reference.as_str())
                 && !defined.contains(&String::as_str(reference))
                 && !parts.signatures.iter().any(|s| &s.name == *reference)
         }) {
@@ -584,7 +584,7 @@ impl JitSession {
             // O objeto compilado não guarda os nomes: a comparação por nome
             // começa na primeira recarga.
             class_names: Vec::new(),
-            campos: Vec::new(),
+            fields: Vec::new(),
             globals: parts.globals.clone(),
         });
         Ok(ModuleReport {
@@ -784,7 +784,7 @@ impl CompiledModule {
 ///
 /// # Erros
 /// IR inválido ou recusado pelo verificador (`parse-ir`), estado que a sessão
-/// não sabe reiniciar (`globais`), falha do gerador de código (`codegen`).
+/// não sabe reiniciar (`globals`), falha do gerador de código (`codegen`).
 pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> {
     let parts = ffi::compile_object(name, ir).map_err(|detail| {
         let stage = if detail.contains("global mutável") {
@@ -802,37 +802,37 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 /// Os argumentos que o `main(List<String> args)` do programa recebe: o
 /// processo do JIT não é o programa, então a linha de comando dele não
 /// serve (o AOT usa a do executável).
-pub fn definir_argumentos(argumentos: Vec<String>) {
-    *argumentos_do_programa().lock().unwrap_or_else(|e| e.into_inner()) = argumentos.clone();
-    dartforge_runtime::abi::definir_argumentos_do_main(argumentos);
+pub fn definir_argumentos(arguments: Vec<String>) {
+    *program_arguments().lock().unwrap_or_else(|e| e.into_inner()) = arguments.clone();
+    dartforge_runtime::abi::set_main_arguments(arguments);
 }
 
 /// O `Platform.script` do programa: o `.dart` que o JIT roda (como o `dart
 /// run`), não o executável do processo.
-pub fn definir_script(caminho: &std::path::Path) {
-    let absoluto = std::path::absolute(caminho).unwrap_or_else(|_| caminho.to_path_buf());
-    let bytes = absoluto.as_os_str().as_encoded_bytes().to_vec();
-    *script_do_programa().lock().unwrap_or_else(|e| e.into_inner()) = Some(bytes.clone());
-    dartforge_runtime::abi::definir_script_do_programa(bytes);
+pub fn definir_script(file_path: &std::path::Path) {
+    let absolute_path = std::path::absolute(file_path).unwrap_or_else(|_| file_path.to_path_buf());
+    let bytes = absolute_path.as_os_str().as_encoded_bytes().to_vec();
+    *program_script().lock().unwrap_or_else(|e| e.into_inner()) = Some(bytes.clone());
+    dartforge_runtime::abi::set_program_script(bytes);
 }
 
 /// O script de [`definir_script`], que uma sessão com o SDK da fonte repassa
 /// ao runtime da biblioteca dela.
-fn script_do_programa() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
+fn program_script() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
     static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
     &S
 }
 
 /// Os argumentos de [`definir_argumentos`], que uma sessão com o SDK da fonte
 /// repassa ao runtime da biblioteca dela.
-fn argumentos_do_programa() -> &'static std::sync::Mutex<Vec<String>> {
+fn program_arguments() -> &'static std::sync::Mutex<Vec<String>> {
     static A: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
     &A
 }
 
 /// Compila e executa um IR numa sessão descartável, imprimindo no stdout.
 ///
-/// É o caminho de `dartforge-executar-ir` (e, depois do merge do emissor, de
+/// É o caminho de `dartforge-execute_fn-ir` (e, depois do merge do emissor, de
 /// `dartforge run`). A sessão nasce e morre na chamada.
 ///
 /// O módulo entra por [`JitSession::add_ir_module`], **nunca** pelo caminho
@@ -872,12 +872,12 @@ pub fn run_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport, 
 mod tests {
     use super::*;
     #[test]
-    fn declaracao_de_registro_nao_muda_perfil_do_runtime() {
-        let sem_sdk = "declare void @df.registrar.fake()\ndefine void @dartforge_entry() { ret void }\n";
-        assert!(!ir_usa_sdk_da_fonte(sem_sdk));
-        let com_sdk = "declare void @df.registrar.core()\ndefine void @dartforge_entry() { ret void }\n\
+    fn registry_declaration_does_not_change_runtime_profile() {
+        let without_sdk = "declare void @df.registrar.fake()\ndefine void @dartforge_entry() { ret void }\n";
+        assert!(!ir_usa_sdk_da_fonte(without_sdk));
+        let with_sdk = "declare void @df.registrar.core()\ndefine void @dartforge_entry() { ret void }\n\
             define i32 @main() {\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
-        assert!(ir_usa_sdk_da_fonte(com_sdk));
+        assert!(ir_usa_sdk_da_fonte(with_sdk));
     }
     /// A mensagem de erro identifica a etapa e preserva o texto do LLVM.
     #[test]
@@ -908,18 +908,18 @@ mod tests {
     /// que o caminho de IR textual; sem autorização, ambos os recusam.
     #[test]
     #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-    fn objeto_em_cache_aceita_externo_autorizado_pelo_sdk() {
+    fn cached_object_accepts_external_authorized_by_sdk() {
         let ir = "declare void @df.sdk_teste()\ndefine void @dartforge_entry() {\n  call void @df.sdk_teste()\n  ret void\n}\n";
-        let compilado = compile_module("sdk", ir).unwrap();
-        let mut sem_sdk = JitSession::new().unwrap();
-        assert_eq!(sem_sdk.add_compiled_module(&compilado).unwrap_err().stage, "símbolos");
+        let compiled = compile_module("sdk", ir).unwrap();
+        let mut without_sdk = JitSession::new().unwrap();
+        assert_eq!(without_sdk.add_compiled_module(&compiled).unwrap_err().stage, "símbolos");
 
-        let mut com_sdk = JitSession::new().unwrap();
-        com_sdk.externos_do_sdk.insert("df.sdk_teste".to_owned());
-        com_sdk.add_ir_module("sdk-ir", ir).unwrap();
-        let mut com_sdk = JitSession::new().unwrap();
-        com_sdk.externos_do_sdk.insert("df.sdk_teste".to_owned());
-        com_sdk.add_compiled_module(&compilado).unwrap();
+        let mut with_sdk = JitSession::new().unwrap();
+        with_sdk.sdk_externals.insert("df.sdk_teste".to_owned());
+        with_sdk.add_ir_module("sdk-ir", ir).unwrap();
+        let mut with_sdk = JitSession::new().unwrap();
+        with_sdk.sdk_externals.insert("df.sdk_teste".to_owned());
+        with_sdk.add_compiled_module(&compiled).unwrap();
     }
 }
 
@@ -927,35 +927,35 @@ mod tests {
 /// (sem a versão mínima) e ambiente/ABI; o fabricante só distingue quando
 /// não é genérico.
 #[derive(Debug, PartialEq, Eq)]
-struct AlvoNormalizado {
-    arquitetura: String,
-    fabricante: Option<String>,
-    sistema: String,
-    ambiente: String,
+struct NormalizedTarget {
+    architecture: String,
+    vendor: Option<String>,
+    system: String,
+    env: String,
 }
 
-fn normalizar_alvo(triple: &str) -> AlvoNormalizado {
-    let partes: Vec<&str> = triple.split('-').collect();
-    let arquitetura = match partes.first().copied().unwrap_or("") {
+fn normalize_target(triple: &str) -> NormalizedTarget {
+    let part_list: Vec<&str> = triple.split('-').collect();
+    let architecture = match part_list.first().copied().unwrap_or("") {
         "arm64" => "aarch64",
         "amd64" | "x86-64" => "x86_64",
         a => a,
     }
     .to_string();
-    let fabricante = match partes.get(1).copied() {
+    let vendor = match part_list.get(1).copied() {
         None | Some("unknown" | "pc" | "") => None,
         Some(f) => Some(f.to_string()),
     };
     // O sistema sem a versão (`macosx15.7.3`, `darwin24.6.0`, `ios17.0`);
     // `darwin` e `macosx` são o mesmo sistema.
-    let sistema_bruto = partes.get(2).copied().unwrap_or("");
-    let sistema = match sistema_bruto.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
+    let raw_system = part_list.get(2).copied().unwrap_or("");
+    let system = match raw_system.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
         "darwin" | "macosx" | "macos" => "macos",
         s => s,
     }
     .to_string();
-    let ambiente = partes.get(3..).map(|r| r.join("-")).unwrap_or_default();
-    AlvoNormalizado { arquitetura, fabricante, sistema, ambiente }
+    let env = part_list.get(3..).map(|r| r.join("-")).unwrap_or_default();
+    NormalizedTarget { architecture, vendor, system, env }
 }
 
 /// Se código emitido para `modulo` roda na `LLJIT` de `jit`: mesma
@@ -964,33 +964,33 @@ fn normalizar_alvo(triple: &str) -> AlvoNormalizado {
 /// `arm64-apple-darwin` × `arm64-apple-macosx15.7.3`) são aceitas; outra
 /// arquitetura, outro sistema ou outro ambiente (`gnu` × `musl`, `msvc` ×
 /// `gnu`) não.
-fn alvos_compativeis(modulo: &str, jit: &str) -> bool {
-    let (a, b) = (normalizar_alvo(modulo), normalizar_alvo(jit));
-    let fabricante_ok = match (&a.fabricante, &b.fabricante) {
+fn compatible_targets(modulo: &str, jit: &str) -> bool {
+    let (a, b) = (normalize_target(modulo), normalize_target(jit));
+    let vendor_ok = match (&a.vendor, &b.vendor) {
         (Some(x), Some(y)) => x == y,
         _ => true,
     };
-    a.arquitetura == b.arquitetura && a.sistema == b.sistema && a.ambiente == b.ambiente && fabricante_ok
+    a.architecture == b.architecture && a.system == b.system && a.env == b.env && vendor_ok
 }
 
 #[cfg(test)]
-mod testes_de_alvo {
-    use super::alvos_compativeis;
+mod target_tests {
+    use super::compatible_targets;
 
     #[test]
-    fn grafias_do_mesmo_alvo_sao_compativeis() {
-        assert!(alvos_compativeis("x86_64-unknown-linux-gnu", "x86_64-pc-linux-gnu"));
-        assert!(alvos_compativeis("arm64-apple-darwin", "arm64-apple-macosx15.7.3"));
-        assert!(alvos_compativeis("aarch64-apple-darwin", "arm64-apple-macosx14.0.0"));
-        assert!(alvos_compativeis("x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc"));
+    fn spellings_of_same_target_are_compatible() {
+        assert!(compatible_targets("x86_64-unknown-linux-gnu", "x86_64-pc-linux-gnu"));
+        assert!(compatible_targets("arm64-apple-darwin", "arm64-apple-macosx15.7.3"));
+        assert!(compatible_targets("aarch64-apple-darwin", "arm64-apple-macosx14.0.0"));
+        assert!(compatible_targets("x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc"));
     }
 
     #[test]
-    fn alvos_diferentes_sao_recusados() {
-        assert!(!alvos_compativeis("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"));
-        assert!(!alvos_compativeis("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"));
-        assert!(!alvos_compativeis("x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"));
-        assert!(!alvos_compativeis("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"));
-        assert!(!alvos_compativeis("arm64-apple-darwin", "arm64-apple-ios17.0"));
+    fn different_targets_are_rejected() {
+        assert!(!compatible_targets("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"));
+        assert!(!compatible_targets("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"));
+        assert!(!compatible_targets("x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"));
+        assert!(!compatible_targets("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"));
+        assert!(!compatible_targets("arm64-apple-darwin", "arm64-apple-ios17.0"));
     }
 }

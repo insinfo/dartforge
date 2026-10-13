@@ -38,172 +38,172 @@ use std::hash::{Hash, Hasher};
 
 /// O que se sabe da implementação publicada de uma entrada estável.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Publicada {
+pub(crate) struct Published {
     /// Impressão digital do código (texto e fecho local).
-    pub impressao: u64,
+    pub fingerprint: u64,
     /// A assinatura como o IR a escreve, sem nomes de parâmetro.
-    pub assinatura: String,
+    pub fn_signature: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tipo {
-    Funcao { local: bool },
-    Global { mutavel: bool },
+enum Type {
+    Function { local: bool },
+    Global { mutable: bool },
     Comdat,
 }
 
 #[derive(Debug)]
 struct Item<'a> {
-    nome: String,
-    tipo: Tipo,
-    texto: &'a str,
+    name: String,
+    tipo: Type,
+    text: &'a str,
 }
 
 /// O módulo lido pelas linhas de topo: definições de função, globais e
 /// comdats; o resto (cabeçalho, comentários, `declare`) passa como está.
-struct Modulo<'a> {
-    /// Trechos na ordem do texto: `Ok(item)` ou `Err(texto que passa)`.
-    trechos: Vec<Result<usize, &'a str>>,
-    itens: Vec<Item<'a>>,
-    por_nome: HashMap<String, usize>,
+struct IrModule<'a> {
+    /// Trechos na ordem do texto: `Ok(item)` ou `Err(text que passa)`.
+    fragments: Vec<Result<usize, &'a str>>,
+    items: Vec<Item<'a>>,
+    by_name: HashMap<String, usize>,
 }
 
 /// O nome depois do `@` (ou `$` de comdat) no começo de `s`: entre aspas, ou
 /// até o primeiro caractere que não compõe identificador do LLVM.
-fn nome_em(s: &str) -> Option<(String, usize)> {
-    if let Some(resto) = s.strip_prefix('"') {
-        let fim = resto.find('"')?;
-        return Some((resto[..fim].to_string(), fim + 2));
+fn name_at(s: &str) -> Option<(String, usize)> {
+    if let Some(rest) = s.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some((rest[..end].to_string(), end + 2));
     }
-    let fim = s
+    let end = s
         .char_indices()
         .find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '$' | '-')))
         .map_or(s.len(), |(i, _)| i);
-    (fim > 0).then(|| (s[..fim].to_string(), fim))
+    (end > 0).then(|| (s[..end].to_string(), end))
 }
 
-/// As referências `@nome` de um texto.
-fn referencias(texto: &str) -> impl Iterator<Item = String> + '_ {
-    texto.match_indices('@').filter_map(|(i, _)| nome_em(&texto[i + 1..]).map(|(n, _)| n))
+/// As referências `@name` de um texto.
+fn references(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.match_indices('@').filter_map(|(i, _)| name_at(&text[i + 1..]).map(|(n, _)| n))
 }
 
-fn ler(ir: &str) -> Option<Modulo<'_>> {
-    let mut m = Modulo { trechos: Vec::new(), itens: Vec::new(), por_nome: HashMap::new() };
+fn do_read(ir: &str) -> Option<IrModule<'_>> {
+    let mut m = IrModule { fragments: Vec::new(), items: Vec::new(), by_name: HashMap::new() };
     let mut pos = 0;
-    let mut passa_inicio = 0;
+    let mut start_pass = 0;
     while pos < ir.len() {
-        let fim_linha = ir[pos..].find('\n').map_or(ir.len(), |i| pos + i + 1);
-        let linha = &ir[pos..fim_linha];
-        let item = if let Some(resto) = linha.strip_prefix("define ") {
+        let line_end = ir[pos..].find('\n').map_or(ir.len(), |i| pos + i + 1);
+        let line = &ir[pos..line_end];
+        let item = if let Some(rest) = line.strip_prefix("define ") {
             // Até a linha `}` que fecha o corpo.
-            let fim = ir[pos..].find("\n}\n").map(|i| pos + i + 3)?;
-            let at = resto.find('@')?;
-            let (nome, _) = nome_em(&resto[at + 1..])?;
-            let antes = &resto[..at];
-            let local = antes.split_whitespace().any(|p| p == "internal" || p == "private");
-            Some((nome, Tipo::Funcao { local }, fim))
-        } else if let Some(resto) = linha.strip_prefix('@') {
-            let (nome, n) = nome_em(resto)?;
-            let depois = resto[n..].strip_prefix(" = ")?;
+            let end = ir[pos..].find("\n}\n").map(|i| pos + i + 3)?;
+            let at = rest.find('@')?;
+            let (name, _) = name_at(&rest[at + 1..])?;
+            let before = &rest[..at];
+            let local = before.split_whitespace().any(|p| p == "internal" || p == "private");
+            Some((name, Type::Function { local }, end))
+        } else if let Some(rest) = line.strip_prefix('@') {
+            let (name, n) = name_at(rest)?;
+            let after = rest[n..].strip_prefix(" = ")?;
             // Uma global por linha; o `declare` de dado externo é `external global`.
-            if depois.starts_with("external ") {
+            if after.starts_with("external ") {
                 None
             } else {
-                let mutavel = depois.split_whitespace().find(|p| *p == "constant" || *p == "global") == Some("global");
-                Some((nome, Tipo::Global { mutavel }, fim_linha))
+                let mutable = after.split_whitespace().find(|p| *p == "constant" || *p == "global") == Some("global");
+                Some((name, Type::Global { mutable }, line_end))
             }
-        } else if let Some(resto) = linha.strip_prefix('$') {
-            let (nome, n) = nome_em(resto)?;
-            resto[n..].starts_with(" = comdat ").then_some((nome, Tipo::Comdat, fim_linha))
+        } else if let Some(rest) = line.strip_prefix('$') {
+            let (name, n) = name_at(rest)?;
+            rest[n..].starts_with(" = comdat ").then_some((name, Type::Comdat, line_end))
         } else {
             None
         };
         match item {
-            Some((nome, tipo, fim)) => {
-                if passa_inicio < pos {
-                    m.trechos.push(Err(&ir[passa_inicio..pos]));
+            Some((name, tipo, end)) => {
+                if start_pass < pos {
+                    m.fragments.push(Err(&ir[start_pass..pos]));
                 }
-                let chave = match tipo {
-                    Tipo::Comdat => format!("${nome}"),
-                    _ => nome.clone(),
+                let key = match tipo {
+                    Type::Comdat => format!("${name}"),
+                    _ => name.clone(),
                 };
-                if m.por_nome.insert(chave, m.itens.len()).is_some() {
+                if m.by_name.insert(key, m.items.len()).is_some() {
                     return None;
                 }
-                m.trechos.push(Ok(m.itens.len()));
-                m.itens.push(Item { nome, tipo, texto: &ir[pos..fim] });
-                pos = fim;
-                passa_inicio = pos;
+                m.fragments.push(Ok(m.items.len()));
+                m.items.push(Item { name, tipo, text: &ir[pos..end] });
+                pos = end;
+                start_pass = pos;
             }
-            None => pos = fim_linha,
+            None => pos = line_end,
         }
     }
-    if passa_inicio < ir.len() {
-        m.trechos.push(Err(&ir[passa_inicio..]));
+    if start_pass < ir.len() {
+        m.fragments.push(Err(&ir[start_pass..]));
     }
     Some(m)
 }
 
 /// A assinatura de uma definição: a linha `define` sem ligação, sem nomes de
 /// parâmetro, sem `comdat` e sem o `{`. `declare <isto>` é a declaração dela.
-fn assinatura(texto: &str) -> Option<String> {
-    let linha = texto.lines().next()?.strip_prefix("define ")?;
-    let linha = linha.trim_end().strip_suffix('{')?.trim_end();
-    let abre = linha.find('(')?;
+fn fn_signature(text: &str) -> Option<String> {
+    let line = text.lines().next()?.strip_prefix("define ")?;
+    let line = line.trim_end().strip_suffix('{')?.trim_end();
+    let opens = line.find('(')?;
     // O `)` que fecha a lista de parâmetros.
-    let mut nivel = 0i32;
-    let mut fecha = None;
-    for (i, c) in linha[abre..].char_indices() {
+    let mut level = 0i32;
+    let mut closes = None;
+    for (i, c) in line[opens..].char_indices() {
         match c {
-            '(' | '{' | '[' | '<' => nivel += 1,
+            '(' | '{' | '[' | '<' => level += 1,
             ')' | '}' | ']' | '>' => {
-                nivel -= 1;
-                if nivel == 0 {
-                    fecha = Some(abre + i);
+                level -= 1;
+                if level == 0 {
+                    closes = Some(opens + i);
                     break;
                 }
             }
             _ => {}
         }
     }
-    let fecha = fecha?;
-    let cabeca: Vec<&str> = linha[..abre]
+    let closes = closes?;
+    let head: Vec<&str> = line[..opens]
         .split_whitespace()
         .filter(|p| !matches!(*p, "linkonce_odr" | "internal" | "private" | "dso_local" | "weak_odr" | "linkonce"))
         .collect();
-    // `comdat` e `comdat($nome)`: a declaração não pertence a comdat.
-    let depois = linha[fecha + 1..]
+    // `comdat` e `comdat($name)`: a declaração não pertence a comdat.
+    let after = line[closes + 1..]
         .split_whitespace()
         .filter(|p| *p != "comdat" && !p.starts_with("comdat("))
         .collect::<Vec<_>>()
         .join(" ");
     // Parâmetros sem o nome (`%x`) de cada um, no nível de fora.
     let mut params = Vec::new();
-    let mut atual = String::new();
-    let mut nivel = 0i32;
-    for c in linha[abre + 1..fecha].chars() {
+    let mut current = String::new();
+    let mut level = 0i32;
+    for c in line[opens + 1..closes].chars() {
         match c {
-            '(' | '{' | '[' | '<' => nivel += 1,
-            ')' | '}' | ']' | '>' => nivel -= 1,
-            ',' if nivel == 0 => {
-                params.push(std::mem::take(&mut atual));
+            '(' | '{' | '[' | '<' => level += 1,
+            ')' | '}' | ']' | '>' => level -= 1,
+            ',' if level == 0 => {
+                params.push(std::mem::take(&mut current));
                 continue;
             }
             _ => {}
         }
-        atual.push(c);
+        current.push(c);
     }
-    if !atual.trim().is_empty() {
-        params.push(atual);
+    if !current.trim().is_empty() {
+        params.push(current);
     }
     let params: Vec<String> = params
         .iter()
         .map(|p| p.split_whitespace().filter(|t| !t.starts_with('%')).collect::<Vec<_>>().join(" "))
         .collect();
-    let mut s = format!("{}({})", cabeca.join(" "), params.join(", "));
-    if !depois.is_empty() {
+    let mut s = format!("{}({})", head.join(" "), params.join(", "));
+    if !after.is_empty() {
         s.push(' ');
-        s.push_str(&depois);
+        s.push_str(&after);
     }
     Some(s)
 }
@@ -214,49 +214,49 @@ fn assinatura(texto: &str) -> Option<String> {
 /// layout da área só cresce entre gerações, e o runtime aceita o descritor
 /// de uma geração anterior como prefixo do layout vigente, devolvendo a
 /// mesma área (`dartforge_area_de_globais`).
-const INFRAESTRUTURA: [&str; 2] = ["df.area", "df.area_id"];
+const INFRASTRUCTURE: [&str; 2] = ["df.area", "df.area_id"];
 
 /// O fecho local de `i`: os itens da geração alcançados por ele (funções
 /// locais e globais, transitivamente), as funções do programa alcançadas
 /// (pelo nome) e se alguma global mutável está no caminho.
-fn fecho(m: &Modulo, i: usize) -> (BTreeSet<usize>, BTreeSet<String>, bool) {
-    let mut locais = BTreeSet::new();
-    let mut programa = BTreeSet::new();
-    let mut mutavel = false;
-    let mut pilha = vec![i];
-    let mut vistos = HashSet::from([i]);
-    while let Some(k) = pilha.pop() {
-        for r in referencias(m.itens[k].texto) {
-            if INFRAESTRUTURA.contains(&r.as_str()) {
+fn closure_set(m: &IrModule, i: usize) -> (BTreeSet<usize>, BTreeSet<String>, bool) {
+    let mut locals = BTreeSet::new();
+    let mut program = BTreeSet::new();
+    let mut mutable = false;
+    let mut stack = vec![i];
+    let mut seen_set = HashSet::from([i]);
+    while let Some(k) = stack.pop() {
+        for r in references(m.items[k].text) {
+            if INFRASTRUCTURE.contains(&r.as_str()) {
                 continue;
             }
-            let Some(&j) = m.por_nome.get(&r) else { continue };
-            match m.itens[j].tipo {
-                Tipo::Funcao { local: false } => {
+            let Some(&j) = m.by_name.get(&r) else { continue };
+            match m.items[j].tipo {
+                Type::Function { local: false } => {
                     if j != i {
-                        programa.insert(r);
+                        program.insert(r);
                     }
                 }
-                Tipo::Global { mutavel: true } => mutavel = true,
-                Tipo::Comdat => {}
+                Type::Global { mutable: true } => mutable = true,
+                Type::Comdat => {}
                 _ => {
-                    if vistos.insert(j) {
-                        locais.insert(j);
-                        pilha.push(j);
+                    if seen_set.insert(j) {
+                        locals.insert(j);
+                        stack.push(j);
                     }
                 }
             }
         }
     }
-    (locais, programa, mutavel)
+    (locals, program, mutable)
 }
 
-fn impressao(m: &Modulo, i: usize, locais: &BTreeSet<usize>) -> u64 {
+fn fingerprint(m: &IrModule, i: usize, locals: &BTreeSet<usize>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    m.itens[i].texto.hash(&mut h);
-    let mut nomes: Vec<(&str, &str)> = locais.iter().map(|&j| (m.itens[j].nome.as_str(), m.itens[j].texto)).collect();
-    nomes.sort();
-    nomes.hash(&mut h);
+    m.items[i].text.hash(&mut h);
+    let mut names: Vec<(&str, &str)> = locals.iter().map(|&j| (m.items[j].name.as_str(), m.items[j].text)).collect();
+    names.sort();
+    names.hash(&mut h);
     h.finish()
 }
 
@@ -265,91 +265,91 @@ pub(crate) struct Delta {
     /// O IR a compilar.
     pub ir: String,
     /// As funções que continuam na implementação publicada (declaradas no IR).
-    pub mantidas: Vec<String>,
+    pub kept_fns: Vec<String>,
     /// O que a geração publica: as funções do programa definidas no IR que
     /// sai, com a impressão digital de cada uma.
-    pub novas: HashMap<String, Publicada>,
+    pub new_items: HashMap<String, Published>,
 }
 
-/// O delta de `ir` contra as implementações `vivas`. `excluidas`: funções que
+/// O delta de `ir` contra as implementações `live_list`. `excluded`: funções que
 /// a geração nova sempre define (os registros). `None` quando o IR não está
 /// na forma esperada — então ele segue inteiro.
-pub(crate) fn delta(ir: &str, vivas: &HashMap<String, Publicada>, excluidas: &[&str]) -> Option<Delta> {
-    let m = ler(ir)?;
-    let mut novas = HashMap::new();
-    let mut mantidas: HashSet<usize> = HashSet::new();
-    let mut declaracoes: HashMap<usize, String> = HashMap::new();
-    let assinaturas: HashMap<&str, String> = m
-        .itens
+pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: &[&str]) -> Option<Delta> {
+    let m = do_read(ir)?;
+    let mut new_items = HashMap::new();
+    let mut kept_fns: HashSet<usize> = HashSet::new();
+    let mut declarations: HashMap<usize, String> = HashMap::new();
+    let fn_signatures: HashMap<&str, String> = m
+        .items
         .iter()
-        .filter(|it| it.tipo == Tipo::Funcao { local: false })
-        .filter_map(|it| Some((it.nome.as_str(), assinatura(it.texto)?)))
+        .filter(|it| it.tipo == Type::Function { local: false })
+        .filter_map(|it| Some((it.name.as_str(), fn_signature(it.text)?)))
         .collect();
-    for (i, item) in m.itens.iter().enumerate() {
-        if item.tipo != (Tipo::Funcao { local: false }) {
+    for (i, item) in m.items.iter().enumerate() {
+        if item.tipo != (Type::Function { local: false }) {
             continue;
         }
-        let assinatura = assinaturas.get(item.nome.as_str())?.clone();
-        let (locais, programa, mutavel) = fecho(&m, i);
-        let publicada = Publicada { impressao: impressao(&m, i, &locais), assinatura };
-        let manter = !mutavel
-            && !excluidas.contains(&item.nome.as_str())
-            && vivas.get(&item.nome) == Some(&publicada)
-            && programa.iter().all(|r| match (assinaturas.get(r.as_str()), vivas.get(r)) {
-                (Some(nova), Some(viva)) => *nova == viva.assinatura,
+        let fn_signature = fn_signatures.get(item.name.as_str())?.clone();
+        let (locals, program, mutable) = closure_set(&m, i);
+        let published = Published { fingerprint: fingerprint(&m, i, &locals), fn_signature };
+        let keep = !mutable
+            && !excluded.contains(&item.name.as_str())
+            && live_list.get(&item.name) == Some(&published)
+            && program.iter().all(|r| match (fn_signatures.get(r.as_str()), live_list.get(r)) {
+                (Some(new_area), Some(live_one)) => *new_area == live_one.fn_signature,
                 // Função do programa que o IR novo não define: a
                 // referência é a mesma que a viva já fazia.
                 (None, _) => true,
                 (Some(_), None) => false,
             });
-        if manter {
-            mantidas.insert(i);
-            declaracoes.insert(i, format!("declare {}\n", publicada.assinatura));
+        if keep {
+            kept_fns.insert(i);
+            declarations.insert(i, format!("declare {}\n", published.fn_signature));
         } else {
-            novas.insert(item.nome.clone(), publicada);
+            new_items.insert(item.name.clone(), published);
         }
     }
-    if mantidas.is_empty() {
-        return Some(Delta { ir: ir.to_string(), mantidas: Vec::new(), novas });
+    if kept_fns.is_empty() {
+        return Some(Delta { ir: ir.to_string(), kept_fns: Vec::new(), new_items });
     }
     // O que ainda é alcançado: das funções do programa que continuam
     // definidas e das globais que não são locais (as locais só existem por
     // quem as usa).
-    let mut vivos: HashSet<usize> = HashSet::new();
-    let mut pilha: Vec<usize> = m
-        .itens
+    let mut live_set: HashSet<usize> = HashSet::new();
+    let mut stack: Vec<usize> = m
+        .items
         .iter()
         .enumerate()
         .filter(|(i, it)| match it.tipo {
-            Tipo::Funcao { local: false } => !mantidas.contains(i),
-            Tipo::Global { .. } => !it.texto.split_whitespace().nth(2).is_some_and(|p| p == "private" || p == "internal"),
+            Type::Function { local: false } => !kept_fns.contains(i),
+            Type::Global { .. } => !it.text.split_whitespace().nth(2).is_some_and(|p| p == "private" || p == "internal"),
             _ => false,
         })
         .map(|(i, _)| i)
         .collect();
-    vivos.extend(pilha.iter().copied());
-    while let Some(k) = pilha.pop() {
-        for r in referencias(m.itens[k].texto) {
-            let Some(&j) = m.por_nome.get(&r) else { continue };
-            if !mantidas.contains(&j) && vivos.insert(j) {
-                pilha.push(j);
+    live_set.extend(stack.iter().copied());
+    while let Some(k) = stack.pop() {
+        for r in references(m.items[k].text) {
+            let Some(&j) = m.by_name.get(&r) else { continue };
+            if !kept_fns.contains(&j) && live_set.insert(j) {
+                stack.push(j);
             }
         }
     }
     // Comdat só com o membro definido.
-    for (i, it) in m.itens.iter().enumerate() {
-        if it.tipo == Tipo::Comdat
-            && m.por_nome.get(&it.nome).is_some_and(|&f| vivos.contains(&f))
+    for (i, it) in m.items.iter().enumerate() {
+        if it.tipo == Type::Comdat
+            && m.by_name.get(&it.name).is_some_and(|&f| live_set.contains(&f))
         {
-            vivos.insert(i);
+            live_set.insert(i);
         }
     }
-    let mut saida = String::with_capacity(ir.len() / 2);
-    for t in &m.trechos {
+    let mut out = String::with_capacity(ir.len() / 2);
+    for t in &m.fragments {
         match t {
-            Err(texto) => saida.push_str(texto),
-            Ok(i) if mantidas.contains(i) => saida.push_str(&declaracoes[i]),
-            Ok(i) if vivos.contains(i) => saida.push_str(m.itens[*i].texto),
+            Err(text) => out.push_str(text),
+            Ok(i) if kept_fns.contains(i) => out.push_str(&declarations[i]),
+            Ok(i) if live_set.contains(i) => out.push_str(m.items[*i].text),
             Ok(i) => {
                 // Função local só alcançada pelas mantidas: some; a geração
                 // delas continua com a própria cópia.
@@ -357,18 +357,18 @@ pub(crate) fn delta(ir: &str, vivas: &HashMap<String, Publicada>, excluidas: &[&
             }
         }
     }
-    let mut nomes: Vec<String> = mantidas.iter().map(|&i| m.itens[i].nome.clone()).collect();
-    nomes.sort();
-    Some(Delta { ir: saida, mantidas: nomes, novas })
+    let mut names: Vec<String> = kept_fns.iter().map(|&i| m.items[i].name.clone()).collect();
+    names.sort();
+    Some(Delta { ir: out, kept_fns: names, new_items })
 }
 
 #[cfg(test)]
-mod testes {
+mod tests_mod {
     use super::*;
 
     /// O que a primeira geração de `ir` publica.
-    fn publicadas(ir: &str) -> HashMap<String, Publicada> {
-        delta(ir, &HashMap::new(), &[]).expect("forma conhecida").novas
+    fn published_list(ir: &str) -> HashMap<String, Published> {
+        delta(ir, &HashMap::new(), &[]).expect("forma conhecida").new_items
     }
 
     const V1: &str = r#"; cabeçalho
@@ -403,63 +403,63 @@ b0:
 "#;
 
     #[test]
-    fn assinatura_sem_nomes_nem_ligacao() {
-        assert_eq!(assinatura("define linkonce_odr i64 @\"g\"(i64 %v0) comdat {\n}").unwrap(), "i64 @\"g\"(i64)");
+    fn signature_without_names_or_linkage() {
+        assert_eq!(fn_signature("define linkonce_odr i64 @\"g\"(i64 %v0) comdat {\n}").unwrap(), "i64 @\"g\"(i64)");
         assert_eq!(
-            assinatura("define linkonce_odr i64 @g$t(i64 %v0, ptr %v1) comdat($\"g$t\") {\n}").unwrap(),
+            fn_signature("define linkonce_odr i64 @g$t(i64 %v0, ptr %v1) comdat($\"g$t\") {\n}").unwrap(),
             "i64 @g$t(i64, ptr)"
         );
         assert_eq!(
-            assinatura("define internal signext i8 @k({ i64, ptr } %a, ptr noalias %b) {\n}").unwrap(),
+            fn_signature("define internal signext i8 @k({ i64, ptr } %a, ptr noalias %b) {\n}").unwrap(),
             "signext i8 @k({ i64, ptr }, ptr noalias)"
         );
     }
 
     #[test]
-    fn mantem_o_que_nao_mudou_e_compila_o_resto() {
-        let vivas = publicadas(V1);
-        assert_eq!(vivas.len(), 3, "{vivas:?}");
+    fn keeps_unchanged_and_compiles_rest() {
+        let live_list = published_list(V1);
+        assert_eq!(live_list.len(), 3, "{live_list:?}");
         // `g` mudou: só ela é compilada; `f` (que chama `g` pelo trampolim)
         // fica na implementação viva; `h` usa global mutável e nunca fica.
         let v2 = V1.replace("  ret i64 %v0\n}\n\ndefine i64 @h", "  %y = add i64 %v0, 1\n  ret i64 %y\n}\n\ndefine i64 @h");
-        let d = delta(&v2, &vivas, &[]).expect("forma conhecida");
-        assert_eq!(d.mantidas, vec!["f".to_string()]);
+        let d = delta(&v2, &live_list, &[]).expect("forma conhecida");
+        assert_eq!(d.kept_fns, vec!["f".to_string()]);
         assert!(d.ir.contains("declare i64 @f(i64, ptr)\n"), "{}", d.ir);
         // A local só alcançada por `f` some; o comdat de `g` fica.
         assert!(!d.ir.contains("@ajuda("), "{}", d.ir);
         assert!(d.ir.contains("$\"g\" = comdat any"));
         assert!(d.ir.contains("%y = add i64 %v0, 1"));
         assert!(d.ir.contains("define i64 @h("));
-        assert_eq!(d.novas.keys().collect::<BTreeSet<_>>(), BTreeSet::from([&"g".to_string(), &"h".to_string()]));
+        assert_eq!(d.new_items.keys().collect::<BTreeSet<_>>(), BTreeSet::from([&"g".to_string(), &"h".to_string()]));
     }
 
     #[test]
-    fn local_mudada_recompila_quem_a_usa() {
-        let vivas = publicadas(V1);
+    fn changed_local_recompiles_users() {
+        let live_list = published_list(V1);
         let v2 = V1.replace("c\"ab\"", "c\"xy\"");
-        let d = delta(&v2, &vivas, &[]).unwrap();
+        let d = delta(&v2, &live_list, &[]).unwrap();
         // A string muda o fecho de `ajuda` e portanto o de `f`.
-        assert!(!d.mantidas.contains(&"f".to_string()), "{:?}", d.mantidas);
-        assert!(d.mantidas.contains(&"g".to_string()));
+        assert!(!d.kept_fns.contains(&"f".to_string()), "{:?}", d.kept_fns);
+        assert!(d.kept_fns.contains(&"g".to_string()));
     }
 
     #[test]
-    fn assinatura_mudada_de_quem_e_chamado_recompila_o_chamador() {
-        let vivas = publicadas(V1);
+    fn changed_callee_signature_recompiles_caller() {
+        let live_list = published_list(V1);
         let v2 = V1
             .replace("define linkonce_odr i64 @\"g\"(i64 %v0)", "define linkonce_odr i64 @\"g\"(i64 %v0, i64 %v1)")
             .replace("call i64 @g(i64 %r)", "call i64 @g(i64 %r)");
-        let d = delta(&v2, &vivas, &[]).unwrap();
-        assert!(d.mantidas.is_empty(), "{:?}", d.mantidas);
+        let d = delta(&v2, &live_list, &[]).unwrap();
+        assert!(d.kept_fns.is_empty(), "{:?}", d.kept_fns);
     }
 
     #[test]
-    fn excluidas_e_sem_viva_sao_compiladas() {
-        let vivas = publicadas(V1);
-        let d = delta(V1, &vivas, &["f"]).unwrap();
-        assert_eq!(d.mantidas, vec!["g".to_string()]);
+    fn excluded_and_non_live_are_compiled() {
+        let live_list = published_list(V1);
+        let d = delta(V1, &live_list, &["f"]).unwrap();
+        assert_eq!(d.kept_fns, vec!["g".to_string()]);
         let d = delta(V1, &HashMap::new(), &[]).unwrap();
-        assert!(d.mantidas.is_empty());
+        assert!(d.kept_fns.is_empty());
         assert_eq!(d.ir, V1);
     }
 }

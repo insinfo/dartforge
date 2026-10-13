@@ -2,7 +2,7 @@
 //!
 //! O teste central é o diferencial: o **mesmo** LLVM IR, produzido uma única
 //! vez pelo emissor nativo, executado pelos dois perfis — ORCv2 (pelo executor
-//! isolado `dartforge-executar-ir`) e AOT (Clang + ligação com o runtime) —
+//! isolado `dartforge-execute_fn-ir`) e AOT (Clang + ligação com o runtime) —
 //! precisa produzir o mesmo stdout e o mesmo código de saída. Tudo o mais
 //! protege a fronteira com a API C do LLVM e a pré-verificação de externos.
 //!
@@ -39,9 +39,9 @@ impl Drop for OutputDir {
 
 /// Resultado observável de uma execução: o que os dois perfis têm de igualar.
 #[derive(Debug, PartialEq, Eq)]
-struct Execucao {
+struct Execution {
     stdout: String,
-    codigo: Option<i32>,
+    code: Option<i32>,
     stderr: String,
 }
 
@@ -49,51 +49,51 @@ struct Execucao {
 ///
 /// Um programa que não termina não pode travar a bateria. No CI isso aconteceu
 /// e o job só parou no limite de 60 min, sem dizer onde estava.
-const LIMITE_PROCESSO: std::time::Duration = std::time::Duration::from_secs(120);
+const PROCESS_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Executa um processo com limite de tempo e normaliza as quebras de linha.
 ///
 /// stdout e stderr são lidos em threads próprias, para que um pipe cheio não
 /// bloqueie o filho. Estourado o limite, o processo é morto e o teste falha
 /// dizendo qual comando era.
-fn executar(comando: &mut Command) -> Execucao {
+fn execute_fn(command: &mut Command) -> Execution {
     use std::io::Read;
     use std::process::Stdio;
-    let descricao = format!("{comando:?}");
-    let mut filho = comando
+    let description = format!("{command:?}");
+    let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("processo não iniciou");
-    let mut out = filho.stdout.take().unwrap();
-    let mut err = filho.stderr.take().unwrap();
-    let leitor_out = std::thread::spawn(move || {
+    let mut out = child.stdout.take().unwrap();
+    let mut err = child.stderr.take().unwrap();
+    let out_reader = std::thread::spawn(move || {
         let mut b = Vec::new();
         let _ = out.read_to_end(&mut b);
         b
     });
-    let leitor_err = std::thread::spawn(move || {
+    let err_reader = std::thread::spawn(move || {
         let mut b = Vec::new();
         let _ = err.read_to_end(&mut b);
         b
     });
-    let inicio = std::time::Instant::now();
+    let start = std::time::Instant::now();
     let status = loop {
-        if let Some(status) = filho.try_wait().unwrap() {
+        if let Some(status) = child.try_wait().unwrap() {
             break status;
         }
-        if inicio.elapsed() > LIMITE_PROCESSO {
-            let _ = filho.kill();
-            let _ = filho.wait();
-            panic!("{descricao} passou de {LIMITE_PROCESSO:?} e foi morto");
+        if start.elapsed() > PROCESS_LIMIT {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("{description} passou de {PROCESS_LIMIT:?} e foi morto");
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     };
-    let stdout = leitor_out.join().unwrap();
-    let stderr = leitor_err.join().unwrap();
-    Execucao {
+    let stdout = out_reader.join().unwrap();
+    let stderr = err_reader.join().unwrap();
+    Execution {
         stdout: String::from_utf8_lossy(&stdout).replace("\r\n", "\n"),
-        codigo: status.code(),
+        code: status.code(),
         stderr: String::from_utf8_lossy(&stderr).replace("\r\n", "\n"),
     }
 }
@@ -104,26 +104,26 @@ fn executar(comando: &mut Command) -> Execucao {
 /// escrita vai direto ao `stderr` do processo, e não por `eprintln!`, que o
 /// harness de teste captura e só mostra se o teste falhar. Assim a linha
 /// aparece no log enquanto o teste roda.
-fn etapa(inicio: std::time::Instant, nome: &str) {
+fn stage(start: std::time::Instant, nome: &str) {
     use std::io::Write;
-    let linha = format!("[diferencial {:>7.1?}] {nome}\n", inicio.elapsed());
-    let _ = std::io::stderr().write_all(linha.as_bytes());
+    let line = format!("[diferencial {:>7.1?}] {nome}\n", start.elapsed());
+    let _ = std::io::stderr().write_all(line.as_bytes());
 }
 
 /// Executa um IR pelo executor isolado do JIT.
-fn executar_pelo_jit(dir: &Path, ir: &str) -> Execucao {
-    let arquivo = dir.join("programa.ll");
-    std::fs::write(&arquivo, ir).unwrap();
-    let mut comando = Command::new(env!("CARGO_BIN_EXE_dartforge-executar-ir"));
-    comando.arg(&arquivo);
+fn run_through_jit(dir: &Path, ir: &str) -> Execution {
+    let file = dir.join("programa.ll");
+    std::fs::write(&file, ir).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge-executar-ir"));
+    command.arg(&file);
     // O IR com o SDK da fonte (o padrão) importa o runtime e o SDK da
     // biblioteca compartilhada, que o executor recebe pelo ambiente, como o
     // `dartforge run` a acha no cache.
     if dartforge_jit::ir_usa_sdk_da_fonte(ir) && std::env::var_os("DARTFORGE_SDK_DLL").is_none() {
         let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("biblioteca do SDK da fonte");
-        comando.env("DARTFORGE_SDK_DLL", dll);
+        command.env("DARTFORGE_SDK_DLL", dll);
     }
-    executar(&mut comando)
+    execute_fn(&mut command)
 }
 
 // ─── Tabela de símbolos × emissor, sem LLVM ───────────────────────────────
@@ -135,11 +135,11 @@ fn executar_pelo_jit(dir: &Path, ir: &str) -> Execucao {
 /// gerada da fonte do runtime. Quando as duas divergem, o AOT falha na ligação
 /// e o JIT na pré-verificação; este teste denuncia antes, sem LLVM nem Clang.
 #[test]
-fn cada_extern_do_emissor_existe_no_runtime() {
-    let declarados: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS.iter().map(|e| e.nome()).collect();
-    assert!(declarados.len() > 100, "tabela de externs inesperada: {declarados:?}");
-    let faltando: Vec<&&str> = declarados.iter().filter(|nome| !RUNTIME_SYMBOLS.contains(nome)).collect();
-    assert!(faltando.is_empty(), "o emissor declara externs que o runtime não define: {faltando:?}");
+fn every_emitter_extern_exists_in_runtime() {
+    let declared_set: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS.iter().map(|e| e.nome()).collect();
+    assert!(declared_set.len() > 100, "tabela de externs inesperada: {declared_set:?}");
+    let missing_list: Vec<&&str> = declared_set.iter().filter(|nome| !RUNTIME_SYMBOLS.contains(nome)).collect();
+    assert!(missing_list.is_empty(), "o emissor declara externs que o runtime não define: {missing_list:?}");
 }
 
 // ─── Sessão em processo, IR escrito à mão ─────────────────────────────────
@@ -147,119 +147,119 @@ fn cada_extern_do_emissor_existe_no_runtime() {
 /// IR inválido vira `Result` com a etapa e o diagnóstico do LLVM, sem `panic`.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn ir_invalido_vira_result_com_mensagem() {
-    let erro = dartforge_jit::run_ir("isto definitivamente não é LLVM IR").unwrap_err();
-    assert_eq!(erro.stage, "parse-ir");
-    assert!(erro.message.starts_with("IR inválido"), "{erro}");
+fn invalid_ir_becomes_result_with_message() {
+    let error = dartforge_jit::run_ir("isto definitivamente não é LLVM IR").unwrap_err();
+    assert_eq!(error.stage, "parse-ir");
+    assert!(error.message.starts_with("IR inválido"), "{error}");
 
     // Um IR sintaticamente válido mas sem a entrada falha no lookup, não antes.
-    let mut sessao = JitSession::new().unwrap();
-    sessao
+    let mut session = JitSession::new().unwrap();
+    session
         .add_ir_module("sem_entrada", "define i64 @sem_entrada() {\n  ret i64 0\n}\n")
         .unwrap();
-    let erro = sessao.run_entry().unwrap_err();
-    assert_eq!(erro.stage, "lookup");
-    assert!(erro.message.contains("dartforge_entry"), "{erro}");
+    let error = session.run_entry().unwrap_err();
+    assert_eq!(error.stage, "lookup");
+    assert!(error.message.contains("dartforge_entry"), "{error}");
 }
 
 /// IR que o analisador aceita mas o verificador recusa (valor que não domina o
 /// uso) é recusado pelo JIT, como o Clang recusa no AOT.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn ir_que_o_verificador_recusa_nao_executa() {
+fn ir_rejected_by_verifier_does_not_run() {
     let ir = "define void @dartforge_entry() {\nentrada:\n  br i1 true, label %a, label %b\n\
               a:\n  %x = add i64 1, 2\n  br label %b\nb:\n  %y = add i64 %x, 1\n  ret void\n}\n";
-    let erro = dartforge_jit::run_ir(ir).unwrap_err();
-    assert_eq!(erro.stage, "parse-ir");
-    assert!(erro.message.contains("verificador"), "{erro}");
+    let error = dartforge_jit::run_ir(ir).unwrap_err();
+    assert_eq!(error.stage, "parse-ir");
+    assert!(error.message.contains("verificador"), "{error}");
 }
 
 /// Externo que nem o runtime nem a CRT listada definem é recusado com o nome.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn externo_desconhecido_falha_alto() {
-    let mut sessao = JitSession::new().unwrap();
-    let erro = sessao
+fn unknown_external_fails_loudly() {
+    let mut session = JitSession::new().unwrap();
+    let error = session
         .add_ir_module(
             "desconhecido",
             "declare void @sqlite3_open()\ndefine void @dartforge_entry() {\n  \
              call void @sqlite3_open()\n  ret void\n}\n",
         )
         .unwrap_err();
-    assert_eq!(erro.stage, "símbolos");
-    assert!(erro.message.contains("sqlite3_open"), "{erro}");
-    assert!(sessao.module_names().is_empty());
+    assert_eq!(error.stage, "símbolos");
+    assert!(error.message.contains("sqlite3_open"), "{error}");
+    assert!(session.module_names().is_empty());
 }
 
 /// Alvo divergente é recusado mostrando as duas strings; o do host passa.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn alvo_divergente_falha_alto() {
-    let mut sessao = JitSession::new().unwrap();
+fn divergent_target_fails_loudly() {
+    let mut session = JitSession::new().unwrap();
     // Um triple que nunca é o do hospedeiro.
-    let outro = "riscv64-unknown-linux-gnu";
-    let erro = sessao
-        .add_ir_module("outro_alvo", &format!("target triple = \"{outro}\"\ndefine void @f() {{\n  ret void\n}}\n"))
+    let other_one = "riscv64-unknown-linux-gnu";
+    let error = session
+        .add_ir_module("outro_alvo", &format!("target triple = \"{other_one}\"\ndefine void @f() {{\n  ret void\n}}\n"))
         .unwrap_err();
-    assert_eq!(erro.stage, "layout");
-    assert!(erro.message.contains(outro), "{erro}");
+    assert_eq!(error.stage, "layout");
+    assert!(error.message.contains(other_one), "{error}");
 
     // O cabeçalho que o emissor nativo escreve (`alvo::cabecalho_ir`) tem de
     // ser compatível com o da LLJIT deste processo: mesma arquitetura,
     // sistema e ABI, ainda que o LLVM instalado grafe o triple de outro
     // jeito (`x86_64-pc-linux-gnu`, `arm64-apple-macosx15.7.3`).
-    let cabecalho = dartforge_emit_native::alvo::cabecalho_ir();
-    sessao
-        .add_ir_module("alvo_do_emissor", &format!("{cabecalho}define void @g() {{\n  ret void\n}}\n"))
+    let header = dartforge_emit_native::alvo::cabecalho_ir();
+    session
+        .add_ir_module("alvo_do_emissor", &format!("{header}define void @g() {{\n  ret void\n}}\n"))
         .unwrap();
 }
 
 /// Dois módulos coexistem na sessão e um resolve símbolos do outro.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn dois_modulos_numa_sessao() {
-    let biblioteca = "define i64 @jit_dobro(i64 %n) {\n  %r = mul i64 %n, 2\n  ret i64 %r\n}\n";
-    let programa = "declare i64 @jit_dobro(i64)\ndefine void @dartforge_entry() {\n  \
+fn two_modules_in_one_session() {
+    let library = "define i64 @jit_dobro(i64 %n) {\n  %r = mul i64 %n, 2\n  ret i64 %r\n}\n";
+    let program = "declare i64 @jit_dobro(i64)\ndefine void @dartforge_entry() {\n  \
                     %v = call i64 @jit_dobro(i64 21)\n  ret void\n}\n";
-    let mut sessao = JitSession::new().unwrap();
-    sessao.add_ir_module("biblioteca", biblioteca).unwrap();
-    sessao.add_ir_module("programa", programa).unwrap();
-    assert_eq!(sessao.module_names(), vec!["biblioteca", "programa"]);
-    assert_ne!(sessao.lookup("jit_dobro").unwrap(), 0);
-    let relatorio = sessao.run_entry().unwrap();
-    assert_eq!(relatorio.exit_code, 0);
-    assert!(relatorio.total >= relatorio.lookup);
+    let mut session = JitSession::new().unwrap();
+    session.add_ir_module("biblioteca", library).unwrap();
+    session.add_ir_module("programa", program).unwrap();
+    assert_eq!(session.module_names(), vec!["biblioteca", "programa"]);
+    assert_ne!(session.lookup("jit_dobro").unwrap(), 0);
+    let report_data = session.run_entry().unwrap();
+    assert_eq!(report_data.exit_code, 0);
+    assert!(report_data.total >= report_data.lookup);
 }
 
 /// Dois programas completos não cabem na mesma sessão: ambos definem a entrada.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn entrada_duplicada_vira_result() {
-    let minimo = "define void @dartforge_entry() {\n  ret void\n}\n";
-    let mut sessao = JitSession::new().unwrap();
-    sessao.add_ir_module("primeiro", minimo).unwrap();
-    let erro = sessao.add_ir_module("segundo", minimo).unwrap_err();
-    assert_eq!(erro.stage, "add-module");
-    assert!(erro.message.contains("dartforge_entry"), "{erro}");
-    assert_eq!(sessao.module_names(), vec!["primeiro"]);
+fn duplicate_entry_becomes_result() {
+    let min = "define void @dartforge_entry() {\n  ret void\n}\n";
+    let mut session = JitSession::new().unwrap();
+    session.add_ir_module("primeiro", min).unwrap();
+    let error = session.add_ir_module("segundo", min).unwrap_err();
+    assert_eq!(error.stage, "add-module");
+    assert!(error.message.contains("dartforge_entry"), "{error}");
+    assert_eq!(session.module_names(), vec!["primeiro"]);
 }
 
 /// Remover o módulo descarrega seu código e a entrada deixa de ser resolvível.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn remover_modulo_descarrega_a_entrada() {
-    let mut sessao = JitSession::new().unwrap();
-    sessao
+fn removing_module_unloads_entry() {
+    let mut session = JitSession::new().unwrap();
+    session
         .add_ir_module("programa", "define void @dartforge_entry() {\n  ret void\n}\n")
         .unwrap();
-    assert_eq!(sessao.run_entry().unwrap().exit_code, 0);
+    assert_eq!(session.run_entry().unwrap().exit_code, 0);
     // Uma segunda execução começa de um runtime limpo e também termina bem.
-    assert_eq!(sessao.run_entry().unwrap().exit_code, 0);
-    sessao.remove_module(0).unwrap();
-    assert!(sessao.module_names().is_empty());
-    assert_eq!(sessao.run_entry().unwrap_err().stage, "lookup");
-    assert_eq!(sessao.remove_module(0).unwrap_err().stage, "resource");
-    assert_eq!(sessao.remove_module(7).unwrap_err().stage, "resource");
+    assert_eq!(session.run_entry().unwrap().exit_code, 0);
+    session.remove_module(0).unwrap();
+    assert!(session.module_names().is_empty());
+    assert_eq!(session.run_entry().unwrap_err().stage, "lookup");
+    assert_eq!(session.remove_module(0).unwrap_err().stage, "resource");
+    assert_eq!(session.remove_module(7).unwrap_err().stage, "resource");
 }
 
 // ─── Executor isolado, IR escrito à mão ───────────────────────────────────
@@ -267,7 +267,7 @@ fn remover_modulo_descarrega_a_entrada() {
 /// O executor imprime pelo runtime e devolve o código do programa.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn executor_imprime_pelo_runtime() {
+fn runner_prints_through_runtime() {
     let dir = OutputDir::new("executor");
     let ir = "\
 @.s = private unnamed_addr constant [3 x i8] c\"ola\"
@@ -283,16 +283,16 @@ define void @dartforge_entry() {
   ret void
 }
 ";
-    let execucao = executar_pelo_jit(&dir.0, ir);
-    assert_eq!(execucao.stdout, "-42\ntrue\nola\n", "{execucao:?}");
-    assert_eq!(execucao.codigo, Some(0), "{execucao:?}");
+    let execution = run_through_jit(&dir.0, ir);
+    assert_eq!(execution.stdout, "-42\ntrue\nola\n", "{execution:?}");
+    assert_eq!(execution.code, Some(0), "{execution:?}");
 }
 
 /// Exceção não capturada termina como no AOT e na VM: `Unhandled exception:`
 /// e a mensagem em stderr, código 255.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn executor_excecao_nao_capturada_sai_com_255() {
+fn runner_uncaught_exception_exits_with_255() {
     let dir = OutputDir::new("excecao");
     let ir = "\
 declare void @dartforge_print_i64(i64)
@@ -303,17 +303,17 @@ define void @dartforge_entry() {
   ret void
 }
 ";
-    let execucao = executar_pelo_jit(&dir.0, ir);
-    assert_eq!(execucao.stdout, "1\n", "{execucao:?}");
-    assert_eq!(execucao.codigo, Some(255), "{execucao:?}");
-    assert!(execucao.stderr.starts_with("Unhandled exception:\n7\n"), "{execucao:?}");
+    let execution = run_through_jit(&dir.0, ir);
+    assert_eq!(execution.stdout, "1\n", "{execution:?}");
+    assert_eq!(execution.code, Some(255), "{execution:?}");
+    assert!(execution.stderr.starts_with("Unhandled exception:\n7\n"), "{execution:?}");
 }
 
 /// `double` e quadro maior que 4 KiB: o caminho COFF que o JIT antigo nunca
 /// exercitou (`_fltused`, `__chkstk`, constantes de ponto flutuante).
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn executor_double_e_quadro_grande() {
+fn runner_double_and_large_frame() {
     let dir = OutputDir::new("coff");
     let ir = "\
 declare void @dartforge_print_f64(double)
@@ -330,20 +330,20 @@ define void @dartforge_entry() {
   ret void
 }
 ";
-    let execucao = executar_pelo_jit(&dir.0, ir);
-    assert_eq!(execucao.stdout, "2.5\n0.1\n", "{execucao:?}");
-    assert_eq!(execucao.codigo, Some(0), "{execucao:?}");
+    let execution = run_through_jit(&dir.0, ir);
+    assert_eq!(execution.stdout, "2.5\n0.1\n", "{execution:?}");
+    assert_eq!(execution.code, Some(0), "{execution:?}");
 }
 
 /// Falha do próprio JIT sai com 70 e a etapa em stderr, sem stdout.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn executor_falha_do_jit_sai_com_70() {
+fn runner_jit_failure_exits_with_70() {
     let dir = OutputDir::new("falha");
-    let execucao = executar_pelo_jit(&dir.0, "declare void @nada()\ndefine void @dartforge_entry() {\n  call void @nada()\n  ret void\n}\n");
-    assert_eq!(execucao.codigo, Some(70), "{execucao:?}");
-    assert!(execucao.stderr.contains("símbolos"), "{execucao:?}");
-    assert!(execucao.stdout.is_empty());
+    let execution = run_through_jit(&dir.0, "declare void @nada()\ndefine void @dartforge_entry() {\n  call void @nada()\n  ret void\n}\n");
+    assert_eq!(execution.code, Some(70), "{execution:?}");
+    assert!(execution.stderr.contains("símbolos"), "{execution:?}");
+    assert!(execution.stdout.is_empty());
 }
 
 // ─── Diferencial JIT × AOT sobre o IR do emissor nativo ───────────────────
@@ -356,7 +356,7 @@ fn executor_falha_do_jit_sai_com_70() {
 /// instância e `print` de `int` devolvido por função. Foram corrigidas com o
 /// contrato de representação do nativo (`crates/emit_native/tests/contrato.rs`)
 /// e ficam aqui como regressão dos dois perfis.
-const PROGRAMAS: &[(&str, &str, &str)] = &[
+const PROGRAMS: &[(&str, &str, &str)] = &[
     (
         "for",
         "\
@@ -421,42 +421,42 @@ void main() {
 /// Emite o LLVM IR de um arquivo Dart como o JIT o recebe
 /// (`emitir_ir_recarregavel`: sem objetos estáticos, que o JIT não tem,
 /// docs/NATIVO-ESPACO-UNIFICADO.md §2.11); o driver AOT liga esse mesmo texto.
-fn emitir_ir(entrada: &Path) -> String {
-    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
-    dartforge_emit_native::emitir_ir_recarregavel(entrada, &opcoes, None)
-        .unwrap_or_else(|erro| panic!("o programa de teste não emitiu IR: {erro}"))
+fn emitir_ir(input: &Path) -> String {
+    let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+    dartforge_emit_native::emitir_ir_recarregavel(input, &options, None)
+        .unwrap_or_else(|error| panic!("o programa de teste não emitiu IR: {error}"))
         .texto
 }
 
-/// Emite o IR de `fonte` uma vez e executa esse mesmo texto pelos dois perfis.
-fn executar_nos_dois_perfis(rotulo: &str, fonte: &str) -> (Execucao, Execucao) {
-    let inicio = std::time::Instant::now();
-    let dir = OutputDir::new(rotulo);
-    let arquivo = dir.0.join("programa.dart");
-    std::fs::write(&arquivo, fonte).unwrap();
-    etapa(inicio, "emitir_ir");
+/// Emite o IR de `source` uma vez e executa esse mesmo texto pelos dois perfis.
+fn run_in_both_profiles(label_name: &str, source: &str) -> (Execution, Execution) {
+    let start = std::time::Instant::now();
+    let dir = OutputDir::new(label_name);
+    let file = dir.0.join("programa.dart");
+    std::fs::write(&file, source).unwrap();
+    stage(start, "emitir_ir");
     // Pilha grande como a CLI: o lowering é recursivo sobre a AST.
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
-        .spawn(move || emitir_ir(&arquivo))
+        .spawn(move || emitir_ir(&file))
         .unwrap()
         .join()
         .unwrap();
-    etapa(inicio, &format!("IR com {} bytes; executar pelo JIT", ir.len()));
+    stage(start, &format!("IR com {} bytes; executar pelo JIT", ir.len()));
 
-    let jit = executar_pelo_jit(&dir.0, &ir);
-    etapa(inicio, &format!("JIT terminou ({:?}); compilar e ligar pelo AOT", jit.codigo));
+    let jit = run_through_jit(&dir.0, &ir);
+    stage(start, &format!("JIT terminou ({:?}); compilar e ligar pelo AOT", jit.code));
 
-    let executavel = dir.0.join("programa.exe");
+    let executable = dir.0.join("programa.exe");
     dartforge_emit_native::driver::compile_and_link(
         &ir,
-        &executavel,
+        &executable,
         &dartforge_emit_native::driver::NativeDriverOptions::default(),
     )
-    .unwrap_or_else(|erro| panic!("o driver AOT falhou: {erro}"));
-    etapa(inicio, "executar o AOT");
-    let aot = executar(&mut Command::new(&executavel));
-    etapa(inicio, &format!("AOT terminou ({:?})", aot.codigo));
+    .unwrap_or_else(|error| panic!("o driver AOT falhou: {error}"));
+    stage(start, "executar o AOT");
+    let aot = execute_fn(&mut Command::new(&executable));
+    stage(start, &format!("AOT terminou ({:?})", aot.code));
     (jit, aot)
 }
 
@@ -469,13 +469,13 @@ fn executar_nos_dois_perfis(rotulo: &str, fonte: &str) -> (Execucao, Execucao) {
 /// (`dartforge-differential --jit-aot`, corpus inteiro).
 #[test]
 #[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
-fn jit_e_aot_concordam_no_mesmo_ir() {
-    for (rotulo, fonte, esperado) in PROGRAMAS {
-        let (jit, aot) = executar_nos_dois_perfis(rotulo, fonte);
-        assert_eq!(jit.stdout, aot.stdout, "{rotulo}\nJIT {jit:?}\nAOT {aot:?}");
-        assert_eq!(jit.codigo, aot.codigo, "{rotulo}\nJIT {jit:?}\nAOT {aot:?}");
-        assert_eq!(&jit.stdout, esperado, "{rotulo}: os dois perfis concordam, mas não com a VM: {jit:?}");
-        assert_eq!(jit.codigo, Some(0), "{rotulo}: {jit:?}");
+fn jit_and_aot_agree_on_same_ir() {
+    for (label_name, source, expected) in PROGRAMS {
+        let (jit, aot) = run_in_both_profiles(label_name, source);
+        assert_eq!(jit.stdout, aot.stdout, "{label_name}\nJIT {jit:?}\nAOT {aot:?}");
+        assert_eq!(jit.code, aot.code, "{label_name}\nJIT {jit:?}\nAOT {aot:?}");
+        assert_eq!(&jit.stdout, expected, "{label_name}: os dois perfis concordam, mas não com a VM: {jit:?}");
+        assert_eq!(jit.code, Some(0), "{label_name}: {jit:?}");
     }
 }
 
@@ -483,8 +483,8 @@ fn jit_e_aot_concordam_no_mesmo_ir() {
 /// do padrão vencedor, inclusive quando o corpo captura a variável.
 #[test]
 #[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
-fn cases_compartilhados_entregam_variaveis_ao_corpo() {
-    let fonte = r#"
+fn shared_cases_deliver_variables_to_body() {
+    let source = r#"
 sealed class Expr {}
 class A extends Expr { final int x; A(this.x); }
 class B extends Expr { final int x; B(this.x); }
@@ -500,9 +500,9 @@ void main() {
   print(ler(B(7))());
 }
 "#;
-    let (jit, aot) = executar_nos_dois_perfis("cases-compartilhados", fonte);
+    let (jit, aot) = run_in_both_profiles("cases-compartilhados", source);
     assert_eq!(jit.stdout, "3\n7\n", "{jit:?}");
     assert_eq!(jit.stdout, aot.stdout, "JIT {jit:?}\nAOT {aot:?}");
-    assert_eq!(jit.codigo, Some(0), "{jit:?}");
-    assert_eq!(jit.codigo, aot.codigo, "JIT {jit:?}\nAOT {aot:?}");
+    assert_eq!(jit.code, Some(0), "{jit:?}");
+    assert_eq!(jit.code, aot.code, "JIT {jit:?}\nAOT {aot:?}");
 }

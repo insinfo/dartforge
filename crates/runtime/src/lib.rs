@@ -6,7 +6,7 @@
 //! O runtime que o código gerado chama é a concatenação dos fragmentos
 //! `src/<fragmento>.rs` na ordem de `FRAGMENTOS` do `build.rs` ([`simbolos::FRAGMENTOS`]):
 //! `nucleo` (entrada, estado por thread, objetos, caixas), `gc_raizes`,
-//! `excecoes`, `saida`, `strings`, `colecoes` e `closures`. O AOT compila o
+//! `excecoes`, `out`, `strings`, `colecoes` e `closures`. O AOT compila o
 //! texto concatenado ([`RUNTIME_MAIN`]) com `rustc` avulso, e liga a `.lib` ao
 //! executável. O JIT (`crates/jit`) usa os **mesmos arquivos** compilados aqui,
 //! como o módulo [`abi`], e publica os endereços de [`simbolos::tabela`]. As

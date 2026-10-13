@@ -7,7 +7,7 @@
 // gerado entrega na entrada a preparação de um isolado
 // (`df.preparar_isolado`: os registros das bibliotecas, a RTI e o
 // embedder) e a função que chama uma closure; `Isolate.spawn` copia a
-// entrada e a mensagem para grafos (`portas.rs`), cria a thread, e nela
+// entrada e a mensagem para grafos (`ports.rs`), cria a thread, e nela
 // prepara o isolado, manda a mensagem de pronto (`[porta de controle,
 // [pausa, término]]`) e roda a entrada como a primeira mensagem
 // (`_startIsolate`). Constantes canônicas e tear-offs de topo atravessam
@@ -18,7 +18,7 @@
 // `ping`, `kill`, ouvintes de saída e de erro, erros fatais), que o laço de
 // eventos atende entre um evento e outro, antes dos comuns. Ao terminar, o
 // isolado avisa os ouvintes de saída e fecha as portas. Um erro não tratado
-// vai aos ouvintes de erro (`[erro, rastro]`); sem ouvinte e com erros
+// vai aos ouvintes de erro (`[error, trace]`); sem ouvinte e com erros
 // fatais, é impresso como na VM (`Unhandled exception:`) e o isolado
 // termina — o processo, não: ele termina com o isolado principal.
 //
@@ -30,83 +30,83 @@
 // eventos; o `kill` com `beforeNextEvent` espera o evento atual terminar.
 
 /// `Isolate.immediate` (a prioridade de `kill` e `ping`).
-const PRIORIDADE_IMEDIATA: i64 = 0;
+const IMMEDIATE_PRIORITY: i64 = 0;
 
 /// `IsolateMessageHandler` (`isolate_patch.dart`, `_PAUSE`…).
-const OOB_PAUSA: i64 = 1;
-const OOB_RETOMAR: i64 = 2;
+const OOB_PAUSE: i64 = 1;
+const OOB_RESUME: i64 = 2;
 const OOB_PING: i64 = 3;
-const OOB_MATAR: i64 = 4;
-const OOB_OUVIR_SAIDA: i64 = 5;
-const OOB_DESOUVIR_SAIDA: i64 = 6;
-const OOB_OUVIR_ERRO: i64 = 7;
-const OOB_DESOUVIR_ERRO: i64 = 8;
-const OOB_ERROS_FATAIS: i64 = 9;
+const OOB_KILL: i64 = 4;
+const OOB_LISTEN_EXIT: i64 = 5;
+const OOB_UNLISTEN_EXIT: i64 = 6;
+const OOB_LISTEN_ERROR: i64 = 7;
+const OOB_UNLISTEN_ERROR: i64 = 8;
+const OOB_ERRORS_FATAL: i64 = 9;
 
 /// A pilha de cada thread de isolado (reserva; o sistema só usa o que
 /// tocar).
-const PILHA_DO_ISOLADO: usize = 64 * 1024 * 1024;
+const ISOLATE_STACK: usize = 64 * 1024 * 1024;
 
 /// O que o código gerado entrega na entrada: a preparação de um isolado e
 /// a chamada de closure (0 = ainda não registrado).
-static PREPARAR_ISOLADO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static PREPARE_ISOLATE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static CHAMAR_CLOSURE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// `dartforge_registrar_isolados(preparar, chamar)`: a entrada do programa
+/// `dartforge_registrar_isolados(prepare, call)`: a entrada do programa
 /// entrega a preparação de isolado e a chamada de closure.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_registrar_isolados(preparar: extern "C" fn(), chamar: Option<extern "C" fn(i64) -> i64>) {
-    PREPARAR_ISOLADO.store(preparar as usize, std::sync::atomic::Ordering::Release);
-    CHAMAR_CLOSURE.store(chamar.map_or(0, |c| c as usize), std::sync::atomic::Ordering::Release);
+pub extern "C" fn dartforge_registrar_isolados(prepare: extern "C" fn(), call: Option<extern "C" fn(i64) -> i64>) {
+    PREPARE_ISOLATE.store(prepare as usize, std::sync::atomic::Ordering::Release);
+    CHAMAR_CLOSURE.store(call.map_or(0, |c| c as usize), std::sync::atomic::Ordering::Release);
 }
 
 /// O estado de controle de um isolado.
-struct EstadoDoIsolado {
-    controle: i64,
-    pausa: i64,
-    termino: i64,
-    erros_fatais: bool,
+struct IsolateState {
+    control: i64,
+    pause: i64,
+    termination: i64,
+    errors_fatal: bool,
     /// As capacidades de retomada das pausas pedidas (pausado se houver).
-    pausas: Vec<i64>,
+    pauses: Vec<i64>,
     /// (porta, resposta) de cada ouvinte de saída.
-    ouvintes_de_saida: Vec<(i64, Grafo)>,
-    ouvintes_de_erro: Vec<i64>,
+    exit_listeners: Vec<(i64, Graph)>,
+    error_listeners: Vec<i64>,
     /// Um `kill` foi aceito: o isolado termina no próximo retorno ao laço.
-    encerrar: bool,
+    shut_down: bool,
     /// O `kill` aceito é imediato (`Isolate.immediate`): o ponto seguro de
     /// um laço desenrola o isolado sem esperar o laço de eventos (J01).
-    encerrar_ja: bool,
+    shut_down_now: bool,
 }
 
 thread_local! {
-    static ISOLADO: RefCell<Option<EstadoDoIsolado>> = const { RefCell::new(None) };
+    static ISOLATE: RefCell<Option<IsolateState>> = const { RefCell::new(None) };
 }
 
 /// Porta de controle → nome de depuração (`Isolate.debugName`), de todos os
 /// isolados vivos.
-fn nomes_dos_isolados() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i64, String>> {
+fn isolate_names() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i64, String>> {
     static N: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i64, String>>> = std::sync::OnceLock::new();
     N.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// O estado deste isolado, criado na primeira vez (o principal nasce
 /// assim: erros fatais, sem pausa, sem ouvintes).
-fn com_estado<R>(f: impl FnOnce(&mut EstadoDoIsolado) -> R) -> R {
-    ISOLADO.with(|i| {
+fn with_state<R>(f: impl FnOnce(&mut IsolateState) -> R) -> R {
+    ISOLATE.with(|i| {
         let mut i = i.borrow_mut();
         let e = i.get_or_insert_with(|| {
-            let controle = abrir_porta_de_controle();
-            nomes_dos_isolados().insert(controle, "main".to_string());
-            EstadoDoIsolado {
-                controle,
-                pausa: dartforge_nativo_DartForge_capacidade_nova(),
-                termino: dartforge_nativo_DartForge_capacidade_nova(),
-                erros_fatais: true,
-                pausas: Vec::new(),
-                ouvintes_de_saida: Vec::new(),
-                ouvintes_de_erro: Vec::new(),
-                encerrar: false,
-                encerrar_ja: false,
+            let control = open_control_port();
+            isolate_names().insert(control, "main".to_string());
+            IsolateState {
+                control,
+                pause: dartforge_nativo_DartForge_capacidade_nova(),
+                termination: dartforge_nativo_DartForge_capacidade_nova(),
+                errors_fatal: true,
+                pauses: Vec::new(),
+                exit_listeners: Vec::new(),
+                error_listeners: Vec::new(),
+                shut_down: false,
+                shut_down_now: false,
             }
         });
         f(e)
@@ -114,41 +114,41 @@ fn com_estado<R>(f: impl FnOnce(&mut EstadoDoIsolado) -> R) -> R {
 }
 
 /// Se o isolado está pausado (o laço só atende a porta de controle).
-fn isolado_pausado() -> bool {
-    ISOLADO.with(|i| i.borrow().as_ref().is_some_and(|e| !e.pausas.is_empty()))
+fn paused_isolate() -> bool {
+    ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| !e.pauses.is_empty()))
 }
 
 /// O inteiro de um valor Dart (escalar sem caixa, ou `Ref` de `int`).
-fn inteiro_de(v: crate::heap::Valor) -> Option<i64> {
+fn int_from(v: crate::heap::Value) -> Option<i64> {
     match v {
-        crate::heap::Valor::Int(i) => Some(i),
-        crate::heap::Valor::Ref(r) => HEAP.with(|h| h.borrow().int_de(r)),
+        crate::heap::Value::Int(i) => Some(i),
+        crate::heap::Value::Ref(r) => HEAP.with(|h| h.borrow().int_of(r)),
         _ => None,
     }
 }
 
 /// O `_id` de uma `_SendPort` ou `_Capability` (o primeiro campo: bruto, ou
 /// um `Ref` de `int`).
-fn id_do_objeto(h: i64) -> Option<i64> {
-    if !crate::layout::e_objeto(h) {
+fn object_id(h: i64) -> Option<i64> {
+    if !crate::layout::is_object(h) {
         return None;
     }
-    let (bits, e_ref) = HEAP.with(|heap| heap.borrow().objeto(h).and_then(|o| o.first()))?;
-    if e_ref { inteiro_de(crate::heap::Valor::Ref(bits)) } else { Some(bits) }
+    let (bits, is_ref_kind) = HEAP.with(|heap| heap.borrow().object(h).and_then(|o| o.first()))?;
+    if is_ref_kind { int_from(crate::heap::Value::Ref(bits)) } else { Some(bits) }
 }
 
-/// Chama a função `nome` da sobreposição de `dart:isolate`.
-fn ajudante_de_isolado(nome: &str) -> usize {
-    ajudante(nome).unwrap_or_else(|| panic!("bug do compilador: dart:isolate sem `{nome}` registrado"))
+/// Chama a função `name` da sobreposição de `dart:isolate`.
+fn ajudante_de_isolado(name: &str) -> usize {
+    ajudante(name).unwrap_or_else(|| panic!("bug do compilador: dart:isolate sem `{name}` registrado"))
 }
 
-/// Copia `valor` para outro isolado; `None` se não é enviável (com a
+/// Copia `value` para outro isolado; `None` se não é enviável (com a
 /// descrição em `DartForge_porta_recusa`).
-fn copiar_para_outro_isolado(valor: i64) -> Option<Grafo> {
-    match copiar_para_grafo(valor, false) {
+fn copy_to_other_isolate(value: i64) -> Option<Graph> {
+    match copy_to_graph(value, false) {
         Ok(g) => Some(g),
-        Err(MensagemIlegal(d)) => {
-            lancar_erro_de_argumento(&format!("Illegal argument in isolate message: {d}"));
+        Err(IllegalMessage(d)) => {
+            throw_argument_error(&format!("Illegal argument in isolate message: {d}"));
             None
         }
     }
@@ -159,248 +159,248 @@ fn copiar_para_outro_isolado(valor: i64) -> Option<Grafo> {
 
 /// Atende as mensagens de controle pendentes. Devolve `false` se o isolado
 /// deve terminar (`kill`).
-fn atender_controle() -> bool {
-    while let Some(g) = proxima_de_controle() {
-        com_mensagem_de_controle(&g, tratar_mensagem_de_controle);
+fn serve_control() -> bool {
+    while let Some(g) = next_control() {
+        with_control_message(&g, handle_control_message);
     }
-    !ISOLADO.with(|i| i.borrow().as_ref().is_some_and(|e| e.encerrar))
+    !ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| e.shut_down))
 }
 
 /// Mantém o owner da mensagem materializada até o tratamento terminar.
 /// A publicação no slot ocorre antes de qualquer alocação ou chamada Dart.
-fn com_mensagem_de_controle<R>(grafo: &Grafo, tratar: impl FnOnce(i64) -> R) -> R {
-    let msg = materializar(grafo);
-    let quadro = HEAP.with(|h| {
+fn with_control_message<R>(graph: &Graph, handle_it: impl FnOnce(i64) -> R) -> R {
+    let msg = materialize(graph);
+    let frame = HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let quadro = h.push_frame_proprietario(1);
-        h.set_root(quadro, 0, msg);
-        quadro
+        let frame = h.push_owning_frame(1);
+        h.set_root(frame, 0, msg);
+        frame
     });
-    let resultado = tratar(msg);
-    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
-    resultado
+    let result = handle_it(msg);
+    HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+    result
 }
 
 #[cfg(test)]
-mod testes_owner_controle {
+mod tests_control_owner {
     use super::*;
 
     #[test]
-    fn entrada_com_excecao_solta_argumento_e_preserva_owner_da_pendencia() {
-        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        HEAP.with(|h| h.borrow_mut().ativar_arc());
-        let entrada = Portavel::Str("erro da entrada".into()).para_grafo();
-        let mensagem = Portavel::Str("argumento descartado".into()).para_grafo();
-        let (entrada, mensagem) = com_entrada_de_isolado(&entrada, &mensagem, |entrada, mensagem, _| {
-            dartforge_exception_throw(entrada, 3);
-            (entrada, mensagem)
+    fn entry_with_exception_releases_argument_and_keeps_pending_owner() {
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        HEAP.with(|h| h.borrow_mut().enable_arc());
+        let input = Portable::Str("erro da entrada".into()).to_graph();
+        let message = Portable::Str("argumento descartado".into()).to_graph();
+        let (input, message) = with_isolate_entry(&input, &message, |input, message, _| {
+            dartforge_exception_throw(input, 3);
+            (input, message)
         });
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(h.e_objeto_vivo(entrada));
-            assert!(!h.e_objeto_vivo(mensagem));
+            assert!(h.is_live_object(input));
+            assert!(!h.is_live_object(message));
         });
-        assert_eq!(dartforge_exception_peek_ref(), entrada);
+        assert_eq!(dartforge_exception_peek_ref(), input);
         dartforge_exception_clear();
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(!h.e_objeto_vivo(entrada));
+            assert!(!h.is_live_object(input));
         });
-        HEAP.with(|h| { h.replace(anterior); });
+        HEAP.with(|h| { h.replace(previous); });
     }
 
     #[test]
-    fn entrada_de_isolado_preserva_valores_e_solta_owners_no_retorno() {
-        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        HEAP.with(|h| h.borrow_mut().ativar_arc());
-        let entrada = Portavel::Str("entrada".into()).para_grafo();
-        let mensagem = Portavel::Str("argumento".into()).para_grafo();
-        let (entrada, mensagem, pronto) = com_entrada_de_isolado(&entrada, &mensagem, |entrada, mensagem, quadro| {
-            let pronto = HEAP.with(|h| {
+    fn isolate_entry_preserves_values_and_releases_owners_on_return() {
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        HEAP.with(|h| h.borrow_mut().enable_arc());
+        let input = Portable::Str("entrada".into()).to_graph();
+        let message = Portable::Str("argumento".into()).to_graph();
+        let (input, message, ready_flag) = with_isolate_entry(&input, &message, |input, message, frame| {
+            let ready_flag = HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.texto(entrada).unwrap().para_string(), "entrada");
-                assert_eq!(h.texto(mensagem).unwrap().para_string(), "argumento");
-                let pronto = h.alocar_str("pronto");
-                h.set_root(quadro, 2, pronto);
+                assert_eq!(h.text(input).unwrap().para_string(), "entrada");
+                assert_eq!(h.text(message).unwrap().para_string(), "argumento");
+                let ready_flag = h.allocate_str("pronto");
+                h.set_root(frame, 2, ready_flag);
                 h.collect();
-                assert_eq!(h.texto(pronto).unwrap().para_string(), "pronto");
-                pronto
+                assert_eq!(h.text(ready_flag).unwrap().para_string(), "pronto");
+                ready_flag
             });
-            (entrada, mensagem, pronto)
+            (input, message, ready_flag)
         });
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            for valor in [entrada, mensagem, pronto] {
-                assert!(!h.e_objeto_vivo(valor));
+            for value in [input, message, ready_flag] {
+                assert!(!h.is_live_object(value));
             }
         });
-        HEAP.with(|h| { h.replace(anterior); });
+        HEAP.with(|h| { h.replace(previous); });
     }
 
     #[test]
-    fn erro_e_rastro_sobrevivem_ao_clear_ate_terminar_o_relato() {
-        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        let erro = HEAP.with(|h| {
+    fn error_and_trace_survive_clear_until_report_ends() {
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        let error = HEAP.with(|h| {
             let mut h = h.borrow_mut();
-            h.ativar_arc();
-            h.alocar_str("erro protegido")
+            h.enable_arc();
+            h.allocate_str("erro protegido")
         });
-        dartforge_exception_throw(erro, 3);
-        let rastro = com_erro_nao_tratado(|capturado, rastro, quadro| {
-            assert_eq!(capturado, erro);
+        dartforge_exception_throw(error, 3);
+        let trace = with_unhandled_error(|captured_value, trace, frame| {
+            assert_eq!(captured_value, error);
             assert_eq!(dartforge_exception_pending(), 0);
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.texto(erro).unwrap().para_string(), "erro protegido");
-                assert!(h.e_objeto_vivo(rastro));
+                assert_eq!(h.text(error).unwrap().para_string(), "erro protegido");
+                assert!(h.is_live_object(trace));
                 // O diagnóstico pode repetir o erro: é outra ocorrência owner.
-                h.set_root(quadro, 2, erro);
+                h.set_root(frame, 2, error);
                 h.collect();
-                assert!(h.e_objeto_vivo(erro));
+                assert!(h.is_live_object(error));
             });
-            rastro
+            trace
         });
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(!h.e_objeto_vivo(erro));
-            assert!(!h.e_objeto_vivo(rastro));
+            assert!(!h.is_live_object(error));
+            assert!(!h.is_live_object(trace));
         });
-        HEAP.with(|h| { h.replace(anterior); });
+        HEAP.with(|h| { h.replace(previous); });
     }
 
     #[test]
-    fn copia_portatil_sobrevive_na_fila_e_owner_ativo_termina_no_retorno() {
-        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        let (quadro, texto) = HEAP.with(|h| {
+    fn portable_copy_survives_in_queue_and_active_owner_ends_at_return() {
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (frame, text) = HEAP.with(|h| {
             let mut h = h.borrow_mut();
-            h.ativar_arc();
-            let quadro = h.push_frame_proprietario(1);
-            let texto = h.alocar_str("controle portátil");
-            h.set_root(quadro, 0, texto);
-            (quadro, texto)
+            h.enable_arc();
+            let frame = h.push_owning_frame(1);
+            let text = h.allocate_str("controle portátil");
+            h.set_root(frame, 0, text);
+            (frame, text)
         });
-        let porta = abrir_porta_de_controle();
-        let grafo = copiar_para_outro_isolado(texto).unwrap();
-        grafo.visitar_valores(|v| assert!(!matches!(v, ValG::Mesmo(_))));
-        postar_controle(porta, grafo);
+        let port = open_control_port();
+        let graph = copy_to_other_isolate(text).unwrap();
+        graph.visit_values(|v| assert!(!matches!(v, GValue::Same(_))));
+        post_control(port, graph);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
-            h.pop_frame(quadro);
+            h.pop_frame(frame);
             h.collect();
-            assert!(!h.e_objeto_vivo(texto));
+            assert!(!h.is_live_object(text));
         });
-        let grafo = proxima_de_controle().unwrap();
-        let recebido = com_mensagem_de_controle(&grafo, |msg| {
+        let graph = next_control().unwrap();
+        let received = with_control_message(&graph, |msg| {
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.texto(msg).unwrap().para_string(), "controle portátil");
+                assert_eq!(h.text(msg).unwrap().para_string(), "controle portátil");
             });
             msg
         });
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(!h.e_objeto_vivo(recebido));
+            assert!(!h.is_live_object(received));
         });
-        fechar_portas_do_isolado();
-        HEAP.with(|h| { h.replace(anterior); });
+        close_isolate_ports();
+        HEAP.with(|h| { h.replace(previous); });
     }
 }
 
 /// `IsolateMessageHandler::HandleLibMessage`: `[0, tipo, …]`.
-fn tratar_mensagem_de_controle(msg: i64) {
-    use crate::heap::Valor;
+fn handle_control_message(msg: i64) {
+    use crate::heap::Value;
     // A mensagem é uma lista do núcleo (`listas.rs`): os elementos sem caixa,
     // na forma do armazenamento.
-    let itens: Vec<Valor> = HEAP.with(|h| {
+    let items: Vec<Value> = HEAP.with(|h| {
         let h = h.borrow();
-        if !crate::layout::e_objeto(msg) || !h.e_lista(msg) {
+        if !crate::layout::is_object(msg) || !h.e_lista(msg) {
             return Vec::new();
         }
-        (0..h.lista_len(msg)).map(|i| h.lista_get(msg, i)).collect()
+        (0..h.list_len(msg)).map(|i| h.list_get(msg, i)).collect()
     });
-    let Some(tipo) = itens.get(1).and_then(|v| inteiro_de(*v)) else { return };
-    let objeto = |i: usize| match itens.get(i) {
-        Some(Valor::Ref(r)) => *r,
+    let Some(tipo) = items.get(1).and_then(|v| int_from(*v)) else { return };
+    let object = |i: usize| match items.get(i) {
+        Some(Value::Ref(r)) => *r,
         _ => 0,
     };
-    let id = |i: usize| id_do_objeto(objeto(i));
+    let id = |i: usize| object_id(object(i));
     // O elemento numa posição `Ref` (encaixota o escalar de uma lista compacta).
-    let valor = |i: usize| itens.get(i).map_or(0, |v| HEAP.with(|h| h.borrow_mut().como_ref(*v)));
+    let value = |i: usize| items.get(i).map_or(0, |v| HEAP.with(|h| h.borrow_mut().to_ref(*v)));
     match tipo {
-        OOB_PAUSA | OOB_RETOMAR => {
-            let (Some(cap), Some(retomar)) = (id(2), id(3)) else { return };
-            com_estado(|e| {
-                if cap != e.pausa {
+        OOB_PAUSE | OOB_RESUME => {
+            let (Some(cap), Some(resume)) = (id(2), id(3)) else { return };
+            with_state(|e| {
+                if cap != e.pause {
                     return;
                 }
-                if tipo == OOB_PAUSA {
-                    e.pausas.push(retomar);
-                } else if let Some(k) = e.pausas.iter().position(|&r| r == retomar) {
-                    e.pausas.remove(k);
+                if tipo == OOB_PAUSE {
+                    e.pauses.push(resume);
+                } else if let Some(k) = e.pauses.iter().position(|&r| r == resume) {
+                    e.pauses.remove(k);
                 }
             });
         }
         OOB_PING => {
-            let Some(porta) = id(2) else { return };
+            let Some(port) = id(2) else { return };
             // As duas prioridades respondem aqui: o controle é atendido
             // entre eventos, antes do próximo.
-            let resposta = valor(4);
-            if let Ok(g) = copiar_para_grafo(resposta, false) {
-                postar(porta, g);
+            let response = value(4);
+            if let Ok(g) = copy_to_graph(response, false) {
+                post(port, g);
             }
         }
-        OOB_MATAR => {
+        OOB_KILL => {
             let Some(cap) = id(2) else { return };
-            let imediato = itens.get(3).and_then(|v| inteiro_de(*v)) == Some(PRIORIDADE_IMEDIATA);
-            com_estado(|e| {
-                if cap == e.termino {
-                    e.encerrar = true;
-                    e.encerrar_ja |= imediato;
+            let immediate = items.get(3).and_then(|v| int_from(*v)) == Some(IMMEDIATE_PRIORITY);
+            with_state(|e| {
+                if cap == e.termination {
+                    e.shut_down = true;
+                    e.shut_down_now |= immediate;
                 }
             });
         }
-        OOB_OUVIR_SAIDA => {
-            let Some(porta) = id(2) else { return };
-            let Ok(resposta) = copiar_para_grafo(valor(3), false) else { return };
-            com_estado(|e| {
-                e.ouvintes_de_saida.retain(|(p, _)| *p != porta);
-                e.ouvintes_de_saida.push((porta, resposta));
+        OOB_LISTEN_EXIT => {
+            let Some(port) = id(2) else { return };
+            let Ok(response) = copy_to_graph(value(3), false) else { return };
+            with_state(|e| {
+                e.exit_listeners.retain(|(p, _)| *p != port);
+                e.exit_listeners.push((port, response));
             });
         }
-        OOB_DESOUVIR_SAIDA => {
-            let Some(porta) = id(2) else { return };
-            com_estado(|e| e.ouvintes_de_saida.retain(|(p, _)| *p != porta));
+        OOB_UNLISTEN_EXIT => {
+            let Some(port) = id(2) else { return };
+            with_state(|e| e.exit_listeners.retain(|(p, _)| *p != port));
         }
-        OOB_OUVIR_ERRO => {
-            let Some(porta) = id(2) else { return };
-            com_estado(|e| {
-                if !e.ouvintes_de_erro.contains(&porta) {
-                    e.ouvintes_de_erro.push(porta);
+        OOB_LISTEN_ERROR => {
+            let Some(port) = id(2) else { return };
+            with_state(|e| {
+                if !e.error_listeners.contains(&port) {
+                    e.error_listeners.push(port);
                 }
             });
         }
-        OOB_DESOUVIR_ERRO => {
-            let Some(porta) = id(2) else { return };
-            com_estado(|e| e.ouvintes_de_erro.retain(|&p| p != porta));
+        OOB_UNLISTEN_ERROR => {
+            let Some(port) = id(2) else { return };
+            with_state(|e| e.error_listeners.retain(|&p| p != port));
         }
-        OOB_ERROS_FATAIS => {
+        OOB_ERRORS_FATAL => {
             let Some(cap) = id(2) else { return };
-            let fatal = match itens.get(3) {
-                Some(Valor::Bool(b)) => *b,
-                Some(Valor::Ref(r)) => HEAP.with(|h| h.borrow().bool_de(*r)) == Some(true),
+            let fatal = match items.get(3) {
+                Some(Value::Bool(b)) => *b,
+                Some(Value::Ref(r)) => HEAP.with(|h| h.borrow().bool_of(*r)) == Some(true),
                 _ => false,
             };
-            com_estado(|e| {
-                if cap == e.termino {
-                    e.erros_fatais = fatal;
+            with_state(|e| {
+                if cap == e.termination {
+                    e.errors_fatal = fatal;
                 }
             });
         }
@@ -412,70 +412,70 @@ fn tratar_mensagem_de_controle(msg: i64) {
 // Erros não tratados e o fim do isolado.
 
 /// `ProcessUnhandledException`: a exceção pendente vai aos ouvintes de
-/// erro (`[erro, rastro]`); sem ouvinte e com erros fatais, é impressa.
+/// erro (`[error, trace]`); sem ouvinte e com erros fatais, é impressa.
 /// Devolve se o isolado deve terminar.
 fn relatar_erro_nao_tratado() -> bool {
-    com_erro_nao_tratado(relatar_erro_protegido)
+    with_unhandled_error(report_error_guarded)
 }
 
 /// Copia os owners antes de limpar a pendência e mantém o diagnóstico no slot 2.
 /// O tratamento pode alocar ou retornar cedo; todos os slots saem ao retornar.
-fn com_erro_nao_tratado<R>(tratar: impl FnOnce(i64, i64, i64) -> R) -> R {
-    let erro = dartforge_exception_peek_ref();
-    let rastro = dartforge_stack_trace_get();
-    let quadro = HEAP.with(|h| {
+fn with_unhandled_error<R>(handle_it: impl FnOnce(i64, i64, i64) -> R) -> R {
+    let error = dartforge_exception_peek_ref();
+    let trace = dartforge_stack_trace_get();
+    let frame = HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let quadro = h.push_frame_proprietario(3);
-        h.set_root(quadro, 0, erro);
-        h.set_root(quadro, 1, rastro);
-        quadro
+        let frame = h.push_owning_frame(3);
+        h.set_root(frame, 0, error);
+        h.set_root(frame, 1, trace);
+        frame
     });
     dartforge_exception_clear();
-    let resultado = tratar(erro, rastro, quadro);
-    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
-    resultado
+    let result = handle_it(error, trace, frame);
+    HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+    result
 }
 
 /// Descreve e distribui o erro já protegido pelo quadro do tratamento.
-fn relatar_erro_protegido(erro: i64, rastro: i64, quadro: i64) -> bool {
-    let (fatal, ouvintes) = com_estado(|e| (e.erros_fatais, e.ouvintes_de_erro.clone()));
+fn report_error_guarded(error: i64, trace: i64, frame: i64) -> bool {
+    let (fatal, listeners) = with_state(|e| (e.errors_fatal, e.error_listeners.clone()));
     // SAFETY: registrada pela sobreposição de `dart:isolate` com a
     // assinatura (`Object?`, `Object?`) → `List<String>`.
-    let descrever = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(alvo_dart, a0, a1) } };
-    let descricao = descrever(erro, rastro);
+    let describe = { let dart_target: usize = ajudante_de_isolado("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
+    let description = describe(error, trace);
     if dartforge_exception_pending() != 0 {
         // O `toString()` do erro falhou: a descrição do runtime.
         dartforge_exception_clear();
-        if ouvintes.is_empty() && fatal {
-            eprintln!("Unhandled exception:\n{}", HEAP.with(|h| describe_handle(&h.borrow(), erro)));
+        if listeners.is_empty() && fatal {
+            eprintln!("Unhandled exception:\n{}", HEAP.with(|h| describe_handle(&h.borrow(), error)));
         }
         return fatal;
     }
-    HEAP.with(|h| h.borrow_mut().set_root(quadro, 2, descricao));
-    if ouvintes.is_empty() {
+    HEAP.with(|h| h.borrow_mut().set_root(frame, 2, description));
+    if listeners.is_empty() {
         if fatal {
             let textos: Vec<String> = HEAP.with(|h| {
                 let h = h.borrow();
-                if !crate::layout::e_objeto(descricao) || !h.e_lista(descricao) {
+                if !crate::layout::is_object(description) || !h.e_lista(description) {
                     return Vec::new();
                 }
-                (0..h.lista_len(descricao))
-                    .map(|i| match h.lista_get(descricao, i) {
-                        crate::heap::Valor::Ref(r) => h.texto(r).map(|t| t.para_string()).unwrap_or_default(),
+                (0..h.list_len(description))
+                    .map(|i| match h.list_get(description, i) {
+                        crate::heap::Value::Ref(r) => h.text(r).map(|t| t.para_string()).unwrap_or_default(),
                         _ => String::new(),
                     })
                     .collect()
             });
-            let rastro = textos.get(1).map(String::as_str).unwrap_or("");
-            eprintln!("Unhandled exception:\n{}\n{}", textos.first().map(String::as_str).unwrap_or(""), rastro.trim_end());
+            let trace = textos.get(1).map(String::as_str).unwrap_or("");
+            eprintln!("Unhandled exception:\n{}\n{}", textos.first().map(String::as_str).unwrap_or(""), trace.trim_end());
         }
-    } else if let Ok(g) = copiar_para_grafo(descricao, false) {
-        for (k, porta) in ouvintes.iter().enumerate() {
-            if k + 1 == ouvintes.len() {
-                postar(*porta, g);
+    } else if let Ok(g) = copy_to_graph(description, false) {
+        for (k, port) in listeners.iter().enumerate() {
+            if k + 1 == listeners.len() {
+                post(*port, g);
                 break;
             }
-            postar(*porta, g.clone());
+            post(*port, g.clone());
         }
     }
     fatal
@@ -483,23 +483,23 @@ fn relatar_erro_protegido(erro: i64, rastro: i64, quadro: i64) -> bool {
 
 /// O fim de um isolado: os ouvintes de saída recebem a resposta deles e as
 /// portas fecham.
-fn encerrar_isolado() {
-    let (controle, ouvintes) = com_estado(|e| (e.controle, std::mem::take(&mut e.ouvintes_de_saida)));
-    for (porta, resposta) in ouvintes {
-        postar(porta, resposta);
+fn shut_down_isolate() {
+    let (control, listeners) = with_state(|e| (e.control, std::mem::take(&mut e.exit_listeners)));
+    for (port, response) in listeners {
+        post(port, response);
     }
-    nomes_dos_isolados().remove(&controle);
-    encerrar_finalizadores_do_isolado();
-    retirar_isolado_vivo();
-    fechar_portas_do_isolado();
+    isolate_names().remove(&control);
+    shutdown_isolate_finalizers();
+    remove_live_isolate();
+    close_isolate_ports();
 }
 
 /// O laço de eventos de um isolado com o tratamento dos erros não
 /// tratados: um erro não fatal não o termina.
-fn rodar_laco_do_isolado(chamar: extern "C" fn(i64) -> i64) {
+fn run_isolate_loop(call: extern "C" fn(i64) -> i64) {
     loop {
-        dartforge_laco_de_eventos(chamar);
-        if desenrolando() || ISOLADO.with(|i| i.borrow().as_ref().is_some_and(|e| e.encerrar)) {
+        dartforge_laco_de_eventos(call);
+        if unwinding_now() || ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| e.shut_down)) {
             return;
         }
         if dartforge_exception_pending() == 0 {
@@ -512,19 +512,19 @@ fn rodar_laco_do_isolado(chamar: extern "C" fn(i64) -> i64) {
 }
 
 /// O ponto seguro de uma volta de laço (J01), que o código gerado chama
-/// quando a porta de controle tem mensagem (`Contexto::interrupcao`): atende
+/// quando a porta de controle tem mensagem (`Context::interrupt`): atende
 /// o controle (ping, pausa, ouvintes, `kill`) e, com um `kill` imediato,
 /// desenrola o isolado — a exceção pendente não capturável sobe até o laço de
 /// eventos, e os `finally` do caminho rodam. A publicação de uma recarga do
 /// JIT não é atendida aqui: ela precisa da pilha sem quadros Dart.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ponto_seguro() {
-    if desenrolando() {
+    if unwinding_now() {
         return;
     }
-    atender_controle();
-    if ISOLADO.with(|i| i.borrow().as_ref().is_some_and(|e| e.encerrar_ja)) {
-        comecar_desenrolar();
+    serve_control();
+    if ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| e.shut_down_now)) {
+        begin_unwind();
     }
 }
 
@@ -532,86 +532,86 @@ pub extern "C" fn dartforge_ponto_seguro() {
 /// de [`dartforge_ponto_seguro`]; o emissor lê o byte direto).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_interrupcao_pendente() -> u8 {
-    crate::heap::CONTEXTO.with(|c| c.interrupcao.load(std::sync::atomic::Ordering::Acquire))
+    crate::heap::CONTEXTO.with(|c| c.interrupt.load(std::sync::atomic::Ordering::Acquire))
 }
 
 // ---------------------------------------------------------------------------
 // `Isolate.spawn`.
 
 /// O que a thread nova recebe do isolado que a criou.
-struct PedidoDeIsolado {
-    pronto: i64,
-    entrada: Grafo,
-    mensagem: Grafo,
-    pausado: bool,
-    erros_fatais: bool,
-    ouvinte_de_saida: Option<i64>,
-    ouvinte_de_erro: Option<i64>,
-    nome: String,
+struct IsolateRequest {
+    ready_flag: i64,
+    input: Graph,
+    message: Graph,
+    paused: bool,
+    errors_fatal: bool,
+    exit_listener: Option<i64>,
+    error_listener: Option<i64>,
+    name: String,
 }
 
 /// Materializa entrada e argumento mantendo owners até o retorno da chamada.
 /// O terceiro slot pertence à mensagem de pronto produzida pelo tratamento.
-fn com_entrada_de_isolado<R>(entrada: &Grafo, mensagem: &Grafo, tratar: impl FnOnce(i64, i64, i64) -> R) -> R {
-    let quadro = HEAP.with(|h| h.borrow_mut().push_frame_proprietario(3));
-    let entrada = materializar(entrada);
-    HEAP.with(|h| h.borrow_mut().set_root(quadro, 0, entrada));
-    let mensagem = materializar(mensagem);
-    HEAP.with(|h| h.borrow_mut().set_root(quadro, 1, mensagem));
-    let resultado = tratar(entrada, mensagem, quadro);
-    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
-    resultado
+fn with_isolate_entry<R>(input: &Graph, message: &Graph, handle_it: impl FnOnce(i64, i64, i64) -> R) -> R {
+    let frame = HEAP.with(|h| h.borrow_mut().push_owning_frame(3));
+    let input = materialize(input);
+    HEAP.with(|h| h.borrow_mut().set_root(frame, 0, input));
+    let message = materialize(message);
+    HEAP.with(|h| h.borrow_mut().set_root(frame, 1, message));
+    let result = handle_it(input, message, frame);
+    HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+    result
 }
 
 /// A vida de um isolado criado por `Isolate.spawn`, na thread dele.
-fn rodar_isolado(p: PedidoDeIsolado) {
-    let preparar = PREPARAR_ISOLADO.load(std::sync::atomic::Ordering::Acquire);
-    let chamar = CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
+fn rodar_isolado(p: IsolateRequest) {
+    let prepare = PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire);
+    let call = CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
     // SAFETY: registrados por `dartforge_registrar_isolados` com essas
     // assinaturas, antes de qualquer `Isolate.spawn`.
-    let preparar = { let alvo_dart: usize = preparar; move || { dart_v0(alvo_dart) } };
-    let chamar: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(chamar) };
-    preparar();
-    let (controle, pausa, termino) = com_estado(|e| {
-        e.erros_fatais = p.erros_fatais;
-        if p.pausado {
-            e.pausas.push(e.pausa);
+    let prepare = { let dart_target: usize = prepare; move || { dart_v0(dart_target) } };
+    let call: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(call) };
+    prepare();
+    let (control, pause, termination) = with_state(|e| {
+        e.errors_fatal = p.errors_fatal;
+        if p.paused {
+            e.pauses.push(e.pause);
         }
-        if let Some(porta) = p.ouvinte_de_saida {
-            e.ouvintes_de_saida.push((porta, Grafo::nulo()));
+        if let Some(port) = p.exit_listener {
+            e.exit_listeners.push((port, Graph::null_val()));
         }
-        e.ouvintes_de_erro.extend(p.ouvinte_de_erro);
-        (e.controle, e.pausa, e.termino)
+        e.error_listeners.extend(p.error_listener);
+        (e.control, e.pause, e.termination)
     });
-    nomes_dos_isolados().insert(controle, p.nome.clone());
+    isolate_names().insert(control, p.name.clone());
     if dartforge_exception_pending() != 0 {
         relatar_erro_nao_tratado();
-        encerrar_isolado();
+        shut_down_isolate();
         return;
     }
     // A entrada e o laço do isolado num escopo nativo (imagens ARC
     // preparadas): os owners das portas Dart chamadas pelo runtime.
-    em_escopo_nativo_se_arc(|| rodar_entrada_e_laco(&p, chamar, controle, pausa, termino));
-    encerrar_isolado();
+    in_native_scope_if_arc(|| run_entry_and_loop(&p, call, control, pause, termination));
+    shut_down_isolate();
 }
 
-fn rodar_entrada_e_laco(p: &PedidoDeIsolado, chamar: extern "C" fn(i64) -> i64, controle: i64, pausa: i64, termino: i64) {
-    com_entrada_de_isolado(&p.entrada, &p.mensagem, |entrada, mensagem, quadro| {
+fn run_entry_and_loop(p: &IsolateRequest, call: extern "C" fn(i64) -> i64, control: i64, pause: i64, termination: i64) {
+    with_isolate_entry(&p.input, &p.message, |input, message, frame| {
         // SAFETY: registradas pela sobreposição de `dart:isolate` com as
         // assinaturas (`int`, `int`, `int`) → `List` e (`Function`,
         // `Object?`) → `void`.
-        let pronto = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
-        let iniciar = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(alvo_dart, a0, a1) } };
-        let m = pronto(controle, pausa, termino);
+        let ready_flag = { let dart_target: usize = ajudante_de_isolado("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let iniciar = { let dart_target: usize = ajudante_de_isolado("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(dart_target, a0, a1) } };
+        let m = ready_flag(control, pause, termination);
         if dartforge_exception_pending() != 0 { return; }
-        HEAP.with(|h| h.borrow_mut().set_root(quadro, 2, m));
-        if let Ok(g) = copiar_para_grafo(m, false) {
-            postar(p.pronto, g);
+        HEAP.with(|h| h.borrow_mut().set_root(frame, 2, m));
+        if let Ok(g) = copy_to_graph(m, false) {
+            post(p.ready_flag, g);
         }
-        iniciar(entrada, mensagem);
+        iniciar(input, message);
     });
     if dartforge_exception_pending() == 0 || !relatar_erro_nao_tratado() {
-        rodar_laco_do_isolado(chamar);
+        run_isolate_loop(call);
     }
 }
 
@@ -620,49 +620,49 @@ fn rodar_entrada_e_laco(p: &PedidoDeIsolado, chamar: extern "C" fn(i64) -> i64, 
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
-    pronto: i64,
+    ready_flag: i64,
     uri: i64,
-    entrada: i64,
-    mensagem: i64,
-    pausado: u8,
-    erros_fatais: u8,
-    ouvinte_de_saida: i64,
-    ouvinte_de_erro: i64,
-    _configuracao_de_pacotes: i64,
-    nome: i64,
+    input: i64,
+    message: i64,
+    paused: u8,
+    errors_fatal: u8,
+    exit_listener: i64,
+    error_listener: i64,
+    _package_config: i64,
+    name: i64,
 ) {
-    let Some(pronto) = id_do_objeto(pronto) else {
-        lancar_erro_de_argumento("readyPort is not a SendPort");
+    let Some(ready_flag) = object_id(ready_flag) else {
+        throw_argument_error("readyPort is not a SendPort");
         return;
     };
-    if PREPARAR_ISOLADO.load(std::sync::atomic::Ordering::Acquire) == 0 || CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire) == 0 {
-        lancar_erro_interno("Isolate.spawn sem a entrada do programa registrada");
+    if PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire) == 0 || CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire) == 0 {
+        throw_internal_error("Isolate.spawn sem a entrada do programa registrada");
         return;
     }
-    let Some(g_entrada) = copiar_para_outro_isolado(entrada) else { return };
-    let Some(g_mensagem) = copiar_para_outro_isolado(mensagem) else { return };
-    let texto = |h: i64| HEAP.with(|heap| heap.borrow().texto(h).map(|t| t.para_string()));
-    let nome = texto(nome).unwrap_or_else(|| format!("{}:spawn()", texto(uri).unwrap_or_default()));
-    let pedido = PedidoDeIsolado {
-        pronto,
-        entrada: g_entrada,
-        mensagem: g_mensagem,
-        pausado: pausado != 0,
-        erros_fatais: erros_fatais != 0,
-        ouvinte_de_saida: (ouvinte_de_saida != 0).then(|| id_do_objeto(ouvinte_de_saida)).flatten(),
-        ouvinte_de_erro: (ouvinte_de_erro != 0).then(|| id_do_objeto(ouvinte_de_erro)).flatten(),
-        nome: nome.clone(),
+    let Some(g_input) = copy_to_other_isolate(input) else { return };
+    let Some(g_message) = copy_to_other_isolate(message) else { return };
+    let text = |h: i64| HEAP.with(|heap| heap.borrow().text(h).map(|t| t.para_string()));
+    let name = text(name).unwrap_or_else(|| format!("{}:spawn()", text(uri).unwrap_or_default()));
+    let request = IsolateRequest {
+        ready_flag,
+        input: g_input,
+        message: g_message,
+        paused: paused != 0,
+        errors_fatal: errors_fatal != 0,
+        exit_listener: (exit_listener != 0).then(|| object_id(exit_listener)).flatten(),
+        error_listener: (error_listener != 0).then(|| object_id(error_listener)).flatten(),
+        name: name.clone(),
     };
-    let criada = std::thread::Builder::new().name(nome).stack_size(PILHA_DO_ISOLADO).spawn(move || {
+    let created = std::thread::Builder::new().name(name).stack_size(ISOLATE_STACK).spawn(move || {
         // As listas livres do alocador valem enquanto o isolado roda
         // (`alocador.rs`); o fim da thread as devolve ao sistema.
-        ligar_cache_de_alocacao();
-        rodar_isolado(pedido);
-        esvaziar_cache_de_alocacao();
+        enable_allocation_cache();
+        rodar_isolado(request);
+        flush_allocation_cache();
     });
-    if let Err(e) = criada {
+    if let Err(e) = created {
         // A VM responde na porta de pronto com o texto do erro.
-        postar(pronto, Portavel::Str(format!("Unable to create the isolate thread: {e}")).para_grafo());
+        post(ready_flag, Portable::Str(format!("Unable to create the isolate thread: {e}")).to_graph());
     }
 }
 
@@ -672,70 +672,70 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
-    pronto: i64,
+    ready_flag: i64,
     uri: i64,
     _args: i64,
-    _mensagem: i64,
-    _pausado: u8,
-    _saida: i64,
-    _erro: i64,
-    _fatais: u8,
+    _message: i64,
+    _paused: u8,
+    _out: i64,
+    _error: i64,
+    _fatal: u8,
     _asserts: i64,
-    _ambiente: i64,
-    _pacotes: i64,
-    _nome: i64,
+    _env: i64,
+    _packages: i64,
+    _name: i64,
 ) {
-    let Some(pronto) = id_do_objeto(pronto) else { return };
-    let uri = HEAP.with(|h| h.borrow().texto(uri).map(|t| t.para_string()).unwrap_or_default());
+    let Some(ready_flag) = object_id(ready_flag) else { return };
+    let uri = HEAP.with(|h| h.borrow().text(uri).map(|t| t.para_string()).unwrap_or_default());
     // O JIT (o hospedeiro definiu o script) roda um programa por processo:
     // as tabelas de classes e o RTI são do processo. Ver docs/JIT.md.
-    let jit = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).is_some();
-    let texto = if jit {
+    let jit = program_script().lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    let text = if jit {
         format!("Isolate.spawnUri({uri}) is not supported by the DartForge JIT: a process runs a single program")
     } else {
         format!("Isolate.spawnUri({uri}) is not supported in a program compiled ahead of time")
     };
-    postar(pronto, Portavel::Str(texto).para_grafo());
+    post(ready_flag, Portable::Str(text).to_graph());
 }
 
 /// `Isolate_getPortAndCapabilitiesOfCurrentIsolate`: `[porta de controle,
 /// pausa, término]`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_getPortAndCapabilitiesOfCurrentIsolate() -> i64 {
-    let (c, p, t) = com_estado(|e| (e.controle, e.pausa, e.termino));
+    let (c, p, t) = with_state(|e| (e.control, e.pause, e.termination));
     // SAFETY: registrada pela sobreposição de `dart:isolate` com a
     // assinatura (`int`, `int`, `int`) → `List`.
-    let f = { let alvo_dart: usize = ajudante_de_isolado("_dartforgePortaECapacidades"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
+    let f = { let dart_target: usize = ajudante_de_isolado("_dartforgePortaECapacidades"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
     f(c, p, t)
 }
 
 /// `Isolate_getDebugName(controlPort)`: o nome do isolado vivo, ou `null`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_getDebugName(porta: i64) -> i64 {
-    let Some(id) = id_do_objeto(porta) else { return 0 };
-    let nome = nomes_dos_isolados().get(&id).cloned();
-    nome.map_or(0, |n| HEAP.with(|h| h.borrow_mut().alocar_str(&n)))
+pub extern "C" fn dartforge_nativo_Isolate_getDebugName(port: i64) -> i64 {
+    let Some(id) = object_id(port) else { return 0 };
+    let name = isolate_names().get(&id).cloned();
+    name.map_or(0, |n| HEAP.with(|h| h.borrow_mut().allocate_str(&n)))
 }
 
 /// `Isolate_getCurrentRootUriStr`: o URI `file:` do script (o `.dart` que
 /// o JIT roda, como no `dart run`; no AOT, o executável, como na VM).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_getCurrentRootUriStr() -> i64 {
-    let definido = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let caminho = match definido {
-        Some(b) => caminho_de_bytes(&b),
+    let defined = program_script().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let file_path = match defined {
+        Some(b) => path_from_bytes(&b),
         None => std::env::current_exe().ok().or_else(|| std::env::args_os().next().map(std::path::PathBuf::from)).unwrap_or_default(),
     };
-    let absoluto = if caminho.is_absolute() { caminho } else { std::env::current_dir().unwrap_or_default().join(caminho) };
-    HEAP.with(|h| h.borrow_mut().alocar_str(&uri_de_arquivo(&absoluto)))
+    let absolute_path = if file_path.is_absolute() { file_path } else { std::env::current_dir().unwrap_or_default().join(file_path) };
+    HEAP.with(|h| h.borrow_mut().allocate_str(&file_uri(&absolute_path)))
 }
 
 /// O URI `file:` de um caminho absoluto (`Uri.file`), com os bytes fora dos
 /// não reservados codificados.
-fn uri_de_arquivo(caminho: &std::path::Path) -> String {
-    let texto = caminho.to_string_lossy().replace('\\', "/");
-    let mut uri = String::from(if texto.starts_with('/') { "file://" } else { "file:///" });
-    for b in texto.bytes() {
+fn file_uri(file_path: &std::path::Path) -> String {
+    let text = file_path.to_string_lossy().replace('\\', "/");
+    let mut uri = String::from(if text.starts_with('/') { "file://" } else { "file:///" });
+    for b in text.bytes() {
         if b.is_ascii_alphanumeric() || b"-._~/:".contains(&b) {
             uri.push(char::from(b));
         } else {
@@ -748,27 +748,27 @@ fn uri_de_arquivo(caminho: &std::path::Path) -> String {
 /// `Isolate_sendOOB(port, msg)`: a mensagem vai à fila de controle do
 /// isolado dono da porta.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_sendOOB(porta: i64, mensagem: i64) {
-    let Some(id) = id_do_objeto(porta) else {
-        lancar_erro_de_argumento("port is not a SendPort");
+pub extern "C" fn dartforge_nativo_Isolate_sendOOB(port: i64, message: i64) {
+    let Some(id) = object_id(port) else {
+        throw_argument_error("port is not a SendPort");
         return;
     };
-    let Some(g) = copiar_para_outro_isolado(mensagem) else { return };
-    postar_controle(id, g);
+    let Some(g) = copy_to_other_isolate(message) else { return };
+    post_control(id, g);
 }
 
 /// `Isolate_exit_(finalMessagePort, message)`: manda a mensagem final e
 /// desenrola o isolado (o `UnwindError` da VM).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Isolate_exit_(porta: i64, mensagem: i64) -> i64 {
-    if porta != 0 {
-        let Some(id) = id_do_objeto(porta) else {
-            lancar_erro_de_argumento("finalMessagePort is not a SendPort");
+pub extern "C" fn dartforge_nativo_Isolate_exit_(port: i64, message: i64) -> i64 {
+    if port != 0 {
+        let Some(id) = object_id(port) else {
+            throw_argument_error("finalMessagePort is not a SendPort");
             return 0;
         };
-        let Some(g) = copiar_para_outro_isolado(mensagem) else { return 0 };
-        postar(id, g);
+        let Some(g) = copy_to_other_isolate(message) else { return 0 };
+        post(id, g);
     }
-    comecar_desenrolar();
+    begin_unwind();
     0
 }

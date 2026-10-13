@@ -7,7 +7,7 @@
 // a saída e o erro (que o Dart lê como `_NativeSocket`, pelo manipulador de
 // eventos) e um pipe de controle que devolve o `errno` de um `exec` que
 // falhou; uma thread (`ExitCodeHandler`) espera os filhos com `wait` e
-// escreve o código de saída (`[código, negativo]`, dois `int32`) no pipe de
+// escreve o código de saída (`[código, negative]`, dois `int32`) no pipe de
 // saída de cada processo. Os modos destacados passam por um segundo `fork`
 // e `setsid`, e o neto informa o próprio pid.
 //
@@ -19,64 +19,64 @@
 // No Windows (`io_windows_processos.rs`) o filho nasce de `CreateProcessW`,
 // com pipes nomeados sobrepostos no lado do pai, e o código de saída chega
 // pelo pool de threads do sistema (`RegisterWaitForSingleObject`), com as
-// mesmas funções (`iniciar_processo`, `esperar_processo`,
-// `matar_processo`, `inscrever_sinal`…).
+// mesmas funções (`start_process`, `wait_process`,
+// `kill_process`, `subscribe_signal`…).
 
 /// `ProcessStartMode`.
-const MODO_NORMAL: i64 = 0;
-const MODO_HERDAR_STDIO: i64 = 1;
-const MODO_DESTACADO: i64 = 2;
-const MODO_DESTACADO_COM_STDIO: i64 = 3;
+const MODE_NORMAL: i64 = 0;
+const MODE_INHERIT_STDIO: i64 = 1;
+const MODE_DETACHED: i64 = 2;
+const MODE_DETACHED_WITH_STDIO: i64 = 3;
 
-fn modo_anexado(modo: i64) -> bool {
-    modo == MODO_NORMAL || modo == MODO_HERDAR_STDIO
+fn attached_mode(mode: i64) -> bool {
+    mode == MODE_NORMAL || mode == MODE_INHERIT_STDIO
 }
 
-fn modo_com_stdio(modo: i64) -> bool {
-    modo == MODO_NORMAL || modo == MODO_DESTACADO_COM_STDIO
+fn mode_with_stdio(mode: i64) -> bool {
+    mode == MODE_NORMAL || mode == MODE_DETACHED_WITH_STDIO
 }
 
 /// Os textos de uma `List<String>` Dart em UTF-8; `None` se algum elemento
 /// não é `String`.
-fn textos_da_lista(lista: i64) -> Option<Vec<Vec<u8>>> {
+fn list_strings(list: i64) -> Option<Vec<Vec<u8>>> {
     HEAP.with(|h| {
         let h = h.borrow();
-        if !h.e_lista(lista) {
+        if !h.e_lista(list) {
             return None;
         }
-        let n = h.lista_len(lista);
-        let mut saida = Vec::with_capacity(n);
+        let n = h.list_len(list);
+        let mut output = Vec::with_capacity(n);
         for i in 0..n {
-            match h.lista_get(lista, i) {
-                crate::heap::Valor::Ref(r) => saida.push(h.texto(r)?.para_utf8_da_vm()),
+            match h.list_get(list, i) {
+                crate::heap::Value::Ref(r) => output.push(h.text(r)?.to_vm_utf8()),
                 _ => return None,
             }
         }
-        Some(saida)
+        Some(output)
     })
 }
 
 /// Grava o erro de início no `_ProcessStartStatus` (o `Dart_SetField` da
 /// VM), pela função da sobreposição.
-fn falha_ao_iniciar(status: i64, codigo: i64, mensagem: &str) {
+fn start_failure(status: i64, code: i64, message: &str) {
     let Some(f) = ajudante("_dartforgeFalhaAoIniciar") else {
         panic!("bug do compilador: dart:io sem `_dartforgeFalhaAoIniciar` registrado");
     };
     // SAFETY: registrada pela sobreposição de `dart:io` com a assinatura
     // (`_ProcessStartStatus`, `int`, `String`) → `void`.
-    let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64| { dart_v3(alvo_dart, a0, a1, a2) } };
-    let m = alocar_str(mensagem);
-    com_raizes(&[m], || g(status, codigo, m));
+    let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| { dart_v3(dart_target, a0, a1, a2) } };
+    let m = allocate_str(message);
+    with_roots(&[m], || g(status, code, m));
 }
 
 /// Um processo iniciado: o pid e os descritores do lado do pai (-1 quando
 /// o modo não tem).
-struct ProcessoIniciado {
+struct StartedProcess {
     pid: i64,
-    entrada: i64,
-    saida: i64,
-    erro: i64,
-    fim: i64,
+    input: i64,
+    output: i64,
+    error: i64,
+    end: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -85,18 +85,18 @@ struct ProcessoIniciado {
 #[cfg(unix)]
 unsafe extern "C" {
     fn fork() -> i32;
-    fn execvp(arquivo: *const std::ffi::c_char, argv: *const *const std::ffi::c_char) -> i32;
-    fn dup2(de: i32, para: i32) -> i32;
-    fn chdir(caminho: *const std::ffi::c_char) -> i32;
+    fn execvp(file: *const std::ffi::c_char, argv: *const *const std::ffi::c_char) -> i32;
+    fn dup2(de: i32, to: i32) -> i32;
+    fn chdir(file_path: *const std::ffi::c_char) -> i32;
     fn setsid() -> i32;
     fn getpid() -> i32;
-    fn _exit(codigo: i32) -> !;
+    fn _exit(code: i32) -> !;
     fn close(fd: i32) -> i32;
-    fn open(caminho: *const std::ffi::c_char, flags: i32, ...) -> i32;
-    fn kill(pid: i32, sinal: i32) -> i32;
+    fn open(file_path: *const std::ffi::c_char, flags: i32, ...) -> i32;
+    fn kill(pid: i32, sig_num: i32) -> i32;
     fn wait(status: *mut i32) -> i32;
-    fn poll(fds: *mut PollFd, n: u64, espera: i32) -> i32;
-    fn sysconf(nome: i32) -> std::ffi::c_long;
+    fn poll(fds: *mut PollFd, n: u64, wait_entry: i32) -> i32;
+    fn sysconf(name: i32) -> std::ffi::c_long;
 }
 
 #[cfg(target_os = "linux")]
@@ -115,22 +115,22 @@ unsafe extern "C" {
 /// da libc; no macOS, pelo `_NSGetEnviron` (o símbolo não é visível a uma
 /// biblioteca dinâmica).
 #[cfg(unix)]
-unsafe fn trocar_ambiente(novo: *const *const std::ffi::c_char) {
+unsafe fn swap_env(new: *const *const std::ffi::c_char) {
     #[cfg(target_os = "linux")]
     // SAFETY: só o filho, de uma thread, antes do `exec`.
     unsafe {
-        environ = novo;
+        environ = new;
     }
     #[cfg(not(target_os = "linux"))]
     // SAFETY: idem.
     unsafe {
-        *_NSGetEnviron() = novo;
+        *_NSGetEnviron() = new;
     }
 }
 
 /// O `errno` corrente (seguro no filho entre o `fork` e o `exec`).
 #[cfg(unix)]
-fn errno_atual() -> i32 {
+fn current_errno() -> i32 {
     // SAFETY: o endereço do `errno` da thread.
     #[cfg(target_os = "linux")]
     unsafe {
@@ -146,32 +146,32 @@ fn errno_atual() -> i32 {
 #[repr(C)]
 struct PollFd {
     fd: i32,
-    eventos: i16,
-    reventos: i16,
+    events: i16,
+    revents: i16,
 }
 
 /// Um pipe com os dois lados fechados no `exec` (`pipe2(O_CLOEXEC)`).
 #[cfg(unix)]
-fn pipe_fechado_no_exec() -> ResultadoIo<[i32; 2]> {
+fn cloexec_pipe() -> IoResult<[i32; 2]> {
     let mut fds = [-1i32; 2];
     // SAFETY: `fds` tem dois inteiros.
     if unsafe { pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
-    fechar_no_exec(fds[0]);
-    fechar_no_exec(fds[1]);
+    close_on_exec(fds[0]);
+    close_on_exec(fds[1]);
     Ok(fds)
 }
 
 /// Escreve tudo, repetindo na interrupção (`FDUtils::WriteToBlocking`).
 #[cfg(unix)]
-fn escrever_bloqueante(fd: i32, dados: &[u8]) -> isize {
-    let mut feito = 0usize;
-    while feito < dados.len() {
+fn write_blocking(fd: i32, data: &[u8]) -> isize {
+    let mut done = 0usize;
+    while done < data.len() {
         // SAFETY: os dados são legíveis.
-        let n = unsafe { write(fd, dados[feito..].as_ptr().cast(), dados.len() - feito) };
+        let n = unsafe { write(fd, data[done..].as_ptr().cast(), data.len() - done) };
         if n < 0 {
-            if errno_atual() == 4 {
+            if current_errno() == 4 {
                 continue;
             }
             return -1;
@@ -179,20 +179,20 @@ fn escrever_bloqueante(fd: i32, dados: &[u8]) -> isize {
         if n == 0 {
             break;
         }
-        feito += n as usize;
+        done += n as usize;
     }
-    feito as isize
+    done as isize
 }
 
 /// Lê até encher ou o fim (`FDUtils::ReadFromBlocking`).
 #[cfg(unix)]
-fn ler_bloqueante(fd: i32, destino: &mut [u8]) -> isize {
-    let mut feito = 0usize;
-    while feito < destino.len() {
+fn read_blocking(fd: i32, dest: &mut [u8]) -> isize {
+    let mut done = 0usize;
+    while done < dest.len() {
         // SAFETY: o destino é gravável.
-        let n = unsafe { read(fd, destino[feito..].as_mut_ptr().cast(), destino.len() - feito) };
+        let n = unsafe { read(fd, dest[done..].as_mut_ptr().cast(), dest.len() - done) };
         if n < 0 {
-            if errno_atual() == 4 {
+            if current_errno() == 4 {
                 continue;
             }
             return -1;
@@ -200,64 +200,64 @@ fn ler_bloqueante(fd: i32, destino: &mut [u8]) -> isize {
         if n == 0 {
             break;
         }
-        feito += n as usize;
+        done += n as usize;
     }
-    feito as isize
+    done as isize
 }
 
 /// Os filhos anexados e o pipe de saída de cada um (`ProcessInfoList`), e
 /// a thread que os espera (`ExitCodeHandler`).
 #[cfg(unix)]
-struct EsperaDeFilhos {
-    estado: std::sync::Mutex<EstadoDaEspera>,
-    sinal: std::sync::Condvar,
+struct ChildWait {
+    estado: std::sync::Mutex<WaitState>,
+    sig_num: std::sync::Condvar,
 }
 
 #[cfg(unix)]
 #[derive(Default)]
-struct EstadoDaEspera {
+struct WaitState {
     /// pid → lado de escrita do pipe de saída.
-    ativos: crate::hash::HashMap<i32, i32>,
-    rodando: bool,
+    active: crate::hash::HashMap<i32, i32>,
+    running: bool,
 }
 
 #[cfg(unix)]
-fn espera_de_filhos() -> &'static EsperaDeFilhos {
-    static E: std::sync::OnceLock<EsperaDeFilhos> = std::sync::OnceLock::new();
-    E.get_or_init(|| EsperaDeFilhos { estado: std::sync::Mutex::new(EstadoDaEspera::default()), sinal: std::sync::Condvar::new() })
+fn child_wait() -> &'static ChildWait {
+    static E: std::sync::OnceLock<ChildWait> = std::sync::OnceLock::new();
+    E.get_or_init(|| ChildWait { estado: std::sync::Mutex::new(WaitState::default()), sig_num: std::sync::Condvar::new() })
 }
 
 #[cfg(unix)]
-impl EsperaDeFilhos {
+impl ChildWait {
     /// Registra um filho e garante a thread que espera.
-    fn registrar(&'static self, pid: i32, fd_de_saida: i32) {
+    fn register(&'static self, pid: i32, fd_de_saida: i32) {
         let mut e = self.estado.lock().unwrap_or_else(|x| x.into_inner());
-        e.ativos.insert(pid, fd_de_saida);
-        self.sinal.notify_all();
-        if e.rodando {
+        e.active.insert(pid, fd_de_saida);
+        self.sig_num.notify_all();
+        if e.running {
             return;
         }
-        e.rodando = true;
+        e.running = true;
         std::thread::Builder::new()
             .name("dart:io Process.start".to_string())
-            .spawn(move || self.esperar())
+            .spawn(move || self.wait_for())
             .expect("dart:io: falha ao criar a thread dos processos");
     }
 
     /// `ExitCodeHandlerEntry`: espera qualquer filho e informa o código.
-    fn esperar(&self) {
+    fn wait_for(&self) {
         loop {
             {
                 let mut e = self.estado.lock().unwrap_or_else(|x| x.into_inner());
-                while e.ativos.is_empty() {
-                    e = self.sinal.wait(e).unwrap_or_else(|x| x.into_inner());
+                while e.active.is_empty() {
+                    e = self.sig_num.wait(e).unwrap_or_else(|x| x.into_inner());
                 }
             }
             let mut status = 0i32;
             // SAFETY: espera um filho qualquer.
             let pid = unsafe { wait(&mut status) };
             if pid < 0 {
-                if errno_atual() == 4 {
+                if current_errno() == 4 {
                     continue;
                 }
                 // Sem filhos (ECHILD): o registro está à frente do `fork`
@@ -265,20 +265,20 @@ impl EsperaDeFilhos {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 continue;
             }
-            let (mut codigo, mut negativo) = (0i32, 0i32);
-            let termino = status & 0x7f;
-            if termino == 0 {
-                codigo = (status >> 8) & 0xff;
-            } else if termino != 0x7f {
-                codigo = termino;
-                negativo = 1;
+            let (mut code, mut negative) = (0i32, 0i32);
+            let termination = status & 0x7f;
+            if termination == 0 {
+                code = (status >> 8) & 0xff;
+            } else if termination != 0x7f {
+                code = termination;
+                negative = 1;
             }
-            let fd = self.estado.lock().unwrap_or_else(|x| x.into_inner()).ativos.remove(&pid);
+            let fd = self.estado.lock().unwrap_or_else(|x| x.into_inner()).active.remove(&pid);
             if let Some(fd) = fd {
                 let mut msg = [0u8; 8];
-                msg[..4].copy_from_slice(&codigo.to_ne_bytes());
-                msg[4..].copy_from_slice(&negativo.to_ne_bytes());
-                escrever_bloqueante(fd, &msg);
+                msg[..4].copy_from_slice(&code.to_ne_bytes());
+                msg[4..].copy_from_slice(&negative.to_ne_bytes());
+                write_blocking(fd, &msg);
                 // SAFETY: o lado de escrita é deste registro, fechado uma vez.
                 unsafe { close(fd) };
             }
@@ -288,38 +288,38 @@ impl EsperaDeFilhos {
 
 /// O `ProcessStarter` da VM.
 #[cfg(unix)]
-fn iniciar_processo(
-    caminho: &[u8],
-    argumentos: &[Vec<u8>],
-    diretorio: Option<&[u8]>,
-    ambiente: Option<&[Vec<u8>]>,
-    modo: i64,
-) -> Result<ProcessoIniciado, ErroDoSo> {
-    let cstr = |b: &[u8]| std::ffi::CString::new(b.to_vec()).map_err(|_| ErroDoSo::do_codigo(codigo_do_so::INVALIDO));
-    let caminho_c = cstr(caminho)?;
-    let mut args_c = vec![caminho_c.clone()];
-    for a in argumentos {
+fn start_process(
+    file_path: &[u8],
+    arguments: &[Vec<u8>],
+    directory: Option<&[u8]>,
+    env: Option<&[Vec<u8>]>,
+    mode: i64,
+) -> Result<StartedProcess, OsError> {
+    let cstr = |b: &[u8]| std::ffi::CString::new(b.to_vec()).map_err(|_| OsError::from_code(os_code::INVALID));
+    let path_c = cstr(file_path)?;
+    let mut args_c = vec![path_c.clone()];
+    for a in arguments {
         args_c.push(cstr(a)?);
     }
     let mut argv: Vec<*const std::ffi::c_char> = args_c.iter().map(|c| c.as_ptr()).collect();
     argv.push(std::ptr::null());
-    let ambiente_c = match ambiente {
+    let c_env = match env {
         Some(v) => Some(v.iter().map(|e| cstr(e)).collect::<Result<Vec<_>, _>>()?),
         None => None,
     };
-    let envp: Option<Vec<*const std::ffi::c_char>> = ambiente_c.as_ref().map(|v| {
+    let envp: Option<Vec<*const std::ffi::c_char>> = c_env.as_ref().map(|v| {
         let mut p: Vec<_> = v.iter().map(|c| c.as_ptr()).collect();
         p.push(std::ptr::null());
         p
     });
-    let diretorio_c = match diretorio {
+    let c_directory = match directory {
         Some(d) => Some(cstr(d)?),
         None => None,
     };
-    let nulo_c = c"/dev/null";
+    let c_null = c"/dev/null";
 
     let mut pipes: Vec<i32> = Vec::new();
-    let fechar_todos = |pipes: &[i32]| {
+    let close_all = |pipes: &[i32]| {
         for &fd in pipes {
             if fd >= 0 {
                 // SAFETY: descritores deste início.
@@ -327,20 +327,20 @@ fn iniciar_processo(
             }
         }
     };
-    let controle = pipe_fechado_no_exec()?;
-    pipes.extend(controle);
-    let leitura_entrada = match pipe_fechado_no_exec() {
+    let control = cloexec_pipe()?;
+    pipes.extend(control);
+    let read_input = match cloexec_pipe() {
         Ok(p) => p,
         Err(e) => {
-            fechar_todos(&pipes);
+            close_all(&pipes);
             return Err(e);
         }
     };
-    pipes.extend(leitura_entrada);
-    let (leitura_erro, escrita_saida) = if modo_com_stdio(modo) {
-        let a = pipe_fechado_no_exec().inspect_err(|_| fechar_todos(&pipes))?;
+    pipes.extend(read_input);
+    let (read_error, write_output) = if mode_with_stdio(mode) {
+        let a = cloexec_pipe().inspect_err(|_| close_all(&pipes))?;
         pipes.extend(a);
-        let b = pipe_fechado_no_exec().inspect_err(|_| fechar_todos(&pipes))?;
+        let b = cloexec_pipe().inspect_err(|_| close_all(&pipes))?;
         pipes.extend(b);
         (a, b)
     } else {
@@ -360,180 +360,180 @@ fn iniciar_processo(
     // montada.
     let pid = unsafe { fork() };
     if pid < 0 {
-        let e = ErroDoSo::de(&std::io::Error::last_os_error());
-        fechar_todos(&pipes);
+        let e = OsError::de(&std::io::Error::last_os_error());
+        close_all(&pipes);
         return Err(e);
     }
     if pid == 0 {
         // --- O filho. ---
         // SAFETY: tudo aqui é seguro depois do `fork`.
         unsafe {
-            let relatar = |fd: i32| -> ! {
-                let e = errno_atual();
-                escrever_bloqueante(fd, &e.to_ne_bytes());
+            let report = |fd: i32| -> ! {
+                let e = current_errno();
+                write_blocking(fd, &e.to_ne_bytes());
                 close(fd);
                 _exit(1)
             };
             let mut msg = [0u8; 1];
-            if ler_bloqueante(leitura_entrada[0], &mut msg) != 1 {
+            if read_blocking(read_input[0], &mut msg) != 1 {
                 _exit(1);
             }
-            if modo_anexado(modo) {
-                if modo == MODO_NORMAL {
-                    if dup2(escrita_saida[0], 0) == -1 || dup2(leitura_entrada[1], 1) == -1 || dup2(leitura_erro[1], 2) == -1 {
-                        relatar(controle[1]);
+            if attached_mode(mode) {
+                if mode == MODE_NORMAL {
+                    if dup2(write_output[0], 0) == -1 || dup2(read_input[1], 1) == -1 || dup2(read_error[1], 2) == -1 {
+                        report(control[1]);
                     }
                 }
-                if let Some(d) = &diretorio_c {
+                if let Some(d) = &c_directory {
                     if chdir(d.as_ptr()) != 0 {
-                        relatar(controle[1]);
+                        report(control[1]);
                     }
                 }
                 if let Some(e) = &envp {
-                    trocar_ambiente(e.as_ptr());
+                    swap_env(e.as_ptr());
                 }
-                execvp(caminho_c.as_ptr(), argv.as_ptr());
-                relatar(controle[1]);
+                execvp(path_c.as_ptr(), argv.as_ptr());
+                report(control[1]);
             }
             // Destacado: um segundo `fork` depois do `setsid`, e o neto
             // informa o próprio pid pelo pipe de controle.
-            if modo == MODO_DESTACADO {
-                close(leitura_entrada[0]);
-                close(leitura_entrada[1]);
+            if mode == MODE_DETACHED {
+                close(read_input[0]);
+                close(read_input[1]);
             }
             let p = fork();
             if p < 0 {
-                relatar(controle[1]);
+                report(control[1]);
             }
             if p > 0 {
                 _exit(0);
             }
             if setsid() == -1 {
-                relatar(controle[1]);
+                report(control[1]);
             }
             let p = fork();
             if p < 0 {
-                relatar(controle[1]);
+                report(control[1]);
             }
             if p > 0 {
                 _exit(0);
             }
-            if modo == MODO_DESTACADO {
+            if mode == MODE_DETACHED {
                 for fd in 0..max_fds {
-                    if fd != controle[1] {
+                    if fd != control[1] {
                         close(fd);
                     }
                 }
-                if open(nulo_c.as_ptr(), 2 /* O_RDWR */) != 0 || dup2(0, 1) != 1 || dup2(0, 2) != 2 {
-                    relatar(controle[1]);
+                if open(c_null.as_ptr(), 2 /* O_RDWR */) != 0 || dup2(0, 1) != 1 || dup2(0, 2) != 2 {
+                    report(control[1]);
                 }
             } else {
                 for fd in 0..max_fds {
-                    if fd != controle[1] && fd != escrita_saida[0] && fd != leitura_entrada[1] && fd != leitura_erro[1] {
+                    if fd != control[1] && fd != write_output[0] && fd != read_input[1] && fd != read_error[1] {
                         close(fd);
                     }
                 }
-                if dup2(escrita_saida[0], 0) == -1 || dup2(leitura_entrada[1], 1) == -1 || dup2(leitura_erro[1], 2) == -1 {
-                    relatar(controle[1]);
+                if dup2(write_output[0], 0) == -1 || dup2(read_input[1], 1) == -1 || dup2(read_error[1], 2) == -1 {
+                    report(control[1]);
                 }
-                close(escrita_saida[0]);
-                close(leitura_entrada[1]);
-                close(leitura_erro[1]);
+                close(write_output[0]);
+                close(read_input[1]);
+                close(read_error[1]);
             }
-            if let Some(d) = &diretorio_c {
+            if let Some(d) = &c_directory {
                 if chdir(d.as_ptr()) != 0 {
-                    relatar(controle[1]);
+                    report(control[1]);
                 }
             }
             if let Some(e) = &envp {
-                trocar_ambiente(e.as_ptr());
+                swap_env(e.as_ptr());
             }
-            escrever_bloqueante(controle[1], &getpid().to_ne_bytes());
-            execvp(caminho_c.as_ptr(), argv.as_ptr());
-            relatar(controle[1]);
+            write_blocking(control[1], &getpid().to_ne_bytes());
+            execvp(path_c.as_ptr(), argv.as_ptr());
+            report(control[1]);
         }
     }
 
     // --- O pai. ---
-    let mut fim = -1i64;
-    if modo_anexado(modo) {
-        match pipe_fechado_no_exec() {
+    let mut end = -1i64;
+    if attached_mode(mode) {
+        match cloexec_pipe() {
             Ok(p) => {
-                tornar_nao_bloqueante(p[0]);
-                espera_de_filhos().registrar(pid, p[1]);
-                fim = i64::from(p[0]);
+                set_nonblocking(p[0]);
+                child_wait().register(pid, p[1]);
+                end = i64::from(p[0]);
             }
             Err(e) => {
-                fechar_todos(&pipes);
+                close_all(&pipes);
                 return Err(e);
             }
         }
     }
-    let fechar_fim = |fim: i64| {
-        if fim >= 0 {
+    let shutdown_end = |end: i64| {
+        if end >= 0 {
             // SAFETY: o lado de leitura do pipe de saída deste início.
-            unsafe { close(fim as i32) };
+            unsafe { close(end as i32) };
         }
     };
-    if escrever_bloqueante(leitura_entrada[1], b"1") != 1 {
-        let e = ErroDoSo::de(&std::io::Error::last_os_error());
-        fechar_fim(fim);
-        fechar_todos(&pipes);
+    if write_blocking(read_input[1], b"1") != 1 {
+        let e = OsError::de(&std::io::Error::last_os_error());
+        shutdown_end(end);
+        close_all(&pipes);
         return Err(e);
     }
     // SAFETY: o lado de escrita do controle é só do filho agora.
-    unsafe { close(controle[1]) };
-    let mut pid_final = pid;
-    let erro_do_filho = if modo_anexado(modo) {
+    unsafe { close(control[1]) };
+    let mut final_pid = pid;
+    let child_error = if attached_mode(mode) {
         let mut b = [0u8; 4];
-        match ler_bloqueante(controle[0], &mut b) {
+        match read_blocking(control[0], &mut b) {
             4 => Some(i32::from_ne_bytes(b)),
-            -1 => Some(errno_atual()),
+            -1 => Some(current_errno()),
             _ => None,
         }
     } else {
         let mut b = [0u8; 8];
-        match ler_bloqueante(controle[0], &mut b) {
+        match read_blocking(control[0], &mut b) {
             4 => {
-                pid_final = i32::from_ne_bytes(b[..4].try_into().expect("4 bytes"));
+                final_pid = i32::from_ne_bytes(b[..4].try_into().expect("4 bytes"));
                 None
             }
             8 => {
-                pid_final = i32::from_ne_bytes(b[..4].try_into().expect("4 bytes"));
+                final_pid = i32::from_ne_bytes(b[..4].try_into().expect("4 bytes"));
                 Some(i32::from_ne_bytes(b[4..].try_into().expect("4 bytes")))
             }
-            -1 => Some(errno_atual()),
+            -1 => Some(current_errno()),
             _ => None,
         }
     };
     // SAFETY: o lado de leitura do controle, fechado uma vez.
-    unsafe { close(controle[0]) };
-    if let Some(e) = erro_do_filho {
-        fechar_fim(fim);
-        fechar_todos(&[leitura_entrada[0], leitura_entrada[1], leitura_erro[0], leitura_erro[1], escrita_saida[0], escrita_saida[1]]);
-        return Err(ErroDoSo::do_codigo(e));
+    unsafe { close(control[0]) };
+    if let Some(e) = child_error {
+        shutdown_end(end);
+        close_all(&[read_input[0], read_input[1], read_error[0], read_error[1], write_output[0], write_output[1]]);
+        return Err(OsError::from_code(e));
     }
-    let mut r = ProcessoIniciado { pid: i64::from(pid_final), entrada: -1, saida: -1, erro: -1, fim };
-    if modo_com_stdio(modo) {
-        tornar_nao_bloqueante(leitura_entrada[0]);
-        tornar_nao_bloqueante(escrita_saida[1]);
-        tornar_nao_bloqueante(leitura_erro[0]);
+    let mut r = StartedProcess { pid: i64::from(final_pid), input: -1, output: -1, error: -1, end };
+    if mode_with_stdio(mode) {
+        set_nonblocking(read_input[0]);
+        set_nonblocking(write_output[1]);
+        set_nonblocking(read_error[0]);
         // A saída do filho é o que o pai lê (`_stdout`); a entrada, o que o
         // pai escreve (`_stdin`).
-        r.saida = i64::from(leitura_entrada[0]);
-        r.entrada = i64::from(escrita_saida[1]);
-        r.erro = i64::from(leitura_erro[0]);
+        r.output = i64::from(read_input[0]);
+        r.input = i64::from(write_output[1]);
+        r.error = i64::from(read_error[0]);
         // SAFETY: os lados do filho, fechados uma vez.
         unsafe {
-            close(leitura_entrada[1]);
-            close(escrita_saida[0]);
-            close(leitura_erro[1]);
+            close(read_input[1]);
+            close(write_output[0]);
+            close(read_error[1]);
         }
     } else {
         // SAFETY: o pipe de sincronização, fechado uma vez.
         unsafe {
-            close(leitura_entrada[0]);
-            close(leitura_entrada[1]);
+            close(read_input[0]);
+            close(read_input[1]);
         }
     }
     Ok(r)
@@ -544,189 +544,189 @@ fn iniciar_processo(
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn dartforge_nativo_Process_Start(
-    processo: i64,
+    process: i64,
     _ns: i64,
-    caminho: i64,
-    argumentos: i64,
-    diretorio: i64,
-    ambiente: i64,
-    modo: i64,
-    entrada: i64,
-    saida: i64,
-    erro: i64,
-    fim: i64,
+    file_path: i64,
+    arguments: i64,
+    directory: i64,
+    env: i64,
+    mode: i64,
+    input: i64,
+    output: i64,
+    error: i64,
+    end: i64,
     status: i64,
 ) -> u8 {
-    let caminho_b = utf8_de_texto(caminho);
-    let Some(args) = textos_da_lista(argumentos) else {
-        falha_ao_iniciar(status, 0, "Arguments must be builtin strings");
+    let path_b = utf8_of_string(file_path);
+    let Some(args) = list_strings(arguments) else {
+        start_failure(status, 0, "Arguments must be builtin strings");
         return 0;
     };
-    let dir = (diretorio != 0).then(|| utf8_de_texto(diretorio));
-    let amb = if ambiente == 0 {
+    let dir = (directory != 0).then(|| utf8_of_string(directory));
+    let env_vars = if env == 0 {
         None
     } else {
-        match textos_da_lista(ambiente) {
+        match list_strings(env) {
             Some(v) => Some(v),
             None => {
-                falha_ao_iniciar(status, 0, "Environment values must be builtin strings");
+                start_failure(status, 0, "Environment values must be builtin strings");
                 return 0;
             }
         }
     };
-    match iniciar_processo(&caminho_b, &args, dir.as_deref(), amb.as_deref(), modo.clamp(0, 3)) {
+    match start_process(&path_b, &args, dir.as_deref(), env_vars.as_deref(), mode.clamp(0, 3)) {
         Ok(r) => {
-            if modo_com_stdio(modo) {
-                definir_soquete_no_objeto(entrada, r.entrada, FinalizadorDeSoquete::Normal);
-                definir_soquete_no_objeto(saida, r.saida, FinalizadorDeSoquete::Normal);
-                definir_soquete_no_objeto(erro, r.erro, FinalizadorDeSoquete::Normal);
+            if mode_with_stdio(mode) {
+                set_socket_on_object(input, r.input, SocketFinalizer::Normal);
+                set_socket_on_object(output, r.output, SocketFinalizer::Normal);
+                set_socket_on_object(error, r.error, SocketFinalizer::Normal);
             }
-            if modo_anexado(modo) {
-                definir_soquete_no_objeto(fim, r.fim, FinalizadorDeSoquete::Normal);
+            if attached_mode(mode) {
+                set_socket_on_object(end, r.end, SocketFinalizer::Normal);
             }
-            gravar_campo_nativo(processo, r.pid);
+            write_native_field(process, r.pid);
             1
         }
         Err(e) => {
-            falha_ao_iniciar(status, e.codigo, &e.mensagem);
+            start_failure(status, e.code, &e.message);
             0
         }
     }
 }
 
 /// `Process::Wait` (o `runSync`): fecha a entrada, lê a saída e o erro até
-/// o fim e o código do pipe de saída; `(código, saída, erro)`.
+/// o fim e o código do pipe de saída; `(código, saída, error)`.
 #[cfg(unix)]
-fn esperar_processo(entrada: i64, saida: i64, erro: i64, fim: i64) -> ResultadoIo<(i64, Vec<u8>, Vec<u8>)> {
-    fechar_descritor_de_soquete(entrada);
-    let mut dados_saida = Vec::new();
-    let mut dados_erro = Vec::new();
-    let mut codigo = [0u8; 8];
-    let mut vivos = vec![saida, erro, fim];
+fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64, Vec<u8>, Vec<u8>)> {
+    close_socket_descriptor(input);
+    let mut output_data = Vec::new();
+    let mut error_data = Vec::new();
+    let mut code = [0u8; 8];
+    let mut live_set = vec![output, error, end];
     const POLLIN: i16 = 1;
     const POLLERR: i16 = 8;
     const POLLHUP: i16 = 0x10;
     const POLLNVAL: i16 = 0x20;
-    let fechar_vivos = |vivos: &[i64]| {
-        for &fd in vivos {
-            fechar_descritor_de_soquete(fd);
+    let close_live = |live_set: &[i64]| {
+        for &fd in live_set {
+            close_socket_descriptor(fd);
         }
     };
-    while !vivos.is_empty() {
-        let mut fds: Vec<PollFd> = vivos.iter().map(|&fd| PollFd { fd: fd as i32, eventos: POLLIN, reventos: 0 }).collect();
+    while !live_set.is_empty() {
+        let mut fds: Vec<PollFd> = live_set.iter().map(|&fd| PollFd { fd: fd as i32, events: POLLIN, revents: 0 }).collect();
         // SAFETY: `fds` tem `len` elementos.
         let r = unsafe { poll(fds.as_mut_ptr(), fds.len() as u64, -1) };
         if r <= 0 {
-            if r < 0 && errno_atual() == 4 {
+            if r < 0 && current_errno() == 4 {
                 continue;
             }
-            let e = ErroDoSo::de(&std::io::Error::last_os_error());
-            fechar_vivos(&vivos);
+            let e = OsError::de(&std::io::Error::last_os_error());
+            close_live(&live_set);
             return Err(e);
         }
-        let mut fechados = Vec::new();
+        let mut closed_set = Vec::new();
         for f in &fds {
             let fd = i64::from(f.fd);
-            if f.reventos & (POLLNVAL | POLLERR) != 0 {
-                let e = ErroDoSo::de(&std::io::Error::last_os_error());
-                fechar_vivos(&vivos);
+            if f.revents & (POLLNVAL | POLLERR) != 0 {
+                let e = OsError::de(&std::io::Error::last_os_error());
+                close_live(&live_set);
                 return Err(e);
             }
-            if f.reventos & POLLIN != 0 {
-                let disponivel = bytes_disponiveis(fd).max(0) as usize;
-                if fd == fim {
-                    if disponivel == 8 && ler_bloqueante(f.fd, &mut codigo) != 8 {
-                        let e = ErroDoSo::de(&std::io::Error::last_os_error());
-                        fechar_vivos(&vivos);
+            if f.revents & POLLIN != 0 {
+                let available = available_bytes(fd).max(0) as usize;
+                if fd == end {
+                    if available == 8 && read_blocking(f.fd, &mut code) != 8 {
+                        let e = OsError::de(&std::io::Error::last_os_error());
+                        close_live(&live_set);
                         return Err(e);
                     }
                 } else {
-                    let mut b = vec![0u8; disponivel];
-                    let n = ler_do_soquete(fd, &mut b)?;
+                    let mut b = vec![0u8; available];
+                    let n = read_from_socket(fd, &mut b)?;
                     b.truncate(n);
-                    if fd == saida { dados_saida.extend(b) } else { dados_erro.extend(b) }
+                    if fd == output { output_data.extend(b) } else { error_data.extend(b) }
                 }
             }
-            if f.reventos & POLLHUP != 0 {
-                fechar_descritor_de_soquete(fd);
-                fechados.push(fd);
+            if f.revents & POLLHUP != 0 {
+                close_socket_descriptor(fd);
+                closed_set.push(fd);
             }
         }
-        vivos.retain(|fd| !fechados.contains(fd));
+        live_set.retain(|fd| !closed_set.contains(fd));
     }
-    let valor = i64::from(i32::from_ne_bytes(codigo[..4].try_into().expect("4 bytes")));
-    let negativo = i32::from_ne_bytes(codigo[4..].try_into().expect("4 bytes"));
-    Ok((if negativo != 0 { -valor } else { valor }, dados_saida, dados_erro))
+    let value = i64::from(i32::from_ne_bytes(code[..4].try_into().expect("4 bytes")));
+    let negative = i32::from_ne_bytes(code[4..].try_into().expect("4 bytes"));
+    Ok((if negative != 0 { -value } else { value }, output_data, error_data))
 }
 
 /// `Process_Wait(stdin, stdout, stderr, exitHandler)`: `[pid, código,
-/// saída, erro]`; num erro, mata o filho e lança o `OSError`.
+/// saída, erro]`; num error, mata o child e lança o `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_Wait(processo: i64, entrada: i64, saida: i64, erro: i64, fim: i64) -> i64 {
-    let (Some(e), Some(s), Some(r), Some(f)) = (soquete_do_objeto(entrada), soquete_do_objeto(saida), soquete_do_objeto(erro), soquete_do_objeto(fim)) else {
+pub extern "C" fn dartforge_nativo_Process_Wait(process: i64, input: i64, output: i64, error: i64, end: i64) -> i64 {
+    let (Some(e), Some(s), Some(r), Some(f)) = (object_socket(input), object_socket(output), object_socket(error), object_socket(end)) else {
         return 0;
     };
-    let pid = campo_nativo(processo);
+    let pid = native_field(process);
     #[cfg(unix)]
-    let resultado = {
-        let fds = (e.descritor(), s.descritor(), r.descritor(), f.descritor());
+    let result = {
+        let fds = (e.descriptor(), s.descriptor(), r.descriptor(), f.descriptor());
         // Os descritores passam a este `wait`, que os fecha.
         for x in [e, s, r, f] {
-            x.descritor.store(-1, std::sync::atomic::Ordering::Release);
+            x.descriptor.store(-1, std::sync::atomic::Ordering::Release);
         }
-        esperar_processo(fds.0, fds.1, fds.2, fds.3)
+        wait_process(fds.0, fds.1, fds.2, fds.3)
     };
     #[cfg(windows)]
-    let resultado = {
-        let r0 = esperar_processo(e.descritor(), s.descritor(), r.descritor(), f.descritor());
+    let result = {
+        let r0 = wait_process(e.descriptor(), s.descriptor(), r.descriptor(), f.descriptor());
         // `Process::Wait` fechou os handles; os objetos soltam as
         // referências (`CloseFd`).
         for x in [e, s, r, f] {
-            x.soltar_descritor();
+            x.release_descriptor();
         }
         r0
     };
-    match resultado {
-        Ok((codigo, out, err)) => {
+    match result {
+        Ok((code, out, err)) => {
             let o = dart_bytes(out);
-            let x = com_raizes(&[o], || dart_bytes(err));
-            com_raizes(&[o, x], || dart_lista_fixa(&[dart_int(pid), dart_int(codigo), o, x]))
+            let x = with_roots(&[o], || dart_bytes(err));
+            with_roots(&[o, x], || dart_fixed_list(&[dart_int(pid), dart_int(code), o, x]))
         }
-        Err(erro) => {
-            matar_processo(pid, 9);
-            lancar_os_error(&erro);
+        Err(error) => {
+            kill_process(pid, 9);
+            throw_os_error(&error);
             0
         }
     }
 }
 
 #[cfg(unix)]
-fn matar_processo(pid: i64, sinal: i64) -> bool {
+fn kill_process(pid: i64, sig_num: i64) -> bool {
     loop {
         // SAFETY: envia um sinal a um pid.
-        if unsafe { kill(pid as i32, sinal as i32) } != -1 {
+        if unsafe { kill(pid as i32, sig_num as i32) } != -1 {
             return true;
         }
-        if errno_atual() != 4 {
+        if current_errno() != 4 {
             return false;
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_KillPid(pid: i64, sinal: i64) -> u8 {
-    u8::from(matar_processo(pid, sinal_do_sistema(sinal)))
+pub extern "C" fn dartforge_nativo_Process_KillPid(pid: i64, sig_num: i64) -> u8 {
+    u8::from(kill_process(pid, system_signal(sig_num)))
 }
 
 /// O número do sinal no sistema a partir do de `ProcessSignal`, que o Dart
 /// numera como o Linux (`sigusr2` é 12): no macOS e nos BSDs vários
 /// números diferem (lá 12 é `SIGSYS`), e a VM traduz (`SignalMap` de
 /// `process_macos.cc`) antes do `kill` e da inscrição.
-fn sinal_do_sistema(sinal: i64) -> i64 {
+fn system_signal(sig_num: i64) -> i64 {
     if cfg!(any(target_os = "linux", target_os = "android", not(unix))) {
-        return sinal;
+        return sig_num;
     }
-    match sinal {
+    match sig_num {
         7 => 10,  // SIGBUS
         10 => 30, // SIGUSR1
         12 => 31, // SIGUSR2
@@ -748,85 +748,85 @@ fn sinal_do_sistema(sinal: i64) -> i64 {
 
 /// Os sinais que o Dart pode vigiar (`kSignals`), no número do sistema.
 #[cfg(unix)]
-fn sinal_vigiavel(s: i64) -> bool {
+fn watchable_signal(s: i64) -> bool {
     #[cfg(target_os = "linux")]
-    const SINAIS: &[i64] = &[1, 2, 15, 10, 12, 28, 3];
+    const SIGNALS: &[i64] = &[1, 2, 15, 10, 12, 28, 3];
     #[cfg(not(target_os = "linux"))]
-    const SINAIS: &[i64] = &[1, 2, 15, 30, 31, 28, 3];
-    SINAIS.contains(&s)
+    const SIGNALS: &[i64] = &[1, 2, 15, 30, 31, 28, 3];
+    SIGNALS.contains(&s)
 }
 
 /// Uma inscrição (`SignalInfo`): o sinal, os dois lados do pipe e quantos
 /// tratadores estão escrevendo nele agora. O tratador só usa atômicos e
 /// `write`.
 #[cfg(unix)]
-struct InscricaoDeSinal {
-    sinal: std::sync::atomic::AtomicI32,
-    escrita: std::sync::atomic::AtomicI32,
-    leitura: std::sync::atomic::AtomicI32,
-    em_uso: std::sync::atomic::AtomicU32,
+struct SignalSubscription {
+    sig_num: std::sync::atomic::AtomicI32,
+    write_side: std::sync::atomic::AtomicI32,
+    read_side: std::sync::atomic::AtomicI32,
+    in_use: std::sync::atomic::AtomicU32,
 }
 
 #[cfg(unix)]
-const MAXIMO_DE_INSCRICOES: usize = 64;
+const MAX_SUBSCRIPTIONS: usize = 64;
 #[cfg(unix)]
-static INSCRICOES: [InscricaoDeSinal; MAXIMO_DE_INSCRICOES] = [const {
-    InscricaoDeSinal {
-        sinal: std::sync::atomic::AtomicI32::new(0),
-        escrita: std::sync::atomic::AtomicI32::new(-1),
-        leitura: std::sync::atomic::AtomicI32::new(-1),
-        em_uso: std::sync::atomic::AtomicU32::new(0),
+static SUBSCRIPTIONS: [SignalSubscription; MAX_SUBSCRIPTIONS] = [const {
+    SignalSubscription {
+        sig_num: std::sync::atomic::AtomicI32::new(0),
+        write_side: std::sync::atomic::AtomicI32::new(-1),
+        read_side: std::sync::atomic::AtomicI32::new(-1),
+        in_use: std::sync::atomic::AtomicU32::new(0),
     }
-}; MAXIMO_DE_INSCRICOES];
+}; MAX_SUBSCRIPTIONS];
 
 /// O tratador: um byte no pipe de cada inscrição do sinal.
 ///
 /// O pipe é não bloqueante: cheio, o `write` falha com `EAGAIN` e a
 /// notificação se funde às que o Dart ainda não leu (como o sistema funde
 /// sinais pendentes), sem nunca parar a thread interrompida. O `errno` da
-/// thread interrompida é preservado. A contagem `em_uso` impede que o
+/// thread interrompida é preservado. A contagem `in_use` impede que o
 /// cancelamento feche (e o sistema reaproveite) o descritor durante o
 /// `write`.
 #[cfg(unix)]
-extern "C" fn tratar_sinal(sinal: i32) {
+extern "C" fn handle_signal(sig_num: i32) {
     use std::sync::atomic::Ordering::SeqCst;
-    let errno_salvo = errno_atual();
-    for i in &INSCRICOES {
-        if i.sinal.load(SeqCst) != sinal {
+    let saved_errno = current_errno();
+    for i in &SUBSCRIPTIONS {
+        if i.sig_num.load(SeqCst) != sig_num {
             continue;
         }
-        i.em_uso.fetch_add(1, SeqCst);
-        let fd = i.escrita.load(SeqCst);
-        if fd >= 0 && i.sinal.load(SeqCst) == sinal {
+        i.in_use.fetch_add(1, SeqCst);
+        let fd = i.write_side.load(SeqCst);
+        if fd >= 0 && i.sig_num.load(SeqCst) == sig_num {
             let b = [0u8];
             // SAFETY: `write` é seguro num tratador de sinal; o descritor
-            // não é fechado enquanto `em_uso` > 0, e não bloqueia.
+            // não é fechado enquanto `in_use` > 0, e não bloqueia.
             unsafe { write(fd, b.as_ptr().cast(), 1) };
         }
-        i.em_uso.fetch_sub(1, SeqCst);
+        i.in_use.fetch_sub(1, SeqCst);
     }
-    definir_errno(errno_salvo);
+    set_errno(saved_errno);
 }
 
 #[cfg(target_os = "linux")]
-fn definir_errno(e: i32) {
+fn set_errno(e: i32) {
     // SAFETY: o `errno` da thread.
     unsafe { *__errno_location() = e };
 }
 #[cfg(all(unix, not(target_os = "linux")))]
-fn definir_errno(e: i32) {
+fn set_errno(e: i32) {
     // SAFETY: o `errno` da thread.
     unsafe { *__error() = e };
 }
 
-/// `signal(sinal, tratador)`: o tratador anterior.
+/// `signal(sig_num, handler)`: o tratador anterior.
 #[cfg(unix)]
 unsafe extern "C" {
-    fn signal(sinal: i32, tratador: usize) -> usize;
+    fn signal(sig_num: i32, handler: usize) -> usize;
 }
 
 #[cfg(unix)]
-fn inscricoes_mutex() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i32, usize>> {
+fn subscriptions_mutex() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i32, usize>> {
     // Sinal → o tratador anterior, restaurado quando a última inscrição sai.
     static M: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i32, usize>>> = std::sync::OnceLock::new();
     M.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
@@ -834,15 +834,15 @@ fn inscricoes_mutex() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i32
 
 /// `Process::SetSignalHandler`: o lado de leitura do pipe da inscrição.
 #[cfg(unix)]
-fn inscrever_sinal(sinal: i64) -> ResultadoIo<i64> {
+fn subscribe_signal(sig_num: i64) -> IoResult<i64> {
     use std::sync::atomic::Ordering::SeqCst;
-    let sinal = sinal_do_sistema(sinal);
-    if !sinal_vigiavel(sinal) {
-        return Err(ErroDoSo::do_codigo(codigo_do_so::INVALIDO));
+    let sig_num = system_signal(sig_num);
+    if !watchable_signal(sig_num) {
+        return Err(OsError::from_code(os_code::INVALID));
     }
-    let fds = pipe_fechado_no_exec()?;
-    if !(tornar_nao_bloqueante(fds[0]) && tornar_nao_bloqueante(fds[1])) {
-        let e = ErroDoSo::de(&std::io::Error::last_os_error());
+    let fds = cloexec_pipe()?;
+    if !(set_nonblocking(fds[0]) && set_nonblocking(fds[1])) {
+        let e = OsError::de(&std::io::Error::last_os_error());
         // SAFETY: os descritores acabaram de ser criados.
         unsafe {
             close(fds[0]);
@@ -850,55 +850,55 @@ fn inscrever_sinal(sinal: i64) -> ResultadoIo<i64> {
         }
         return Err(e);
     }
-    let mut anteriores = inscricoes_mutex();
+    let mut previous_ones = subscriptions_mutex();
     // Os campos só mudam com a trava; o tratador vê a inscrição quando o
     // sinal é gravado, por último.
-    let Some(livre) = INSCRICOES.iter().find(|i| i.sinal.load(SeqCst) == 0) else {
+    let Some(free_ptr) = SUBSCRIPTIONS.iter().find(|i| i.sig_num.load(SeqCst) == 0) else {
         // SAFETY: os descritores acabaram de ser criados.
         unsafe {
             close(fds[0]);
             close(fds[1]);
         }
-        return Err(ErroDoSo::do_codigo(24 /* EMFILE */));
+        return Err(OsError::from_code(24 /* EMFILE */));
     };
-    livre.escrita.store(fds[1], SeqCst);
-    livre.leitura.store(fds[0], SeqCst);
-    livre.sinal.store(sinal as i32, SeqCst);
-    if let std::collections::hash_map::Entry::Vacant(v) = anteriores.entry(sinal as i32) {
+    free_ptr.write_side.store(fds[1], SeqCst);
+    free_ptr.read_side.store(fds[0], SeqCst);
+    free_ptr.sig_num.store(sig_num as i32, SeqCst);
+    if let std::collections::hash_map::Entry::Vacant(v) = previous_ones.entry(sig_num as i32) {
         // SAFETY: instala o tratador do sinal.
-        let antigo = unsafe { signal(sinal as i32, tratar_sinal as usize) };
-        v.insert(antigo);
+        let old = unsafe { signal(sig_num as i32, handle_signal as usize) };
+        v.insert(old);
     }
     Ok(i64::from(fds[0]))
 }
 
-/// Desfaz as inscrições que `filtro` escolhe (com a trava): tira-as do
+/// Desfaz as inscrições que `filter_obj` escolhe (com a trava): tira-as do
 /// tratador, espera os `write` em andamento e fecha o lado de escrita; o
 /// tratador anterior volta quando o sinal fica sem inscrições.
 #[cfg(unix)]
-fn remover_inscricoes(anteriores: &mut crate::hash::HashMap<i32, usize>, filtro: impl Fn(&InscricaoDeSinal) -> bool) {
+fn remove_subscriptions(previous_ones: &mut crate::hash::HashMap<i32, usize>, filter_obj: impl Fn(&SignalSubscription) -> bool) {
     use std::sync::atomic::Ordering::SeqCst;
-    for i in &INSCRICOES {
-        let sinal = i.sinal.load(SeqCst);
-        if sinal == 0 || !filtro(i) {
+    for i in &SUBSCRIPTIONS {
+        let sig_num = i.sig_num.load(SeqCst);
+        if sig_num == 0 || !filter_obj(i) {
             continue;
         }
-        let f = i.escrita.swap(-1, SeqCst);
-        i.leitura.store(-1, SeqCst);
+        let f = i.write_side.swap(-1, SeqCst);
+        i.read_side.store(-1, SeqCst);
         // Um tratador que já leu o descritor termina o `write` antes do
         // `close`.
-        while i.em_uso.load(SeqCst) != 0 {
+        while i.in_use.load(SeqCst) != 0 {
             std::hint::spin_loop();
         }
         if f >= 0 {
             // SAFETY: o lado de escrita da inscrição, fechado uma vez.
             unsafe { close(f) };
         }
-        i.sinal.store(0, SeqCst);
-        if !INSCRICOES.iter().any(|x| x.sinal.load(SeqCst) == sinal) {
-            if let Some(antigo) = anteriores.remove(&sinal) {
+        i.sig_num.store(0, SeqCst);
+        if !SUBSCRIPTIONS.iter().any(|x| x.sig_num.load(SeqCst) == sig_num) {
+            if let Some(old) = previous_ones.remove(&sig_num) {
                 // SAFETY: restaura o tratador anterior.
-                unsafe { signal(sinal, antigo) };
+                unsafe { signal(sig_num, old) };
             }
         }
     }
@@ -906,28 +906,28 @@ fn remover_inscricoes(anteriores: &mut crate::hash::HashMap<i32, usize>, filtro:
 
 /// `Process::ClearSignalHandler`.
 #[cfg(unix)]
-fn cancelar_sinal(sinal: i64) {
-    let sinal = sinal_do_sistema(sinal);
-    let mut anteriores = inscricoes_mutex();
-    remover_inscricoes(&mut anteriores, |i| i64::from(i.sinal.load(std::sync::atomic::Ordering::SeqCst)) == sinal);
+fn cancel_signal(sig_num: i64) {
+    let sig_num = system_signal(sig_num);
+    let mut previous_ones = subscriptions_mutex();
+    remove_subscriptions(&mut previous_ones, |i| i64::from(i.sig_num.load(std::sync::atomic::Ordering::SeqCst)) == sig_num);
 }
 
 /// `Process::ClearSignalHandlerByFd`: o soquete do sinal (o lado de
 /// leitura `fd`) fechou.
 #[cfg(unix)]
-fn limpar_sinal_por_descritor(fd: i64) {
-    let mut anteriores = inscricoes_mutex();
-    remover_inscricoes(&mut anteriores, |i| i64::from(i.leitura.load(std::sync::atomic::Ordering::SeqCst)) == fd);
+fn clear_signal_by_descriptor(fd: i64) {
+    let mut previous_ones = subscriptions_mutex();
+    remove_subscriptions(&mut previous_ones, |i| i64::from(i.read_side.load(std::sync::atomic::Ordering::SeqCst)) == fd);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_SetSignalHandler(sinal: i64) -> i64 {
-    dart_ou_erro(inscrever_sinal(sinal), dart_int)
+pub extern "C" fn dartforge_nativo_Process_SetSignalHandler(sig_num: i64) -> i64 {
+    dart_or_error(subscribe_signal(sig_num), dart_int)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_ClearSignalHandler(sinal: i64) {
-    cancelar_sinal(sinal);
+pub extern "C" fn dartforge_nativo_Process_ClearSignalHandler(sig_num: i64) {
+    cancel_signal(sig_num);
 }
 
 // ---------------------------------------------------------------------------
@@ -935,20 +935,20 @@ pub extern "C" fn dartforge_nativo_Process_ClearSignalHandler(sinal: i64) {
 
 /// `Process::CurrentRSS`.
 #[cfg(target_os = "linux")]
-fn memoria_residente() -> ResultadoIo<i64> {
+fn resident_memory() -> IoResult<i64> {
     unsafe extern "C" {
         fn getpagesize() -> i32;
     }
     let statm = std::fs::read_to_string("/proc/self/statm")?;
-    let paginas: i64 = statm.split_whitespace().nth(1).and_then(|x| x.parse().ok()).ok_or_else(|| ErroDoSo::do_codigo(codigo_do_so::INVALIDO))?;
+    let pages: i64 = statm.split_whitespace().nth(1).and_then(|x| x.parse().ok()).ok_or_else(|| OsError::from_code(os_code::INVALID))?;
     // SAFETY: consulta sem efeitos.
-    Ok(paginas * i64::from(unsafe { getpagesize() }))
+    Ok(pages * i64::from(unsafe { getpagesize() }))
 }
 #[cfg(all(unix, not(target_os = "linux")))]
-fn memoria_residente() -> ResultadoIo<i64> {
+fn resident_memory() -> IoResult<i64> {
     #[repr(C)]
     #[derive(Default)]
-    struct InfoBasica {
+    struct BasicInfo {
         virtual_size: u64,
         resident_size: u64,
         resident_size_max: u64,
@@ -959,75 +959,75 @@ fn memoria_residente() -> ResultadoIo<i64> {
     }
     unsafe extern "C" {
         static mach_task_self_: u32;
-        fn task_info(tarefa: u32, sabor: i32, info: *mut InfoBasica, n: *mut u32) -> i32;
+        fn task_info(task: u32, flavor: i32, info: *mut BasicInfo, n: *mut u32) -> i32;
     }
-    let mut i = InfoBasica::default();
-    let mut n = (std::mem::size_of::<InfoBasica>() / 4) as u32;
+    let mut i = BasicInfo::default();
+    let mut n = (std::mem::size_of::<BasicInfo>() / 4) as u32;
     // SAFETY: MACH_TASK_BASIC_INFO = 20; `i` tem o tamanho informado.
     if unsafe { task_info(mach_task_self_, 20, &mut i, &mut n) } != 0 {
-        return Err(ErroDoSo::do_codigo(codigo_do_so::INVALIDO));
+        return Err(OsError::from_code(os_code::INVALID));
     }
     Ok(i.resident_size as i64)
 }
 
 /// `Process::MaxRSS` (`getrusage`: KiB no Linux, bytes no macOS).
 #[cfg(unix)]
-fn memoria_residente_maxima() -> ResultadoIo<i64> {
+fn max_resident_memory() -> IoResult<i64> {
     #[repr(C)]
-    struct Uso {
+    struct Usage {
         tempos: [i64; 4],
         maxrss: std::ffi::c_long,
-        resto: [std::ffi::c_long; 13],
+        rest: [std::ffi::c_long; 13],
     }
     unsafe extern "C" {
-        fn getrusage(quem: i32, uso: *mut Uso) -> i32;
+        fn getrusage(who: i32, usage: *mut Usage) -> i32;
     }
     // SAFETY: a estrutura é só dados; a função a preenche (RUSAGE_SELF = 0).
-    let mut u: Uso = unsafe { std::mem::zeroed() };
+    let mut u: Usage = unsafe { std::mem::zeroed() };
     if unsafe { getrusage(0, &mut u) } < 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(if cfg!(target_os = "linux") { u.maxrss as i64 * 1024 } else { u.maxrss as i64 })
 }
 
 #[cfg(windows)]
-fn contadores_de_memoria() -> ResultadoIo<(i64, i64)> {
+fn memory_counters() -> IoResult<(i64, i64)> {
     #[repr(C)]
     #[derive(Default)]
-    struct Contadores {
+    struct Counters {
         cb: u32,
-        faltas: u32,
-        pico: usize,
-        atual: usize,
-        resto: [usize; 6],
+        misses: u32,
+        peak: usize,
+        current: usize,
+        rest: [usize; 6],
     }
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetCurrentProcess() -> *mut std::ffi::c_void;
-        fn K32GetProcessMemoryInfo(p: *mut std::ffi::c_void, c: *mut Contadores, n: u32) -> i32;
+        fn K32GetProcessMemoryInfo(p: *mut std::ffi::c_void, c: *mut Counters, n: u32) -> i32;
     }
-    let mut c = Contadores { cb: std::mem::size_of::<Contadores>() as u32, ..Default::default() };
+    let mut c = Counters { cb: std::mem::size_of::<Counters>() as u32, ..Default::default() };
     // SAFETY: `c` tem o tamanho informado.
     if unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) } == 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
-    Ok((c.atual as i64, c.pico as i64))
+    Ok((c.current as i64, c.peak as i64))
 }
 #[cfg(windows)]
-fn memoria_residente() -> ResultadoIo<i64> {
-    contadores_de_memoria().map(|c| c.0)
+fn resident_memory() -> IoResult<i64> {
+    memory_counters().map(|c| c.0)
 }
 #[cfg(windows)]
-fn memoria_residente_maxima() -> ResultadoIo<i64> {
-    contadores_de_memoria().map(|c| c.1)
+fn max_resident_memory() -> IoResult<i64> {
+    memory_counters().map(|c| c.1)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_ProcessInfo_CurrentRSS() -> i64 {
-    dart_ou_erro(memoria_residente(), dart_int)
+    dart_or_error(resident_memory(), dart_int)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_ProcessInfo_MaxRSS() -> i64 {
-    dart_ou_erro(memoria_residente_maxima(), dart_int)
+    dart_or_error(max_resident_memory(), dart_int)
 }

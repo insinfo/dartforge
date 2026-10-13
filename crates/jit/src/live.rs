@@ -2,19 +2,19 @@
 //! compila e publica gerações novas (R1b de `docs/PESQUISA-HOT-RELOAD.md`).
 //!
 //! ```text
-//!   observador (quem chama)            thread do programa
+//!   observer (who chama)            thread do program
 //!   ───────────────────────            ──────────────────
-//!   executar_main()  ── Executar ──►   main → laço de eventos (o isolado principal)
+//!   executar_main()  ── Executar ──►   main → laço de events (o isolate main_queue)
 //!   publicar(ir):                          │
-//!     analisa, liga a geração N            │   (o programa continua servindo)
-//!     pede o ponto seguro  ─────────────►  ├─ entre dois eventos: a tarefa roda —
-//!                                          │  estáticos, células, registros
+//!     analisa, liga a geração N            │   (o program continua servindo)
+//!     pede o point secure  ─────────────►  ├─ entre dois events: a task roda —
+//!                                          │  estáticos, células, records
 //!     ◄──────────────── respondido ─────── │
-//!   (o programa segue, já no código novo)  ▼
+//!   (o program segue, já no código new)  ▼
 //! ```
 //!
 //! A publicação só roda com nenhum quadro Dart do isolado na pilha: entre dois
-//! eventos do laço (`dartforge_pedir_no_ponto_seguro`, `portas.rs`), que é onde
+//! eventos do laço (`dartforge_pedir_no_ponto_seguro`, `ports.rs`), que é onde
 //! a VM também comita uma recarga. Com o programa parado (o `main` terminou,
 //! ou ainda não começou), ela roda na thread do programa entre dois comandos —
 //! o estado do runtime (heap, estáticos, registros) é por thread, e a thread é
@@ -31,16 +31,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use crate::ffi::{self, Tarefa};
+use crate::ffi::{self, Task};
 use crate::{ENTRY_SYMBOL, EntryReport, HotReloadReport, JitError, JitSession, PROGRAM_STACK_BYTES};
 
 /// O que a thread do programa faz.
-enum Comando {
+enum Command {
     /// Executa o programa pela entrada (`main` do SDK da fonte ou
     /// `dartforge_entry` do runtime embutido) e responde com o código de saída.
-    Executar { endereco: u64, da_fonte: bool },
+    Executar { address: u64, from_source: bool },
     /// Roda uma tarefa (a publicação com o programa parado) e confirma.
-    Rodar(Tarefa, mpsc::Sender<()>),
+    Run(Task, mpsc::Sender<()>),
 }
 
 /// Um programa em execução na sessão, com a thread dele.
@@ -48,19 +48,19 @@ enum Comando {
 /// Obtido por [`JitSession::com_programa_vivo`], que garante que a thread do
 /// programa termina antes de a sessão (e o código dela) deixar de existir.
 pub struct ProgramaVivo<'s> {
-    sessao: &'s mut JitSession,
-    comandos: mpsc::Sender<Comando>,
-    resultados: mpsc::Receiver<(i32, Duration)>,
+    session: &'s mut JitSession,
+    commands: mpsc::Sender<Command>,
+    results: mpsc::Receiver<(i32, Duration)>,
     /// O programa foi mandado executar e ainda não respondeu.
-    ocupado: Arc<AtomicBool>,
+    busy: Arc<AtomicBool>,
     /// Chamada quando o isolado demora a chegar ao ponto seguro.
-    ao_esperar: Box<dyn FnMut() + 's>,
+    on_wait: Box<dyn FnMut() + 's>,
 }
 
 impl JitSession {
-    /// Abre a thread do programa e entrega a `corpo` o [`ProgramaVivo`].
+    /// Abre a thread do programa e entrega a `body` o [`ProgramaVivo`].
     ///
-    /// Ao fim de `corpo`, a thread termina depois de o programa em execução
+    /// Ao fim de `body`, a thread termina depois de o programa em execução
     /// terminar (o `main` e o laço de eventos dele): a sessão só é liberada
     /// sem código dela na pilha de ninguém.
     ///
@@ -68,40 +68,40 @@ impl JitSession {
     /// `execute` se a thread do programa não puder ser criada.
     pub fn com_programa_vivo<R>(
         &mut self,
-        corpo: impl FnOnce(&mut ProgramaVivo<'_>) -> R,
+        body: impl FnOnce(&mut ProgramaVivo<'_>) -> R,
     ) -> Result<R, JitError> {
-        std::thread::scope(|escopo| {
-            let (comandos, recebidos) = mpsc::channel::<Comando>();
-            let (responder, resultados) = mpsc::channel::<(i32, Duration)>();
-            let ocupado = Arc::new(AtomicBool::new(false));
-            let ocupado_da_thread = ocupado.clone();
+        std::thread::scope(|scope| {
+            let (commands, received_list) = mpsc::channel::<Command>();
+            let (respond, results) = mpsc::channel::<(i32, Duration)>();
+            let busy = Arc::new(AtomicBool::new(false));
+            let thread_busy = busy.clone();
             std::thread::Builder::new()
                 .name("dartforge-programa".into())
                 .stack_size(PROGRAM_STACK_BYTES)
-                .spawn_scoped(escopo, move || {
-                    for comando in recebidos {
-                        match comando {
-                            Comando::Executar { endereco, da_fonte } => {
-                                let inicio = Instant::now();
-                                let codigo = if da_fonte {
-                                    ffi::chamar_main_da_fonte(endereco)
+                .spawn_scoped(scope, move || {
+                    for command in received_list {
+                        match command {
+                            Command::Executar { address, from_source } => {
+                                let start = Instant::now();
+                                let code = if from_source {
+                                    ffi::call_source_main(address)
                                 } else {
-                                    ffi::chamar_entrada_embutida(endereco)
+                                    ffi::call_embedded_entry(address)
                                 };
-                                ocupado_da_thread.store(false, Ordering::Release);
-                                let _ = responder.send((codigo, inicio.elapsed()));
+                                thread_busy.store(false, Ordering::Release);
+                                let _ = respond.send((code, start.elapsed()));
                             }
-                            Comando::Rodar(tarefa, feito) => {
-                                tarefa();
-                                let _ = feito.send(());
+                            Command::Run(task, done) => {
+                                task();
+                                let _ = done.send(());
                             }
                         }
                     }
                 })
-                .map_err(|erro| JitError::new("execute", "não foi possível criar a thread do programa", erro.to_string()))?;
-            let mut vivo = ProgramaVivo { sessao: self, comandos, resultados, ocupado, ao_esperar: Box::new(|| {}) };
-            Ok(corpo(&mut vivo))
-            // `vivo` sai de escopo aqui: sem o remetente dos comandos, a
+                .map_err(|error| JitError::new("execute", "não foi possível criar a thread do programa", error.to_string()))?;
+            let mut alive = ProgramaVivo { session: self, commands, results, busy, on_wait: Box::new(|| {}) };
+            Ok(body(&mut alive))
+            // `alive` sai de escopo aqui: sem o remetente dos comandos, a
             // thread termina quando o programa em execução terminar.
         })
     }
@@ -109,40 +109,40 @@ impl JitSession {
 
 impl<'s> ProgramaVivo<'s> {
     /// A sessão, para consultas.
-    pub fn sessao(&self) -> &JitSession {
-        self.sessao
+    pub fn session(&self) -> &JitSession {
+        self.session
     }
 
     /// Define o que fazer quando a publicação espera mais de 2 s pelo ponto
     /// seguro (o isolado principal está num trecho síncrono longo).
     pub fn ao_esperar_ponto_seguro(&mut self, f: impl FnMut() + 's) {
-        self.ao_esperar = Box::new(f);
+        self.on_wait = Box::new(f);
     }
 
     /// O programa está executando (o `main` ou o laço de eventos dele).
     pub fn executando(&self) -> bool {
-        self.ocupado.load(Ordering::Acquire)
+        self.busy.load(Ordering::Acquire)
     }
 
-    /// Publica uma geração de `nome`: a primeira pelo caminho de sempre
+    /// Publica uma geração de `name`: a primeira pelo caminho de sempre
     /// ([`JitSession::add_reloadable_module`]); as seguintes no ponto seguro
     /// do programa em execução, ou direto na thread dele se estiver parado.
     ///
     /// # Erros
     /// Os de [`JitSession::hot_reload`]; a versão em execução continua
     /// publicada em todos eles.
-    pub fn publicar(&mut self, nome: &str, ir: &str) -> Result<HotReloadReport, JitError> {
-        if self.sessao.generation(nome).is_none() && !self.executando() {
-            return self.sessao.add_reloadable_module(nome, ir);
+    pub fn publicar(&mut self, name: &str, ir: &str) -> Result<HotReloadReport, JitError> {
+        if self.session.generation(name).is_none() && !self.executando() {
+            return self.session.add_reloadable_module(name, ir);
         }
-        let runtime = match self.sessao.sdk_dll.clone() {
-            Some(dll) => ffi::RuntimeDaRecarga::da_biblioteca(&dll)
+        let runtime = match self.session.sdk_dll.clone() {
+            Some(dll) => ffi::ReloadRuntime::from_library(&dll)
                 .map_err(|detail| JitError::new("contract", "o runtime da sessão não publica gerações", detail))?,
-            None => ffi::RuntimeDaRecarga::embutido(),
+            None => ffi::ReloadRuntime::embedded(),
         };
-        let ProgramaVivo { sessao, comandos, ocupado, ao_esperar, .. } = self;
-        let mut no_ponto_seguro = |tarefa: Tarefa| rodar_no_programa(tarefa, &runtime, comandos, ocupado, ao_esperar.as_mut());
-        sessao.hot_reload_no_ponto_seguro(nome, ir, &mut no_ponto_seguro)
+        let ProgramaVivo { session, commands, busy, on_wait, .. } = self;
+        let mut at_safepoint = |task: Task| run_in_program(task, &runtime, commands, busy, on_wait.as_mut());
+        session.hot_reload_at_safepoint(name, ir, &mut at_safepoint)
     }
 
     /// Manda o programa executar desde o `main`, sem esperar.
@@ -154,60 +154,60 @@ impl<'s> ProgramaVivo<'s> {
         if self.executando() {
             return Err(JitError::new("execute", "o programa já está executando", String::new()));
         }
-        let da_fonte = self.sessao.usa_sdk_da_fonte();
-        let entrada = self.sessao.stable_entry(if da_fonte { "main" } else { ENTRY_SYMBOL })?;
-        let esperada = if da_fonte { "i32 ()" } else { "void ()" };
-        if entrada.signature() != esperada {
+        let from_source = self.session.usa_sdk_da_fonte();
+        let input = self.session.stable_entry(if from_source { "main" } else { ENTRY_SYMBOL })?;
+        let expected_one = if from_source { "i32 ()" } else { "void ()" };
+        if input.signature() != expected_one {
             return Err(JitError::new(
                 "execute",
-                &format!("a entrada {} tem assinatura {}, esperada {esperada}", entrada.name(), entrada.signature()),
+                &format!("a entrada {} tem assinatura {}, esperada {expected_one}", input.name(), input.signature()),
                 String::new(),
             ));
         }
-        self.ocupado.store(true, Ordering::Release);
-        self.comandos
-            .send(Comando::Executar { endereco: entrada.address, da_fonte })
+        self.busy.store(true, Ordering::Release);
+        self.commands
+            .send(Command::Executar { address: input.address, from_source })
             .map_err(|_| JitError::new("execute", "a thread do programa terminou", String::new()))
     }
 
     /// O fim do programa, se já terminou (sem esperar).
     pub fn terminou(&mut self) -> Option<EntryReport> {
-        let (exit_code, execute) = self.resultados.try_recv().ok()?;
+        let (exit_code, execute) = self.results.try_recv().ok()?;
         Some(EntryReport { lookup: Duration::ZERO, execute, total: execute, exit_code })
     }
 
     /// Espera o programa terminar.
-    pub fn esperar_fim(&mut self) -> Option<EntryReport> {
-        let (exit_code, execute) = self.resultados.recv().ok()?;
+    pub fn wait_end(&mut self) -> Option<EntryReport> {
+        let (exit_code, execute) = self.results.recv().ok()?;
         Some(EntryReport { lookup: Duration::ZERO, execute, total: execute, exit_code })
     }
 }
 
-/// Roda `tarefa` na thread do programa: no ponto seguro do isolado principal
+/// Roda `task` na thread do programa: no ponto seguro do isolado principal
 /// se ele está no laço; senão, entre dois comandos, com o programa parado.
-fn rodar_no_programa(
-    mut tarefa: Tarefa,
-    runtime: &ffi::RuntimeDaRecarga,
-    comandos: &mpsc::Sender<Comando>,
-    ocupado: &AtomicBool,
-    ao_esperar: &mut dyn FnMut(),
+fn run_in_program(
+    mut task: Task,
+    runtime: &ffi::ReloadRuntime,
+    commands: &mpsc::Sender<Command>,
+    busy: &AtomicBool,
+    on_wait: &mut dyn FnMut(),
 ) {
     loop {
-        match runtime.no_ponto_seguro(tarefa, ao_esperar) {
+        match runtime.at_safepoint(task, on_wait) {
             Ok(()) => return,
-            Err(devolvida) => tarefa = devolvida,
+            Err(returned) => task = returned,
         }
-        if ocupado.load(Ordering::Acquire) {
+        if busy.load(Ordering::Acquire) {
             // O programa foi mandado executar e ainda não marcou o isolado
             // principal (ou acabou de desmarcá-lo e vai responder): o ponto
             // seguro chega logo, ou o programa para.
             std::thread::sleep(Duration::from_millis(2));
             continue;
         }
-        let (feito, esperar) = mpsc::channel();
-        if comandos.send(Comando::Rodar(tarefa, feito)).is_ok() {
+        let (done, wait_for) = mpsc::channel();
+        if commands.send(Command::Run(task, done)).is_ok() {
             // Parado: a thread roda a tarefa assim que pegar o comando.
-            let _ = esperar.recv();
+            let _ = wait_for.recv();
         }
         return;
     }

@@ -4,48 +4,48 @@
 // A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
 // O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
 
-fn mapa_lista_auditado(heap: &Heap, lista: i64) -> Result<(i64, usize, usize), &'static str> {
+fn audited_list_map(heap: &Heap, list: i64) -> Result<(i64, usize, usize), &'static str> {
     use crate::layout::cid;
-    if !heap.e_lista(lista) { return Err("receiver não é lista viva"); }
-    let (dados, comprimento) = if heap.cabecalho(lista).class_id == cid::GROWABLE_LIST {
-        let objeto = heap.objeto(lista).ok_or("lista expansível sem mapa de instância")?;
-        if objeto.len() != 2 { return Err("layout da lista expansível inválido"); }
-        let (n, marca_n) = objeto.get(0).ok_or("comprimento ausente")?;
-        let (dados, marca_dados) = objeto.get(1).ok_or("armazenamento ausente")?;
-        if marca_n || !marca_dados { return Err("mapa da lista expansível inválido"); }
-        (dados, usize::try_from(n).map_err(|_| "comprimento negativo")?)
+    if !heap.e_lista(list) { return Err("receiver não é lista viva"); }
+    let (data, length) = if heap.header(list).class_id == cid::GROWABLE_LIST {
+        let object = heap.object(list).ok_or("lista expansível sem mapa de instância")?;
+        if object.len() != 2 { return Err("layout da lista expansível inválido"); }
+        let (n, mark_n) = object.get(0).ok_or("comprimento ausente")?;
+        let (data, mark_data) = object.get(1).ok_or("armazenamento ausente")?;
+        if mark_n || !mark_data { return Err("mapa da lista expansível inválido"); }
+        (data, usize::try_from(n).map_err(|_| "comprimento negativo")?)
     } else {
-        let n = *heap.palavras(lista).first().ok_or("comprimento ausente")?;
-        (lista, usize::try_from(n).map_err(|_| "comprimento negativo")?)
+        let n = *heap.words(list).first().ok_or("comprimento ausente")?;
+        (list, usize::try_from(n).map_err(|_| "comprimento negativo")?)
     };
-    if !heap.e_lista(dados) || !cid::e_lista_fixa(heap.cabecalho(dados).class_id) {
+    if !heap.e_lista(data) || !cid::is_fixed_list(heap.header(data).class_id) {
         return Err("armazenamento não é lista fixa viva");
     }
-    let palavras = heap.palavras(dados);
-    let capacidade = usize::try_from(*palavras.first().ok_or("capacidade ausente")?)
+    let words = heap.words(data);
+    let capacidade = usize::try_from(*words.first().ok_or("capacidade ausente")?)
         .map_err(|_| "capacidade negativa")?;
-    if capacidade > palavras.len().saturating_sub(1) {
+    if capacidade > words.len().saturating_sub(1) {
         return Err("capacidade fora do armazenamento");
     }
-    Ok((dados, comprimento, capacidade))
+    Ok((data, length, capacidade))
 }
 
-fn armazenamento_lista_auditado(heap: &Heap, lista: i64) -> Result<(i64, usize), &'static str> {
-    let (dados, comprimento, capacidade) = mapa_lista_auditado(heap, lista)?;
-    if comprimento > capacidade { return Err("comprimento fora do armazenamento"); }
-    Ok((dados, comprimento))
+fn audited_list_storage(heap: &Heap, list: i64) -> Result<(i64, usize), &'static str> {
+    let (data, length, capacidade) = audited_list_map(heap, list)?;
+    if length > capacidade { return Err("comprimento fora do armazenamento"); }
+    Ok((data, length))
 }
 
-fn ler_elemento_ref_auditado(heap: &Heap, lista: i64, indice: i64) -> Result<i64, &'static str> {
+fn read_audited_ref_element(heap: &Heap, list: i64, ix: i64) -> Result<i64, &'static str> {
     use crate::layout::flags;
-    let (dados, comprimento) = armazenamento_lista_auditado(heap, lista)?;
-    if heap.cabecalho(dados).flags & flags::FORMA != flags::REFS {
+    let (data, length) = audited_list_storage(heap, list)?;
+    if heap.header(data).flags & flags::FORMA != flags::REFS {
         return Err("armazenamento não contém referências");
     }
-    let palavras = heap.palavras(dados);
-    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    if indice >= comprimento { return Err("índice fora da lista"); }
-    Ok(palavras[1 + indice])
+    let words = heap.words(data);
+    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    if ix >= length { return Err("índice fora da lista"); }
+    Ok(words[1 + ix])
 }
 
 /// Lê o comprimento escalar de uma lista viva sem alterar seu ownership.
@@ -59,19 +59,19 @@ fn ler_elemento_ref_auditado(heap: &Heap, lista: i64, indice: i64) -> Result<i64
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: elementos Ref válidos durante a criação da lista.
-/// let lista = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
-/// dartforge_arc_retain(lista);
-/// assert_eq!(dartforge_arc_lista_len_v1(lista), 2);
-/// dartforge_arc_release(lista);
+/// // SAFETY: elements Ref váread_list durante a criação da list.
+/// let list = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
+/// dartforge_arc_retain(list);
+/// assert_eq!(dartforge_arc_lista_len_v1(list), 2);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_len_v1(lista: i64) -> i64 {
+pub extern "C" fn dartforge_arc_lista_len_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
-        let (_, comprimento) = armazenamento_lista_auditado(&heap, lista)
+        let (_, length) = audited_list_storage(&heap, list)
             .expect("comprimento ARC de lista inválido");
-        i64::try_from(comprimento).expect("comprimento fora de i64")
+        i64::try_from(length).expect("comprimento fora de i64")
     })
 }
 
@@ -85,15 +85,15 @@ pub extern "C" fn dartforge_arc_lista_len_v1(lista: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: um elemento Ref válido durante a criação.
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
-/// dartforge_arc_retain(lista);
-/// assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(lista), lista);
-/// dartforge_arc_release(lista);
+/// // SAFETY: one element Ref váread_so_far durante a criação.
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(list);
+/// assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(list), list);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(lista: i64) -> i64 {
-    HEAP.with(|h| armazenamento_lista_auditado(&h.borrow(), lista)
+pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(list: i64) -> i64 {
+    HEAP.with(|h| audited_list_storage(&h.borrow(), list)
         .expect("armazenamento ARC inválido").0)
 }
 
@@ -106,17 +106,17 @@ pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(lista: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
-/// dartforge_arc_retain(lista);
-/// assert_eq!(dartforge_arc_lista_forma_v1(lista), 4);
-/// dartforge_arc_release(lista);
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(list);
+/// assert_eq!(dartforge_arc_lista_forma_v1(list), 4);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_forma_v1(lista: i64) -> i64 {
+pub extern "C" fn dartforge_arc_lista_forma_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
-        let (dados, _) = armazenamento_lista_auditado(&heap, lista).expect("forma ARC inválida");
-        i64::from(heap.cabecalho(dados).flags & (crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO))
+        let (data, _) = audited_list_storage(&heap, list).expect("forma ARC inválida");
+        i64::from(heap.header(data).flags & (crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO))
     })
 }
 
@@ -129,28 +129,28 @@ pub extern "C" fn dartforge_arc_lista_forma_v1(lista: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let lista = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
-/// dartforge_arc_retain(lista);
-/// assert_eq!(dartforge_arc_lista_capacidade_v1(lista), 2);
-/// dartforge_arc_release(lista);
+/// let list = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
+/// dartforge_arc_retain(list);
+/// assert_eq!(dartforge_arc_lista_capacidade_v1(list), 2);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_capacidade_v1(lista: i64) -> i64 {
+pub extern "C" fn dartforge_arc_lista_capacidade_v1(list: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
-        let (dados, _) = armazenamento_lista_auditado(&heap, lista).expect("capacidade ARC inválida");
-        heap.lista_len(dados) as i64
+        let (data, _) = audited_list_storage(&heap, list).expect("capacidade ARC inválida");
+        heap.list_len(data) as i64
     })
 }
 
-fn conferir_len_lista_arc(heap: &Heap, lista: i64, novo: i64) -> Result<usize, &'static str> {
-    let (_, _, capacidade) = mapa_lista_auditado(heap, lista)?;
-    if heap.cabecalho(lista).class_id != crate::layout::cid::GROWABLE_LIST {
+fn check_arc_list_len(heap: &Heap, list: i64, new: i64) -> Result<usize, &'static str> {
+    let (_, _, capacidade) = audited_list_map(heap, list)?;
+    if heap.header(list).class_id != crate::layout::cid::GROWABLE_LIST {
         return Err("comprimento mutável exige lista expansível");
     }
-    let novo = usize::try_from(novo).map_err(|_| "comprimento negativo")?;
-    if novo > capacidade { return Err("comprimento fora do armazenamento"); }
-    Ok(novo)
+    let new = usize::try_from(new).map_err(|_| "comprimento negativo")?;
+    if new > capacidade { return Err("comprimento fora do armazenamento"); }
+    Ok(new)
 }
 
 /// Grava o comprimento escalar de uma lista expansível dentro da capacidade.
@@ -164,44 +164,44 @@ fn conferir_len_lista_arc(heap: &Heap, lista: i64, novo: i64) -> Result<usize, &
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
-/// dartforge_arc_retain(lista);
-/// dartforge_arc_lista_gravar_len_v1(lista, 0);
-/// assert_eq!(dartforge_arc_lista_len_v1(lista), 0);
-/// dartforge_arc_release(lista);
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
+/// dartforge_arc_retain(list);
+/// dartforge_arc_lista_gravar_len_v1(list, 0);
+/// assert_eq!(dartforge_arc_lista_len_v1(list), 0);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_len_v1(lista: i64, novo: i64) {
+pub extern "C" fn dartforge_arc_lista_gravar_len_v1(list: i64, new: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let novo = conferir_len_lista_arc(&heap, lista, novo).expect("gravação ARC de comprimento inválida");
-        heap.lista_definir_len(lista, novo);
+        let new = check_arc_list_len(&heap, list, new).expect("gravação ARC de comprimento inválida");
+        heap.list_set_len(list, new);
     })
 }
 
-fn conferir_bits_lista_arc(heap: &Heap, dados: i64, indice: i64, bits: i64, forma: i64)
+fn check_arc_list_bits(heap: &Heap, data: i64, ix: i64, bits: i64, shape: i64)
     -> Result<usize, &'static str> {
     use crate::layout::{cid, flags};
-    let (armazenamento, comprimento) = armazenamento_lista_auditado(heap, dados)?;
-    if armazenamento != dados || heap.cabecalho(dados).class_id != cid::LIST {
+    let (storage, length) = audited_list_storage(heap, data)?;
+    if storage != data || heap.header(data).class_id != cid::LIST {
         return Err("gravação exige armazenamento fixo mutável");
     }
-    let f = heap.cabecalho(dados).flags & (flags::FORMA | flags::ELEMENTO);
-    if forma != i64::from(f) || ![flags::BRUTO | flags::ELEMENTO_INT,
+    let f = heap.header(data).flags & (flags::FORMA | flags::ELEMENTO);
+    if shape != i64::from(f) || ![flags::BRUTO | flags::ELEMENTO_INT,
         flags::BRUTO | flags::ELEMENTO_DOUBLE, flags::BRUTO | flags::ELEMENTO_BOOL].contains(&f) {
         return Err("forma escalar incompatível");
     }
     if f == flags::BRUTO | flags::ELEMENTO_BOOL && ![0, 1].contains(&bits) {
         return Err("booleano não canônico");
     }
-    let i = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    if i >= comprimento { return Err("índice fora do armazenamento"); }
+    let i = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    if i >= length { return Err("índice fora do armazenamento"); }
     Ok(i)
 }
 
 /// Grava bits de int, double ou bool num armazenamento compacto mutável.
 ///
-/// Confere forma e índice; `forma` usa os bits FORMA/ELEMENTO do layout.
+/// Confere forma e índice; `shape` usa os bits FORMA/ELEMENTO do layout.
 /// Não encaixota, aloca, coleta ou executa Dart; invalida empréstimos anteriores.
 ///
 /// # Panics
@@ -209,17 +209,17 @@ fn conferir_bits_lista_arc(heap: &Heap, dados: i64, indice: i64, bits: i64, form
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 1) };
-/// dartforge_arc_retain(lista);
-/// dartforge_arc_lista_gravar_bits_v1(lista, 0, 42, 0x22);
-/// dartforge_arc_release(lista);
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 1) };
+/// dartforge_arc_retain(list);
+/// dartforge_arc_lista_gravar_bits_v1(list, 0, 42, 0x22);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_bits_v1(dados: i64, indice: i64, bits: i64, forma: i64) {
+pub extern "C" fn dartforge_arc_lista_gravar_bits_v1(data: i64, ix: i64, bits: i64, shape: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let i = conferir_bits_lista_arc(&heap, dados, indice, bits, forma).expect("gravação ARC escalar inválida");
-        heap.palavras_mut(dados)[1 + i] = bits;
+        let i = check_arc_list_bits(&heap, data, ix, bits, shape).expect("gravação ARC escalar inválida");
+        heap.words_mut(data)[1 + i] = bits;
     })
 }
 
@@ -233,20 +233,20 @@ pub extern "C" fn dartforge_arc_lista_gravar_bits_v1(dados: i64, indice: i64, bi
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
-/// dartforge_arc_retain(lista);
-/// dartforge_arc_lista_gravar_ref_v1(lista, 0, 0);
-/// dartforge_arc_release(lista);
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(list);
+/// dartforge_arc_lista_gravar_ref_v1(list, 0, 0);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(dados: i64, indice: i64, valor: i64) {
+pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(data: i64, ix: i64, value: i64) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        assert!(heap.e_lista(dados) && heap.cabecalho(dados).class_id == crate::layout::cid::LIST,
+        assert!(heap.e_lista(data) && heap.header(data).class_id == crate::layout::cid::LIST,
             "gravação ARC Ref exige armazenamento mutável");
-        ler_elemento_ref_auditado(&heap, dados, indice).expect("gravação ARC Ref inválida");
-        assert!(!crate::layout::e_objeto(valor) || heap.e_objeto_vivo(valor), "referência ARC morta");
-        heap.gravar_refs(dados, 1 + indice as usize, &[valor]);
+        read_audited_ref_element(&heap, data, ix).expect("gravação ARC Ref inválida");
+        assert!(!crate::layout::is_object(value) || heap.is_live_object(value), "referência ARC morta");
+        heap.write_refs(data, 1 + ix as usize, &[value]);
     })
 }
 
@@ -261,23 +261,23 @@ pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(dados: i64, indice: i64, val
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
-/// dartforge_arc_retain(lista);
-/// let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
-/// assert_eq!(dartforge_arc_lista_gravar_dados_v1(lista, dados), 1);
-/// dartforge_arc_release(lista);
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
+/// dartforge_arc_retain(list);
+/// let data = dartforge_arc_lista_armazenamento_ref_v1(list);
+/// assert_eq!(dartforge_arc_lista_gravar_dados_v1(list, data), 1);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(lista: i64, dados: i64) -> i64 {
+pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(list: i64, data: i64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let (velho, _, _) = mapa_lista_auditado(&heap, lista).expect("mapa ARC de lista inválido");
-        assert_eq!(heap.cabecalho(lista).class_id, crate::layout::cid::GROWABLE_LIST);
-        let (fixa, _) = armazenamento_lista_auditado(&heap, dados).expect("novo armazenamento ARC inválido");
-        assert_eq!(fixa, dados, "armazenamento ARC deve ser fixo");
-        let mascara = crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO;
-        if heap.cabecalho(velho).flags & mascara != heap.cabecalho(dados).flags & mascara { return 0; }
-        heap.lista_definir_dados(lista, dados);
+        let (old_gen, _, _) = audited_list_map(&heap, list).expect("mapa ARC de lista inválido");
+        assert_eq!(heap.header(list).class_id, crate::layout::cid::GROWABLE_LIST);
+        let (fixed, _) = audited_list_storage(&heap, data).expect("novo armazenamento ARC inválido");
+        assert_eq!(fixed, data, "armazenamento ARC deve ser fixo");
+        let mask = crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO;
+        if heap.header(old_gen).flags & mask != heap.header(data).flags & mask { return 0; }
+        heap.list_set_data(list, data);
         1
     })
 }
@@ -294,32 +294,32 @@ pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(lista: i64, dados: i64) ->
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: elementos escalares durante a criação da lista compacta.
-/// let lista = unsafe { dartforge_lista_nova([7].as_ptr(), 1, 8, 1) };
-/// dartforge_arc_retain(lista);
-/// dartforge_arc_lista_gravar_bits_v1(lista, 0, 42, 0x22);
-/// assert_eq!(dartforge_arc_lista_ler_bits_v1(lista, 0), 42);
-/// dartforge_arc_release(lista);
+/// // SAFETY: elements escalares durante a criação da list compacta.
+/// let list = unsafe { dartforge_lista_nova([7].as_ptr(), 1, 8, 1) };
+/// dartforge_arc_retain(list);
+/// dartforge_arc_lista_gravar_bits_v1(list, 0, 42, 0x22);
+/// assert_eq!(dartforge_arc_lista_ler_bits_v1(list, 0), 42);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_ler_bits_v1(lista: i64, indice: i64) -> i64 {
+pub extern "C" fn dartforge_arc_lista_ler_bits_v1(list: i64, ix: i64) -> i64 {
     HEAP.with(|h| {
         let heap = h.borrow();
-        ler_bits_lista_arc(&heap, lista, indice).expect("leitura ARC escalar inválida")
+        read_arc_list_bits(&heap, list, ix).expect("leitura ARC escalar inválida")
     })
 }
 
-fn ler_bits_lista_arc(heap: &Heap, lista: i64, indice: i64) -> Result<i64, &'static str> {
+fn read_arc_list_bits(heap: &Heap, list: i64, ix: i64) -> Result<i64, &'static str> {
     use crate::layout::flags;
-    let (dados, comprimento) = armazenamento_lista_auditado(heap, lista)?;
-    let f = heap.cabecalho(dados).flags & (flags::FORMA | flags::ELEMENTO);
+    let (data, length) = audited_list_storage(heap, list)?;
+    let f = heap.header(data).flags & (flags::FORMA | flags::ELEMENTO);
     if ![flags::BRUTO | flags::ELEMENTO_INT, flags::BRUTO | flags::ELEMENTO_DOUBLE,
         flags::BRUTO | flags::ELEMENTO_BOOL].contains(&f) {
         return Err("armazenamento não é compacto");
     }
-    let i = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    if i >= comprimento { return Err("índice fora da lista"); }
-    let bits = heap.palavras(dados)[1 + i];
+    let i = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    if i >= length { return Err("índice fora da lista"); }
+    let bits = heap.words(data)[1 + i];
     if f == flags::BRUTO | flags::ELEMENTO_BOOL && ![0, 1].contains(&bits) {
         return Err("booleano não canônico");
     }
@@ -338,19 +338,19 @@ fn ler_bits_lista_arc(heap: &Heap, lista: i64, indice: i64) -> Result<i64, &'sta
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: um elemento Ref vivo e alinhado durante a cópia.
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
-/// dartforge_arc_retain(lista);
-/// assert_eq!(dartforge_arc_lista_ref_owned_v1(lista, 0), 0);
-/// dartforge_arc_release(lista);
+/// // SAFETY: one element Ref alive e alinhado durante a cópia.
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(list);
+/// assert_eq!(dartforge_arc_lista_ref_owned_v1(list, 0), 0);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_ref_owned_v1(lista: i64, indice: i64) -> i64 {
+pub extern "C" fn dartforge_arc_lista_ref_owned_v1(list: i64, ix: i64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let valor = ler_elemento_ref_auditado(&heap, lista, indice).expect("leitura ARC de lista inválida");
-        heap.reter_owner_codigo(valor);
-        valor
+        let value = read_audited_ref_element(&heap, list, ix).expect("leitura ARC de lista inválida");
+        heap.retain_code_owner(value);
+        value
     })
 }
 
@@ -365,73 +365,73 @@ pub extern "C" fn dartforge_arc_lista_ref_owned_v1(lista: i64, indice: i64) -> i
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// // SAFETY: um elemento Ref vivo e alinhado durante a cópia.
-/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
-/// dartforge_arc_retain(lista);
-/// assert_eq!(dartforge_arc_lista_ref_v1(lista, 0), 0);
-/// dartforge_arc_release(lista);
+/// // SAFETY: one element Ref alive e alinhado durante a cópia.
+/// let list = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(list);
+/// assert_eq!(dartforge_arc_lista_ref_v1(list, 0), 0);
+/// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lista_ref_v1(lista: i64, indice: i64) -> i64 {
-    HEAP.with(|h| ler_elemento_ref_auditado(&h.borrow(), lista, indice).expect("leitura ARC de lista inválida"))
+pub extern "C" fn dartforge_arc_lista_ref_v1(list: i64, ix: i64) -> i64 {
+    HEAP.with(|h| read_audited_ref_element(&h.borrow(), list, ix).expect("leitura ARC de lista inválida"))
 }
 
 #[cfg(test)]
-mod testes_lista_ref_owned {
+mod tests_owned_ref_list {
     use super::*;
-    use crate::{layout::{cid, smi}, listas::Elemento, heap::Valor};
+    use crate::{layout::{cid, smi}, listas::Element, heap::Value};
 
     #[test]
-    fn acrescentar_empresta_receiver_e_preserva_raizes_em_crescimento_e_descompactacao() {
+    fn append_borrows_receiver_and_preserves_roots_across_growth_and_decompaction() {
         for arc in [false, true] {
-            for cheia in [false, true] {
-                for forma in [Elemento::Geral, Elemento::Int, Elemento::Double, Elemento::Bool] {
-                    for compativel in [false, true] {
-                        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-                        let (lista, valor) = HEAP.with(|h| {
+            for full_list in [false, true] {
+                for shape in [Element::General, Element::Int, Element::Double, Element::Bool] {
+                    for compatible in [false, true] {
+                        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+                        let (list, value) = HEAP.with(|h| {
                             let mut heap = h.borrow_mut();
-                            if arc { heap.ativar_arc(); }
-                            let lista = heap.nova_expansivel(usize::from(cheia), if cheia { 1 } else { 2 }, forma);
-                            heap.reter_owner_codigo(lista);
-                            if cheia {
-                                let dados = heap.lista_dados(lista);
-                                heap.palavras_mut(dados)[1] = match forma {
-                                    Elemento::Geral => 0, Elemento::Int => i64::MIN,
-                                    Elemento::Double => (-0.0_f64).to_bits() as i64, Elemento::Bool => 1,
+                            if arc { heap.enable_arc(); }
+                            let list = heap.new_growable(usize::from(full_list), if full_list { 1 } else { 2 }, shape);
+                            heap.retain_code_owner(list);
+                            if full_list {
+                                let data = heap.list_data(list);
+                                heap.words_mut(data)[1] = match shape {
+                                    Element::General => 0, Element::Int => i64::MIN,
+                                    Element::Double => (-0.0_f64).to_bits() as i64, Element::Bool => 1,
                                 };
                             }
-                            let v = if !compativel || forma == Elemento::Geral {
-                                Valor::Ref(heap.alocar_instancia(123, 1))
-                            } else { match forma {
-                                Elemento::Int => Valor::Int(i64::MAX),
-                                Elemento::Double => Valor::Double(f64::from_bits(0xfff8_1234_5678_9abc)),
-                                Elemento::Bool => Valor::Bool(true), Elemento::Geral => unreachable!(),
+                            let v = if !compatible || shape == Element::General {
+                                Value::Ref(heap.allocate_instance(123, 1))
+                            } else { match shape {
+                                Element::Int => Value::Int(i64::MAX),
+                                Element::Double => Value::Double(f64::from_bits(0xfff8_1234_5678_9abc)),
+                                Element::Bool => Value::Bool(true), Element::General => unreachable!(),
                             }};
-                            let valor = heap.como_ref(v);
-                            heap.reter_owner_codigo(valor);
-                            (lista, valor)
+                            let value = heap.to_ref(v);
+                            heap.retain_code_owner(value);
+                            (list, value)
                         });
                         let stats = HEAP.with(|h| h.borrow().stats());
-                        let r = dartforge_lista_acrescentar(lista, valor);
-                        assert_eq!(r, lista);
+                        let r = dartforge_lista_acrescentar(list, value);
+                        assert_eq!(r, list);
                         HEAP.with(|h| {
                             let heap = h.borrow();
-                            assert_eq!(heap.lista_len(lista), 1 + usize::from(cheia));
-                            assert_eq!(heap.lista_capacidade(lista), if cheia { 3 } else { 2 });
-                            let general = !compativel || forma == Elemento::Geral;
-                            assert_eq!(heap.lista_forma(lista), if general { Elemento::Geral } else { forma });
-                            let ultimo = heap.lista_get(lista, usize::from(cheia));
-                            match forma {
-                                _ if general => assert_eq!(ultimo, Valor::Ref(valor)),
-                                Elemento::Int => assert_eq!(ultimo, Valor::Int(i64::MAX)),
-                                Elemento::Double => {
-                                    let Valor::Double(d) = ultimo else { panic!("elemento double esperado") };
+                            assert_eq!(heap.list_len(list), 1 + usize::from(full_list));
+                            assert_eq!(heap.list_capacity(list), if full_list { 3 } else { 2 });
+                            let general = !compatible || shape == Element::General;
+                            assert_eq!(heap.list_shape(list), if general { Element::General } else { shape });
+                            let last_one = heap.list_get(list, usize::from(full_list));
+                            match shape {
+                                _ if general => assert_eq!(last_one, Value::Ref(value)),
+                                Element::Int => assert_eq!(last_one, Value::Int(i64::MAX)),
+                                Element::Double => {
+                                    let Value::Double(d) = last_one else { panic!("elemento double esperado") };
                                     assert_eq!(d.to_bits(), 0xfff8_1234_5678_9abc);
                                 },
-                                Elemento::Bool => assert_eq!(ultimo, Valor::Bool(true)),
-                                Elemento::Geral => unreachable!(),
+                                Element::Bool => assert_eq!(last_one, Value::Bool(true)),
+                                Element::General => unreachable!(),
                             }
-                            if cheia || (!compativel && forma != Elemento::Geral) {
+                            if full_list || (!compatible && shape != Element::General) {
                                 assert!(heap.stats().allocations > stats.allocations);
                                 assert!(heap.stats().collections > stats.collections);
                             } else {
@@ -439,19 +439,19 @@ mod testes_lista_ref_owned {
                                 assert_eq!(heap.stats().collections, stats.collections);
                             }
                         });
-                        dartforge_arc_release(valor);
+                        dartforge_arc_release(value);
                         dartforge_arc_collect();
-                        if !compativel || forma == Elemento::Geral {
-                            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+                        if !compatible || shape == Element::General {
+                            assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
                         }
                         // O retorno borrowed não pode deixar um owner adicional da lista.
-                        dartforge_arc_release(lista);
+                        dartforge_arc_release(list);
                         dartforge_arc_collect();
-                        assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(r)));
-                        if !compativel || forma == Elemento::Geral {
-                            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+                        assert!(!HEAP.with(|h| h.borrow().is_live_object(r)));
+                        if !compatible || shape == Element::General {
+                            assert!(!HEAP.with(|h| h.borrow().is_live_object(value)));
                         }
-                        HEAP.with(|h| h.replace(anterior));
+                        HEAP.with(|h| h.replace(previous));
                     }
                 }
             }
@@ -459,256 +459,256 @@ mod testes_lista_ref_owned {
     }
 
     #[test]
-    fn armazenamento_compacto_preserva_bits_e_sequencia_de_encolhimento() {
+    fn compact_storage_preserves_bits_and_shrink_sequence() {
         for arc in [false, true] {
-            for (forma, bits) in [(Elemento::Int, i64::MIN),
-                (Elemento::Double, 0xfff8_1234_5678_9abc_u64 as i64), (Elemento::Bool, 1)] {
-                let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-                let lista = HEAP.with(|h| {
+            for (shape, bits) in [(Element::Int, i64::MIN),
+                (Element::Double, 0xfff8_1234_5678_9abc_u64 as i64), (Element::Bool, 1)] {
+                let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+                let list = HEAP.with(|h| {
                     let mut heap = h.borrow_mut();
-                    if arc { heap.ativar_arc(); }
-                    let lista = heap.nova_expansivel(0, 3, forma);
-                    heap.reter_owner_codigo(lista);
-                    lista
+                    if arc { heap.enable_arc(); }
+                    let list = heap.new_growable(0, 3, shape);
+                    heap.retain_code_owner(list);
+                    list
                 });
                 let stats = HEAP.with(|h| h.borrow().stats());
-                let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
-                assert_ne!(dados, lista);
-                assert_eq!(dartforge_arc_lista_capacidade_v1(lista), 3);
-                assert_eq!(dartforge_arc_lista_len_v1(dados), 3);
-                assert_eq!(dartforge_arc_lista_forma_v1(dados), i64::from(forma.flags()));
-                dartforge_arc_lista_gravar_bits_v1(dados, 0, bits, i64::from(forma.flags()));
-                dartforge_arc_lista_gravar_len_v1(lista, 1);
+                let data = dartforge_arc_lista_armazenamento_ref_v1(list);
+                assert_ne!(data, list);
+                assert_eq!(dartforge_arc_lista_capacidade_v1(list), 3);
+                assert_eq!(dartforge_arc_lista_len_v1(data), 3);
+                assert_eq!(dartforge_arc_lista_forma_v1(data), i64::from(shape.flags()));
+                dartforge_arc_lista_gravar_bits_v1(data, 0, bits, i64::from(shape.flags()));
+                dartforge_arc_lista_gravar_len_v1(list, 1);
                 HEAP.with(|h| {
                     let heap = h.borrow();
-                    assert_eq!(heap.palavras(dados)[1], bits);
+                    assert_eq!(heap.words(data)[1], bits);
                     assert_eq!(heap.stats().allocations, stats.allocations);
                     assert_eq!(heap.stats().collections, stats.collections);
                 });
                 // Cópia explícita antes de retirar a aresta que sustenta o borrow.
-                dartforge_arc_retain(dados);
-                let novo = HEAP.with(|h| {
+                dartforge_arc_retain(data);
+                let new = HEAP.with(|h| {
                     let mut heap = h.borrow_mut();
-                    let novo = heap.nova_lista(cid::LIST, 0, forma);
-                    heap.reter_owner_codigo(novo);
-                    novo
+                    let new = heap.new_list(cid::LIST, 0, shape);
+                    heap.retain_code_owner(new);
+                    new
                 });
-                assert_eq!(dartforge_arc_lista_gravar_dados_v1(lista, novo), 1);
-                assert!(HEAP.with(|h| armazenamento_lista_auditado(&h.borrow(), lista).is_err()));
-                dartforge_arc_lista_gravar_len_v1(lista, 0);
-                assert_eq!(dartforge_arc_lista_len_v1(lista), 0);
-                dartforge_arc_release(novo);
+                assert_eq!(dartforge_arc_lista_gravar_dados_v1(list, new), 1);
+                assert!(HEAP.with(|h| audited_list_storage(&h.borrow(), list).is_err()));
+                dartforge_arc_lista_gravar_len_v1(list, 0);
+                assert_eq!(dartforge_arc_lista_len_v1(list), 0);
+                dartforge_arc_release(new);
                 dartforge_arc_collect();
-                assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(dados)));
-                dartforge_arc_release(dados);
+                assert!(HEAP.with(|h| h.borrow().is_live_object(data)));
+                dartforge_arc_release(data);
                 dartforge_arc_collect();
-                assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(dados)));
-                assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(novo)));
-                dartforge_arc_release(lista);
+                assert!(!HEAP.with(|h| h.borrow().is_live_object(data)));
+                assert!(HEAP.with(|h| h.borrow().is_live_object(new)));
+                dartforge_arc_release(list);
                 dartforge_arc_collect();
-                assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(novo)));
-                HEAP.with(|h| h.replace(anterior));
+                assert!(!HEAP.with(|h| h.borrow().is_live_object(new)));
+                HEAP.with(|h| h.replace(previous));
             }
         }
     }
 
     #[test]
-    fn armazenamento_ref_copia_arestas_e_preserva_owner_do_elemento() {
+    fn ref_storage_copies_edges_and_preserves_element_owner() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            let lista = HEAP.with(|h| {
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            let list = HEAP.with(|h| {
                 let mut heap = h.borrow_mut();
-                if arc { heap.ativar_arc(); }
-                let lista = heap.nova_expansivel(1, 3, Elemento::Geral);
-                heap.reter_owner_codigo(lista);
-                lista
+                if arc { heap.enable_arc(); }
+                let list = heap.new_growable(1, 3, Element::General);
+                heap.retain_code_owner(list);
+                list
             });
-            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
+            let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let data = dartforge_arc_lista_armazenamento_ref_v1(list);
             let stats = HEAP.with(|h| h.borrow().stats());
-            dartforge_arc_lista_gravar_ref_v1(dados, 0, filho);
+            dartforge_arc_lista_gravar_ref_v1(data, 0, child);
             assert_eq!(HEAP.with(|h| h.borrow().stats().allocations), stats.allocations);
             assert_eq!(HEAP.with(|h| h.borrow().stats().collections), stats.collections);
-            dartforge_arc_release(filho);
+            dartforge_arc_release(child);
             dartforge_arc_collect();
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(filho)));
-            let recebido = dartforge_arc_lista_ref_owned_v1(dados, 0);
-            dartforge_arc_lista_gravar_ref_v1(dados, 0, 0);
-            dartforge_arc_release(lista);
+            assert!(HEAP.with(|h| h.borrow().is_live_object(child)));
+            let received = dartforge_arc_lista_ref_owned_v1(data, 0);
+            dartforge_arc_lista_gravar_ref_v1(data, 0, 0);
+            dartforge_arc_release(list);
             dartforge_arc_collect();
-            assert_eq!(dartforge_unbox_int(recebido), i64::MAX);
-            dartforge_arc_release(recebido);
+            assert_eq!(dartforge_unbox_int(received), i64::MAX);
+            dartforge_arc_release(received);
             dartforge_arc_collect();
-            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(filho)));
-            HEAP.with(|h| h.replace(anterior));
+            assert!(!HEAP.with(|h| h.borrow().is_live_object(child)));
+            HEAP.with(|h| h.replace(previous));
         }
     }
 
     #[test]
-    fn escritas_recusam_forma_indice_e_len_invalidos_e_nao_trocam_forma() {
-        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        let (lista, novo) = HEAP.with(|h| {
+    fn writes_reject_invalid_shape_index_and_len_and_keep_shape() {
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (list, new) = HEAP.with(|h| {
             let mut heap = h.borrow_mut();
-            heap.ativar_arc();
-            let lista = heap.nova_expansivel(1, 2, Elemento::Bool);
-            heap.reter_owner_codigo(lista);
-            let novo = heap.nova_lista(cid::LIST, 1, Elemento::Int);
-            heap.reter_owner_codigo(novo);
-            (lista, novo)
+            heap.enable_arc();
+            let list = heap.new_growable(1, 2, Element::Bool);
+            heap.retain_code_owner(list);
+            let new = heap.new_list(cid::LIST, 1, Element::Int);
+            heap.retain_code_owner(new);
+            (list, new)
         });
-        let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
-        assert_eq!(dartforge_arc_lista_gravar_dados_v1(lista, novo), 0);
-        assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(lista), dados);
+        let data = dartforge_arc_lista_armazenamento_ref_v1(list);
+        assert_eq!(dartforge_arc_lista_gravar_dados_v1(list, new), 0);
+        assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(list), data);
         HEAP.with(|h| {
             let heap = h.borrow();
-            for (i, bits, forma) in [(-1, 1, 0x62), (2, 1, 0x62), (0, 2, 0x62),
+            for (i, bits, shape) in [(-1, 1, 0x62), (2, 1, 0x62), (0, 2, 0x62),
                 (0, 1, 0x22), (0, 1, 0x04)] {
-                assert!(conferir_bits_lista_arc(&heap, dados, i, bits, forma).is_err());
+                assert!(check_arc_list_bits(&heap, data, i, bits, shape).is_err());
             }
-            assert!(conferir_bits_lista_arc(&heap, lista, 0, 1, 0x62).is_err());
-            assert!(conferir_len_lista_arc(&heap, dados, 0).is_err());
-            for n in [-1, 3] { assert!(conferir_len_lista_arc(&heap, lista, n).is_err()); }
-            assert_eq!(heap.palavras(dados)[1], 0);
+            assert!(check_arc_list_bits(&heap, list, 0, 1, 0x62).is_err());
+            assert!(check_arc_list_len(&heap, data, 0).is_err());
+            for n in [-1, 3] { assert!(check_arc_list_len(&heap, list, n).is_err()); }
+            assert_eq!(heap.words(data)[1], 0);
         });
-        dartforge_arc_release(novo);
-        dartforge_arc_release(lista);
+        dartforge_arc_release(new);
+        dartforge_arc_release(list);
         dartforge_arc_collect();
-        HEAP.with(|h| h.replace(anterior));
+        HEAP.with(|h| h.replace(previous));
     }
 
     #[test]
-    fn comprimento_geral_e_compacto_nao_aloca_coleta_ou_retem() {
+    fn general_and_compact_length_does_not_allocate_collect_or_retain() {
         for arc in [false, true] {
-            for classe in [cid::LIST, cid::IMMUTABLE_LIST, cid::GROWABLE_LIST] {
-                for forma in [Elemento::Geral, Elemento::Int, Elemento::Double, Elemento::Bool] {
-                    let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-                    let lista = HEAP.with(|h| {
+            for class in [cid::LIST, cid::IMMUTABLE_LIST, cid::GROWABLE_LIST] {
+                for shape in [Element::General, Element::Int, Element::Double, Element::Bool] {
+                    let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+                    let list = HEAP.with(|h| {
                         let mut heap = h.borrow_mut();
-                        if arc { heap.ativar_arc(); }
-                        let lista = if classe == cid::GROWABLE_LIST {
-                            heap.nova_expansivel(2, 5, forma)
-                        } else { heap.nova_lista(classe, 2, forma) };
-                        heap.reter_owner_codigo(lista);
-                        lista
+                        if arc { heap.enable_arc(); }
+                        let list = if class == cid::GROWABLE_LIST {
+                            heap.new_growable(2, 5, shape)
+                        } else { heap.new_list(class, 2, shape) };
+                        heap.retain_code_owner(list);
+                        list
                     });
                     let stats = HEAP.with(|h| h.borrow().stats().clone());
-                    assert_eq!(dartforge_arc_lista_len_v1(lista), 2);
+                    assert_eq!(dartforge_arc_lista_len_v1(list), 2);
                     HEAP.with(|h| {
                         let heap = h.borrow();
                         assert_eq!(heap.stats().allocations, stats.allocations);
                         assert_eq!(heap.stats().collections, stats.collections);
                     });
-                    dartforge_arc_release(lista);
+                    dartforge_arc_release(list);
                     dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(lista), 0);
-                    assert!(HEAP.with(|h| armazenamento_lista_auditado(&h.borrow(), lista).is_err()));
-                    HEAP.with(|h| h.replace(anterior));
+                    assert_eq!(dartforge_arc_observar_heap_v1(list), 0);
+                    assert!(HEAP.with(|h| audited_list_storage(&h.borrow(), list).is_err()));
+                    HEAP.with(|h| h.replace(previous));
                 }
             }
         }
     }
 
     #[test]
-    fn comprimento_recusa_mapa_classe_e_limites_invalidos() {
+    fn length_rejects_invalid_map_class_and_bounds() {
         let mut heap = Heap::new(true);
-        let outra = heap.alocar_instancia(123, 2);
-        heap.reter_owner_codigo(outra);
-        for receiver in [0, smi::de(3).unwrap(), i64::MAX, outra] {
-            assert!(armazenamento_lista_auditado(&heap, receiver).is_err());
+        let other = heap.allocate_instance(123, 2);
+        heap.retain_code_owner(other);
+        for receiver in [0, smi::de(3).unwrap(), i64::MAX, other] {
+            assert!(audited_list_storage(&heap, receiver).is_err());
         }
-        let fixa = heap.nova_lista(cid::LIST, 2, Elemento::Int);
-        heap.reter_owner_codigo(fixa);
+        let fixed = heap.new_list(cid::LIST, 2, Element::Int);
+        heap.retain_code_owner(fixed);
         for n in [-1, 3, i64::MAX] {
-            heap.palavras_mut(fixa)[0] = n;
-            assert!(armazenamento_lista_auditado(&heap, fixa).is_err());
+            heap.words_mut(fixed)[0] = n;
+            assert!(audited_list_storage(&heap, fixed).is_err());
         }
-        heap.palavras_mut(fixa)[0] = 2;
-        let lista = heap.nova_expansivel(0, 3, Elemento::Double);
-        heap.reter_owner_codigo(lista);
-        assert_eq!(armazenamento_lista_auditado(&heap, lista).unwrap().1, 0);
+        heap.words_mut(fixed)[0] = 2;
+        let list = heap.new_growable(0, 3, Element::Double);
+        heap.retain_code_owner(list);
+        assert_eq!(audited_list_storage(&heap, list).unwrap().1, 0);
         for n in [-1, 4] {
-            heap.definir_campo(lista, 0, n, false);
-            assert!(armazenamento_lista_auditado(&heap, lista).is_err());
+            heap.set_field(list, 0, n, false);
+            assert!(audited_list_storage(&heap, list).is_err());
         }
-        heap.definir_campo(lista, 0, 0, true);
-        assert!(armazenamento_lista_auditado(&heap, lista).is_err());
-        heap.definir_campo(lista, 0, 0, false);
-        for (dados, marca) in [(fixa, false), (outra, true), (lista, true), (0, true)] {
-            heap.definir_campo(lista, 1, dados, marca);
-            assert!(armazenamento_lista_auditado(&heap, lista).is_err());
+        heap.set_field(list, 0, 0, true);
+        assert!(audited_list_storage(&heap, list).is_err());
+        heap.set_field(list, 0, 0, false);
+        for (data, mark) in [(fixed, false), (other, true), (list, true), (0, true)] {
+            heap.set_field(list, 1, data, mark);
+            assert!(audited_list_storage(&heap, list).is_err());
         }
-        let falsa = heap.alocar_instancia(cid::GROWABLE_LIST, 1);
-        assert!(armazenamento_lista_auditado(&heap, falsa).is_err());
+        let fake = heap.allocate_instance(cid::GROWABLE_LIST, 1);
+        assert!(audited_list_storage(&heap, fake).is_err());
     }
 
     #[test]
-    fn elemento_owned_sobrevive_a_slot_limpo_e_lista_liberada() {
+    fn owned_element_survives_cleared_slot_and_released_list() {
         for arc in [false, true] {
-            for classe in [cid::LIST, cid::IMMUTABLE_LIST, cid::GROWABLE_LIST] {
-                let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-                if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-                let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-                let lista = HEAP.with(|h| {
+            for class in [cid::LIST, cid::IMMUTABLE_LIST, cid::GROWABLE_LIST] {
+                let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+                if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+                let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+                let list = HEAP.with(|h| {
                     let mut heap = h.borrow_mut();
-                    let lista = if classe == cid::GROWABLE_LIST { heap.nova_expansivel(3, 5, Elemento::Geral) }
-                        else { heap.nova_lista(classe, 3, Elemento::Geral) };
-                    heap.reter_owner_codigo(lista);
-                    heap.lista_set(lista, 1, Valor::Ref(filho));
-                    heap.lista_set(lista, 2, Valor::Ref(smi::de(7).unwrap()));
-                    lista
+                    let list = if class == cid::GROWABLE_LIST { heap.new_growable(3, 5, Element::General) }
+                        else { heap.new_list(class, 3, Element::General) };
+                    heap.retain_code_owner(list);
+                    heap.list_set(list, 1, Value::Ref(child));
+                    heap.list_set(list, 2, Value::Ref(smi::de(7).unwrap()));
+                    list
                 });
-                dartforge_arc_release(filho);
+                dartforge_arc_release(child);
                 let stats = HEAP.with(|h| h.borrow().stats());
-                let recebido = dartforge_arc_lista_ref_owned_v1(lista, 1);
-                assert_eq!(recebido, filho);
-                assert_eq!(dartforge_arc_lista_ref_owned_v1(lista, 0), 0);
-                assert_eq!(dartforge_arc_lista_ref_owned_v1(lista, 2), smi::de(7).unwrap());
+                let received = dartforge_arc_lista_ref_owned_v1(list, 1);
+                assert_eq!(received, child);
+                assert_eq!(dartforge_arc_lista_ref_owned_v1(list, 0), 0);
+                assert_eq!(dartforge_arc_lista_ref_owned_v1(list, 2), smi::de(7).unwrap());
                 HEAP.with(|h| {
                     let mut heap = h.borrow_mut();
                     assert_eq!(heap.stats().allocations, stats.allocations);
                     assert_eq!(heap.stats().collections, stats.collections);
-                    heap.lista_set(lista, 1, Valor::Ref(0));
+                    heap.list_set(list, 1, Value::Ref(0));
                 });
-                dartforge_arc_release(lista);
+                dartforge_arc_release(list);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(lista), 0);
-                assert_eq!(dartforge_arc_observar_heap_v1(recebido), 3);
-                assert_eq!(dartforge_unbox_int(recebido), i64::MAX);
-                dartforge_arc_release(recebido);
+                assert_eq!(dartforge_arc_observar_heap_v1(list), 0);
+                assert_eq!(dartforge_arc_observar_heap_v1(received), 3);
+                assert_eq!(dartforge_unbox_int(received), i64::MAX);
+                dartforge_arc_release(received);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(recebido), 0);
-                HEAP.with(|h| h.replace(anterior));
+                assert_eq!(dartforge_arc_observar_heap_v1(received), 0);
+                HEAP.with(|h| h.replace(previous));
             }
         }
     }
 
     #[test]
-    fn leitura_recusa_compactos_indices_e_layouts_falsos() {
+    fn read_rejects_fake_compacts_indices_and_layouts() {
         let mut heap = Heap::new(true);
-        for forma in [Elemento::Geral, Elemento::Int, Elemento::Double, Elemento::Bool] {
-            let lista = heap.nova_lista(cid::LIST, 2, forma);
-            for indice in [-1, 2, i64::MAX] { assert!(ler_elemento_ref_auditado(&heap, lista, indice).is_err()); }
-            assert_eq!(ler_elemento_ref_auditado(&heap, lista, 0).is_ok(), forma == Elemento::Geral);
+        for shape in [Element::General, Element::Int, Element::Double, Element::Bool] {
+            let list = heap.new_list(cid::LIST, 2, shape);
+            for ix in [-1, 2, i64::MAX] { assert!(read_audited_ref_element(&heap, list, ix).is_err()); }
+            assert_eq!(read_audited_ref_element(&heap, list, 0).is_ok(), shape == Element::General);
         }
         for receiver in [0, smi::de(3).unwrap(), i64::MAX] {
-            assert!(ler_elemento_ref_auditado(&heap, receiver, 0).is_err());
+            assert!(read_audited_ref_element(&heap, receiver, 0).is_err());
         }
-        let falsa = heap.alocar_instancia(cid::GROWABLE_LIST, 2);
-        heap.definir_campo(falsa, 0, 1, false);
-        heap.definir_campo(falsa, 1, 0, false);
-        assert!(ler_elemento_ref_auditado(&heap, falsa, 0).is_err());
-        let lista = heap.nova_expansivel(1, 3, Elemento::Geral);
-        assert!(ler_elemento_ref_auditado(&heap, lista, 1).is_err());
-        heap.definir_campo(lista, 0, 4, false);
-        assert!(ler_elemento_ref_auditado(&heap, lista, 0).is_err());
+        let fake = heap.allocate_instance(cid::GROWABLE_LIST, 2);
+        heap.set_field(fake, 0, 1, false);
+        heap.set_field(fake, 1, 0, false);
+        assert!(read_audited_ref_element(&heap, fake, 0).is_err());
+        let list = heap.new_growable(1, 3, Element::General);
+        assert!(read_audited_ref_element(&heap, list, 1).is_err());
+        heap.set_field(list, 0, 4, false);
+        assert!(read_audited_ref_element(&heap, list, 0).is_err());
     }
 }
 
-fn indice_argumento_arc(posicionais: i64, nomeados: i64, indice: i64) -> Result<usize, &'static str> {
-    let total = posicionais.checked_add(nomeados).filter(|_| posicionais >= 0 && nomeados >= 0)
+fn arc_argument_index(positional: i64, named: i64, ix: i64) -> Result<usize, &'static str> {
+    let total = positional.checked_add(named).filter(|_| positional >= 0 && named >= 0)
         .and_then(|n| usize::try_from(n).ok()).filter(|n| *n <= isize::MAX as usize / std::mem::size_of::<i64>())
         .ok_or("contagens inválidas do descritor")?;
-    usize::try_from(indice).ok().filter(|i| *i < total).ok_or("índice fora dos argumentos Ref")
+    usize::try_from(ix).ok().filter(|i| *i < total).ok_or("índice fora dos argumentos Ref")
 }
 
 /// Lê um argumento Ref da ABI uniforme e entrega um owner independente.
@@ -718,8 +718,8 @@ fn indice_argumento_arc(posicionais: i64, nomeados: i64, indice: i64) -> Result<
 /// executar Dart ou alterar os vetores. O chamador deve consumir o token.
 ///
 /// # Safety
-/// `descritor` deve apontar para ao menos dois i64 alinhados e imutáveis.
-/// `argumentos` deve conter ao menos a quantidade declarada de Ref válidos,
+/// `descriptor` deve apontar para ao menos dois i64 alinhados e imutáveis.
+/// `arguments` deve conter ao menos a quantidade declarada de Ref válidos,
 /// alinhados e sustentados pelo chamador, sem mutação durante esta chamada.
 /// A conferência do índice não prova a extensão real de ponteiros externos.
 ///
@@ -729,56 +729,56 @@ fn indice_argumento_arc(posicionais: i64, nomeados: i64, indice: i64) -> Result<
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 0);
-/// let argumentos = [objeto];
-/// let descritor = [1, 0];
-/// // SAFETY: vetores vivos e imutáveis; objeto sustentado pelo chamador.
-/// let recebido = unsafe { dartforge_arc_argumento_owned_v1(argumentos.as_ptr(), descritor.as_ptr(), 0) };
-/// dartforge_arc_release(objeto);
-/// assert_eq!(dartforge_arc_observar_heap_v1(recebido), 3);
-/// dartforge_arc_release(recebido);
+/// let object = dartforge_arc_objeto_owned_v1(123, 0);
+/// let arguments = [object];
+/// let descriptor = [1, 0];
+/// // SAFETY: vetores live_set e imutáveis; object sustentado pelo caller.
+/// let received = unsafe { dartforge_arc_argumento_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 0) };
+/// dartforge_arc_release(object);
+/// assert_eq!(dartforge_arc_observar_heap_v1(received), 3);
+/// dartforge_arc_release(received);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_argumento_owned_v1(argumentos: *const i64, descritor: *const i64, indice: i64) -> i64 {
-    assert!(!descritor.is_null() && !argumentos.is_null(), "vetores ABI ARC nulos");
+pub unsafe extern "C" fn dartforge_arc_argumento_owned_v1(arguments: *const i64, descriptor: *const i64, ix: i64) -> i64 {
+    assert!(!descriptor.is_null() && !arguments.is_null(), "vetores ABI ARC nulos");
     // SAFETY: dois elementos válidos conforme o contrato da ABI.
-    let indice = indice_argumento_arc(unsafe { *descritor }, unsafe { *descritor.add(1) }, indice)
+    let ix = arc_argument_index(unsafe { *descriptor }, unsafe { *descriptor.add(1) }, ix)
         .expect("argumento ARC fora do descritor");
     // SAFETY: índice conferido e extensão garantida pelo chamador.
-    let valor = unsafe { *argumentos.add(indice) };
-    HEAP.with(|heap| heap.borrow_mut().reter_owner_codigo(valor));
-    valor
+    let value = unsafe { *arguments.add(ix) };
+    HEAP.with(|heap| heap.borrow_mut().retain_code_owner(value));
+    value
 }
 
 #[cfg(test)]
-mod testes_argumento_owned {
+mod tests_owned_argument {
     use super::*;
 
     #[test]
     #[allow(unsafe_code)]
-    fn argumentos_ref_conferem_limites_e_sobrevivem_ao_owner_do_chamador() {
+    fn ref_arguments_check_bounds_and_survive_caller_owner() {
         for (pos, nom, i) in [(-1, 0, 0), (0, -1, 0), (1, 0, -1), (1, 0, 1), (0, 0, 0), (i64::MAX, 1, 0)] {
-            assert!(indice_argumento_arc(pos, nom, i).is_err());
+            assert!(arc_argument_index(pos, nom, i).is_err());
         }
-        assert_eq!(indice_argumento_arc(1, 2, 2), Ok(2));
+        assert_eq!(arc_argument_index(1, 2, 2), Ok(2));
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(crate::heap::Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let objeto = dartforge_arc_objeto_owned_v1(32001, 0);
-            let argumentos = [0, objeto, crate::layout::smi::de(7).unwrap(), i64::MAX];
-            let descritor = [1, 2, 101, 102];
+            let previous = HEAP.with(|h| h.replace(crate::heap::Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let object = dartforge_arc_objeto_owned_v1(32001, 0);
+            let arguments = [0, object, crate::layout::smi::de(7).unwrap(), i64::MAX];
+            let descriptor = [1, 2, 101, 102];
             let stats = HEAP.with(|h| h.borrow().stats());
             // SAFETY: três argumentos válidos seguidos de RTI que não será lido.
-            let recebido = unsafe { dartforge_arc_argumento_owned_v1(argumentos.as_ptr(), descritor.as_ptr(), 1) };
-            assert_eq!(recebido, objeto);
-            dartforge_arc_release(objeto);
-            assert_eq!(dartforge_arc_observar_heap_v1(recebido), 3);
+            let received = unsafe { dartforge_arc_argumento_owned_v1(arguments.as_ptr(), descriptor.as_ptr(), 1) };
+            assert_eq!(received, object);
+            dartforge_arc_release(object);
+            assert_eq!(dartforge_arc_observar_heap_v1(received), 3);
             HEAP.with(|h| { assert_eq!(h.borrow().stats().allocations, stats.allocations);
                 assert_eq!(h.borrow().stats().collections, stats.collections); });
-            dartforge_arc_release(recebido);
+            dartforge_arc_release(received);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(recebido), 0);
-            HEAP.with(|h| h.replace(anterior));
+            assert_eq!(dartforge_arc_observar_heap_v1(received), 0);
+            HEAP.with(|h| h.replace(previous));
         }
     }
 }
@@ -798,24 +798,24 @@ mod testes_argumento_owned {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+/// let object = dartforge_arc_objeto_owned_v1(123, 40);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 39), 0);
-/// dartforge_arc_release(objeto);
+/// assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 39), 0);
+/// dartforge_arc_release(object);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_objeto_owned_v1(classe: i64, campos: i64) -> i64 {
-    let (classe, campos) = parametros_instancia_owned(classe, campos)
+pub extern "C" fn dartforge_arc_objeto_owned_v1(class: i64, fields: i64) -> i64 {
+    let (class, fields) = owned_instance_parameters(class, fields)
         .expect("contrato de alocação de instância ARC violado");
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let objeto = heap.alocar_instancia(classe, campos);
-        heap.reter_owner_codigo(objeto);
-        heap.reabastecer_tlab(crate::layout::palavras_de_instancia(campos));
-        objeto
+        let object = heap.allocate_instance(class, fields);
+        heap.retain_code_owner(object);
+        heap.refill_tlab(crate::layout::palavras_de_instancia(fields));
+        object
     })
 }
 
@@ -832,18 +832,18 @@ pub extern "C" fn dartforge_arc_objeto_owned_v1(classe: i64, campos: i64) -> i64
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
-/// let closure = dartforge_arc_closure_owned_v1(entrada as usize as i64, 0, 0, 0);
+/// extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+/// let closure = dartforge_arc_closure_owned_v1(input as usize as i64, 0, 0, 0);
 /// dartforge_arc_collect();
 /// assert_eq!(dartforge_arc_observar_heap_v1(closure), 3);
 /// dartforge_arc_release(closure);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_closure_owned_v1(codigo: i64, contexto: i64, tipado: i64, abi: i64) -> i64 {
+pub extern "C" fn dartforge_arc_closure_owned_v1(code: i64, contexto: i64, typed_one: i64, abi: i64) -> i64 {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let closure = heap.nova_closure(codigo, (contexto, true), tipado, abi);
-        heap.reter_owner_codigo(closure);
+        let closure = heap.new_closure(code, (contexto, true), typed_one, abi);
+        heap.retain_code_owner(closure);
         closure
     })
 }
@@ -860,14 +860,14 @@ pub extern "C" fn dartforge_arc_closure_owned_v1(codigo: i64, contexto: i64, tip
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
-/// let closure = dartforge_arc_closure_owned_v1(entrada as usize as i64, 0, 0, 0);
+/// extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+/// let closure = dartforge_arc_closure_owned_v1(input as usize as i64, 0, 0, 0);
 /// assert_eq!(dartforge_arc_contexto_closure_v1(closure), 0);
 /// dartforge_arc_release(closure);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
-    HEAP.with(|heap| contexto_closure_auditado(&heap.borrow(), closure)
+    HEAP.with(|heap| audited_closure_context(&heap.borrow(), closure)
         .expect("contrato de contexto da closure ARC violado"))
 }
 
@@ -889,8 +889,8 @@ pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
 /// dartforge_arc_release(env);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, indice: i64) -> i64 {
-    HEAP.with(|heap| env_ref_auditado(&heap.borrow(), env, indice)
+pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, ix: i64) -> i64 {
+    HEAP.with(|heap| audited_env_ref(&heap.borrow(), env, ix)
         .expect("contrato de captura Ref ARC violado"))
 }
 
@@ -912,91 +912,91 @@ pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, indice: i64) -> i64 {
 /// dartforge_arc_release(env);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_env_escalar_v1(env: i64, indice: i64) -> i64 {
-    HEAP.with(|heap| env_escalar_auditado(&heap.borrow(), env, indice)
+pub extern "C" fn dartforge_arc_env_escalar_v1(env: i64, ix: i64) -> i64 {
+    HEAP.with(|heap| audited_env_scalar(&heap.borrow(), env, ix)
         .expect("contrato de captura escalar ARC violado"))
 }
 
-fn env_escalar_auditado(heap: &Heap, env: i64, indice: i64) -> Result<i64, &'static str> {
-    let objeto = heap.objeto(env).ok_or("receiver não é ambiente vivo")?;
-    if objeto.class_id != i64::from(crate::layout::cid::CONTEXTO) {
+fn audited_env_scalar(heap: &Heap, env: i64, ix: i64) -> Result<i64, &'static str> {
+    let object = heap.object(env).ok_or("receiver não é ambiente vivo")?;
+    if object.class_id != i64::from(crate::layout::cid::CONTEXTO) {
         return Err("receiver não é ambiente");
     }
-    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do ambiente")?;
-    if referencia { return Err("captura é referência gerenciada"); }
+    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    let (bits, reference) = object.get(ix).ok_or("índice fora do ambiente")?;
+    if reference { return Err("captura é referência gerenciada"); }
     Ok(bits)
 }
 
-fn env_ref_auditado(heap: &Heap, env: i64, indice: i64) -> Result<i64, &'static str> {
-    let objeto = heap.objeto(env).ok_or("receiver não é ambiente vivo")?;
-    if objeto.class_id != i64::from(crate::layout::cid::CONTEXTO) {
+fn audited_env_ref(heap: &Heap, env: i64, ix: i64) -> Result<i64, &'static str> {
+    let object = heap.object(env).ok_or("receiver não é ambiente vivo")?;
+    if object.class_id != i64::from(crate::layout::cid::CONTEXTO) {
         return Err("receiver não é ambiente");
     }
-    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do ambiente")?;
-    if !referencia { return Err("captura é escalar"); }
+    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    let (bits, reference) = object.get(ix).ok_or("índice fora do ambiente")?;
+    if !reference { return Err("captura é escalar"); }
     Ok(bits)
 }
 
-fn contexto_closure_auditado(heap: &Heap, closure: i64) -> Result<i64, &'static str> {
+fn audited_closure_context(heap: &Heap, closure: i64) -> Result<i64, &'static str> {
     let contexto = heap.closure(closure).ok_or("receiver não é closure")?.contexto;
     if !contexto.1 && contexto.0 != 0 { return Err("contexto é escalar não nulo"); }
     Ok(contexto.0)
 }
 
 #[cfg(test)]
-mod testes_contexto_closure {
+mod tests_closure_context {
     use super::*;
 
     #[test]
-    fn ambiente_confere_classe_limites_e_mapa_estendido_sem_coletar() {
+    fn env_checks_class_bounds_and_extended_map_without_collecting() {
         let mut heap = Heap::new(false);
-        let filho = heap.novo_objeto(32000, &[]);
-        let mut campos = vec![(0, false); 40];
-        campos[0] = (0, true);
-        campos[1] = (smi::de(42).unwrap(), true);
-        campos[38] = (filho, false);
-        campos[39] = (filho, true);
-        let env = heap.novo_objeto(i64::from(crate::layout::cid::CONTEXTO), &campos);
-        let falso = heap.novo_objeto(i64::from(crate::layout::cid::CELULA), &campos);
+        let child = heap.new_object(32000, &[]);
+        let mut fields = vec![(0, false); 40];
+        fields[0] = (0, true);
+        fields[1] = (smi::de(42).unwrap(), true);
+        fields[38] = (child, false);
+        fields[39] = (child, true);
+        let env = heap.new_object(i64::from(crate::layout::cid::CONTEXTO), &fields);
+        let false_value = heap.new_object(i64::from(crate::layout::cid::CELULA), &fields);
         let stats = heap.stats();
-        for (indice, esperado) in [(0, 0), (1, campos[1].0), (39, filho)] {
-            assert_eq!(env_ref_auditado(&heap, env, indice), Ok(esperado));
+        for (ix, expected) in [(0, 0), (1, fields[1].0), (39, child)] {
+            assert_eq!(audited_env_ref(&heap, env, ix), Ok(expected));
         }
-        for (receiver, indice) in [(env, -1), (env, 40), (env, 38), (env, 37),
-            (0, 0), (falso, 39), (filho, 0)] {
-            assert!(env_ref_auditado(&heap, receiver, indice).is_err());
+        for (receiver, ix) in [(env, -1), (env, 40), (env, 38), (env, 37),
+            (0, 0), (false_value, 39), (child, 0)] {
+            assert!(audited_env_ref(&heap, receiver, ix).is_err());
         }
         assert_eq!(heap.stats().allocations, stats.allocations);
         assert_eq!(heap.stats().collections, stats.collections);
     }
 
     #[test]
-    fn contexto_confere_classe_e_mapa_sem_confundir_bits_com_ref() {
+    fn context_checks_class_and_map_without_mistaking_bits_for_ref() {
         let mut heap = Heap::new(false);
-        for campo in [(0, false), (0, true), (42, false)] {
-            let closure = heap.nova_closure(123, campo, 0, 0);
-            assert_eq!(contexto_closure_auditado(&heap, closure).is_ok(), campo.0 == 0);
+        for field in [(0, false), (0, true), (42, false)] {
+            let closure = heap.new_closure(123, field, 0, 0);
+            assert_eq!(audited_closure_context(&heap, closure).is_ok(), field.0 == 0);
         }
-        let filho = heap.novo_objeto(32000, &[]);
-        let closure = heap.nova_closure(123, (filho, true), 0, 0);
-        assert_eq!(contexto_closure_auditado(&heap, closure), Ok(filho));
-        let falsa = heap.novo_objeto(32001, &[(123, false), (filho, true), (0, false), (0, false)]);
-        for invalida in [0, falsa] { assert!(contexto_closure_auditado(&heap, invalida).is_err()); }
+        let child = heap.new_object(32000, &[]);
+        let closure = heap.new_closure(123, (child, true), 0, 0);
+        assert_eq!(audited_closure_context(&heap, closure), Ok(child));
+        let fake = heap.new_object(32001, &[(123, false), (child, true), (0, false), (0, false)]);
+        for invalid in [0, fake] { assert!(audited_closure_context(&heap, invalid).is_err()); }
     }
 }
 
-fn parametros_instancia_owned(classe: i64, campos: i64) -> Result<(i32, usize), &'static str> {
-    let classe = i32::try_from(classe).map_err(|_| "classe fora de i32")?;
-    let campos = u16::try_from(campos).map_err(|_| "quantidade de campos fora de u16")?;
-    Ok((classe, usize::from(campos)))
+fn owned_instance_parameters(class: i64, fields: i64) -> Result<(i32, usize), &'static str> {
+    let class = i32::try_from(class).map_err(|_| "classe fora de i32")?;
+    let fields = u16::try_from(fields).map_err(|_| "quantidade de campos fora de u16")?;
+    Ok((class, usize::from(fields)))
 }
 
 /// Registra a tabela estática de métodos e aloca uma instância zerada Owned.
 ///
 /// A função `tabela` é o thunk estático do emissor: devolve uma tabela válida
-/// `{cid, n, [hash, entrada]…}`, sem executar Dart, coletar ou lançar. A memória
+/// `{cid, n, [hash, input]…}`, sem executar Dart, coletar ou lançar. A memória
 /// e as entradas precisam permanecer válidas segundo o protocolo de gerações.
 /// O registro ocorre antes da alocação; o token tem o mesmo contrato de
 /// [`dartforge_arc_objeto_owned_v1`]. Não executa o construtor Dart.
@@ -1013,22 +1013,22 @@ fn parametros_instancia_owned(classe: i64, campos: i64) -> Result<(i32, usize), 
 /// ```
 /// use dartforge_runtime::abi::*;
 /// extern "C" fn tabela() -> *const i64 {
-///     static TABELA: [i64; 2] = [32000, 0];
-///     TABELA.as_ptr()
+///     static TABLE: [i64; 2] = [32000, 0];
+///     TABLE.as_ptr()
 /// }
-/// // SAFETY: thunk puro, tabela estática válida e sem entradas.
-/// let objeto = unsafe { dartforge_arc_objeto_owned_t_v1(32000, 0, tabela) };
+/// // SAFETY: thunk pure, tabela estática válida e without entries.
+/// let object = unsafe { dartforge_arc_objeto_owned_t_v1(32000, 0, tabela) };
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
-/// dartforge_arc_release(objeto);
+/// assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
+/// dartforge_arc_release(object);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(classe: i64, campos: i64, tabela: extern "C" fn() -> *const i64) -> i64 {
-    parametros_instancia_owned(classe, campos).expect("contrato de alocação de instância ARC violado");
-    dartforge_registrar_tabela(classe, tabela);
-    dartforge_arc_objeto_owned_v1(classe, campos)
+pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(class: i64, fields: i64, tabela: extern "C" fn() -> *const i64) -> i64 {
+    owned_instance_parameters(class, fields).expect("contrato de alocação de instância ARC violado");
+    dartforge_registrar_tabela(class, tabela);
+    dartforge_arc_objeto_owned_v1(class, fields)
 }
 
 /// Grava bits escalares num campo de uma instância emprestada.
@@ -1045,14 +1045,14 @@ pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(classe: i64, campos: i6
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-/// dartforge_arc_gravar_campo_escalar_v1(objeto, 39, i64::MAX);
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 39), i64::MAX);
-/// dartforge_arc_release(objeto);
+/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// dartforge_arc_gravar_campo_escalar_v1(object, 39, i64::MAX);
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 39), i64::MAX);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(objeto: i64, indice: i64, bits: i64) {
-    HEAP.with(|heap| gravar_campo_auditado(&mut heap.borrow_mut(), objeto, indice, bits, false)
+pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(object: i64, ix: i64, bits: i64) {
+    HEAP.with(|heap| write_audited_field(&mut heap.borrow_mut(), object, ix, bits, false)
         .expect("contrato de gravação escalar ARC violado"));
 }
 
@@ -1070,35 +1070,35 @@ pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(objeto: i64, indice: i64
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-/// let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
-/// dartforge_arc_release(filho);
+/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_gravar_campo_ref_v1(object, 39, child);
+/// dartforge_arc_release(child);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
-/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+/// dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
-/// dartforge_arc_release(objeto);
+/// assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(objeto: i64, indice: i64, valor: i64) {
-    HEAP.with(|heap| gravar_campo_auditado(&mut heap.borrow_mut(), objeto, indice, valor, true)
+pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(object: i64, ix: i64, value: i64) {
+    HEAP.with(|heap| write_audited_field(&mut heap.borrow_mut(), object, ix, value, true)
         .expect("contrato de gravação Ref ARC violado"));
 }
 
 /// Grava uma aresta Ref somente após conferir o layout físico do receiver.
 ///
 /// `layouts` contém pares ordenados `(cid, quantidade_de_campos)` de classes
-/// cujo campo `indice` foi declarado Ref pelo compilador. A conferência usa
+/// cujo campo `ix` foi declarado Ref pelo compilador. A conferência usa
 /// a classe e o tamanho reais, inclusive na primeira escrita do campo zerado.
 /// Não consome owners, aloca, coleta ou executa Dart; invalida empréstimos
 /// da aresta anterior. Guardas Dart de tipo/late continuam no lowering.
 ///
 /// # Safety
-/// O vetor deve estar alinhado e conter `pares * 2` palavras legíveis e
+/// O vetor deve estar alinhado e conter `pair_list * 2` palavras legíveis e
 /// imutáveis durante a chamada. Cada par deve corresponder ao layout atual
-/// da imagem, com `indice` Ref. A função não guarda nem devolve o endereço.
+/// da imagem, com `ix` Ref. A função não guarda nem devolve o endereço.
 /// Vida/versões da imagem são obrigação do chamador.
 ///
 /// # Panics
@@ -1107,59 +1107,59 @@ pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(objeto: i64, indice: i64, va
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 40];
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-/// let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// // SAFETY: vetor vivo e imutável, campo 39 declarado Ref nesta imagem.
-/// unsafe { dartforge_arc_gravar_campo_ref_conferido_v1(objeto, 39, filho, layouts.as_ptr(), 1); }
-/// dartforge_arc_release(filho);
-/// assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 39), filho);
-/// dartforge_arc_release(objeto);
+/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// // SAFETY: vetor alive e imutável, field 39 declarado Ref nesta imagem.
+/// unsafe { dartforge_arc_gravar_campo_ref_conferido_v1(object, 39, child, layouts.as_ptr(), 1); }
+/// dartforge_arc_release(child);
+/// assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 39), child);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
 pub unsafe extern "C" fn dartforge_arc_gravar_campo_ref_conferido_v1(
-    objeto: i64, indice: i64, valor: i64, layouts: *const i64, pares: i64,
+    object: i64, ix: i64, value: i64, layouts: *const i64, pair_list: i64,
 ) {
-    let palavras = usize::try_from(pares).ok().and_then(|n| n.checked_mul(2))
+    let words = usize::try_from(pair_list).ok().and_then(|n| n.checked_mul(2))
         .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
         .expect("vetor de layouts ARC inválido");
     assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
     // SAFETY: o produtor garante a extensão, imutabilidade e vida do vetor.
-    let layouts = unsafe { std::slice::from_raw_parts(layouts, palavras) };
-    HEAP.with(|heap| gravar_campo_ref_conferido(&mut heap.borrow_mut(), objeto, indice, valor, layouts)
+    let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
+    HEAP.with(|heap| write_checked_ref_field(&mut heap.borrow_mut(), object, ix, value, layouts)
         .expect("contrato de gravação Ref conferida ARC violado"));
 }
 
-fn gravar_campo_ref_conferido(
-    heap: &mut Heap, objeto: i64, indice: i64, valor: i64, layouts: &[i64],
+fn write_checked_ref_field(
+    heap: &mut Heap, object: i64, ix: i64, value: i64, layouts: &[i64],
 ) -> Result<(), &'static str> {
-    conferir_layout_fisico(heap, objeto, indice, layouts)?;
-    gravar_campo_auditado(heap, objeto, indice, valor, true)
+    check_physical_layout(heap, object, ix, layouts)?;
+    write_audited_field(heap, object, ix, value, true)
 }
 
-fn conferir_layout_fisico(heap: &Heap, objeto: i64, indice: i64, layouts: &[i64]) -> Result<(), &'static str> {
-    let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
-    let i = usize::try_from(indice).map_err(|_| "índice negativo")?;
+fn check_physical_layout(heap: &Heap, object: i64, ix: i64, layouts: &[i64]) -> Result<(), &'static str> {
+    let vista = heap.object(object).ok_or("receiver não é objeto vivo")?;
+    let i = usize::try_from(ix).map_err(|_| "índice negativo")?;
     if i >= vista.len() { return Err("índice fora do objeto"); }
-    let cabe = |campos: i64| usize::try_from(campos).ok() == Some(vista.len());
-    if layouts.len() % 2 != 0 || !(campos_do_layout(layouts, vista.class_id).is_some_and(cabe)
-        || layouts.chunks_exact(2).any(|p| p[0] == vista.class_id && cabe(p[1]))) {
+    let fits = |fields: i64| usize::try_from(fields).ok() == Some(vista.len());
+    if layouts.len() % 2 != 0 || !(layout_fields(layouts, vista.class_id).is_some_and(fits)
+        || layouts.chunks_exact(2).any(|p| p[0] == vista.class_id && fits(p[1]))) {
         return Err("classe/tamanho fora dos layouts Ref");
     }
     Ok(())
 }
 
-/// Os campos declarados de `cid` nos pares `(cid, campos)` em ordem de `cid`
+/// Os campos declarados de `cid` nos pares `(cid, fields)` em ordem de `cid`
 /// (a do produtor, `layouts_do_campo`), por busca binária. Um vetor fora de
 /// ordem só perde o atalho: quem chama confere de novo em sequência.
-fn campos_do_layout(layouts: &[i64], cid: i64) -> Option<i64> {
-    let (mut baixo, mut alto) = (0, layouts.len() / 2);
-    while baixo < alto {
-        let meio = (baixo + alto) / 2;
-        match layouts[2 * meio].cmp(&cid) {
-            std::cmp::Ordering::Less => baixo = meio + 1,
-            std::cmp::Ordering::Greater => alto = meio,
-            std::cmp::Ordering::Equal => return Some(layouts[2 * meio + 1]),
+fn layout_fields(layouts: &[i64], cid: i64) -> Option<i64> {
+    let (mut low, mut high) = (0, layouts.len() / 2);
+    while low < high {
+        let mid = (low + high) / 2;
+        match layouts[2 * mid].cmp(&cid) {
+            std::cmp::Ordering::Less => low = mid + 1,
+            std::cmp::Ordering::Greater => high = mid,
+            std::cmp::Ordering::Equal => return Some(layouts[2 * mid + 1]),
         }
     }
     None
@@ -1167,13 +1167,13 @@ fn campos_do_layout(layouts: &[i64], cid: i64) -> Option<i64> {
 
 /// Grava bits escalares após conferir classe e tamanho contra layouts declarados.
 ///
-/// `representacao` é 1=int, 2=double, 3=bool, 4=byte. Os bits já devem estar
+/// `representation` é 1=int, 2=double, 3=bool, 4=byte. Os bits já devem estar
 /// convertidos pelo lowering; não faz coerções, aloca, coleta ou executa Dart.
 /// Mantém a barreira e invalida borrows anteriores ao substituir o campo.
 ///
 /// # Safety
-/// `layouts` deve apontar para `pares * 2` palavras alinhadas, imutáveis e
-/// legíveis durante a chamada. Os pares `(cid, campos)` devem declarar o
+/// `layouts` deve apontar para `pair_list * 2` palavras alinhadas, imutáveis e
+/// legíveis durante a chamada. Os pares `(cid, fields)` devem declarar o
 /// índice com a representação indicada na versão atual da imagem.
 /// Não guarda nem devolve esse endereço; versões/pins são dever do chamador.
 ///
@@ -1183,28 +1183,28 @@ fn campos_do_layout(layouts: &[i64], cid: i64) -> Option<i64> {
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 1];
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 1);
-/// // SAFETY: vetor vivo; o campo 0 é int no layout atual da imagem.
-/// unsafe { dartforge_arc_gravar_campo_escalar_conferido_v1(objeto, 0, 42, layouts.as_ptr(), 1, 1); }
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 0), 42);
-/// dartforge_arc_release(objeto);
+/// let object = dartforge_arc_objeto_owned_v1(123, 1);
+/// // SAFETY: vetor alive; o field 0 é int no layout current da imagem.
+/// unsafe { dartforge_arc_gravar_campo_escalar_conferido_v1(object, 0, 42, layouts.as_ptr(), 1, 1); }
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 0), 42);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
 pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
-    objeto: i64, indice: i64, bits: i64, layouts: *const i64, pares: i64, representacao: i64,
+    object: i64, ix: i64, bits: i64, layouts: *const i64, pair_list: i64, representation: i64,
 ) {
-    assert!((1..=4).contains(&representacao), "representação escalar ARC inválida");
-    let palavras = usize::try_from(pares).ok().and_then(|n| n.checked_mul(2))
+    assert!((1..=4).contains(&representation), "representação escalar ARC inválida");
+    let words = usize::try_from(pair_list).ok().and_then(|n| n.checked_mul(2))
         .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
         .expect("vetor de layouts ARC inválido");
     assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
     // SAFETY: vetor e extensão garantidos pelo produtor.
-    let layouts = unsafe { std::slice::from_raw_parts(layouts, palavras) };
+    let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        conferir_layout_fisico(&heap, objeto, indice, layouts).expect("layout escalar ARC incompatível");
-        gravar_campo_auditado(&mut heap, objeto, indice, bits, false)
+        check_physical_layout(&heap, object, ix, layouts).expect("layout escalar ARC incompatível");
+        write_audited_field(&mut heap, object, ix, bits, false)
             .expect("contrato de gravação escalar conferida ARC violado");
     });
 }
@@ -1215,7 +1215,7 @@ pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
 /// obrigações do lowering. Não cria owners, aloca, coleta ou executa Dart.
 ///
 /// # Safety
-/// O vetor `(cid, campos)` deve conter `pares * 2` palavras alinhadas,
+/// O vetor `(cid, fields)` deve conter `pair_list * 2` palavras alinhadas,
 /// imutáveis e legíveis. Cada par deve declarar o índice com a representação
 /// indicada no layout atual da imagem. Não guarda esse endereço.
 /// Vida/versões e guardas Dart de tipo/late são responsabilidade do chamador.
@@ -1227,38 +1227,38 @@ pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
 /// ```
 /// use dartforge_runtime::abi::*;
 /// let layouts = [123, 1];
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 1);
-/// dartforge_arc_gravar_campo_escalar_v1(objeto, 0, 42);
-/// // SAFETY: vetor vivo; o campo 0 é int no layout atual da imagem.
-/// let bits = unsafe { dartforge_arc_ler_campo_escalar_conferido_v1(objeto, 0, layouts.as_ptr(), 1, 1) };
+/// let object = dartforge_arc_objeto_owned_v1(123, 1);
+/// dartforge_arc_gravar_campo_escalar_v1(object, 0, 42);
+/// // SAFETY: vetor alive; o field 0 é int no layout current da imagem.
+/// let bits = unsafe { dartforge_arc_ler_campo_escalar_conferido_v1(object, 0, layouts.as_ptr(), 1, 1) };
 /// assert_eq!(bits, 42);
-/// dartforge_arc_release(objeto);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
 pub unsafe extern "C" fn dartforge_arc_ler_campo_escalar_conferido_v1(
-    objeto: i64, indice: i64, layouts: *const i64, pares: i64, representacao: i64,
+    object: i64, ix: i64, layouts: *const i64, pair_list: i64, representation: i64,
 ) -> i64 {
-    assert!((1..=4).contains(&representacao), "representação escalar ARC inválida");
-    let palavras = usize::try_from(pares).ok().and_then(|n| n.checked_mul(2))
+    assert!((1..=4).contains(&representation), "representação escalar ARC inválida");
+    let words = usize::try_from(pair_list).ok().and_then(|n| n.checked_mul(2))
         .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
         .expect("vetor de layouts ARC inválido");
     assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
     // SAFETY: vetor e extensão garantidos pelo produtor.
-    let layouts = unsafe { std::slice::from_raw_parts(layouts, palavras) };
+    let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        conferir_layout_fisico(&heap, objeto, indice, layouts).expect("layout escalar ARC incompatível");
-        ler_campo_escalar_auditado(&heap, objeto, indice)
+        check_physical_layout(&heap, object, ix, layouts).expect("layout escalar ARC incompatível");
+        read_audited_scalar_field(&heap, object, ix)
             .expect("contrato de leitura escalar conferida ARC violado")
     })
 }
 
-fn gravar_campo_auditado(heap: &mut Heap, objeto: i64, indice: i64, bits: i64, referencia: bool) -> Result<(), &'static str> {
-    let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
-    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    if indice >= vista.len() { return Err("índice fora do objeto"); }
-    heap.definir_campo(objeto, indice, bits, referencia);
+fn write_audited_field(heap: &mut Heap, object: i64, ix: i64, bits: i64, reference: bool) -> Result<(), &'static str> {
+    let vista = heap.object(object).ok_or("receiver não é objeto vivo")?;
+    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    if ix >= vista.len() { return Err("índice fora do objeto"); }
+    heap.set_field(object, ix, bits, reference);
     Ok(())
 }
 
@@ -1276,27 +1276,27 @@ fn gravar_campo_auditado(heap: &mut Heap, objeto: i64, indice: i64, bits: i64, r
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let objeto = dartforge_object_new(123, 1);
-/// dartforge_arc_retain(objeto);
-/// dartforge_object_set(objeto, 0, i64::MAX, 0);
-/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 0), i64::MAX);
-/// dartforge_arc_release(objeto);
+/// let object = dartforge_object_new(123, 1);
+/// dartforge_arc_retain(object);
+/// dartforge_object_set(object, 0, i64::MAX, 0);
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 0), i64::MAX);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ler_campo_escalar_v1(objeto: i64, indice: i64) -> i64 {
-    HEAP.with(|heap| ler_campo_escalar_auditado(&heap.borrow(), objeto, indice)
+pub extern "C" fn dartforge_arc_ler_campo_escalar_v1(object: i64, ix: i64) -> i64 {
+    HEAP.with(|heap| read_audited_scalar_field(&heap.borrow(), object, ix)
         .expect("contrato de leitura escalar ARC violado"))
 }
 
-fn ler_campo_escalar_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
+fn read_audited_scalar_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'static str> {
     // O record posicional do runtime: a palavra 0 é o número de campos.
-    if let Some(campos) = heap.record(objeto) {
-        return if indice == 0 { Ok(campos.len() as i64) } else { Err("campo do record é referência") };
+    if let Some(fields) = heap.record(object) {
+        return if ix == 0 { Ok(fields.len() as i64) } else { Err("campo do record é referência") };
     }
-    let objeto = heap.objeto_legivel(objeto).ok_or("receiver não é objeto vivo")?;
-    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do objeto")?;
-    if referencia { return Err("campo é referência gerenciada"); }
+    let object = heap.readable_object(object).ok_or("receiver não é objeto vivo")?;
+    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    let (bits, reference) = object.get(ix).ok_or("índice fora do objeto")?;
+    if reference { return Err("campo é referência gerenciada"); }
     Ok(bits)
 }
 
@@ -1316,38 +1316,38 @@ fn ler_campo_escalar_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-/// let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
-/// dartforge_arc_release(filho);
-/// let emprestado = dartforge_arc_ler_campo_ref_v1(objeto, 39);
-/// assert_eq!(emprestado, filho);
-/// dartforge_arc_retain(emprestado); // Copia o empréstimo antes da substituição.
-/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+/// let object = dartforge_arc_objeto_owned_v1(123, 40);
+/// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_gravar_campo_ref_v1(object, 39, child);
+/// dartforge_arc_release(child);
+/// let borrowed = dartforge_arc_ler_campo_ref_v1(object, 39);
+/// assert_eq!(borrowed, child);
+/// dartforge_arc_retain(borrowed); // Copia o empréstimo before da substituição.
+/// dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 3);
-/// dartforge_arc_release(emprestado);
-/// dartforge_arc_release(objeto);
+/// assert_eq!(dartforge_arc_observar_heap_v1(borrowed), 3);
+/// dartforge_arc_release(borrowed);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ler_campo_ref_v1(objeto: i64, indice: i64) -> i64 {
-    HEAP.with(|heap| ler_campo_ref_auditado(&heap.borrow(), objeto, indice)
+pub extern "C" fn dartforge_arc_ler_campo_ref_v1(object: i64, ix: i64) -> i64 {
+    HEAP.with(|heap| read_audited_ref_field(&heap.borrow(), object, ix)
         .expect("contrato de leitura Ref ARC violado"))
 }
 
-fn ler_campo_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
+fn read_audited_ref_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'static str> {
     // O record posicional do runtime: os campos `1..=n` são referências.
-    if let Some(campos) = heap.record(objeto) {
-        return usize::try_from(indice).ok().filter(|&i| i >= 1)
-            .and_then(|i| campos.get(i - 1).copied())
+    if let Some(fields) = heap.record(object) {
+        return usize::try_from(ix).ok().filter(|&i| i >= 1)
+            .and_then(|i| fields.get(i - 1).copied())
             .ok_or("índice fora do record");
     }
-    let objeto = heap.objeto_legivel(objeto).ok_or("receiver não é objeto vivo")?;
-    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do objeto")?;
+    let object = heap.readable_object(object).ok_or("receiver não é objeto vivo")?;
+    let ix = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    let (bits, reference) = object.get(ix).ok_or("índice fora do objeto")?;
     // O campo ainda não gravado nasce zerado e marcado escalar: é o null do
     // campo Ref sem inicializador (`Object? x;`), sem objeto nem owner.
-    if !referencia && bits != 0 { return Err("campo é escalar"); }
+    if !reference && bits != 0 { return Err("campo é escalar"); }
     Ok(bits)
 }
 
@@ -1364,24 +1364,24 @@ fn ler_campo_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, 
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let objeto = dartforge_arc_objeto_owned_v1(123, 1);
-/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 0), 0);
-/// dartforge_arc_gravar_campo_ref_v1(objeto, 0, 0);
-/// dartforge_late_field_mark_initialized(objeto, 0);
-/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 0), 0);
-/// dartforge_arc_release(objeto);
+/// let object = dartforge_arc_objeto_owned_v1(123, 1);
+/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 0), 0);
+/// dartforge_arc_gravar_campo_ref_v1(object, 0, 0);
+/// dartforge_late_field_mark_initialized(object, 0);
+/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 0), 0);
+/// dartforge_arc_release(object);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_ler_campo_late_ref_v1(objeto: i64, indice: i64) -> i64 {
-    HEAP.with(|heap| ler_campo_late_ref_auditado(&heap.borrow(), objeto, indice)
+pub extern "C" fn dartforge_arc_ler_campo_late_ref_v1(object: i64, ix: i64) -> i64 {
+    HEAP.with(|heap| read_audited_late_ref_field(&heap.borrow(), object, ix)
         .expect("contrato de leitura late Ref ARC violado"))
 }
 
-fn ler_campo_late_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
-    let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
-    let index = usize::try_from(indice).map_err(|_| "índice negativo")?;
-    let (bits, referencia) = vista.get(index).ok_or("índice fora do objeto")?;
-    if referencia || (bits == 0 && !heap.late_inicializado((objeto, indice))) {
+fn read_audited_late_ref_field(heap: &Heap, object: i64, ix: i64) -> Result<i64, &'static str> {
+    let vista = heap.object(object).ok_or("receiver não é objeto vivo")?;
+    let index = usize::try_from(ix).map_err(|_| "índice negativo")?;
+    let (bits, reference) = vista.get(index).ok_or("índice fora do objeto")?;
+    if reference || (bits == 0 && !heap.late_initialized((object, ix))) {
         Ok(bits)
     } else {
         Err("campo late não contém Ref nem zero anterior à inicialização")
@@ -1401,15 +1401,15 @@ fn ler_campo_late_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_lancar_ref_v1,
 ///     dartforge_arc_release, dartforge_exception_pending, dartforge_exception_clear};
-/// let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_lancar_ref_v1(valor);
+/// let value = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_lancar_ref_v1(value);
 /// assert_ne!(dartforge_exception_pending(), 0);
-/// dartforge_arc_release(valor);
+/// dartforge_arc_release(value);
 /// dartforge_exception_clear();
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lancar_ref_v1(valor: i64) {
-    dartforge_exception_throw(valor, 3);
+pub extern "C" fn dartforge_arc_lancar_ref_v1(value: i64) {
+    dartforge_exception_throw(value, 3);
 }
 
 /// Copia a exceção pendente para um token Owned independente do clear.
@@ -1426,21 +1426,21 @@ pub extern "C" fn dartforge_arc_lancar_ref_v1(valor: i64) {
 /// use dartforge_runtime::abi::*;
 /// let original = dartforge_arc_box_int_owned_v1(i64::MAX);
 /// dartforge_arc_lancar_ref_v1(original);
-/// let capturada = dartforge_arc_excecao_owned_v1();
-/// assert_eq!(capturada, original);
+/// let captured = dartforge_arc_excecao_owned_v1();
+/// assert_eq!(captured, original);
 /// dartforge_arc_release(original);
 /// dartforge_exception_clear();
 /// dartforge_arc_collect();
-/// dartforge_arc_release(capturada);
+/// dartforge_arc_release(captured);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_excecao_owned_v1() -> i64 {
-    let Some(valor) = EXCEPTION.with(|slot| *slot.borrow()) else { return 0; };
+    let Some(value) = EXCEPTION.with(|slot| *slot.borrow()) else { return 0; };
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let referencia = heap.como_ref(valor);
-        heap.reter_owner_codigo(referencia);
-        referencia
+        let reference = heap.to_ref(value);
+        heap.retain_code_owner(reference);
+        reference
     })
 }
 
@@ -1455,15 +1455,15 @@ pub extern "C" fn dartforge_arc_excecao_owned_v1() -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let rastro = dartforge_arc_rastro_owned_v1();
+/// let trace = dartforge_arc_rastro_owned_v1();
 /// dartforge_arc_collect();
-/// dartforge_arc_release(rastro);
+/// dartforge_arc_release(trace);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_rastro_owned_v1() -> i64 {
-    let rastro = dartforge_stack_trace_get();
-    HEAP.with(|h| h.borrow_mut().reter_owner_codigo(rastro));
-    rastro
+    let trace = dartforge_stack_trace_get();
+    HEAP.with(|h| h.borrow_mut().retain_code_owner(trace));
+    trace
 }
 
 /// Lança um Ref emprestado com um StackTrace explícito emprestado.
@@ -1478,20 +1478,20 @@ pub extern "C" fn dartforge_arc_rastro_owned_v1() -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// let rastro = dartforge_arc_rastro_owned_v1();
-/// dartforge_arc_lancar_com_rastro_ref_v1(valor, rastro);
-/// let copia = dartforge_arc_rastro_owned_v1();
-/// assert_eq!(copia, rastro);
-/// dartforge_arc_release(valor);
-/// dartforge_arc_release(rastro);
+/// let value = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// let trace = dartforge_arc_rastro_owned_v1();
+/// dartforge_arc_lancar_com_rastro_ref_v1(value, trace);
+/// let copy = dartforge_arc_rastro_owned_v1();
+/// assert_eq!(copy, trace);
+/// dartforge_arc_release(value);
+/// dartforge_arc_release(trace);
 /// dartforge_exception_clear();
 /// dartforge_arc_collect();
-/// dartforge_arc_release(copia);
+/// dartforge_arc_release(copy);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_lancar_com_rastro_ref_v1(valor: i64, rastro: i64) {
-    dartforge_throw_with_stack_trace(valor, 3, rastro);
+pub extern "C" fn dartforge_arc_lancar_com_rastro_ref_v1(value: i64, trace: i64) {
+    dartforge_throw_with_stack_trace(value, 3, trace);
 }
 
 /// Entrega um int em representação Ref com um token Owned para o chamador.
@@ -1505,17 +1505,17 @@ pub extern "C" fn dartforge_arc_lancar_com_rastro_ref_v1(valor: i64, rastro: i64
 ///
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_release, dartforge_arc_collect};
-/// let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// dartforge_arc_release(valor);
+/// let value = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_release(value);
 /// dartforge_arc_collect();
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_box_int_owned_v1(valor: i64) -> i64 {
+pub extern "C" fn dartforge_arc_box_int_owned_v1(value: i64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let caixa = heap.caixa_int(valor);
-        heap.reter_owner_codigo(caixa);
-        caixa
+        let boxed = heap.box_int(value);
+        heap.retain_code_owner(boxed);
+        boxed
     })
 }
 
@@ -1529,19 +1529,19 @@ pub extern "C" fn dartforge_arc_box_int_owned_v1(valor: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let valor = dartforge_arc_box_double_owned_v1(-0.0);
-/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 3);
-/// dartforge_arc_release(valor);
+/// let value = dartforge_arc_box_double_owned_v1(-0.0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(value), 3);
+/// dartforge_arc_release(value);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(value), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_box_double_owned_v1(valor: f64) -> i64 {
+pub extern "C" fn dartforge_arc_box_double_owned_v1(value: f64) -> i64 {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let caixa = heap.caixa_double(valor);
-        heap.reter_owner_codigo(caixa);
-        caixa
+        let boxed = heap.box_double(value);
+        heap.retain_code_owner(boxed);
+        boxed
     })
 }
 
@@ -1555,49 +1555,49 @@ pub extern "C" fn dartforge_arc_box_double_owned_v1(valor: f64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::{abi::*, layout::cid};
-/// let valor = dartforge_arc_box_simd_owned_v1(cid::FLOAT32X4 as i64, 0, 0);
-/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 3);
-/// dartforge_arc_release(valor);
+/// let value = dartforge_arc_box_simd_owned_v1(cid::FLOAT32X4 as i64, 0, 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(value), 3);
+/// dartforge_arc_release(value);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(value), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_box_simd_owned_v1(cid: i64, baixo: i64, alto: i64) -> i64 {
+pub extern "C" fn dartforge_arc_box_simd_owned_v1(cid: i64, low: i64, high: i64) -> i64 {
     let cid = i32::try_from(cid).expect("classe SIMD fora da representação");
     assert!(matches!(cid, crate::layout::cid::FLOAT32X4 | crate::layout::cid::INT32X4 | crate::layout::cid::FLOAT64X2), "classe SIMD incompatível");
     let mut bytes = [0; 16];
-    bytes[..8].copy_from_slice(&baixo.to_ne_bytes());
-    bytes[8..].copy_from_slice(&alto.to_ne_bytes());
+    bytes[..8].copy_from_slice(&low.to_ne_bytes());
+    bytes[8..].copy_from_slice(&high.to_ne_bytes());
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let caixa = heap.novo_simd(cid, bytes);
-        heap.reter_owner_codigo(caixa);
-        caixa
+        let boxed = heap.new_simd(cid, bytes);
+        heap.retain_code_owner(boxed);
+        boxed
     })
 }
 
 #[cfg(test)]
-mod testes_caixas_simd_owned {
+mod tests_owned_simd_boxes {
     use super::*;
 
     #[test]
-    fn pistas_mantem_bits_e_owner_protege_ate_release_nos_dois_modos() {
+    fn hints_keep_bits_and_owner_protects_until_release_in_both_modes() {
         for arc in [false, true] {
             for cid in [crate::layout::cid::FLOAT32X4, crate::layout::cid::INT32X4,
                 crate::layout::cid::FLOAT64X2] {
                 HEAP.with(|h| h.replace(Heap::new(true)));
-                if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-                for (baixo, alto) in [(0i64, 0i64), (i64::MIN, 0x7ff8_0000_0000_0123),
+                if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+                for (low, high) in [(0i64, 0i64), (i64::MIN, 0x7ff8_0000_0000_0123),
                     (-1, i64::MAX), (0x7fc0_0123_8000_0000, 0x0000_0001_7f80_0000)] {
-                    let h = dartforge_arc_box_simd_owned_v1(cid as i64, baixo, alto);
+                    let h = dartforge_arc_box_simd_owned_v1(cid as i64, low, high);
                     dartforge_arc_collect();
                     assert_eq!(dartforge_arc_observar_heap_v1(h), 3);
                     HEAP.with(|heap| {
                         let heap = heap.borrow();
-                        assert_eq!(heap.cabecalho(h).class_id, cid);
+                        assert_eq!(heap.header(h).class_id, cid);
                         let b = heap.simd(h).unwrap();
-                        assert_eq!(&b[..8], &baixo.to_ne_bytes());
-                        assert_eq!(&b[8..], &alto.to_ne_bytes());
+                        assert_eq!(&b[..8], &low.to_ne_bytes());
+                        assert_eq!(&b[8..], &high.to_ne_bytes());
                     });
                     dartforge_arc_release(h);
                     dartforge_arc_collect();
@@ -1622,15 +1622,15 @@ mod testes_caixas_simd_owned {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let endereco = dartforge_arc_box_int_owned_v1(i64::MAX);
-/// assert_eq!(dartforge_arc_observar_heap_v1(endereco), 3);
-/// dartforge_arc_release(endereco);
+/// let address = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// assert_eq!(dartforge_arc_observar_heap_v1(address), 3);
+/// dartforge_arc_release(address);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(endereco), 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(address), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_observar_heap_v1(endereco: i64) -> u8 {
-    HEAP.with(|h| h.borrow().observar_owner_codigo(endereco))
+pub extern "C" fn dartforge_arc_observar_heap_v1(address: i64) -> u8 {
+    HEAP.with(|h| h.borrow().observe_code_owner(address))
 }
 
 /// Cria um token proprietário do código gerado a partir de um empréstimo.
@@ -1647,8 +1647,8 @@ pub extern "C" fn dartforge_arc_observar_heap_v1(endereco: i64) -> u8 {
 /// dartforge_arc_release(0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_retain(valor: i64) {
-    HEAP.with(|h| h.borrow_mut().reter_owner_codigo(valor));
+pub extern "C" fn dartforge_arc_retain(value: i64) {
+    HEAP.with(|h| h.borrow_mut().retain_code_owner(value));
 }
 
 /// Consome um token do código gerado, sem coletar ou executar Dart.
@@ -1665,8 +1665,8 @@ pub extern "C" fn dartforge_arc_retain(valor: i64) {
 /// dartforge_arc_release(0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_release(valor: i64) {
-    HEAP.with(|h| h.borrow_mut().soltar_owner_codigo(valor));
+pub extern "C" fn dartforge_arc_release(value: i64) {
+    HEAP.with(|h| h.borrow_mut().release_code_owner(value));
 }
 
 /// Executa coleta explícita num safepoint com as raízes já publicadas.
@@ -1695,8 +1695,8 @@ pub extern "C" fn dartforge_arc_collect() {
 /// assert_eq!(dartforge_runtime::abi::dartforge_arc_verificar_abi(-1), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_verificar_abi(versao: i64) -> i8 {
-    i8::from(versao == 1 && HEAP.with(|h| h.borrow().arc_ativo()))
+pub extern "C" fn dartforge_arc_verificar_abi(version: i64) -> i8 {
+    i8::from(version == 1 && HEAP.with(|h| h.borrow().arc_active()))
 }
 
 /// Abre um quadro proprietário com slots inicialmente nulos.
@@ -1707,13 +1707,13 @@ pub extern "C" fn dartforge_arc_verificar_abi(versao: i64) -> i8 {
 ///
 /// ```
 /// use dartforge_runtime::abi::{dartforge_arc_quadro_abrir_v1, dartforge_arc_quadro_fechar_v1};
-/// let quadro = dartforge_arc_quadro_abrir_v1(0);
-/// dartforge_arc_quadro_fechar_v1(quadro);
+/// let frame = dartforge_arc_quadro_abrir_v1(0);
+/// dartforge_arc_quadro_fechar_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_quadro_abrir_v1(slots: i64) -> i64 {
     let slots = usize::try_from(slots).expect("quantidade inválida de slots ARC");
-    HEAP.with(|h| h.borrow_mut().push_frame_proprietario(slots))
+    HEAP.with(|h| h.borrow_mut().push_owning_frame(slots))
 }
 
 /// Copia o valor para um slot, retendo antes de soltar o conteúdo antigo.
@@ -1726,17 +1726,17 @@ pub extern "C" fn dartforge_arc_quadro_abrir_v1(slots: i64) -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let quadro = dartforge_arc_quadro_abrir_v1(1);
-/// dartforge_arc_quadro_copiar_v1(quadro, 0, 0);
-/// dartforge_arc_quadro_fechar_v1(quadro);
+/// let frame = dartforge_arc_quadro_abrir_v1(1);
+/// dartforge_arc_quadro_copiar_v1(frame, 0, 0);
+/// dartforge_arc_quadro_fechar_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_copiar_v1(quadro: i64, slot: i64, valor: i64) {
+pub extern "C" fn dartforge_arc_quadro_copiar_v1(frame: i64, slot: i64, value: i64) {
     let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        h.conferir_quadro_proprietario(quadro);
-        h.set_root(quadro, slot, valor);
+        h.check_owning_frame(frame);
+        h.set_root(frame, slot, value);
     });
 }
 
@@ -1750,15 +1750,15 @@ pub extern "C" fn dartforge_arc_quadro_copiar_v1(quadro: i64, slot: i64, valor: 
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let quadro = dartforge_arc_quadro_abrir_v1(1);
-/// let valor = dartforge_arc_quadro_carregar_v1(quadro, 0);
-/// dartforge_arc_quadro_fechar_v1(quadro);
-/// dartforge_arc_release(valor);
+/// let frame = dartforge_arc_quadro_abrir_v1(1);
+/// let value = dartforge_arc_quadro_carregar_v1(frame, 0);
+/// dartforge_arc_quadro_fechar_v1(frame);
+/// dartforge_arc_release(value);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_carregar_v1(quadro: i64, slot: i64) -> i64 {
+pub extern "C" fn dartforge_arc_quadro_carregar_v1(frame: i64, slot: i64) -> i64 {
     let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
-    HEAP.with(|h| h.borrow_mut().copiar_raiz_para_codigo(quadro, slot))
+    HEAP.with(|h| h.borrow_mut().copy_root_to_code(frame, slot))
 }
 
 /// Transfere um token do código para um slot proprietário.
@@ -1772,14 +1772,14 @@ pub extern "C" fn dartforge_arc_quadro_carregar_v1(quadro: i64, slot: i64) -> i6
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let quadro = dartforge_arc_quadro_abrir_v1(1);
-/// dartforge_arc_quadro_receber_v1(quadro, 0, 0);
-/// dartforge_arc_quadro_fechar_v1(quadro);
+/// let frame = dartforge_arc_quadro_abrir_v1(1);
+/// dartforge_arc_quadro_receber_v1(frame, 0, 0);
+/// dartforge_arc_quadro_fechar_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_receber_v1(quadro: i64, slot: i64, valor: i64) {
+pub extern "C" fn dartforge_arc_quadro_receber_v1(frame: i64, slot: i64, value: i64) {
     let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
-    HEAP.with(|h| h.borrow_mut().mover_codigo_para_raiz(quadro, slot, valor));
+    HEAP.with(|h| h.borrow_mut().move_code_to_root(frame, slot, value));
 }
 
 /// Transfere token do código ao registro de owner de um global.
@@ -1796,8 +1796,8 @@ pub extern "C" fn dartforge_arc_quadro_receber_v1(quadro: i64, slot: i64, valor:
 /// dartforge_runtime::abi::dartforge_arc_global_receber_v1(17, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_global_receber_v1(id: i64, valor: i64) {
-    HEAP.with(|h| h.borrow_mut().mover_codigo_para_global(id, valor));
+pub extern "C" fn dartforge_arc_global_receber_v1(id: i64, value: i64) {
+    HEAP.with(|h| h.borrow_mut().move_code_to_global(id, value));
 }
 
 /// Move um owner entre slots, consumindo origem e conteúdo antigo do destino.
@@ -1810,20 +1810,20 @@ pub extern "C" fn dartforge_arc_global_receber_v1(id: i64, valor: i64) {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let quadro = dartforge_arc_quadro_abrir_v1(2);
-/// dartforge_arc_quadro_mover_v1(quadro, 0, quadro, 1);
-/// dartforge_arc_quadro_fechar_v1(quadro);
+/// let frame = dartforge_arc_quadro_abrir_v1(2);
+/// dartforge_arc_quadro_mover_v1(frame, 0, frame, 1);
+/// dartforge_arc_quadro_fechar_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_quadro_mover_v1(
-    origem: i64,
-    slot_origem: i64,
-    destino: i64,
-    slot_destino: i64,
+    origin: i64,
+    source_slot: i64,
+    dest: i64,
+    dest_slot: i64,
 ) {
-    let de = usize::try_from(slot_origem).expect("índice inválido de origem ARC");
-    let para = usize::try_from(slot_destino).expect("índice inválido de destino ARC");
-    HEAP.with(|h| h.borrow_mut().mover_raiz(origem, de, destino, para));
+    let de = usize::try_from(source_slot).expect("índice inválido de origem ARC");
+    let to = usize::try_from(dest_slot).expect("índice inválido de destino ARC");
+    HEAP.with(|h| h.borrow_mut().move_root(origin, de, dest, to));
 }
 
 /// Consome os owners do quadro do topo sem coletar ou executar Dart.
@@ -1833,335 +1833,335 @@ pub extern "C" fn dartforge_arc_quadro_mover_v1(
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let quadro = dartforge_arc_quadro_abrir_v1(1);
-/// dartforge_arc_quadro_fechar_v1(quadro);
+/// let frame = dartforge_arc_quadro_abrir_v1(1);
+/// dartforge_arc_quadro_fechar_v1(frame);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_arc_quadro_fechar_v1(quadro: i64) {
+pub extern "C" fn dartforge_arc_quadro_fechar_v1(frame: i64) {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        h.conferir_quadro_proprietario(quadro);
-        h.pop_frame(quadro);
+        h.check_owning_frame(frame);
+        h.pop_frame(frame);
     });
 }
 
 #[cfg(test)]
-mod testes_arc_abi_quadros {
+mod tests_arc_abi_frames {
     use super::*;
 
     #[test]
-    fn excecao_ref_preserva_mint_apos_release_e_clear_remove_raiz() {
+    fn exception_ref_preserves_mint_after_release_and_clear_removes_root() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_lancar_ref_v1(valor);
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let value = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_lancar_ref_v1(value);
             assert_ne!(dartforge_exception_pending(), 0);
-            dartforge_arc_release(valor);
+            dartforge_arc_release(value);
             dartforge_arc_collect();
-            HEAP.with(|h| assert!(h.borrow().e_objeto_vivo(valor)));
-            assert_eq!(dartforge_exception_peek_ref(), valor);
+            HEAP.with(|h| assert!(h.borrow().is_live_object(value)));
+            assert_eq!(dartforge_exception_peek_ref(), value);
             dartforge_exception_clear();
             assert_eq!(dartforge_exception_pending(), 0);
             dartforge_arc_collect();
-            HEAP.with(|h| assert!(!h.borrow().e_objeto_vivo(valor)));
-            HEAP.with(|h| { h.replace(anterior); });
+            HEAP.with(|h| assert!(!h.borrow().is_live_object(value)));
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 
     #[test]
-    fn captura_owned_preserva_identidade_e_sobrevive_clear_nos_dois_modos() {
+    fn owned_capture_preserves_identity_and_survives_clear_in_both_modes() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             dartforge_exception_clear();
             assert_eq!(dartforge_arc_excecao_owned_v1(), 0);
             let original = dartforge_arc_box_int_owned_v1(i64::MAX);
             dartforge_arc_lancar_ref_v1(original);
-            let capturada = dartforge_arc_excecao_owned_v1();
-            assert_eq!(capturada, original);
+            let captured = dartforge_arc_excecao_owned_v1();
+            assert_eq!(captured, original);
             assert_ne!(dartforge_exception_pending(), 0);
             dartforge_arc_release(original);
             dartforge_exception_clear();
             dartforge_arc_collect();
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(capturada)));
-            assert_eq!(HEAP.with(|h| h.borrow().int_de(capturada)), Some(i64::MAX));
-            dartforge_arc_release(capturada);
+            assert!(HEAP.with(|h| h.borrow().is_live_object(captured)));
+            assert_eq!(HEAP.with(|h| h.borrow().int_of(captured)), Some(i64::MAX));
+            dartforge_arc_release(captured);
             dartforge_arc_collect();
-            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(capturada)));
-            HEAP.with(|h| { h.replace(anterior); });
+            assert!(!HEAP.with(|h| h.borrow().is_live_object(captured)));
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 
     #[test]
-    fn rastro_owned_preserva_identidade_e_morre_apos_ultimo_release() {
+    fn owned_trace_preserves_identity_and_dies_after_last_release() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             dartforge_exception_clear();
             let original = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let rastro = dartforge_arc_rastro_owned_v1();
+            let trace = dartforge_arc_rastro_owned_v1();
             assert!(CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()));
-            dartforge_arc_lancar_com_rastro_ref_v1(original, rastro);
-            let capturado = dartforge_arc_rastro_owned_v1();
-            let valor = dartforge_arc_excecao_owned_v1();
-            assert_eq!(capturado, rastro);
-            assert_eq!(valor, original);
-            assert_eq!(CURRENT_STACK_TRACE.with(|slot| *slot.borrow()), Some(rastro));
+            dartforge_arc_lancar_com_rastro_ref_v1(original, trace);
+            let captured_value = dartforge_arc_rastro_owned_v1();
+            let value = dartforge_arc_excecao_owned_v1();
+            assert_eq!(captured_value, trace);
+            assert_eq!(value, original);
+            assert_eq!(CURRENT_STACK_TRACE.with(|slot| *slot.borrow()), Some(trace));
             dartforge_arc_release(original);
-            dartforge_arc_release(rastro);
+            dartforge_arc_release(trace);
             dartforge_exception_clear();
             dartforge_arc_collect();
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(capturado)));
-            assert!(!texto_do_rastro(capturado).unwrap().is_empty());
-            assert_eq!(HEAP.with(|h| h.borrow().int_de(valor)), Some(i64::MAX));
-            dartforge_arc_release(capturado);
-            dartforge_arc_release(valor);
+            assert!(HEAP.with(|h| h.borrow().is_live_object(captured_value)));
+            assert!(!trace_text(captured_value).unwrap().is_empty());
+            assert_eq!(HEAP.with(|h| h.borrow().int_of(value)), Some(i64::MAX));
+            dartforge_arc_release(captured_value);
+            dartforge_arc_release(value);
             dartforge_arc_collect();
-            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(capturado)));
-            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
-            HEAP.with(|h| { h.replace(anterior); });
+            assert!(!HEAP.with(|h| h.borrow().is_live_object(captured_value)));
+            assert!(!HEAP.with(|h| h.borrow().is_live_object(value)));
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 
     #[test]
-    fn captura_owned_encaixota_escalar_sem_consumir_pendencia() {
-        use crate::heap::Valor;
+    fn owned_capture_boxes_scalar_without_consuming_pending() {
+        use crate::heap::Value;
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            for (bits, tag, esperado) in [
-                (i64::MAX, 1, Valor::Int(i64::MAX)),
-                (42, 1, Valor::Int(42)),
-                (3.5_f64.to_bits() as i64, 4, Valor::Double(3.5)),
-                (1, 2, Valor::Bool(true)),
-                (0, 2, Valor::Bool(false)),
-                (0, 3, Valor::Ref(0)),
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            for (bits, tag, expected) in [
+                (i64::MAX, 1, Value::Int(i64::MAX)),
+                (42, 1, Value::Int(42)),
+                (3.5_f64.to_bits() as i64, 4, Value::Double(3.5)),
+                (1, 2, Value::Bool(true)),
+                (0, 2, Value::Bool(false)),
+                (0, 3, Value::Ref(0)),
             ] {
                 dartforge_exception_throw(bits, tag);
-                let capturada = dartforge_arc_excecao_owned_v1();
-                assert_eq!(EXCEPTION.with(|slot| *slot.borrow()), Some(esperado));
+                let captured = dartforge_arc_excecao_owned_v1();
+                assert_eq!(EXCEPTION.with(|slot| *slot.borrow()), Some(expected));
                 dartforge_exception_clear();
                 dartforge_arc_collect();
-                assert_eq!(HEAP.with(|h| h.borrow().valor(capturada)), esperado);
-                dartforge_arc_release(capturada);
+                assert_eq!(HEAP.with(|h| h.borrow().value(captured)), expected);
+                dartforge_arc_release(captured);
                 dartforge_arc_collect();
-                if matches!(esperado, Valor::Int(i64::MAX) | Valor::Double(_)) {
-                    assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(capturada)));
+                if matches!(expected, Value::Int(i64::MAX) | Value::Double(_)) {
+                    assert!(!HEAP.with(|h| h.borrow().is_live_object(captured)));
                 }
             }
-            HEAP.with(|h| { h.replace(anterior); });
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 
     #[test]
-    fn observacao_nativa_nao_cria_owner_e_rejeita_enderecos_fora_do_heap() {
-        for validar in [false, true] {
+    fn native_observation_creates_no_owner_and_rejects_addresses_outside_heap() {
+        for validate in [false, true] {
             for arc in [false, true] {
-                let anterior = HEAP.with(|h| h.replace(Heap::new(validar)));
-                if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-                for endereco in [0, 2, i64::MIN, i64::MAX, smi::de(42).unwrap()] {
-                    assert_eq!(dartforge_arc_observar_heap_v1(endereco), 0);
+                let previous = HEAP.with(|h| h.replace(Heap::new(validate)));
+                if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+                for address in [0, 2, i64::MIN, i64::MAX, smi::de(42).unwrap()] {
+                    assert_eq!(dartforge_arc_observar_heap_v1(address), 0);
                 }
-                let endereco = dartforge_arc_box_int_owned_v1(i64::MAX);
-                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 3);
-                dartforge_arc_retain(endereco);
-                dartforge_arc_release(endereco);
-                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 3);
-                dartforge_arc_release(endereco);
-                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 1);
+                let address = dartforge_arc_box_int_owned_v1(i64::MAX);
+                assert_eq!(dartforge_arc_observar_heap_v1(address), 3);
+                dartforge_arc_retain(address);
+                dartforge_arc_release(address);
+                assert_eq!(dartforge_arc_observar_heap_v1(address), 3);
+                dartforge_arc_release(address);
+                assert_eq!(dartforge_arc_observar_heap_v1(address), 1);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 0);
-                HEAP.with(|h| { h.replace(anterior); });
+                assert_eq!(dartforge_arc_observar_heap_v1(address), 0);
+                HEAP.with(|h| { h.replace(previous); });
             }
         }
     }
 
     #[test]
-    fn fabrica_owned_entrega_token_e_mint_morre_apos_ultimo_release() {
+    fn owned_factory_hands_out_token_and_mint_dies_after_last_release() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
-            assert_eq!(HEAP.with(|h| h.borrow().int_de(valor)), Some(i64::MAX));
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let value = dartforge_arc_box_int_owned_v1(i64::MAX);
+            assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
+            assert_eq!(HEAP.with(|h| h.borrow().int_of(value)), Some(i64::MAX));
             // A cópia representa um retorno retido, independente do token inicial.
-            dartforge_arc_retain(valor);
-            dartforge_arc_release(valor);
+            dartforge_arc_retain(value);
+            dartforge_arc_release(value);
             dartforge_arc_collect();
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
-            dartforge_arc_release(valor);
+            assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
+            dartforge_arc_release(value);
             dartforge_arc_collect();
-            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
-            let imediato = dartforge_arc_box_int_owned_v1(42);
-            assert_eq!(imediato, smi::de(42).unwrap());
-            dartforge_arc_release(imediato);
-            HEAP.with(|h| { h.replace(anterior); });
+            assert!(!HEAP.with(|h| h.borrow().is_live_object(value)));
+            let immediate = dartforge_arc_box_int_owned_v1(42);
+            assert_eq!(immediate, smi::de(42).unwrap());
+            dartforge_arc_release(immediate);
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 
     #[test]
-    fn abi_global_recebe_objeto_mortal_e_libera_ultimo_owner() {
+    fn abi_global_receives_mortal_object_and_releases_last_owner() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc {
-                HEAP.with(|h| h.borrow_mut().ativar_arc());
+                HEAP.with(|h| h.borrow_mut().enable_arc());
             }
             // O endereço representa armazenamento do chamador, sem uma raiz
             // observacional que possa esconder a perda do owner proprietário.
             let mut global = 0_i64;
             let id = (&mut global as *mut i64) as i64;
-            let quadro = dartforge_arc_quadro_abrir_v1(1);
-            let valor = HEAP.with(|h| h.borrow_mut().alocar_str("global mortal"));
-            dartforge_arc_quadro_copiar_v1(quadro, 0, valor);
-            global = dartforge_arc_quadro_carregar_v1(quadro, 0);
+            let frame = dartforge_arc_quadro_abrir_v1(1);
+            let value = HEAP.with(|h| h.borrow_mut().allocate_str("global mortal"));
+            dartforge_arc_quadro_copiar_v1(frame, 0, value);
+            global = dartforge_arc_quadro_carregar_v1(frame, 0);
             dartforge_arc_global_receber_v1(id, global);
-            dartforge_arc_quadro_fechar_v1(quadro);
+            dartforge_arc_quadro_fechar_v1(frame);
             dartforge_arc_collect();
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(global)));
+            assert!(HEAP.with(|h| h.borrow().is_live_object(global)));
 
             // Reatribuir o mesmo objeto consome o token novo e o owner velho;
             // a identidade não pode pular a transferência ou vazar um retain.
             dartforge_arc_retain(global);
             dartforge_arc_global_receber_v1(id, global);
             dartforge_arc_collect();
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+            assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
 
             dartforge_arc_retain(global);
             global = smi::de(42).unwrap();
             dartforge_arc_global_receber_v1(id, global);
             dartforge_arc_collect();
             assert_eq!(global, smi::de(42).unwrap());
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
-            dartforge_arc_release(valor);
+            assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
+            dartforge_arc_release(value);
             dartforge_arc_collect();
-            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+            assert!(!HEAP.with(|h| h.borrow().is_live_object(value)));
             global = 0;
             dartforge_arc_global_receber_v1(id, global);
             HEAP.with(|h| {
-                h.replace(anterior);
+                h.replace(previous);
             });
         }
     }
 
     #[test]
-    fn abi_carrega_owner_independente_e_recebe_token_no_slot() {
+    fn abi_loads_independent_owner_and_receives_token_in_slot() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(false)));
+            let previous = HEAP.with(|h| h.replace(Heap::new(false)));
             if arc {
-                HEAP.with(|h| h.borrow_mut().ativar_arc());
+                HEAP.with(|h| h.borrow_mut().enable_arc());
             }
-            let quadro = dartforge_arc_quadro_abrir_v1(1);
-            let valor = HEAP.with(|h| h.borrow_mut().alocar_str("slot e SSA"));
-            dartforge_arc_quadro_copiar_v1(quadro, 0, valor);
-            let token = dartforge_arc_quadro_carregar_v1(quadro, 0);
-            assert_eq!(token, valor);
-            dartforge_arc_quadro_receber_v1(quadro, 0, token);
-            let token = dartforge_arc_quadro_carregar_v1(quadro, 0);
-            dartforge_arc_quadro_fechar_v1(quadro);
+            let frame = dartforge_arc_quadro_abrir_v1(1);
+            let value = HEAP.with(|h| h.borrow_mut().allocate_str("slot e SSA"));
+            dartforge_arc_quadro_copiar_v1(frame, 0, value);
+            let token = dartforge_arc_quadro_carregar_v1(frame, 0);
+            assert_eq!(token, value);
+            dartforge_arc_quadro_receber_v1(frame, 0, token);
+            let token = dartforge_arc_quadro_carregar_v1(frame, 0);
+            dartforge_arc_quadro_fechar_v1(frame);
             dartforge_arc_collect();
-            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(token)));
+            assert!(HEAP.with(|h| h.borrow().is_live_object(token)));
             dartforge_arc_release(token);
             dartforge_arc_collect();
-            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(token)));
-            let quadro = dartforge_arc_quadro_abrir_v1(1);
-            for escalar in [0, smi::de(42).unwrap()] {
-                dartforge_arc_quadro_receber_v1(quadro, 0, escalar);
-                assert_eq!(dartforge_arc_quadro_carregar_v1(quadro, 0), escalar);
-                dartforge_arc_release(escalar);
+            assert!(!HEAP.with(|h| h.borrow().is_live_object(token)));
+            let frame = dartforge_arc_quadro_abrir_v1(1);
+            for scalar in [0, smi::de(42).unwrap()] {
+                dartforge_arc_quadro_receber_v1(frame, 0, scalar);
+                assert_eq!(dartforge_arc_quadro_carregar_v1(frame, 0), scalar);
+                dartforge_arc_release(scalar);
             }
-            dartforge_arc_quadro_fechar_v1(quadro);
+            dartforge_arc_quadro_fechar_v1(frame);
             HEAP.with(|h| {
-                h.replace(anterior);
+                h.replace(previous);
             });
         }
     }
 
     #[test]
-    fn abi_minima_confere_modo_e_sustenta_tokens_ate_release() {
-        let anterior = HEAP.with(|h| h.replace(Heap::new(false)));
+    fn minimal_abi_checks_mode_and_keeps_tokens_until_release() {
+        let previous = HEAP.with(|h| h.replace(Heap::new(false)));
         assert_eq!(dartforge_arc_verificar_abi(1), 0);
-        HEAP.with(|h| h.borrow_mut().ativar_arc());
+        HEAP.with(|h| h.borrow_mut().enable_arc());
         assert_eq!(dartforge_arc_verificar_abi(1), 1);
         assert_eq!(dartforge_arc_verificar_abi(2), 0);
-        let valor = HEAP.with(|h| h.borrow_mut().alocar_str("token ABI"));
-        dartforge_arc_retain(valor);
-        dartforge_arc_retain(valor);
+        let value = HEAP.with(|h| h.borrow_mut().allocate_str("token ABI"));
+        dartforge_arc_retain(value);
+        dartforge_arc_retain(value);
         dartforge_arc_collect();
-        assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
-        dartforge_arc_release(valor);
+        assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
+        dartforge_arc_release(value);
         dartforge_arc_collect();
-        assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
-        dartforge_arc_release(valor);
+        assert!(HEAP.with(|h| h.borrow().is_live_object(value)));
+        dartforge_arc_release(value);
         dartforge_arc_collect();
-        assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+        assert!(!HEAP.with(|h| h.borrow().is_live_object(value)));
         HEAP.with(|h| {
-            h.replace(anterior);
+            h.replace(previous);
         });
     }
 
     #[test]
     #[should_panic(expected = "quadro ARC deve ser proprietário")]
-    fn abi_recusa_quadro_observacional_antes_de_alterar_slots() {
+    fn abi_rejects_observational_frame_before_changing_slots() {
         let mut heap = Heap::new(false);
-        let quadro = heap.push_frame_with_slots(1);
-        heap.conferir_quadro_proprietario(quadro);
+        let frame = heap.push_frame_with_slots(1);
+        heap.check_owning_frame(frame);
     }
 
     #[test]
-    fn copia_movimento_e_fecho_preservam_occorrencias_ate_o_ultimo_owner() {
+    fn copy_move_and_closure_preserve_occurrences_until_last_owner() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(false)));
+            let previous = HEAP.with(|h| h.replace(Heap::new(false)));
             if arc {
-                HEAP.with(|h| h.borrow_mut().ativar_arc());
+                HEAP.with(|h| h.borrow_mut().enable_arc());
             }
-            let origem = dartforge_arc_quadro_abrir_v1(2);
-            let destino = dartforge_arc_quadro_abrir_v1(1);
-            let valor = HEAP.with(|h| h.borrow_mut().alocar_str("owner ABI"));
-            dartforge_arc_quadro_copiar_v1(origem, 0, valor);
-            dartforge_arc_quadro_copiar_v1(origem, 1, valor);
-            dartforge_arc_quadro_mover_v1(origem, 0, destino, 0);
-            dartforge_arc_quadro_mover_v1(destino, 0, destino, 0);
-            dartforge_arc_quadro_copiar_v1(origem, 1, 0);
+            let origin = dartforge_arc_quadro_abrir_v1(2);
+            let dest = dartforge_arc_quadro_abrir_v1(1);
+            let value = HEAP.with(|h| h.borrow_mut().allocate_str("owner ABI"));
+            dartforge_arc_quadro_copiar_v1(origin, 0, value);
+            dartforge_arc_quadro_copiar_v1(origin, 1, value);
+            dartforge_arc_quadro_mover_v1(origin, 0, dest, 0);
+            dartforge_arc_quadro_mover_v1(dest, 0, dest, 0);
+            dartforge_arc_quadro_copiar_v1(origin, 1, 0);
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert!(h.e_objeto_vivo(valor));
+                assert!(h.is_live_object(value));
             });
-            dartforge_arc_quadro_fechar_v1(destino);
+            dartforge_arc_quadro_fechar_v1(dest);
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert!(!h.e_objeto_vivo(valor));
+                assert!(!h.is_live_object(value));
             });
-            dartforge_arc_quadro_fechar_v1(origem);
+            dartforge_arc_quadro_fechar_v1(origin);
             HEAP.with(|h| {
-                h.replace(anterior);
+                h.replace(previous);
             });
         }
     }
 }
 
 #[cfg(test)]
-mod testes_caixa_double_owned {
+mod tests_owned_double_box {
     use super::*;
     #[test]
-    fn double_owned_preserva_bits_e_morre_apos_ultimo_token() {
+    fn owned_double_preserves_bits_and_dies_after_last_token() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             for bits in [(-0.0_f64).to_bits(), 3.25_f64.to_bits(), f64::INFINITY.to_bits(), 0x7ff80000deadbeef] {
-                let valor = dartforge_arc_box_double_owned_v1(f64::from_bits(bits));
-                dartforge_arc_retain(valor);
-                dartforge_arc_release(valor);
+                let value = dartforge_arc_box_double_owned_v1(f64::from_bits(bits));
+                dartforge_arc_retain(value);
+                dartforge_arc_release(value);
                 dartforge_arc_collect();
-                assert_eq!(HEAP.with(|h| h.borrow().double_de(valor).unwrap().to_bits()), bits);
-                assert_eq!(dartforge_arc_observar_heap_v1(valor), 3);
-                dartforge_arc_release(valor);
+                assert_eq!(HEAP.with(|h| h.borrow().double_of(value).unwrap().to_bits()), bits);
+                assert_eq!(dartforge_arc_observar_heap_v1(value), 3);
+                dartforge_arc_release(value);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
+                assert_eq!(dartforge_arc_observar_heap_v1(value), 0);
             }
-            HEAP.with(|h| { h.replace(anterior); });
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 }
@@ -2171,228 +2171,228 @@ mod testes_campo_ref {
     use super::*;
 
     #[test]
-    fn layouts_em_ordem_por_busca_binaria() {
+    fn layouts_in_order_for_binary_search() {
         let layouts = [3, 2, 7, 4, 40, 1, 900, 6];
-        for (cid, campos) in [(3, 2), (7, 4), (40, 1), (900, 6)] {
-            assert_eq!(campos_do_layout(&layouts, cid), Some(campos));
+        for (cid, fields) in [(3, 2), (7, 4), (40, 1), (900, 6)] {
+            assert_eq!(layout_fields(&layouts, cid), Some(fields));
         }
-        assert_eq!(campos_do_layout(&layouts, 8), None);
-        assert_eq!(campos_do_layout(&[], 8), None);
+        assert_eq!(layout_fields(&layouts, 8), None);
+        assert_eq!(layout_fields(&[], 8), None);
         // Fora de ordem pode não achar; a conferência refaz em sequência.
-        assert_eq!(campos_do_layout(&[900, 6, 3, 2], 900), None);
+        assert_eq!(layout_fields(&[900, 6, 3, 2], 900), None);
     }
 
     #[test]
-    fn record_posicional_le_contagem_escalar_e_campos_ref() {
-        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-        let record = HEAP.with(|h| h.borrow_mut().novo_record_contado(&[filho, 0]));
+    fn positional_record_reads_scalar_count_and_ref_fields() {
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+        let record = HEAP.with(|h| h.borrow_mut().new_counted_record(&[child, 0]));
         HEAP.with(|h| {
             let h = h.borrow();
-            assert_eq!(ler_campo_escalar_auditado(&h, record, 0), Ok(2));
-            assert!(ler_campo_escalar_auditado(&h, record, 1).is_err());
-            assert_eq!(ler_campo_ref_auditado(&h, record, 1), Ok(filho));
-            assert_eq!(ler_campo_ref_auditado(&h, record, 2), Ok(0));
+            assert_eq!(read_audited_scalar_field(&h, record, 0), Ok(2));
+            assert!(read_audited_scalar_field(&h, record, 1).is_err());
+            assert_eq!(read_audited_ref_field(&h, record, 1), Ok(child));
+            assert_eq!(read_audited_ref_field(&h, record, 2), Ok(0));
             for i in [0, 3, -1] {
-                assert!(ler_campo_ref_auditado(&h, record, i).is_err());
+                assert!(read_audited_ref_field(&h, record, i).is_err());
             }
         });
-        HEAP.with(|h| h.replace(anterior));
+        HEAP.with(|h| h.replace(previous));
     }
 
     #[test]
-    fn escrita_conferida_inicializa_ref_e_recusa_layout_sem_alterar_aresta() {
+    fn checked_write_initializes_ref_and_rejects_layout_without_changing_edge() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let child = dartforge_arc_box_int_owned_v1(i64::MAX);
             HEAP.with(|h| {
                 let mut heap = h.borrow_mut();
-                assert!(gravar_campo_ref_conferido(&mut heap, objeto, 39, filho, &[123, 40]).is_ok());
-                for (receiver, indice, layouts) in [
-                    (objeto, 39, vec![124, 40]), (objeto, 39, vec![123, 39]),
-                    (objeto, -1, vec![123, 40]), (objeto, 40, vec![123, 40]),
-                    (0, 39, vec![123, 40]), (filho, 0, vec![123, 40]),
-                    (objeto, 39, vec![123]),
+                assert!(write_checked_ref_field(&mut heap, object, 39, child, &[123, 40]).is_ok());
+                for (receiver, ix, layouts) in [
+                    (object, 39, vec![124, 40]), (object, 39, vec![123, 39]),
+                    (object, -1, vec![123, 40]), (object, 40, vec![123, 40]),
+                    (0, 39, vec![123, 40]), (child, 0, vec![123, 40]),
+                    (object, 39, vec![123]),
                 ] {
-                    assert!(gravar_campo_ref_conferido(&mut heap, receiver, indice, 0, &layouts).is_err());
-                    assert_eq!(ler_campo_ref_auditado(&heap, objeto, 39), Ok(filho));
+                    assert!(write_checked_ref_field(&mut heap, receiver, ix, 0, &layouts).is_err());
+                    assert_eq!(read_audited_ref_field(&heap, object, 39), Ok(child));
                 }
             });
-            dartforge_arc_release(filho);
+            dartforge_arc_release(child);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
-            HEAP.with(|h| assert!(gravar_campo_ref_conferido(&mut h.borrow_mut(), objeto, 39, 0, &[123, 40]).is_ok()));
+            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+            HEAP.with(|h| assert!(write_checked_ref_field(&mut h.borrow_mut(), object, 39, 0, &[123, 40]).is_ok()));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
-            dartforge_arc_release(objeto);
-            HEAP.with(|h| h.replace(anterior));
+            assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
+            dartforge_arc_release(object);
+            HEAP.with(|h| h.replace(previous));
         }
     }
 
     #[test]
-    fn leitura_empresta_aresta_e_copia_owned_sobrevive_a_substituicao() {
+    fn read_borrows_edge_and_owned_copy_survives_replacement() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_gravar_campo_ref_v1(objeto, 0, 0);
-            dartforge_arc_gravar_campo_ref_v1(objeto, 1, smi::de(42).unwrap());
-            dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
-            dartforge_arc_gravar_campo_escalar_v1(objeto, 37, filho);
-            dartforge_arc_release(filho);
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_gravar_campo_ref_v1(object, 0, 0);
+            dartforge_arc_gravar_campo_ref_v1(object, 1, smi::de(42).unwrap());
+            dartforge_arc_gravar_campo_ref_v1(object, 39, child);
+            dartforge_arc_gravar_campo_escalar_v1(object, 37, child);
+            dartforge_arc_release(child);
             dartforge_arc_collect();
             let stats = HEAP.with(|h| h.borrow().stats());
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 0), 0);
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 1), smi::de(42).unwrap());
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 39), filho);
-            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 0), 0);
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 1), smi::de(42).unwrap());
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(object, 39), child);
+            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
             HEAP.with(|h| {
                 let h = h.borrow();
-                for (receiver, indice) in [(objeto, 37), (objeto, -1), (objeto, 40), (0, 0), (filho, 0)] {
-                    assert!(ler_campo_ref_auditado(&h, receiver, indice).is_err());
+                for (receiver, ix) in [(object, 37), (object, -1), (object, 40), (0, 0), (child, 0)] {
+                    assert!(read_audited_ref_field(&h, receiver, ix).is_err());
                 }
                 // O campo nunca gravado (zerado, marcado escalar) é null.
-                assert_eq!(ler_campo_ref_auditado(&h, objeto, 38), Ok(0));
+                assert_eq!(read_audited_ref_field(&h, object, 38), Ok(0));
                 assert_eq!(h.stats().allocations, stats.allocations);
                 assert_eq!(h.stats().collections, stats.collections);
             });
-            dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+            dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
-            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-            dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
-            dartforge_arc_release(filho);
-            let copia = dartforge_arc_ler_campo_ref_v1(objeto, 39);
-            assert_eq!(copia, filho);
-            dartforge_arc_retain(copia);
-            dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
-            dartforge_arc_release(objeto);
+            assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
+            let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_gravar_campo_ref_v1(object, 39, child);
+            dartforge_arc_release(child);
+            let copy = dartforge_arc_ler_campo_ref_v1(object, 39);
+            assert_eq!(copy, child);
+            dartforge_arc_retain(copy);
+            dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
+            dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
-            assert_eq!(dartforge_arc_observar_heap_v1(copia), 3);
-            dartforge_arc_release(copia);
+            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+            assert_eq!(dartforge_arc_observar_heap_v1(copy), 3);
+            dartforge_arc_release(copy);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(copia), 0);
-            HEAP.with(|h| { h.replace(anterior); });
+            assert_eq!(dartforge_arc_observar_heap_v1(copy), 0);
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 }
 
 #[cfg(test)]
-mod testes_leitura_late_ref {
+mod tests_late_ref_read {
     use super::*;
 
     #[test]
-    fn late_ref_distingue_zero_vazio_null_escrito_e_bits_escalares() {
+    fn late_ref_tells_empty_zero_written_null_and_scalar_bits() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let antes = HEAP.with(|h| h.borrow().stats());
-            assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 39), 0);
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let before = HEAP.with(|h| h.borrow().stats());
+            assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 39), 0);
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
-                h.marcar_late((objeto, 39));
-                assert!(ler_campo_late_ref_auditado(&h, objeto, 39).is_err());
-                h.desmarcar_late((objeto, 39));
-                for (bits, marcado) in [(filho, false), (42, false), (0, true), (filho, true)] {
-                    h.definir_campo(objeto, 38, bits, false);
-                    if marcado { h.marcar_late((objeto, 38)); } else { h.desmarcar_late((objeto, 38)); }
-                    assert!(ler_campo_late_ref_auditado(&h, objeto, 38).is_err());
+                h.mark_late((object, 39));
+                assert!(read_audited_late_ref_field(&h, object, 39).is_err());
+                h.unmark_late((object, 39));
+                for (bits, marked) in [(child, false), (42, false), (0, true), (child, true)] {
+                    h.set_field(object, 38, bits, false);
+                    if marked { h.mark_late((object, 38)); } else { h.unmark_late((object, 38)); }
+                    assert!(read_audited_late_ref_field(&h, object, 38).is_err());
                 }
-                for (receiver, indice) in [(0, 0), (objeto, -1), (objeto, 40)] {
-                    assert!(ler_campo_late_ref_auditado(&h, receiver, indice).is_err());
+                for (receiver, ix) in [(0, 0), (object, -1), (object, 40)] {
+                    assert!(read_audited_late_ref_field(&h, receiver, ix).is_err());
                 }
-                assert_eq!(h.stats().allocations, antes.allocations);
-                assert_eq!(h.stats().collections, antes.collections);
+                assert_eq!(h.stats().allocations, before.allocations);
+                assert_eq!(h.stats().collections, before.collections);
             });
-            for valor in [0, smi::de(42).unwrap(), filho] {
-                dartforge_arc_gravar_campo_ref_v1(objeto, 39, valor);
-                HEAP.with(|h| h.borrow_mut().marcar_late((objeto, 39)));
-                assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 39), valor);
+            for value in [0, smi::de(42).unwrap(), child] {
+                dartforge_arc_gravar_campo_ref_v1(object, 39, value);
+                HEAP.with(|h| h.borrow_mut().mark_late((object, 39)));
+                assert_eq!(dartforge_arc_ler_campo_late_ref_v1(object, 39), value);
             }
-            dartforge_arc_release(filho);
-            let copia = dartforge_arc_ler_campo_late_ref_v1(objeto, 39);
-            dartforge_arc_retain(copia);
-            dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
-            dartforge_arc_release(objeto);
+            dartforge_arc_release(child);
+            let copy = dartforge_arc_ler_campo_late_ref_v1(object, 39);
+            dartforge_arc_retain(copy);
+            dartforge_arc_gravar_campo_ref_v1(object, 39, 0);
+            dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(copia), 3);
-            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
-            HEAP.with(|h| assert!(ler_campo_late_ref_auditado(&h.borrow(), objeto, 39).is_err()));
-            dartforge_arc_release(copia);
+            assert_eq!(dartforge_arc_observar_heap_v1(copy), 3);
+            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+            HEAP.with(|h| assert!(read_audited_late_ref_field(&h.borrow(), object, 39).is_err()));
+            dartforge_arc_release(copy);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(copia), 0);
-            HEAP.with(|h| { h.replace(anterior); });
+            assert_eq!(dartforge_arc_observar_heap_v1(copy), 0);
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 }
 
 #[cfg(test)]
-mod testes_gravacao_campo {
+mod tests_field_write {
     use super::*;
 
     #[test]
-    fn gravacao_distingue_bits_de_arestas_e_substitui_sem_consumir_tokens() {
+    fn write_tells_bits_from_edges_and_replaces_without_consuming_tokens() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
-            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let antes = HEAP.with(|h| h.borrow().stats());
-            for indice in [0, 37, 38] {
-                dartforge_arc_gravar_campo_ref_v1(objeto, indice, filho);
-                dartforge_arc_gravar_campo_ref_v1(objeto, indice, filho);
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let object = dartforge_arc_objeto_owned_v1(123, 40);
+            let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let before = HEAP.with(|h| h.borrow().stats());
+            for ix in [0, 37, 38] {
+                dartforge_arc_gravar_campo_ref_v1(object, ix, child);
+                dartforge_arc_gravar_campo_ref_v1(object, ix, child);
             }
-            for (indice, bits) in [(1, i64::MAX), (32, (-0.0_f64).to_bits() as i64), (39, 0x7ff80000deadbeef)] {
-                dartforge_arc_gravar_campo_escalar_v1(objeto, indice, bits);
-                assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, indice), bits);
+            for (ix, bits) in [(1, i64::MAX), (32, (-0.0_f64).to_bits() as i64), (39, 0x7ff80000deadbeef)] {
+                dartforge_arc_gravar_campo_escalar_v1(object, ix, bits);
+                assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, ix), bits);
             }
             HEAP.with(|h| {
                 let h = h.borrow();
-                assert_eq!(h.stats().allocations, antes.allocations);
-                assert_eq!(h.stats().collections, antes.collections);
-                assert_eq!(h.observar_owner_codigo(objeto), 3);
-                assert_eq!(h.observar_owner_codigo(filho), 3);
+                assert_eq!(h.stats().allocations, before.allocations);
+                assert_eq!(h.stats().collections, before.collections);
+                assert_eq!(h.observe_code_owner(object), 3);
+                assert_eq!(h.observe_code_owner(child), 3);
             });
-            dartforge_arc_release(filho);
+            dartforge_arc_release(child);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
             // Os mesmos bits deixam de constituir aresta nos dois mapas.
-            for indice in [0, 37] { dartforge_arc_gravar_campo_escalar_v1(objeto, indice, filho); }
+            for ix in [0, 37] { dartforge_arc_gravar_campo_escalar_v1(object, ix, child); }
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
-            dartforge_arc_gravar_campo_ref_v1(objeto, 38, 0);
+            assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+            dartforge_arc_gravar_campo_ref_v1(object, 38, 0);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
-            for indice in [0, 37] { assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, indice), filho); }
-            dartforge_arc_gravar_campo_ref_v1(objeto, 33, objeto);
+            assert_eq!(dartforge_arc_observar_heap_v1(child), 0);
+            for ix in [0, 37] { assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, ix), child); }
+            dartforge_arc_gravar_campo_ref_v1(object, 33, object);
             dartforge_arc_collect();
-            dartforge_arc_gravar_campo_escalar_v1(objeto, 33, 0);
-            dartforge_arc_release(objeto);
+            dartforge_arc_gravar_campo_escalar_v1(object, 33, 0);
+            dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
-            HEAP.with(|h| { h.replace(anterior); });
+            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 
     #[test]
-    fn receiver_e_indice_invalidos_nao_gravam_nem_coletam() {
+    fn invalid_receiver_and_index_neither_write_nor_collect() {
         let mut heap = Heap::new(true);
-        let objeto = heap.alocar_instancia(123, 40);
-        heap.reter_owner_codigo(objeto);
-        let caixa = heap.caixa_int(i64::MAX);
-        heap.reter_owner_codigo(caixa);
-        let antes = heap.objeto(objeto).unwrap().to_vec();
+        let object = heap.allocate_instance(123, 40);
+        heap.retain_code_owner(object);
+        let boxed = heap.box_int(i64::MAX);
+        heap.retain_code_owner(boxed);
+        let before = heap.object(object).unwrap().to_vec();
         let stats = heap.stats();
-        for referencia in [false, true] {
-            for (receiver, indice) in [(objeto, -1), (objeto, 40), (0, 0), (caixa, 0)] {
-                assert!(gravar_campo_auditado(&mut heap, receiver, indice, 0, referencia).is_err());
-                assert_eq!(heap.objeto(objeto).unwrap().to_vec(), antes);
+        for reference in [false, true] {
+            for (receiver, ix) in [(object, -1), (object, 40), (0, 0), (boxed, 0)] {
+                assert!(write_audited_field(&mut heap, receiver, ix, 0, reference).is_err());
+                assert_eq!(heap.object(object).unwrap().to_vec(), before);
                 assert_eq!(heap.stats().allocations, stats.allocations);
                 assert_eq!(heap.stats().collections, stats.collections);
             }
@@ -2401,132 +2401,132 @@ mod testes_gravacao_campo {
 }
 
 #[cfg(test)]
-mod testes_instancia_owned {
+mod tests_owned_instance {
     use super::*;
 
     #[test]
-    fn instancia_owned_registra_metodos_antes_de_alocar_e_preserva_token() {
+    fn owned_instance_registers_methods_before_allocating_and_preserves_token() {
         use std::sync::{OnceLock, atomic::{AtomicUsize, Ordering}};
-        static CHAMADAS: AtomicUsize = AtomicUsize::new(0);
-        extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 85 }
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 85 }
         extern "C" fn tabela() -> *const i64 {
-            static TABELA: OnceLock<[i64; 4]> = OnceLock::new();
-            CHAMADAS.fetch_add(1, Ordering::Relaxed);
-            TABELA.get_or_init(|| [32001, 1, 42, entrada as *const () as usize as i64]).as_ptr()
+            static TABLE: OnceLock<[i64; 4]> = OnceLock::new();
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            TABLE.get_or_init(|| [32001, 1, 42, input as *const () as usize as i64]).as_ptr()
         }
-        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        HEAP.with(|h| h.borrow_mut().ativar_arc());
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        HEAP.with(|h| h.borrow_mut().enable_arc());
         for _ in 0..2 {
             // SAFETY: tabela estática válida com uma entrada nativa durável.
-            let objeto = unsafe { dartforge_arc_objeto_owned_t_v1(32001, 1, tabela) };
-            assert_eq!(metodo_da_classe(32001, 42), Some(entrada as *const () as usize));
+            let object = unsafe { dartforge_arc_objeto_owned_t_v1(32001, 1, tabela) };
+            assert_eq!(class_method(32001, 42), Some(input as *const () as usize));
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
-            assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 0), 0);
-            dartforge_arc_release(objeto);
+            assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
+            assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, 0), 0);
+            dartforge_arc_release(object);
             dartforge_arc_collect();
-            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+            assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
         }
-        assert_eq!(CHAMADAS.load(Ordering::Relaxed), 1);
-        HEAP.with(|h| { h.replace(anterior); });
+        assert_eq!(CALLS.load(Ordering::Relaxed), 1);
+        HEAP.with(|h| { h.replace(previous); });
     }
 
     #[test]
-    fn instancia_zerada_e_token_sobrevivem_a_stress_ate_uma_liberacao() {
+    fn zeroed_instance_and_token_survive_stress_until_a_release() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            for campos in [0, 1, 32, 33, 40] {
-                let objeto = dartforge_arc_objeto_owned_v1(123, campos);
-                assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            for fields in [0, 1, 32, 33, 40] {
+                let object = dartforge_arc_objeto_owned_v1(123, fields);
+                assert_eq!(dartforge_arc_observar_heap_v1(object), 3);
                 // A próxima fábrica pode coletar antes de publicar seu token.
-                let outro = dartforge_arc_objeto_owned_v1(124, 1);
+                let other_one = dartforge_arc_objeto_owned_v1(124, 1);
                 dartforge_arc_collect();
                 HEAP.with(|h| {
                     let h = h.borrow();
-                    let vista = h.objeto(objeto).unwrap();
+                    let vista = h.object(object).unwrap();
                     assert_eq!(vista.class_id, 123);
-                    assert_eq!(vista.len(), campos as usize);
-                    assert!(vista.iter().all(|campo| campo == (0, false)));
+                    assert_eq!(vista.len(), fields as usize);
+                    assert!(vista.iter().all(|field| field == (0, false)));
                 });
-                let filho = if campos > 0 {
-                    let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-                    dartforge_object_set(objeto, campos - 1, filho, 1);
-                    dartforge_arc_release(filho);
+                let child = if fields > 0 {
+                    let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+                    dartforge_object_set(object, fields - 1, child, 1);
+                    dartforge_arc_release(child);
                     dartforge_arc_collect();
-                    assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
-                    assert_eq!(HEAP.with(|h| h.borrow().objeto(objeto).unwrap().campo(campos as usize - 1)), (filho, true));
-                    Some(filho)
+                    assert_eq!(dartforge_arc_observar_heap_v1(child), 1);
+                    assert_eq!(HEAP.with(|h| h.borrow().object(object).unwrap().field(fields as usize - 1)), (child, true));
+                    Some(child)
                 } else { None };
-                dartforge_arc_release(outro);
-                dartforge_arc_release(objeto);
-                assert_eq!(dartforge_arc_observar_heap_v1(objeto) & 2, 0);
+                dartforge_arc_release(other_one);
+                dartforge_arc_release(object);
+                assert_eq!(dartforge_arc_observar_heap_v1(object) & 2, 0);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
-                assert_eq!(dartforge_arc_observar_heap_v1(outro), 0);
-                if let Some(filho) = filho { assert_eq!(dartforge_arc_observar_heap_v1(filho), 0); }
+                assert_eq!(dartforge_arc_observar_heap_v1(object), 0);
+                assert_eq!(dartforge_arc_observar_heap_v1(other_one), 0);
+                if let Some(child) = child { assert_eq!(dartforge_arc_observar_heap_v1(child), 0); }
             }
-            HEAP.with(|h| { h.replace(anterior); });
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 
     #[test]
-    fn parametros_devem_caber_no_cabecalho_sem_truncar() {
-        for classe in [i32::MIN as i64, 0, i32::MAX as i64] {
-            for campos in [0, 40, u16::MAX as i64] {
-                assert_eq!(parametros_instancia_owned(classe, campos), Ok((classe as i32, campos as usize)));
+    fn parameters_must_fit_in_header_without_truncation() {
+        for class in [i32::MIN as i64, 0, i32::MAX as i64] {
+            for fields in [0, 40, u16::MAX as i64] {
+                assert_eq!(owned_instance_parameters(class, fields), Ok((class as i32, fields as usize)));
             }
         }
-        for classe in [i32::MIN as i64 - 1, i32::MAX as i64 + 1] {
-            assert!(parametros_instancia_owned(classe, 1).is_err());
+        for class in [i32::MIN as i64 - 1, i32::MAX as i64 + 1] {
+            assert!(owned_instance_parameters(class, 1).is_err());
         }
-        for campos in [-1, u16::MAX as i64 + 1, i64::MAX] {
-            assert!(parametros_instancia_owned(123, campos).is_err());
+        for fields in [-1, u16::MAX as i64 + 1, i64::MAX] {
+            assert!(owned_instance_parameters(123, fields).is_err());
         }
     }
 }
 
 #[cfg(test)]
-mod testes_campo_escalar {
+mod tests_scalar_field {
     use super::*;
 
     #[test]
-    fn leitura_confere_mapa_sem_confundir_bits_com_handle_e_sem_coletar() {
+    fn read_checks_map_without_mistaking_bits_for_handle_or_collecting() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
-            let objeto = HEAP.with(|h| {
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let object = HEAP.with(|h| {
                 let mut h = h.borrow_mut();
-                let filho = h.alocar_str("campo de referência");
-                h.reter_owner_codigo(filho);
-                let mut campos = vec![(0, false); 40];
-                campos[0] = (filho, false);
-                campos[1] = (filho, true);
-                campos[2] = ((-0.0_f64).to_bits() as i64, false);
-                campos[3] = (0x7ff80000deadbeef, false);
-                campos[32] = (i64::MAX, false);
-                campos[37] = (filho, true);
-                let objeto = h.novo_objeto(123, &campos);
-                h.reter_owner_codigo(objeto);
+                let child = h.allocate_str("campo de referência");
+                h.retain_code_owner(child);
+                let mut fields = vec![(0, false); 40];
+                fields[0] = (child, false);
+                fields[1] = (child, true);
+                fields[2] = ((-0.0_f64).to_bits() as i64, false);
+                fields[3] = (0x7ff80000deadbeef, false);
+                fields[32] = (i64::MAX, false);
+                fields[37] = (child, true);
+                let object = h.new_object(123, &fields);
+                h.retain_code_owner(object);
                 h.collect();
-                objeto
+                object
             });
-            let antes = HEAP.with(|h| h.borrow().stats());
+            let before = HEAP.with(|h| h.borrow().stats());
             for i in [0, 2, 3, 32, 39] {
-                let esperado = HEAP.with(|h| h.borrow().objeto(objeto).unwrap().campo(i).0);
-                assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, i as i64), esperado);
+                let expected = HEAP.with(|h| h.borrow().object(object).unwrap().field(i).0);
+                assert_eq!(dartforge_arc_ler_campo_escalar_v1(object, i as i64), expected);
             }
             HEAP.with(|h| {
                 let h = h.borrow();
                 for i in [1, 37] {
-                    assert_eq!(ler_campo_escalar_auditado(&h, objeto, i), Err("campo é referência gerenciada"));
+                    assert_eq!(read_audited_scalar_field(&h, object, i), Err("campo é referência gerenciada"));
                 }
-                for i in [-1, 40] { assert!(ler_campo_escalar_auditado(&h, objeto, i).is_err()); }
-                assert!(ler_campo_escalar_auditado(&h, 0, 0).is_err());
-                assert_eq!(h.stats().allocations, antes.allocations);
-                assert_eq!(h.stats().collections, antes.collections);
+                for i in [-1, 40] { assert!(read_audited_scalar_field(&h, object, i).is_err()); }
+                assert!(read_audited_scalar_field(&h, 0, 0).is_err());
+                assert_eq!(h.stats().allocations, before.allocations);
+                assert_eq!(h.stats().collections, before.collections);
             });
-            HEAP.with(|h| { h.replace(anterior); });
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 }

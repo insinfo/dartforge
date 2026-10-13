@@ -1,14 +1,14 @@
 // A conferência da tabela de efeitos das externs (`crates/runtime/efeitos.tsv`,
 // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8).
 //
-// Com `DARTFORGE_EFEITOS=conferir` na compilação, o código gerado chama
-// `dartforge_efeitos_antes(nome, marcas)` antes e `dartforge_efeitos_depois()`
-// depois de cada extern que a tabela marca `coleta = 0` (bit 0 das marcas) ou
-// `lanca = 0` (bit 1). Aqui a marca é posta à prova:
+// Com `DARTFORGE_EFEITOS=check` na compilação, o código gerado chama
+// `dartforge_efeitos_antes(name, marks)` antes e `dartforge_efeitos_depois()`
+// depois de cada extern que a tabela marca `collection = 0` (bit 0 das marcas) ou
+// `throws = 0` (bit 1). Aqui a marca é posta à prova:
 //
-// * `coleta = 0`: uma coleta enquanto a extern roda encerra o processo
-//   (`heap::proibir_coleta`), dizendo o nome dela;
-// * `lanca = 0`: se a extern entrou sem exceção pendente e saiu com uma, o
+// * `collection = 0`: uma coleta enquanto a extern roda encerra o processo
+//   (`heap::forbid_collection`), dizendo o nome dela;
+// * `throws = 0`: se a extern entrou sem exceção pendente e saiu com uma, o
 //   processo é encerrado, dizendo o nome dela.
 //
 // A marca otimista errada é o defeito mais perigoso do emissor (uma raiz que
@@ -19,36 +19,36 @@
 thread_local! {
     /// As externs conferidas em execução nesta thread: (nome, marcas, a
     /// pendência na entrada).
-    static EXTERNS_EM_CONFERENCIA: std::cell::RefCell<Vec<(String, i64, u8)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static EXTERNS_UNDER_CHECK: std::cell::RefCell<Vec<(String, i64, u8)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// A entrada de uma extern conferida.
 ///
 /// # Safety
-/// `nome` aponta para `len` bytes (o nome da extern, uma constante do módulo).
+/// `name` aponta para `len` bytes (o nome da extern, uma constante do módulo).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_efeitos_antes(nome: *const u8, len: i64, marcas: i64) {
+pub unsafe extern "C" fn dartforge_efeitos_antes(name: *const u8, len: i64, marks: i64) {
     // SAFETY: garantido por quem chama.
-    let bytes = unsafe { std::slice::from_raw_parts(nome, usize::try_from(len).unwrap_or(0)) };
-    let nome = String::from_utf8_lossy(bytes).into_owned();
-    let pendente = dartforge_exception_pending();
-    if marcas & 1 != 0 {
-        crate::heap::proibir_coleta(nome.clone());
+    let bytes = unsafe { std::slice::from_raw_parts(name, usize::try_from(len).unwrap_or(0)) };
+    let name = String::from_utf8_lossy(bytes).into_owned();
+    let pending = dartforge_exception_pending();
+    if marks & 1 != 0 {
+        crate::heap::forbid_collection(name.clone());
     }
-    EXTERNS_EM_CONFERENCIA.with(|p| p.borrow_mut().push((nome, marcas, pendente)));
+    EXTERNS_UNDER_CHECK.with(|p| p.borrow_mut().push((name, marks, pending)));
 }
 
 /// A saída da extern conferida mais recente.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_efeitos_depois() {
-    let Some((nome, marcas, pendente_antes)) = EXTERNS_EM_CONFERENCIA.with(|p| p.borrow_mut().pop()) else {
+    let Some((name, marks, pending_before)) = EXTERNS_UNDER_CHECK.with(|p| p.borrow_mut().pop()) else {
         return;
     };
-    if marcas & 1 != 0 {
-        crate::heap::permitir_coleta();
+    if marks & 1 != 0 {
+        crate::heap::allow_collection();
     }
-    if marcas & 2 != 0 && pendente_antes == 0 && dartforge_exception_pending() != 0 {
-        eprintln!("dartforge: a extern {nome} está marcada lanca = 0 em efeitos.tsv e deixou uma exceção pendente");
+    if marks & 2 != 0 && pending_before == 0 && dartforge_exception_pending() != 0 {
+        eprintln!("dartforge: a extern {name} está marcada lanca = 0 em efeitos.tsv e deixou uma exceção pendente");
         std::process::abort();
     }
 }
@@ -56,12 +56,12 @@ pub extern "C" fn dartforge_efeitos_depois() {
 /// Retorna a profundidade das externs em conferência nesta thread.
 ///
 /// ```
-/// let nivel = dartforge_runtime::abi::dartforge_efeitos_nivel();
-/// assert!(nivel >= 0);
+/// let level = dartforge_runtime::abi::dartforge_efeitos_nivel();
+/// assert!(level >= 0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_efeitos_nivel() -> i64 {
-    EXTERNS_EM_CONFERENCIA.with(|p| p.borrow().len() as i64)
+    EXTERNS_UNDER_CHECK.with(|p| p.borrow().len() as i64)
 }
 
 /// Abandona conferências de externs atravessadas por unwind nativo.
@@ -75,39 +75,39 @@ pub extern "C" fn dartforge_efeitos_nivel() -> i64 {
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let nivel = dartforge_efeitos_nivel();
-/// dartforge_efeitos_restaurar(nivel);
-/// assert_eq!(dartforge_efeitos_nivel(), nivel);
+/// let level = dartforge_efeitos_nivel();
+/// dartforge_efeitos_restaurar(level);
+/// assert_eq!(dartforge_efeitos_nivel(), level);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_efeitos_restaurar(nivel: i64) {
-    let nivel = usize::try_from(nivel).expect("nível negativo de conferência de efeitos");
-    EXTERNS_EM_CONFERENCIA.with(|p| {
-        let mut pilha = p.borrow_mut();
-        assert!(nivel <= pilha.len(), "nível de conferência de efeitos obsoleto");
-        while pilha.len() > nivel {
-            let (_, marcas, _) = pilha.pop().unwrap();
-            if marcas & 1 != 0 { crate::heap::permitir_coleta(); }
+pub extern "C" fn dartforge_efeitos_restaurar(level: i64) {
+    let level = usize::try_from(level).expect("nível negativo de conferência de efeitos");
+    EXTERNS_UNDER_CHECK.with(|p| {
+        let mut stack = p.borrow_mut();
+        assert!(level <= stack.len(), "nível de conferência de efeitos obsoleto");
+        while stack.len() > level {
+            let (_, marks, _) = stack.pop().unwrap();
+            if marks & 1 != 0 { crate::heap::allow_collection(); }
         }
     });
 }
 
 #[cfg(test)]
-mod testes_restauracao_efeitos {
+mod tests_effects_restore {
     use super::*;
     #[test]
-    fn unwind_preserva_nivel_externo_e_libera_proibicoes_abandonadas() {
-        let inicial = dartforge_efeitos_nivel();
-        let nome = b"fixture-unwind";
+    fn unwind_preserves_outer_level_and_releases_abandoned_bans() {
+        let initial = dartforge_efeitos_nivel();
+        let name = b"fixture-unwind";
         // SAFETY: nome aponta para bytes válidos durante as duas chamadas.
         unsafe {
-            dartforge_efeitos_antes(nome.as_ptr(), nome.len() as i64, 1);
-            dartforge_efeitos_antes(nome.as_ptr(), nome.len() as i64, 1);
+            dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 1);
+            dartforge_efeitos_antes(name.as_ptr(), name.len() as i64, 1);
         }
-        dartforge_efeitos_restaurar(inicial + 1);
-        assert_eq!(dartforge_efeitos_nivel(), inicial + 1);
-        dartforge_efeitos_restaurar(inicial);
-        assert_eq!(dartforge_efeitos_nivel(), inicial);
+        dartforge_efeitos_restaurar(initial + 1);
+        assert_eq!(dartforge_efeitos_nivel(), initial + 1);
+        dartforge_efeitos_restaurar(initial);
+        assert_eq!(dartforge_efeitos_nivel(), initial);
         dartforge_arc_collect();
     }
 }

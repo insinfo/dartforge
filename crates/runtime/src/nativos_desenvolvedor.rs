@@ -6,46 +6,46 @@
 
 /// O id de uma `SendPort` (o `_SendPort._id` da sobreposição de
 /// `dart:isolate`: o primeiro campo).
-fn id_da_send_port(porta: i64) -> i64 {
-    campo_nativo(porta)
+fn send_port_id(port: i64) -> i64 {
+    native_field(port)
 }
 
 /// `Developer_debugger(when, message)`: sem depurador, devolve `when`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_debugger(quando: u8, _mensagem: i64) -> u8 {
-    quando
+pub extern "C" fn dartforge_nativo_Developer_debugger(when: u8, _message: i64) -> u8 {
+    when
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_inspect(objeto: i64) -> i64 {
-    objeto
+pub extern "C" fn dartforge_nativo_Developer_inspect(object: i64) -> i64 {
+    object
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn dartforge_nativo_Developer_log(
-    _mensagem: i64,
-    _instante: i64,
-    _sequencia: i64,
-    _nivel: i64,
-    _nome: i64,
-    _zona: i64,
-    _erro: i64,
-    _rastro: i64,
+    _message: i64,
+    _instant: i64,
+    _sequence: i64,
+    _level: i64,
+    _name: i64,
+    _zone: i64,
+    _error: i64,
+    _trace: i64,
 ) -> i64 {
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_postEvent(_tipo: i64, _dados: i64) {}
+pub extern "C" fn dartforge_nativo_Developer_postEvent(_type: i64, _dados: i64) {}
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_lookupExtension(_metodo: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_Developer_lookupExtension(_method: i64) -> i64 {
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_registerExtension(_metodo: i64, _tratador: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_Developer_registerExtension(_method: i64, _handler: i64) -> i64 {
     0
 }
 
@@ -61,22 +61,22 @@ pub extern "C" fn dartforge_nativo_Developer_getServiceMinorVersion() -> i64 {
 
 /// `Developer_getServerInfo(port)`: sem servidor, `null` na porta.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_getServerInfo(porta: i64) {
-    postar(id_da_send_port(porta), Grafo::nulo());
+pub extern "C" fn dartforge_nativo_Developer_getServerInfo(port: i64) {
+    post(send_port_id(port), Graph::null_val());
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_webServerControl(porta: i64, _ligar: u8, _silenciar: i64) {
-    postar(id_da_send_port(porta), Grafo::nulo());
+pub extern "C" fn dartforge_nativo_Developer_webServerControl(port: i64, _enable: u8, _silence: i64) {
+    post(send_port_id(port), Graph::null_val());
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_getIsolateIdFromSendPort(_porta: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_Developer_getIsolateIdFromSendPort(_port: i64) -> i64 {
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Developer_getObjectId(_objeto: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_Developer_getObjectId(_object: i64) -> i64 {
     0
 }
 
@@ -111,10 +111,10 @@ pub extern "C" fn dartforge_nativo_Timeline_getTraceClock() -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Timeline_reportTaskEvent(_id: i64, _fluxo: i64, _tipo: i64, _nome: i64, _args: i64) {}
+pub extern "C" fn dartforge_nativo_Timeline_reportTaskEvent(_id: i64, _stream: i64, _type: i64, _name: i64, _args: i64) {}
 
 /// `SendPort.nativePort` (o `NativePort` do `dart:ffi`): o id da porta.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_SendPort_get_id(porta: i64) -> i64 {
-    id_da_send_port(porta)
+pub extern "C" fn dartforge_nativo_SendPort_get_id(port: i64) -> i64 {
+    send_port_id(port)
 }

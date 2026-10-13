@@ -2,16 +2,16 @@
 //! chamado direto (os testes do crate não o instalam como alocador global).
 
 use dartforge_runtime::abi::{
-    AlocadorComCache, esvaziar_cache_de_alocacao, ligar_cache_de_alocacao,
+    CachingAllocator, flush_allocation_cache, enable_allocation_cache,
 };
 use std::alloc::{GlobalAlloc, Layout};
 
 /// Numa thread nova, para as listas começarem vazias e ligadas.
-fn numa_thread(f: impl FnOnce() + Send + 'static) {
+fn in_a_thread(f: impl FnOnce() + Send + 'static) {
     std::thread::spawn(move || {
-        ligar_cache_de_alocacao();
+        enable_allocation_cache();
         f();
-        esvaziar_cache_de_alocacao();
+        flush_allocation_cache();
     })
     .join()
     .expect("thread do teste");
@@ -19,9 +19,9 @@ fn numa_thread(f: impl FnOnce() + Send + 'static) {
 
 #[test]
 #[allow(unsafe_code)]
-fn bloco_livre_volta_pela_lista_da_classe() {
-    numa_thread(|| {
-        let a = AlocadorComCache;
+fn free_block_returns_through_class_list() {
+    in_a_thread(|| {
+        let a = CachingAllocator;
         let l = Layout::from_size_align(40, 8).unwrap();
         // SAFETY: layouts válidos; cada bloco é liberado com o layout dele.
         unsafe {
@@ -46,9 +46,9 @@ fn bloco_livre_volta_pela_lista_da_classe() {
 
 #[test]
 #[allow(unsafe_code)]
-fn realloc_preserva_o_conteudo_entre_classes_e_para_fora() {
-    numa_thread(|| {
-        let a = AlocadorComCache;
+fn realloc_preserves_content_across_classes_and_outside() {
+    in_a_thread(|| {
+        let a = CachingAllocator;
         // SAFETY: como acima; `realloc` recebe o layout vigente do bloco.
         unsafe {
             let mut l = Layout::from_size_align(8, 8).unwrap();
@@ -57,14 +57,14 @@ fn realloc_preserva_o_conteudo_entre_classes_e_para_fora() {
                 *p.add(i) = i as u8;
             }
             // Mesma classe (≤ 16), outra classe, o limite (512) e fora (> 512).
-            for novo in [16usize, 100, 512, 4000, 20000, 300, 8] {
-                let q = a.realloc(p, l, novo);
+            for new in [16usize, 100, 512, 4000, 20000, 300, 8] {
+                let q = a.realloc(p, l, new);
                 assert!(!q.is_null());
                 for i in 0..8 {
-                    assert_eq!(*q.add(i), i as u8, "realloc para {novo}");
+                    assert_eq!(*q.add(i), i as u8, "realloc para {new}");
                 }
                 p = q;
-                l = Layout::from_size_align(novo, 8).unwrap();
+                l = Layout::from_size_align(new, 8).unwrap();
             }
             a.dealloc(p, l);
         }
@@ -73,19 +73,19 @@ fn realloc_preserva_o_conteudo_entre_classes_e_para_fora() {
 
 #[test]
 #[allow(unsafe_code)]
-fn lista_cheia_e_alinhamento_grande_vao_ao_sistema() {
-    numa_thread(|| {
-        let a = AlocadorComCache;
+fn full_list_and_large_alignment_go_to_system() {
+    in_a_thread(|| {
+        let a = CachingAllocator;
         let l = Layout::from_size_align(512, 8).unwrap();
         // SAFETY: como acima.
         unsafe {
             // Mais blocos do que a lista guarda (64 KiB / 512 = 128): o
             // excedente volta ao sistema, e todos saem distintos.
             let ps: Vec<*mut u8> = (0..300).map(|_| a.alloc(l)).collect();
-            let mut unicos = ps.clone();
-            unicos.sort();
-            unicos.dedup();
-            assert_eq!(unicos.len(), ps.len());
+            let mut uniques = ps.clone();
+            uniques.sort();
+            uniques.dedup();
+            assert_eq!(uniques.len(), ps.len());
             for &p in &ps {
                 a.dealloc(p, l);
             }
@@ -99,14 +99,14 @@ fn lista_cheia_e_alinhamento_grande_vao_ao_sistema() {
 
 #[test]
 #[allow(unsafe_code)]
-fn bloco_liberado_em_outra_thread() {
-    let a = AlocadorComCache;
+fn block_freed_on_other_thread() {
+    let a = CachingAllocator;
     let l = Layout::from_size_align(24, 8).unwrap();
     // SAFETY: o bloco passa de uma thread à outra como endereço; cada lado o
     // usa sozinho.
     let p = unsafe { a.alloc(l) } as usize;
-    numa_thread(move || {
-        let a = AlocadorComCache;
+    in_a_thread(move || {
+        let a = CachingAllocator;
         unsafe {
             a.dealloc(p as *mut u8, l);
             let q = a.alloc(l);

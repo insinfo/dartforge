@@ -7,12 +7,12 @@
 // (o native `DartForge_scheduleImmediate` da sobreposição `native_sdk/`) e as
 // roda, em ordem, antes de qualquer timer. Os timers são os da VM
 // (`_internal/vm/lib/timer_impl.dart`, a referência): prazo em milissegundos
-// de um relógio monotônico — `agora` para duração 0 e `agora + 1 + ms` para
+// de um relógio monotônico — `current_time` para duração 0 e `current_time + 1 + ms` para
 // as outras —, desempate pela ordem de criação (o `_id` da VM), microtarefas
-// esvaziadas depois de cada timer, periódico reagendado em `prazo + ms`.
+// esvaziadas depois de cada timer, periódico reagendado em `deadline + ms`.
 //
 // É o ÚNICO ponto em que o runtime chama código Dart: pela função que o
-// código gerado entrega em `dartforge_laco_de_eventos` (`chamar`, que chama
+// código gerado entrega em `dartforge_laco_de_eventos` (`call`, que chama
 // uma closure sem argumentos pela convenção uniforme e devolve com a exceção
 // pendente, se houver). Exceção que sai de uma microtarefa ou de um timer não
 // foi tratada pela `Zone` (o `_rootHandleError` da fonte a relança num
@@ -23,99 +23,99 @@
 // ocupa um global de raiz do heap (`set_global_root`) com id NEGATIVO — os
 // globais do programa usam os ids não negativos.
 //
-// Estado por thread (um isolado por thread; P8 junta tudo em `isolado.rs`).
+// Estado por thread (um isolado por thread; P8 junta tudo em `isolate.rs`).
 
-struct TimerDoLaco {
+struct LoopTimer {
     /// A closure que dispara o timer (`_Timer._disparar` com o receptor).
     closure: i64,
-    raiz: i64,
+    root: i64,
     ms: i64,
-    periodico: bool,
+    periodic: bool,
 }
 
 #[derive(Default)]
-struct Eventos {
+struct Events {
     /// Closures entregues por `DartForge_scheduleImmediate`, com a raiz.
-    imediatas: std::collections::VecDeque<(i64, i64)>,
-    /// Timers agendados por `(prazo em ms, sequência)` → id. A sequência é
+    immediates: std::collections::VecDeque<(i64, i64)>,
+    /// Timers agendados por `(deadline at ms, sequência)` → id. A sequência é
     /// o `_id` da VM: cresce a cada agendamento (e reagendamento).
-    fila: std::collections::BTreeMap<(i64, i64), i64>,
-    prox_seq: i64,
+    queue: std::collections::BTreeMap<(i64, i64), i64>,
+    next_seq: i64,
     /// Timers ativos por id (o de `DartForge_Timer_novo`, nunca 0).
-    ativos: crate::hash::HashMap<i64, TimerDoLaco>,
-    prox_id: i64,
-    prox_raiz: i64,
-    inicio: Option<std::time::Instant>,
+    active: crate::hash::HashMap<i64, LoopTimer>,
+    next_id: i64,
+    next_root: i64,
+    start: Option<std::time::Instant>,
 }
 
 thread_local! {
-    static EVENTOS: RefCell<Eventos> = RefCell::new(Eventos::default());
+    static EVENTS: RefCell<Events> = RefCell::new(Events::default());
 }
 
-impl Eventos {
+impl Events {
     /// Milissegundos do relógio monotônico do isolado.
-    fn agora(&mut self) -> i64 {
-        let inicio = *self.inicio.get_or_insert_with(std::time::Instant::now);
-        i64::try_from(inicio.elapsed().as_millis()).unwrap_or(i64::MAX)
+    fn current_time(&mut self) -> i64 {
+        let start = *self.start.get_or_insert_with(std::time::Instant::now);
+        i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX)
     }
 
     /// Uma raiz nova para `handle` (id negativo, ver o cabeçalho).
-    fn enraizar(&mut self, handle: i64) -> i64 {
-        self.prox_raiz += 1;
-        let id = -self.prox_raiz;
+    fn root_it(&mut self, handle: i64) -> i64 {
+        self.next_root += 1;
+        let id = -self.next_root;
         HEAP.with(|h| h.borrow_mut().set_global_root(id, handle));
         id
     }
 }
 
-fn soltar_raiz(id: i64) {
+fn release_root(id: i64) {
     HEAP.with(|h| h.borrow_mut().set_global_root(id, 0));
 }
 
 /// O evento único move seu owner da fila; o periódico empresta da cópia ativa,
 /// que continua viva mesmo se o callback cancelar o owner persistente do timer.
-fn chamar_evento(chamar: extern "C" fn(i64) -> i64, closure: i64, raiz: Option<i64>) {
-    let quadro = HEAP.with(|h| {
+fn call_event(call: extern "C" fn(i64) -> i64, closure: i64, root: Option<i64>) {
+    let frame = HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let quadro = h.push_frame_proprietario(1);
-        if let Some(raiz) = raiz {
-            h.mover_global_para_slot(raiz, quadro, 0);
+        let frame = h.push_owning_frame(1);
+        if let Some(root) = root {
+            h.move_global_to_slot(root, frame, 0);
         } else {
-            h.set_root(quadro, 0, closure);
+            h.set_root(frame, 0, closure);
         }
-        quadro
+        frame
     });
-    dart_r1(chamar as usize, closure);
-    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
+    dart_r1(call as usize, closure);
+    HEAP.with(|h| h.borrow_mut().pop_frame(frame));
 }
 
 /// `_AsyncRun._scheduleImmediate(callback)`: a closure roda antes do
 /// próximo timer, depois das que já esperam.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_scheduleImmediate(closure: i64) {
-    EVENTOS.with(|e| {
+    EVENTS.with(|e| {
         let mut e = e.borrow_mut();
-        let raiz = e.enraizar(closure);
-        e.imediatas.push_back((raiz, closure));
+        let root = e.root_it(closure);
+        e.immediates.push_back((root, closure));
     });
 }
 
-/// `_Timer._novo(ms, disparar, periodico)`: agenda o timer e devolve o id
-/// (nunca 0). `disparar` é a closure que o laço chama no prazo.
+/// `_Timer._novo(ms, fire, periodic)`: agenda o timer e devolve o id
+/// (nunca 0). `fire` é a closure que o laço chama no prazo.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_Timer_novo(ms: i64, disparar: i64, periodico: u8) -> i64 {
-    EVENTOS.with(|e| {
+pub extern "C" fn dartforge_nativo_DartForge_Timer_novo(ms: i64, fire: i64, periodic: u8) -> i64 {
+    EVENTS.with(|e| {
         let mut e = e.borrow_mut();
         let ms = ms.max(0);
-        let agora = e.agora();
-        let prazo = if ms == 0 { agora } else { agora + 1 + ms };
-        e.prox_id += 1;
-        let id = e.prox_id;
-        let raiz = e.enraizar(disparar);
-        e.prox_seq += 1;
-        let seq = e.prox_seq;
-        e.fila.insert((prazo, seq), id);
-        e.ativos.insert(id, TimerDoLaco { closure: disparar, raiz, ms, periodico: periodico != 0 });
+        let current_time = e.current_time();
+        let deadline = if ms == 0 { current_time } else { current_time + 1 + ms };
+        e.next_id += 1;
+        let id = e.next_id;
+        let root = e.root_it(fire);
+        e.next_seq += 1;
+        let seq = e.next_seq;
+        e.queue.insert((deadline, seq), id);
+        e.active.insert(id, LoopTimer { closure: fire, root, ms, periodic: periodic != 0 });
         id
     })
 }
@@ -123,115 +123,115 @@ pub extern "C" fn dartforge_nativo_DartForge_Timer_novo(ms: i64, disparar: i64, 
 /// `_Timer._cancelar(id)`: tira o timer da fila e solta a raiz.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_Timer_cancelar(id: i64) {
-    let raiz = EVENTOS.with(|e| e.borrow_mut().ativos.remove(&id).map(|t| t.raiz));
-    if let Some(r) = raiz {
-        soltar_raiz(r);
+    let root = EVENTS.with(|e| e.borrow_mut().active.remove(&id).map(|t| t.root));
+    if let Some(r) = root {
+        release_root(r);
     }
 }
 
 /// O laço de eventos: roda as microtarefas pendentes e os timers até não
-/// haver mais nada (ou uma exceção sair de um deles). `chamar` é a função do
+/// haver mais nada (ou uma exceção sair de um deles). `call` é a função do
 /// código gerado que chama uma closure sem argumentos.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
-    // No laço, o isolado atende pedidos no ponto seguro (`portas.rs`).
-    registrar_isolado_vivo();
+pub extern "C" fn dartforge_laco_de_eventos(call: extern "C" fn(i64) -> i64) {
+    // No laço, o isolado atende pedidos no ponto seguro (`ports.rs`).
+    register_live_isolate();
     loop {
         if dartforge_exception_pending() != 0 {
             return;
         }
         // 1. Microtarefas, todas, antes de qualquer timer.
-        let imediata = EVENTOS.with(|e| e.borrow_mut().imediatas.pop_front());
-        if let Some((raiz, closure)) = imediata {
+        let immediate_one = EVENTS.with(|e| e.borrow_mut().immediates.pop_front());
+        if let Some((root, closure)) = immediate_one {
             // Cada evento no próprio escopo nativo: os owners que as portas
             // Dart devolvem morrem no fim do evento, não do laço.
-            em_escopo_nativo_se_arc(|| chamar_evento(chamar, closure, Some(raiz)));
+            in_native_scope_if_arc(|| call_event(call, closure, Some(root)));
             continue;
         }
         // 1b. As finalizações prontas (`Finalizer`, `finalizadores.rs`):
         //     na VM chegam como mensagem ao isolado; aqui, entre eventos.
-        if let Some((quadro, acao)) = iniciar_finalizacao() {
-            em_escopo_nativo_se_arc(|| dart_r1(chamar as usize, acao));
-            concluir_finalizacao(quadro);
+        if let Some((frame, action)) = start_finalization() {
+            in_native_scope_if_arc(|| dart_r1(call as usize, action));
+            finish_finalization(frame);
             continue;
         }
         // 2. Os pedidos no ponto seguro (a publicação de uma recarga do JIT,
-        //    `portas.rs`) e as mensagens de controle (`isolados.rs`), entre
+        //    `ports.rs`) e as mensagens de controle (`isolados.rs`), entre
         //    um evento e outro; pausado, o isolado só atende os dois.
-        atender_pontos_seguros();
-        if !atender_controle() {
+        serve_safepoints();
+        if !serve_control() {
             return;
         }
-        if isolado_pausado() {
-            esperar_mensagem(None, true);
+        if paused_isolate() {
+            wait_message(None, true);
             continue;
         }
         // 3. O próximo evento: o timer de menor (prazo, id) ou a mensagem
-        //    mais antiga da fila do isolado (`portas.rs`), pela ordem de
+        //    mais antiga da fila do isolado (`ports.rs`), pela ordem de
         //    chegada — na VM o timer também chega como mensagem. Sem nenhum
         //    dos dois, o isolado espera enquanto tiver porta viva.
-        let proximo = EVENTOS.with(|e| {
+        let next_offset = EVENTS.with(|e| {
             let mut e = e.borrow_mut();
             loop {
-                let (&(prazo, seq), &id) = e.fila.iter().next()?;
-                if e.ativos.contains_key(&id) {
-                    return Some((prazo, seq, id));
+                let (&(deadline, seq), &id) = e.queue.iter().next()?;
+                if e.active.contains_key(&id) {
+                    return Some((deadline, seq, id));
                 }
                 // Cancelado: a entrada da fila é descartada.
-                e.fila.remove(&(prazo, seq));
+                e.queue.remove(&(deadline, seq));
             }
         });
-        let vencimento = proximo.map(|(prazo, _, _)| {
-            EVENTOS.with(|e| {
+        let due = next_offset.map(|(deadline, _, _)| {
+            EVENTS.with(|e| {
                 let mut e = e.borrow_mut();
-                e.agora();
-                e.inicio.expect("relógio iniciado") + std::time::Duration::from_millis(prazo.max(0) as u64)
+                e.current_time();
+                e.start.expect("relógio iniciado") + std::time::Duration::from_millis(deadline.max(0) as u64)
             })
         });
-        if let Some(chegada) = chegada_da_proxima()
-            && vencimento.is_none_or(|v| chegada < v)
+        if let Some(arrival) = next_arrival()
+            && due.is_none_or(|v| arrival < v)
         {
-            em_escopo_nativo_se_arc(|| despachar_proxima(chamar));
+            in_native_scope_if_arc(|| dispatch_next(call));
             continue;
         }
-        let Some((prazo, seq, id)) = proximo else {
-            if tem_porta_viva() {
-                esperar_mensagem(None, false);
+        let Some((deadline, seq, id)) = next_offset else {
+            if has_live_port() {
+                wait_message(None, false);
                 continue;
             }
             return;
         };
-        let vencimento = vencimento.expect("timer com prazo");
-        if std::time::Instant::now() < vencimento {
+        let due = due.expect("timer com prazo");
+        if std::time::Instant::now() < due {
             // Espera o prazo, acordando antes se chegar mensagem.
-            esperar_mensagem(Some(vencimento), false);
+            wait_message(Some(due), false);
             continue;
         }
-        EVENTOS.with(|e| e.borrow_mut().fila.remove(&(prazo, seq)));
-        let disparo = EVENTOS.with(|e| {
+        EVENTS.with(|e| e.borrow_mut().queue.remove(&(deadline, seq)));
+        let firing = EVENTS.with(|e| {
             let mut e = e.borrow_mut();
-            let t = e.ativos.get(&id)?;
-            let (closure, periodico) = (t.closure, t.periodico);
-            if periodico {
+            let t = e.active.get(&id)?;
+            let (closure, periodic) = (t.closure, t.periodic);
+            if periodic {
                 return Some((closure, true, None));
             }
-            let t = e.ativos.remove(&id).expect("timer ativo");
-            Some((closure, false, Some(t.raiz)))
+            let t = e.active.remove(&id).expect("timer ativo");
+            Some((closure, false, Some(t.root)))
         });
-        let Some((closure, periodico, raiz)) = disparo else {
+        let Some((closure, periodic, root)) = firing else {
             continue;
         };
-        em_escopo_nativo_se_arc(|| chamar_evento(chamar, closure, raiz));
-        if periodico {
+        in_native_scope_if_arc(|| call_event(call, closure, root));
+        if periodic {
             // Como a VM (`_runTimers`): reagendado DEPOIS do callback, com
             // sequência nova, se o callback não o cancelou.
-            EVENTOS.with(|e| {
+            EVENTS.with(|e| {
                 let mut e = e.borrow_mut();
-                let Some(ms) = e.ativos.get(&id).map(|t| t.ms) else { return };
-                let novo = if ms > 0 { prazo + ms } else { e.agora() };
-                e.prox_seq += 1;
-                let seq = e.prox_seq;
-                e.fila.insert((novo, seq), id);
+                let Some(ms) = e.active.get(&id).map(|t| t.ms) else { return };
+                let new = if ms > 0 { deadline + ms } else { e.current_time() };
+                e.next_seq += 1;
+                let seq = e.next_seq;
+                e.queue.insert((new, seq), id);
             });
         }
     }
@@ -243,10 +243,10 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
 /// os do runtime (ids 1000–1012) já o recebem no `throw`. Até o `Error` vir
 /// da fonte, não há o que gravar.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Error_trySetStackTrace(_erro: i64, _rastro: i64) {}
+pub extern "C" fn dartforge_nativo_Error_trySetStackTrace(_error: i64, _trace: i64) {}
 
 #[cfg(test)]
-mod testes_owners_eventos {
+mod tests_event_owners {
     use super::*;
     thread_local! { static TIMER: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
 
@@ -256,80 +256,80 @@ mod testes_owners_eventos {
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(h.e_objeto_vivo(closure), "callback perdeu owner durante a chamada");
+            assert!(h.is_live_object(closure), "callback perdeu owner durante a chamada");
         });
         0
     }
 
-    fn verificar(periodico: bool) {
-        let heap_anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        let eventos_anteriores = EVENTOS.with(|e| e.replace(Eventos::default()));
+    fn verify(periodic: bool) {
+        let previous_heap = HEAP.with(|h| h.replace(Heap::new(true)));
+        let previous_events = EVENTS.with(|e| e.replace(Events::default()));
         let closure = HEAP.with(|h| {
             let mut h = h.borrow_mut();
-            h.ativar_arc();
-            h.nova_closure(123, (0, false), 0, 0)
+            h.enable_arc();
+            h.new_closure(123, (0, false), 0, 0)
         });
-        if periodico {
+        if periodic {
             let id = dartforge_nativo_DartForge_Timer_novo(0, closure, 1);
             TIMER.with(|t| t.set(id));
-            chamar_evento(callback, closure, None);
+            call_event(callback, closure, None);
         } else {
             TIMER.with(|t| t.set(0));
             dartforge_nativo_DartForge_scheduleImmediate(closure);
-            let (raiz, valor) = EVENTOS.with(|e| e.borrow_mut().imediatas.pop_front().unwrap());
-            chamar_evento(callback, valor, Some(raiz));
+            let (root, value) = EVENTS.with(|e| e.borrow_mut().immediates.pop_front().unwrap());
+            call_event(callback, value, Some(root));
         }
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(!h.e_objeto_vivo(closure), "owner ativo residual após o callback");
+            assert!(!h.is_live_object(closure), "owner ativo residual após o callback");
         });
         TIMER.with(|t| t.set(0));
-        EVENTOS.with(|e| { e.replace(eventos_anteriores); });
-        HEAP.with(|h| { h.replace(heap_anterior); });
+        EVENTS.with(|e| { e.replace(previous_events); });
+        HEAP.with(|h| { h.replace(previous_heap); });
     }
 
     #[test]
-    fn evento_unico_transfere_owner_da_fila_e_solta_apos_callback() { verificar(false); }
+    fn single_event_transfers_queue_owner_and_releases_after_callback() { verify(false); }
 
     #[test]
-    fn timer_periodico_cancelado_no_callback_preserva_owner_ativo() { verificar(true); }
+    fn periodic_timer_cancelled_in_callback_keeps_active_owner() { verify(true); }
 
-    extern "C" fn callback_lanca(closure: i64) -> i64 {
+    extern "C" fn callback_throws(closure: i64) -> i64 {
         dartforge_exception_throw(closure, 3);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(h.e_objeto_vivo(closure));
+            assert!(h.is_live_object(closure));
         });
         0
     }
 
     #[test]
-    fn callback_com_excecao_solta_owner_ativo_e_preserva_pendencia() {
-        let heap_anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        let eventos_anteriores = EVENTOS.with(|e| e.replace(Eventos::default()));
+    fn callback_with_exception_releases_active_owner_and_keeps_pending() {
+        let previous_heap = HEAP.with(|h| h.replace(Heap::new(true)));
+        let previous_events = EVENTS.with(|e| e.replace(Events::default()));
         let closure = HEAP.with(|h| {
             let mut h = h.borrow_mut();
-            h.ativar_arc();
-            h.nova_closure(123, (0, false), 0, 0)
+            h.enable_arc();
+            h.new_closure(123, (0, false), 0, 0)
         });
         dartforge_nativo_DartForge_scheduleImmediate(closure);
-        let (raiz, valor) = EVENTOS.with(|e| e.borrow_mut().imediatas.pop_front().unwrap());
-        chamar_evento(callback_lanca, valor, Some(raiz));
+        let (root, value) = EVENTS.with(|e| e.borrow_mut().immediates.pop_front().unwrap());
+        call_event(callback_throws, value, Some(root));
         assert_eq!(dartforge_exception_pending(), 1);
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(h.e_objeto_vivo(closure), "a exceção pendente deve guardar seu owner");
+            assert!(h.is_live_object(closure), "a exceção pendente deve guardar seu owner");
         });
         dartforge_exception_clear();
         HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.collect();
-            assert!(!h.e_objeto_vivo(closure), "owner ativo ou da fila ficou residual");
+            assert!(!h.is_live_object(closure), "owner ativo ou da fila ficou residual");
         });
-        EVENTOS.with(|e| { e.replace(eventos_anteriores); });
-        HEAP.with(|h| { h.replace(heap_anterior); });
+        EVENTS.with(|e| { e.replace(previous_events); });
+        HEAP.with(|h| { h.replace(previous_heap); });
     }
 }

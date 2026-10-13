@@ -5,70 +5,70 @@
 //! `dartforge_runtime::layout`. O módulo não depende de nenhum outro (é compilado
 //! também dentro do `RUNTIME_MAIN`, o texto que o AOT passa ao `rustc` avulso).
 //!
-//! Um bloco é um cabeçalho de 16 bytes ([`crate::layout::Cabecalho`]) seguido do corpo, em palavras
-//! de 8 bytes. O handle de um bloco é `bloco + 2` ([`crate::layout::DESLOCAMENTO_DO_HANDLE`]); o
+//! Um bloco é um cabeçalho de 16 bytes ([`crate::layout::Header`]) seguido do corpo, em palavras
+//! de 8 bytes. O handle de um bloco é `block + 2` ([`crate::layout::DESLOCAMENTO_DO_HANDLE`]); o
 //! `Smi` é ímpar e o null é `0` ([`crate::layout::smi`]). O coletor percorre o corpo pelo formato
 //! que está em `flags` ([`crate::layout::flags::FORMA`]), sem olhar a classe.
 
 /// Um valor em posição de referência: `0` (null), `Smi` (ímpar) ou handle de bloco
-/// (`bloco + 2`).
+/// (`block + 2`).
 pub type Ref = i64;
 
 /// O cabeçalho de todo bloco do espaço de objetos (16 bytes, layout C fixo: contrato
 /// com o emissor).
 ///
 /// * `estado`: [`estado::LIVRE`], [`estado::JOVEM`], [`estado::VELHO`],
-///   [`estado::LEMBRADO`] ou [`estado::PERMANENTE`];
+///   [`estado::REMEMBERED`] ou [`estado::PERMANENTE`];
 /// * `flags`: os bits de [`flags`] (corpo de fora, formato do corpo, cartões, anexo,
 ///   forma compacta, memória externa);
 /// * `n`: em `INSTANCIA`, o número de campos; em `BRUTO`/`REFS`, as palavras do corpo
 ///   (saturado em `u16::MAX` no objeto grande: a região sabe o real);
 /// * `class_id`: o cid;
-/// * `mapa`: em `INSTANCIA`, os bits de referência dos 32 primeiros campos; nas
+/// * `map`: em `INSTANCIA`, os bits de referência dos 32 primeiros campos; nas
 ///   strings, o hash (30 bits, 0 = ainda não calculado); nos demais, 0;
-/// * `metadado`: a RTI, `id + 1` (0 = nenhuma).
+/// * `metadata`: a RTI, `id + 1` (0 = nenhuma).
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct Cabecalho {
+pub struct Header {
     pub estado: u8,
     pub flags: u8,
     pub n: u16,
     pub class_id: i32,
-    pub mapa: u32,
-    pub metadado: u32,
+    pub map: u32,
+    pub metadata: u32,
 }
 
 const _: () = {
-    assert!(std::mem::size_of::<Cabecalho>() == TAMANHO_DO_CABECALHO);
-    assert!(std::mem::align_of::<Cabecalho>() == 4);
-    assert!(std::mem::offset_of!(Cabecalho, estado) == desl::ESTADO);
-    assert!(std::mem::offset_of!(Cabecalho, flags) == desl::FLAGS);
-    assert!(std::mem::offset_of!(Cabecalho, n) == desl::N);
-    assert!(std::mem::offset_of!(Cabecalho, class_id) == desl::CLASSE);
-    assert!(std::mem::offset_of!(Cabecalho, mapa) == desl::MAPA);
-    assert!(std::mem::offset_of!(Cabecalho, metadado) == desl::METADADO);
+    assert!(std::mem::size_of::<Header>() == TAMANHO_DO_CABECALHO);
+    assert!(std::mem::align_of::<Header>() == 4);
+    assert!(std::mem::offset_of!(Header, estado) == desl::ESTADO);
+    assert!(std::mem::offset_of!(Header, flags) == desl::FLAGS);
+    assert!(std::mem::offset_of!(Header, n) == desl::N);
+    assert!(std::mem::offset_of!(Header, class_id) == desl::CLASSE);
+    assert!(std::mem::offset_of!(Header, map) == desl::MAPA);
+    assert!(std::mem::offset_of!(Header, metadata) == desl::METADATA);
 };
 
 /// Bytes do cabeçalho.
 pub const TAMANHO_DO_CABECALHO: usize = 16;
-/// O handle de um bloco é `bloco + DESLOCAMENTO_DO_HANDLE`.
+/// O handle de um bloco é `block + DESLOCAMENTO_DO_HANDLE`.
 pub const DESLOCAMENTO_DO_HANDLE: i64 = 2;
 /// Tamanho (e alinhamento) de uma página do espaço de objetos.
 pub const PAGINA: usize = 64 * 1024;
 /// O começo de cada página com o mapa de marcas (um bit por palavra da página).
-pub const CABECA_DA_PAGINA: usize = PAGINA / 64;
+pub const PAGE_HEAD: usize = PAGINA / 64;
 /// Maior classe de tamanho exata, em palavras do corpo.
-pub const MAIOR_CLASSE: usize = 64;
+pub const LARGEST_CLASS: usize = 64;
 /// As classes de tamanho médias, em palavras do corpo: cada uma enche a página
-/// (`k` blocos de `16 + 8w` bytes nos `PAGINA - CABECA_DA_PAGINA` úteis; ver §2.6).
+/// (`k` blocos de `16 + 8w` bytes nos `PAGINA - PAGE_HEAD` úteis; ver §2.6).
 pub const CLASSES_MEDIAS: [usize; 24] = [
     70, 82, 98, 110, 124, 142, 166, 199, 222, 250, 286, 334, 401, 446, 502, 574, 670, 804, 894, 1006, 1150, 1342,
     1610, 2014,
 ];
 /// Maior corpo (em palavras) fora de uma região grande.
-pub const MAIOR_MEDIA: usize = 2014;
+pub const LARGEST_MEDIUM: usize = 2014;
 /// Quantas classes de tamanho: as exatas `1..=64` e as médias; o índice 0 não é usado.
-pub const N_CLASSES: usize = 1 + MAIOR_CLASSE + CLASSES_MEDIAS.len();
+pub const N_CLASSES: usize = 1 + LARGEST_CLASS + CLASSES_MEDIAS.len();
 /// Maior corpo (em palavras) com alocação em linha pela TLAB (`tlab[w]`, `w` em
 /// `1..=TLAB_N`).
 pub const TLAB_N: usize = 16;
@@ -84,12 +84,12 @@ pub const PRIMEIRO_CID_LIVRE: i64 = 128;
 
 const _: () = {
     assert!(N_CLASSES == 89);
-    assert!(CLASSES_MEDIAS[CLASSES_MEDIAS.len() - 1] == MAIOR_MEDIA);
+    assert!(CLASSES_MEDIAS[CLASSES_MEDIAS.len() - 1] == LARGEST_MEDIUM);
     assert!(ELEMENTOS_POR_PALAVRA_DE_CARTAO == 64 * ELEMENTOS_POR_CARTAO);
-    assert!(TLAB_N <= MAIOR_CLASSE);
+    assert!(TLAB_N <= LARGEST_CLASS);
 };
 
-/// Estados de um bloco ([`Cabecalho::estado`]). O 2 é reservado (o `MARCADO` que o
+/// Estados de um bloco ([`Header::estado`]). O 2 é reservado (o `MARKED` que o
 /// coletor de hoje ainda usa na coleta em curso).
 pub mod estado {
     /// Bloco livre (na lista livre ou nunca usado).
@@ -100,13 +100,13 @@ pub mod estado {
     pub const VELHO: u8 = 3;
     /// Velho que recebeu referência para um jovem depois da última coleta (a
     /// barreira o pôs na lista dos lembrados).
-    pub const LEMBRADO: u8 = 4;
+    pub const REMEMBERED: u8 = 4;
     /// Objeto estático, fora do heap (seção da imagem): nunca marcado, varrido,
     /// lembrado nem gravado.
     pub const PERMANENTE: u8 = 5;
 }
 
-/// Bits de [`Cabecalho::flags`].
+/// Bits de [`Header::flags`].
 pub mod flags {
     /// Os campos (`INSTANCIA`) moram num corpo de fora.
     pub const FORA: u8 = 0x01;
@@ -121,7 +121,7 @@ pub mod flags {
     /// A lista grande tem cartões depois do último elemento.
     pub const CARTOES: u8 = 0x08;
     /// O corpo guarda um ponteiro nativo (`b+16`) solto quando o dono morre.
-    pub const ANEXO: u8 = 0x10;
+    pub const ATTACHMENT: u8 = 0x10;
     /// A máscara da forma compacta de uma `_List`/`_ImmutableList` `BRUTO`.
     pub const ELEMENTO: u8 = 0x60;
     /// Elementos `i64`.
@@ -131,7 +131,7 @@ pub mod flags {
     /// Elementos 0/1.
     pub const ELEMENTO_BOOL: u8 = 0x60;
     /// Lista tipada sobre memória de fora (`asTypedList`).
-    pub const EXTERNO: u8 = 0x80;
+    pub const EXTERNAL: u8 = 0x80;
 }
 
 /// Os cids fixos (§2.4): iguais no runtime, no emissor, no JIT e em toda geração.
@@ -150,8 +150,8 @@ pub mod cid {
     pub const RECORD: i32 = 12;
     pub const CONTEXTO: i32 = 13;
     pub const CELULA: i32 = 14;
-    pub const ACUMULADOR_DE_TEXTO: i32 = 15;
-    pub const PROGRAMA_DE_REGEXP: i32 = 16;
+    pub const STRING_ACCUMULATOR: i32 = 15;
+    pub const REGEXP_PROGRAM: i32 = 16;
     pub const SEND_PORT: i32 = 17;
     pub const CAPABILITY: i32 = 18;
     pub const FLOAT32X4: i32 = 19;
@@ -162,20 +162,20 @@ pub mod cid {
     /// `_Int8ArrayView` + t.
     pub const PRIMEIRA_VISAO: i32 = 36;
     /// `_UnmodifiableInt8ArrayView` + t.
-    pub const PRIMEIRA_VISAO_IMUTAVEL: i32 = 50;
+    pub const FIRST_UNMODIFIABLE_VIEW: i32 = 50;
     pub const BYTE_DATA_VIEW: i32 = 64;
     pub const UNMODIFIABLE_BYTE_DATA_VIEW: i32 = 65;
-    /// Quantos tipos de elemento de lista tipada (`TIPO_INT8` … `TIPO_FLOAT64X2`).
-    pub const TIPOS_DE_ELEMENTO: i32 = 14;
+    /// Quantos tipos de elemento de lista tipada (`TYPE_INT8` … `TYPE_FLOAT64X2`).
+    pub const ELEMENT_TYPES: i32 = 14;
 
     /// A biblioteca das classes internas do runtime (sem declaração em Dart): o
     /// cid fica reservado e a numeração do emissor não acha a classe no SDK.
-    pub const INTERNA: &str = "";
+    pub const INTERNAL: &str = "";
 
-    /// `(cid, biblioteca, classe)` de toda classe com cid fixo, em ordem de cid: a
+    /// `(cid, library, class)` de toda classe com cid fixo, em ordem de cid: a
     /// fonte da numeração do emissor (`context.rs`) e da conferência de ABI
     /// (`dartforge_registrar_cids`). A biblioteca é a URI (`dart:core`), a chave da
-    /// numeração estável; as internas do runtime têm [`INTERNA`].
+    /// numeração estável; as internas do runtime têm [`INTERNAL`].
     pub const DO_SDK: &[(i32, &str, &str)] = &[
         (NULL, "dart:core", "Null"),
         (SMI, "dart:core", "_Smi"),
@@ -189,10 +189,10 @@ pub mod cid {
         (GROWABLE_LIST, "dart:core", "_GrowableList"),
         (CLOSURE, "dart:core", "_Closure"),
         (RECORD, "dart:core", "_Record"),
-        (CONTEXTO, INTERNA, "_Contexto"),
-        (CELULA, INTERNA, "_Celula"),
-        (ACUMULADOR_DE_TEXTO, INTERNA, "_AcumuladorDeTexto"),
-        (PROGRAMA_DE_REGEXP, INTERNA, "_ProgramaDeRegExp"),
+        (CONTEXTO, INTERNAL, "_Contexto"),
+        (CELULA, INTERNAL, "_Celula"),
+        (STRING_ACCUMULATOR, INTERNAL, "_AcumuladorDeTexto"),
+        (REGEXP_PROGRAM, INTERNAL, "_ProgramaDeRegExp"),
         (SEND_PORT, "dart:isolate", "_SendPort"),
         (CAPABILITY, "dart:isolate", "_Capability"),
         (FLOAT32X4, "dart:typed_data", "_Float32x4"),
@@ -250,17 +250,17 @@ pub mod cid {
     }
 
     /// O cid da visão do tipo `tipo`, modificável ou não.
-    pub const fn visao(tipo: u8, imutavel: bool) -> i32 {
-        (if imutavel { PRIMEIRA_VISAO_IMUTAVEL } else { PRIMEIRA_VISAO }) + tipo as i32
+    pub const fn visao(tipo: u8, unmodifiable: bool) -> i32 {
+        (if unmodifiable { FIRST_UNMODIFIABLE_VIEW } else { PRIMEIRA_VISAO }) + tipo as i32
     }
 
     /// `_OneByteString` ou `_TwoByteString`.
-    pub const fn e_texto(c: i32) -> bool {
+    pub const fn is_string(c: i32) -> bool {
         (c.wrapping_sub(ONE_BYTE_STRING) as u32) < 2
     }
 
     /// `_List` ou `_ImmutableList`.
-    pub const fn e_lista_fixa(c: i32) -> bool {
+    pub const fn is_fixed_list(c: i32) -> bool {
         (c.wrapping_sub(LIST) as u32) < 2
     }
 
@@ -270,22 +270,22 @@ pub mod cid {
     }
 
     /// Lista tipada interna (`_Int8List` … `_Float64x2List`).
-    pub const fn e_tipada_interna(c: i32) -> bool {
-        (c.wrapping_sub(PRIMEIRA_TIPADA) as u32) < TIPOS_DE_ELEMENTO as u32
+    pub const fn is_internal_typed(c: i32) -> bool {
+        (c.wrapping_sub(PRIMEIRA_TIPADA) as u32) < ELEMENT_TYPES as u32
     }
 
     /// Qualquer lista tipada ou visão (22..=65).
-    pub const fn e_tipada(c: i32) -> bool {
+    pub const fn is_typed(c: i32) -> bool {
         (c.wrapping_sub(PRIMEIRA_TIPADA) as u32) < 44
     }
 
     /// Visão não modificável (`_UnmodifiableXArrayView`, `_UnmodifiableByteDataView`).
-    pub const fn e_visao_imutavel(c: i32) -> bool {
-        (c.wrapping_sub(PRIMEIRA_VISAO_IMUTAVEL) as u32) < TIPOS_DE_ELEMENTO as u32 || c == UNMODIFIABLE_BYTE_DATA_VIEW
+    pub const fn is_unmodifiable_view(c: i32) -> bool {
+        (c.wrapping_sub(FIRST_UNMODIFIABLE_VIEW) as u32) < ELEMENT_TYPES as u32 || c == UNMODIFIABLE_BYTE_DATA_VIEW
     }
 
     /// Valor SIMD (`_Float32x4`, `_Int32x4`, `_Float64x2`).
-    pub const fn e_simd(c: i32) -> bool {
+    pub const fn is_simd(c: i32) -> bool {
         (c.wrapping_sub(FLOAT32X4) as u32) < 3
     }
 }
@@ -300,7 +300,7 @@ pub mod desl {
     pub const MAPA: usize = 8;
     /// O hash das strings mora no lugar do mapa.
     pub const HASH_DO_TEXTO: usize = 8;
-    pub const METADADO: usize = 12;
+    pub const METADATA: usize = 12;
     /// A primeira palavra do corpo.
     pub const CORPO: usize = 16;
     /// Strings, `_List`, `_ImmutableList`, `_GrowableList`, listas tipadas e visões.
@@ -314,7 +314,7 @@ pub mod desl {
     /// O endereço dos bytes de uma lista tipada (interna, externa ou visão).
     pub const DADOS: usize = 24;
     /// Os bytes de uma lista tipada interna.
-    pub const BYTES_INTERNOS: usize = 32;
+    pub const INTERNAL_BYTES: usize = 32;
     pub const BASE_DA_VISAO: usize = 32;
     pub const DESLOCAMENTO_DA_VISAO: usize = 40;
     /// O armazenamento (`_List`) de uma `_GrowableList`.
@@ -325,20 +325,20 @@ pub mod desl {
     pub const CLOSURE_ABI: usize = 40;
     pub const RECORD_FORMA: usize = 16;
     pub const RECORD_CAMPOS: usize = 24;
-    /// O ponteiro nativo de um bloco com `ANEXO`.
-    pub const ANEXO: usize = 16;
+    /// O ponteiro nativo de um bloco com `ATTACHMENT`.
+    pub const ATTACHMENT: usize = 16;
 }
 
-/// Deslocamentos do `Contexto` da thread (§3.4).
+/// Deslocamentos do `Context` da thread (§3.4).
 pub mod contexto {
-    pub const PENDENTE: usize = 0;
+    pub const PENDING: usize = 0;
     pub const TOPO: usize = 8;
     pub const AREAS: usize = 16;
     pub const N_AREAS: usize = 24;
-    pub const INTERRUPCAO: usize = 32;
-    pub const VAZIOS: usize = 40;
-    pub const REGISTRADAS: usize = 48;
-    pub const N_REGISTRADAS: usize = 56;
+    pub const INTERRUPT: usize = 32;
+    pub const EMPTIES: usize = 40;
+    pub const REGISTERED: usize = 48;
+    pub const N_REGISTERED: usize = 56;
     /// O cursor da TLAB de `w` palavras em `TLAB + 16·w`, o fim em `TLAB + 16·w + 8`,
     /// `w` em `1..=TLAB_N`.
     pub const TLAB: usize = 64;
@@ -348,9 +348,9 @@ pub mod contexto {
     /// Os handles das caixas estáticas de `true` e `false` do runtime da thread
     /// (o código gerado os lê daqui, e não dos símbolos de dados: entre o
     /// executável e a DLL do SDK só o runtime ativo vale, §4.10 item 9).
-    pub const VERDADEIRO: usize = 360;
-    pub const FALSO: usize = 368;
-    /// O limite da pilha nativa da thread (`Contexto::limite_da_pilha`).
+    pub const TRUE: usize = 360;
+    pub const FALSE: usize = 368;
+    /// O limite da pilha nativa da thread (`Context::stack_limit`).
     pub const LIMITE_DA_PILHA: usize = 376;
 
     /// O cursor da TLAB de `w` palavras.
@@ -373,7 +373,7 @@ pub mod contexto {
 /// aqui o bit está invertido para o `0` continuar sendo null):
 ///
 /// * `0` — null;
-/// * **par** e positivo — um handle do heap (`bloco + 2`, [`e_objeto`]);
+/// * **par** e positivo — um handle do heap (`block + 2`, [`is_object`]);
 /// * **ímpar** — um `int` pequeno, `(v << 1) | 1`, para `v` em `[-2^62, 2^62)`: o
 ///   `Smi`. Não aloca, não é raiz, e o coletor nunca o segue.
 ///
@@ -392,13 +392,13 @@ pub mod smi {
 
     /// O `Ref` é um `Smi`?
     #[inline]
-    pub fn e_smi(r: i64) -> bool {
+    pub fn is_smi(r: i64) -> bool {
         r & 1 == 1
     }
 
     /// O valor de um `Smi` (deslocamento aritmético).
     #[inline]
-    pub fn valor(r: i64) -> i64 {
+    pub fn value(r: i64) -> i64 {
         r >> 1
     }
 
@@ -409,10 +409,10 @@ pub mod smi {
     }
 }
 
-/// O `Ref` é o handle de um bloco (`bloco + 2`, blocos alinhados a 8)? Negativo
+/// O `Ref` é o handle de um bloco (`block + 2`, blocos alinhados a 8)? Negativo
 /// nunca é objeto.
 #[inline]
-pub fn e_objeto(h: Ref) -> bool {
+pub fn is_object(h: Ref) -> bool {
     h & (7 | i64::MIN) == 2
 }
 
@@ -445,58 +445,58 @@ pub const fn palavras_de_texto(len: usize, dois: bool) -> usize {
 
 /// A lista de `len` elementos tem cartões (é objeto grande)?
 #[inline]
-pub const fn tem_cartoes(len: usize) -> bool {
-    1 + len > MAIOR_MEDIA
+pub const fn has_cards(len: usize) -> bool {
+    1 + len > LARGEST_MEDIUM
 }
 
 /// Palavras de cartões depois do último elemento de uma lista grande.
 #[inline]
-pub const fn palavras_de_cartoes(len: usize) -> usize {
-    if tem_cartoes(len) { len.div_ceil(ELEMENTOS_POR_PALAVRA_DE_CARTAO) } else { 0 }
+pub const fn card_words(len: usize) -> usize {
+    if has_cards(len) { len.div_ceil(ELEMENTOS_POR_PALAVRA_DE_CARTAO) } else { 0 }
 }
 
 /// Palavras do corpo de uma `_List`/`_ImmutableList` de `len` elementos: o
 /// comprimento, os elementos e, se grande, os cartões.
 #[inline]
-pub const fn palavras_de_lista(len: usize) -> usize {
-    1 + len + palavras_de_cartoes(len)
+pub const fn list_words(len: usize) -> usize {
+    1 + len + card_words(len)
 }
 
 /// Palavras do corpo de uma lista tipada interna de `len` elementos de
 /// `tamanho_do_elemento` bytes: o comprimento, o endereço dos dados e os bytes.
 #[inline]
-pub const fn palavras_de_tipada(len: usize, tamanho_do_elemento: usize) -> usize {
+pub const fn typed_words(len: usize, tamanho_do_elemento: usize) -> usize {
     2 + (len * tamanho_do_elemento).div_ceil(8)
 }
 
-/// A classe de tamanho de um corpo de `palavras` palavras: `1..=64` exatas (0
-/// palavras usa a 1), `65..=88` médias; `None` acima de [`MAIOR_MEDIA`] (região
+/// A classe de tamanho de um corpo de `words` palavras: `1..=64` exatas (0
+/// palavras usa a 1), `65..=88` médias; `None` acima de [`LARGEST_MEDIUM`] (região
 /// grande).
 #[inline]
-pub const fn classe_de_tamanho(palavras: usize) -> Option<usize> {
-    if palavras <= MAIOR_CLASSE {
-        return Some(if palavras == 0 { 1 } else { palavras });
+pub const fn size_class(words: usize) -> Option<usize> {
+    if words <= LARGEST_CLASS {
+        return Some(if words == 0 { 1 } else { words });
     }
     let mut i = 0;
     while i < CLASSES_MEDIAS.len() {
-        if palavras <= CLASSES_MEDIAS[i] {
-            return Some(MAIOR_CLASSE + 1 + i);
+        if words <= CLASSES_MEDIAS[i] {
+            return Some(LARGEST_CLASS + 1 + i);
         }
         i += 1;
     }
     None
 }
 
-/// As palavras do corpo de um bloco da classe `classe` (`1..N_CLASSES`).
+/// As palavras do corpo de um bloco da classe `class` (`1..N_CLASSES`).
 #[inline]
-pub const fn palavras_da_classe(classe: usize) -> usize {
-    if classe <= MAIOR_CLASSE { classe } else { CLASSES_MEDIAS[classe - MAIOR_CLASSE - 1] }
+pub const fn class_words(class: usize) -> usize {
+    if class <= LARGEST_CLASS { class } else { CLASSES_MEDIAS[class - LARGEST_CLASS - 1] }
 }
 
-/// Bytes de um bloco com corpo de `palavras` palavras.
+/// Bytes de um bloco com corpo de `words` palavras.
 #[inline]
-pub const fn bytes_do_bloco(palavras: usize) -> usize {
-    TAMANHO_DO_CABECALHO + 8 * palavras
+pub const fn bytes_do_bloco(words: usize) -> usize {
+    TAMANHO_DO_CABECALHO + 8 * words
 }
 
 /// A palavra 0 do cabeçalho, como a alocação em linha a grava:
@@ -510,7 +510,7 @@ pub const fn palavra_do_cabecalho(estado: u8, flags: u8, n: usize, cid: i32) -> 
 
 /// O `hashCode` de uma string: o `StringHasher` da VM (`runtime/vm/hash.h`,
 /// `CombineHashes` por unidade e `FinalizeHash` em 30 bits), 0 trocado por 1. É o
-/// que o runtime grava em `mapa` e o que o emissor grava nos literais estáticos.
+/// que o runtime grava em `map` e o que o emissor grava nos literais estáticos.
 pub fn hash_de_texto(unidades: impl IntoIterator<Item = u16>) -> u32 {
     let mut h: u32 = 0;
     for u in unidades {
@@ -530,46 +530,46 @@ mod testes_layout {
     use super::*;
 
     #[test]
-    fn layout_classe_de_tamanho_monotona_e_cobre() {
-        let mut anterior = 0;
-        for w in 0..=MAIOR_MEDIA {
-            let c = classe_de_tamanho(w).expect("classe de corpo até a maior média");
+    fn layout_size_class_is_monotonic_and_covers() {
+        let mut previous = 0;
+        for w in 0..=LARGEST_MEDIUM {
+            let c = size_class(w).expect("classe de corpo até a maior média");
             assert!(c >= 1 && c < N_CLASSES, "classe {c} de {w} palavras fora da faixa");
-            assert!(c >= anterior, "classe_de_tamanho não é monótona em {w}");
-            assert!(palavras_da_classe(c) >= w, "a classe {c} não cabe {w} palavras");
+            assert!(c >= previous, "classe_de_tamanho não é monótona em {w}");
+            assert!(class_words(c) >= w, "a classe {c} não cabe {w} palavras");
             // A menor classe que cabe: a anterior não cabe.
             if c > 1 {
-                assert!(palavras_da_classe(c - 1) < w.max(1), "classe {c} não é a menor para {w}");
+                assert!(class_words(c - 1) < w.max(1), "classe {c} não é a menor para {w}");
             }
-            anterior = c;
+            previous = c;
         }
-        assert_eq!(classe_de_tamanho(MAIOR_MEDIA + 1), None);
-        assert_eq!(classe_de_tamanho(0), Some(1));
-        assert_eq!(classe_de_tamanho(64), Some(64));
-        assert_eq!(classe_de_tamanho(65), Some(65));
-        assert_eq!(palavras_da_classe(N_CLASSES - 1), MAIOR_MEDIA);
+        assert_eq!(size_class(LARGEST_MEDIUM + 1), None);
+        assert_eq!(size_class(0), Some(1));
+        assert_eq!(size_class(64), Some(64));
+        assert_eq!(size_class(65), Some(65));
+        assert_eq!(class_words(N_CLASSES - 1), LARGEST_MEDIUM);
     }
 
     #[test]
-    fn layout_classes_medias_enchem_a_pagina() {
-        let uteis = PAGINA - CABECA_DA_PAGINA;
-        let blocos = [112, 96, 80, 72, 64, 56, 48, 40, 36, 32, 28, 24, 20, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4];
+    fn layout_medium_classes_fill_the_page() {
+        let useful = PAGINA - PAGE_HEAD;
+        let blocks = [112, 96, 80, 72, 64, 56, 48, 40, 36, 32, 28, 24, 20, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4];
         for (i, &w) in CLASSES_MEDIAS.iter().enumerate() {
-            let k = uteis / bytes_do_bloco(w);
-            assert_eq!(k, blocos[i], "classe média de {w} palavras");
+            let k = useful / bytes_do_bloco(w);
+            assert_eq!(k, blocks[i], "classe média de {w} palavras");
             // A maior que cabe o mesmo número de blocos: uma palavra a mais perde um.
-            assert!(uteis / bytes_do_bloco(w + 1) < k, "a classe de {w} palavras não enche a página");
+            assert!(useful / bytes_do_bloco(w + 1) < k, "a classe de {w} palavras não enche a página");
         }
         // Perda interna máxima de 25% (entre 1610 e 2014).
-        let mut anterior = MAIOR_CLASSE;
+        let mut previous = LARGEST_CLASS;
         for &w in &CLASSES_MEDIAS {
-            assert!((w - anterior - 1) * 4 <= w, "perda interna acima de 25% antes de {w}");
-            anterior = w;
+            assert!((w - previous - 1) * 4 <= w, "perda interna acima de 25% antes de {w}");
+            previous = w;
         }
     }
 
     #[test]
-    fn layout_hash_de_texto_igual_ao_da_vm() {
+    fn layout_string_hash_equals_vm() {
         for s in ["", "a", "abc", "hello world", "ç€😀", "0123456789abcdef0123456789"] {
             let t = crate::heap::Texto::de_str(s);
             let u: Vec<u16> = s.encode_utf16().collect();
@@ -577,50 +577,50 @@ mod testes_layout {
         }
         // Surrogate solto e unidade acima de 0xFF.
         let u = vec![0xD800, 0x61, 0x1234, 0xFF];
-        let t = crate::heap::Texto::de_unidades(u.clone());
+        let t = crate::heap::Texto::from_units(u.clone());
         assert_eq!(i64::from(hash_de_texto(u)), t.hash_vm());
         assert_ne!(hash_de_texto([]), 0);
         assert!(hash_de_texto("xyz".encode_utf16()) < 1 << 30);
     }
 
     #[test]
-    fn layout_palavra_do_cabecalho_e_handles() {
+    fn layout_header_word_and_handles() {
         let p = palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 3, cid::ONE_BYTE_STRING);
         assert_eq!(p, 1 | 0x02 << 8 | 3 << 16 | 6 << 32);
         assert_eq!(palavra_do_cabecalho(estado::PERMANENTE, 0, 100_000, 200) >> 16 & 0xFFFF, 0xFFFF);
         assert_eq!(palavra_do_cabecalho(0, 0, 0, -1) >> 32, 0xFFFF_FFFF);
-        assert!(e_objeto(0x1000 + DESLOCAMENTO_DO_HANDLE));
-        assert!(!e_objeto(0));
-        assert!(!e_objeto(0x1000));
-        assert!(!e_objeto(0x1004));
-        assert!(!e_objeto(0x1006));
-        assert!(!e_objeto(smi::de(7).unwrap()));
-        assert!(!e_objeto(i64::MIN | 2));
-        assert_eq!(smi::valor(smi::de(-5).unwrap()), -5);
+        assert!(is_object(0x1000 + DESLOCAMENTO_DO_HANDLE));
+        assert!(!is_object(0));
+        assert!(!is_object(0x1000));
+        assert!(!is_object(0x1004));
+        assert!(!is_object(0x1006));
+        assert!(!is_object(smi::de(7).unwrap()));
+        assert!(!is_object(i64::MIN | 2));
+        assert_eq!(smi::value(smi::de(-5).unwrap()), -5);
         assert_eq!(smi::de(smi::MAX + 1), None);
     }
 
     #[test]
-    fn layout_tamanhos_dos_corpos() {
+    fn layout_body_sizes() {
         assert_eq!(palavras_de_texto(0, false), 1);
         assert_eq!(palavras_de_texto(8, false), 2);
         assert_eq!(palavras_de_texto(9, false), 3);
         assert_eq!(palavras_de_texto(4, true), 2);
         assert_eq!(palavras_de_texto(5, true), 3);
-        assert_eq!(palavras_de_lista(0), 1);
-        assert_eq!(palavras_de_lista(MAIOR_MEDIA - 1), MAIOR_MEDIA);
-        assert!(!tem_cartoes(MAIOR_MEDIA - 1));
-        assert!(tem_cartoes(MAIOR_MEDIA));
-        assert_eq!(palavras_de_lista(MAIOR_MEDIA), 1 + MAIOR_MEDIA + 1);
-        assert_eq!(palavras_de_lista(4096), 1 + 4096 + 2);
-        assert_eq!(palavras_de_tipada(3, 1), 3);
-        assert_eq!(palavras_de_tipada(2, 8), 4);
+        assert_eq!(list_words(0), 1);
+        assert_eq!(list_words(LARGEST_MEDIUM - 1), LARGEST_MEDIUM);
+        assert!(!has_cards(LARGEST_MEDIUM - 1));
+        assert!(has_cards(LARGEST_MEDIUM));
+        assert_eq!(list_words(LARGEST_MEDIUM), 1 + LARGEST_MEDIUM + 1);
+        assert_eq!(list_words(4096), 1 + 4096 + 2);
+        assert_eq!(typed_words(3, 1), 3);
+        assert_eq!(typed_words(2, 8), 4);
         assert_eq!(palavras_de_instancia(0), 1);
         assert_eq!(palavras_de_instancia(33), 34);
     }
 
     #[test]
-    fn layout_cids_do_sdk_em_ordem_e_predicados() {
+    fn layout_sdk_cids_in_order_and_predicates() {
         for (i, &(c, _, _)) in cid::DO_SDK.iter().enumerate() {
             assert_eq!(c, i as i32 + 1, "DO_SDK fora de ordem na posição {i}");
             assert!(i64::from(c) < PRIMEIRO_CID_LIVRE);
@@ -631,13 +631,13 @@ mod testes_layout {
         assert_eq!(cid::DO_SDK[cid::visao(1, false) as usize - 1].2, "_Uint8ArrayView");
         assert_eq!(cid::DO_SDK[cid::visao(13, true) as usize - 1].2, "_UnmodifiableFloat64x2ArrayView");
         for c in 0..200 {
-            assert_eq!(cid::e_texto(c), c == 6 || c == 7);
-            assert_eq!(cid::e_lista_fixa(c), c == 8 || c == 9);
+            assert_eq!(cid::is_string(c), c == 6 || c == 7);
+            assert_eq!(cid::is_fixed_list(c), c == 8 || c == 9);
             assert_eq!(cid::e_lista(c), (8..=10).contains(&c));
-            assert_eq!(cid::e_tipada_interna(c), (22..=35).contains(&c));
-            assert_eq!(cid::e_tipada(c), (22..=65).contains(&c));
-            assert_eq!(cid::e_visao_imutavel(c), (50..=63).contains(&c) || c == 65);
-            assert_eq!(cid::e_simd(c), (19..=21).contains(&c));
+            assert_eq!(cid::is_internal_typed(c), (22..=35).contains(&c));
+            assert_eq!(cid::is_typed(c), (22..=65).contains(&c));
+            assert_eq!(cid::is_unmodifiable_view(c), (50..=63).contains(&c) || c == 65);
+            assert_eq!(cid::is_simd(c), (19..=21).contains(&c));
         }
     }
 }

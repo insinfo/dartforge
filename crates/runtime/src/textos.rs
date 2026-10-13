@@ -2,7 +2,7 @@
 //!
 //! `_OneByteString` (cid 6) e `_TwoByteString` (cid 7) são blocos `BRUTO`: o
 //! comprimento em `b+16`, as unidades a partir de `b+24` (completadas com zeros
-//! até a palavra) e o hash em `mapa` (`layout::desl`). O coletor não percorre o
+//! até a palavra) e o hash em `map` (`layout::desl`). O coletor não percorre o
 //! corpo; o bloco não se move enquanto vive, então as unidades têm endereço fixo.
 //!
 //! Três tipos:
@@ -12,11 +12,11 @@
 //!   moram nela;
 //! * [`crate::textos::Texto`] é o dono das unidades antes de alocar (a saída de `toString`, os
 //!   pedaços que o runtime monta); a forma é canônica, como na VM;
-//! * [`crate::textos::TextoMut`] junta unidades sem passar pelo `String` do Rust (que perderia os
+//! * [`crate::textos::StringMut`] junta unidades sem passar pelo `String` do Rust (que perderia os
 //!   surrogates soltos).
 //!
 //! As funções de `impl Heap` usam só a API de `heap.rs` (§3.2); o endereço do
-//! bloco sai do handle (`h - 2`), conferido vivo por [`crate::heap::Heap::cabecalho`].
+//! bloco sai do handle (`h - 2`), conferido vivo por [`crate::heap::Heap::header`].
 #![allow(unsafe_code)]
 
 use crate::heap::Heap;
@@ -53,12 +53,12 @@ pub enum Texto {
 
 impl Texto {
     /// A string vazia.
-    pub fn vazio() -> Self {
+    pub fn empty() -> Self {
         Texto::Um(Vec::new())
     }
 
     /// Texto a partir de unidades UTF-16, na forma canônica.
-    pub fn de_unidades(unidades: Vec<u16>) -> Self {
+    pub fn from_units(unidades: Vec<u16>) -> Self {
         if unidades.iter().all(|&u| u <= 0xFF) {
             Texto::Um(unidades.into_iter().map(|u| u as u8).collect())
         } else {
@@ -67,7 +67,7 @@ impl Texto {
     }
 
     /// Texto a partir de uma fatia de unidades UTF-16, na forma canônica.
-    pub fn de_fatia(unidades: &[u16]) -> Self {
+    pub fn from_slice(unidades: &[u16]) -> Self {
         if unidades.iter().all(|&u| u <= 0xFF) {
             Texto::Um(unidades.iter().map(|&u| u as u8).collect())
         } else {
@@ -80,15 +80,15 @@ impl Texto {
         if s.is_ascii() {
             return Texto::Um(s.as_bytes().to_vec());
         }
-        let mut um = Vec::with_capacity(s.len());
+        let mut one = Vec::with_capacity(s.len());
         for c in s.chars() {
             if (c as u32) <= 0xFF {
-                um.push(c as u32 as u8);
+                one.push(c as u32 as u8);
             } else {
                 return Texto::Dois(s.encode_utf16().collect());
             }
         }
-        Texto::Um(um)
+        Texto::Um(one)
     }
 
     /// Texto a partir de WTF-8: UTF-8 generalizado em que um surrogate solto
@@ -107,7 +107,7 @@ impl Texto {
             let cont = |k: usize| -> Option<u32> {
                 bytes.get(i + k).filter(|&&b| b & 0xC0 == 0x80).map(|&b| u32::from(b & 0x3F))
             };
-            let (ponto, n) = if b0 < 0x80 {
+            let (point, n) = if b0 < 0x80 {
                 (Some(b0), 1)
             } else if b0 & 0xE0 == 0xC0 {
                 (cont(1).map(|c1| ((b0 & 0x1F) << 6) | c1).filter(|&p| p >= 0x80), 2)
@@ -128,9 +128,9 @@ impl Texto {
             } else {
                 (None, 1)
             };
-            match ponto {
+            match point {
                 Some(p) => {
-                    empurrar_ponto(&mut unidades, p);
+                    push_point(&mut unidades, p);
                     i += n;
                 }
                 None => {
@@ -139,7 +139,7 @@ impl Texto {
                 }
             }
         }
-        Self::de_unidades(unidades)
+        Self::from_units(unidades)
     }
 
     /// A vista das unidades deste texto de construção.
@@ -165,12 +165,12 @@ impl Texto {
     }
 
     /// A unidade no índice (`codeUnitAt`); o índice é verificado por quem chama.
-    pub fn unidade(&self, i: usize) -> u16 {
-        self.vista().unidade(i)
+    pub fn unit(&self, i: usize) -> u16 {
+        self.vista().unit(i)
     }
 
     /// As unidades, em ordem.
-    pub fn unidades(&self) -> IterUnidades<'_> {
+    pub fn unidades(&self) -> UnitsIter<'_> {
         self.vista().unidades()
     }
 
@@ -182,28 +182,28 @@ impl Texto {
         }
     }
 
-    /// `[inicio, fim)` em unidades, na forma canônica (o `_substringUnchecked`
+    /// `[start, end)` em unidades, na forma canônica (o `_substringUnchecked`
     /// da VM: um pedaço Latin-1 de um `_TwoByteString` volta a ser `Um`).
-    pub fn fatia(&self, inicio: usize, fim: usize) -> Texto {
-        self.vista().fatia(inicio, fim).para_texto()
+    pub fn piece(&self, start: usize, end: usize) -> Texto {
+        self.vista().piece(start, end).to_string_fn()
     }
 
     /// Os pontos de código (`runes`): um par de surrogates vira o escalar; um
     /// surrogate solto sai como ele mesmo (o `RuneIterator` do `dart:core`).
-    pub fn pontos(&self) -> Vec<u32> {
-        self.vista().pontos()
+    pub fn points(&self) -> Vec<u32> {
+        self.vista().points()
     }
 
     /// WTF-8 (surrogate solto em três bytes): a forma sem perda, inversa de
     /// [`Texto::de_wtf8`].
-    pub fn para_wtf8(&self) -> Vec<u8> {
-        self.vista().para_wtf8()
+    pub fn to_wtf8(&self) -> Vec<u8> {
+        self.vista().to_wtf8()
     }
 
     /// UTF-8 como a VM escreve na saída (`print`): o surrogate solto vira
     /// U+FFFD (`Utf8::Encode`, `runtime/vm/unicode.cc`).
-    pub fn para_utf8_da_vm(&self) -> Vec<u8> {
-        self.vista().para_utf8_da_vm()
+    pub fn to_vm_utf8(&self) -> Vec<u8> {
+        self.vista().to_vm_utf8()
     }
 
     /// Texto legível para Rust: surrogate solto vira U+FFFD. Só para
@@ -213,8 +213,8 @@ impl Texto {
     }
 
     /// Concatenação (`+`), na forma canônica.
-    pub fn concatenar(&self, outro: &Texto) -> Texto {
-        match (self, outro) {
+    pub fn concatenate(&self, other_one: &Texto) -> Texto {
+        match (self, other_one) {
             (Texto::Um(a), Texto::Um(b)) => {
                 let mut v = Vec::with_capacity(a.len() + b.len());
                 v.extend_from_slice(a);
@@ -222,32 +222,32 @@ impl Texto {
                 Texto::Um(v)
             }
             _ => {
-                let mut v = Vec::with_capacity(self.len() + outro.len());
+                let mut v = Vec::with_capacity(self.len() + other_one.len());
                 v.extend(self.unidades());
-                v.extend(outro.unidades());
+                v.extend(other_one.unidades());
                 Texto::Dois(v)
             }
         }
     }
 
-    /// Primeira ocorrência de `padrao` a partir de `desde` (unidades).
-    pub fn procurar(&self, padrao: &Texto, desde: usize) -> Option<usize> {
-        self.vista().procurar(padrao.vista(), desde)
+    /// Primeira ocorrência de `pattern` a partir de `since` (unidades).
+    pub fn search_for(&self, pattern: &Texto, since: usize) -> Option<usize> {
+        self.vista().search_for(pattern.vista(), since)
     }
 
-    /// Última ocorrência de `padrao` que começa em `ate` ou antes.
-    pub fn procurar_ultimo(&self, padrao: &Texto, ate: usize) -> Option<usize> {
-        self.vista().procurar_ultimo(padrao.vista(), ate)
+    /// Última ocorrência de `pattern` que começa em `until` ou antes.
+    pub fn find_last(&self, pattern: &Texto, until: usize) -> Option<usize> {
+        self.vista().find_last(pattern.vista(), until)
     }
 
-    /// `padrao` aparece inteiro a partir da unidade `i`.
-    pub fn coincide_em(&self, padrao: &Texto, i: usize) -> bool {
-        self.vista().coincide_em(padrao.vista(), i)
+    /// `pattern` aparece inteiro a partir da unidade `i`.
+    pub fn matches_at(&self, pattern: &Texto, i: usize) -> bool {
+        self.vista().matches_at(pattern.vista(), i)
     }
 
     /// Ordem lexicográfica por unidades (`String.compareTo`).
-    pub fn comparar(&self, outro: &Texto) -> std::cmp::Ordering {
-        self.vista().comparar(outro.vista())
+    pub fn compare(&self, other_one: &Texto) -> std::cmp::Ordering {
+        self.vista().compare(other_one.vista())
     }
 
     /// `String.hashCode` da VM ([`layout::hash_de_texto`]), como `i64` (a
@@ -259,26 +259,26 @@ impl Texto {
 }
 
 /// Uma unidade (ponto ≤ 0xFFFF, inclusive surrogate) ou um par de surrogates.
-pub fn empurrar_ponto(unidades: &mut Vec<u16>, ponto: u32) {
-    if ponto <= 0xFFFF {
-        unidades.push(ponto as u16);
+pub fn push_point(unidades: &mut Vec<u16>, point: u32) {
+    if point <= 0xFFFF {
+        unidades.push(point as u16);
     } else {
-        let p = ponto - 0x10000;
+        let p = point - 0x10000;
         unidades.push(0xD800 + (p >> 10) as u16);
         unidades.push(0xDC00 + (p & 0x3FF) as u16);
     }
 }
 
 /// Um ponto de código em WTF-8 (surrogate em três bytes, como qualquer ponto).
-fn codificar_wtf8(saida: &mut Vec<u8>, p: u32) {
+fn encode_wtf8(out: &mut Vec<u8>, p: u32) {
     if p < 0x80 {
-        saida.push(p as u8);
+        out.push(p as u8);
     } else if p < 0x800 {
-        saida.extend_from_slice(&[0xC0 | (p >> 6) as u8, 0x80 | (p & 0x3F) as u8]);
+        out.extend_from_slice(&[0xC0 | (p >> 6) as u8, 0x80 | (p & 0x3F) as u8]);
     } else if p < 0x10000 {
-        saida.extend_from_slice(&[0xE0 | (p >> 12) as u8, 0x80 | ((p >> 6) & 0x3F) as u8, 0x80 | (p & 0x3F) as u8]);
+        out.extend_from_slice(&[0xE0 | (p >> 12) as u8, 0x80 | ((p >> 6) & 0x3F) as u8, 0x80 | (p & 0x3F) as u8]);
     } else {
-        saida.extend_from_slice(&[
+        out.extend_from_slice(&[
             0xF0 | (p >> 18) as u8,
             0x80 | ((p >> 12) & 0x3F) as u8,
             0x80 | ((p >> 6) & 0x3F) as u8,
@@ -288,8 +288,8 @@ fn codificar_wtf8(saida: &mut Vec<u8>, p: u32) {
 }
 
 impl PartialEq for Texto {
-    fn eq(&self, outro: &Texto) -> bool {
-        self.vista() == outro.vista()
+    fn eq(&self, other_one: &Texto) -> bool {
+        self.vista() == other_one.vista()
     }
 }
 
@@ -297,19 +297,19 @@ impl Eq for Texto {}
 
 impl Default for Texto {
     fn default() -> Self {
-        Texto::vazio()
+        Texto::empty()
     }
 }
 
 impl PartialEq<str> for Texto {
-    fn eq(&self, outro: &str) -> bool {
-        self.vista() == *outro
+    fn eq(&self, other_one: &str) -> bool {
+        self.vista() == *other_one
     }
 }
 
 impl PartialEq<&str> for Texto {
-    fn eq(&self, outro: &&str) -> bool {
-        self.vista() == **outro
+    fn eq(&self, other_one: &&str) -> bool {
+        self.vista() == **other_one
     }
 }
 
@@ -340,11 +340,11 @@ impl std::fmt::Debug for Texto {
 /// Construtor de texto por unidades: a saída de `toString`/interpolação, que
 /// não pode passar por `String` do Rust sem perder surrogates soltos.
 #[derive(Default)]
-pub struct TextoMut(pub Vec<u16>);
+pub struct StringMut(pub Vec<u16>);
 
-impl TextoMut {
+impl StringMut {
     pub fn new() -> Self {
-        TextoMut(Vec::new())
+        StringMut(Vec::new())
     }
     pub fn push_str(&mut self, s: &str) {
         self.0.extend(s.encode_utf16());
@@ -353,7 +353,7 @@ impl TextoMut {
         let mut buf = [0u16; 2];
         self.0.extend_from_slice(c.encode_utf16(&mut buf));
     }
-    pub fn push_texto(&mut self, t: &Texto) {
+    pub fn push_string(&mut self, t: &Texto) {
         self.push_vista(t.vista());
     }
     /// Acrescenta as unidades de uma vista (de um bloco do heap ou de um `Texto`).
@@ -366,8 +366,8 @@ impl TextoMut {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-    pub fn fim(self) -> Texto {
-        Texto::de_unidades(self.0)
+    pub fn end(self) -> Texto {
+        Texto::from_units(self.0)
     }
 }
 
@@ -378,7 +378,7 @@ impl TextoMut {
 /// A vista das unidades de uma string: um byte por unidade (`_OneByteString`) ou
 /// dois (`_TwoByteString`).
 ///
-/// Emprestada de um bloco do heap ([`Heap::texto`]) ela vale enquanto o
+/// Emprestada de um bloco do heap ([`Heap::text`]) ela vale enquanto o
 /// empréstimo do heap durar (nenhuma alocação no meio); de um [`Texto`],
 /// enquanto ele viver.
 #[derive(Clone, Copy)]
@@ -404,35 +404,35 @@ impl<'a> TextoRef<'a> {
         matches!(self, TextoRef::Um(_))
     }
     /// Toda unidade cabe num byte (a forma canônica de uma cópia é `Um`)?
-    pub fn cabe_em_um_byte(self) -> bool {
+    pub fn fits_in_one_byte(self) -> bool {
         match self {
             TextoRef::Um(_) => true,
             TextoRef::Dois(u) => u.iter().all(|&x| x <= 0xFF),
         }
     }
     /// A unidade `i`.
-    pub fn unidade(self, i: usize) -> u16 {
+    pub fn unit(self, i: usize) -> u16 {
         match self {
             TextoRef::Um(b) => u16::from(b[i]),
             TextoRef::Dois(u) => u[i],
         }
     }
     /// As unidades, em ordem.
-    pub fn unidades(self) -> IterUnidades<'a> {
-        IterUnidades { texto: self, i: 0, fim: self.len() }
+    pub fn unidades(self) -> UnitsIter<'a> {
+        UnitsIter { text: self, i: 0, end: self.len() }
     }
-    /// As unidades `inicio..fim`.
-    pub fn fatia(self, inicio: usize, fim: usize) -> TextoRef<'a> {
+    /// As unidades `start..end`.
+    pub fn piece(self, start: usize, end: usize) -> TextoRef<'a> {
         match self {
-            TextoRef::Um(b) => TextoRef::Um(&b[inicio..fim]),
-            TextoRef::Dois(u) => TextoRef::Dois(&u[inicio..fim]),
+            TextoRef::Um(b) => TextoRef::Um(&b[start..end]),
+            TextoRef::Dois(u) => TextoRef::Dois(&u[start..end]),
         }
     }
     /// Uma cópia de construção, na forma canônica.
-    pub fn para_texto(self) -> Texto {
+    pub fn to_string_fn(self) -> Texto {
         match self {
             TextoRef::Um(b) => Texto::Um(b.to_vec()),
-            TextoRef::Dois(u) => Texto::de_fatia(u),
+            TextoRef::Dois(u) => Texto::from_slice(u),
         }
     }
     /// O texto em UTF-8, com os surrogates soltos trocados por U+FFFD.
@@ -444,69 +444,69 @@ impl<'a> TextoRef<'a> {
     }
     /// O texto em WTF-8 (surrogates soltos preservados), inverso de
     /// [`Texto::de_wtf8`].
-    pub fn para_wtf8(self) -> Vec<u8> {
-        self.codificar(false)
+    pub fn to_wtf8(self) -> Vec<u8> {
+        self.encode(false)
     }
     /// O UTF-8 que a VM escreve (`Utf8::Encode`): o surrogate solto vira U+FFFD.
-    pub fn para_utf8_da_vm(self) -> Vec<u8> {
-        self.codificar(true)
+    pub fn to_vm_utf8(self) -> Vec<u8> {
+        self.encode(true)
     }
-    fn codificar(self, trocar_soltos: bool) -> Vec<u8> {
+    fn encode(self, swap_released: bool) -> Vec<u8> {
         if let TextoRef::Um(b) = self
             && b.is_ascii()
         {
             return b.to_vec();
         }
-        let mut saida = Vec::with_capacity(self.len() + 8);
-        for p in self.pontos() {
-            let p = if trocar_soltos && (0xD800..0xE000).contains(&p) { 0xFFFD } else { p };
-            codificar_wtf8(&mut saida, p);
+        let mut out = Vec::with_capacity(self.len() + 8);
+        for p in self.points() {
+            let p = if swap_released && (0xD800..0xE000).contains(&p) { 0xFFFD } else { p };
+            encode_wtf8(&mut out, p);
         }
-        saida
+        out
     }
     /// Os pontos de código (`runes`): um par de surrogates vira o escalar; um
     /// surrogate solto sai como ele mesmo (o `RuneIterator` do `dart:core`).
-    pub fn pontos(self) -> Vec<u32> {
+    pub fn points(self) -> Vec<u32> {
         if let TextoRef::Um(b) = self {
             return b.iter().map(|&x| u32::from(x)).collect();
         }
         let n = self.len();
-        let mut saida = Vec::with_capacity(n);
+        let mut out = Vec::with_capacity(n);
         let mut i = 0;
         while i < n {
-            let u = self.unidade(i);
+            let u = self.unit(i);
             if (0xD800..0xDC00).contains(&u) && i + 1 < n {
-                let v = self.unidade(i + 1);
+                let v = self.unit(i + 1);
                 if (0xDC00..0xE000).contains(&v) {
-                    saida.push(0x10000 + ((u32::from(u) - 0xD800) << 10) + (u32::from(v) - 0xDC00));
+                    out.push(0x10000 + ((u32::from(u) - 0xD800) << 10) + (u32::from(v) - 0xDC00));
                     i += 2;
                     continue;
                 }
             }
-            saida.push(u32::from(u));
+            out.push(u32::from(u));
             i += 1;
         }
-        saida
+        out
     }
-    /// A primeira ocorrência de `padrao` a partir de `desde`.
-    pub fn procurar(self, padrao: TextoRef<'_>, desde: usize) -> Option<usize> {
-        let (n, m) = (self.len(), padrao.len());
-        if desde > n {
+    /// A primeira ocorrência de `pattern` a partir de `since`.
+    pub fn search_for(self, pattern: TextoRef<'_>, since: usize) -> Option<usize> {
+        let (n, m) = (self.len(), pattern.len());
+        if since > n {
             return None;
         }
         if m == 0 {
-            return Some(desde);
+            return Some(since);
         }
         if m > n {
             return None;
         }
-        let maximo = n - m;
+        let maximum = n - m;
         // Latin-1 nos dois: o primeiro byte filtra as posições.
-        if let (TextoRef::Um(a), TextoRef::Um(b)) = (self, padrao) {
-            let primeiro = b[0];
-            let mut i = desde;
-            while i <= maximo {
-                match a[i..=maximo].iter().position(|&x| x == primeiro) {
+        if let (TextoRef::Um(a), TextoRef::Um(b)) = (self, pattern) {
+            let first = b[0];
+            let mut i = since;
+            while i <= maximum {
+                match a[i..=maximum].iter().position(|&x| x == first) {
                     None => return None,
                     Some(k) => i += k,
                 }
@@ -517,35 +517,35 @@ impl<'a> TextoRef<'a> {
             }
             return None;
         }
-        (desde..=maximo).find(|&i| self.coincide_em(padrao, i))
+        (since..=maximum).find(|&i| self.matches_at(pattern, i))
     }
-    /// A última ocorrência de `padrao` que começa até `ate`.
-    pub fn procurar_ultimo(self, padrao: TextoRef<'_>, ate: usize) -> Option<usize> {
-        let (n, m) = (self.len(), padrao.len());
+    /// A última ocorrência de `pattern` que começa até `until`.
+    pub fn find_last(self, pattern: TextoRef<'_>, until: usize) -> Option<usize> {
+        let (n, m) = (self.len(), pattern.len());
         if m > n {
             return None;
         }
-        let inicio = ate.min(n - m);
-        (0..=inicio).rev().find(|&i| self.coincide_em(padrao, i))
+        let start = until.min(n - m);
+        (0..=start).rev().find(|&i| self.matches_at(pattern, i))
     }
-    /// `padrao` ocorre na posição `i`?
-    pub fn coincide_em(self, padrao: TextoRef<'_>, i: usize) -> bool {
-        let m = padrao.len();
+    /// `pattern` ocorre na posição `i`?
+    pub fn matches_at(self, pattern: TextoRef<'_>, i: usize) -> bool {
+        let m = pattern.len();
         if i.checked_add(m).is_none_or(|f| f > self.len()) {
             return false;
         }
-        match (self, padrao) {
+        match (self, pattern) {
             (TextoRef::Um(a), TextoRef::Um(b)) => a[i..i + m] == *b,
             (TextoRef::Dois(a), TextoRef::Dois(b)) => a[i..i + m] == *b,
-            _ => (0..m).all(|k| self.unidade(i + k) == padrao.unidade(k)),
+            _ => (0..m).all(|k| self.unit(i + k) == pattern.unit(k)),
         }
     }
     /// A ordem de `compareTo` (unidade a unidade, depois o comprimento).
-    pub fn comparar(self, outro: TextoRef<'_>) -> std::cmp::Ordering {
-        match (self, outro) {
+    pub fn compare(self, other_one: TextoRef<'_>) -> std::cmp::Ordering {
+        match (self, other_one) {
             (TextoRef::Um(a), TextoRef::Um(b)) => a.cmp(b),
             (TextoRef::Dois(a), TextoRef::Dois(b)) => a.cmp(b),
-            _ => self.unidades().cmp(outro.unidades()),
+            _ => self.unidades().cmp(other_one.unidades()),
         }
     }
     /// O `hashCode` da VM ([`layout::hash_de_texto`]): 30 bits, nunca 0.
@@ -555,8 +555,8 @@ impl<'a> TextoRef<'a> {
 }
 
 impl PartialEq for TextoRef<'_> {
-    fn eq(&self, outro: &TextoRef<'_>) -> bool {
-        match (*self, *outro) {
+    fn eq(&self, other_one: &TextoRef<'_>) -> bool {
+        match (*self, *other_one) {
             (TextoRef::Um(a), TextoRef::Um(b)) => a == b,
             (TextoRef::Dois(a), TextoRef::Dois(b)) => a == b,
             (a, b) => a.len() == b.len() && a.unidades().eq(b.unidades()),
@@ -567,25 +567,25 @@ impl PartialEq for TextoRef<'_> {
 impl Eq for TextoRef<'_> {}
 
 impl PartialEq<Texto> for TextoRef<'_> {
-    fn eq(&self, outro: &Texto) -> bool {
-        *self == outro.vista()
+    fn eq(&self, other_one: &Texto) -> bool {
+        *self == other_one.vista()
     }
 }
 
 impl PartialEq<str> for TextoRef<'_> {
-    fn eq(&self, outro: &str) -> bool {
+    fn eq(&self, other_one: &str) -> bool {
         if let TextoRef::Um(b) = *self
-            && outro.is_ascii()
+            && other_one.is_ascii()
         {
-            return b == outro.as_bytes();
+            return b == other_one.as_bytes();
         }
-        self.unidades().eq(outro.encode_utf16())
+        self.unidades().eq(other_one.encode_utf16())
     }
 }
 
 impl PartialEq<&str> for TextoRef<'_> {
-    fn eq(&self, outro: &&str) -> bool {
-        *self == **outro
+    fn eq(&self, other_one: &&str) -> bool {
+        *self == **other_one
     }
 }
 
@@ -603,39 +603,39 @@ impl std::fmt::Debug for TextoRef<'_> {
 
 /// Iterador das unidades de uma [`TextoRef`] (e de um [`Texto`]).
 #[derive(Clone)]
-pub struct IterUnidades<'a> {
-    texto: TextoRef<'a>,
+pub struct UnitsIter<'a> {
+    text: TextoRef<'a>,
     i: usize,
-    fim: usize,
+    end: usize,
 }
 
-impl Iterator for IterUnidades<'_> {
+impl Iterator for UnitsIter<'_> {
     type Item = u16;
     fn next(&mut self) -> Option<u16> {
-        if self.i >= self.fim {
+        if self.i >= self.end {
             return None;
         }
-        let u = self.texto.unidade(self.i);
+        let u = self.text.unit(self.i);
         self.i += 1;
         Some(u)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let n = self.fim - self.i;
+        let n = self.end - self.i;
         (n, Some(n))
     }
 }
 
-impl DoubleEndedIterator for IterUnidades<'_> {
+impl DoubleEndedIterator for UnitsIter<'_> {
     fn next_back(&mut self) -> Option<u16> {
-        if self.i >= self.fim {
+        if self.i >= self.end {
             return None;
         }
-        self.fim -= 1;
-        Some(self.texto.unidade(self.fim))
+        self.end -= 1;
+        Some(self.text.unit(self.end))
     }
 }
 
-impl ExactSizeIterator for IterUnidades<'_> {}
+impl ExactSizeIterator for UnitsIter<'_> {}
 
 /// Desliga a vista do empréstimo de onde ela saiu.
 ///
@@ -643,7 +643,7 @@ impl ExactSizeIterator for IterUnidades<'_> {}
 /// As unidades continuam válidas enquanto a vista for usada: vêm de um bloco do
 /// heap que está vivo (enraizado) e nenhuma coleta acontece no meio (o coletor
 /// não move, então só a morte do bloco as invalida).
-unsafe fn desligar<'b>(t: TextoRef<'_>) -> TextoRef<'b> {
+unsafe fn disable<'b>(t: TextoRef<'_>) -> TextoRef<'b> {
     match t {
         // SAFETY: contrato acima.
         TextoRef::Um(b) => TextoRef::Um(unsafe { std::slice::from_raw_parts(b.as_ptr(), b.len()) }),
@@ -656,24 +656,24 @@ unsafe fn desligar<'b>(t: TextoRef<'_>) -> TextoRef<'b> {
 // ---------------------------------------------------------------------------
 
 /// O cid da string na forma pedida.
-const fn cid_de_texto(dois: bool) -> i32 {
+const fn string_cid(dois: bool) -> i32 {
     if dois { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING }
 }
 
 impl Heap {
     /// O endereço do bloco e o cid da string `h`; `None` se `h` não é string.
-    /// Pânico N4 (de [`Heap::cabecalho`]) para objeto morto ou inválido.
-    fn bloco_de_texto(&self, h: Ref) -> Option<(usize, i32)> {
-        if !layout::e_objeto(h) {
+    /// Pânico N4 (de [`Heap::header`]) para objeto morto ou inválido.
+    fn string_block(&self, h: Ref) -> Option<(usize, i32)> {
+        if !layout::is_object(h) {
             return None;
         }
-        let c = self.cabecalho(h).class_id;
-        cid::e_texto(c).then_some(((h - layout::DESLOCAMENTO_DO_HANDLE) as usize, c))
+        let c = self.header(h).class_id;
+        cid::is_string(c).then_some(((h - layout::DESLOCAMENTO_DO_HANDLE) as usize, c))
     }
 
     /// As unidades da string `h`; `None` se `h` não é string.
-    pub fn texto(&self, h: Ref) -> Option<TextoRef<'_>> {
-        let (b, c) = self.bloco_de_texto(h)?;
+    pub fn text(&self, h: Ref) -> Option<TextoRef<'_>> {
+        let (b, c) = self.string_block(h)?;
         // SAFETY: bloco vivo (ou estático) de string: o comprimento em `b+16` e
         // as unidades a partir de `b+24`, alinhadas a 8, dentro do corpo. O
         // empréstimo de `self` impede coleta enquanto a vista vive.
@@ -689,16 +689,16 @@ impl Heap {
     }
 
     /// `h` é string (cid 6 ou 7)?
-    pub fn e_texto(&self, h: Ref) -> bool {
-        self.bloco_de_texto(h).is_some()
+    pub fn is_string(&self, h: Ref) -> bool {
+        self.string_block(h).is_some()
     }
 
     /// Uma string nova de `len` unidades zeradas (a forma pedida). Pode coletar:
     /// as referências que o chamador segura precisam de raiz.
-    pub fn novo_texto(&mut self, len: usize, dois: bool) -> Ref {
+    pub fn new_string(&mut self, len: usize, dois: bool) -> Ref {
         let w = layout::palavras_de_texto(len, dois);
-        let h = self.alocar(cid_de_texto(dois), w, flags::BRUTO);
-        self.palavras_mut(h)[0] = len as i64;
+        let h = self.allocate(string_cid(dois), w, flags::BRUTO);
+        self.words_mut(h)[0] = len as i64;
         h
     }
 
@@ -706,10 +706,10 @@ impl Heap {
     ///
     /// # Panics
     /// Se `h` não é `_OneByteString`.
-    pub fn unidades_um_mut(&mut self, h: Ref) -> &mut [u8] {
-        let (_, c) = self.bloco_de_texto(h).expect("bug do compilador: _OneByteString esperada");
+    pub fn one_units_mut(&mut self, h: Ref) -> &mut [u8] {
+        let (_, c) = self.string_block(h).expect("bug do compilador: _OneByteString esperada");
         assert_eq!(c, cid::ONE_BYTE_STRING, "bug do compilador: _OneByteString esperada");
-        let len = self.palavras(h)[0] as usize;
+        let len = self.words(h)[0] as usize;
         &mut self.bytes_mut(h)[8..8 + len]
     }
 
@@ -717,24 +717,24 @@ impl Heap {
     ///
     /// # Panics
     /// Se `h` não é `_TwoByteString`.
-    pub fn unidades_dois_mut(&mut self, h: Ref) -> &mut [u16] {
-        let (_, c) = self.bloco_de_texto(h).expect("bug do compilador: _TwoByteString esperada");
+    pub fn two_units_mut(&mut self, h: Ref) -> &mut [u16] {
+        let (_, c) = self.string_block(h).expect("bug do compilador: _TwoByteString esperada");
         assert_eq!(c, cid::TWO_BYTE_STRING, "bug do compilador: _TwoByteString esperada");
-        let len = self.palavras(h)[0] as usize;
+        let len = self.words(h)[0] as usize;
         let bytes = &mut self.bytes_mut(h)[8..8 + 2 * len];
         // SAFETY: os bytes das unidades começam em `b+24` (alinhado a 8) e têm
         // `2·len` bytes; a fatia de `u16` cobre exatamente eles.
         unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<u16>(), len) }
     }
 
-    /// Grava as unidades de `t` a partir da unidade `pos` da string `destino`
+    /// Grava as unidades de `t` a partir da unidade `pos` da string `dest`
     /// (ainda não publicada). Numa `_OneByteString` cada unidade de `t` precisa
     /// caber num byte (a forma do destino foi escolhida por quem alocou).
-    pub fn escrever_texto(&mut self, destino: Ref, pos: usize, t: TextoRef<'_>) {
-        let (_, c) = self.bloco_de_texto(destino).expect("bug do compilador: string esperada");
+    pub fn write_string(&mut self, dest: Ref, pos: usize, t: TextoRef<'_>) {
+        let (_, c) = self.string_block(dest).expect("bug do compilador: string esperada");
         let n = t.len();
         if c == cid::ONE_BYTE_STRING {
-            let d = &mut self.unidades_um_mut(destino)[pos..pos + n];
+            let d = &mut self.one_units_mut(dest)[pos..pos + n];
             match t {
                 TextoRef::Um(b) => d.copy_from_slice(b),
                 TextoRef::Dois(u) => {
@@ -745,7 +745,7 @@ impl Heap {
                 }
             }
         } else {
-            let d = &mut self.unidades_dois_mut(destino)[pos..pos + n];
+            let d = &mut self.two_units_mut(dest)[pos..pos + n];
             match t {
                 TextoRef::Um(b) => {
                     for (x, &y) in d.iter_mut().zip(b) {
@@ -757,112 +757,112 @@ impl Heap {
         }
     }
 
-    /// Copia as unidades `inicio..fim` da string `fonte` para a posição `pos` da
-    /// string `destino` (outra, ainda não publicada), sem cópia intermediária.
+    /// Copia as unidades `start..end` da string `source` para a posição `pos` da
+    /// string `dest` (outra, ainda não publicada), sem cópia intermediária.
     ///
     /// # Panics
-    /// Se `fonte` não é string ou a faixa está fora dela.
-    pub fn copiar_texto(&mut self, destino: Ref, pos: usize, fonte: Ref, inicio: usize, fim: usize) {
-        let t = self.texto(fonte).expect("bug do compilador: string esperada").fatia(inicio, fim);
-        // SAFETY: `fonte` está viva (o chamador a tem) e `escrever_texto` não
-        // aloca nem coleta; `destino` é outro bloco, então as fatias não se
+    /// Se `source` não é string ou a faixa está fora dela.
+    pub fn copy_string(&mut self, dest: Ref, pos: usize, source: Ref, start: usize, end: usize) {
+        let t = self.text(source).expect("bug do compilador: string esperada").piece(start, end);
+        // SAFETY: `source` está viva (o chamador a tem) e `write_string` não
+        // aloca nem coleta; `dest` é outro bloco, então as fatias não se
         // sobrepõem.
-        let t = unsafe { desligar(t) };
-        debug_assert_ne!(fonte, destino);
-        self.escrever_texto(destino, pos, t);
+        let t = unsafe { disable(t) };
+        debug_assert_ne!(source, dest);
+        self.write_string(dest, pos, t);
     }
 
     /// Uma string com as unidades de `t`, na forma canônica (um byte se cabe).
     /// `t` não pode vir deste heap (a alocação pode coletar): para uma fatia de
-    /// uma string viva use [`Heap::fatia_de_texto`].
-    pub fn alocar_texto(&mut self, t: TextoRef<'_>) -> Ref {
-        let h = self.novo_texto(t.len(), !t.cabe_em_um_byte());
-        self.escrever_texto(h, 0, t);
+    /// uma string viva use [`Heap::string_slice`].
+    pub fn allocate_string(&mut self, t: TextoRef<'_>) -> Ref {
+        let h = self.new_string(t.len(), !t.fits_in_one_byte());
+        self.write_string(h, 0, t);
         h
     }
 
-    /// As unidades `inicio..fim` da string `h` (enraizada pelo chamador) numa
+    /// As unidades `start..end` da string `h` (enraizada pelo chamador) numa
     /// string nova, na forma canônica (o `_substringUnchecked` da VM).
-    pub fn fatia_de_texto(&mut self, h: Ref, inicio: usize, fim: usize) -> Ref {
-        let um = self.texto(h).expect("bug do compilador: string esperada").fatia(inicio, fim).cabe_em_um_byte();
-        let r = self.novo_texto(fim - inicio, !um);
-        self.copiar_texto(r, 0, h, inicio, fim);
+    pub fn string_slice(&mut self, h: Ref, start: usize, end: usize) -> Ref {
+        let one = self.text(h).expect("bug do compilador: string esperada").piece(start, end).fits_in_one_byte();
+        let r = self.new_string(end - start, !one);
+        self.copy_string(r, 0, h, start, end);
         r
     }
 
-    /// A concatenação das strings `partes` (enraizadas pelo chamador), numa
+    /// A concatenação das strings `part_list` (enraizadas pelo chamador), numa
     /// alocação só, na forma canônica. Um elemento que não é string é bug do
     /// compilador (pânico).
-    pub fn juntar_textos(&mut self, partes: &[Ref]) -> Ref {
-        let (mut total, mut um) = (0usize, true);
-        for &p in partes {
-            let t = self.texto(p).expect("bug do compilador: string esperada");
+    pub fn join_strings(&mut self, part_list: &[Ref]) -> Ref {
+        let (mut total, mut one) = (0usize, true);
+        for &p in part_list {
+            let t = self.text(p).expect("bug do compilador: string esperada");
             total += t.len();
-            um &= t.cabe_em_um_byte();
+            one &= t.fits_in_one_byte();
         }
-        let r = self.novo_texto(total, !um);
+        let r = self.new_string(total, !one);
         let mut pos = 0;
-        for &p in partes {
-            let n = self.texto(p).map_or(0, TextoRef::len);
-            self.copiar_texto(r, pos, p, 0, n);
+        for &p in part_list {
+            let n = self.text(p).map_or(0, TextoRef::len);
+            self.copy_string(r, pos, p, 0, n);
             pos += n;
         }
         r
     }
 
     /// Uma string com o texto de `s`.
-    pub fn alocar_str(&mut self, s: &str) -> Ref {
+    pub fn allocate_str(&mut self, s: &str) -> Ref {
         if s.is_ascii() {
-            return self.alocar_texto(TextoRef::Um(s.as_bytes()));
+            return self.allocate_string(TextoRef::Um(s.as_bytes()));
         }
         let t = Texto::de_str(s);
-        self.alocar_texto(t.vista())
+        self.allocate_string(t.vista())
     }
 
     /// Uma string a partir de WTF-8.
-    pub fn texto_de_wtf8(&mut self, bytes: &[u8]) -> Ref {
+    pub fn string_from_wtf8(&mut self, bytes: &[u8]) -> Ref {
         if bytes.is_ascii() {
-            return self.alocar_texto(TextoRef::Um(bytes));
+            return self.allocate_string(TextoRef::Um(bytes));
         }
         let t = Texto::de_wtf8(bytes);
-        self.alocar_texto(t.vista())
+        self.allocate_string(t.vista())
     }
 
     /// O `hashCode` da string `h`, calculado na primeira consulta e gravado em
-    /// `mapa`; `None` se `h` não é string. O estático (`PERMANENTE`) já vem com
+    /// `map`; `None` se `h` não é string. O estático (`PERMANENTE`) já vem com
     /// o hash do emissor e nunca é gravado (mora em memória só de leitura).
     pub fn hash_de_texto(&self, h: Ref) -> Option<u32> {
-        let (b, _) = self.bloco_de_texto(h)?;
+        let (b, _) = self.string_block(h)?;
         let p = (b + desl::HASH_DO_TEXTO) as *mut u32;
-        // SAFETY: `mapa` do cabeçalho de um bloco vivo; o heap é de uma thread
+        // SAFETY: `map` do cabeçalho de um bloco vivo; o heap é de uma thread
         // só e nenhuma referência ao cabeçalho está viva aqui. Pela `AtomicU32`
         // a gravação por `&self` é um cache sem referência compartilhada ao
         // mesmo `u32`.
-        let celula = unsafe { std::sync::atomic::AtomicU32::from_ptr(p) };
-        let atual = celula.load(std::sync::atomic::Ordering::Relaxed);
-        if atual != 0 {
-            return Some(atual);
+        let cell = unsafe { std::sync::atomic::AtomicU32::from_ptr(p) };
+        let current = cell.load(std::sync::atomic::Ordering::Relaxed);
+        if current != 0 {
+            return Some(current);
         }
-        let x = self.texto(h)?.hash_vm();
+        let x = self.text(h)?.hash_vm();
         // SAFETY: `b` é o bloco (endereço do cabeçalho).
         if unsafe { *(b as *const u8) } != estado::PERMANENTE {
-            celula.store(x, std::sync::atomic::Ordering::Relaxed);
+            cell.store(x, std::sync::atomic::Ordering::Relaxed);
         }
         Some(x)
     }
 
     /// As duas strings têm as mesmas unidades? `false` se uma delas não é string.
-    pub fn textos_iguais(&self, a: Ref, b: Ref) -> bool {
+    pub fn strings_equal(&self, a: Ref, b: Ref) -> bool {
         if a == b {
-            return layout::e_objeto(a) && self.e_texto(a);
+            return layout::is_object(a) && self.is_string(a);
         }
-        let (Some(ta), Some(tb)) = (self.texto(a), self.texto(b)) else { return false };
+        let (Some(ta), Some(tb)) = (self.text(a), self.text(b)) else { return false };
         if ta.len() != tb.len() {
             return false;
         }
         // Os hashes já calculados diferem: unidades diferentes.
         let hash = |h: Ref| -> u32 {
-            // SAFETY: `mapa` de um bloco de string vivo, só lido.
+            // SAFETY: `map` de um bloco de string vivo, só lido.
             unsafe { *((h - layout::DESLOCAMENTO_DO_HANDLE) as usize as *const u32).byte_add(desl::HASH_DO_TEXTO) }
         };
         let (ha, hb) = (hash(a), hash(b));
@@ -872,20 +872,20 @@ impl Heap {
         ta == tb
     }
 
-    /// A string canônica com as unidades de `t` (internada em `literais`, raiz
+    /// A string canônica com as unidades de `t` (internada em `literals`, raiz
     /// permanente: o literal do JIT e do runtime). `t` não vem deste heap.
     pub fn string_literal(&mut self, t: TextoRef<'_>) -> Ref {
         // O literal estático de uma imagem com o mesmo conteúdo é o canônico
         // (§2.11): `identical(s[0], 'a')` e a `const` interpolada.
-        if let Some(h) = estatico_de_texto(t) {
+        if let Some(h) = string_static(t) {
             return h;
         }
-        let chave: Vec<u16> = t.unidades().collect();
-        if let Some(h) = self.literal(&chave) {
+        let key: Vec<u16> = t.unidades().collect();
+        if let Some(h) = self.literal(&key) {
             return h;
         }
-        let h = self.alocar_texto(t);
-        self.guardar_literal(chave, h);
+        let h = self.allocate_string(t);
+        self.store_literal(key, h);
         h
     }
 }
@@ -895,17 +895,17 @@ impl Heap {
 // ---------------------------------------------------------------------------
 
 /// Os literais estáticos (`@df.s.*`, §2.11) das imagens registradas, pelo hash
-/// gravado no cabeçalho: `(imagens já percorridas, hash → blocos)`. Montado sob
+/// gravado no cabeçalho: `(images já percorridas, hash → blocks)`. Montado sob
 /// demanda (a primeira canonicalização depois de uma imagem nova), só lendo as
 /// palavras de cabeçalho — o hash vem calculado do emissor.
-static ESTATICOS_DE_TEXTO: std::sync::RwLock<Option<(usize, std::collections::HashMap<u32, Vec<usize>>)>> =
+static STRING_STATICS: std::sync::RwLock<Option<(usize, std::collections::HashMap<u32, Vec<usize>>)>> =
     std::sync::RwLock::new(None);
 
 /// A vista de um bloco de string estático (`PERMANENTE`, de uma imagem).
 ///
 /// # Safety
 /// `b` é o bloco de uma string estática válida.
-unsafe fn vista_de_estatico<'a>(b: usize) -> TextoRef<'a> {
+unsafe fn static_view<'a>(b: usize) -> TextoRef<'a> {
     // SAFETY: contrato acima; a imagem não é descarregada.
     unsafe {
         let c = *((b + desl::CLASSE) as *const i32);
@@ -919,33 +919,33 @@ unsafe fn vista_de_estatico<'a>(b: usize) -> TextoRef<'a> {
     }
 }
 
-/// Percorre a seção de estáticos `[inicio, fim)`: palavras zero (os marcadores,
+/// Percorre a seção de estáticos `[start, end)`: palavras zero (os marcadores,
 /// o enchimento entre as contribuições dos objetos) são puladas; uma palavra
 /// que não é o cabeçalho de uma string estática coerente encerra a travessia.
-fn indexar_imagem(inicio: usize, fim: usize, indice: &mut std::collections::HashMap<u32, Vec<usize>>) {
-    let mut b = inicio.next_multiple_of(8);
-    while b + layout::TAMANHO_DO_CABECALHO + 8 <= fim {
+fn index_image(start: usize, end: usize, ix: &mut std::collections::HashMap<u32, Vec<usize>>) {
+    let mut b = start.next_multiple_of(8);
+    while b + layout::TAMANHO_DO_CABECALHO + 8 <= end {
         // SAFETY: `b` está dentro da faixa registrada da imagem.
-        let palavra = unsafe { *(b as *const u64) };
-        if palavra == 0 {
+        let word = unsafe { *(b as *const u64) };
+        if word == 0 {
             b += 8;
             continue;
         }
-        let est = palavra as u8;
-        let fl = (palavra >> 8) as u8;
-        let c = (palavra >> 32) as i32;
-        if est != estado::PERMANENTE || fl & flags::FORMA != flags::BRUTO || !cid::e_texto(c) {
+        let est = word as u8;
+        let fl = (word >> 8) as u8;
+        let c = (word >> 32) as i32;
+        if est != estado::PERMANENTE || fl & flags::FORMA != flags::BRUTO || !cid::is_string(c) {
             break;
         }
         // SAFETY: cabeçalho de string estática: o hash e o comprimento seguem.
         let (hash, len) = unsafe { (*((b + desl::HASH_DO_TEXTO) as *const u32), *((b + desl::COMPRIMENTO) as *const i64)) };
         let w = layout::palavras_de_texto(len as usize, c == cid::TWO_BYTE_STRING);
-        let tamanho = layout::TAMANHO_DO_CABECALHO + 8 * w;
-        if len < 0 || b + tamanho > fim {
+        let size = layout::TAMANHO_DO_CABECALHO + 8 * w;
+        if len < 0 || b + size > end {
             break;
         }
-        indice.entry(hash).or_default().push(b);
-        b += tamanho;
+        ix.entry(hash).or_default().push(b);
+        b += size;
     }
 }
 
@@ -953,105 +953,105 @@ fn indexar_imagem(inicio: usize, fim: usize, indice: &mut std::collections::Hash
 /// tem. Entre imagens com o mesmo literal (o executável e a DLL do SDK na
 /// ligação de desenvolvimento, §4.10 item 52), vale a registrada por último — o
 /// programa, que se registra depois do SDK.
-pub fn estatico_de_texto(t: TextoRef<'_>) -> Option<Ref> {
-    let imagens = crate::heap::imagens();
-    let pronto = ESTATICOS_DE_TEXTO
+pub fn string_static(t: TextoRef<'_>) -> Option<Ref> {
+    let images = crate::heap::images();
+    let ready_flag = STRING_STATICS
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_ref()
-        .is_some_and(|(n, _)| *n == imagens.len());
-    if !pronto {
-        let mut g = ESTATICOS_DE_TEXTO.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (n, indice) = g.get_or_insert_with(|| (0, std::collections::HashMap::new()));
-        for &(i, f) in &imagens[*n..] {
-            indexar_imagem(i, f, indice);
+        .is_some_and(|(n, _)| *n == images.len());
+    if !ready_flag {
+        let mut g = STRING_STATICS.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (n, ix) = g.get_or_insert_with(|| (0, std::collections::HashMap::new()));
+        for &(i, f) in &images[*n..] {
+            index_image(i, f, ix);
         }
-        *n = imagens.len();
+        *n = images.len();
     }
-    let g = ESTATICOS_DE_TEXTO.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let (_, indice) = g.as_ref()?;
+    let g = STRING_STATICS.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (_, ix) = g.as_ref()?;
     let hash = t.hash_vm();
-    indice.get(&hash)?.iter().rev().find_map(|&b| {
+    ix.get(&hash)?.iter().rev().find_map(|&b| {
         // SAFETY: bloco indexado de uma string estática.
-        (unsafe { vista_de_estatico(b) } == t).then_some(b as Ref + layout::DESLOCAMENTO_DO_HANDLE)
+        (unsafe { static_view(b) } == t).then_some(b as Ref + layout::DESLOCAMENTO_DO_HANDLE)
     })
 }
 
 impl Heap {
-    /// A forma canônica de uma constante (o getter de `const`, `constantes.rs`):
+    /// A forma canônica de uma constante (o getter de `const`, `constants.rs`):
     /// uma string vira o literal canônico com o mesmo conteúdo (o estático da
     /// imagem ou o internado); o resto volta como está.
-    pub fn constante_canonica(&mut self, h: Ref) -> Ref {
-        if !self.e_texto(h) || crate::heap::e_estatico(h) {
+    pub fn canonical_constant(&mut self, h: Ref) -> Ref {
+        if !self.is_string(h) || crate::heap::is_static(h) {
             return h;
         }
-        let t = self.texto(h).expect("conferido").para_texto();
+        let t = self.text(h).expect("conferido").to_string_fn();
         self.string_literal(t.vista())
     }
 }
 
 #[cfg(test)]
-mod testes_textos {
+mod tests_strings {
     use super::*;
 
     #[test]
-    fn textos_forma_canonica_e_fatia() {
+    fn strings_canonical_form_and_slice() {
         assert!(Texto::de_str("abc").e_um_byte());
         assert!(Texto::de_str("ç").e_um_byte());
         assert!(!Texto::de_str("€").e_um_byte());
         let t = Texto::de_str("a€b");
-        assert!(t.fatia(2, 3).e_um_byte());
-        assert_eq!(t.vista().fatia(0, 1), "a");
-        assert!(!TextoRef::Dois(&[0x61, 0x100]).cabe_em_um_byte());
-        assert!(TextoRef::Dois(&[0x61, 0xFF]).cabe_em_um_byte());
-        assert!(TextoRef::Dois(&[0x61, 0xFF]).para_texto().e_um_byte());
+        assert!(t.piece(2, 3).e_um_byte());
+        assert_eq!(t.vista().piece(0, 1), "a");
+        assert!(!TextoRef::Dois(&[0x61, 0x100]).fits_in_one_byte());
+        assert!(TextoRef::Dois(&[0x61, 0xFF]).fits_in_one_byte());
+        assert!(TextoRef::Dois(&[0x61, 0xFF]).to_string_fn().e_um_byte());
     }
 
     #[test]
-    fn textos_igualdade_entre_formas() {
-        let um = TextoRef::Um(b"ab");
+    fn strings_equality_across_forms() {
+        let one = TextoRef::Um(b"ab");
         let dois = TextoRef::Dois(&[0x61, 0x62]);
-        assert_eq!(um, dois);
+        assert_eq!(one, dois);
         assert_eq!(dois, "ab");
-        assert_ne!(um, TextoRef::Um(b"abc"));
+        assert_ne!(one, TextoRef::Um(b"abc"));
         assert_eq!(Texto::de_str("ab"), Texto::Dois(vec![0x61, 0x62]));
-        assert_eq!(um.comparar(dois), std::cmp::Ordering::Equal);
-        assert_eq!(um.comparar(TextoRef::Dois(&[0x61, 0x63])), std::cmp::Ordering::Less);
-        assert_eq!(TextoRef::Um(b"b").comparar(TextoRef::Um(b"ab")), std::cmp::Ordering::Greater);
+        assert_eq!(one.compare(dois), std::cmp::Ordering::Equal);
+        assert_eq!(one.compare(TextoRef::Dois(&[0x61, 0x63])), std::cmp::Ordering::Less);
+        assert_eq!(TextoRef::Um(b"b").compare(TextoRef::Um(b"ab")), std::cmp::Ordering::Greater);
     }
 
     #[test]
-    fn textos_busca() {
+    fn strings_search() {
         let t = TextoRef::Um(b"abcabc");
-        assert_eq!(t.procurar(TextoRef::Um(b"bc"), 0), Some(1));
-        assert_eq!(t.procurar(TextoRef::Um(b"bc"), 2), Some(4));
-        assert_eq!(t.procurar(TextoRef::Um(b"bd"), 0), None);
-        assert_eq!(t.procurar(TextoRef::Um(b""), 6), Some(6));
-        assert_eq!(t.procurar(TextoRef::Um(b""), 7), None);
-        assert_eq!(t.procurar(TextoRef::Dois(&[0x63, 0x61]), 0), Some(2));
-        assert_eq!(t.procurar_ultimo(TextoRef::Um(b"abc"), 6), Some(3));
-        assert_eq!(t.procurar_ultimo(TextoRef::Um(b"abc"), 2), Some(0));
-        assert!(t.coincide_em(TextoRef::Um(b"ca"), 2));
-        assert!(!t.coincide_em(TextoRef::Um(b"ca"), 5));
-        assert!(!t.coincide_em(TextoRef::Um(b"c"), usize::MAX));
+        assert_eq!(t.search_for(TextoRef::Um(b"bc"), 0), Some(1));
+        assert_eq!(t.search_for(TextoRef::Um(b"bc"), 2), Some(4));
+        assert_eq!(t.search_for(TextoRef::Um(b"bd"), 0), None);
+        assert_eq!(t.search_for(TextoRef::Um(b""), 6), Some(6));
+        assert_eq!(t.search_for(TextoRef::Um(b""), 7), None);
+        assert_eq!(t.search_for(TextoRef::Dois(&[0x63, 0x61]), 0), Some(2));
+        assert_eq!(t.find_last(TextoRef::Um(b"abc"), 6), Some(3));
+        assert_eq!(t.find_last(TextoRef::Um(b"abc"), 2), Some(0));
+        assert!(t.matches_at(TextoRef::Um(b"ca"), 2));
+        assert!(!t.matches_at(TextoRef::Um(b"ca"), 5));
+        assert!(!t.matches_at(TextoRef::Um(b"c"), usize::MAX));
     }
 
     #[test]
-    fn textos_pontos_e_codificacao() {
+    fn strings_points_and_encoding() {
         let t = Texto::de_str("a😀");
         assert_eq!(t.len(), 3);
-        assert_eq!(t.pontos(), vec![0x61, 0x1F600]);
-        let solto = TextoRef::Dois(&[0xD800, 0x61]);
-        assert_eq!(solto.pontos(), vec![0xD800, 0x61]);
-        assert_eq!(solto.para_utf8_da_vm(), "\u{FFFD}a".as_bytes());
-        let wtf8 = solto.para_wtf8();
-        assert_eq!(Texto::de_wtf8(&wtf8).vista(), solto);
-        assert_eq!(TextoRef::Um(&[0xE9]).para_wtf8(), "é".as_bytes());
+        assert_eq!(t.points(), vec![0x61, 0x1F600]);
+        let released = TextoRef::Dois(&[0xD800, 0x61]);
+        assert_eq!(released.points(), vec![0xD800, 0x61]);
+        assert_eq!(released.to_vm_utf8(), "\u{FFFD}a".as_bytes());
+        let wtf8 = released.to_wtf8();
+        assert_eq!(Texto::de_wtf8(&wtf8).vista(), released);
+        assert_eq!(TextoRef::Um(&[0xE9]).to_wtf8(), "é".as_bytes());
         assert_eq!(TextoRef::Um(&[0xE9]).para_string(), "é");
     }
 
     #[test]
-    fn textos_hash_igual_ao_do_layout() {
+    fn strings_hash_matches_layout() {
         for s in ["", "a", "héllo", "€uro", "😀"] {
             let t = Texto::de_str(s);
             assert_eq!(t.vista().hash_vm(), layout::hash_de_texto(s.encode_utf16()));
@@ -1060,13 +1060,13 @@ mod testes_textos {
     }
 
     #[test]
-    fn textos_iterador_dos_dois_lados() {
+    fn strings_double_ended_iterator() {
         let t = TextoRef::Dois(&[1, 2, 3]);
         assert_eq!(t.unidades().rev().collect::<Vec<_>>(), vec![3, 2, 1]);
         assert_eq!(t.unidades().len(), 3);
-        let mut m = TextoMut::new();
+        let mut m = StringMut::new();
         m.push_vista(TextoRef::Um(b"x"));
         m.push('€');
-        assert_eq!(m.fim(), Texto::de_str("x€"));
+        assert_eq!(m.end(), Texto::de_str("x€"));
     }
 }

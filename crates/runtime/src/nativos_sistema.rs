@@ -3,9 +3,9 @@
 // `math.cc` da VM). Tabela em `crates/emit_native/src/nativos.rs`.
 
 /// O instante de partida do relógio monotônico do processo.
-fn inicio_monotonico() -> std::time::Instant {
-    static INICIO: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    *INICIO.get_or_init(std::time::Instant::now)
+fn monotonic_start() -> std::time::Instant {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *START.get_or_init(std::time::Instant::now)
 }
 
 /// `Stopwatch_frequency`: tiques por segundo do relógio de `Stopwatch_now`
@@ -18,7 +18,7 @@ pub extern "C" fn dartforge_nativo_Stopwatch_frequency() -> i64 {
 /// `Stopwatch_now`: o relógio monotônico, em nanossegundos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stopwatch_now() -> i64 {
-    inicio_monotonico().elapsed().as_nanos() as i64
+    monotonic_start().elapsed().as_nanos() as i64
 }
 
 /// `DateTime_currentTimeMicros`: microssegundos desde a época Unix (UTC).
@@ -30,11 +30,11 @@ pub extern "C" fn dartforge_nativo_DateTime_currentTimeMicros() -> i64 {
     }
 }
 
-/// O fuso local no instante `segundos` (desde a época): deslocamento em
+/// O fuso local no instante `seconds` (desde a época): deslocamento em
 /// segundos a leste de UTC e o nome abreviado — `localtime_r`, como a VM
 /// (`OS::GetTimeZoneOffsetInSeconds`/`GetTimeZoneName`).
 #[cfg(unix)]
-fn fuso_local(segundos: i64) -> (i64, String) {
+fn local_timezone(seconds: i64) -> (i64, String) {
     use std::os::raw::{c_char, c_int, c_long};
     #[repr(C)]
     struct Tm {
@@ -71,21 +71,21 @@ fn fuso_local(segundos: i64) -> (i64, String) {
     // válido, e devolve nulo em erro.
     let ok = unsafe {
         tzset();
-        !localtime_r(&segundos, &mut tm).is_null()
+        !localtime_r(&seconds, &mut tm).is_null()
     };
     if !ok {
         return (0, String::new());
     }
-    let nome = if tm.tm_zone.is_null() {
+    let name_str = if tm.tm_zone.is_null() {
         String::new()
     } else {
         // SAFETY: `tm_zone` aponta para uma string C estática da libc.
         unsafe { std::ffi::CStr::from_ptr(tm.tm_zone) }.to_string_lossy().into_owned()
     };
-    (tm.tm_gmtoff as i64, nome)
+    (tm.tm_gmtoff as i64, name_str)
 }
 
-/// O fuso local no Windows no instante `segundos`, como a VM
+/// O fuso local no Windows no instante `seconds`, como a VM
 /// (runtime/vm/os_win.cc: `LocalTime`, `GetTimeZoneOffsetInSeconds`,
 /// `GetDaylightSavingBiasInSeconds`, `GetTimeZoneName`):
 ///
@@ -102,18 +102,18 @@ fn fuso_local(segundos: i64) -> (i64, String) {
 /// VM dá 01:00 (a meia-noite caiu no horário de verão daquele ano), e todo
 /// `DateTime` de verão de um ano passado saía com o deslocamento errado.
 #[cfg(windows)]
-fn fuso_local(segundos: i64) -> (i64, String) {
+fn local_timezone(seconds: i64) -> (i64, String) {
     #[repr(C)]
     #[derive(Clone, Copy)]
     struct SystemTime {
-        ano: u16,
-        mes: u16,
-        dia_da_semana: u16,
-        dia: u16,
-        hora: u16,
-        minuto: u16,
-        segundo: u16,
-        milissegundo: u16,
+        year: u16,
+        month: u16,
+        weekday: u16,
+        day: u16,
+        hour: u16,
+        minute: u16,
+        second: u16,
+        millisecond: u16,
     }
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -129,29 +129,29 @@ fn fuso_local(segundos: i64) -> (i64, String) {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetTimeZoneInformation(tz: *mut TimeZoneInformation) -> u32;
-        fn GetTimeZoneInformationForYear(ano: u16, dtzi: *const u8, tz: *mut TimeZoneInformation) -> i32;
+        fn GetTimeZoneInformationForYear(year: u16, dtzi: *const u8, tz: *mut TimeZoneInformation) -> i32;
         fn FileTimeToSystemTime(ft: *const u64, st: *mut SystemTime) -> i32;
         fn SystemTimeToTzSpecificLocalTime(tz: *const TimeZoneInformation, utc: *const SystemTime, local: *mut SystemTime) -> i32;
     }
     unsafe extern "C" {
         fn _tzset();
-        fn _get_timezone(segundos: *mut i32) -> i32;
+        fn _get_timezone(seconds: *mut i32) -> i32;
     }
     const TIME_ZONE_ID_INVALID: u32 = 0xFFFF_FFFF;
     // 1601-01-01 → 1970-01-01, em unidades de 100 ns (`kTimeEpoc`).
-    const EPOCA_DO_FILETIME: i64 = 116_444_736_000_000_000;
+    const FILETIME_EPOCH: i64 = 116_444_736_000_000_000;
 
     // `LocalTime`: o instante em horário de verão? (`None`: a conversão falhou.)
     // SAFETY: as estruturas são só dados (zeros são válidos) e as funções
     // escrevem nelas.
-    let em_verao = (|| unsafe {
-        let ft = EPOCA_DO_FILETIME.checked_add(segundos.checked_mul(10_000_000)?)? as u64;
+    let in_dst = (|| unsafe {
+        let ft = FILETIME_EPOCH.checked_add(seconds.checked_mul(10_000_000)?)? as u64;
         let mut utc: SystemTime = std::mem::zeroed();
         if FileTimeToSystemTime(&ft, &mut utc) == 0 {
             return None;
         }
         let mut tz: TimeZoneInformation = std::mem::zeroed();
-        if GetTimeZoneInformationForYear(utc.ano, std::ptr::null(), &mut tz) == 0 {
+        if GetTimeZoneInformationForYear(utc.year, std::ptr::null(), &mut tz) == 0 {
             return None;
         }
         let mut local: SystemTime = std::mem::zeroed();
@@ -161,80 +161,80 @@ fn fuso_local(segundos: i64) -> (i64, String) {
         if tz.daylight_bias == 0 {
             return Some(false);
         }
-        let com_vies = local.hora;
+        let with_bias = local.hour;
         tz.daylight_bias = 0;
         if SystemTimeToTzSpecificLocalTime(&tz, &utc, &mut local) == 0 {
             return None;
         }
-        Some(com_vies != local.hora)
+        Some(with_bias != local.hour)
     })();
     // SAFETY: idem.
-    let mut atual: TimeZoneInformation = unsafe { std::mem::zeroed() };
-    let modo = unsafe { GetTimeZoneInformation(&mut atual) };
-    let deslocamento = match em_verao {
+    let mut current: TimeZoneInformation = unsafe { std::mem::zeroed() };
+    let mode = unsafe { GetTimeZoneInformation(&mut current) };
+    let offset = match in_dst {
         None => 0, // "Return zero like V8 does."
-        Some(verao) => {
-            let mut oeste = 0i32;
+        Some(dst) => {
+            let mut west = 0i32;
             // SAFETY: `_tzset` só lê o ambiente e o fuso do sistema;
             // `_get_timezone` escreve no inteiro.
             unsafe {
                 _tzset();
-                _get_timezone(&mut oeste);
+                _get_timezone(&mut west);
             }
-            let mut d = -(oeste as i64);
-            if verao {
-                let vies_de_verao =
-                    if modo == TIME_ZONE_ID_INVALID { -60 * 60 } else { atual.daylight_bias as i64 * 60 };
-                d -= vies_de_verao;
+            let mut d = -(west as i64);
+            if dst {
+                let dst_bias =
+                    if mode == TIME_ZONE_ID_INVALID { -60 * 60 } else { current.daylight_bias as i64 * 60 };
+                d -= dst_bias;
             }
             d
         }
     };
-    let nome = match em_verao {
-        _ if modo == TIME_ZONE_ID_INVALID => String::new(),
+    let name_str = match in_dst {
+        _ if mode == TIME_ZONE_ID_INVALID => String::new(),
         None => String::new(),
-        Some(verao) => {
-            let nome = if verao { &atual.daylight_name } else { &atual.standard_name };
-            let fim = nome.iter().position(|c| *c == 0).unwrap_or(nome.len());
-            String::from_utf16_lossy(&nome[..fim])
+        Some(dst) => {
+            let name_str = if dst { &current.daylight_name } else { &current.standard_name };
+            let end = name_str.iter().position(|c| *c == 0).unwrap_or(name_str.len());
+            String::from_utf16_lossy(&name_str[..end])
         }
     };
-    (deslocamento, nome)
+    (offset, name_str)
 }
 
 /// `DateTime_timeZoneOffsetInSeconds`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DateTime_timeZoneOffsetInSeconds(segundos: i64) -> i64 {
-    fuso_local(segundos).0
+pub extern "C" fn dartforge_nativo_DateTime_timeZoneOffsetInSeconds(seconds: i64) -> i64 {
+    local_timezone(seconds).0
 }
 
 /// `DateTime_timeZoneName`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DateTime_timeZoneName(segundos: i64) -> i64 {
-    HEAP.with(|h| h.borrow_mut().alocar_str(&fuso_local(segundos).1))
+pub extern "C" fn dartforge_nativo_DateTime_timeZoneName(seconds: i64) -> i64 {
+    HEAP.with(|h| h.borrow_mut().allocate_str(&local_timezone(seconds).1))
 }
 
 /// Entropia do sistema: o `RandomState` do Rust é semeado pelo gerador
 /// seguro do sistema operacional em cada processo; cada chamada mistura um
 /// contador, então valores seguidos diferem.
-fn entropia() -> u64 {
+fn entropy() -> u64 {
     use std::hash::{BuildHasher, Hasher};
-    static CONTADOR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u64(CONTADOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    h.write_u64(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     h.finish()
 }
 
 /// `Random_initialSeed`: a semente de `Random()` sem argumento.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Random_initialSeed() -> i64 {
-    entropia() as i64
+    entropy() as i64
 }
 
 /// `SecureRandom_getBytes(n)`: `n` (1 a 8) bytes aleatórios num inteiro.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_SecureRandom_getBytes(n: i64) -> i64 {
-    let v = entropia();
+    let v = entropy();
     if n >= 8 { v as i64 } else { (v & ((1u64 << (8 * n.max(0))) - 1)) as i64 }
 }
 
@@ -252,36 +252,36 @@ pub extern "C" fn dartforge_nativo_Uri_isWindowsPlatform() -> u8 {
 
 /// `Object.==` (`Object_equals`): identidade.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Object_equals(this: i64, outro: i64) -> u8 {
-    dartforge_identical(this, outro)
+pub extern "C" fn dartforge_nativo_Object_equals(this: i64, other_one: i64) -> u8 {
+    dartforge_identical(this, other_one)
 }
 
-/// `Object.toString()` (`Object_toString`): `Instance of 'Classe'`.
+/// `Object.toString()` (`Object_toString`): `Instance of 'Class'`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
     // O `Object_toString` da VM também escreve os números (o `_Mint` e o
     // `_Double` não têm `toString` próprio na fonte): pelo cid, sem desencaixar
     // o que não é número.
-    let (inteiro, real) = HEAP.with(|h| {
+    let (integer, real) = HEAP.with(|h| {
         let h = h.borrow();
-        (h.int_de(this), h.double_de(this))
+        (h.int_of(this), h.double_of(this))
     });
-    if let Some(i) = inteiro {
+    if let Some(i) = integer {
         return dartforge_to_string_i64(i);
     }
     if let Some(d) = real {
         return dartforge_nativo_Double_toString(d);
     }
-    if let Some(t) = texto_simd(this) {
-        return HEAP.with(|h| h.borrow_mut().alocar_str(&t));
+    if let Some(t) = simd_string(this) {
+        return HEAP.with(|h| h.borrow_mut().allocate_str(&t));
     }
     let cid = dartforge_value_class(this);
     // Genérica com argumentos reificados: o nome inclui os argumentos
     // (`Instance of 'Caixa<int>'`), como a VM; sem argumentos, o nome
     // registrado da classe.
-    let nome = texto_com_argumentos(this)
+    let name_str = text_with_arguments(this)
         .unwrap_or_else(|| CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default());
-    HEAP.with(|h| h.borrow_mut().alocar_str(&format!("Instance of '{nome}'")))
+    HEAP.with(|h| h.borrow_mut().allocate_str(&format!("Instance of '{name_str}'")))
 }
 
 /// `Object._haveSameRuntimeType(a, b)`: a mesma classe (os argumentos de
@@ -299,42 +299,42 @@ pub extern "C" fn dartforge_nativo_Object_runtimeType(this: i64) -> i64 {
 }
 
 // Referências fracas e efêmeros (`WeakReference`, `Expando`): o estado mora
-// nas tabelas `fracas`/`efemeros` do heap, por handle, que a coleta purga
+// nas tabelas `weak_refs`/`ephemerons` do heap, por handle, que a coleta purga
 // pelo bit de marca (`heap.rs`).
 
 /// `WeakReference.target` (`WeakReference_getTarget`): o alvo, ou null se
 /// foi coletado.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_WeakReference_getTarget(this: i64) -> i64 {
-    HEAP.with(|h| h.borrow().fracas.get(&this).copied().unwrap_or(0))
+    HEAP.with(|h| h.borrow().weak_refs.get(&this).copied().unwrap_or(0))
 }
 
 /// `_WeakReference._target =` (`WeakReference_setTarget`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakReference_setTarget(this: i64, alvo: i64) {
-    HEAP.with(|h| h.borrow_mut().fracas.insert(this, alvo));
+pub extern "C" fn dartforge_nativo_WeakReference_setTarget(this: i64, target: i64) {
+    HEAP.with(|h| h.borrow_mut().weak_refs.insert(this, target));
 }
 
 /// `_WeakProperty.key` (`WeakProperty_getKey`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_WeakProperty_getKey(this: i64) -> i64 {
-    HEAP.with(|h| h.borrow().efemeros.get(&this).map_or(0, |p| p.0))
+    HEAP.with(|h| h.borrow().ephemerons.get(&this).map_or(0, |p| p.0))
 }
 
 /// `_WeakProperty.key =` (`WeakProperty_setKey`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakProperty_setKey(this: i64, chave: i64) {
-    HEAP.with(|h| h.borrow_mut().efemeros.entry(this).or_insert((0, 0)).0 = chave);
+pub extern "C" fn dartforge_nativo_WeakProperty_setKey(this: i64, key: i64) {
+    HEAP.with(|h| h.borrow_mut().ephemerons.entry(this).or_insert((0, 0)).0 = key);
 }
 
 /// `_WeakProperty.value` (`WeakProperty_getValue`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_WeakProperty_getValue(this: i64) -> i64 {
-    HEAP.with(|h| h.borrow().efemeros.get(&this).map_or(0, |p| p.1))
+    HEAP.with(|h| h.borrow().ephemerons.get(&this).map_or(0, |p| p.1))
 }
 
 /// `_WeakProperty.value =` (`WeakProperty_setValue`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_WeakProperty_setValue(this: i64, valor: i64) {
-    HEAP.with(|h| h.borrow_mut().efemeros.entry(this).or_insert((0, 0)).1 = valor);
+pub extern "C" fn dartforge_nativo_WeakProperty_setValue(this: i64, value: i64) {
+    HEAP.with(|h| h.borrow_mut().ephemerons.entry(this).or_insert((0, 0)).1 = value);
 }

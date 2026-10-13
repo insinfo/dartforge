@@ -44,39 +44,39 @@ fn main() {
     }
     println!("cargo::rustc-link-search=native={}", libdir.display());
     println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_LINK");
-    let modo = std::env::var("DARTFORGE_LLVM_LINK").unwrap_or_else(|_| "auto".to_owned());
-    let alvo_windows = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
-    if alvo_windows {
+    let mode = std::env::var("DARTFORGE_LLVM_LINK").unwrap_or_else(|_| "auto".to_owned());
+    let windows_target = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
+    if windows_target {
         // O pacote oficial de Windows só permite a DLL da API C (topo deste arquivo).
-        assert!(modo != "static", "DARTFORGE_LLVM_LINK=static não é suportado no Windows: ver o topo de crates/llvm/build.rs");
+        assert!(mode != "static", "DARTFORGE_LLVM_LINK=static não é suportado no Windows: ver o topo de crates/llvm/build.rs");
         println!("cargo::rustc-link-lib=dylib={}", shared_library_name());
         return;
     }
-    match modo.as_str() {
+    match mode.as_str() {
         "shared" => {
-            if let Err(motivo) = link_shared(&prefix) {
+            if let Err(reason) = link_shared(&prefix) {
                 panic!(
-                    "DARTFORGE_LLVM_LINK=shared, mas o LLVM em {} não oferece a biblioteca compartilhada: {motivo}",
+                    "DARTFORGE_LLVM_LINK=shared, mas o LLVM em {} não oferece a biblioteca compartilhada: {reason}",
                     prefix.display()
                 );
             }
         }
         "static" => {
-            if let Err(motivo) = link_static(&prefix) {
-                panic!("DARTFORGE_LLVM_LINK=static, mas o LLVM em {} não oferece as bibliotecas estáticas: {motivo}", prefix.display());
+            if let Err(reason) = link_static(&prefix) {
+                panic!("DARTFORGE_LLVM_LINK=static, mas o LLVM em {} não oferece as bibliotecas estáticas: {reason}", prefix.display());
             }
         }
         "auto" => {
-            if let Err(compartilhada) = link_shared(&prefix)
-                && let Err(estatica) = link_static(&prefix)
+            if let Err(shared_one) = link_shared(&prefix)
+                && let Err(static_one) = link_static(&prefix)
             {
                 panic!(
-                    "o LLVM em {} não oferece nem a ligação compartilhada ({compartilhada}) nem a estática ({estatica})",
+                    "o LLVM em {} não oferece nem a ligação compartilhada ({shared_one}) nem a estática ({static_one})",
                     prefix.display()
                 );
             }
         }
-        outro => panic!("DARTFORGE_LLVM_LINK={outro}: use shared, static ou auto"),
+        other_one => panic!("DARTFORGE_LLVM_LINK={other_one}: use shared, static ou auto"),
     }
 }
 
@@ -109,14 +109,14 @@ fn llvm_config(prefix: &Path, args: &[&str]) -> Result<String, String> {
 /// caminho do sistema, ou por `LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH`); os
 /// binários e testes deste crate levam o `rpath` do `lib` do prefixo.
 fn link_shared(prefix: &Path) -> Result<(), String> {
-    exigir_arquivos(prefix, "--link-shared")?;
+    require_files(prefix, "--link-shared")?;
     let mut args = vec!["--link-shared", "--libs"];
     args.extend(COMPONENTES);
     let libs = llvm_config(prefix, &args)?;
-    let sistema = llvm_config(prefix, &["--link-shared", "--system-libs"]).unwrap_or_default();
-    for lib in libs.split_whitespace().chain(sistema.split_whitespace()) {
-        if let Some(nome) = lib.strip_prefix("-l") {
-            println!("cargo::rustc-link-lib=dylib={nome}");
+    let system = llvm_config(prefix, &["--link-shared", "--system-libs"]).unwrap_or_default();
+    for lib in libs.split_whitespace().chain(system.split_whitespace()) {
+        if let Some(name) = lib.strip_prefix("-l") {
+            println!("cargo::rustc-link-lib=dylib={name}");
         }
     }
     println!("cargo::rustc-link-arg=-Wl,-rpath,{}", prefix.join("lib").display());
@@ -134,13 +134,13 @@ fn link_shared(prefix: &Path) -> Result<(), String> {
 /// continua valendo é a ABI da biblioteca C++ do sistema (`libstdc++` ou
 /// `libc++`), com que o pacote foi compilado.
 fn link_static(prefix: &Path) -> Result<(), String> {
-    exigir_arquivos(prefix, "--link-static")?;
+    require_files(prefix, "--link-static")?;
     let mut args = vec!["--link-static", "--libs"];
     args.extend(COMPONENTES);
     let libs = llvm_config(prefix, &args)?;
     for lib in libs.split_whitespace() {
-        if let Some(nome) = lib.strip_prefix("-l") {
-            println!("cargo::rustc-link-lib=static={nome}");
+        if let Some(name) = lib.strip_prefix("-l") {
+            println!("cargo::rustc-link-lib=static={name}");
         }
     }
     // As bibliotecas do sistema que o pacote declara valem para o LLVM
@@ -151,24 +151,24 @@ fn link_static(prefix: &Path) -> Result<(), String> {
     //   usa-se o arquivo se existir aqui, senão a compressão fica de fora
     //   (o JIT não lê seção comprimida).
     for lib in llvm_config(prefix, &["--link-static", "--system-libs"])?.split_whitespace() {
-        if let Some(nome) = lib.strip_prefix("-l") {
-            if nome == "xml2" && !libs.contains("WindowsManifest") {
+        if let Some(name) = lib.strip_prefix("-l") {
+            if name == "xml2" && !libs.contains("WindowsManifest") {
                 continue;
             }
-            println!("cargo::rustc-link-lib=dylib={nome}");
+            println!("cargo::rustc-link-lib=dylib={name}");
         } else {
-            let caminho = Path::new(lib);
-            let nome = caminho.file_stem().and_then(|n| n.to_str()).unwrap_or_default().trim_start_matches("lib");
+            let file_path = Path::new(lib);
+            let name = file_path.file_stem().and_then(|n| n.to_str()).unwrap_or_default().trim_start_matches("lib");
             if lib.ends_with(".tbd") || lib.ends_with(".dylib") || lib.ends_with(".so") {
                 // O macOS devolve caminhos (`/usr/lib/libz.tbd`); o nome basta.
-                println!("cargo::rustc-link-lib=dylib={nome}");
-            } else if lib.ends_with(".a") && caminho.is_file() {
-                if let Some(dir) = caminho.parent() {
+                println!("cargo::rustc-link-lib=dylib={name}");
+            } else if lib.ends_with(".a") && file_path.is_file() {
+                if let Some(dir) = file_path.parent() {
                     println!("cargo::rustc-link-search=native={}", dir.display());
                 }
-                println!("cargo::rustc-link-lib=static={nome}");
-            } else if let Some(diretiva) = shared_system_library(nome) {
-                println!("{diretiva}");
+                println!("cargo::rustc-link-lib=static={name}");
+            } else if let Some(directive) = shared_system_library(name) {
+                println!("{directive}");
             } else {
                 println!("cargo::warning=biblioteca do sistema {lib} ausente; instale o pacote de desenvolvimento dela");
             }
@@ -181,14 +181,14 @@ fn link_static(prefix: &Path) -> Result<(), String> {
 
 /// Confere, antes de emitir qualquer diretiva, que os arquivos das
 /// bibliotecas dos [`COMPONENTES`] existem no modo pedido: pelo código de
-/// saída do `llvm-config <modo> --libfiles` (e não pelo texto da mensagem)
+/// saída do `llvm-config <mode> --libfiles` (e não pelo texto da mensagem)
 /// e pela presença de cada arquivo listado.
-fn exigir_arquivos(prefix: &Path, modo: &str) -> Result<(), String> {
-    let mut args = vec![modo, "--libfiles"];
+fn require_files(prefix: &Path, mode: &str) -> Result<(), String> {
+    let mut args = vec![mode, "--libfiles"];
     args.extend(COMPONENTES);
-    let arquivos = llvm_config(prefix, &args)?;
-    if let Some(falta) = arquivos.split_whitespace().find(|a| !Path::new(a).is_file()) {
-        return Err(format!("{falta} não existe"));
+    let files = llvm_config(prefix, &args)?;
+    if let Some(missing) = files.split_whitespace().find(|a| !Path::new(a).is_file()) {
+        return Err(format!("{missing} não existe"));
     }
     Ok(())
 }
@@ -219,25 +219,25 @@ const FALLBACK_PREFIX: &str = if cfg!(windows) {
     "/usr/lib/llvm-22"
 };
 
-/// A biblioteca compartilhada `lib<nome>` do sistema, quando o `.a` que o
-/// pacote do LLVM declara não existe aqui: `lib<nome>.so` se o pacote de
+/// A biblioteca compartilhada `lib<name>` do sistema, quando o `.a` que o
+/// pacote do LLVM declara não existe aqui: `lib<name>.so` se o pacote de
 /// desenvolvimento estiver instalado, senão a versão de execução
-/// (`lib<nome>.so.1`) pelo nome literal.
-fn shared_system_library(nome: &str) -> Option<String> {
+/// (`lib<name>.so.1`) pelo nome literal.
+fn shared_system_library(name: &str) -> Option<String> {
     let dirs = ["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/local/lib", "/lib/x86_64-linux-gnu"];
     for dir in dirs {
         let d = Path::new(dir);
-        if d.join(format!("lib{nome}.so")).is_file() {
-            return Some(format!("cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib={nome}"));
+        if d.join(format!("lib{name}.so")).is_file() {
+            return Some(format!("cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib={name}"));
         }
-        let Ok(entradas) = std::fs::read_dir(d) else { continue };
-        let mut versoes: Vec<String> = entradas
+        let Ok(entries) = std::fs::read_dir(d) else { continue };
+        let mut versions: Vec<String> = entries
             .flatten()
             .filter_map(|e| e.file_name().into_string().ok())
-            .filter(|n| n.starts_with(&format!("lib{nome}.so.")))
+            .filter(|n| n.starts_with(&format!("lib{name}.so.")))
             .collect();
-        versoes.sort_by_key(|n| n.len());
-        if let Some(v) = versoes.first() {
+        versions.sort_by_key(|n| n.len());
+        if let Some(v) = versions.first() {
             return Some(format!("cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib:+verbatim={v}"));
         }
     }

@@ -19,7 +19,7 @@ const K: u64 = 0x517c_c1b7_2722_0a95;
 
 impl Fx {
     #[inline]
-    fn palavra(&mut self, w: u64) {
+    fn word(&mut self, w: u64) {
         self.0 = (self.0.rotate_left(5) ^ w).wrapping_mul(K);
     }
 }
@@ -27,39 +27,39 @@ impl Fx {
 impl Hasher for Fx {
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        let (pedacos, resto) = bytes.as_chunks::<8>();
-        for p in pedacos {
-            self.palavra(u64::from_le_bytes(*p));
+        let (chunks, rest) = bytes.as_chunks::<8>();
+        for p in chunks {
+            self.word(u64::from_le_bytes(*p));
         }
-        if !resto.is_empty() {
+        if !rest.is_empty() {
             let mut b = [0u8; 8];
-            b[..resto.len()].copy_from_slice(resto);
-            self.palavra(u64::from_le_bytes(b));
+            b[..rest.len()].copy_from_slice(rest);
+            self.word(u64::from_le_bytes(b));
         }
     }
     #[inline]
     fn write_u8(&mut self, i: u8) {
-        self.palavra(u64::from(i));
+        self.word(u64::from(i));
     }
     #[inline]
     fn write_u16(&mut self, i: u16) {
-        self.palavra(u64::from(i));
+        self.word(u64::from(i));
     }
     #[inline]
     fn write_u32(&mut self, i: u32) {
-        self.palavra(u64::from(i));
+        self.word(u64::from(i));
     }
     #[inline]
     fn write_u64(&mut self, i: u64) {
-        self.palavra(i);
+        self.word(i);
     }
     #[inline]
     fn write_usize(&mut self, i: usize) {
-        self.palavra(i as u64);
+        self.word(i as u64);
     }
     #[inline]
     fn write_i64(&mut self, i: i64) {
-        self.palavra(i as u64);
+        self.word(i as u64);
     }
     #[inline]
     fn finish(&self) -> u64 {

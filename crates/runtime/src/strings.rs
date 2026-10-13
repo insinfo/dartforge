@@ -3,7 +3,7 @@
 //
 // As strings são blocos `_OneByteString`/`_TwoByteString` do espaço de objetos
 // (`textos.rs`, docs/NATIVO-ESPACO-UNIFICADO.md §2.5): lidas pela vista
-// (`Heap::texto`, uma `TextoRef` emprestada do bloco, sem cópia) e criadas em
+// (`Heap::text`, uma `TextoRef` emprestada do bloco, sem cópia) e criadas em
 // uma alocação na forma canônica. Todo índice, comprimento e busca daqui é em
 // unidades de código, como no `dart:core`; nada passa por `String` do Rust (que
 // perderia os surrogates soltos).
@@ -14,22 +14,22 @@
 
 /// Aloca uma string com as unidades de `t` (forma canônica). O chamador
 /// enraíza o resultado.
-fn alocar_texto(t: Texto) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().alocar_texto(t.vista()))
+fn allocate_string(t: Texto) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().allocate_string(t.vista()))
 }
 
 /// Aloca uma string a partir de texto que o runtime formatou (UTF-8 válido).
-fn alocar_str(s: &str) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().alocar_str(s))
+fn allocate_str(s: &str) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().allocate_str(s))
 }
 
 /// Empresta a vista da string `handle`, sem copiar. `f` não pode alocar no
 /// heap (o empréstimo está aberto); quem aloca o resultado faz isso depois.
 /// Um valor que não é string é bug do compilador (N4).
-fn com_texto<R>(handle: i64, f: impl FnOnce(crate::textos::TextoRef<'_>) -> R) -> R {
+fn with_string<R>(handle: i64, f: impl FnOnce(crate::textos::TextoRef<'_>) -> R) -> R {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        match heap.texto(handle) {
+        match heap.text(handle) {
             Some(t) => f(t),
             None => panic!("bug do compilador: string esperada\nhandle {handle}"),
         }
@@ -38,47 +38,47 @@ fn com_texto<R>(handle: i64, f: impl FnOnce(crate::textos::TextoRef<'_>) -> R) -
 
 /// A cópia de construção das unidades de uma string (para os algoritmos que
 /// alocam no meio). Não string: `None`.
-fn copia_de_texto(handle: i64) -> Option<Texto> {
-    HEAP.with(|heap| heap.borrow().texto(handle).map(crate::textos::TextoRef::para_texto))
+fn string_copy(handle: i64) -> Option<Texto> {
+    HEAP.with(|heap| heap.borrow().text(handle).map(crate::textos::TextoRef::to_string_fn))
 }
 
 /// A cópia de uma string; um valor que não é string é bug do compilador (N4).
-fn texto_copiado(handle: i64) -> Texto {
-    com_texto(handle, |t| t.para_texto())
+fn copied_string(handle: i64) -> Texto {
+    with_string(handle, |t| t.to_string_fn())
 }
 
-/// Lança `RangeError.range(valor, min, max, nome)`, como o
+/// Lança `RangeError.range(value, min, max, name)`, como o
 /// `RangeError.checkValidRange`/`checkValueInInterval` do `dart:core`.
-fn lancar_range(valor: i64, min: i64, max: i64, nome: &str) {
-    let n = alocar_str(nome);
-    let err = com_raizes(&[n], || dartforge_range_error_range(valor, min, max, n, 0));
+fn throw_range_err(value: i64, min: i64, max: i64, name: &str) {
+    let n = allocate_str(name);
+    let err = with_roots(&[n], || dartforge_range_error_range(value, min, max, n, 0));
     dartforge_exception_throw(err, 3);
 }
 
 /// `RangeError.checkValidRange(start, end, length)` do `dart:core`
 /// (`errors.dart`): devolve o fim efetivo, ou lança e devolve `None`.
 /// `end < 0` é o "ausente" do lowering por nome.
-fn faixa_valida(start: i64, end: i64, len: usize) -> Option<(usize, usize)> {
+fn valid_range(start: i64, end: i64, len: usize) -> Option<(usize, usize)> {
     let len = len as i64;
     if start < 0 || start > len {
-        lancar_range(start, 0, len, "start");
+        throw_range_err(start, 0, len, "start");
         return None;
     }
     let end = if end < 0 { len } else { end };
     if start > end || end > len {
-        lancar_range(end, start, len, "end");
+        throw_range_err(end, start, len, "end");
         return None;
     }
     Some((start as usize, end as usize))
 }
 
-/// O `int` de um elemento de lista (`Valor::Int` da forma compacta, `Smi` ou
+/// O `int` de um elemento de lista (`Value::Int` da forma compacta, `Smi` ou
 /// `_Mint`); `None` se não é `int`.
-fn inteiro_do_valor(heap: &Heap, v: crate::heap::Valor) -> Option<i64> {
+fn value_int(heap: &Heap, v: crate::heap::Value) -> Option<i64> {
     match v {
-        crate::heap::Valor::Int(x) => Some(x),
-        crate::heap::Valor::Ref(r) if crate::layout::smi::e_smi(r) => Some(crate::layout::smi::valor(r)),
-        crate::heap::Valor::Ref(r) if crate::layout::e_objeto(r) => heap.int_de(r),
+        crate::heap::Value::Int(x) => Some(x),
+        crate::heap::Value::Ref(r) if crate::layout::smi::is_smi(r) => Some(crate::layout::smi::value(r)),
+        crate::heap::Value::Ref(r) if crate::layout::is_object(r) => heap.int_of(r),
         _ => None,
     }
 }
@@ -101,26 +101,26 @@ pub unsafe extern "C" fn dartforge_string_new(ptr: *const u8, len: i64) -> i64 {
     // ocupar o mesmo endereço depois de uma recarga do JIT. Sem isto, cada
     // avaliação convertia os bytes para UTF-16 e procurava no mapa dos
     // literais do heap.
-    let chave = (ptr as usize, bytes.len());
-    let achado = LITERAIS_POR_ENDERECO.with(|m| m.borrow().get(&chave).and_then(|(b, h)| (**b == *bytes).then_some(*h)));
-    if let Some(h) = achado {
+    let key = (ptr as usize, bytes.len());
+    let found_item = LITERALS_BY_ADDRESS.with(|m| m.borrow().get(&key).and_then(|(b, h)| (**b == *bytes).then_some(*h)));
+    if let Some(h) = found_item {
         return h;
     }
     let t = Texto::de_wtf8(bytes);
     let h = HEAP.with(|heap| heap.borrow_mut().string_literal(t.vista()));
-    LITERAIS_POR_ENDERECO.with(|m| m.borrow_mut().insert(chave, (bytes.into(), h)));
+    LITERALS_BY_ADDRESS.with(|m| m.borrow_mut().insert(key, (bytes.into(), h)));
     h
 }
 
 thread_local! {
     /// `dartforge_string_new`: (endereço, comprimento) da constante → os
     /// bytes e o handle do literal (permanente no heap desta thread).
-    static LITERAIS_POR_ENDERECO: RefCell<crate::hash::HashMap<(usize, usize), (Box<[u8]>, i64)>> =
+    static LITERALS_BY_ADDRESS: RefCell<crate::hash::HashMap<(usize, usize), (Box<[u8]>, i64)>> =
         RefCell::new(crate::hash::HashMap::default());
 }
 
 /// Os pares de dígitos de 00 a 99, para escrever dois dígitos por divisão.
-const PARES_DECIMAIS: &[u8; 200] = b"\
+const DECIMAL_PAIRS: &[u8; 200] = b"\
 0001020304050607080910111213141516171819\
 2021222324252627282930313233343536373839\
 4041424344454647484950515253545556575859\
@@ -129,19 +129,19 @@ const PARES_DECIMAIS: &[u8; 200] = b"\
 
 /// Os dígitos decimais de `v` (com o sinal) no fim de `buf`: o `int.toString()`
 /// da VM, sem a string intermediária. Devolve o índice do primeiro byte.
-fn escrever_decimal(buf: &mut [u8; 20], v: i64) -> usize {
+fn write_decimal(buf: &mut [u8; 20], v: i64) -> usize {
     let mut i = buf.len();
     let mut n = v.unsigned_abs();
     while n >= 100 {
-        let par = (n % 100) as usize * 2;
+        let pair = (n % 100) as usize * 2;
         n /= 100;
         i -= 2;
-        buf[i..i + 2].copy_from_slice(&PARES_DECIMAIS[par..par + 2]);
+        buf[i..i + 2].copy_from_slice(&DECIMAL_PAIRS[pair..pair + 2]);
     }
     if n >= 10 {
-        let par = n as usize * 2;
+        let pair = n as usize * 2;
         i -= 2;
-        buf[i..i + 2].copy_from_slice(&PARES_DECIMAIS[par..par + 2]);
+        buf[i..i + 2].copy_from_slice(&DECIMAL_PAIRS[pair..pair + 2]);
     } else {
         i -= 1;
         buf[i] = b'0' + n as u8;
@@ -160,12 +160,12 @@ fn escrever_decimal(buf: &mut [u8; 20], v: i64) -> usize {
 /// cópia intermediária.
 ///
 /// # Safety
-/// `partes` aponta para `2·n` palavras legíveis (a temporária do emissor); as
+/// `part_list` aponta para `2·n` palavras legíveis (a temporária do emissor); as
 /// strings estão enraizadas pelo emissor.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_string_juntar_tipado(part_list: *const i64, n: i64) -> i64 {
     // SAFETY: o contrato acima.
-    unsafe { juntar_tipado(partes, n, false) }
+    unsafe { join_typed(part_list, n, false) }
 }
 
 /// A interpolação de `dartforge_string_juntar_tipado` sob ARC: entrega um
@@ -177,7 +177,7 @@ pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i
 /// release exatamente uma vez. Não reentra Dart nem deixa exceção pendente.
 ///
 /// # Safety
-/// `partes` aponta para `2·n` palavras legíveis; cada parte de espécie 0 é
+/// `part_list` aponta para `2·n` palavras legíveis; cada parte de espécie 0 é
 /// uma string viva.
 ///
 /// # Panics
@@ -186,61 +186,61 @@ pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
-/// let sete = dartforge_to_string_i64(7);
-/// let partes = [0, sete, 1, -42];
-/// let texto = unsafe { dartforge_arc_string_juntar_owned_v1(partes.as_ptr(), 2) };
-/// assert_eq!(dartforge_arc_observar_heap_v1(texto), 3);
-/// assert_eq!(dartforge_texto_iguais(texto, dartforge_to_string_i64(-742)), 0);
-/// dartforge_arc_release(texto);
+/// let seven = dartforge_to_string_i64(7);
+/// let part_list = [0, seven, 1, -42];
+/// let text = unsafe { dartforge_arc_string_juntar_owned_v1(part_list.as_ptr(), 2) };
+/// assert_eq!(dartforge_arc_observar_heap_v1(text), 3);
+/// assert_eq!(dartforge_texto_iguais(text, dartforge_to_string_i64(-742)), 0);
+/// dartforge_arc_release(text);
 /// dartforge_arc_collect();
-/// assert_eq!(dartforge_arc_observar_heap_v1(texto), 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(text), 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_string_juntar_owned_v1(partes: *const i64, n: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_string_juntar_owned_v1(part_list: *const i64, n: i64) -> i64 {
     // SAFETY: o contrato acima.
-    unsafe { juntar_tipado(partes, n, true) }
+    unsafe { join_typed(part_list, n, true) }
 }
 
 /// O corpo das duas junções; `owned` enraíza as partes e entrega o owner.
-unsafe fn juntar_tipado(partes: *const i64, n: i64, owned: bool) -> i64 {
+unsafe fn join_typed(part_list: *const i64, n: i64, owned: bool) -> i64 {
     let n = usize::try_from(n).expect("número de partes inválido");
     // SAFETY: garantido por quem chama.
-    let partes: &[i64] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(partes, 2 * n) } };
+    let part_list: &[i64] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(part_list, 2 * n) } };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let frame = owned.then(|| {
-            assert!(partes.chunks_exact(2).all(|p| matches!(p[0], 0 | 1)), "espécie de parte inválida");
-            let textos: Vec<i64> = partes.chunks_exact(2).filter(|p| p[0] == 0).map(|p| p[1]).collect();
-            let frame = heap.push_frame_proprietario(textos.len());
+            assert!(part_list.chunks_exact(2).all(|p| matches!(p[0], 0 | 1)), "espécie de parte inválida");
+            let textos: Vec<i64> = part_list.chunks_exact(2).filter(|p| p[0] == 0).map(|p| p[1]).collect();
+            let frame = heap.push_owning_frame(textos.len());
             for (k, &t) in textos.iter().enumerate() { heap.set_root(frame, k, t); }
             frame
         });
         let mut buf = [0u8; 20];
-        let (mut total, mut um) = (0usize, true);
-        for p in partes.chunks_exact(2) {
+        let (mut total, mut one) = (0usize, true);
+        for p in part_list.chunks_exact(2) {
             if p[0] == 1 {
-                total += buf.len() - escrever_decimal(&mut buf, p[1]);
+                total += buf.len() - write_decimal(&mut buf, p[1]);
             } else {
-                let t = heap.texto(p[1]).expect("bug do compilador: string esperada na interpolação");
+                let t = heap.text(p[1]).expect("bug do compilador: string esperada na interpolação");
                 total += t.len();
-                um &= t.cabe_em_um_byte();
+                one &= t.fits_in_one_byte();
             }
         }
-        let r = heap.novo_texto(total, !um);
+        let r = heap.new_string(total, !one);
         let mut pos = 0;
-        for p in partes.chunks_exact(2) {
+        for p in part_list.chunks_exact(2) {
             if p[0] == 1 {
-                let i = escrever_decimal(&mut buf, p[1]);
-                heap.escrever_texto(r, pos, crate::textos::TextoRef::Um(&buf[i..]));
+                let i = write_decimal(&mut buf, p[1]);
+                heap.write_string(r, pos, crate::textos::TextoRef::Um(&buf[i..]));
                 pos += buf.len() - i;
             } else {
-                let k = heap.texto(p[1]).map_or(0, crate::textos::TextoRef::len);
-                heap.copiar_texto(r, pos, p[1], 0, k);
+                let k = heap.text(p[1]).map_or(0, crate::textos::TextoRef::len);
+                heap.copy_string(r, pos, p[1], 0, k);
                 pos += k;
             }
         }
         if let Some(frame) = frame {
-            heap.reter_owner_codigo(r);
+            heap.retain_code_owner(r);
             heap.pop_frame(frame);
         }
         r
@@ -250,45 +250,45 @@ unsafe fn juntar_tipado(partes: *const i64, n: i64, owned: bool) -> i64 {
 /// Concatena strings não nulas; argumentos devem estar enraizados pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_concat(a: i64, b: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().juntar_textos(&[a, b]))
+    HEAP.with(|heap| heap.borrow_mut().join_strings(&[a, b]))
 }
 
 /// Lista expansível de inteiros (sem alocação no meio: a forma compacta).
-fn lista_de_inteiros(valores: Vec<i64>) -> i64 {
+fn int_list(value_list: Vec<i64>) -> i64 {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let n = valores.len();
-        let l = heap.nova_expansivel(n, n, crate::listas::Elemento::Int);
-        for (i, v) in valores.into_iter().enumerate() {
-            heap.lista_set(l, i, crate::heap::Valor::Int(v));
+        let n = value_list.len();
+        let l = heap.new_growable(n, n, crate::listas::Element::Int);
+        for (i, v) in value_list.into_iter().enumerate() {
+            heap.list_set(l, i, crate::heap::Value::Int(v));
         }
         l
     })
 }
 
 /// O padrão de busca: string ou `RegExp` (o programa compilado, cid 16).
-enum Padrao {
+enum Pattern {
     Texto(Texto),
     RegExp(i64),
 }
 
-fn padrao_de(handle: i64) -> Option<Padrao> {
+fn pattern_of(handle: i64) -> Option<Pattern> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        if let Some(t) = heap.texto(handle) {
-            return Some(Padrao::Texto(t.para_texto()));
+        if let Some(t) = heap.text(handle) {
+            return Some(Pattern::Texto(t.to_string_fn()));
         }
-        (crate::layout::e_objeto(handle) && heap.classe(handle) == crate::layout::cid::PROGRAMA_DE_REGEXP)
-            .then_some(Padrao::RegExp(handle))
+        (crate::layout::is_object(handle) && heap.class(handle) == crate::layout::cid::REGEXP_PROGRAM)
+            .then_some(Pattern::RegExp(handle))
     })
 }
 
-/// Próxima ocorrência do padrão a partir de `desde`: (início, comprimento).
-fn proxima(alvo: &Texto, padrao: &Padrao, desde: usize) -> Option<(usize, usize)> {
-    match padrao {
-        Padrao::Texto(p) => alvo.procurar(p, desde).map(|i| (i, p.len())),
-        Padrao::RegExp(p) => {
-            let caps = regexp_casar_em(*p, &alvo.para_vec(), desde, false)?;
+/// Próxima ocorrência do padrão a partir de `since`: (início, comprimento).
+fn next_item(target: &Texto, pattern: &Pattern, since: usize) -> Option<(usize, usize)> {
+    match pattern {
+        Pattern::Texto(p) => target.search_for(p, since).map(|i| (i, p.len())),
+        Pattern::RegExp(p) => {
+            let caps = regexp_match_at(*p, &target.para_vec(), since, false)?;
             Some((caps[0] as usize, (caps[1] - caps[0]) as usize))
         }
     }
@@ -297,78 +297,78 @@ fn proxima(alvo: &Texto, padrao: &Padrao, desde: usize) -> Option<(usize, usize)
 /// `indexOf(padrão, [start])` em unidades; -1 se não houver.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_index_of(handle: i64, pat_handle: i64, start: i64) -> i64 {
-    let t = texto_copiado(handle);
-    let Some(p) = padrao_de(pat_handle) else { return -1 };
+    let t = copied_string(handle);
+    let Some(p) = pattern_of(pat_handle) else { return -1 };
     if start < 0 || start as usize > t.len() {
-        lancar_range(start, 0, t.len() as i64, "start");
+        throw_range_err(start, 0, t.len() as i64, "start");
         return 0;
     }
-    proxima(&t, &p, start as usize).map_or(-1, |(i, _)| i as i64)
+    next_item(&t, &p, start as usize).map_or(-1, |(i, _)| i as i64)
 }
 
 /// Uma parte de uma lista de pedaços: o `bool` antes do texto (a marca de
 /// casamento do `splitMapJoin`) e o texto.
-type Pedaco = (Option<bool>, Texto);
+type Chunk = (Option<bool>, Texto);
 
 /// Lista expansível com os pedaços, na ordem, alocando cada um já com a lista
 /// enraizada (G6: uma coleta no meio vê os pedaços anteriores pela lista).
-fn lista_de_pedacos(itens: Vec<Pedaco>) -> i64 {
-    let lista = HEAP.with(|h| h.borrow_mut().nova_expansivel(0, 0, crate::listas::Elemento::Geral));
-    com_raizes(&[lista], || {
-        for (antes, texto) in itens {
+fn chunk_list(items: Vec<Chunk>) -> i64 {
+    let list = HEAP.with(|h| h.borrow_mut().new_growable(0, 0, crate::listas::Element::General));
+    with_roots(&[list], || {
+        for (before, text) in items {
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
-                if let Some(b) = antes {
-                    h.lista_push(lista, crate::heap::Valor::Bool(b));
+                if let Some(b) = before {
+                    h.list_push(list, crate::heap::Value::Bool(b));
                 }
-                let x = h.alocar_texto(texto.vista());
-                h.lista_push(lista, crate::heap::Valor::Ref(x));
+                let x = h.allocate_string(text.vista());
+                h.list_push(list, crate::heap::Value::Ref(x));
             });
         }
     });
-    lista
+    list
 }
 
-/// `pattern.allMatches(alvo)`: (início, comprimento) de cada casamento, sem
+/// `pattern.allMatches(target)`: (início, comprimento) de cada casamento, sem
 /// sobreposição; depois de um casamento vazio a busca recomeça uma unidade
 /// adiante (`_StringAllMatchesIterator.moveNext`, "Empty match, don't start
 /// at same location again"). Padrão string vazio casa em `0..=length`.
-fn ocorrencias(alvo: &Texto, padrao: &Padrao) -> Vec<(usize, usize)> {
+fn occurrences(target: &Texto, pattern: &Pattern) -> Vec<(usize, usize)> {
     let mut v = Vec::new();
     let mut i = 0;
-    while i <= alvo.len() {
-        let Some((a, n)) = proxima(alvo, padrao, i) else { break };
+    while i <= target.len() {
+        let Some((a, n)) = next_item(target, pattern, i) else { break };
         v.push((a, n));
         i = if n == 0 { a + 1 } else { a + n };
     }
     v
 }
 
-fn padrao_vazio(p: &Padrao) -> bool {
-    matches!(p, Padrao::Texto(t) if t.is_empty())
+fn empty_pattern(p: &Pattern) -> bool {
+    matches!(p, Pattern::Texto(t) if t.is_empty())
 }
 
 /// `padLeft`/`padRight` do `_StringBase`: `delta = width - length`; sem
 /// nada a fazer devolve o próprio receptor; o enchimento é repetido
 /// `delta` vezes inteiro (não é cortado).
-fn preencher(handle: i64, width: i64, pad_handle: i64, esquerda: bool) -> i64 {
-    let t = texto_copiado(handle);
-    let pad = copia_de_texto(pad_handle).unwrap_or_else(|| Texto::de_str(" "));
+fn fill(handle: i64, width: i64, pad_handle: i64, left: bool) -> i64 {
+    let t = copied_string(handle);
+    let pad = string_copy(pad_handle).unwrap_or_else(|| Texto::de_str(" "));
     let delta = width - t.len() as i64;
     if delta <= 0 || pad.is_empty() {
         return handle;
     }
-    let mut saida = TextoMut::new();
-    if !esquerda {
-        saida.push_texto(&t);
+    let mut out = StringMut::new();
+    if !left {
+        out.push_string(&t);
     }
     for _ in 0..delta {
-        saida.push_texto(&pad);
+        out.push_string(&pad);
     }
-    if esquerda {
-        saida.push_texto(&t);
+    if left {
+        out.push_string(&t);
     }
-    alocar_texto(saida.fim())
+    allocate_string(out.end())
 }
 
 /// `toUpperCase`/`toLowerCase` da VM (`String::Transform`, `object.cc`):
@@ -376,37 +376,37 @@ fn preencher(handle: i64, width: i64, pad_handle: i64, esquerda: bool) -> i64 {
 /// (`CaseMapping`), então `'ß'.toUpperCase()` é `'ß'` (o JS dá `SS`).
 /// O mapeamento completo do Rust só é usado quando dá um caractere só. Nada a
 /// mudar devolve o próprio receptor.
-fn transformar(handle: i64, maiuscula: bool) -> i64 {
-    let novo = com_texto(handle, |t| {
+fn transform(handle: i64, uppercase: bool) -> i64 {
+    let new = with_string(handle, |t| {
         // ASCII puro: o caminho de uma passada, sem a tabela Unicode.
         if let crate::textos::TextoRef::Um(b) = t
             && b.is_ascii()
         {
-            let muda = if maiuscula { b.iter().any(u8::is_ascii_lowercase) } else { b.iter().any(u8::is_ascii_uppercase) };
-            if !muda {
+            let changes_flag = if uppercase { b.iter().any(u8::is_ascii_lowercase) } else { b.iter().any(u8::is_ascii_uppercase) };
+            if !changes_flag {
                 return None;
             }
-            let v: Vec<u8> = b.iter().map(|c| if maiuscula { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
+            let v: Vec<u8> = b.iter().map(|c| if uppercase { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
             return Some(Texto::Um(v));
         }
         let mut u = Vec::with_capacity(t.len());
-        let mut mudou = false;
-        for p in t.pontos() {
-            let novo = char::from_u32(p).map_or(p, |c| {
+        let mut changed = false;
+        for p in t.points() {
+            let new = char::from_u32(p).map_or(p, |c| {
                 let mut it: Box<dyn Iterator<Item = char>> =
-                    if maiuscula { Box::new(c.to_uppercase()) } else { Box::new(c.to_lowercase()) };
+                    if uppercase { Box::new(c.to_uppercase()) } else { Box::new(c.to_lowercase()) };
                 match (it.next(), it.next()) {
                     (Some(x), None) => x as u32,
                     _ => p,
                 }
             });
-            mudou |= novo != p;
-            crate::textos::empurrar_ponto(&mut u, novo);
+            changed |= new != p;
+            crate::textos::push_point(&mut u, new);
         }
-        mudou.then(|| Texto::de_unidades(u))
+        changed.then(|| Texto::from_units(u))
     });
-    match novo {
-        Some(t) => alocar_texto(t),
+    match new {
+        Some(t) => allocate_string(t),
         None => handle,
     }
 }
@@ -417,18 +417,18 @@ pub extern "C" fn dartforge_string_repeat(handle: i64, times: i64) -> i64 {
     let times = usize::try_from(times).unwrap_or(0);
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let (n, um) = heap.texto(handle).map_or((0, true), |t| (t.len(), t.cabe_em_um_byte()));
+        let (n, one) = heap.text(handle).map_or((0, true), |t| (t.len(), t.fits_in_one_byte()));
         let total = n.checked_mul(times).expect("string grande demais");
-        let r = heap.novo_texto(total, !um);
+        let r = heap.new_string(total, !one);
         for k in 0..times {
-            heap.copiar_texto(r, k * n, handle, 0, n);
+            heap.copy_string(r, k * n, handle, 0, n);
         }
         r
     })
 }
 
 /// `_StringBase._isTwoByteWhitespace` (`string_patch.dart`), por unidade.
-fn e_espaco_dart(u: u16) -> bool {
+fn is_dart_whitespace(u: u16) -> bool {
     if u <= 32 {
         return u == 32 || (9..=13).contains(&u);
     }
@@ -446,17 +446,17 @@ fn e_espaco_dart(u: u16) -> bool {
 }
 
 /// A faixa sem espaço Dart nas pontas pedidas.
-fn faixa_aparada(t: crate::textos::TextoRef<'_>, esquerda: bool, direita: bool) -> (usize, usize) {
+fn trimmed_range(t: crate::textos::TextoRef<'_>, left: bool, right: bool) -> (usize, usize) {
     let n = t.len();
     let mut a = 0;
-    if esquerda {
-        while a < n && e_espaco_dart(t.unidade(a)) {
+    if left {
+        while a < n && is_dart_whitespace(t.unit(a)) {
             a += 1;
         }
     }
     let mut b = n;
-    if direita {
-        while b > a && e_espaco_dart(t.unidade(b - 1)) {
+    if right {
+        while b > a && is_dart_whitespace(t.unit(b - 1)) {
             b -= 1;
         }
     }
@@ -464,56 +464,56 @@ fn faixa_aparada(t: crate::textos::TextoRef<'_>, esquerda: bool, direita: bool) 
 }
 
 /// `trim`/`trimLeft`/`trimRight`: nada a tirar devolve o próprio receptor.
-fn aparar(handle: i64, esquerda: bool, direita: bool) -> i64 {
-    let (n, (a, b)) = com_texto(handle, |t| (t.len(), faixa_aparada(t, esquerda, direita)));
+fn trim_free(handle: i64, left: bool, right: bool) -> i64 {
+    let (n, (a, b)) = with_string(handle, |t| (t.len(), trimmed_range(t, left, right)));
     if a == 0 && b == n {
         return handle;
     }
-    HEAP.with(|heap| heap.borrow_mut().fatia_de_texto(handle, a, b))
+    HEAP.with(|heap| heap.borrow_mut().string_slice(handle, a, b))
 }
 
 /// O texto aparado de uma string, para os `parse` (sem espaço Dart nas pontas).
-fn texto_para_parse(handle: i64) -> String {
-    com_texto(handle, |t| {
-        let (a, b) = faixa_aparada(t, true, true);
-        t.fatia(a, b).para_string()
+fn string_to_parse(handle: i64) -> String {
+    with_string(handle, |t| {
+        let (a, b) = trimmed_range(t, true, true);
+        t.piece(a, b).para_string()
     })
 }
 
 #[cfg(test)]
-mod testes_juntar_owned {
+mod tests_owned_join {
     use super::*;
 
     #[test]
-    fn juntar_owned_enraiza_partes_copia_unidades_e_solta_no_release() {
+    fn owned_join_roots_parts_copies_units_and_releases_on_release() {
         for arc in [false, true] {
-            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             // As partes perdem a raiz do teste antes da chamada (sem coleta
             // entre as duas): durante a alocação, só a fábrica as protege.
-            let frame = HEAP.with(|h| h.borrow_mut().push_frame_proprietario(2));
-            let um = HEAP.with(|h| h.borrow_mut().alocar_str("parte sem owner"));
-            HEAP.with(|h| h.borrow_mut().set_root(frame, 0, um));
-            let dois = alocar_texto(Texto::de_unidades(vec![0xD800, 0x41]));
+            let frame = HEAP.with(|h| h.borrow_mut().push_owning_frame(2));
+            let one = HEAP.with(|h| h.borrow_mut().allocate_str("parte sem owner"));
+            HEAP.with(|h| h.borrow_mut().set_root(frame, 0, one));
+            let dois = allocate_string(Texto::from_units(vec![0xD800, 0x41]));
             HEAP.with(|h| h.borrow_mut().pop_frame(frame));
-            let partes = [0, um, 1, i64::MIN, 0, dois, 1, 0];
-            let r = unsafe { dartforge_arc_string_juntar_owned_v1(partes.as_ptr(), 4) };
+            let part_list = [0, one, 1, i64::MIN, 0, dois, 1, 0];
+            let r = unsafe { dartforge_arc_string_juntar_owned_v1(part_list.as_ptr(), 4) };
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
-            let esperado: Vec<u16> = "parte sem owner-9223372036854775808".encode_utf16()
+            let expected: Vec<u16> = "parte sem owner-9223372036854775808".encode_utf16()
                 .chain([0xD800, 0x41, u16::from(b'0')]).collect();
             HEAP.with(|h| {
                 let heap = h.borrow();
-                let t = heap.texto(r).unwrap();
-                assert_eq!((0..t.len()).map(|i| t.unidade(i)).collect::<Vec<_>>(), esperado);
+                let t = heap.text(r).unwrap();
+                assert_eq!((0..t.len()).map(|i| t.unit(i)).collect::<Vec<_>>(), expected);
             });
             dartforge_arc_release(r);
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
-            let vazio = unsafe { dartforge_arc_string_juntar_owned_v1(std::ptr::null(), 0) };
-            assert_eq!(dartforge_arc_observar_heap_v1(vazio), 3);
-            dartforge_arc_release(vazio);
-            HEAP.with(|h| { h.replace(anterior); });
+            let empty = unsafe { dartforge_arc_string_juntar_owned_v1(std::ptr::null(), 0) };
+            assert_eq!(dartforge_arc_observar_heap_v1(empty), 3);
+            dartforge_arc_release(empty);
+            HEAP.with(|h| { h.replace(previous); });
         }
     }
 }

@@ -3,7 +3,7 @@
 //!
 //! A lista tipada interna (cids 22–35) é `BRUTO`: o comprimento em `b+16`, o
 //! endereço dos dados em `b+24` (apontando para `b+32`, ou para a memória de fora
-//! com `EXTERNO`) e os bytes. A visão (36–65) é `INSTANCIA` de quatro campos: o
+//! com `EXTERNAL`) e os bytes. A visão (36–65) é `INSTANCIA` de quatro campos: o
 //! comprimento e os dados nos mesmos deslocamentos (calculados na criação: a base
 //! não se move), a base (`Ref`, a lista interna) e o deslocamento em bytes. Os
 //! valores SIMD (19–21) são `BRUTO` de duas palavras, as pistas.
@@ -49,221 +49,221 @@ pub const fn tamanho_do_elemento(t: u8) -> usize {
 }
 
 /// O tipo de elemento da lista tipada ou visão de cid `c` (`None` fora de 22..=65).
-pub const fn tipo_do_cid(c: i32) -> Option<u8> {
-    if cid::e_tipada_interna(c) {
+pub const fn type_of_cid(c: i32) -> Option<u8> {
+    if cid::is_internal_typed(c) {
         Some((c - cid::PRIMEIRA_TIPADA) as u8)
     } else if c == cid::BYTE_DATA_VIEW || c == cid::UNMODIFIABLE_BYTE_DATA_VIEW {
         Some(tipo::BYTE_DATA)
-    } else if cid::e_tipada(c) {
-        Some(((c - cid::PRIMEIRA_VISAO) % cid::TIPOS_DE_ELEMENTO) as u8)
+    } else if cid::is_typed(c) {
+        Some(((c - cid::PRIMEIRA_VISAO) % cid::ELEMENT_TYPES) as u8)
     } else {
         None
     }
 }
 
 /// O cid da visão do tipo `t` (inclusive o `ByteData`), modificável ou não.
-pub const fn cid_da_visao(t: u8, imutavel: bool) -> i32 {
+pub const fn view_cid(t: u8, unmodifiable: bool) -> i32 {
     if t == tipo::BYTE_DATA {
-        if imutavel { cid::UNMODIFIABLE_BYTE_DATA_VIEW } else { cid::BYTE_DATA_VIEW }
+        if unmodifiable { cid::UNMODIFIABLE_BYTE_DATA_VIEW } else { cid::BYTE_DATA_VIEW }
     } else {
-        cid::visao(t, imutavel)
+        cid::visao(t, unmodifiable)
     }
 }
 
 /// O endereço do bloco de um handle.
-const fn bloco(h: Ref) -> i64 {
+const fn block(h: Ref) -> i64 {
     h - layout::DESLOCAMENTO_DO_HANDLE
 }
 
 /// Índices das palavras do corpo (a partir de `b+16`).
-const PALAVRA_COMPRIMENTO: usize = (layout::desl::COMPRIMENTO - layout::desl::CORPO) / 8;
-const PALAVRA_DADOS: usize = (layout::desl::DADOS - layout::desl::CORPO) / 8;
-const PALAVRA_BASE: usize = (layout::desl::BASE_DA_VISAO - layout::desl::CORPO) / 8;
-const PALAVRA_DESLOCAMENTO: usize = (layout::desl::DESLOCAMENTO_DA_VISAO - layout::desl::CORPO) / 8;
+const WORD_LENGTH: usize = (layout::desl::COMPRIMENTO - layout::desl::CORPO) / 8;
+const WORD_DATA: usize = (layout::desl::DADOS - layout::desl::CORPO) / 8;
+const WORD_BASE: usize = (layout::desl::BASE_DA_VISAO - layout::desl::CORPO) / 8;
+const WORD_OFFSET: usize = (layout::desl::DESLOCAMENTO_DA_VISAO - layout::desl::CORPO) / 8;
 /// Campos de uma visão.
-const CAMPOS_DA_VISAO: usize = 4;
+const VIEW_FIELDS: usize = 4;
 
 const _: () = {
-    assert!(PALAVRA_COMPRIMENTO == 0 && PALAVRA_DADOS == 1 && PALAVRA_BASE == 2 && PALAVRA_DESLOCAMENTO == 3);
-    assert!(layout::desl::BYTES_INTERNOS == layout::desl::DADOS + 8);
+    assert!(WORD_LENGTH == 0 && WORD_DATA == 1 && WORD_BASE == 2 && WORD_OFFSET == 3);
+    assert!(layout::desl::INTERNAL_BYTES == layout::desl::DADOS + 8);
 };
 
 /// A vista de uma lista tipada ou visão.
 #[derive(Clone, Copy, Debug)]
-pub struct TipadaRef {
+pub struct TypedRef {
     pub cid: i32,
     /// O `TIPO_*` do elemento ([`tipo`]).
     pub tipo: u8,
     /// O comprimento em elementos.
     pub len: usize,
     /// O primeiro byte.
-    pub dados: *mut u8,
+    pub data: *mut u8,
     /// O tamanho em bytes.
     pub bytes: usize,
-    pub imutavel: bool,
-    pub externa: bool,
+    pub unmodifiable: bool,
+    pub external_one: bool,
     /// A lista de base de uma visão.
     pub base: Option<Ref>,
     /// O deslocamento em bytes de uma visão na base.
-    pub deslocamento: usize,
+    pub offset: usize,
 }
 
-impl TipadaRef {
+impl TypedRef {
     /// Os bytes. Valem enquanto a lista vive e não há alocação sem raiz para ela
     /// (§2.14: o coletor não move).
     ///
     /// # Safety
     /// `self` saiu de [`Heap::tipada`] e a lista ainda vive.
     #[allow(unsafe_code)]
-    pub unsafe fn fatia<'a>(self) -> &'a [u8] {
-        if self.bytes == 0 || self.dados.is_null() {
+    pub unsafe fn piece<'a>(self) -> &'a [u8] {
+        if self.bytes == 0 || self.data.is_null() {
             return &[];
         }
-        // SAFETY: `dados..dados+bytes` é a memória da lista (a do bloco, ou a de
+        // SAFETY: `data..data+bytes` é a memória da lista (a do bloco, ou a de
         // fora de `asTypedList`), viva pelo contrato do chamador.
-        unsafe { std::slice::from_raw_parts(self.dados, self.bytes) }
+        unsafe { std::slice::from_raw_parts(self.data, self.bytes) }
     }
 
-    /// Os bytes graváveis (as regras de [`TipadaRef::fatia`]); o chamador não
+    /// Os bytes graváveis (as regras de [`TypedRef::piece`]); o chamador não
     /// mantém outra fatia da mesma memória.
     ///
     /// # Safety
-    /// Como em [`TipadaRef::fatia`], e sem outra referência viva aos mesmos bytes.
+    /// Como em [`TypedRef::piece`], e sem outra referência viva aos mesmos bytes.
     #[allow(unsafe_code)]
-    pub unsafe fn fatia_mut<'a>(self) -> &'a mut [u8] {
-        if self.bytes == 0 || self.dados.is_null() {
+    pub unsafe fn slice_mut<'a>(self) -> &'a mut [u8] {
+        if self.bytes == 0 || self.data.is_null() {
             return &mut [];
         }
-        // SAFETY: como em `fatia`; a exclusividade é do chamador.
-        unsafe { std::slice::from_raw_parts_mut(self.dados, self.bytes) }
+        // SAFETY: como em `piece`; a exclusividade é do chamador.
+        unsafe { std::slice::from_raw_parts_mut(self.data, self.bytes) }
     }
 }
 
 impl Heap {
     /// Uma lista tipada interna do tipo `tipo` com `len` elementos zerados.
-    pub fn nova_tipada(&mut self, tipo: u8, len: usize) -> Ref {
-        debug_assert!(i32::from(tipo) < cid::TIPOS_DE_ELEMENTO, "lista tipada interna de ByteData");
+    pub fn new_typed(&mut self, tipo: u8, len: usize) -> Ref {
+        debug_assert!(i32::from(tipo) < cid::ELEMENT_TYPES, "lista tipada interna de ByteData");
         // Um comprimento que não cabe no endereçamento satura: o teto do heap
         // encerra com a mensagem de memória, como a VM com `OutOfMemoryError`.
         let bytes = len.checked_mul(tamanho_do_elemento(tipo)).unwrap_or(usize::MAX / 2);
-        let palavras = 2 + bytes.div_ceil(8);
-        let h = self.alocar(cid::tipada(tipo), palavras, flags::BRUTO);
-        let p = self.palavras_mut(h);
-        p[PALAVRA_COMPRIMENTO] = len as i64;
-        p[PALAVRA_DADOS] = bloco(h) + layout::desl::BYTES_INTERNOS as i64;
+        let words = 2 + bytes.div_ceil(8);
+        let h = self.allocate(cid::tipada(tipo), words, flags::BRUTO);
+        let p = self.words_mut(h);
+        p[WORD_LENGTH] = len as i64;
+        p[WORD_DATA] = block(h) + layout::desl::INTERNAL_BYTES as i64;
         h
     }
 
-    /// Uma lista tipada sobre `len` elementos da memória nativa em `endereco`
-    /// (`asTypedList`): `BRUTO` + `EXTERNO`, sem cópia.
-    pub fn tipada_externa(&mut self, tipo: u8, endereco: *mut u8, len: usize) -> Ref {
-        let h = self.alocar(cid::tipada(tipo), 2, flags::BRUTO | flags::EXTERNO);
-        let p = self.palavras_mut(h);
-        p[PALAVRA_COMPRIMENTO] = len as i64;
-        p[PALAVRA_DADOS] = endereco as i64;
+    /// Uma lista tipada sobre `len` elementos da memória nativa em `address`
+    /// (`asTypedList`): `BRUTO` + `EXTERNAL`, sem cópia.
+    pub fn external_typed(&mut self, tipo: u8, address: *mut u8, len: usize) -> Ref {
+        let h = self.allocate(cid::tipada(tipo), 2, flags::BRUTO | flags::EXTERNAL);
+        let p = self.words_mut(h);
+        p[WORD_LENGTH] = len as i64;
+        p[WORD_DATA] = address as i64;
         h
     }
 
-    /// Uma visão (`cid`) de `len` elementos sobre `base`, a partir de `deslocamento`
+    /// Uma visão (`cid`) de `len` elementos sobre `base`, a partir de `offset`
     /// bytes. Uma visão passada como base é resolvida para a lista interna dela
     /// (os deslocamentos se somam), como no `typed_data_patch.dart`.
-    pub fn nova_visao(&mut self, cid: i32, base: Ref, deslocamento: usize, len: usize) -> Ref {
+    pub fn new_view(&mut self, cid: i32, base: Ref, offset: usize, len: usize) -> Ref {
         let Some(b) = self.tipada(base) else {
             panic!("bug do compilador: visão sobre algo que não é lista tipada");
         };
-        let (interna, deslocamento) = match b.base {
-            Some(i) => (i, b.deslocamento + deslocamento),
-            None => (base, deslocamento),
+        let (internal_one, offset) = match b.base {
+            Some(i) => (i, b.offset + offset),
+            None => (base, offset),
         };
         // O endereço é calculado antes de alocar: a base não se move.
-        let dados = (b.dados as i64).wrapping_add((deslocamento - b.deslocamento) as i64);
-        let quadro = self.push_frame_proprietario(1);
-        self.set_root(quadro, 0, interna);
-        let h = self.alocar_instancia(cid, CAMPOS_DA_VISAO);
+        let data = (b.data as i64).wrapping_add((offset - b.offset) as i64);
+        let frame = self.push_owning_frame(1);
+        self.set_root(frame, 0, internal_one);
+        let h = self.allocate_instance(cid, VIEW_FIELDS);
         // Objeto novo (jovem): as gravações não precisam de barreira; a da base
         // acende o bit de referência no mapa.
-        self.definir_campo(h, PALAVRA_COMPRIMENTO, len as i64, false);
-        self.definir_campo(h, PALAVRA_DADOS, dados, false);
-        self.definir_campo(h, PALAVRA_BASE, interna, true);
-        self.definir_campo(h, PALAVRA_DESLOCAMENTO, deslocamento as i64, false);
+        self.set_field(h, WORD_LENGTH, len as i64, false);
+        self.set_field(h, WORD_DATA, data, false);
+        self.set_field(h, WORD_BASE, internal_one, true);
+        self.set_field(h, WORD_OFFSET, offset as i64, false);
         // A visão já guarda a base antes de soltar a cópia temporária.
-        self.pop_frame(quadro);
+        self.pop_frame(frame);
         h
     }
 
     /// `h` é lista tipada ou visão (cid 22..=65)?
-    pub fn e_tipada(&self, h: Ref) -> bool {
-        layout::e_objeto(h) && self.e_objeto_vivo(h) && cid::e_tipada(self.cabecalho(h).class_id)
+    pub fn is_typed(&self, h: Ref) -> bool {
+        layout::is_object(h) && self.is_live_object(h) && cid::is_typed(self.header(h).class_id)
     }
 
     /// A vista da lista tipada ou visão `h`; `None` para o que não é.
-    pub fn tipada(&self, h: Ref) -> Option<TipadaRef> {
-        if !layout::e_objeto(h) || !self.e_objeto_vivo(h) {
+    pub fn tipada(&self, h: Ref) -> Option<TypedRef> {
+        if !layout::is_object(h) || !self.is_live_object(h) {
             return None;
         }
-        let cab = self.cabecalho(h);
+        let cab = self.header(h);
         let c = cab.class_id;
-        let t = tipo_do_cid(c)?;
-        let p = self.palavras(h);
-        let len = p[PALAVRA_COMPRIMENTO] as usize;
-        let dados = p[PALAVRA_DADOS] as usize as *mut u8;
+        let t = type_of_cid(c)?;
+        let p = self.words(h);
+        let len = p[WORD_LENGTH] as usize;
+        let data = p[WORD_DATA] as usize as *mut u8;
         let bytes = len * tamanho_do_elemento(t);
-        Some(if cid::e_tipada_interna(c) {
-            TipadaRef {
+        Some(if cid::is_internal_typed(c) {
+            TypedRef {
                 cid: c,
                 tipo: t,
                 len,
-                dados,
+                data,
                 bytes,
-                imutavel: false,
-                externa: cab.flags & flags::EXTERNO != 0,
+                unmodifiable: false,
+                external_one: cab.flags & flags::EXTERNAL != 0,
                 base: None,
-                deslocamento: 0,
+                offset: 0,
             }
         } else {
-            TipadaRef {
+            TypedRef {
                 cid: c,
                 tipo: t,
                 len,
-                dados,
+                data,
                 bytes,
-                imutavel: cid::e_visao_imutavel(c),
-                externa: false,
-                base: Some(p[PALAVRA_BASE]),
-                deslocamento: p[PALAVRA_DESLOCAMENTO] as usize,
+                unmodifiable: cid::is_unmodifiable_view(c),
+                external_one: false,
+                base: Some(p[WORD_BASE]),
+                offset: p[WORD_OFFSET] as usize,
             }
         })
     }
 
     /// Os bytes da lista tipada ou visão `h`.
     #[allow(unsafe_code)]
-    pub fn bytes_da_tipada(&self, h: Ref) -> Option<&[u8]> {
+    pub fn typed_bytes(&self, h: Ref) -> Option<&[u8]> {
         let t = self.tipada(h)?;
         // SAFETY: a lista vive enquanto dura o empréstimo do heap (nenhuma coleta
         // com `&self`).
-        Some(unsafe { t.fatia() })
+        Some(unsafe { t.piece() })
     }
 
     /// Os bytes graváveis; `None` se `h` não é lista tipada ou é não modificável.
     #[allow(unsafe_code)]
-    pub fn bytes_da_tipada_mut(&mut self, h: Ref) -> Option<&mut [u8]> {
-        let t = self.tipada(h).filter(|t| !t.imutavel)?;
-        // SAFETY: como em `bytes_da_tipada`; o empréstimo exclusivo do heap
+    pub fn typed_bytes_mut(&mut self, h: Ref) -> Option<&mut [u8]> {
+        let t = self.tipada(h).filter(|t| !t.unmodifiable)?;
+        // SAFETY: como em `typed_bytes`; o empréstimo exclusivo do heap
         // impede outra fatia pela API.
-        Some(unsafe { t.fatia_mut() })
+        Some(unsafe { t.slice_mut() })
     }
 
     /// Um valor SIMD (`cid` 19–21) com as pistas.
-    pub fn novo_simd(&mut self, cid: i32, pistas: [u8; 16]) -> Ref {
-        debug_assert!(layout::cid::e_simd(cid));
-        let h = self.alocar(cid, 2, flags::BRUTO);
-        self.bytes_mut(h)[..16].copy_from_slice(&pistas);
+    pub fn new_simd(&mut self, cid: i32, hints_list: [u8; 16]) -> Ref {
+        debug_assert!(layout::cid::is_simd(cid));
+        let h = self.allocate(cid, 2, flags::BRUTO);
+        self.bytes_mut(h)[..16].copy_from_slice(&hints_list);
         h
     }
 
     /// As pistas do valor SIMD `h`.
     pub fn simd(&self, h: Ref) -> Option<[u8; 16]> {
-        if !layout::e_objeto(h) || !self.e_objeto_vivo(h) || !cid::e_simd(self.cabecalho(h).class_id) {
+        if !layout::is_object(h) || !self.is_live_object(h) || !cid::is_simd(self.header(h).class_id) {
             return None;
         }
         let mut b = [0u8; 16];
@@ -273,22 +273,22 @@ impl Heap {
 }
 
 #[cfg(test)]
-mod testes_tipadas {
+mod tests_typed {
     use super::*;
 
     #[test]
-    fn tipadas_tipo_do_cid_cobre_as_faixas() {
+    fn typed_type_of_cid_covers_ranges() {
         for t in 0..14u8 {
-            assert_eq!(tipo_do_cid(cid::tipada(t)), Some(t));
-            assert_eq!(tipo_do_cid(cid::visao(t, false)), Some(t));
-            assert_eq!(tipo_do_cid(cid::visao(t, true)), Some(t));
-            assert_eq!(cid_da_visao(t, true), cid::visao(t, true));
+            assert_eq!(type_of_cid(cid::tipada(t)), Some(t));
+            assert_eq!(type_of_cid(cid::visao(t, false)), Some(t));
+            assert_eq!(type_of_cid(cid::visao(t, true)), Some(t));
+            assert_eq!(view_cid(t, true), cid::visao(t, true));
         }
-        assert_eq!(tipo_do_cid(cid::BYTE_DATA_VIEW), Some(tipo::BYTE_DATA));
-        assert_eq!(tipo_do_cid(cid::UNMODIFIABLE_BYTE_DATA_VIEW), Some(tipo::BYTE_DATA));
-        assert_eq!(cid_da_visao(tipo::BYTE_DATA, false), cid::BYTE_DATA_VIEW);
-        assert_eq!(tipo_do_cid(cid::FLOAT32X4), None);
-        assert_eq!(tipo_do_cid(66), None);
+        assert_eq!(type_of_cid(cid::BYTE_DATA_VIEW), Some(tipo::BYTE_DATA));
+        assert_eq!(type_of_cid(cid::UNMODIFIABLE_BYTE_DATA_VIEW), Some(tipo::BYTE_DATA));
+        assert_eq!(view_cid(tipo::BYTE_DATA, false), cid::BYTE_DATA_VIEW);
+        assert_eq!(type_of_cid(cid::FLOAT32X4), None);
+        assert_eq!(type_of_cid(66), None);
         assert_eq!(tamanho_do_elemento(tipo::FLOAT64X2), 16);
         assert_eq!(tamanho_do_elemento(tipo::BYTE_DATA), 1);
     }

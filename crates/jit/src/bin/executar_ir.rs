@@ -1,4 +1,4 @@
-//! `dartforge-executar-ir <programa.ll> [--timings] [-- <argumentos do main>]`
+//! `dartforge-execute_fn-ir <program.ll> [--timings] [-- <arguments do main>]`
 //! — executa um LLVM IR do
 //! backend nativo pelo JIT ORCv2, num processo só dele.
 //!
@@ -22,44 +22,44 @@ use std::io::Write;
 use std::process::ExitCode;
 
 /// Código de saída para falha do JIT, e não do programa.
-const FALHA_DO_JIT: u8 = 70;
+const JIT_FAILURE: u8 = 70;
 
 fn main() -> ExitCode {
-    let mut arquivo = None;
+    let mut file = None;
     let mut timings = false;
-    let mut argumentos = std::env::args_os().skip(1);
-    let mut do_programa = Vec::new();
-    while let Some(argumento) = argumentos.next() {
-        match argumento.to_str() {
+    let mut arguments = std::env::args_os().skip(1);
+    let mut from_program = Vec::new();
+    while let Some(argument) = arguments.next() {
+        match argument.to_str() {
             Some("--timings") => timings = true,
             // O resto é do `main` do programa.
             Some("--") => {
-                do_programa.extend(argumentos.by_ref().map(|a| a.to_string_lossy().into_owned()));
+                from_program.extend(arguments.by_ref().map(|a| a.to_string_lossy().into_owned()));
             }
-            _ if arquivo.is_none() => arquivo = Some(argumento),
-            _ => return uso(),
+            _ if file.is_none() => file = Some(argument),
+            _ => return usage(),
         }
     }
-    dartforge_jit::definir_argumentos(do_programa);
-    let Some(arquivo) = arquivo else {
-        return uso();
+    dartforge_jit::definir_argumentos(from_program);
+    let Some(file) = file else {
+        return usage();
     };
-    let ir = match std::fs::read_to_string(&arquivo) {
+    let ir = match std::fs::read_to_string(&file) {
         Ok(ir) => ir,
-        Err(erro) => {
+        Err(error) => {
             eprintln!(
-                "dartforge-executar-ir: não foi possível ler {}: {erro}",
-                std::path::Path::new(&arquivo).display()
+                "dartforge-executar-ir: não foi possível ler {}: {error}",
+                std::path::Path::new(&file).display()
             );
-            return ExitCode::from(FALHA_DO_JIT);
+            return ExitCode::from(JIT_FAILURE);
         }
     };
-    let relatorio = match dartforge_jit::run_ir(&ir) {
-        Ok(relatorio) => relatorio,
-        Err(erro) => {
+    let report_data = match dartforge_jit::run_ir(&ir) {
+        Ok(report_data) => report_data,
+        Err(error) => {
             let _ = std::io::stdout().flush();
-            eprintln!("dartforge-executar-ir: {erro}");
-            return ExitCode::from(FALHA_DO_JIT);
+            eprintln!("dartforge-executar-ir: {error}");
+            return ExitCode::from(JIT_FAILURE);
         }
     };
     let _ = std::io::stdout().flush();
@@ -68,20 +68,20 @@ fn main() -> ExitCode {
         eprintln!(
             "{{\"llvm\":\"{major}.{minor}.{patch}\",\"ir_bytes\":{},\"session_ns\":{},\"parse_ir_ns\":{},\
              \"add_module_ns\":{},\"lookup_ns\":{},\"execute_ns\":{},\"jit_total_ns\":{}}}",
-            relatorio.module.ir_bytes,
-            relatorio.session.as_nanos(),
-            relatorio.module.parse_ir.as_nanos(),
-            relatorio.module.add_module.as_nanos(),
-            relatorio.entry.lookup.as_nanos(),
-            relatorio.entry.execute.as_nanos(),
-            relatorio.total.as_nanos(),
+            report_data.module.ir_bytes,
+            report_data.session.as_nanos(),
+            report_data.module.parse_ir.as_nanos(),
+            report_data.module.add_module.as_nanos(),
+            report_data.entry.lookup.as_nanos(),
+            report_data.entry.execute.as_nanos(),
+            report_data.total.as_nanos(),
         );
     }
-    ExitCode::from(u8::try_from(relatorio.entry.exit_code).unwrap_or(FALHA_DO_JIT))
+    ExitCode::from(u8::try_from(report_data.entry.exit_code).unwrap_or(JIT_FAILURE))
 }
 
 /// Mostra o uso e sai com código 2.
-fn uso() -> ExitCode {
+fn usage() -> ExitCode {
     eprintln!("uso: dartforge-executar-ir <programa.ll> [--timings] [-- <argumentos do main>]");
     ExitCode::from(2)
 }

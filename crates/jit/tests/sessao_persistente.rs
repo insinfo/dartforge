@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 /// Um programa com um estático: lança se o encontrar já inicializado, e o
 /// inicializa. Na primeira execução termina bem; numa segunda que herdasse o
 /// estado da primeira, terminaria com exceção não capturada (255).
-const COM_ESTATICO: &str = "\
+const WITH_STATIC: &str = "\
 @dfg_0 = internal global i64 0
 @dfg_0_ok = internal global i8 0
 declare void @dartforge_exception_throw(i64, i8)
@@ -37,46 +37,46 @@ const TRIVIAL: &str = "define void @dartforge_entry() {\n  ret void\n}\n";
 /// Várias execuções na mesma sessão começam com os estáticos zerados.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn execucoes_em_sequencia_comecam_limpas() {
-    let mut sessao = JitSession::new().unwrap();
-    sessao.add_ir_module("estatico", COM_ESTATICO).unwrap();
-    for vez in 1..=3 {
-        let relatorio = sessao.run_entry().unwrap();
-        assert_eq!(relatorio.exit_code, 0, "execução {vez} herdou o estado da anterior");
+fn sequential_runs_start_clean() {
+    let mut session = JitSession::new().unwrap();
+    session.add_ir_module("estatico", WITH_STATIC).unwrap();
+    for turn in 1..=3 {
+        let report_data = session.run_entry().unwrap();
+        assert_eq!(report_data.exit_code, 0, "execução {turn} herdou o estado da anterior");
     }
 }
 
 /// Um módulo compilado uma vez entra em várias sessões e roda limpo em todas.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn modulo_compilado_entra_em_varias_sessoes() {
-    let compilado = compile_module("estatico", COM_ESTATICO).unwrap();
-    assert!(!compilado.object().is_empty());
+fn compiled_module_enters_several_sessions() {
+    let compiled = compile_module("estatico", WITH_STATIC).unwrap();
+    assert!(!compiled.object().is_empty());
     for _ in 0..2 {
-        let mut sessao = JitSession::new().unwrap();
-        sessao.add_compiled_module(&compilado).unwrap();
-        assert_eq!(sessao.run_entry().unwrap().exit_code, 0);
-        assert_eq!(sessao.run_entry().unwrap().exit_code, 0);
+        let mut session = JitSession::new().unwrap();
+        session.add_compiled_module(&compiled).unwrap();
+        assert_eq!(session.run_entry().unwrap().exit_code, 0);
+        assert_eq!(session.run_entry().unwrap().exit_code, 0);
     }
 }
 
 /// O objeto passa pelas mesmas verificações do IR: externo desconhecido cai.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn modulo_compilado_passa_pela_pre_verificacao() {
+fn compiled_module_passes_preverification() {
     let ir = "declare void @sqlite3_open()\ndefine void @dartforge_entry() {\n  call void @sqlite3_open()\n  ret void\n}\n";
-    let compilado = compile_module("externo", ir).unwrap();
-    let mut sessao = JitSession::new().unwrap();
-    let erro = sessao.add_compiled_module(&compilado).unwrap_err();
-    assert_eq!(erro.stage, "símbolos");
-    assert!(erro.message.contains("sqlite3_open"), "{erro}");
+    let compiled = compile_module("externo", ir).unwrap();
+    let mut session = JitSession::new().unwrap();
+    let error = session.add_compiled_module(&compiled).unwrap_err();
+    assert_eq!(error.stage, "símbolos");
+    assert!(error.message.contains("sqlite3_open"), "{error}");
 }
 
 /// O caminho `main` também reinicia os estáticos do módulo JIT do programa.
 /// Esta sessão não carrega a DLL do SDK e não testa os estáticos internos dela.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn main_reinicia_globais_do_modulo_jit_entre_execucoes() {
+fn main_resets_jit_module_globals_between_runs() {
     let ir = "\
 @dfg_0_ok = internal global i8 0
 define i32 @main() {
@@ -86,14 +86,14 @@ define i32 @main() {
   ret i32 %codigo
 }
 ";
-    let mut sessao = JitSession::new().unwrap();
-    sessao.add_ir_module("programa", ir).unwrap();
-    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
-    assert_eq!(sessao.run_main().unwrap().exit_code, 0);
+    let mut session = JitSession::new().unwrap();
+    session.add_ir_module("programa", ir).unwrap();
+    assert_eq!(session.run_main().unwrap().exit_code, 0);
+    assert_eq!(session.run_main().unwrap().exit_code, 0);
 }
 
 /// Mediana e p95 de `n` amostras de `f`, depois de 3 aquecimentos.
-fn medir(n: usize, mut f: impl FnMut() -> Duration) -> (Duration, Duration) {
+fn measure(n: usize, mut f: impl FnMut() -> Duration) -> (Duration, Duration) {
     for _ in 0..3 {
         f();
     }
@@ -117,36 +117,36 @@ fn ms(d: Duration) -> f64 {
 /// pequeno, emitido por `dartforge_emit_native::emitir_ir`.
 #[test]
 #[ignore = "medição: requer LLVM-C.dll e o SDK Dart 3.6.2; rode com --nocapture"]
-fn medicao_sessao_persistente() {
+fn persistent_session_measurement() {
     let n = 30;
-    let (p50, p95) = medir(n, || {
+    let (p50, p95) = measure(n, || {
         let t = Instant::now();
-        let sessao = JitSession::new().unwrap();
+        let session = JitSession::new().unwrap();
         let d = t.elapsed();
-        drop(sessao);
+        drop(session);
         d
     });
     println!("(i)   criar a sessão (LLJIT + símbolos do runtime): mediana {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
 
     /// Apaga o diretório no `Drop`, também quando a emissão entra em pânico.
-    struct Diretorio(std::path::PathBuf);
-    impl Drop for Diretorio {
+    struct Directory(std::path::PathBuf);
+    impl Drop for Directory {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
-    let dir = Diretorio(std::env::temp_dir().join(format!("dartforge-sessao-{}", std::process::id())));
+    let dir = Directory(std::env::temp_dir().join(format!("dartforge-sessao-{}", std::process::id())));
     std::fs::create_dir_all(&dir.0).unwrap();
-    let fonte = dir.0.join("macro.dart");
-    std::fs::write(&fonte, "int dobro(int x) { return x * 2; }\nvoid main() {\n  int y = dobro(21);\n}\n").unwrap();
-    let emitido = std::thread::Builder::new()
+    let source = dir.0.join("macro.dart");
+    std::fs::write(&source, "int dobro(int x) { return x * 2; }\nvoid main() {\n  int y = dobro(21);\n}\n").unwrap();
+    let emitted = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+            let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
             // Com o SDK da fonte (o único modo do emissor desde o espaço
             // unificado): o programa importa o runtime e o SDK da biblioteca
             // compartilhada, que a sessão carrega (`JitSession::new_for_ir_com`).
-            dartforge_emit_native::emitir_ir_recarregavel(&fonte, &opcoes, None).unwrap().texto
+            dartforge_emit_native::emitir_ir_recarregavel(&source, &options, None).unwrap().texto
         })
         .unwrap()
         .join()
@@ -155,46 +155,46 @@ fn medicao_sessao_persistente() {
     let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("biblioteca do SDK da fonte");
     // A sessão do IR: o runtime embutido para o trivial, a biblioteca do SDK
     // para o emitido; e a execução pela entrada de cada perfil.
-    let nova_sessao = |ir: &str| JitSession::new_for_ir_com(ir, Some(&dll)).unwrap();
-    let executar = |s: &JitSession| if s.usa_sdk_da_fonte() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
+    let new_session = |ir: &str| JitSession::new_for_ir_com(ir, Some(&dll)).unwrap();
+    let execute_fn = |s: &JitSession| if s.usa_sdk_da_fonte() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
 
-    for (rotulo, ir) in [("trivial", TRIVIAL), ("IR do emissor", emitido.as_str())] {
-        let (p50, p95) = medir(n, || {
-            let mut sessao = nova_sessao(ir);
+    for (label_name, ir) in [("trivial", TRIVIAL), ("IR do emissor", emitted.as_str())] {
+        let (p50, p95) = measure(n, || {
+            let mut session = new_session(ir);
             let t = Instant::now();
-            sessao.add_ir_module("m", ir).unwrap();
-            sessao.lookup(dartforge_jit::ENTRY_SYMBOL).unwrap();
+            session.add_ir_module("m", ir).unwrap();
+            session.lookup(dartforge_jit::ENTRY_SYMBOL).unwrap();
             t.elapsed()
         });
         println!(
-            "(ii)  carregar pelo IR, {rotulo} ({} bytes): análise + verificação + geração, mediana {:.3} ms, p95 {:.3} ms",
+            "(ii)  carregar pelo IR, {label_name} ({} bytes): análise + verificação + geração, mediana {:.3} ms, p95 {:.3} ms",
             ir.len(),
             ms(p50),
             ms(p95)
         );
-        let (c50, c95) = medir(n, || {
+        let (c50, c95) = measure(n, || {
             let t = Instant::now();
             compile_module("m", ir).unwrap();
             t.elapsed()
         });
-        println!("      compilar para o cache, {rotulo}: mediana {:.3} ms, p95 {:.3} ms (uma vez por módulo)", ms(c50), ms(c95));
-        let compilado = compile_module("m", ir).unwrap();
-        let (p50, p95) = medir(n, || {
-            let mut sessao = nova_sessao(ir);
+        println!("      compilar para o cache, {label_name}: mediana {:.3} ms, p95 {:.3} ms (uma vez por módulo)", ms(c50), ms(c95));
+        let compiled = compile_module("m", ir).unwrap();
+        let (p50, p95) = measure(n, || {
+            let mut session = new_session(ir);
             let t = Instant::now();
-            sessao.add_compiled_module(&compilado).unwrap();
-            sessao.lookup(dartforge_jit::ENTRY_SYMBOL).unwrap();
+            session.add_compiled_module(&compiled).unwrap();
+            session.lookup(dartforge_jit::ENTRY_SYMBOL).unwrap();
             t.elapsed()
         });
         println!(
-            "(ii)  carregar do cache, {rotulo} ({} bytes de objeto): mediana {:.3} ms, p95 {:.3} ms",
-            compilado.object().len(),
+            "(ii)  carregar do cache, {label_name} ({} bytes de objeto): mediana {:.3} ms, p95 {:.3} ms",
+            compiled.object().len(),
             ms(p50),
             ms(p95)
         );
-        let mut sessao = nova_sessao(ir);
-        sessao.add_compiled_module(&compilado).unwrap();
-        let (p50, p95) = medir(100, || executar(&sessao));
-        println!("(iii) uma execução, {rotulo}, sessão aquecida: mediana {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
+        let mut session = new_session(ir);
+        session.add_compiled_module(&compiled).unwrap();
+        let (p50, p95) = measure(100, || execute_fn(&session));
+        println!("(iii) uma execução, {label_name}, sessão aquecida: mediana {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
     }
 }

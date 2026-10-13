@@ -4,29 +4,29 @@ use dartforge_runtime::abi::*;
 extern "C" fn mint(_: i64, _: *const i64, _: *const i64) -> i64 {
     dartforge_arc_box_int_owned_v1(i64::MAX)
 }
-extern "C" fn pendente(_: i64, _: *const i64, _: *const i64) -> i64 {
+extern "C" fn pending(_: i64, _: *const i64, _: *const i64) -> i64 {
     dartforge_exception_throw(42, 1);
     0
 }
-extern "C" fn erro(_: i64) -> i64 {
+extern "C" fn error(_: i64) -> i64 {
     dartforge_arc_box_int_owned_v1(i64::MAX)
 }
 
 #[test]
 #[allow(unsafe_code)] // Fixtures de ABI estática; cada chamada confere seu contrato.
-fn closure_preserva_um_owned_e_restabelece_escopos_inclusive_no_pending() {
+fn closure_preserves_one_owned_and_restores_scopes_even_when_pending() {
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
         let args = [0_i64];
         let desc = [0_i64, 0];
-        for (f, falha) in [
+        for (f, failure) in [
             (mint as *const () as usize, false),
-            (pendente as *const () as usize, true),
+            (pending as *const () as usize, true),
         ] {
             // SAFETY: fixtures estáticas de ABI uniforme readonly e retorno Owned/null pending.
             let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(f as i64) };
             let c = dartforge_arc_closure_owned_v1(f as i64, 0, 0, 0);
-            let escopo = dartforge_arc_escopo_nativo_abrir_v1();
+            let scope = dartforge_arc_escopo_nativo_abrir_v1();
             // SAFETY: closure, vetores e código registrados permanecem vivos.
             let x = unsafe {
                 dartforge_arc_invocar_closure_uniforme_v1(
@@ -35,10 +35,10 @@ fn closure_preserva_um_owned_e_restabelece_escopos_inclusive_no_pending() {
                     desc.as_ptr() as i64,
                 )
             };
-            dartforge_arc_escopo_nativo_fechar_v1(escopo);
+            dartforge_arc_escopo_nativo_fechar_v1(scope);
             dartforge_arc_release(c);
             dartforge_arc_collect();
-            if falha {
+            if failure {
                 assert_eq!(x, 0);
                 assert_ne!(dartforge_exception_pending(), 0);
                 dartforge_exception_clear();
@@ -61,20 +61,20 @@ fn closure_preserva_um_owned_e_restabelece_escopos_inclusive_no_pending() {
 
 #[test]
 #[allow(unsafe_code)] // Fixtures de ABI estática; cada chamada confere seu contrato.
-fn busca_invalida_prende_helper_owned_ate_publicar_a_excecao() {
+fn invalid_lookup_holds_owned_helper_until_exception_is_published() {
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
-        let pc = erro as *const () as usize;
-        let nome = b"_dartforgeErroDeChamada";
+        let pc = error as *const () as usize;
+        let name = b"_dartforgeErroDeChamada";
         // SAFETY: fixture estática de uma palavra com retorno Mint Owned.
         let v = unsafe { dartforge_arc_registrar_retorno_owned_v1(pc as i64, 1) };
         // SAFETY: nome estático e callback de ABI compatível.
         unsafe {
-            dartforge_registrar_ajudante(nome.as_ptr(), nome.len() as i64, pc);
+            dartforge_registrar_ajudante(name.as_ptr(), name.len() as i64, pc);
         }
         let args = [0_i64];
         let desc = [0_i64, 0];
-        let escopo = dartforge_arc_escopo_nativo_abrir_v1();
+        let scope = dartforge_arc_escopo_nativo_abrir_v1();
         // SAFETY: null é receptor Ref válido; vetores vivos. Busca inválida devolve pending.
         assert_eq!(
             unsafe {
@@ -86,7 +86,7 @@ fn busca_invalida_prende_helper_owned_ate_publicar_a_excecao() {
             },
             0
         );
-        dartforge_arc_escopo_nativo_fechar_v1(escopo);
+        dartforge_arc_escopo_nativo_fechar_v1(scope);
         assert_ne!(dartforge_exception_pending(), 0);
         let payload = dartforge_arc_excecao_owned_v1();
         dartforge_arc_collect();

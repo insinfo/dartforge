@@ -285,48 +285,48 @@ fn multiple_consecutive_reloads_without_leaks() {
 /// entrada tenha de ser reescrita.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn recarga_basica_troca_o_corpo_na_mesma_sessao() {
+fn basic_reload_swaps_body_in_same_session() {
     let ir_v1 = compile_dart_to_ir("int teste() => 1;\nvoid main() { print(teste()); }\n");
     let ir_v2 = compile_dart_to_ir("int teste() => 2;\nvoid main() { print(teste()); }\n");
 
-    let mut sessao = JitSession::new().expect("sessão");
-    let primeira = sessao
+    let mut session = JitSession::new().expect("sessão");
+    let first_one = session
         .add_reloadable_module("app", &ir_v1)
         .expect("geração 1");
-    assert_eq!(primeira.generation, 1);
-    assert!(!primeira.promoted);
-    assert_eq!(sessao.generation("app"), Some(1));
+    assert_eq!(first_one.generation, 1);
+    assert!(!first_one.promoted);
+    assert_eq!(session.generation("app"), Some(1));
 
-    let (saida, _) = sessao.run_entry_capturing().expect("execução da geração 1");
-    assert_eq!(saida, "1\n");
+    let (out, _) = session.run_entry_capturing().expect("execução da geração 1");
+    assert_eq!(out, "1\n");
 
-    let segunda = sessao.hot_reload("app", &ir_v2).expect("geração 2");
-    assert_eq!(segunda.generation, 2);
+    let second_one = session.hot_reload("app", &ir_v2).expect("geração 2");
+    assert_eq!(second_one.generation, 2);
     assert_eq!(
-        segunda.new_entries, 0,
+        second_one.new_entries, 0,
         "nenhuma entrada nova: só o corpo mudou"
     );
-    assert!(segunda.entries >= 2, "{segunda:?}");
-    assert_eq!(segunda.retained_generations, 2);
+    assert!(second_one.entries >= 2, "{second_one:?}");
+    assert_eq!(second_one.retained_generations, 2);
     assert!(
-        segunda.total >= segunda.parse_ir + segunda.add_module + segunda.link + segunda.publish,
-        "o total tem de cobrir as etapas: {segunda:?}"
+        second_one.total >= second_one.parse_ir + second_one.add_module + second_one.link + second_one.publish,
+        "o total tem de cobrir as etapas: {second_one:?}"
     );
 
-    let (saida, _) = sessao.run_entry_capturing().expect("execução da geração 2");
-    assert_eq!(saida, "2\n");
+    let (out, _) = session.run_entry_capturing().expect("execução da geração 2");
+    assert_eq!(out, "2\n");
 
     // A identidade da sessão não mudou: um módulo, duas gerações.
-    assert_eq!(sessao.module_names(), vec!["app"]);
-    assert_eq!(sessao.retained_generations(), 2);
+    assert_eq!(session.module_names(), vec!["app"]);
+    assert_eq!(session.retained_generations(), 2);
 }
 
 /// IR mínimo de um contador no heap gerenciado, com o incremento parametrizado.
 ///
-/// `df_fn_0` cria o contador e devolve o handle; `df_fn_1` soma `passo` ao campo
+/// `df_fn_0` cria o contador e devolve o handle; `df_fn_1` soma `step` ao campo
 /// 0 e devolve o novo valor. As duas assinaturas são estáveis entre as versões —
 /// o que muda é só o corpo de `df_fn_1`, que é o caso aceito da versão 1.
-fn ir_do_contador(passo: i64) -> String {
+fn counter_ir(step: i64) -> String {
     format!(
         "\
 declare i64 @dartforge_object_new(i64, i64)
@@ -338,7 +338,7 @@ define i64 @df_fn_0() {{
 }}
 define i64 @df_fn_1(i64 %h) {{
   %v = call i64 @dartforge_object_get(i64 %h, i64 0)
-  %n = add i64 %v, {passo}
+  %n = add i64 %v, {step}
   call void @dartforge_object_set(i64 %h, i64 0, i64 %n, i8 0)
   ret i64 %n
 }}
@@ -355,33 +355,33 @@ define i64 @df_fn_1(i64 %h) {{
 /// ponteiros de código.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn contador_vivo_sobrevive_a_recarga() {
-    let mut sessao = JitSession::new().expect("sessão");
-    sessao
-        .add_reloadable_module("contador", &ir_do_contador(1))
+fn live_counter_survives_reload() {
+    let mut session = JitSession::new().expect("sessão");
+    session
+        .add_reloadable_module("contador", &counter_ir(1))
         .expect("geração 1");
 
-    let criar = sessao.stable_entry("df_fn_0").expect("entrada de criação");
-    let somar = sessao
+    let create = session.stable_entry("df_fn_0").expect("entrada de criação");
+    let add_up = session
         .stable_entry("df_fn_1")
         .expect("entrada de incremento");
-    assert_eq!(criar.signature(), "i64 ()");
-    assert_eq!(somar.signature(), "i64 (i64)");
+    assert_eq!(create.signature(), "i64 ()");
+    assert_eq!(add_up.signature(), "i64 (i64)");
 
-    let contador = criar.call(&sessao).expect("cria o contador");
-    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 1);
-    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 2);
-    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 3);
+    let counter = create.call(&session).expect("cria o contador");
+    assert_eq!(add_up.call_with(&session, counter).unwrap(), 1);
+    assert_eq!(add_up.call_with(&session, counter).unwrap(), 2);
+    assert_eq!(add_up.call_with(&session, counter).unwrap(), 3);
 
-    let antes = sessao.gc_stats();
+    let before = session.gc_stats();
     // Passo novo: 10 em vez de 1. Mesma assinatura, corpo diferente.
-    sessao
-        .hot_reload("contador", &ir_do_contador(10))
+    session
+        .hot_reload("contador", &counter_ir(10))
         .expect("geração 2");
-    let depois = sessao.gc_stats();
+    let after = session.gc_stats();
     assert_eq!(
-        (antes.allocations, antes.live_objects),
-        (depois.allocations, depois.live_objects),
+        (before.allocations, before.live_objects),
+        (after.allocations, after.live_objects),
         "a recarga não pode alocar nem liberar nada no heap gerenciado"
     );
 
@@ -389,11 +389,11 @@ fn contador_vivo_sobrevive_a_recarga() {
     // resultado seria 10. O incremento de 10 prova que a geração nova é a que
     // executa; o 13 prova que o estado dela não é novo.
     assert_eq!(
-        somar.call_with(&sessao, contador).unwrap(),
+        add_up.call_with(&session, counter).unwrap(),
         13,
         "o contador foi zerado pela recarga"
     );
-    assert_eq!(somar.call_with(&sessao, contador).unwrap(), 23);
+    assert_eq!(add_up.call_with(&session, counter).unwrap(), 23);
 }
 
 /// Callback registrado antes da edição passa a executar a implementação nova.
@@ -403,34 +403,34 @@ fn contador_vivo_sobrevive_a_recarga() {
 /// registro de callbacks. Ele continua correto porque aponta para o trampolim.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn callback_registrado_antes_da_edicao_executa_o_corpo_novo() {
-    let ir = |valor: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {valor}\n}}\n");
+fn callback_registered_before_edit_runs_new_body() {
+    let ir = |value: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\n");
 
-    let mut sessao = JitSession::new().expect("sessão");
-    sessao
+    let mut session = JitSession::new().expect("sessão");
+    session
         .add_reloadable_module("app", &ir(1))
         .expect("geração 1");
 
     // O «registro de callbacks» da aplicação: um endereço guardado de véspera.
-    let callback = sessao.stable_entry("df_fn_0").expect("entrada estável");
-    let endereco_antes = sessao.lookup("df_fn_0").expect("endereço da entrada");
-    assert_eq!(callback.call(&sessao).unwrap(), 1);
+    let callback = session.stable_entry("df_fn_0").expect("entrada estável");
+    let address_before = session.lookup("df_fn_0").expect("endereço da entrada");
+    assert_eq!(callback.call(&session).unwrap(), 1);
 
-    sessao.hot_reload("app", &ir(2)).expect("geração 2");
+    session.hot_reload("app", &ir(2)).expect("geração 2");
     assert_eq!(
-        sessao.lookup("df_fn_0").expect("endereço da entrada"),
-        endereco_antes,
+        session.lookup("df_fn_0").expect("endereço da entrada"),
+        address_before,
         "a entrada estável não pode mudar de endereço entre gerações"
     );
     assert_eq!(
-        callback.call(&sessao).unwrap(),
+        callback.call(&session).unwrap(),
         2,
         "o callback antigo continuou no corpo antigo"
     );
 
-    sessao.hot_reload("app", &ir(3)).expect("geração 3");
-    assert_eq!(callback.call(&sessao).unwrap(), 3);
-    assert_eq!(sessao.retained_generations(), 3);
+    session.hot_reload("app", &ir(3)).expect("geração 3");
+    assert_eq!(callback.call(&session).unwrap(), 3);
+    assert_eq!(session.retained_generations(), 3);
 }
 
 /// Uma falha de recarga não destrói a versão que está funcionando.
@@ -441,30 +441,30 @@ fn callback_registrado_antes_da_edicao_executa_o_corpo_novo() {
 /// versão boa continua executando, e uma recarga válida ainda funciona.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn falha_de_recarga_nao_destroi_a_versao_boa() {
-    let ir_bom = compile_dart_to_ir("int teste() => 7;\nvoid main() { print(teste()); }\n");
+fn reload_failure_does_not_destroy_good_version() {
+    let good_ir = compile_dart_to_ir("int teste() => 7;\nvoid main() { print(teste()); }\n");
 
-    let mut sessao = JitSession::new().expect("sessão");
-    sessao
-        .add_reloadable_module("app", &ir_bom)
+    let mut session = JitSession::new().expect("sessão");
+    session
+        .add_reloadable_module("app", &good_ir)
         .expect("geração 1");
-    let (saida, _) = sessao.run_entry_capturing().expect("execução boa");
-    assert_eq!(saida, "7\n");
+    let (out, _) = session.run_entry_capturing().expect("execução boa");
+    assert_eq!(out, "7\n");
 
     // 1. Dart que não compila: a falha é do front-end e o JIT nem é chamado.
-    let erro = dartforge_compiler::compile_llvm("int teste() => ;\nvoid main() {}\n")
+    let error = dartforge_compiler::compile_llvm("int teste() => ;\nvoid main() {}\n")
         .expect_err("este Dart não deveria compilar");
-    assert!(!format!("{erro:?}").is_empty());
+    assert!(!format!("{error:?}").is_empty());
 
     // 2. IR inválido.
-    let erro = sessao
+    let error = session
         .hot_reload("app", "ISTO NÃO É LLVM IR @@@ {{{")
         .expect_err("IR inválido tem de falhar");
-    assert_eq!(erro.stage, "parse-ir");
+    assert_eq!(error.stage, "parse-ir");
 
     // 3. IR válido cujas referências a sessão não sabe resolver. Recusado antes
     //    de qualquer efeito, com o nome que falta na mensagem.
-    let erro = sessao
+    let error = session
         .hot_reload(
             "app",
             "declare i64 @sqlite3_open(i64)\n\
@@ -472,24 +472,24 @@ fn falha_de_recarga_nao_destroi_a_versao_boa() {
              define void @dartforge_entry() {\n  ret void\n}\n",
         )
         .expect_err("referência externa desconhecida tem de falhar");
-    assert_eq!(erro.stage, "contract");
-    assert!(erro.message.contains("sqlite3_open"), "{erro}");
+    assert_eq!(error.stage, "contract");
+    assert!(error.message.contains("sqlite3_open"), "{error}");
 
     // A versão boa continua exatamente onde estava, na geração 1.
-    assert_eq!(sessao.generation("app"), Some(1));
-    assert_eq!(sessao.retained_generations(), 1);
-    let (saida, _) = sessao
+    assert_eq!(session.generation("app"), Some(1));
+    assert_eq!(session.retained_generations(), 1);
+    let (out, _) = session
         .run_entry_capturing()
         .expect("a versão boa tem de continuar executando");
-    assert_eq!(saida, "7\n");
+    assert_eq!(out, "7\n");
 
     // E a sessão continua recarregável: nada nela ficou pela metade.
-    let ir_novo = compile_dart_to_ir("int teste() => 8;\nvoid main() { print(teste()); }\n");
-    sessao
-        .hot_reload("app", &ir_novo)
+    let new_ir = compile_dart_to_ir("int teste() => 8;\nvoid main() { print(teste()); }\n");
+    session
+        .hot_reload("app", &new_ir)
         .expect("recarga válida depois das falhas");
-    let (saida, _) = sessao.run_entry_capturing().expect("execução da geração 2");
-    assert_eq!(saida, "8\n");
+    let (out, _) = session.run_entry_capturing().expect("execução da geração 2");
+    assert_eq!(out, "8\n");
 }
 
 /// Mudança de assinatura é recusada com diagnóstico, sem corromper a sessão.
@@ -498,39 +498,39 @@ fn falha_de_recarga_nao_destroi_a_versao_boa() {
 /// saber **o que** ficou incompatível para decidir reiniciar.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn assinatura_alterada_e_recusada_com_diagnostico() {
-    let mut sessao = JitSession::new().expect("sessão");
-    sessao
+fn changed_signature_is_rejected_with_diagnostic() {
+    let mut session = JitSession::new().expect("sessão");
+    session
         .add_reloadable_module("app", "define i64 @df_fn_0() {\n  ret i64 1\n}\n")
         .expect("geração 1");
-    let entrada = sessao.stable_entry("df_fn_0").expect("entrada estável");
-    assert_eq!(entrada.call(&sessao).unwrap(), 1);
+    let input = session.stable_entry("df_fn_0").expect("entrada estável");
+    assert_eq!(input.call(&session).unwrap(), 1);
 
-    let erro = sessao
+    let error = session
         .hot_reload("app", "define i64 @df_fn_0(i64 %a0) {\n  ret i64 %a0\n}\n")
         .expect_err("assinatura alterada tem de ser recusada");
-    assert_eq!(erro.stage, "contract");
+    assert_eq!(error.stage, "contract");
     assert_eq!(
-        erro.message,
+        error.message,
         "a assinatura de df_fn_0 mudou de i64 () para i64 (i64); \
          mudança de contrato de chamada exige reiniciar a sessão"
     );
 
     // Uma função que desaparece também é recusada, e pelo mesmo motivo: a
     // entrada estável dela ficaria presa no corpo antigo.
-    let erro = sessao
+    let error = session
         .hot_reload("app", "define i64 @df_fn_9() {\n  ret i64 1\n}\n")
         .expect_err("função ausente tem de ser recusada");
-    assert_eq!(erro.stage, "contract");
-    assert!(erro.message.contains("df_fn_0"), "{erro}");
+    assert_eq!(error.stage, "contract");
+    assert!(error.message.contains("df_fn_0"), "{error}");
 
     // Sessão intacta: mesma geração, mesma implementação, mesmo resultado.
-    assert_eq!(sessao.generation("app"), Some(1));
-    assert_eq!(entrada.call(&sessao).unwrap(), 1);
-    sessao
+    assert_eq!(session.generation("app"), Some(1));
+    assert_eq!(input.call(&session).unwrap(), 1);
+    session
         .hot_reload("app", "define i64 @df_fn_0() {\n  ret i64 5\n}\n")
         .expect("o corpo compatível ainda recarrega");
-    assert_eq!(entrada.call(&sessao).unwrap(), 5);
+    assert_eq!(input.call(&session).unwrap(), 5);
 }
 
 /// Mudança no número de campos de uma classe é recusada antes de corromper o heap.
@@ -539,48 +539,48 @@ fn assinatura_alterada_e_recusada_com_diagnostico() {
 /// um campo que não existe encontraria `panic` do runtime, ou pior, outro campo.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn layout_de_classe_alterado_e_recusado() {
-    let ir = |campos: i64| {
+fn changed_class_layout_is_rejected() {
+    let ir = |fields: i64| {
         format!(
             "declare i64 @dartforge_object_new(i64, i64)\n\
              define i64 @df_new_0() {{\n  \
-             %h = call i64 @dartforge_object_new(i64 0, i64 {campos})\n  ret i64 %h\n}}\n"
+             %h = call i64 @dartforge_object_new(i64 0, i64 {fields})\n  ret i64 %h\n}}\n"
         )
     };
-    let mut sessao = JitSession::new().expect("sessão");
-    sessao
+    let mut session = JitSession::new().expect("sessão");
+    session
         .add_reloadable_module("app", &ir(2))
         .expect("geração 1");
-    let erro = sessao
+    let error = session
         .hot_reload("app", &ir(3))
         .expect_err("layout alterado tem de ser recusado");
-    assert_eq!(erro.stage, "contract");
+    assert_eq!(error.stage, "contract");
     assert!(
-        erro.message
+        error.message
             .contains("a classe de id 0 tinha 2 campos e passou a ter 3"),
-        "{erro}"
+        "{error}"
     );
-    assert_eq!(sessao.generation("app"), Some(1));
+    assert_eq!(session.generation("app"), Some(1));
 }
 
 /// Diretório exclusivo para o executável do lado AOT do diferencial.
-struct DiretorioTemporario(std::path::PathBuf);
-impl DiretorioTemporario {
+struct TempDirectory(std::path::PathBuf);
+impl TempDirectory {
     /// Reserva um diretório único mesmo sob execução simultânea de testes.
-    fn novo(rotulo: &str) -> Self {
-        let marca = std::time::SystemTime::now()
+    fn new(label_name: &str) -> Self {
+        let mark = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let caminho = std::env::temp_dir().join(format!(
-            "dartforge-reload-{rotulo}-{}-{marca}",
+        let file_path = std::env::temp_dir().join(format!(
+            "dartforge-reload-{label_name}-{}-{mark}",
             std::process::id()
         ));
-        std::fs::create_dir(&caminho).unwrap();
-        Self(caminho)
+        std::fs::create_dir(&file_path).unwrap();
+        Self(file_path)
     }
 }
-impl Drop for DiretorioTemporario {
+impl Drop for TempDirectory {
     /// Remove apenas o diretório que este teste criou.
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
@@ -595,7 +595,7 @@ impl Drop for DiretorioTemporario {
 /// existem no JIT.
 #[test]
 #[ignore = "requer LLVM-C.dll no PATH e Clang/rustc nativos (DARTFORGE_CLANG/DARTFORGE_RUSTC); use scripts/env.ps1"]
-fn jit_recarregado_e_aot_concordam() {
+fn reloaded_jit_and_aot_agree() {
     const V1: &str = "\
 class Contador {
   int valor;
@@ -625,37 +625,37 @@ void main() {
     let ir_v1 = compile_dart_to_ir(V1);
     let ir_v2 = compile_dart_to_ir(V2);
 
-    let mut sessao = JitSession::new().expect("sessão");
-    sessao.add_reloadable_module("app", &ir_v1).expect("v1");
-    let (saida_v1, _) = sessao.run_entry_capturing().expect("execução v1");
-    assert_eq!(saida_v1, "42\n1\n");
-    sessao.hot_reload("app", &ir_v2).expect("v2");
-    let (saida_jit, _) = sessao.run_entry_capturing().expect("execução v2");
+    let mut session = JitSession::new().expect("sessão");
+    session.add_reloadable_module("app", &ir_v1).expect("v1");
+    let (output_v1, _) = session.run_entry_capturing().expect("execução v1");
+    assert_eq!(output_v1, "42\n1\n");
+    session.hot_reload("app", &ir_v2).expect("v2");
+    let (jit_output, _) = session.run_entry_capturing().expect("execução v2");
 
-    let dir = DiretorioTemporario::novo("diferencial");
-    let executavel = dir.0.join(if cfg!(windows) {
+    let dir = TempDirectory::new("diferencial");
+    let executable = dir.0.join(if cfg!(windows) {
         "programa.exe"
     } else {
         "programa"
     });
     dartforge_native::build_executable(
         &ir_v2,
-        &executavel,
+        &executable,
         &dartforge_native::NativeOptions::default(),
     )
-    .unwrap_or_else(|erro| panic!("o driver AOT falhou: {erro}"));
-    let resultado = std::process::Command::new(&executavel).output().unwrap();
+    .unwrap_or_else(|error| panic!("o driver AOT falhou: {error}"));
+    let result = std::process::Command::new(&executable).output().unwrap();
     assert!(
-        resultado.status.success(),
+        result.status.success(),
         "{}",
-        String::from_utf8_lossy(&resultado.stderr)
+        String::from_utf8_lossy(&result.stderr)
     );
-    let saida_aot = String::from_utf8(resultado.stdout)
+    let aot_output = String::from_utf8(result.stdout)
         .unwrap()
         .replace("\r\n", "\n");
 
-    assert_eq!(saida_jit, saida_aot, "JIT recarregado divergiu do AOT");
-    assert_eq!(saida_jit, "64\n9\n");
+    assert_eq!(jit_output, aot_output, "JIT recarregado divergiu do AOT");
+    assert_eq!(jit_output, "64\n9\n");
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -666,7 +666,7 @@ void main() {
 ///
 /// Tem classe, método, despacho, string e função de topo, para que a análise
 /// tenha trabalho comparável ao de uma edição real, e não ao de um `ret i64`.
-fn fonte_de_medicao(geracao: u64) -> String {
+fn measurement_source(generation: u64) -> String {
     format!(
         "\
 class Caixa {{
@@ -675,7 +675,7 @@ class Caixa {{
   int dobro() {{ return valor * 2; }}
 }}
 String etiqueta(String nome) {{ return 'caixa ' + nome; }}
-int base() => {geracao};
+int base() => {generation};
 void main() {{
   Caixa c = Caixa(base());
   int total = 0;
@@ -695,29 +695,29 @@ void main() {{
 /// função pública devolve as duas fases somadas, e `docs/DESEMPENHO.md` proíbe
 /// obter uma fase por subtração. O IR devolvido é comparado com o da função
 /// pública no próprio teste; se o pipeline do compilador mudar, o teste acusa.
-fn compilar_medindo(fonte: &str) -> (std::time::Duration, std::time::Duration, String) {
-    let inicio = std::time::Instant::now();
-    let tokens = dartforge_lexer::lex(fonte).expect("lex");
-    let mut ast = dartforge_parser::parse(&tokens, fonte.len()).expect("parse");
-    let expansao = dartforge_macros::expand(&mut ast, fonte.len()).expect("macros");
+fn compile_measuring(source: &str) -> (std::time::Duration, std::time::Duration, String) {
+    let start = std::time::Instant::now();
+    let tokens = dartforge_lexer::lex(source).expect("lex");
+    let mut ast = dartforge_parser::parse(&tokens, source.len()).expect("parse");
+    let expansion = dartforge_macros::expand(&mut ast, source.len()).expect("macros");
     dartforge_hir::expand_mixins(&mut ast).expect("mixins");
-    let resolucao = dartforge_semantic::analyze(&ast).expect("semântica");
-    let analise = inicio.elapsed();
-    drop(expansao);
+    let resolution = dartforge_semantic::analyze(&ast).expect("semântica");
+    let analysis = start.elapsed();
+    drop(expansion);
 
-    let inicio = std::time::Instant::now();
-    let ir = dartforge_llvm::emit(&dartforge_hir::lower_resolved(ast, resolucao)).expect("emissão");
-    let emissao = inicio.elapsed();
-    (analise, emissao, ir)
+    let start = std::time::Instant::now();
+    let ir = dartforge_llvm::emit(&dartforge_hir::lower_resolved(ast, resolution)).expect("emissão");
+    let emission = start.elapsed();
+    (analysis, emission, ir)
 }
 
 /// Mediana e p95 de uma amostra, em microssegundos, pela metodologia do projeto.
-fn mediana_e_p95(amostras: &mut [std::time::Duration]) -> (f64, f64) {
-    amostras.sort_unstable();
+fn median_and_p95(samples: &mut [std::time::Duration]) -> (f64, f64) {
+    samples.sort_unstable();
     let micros = |d: std::time::Duration| d.as_secs_f64() * 1e6;
-    let mediana = micros(amostras[amostras.len() / 2]);
-    let indice = ((amostras.len() as f64) * 0.95).ceil() as usize - 1;
-    (mediana, micros(amostras[indice.min(amostras.len() - 1)]))
+    let median = micros(samples[samples.len() / 2]);
+    let ix = ((samples.len() as f64) * 0.95).ceil() as usize - 1;
+    (median, micros(samples[ix.min(samples.len() - 1)]))
 }
 
 /// Mede o ciclo de recarga por etapa e imprime a tabela de `docs/JIT.md`.
@@ -728,82 +728,82 @@ fn mediana_e_p95(amostras: &mut [std::time::Duration]) -> (f64, f64) {
 /// uma fração pequena do ciclo — a mesma aritmética do incremento 26.
 #[test]
 #[ignore = "medição; requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1 e --nocapture"]
-fn medicao_do_ciclo_de_recarga() {
+fn reload_cycle_measurement() {
     // O pipeline montado à mão tem de produzir o mesmo IR da API pública.
-    let (_, _, ir_montado) = compilar_medindo(&fonte_de_medicao(0));
+    let (_, _, assembled_ir) = compile_measuring(&measurement_source(0));
     assert_eq!(
-        ir_montado,
-        compile_dart_to_ir(&fonte_de_medicao(0)),
+        assembled_ir,
+        compile_dart_to_ir(&measurement_source(0)),
         "o pipeline de medição divergiu de dartforge_compiler::compile_llvm"
     );
 
-    const AQUECIMENTO: u64 = 3;
-    const AMOSTRAS: u64 = 20;
+    const WARMUP: u64 = 3;
+    const SAMPLES: u64 = 20;
 
-    let mut sessao = JitSession::new().expect("sessão");
-    sessao
-        .add_reloadable_module("app", &ir_montado)
+    let mut session = JitSession::new().expect("sessão");
+    session
+        .add_reloadable_module("app", &assembled_ir)
         .expect("geração 1");
-    sessao.run_entry_capturing().expect("execução inicial");
+    session.run_entry_capturing().expect("execução inicial");
 
-    let mut analise = Vec::new();
-    let mut emissao = Vec::new();
+    let mut analysis = Vec::new();
+    let mut emission = Vec::new();
     let mut parse = Vec::new();
     let mut contrato = Vec::new();
-    let mut adicao = Vec::new();
-    let mut trampolins = Vec::new();
-    let mut ligacao = Vec::new();
-    let mut publicacao = Vec::new();
+    let mut addition = Vec::new();
+    let mut trampolines = Vec::new();
+    let mut linkage = Vec::new();
+    let mut publication = Vec::new();
     let mut jit_total = Vec::new();
-    let mut ciclo = Vec::new();
+    let mut cycle = Vec::new();
     let mut bytes = 0usize;
 
-    for geracao in 1..=(AQUECIMENTO + AMOSTRAS) {
-        let fonte = fonte_de_medicao(geracao);
-        let inicio = std::time::Instant::now();
-        let (tempo_analise, tempo_emissao, ir) = compilar_medindo(&fonte);
-        let relatorio = sessao
+    for generation in 1..=(WARMUP + SAMPLES) {
+        let source = measurement_source(generation);
+        let start = std::time::Instant::now();
+        let (analysis_time, emission_time, ir) = compile_measuring(&source);
+        let report_data = session
             .hot_reload("app", &ir)
-            .unwrap_or_else(|erro| panic!("recarga {geracao}: {erro}"));
-        let total_ciclo = inicio.elapsed();
-        let (saida, _) = sessao.run_entry_capturing().expect("execução após recarga");
-        assert_eq!(saida, format!("{}\ncaixa um\n", 36 + 2 * geracao));
-        if geracao <= AQUECIMENTO {
+            .unwrap_or_else(|error| panic!("recarga {generation}: {error}"));
+        let total_cycle = start.elapsed();
+        let (out, _) = session.run_entry_capturing().expect("execução após recarga");
+        assert_eq!(out, format!("{}\ncaixa um\n", 36 + 2 * generation));
+        if generation <= WARMUP {
             continue;
         }
-        analise.push(tempo_analise);
-        emissao.push(tempo_emissao);
-        parse.push(relatorio.parse_ir);
-        contrato.push(relatorio.contract);
-        adicao.push(relatorio.add_module);
-        trampolins.push(relatorio.stubs);
-        ligacao.push(relatorio.link);
-        publicacao.push(relatorio.publish);
-        jit_total.push(relatorio.total);
-        ciclo.push(total_ciclo);
-        bytes = relatorio.ir_bytes;
+        analysis.push(analysis_time);
+        emission.push(emission_time);
+        parse.push(report_data.parse_ir);
+        contrato.push(report_data.contract);
+        addition.push(report_data.add_module);
+        trampolines.push(report_data.stubs);
+        linkage.push(report_data.link);
+        publication.push(report_data.publish);
+        jit_total.push(report_data.total);
+        cycle.push(total_cycle);
+        bytes = report_data.ir_bytes;
     }
 
-    println!("\n# Ciclo de recarga, {AMOSTRAS} amostras após {AQUECIMENTO} aquecimentos");
+    println!("\n# Ciclo de recarga, {SAMPLES} amostras após {WARMUP} aquecimentos");
     println!(
         "# IR de {bytes} bytes; gerações retidas ao final: {}",
-        sessao.retained_generations()
+        session.retained_generations()
     );
     println!("| Etapa | Mediana (µs) | p95 (µs) |");
     println!("| --- | --- | --- |");
-    for (rotulo, amostras) in [
-        ("análise do Dart novo", &mut analise),
-        ("geração do IR", &mut emissao),
+    for (label_name, samples) in [
+        ("análise do Dart novo", &mut analysis),
+        ("geração do IR", &mut emission),
         ("análise do IR (parse-ir)", &mut parse),
         ("verificação de contrato", &mut contrato),
-        ("adição do módulo ao JIT", &mut adicao),
-        ("publicação dos trampolins", &mut trampolins),
-        ("ligação em memória", &mut ligacao),
-        ("publicação dos ponteiros", &mut publicacao),
+        ("adição do módulo ao JIT", &mut addition),
+        ("publicação dos trampolins", &mut trampolines),
+        ("ligação em memória", &mut linkage),
+        ("publicação dos ponteiros", &mut publication),
         ("total do hot_reload", &mut jit_total),
-        ("ciclo completo", &mut ciclo),
+        ("ciclo completo", &mut cycle),
     ] {
-        let (mediana, p95) = mediana_e_p95(amostras);
-        println!("| {rotulo} | {mediana:.1} | {p95:.1} |");
+        let (median, p95) = median_and_p95(samples);
+        println!("| {label_name} | {median:.1} | {p95:.1} |");
     }
 }

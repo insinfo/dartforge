@@ -16,51 +16,51 @@
 use std::path::Path;
 
 /// (arquivo, trecho da linha, motivo).
-const PERMITIDOS: &[(&str, &str, &str)] = &[
-    ("arc_portas_nativas.rs", "let corpo_de_teste: extern \"C\" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(alvo as usize) };", "somente teste cfg(test): alvo conferido igual ao corpo Rust estático extern C, que apenas retém a referência e não lança nem chama Dart"),
-    ("ffi_api_nativa.rs", "let f: FinalizadorDeHandle = unsafe { std::mem::transmute(f) };", "o `Dart_HandleFinalizer` em C do chamador da API nativa"),
-    ("ffi_api_nativa.rs", "let handler: HandlerDePortaNativa = unsafe { std::mem::transmute(handler) };", "o `Dart_NativeMessageHandler` em C"),
+const ALLOWED: &[(&str, &str, &str)] = &[
+    ("arc_portas_nativas.rs", "let test_body: extern \"C\" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(target as usize) };", "somente teste cfg(test): alvo conferido igual ao corpo Rust estático extern C, que apenas retém a referência e não lança nem chama Dart"),
+    ("ffi_api_nativa.rs", "let f: HandleFinalizer = unsafe { std::mem::transmute(f) };", "o `Dart_HandleFinalizer` em C do chamador da API nativa"),
+    ("ffi_api_nativa.rs", "let handler: NativePortHandler = unsafe { std::mem::transmute(handler) };", "o `Dart_NativeMessageHandler` em C"),
     ("heap.rs", "let f: extern \"C\" fn(usize) = unsafe { std::mem::transmute(f) };", "a `NativeFinalizerFunction` em C do `dart:ffi`"),
     ("io_observador.rs", "std::mem::transmute::<*mut c_void, _>(s(c\"FSEvent", "funções do CoreServices achadas em tempo de execução"),
     ("io_windows_eventos.rs", "std::mem::transmute::<usize, Fn", "as extensões do Winsock (`AcceptEx`, `ConnectEx`…) achadas pelo `WSAIoctl`"),
-    ("isolados.rs", "let chamar: extern \"C\" fn(i64) -> i64 = unsafe { std::mem::transmute(chamar) };", "o endereço segue para o laço de eventos, que chama pela porta (`dart_r1`)"),
+    ("isolados.rs", "let call: extern \"C\" fn(i64) -> i64 = unsafe { std::mem::transmute(call) };", "o endereço segue para o laço de eventos, que chama pela porta (`dart_r1`)"),
     ("portas.rs", "std::mem::transmute::<usize, extern \"C\" fn()>(p)", "os trampolins da geração publicada pelo JIT, que não tem as exceções por tabelas"),
 ];
 
 #[test]
-fn todo_transmute_para_funcao_fora_das_portas_esta_na_lista() {
-    let fonte = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut novos = Vec::new();
-    for entrada in std::fs::read_dir(&fonte).expect("ler crates/runtime/src") {
-        let caminho = entrada.expect("entrada").path();
-        let Some(nome) = caminho.file_name().and_then(|n| n.to_str()) else { continue };
-        if !nome.ends_with(".rs") || nome == "excecoes_tabelas.rs" {
+fn every_fn_transmute_outside_ports_is_listed() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut new_ones = Vec::new();
+    for input in std::fs::read_dir(&source).expect("ler crates/runtime/src") {
+        let file_path = input.expect("entrada").path();
+        let Some(name) = file_path.file_name().and_then(|n| n.to_str()) else { continue };
+        if !name.ends_with(".rs") || name == "excecoes_tabelas.rs" {
             continue;
         }
-        let texto = std::fs::read_to_string(&caminho).expect("ler fonte");
-        for (n, linha) in texto.lines().enumerate() {
-            if !linha.contains("transmute") || linha.trim_start().starts_with("//") {
+        let text = std::fs::read_to_string(&file_path).expect("ler fonte");
+        for (n, line) in text.lines().enumerate() {
+            if !line.contains("transmute") || line.trim_start().starts_with("//") {
                 continue;
             }
-            let permitido = PERMITIDOS.iter().any(|(arquivo, trecho, _)| *arquivo == nome && linha.contains(trecho));
-            if !permitido {
-                novos.push(format!("{nome}:{}: {}", n + 1, linha.trim()));
+            let allowed = ALLOWED.iter().any(|(file, chunk, _)| *file == name && line.contains(chunk));
+            if !allowed {
+                new_ones.push(format!("{name}:{}: {}", n + 1, line.trim()));
             }
         }
     }
     assert!(
-        novos.is_empty(),
+        new_ones.is_empty(),
         "`transmute` fora das portas e fora da lista (chame o código Dart por `dart_r<n>`/`dart_v<n>`, ou acrescente o caso com o motivo em PERMITIDOS):\n{}",
-        novos.join("\n")
+        new_ones.join("\n")
     );
 }
 
 /// A lista não guarda entrada morta: cada uma ainda casa com alguma linha.
 #[test]
-fn a_lista_nao_tem_entrada_morta() {
-    let fonte = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    for (arquivo, trecho, motivo) in PERMITIDOS {
-        let texto = std::fs::read_to_string(fonte.join(arquivo)).unwrap_or_default();
-        assert!(texto.contains(trecho), "{arquivo}: a entrada ({motivo}) não casa mais com nada: tire-a da lista");
+fn the_list_has_no_dead_entry() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for (file, chunk, reason) in ALLOWED {
+        let text = std::fs::read_to_string(source.join(file)).unwrap_or_default();
+        assert!(text.contains(chunk), "{file}: a entrada ({reason}) não casa mais com nada: tire-a da lista");
     }
 }

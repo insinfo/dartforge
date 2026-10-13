@@ -12,89 +12,89 @@ use dartforge_runtime::{
 };
 
 #[test]
-fn closure_owned_mantem_contexto_celula_e_arestas_repetidas_ate_o_drop() {
+fn owned_closure_keeps_context_cell_and_repeated_edges_until_drop() {
     use dartforge_runtime::{abi::*, layout::cid};
-    extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
-    extern "C" fn corpo(_: i64) -> i64 { 7 }
+    extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+    extern "C" fn body(_: i64) -> i64 { 7 }
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
-        for ciclo in [false, true] {
-            let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
-            let celula = dartforge_arc_objeto_owned_v1(i64::from(cid::CELULA), 1);
-            dartforge_arc_gravar_campo_ref_v1(celula, 0, valor);
-            dartforge_arc_release(valor);
+        for cycle in [false, true] {
+            let value = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let cell = dartforge_arc_objeto_owned_v1(i64::from(cid::CELULA), 1);
+            dartforge_arc_gravar_campo_ref_v1(cell, 0, value);
+            dartforge_arc_release(value);
             let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 40);
-            for i in [0, 39] { dartforge_arc_gravar_campo_ref_v1(env, i, celula); }
-            dartforge_arc_release(celula);
-            let codigo = entrada as *const () as usize as i64;
-            let tipado = corpo as *const () as usize as i64;
-            let closure = dartforge_arc_closure_owned_v1(codigo, env, tipado, 7);
+            for i in [0, 39] { dartforge_arc_gravar_campo_ref_v1(env, i, cell); }
+            dartforge_arc_release(cell);
+            let code = input as *const () as usize as i64;
+            let typed_one = body as *const () as usize as i64;
+            let closure = dartforge_arc_closure_owned_v1(code, env, typed_one, 7);
             assert_eq!(dartforge_arc_observar_heap_v1(env), 3);
             dartforge_arc_release(env);
-            if ciclo { dartforge_arc_gravar_campo_ref_v1(env, 38, closure); }
+            if cycle { dartforge_arc_gravar_campo_ref_v1(env, 38, closure); }
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(closure), 3);
-            for h in [env, celula, valor] { assert_eq!(dartforge_arc_observar_heap_v1(h), 1); }
-            assert_eq!(dartforge_closure_code(closure), codigo);
-            assert_eq!(dartforge_closure_tipada(closure, 7), tipado);
+            for h in [env, cell, value] { assert_eq!(dartforge_arc_observar_heap_v1(h), 1); }
+            assert_eq!(dartforge_closure_code(closure), code);
+            assert_eq!(dartforge_closure_tipada(closure, 7), typed_one);
             assert_eq!(dartforge_arc_contexto_closure_v1(closure), env);
-            assert_eq!(dartforge_arc_env_ref_v1(env, 39), celula);
-            assert_eq!(dartforge_unbox_int(dartforge_arc_ler_campo_ref_v1(celula, 0)), i64::MAX);
+            assert_eq!(dartforge_arc_env_ref_v1(env, 39), cell);
+            assert_eq!(dartforge_unbox_int(dartforge_arc_ler_campo_ref_v1(cell, 0)), i64::MAX);
             dartforge_arc_release(closure);
             dartforge_arc_collect();
-            for h in [closure, env, celula, valor] { assert_eq!(dartforge_arc_observar_heap_v1(h), 0); }
+            for h in [closure, env, cell, value] { assert_eq!(dartforge_arc_observar_heap_v1(h), 0); }
         }
     }).join().unwrap();
 }
 
 #[test]
-fn contexto_emprestado_precisa_de_owner_apos_liberar_closure() {
+fn borrowed_context_needs_owner_after_closure_release() {
     use dartforge_runtime::abi::*;
-    extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+    extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
-        let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
-        let closure = dartforge_arc_closure_owned_v1(entrada as *const () as usize as i64, filho, 0, 0);
-        dartforge_arc_release(filho);
-        let emprestado = dartforge_arc_contexto_closure_v1(closure);
-        assert_eq!(emprestado, filho);
-        assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 1);
-        dartforge_arc_retain(emprestado);
+        let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+        let closure = dartforge_arc_closure_owned_v1(input as *const () as usize as i64, child, 0, 0);
+        dartforge_arc_release(child);
+        let borrowed = dartforge_arc_contexto_closure_v1(closure);
+        assert_eq!(borrowed, child);
+        assert_eq!(dartforge_arc_observar_heap_v1(borrowed), 1);
+        dartforge_arc_retain(borrowed);
         dartforge_arc_release(closure);
         dartforge_arc_collect();
         assert_eq!(dartforge_arc_observar_heap_v1(closure), 0);
-        assert_eq!(dartforge_unbox_int(emprestado), i64::MAX);
-        assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 3);
-        dartforge_arc_release(emprestado);
+        assert_eq!(dartforge_unbox_int(borrowed), i64::MAX);
+        assert_eq!(dartforge_arc_observar_heap_v1(borrowed), 3);
+        dartforge_arc_release(borrowed);
         dartforge_arc_collect();
-        assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 0);
-        let canonica = dartforge_tearoff(123);
-        assert_eq!(dartforge_arc_contexto_closure_v1(canonica), 0);
+        assert_eq!(dartforge_arc_observar_heap_v1(borrowed), 0);
+        let canonical_one = dartforge_tearoff(123);
+        assert_eq!(dartforge_arc_contexto_closure_v1(canonical_one), 0);
     }).join().unwrap();
 }
 
 #[test]
-fn nsm_publica_erro_ate_clear_sem_owner_no_chamador() {
+fn nsm_publishes_error_until_clear_without_owner_in_caller() {
     use dartforge_runtime::abi::*;
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
         dartforge_nsm_chamada();
         assert_ne!(dartforge_exception_pending(), 0);
-        let erro = dartforge_exception_peek_ref();
-        assert_ne!(erro, 0);
+        let error = dartforge_exception_peek_ref();
+        assert_ne!(error, 0);
         dartforge_arc_collect();
-        assert_eq!(dartforge_exception_peek_ref(), erro);
-        assert_eq!(dartforge_arc_observar_heap_v1(erro), 1);
+        assert_eq!(dartforge_exception_peek_ref(), error);
+        assert_eq!(dartforge_arc_observar_heap_v1(error), 1);
         dartforge_exception_clear();
         dartforge_arc_collect();
-        assert_eq!(dartforge_arc_observar_heap_v1(erro), 0);
+        assert_eq!(dartforge_arc_observar_heap_v1(error), 0);
     }).join().unwrap();
 }
 
 /// Os acessos por índice e por bytes das listas tipadas e o `codeUnitAt`
 /// (os caminhos do runtime sob ARC): emprestam o receptor e só lançam
 /// `RangeError`.
-const ACESSOS_TIPADOS: &[&str] = &[
+const TYPED_ACCESSES: &[&str] = &[
     "dartforge_nativo_DartForge_typed_getInt8",
     "dartforge_nativo_DartForge_typed_getUint8",
     "dartforge_nativo_DartForge_typed_getInt16",
@@ -122,7 +122,7 @@ const ACESSOS_TIPADOS: &[&str] = &[
 
 /// Os natives de resultado escalar com contrato: Ref emprestado, saída pelos
 /// efeitos (`efeitos.tsv`).
-const NATIVOS_ESCALARES: &[&str] = &[
+const SCALAR_NATIVES: &[&str] = &[
     "dartforge_nativo_Closure_computeHash",
     "dartforge_nativo_Closure_equals",
     "dartforge_nativo_DartApiDLInitializeData",
@@ -294,7 +294,7 @@ const NATIVOS_ESCALARES: &[&str] = &[
 ];
 
 /// Os natives sem resultado com contrato, gerados do mesmo jeito.
-const NATIVOS_SEM_RESULTADO: &[&str] = &[
+const NATIVES_WITHOUT_RESULT: &[&str] = &[
     "dartforge_nativo_DartForge_GrowableList_reservar",
     "dartforge_nativo_DartForge_List_copiar",
     "dartforge_nativo_DartForge_List_preencher",
@@ -379,14 +379,14 @@ const NATIVOS_SEM_RESULTADO: &[&str] = &[
 ];
 
 #[test]
-fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs() {
-    let auditadas: Vec<_> = NOMES
+fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
+    let audited: Vec<_> = NOMES
         .iter()
         .filter(|n| {
             n.starts_with("dartforge_arc_")
-                || ACESSOS_TIPADOS.contains(n)
-                || NATIVOS_ESCALARES.contains(n)
-                || NATIVOS_SEM_RESULTADO.contains(n)
+                || TYPED_ACCESSES.contains(n)
+                || SCALAR_NATIVES.contains(n)
+                || NATIVES_WITHOUT_RESULT.contains(n)
                 || matches!(
                     **n,
                     "dartforge_gc_global_root"
@@ -440,12 +440,12 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                 )
         })
         .collect();
-    assert_eq!(auditadas.len(), CONTRATOS.len());
-    for nome in auditadas {
+    assert_eq!(audited.len(), CONTRATOS.len());
+    for nome in audited {
         let c = CONTRATOS.iter().find(|c| c.nome == *nome).unwrap();
-        let efeito = EFEITOS.iter().find(|e| e.0 == c.nome).unwrap();
-        assert_eq!(efeito.2, c.pode_falhar);
-        assert_eq!(efeito.3, c.chama_dart);
+        let effect = EFEITOS.iter().find(|e| e.0 == c.nome).unwrap();
+        assert_eq!(effect.2, c.pode_falhar);
+        assert_eq!(effect.3, c.chama_dart);
         assert!(!c.chama_dart || c.invalida_borrows);
     }
     let receber = CONTRATOS
@@ -457,48 +457,48 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         &[ModoParametro::Native, ModoParametro::Consume]
     );
     assert!(receber.retencao_persistente && receber.invalida_borrows);
-    let carregar = CONTRATOS
+    let load = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_arc_quadro_carregar_v1")
         .unwrap();
-    assert_eq!(carregar.resultado, ModoResultado::Owned);
-    let caixa = CONTRATOS
+    assert_eq!(load.resultado, ModoResultado::Owned);
+    let boxed = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_arc_box_int_owned_v1")
         .unwrap();
-    assert_eq!(caixa.parametros, &[ModoParametro::Scalar]);
-    assert_eq!(caixa.resultado, ModoResultado::Owned);
-    assert!(!caixa.pode_falhar && !caixa.retencao_persistente);
-    assert!(caixa.invalida_borrows);
-    assert!(EFEITOS.iter().find(|e| e.0 == caixa.nome).unwrap().1);
-    let instancia = CONTRATOS
+    assert_eq!(boxed.parametros, &[ModoParametro::Scalar]);
+    assert_eq!(boxed.resultado, ModoResultado::Owned);
+    assert!(!boxed.pode_falhar && !boxed.retencao_persistente);
+    assert!(boxed.invalida_borrows);
+    assert!(EFEITOS.iter().find(|e| e.0 == boxed.nome).unwrap().1);
+    let instance = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_arc_objeto_owned_v1")
         .unwrap();
     assert_eq!(
-        instancia.parametros,
+        instance.parametros,
         &[ModoParametro::Native, ModoParametro::Scalar]
     );
-    assert_eq!(instancia.resultado, ModoResultado::Owned);
-    assert!(instancia.invalida_borrows);
-    assert!(!instancia.pode_falhar && !instancia.chama_dart && !instancia.retencao_persistente);
-    assert!(EFEITOS.iter().find(|e| e.0 == instancia.nome).unwrap().1);
-    let escalar = CONTRATOS
+    assert_eq!(instance.resultado, ModoResultado::Owned);
+    assert!(instance.invalida_borrows);
+    assert!(!instance.pode_falhar && !instance.chama_dart && !instance.retencao_persistente);
+    assert!(EFEITOS.iter().find(|e| e.0 == instance.nome).unwrap().1);
+    let scalar = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_arc_ler_campo_escalar_v1")
         .unwrap();
     assert_eq!(
-        escalar.parametros,
+        scalar.parametros,
         &[ModoParametro::Borrow, ModoParametro::Scalar]
     );
-    assert_eq!(escalar.resultado, ModoResultado::ScalarI64);
+    assert_eq!(scalar.resultado, ModoResultado::ScalarI64);
     assert!(
-        !escalar.pode_falhar
-            && !escalar.chama_dart
-            && !escalar.retencao_persistente
-            && !escalar.invalida_borrows
+        !scalar.pode_falhar
+            && !scalar.chama_dart
+            && !scalar.retencao_persistente
+            && !scalar.invalida_borrows
     );
-    for (nome, valor, retencao) in [
+    for (nome, value, retention) in [
         (
             "dartforge_arc_gravar_campo_escalar_v1",
             ModoParametro::Scalar,
@@ -513,50 +513,50 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
         assert_eq!(
             c.parametros,
-            &[ModoParametro::Borrow, ModoParametro::Scalar, valor]
+            &[ModoParametro::Borrow, ModoParametro::Scalar, value]
         );
         assert_eq!(c.resultado, ModoResultado::Void);
-        assert_eq!(c.retencao_persistente, retencao);
+        assert_eq!(c.retencao_persistente, retention);
         assert!(c.invalida_borrows && !c.pode_falhar && !c.chama_dart);
         assert!(!EFEITOS.iter().find(|e| e.0 == nome).unwrap().1);
     }
-    let lancar = CONTRATOS
+    let throw = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_arc_lancar_ref_v1")
         .unwrap();
-    let leitura_ref = CONTRATOS
+    let ref_read = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_arc_ler_campo_ref_v1")
         .unwrap();
     assert_eq!(
-        leitura_ref.parametros,
+        ref_read.parametros,
         &[ModoParametro::Borrow, ModoParametro::Scalar]
     );
-    assert_eq!(leitura_ref.resultado, ModoResultado::BorrowArg(0));
+    assert_eq!(ref_read.resultado, ModoResultado::BorrowArg(0));
     assert!(
-        !leitura_ref.pode_falhar
-            && !leitura_ref.chama_dart
-            && !leitura_ref.retencao_persistente
-            && !leitura_ref.invalida_borrows
+        !ref_read.pode_falhar
+            && !ref_read.chama_dart
+            && !ref_read.retencao_persistente
+            && !ref_read.invalida_borrows
     );
-    assert!(!EFEITOS.iter().find(|e| e.0 == leitura_ref.nome).unwrap().1);
-    assert_eq!(lancar.parametros, &[ModoParametro::Borrow]);
-    assert_eq!(lancar.resultado, ModoResultado::Void);
-    assert!(lancar.pode_falhar && lancar.retencao_persistente && lancar.invalida_borrows);
-    let limpar = CONTRATOS
+    assert!(!EFEITOS.iter().find(|e| e.0 == ref_read.nome).unwrap().1);
+    assert_eq!(throw.parametros, &[ModoParametro::Borrow]);
+    assert_eq!(throw.resultado, ModoResultado::Void);
+    assert!(throw.pode_falhar && throw.retencao_persistente && throw.invalida_borrows);
+    let clear = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_exception_clear")
         .unwrap();
-    assert!(limpar.parametros.is_empty());
-    assert!(!limpar.pode_falhar && !limpar.retencao_persistente);
-    assert!(limpar.invalida_borrows);
-    let campo = CONTRATOS
+    assert!(clear.parametros.is_empty());
+    assert!(!clear.pode_falhar && !clear.retencao_persistente);
+    assert!(clear.invalida_borrows);
+    let field = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_nativo_DartForge_record_fieldAt")
         .unwrap();
-    assert_eq!(campo.resultado, ModoResultado::BorrowArg(0));
+    assert_eq!(field.resultado, ModoResultado::BorrowArg(0));
     // Leituras do record: não alocam nem lançam (o lowering não confere).
-    assert!(!campo.pode_falhar);
+    assert!(!field.pode_falhar);
     for nome in [
         "dartforge_nativo_DartForge_record_numFields",
         "dartforge_nativo_DartForge_record_shape",
@@ -567,14 +567,14 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         assert!(!c.pode_falhar);
         assert!(!c.retencao_persistente && !c.invalida_borrows);
     }
-    let imprimir = CONTRATOS
+    let print = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_print_handle")
         .unwrap();
-    assert_eq!(imprimir.parametros, &[ModoParametro::Borrow]);
-    assert_eq!(imprimir.resultado, ModoResultado::Void);
-    assert!(imprimir.pode_falhar);
-    assert!(!imprimir.retencao_persistente && !imprimir.invalida_borrows);
+    assert_eq!(print.parametros, &[ModoParametro::Borrow]);
+    assert_eq!(print.resultado, ModoResultado::Void);
+    assert!(print.pode_falhar);
+    assert!(!print.retencao_persistente && !print.invalida_borrows);
     assert!(!CONTRATOS.iter().any(|c| c.nome == "dartforge_alocar"));
     for nome in ["dartforge_gc_global_root", "dartforge_marcar_constante"] {
         let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
@@ -584,30 +584,30 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
 }
 
 #[test]
-fn captura_emprestada_copiada_sobrevive_ao_ambiente_e_preserva_pendencia() {
+fn copied_borrowed_capture_survives_env_and_preserves_pending() {
     use dartforge_runtime::{abi::*, layout::cid};
     std::thread::spawn(|| {
         dartforge_memoria_arc_v1();
-        let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+        let child = dartforge_arc_box_int_owned_v1(i64::MAX);
         let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 40);
-        dartforge_arc_gravar_campo_ref_v1(env, 39, filho);
-        dartforge_arc_release(filho);
+        dartforge_arc_gravar_campo_ref_v1(env, 39, child);
+        dartforge_arc_release(child);
         dartforge_exception_throw(42, 1);
-        let pendente = dartforge_exception_peek_ref();
-        let captura = dartforge_arc_env_ref_v1(env, 39);
-        assert_eq!(captura, filho);
-        assert_eq!(dartforge_arc_observar_heap_v1(captura), 1);
+        let pending = dartforge_exception_peek_ref();
+        let capture = dartforge_arc_env_ref_v1(env, 39);
+        assert_eq!(capture, child);
+        assert_eq!(dartforge_arc_observar_heap_v1(capture), 1);
         assert_ne!(dartforge_exception_pending(), 0);
-        assert_eq!(dartforge_exception_peek_ref(), pendente);
-        dartforge_arc_retain(captura);
+        assert_eq!(dartforge_exception_peek_ref(), pending);
+        dartforge_arc_retain(capture);
         dartforge_arc_release(env);
         dartforge_arc_collect();
         assert_eq!(dartforge_arc_observar_heap_v1(env), 0);
-        assert_eq!(dartforge_arc_observar_heap_v1(captura), 3);
-        assert_eq!(dartforge_unbox_int(captura), i64::MAX);
-        dartforge_arc_release(captura);
+        assert_eq!(dartforge_arc_observar_heap_v1(capture), 3);
+        assert_eq!(dartforge_unbox_int(capture), i64::MAX);
+        dartforge_arc_release(capture);
         dartforge_exception_clear();
         dartforge_arc_collect();
-        assert_eq!(dartforge_arc_observar_heap_v1(captura), 0);
+        assert_eq!(dartforge_arc_observar_heap_v1(capture), 0);
     }).join().unwrap();
 }

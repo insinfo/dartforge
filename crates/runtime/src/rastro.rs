@@ -1,18 +1,18 @@
 // O rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
 // §13.14): a tabela endereço → (função, linha, coluna) que cada imagem
-// compilada com `--rastro=simbolico` registra na partida, os endereços de
+// compilada com `--trace=simbolico` registra na partida, os endereços de
 // retorno guardados no `throw` e a simbolização, feita só quando o texto é
 // pedido (`toString`, a exceção não capturada).
 //
-// A entrada da tabela (`emit_native/src/llvm/rastro.rs`) tem 12 bytes: o
+// A entrada da tabela (`emit_native/src/llvm/trace.rs`) tem 12 bytes: o
 // rótulo e o registro da função, cada um como deslocamento a partir do
 // próprio campo, e uma palavra. Os dois bits baixos do campo do registro (o
 // registro é alinhado em 4) dizem a espécie: 0, um ponto de chamada (a
-// palavra é `linha << 12 | coluna`; as entradas com o mesmo rótulo são os
+// palavra é `line << 12 | column`; as entradas com o mesmo rótulo são os
 // quadros embutidos, de dentro para fora); 1, a identidade de uma função
 // pela entrada uniforme das closures dela (a palavra é o token); 2, o
 // `await` de cada estado de um corpo `async`, na ordem; 3, o elo de uma
-// closure com quem espera (`posição << 2 | direto << 1 | célula`). O
+// closure com quem espera (`posição << 2 | direct << 1 | célula`). O
 // registro da função é o deslocamento até a url, um byte de marcas e o
 // nome, os textos terminados em zero.
 //
@@ -35,241 +35,241 @@
 // Fragmento do runtime: sem `use` (os fragmentos são um programa só).
 // Escrito sem compilar nem executar (2026-10-05).
 
-/// As seções do rastro registradas, `(começo, fim)`.
-static SECOES_DO_RASTRO: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::new(Vec::new());
+/// As seções do rastro registradas, `(começo, end)`.
+static TRACE_SECTIONS: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::new(Vec::new());
 /// Alguma imagem registrou a tabela: o `throw` guarda os endereços.
-static HA_TABELA_DE_RASTRO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static HAS_TRACE_TABLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// O que as seções dizem, e a geração das seções com que foi montado:
 /// montado no primeiro pedido, refeito quando uma seção entra ou sai.
-static INDICE_DO_RASTRO: std::sync::RwLock<(usize, IndiceDoRastro)> =
-    std::sync::RwLock::new((0, IndiceDoRastro { pontos: Vec::new(), funcoes: Vec::new() }));
+static TRACE_INDEX: std::sync::RwLock<(usize, TraceIndex)> =
+    std::sync::RwLock::new((0, TraceIndex { points: Vec::new(), functions: Vec::new() }));
 /// A geração das seções: cresce a cada registro e a cada retirada (o JIT
 /// retira a seção do objeto que solta). Começa em 1: o índice vazio é a
 /// geração 0.
-static GERACAO_DO_RASTRO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+static TRACE_GENERATION: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
 /// Os campos do `dart:async` que a cadeia de quem espera lê:
-/// `(id da classe, "Classe.campo", posição)`.
-static CAMPOS_DO_RASTRO: std::sync::Mutex<Vec<(i64, String, usize)>> = std::sync::Mutex::new(Vec::new());
+/// `(id da class, "Class.field", posição)`.
+static TRACE_FIELDS: std::sync::Mutex<Vec<(i64, String, usize)>> = std::sync::Mutex::new(Vec::new());
 
 /// Quantos quadros o rastro guarda (os pares ficam em campos de um objeto,
 /// até 2¹⁶ por objeto).
-const QUADROS_NO_RASTRO: usize = 1024;
+const FRAMES_IN_TRACE: usize = 1024;
 
 /// O texto de hoje, sem tabela ou sem quadro Dart.
-const RASTRO_SEM_TABELA: &str = "#0      main (dart:native)\n";
+const TRACE_WITHOUT_TABLE: &str = "#0      main (dart:native)\n";
 
 /// As marcas do registro de uma função (`emit_native/src/hir.rs`,
 /// `marcas_do_rastro`).
-const MARCA_CORPO_ASYNC: u8 = 1;
-const MARCA_OCULTA: u8 = 2;
-const MARCA_ESCUTA: u8 = 4;
-/// O corpo é de um gerador `async*` (com [`MARCA_CORPO_ASYNC`]): o quadro
+const ASYNC_BODY_MARK: u8 = 1;
+const HIDDEN_MARK: u8 = 2;
+const LISTEN_MARK: u8 = 4;
+/// O corpo é de um gerador `async*` (com [`ASYNC_BODY_MARK`]): o quadro
 /// dele na pilha já foi suspenso (`WasPreviouslySuspended` do gerador).
-const MARCA_GERADOR_ASYNC: u8 = 8;
+const ASYNC_GENERATOR_MARK: u8 = 8;
 
 /// Os estados de `_StreamController` e de `_BufferingStreamSubscription`
 /// (`stream_controller.dart`, `stream_impl.dart`).
-const CONTROLADOR_INSCRITO: i64 = 1;
-const MASCARA_DA_INSCRICAO: i64 = 3;
-const CONTROLADOR_ADD_STREAM: i64 = 8;
-const INSCRICAO_COM_ERRO: i64 = 1 << 5;
+const CONTROLLER_SUBSCRIBED: i64 = 1;
+const SUBSCRIPTION_MASK: i64 = 3;
+const CONTROLLER_ADD_STREAM: i64 = 8;
+const SUBSCRIPTION_WITH_ERROR: i64 = 1 << 5;
 
 /// As espécies de tear-off que o percurso reconhece (o `Owner` da função
 /// implícita na VM): o `_onData` de um `_StreamIterator` e o `_add` de um
 /// `_StreamController`.
-const TEAROFF_ON_DATA_DO_ITERADOR: i64 = 1;
-const TEAROFF_ADD_DO_CONTROLADOR: i64 = 2;
+const ITERATOR_ON_DATA_TEAROFF: i64 = 1;
+const CONTROLLER_ADD_TEAROFF: i64 = 2;
 
-/// As entradas dos tear-offs reconhecidos: `(entrada, espécie)`.
-static TEAROFFS_DO_RASTRO: std::sync::Mutex<Vec<(usize, i64)>> = std::sync::Mutex::new(Vec::new());
+/// As entradas dos tear-offs reconhecidos: `(input, espécie)`.
+static TRACE_TEAROFFS: std::sync::Mutex<Vec<(usize, i64)>> = std::sync::Mutex::new(Vec::new());
 
 /// O id de classe do quadro de uma função `async` (`lower/async_sm.rs`,
-/// `ID_QUADRO_ASYNC`): `[estado, completer, corpo, …]`.
-const ID_QUADRO_ASYNC: i64 = 0x3FFF_FF00;
+/// `ASYNC_FRAME_ID`): `[estado, completer, body, …]`.
+const ASYNC_FRAME_ID: i64 = 0x3FFF_FF00;
 
 /// Os estados de `_FutureListener` (`future_impl.dart`).
-const OUVINTE_THEN: i64 = 1;
-const OUVINTE_CATCH_ERROR: i64 = 2;
-const OUVINTE_WHEN_COMPLETE: i64 = 8;
-const OUVINTE_AWAIT: i64 = 16;
+const LISTENER_THEN: i64 = 1;
+const LISTENER_CATCH_ERROR: i64 = 2;
+const LISTENER_WHEN_COMPLETE: i64 = 8;
+const LISTENER_AWAIT: i64 = 16;
 
 /// A distância máxima entre o endereço gravado por
 /// `dartforge_rastro_entrar` (um local dela) e o topo da pilha do quadro que
 /// a chamou.
-const JANELA_DA_PILHA: usize = 16 * 1024;
+const STACK_WINDOW: usize = 16 * 1024;
 
 /// Os pares guardados de um quadro da cadeia de quem espera (os de um quadro
-/// síncrono são `(retorno, começo)`, com os bits altos limpos).
-const PAR_ESPERA: u64 = 1 << 62;
-const PAR_OUVINTE: u64 = 1 << 61;
+/// síncrono são `(ret, começo)`, com os bits altos limpos).
+const PAIR_WAIT: u64 = 1 << 62;
+const PAIR_LISTENER: u64 = 1 << 61;
 
 /// Um ponto de chamada, já com os endereços absolutos.
 #[derive(Clone, Copy)]
-struct PontoDoRastro {
-    rotulo: usize,
-    registro: usize,
-    linha_coluna: u32,
+struct TracePoint {
+    label_name: usize,
+    rec: usize,
+    line_column: u32,
 }
 
 /// Uma função conhecida pela entrada uniforme das closures dela.
 #[derive(Clone, Default)]
-struct FuncaoDoRastro {
-    registro: usize,
+struct TraceFunction {
+    rec: usize,
     token: u32,
     /// A posição do `await` de cada estado (o índice `k − 1`).
-    esperas: Vec<u32>,
-    /// O elo com quem espera: `(posição, direto, célula)`.
-    elo: Option<(usize, bool, bool)>,
+    waits: Vec<u32>,
+    /// O elo com quem espera: `(posição, direct, célula)`.
+    link: Option<(usize, bool, bool)>,
 }
 
 /// As seções lidas.
-struct IndiceDoRastro {
+struct TraceIndex {
     /// Os pontos de chamada pelo rótulo; os do mesmo rótulo, na ordem da
     /// seção, são a cadeia de quadros embutidos.
-    pontos: Vec<PontoDoRastro>,
+    points: Vec<TracePoint>,
     /// As funções pela entrada, em ordem.
-    funcoes: Vec<(usize, FuncaoDoRastro)>,
+    functions: Vec<(usize, TraceFunction)>,
 }
 
-impl IndiceDoRastro {
-    /// A cadeia do quadro de `retorno` (o maior rótulo abaixo dele, dentro da
-    /// função que começa em `inicio`), de dentro para fora; vazia sem ponto.
-    fn cadeia(&self, retorno: u64, inicio: u64) -> &[PontoDoRastro] {
-        let r = retorno as usize;
-        let k = self.pontos.partition_point(|p| p.rotulo < r);
-        let Some(ultimo) = k.checked_sub(1) else { return &[] };
-        let rotulo = self.pontos[ultimo].rotulo;
+impl TraceIndex {
+    /// A cadeia do quadro de `ret` (o maior rótulo abaixo dele, dentro da
+    /// função que começa em `start`), de dentro para fora; vazia sem ponto.
+    fn chain(&self, ret: u64, start: u64) -> &[TracePoint] {
+        let r = ret as usize;
+        let k = self.points.partition_point(|p| p.label_name < r);
+        let Some(last_one) = k.checked_sub(1) else { return &[] };
+        let label_name = self.points[last_one].label_name;
         // A função do quadro: o rótulo tem de estar nela. Sem o começo (o
         // desenrolador não o deu), só um rótulo próximo.
-        if (inicio != 0 && rotulo < inicio as usize) || (inicio == 0 && r - rotulo > 1 << 16) {
+        if (start != 0 && label_name < start as usize) || (start == 0 && r - label_name > 1 << 16) {
             return &[];
         }
-        let mut primeiro = ultimo;
-        while primeiro > 0 && self.pontos[primeiro - 1].rotulo == rotulo {
-            primeiro -= 1;
+        let mut first = last_one;
+        while first > 0 && self.points[first - 1].label_name == label_name {
+            first -= 1;
         }
-        &self.pontos[primeiro..=ultimo]
+        &self.points[first..=last_one]
     }
 
-    fn funcao(&self, entrada: usize) -> Option<&FuncaoDoRastro> {
-        self.funcoes.binary_search_by_key(&entrada, |(e, _)| *e).ok().map(|i| &self.funcoes[i].1)
+    fn function(&self, input: usize) -> Option<&TraceFunction> {
+        self.functions.binary_search_by_key(&input, |(e, _)| *e).ok().map(|i| &self.functions[i].1)
     }
 }
 
 /// Um quadro do rastro guardado.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum QuadroDoRastro {
+enum TraceFrame {
     /// O endereço de retorno e o começo da função.
-    Sincrono(u64, u64),
+    Sync(u64, u64),
     /// `<asynchronous suspension>`.
-    Lacuna,
+    Gap,
     /// Quem espera num `await`: a entrada do corpo e o estado.
-    Espera(u64, i64),
+    Wait(u64, i64),
     /// A closure que escuta um `Future`: a entrada dela.
-    Ouvinte(u64),
+    Listener(u64),
 }
 
-fn par_do_quadro(q: QuadroDoRastro) -> (u64, u64) {
+fn frame_pair(q: TraceFrame) -> (u64, u64) {
     match q {
-        QuadroDoRastro::Sincrono(r, f) => (r, f),
-        QuadroDoRastro::Lacuna => (0, 0),
-        QuadroDoRastro::Espera(e, k) => (PAR_ESPERA | (k as u64 & (PAR_OUVINTE - 1)), e),
-        QuadroDoRastro::Ouvinte(e) => (PAR_OUVINTE, e),
+        TraceFrame::Sync(r, f) => (r, f),
+        TraceFrame::Gap => (0, 0),
+        TraceFrame::Wait(e, k) => (PAIR_WAIT | (k as u64 & (PAIR_LISTENER - 1)), e),
+        TraceFrame::Listener(e) => (PAIR_LISTENER, e),
     }
 }
 
-fn quadro_do_par((a, b): (u64, u64)) -> QuadroDoRastro {
+fn pair_frame((a, b): (u64, u64)) -> TraceFrame {
     if a == 0 && b == 0 {
-        QuadroDoRastro::Lacuna
-    } else if a & PAR_ESPERA != 0 {
-        QuadroDoRastro::Espera(b, (a & !PAR_ESPERA) as i64)
-    } else if a == PAR_OUVINTE {
-        QuadroDoRastro::Ouvinte(b)
+        TraceFrame::Gap
+    } else if a & PAIR_WAIT != 0 {
+        TraceFrame::Wait(b, (a & !PAIR_WAIT) as i64)
+    } else if a == PAIR_LISTENER {
+        TraceFrame::Listener(b)
     } else {
-        QuadroDoRastro::Sincrono(a, b)
+        TraceFrame::Sync(a, b)
     }
 }
 
 thread_local! {
-    /// Os pares do último `throw` desta thread (veja [`par_do_quadro`]), de
+    /// Os pares do último `throw` desta thread (veja [`frame_pair`]), de
     /// dentro para fora; vazio sem tabela.
-    static RETORNOS_DO_LANCAMENTO: std::cell::RefCell<Vec<(u64, u64)>> = const { std::cell::RefCell::new(Vec::new()) };
-    /// A pilha do rastro: `(tipo, valor, endereço)` empurrado por
+    static THROW_RETURNS: std::cell::RefCell<Vec<(u64, u64)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// A pilha do rastro: `(tipo, value, endereço)` empurrado por
     /// `dartforge_rastro_entrar` — o quadro de um corpo `async` (tipo 0) ou
     /// o ouvinte de `handleValue` (tipo 1) e um endereço da pilha de máquina
     /// logo abaixo do quadro que chamou.
-    static PILHA_DO_RASTRO: std::cell::RefCell<Vec<(i64, i64, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static TRACE_STACK: std::cell::RefCell<Vec<(i64, i64, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// O registro da tabela do rastro de uma imagem: o módulo compilado com
-/// `--rastro=simbolico` chama isto na partida com o começo e o fim da seção
+/// `--trace=simbolico` chama isto na partida com o começo e o fim da seção
 /// (`dfpcl`; as sentinelas `.dfpcl$a`/`$z` no COFF). Idempotente por seção;
 /// não aloca no heap do coletor nem lança.
 ///
 /// # Safety
-/// `[inicio, fim)` é a seção do rastro de uma imagem carregada, que fica
+/// `[start, end)` é a seção do rastro de uma imagem carregada, que fica
 /// carregada até o fim do processo.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_rastro(inicio: *const u8, fim: *const u8) {
-    let (inicio, fim) = (inicio as usize, fim as usize);
-    if inicio == 0 || fim <= inicio {
+pub unsafe extern "C" fn dartforge_registrar_rastro(start: *const u8, end: *const u8) {
+    let (start, end) = (start as usize, end as usize);
+    if start == 0 || end <= start {
         return;
     }
-    let mut secoes = SECOES_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
-    if secoes.iter().any(|&(a, _)| a == inicio) {
+    let mut sections = TRACE_SECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    if sections.iter().any(|&(a, _)| a == start) {
         return;
     }
-    secoes.push((inicio, fim));
-    GERACAO_DO_RASTRO.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-    HA_TABELA_DE_RASTRO.store(true, std::sync::atomic::Ordering::Release);
+    sections.push((start, end));
+    TRACE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    HAS_TRACE_TABLE.store(true, std::sync::atomic::Ordering::Release);
 }
 
-/// Retira a seção do rastro registrada com `inicio` (o objeto do JIT que a
+/// Retira a seção do rastro registrada com `start` (o objeto do JIT que a
 /// sessão solta, numa recarga). Não aloca no heap do coletor nem lança.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_desregistrar_rastro(inicio: *const u8) {
-    let inicio = inicio as usize;
-    let mut secoes = SECOES_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
-    let antes = secoes.len();
-    secoes.retain(|&(a, _)| a != inicio);
-    if secoes.len() != antes {
-        GERACAO_DO_RASTRO.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+pub extern "C" fn dartforge_desregistrar_rastro(start: *const u8) {
+    let start = start as usize;
+    let mut sections = TRACE_SECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let before = sections.len();
+    sections.retain(|&(a, _)| a != start);
+    if sections.len() != before {
+        TRACE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     }
 }
 
 /// A posição de um campo do `dart:async` que a cadeia de quem espera lê
-/// (`"Classe.campo"`, `n` bytes em `nome`). Idempotente; não aloca no heap
+/// (`"Class.field"`, `n` bytes em `name`). Idempotente; não aloca no heap
 /// do coletor nem lança.
 ///
 /// # Safety
-/// `nome` aponta `n` bytes UTF-8 válidos.
+/// `name` aponta `n` bytes UTF-8 válidos.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_campo_do_rastro(classe: i64, nome: *const u8, n: i64, posicao: i64) {
-    let (Ok(n), Ok(posicao)) = (usize::try_from(n), usize::try_from(posicao)) else { return };
-    if nome.is_null() {
+pub unsafe extern "C" fn dartforge_registrar_campo_do_rastro(class: i64, name: *const u8, n: i64, cur_position: i64) {
+    let (Ok(n), Ok(cur_position)) = (usize::try_from(n), usize::try_from(cur_position)) else { return };
+    if name.is_null() {
         return;
     }
     // SAFETY: o contrato da função.
-    let bytes = unsafe { std::slice::from_raw_parts(nome, n) };
-    let Ok(nome) = std::str::from_utf8(bytes) else { return };
-    let mut campos = CAMPOS_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
-    if !campos.iter().any(|(c, x, _)| *c == classe && x == nome) {
-        campos.push((classe, nome.to_string(), posicao));
+    let bytes = unsafe { std::slice::from_raw_parts(name, n) };
+    let Ok(name) = std::str::from_utf8(bytes) else { return };
+    let mut fields = TRACE_FIELDS.lock().unwrap_or_else(|e| e.into_inner());
+    if !fields.iter().any(|(c, x, _)| *c == class && x == name) {
+        fields.push((class, name.to_string(), cur_position));
     }
 }
 
-/// A entrada do tear-off de espécie `especie` (o `_onData` de
+/// A entrada do tear-off de espécie `kind` (o `_onData` de
 /// `_StreamIterator`, o `_add` de `_StreamController`) que a imagem tem.
 /// Idempotente; não aloca no heap do coletor nem lança.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_registrar_tearoff_do_rastro(entrada: *const u8, especie: i64) {
-    let entrada = entrada as usize;
-    if entrada == 0 {
+pub extern "C" fn dartforge_registrar_tearoff_do_rastro(input: *const u8, kind: i64) {
+    let input = input as usize;
+    if input == 0 {
         return;
     }
-    let mut v = TEAROFFS_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
-    if !v.iter().any(|&(e, _)| e == entrada) {
-        v.push((entrada, especie));
+    let mut v = TRACE_TEAROFFS.lock().unwrap_or_else(|e| e.into_inner());
+    if !v.iter().any(|&(e, _)| e == input) {
+        v.push((input, kind));
     }
 }
 
@@ -278,63 +278,63 @@ pub extern "C" fn dartforge_registrar_tearoff_do_rastro(entrada: *const u8, espe
 /// devolve a profundidade, que a saída passa a [`dartforge_rastro_sair`].
 #[unsafe(no_mangle)]
 #[inline(never)]
-pub extern "C" fn dartforge_rastro_entrar(tipo: i64, valor: i64) -> i64 {
-    let marca = std::hint::black_box(0u8);
-    let endereco = std::hint::black_box(std::ptr::addr_of!(marca)) as usize;
-    PILHA_DO_RASTRO.with(|p| {
+pub extern "C" fn dartforge_rastro_entrar(tipo: i64, value: i64) -> i64 {
+    let mark = std::hint::black_box(0u8);
+    let address = std::hint::black_box(std::ptr::addr_of!(mark)) as usize;
+    TRACE_STACK.with(|p| {
         let mut p = p.borrow_mut();
-        p.push((tipo, valor, endereco));
+        p.push((tipo, value, address));
         p.len() as i64
     })
 }
 
-/// A saída da função que entrou com `profundidade`: corta a pilha do rastro
+/// A saída da função que entrou com `depth`: corta a pilha do rastro
 /// ali (o que funções desenroladas por exceção deixaram em cima cai junto).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rastro_sair(profundidade: i64) {
-    let n = usize::try_from(profundidade.saturating_sub(1)).unwrap_or(0);
-    PILHA_DO_RASTRO.with(|p| p.borrow_mut().truncate(n));
+pub extern "C" fn dartforge_rastro_sair(depth: i64) {
+    let n = usize::try_from(depth.saturating_sub(1)).unwrap_or(0);
+    TRACE_STACK.with(|p| p.borrow_mut().truncate(n));
 }
 
 /// Alguma imagem registrou a tabela do rastro.
-fn ha_tabela_de_rastro() -> bool {
-    HA_TABELA_DE_RASTRO.load(std::sync::atomic::Ordering::Acquire)
+fn has_trace_table() -> bool {
+    HAS_TRACE_TABLE.load(std::sync::atomic::Ordering::Acquire)
 }
 
 /// Os pares da pilha daqui para fora (os quadros síncronos e a cadeia de
 /// quem espera), com tabela; vazio sem.
-fn capturar_retornos() -> Vec<(u64, u64)> {
-    if !ha_tabela_de_rastro() {
+fn capture_returns() -> Vec<(u64, u64)> {
+    if !has_trace_table() {
         return Vec::new();
     }
-    let quadros = crate::heap::enderecos_de_retorno(QUADROS_NO_RASTRO);
-    let pilha = PILHA_DO_RASTRO.with(|p| p.borrow().clone());
+    let frames = crate::heap::return_addresses(FRAMES_IN_TRACE);
+    let stack = TRACE_STACK.with(|p| p.borrow().clone());
     // Sem nada na pilha do rastro, nenhum quadro casa: só os síncronos (sem
     // montar o índice no `throw`).
-    if pilha.is_empty() {
-        return quadros.into_iter().map(|(r, f, _)| (r, f)).collect();
+    if stack.is_empty() {
+        return frames.into_iter().map(|(r, f, _)| (r, f)).collect();
     }
-    let quadros = com_indice_do_rastro(|indice| heap_sem_emprestimo(|heap| desenrolar(indice, heap, &quadros, &pilha)));
-    quadros.into_iter().map(par_do_quadro).collect()
+    let frames = with_trace_index(|ix| heap_without_borrow(|heap| unwind(ix, heap, &frames, &stack)));
+    frames.into_iter().map(frame_pair).collect()
 }
 
 /// O `throw`: guarda os pares desta pilha.
-fn guardar_retornos_do_lancamento() {
-    if !ha_tabela_de_rastro() {
+fn store_throw_returns() {
+    if !has_trace_table() {
         return;
     }
-    let retornos = capturar_retornos();
-    RETORNOS_DO_LANCAMENTO.with(|r| *r.borrow_mut() = retornos);
+    let returns = capture_returns();
+    THROW_RETURNS.with(|r| *r.borrow_mut() = returns);
 }
 
 /// Os pares do último `throw` desta thread (vazio sem tabela).
-fn retornos_do_lancamento() -> Vec<(u64, u64)> {
-    RETORNOS_DO_LANCAMENTO.with(|r| r.borrow().clone())
+fn throw_returns() -> Vec<(u64, u64)> {
+    THROW_RETURNS.with(|r| r.borrow().clone())
 }
 
 /// Esquece os pares do último `throw` (a exceção foi tratada).
-fn esquecer_retornos_do_lancamento() {
-    RETORNOS_DO_LANCAMENTO.with(|r| r.borrow_mut().clear());
+fn forget_throw_returns() {
+    THROW_RETURNS.with(|r| r.borrow_mut().clear());
 }
 
 // --- a cadeia de quem espera (`AsyncAwareStackUnwinder`) ---------------------
@@ -343,55 +343,55 @@ fn esquecer_retornos_do_lancamento() {
 /// e o próximo objeto da cadeia (um quadro de corpo `async`, um `Completer`,
 /// um `_Future`).
 #[derive(Default)]
-struct QuemEspera {
+struct Waiter {
     closure: Option<i64>,
-    proximo: Option<i64>,
+    next_offset: Option<i64>,
 }
 
 /// O nome da classe de `h`, se é objeto.
-fn classe_de(heap: &crate::heap::Heap, h: i64) -> Option<String> {
-    let cid = heap.classe_do_objeto(h)?;
+fn class_of(heap: &crate::heap::Heap, h: i64) -> Option<String> {
+    let cid = heap.object_class(h)?;
     CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned())
 }
 
-/// O campo `campo` do objeto `h` (a posição registrada para a classe dele).
-fn campo_do_rastro(heap: &crate::heap::Heap, h: i64, campo: &str) -> Option<crate::heap::Campo> {
-    let cid = heap.classe_do_objeto(h)?;
-    let posicao = {
-        let campos = CAMPOS_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
-        campos.iter().find(|(c, nome, _)| *c == cid && nome.rsplit('.').next() == Some(campo)).map(|(_, _, p)| *p)?
+/// O campo `field` do objeto `h` (a posição registrada para a classe dele).
+fn trace_field(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<crate::heap::Field> {
+    let cid = heap.object_class(h)?;
+    let cur_position = {
+        let fields = TRACE_FIELDS.lock().unwrap_or_else(|e| e.into_inner());
+        fields.iter().find(|(c, name, _)| *c == cid && name.rsplit('.').next() == Some(field)).map(|(_, _, p)| *p)?
     };
-    heap.objeto(h)?.get(posicao)
+    heap.object(h)?.get(cur_position)
 }
 
 /// O campo de referência (não nulo).
-fn ref_do_rastro(heap: &crate::heap::Heap, h: i64, campo: &str) -> Option<i64> {
-    match campo_do_rastro(heap, h, campo)? {
+fn trace_ref(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<i64> {
+    match trace_field(heap, h, field)? {
         (r, true) if r != 0 => Some(r),
         _ => None,
     }
 }
 
 /// Um `int` guardado num campo (cru ou em caixa).
-fn inteiro_do_campo(heap: &crate::heap::Heap, c: crate::heap::Campo) -> Option<i64> {
+fn field_int(heap: &crate::heap::Heap, c: crate::heap::Field) -> Option<i64> {
     match c {
         (b, false) => Some(b),
-        (r, true) => heap.int_de(r),
+        (r, true) => heap.int_of(r),
     }
 }
 
-fn e_quadro_async(heap: &crate::heap::Heap, h: i64) -> bool {
-    heap.classe_do_objeto(h) == Some(ID_QUADRO_ASYNC)
+fn is_async_frame(heap: &crate::heap::Heap, h: i64) -> bool {
+    heap.object_class(h) == Some(ASYNC_FRAME_ID)
 }
 
 /// O estado do quadro de um corpo `async` (0 antes do primeiro `await`).
-fn estado_do_quadro(heap: &crate::heap::Heap, q: i64) -> i64 {
-    heap.objeto(q).and_then(|o| o.get(0)).and_then(|c| inteiro_do_campo(heap, c)).unwrap_or(0)
+fn frame_state(heap: &crate::heap::Heap, q: i64) -> i64 {
+    heap.object(q).and_then(|o| o.get(0)).and_then(|c| field_int(heap, c)).unwrap_or(0)
 }
 
 /// As marcas do registro de função `r`.
 #[allow(unsafe_code)]
-fn marcas_do_registro(r: usize) -> u8 {
+fn record_marks(r: usize) -> u8 {
     // SAFETY: o registro de uma entrada de uma seção registrada (o byte das
     // marcas segue o deslocamento até a url).
     unsafe { ((r + 4) as *const u8).read() }
@@ -399,186 +399,186 @@ fn marcas_do_registro(r: usize) -> u8 {
 
 /// O elo da closure `c` com quem espera (`TryGetAwaiterLink`): `None` se a
 /// função dela não tem elo; `Some(None)` se o elo é nulo.
-fn elo_da_closure(indice: &IndiceDoRastro, heap: &crate::heap::Heap, c: i64) -> Option<Option<i64>> {
+fn closure_link(ix: &TraceIndex, heap: &crate::heap::Heap, c: i64) -> Option<Option<i64>> {
     let clo = heap.closure(c)?;
-    let f = indice.funcao(clo.codigo as usize)?;
-    let valor = if marcas_do_registro(f.registro) & MARCA_CORPO_ASYNC != 0 {
+    let f = ix.function(clo.code as usize)?;
+    let value = if record_marks(f.rec) & ASYNC_BODY_MARK != 0 {
         // A closure do corpo: o quadro na posição 0 do ambiente.
-        heap.objeto(clo.contexto.0)?.get(0)?
+        heap.object(clo.contexto.0)?.get(0)?
     } else {
-        let (posicao, direto, celula) = f.elo?;
-        let v = if direto { clo.contexto } else { heap.objeto(clo.contexto.0)?.get(posicao)? };
-        if celula && v.1 { heap.objeto(v.0).and_then(|o| o.get(0)).unwrap_or((0, false)) } else { v }
+        let (cur_position, direct, cell) = f.link?;
+        let v = if direct { clo.contexto } else { heap.object(clo.contexto.0)?.get(cur_position)? };
+        if cell && v.1 { heap.object(v.0).and_then(|o| o.get(0)).unwrap_or((0, false)) } else { v }
     };
-    Some((valor.1 && valor.0 != 0).then_some(valor.0))
+    Some((value.1 && value.0 != 0).then_some(value.0))
 }
 
 /// `ComputeNextFrameFromAwaiterLink` (com `FollowAwaiterLinks`): segue os
 /// elos das closures enquanto o elo é outra closure; o último elo que não é
 /// closure passa a ser o próximo.
-fn seguir_elos(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera) {
-    let mut elo: Option<i64> = None;
-    let mut passos = 0;
+fn follow_links(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
+    let mut link: Option<i64> = None;
+    let mut steps = 0;
     while let Some(c) = q.closure {
-        elo = None;
-        let Some(l) = elo_da_closure(indice, heap, c) else { break };
-        elo = l;
+        link = None;
+        let Some(l) = closure_link(ix, heap, c) else { break };
+        link = l;
         match l {
-            Some(x) if heap.closure(x).is_some() && passos < 64 => {
+            Some(x) if heap.closure(x).is_some() && steps < 64 => {
                 q.closure = Some(x);
-                passos += 1;
+                steps += 1;
             }
             _ => break,
         }
     }
-    if let Some(x) = elo
+    if let Some(x) = link
         && heap.closure(x).is_none()
     {
-        q.proximo = Some(x);
+        q.next_offset = Some(x);
     }
 }
 
 /// `InitializeAwaiterFrameFromFutureListener`.
-fn iniciar_pelo_ouvinte(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera, ouvinte: i64) {
-    if classe_de(heap, ouvinte).as_deref() != Some("_FutureListener") {
-        *q = QuemEspera::default();
+fn start_from_listener(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter, listener: i64) {
+    if class_of(heap, listener).as_deref() != Some("_FutureListener") {
+        *q = Waiter::default();
         return;
     }
-    let estado = campo_do_rastro(heap, ouvinte, "state").and_then(|c| inteiro_do_campo(heap, c)).unwrap_or(-1);
-    let resultado = if [
-        OUVINTE_THEN,
-        OUVINTE_CATCH_ERROR,
-        OUVINTE_WHEN_COMPLETE,
-        OUVINTE_THEN | OUVINTE_CATCH_ERROR,
-        OUVINTE_THEN | OUVINTE_CATCH_ERROR | OUVINTE_AWAIT,
+    let estado = trace_field(heap, listener, "state").and_then(|c| field_int(heap, c)).unwrap_or(-1);
+    let result = if [
+        LISTENER_THEN,
+        LISTENER_CATCH_ERROR,
+        LISTENER_WHEN_COMPLETE,
+        LISTENER_THEN | LISTENER_CATCH_ERROR,
+        LISTENER_THEN | LISTENER_CATCH_ERROR | LISTENER_AWAIT,
     ]
     .contains(&estado)
     {
-        ref_do_rastro(heap, ouvinte, "result")
+        trace_ref(heap, listener, "result")
     } else {
         None
     };
-    q.closure = ref_do_rastro(heap, ouvinte, "callback").filter(|&c| heap.closure(c).is_some());
-    q.proximo = resultado;
-    seguir_elos(indice, heap, q);
+    q.closure = trace_ref(heap, listener, "callback").filter(|&c| heap.closure(c).is_some());
+    q.next_offset = result;
+    follow_links(ix, heap, q);
 }
 
 /// `UnwindFrameToFutureListener`: o primeiro ouvinte do `_Future` do próximo.
-fn ate_o_ouvinte(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera) {
-    let ouvinte = q.proximo.and_then(|f| ref_do_rastro(heap, f, "_resultOrListeners"));
-    match ouvinte {
-        Some(l) if classe_de(heap, l).as_deref() == Some("_FutureListener") => iniciar_pelo_ouvinte(indice, heap, q, l),
-        _ => *q = QuemEspera::default(),
+fn up_to_listener(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
+    let listener = q.next_offset.and_then(|f| trace_ref(heap, f, "_resultOrListeners"));
+    match listener {
+        Some(l) if class_of(heap, l).as_deref() == Some("_FutureListener") => start_from_listener(ix, heap, q, l),
+        _ => *q = Waiter::default(),
     }
 }
 
 /// Um `bool` guardado num campo (cru ou em caixa).
-fn booleano_do_campo(heap: &crate::heap::Heap, c: crate::heap::Campo) -> Option<bool> {
+fn field_bool(heap: &crate::heap::Heap, c: crate::heap::Field) -> Option<bool> {
     match c {
         (b, false) => Some(b != 0),
-        (r, true) => heap.bool_de(r),
+        (r, true) => heap.bool_of(r),
     }
 }
 
-/// O campo inteiro `campo` de `h`.
-fn inteiro_do_rastro(heap: &crate::heap::Heap, h: i64, campo: &str) -> Option<i64> {
-    campo_do_rastro(heap, h, campo).and_then(|c| inteiro_do_campo(heap, c))
+/// O campo inteiro `field` de `h`.
+fn trace_int(heap: &crate::heap::Heap, h: i64, field: &str) -> Option<i64> {
+    trace_field(heap, h, field).and_then(|c| field_int(heap, c))
 }
 
 /// A espécie e o receptor de um tear-off reconhecido.
-fn tearoff_de(heap: &crate::heap::Heap, c: i64) -> Option<(i64, Option<i64>)> {
+fn tearoff_of(heap: &crate::heap::Heap, c: i64) -> Option<(i64, Option<i64>)> {
     let clo = heap.closure(c)?;
-    let especie = {
-        let v = TEAROFFS_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
-        v.iter().find(|&&(e, _)| e as i64 == clo.codigo).map(|&(_, k)| k)?
+    let kind = {
+        let v = TRACE_TEAROFFS.lock().unwrap_or_else(|e| e.into_inner());
+        v.iter().find(|&&(e, _)| e as i64 == clo.code).map(|&(_, k)| k)?
     };
     // O ambiente do tear-off guarda o receptor na posição 0.
-    let receptor = if clo.contexto.1 {
-        heap.objeto(clo.contexto.0).and_then(|o| o.get(0)).and_then(|v| (v.1 && v.0 != 0).then_some(v.0))
+    let receiver_obj = if clo.contexto.1 {
+        heap.object(clo.contexto.0).and_then(|o| o.get(0)).and_then(|v| (v.1 && v.0 != 0).then_some(v.0))
     } else {
         None
     };
-    Some((especie, receptor))
+    Some((kind, receiver_obj))
 }
 
 /// `FollowAwaiterLinks`: segue os elos de `closure` enquanto o elo é outra
 /// closure; devolve o último elo (que não é closure), ou nada.
-fn seguir_elos_de(indice: &IndiceDoRastro, heap: &crate::heap::Heap, closure: &mut Option<i64>) -> Option<i64> {
-    let mut elo: Option<i64> = None;
-    let mut passos = 0;
+fn follow_links_from(ix: &TraceIndex, heap: &crate::heap::Heap, closure: &mut Option<i64>) -> Option<i64> {
+    let mut link: Option<i64> = None;
+    let mut steps = 0;
     while let Some(c) = *closure {
-        elo = None;
-        let Some(l) = elo_da_closure(indice, heap, c) else { break };
-        elo = l;
+        link = None;
+        let Some(l) = closure_link(ix, heap, c) else { break };
+        link = l;
         match l {
-            Some(x) if heap.closure(x).is_some() && passos < 64 => {
+            Some(x) if heap.closure(x).is_some() && steps < 64 => {
                 *closure = Some(x);
-                passos += 1;
+                steps += 1;
             }
             _ => break,
         }
     }
-    elo.filter(|&x| heap.closure(x).is_none())
+    link.filter(|&x| heap.closure(x).is_none())
 }
 
 /// A função da closure `c` tem elo com quem espera (`HasAwaiterLink`).
-fn tem_elo(indice: &IndiceDoRastro, heap: &crate::heap::Heap, c: Option<i64>) -> bool {
-    c.is_some_and(|c| elo_da_closure(indice, heap, c).is_some())
+fn has_link(ix: &TraceIndex, heap: &crate::heap::Heap, c: Option<i64>) -> bool {
+    c.is_some_and(|c| closure_link(ix, heap, c).is_some())
 }
 
-/// `UnwindFrameToStreamController`: o controlador em `q.proximo`.
-fn ate_o_controlador(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera) {
-    let Some(controlador) = q.proximo else {
-        *q = QuemEspera::default();
+/// `UnwindFrameToStreamController`: o controlador em `q.next_offset`.
+fn up_to_controller(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
+    let Some(controller) = q.next_offset else {
+        *q = Waiter::default();
         return;
     };
-    *q = QuemEspera::default();
-    let estado = inteiro_do_rastro(heap, controlador, "_state").unwrap_or(0);
-    if estado & MASCARA_DA_INSCRICAO != CONTROLADOR_INSCRITO {
+    *q = Waiter::default();
+    let estado = trace_int(heap, controller, "_state").unwrap_or(0);
+    if estado & SUBSCRIPTION_MASK != CONTROLLER_SUBSCRIBED {
         return;
     }
-    let mut inscricao = ref_do_rastro(heap, controlador, "_varData");
-    if estado & CONTROLADOR_ADD_STREAM != 0 {
-        inscricao = inscricao.and_then(|s| ref_do_rastro(heap, s, "_varData"));
+    let mut subscription = trace_ref(heap, controller, "_varData");
+    if estado & CONTROLLER_ADD_STREAM != 0 {
+        subscription = subscription.and_then(|s| trace_ref(heap, s, "_varData"));
     }
-    let Some(inscricao) = inscricao else { return };
-    let mut closure = ref_do_rastro(heap, inscricao, "_onData").filter(|&c| heap.closure(c).is_some());
-    let estado_da_inscricao = inteiro_do_rastro(heap, inscricao, "_state").unwrap_or(0);
+    let Some(subscription) = subscription else { return };
+    let mut closure = trace_ref(heap, subscription, "_onData").filter(|&c| heap.closure(c).is_some());
+    let subscription_state = trace_int(heap, subscription, "_state").unwrap_or(0);
     // O tear-off do `_StreamIterator._onData` (o `await for`) e o do
     // `_StreamController._add` (o `yield*`).
-    if let Some((especie, receptor)) = closure.and_then(|c| tearoff_de(heap, c)) {
-        if especie == TEAROFF_ON_DATA_DO_ITERADOR {
-            let Some(iterador) = receptor.filter(|&r| classe_de(heap, r).as_deref() == Some("_StreamIterator")) else { return };
+    if let Some((kind, receiver_obj)) = closure.and_then(|c| tearoff_of(heap, c)) {
+        if kind == ITERATOR_ON_DATA_TEAROFF {
+            let Some(iterator) = receiver_obj.filter(|&r| class_of(heap, r).as_deref() == Some("_StreamIterator")) else { return };
             // Com `_hasValue`, o `_stateData` é o valor: não segue.
-            if campo_do_rastro(heap, iterador, "_hasValue").and_then(|c| booleano_do_campo(heap, c)) == Some(true) {
+            if trace_field(heap, iterator, "_hasValue").and_then(|c| field_bool(heap, c)) == Some(true) {
                 return;
             }
-            // O `_Future` do `await iterador.moveNext()`.
-            if let Some(f) = ref_do_rastro(heap, iterador, "_stateData")
-                && classe_de(heap, f).as_deref() == Some("_Future")
+            // O `_Future` do `await iterator.moveNext()`.
+            if let Some(f) = trace_ref(heap, iterator, "_stateData")
+                && class_of(heap, f).as_deref() == Some("_Future")
             {
-                q.proximo = Some(f);
+                q.next_offset = Some(f);
             }
             return;
         }
-        if especie == TEAROFF_ADD_DO_CONTROLADOR
-            && let Some(destino) = receptor
+        if kind == CONTROLLER_ADD_TEAROFF
+            && let Some(dest) = receiver_obj
         {
-            let estado_do_destino = inteiro_do_rastro(heap, destino, "_state").unwrap_or(0);
-            if estado_do_destino & CONTROLADOR_ADD_STREAM != 0 {
-                let ouvinte = ref_do_rastro(heap, destino, "_varData")
-                    .and_then(|s| ref_do_rastro(heap, s, "addStreamFuture"))
-                    .and_then(|f| ref_do_rastro(heap, f, "_resultOrListeners"));
-                if let Some(o) = ouvinte
-                    && classe_de(heap, o).as_deref() == Some("_FutureListener")
-                    && inteiro_do_rastro(heap, o, "state") == Some(OUVINTE_THEN)
+            let target_state = trace_int(heap, dest, "_state").unwrap_or(0);
+            if target_state & CONTROLLER_ADD_STREAM != 0 {
+                let listener = trace_ref(heap, dest, "_varData")
+                    .and_then(|s| trace_ref(heap, s, "addStreamFuture"))
+                    .and_then(|f| trace_ref(heap, f, "_resultOrListeners"));
+                if let Some(o) = listener
+                    && class_of(heap, o).as_deref() == Some("_FutureListener")
+                    && trace_int(heap, o, "state") == Some(LISTENER_THEN)
                 {
-                    let mut tratador = ref_do_rastro(heap, o, "callback").filter(|&c| heap.closure(c).is_some());
-                    let elo = seguir_elos_de(indice, heap, &mut tratador);
-                    if let Some(c) = elo
-                        && classe_de(heap, c).as_deref() == Some("_AsyncStarStreamController")
+                    let mut handler = trace_ref(heap, o, "callback").filter(|&c| heap.closure(c).is_some());
+                    let link = follow_links_from(ix, heap, &mut handler);
+                    if let Some(c) = link
+                        && class_of(heap, c).as_deref() == Some("_AsyncStarStreamController")
                     {
-                        q.closure = ref_do_rastro(heap, c, "asyncStarBody").filter(|&x| heap.closure(x).is_some());
+                        q.closure = trace_ref(heap, c, "asyncStarBody").filter(|&x| heap.closure(x).is_some());
                         return;
                     }
                 }
@@ -586,81 +586,81 @@ fn ate_o_controlador(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut 
         }
     }
     q.closure = closure;
-    let mut irmao_com_elo = false;
-    let mut com_elo = tem_elo(indice, heap, closure);
-    if !com_elo {
+    let mut sibling_with_link = false;
+    let mut with_link = has_link(ix, heap, closure);
+    if !with_link {
         // O `onError` ou o `onDone` com elo.
-        closure = ref_do_rastro(heap, inscricao, "_onError").filter(|&c| heap.closure(c).is_some());
-        com_elo = tem_elo(indice, heap, closure);
-        irmao_com_elo = com_elo;
+        closure = trace_ref(heap, subscription, "_onError").filter(|&c| heap.closure(c).is_some());
+        with_link = has_link(ix, heap, closure);
+        sibling_with_link = with_link;
     }
-    if !com_elo {
-        closure = ref_do_rastro(heap, inscricao, "_onDone").filter(|&c| heap.closure(c).is_some());
-        com_elo = tem_elo(indice, heap, closure);
-        irmao_com_elo = com_elo;
+    if !with_link {
+        closure = trace_ref(heap, subscription, "_onDone").filter(|&c| heap.closure(c).is_some());
+        with_link = has_link(ix, heap, closure);
+        sibling_with_link = with_link;
     }
-    let tem_tratador_de_erro = estado_da_inscricao & INSCRICAO_COM_ERRO != 0;
-    let mut objeto = None;
-    if tem_tratador_de_erro || irmao_com_elo {
-        objeto = seguir_elos_de(indice, heap, &mut closure);
+    let has_error_handler = subscription_state & SUBSCRIPTION_WITH_ERROR != 0;
+    let mut object = None;
+    if has_error_handler || sibling_with_link {
+        object = follow_links_from(ix, heap, &mut closure);
     }
-    if irmao_com_elo {
-        let classe = objeto.and_then(|o| classe_de(heap, o));
-        if matches!(classe.as_deref(), Some("_AsyncStarStreamController" | "_SyncStreamController")) {
+    if sibling_with_link {
+        let class = object.and_then(|o| class_of(heap, o));
+        if matches!(class.as_deref(), Some("_AsyncStarStreamController" | "_SyncStreamController")) {
             q.closure = closure;
         } else {
-            q.proximo = objeto;
+            q.next_offset = object;
         }
     }
 }
 
 /// `UnwindAwaiterFrame`: do quadro suspenso ao `Future` dele (pelo
 /// `Completer`), e do `Future` ao ouvinte.
-fn desenrolar_quem_espera(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera) {
-    let mut proximo = q.proximo;
-    if let Some(p) = proximo
-        && e_quadro_async(heap, p)
+fn unwind_waiter(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
+    let mut next_offset = q.next_offset;
+    if let Some(p) = next_offset
+        && is_async_frame(heap, p)
     {
         // O `completer` do quadro (posição 1); num gerador `async*`, o
         // controlador (o `function_data` do `SuspendState` da VM).
-        proximo = heap.objeto(p).and_then(|o| o.get(1)).and_then(|c| (c.1 && c.0 != 0).then_some(c.0));
-    } else if let Some(p) = proximo {
-        match classe_de(heap, p).as_deref() {
-            Some("_SyncCompleter" | "_AsyncCompleter") => proximo = ref_do_rastro(heap, p, "future"),
+        next_offset = heap.object(p).and_then(|o| o.get(1)).and_then(|c| (c.1 && c.0 != 0).then_some(c.0));
+    } else if let Some(p) = next_offset {
+        match class_of(heap, p).as_deref() {
+            Some("_SyncCompleter" | "_AsyncCompleter") => next_offset = trace_ref(heap, p, "future"),
             _ => {}
         }
     }
-    if let Some(p) = proximo
-        && classe_de(heap, p).as_deref() == Some("_AsyncAwaitCompleter")
+    if let Some(p) = next_offset
+        && class_of(heap, p).as_deref() == Some("_AsyncAwaitCompleter")
     {
-        proximo = ref_do_rastro(heap, p, "_future");
+        next_offset = trace_ref(heap, p, "_future");
     }
-    if let Some(p) = proximo
-        && classe_de(heap, p).as_deref() == Some("_AsyncStarStreamController")
+    if let Some(p) = next_offset
+        && class_of(heap, p).as_deref() == Some("_AsyncStarStreamController")
     {
-        proximo = ref_do_rastro(heap, p, "controller");
+        next_offset = trace_ref(heap, p, "controller");
     }
-    match proximo.and_then(|p| classe_de(heap, p)).as_deref() {
+    match next_offset.and_then(|p| class_of(heap, p)).as_deref() {
         Some("_Future") => {
-            q.proximo = proximo;
-            ate_o_ouvinte(indice, heap, q);
+            q.next_offset = next_offset;
+            up_to_listener(ix, heap, q);
         }
         Some("_SyncStreamController") => {
-            q.proximo = proximo;
-            ate_o_controlador(indice, heap, q);
-            seguir_elos(indice, heap, q);
+            q.next_offset = next_offset;
+            up_to_controller(ix, heap, q);
+            follow_links(ix, heap, q);
         }
-        _ => *q = QuemEspera::default(),
+        _ => *q = Waiter::default(),
     }
 }
 
 /// `UnwindToAwaiter`.
-fn ate_quem_espera(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera) {
-    let mut passos = 0;
+fn up_to_waiter(ix: &TraceIndex, heap: &crate::heap::Heap, q: &mut Waiter) {
+    let mut steps = 0;
     loop {
-        desenrolar_quem_espera(indice, heap, q);
-        passos += 1;
-        if q.closure.is_some() || q.proximo.is_none() || passos > 1024 {
+        unwind_waiter(ix, heap, q);
+        steps += 1;
+        if q.closure.is_some() || q.next_offset.is_none() || steps > 1024 {
             break;
         }
     }
@@ -670,15 +670,15 @@ fn ate_quem_espera(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut Qu
 /// mais alta ainda livre, do `tipo`, gravada logo abaixo de `sp`. As de cima
 /// dela ficam para trás (de quadros mais fundos já casados, ou deixadas por
 /// quadros desenrolados).
-fn casar(pilha: &[(i64, i64, usize)], topo: &mut usize, tipo: i64, sp: u64) -> Option<i64> {
+fn match_at(stack: &[(i64, i64, usize)], top: &mut usize, tipo: i64, sp: u64) -> Option<i64> {
     let sp = sp as usize;
     if sp == 0 {
         return None;
     }
-    for i in (0..*topo).rev() {
-        let (t, v, endereco) = pilha[i];
-        if t == tipo && endereco < sp && sp - endereco < JANELA_DA_PILHA {
-            *topo = i;
+    for i in (0..*top).rev() {
+        let (t, v, address) = stack[i];
+        if t == tipo && address < sp && sp - address < STACK_WINDOW {
+            *top = i;
             return Some(v);
         }
     }
@@ -687,115 +687,115 @@ fn casar(pilha: &[(i64, i64, usize)], topo: &mut usize, tipo: i64, sp: u64) -> O
 
 /// O percurso do `AsyncAwareStackUnwinder::Unwind`: os quadros síncronos até
 /// o primeiro com quem o espere, e depois a cadeia de quem espera.
-fn desenrolar(indice: &IndiceDoRastro, heap: &crate::heap::Heap, quadros: &[(u64, u64, u64)], pilha: &[(i64, i64, usize)]) -> Vec<QuadroDoRastro> {
-    let mut saida = Vec::with_capacity(quadros.len() + 8);
-    let mut topo = pilha.len();
-    let mut q = QuemEspera::default();
-    'sincronos: for &(retorno, inicio, sp) in quadros {
-        saida.push(QuadroDoRastro::Sincrono(retorno, inicio));
-        for p in indice.cadeia(retorno, inicio) {
-            let marcas = marcas_do_registro(p.registro);
-            if marcas & MARCA_CORPO_ASYNC != 0 {
+fn unwind(ix: &TraceIndex, heap: &crate::heap::Heap, frames: &[(u64, u64, u64)], stack: &[(i64, i64, usize)]) -> Vec<TraceFrame> {
+    let mut out = Vec::with_capacity(frames.len() + 8);
+    let mut top = stack.len();
+    let mut q = Waiter::default();
+    'sincronos: for &(ret, start, sp) in frames {
+        out.push(TraceFrame::Sync(ret, start));
+        for p in ix.chain(ret, start) {
+            let marks = record_marks(p.rec);
+            if marks & ASYNC_BODY_MARK != 0 {
                 // `InitializeAwaiterFrameFromSuspendState`: o corpo retomado
                 // (já suspenso uma vez; o de um gerador `async*` sempre)
                 // segue pela cadeia.
-                if let Some(quadro) = casar(pilha, &mut topo, 0, sp)
-                    && (marcas & MARCA_GERADOR_ASYNC != 0 || estado_do_quadro(heap, quadro) != 0)
+                if let Some(frame) = match_at(stack, &mut top, 0, sp)
+                    && (marks & ASYNC_GENERATOR_MARK != 0 || frame_state(heap, frame) != 0)
                 {
-                    q = QuemEspera { closure: None, proximo: Some(quadro) };
-                    ate_quem_espera(indice, heap, &mut q);
+                    q = Waiter { closure: None, next_offset: Some(frame) };
+                    up_to_waiter(ix, heap, &mut q);
                 }
-            } else if marcas & MARCA_ESCUTA != 0
-                && let Some(ouvinte) = casar(pilha, &mut topo, 1, sp)
+            } else if marks & LISTEN_MARK != 0
+                && let Some(listener) = match_at(stack, &mut top, 1, sp)
             {
-                iniciar_pelo_ouvinte(indice, heap, &mut q, ouvinte);
-                ate_quem_espera(indice, heap, &mut q);
+                start_from_listener(ix, heap, &mut q, listener);
+                up_to_waiter(ix, heap, &mut q);
             }
             if q.closure.is_some() {
                 break 'sincronos;
             }
         }
     }
-    let mut algum = false;
-    let mut passos = 0;
+    let mut some_one = false;
+    let mut steps = 0;
     while let Some(c) = q.closure {
-        passos += 1;
-        if passos > QUADROS_NO_RASTRO {
+        steps += 1;
+        if steps > FRAMES_IN_TRACE {
             break;
         }
-        let entrada = heap.closure(c).map_or(0, |clo| clo.codigo as u64);
-        algum = true;
-        match q.proximo {
-            Some(p) if e_quadro_async(heap, p) => {
-                let k = estado_do_quadro(heap, p);
+        let input = heap.closure(c).map_or(0, |clo| clo.code as u64);
+        some_one = true;
+        match q.next_offset {
+            Some(p) if is_async_frame(heap, p) => {
+                let k = frame_state(heap, p);
                 // `pc == 0`: o corpo já foi retomado (está na pilha).
                 if k > 0 {
-                    saida.push(QuadroDoRastro::Lacuna);
-                    saida.push(QuadroDoRastro::Espera(entrada, k));
+                    out.push(TraceFrame::Gap);
+                    out.push(TraceFrame::Wait(input, k));
                 }
             }
             _ => {
-                saida.push(QuadroDoRastro::Lacuna);
-                saida.push(QuadroDoRastro::Ouvinte(entrada));
+                out.push(TraceFrame::Gap);
+                out.push(TraceFrame::Listener(input));
             }
         }
-        ate_quem_espera(indice, heap, &mut q);
+        up_to_waiter(ix, heap, &mut q);
     }
-    if algum {
-        saida.push(QuadroDoRastro::Lacuna);
+    if some_one {
+        out.push(TraceFrame::Gap);
     }
-    saida
+    out
 }
 
 // --- as seções e o texto ----------------------------------------------------
 
-/// Lê as entradas de `[inicio, fim)`. A entrada toda zero é sentinela ou
+/// Lê as entradas de `[start, end)`. A entrada toda zero é sentinela ou
 /// enchimento.
 ///
 /// # Safety
-/// `[inicio, fim)` é uma seção do rastro mapeada.
+/// `[start, end)` é uma seção do rastro mapeada.
 #[allow(unsafe_code)]
-unsafe fn ler_secao_do_rastro(inicio: usize, fim: usize, pontos: &mut Vec<PontoDoRastro>, funcoes: &mut Vec<(usize, FuncaoDoRastro)>) {
-    let mut p = (inicio + 3) & !3;
-    while p + 12 <= fim {
+unsafe fn read_trace_section(start: usize, end: usize, points: &mut Vec<TracePoint>, functions: &mut Vec<(usize, TraceFunction)>) {
+    let mut p = (start + 3) & !3;
+    while p + 12 <= end {
         // A forma compacta de um objeto convertido (`rastro_compacto.rs`).
         // SAFETY: `p .. p + 4` está dentro da seção.
         if unsafe { std::slice::from_raw_parts(p as *const u8, 4) } == b"DFPC" {
             // SAFETY: o blob começa em `p` e fica dentro da seção.
-            match unsafe { ler_blob_do_rastro(p, fim, pontos, funcoes) } {
-                Some(tamanho) => {
-                    p += (tamanho + 3) & !3;
+            match unsafe { read_trace_blob(p, end, points, functions) } {
+                Some(size) => {
+                    p += (size + 3) & !3;
                     continue;
                 }
                 None => return,
             }
         }
         // SAFETY: `p .. p + 12` está dentro da seção.
-        let (rotulo, registro, palavra) = unsafe {
+        let (label_name, rec, word) = unsafe {
             (
                 (p as *const i32).read_unaligned(),
                 ((p + 4) as *const i32).read_unaligned(),
                 ((p + 8) as *const u32).read_unaligned(),
             )
         };
-        if rotulo != 0 || registro != 0 || palavra != 0 {
-            let rot = p.wrapping_add_signed(rotulo as isize);
-            let especie = (registro & 3) as u32;
-            let reg = (p + 4).wrapping_add_signed((registro - especie as i32) as isize);
-            match especie {
-                0 => pontos.push(PontoDoRastro { rotulo: rot, registro: reg, linha_coluna: palavra }),
+        if label_name != 0 || rec != 0 || word != 0 {
+            let rot = p.wrapping_add_signed(label_name as isize);
+            let kind = (rec & 3) as u32;
+            let reg = (p + 4).wrapping_add_signed((rec - kind as i32) as isize);
+            match kind {
+                0 => points.push(TracePoint { label_name: rot, rec: reg, line_column: word }),
                 _ => {
-                    if funcoes.last().is_none_or(|(e, _)| *e != rot) {
-                        funcoes.push((rot, FuncaoDoRastro::default()));
+                    if functions.last().is_none_or(|(e, _)| *e != rot) {
+                        functions.push((rot, TraceFunction::default()));
                     }
-                    let f = &mut funcoes.last_mut().expect("a função acabada de pôr").1;
-                    match especie {
+                    let f = &mut functions.last_mut().expect("a função acabada de pôr").1;
+                    match kind {
                         1 => {
-                            f.registro = reg;
-                            f.token = palavra;
+                            f.rec = reg;
+                            f.token = word;
                         }
-                        2 => f.esperas.push(palavra),
-                        _ => f.elo = Some(((palavra >> 2) as usize, palavra & 2 != 0, palavra & 1 != 0)),
+                        2 => f.waits.push(word),
+                        _ => f.link = Some(((word >> 2) as usize, word & 2 != 0, word & 1 != 0)),
                     }
                 }
             }
@@ -804,19 +804,19 @@ unsafe fn ler_secao_do_rastro(inicio: usize, fim: usize, pontos: &mut Vec<PontoD
     }
 }
 
-/// Um varint LEB128 em `*p`, sem passar de `fim`.
+/// Um varint LEB128 em `*p`, sem passar de `end`.
 ///
 /// # Safety
-/// `[*p, fim)` está mapeado.
+/// `[*p, end)` está mapeado.
 #[allow(unsafe_code)]
-unsafe fn varint_do_rastro(p: &mut usize, fim: usize) -> Option<u64> {
+unsafe fn trace_varint(p: &mut usize, end: usize) -> Option<u64> {
     let mut r = 0u64;
     let mut s = 0u32;
     loop {
-        if *p >= fim {
+        if *p >= end {
             return None;
         }
-        // SAFETY: `*p < fim`.
+        // SAFETY: `*p < end`.
         let b = unsafe { (*p as *const u8).read() };
         *p += 1;
         if s < 64 {
@@ -829,98 +829,98 @@ unsafe fn varint_do_rastro(p: &mut usize, fim: usize) -> Option<u64> {
     }
 }
 
-/// Lê o blob DFPC em `inicio` (o formato de `rastro_compacto.rs`): o índice
+/// Lê o blob DFPC em `start` (o formato de `rastro_compacto.rs`): o índice
 /// das funções e os registros, relocados relativos ao próprio campo (no
 /// COFF, ao byte seguinte), e o fluxo de cada função. Devolve o tamanho do
 /// blob; `None` num blob malformado (o resto da seção é ignorado).
 ///
 /// # Safety
-/// `[inicio, fim)` é uma seção do rastro mapeada.
+/// `[start, end)` é uma seção do rastro mapeada.
 #[allow(unsafe_code)]
-unsafe fn ler_blob_do_rastro(inicio: usize, fim: usize, pontos: &mut Vec<PontoDoRastro>, funcoes: &mut Vec<(usize, FuncaoDoRastro)>) -> Option<usize> {
-    // SAFETY: os campos lidos ficam dentro de `[inicio, fim)` (conferido).
+unsafe fn read_trace_blob(start: usize, end: usize, points: &mut Vec<TracePoint>, functions: &mut Vec<(usize, TraceFunction)>) -> Option<usize> {
+    // SAFETY: os campos lidos ficam dentro de `[start, end)` (conferido).
     unsafe {
-        let u32_em = |q: usize| (q as *const u32).read_unaligned();
-        if inicio + 20 > fim || (inicio as *const u8).add(4).read() != 1 {
+        let u32_at = |q: usize| (q as *const u32).read_unaligned();
+        if start + 20 > end || (start as *const u8).add(4).read() != 1 {
             return None;
         }
-        let forma = (inicio as *const u8).add(5).read();
-        let tamanho = u32_em(inicio + 8) as usize;
-        let nf = u32_em(inicio + 12) as usize;
-        let nr = u32_em(inicio + 16) as usize;
-        if tamanho < 20 || inicio + tamanho > fim || 20 + 8 * nf + 4 * nr > tamanho {
+        let shape = (start as *const u8).add(5).read();
+        let size = u32_at(start + 8) as usize;
+        let nf = u32_at(start + 12) as usize;
+        let nr = u32_at(start + 16) as usize;
+        if size < 20 || start + size > end || 20 + 8 * nf + 4 * nr > size {
             return None;
         }
-        let fim_do_blob = inicio + tamanho;
-        let endereco = |campo: usize| {
-            let v = (campo as *const i32).read_unaligned() as isize;
-            if forma == 2 { (campo + 4).wrapping_add_signed(v) } else { campo.wrapping_add_signed(v) }
+        let blob_end = start + size;
+        let address = |field: usize| {
+            let v = (field as *const i32).read_unaligned() as isize;
+            if shape == 2 { (field + 4).wrapping_add_signed(v) } else { field.wrapping_add_signed(v) }
         };
-        let base_dos_registros = inicio + 20 + 8 * nf;
-        let registros: Vec<usize> = (0..nr).map(|k| endereco(base_dos_registros + 4 * k)).collect();
+        let records_base = start + 20 + 8 * nf;
+        let records: Vec<usize> = (0..nr).map(|k| address(records_base + 4 * k)).collect();
         for k in 0..nf {
-            let campo = inicio + 20 + 8 * k;
-            let funcao = endereco(campo);
-            let mut q = inicio + u32_em(campo + 4) as usize;
-            let n = varint_do_rastro(&mut q, fim_do_blob)?;
-            let mut deslocamento = 0usize;
+            let field = start + 20 + 8 * k;
+            let function = address(field);
+            let mut q = start + u32_at(field + 4) as usize;
+            let n = trace_varint(&mut q, blob_end)?;
+            let mut offset = 0usize;
             for _ in 0..n {
-                deslocamento += varint_do_rastro(&mut q, fim_do_blob)? as usize;
-                let rk = varint_do_rastro(&mut q, fim_do_blob)?;
-                let palavra = varint_do_rastro(&mut q, fim_do_blob)? as u32;
-                let rot = funcao + deslocamento;
-                let especie = rk & 3;
-                let reg = registros.get((rk >> 2) as usize).copied().unwrap_or(0);
-                match especie {
-                    0 => pontos.push(PontoDoRastro { rotulo: rot, registro: reg, linha_coluna: palavra }),
+                offset += trace_varint(&mut q, blob_end)? as usize;
+                let rk = trace_varint(&mut q, blob_end)?;
+                let word = trace_varint(&mut q, blob_end)? as u32;
+                let rot = function + offset;
+                let kind = rk & 3;
+                let reg = records.get((rk >> 2) as usize).copied().unwrap_or(0);
+                match kind {
+                    0 => points.push(TracePoint { label_name: rot, rec: reg, line_column: word }),
                     _ => {
-                        if funcoes.last().is_none_or(|(e, _)| *e != rot) {
-                            funcoes.push((rot, FuncaoDoRastro::default()));
+                        if functions.last().is_none_or(|(e, _)| *e != rot) {
+                            functions.push((rot, TraceFunction::default()));
                         }
-                        let f = &mut funcoes.last_mut().expect("a função acabada de pôr").1;
-                        match especie {
+                        let f = &mut functions.last_mut().expect("a função acabada de pôr").1;
+                        match kind {
                             1 => {
-                                f.registro = reg;
-                                f.token = palavra;
+                                f.rec = reg;
+                                f.token = word;
                             }
-                            2 => f.esperas.push(palavra),
-                            _ => f.elo = Some(((palavra >> 2) as usize, palavra & 2 != 0, palavra & 1 != 0)),
+                            2 => f.waits.push(word),
+                            _ => f.link = Some(((word >> 2) as usize, word & 2 != 0, word & 1 != 0)),
                         }
                     }
                 }
             }
         }
-        Some(tamanho)
+        Some(size)
     }
 }
 
 /// Chama `f` com o índice de todas as seções registradas.
 #[allow(unsafe_code)]
-fn com_indice_do_rastro<R>(f: impl FnOnce(&IndiceDoRastro) -> R) -> R {
-    let (secoes, geracao) = {
-        let s = SECOES_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
-        (s.clone(), GERACAO_DO_RASTRO.load(std::sync::atomic::Ordering::Acquire))
+fn with_trace_index<R>(f: impl FnOnce(&TraceIndex) -> R) -> R {
+    let (sections, generation) = {
+        let s = TRACE_SECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+        (s.clone(), TRACE_GENERATION.load(std::sync::atomic::Ordering::Acquire))
     };
     {
-        let indice = INDICE_DO_RASTRO.read().unwrap_or_else(|e| e.into_inner());
-        if indice.0 == geracao {
-            return f(&indice.1);
+        let ix = TRACE_INDEX.read().unwrap_or_else(|e| e.into_inner());
+        if ix.0 == generation {
+            return f(&ix.1);
         }
     }
-    let mut pontos = Vec::new();
-    let mut funcoes = Vec::new();
-    for &(inicio, fim) in &secoes {
+    let mut points = Vec::new();
+    let mut functions = Vec::new();
+    for &(start, end) in &sections {
         // SAFETY: seções registradas por `dartforge_registrar_rastro`.
-        unsafe { ler_secao_do_rastro(inicio, fim, &mut pontos, &mut funcoes) };
+        unsafe { read_trace_section(start, end, &mut points, &mut functions) };
     }
     // Estável: os do mesmo rótulo ficam na ordem da seção (de dentro para
     // fora).
-    pontos.sort_by_key(|p| p.rotulo);
-    funcoes.sort_by_key(|(e, _)| *e);
-    funcoes.dedup_by_key(|(e, _)| *e);
-    let mut indice = INDICE_DO_RASTRO.write().unwrap_or_else(|e| e.into_inner());
-    *indice = (geracao, IndiceDoRastro { pontos, funcoes });
-    f(&indice.1)
+    points.sort_by_key(|p| p.label_name);
+    functions.sort_by_key(|(e, _)| *e);
+    functions.dedup_by_key(|(e, _)| *e);
+    let mut ix = TRACE_INDEX.write().unwrap_or_else(|e| e.into_inner());
+    *ix = (generation, TraceIndex { points, functions });
+    f(&ix.1)
 }
 
 /// O nome, a url e as marcas do registro de função em `r`.
@@ -928,172 +928,172 @@ fn com_indice_do_rastro<R>(f: impl FnOnce(&IndiceDoRastro) -> R) -> R {
 /// # Safety
 /// `r` é um registro de função de uma seção registrada.
 #[allow(unsafe_code)]
-unsafe fn registro_do_rastro(r: usize) -> (String, String, u8) {
-    // SAFETY: o formato do registro (`llvm/rastro.rs`): `i32` até a url, o
+unsafe fn trace_record(r: usize) -> (String, String, u8) {
+    // SAFETY: o formato do registro (`llvm/trace.rs`): `i32` até a url, o
     // byte das marcas, o nome; os textos terminados em zero.
     unsafe {
-        let ate_a_url = (r as *const i32).read_unaligned();
-        let url = std::ffi::CStr::from_ptr(r.wrapping_add_signed(ate_a_url as isize) as *const std::ffi::c_char);
-        let marcas = ((r + 4) as *const u8).read();
-        let nome = std::ffi::CStr::from_ptr((r + 5) as *const std::ffi::c_char);
-        (nome.to_string_lossy().into_owned(), url.to_string_lossy().into_owned(), marcas)
+        let until_url = (r as *const i32).read_unaligned();
+        let url = std::ffi::CStr::from_ptr(r.wrapping_add_signed(until_url as isize) as *const std::ffi::c_char);
+        let marks = ((r + 4) as *const u8).read();
+        let name = std::ffi::CStr::from_ptr((r + 5) as *const std::ffi::c_char);
+        (name.to_string_lossy().into_owned(), url.to_string_lossy().into_owned(), marks)
     }
 }
 
 /// O texto do rastro dos pares no formato da VM: `#<índice>` alinhado à
-/// esquerda em 6 colunas, o nome e `(url:linha:coluna)`, a linha e a coluna
+/// esquerda em 6 colunas, o nome e `(url:line:column)`, a linha e a coluna
 /// só quando conhecidas; os quadros embutidos de um ponto, de dentro para
 /// fora; os ocultos, fora; e `<asynchronous suspension>` entre os trechos
 /// da cadeia de quem espera, uma vez por lacuna. Sem quadro nenhum, o texto
 /// de hoje.
-fn simbolizar_retornos(pares: &[(u64, u64)]) -> String {
-    com_indice_do_rastro(|indice| simbolizar_com(indice, pares))
+fn symbolize_returns(pair_list: &[(u64, u64)]) -> String {
+    with_trace_index(|ix| symbolize_with(ix, pair_list))
 }
 
-fn escrever_quadro(texto: &mut String, n: usize, nome: &str, url: &str, linha_coluna: u32) {
+fn escrever_quadro(text: &mut String, n: usize, name: &str, url: &str, line_column: u32) {
     use std::fmt::Write as _;
-    let (linha, coluna) = (linha_coluna >> 12, linha_coluna & 0xFFF);
-    let _ = write!(texto, "#{n:<6} {nome} ({url}");
-    if linha > 0 {
-        let _ = write!(texto, ":{linha}");
-        if coluna > 0 {
-            let _ = write!(texto, ":{coluna}");
+    let (line, column) = (line_column >> 12, line_column & 0xFFF);
+    let _ = write!(text, "#{n:<6} {name} ({url}");
+    if line > 0 {
+        let _ = write!(text, ":{line}");
+        if column > 0 {
+            let _ = write!(text, ":{column}");
         }
     }
-    texto.push_str(")\n");
+    text.push_str(")\n");
 }
 
-/// [`simbolizar_retornos`] com o índice dado.
+/// [`symbolize_returns`] com o índice dado.
 #[allow(unsafe_code)]
-fn simbolizar_com(indice: &IndiceDoRastro, pares: &[(u64, u64)]) -> String {
-    let mut texto = String::new();
+fn symbolize_with(ix: &TraceIndex, pair_list: &[(u64, u64)]) -> String {
+    let mut text = String::new();
     let mut n = 0usize;
-    let mut na_lacuna = false;
-    let mut algum_quadro = false;
-    for &par in pares {
-        match quadro_do_par(par) {
-            QuadroDoRastro::Sincrono(retorno, inicio) => {
-                for p in indice.cadeia(retorno, inicio) {
+    let mut in_gap = false;
+    let mut some_frame = false;
+    for &pair in pair_list {
+        match pair_frame(pair) {
+            TraceFrame::Sync(ret, start) => {
+                for p in ix.chain(ret, start) {
                     // SAFETY: o registro de uma entrada da seção.
-                    let (nome, url, marcas) = unsafe { registro_do_rastro(p.registro) };
-                    if marcas & MARCA_OCULTA != 0 {
+                    let (name, url, marks) = unsafe { trace_record(p.rec) };
+                    if marks & HIDDEN_MARK != 0 {
                         continue;
                     }
-                    escrever_quadro(&mut texto, n, &nome, &url, p.linha_coluna);
+                    escrever_quadro(&mut text, n, &name, &url, p.line_column);
                     n += 1;
-                    na_lacuna = false;
-                    algum_quadro = true;
+                    in_gap = false;
+                    some_frame = true;
                 }
             }
-            QuadroDoRastro::Lacuna => {
-                if !na_lacuna {
-                    texto.push_str("<asynchronous suspension>\n");
+            TraceFrame::Gap => {
+                if !in_gap {
+                    text.push_str("<asynchronous suspension>\n");
                 }
-                na_lacuna = true;
+                in_gap = true;
             }
-            QuadroDoRastro::Espera(entrada, k) => {
-                let Some(f) = indice.funcao(entrada as usize) else { continue };
-                let posicao = usize::try_from(k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| f.esperas.get(i)).copied().unwrap_or(0);
+            TraceFrame::Wait(input, k) => {
+                let Some(f) = ix.function(input as usize) else { continue };
+                let cur_position = usize::try_from(k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| f.waits.get(i)).copied().unwrap_or(0);
                 // SAFETY: o registro de uma entrada da seção.
-                let (nome, url, _) = unsafe { registro_do_rastro(f.registro) };
-                escrever_quadro(&mut texto, n, &nome, &url, posicao);
+                let (name, url, _) = unsafe { trace_record(f.rec) };
+                escrever_quadro(&mut text, n, &name, &url, cur_position);
                 n += 1;
-                na_lacuna = false;
-                algum_quadro = true;
+                in_gap = false;
+                some_frame = true;
             }
-            QuadroDoRastro::Ouvinte(entrada) => {
-                let Some(f) = indice.funcao(entrada as usize) else { continue };
+            TraceFrame::Listener(input) => {
+                let Some(f) = ix.function(input as usize) else { continue };
                 // SAFETY: o registro de uma entrada da seção.
-                let (nome, url, marcas) = unsafe { registro_do_rastro(f.registro) };
-                if marcas & MARCA_OCULTA != 0 {
+                let (name, url, marks) = unsafe { trace_record(f.rec) };
+                if marks & HIDDEN_MARK != 0 {
                     continue;
                 }
-                escrever_quadro(&mut texto, n, &nome, &url, f.token);
+                escrever_quadro(&mut text, n, &name, &url, f.token);
                 n += 1;
-                na_lacuna = false;
-                algum_quadro = true;
+                in_gap = false;
+                some_frame = true;
             }
         }
     }
-    if !algum_quadro {
-        return RASTRO_SEM_TABELA.to_string();
+    if !some_frame {
+        return TRACE_WITHOUT_TABLE.to_string();
     }
-    texto
+    text
 }
 
 /// Os pares guardados num `StackTrace` do rastro simbólico: o campo 0 nulo
 /// (o texto, feito no primeiro pedido), o 1 o número de pares e os pares
 /// depois, todos brutos. Vazio no `StackTrace` de texto.
-fn retornos_do_objeto(heap: &crate::heap::Heap, h: i64) -> Vec<(u64, u64)> {
-    let Some(o) = heap.objeto(h) else { return Vec::new() };
+fn object_returns(heap: &crate::heap::Heap, h: i64) -> Vec<(u64, u64)> {
+    let Some(o) = heap.object(h) else { return Vec::new() };
     let Some((n, false)) = o.get(1) else { return Vec::new() };
     let n = usize::try_from(n).unwrap_or(0);
-    let mut retornos = Vec::with_capacity(n);
+    let mut returns = Vec::with_capacity(n);
     for i in 0..n {
         match (o.get(2 + 2 * i), o.get(3 + 2 * i)) {
-            (Some((r, false)), Some((f, false))) => retornos.push((r as u64, f as u64)),
+            (Some((r, false)), Some((f, false))) => returns.push((r as u64, f as u64)),
             _ => break,
         }
     }
-    retornos
+    returns
 }
 
-/// Um `StackTrace` com os pares `retornos` (veja [`retornos_do_objeto`]);
+/// Um `StackTrace` com os pares `returns` (veja [`object_returns`]);
 /// uma alocação, sem referência a enraizar.
-fn alocar_rastro_de_retornos(retornos: &[(u64, u64)]) -> i64 {
-    let cid = id_da_classe_stack_trace();
-    let mut campos: Vec<crate::heap::Campo> = Vec::with_capacity(2 + 2 * retornos.len());
-    campos.push((0, true));
-    campos.push((retornos.len() as i64, false));
-    for &(r, f) in retornos {
-        campos.push((r as i64, false));
-        campos.push((f as i64, false));
+fn allocate_return_trace(returns: &[(u64, u64)]) -> i64 {
+    let cid = stack_trace_class_id();
+    let mut fields: Vec<crate::heap::Field> = Vec::with_capacity(2 + 2 * returns.len());
+    fields.push((0, true));
+    fields.push((returns.len() as i64, false));
+    for &(r, f) in returns {
+        fields.push((r as i64, false));
+        fields.push((f as i64, false));
     }
-    HEAP.with(|h| h.borrow_mut().novo_objeto(cid, &campos))
+    HEAP.with(|h| h.borrow_mut().new_object(cid, &fields))
 }
 
 /// O texto do `StackTrace` `h` como `String` (a exceção não capturada, a
 /// descrição do runtime): o do campo 0, ou os pares simbolizados.
 /// `None`: `h` não é objeto.
-fn texto_do_rastro(h: i64) -> Option<String> {
-    let (texto, retornos) = HEAP.with(|heap| {
+fn trace_text(h: i64) -> Option<String> {
+    let (text, returns) = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let o = heap.objeto(h)?;
+        let o = heap.object(h)?;
         Some(match o.first() {
-            Some((t, true)) if t != 0 => (heap.texto(t).map(|t| t.para_string()), Vec::new()),
-            _ => (None, retornos_do_objeto(&heap, h)),
+            Some((t, true)) if t != 0 => (heap.text(t).map(|t| t.para_string()), Vec::new()),
+            _ => (None, object_returns(&heap, h)),
         })
     })?;
-    Some(texto.unwrap_or_else(|| simbolizar_retornos(&retornos)))
+    Some(text.unwrap_or_else(|| symbolize_returns(&returns)))
 }
 
 /// `_StackTrace.toString` (a VM o tem em C++): o texto do campo 0, ou os
 /// pares simbolizados agora e guardados no campo 0 para o próximo pedido.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rastro_texto(h: i64) -> i64 {
-    let (pronto, retornos) = HEAP.with(|heap| {
+    let (ready_flag, returns) = HEAP.with(|heap| {
         let heap = heap.borrow();
-        match heap.objeto(h).and_then(|o| o.first()) {
+        match heap.object(h).and_then(|o| o.first()) {
             Some((t, true)) if t != 0 => (t, Vec::new()),
-            _ => (0, retornos_do_objeto(&heap, h)),
+            _ => (0, object_returns(&heap, h)),
         }
     });
-    if pronto != 0 {
-        return pronto;
+    if ready_flag != 0 {
+        return ready_flag;
     }
-    let texto = if retornos.is_empty() { RASTRO_SEM_TABELA.to_string() } else { simbolizar_retornos(&retornos) };
-    let t = com_raizes(&[h], || texto_de_erro(&texto));
+    let text = if returns.is_empty() { TRACE_WITHOUT_TABLE.to_string() } else { symbolize_returns(&returns) };
+    let t = with_roots(&[h], || error_text(&text));
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        if heap.objeto(h).is_some_and(|o| !o.is_empty()) {
-            heap.definir_campo(h, 0, t, true);
+        if heap.object(h).is_some_and(|o| !o.is_empty()) {
+            heap.set_field(h, 0, t, true);
         }
     });
     t
 }
 
 #[cfg(test)]
-mod testes_rastro {
+mod tests_trace {
     use super::*;
 
     /// Os registros, o código e a seção de um teste numa alocação só. Os
@@ -1102,79 +1102,79 @@ mod testes_rastro {
     /// arm64 o `malloc` põe blocos pequenos em regiões a centenas de GiB
     /// umas das outras), e o deslocamento truncado apontaria para fora.
     struct Area {
-        resto: &'static mut [u8],
+        rest: &'static mut [u8],
     }
 
     impl Area {
-        fn nova() -> Self {
-            Area { resto: Box::leak(vec![0u8; 4096].into_boxed_slice()) }
+        fn new_area() -> Self {
+            Area { rest: Box::leak(vec![0u8; 4096].into_boxed_slice()) }
         }
 
         /// `n` bytes zerados da área, alinhados a 16, vivos até o fim do
         /// processo.
-        fn reservar(&mut self, n: usize) -> &'static mut [u8] {
-            let resto = std::mem::take(&mut self.resto);
-            let pulo = resto.as_ptr().align_offset(16);
-            let (bloco, resto) = resto[pulo..].split_at_mut(n);
-            self.resto = resto;
-            bloco
+        fn reserve_space(&mut self, n: usize) -> &'static mut [u8] {
+            let rest = std::mem::take(&mut self.rest);
+            let jump = rest.as_ptr().align_offset(16);
+            let (block, rest) = rest[jump..].split_at_mut(n);
+            self.rest = rest;
+            block
         }
     }
 
-    /// Os textos e os registros de um teste: `(base, registro de cada nome)`.
+    /// Os textos e os registros de um teste: `(base, rec de cada name)`.
     /// A url em 0; cada registro tem o deslocamento até ela, o byte das
     /// marcas e o nome.
-    fn registros(area: &mut Area, nomes: &[(&str, u8)]) -> Vec<usize> {
-        let dados = area.reservar(16 + 32 * nomes.len());
-        dados[..15].copy_from_slice(b"file:///a.dart\0");
-        let base = dados.as_ptr() as usize;
-        let mut saida = Vec::new();
-        for (i, (nome, marcas)) in nomes.iter().enumerate() {
+    fn records(area: &mut Area, names: &[(&str, u8)]) -> Vec<usize> {
+        let data = area.reserve_space(16 + 32 * names.len());
+        data[..15].copy_from_slice(b"file:///a.dart\0");
+        let base = data.as_ptr() as usize;
+        let mut out = Vec::new();
+        for (i, (name, marks)) in names.iter().enumerate() {
             let r = 16 + 32 * i;
-            dados[r..r + 4].copy_from_slice(&(-(r as i32)).to_le_bytes());
-            dados[r + 4] = *marcas;
-            dados[r + 5..r + 5 + nome.len()].copy_from_slice(nome.as_bytes());
-            saida.push(base + r);
+            data[r..r + 4].copy_from_slice(&(-(r as i32)).to_le_bytes());
+            data[r + 4] = *marks;
+            data[r + 5..r + 5 + name.len()].copy_from_slice(name.as_bytes());
+            out.push(base + r);
         }
-        saida
+        out
     }
 
-    /// Uma seção montada à mão: `(espécie, rótulo, registro, palavra)`, com
+    /// Uma seção montada à mão: `(espécie, rótulo, rec, word)`, com
     /// uma sentinela zerada no começo.
-    fn secao(area: &mut Area, entradas: &[(u32, usize, usize, u32)]) -> (usize, usize) {
-        let secao = area.reservar(12 * (entradas.len() + 1));
-        let s = secao.as_ptr() as usize;
-        for (k, &(especie, rotulo, registro, palavra)) in entradas.iter().enumerate() {
+    fn section(area: &mut Area, entries: &[(u32, usize, usize, u32)]) -> (usize, usize) {
+        let section = area.reserve_space(12 * (entries.len() + 1));
+        let s = section.as_ptr() as usize;
+        for (k, &(kind, label_name, rec, word)) in entries.iter().enumerate() {
             let k = k + 1;
             let e = s + 12 * k;
-            secao[12 * k..12 * k + 4].copy_from_slice(&((rotulo as i64 - e as i64) as i32).to_le_bytes());
-            let campo = if especie == 3 { 3 } else { (registro as i64 - (e + 4) as i64) as i32 + especie as i32 };
-            secao[12 * k + 4..12 * k + 8].copy_from_slice(&campo.to_le_bytes());
-            secao[12 * k + 8..12 * k + 12].copy_from_slice(&palavra.to_le_bytes());
+            section[12 * k..12 * k + 4].copy_from_slice(&((label_name as i64 - e as i64) as i32).to_le_bytes());
+            let field = if kind == 3 { 3 } else { (rec as i64 - (e + 4) as i64) as i32 + kind as i32 };
+            section[12 * k + 4..12 * k + 8].copy_from_slice(&field.to_le_bytes());
+            section[12 * k + 8..12 * k + 12].copy_from_slice(&word.to_le_bytes());
         }
-        (s, s + secao.len())
+        (s, s + section.len())
     }
 
-    fn indice(area: &mut Area, entradas: &[(u32, usize, usize, u32)]) -> IndiceDoRastro {
-        let (s, f) = secao(area, entradas);
-        let (mut pontos, mut funcoes) = (Vec::new(), Vec::new());
+    fn ix(area: &mut Area, entries: &[(u32, usize, usize, u32)]) -> TraceIndex {
+        let (s, f) = section(area, entries);
+        let (mut points, mut functions) = (Vec::new(), Vec::new());
         // SAFETY: a seção acima, viva até o fim do processo.
-        unsafe { ler_secao_do_rastro(s, f, &mut pontos, &mut funcoes) };
-        pontos.sort_by_key(|p| p.rotulo);
-        funcoes.sort_by_key(|(e, _)| *e);
-        IndiceDoRastro { pontos, funcoes }
+        unsafe { read_trace_section(s, f, &mut points, &mut functions) };
+        points.sort_by_key(|p| p.label_name);
+        functions.sort_by_key(|(e, _)| *e);
+        TraceIndex { points, functions }
     }
 
     /// Cada endereço de retorno acha o rótulo da função dele, e o que não
     /// acha fica de fora; os quadros embutidos saem de dentro para fora; os
     /// ocultos, não.
     #[test]
-    fn simboliza_no_formato_da_vm() {
-        let mut area = Area::nova();
-        let r = registros(&mut area, &[("main", 0), ("f", 0), ("g", 0), ("stub", MARCA_OCULTA)]);
-        let codigo = area.reservar(200);
-        let c = codigo.as_ptr() as usize;
-        let ind = indice(&mut area, &[
+    fn symbolizes_in_vm_format() {
+        let mut area = Area::new_area();
+        let r = records(&mut area, &[("main", 0), ("f", 0), ("g", 0), ("stub", HIDDEN_MARK)]);
+        let code = area.reserve_space(200);
+        let c = code.as_ptr() as usize;
+        let ind = ix(&mut area, &[
             (0, c + 50, r[1], 7 << 12),
             (0, c + 10, r[0], 3 << 12 | 5),
             // Um ponto com `g` copiada em `main` (de dentro para fora).
@@ -1182,26 +1182,26 @@ mod testes_rastro {
             (0, c + 30, r[0], 4 << 12 | 1),
             (0, c + 120, r[3], 1 << 12),
         ]);
-        assert_eq!(ind.pontos.len(), 5, "a sentinela não é entrada");
+        assert_eq!(ind.points.len(), 5, "a sentinela não é entrada");
         let c = c as u64;
-        let texto = simbolizar_com(&ind, &[(c + 5, c), (c + 20, c), (c + 35, c), (c + 60, c + 55), (c + 60, c + 40), (c + 125, c + 100)]);
+        let text = symbolize_with(&ind, &[(c + 5, c), (c + 20, c), (c + 35, c), (c + 60, c + 55), (c + 60, c + 40), (c + 125, c + 100)]);
         assert_eq!(
-            texto,
+            text,
             "#0      main (file:///a.dart:3:5)\n#1      g (file:///a.dart:9:2)\n#2      main (file:///a.dart:4:1)\n#3      f (file:///a.dart:7)\n"
         );
-        assert_eq!(simbolizar_com(&ind, &[(c + 5, c)]), RASTRO_SEM_TABELA);
+        assert_eq!(symbolize_with(&ind, &[(c + 5, c)]), TRACE_WITHOUT_TABLE);
     }
 
     /// A cadeia de quem espera: a lacuna antes de cada quadro e no fim, uma
     /// vez só entre trechos; o quadro de quem espera na posição do `await`
     /// do estado; o ouvinte no token.
     #[test]
-    fn escreve_a_cadeia_de_quem_espera() {
-        let mut area = Area::nova();
-        let r = registros(&mut area, &[("f", MARCA_CORPO_ASYNC), ("main", MARCA_CORPO_ASYNC), ("main.<anonymous closure>", 0)]);
-        let codigo = area.reservar(200);
-        let c = codigo.as_ptr() as usize;
-        let ind = indice(&mut area, &[
+    fn writes_waiter_chain() {
+        let mut area = Area::new_area();
+        let r = records(&mut area, &[("f", ASYNC_BODY_MARK), ("main", ASYNC_BODY_MARK), ("main.<anonymous closure>", 0)]);
+        let code = area.reserve_space(200);
+        let c = code.as_ptr() as usize;
+        let ind = ix(&mut area, &[
             (0, c + 10, r[0], 2 << 12 | 3),
             (1, c + 100, r[1], 1 << 12 | 6),
             (2, c + 100, r[1], 5 << 12 | 9),
@@ -1209,42 +1209,42 @@ mod testes_rastro {
             (1, c + 150, r[2], 8 << 12 | 20),
             (3, c + 150, 0, 1 << 2 | 1),
         ]);
-        assert_eq!(ind.funcao(c + 100).map(|f| f.esperas.len()), Some(2));
-        assert_eq!(ind.funcao(c + 150).and_then(|f| f.elo), Some((1, false, true)));
+        assert_eq!(ind.function(c + 100).map(|f| f.waits.len()), Some(2));
+        assert_eq!(ind.function(c + 150).and_then(|f| f.link), Some((1, false, true)));
         let c = c as u64;
-        let pares: Vec<(u64, u64)> = [
-            QuadroDoRastro::Sincrono(c + 15, c),
-            QuadroDoRastro::Lacuna,
-            QuadroDoRastro::Espera(c + 100, 2),
-            QuadroDoRastro::Lacuna,
-            QuadroDoRastro::Lacuna,
-            QuadroDoRastro::Ouvinte(c + 150),
-            QuadroDoRastro::Lacuna,
+        let pair_list: Vec<(u64, u64)> = [
+            TraceFrame::Sync(c + 15, c),
+            TraceFrame::Gap,
+            TraceFrame::Wait(c + 100, 2),
+            TraceFrame::Gap,
+            TraceFrame::Gap,
+            TraceFrame::Listener(c + 150),
+            TraceFrame::Gap,
         ]
         .into_iter()
-        .map(par_do_quadro)
+        .map(frame_pair)
         .collect();
         assert_eq!(
-            simbolizar_com(&ind, &pares),
+            symbolize_with(&ind, &pair_list),
             "#0      f (file:///a.dart:2:3)\n<asynchronous suspension>\n#1      main (file:///a.dart:6:9)\n<asynchronous suspension>\n#2      main.<anonymous closure> (file:///a.dart:8:20)\n<asynchronous suspension>\n"
         );
-        for q in [QuadroDoRastro::Lacuna, QuadroDoRastro::Espera(77, 3), QuadroDoRastro::Ouvinte(78), QuadroDoRastro::Sincrono(5, 1)] {
-            assert_eq!(quadro_do_par(par_do_quadro(q)), q);
+        for q in [TraceFrame::Gap, TraceFrame::Wait(77, 3), TraceFrame::Listener(78), TraceFrame::Sync(5, 1)] {
+            assert_eq!(pair_frame(frame_pair(q)), q);
         }
     }
 
     /// A entrada da pilha do rastro casa com o quadro cujo topo está logo
     /// acima dela; a de um quadro desenrolado fica para trás.
     #[test]
-    fn casa_a_pilha_do_rastro_pelo_topo_do_quadro() {
-        let pilha = [(0, 11, 9_000usize), (1, 22, 5_000), (0, 33, 4_000)];
-        let mut topo = pilha.len();
+    fn matches_trace_stack_by_frame_top() {
+        let stack = [(0, 11, 9_000usize), (1, 22, 5_000), (0, 33, 4_000)];
+        let mut top = stack.len();
         // O quadro mais fundo (topo em 5 100): a entrada de 4 000 é de um
         // quadro mais fundo que ele, já desenrolado, e não casa com o tipo.
-        assert_eq!(casar(&pilha, &mut topo, 1, 5_100), Some(22));
-        assert_eq!(topo, 1);
-        assert_eq!(casar(&pilha, &mut topo, 0, 9_050), Some(11));
-        assert_eq!(casar(&pilha, &mut topo, 0, 9_050), None);
-        assert_eq!(casar(&pilha, &mut 3, 0, 0), None);
+        assert_eq!(match_at(&stack, &mut top, 1, 5_100), Some(22));
+        assert_eq!(top, 1);
+        assert_eq!(match_at(&stack, &mut top, 0, 9_050), Some(11));
+        assert_eq!(match_at(&stack, &mut top, 0, 9_050), None);
+        assert_eq!(match_at(&stack, &mut 3, 0, 0), None);
     }
 }

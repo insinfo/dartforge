@@ -13,11 +13,11 @@
 //!   célula a cada chamada; recarregar é trocar o conteúdo dela.
 //!
 //! ```text
-//!   chamador  ──►  @df_fn_0            (trampolim, permanente)
+//!   caller  ──►  @df_fn_0            (trampoline, permanente)
 //!                    │ load  @__dfslot$df_fn_0
 //!                    ▼
 //!                  célula ──► @df_fn_0$gen1   (geração 1, retida)
-//!                         └─► @df_fn_0$gen2   (geração 2, publicada)
+//!                         └─► @df_fn_0$gen2   (geração 2, published)
 //! ```
 //!
 //! # Por que não `LLVMOrcCreateLocalIndirectStubsManager`
@@ -158,16 +158,16 @@ pub(crate) struct Reloadable {
     generation: u32,
     /// Entradas estáveis, indexadas pelo nome do símbolo do emissor.
     pub(crate) entries: BTreeMap<String, Entry>,
-    /// Layout nominal das classes da versão viva: `(class_id, campos)`.
+    /// Layout nominal das classes da versão viva: `(class_id, fields)`.
     layouts: Vec<(i64, i64)>,
-    /// Nomes das classes registradas pela versão viva: `(class_id, nome)`.
+    /// Nomes das classes registradas pela versão viva: `(class_id, name_str)`.
     class_names: Vec<(i64, String)>,
     /// Os campos de cada classe da versão viva, pelo nome (J03).
-    campos: Vec<crate::migracao::Layout>,
+    fields: Vec<crate::migration::Layout>,
     /// J03: a entrada estável de uma função cuja assinatura mudou —
-    /// `(nome do emissor, assinatura)` → `nome$sigK`. A entrada com o nome
+    /// `(name_str do emitter, fn_signature)` → `name_str$sigK`. A entrada com o nome
     /// original fica com o corpo antigo (os tear-offs antigos a chamam).
-    apelidos: BTreeMap<(String, String), String>,
+    aliases: BTreeMap<(String, String), String>,
     /// Globais mutáveis da geração ativa, reiniciadas em `run_entry`/`run_main`.
     pub(crate) globals: Vec<ffi::MutableGlobal>,
     /// Rastreadores das gerações ainda alcançáveis, com o número de cada:
@@ -180,7 +180,7 @@ pub(crate) struct Reloadable {
     /// J04: a impressão digital e a assinatura da implementação publicada de
     /// cada entrada estável; a geração seguinte declara, em vez de compilar,
     /// a função cujo código é o mesmo (`crate::delta`).
-    publicadas: HashMap<String, crate::delta::Publicada>,
+    published_list: HashMap<String, crate::delta::Published>,
 }
 
 /// Endereço de uma entrada estável, com a assinatura que a sessão registrou.
@@ -190,13 +190,13 @@ pub(crate) struct Reloadable {
 /// dela, porque é o endereço do trampolim, não o do corpo.
 ///
 /// ```no_run
-/// let mut sessao = dartforge_jit::JitSession::new()?;
-/// sessao.add_reloadable_module("app", "define i64 @df_fn_0() { ret i64 1 }\n")?;
-/// let entrada = sessao.stable_entry("df_fn_0")?;
-/// assert_eq!(entrada.call(&sessao)?, 1);
-/// sessao.hot_reload("app", "define i64 @df_fn_0() { ret i64 2 }\n")?;
-/// // O mesmo endereço, capturado antes da edição, já executa o corpo novo.
-/// assert_eq!(entrada.call(&sessao)?, 2);
+/// let mut session = dartforge_jit::JitSession::new()?;
+/// session.add_reloadable_module("app", "define i64 @df_fn_0() { ret i64 1 }\n")?;
+/// let input = session.stable_entry("df_fn_0")?;
+/// assert_eq!(input.call(&session)?, 1);
+/// session.hot_reload("app", "define i64 @df_fn_0() { ret i64 2 }\n")?;
+/// // O same endereço, captured_value before da edição, já executa o body new.
+/// assert_eq!(input.call(&session)?, 2);
 /// # Ok::<(), dartforge_jit::JitError>(())
 /// ```
 #[derive(Debug, Clone)]
@@ -301,11 +301,11 @@ impl JitSession {
     /// módulo recarregável com este nome.
     ///
     /// ```no_run
-    /// let mut sessao = dartforge_jit::JitSession::new()?;
-    /// let relatorio =
-    ///     sessao.add_reloadable_module("app", "define void @dartforge_entry() { ret void }\n")?;
-    /// assert_eq!(relatorio.generation, 1);
-    /// assert!(!relatorio.promoted);
+    /// let mut session = dartforge_jit::JitSession::new()?;
+    /// let report_data =
+    ///     session.add_reloadable_module("app", "define void @dartforge_entry() { ret void }\n")?;
+    /// assert_eq!(report_data.generation, 1);
+    /// assert!(!report_data.promoted);
     /// # Ok::<(), dartforge_jit::JitError>(())
     /// ```
     pub fn add_reloadable_module(
@@ -394,13 +394,13 @@ impl JitSession {
     /// sessão precisa ser reiniciada.
     ///
     /// ```no_run
-    /// let mut sessao = dartforge_jit::JitSession::new()?;
-    /// sessao.add_reloadable_module("app", "define void @dartforge_entry() { ret void }\n")?;
-    /// let relatorio = sessao.hot_reload("app", "define void @dartforge_entry() { ret void }\n")?;
-    /// assert_eq!(relatorio.generation, 2);
+    /// let mut session = dartforge_jit::JitSession::new()?;
+    /// session.add_reloadable_module("app", "define void @dartforge_entry() { ret void }\n")?;
+    /// let report_data = session.hot_reload("app", "define void @dartforge_entry() { ret void }\n")?;
+    /// assert_eq!(report_data.generation, 2);
     /// # Ok::<(), dartforge_jit::JitError>(())
     /// ```
-    pub fn hot_reload(&mut self, name: &str, novo_ir: &str) -> Result<HotReloadReport, JitError> {
+    pub fn hot_reload(&mut self, name: &str, fresh_ir: &str) -> Result<HotReloadReport, JitError> {
         if self.poisoned.is_none()
             && !self.reloadables.iter().any(|module| module.name == name)
             && !self.modules.iter().any(|module| !module.removed && module.name == name)
@@ -412,17 +412,17 @@ impl JitSession {
                 ),
             });
         }
-        self.install_generation(name, novo_ir, None)
+        self.install_generation(name, fresh_ir, None)
     }
 
-    /// [`JitSession::hot_reload`] com a publicação entregue a `ponto_seguro`,
+    /// [`JitSession::hot_reload`] com a publicação entregue a `safepoint`,
     /// que a roda na thread do programa em execução, entre dois eventos do
-    /// laço do isolado principal (`crate::vivo`), e só retorna depois.
-    pub(crate) fn hot_reload_no_ponto_seguro(
+    /// laço do isolado principal (`crate::alive`), e só retorna depois.
+    pub(crate) fn hot_reload_at_safepoint(
         &mut self,
         name: &str,
-        novo_ir: &str,
-        ponto_seguro: &mut dyn FnMut(ffi::Tarefa),
+        fresh_ir: &str,
+        safepoint: &mut dyn FnMut(ffi::Task),
     ) -> Result<HotReloadReport, JitError> {
         if !self.reloadables.iter().any(|module| module.name == name) {
             return Err(JitError {
@@ -430,7 +430,7 @@ impl JitSession {
                 message: format!("nenhum módulo recarregável chamado '{name}' está carregado nesta sessão"),
             });
         }
-        self.install_generation(name, novo_ir, Some(ponto_seguro))
+        self.install_generation(name, fresh_ir, Some(safepoint))
     }
 
     /// Resolve uma entrada estável e devolve seu endereço com a assinatura.
@@ -512,13 +512,13 @@ impl JitSession {
         &mut self,
         name: &str,
         ir: &str,
-        ponto_seguro: Option<&mut dyn FnMut(ffi::Tarefa)>,
+        safepoint: Option<&mut dyn FnMut(ffi::Task)>,
     ) -> Result<HotReloadReport, JitError> {
         let started = Instant::now();
-        if let Some(motivo) = self.poisoned.clone() {
+        if let Some(reason) = self.poisoned.clone() {
             return Err(JitError {
                 stage: "poisoned",
-                message: motivo,
+                message: reason,
             });
         }
 
@@ -527,15 +527,15 @@ impl JitSession {
         // implementação publicada vira declaração, e as chamadas a ela caem no
         // trampolim, que continua apontando para a implementação viva; os
         // registros da geração são sempre dela.
-        let vazias = HashMap::new();
-        let vivas = self.reloadables.iter().find(|m| m.name == name).map_or(&vazias, |m| &m.publicadas);
-        let (ir_da_geracao, mantidas, mut novas) =
-            match crate::delta::delta(ir, vivas, &[PREPARO_DA_AREA, REGISTRO_DO_PROGRAMA, INICIO_DA_RTI]) {
-                Some(d) => (std::borrow::Cow::Owned(d.ir), d.mantidas, d.novas),
+        let empties_list = HashMap::new();
+        let live_list = self.reloadables.iter().find(|m| m.name == name).map_or(&empties_list, |m| &m.published_list);
+        let (generation_ir, kept_fns, mut new_items) =
+            match crate::delta::delta(ir, live_list, &[AREA_PREPARATION, PROGRAM_REGISTRY, RTI_START]) {
+                Some(d) => (std::borrow::Cow::Owned(d.ir), d.kept_fns, d.new_items),
                 None => (std::borrow::Cow::Borrowed(ir), Vec::new(), HashMap::new()),
             };
         let phase = Instant::now();
-        let parsed = ffi::parse_module(name, &ir_da_geracao)
+        let parsed = ffi::parse_module(name, &generation_ir)
             .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
         self.check_target(&parsed)?;
         let parse_ir = phase.elapsed();
@@ -543,68 +543,68 @@ impl JitSession {
         let phase = Instant::now();
         let mut signatures = parsed.signatures();
         // J03: uma função cuja assinatura mudou ganha outra entrada estável
-        // (`nome$sigK`, a mesma para a mesma assinatura nas gerações
+        // (`name_str$sigK`, a mesma para a mesma assinatura nas gerações
         // seguintes); a entrada original continua com o corpo antigo, como
         // uma função que sumiu. Renomear a definição leva junto todos os usos
         // dela no módulo novo (tabelas de métodos, closures, chamadas).
-        let mut apelidos_novos: Vec<((String, String), String)> = Vec::new();
-        let mut renomeadas: Vec<(String, String)> = Vec::new();
+        let mut new_aliases: Vec<((String, String), String)> = Vec::new();
+        let mut renamed: Vec<(String, String)> = Vec::new();
         if let Some(index) = self.reloadables.iter().position(|m| m.name == name) {
             let modulo = &self.reloadables[index];
-            let mut renomes = Vec::new();
+            let mut renames = Vec::new();
             for s in &signatures {
-                let texto = s.text();
-                let Some(atual) = modulo.entries.get(&s.name).filter(|e| e.generation > 0) else { continue };
-                if atual.signature.text() == texto {
+                let text = s.text();
+                let Some(current) = modulo.entries.get(&s.name).filter(|e| e.generation > 0) else { continue };
+                if current.signature.text() == text {
                     continue;
                 }
-                let chave = (s.name.clone(), texto);
-                let alvo = match modulo.apelidos.get(&chave) {
+                let key = (s.name.clone(), text);
+                let target = match modulo.aliases.get(&key) {
                     Some(a) => a.clone(),
                     None => {
-                        let k = modulo.apelidos.keys().filter(|(n, _)| *n == s.name).count() + 1;
+                        let k = modulo.aliases.keys().filter(|(n, _)| *n == s.name).count() + 1;
                         let a = format!("{}$sig{k}", s.name);
-                        apelidos_novos.push((chave, a.clone()));
+                        new_aliases.push((key, a.clone()));
                         a
                     }
                 };
-                renomes.push((s.name.clone(), alvo));
+                renames.push((s.name.clone(), target));
             }
-            for (de, para) in &renomes {
-                if !parsed.renomear_funcao(de, para) {
+            for (de, to) in &renames {
+                if !parsed.rename_function(de, to) {
                     return Err(JitError {
                         stage: "contract",
                         message: format!(
-                            "a assinatura de {de} mudou e a entrada nova {para} não pôde ser criada; \
+                            "a assinatura de {de} mudou e a entrada nova {to} não pôde ser criada; \
                              a recarga é recusada — reinicie a sessão"
                         ),
                     });
                 }
             }
-            if !renomes.is_empty() {
+            if !renames.is_empty() {
                 signatures = parsed.signatures();
             }
-            renomeadas = renomes;
+            renamed = renames;
         }
         let mut layouts = parsed.class_layouts();
         // As alocações das funções mantidas não estão no módulo; o texto delas
         // é o da geração viva, então o layout que alocam é o registrado.
-        if !mantidas.is_empty()
-            && let Some(viva) = self.reloadables.iter().find(|m| m.name == name)
+        if !kept_fns.is_empty()
+            && let Some(live_one) = self.reloadables.iter().find(|m| m.name == name)
         {
-            for &(classe, n) in &viva.layouts {
-                if !layouts.iter().any(|&(c, _)| c == classe) {
-                    layouts.push((classe, n));
+            for &(class, n) in &live_one.layouts {
+                if !layouts.iter().any(|&(c, _)| c == class) {
+                    layouts.push((class, n));
                 }
             }
         }
-        for (de, para) in &renomeadas {
-            if let Some(p) = novas.remove(de) {
-                novas.insert(para.clone(), p);
+        for (de, to) in &renamed {
+            if let Some(p) = new_items.remove(de) {
+                new_items.insert(to.clone(), p);
             }
         }
         let class_names = parsed.class_names();
-        let campos = crate::migracao::layouts_do_ir(ir);
+        let fields = crate::migration::ir_layouts(ir);
         let references = parsed.declarations();
         let existing = self.reloadables.iter().position(|m| m.name == name);
         let plain = self.plain_module_index(name, existing.is_some());
@@ -612,19 +612,19 @@ impl JitSession {
         // Detectar a colisão aqui é obrigatório na promoção: depois que o
         // módulo simples é removido, uma falha ao publicar o trampolim deixa
         // a sessão envenenada e destrói a versão que ainda funcionava.
-        let ocupados: HashSet<&str> = self.modules.iter().enumerate()
+        let occupied: HashSet<&str> = self.modules.iter().enumerate()
             .filter(|(index, module)| !module.removed && Some(*index) != plain)
             .flat_map(|(_, module)| module.signatures.iter().map(|s| s.name.as_str()))
             .chain(self.reloadables.iter().enumerate()
                 .filter(|(index, _)| Some(*index) != existing)
                 .flat_map(|(_, module)| module.entries.keys().map(String::as_str)))
             .collect();
-        if let Some(colisao) = signatures.iter().find(|s| ocupados.contains(s.name.as_str())) {
+        if let Some(collision) = signatures.iter().find(|s| occupied.contains(s.name.as_str())) {
             return Err(JitError {
                 stage: "contract",
                 message: format!(
                     "a função {} já pertence a outro módulo da sessão; a recarga não pode publicar uma segunda entrada com esse nome",
-                    colisao.name
+                    collision.name
                 ),
             });
         }
@@ -651,50 +651,50 @@ impl JitSession {
             (None, Some(index)) => &self.modules[index].class_names,
             (None, None) => &[],
         };
-        let previous_campos: &[crate::migracao::Layout] = match (existing, plain) {
-            (Some(index), _) => &self.reloadables[index].campos,
-            (None, Some(index)) => &self.modules[index].campos,
+        let previous_fields: &[crate::migration::Layout] = match (existing, plain) {
+            (Some(index), _) => &self.reloadables[index].fields,
+            (None, Some(index)) => &self.modules[index].fields,
             (None, None) => &[],
         };
         // J03: a classe cujos campos as duas versões descrevem pelo nome migra
         // (ou é recusada com o motivo); as outras ficam com a contagem.
-        let migradas: HashSet<i64> = previous_campos
+        let migrated: HashSet<i64> = previous_fields
             .iter()
-            .filter(|l| campos.iter().any(|n| n.classe == l.classe))
-            .map(|l| l.classe)
+            .filter(|l| fields.iter().any(|n| n.class == l.class))
+            .map(|l| l.class)
             .collect();
-        check_contract(&previous, previous_layouts, &signatures, &layouts, &migradas).map_err(|message| {
+        check_contract(&previous, previous_layouts, &signatures, &layouts, &migrated).map_err(|message| {
             JitError {
                 stage: "contract",
                 message,
             }
         })?;
         check_class_names(previous_names, &class_names).map_err(|message| JitError { stage: "contract", message })?;
-        let nome_da_classe = |id: i64| {
+        let class_name = |id: i64| {
             class_names
                 .iter()
                 .find(|(c, _)| *c == id)
                 .map_or_else(|| format!("a classe de id {id}"), |(_, n)| format!("a classe {n}"))
         };
-        let plano = crate::migracao::planejar(previous_campos, &campos, &nome_da_classe)
+        let plan = crate::migration::plan_fn(previous_fields, &fields, &class_name)
             .map_err(|message| JitError { stage: "contract", message })?;
-        let plano_codificado = (!plano.is_empty()).then(|| crate::migracao::codificar(&plano));
+        let encoded_plan = (!plan.is_empty()).then(|| crate::migration::encode(&plan));
         // A publicação refaz os registros do programa (tabelas de métodos,
         // regras da RTI) quando já houve uma geração: o programa em execução
         // tem os da anterior. As funções de registro são entradas da própria
         // geração; o runtime que as recebe é o da sessão.
-        let registros = if existing.is_some() {
-            let tem = |nome: &str| signatures.iter().any(|s| s.name == nome && s.ret == "void" && s.params.is_empty());
-            let area = tem(PREPARO_DA_AREA);
-            let registrar = tem(REGISTRO_DO_PROGRAMA);
-            let rti = tem(INICIO_DA_RTI);
-            if area || registrar || rti || plano_codificado.is_some() {
+        let records = if existing.is_some() {
+            let has = |name_str: &str| signatures.iter().any(|s| s.name == name_str && s.ret == "void" && s.params.is_empty());
+            let area = has(AREA_PREPARATION);
+            let register = has(PROGRAM_REGISTRY);
+            let rti = has(RTI_START);
+            if area || register || rti || encoded_plan.is_some() {
                 let runtime = match &self.sdk_dll {
-                    Some(dll) => ffi::RuntimeDaRecarga::da_biblioteca(dll)
+                    Some(dll) => ffi::ReloadRuntime::from_library(dll)
                         .map_err(|detail| JitError::new("contract", "o runtime da sessão não publica gerações", detail))?,
-                    None => ffi::RuntimeDaRecarga::embutido(),
+                    None => ffi::ReloadRuntime::embedded(),
                 };
-                if plano_codificado.is_some() && !runtime.migra() {
+                if encoded_plan.is_some() && !runtime.migrates() {
                     return Err(JitError {
                         stage: "contract",
                         message: "os campos de uma classe mudaram e o runtime da sessão não migra instâncias \
@@ -702,7 +702,7 @@ impl JitSession {
                             .to_owned(),
                     });
                 }
-                Some((runtime, area, registrar, rti))
+                Some((runtime, area, register, rti))
             } else {
                 None
             }
@@ -736,35 +736,35 @@ impl JitSession {
         // A geração inicial só publica os exports que usava. Uma edição pode
         // chamar outro membro do SDK: conferir a lista da DLL antes de mudar
         // qualquer célula, e publicar somente os novos nomes.
-        let novos_sdk = if let Some(dll) = &self.sdk_dll {
-            let mut pedidos: Vec<String> = references
+        let new_sdk = if let Some(dll) = &self.sdk_dll {
+            let mut requests: Vec<String> = references
                 .iter()
                 .filter(|reference| {
                     !self.is_known_external(reference)
-                        && !self.externos_do_sdk.contains(*reference)
+                        && !self.sdk_externals.contains(*reference)
                         && !known.contains(&reference.as_str())
                         && !self.reloadables.iter().any(|m| m.entries.contains_key(*reference))
                 })
                 .cloned()
                 .collect();
-            pedidos.sort();
-            pedidos.dedup();
-            ffi::Lljit::exported_symbols_in_dll(dll, &pedidos)
+            requests.sort();
+            requests.dedup();
+            ffi::Lljit::exported_symbols_in_dll(dll, &requests)
                 .map_err(|detail| JitError::new("sdk", "não foi possível ler as exportações do SDK", detail))?
         } else {
             Vec::new()
         };
-        let mut externos = self.externos_do_sdk.clone();
-        externos.extend(novos_sdk.iter().cloned());
-        check_references(&references, &known, &self.reloadables, &externos, self.sdk_dll.is_none()).map_err(|message| JitError {
+        let mut external = self.sdk_externals.clone();
+        external.extend(new_sdk.iter().cloned());
+        check_references(&references, &known, &self.reloadables, &external, self.sdk_dll.is_none()).map_err(|message| JitError {
             stage: "contract",
             message,
         })?;
-        if !novos_sdk.is_empty() {
+        if !new_sdk.is_empty() {
             let dll = self.sdk_dll.as_ref().expect("novos exports exigem DLL do SDK");
-            let publicados = self.lljit.define_symbols_from_dll(dll, &novos_sdk, false)
+            let published_set = self.lljit.define_symbols_from_dll(dll, &new_sdk, false)
                 .map_err(|detail| JitError::new("sdk", "não foi possível publicar novos exports do SDK", detail))?;
-            self.externos_do_sdk.extend(publicados);
+            self.sdk_externals.extend(published_set);
         }
         let contract = phase.elapsed();
 
@@ -780,7 +780,7 @@ impl JitSession {
         let globals = parsed.version_mutable_globals(&global_suffix)
             .map_err(|detail| JitError::new("globais", "a geração tem estado que a sessão não sabe reiniciar", detail))?;
         for next in &globals {
-            if !static_do_programa(&next.logical_name) {
+            if !program_static(&next.logical_name) {
                 continue;
             }
             if let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name)
@@ -903,8 +903,8 @@ impl JitSession {
                     // de criar as mesmas entradas. Ficam registrados como
                     // órfãos — sem implementação — e a recarga seguinte
                     // reaproveita a célula em vez de publicar outra.
-                    let orfas = std::mem::take(&mut slots);
-                    self.register_unimplemented(name, orfas, &published, stub_tracker.take());
+                    let orphans = std::mem::take(&mut slots);
+                    self.register_unimplemented(name, orphans, &published, stub_tracker.take());
                     return Err(self.poison_if(promoted, error));
                 }
             }
@@ -914,37 +914,37 @@ impl JitSession {
         // caches de seletor guardam endereços da geração anterior e devem
         // começar vazios. A cópia em si é da publicação: o programa pode
         // estar escrevendo neles até o ponto seguro.
-        let mut copias = Vec::new();
+        let mut copies = Vec::new();
         for next in &globals {
-            if !static_do_programa(&next.logical_name) {
+            if !program_static(&next.logical_name) {
                 continue;
             }
             let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name) else {
                 continue;
             };
-            match self.lljit.copia_de_global(previous, next) {
-                Ok(copia) => copias.push(copia),
+            match self.lljit.global_copy(previous, next) {
+                Ok(copy) => copies.push(copy),
                 Err(detail) => {
                     let error = JitError::new("link", "não foi possível preservar um estático", detail);
                     let _ = tracker.remove();
-                    let orfas = std::mem::take(&mut slots);
-                    self.register_unimplemented(name, orfas, &published, stub_tracker.take());
+                    let orphans = std::mem::take(&mut slots);
+                    self.register_unimplemented(name, orphans, &published, stub_tracker.take());
                     return Err(self.poison_if(promoted, error));
                 }
             }
         }
         // Os trampolins das funções de registro, resolvidos antes da
         // publicação (a tarefa só leva endereços).
-        let registros = match registros {
-            Some((runtime, area, registrar, rti)) => {
-                let endereco = |sessao: &Self, nome: &str, pedido: bool| -> Result<Option<u64>, JitError> {
-                    if pedido { sessao.lookup(nome).map(Some) } else { Ok(None) }
+        let records = match records {
+            Some((runtime, area, register, rti)) => {
+                let addr_value = |session: &Self, name_str: &str, request: bool| -> Result<Option<u64>, JitError> {
+                    if request { session.lookup(name_str).map(Some) } else { Ok(None) }
                 };
                 Some((
                     runtime,
-                    endereco(self, PREPARO_DA_AREA, area)?,
-                    endereco(self, REGISTRO_DO_PROGRAMA, registrar)?,
-                    endereco(self, INICIO_DA_RTI, rti)?,
+                    addr_value(self, AREA_PREPARATION, area)?,
+                    addr_value(self, PROGRAM_REGISTRY, register)?,
+                    addr_value(self, RTI_START, rti)?,
                 ))
             }
             None => None,
@@ -958,7 +958,7 @@ impl JitSession {
         let module = &mut self.reloadables[index];
         // As entradas novas entram já registradas (a célula ainda nula:
         // nenhum código publicado as chama); a tarefa só leva endereços.
-        let mut trocas = Vec::with_capacity(published.len());
+        let mut swaps = Vec::with_capacity(published.len());
         for (signature, address) in published.iter().zip(&addresses) {
             if let Some(slot) = slots.remove(&signature.name) {
                 module.entries.insert(
@@ -970,39 +970,39 @@ impl JitSession {
                 .entries
                 .get(&signature.name)
                 .expect("a verificação de contrato garante a entrada existente");
-            trocas.push((ffi::Celula::de(&entry.slot), *address as usize));
+            swaps.push((ffi::Cell::de(&entry.slot), *address as usize));
         }
         // Com um programa em execução, a tarefa roda no ponto seguro do
         // isolado principal e para antes os demais isolados no ponto seguro
         // deles: nenhum quadro Dart de nenhum isolado vê a troca pela metade.
-        let tarefa: ffi::Tarefa = Box::new(move || {
-            let parada = registros.map(|(runtime, ..)| (runtime, runtime.parar_isolados()));
-            for copia in copias {
-                copia.aplicar();
+        let task: ffi::Task = Box::new(move || {
+            let stopped_flag = records.map(|(runtime, ..)| (runtime, runtime.stop_isolates()));
+            for copy in copies {
+                copy.apply();
             }
-            for (celula, implementacao) in trocas {
-                celula.publicar(implementacao);
+            for (cell_ref, implementation) in swaps {
+                cell_ref.publicar(implementation);
             }
-            if let Some((runtime, area, registrar, rti)) = registros {
+            if let Some((runtime, area, register, rti)) = records {
                 // J03: os objetos vivos de cada isolado passam ao layout novo
                 // ao publicar (o deste agora; os parados, ao serem liberados).
-                if let Some(plano) = &plano_codificado {
-                    runtime.definir_migracao(plano);
+                if let Some(plan) = &encoded_plan {
+                    runtime.set_migration(plan);
                 }
-                runtime.publicar_registros(area, registrar, rti);
-                if let Some((_, p)) = parada {
-                    runtime.liberar_isolados(p, area, registrar, rti);
+                runtime.publish_records(area, register, rti);
+                if let Some((_, p)) = stopped_flag {
+                    runtime.release_isolates(p, area, register, rti);
                 }
             }
         });
-        let espera = Instant::now();
-        let safepoint_wait = match ponto_seguro {
-            Some(executar) => {
-                executar(tarefa);
-                espera.elapsed()
+        let wait_entry = Instant::now();
+        let safepoint_wait = match safepoint {
+            Some(execute_fn) => {
+                execute_fn(task);
+                wait_entry.elapsed()
             }
             None => {
-                tarefa();
+                task();
                 Duration::ZERO
             }
         };
@@ -1015,9 +1015,9 @@ impl JitSession {
         module.generation = generation;
         module.layouts = layouts;
         module.class_names = class_names;
-        module.campos = campos;
-        module.apelidos.extend(apelidos_novos);
-        module.publicadas.extend(novas);
+        module.fields = fields;
+        module.aliases.extend(new_aliases);
+        module.published_list.extend(new_items);
         module.globals = globals;
         module.generations.push((generation, tracker));
         if let Some(created) = stub_tracker {
@@ -1034,17 +1034,17 @@ impl JitSession {
         // do código novo ainda aponta para o corpo antigo: a geração dela fica.
         let phase = Instant::now();
         let module = &mut self.reloadables[index];
-        let alcancadas: HashSet<u32> = module.entries.values().map(|e| e.generation).collect();
-        let mut retidas = Vec::with_capacity(module.generations.len());
-        for (g, rastreador) in std::mem::take(&mut module.generations) {
-            if g == generation || alcancadas.contains(&g) {
-                retidas.push((g, rastreador));
-            } else if rastreador.remove().is_err() {
+        let reached_fns: HashSet<u32> = module.entries.values().map(|e| e.generation).collect();
+        let mut retained_list = Vec::with_capacity(module.generations.len());
+        for (g, resource_tracker) in std::mem::take(&mut module.generations) {
+            if g == generation || reached_fns.contains(&g) {
+                retained_list.push((g, resource_tracker));
+            } else if resource_tracker.remove().is_err() {
                 // O LLVM não descarregou: a geração fica retida, como antes.
-                retidas.push((g, rastreador));
+                retained_list.push((g, resource_tracker));
             }
         }
-        module.generations = retidas;
+        module.generations = retained_list;
         let retire = phase.elapsed();
 
         // Materializa os trampolins agora, para que o custo apareça no relatório
@@ -1064,10 +1064,10 @@ impl JitSession {
             retire,
             safepoint_wait,
             total: started.elapsed(),
-            ir_bytes: ir_da_geracao.len(),
+            ir_bytes: generation_ir.len(),
             entries: published.len(),
             new_entries: fresh.len(),
-            kept: mantidas.len(),
+            kept: kept_fns.len(),
             retained_generations: self.retained_generations(),
             promoted,
         })
@@ -1084,12 +1084,12 @@ impl JitSession {
             entries: BTreeMap::new(),
             layouts: Vec::new(),
             class_names: Vec::new(),
-            campos: Vec::new(),
-            apelidos: BTreeMap::new(),
+            fields: Vec::new(),
+            aliases: BTreeMap::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
-            publicadas: HashMap::new(),
+            published_list: HashMap::new(),
         });
         self.reloadables.len() - 1
     }
@@ -1114,10 +1114,10 @@ impl JitSession {
         }
         let index = self.index_or_create(name);
         let module = &mut self.reloadables[index];
-        for (nome, slot) in slots {
-            if let Some(signature) = published.iter().find(|s| s.name == nome) {
+        for (name_str, slot) in slots {
+            if let Some(signature) = published.iter().find(|s| s.name == name_str) {
                 module.entries.insert(
-                    nome,
+                    name_str,
                     Entry {
                         signature: signature.clone(),
                         slot,
@@ -1167,7 +1167,7 @@ impl JitSession {
 }
 
 /// Somente estado do programa atravessa gerações; caches do código não.
-fn static_do_programa(name: &str) -> bool {
+fn program_static(name: &str) -> bool {
     name.starts_with("dfg.") || name.starts_with("dfg_") || name == "df_statics"
 }
 
@@ -1182,7 +1182,7 @@ fn check_contract(
     previous_layouts: &[(i64, i64)],
     new: &[FunctionSignature],
     layouts: &[(i64, i64)],
-    migradas: &HashSet<i64>,
+    migrated: &HashSet<i64>,
 ) -> Result<(), String> {
     if let Some(variadic) = new.iter().find(|signature| signature.var_arg) {
         return Err(format!(
@@ -1196,27 +1196,27 @@ fn check_contract(
         // ainda a alcance executa a versão em que foi criado — como na VM.
         match new.iter().find(|signature| signature.name == old.name) {
             None => {}
-            Some(novo) if novo.text() != old.text() => {
+            Some(new) if new.text() != old.text() => {
                 return Err(format!(
                     "a assinatura de {} mudou de {} para {}; \
                      mudança de contrato de chamada exige reiniciar a sessão",
                     old.name,
                     old.text(),
-                    novo.text()
+                    new.text()
                 ));
             }
             Some(_) => {}
         }
     }
     // Uma classe descrita pelo nome dos campos nas duas versões migra
-    // (`migracao.rs`); só a contagem não diz o que corresponde a quê.
-    for (class, fields) in previous_layouts.iter().filter(|(c, _)| !migradas.contains(c)) {
-        if let Some((_, novos)) = layouts
+    // (`migration.rs`); só a contagem não diz o que corresponde a quê.
+    for (class, fields) in previous_layouts.iter().filter(|(c, _)| !migrated.contains(c)) {
+        if let Some((_, new_ones)) = layouts
             .iter()
-            .find(|(candidate, novos)| candidate == class && novos != fields)
+            .find(|(candidate, new_ones)| candidate == class && new_ones != fields)
         {
             return Err(format!(
-                "a classe de id {class} tinha {fields} campos e passou a ter {novos}; \
+                "a classe de id {class} tinha {fields} campos e passou a ter {new_ones}; \
                  os objetos já vivos no heap gerenciado mantêm o layout antigo, então a recarga \
                  é recusada — reinicie a sessão"
             ));
@@ -1227,9 +1227,9 @@ fn check_contract(
 
 /// As funções que a publicação de uma geração chama: a área de globais com
 /// o layout dela e os registros que ela refaz.
-const PREPARO_DA_AREA: &str = "df.preparar_area";
-const REGISTRO_DO_PROGRAMA: &str = "df.registrar.programa";
-const INICIO_DA_RTI: &str = "dartforge_rti_iniciar";
+const AREA_PREPARATION: &str = "df.preparar_area";
+const PROGRAM_REGISTRY: &str = "df.registrar.programa";
+const RTI_START: &str = "dartforge_rti_iniciar";
 
 /// Os ids de classe do programa são posicionais: uma edição que insere ou
 /// reordena classes troca a classe de um id que já tem objetos no heap.
@@ -1237,10 +1237,10 @@ const INICIO_DA_RTI: &str = "dartforge_rti_iniciar";
 /// # Erros
 /// Nomeia o id, a classe da versão viva e a do código novo.
 fn check_class_names(previous: &[(i64, String)], new: &[(i64, String)]) -> Result<(), String> {
-    for (id, antigo) in previous {
-        if let Some((_, novo)) = new.iter().find(|(candidato, novo)| candidato == id && novo != antigo) {
+    for (id, old) in previous {
+        if let Some((_, new)) = new.iter().find(|(candidate, new)| candidate == id && new != old) {
             return Err(format!(
-                "a classe de id {id} era {antigo} e passou a ser {novo} (classes inseridas ou reordenadas); \
+                "a classe de id {id} era {old} e passou a ser {new} (classes inseridas ou reordenadas); \
                  os objetos já vivos no heap têm o id antigo, então a recarga é recusada — reinicie a sessão"
             ));
         }
@@ -1262,14 +1262,14 @@ fn check_references(
     references: &[String],
     defined: &[&str],
     reloadables: &[Reloadable],
-    externos_do_sdk: &HashSet<String>,
-    runtime_embutido: bool,
+    sdk_externals: &HashSet<String>,
+    embedded_runtime: bool,
 ) -> Result<(), String> {
     for reference in references {
-        if (runtime_embutido && ffi::is_known_external(reference))
+        if (embedded_runtime && ffi::is_known_external(reference))
             || crate::CRT_SYMBOLS.contains(&reference.as_str())
             || reference.starts_with("llvm.")
-            || externos_do_sdk.contains(reference)
+            || sdk_externals.contains(reference)
             || defined.contains(&reference.as_str())
             || reloadables
                 .iter()
@@ -1360,59 +1360,59 @@ mod tests {
     /// Mudança de assinatura é recusada nomeando o símbolo e as duas formas.
     #[test]
     fn contract_rejects_a_changed_signature() {
-        let antes = vec![signature("df_fn_0", "i64", &[])];
-        let depois = vec![signature("df_fn_0", "i64", &["i64"])];
-        let erro = check_contract(&antes, &[], &depois, &[], &HashSet::new()).unwrap_err();
+        let before = vec![signature("df_fn_0", "i64", &[])];
+        let after = vec![signature("df_fn_0", "i64", &["i64"])];
+        let error = check_contract(&before, &[], &after, &[], &HashSet::new()).unwrap_err();
         assert!(
-            erro.contains("a assinatura de df_fn_0 mudou de i64 () para i64 (i64)"),
-            "{erro}"
+            error.contains("a assinatura de df_fn_0 mudou de i64 () para i64 (i64)"),
+            "{error}"
         );
-        assert!(erro.contains("reiniciar a sessão"), "{erro}");
+        assert!(error.contains("reiniciar a sessão"), "{error}");
     }
 
     /// Função que desaparece mantém o corpo antigo: não é recusa.
     #[test]
     fn contract_keeps_a_vanished_function() {
-        let antes = vec![signature("df_fn_0", "i64", &[])];
-        assert!(check_contract(&antes, &[], &[], &[], &HashSet::new()).is_ok());
+        let before = vec![signature("df_fn_0", "i64", &[])];
+        assert!(check_contract(&before, &[], &[], &[], &HashSet::new()).is_ok());
     }
 
     /// Um id de classe que passa a ser de outra classe é recusado.
     #[test]
     fn class_names_reject_a_renumbered_class() {
-        let antes = vec![(922, "Contador".to_owned())];
-        let erro = check_class_names(&antes, &[(922, "Novo".to_owned()), (923, "Contador".to_owned())]).unwrap_err();
-        assert!(erro.contains("era Contador e passou a ser Novo"), "{erro}");
-        assert!(check_class_names(&antes, &[(922, "Contador".to_owned()), (923, "Novo".to_owned())]).is_ok());
+        let before = vec![(922, "Contador".to_owned())];
+        let error = check_class_names(&before, &[(922, "Novo".to_owned()), (923, "Contador".to_owned())]).unwrap_err();
+        assert!(error.contains("era Contador e passou a ser Novo"), "{error}");
+        assert!(check_class_names(&before, &[(922, "Contador".to_owned()), (923, "Novo".to_owned())]).is_ok());
     }
 
     /// Mudança no número de campos de uma classe já construída é recusada.
     #[test]
     fn contract_rejects_a_changed_class_layout() {
-        let erro = check_contract(&[], &[(0, 1)], &[], &[(0, 2)], &HashSet::new()).unwrap_err();
+        let error = check_contract(&[], &[(0, 1)], &[], &[(0, 2)], &HashSet::new()).unwrap_err();
         assert!(
-            erro.contains("a classe de id 0 tinha 1 campos e passou a ter 2"),
-            "{erro}"
+            error.contains("a classe de id 0 tinha 1 campos e passou a ter 2"),
+            "{error}"
         );
-        let mesmo = check_contract(&[], &[(0, 1)], &[], &[(0, 1), (1, 3)], &HashSet::new());
-        assert!(mesmo.is_ok());
+        let same = check_contract(&[], &[(0, 1)], &[], &[(0, 1), (1, 3)], &HashSet::new());
+        assert!(same.is_ok());
     }
 
     /// Corpo diferente com a mesma assinatura é o caso aceito da versão 1.
     #[test]
     fn contract_accepts_a_body_change() {
-        let antes = vec![
+        let before = vec![
             signature("df_fn_0", "i64", &[]),
             signature("dartforge_entry", "void", &[]),
         ];
-        let depois = antes.clone();
-        assert!(check_contract(&antes, &[(0, 2)], &depois, &[(0, 2)], &HashSet::new()).is_ok());
+        let after = before.clone();
+        assert!(check_contract(&before, &[(0, 2)], &after, &[(0, 2)], &HashSet::new()).is_ok());
     }
 
     /// Referência externa desconhecida é recusada antes de qualquer efeito.
     #[test]
     fn references_must_be_resolvable() {
-        let erro = check_references(
+        let error = check_references(
             &["dartforge_print_i64".to_owned(), "minha_ffi".to_owned()],
             &["df_fn_0"],
             &[],
@@ -1420,7 +1420,7 @@ mod tests {
             true,
         )
         .unwrap_err();
-        assert!(erro.contains("minha_ffi"), "{erro}");
+        assert!(error.contains("minha_ffi"), "{error}");
         assert!(
             check_references(
                 &["dartforge_print_i64".to_owned(), "df_fn_0".to_owned()],
@@ -1435,13 +1435,13 @@ mod tests {
 
     #[test]
     fn references_accept_exports_of_the_sdk_loaded_in_this_session() {
-        let mut externos = HashSet::new();
-        externos.insert("df.sdk_teste".to_owned());
-        assert!(check_references(&["df.sdk_teste".to_owned()], &[], &[], &externos, false).is_ok());
-        let erro = check_references(&["df.sdk_ausente".to_owned()], &[], &[], &externos, false).unwrap_err();
-        assert!(erro.contains("df.sdk_ausente"), "{erro}");
-        let erro = check_references(&["dartforge_object_new".to_owned()], &[], &[], &externos, false).unwrap_err();
-        assert!(erro.contains("dartforge_object_new"), "{erro}");
+        let mut external = HashSet::new();
+        external.insert("df.sdk_teste".to_owned());
+        assert!(check_references(&["df.sdk_teste".to_owned()], &[], &[], &external, false).is_ok());
+        let error = check_references(&["df.sdk_ausente".to_owned()], &[], &[], &external, false).unwrap_err();
+        assert!(error.contains("df.sdk_ausente"), "{error}");
+        let error = check_references(&["dartforge_object_new".to_owned()], &[], &[], &external, false).unwrap_err();
+        assert!(error.contains("dartforge_object_new"), "{error}");
     }
 
     /// Um trampolim criado por uma recarga que falhou tem célula nula. Ele só
@@ -1460,16 +1460,16 @@ mod tests {
             entries,
             layouts: Vec::new(),
             class_names: Vec::new(),
-            campos: Vec::new(),
-            apelidos: BTreeMap::new(),
+            fields: Vec::new(),
+            aliases: BTreeMap::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
-            publicadas: HashMap::new(),
+            published_list: HashMap::new(),
         }];
         let reference = ["df_fn_1".to_owned()];
-        let erro = check_references(&reference, &[], &modules, &HashSet::new(), true).unwrap_err();
-        assert!(erro.contains("df_fn_1"), "{erro}");
+        let error = check_references(&reference, &[], &modules, &HashSet::new(), true).unwrap_err();
+        assert!(error.contains("df_fn_1"), "{error}");
 
         modules[0].entries.get_mut("df_fn_1").unwrap().generation = 2;
         assert!(check_references(&reference, &[], &modules, &HashSet::new(), true).is_ok());
@@ -1482,30 +1482,30 @@ mod tests {
     /// mínimo de IR possível, e continua valendo mesmo que o emissor mude.
     #[test]
     #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-    fn ciclo_completo_com_ir_direto() {
-        let ir = |valor: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {valor}\n}}\n");
-        let mut sessao = JitSession::new().expect("sessão");
-        let primeira = sessao
+    fn full_cycle_with_direct_ir() {
+        let ir = |value: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\n");
+        let mut session = JitSession::new().expect("sessão");
+        let first_one = session
             .add_reloadable_module("app", &ir(1))
             .expect("geração 1");
         assert_eq!(
-            (primeira.generation, primeira.entries, primeira.new_entries),
+            (first_one.generation, first_one.entries, first_one.new_entries),
             (1, 1, 1)
         );
-        assert_eq!(sessao.stable_entries("app"), vec!["df_fn_0"]);
+        assert_eq!(session.stable_entries("app"), vec!["df_fn_0"]);
 
-        let entrada = sessao.stable_entry("df_fn_0").expect("entrada estável");
-        assert_eq!(entrada.call(&sessao).unwrap(), 1);
+        let input = session.stable_entry("df_fn_0").expect("entrada estável");
+        assert_eq!(input.call(&session).unwrap(), 1);
 
-        let segunda = sessao.hot_reload("app", &ir(2)).expect("geração 2");
-        assert_eq!((segunda.generation, segunda.new_entries), (2, 0));
-        assert_eq!(entrada.call(&sessao).unwrap(), 2);
+        let second_one = session.hot_reload("app", &ir(2)).expect("geração 2");
+        assert_eq!((second_one.generation, second_one.new_entries), (2, 0));
+        assert_eq!(input.call(&session).unwrap(), 2);
         // A geração 1 não é mais alcançável: descarregada.
-        assert_eq!(sessao.retained_generations(), 1);
+        assert_eq!(session.retained_generations(), 1);
 
         // Chamar com argumento uma entrada `i64 ()` é erro, não ABI errada.
-        let erro = entrada.call_with(&sessao, 7).unwrap_err();
-        assert_eq!(erro.stage, "lookup");
+        let error = input.call_with(&session, 7).unwrap_err();
+        assert_eq!(error.stage, "lookup");
     }
 
     /// Promoção: um módulo simples ganha trampolins na primeira recarga.
@@ -1515,51 +1515,51 @@ mod tests {
     /// do hot reload, e por isso ela é medida e relatada em `promoted`.
     #[test]
     #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-    fn promocao_de_modulo_simples() {
-        let ir = |valor: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {valor}\n}}\n");
-        let mut sessao = JitSession::new().expect("sessão");
-        sessao.add_ir_module("app", &ir(1)).expect("módulo simples");
-        assert!(sessao.stable_entry("df_fn_0").is_err());
+    fn simple_module_promotion() {
+        let ir = |value: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\n");
+        let mut session = JitSession::new().expect("sessão");
+        session.add_ir_module("app", &ir(1)).expect("módulo simples");
+        assert!(session.stable_entry("df_fn_0").is_err());
 
-        let relatorio = sessao.hot_reload("app", &ir(2)).expect("promoção");
-        assert!(relatorio.promoted);
-        assert_eq!((relatorio.generation, relatorio.new_entries), (1, 1));
-        assert_eq!(sessao.module_names(), vec!["app"]);
+        let report_data = session.hot_reload("app", &ir(2)).expect("promoção");
+        assert!(report_data.promoted);
+        assert_eq!((report_data.generation, report_data.new_entries), (1, 1));
+        assert_eq!(session.module_names(), vec!["app"]);
 
-        let entrada = sessao.stable_entry("df_fn_0").expect("entrada estável");
-        assert_eq!(entrada.call(&sessao).unwrap(), 2);
+        let input = session.stable_entry("df_fn_0").expect("entrada estável");
+        assert_eq!(input.call(&session).unwrap(), 2);
         // Da segunda recarga em diante já não há nada destrutivo a fazer.
-        let relatorio = sessao.hot_reload("app", &ir(3)).expect("geração 2");
-        assert!(!relatorio.promoted);
-        assert_eq!(entrada.call(&sessao).unwrap(), 3);
+        let report_data = session.hot_reload("app", &ir(3)).expect("geração 2");
+        assert!(!report_data.promoted);
+        assert_eq!(input.call(&session).unwrap(), 3);
     }
 
     /// Contrato conferido na promoção usa a impressão digital do módulo simples.
     #[test]
     #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-    fn promocao_recusa_contrato_incompativel_sem_destruir_nada() {
-        let mut sessao = JitSession::new().expect("sessão");
-        sessao
+    fn promotion_rejects_incompatible_contract_without_destroying_anything() {
+        let mut session = JitSession::new().expect("sessão");
+        session
             .add_ir_module("app", "define i64 @df_fn_0() {\n  ret i64 1\n}\n")
             .expect("módulo simples");
-        let erro = sessao
+        let error = session
             .hot_reload("app", "define i64 @df_fn_0(i64 %a0) {\n  ret i64 %a0\n}\n")
             .expect_err("assinatura alterada tem de ser recusada");
-        assert_eq!(erro.stage, "contract");
+        assert_eq!(error.stage, "contract");
         // O módulo simples continua carregado: a recusa vem antes da promoção.
         assert_eq!(
-            sessao.lookup("df_fn_0").map(|address| address != 0),
+            session.lookup("df_fn_0").map(|address| address != 0),
             Ok(true)
         );
-        assert_eq!(sessao.retained_generations(), 0);
+        assert_eq!(session.retained_generations(), 0);
     }
 
     /// Variádicas ficam fora do contrato do emissor nativo.
     #[test]
     fn contract_rejects_variadics() {
-        let mut variadica = signature("df_fn_0", "i64", &["i64"]);
-        variadica.var_arg = true;
-        let erro = check_contract(&[], &[], &[variadica], &[], &HashSet::new()).unwrap_err();
-        assert!(erro.contains("variádica"), "{erro}");
+        let mut variadic_one = signature("df_fn_0", "i64", &["i64"]);
+        variadic_one.var_arg = true;
+        let error = check_contract(&[], &[], &[variadic_one], &[], &HashSet::new()).unwrap_err();
+        assert!(error.contains("variádica"), "{error}");
     }
 }

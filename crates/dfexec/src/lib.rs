@@ -6,32 +6,32 @@ use std::io::{Read, Write};
 pub const PROTOCOLO: &str = "dfexec/1";
 
 /// Quadros maiores que 64 MiB são defeito do outro lado, não um modelo válido.
-const MAIOR_QUADRO: u32 = 64 << 20;
+const LARGEST_FRAME: u32 = 64 << 20;
 
 pub fn escrever_quadro(w: &mut dyn Write, m: &Value) -> std::io::Result<()> {
-    let corpo = serde_json::to_vec(m).map_err(std::io::Error::other)?;
-    let n = u32::try_from(corpo.len()).map_err(std::io::Error::other)?;
-    if n > MAIOR_QUADRO { return Err(std::io::Error::other(format!("quadro de {n} bytes excede o limite"))); }
+    let body = serde_json::to_vec(m).map_err(std::io::Error::other)?;
+    let n = u32::try_from(body.len()).map_err(std::io::Error::other)?;
+    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("quadro de {n} bytes excede o limite"))); }
     w.write_all(&n.to_be_bytes())?;
-    w.write_all(&corpo)?;
+    w.write_all(&body)?;
     w.flush()
 }
 
 pub fn ler_quadro(r: &mut dyn Read) -> std::io::Result<Option<Value>> {
     let mut n = [0u8; 4];
-    let mut lidos = 0;
-    while lidos < 4 {
-        match r.read(&mut n[lidos..])? {
-            0 if lidos == 0 => return Ok(None),
+    let mut read_list = 0;
+    while read_list < 4 {
+        match r.read(&mut n[read_list..])? {
+            0 if read_list == 0 => return Ok(None),
             0 => return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "quadro cortado no tamanho")),
-            k => lidos += k,
+            k => read_list += k,
         }
     }
     let n = u32::from_be_bytes(n);
-    if n > MAIOR_QUADRO { return Err(std::io::Error::other(format!("quadro de {n} bytes excede o limite"))); }
-    let mut corpo = vec![0u8; n as usize];
-    r.read_exact(&mut corpo)?;
-    serde_json::from_slice(&corpo).map(Some).map_err(std::io::Error::other)
+    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("quadro de {n} bytes excede o limite"))); }
+    let mut body = vec![0u8; n as usize];
+    r.read_exact(&mut body)?;
+    serde_json::from_slice(&body).map(Some).map_err(std::io::Error::other)
 }
 
 pub trait Canal: Send {
@@ -46,59 +46,59 @@ pub trait Canal: Send {
 /// (laço infinito num builder, um `await` que nunca completa) vira erro do
 /// canal em vez de prender o hospedeiro, e o processo é encerrado.
 pub struct CanalDeProcesso {
-    filho: std::process::Child,
-    entrada: std::process::ChildStdin,
-    quadros: std::sync::mpsc::Receiver<std::io::Result<Option<Value>>>,
-    prazo: Option<std::time::Duration>,
-    encerrado: bool,
+    child: std::process::Child,
+    input: std::process::ChildStdin,
+    frames: std::sync::mpsc::Receiver<std::io::Result<Option<Value>>>,
+    deadline: Option<std::time::Duration>,
+    shut: bool,
 }
 
 impl CanalDeProcesso {
-    pub fn iniciar(mut comando: std::process::Command) -> Result<Self, String> {
-        comando.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
-        let mut filho = comando.spawn().map_err(|e| format!("não foi possível iniciar o executor: {e}"))?;
-        let entrada = filho.stdin.take().ok_or("executor sem stdin")?;
-        let mut saida = filho.stdout.take().ok_or("executor sem stdout")?;
-        let (tx, quadros) = std::sync::mpsc::channel();
+    pub fn iniciar(mut command: std::process::Command) -> Result<Self, String> {
+        command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
+        let mut child = command.spawn().map_err(|e| format!("não foi possível iniciar o executor: {e}"))?;
+        let input = child.stdin.take().ok_or("executor sem stdin")?;
+        let mut out = child.stdout.take().ok_or("executor sem stdout")?;
+        let (tx, frames) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("dfexec-leitor".into())
             .spawn(move || loop {
-                let q = ler_quadro(&mut saida);
-                let fim = !matches!(q, Ok(Some(_)));
-                if tx.send(q).is_err() || fim {
+                let q = ler_quadro(&mut out);
+                let end = !matches!(q, Ok(Some(_)));
+                if tx.send(q).is_err() || end {
                     break;
                 }
             })
             .map_err(|e| format!("não foi possível ler o executor: {e}"))?;
-        Ok(Self { filho, entrada, quadros, prazo: None, encerrado: false })
+        Ok(Self { child, input, frames, deadline: None, shut: false })
     }
 
-    /// Espera no máximo `prazo` por cada mensagem do executor (`None`: sem
+    /// Espera no máximo `deadline` por cada mensagem do executor (`None`: sem
     /// limite). Esgotado, o processo é encerrado e `receber` falha.
-    pub fn com_prazo(mut self, prazo: Option<std::time::Duration>) -> Self {
-        self.prazo = prazo;
+    pub fn com_prazo(mut self, deadline: Option<std::time::Duration>) -> Self {
+        self.deadline = deadline;
         self
     }
 }
 
 impl Canal for CanalDeProcesso {
     fn enviar(&mut self, m: &Value) -> Result<(), String> {
-        if self.encerrado {
+        if self.shut {
             return Err("executor encerrado".into());
         }
-        escrever_quadro(&mut self.entrada, m).map_err(|e| format!("executor: {e}"))
+        escrever_quadro(&mut self.input, m).map_err(|e| format!("executor: {e}"))
     }
     fn receber(&mut self) -> Result<Value, String> {
-        if self.encerrado {
+        if self.shut {
             return Err("executor encerrado".into());
         }
-        let q = match self.prazo {
-            Some(p) => match self.quadros.recv_timeout(p) {
+        let q = match self.deadline {
+            Some(p) => match self.frames.recv_timeout(p) {
                 Ok(q) => q,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    self.encerrado = true;
-                    let _ = self.filho.kill();
-                    let _ = self.filho.wait();
+                    self.shut = true;
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
                     return Err(format!(
                         "o executor não respondeu em {} s (travado?); processo encerrado",
                         p.as_secs_f64()
@@ -106,7 +106,7 @@ impl Canal for CanalDeProcesso {
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Ok(None),
             },
-            None => self.quadros.recv().unwrap_or(Ok(None)),
+            None => self.frames.recv().unwrap_or(Ok(None)),
         };
         match q {
             Ok(Some(v)) => Ok(v),
@@ -118,29 +118,29 @@ impl Canal for CanalDeProcesso {
 
 impl Drop for CanalDeProcesso {
     fn drop(&mut self) {
-        let _ = self.filho.kill();
-        let _ = self.filho.wait();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests_mod {
     use super::*;
     use serde_json::json;
 
     #[cfg(unix)]
     #[test]
-    fn prazo_esgotado_encerra_o_processo() {
+    fn expired_deadline_ends_the_process() {
         let mut c = std::process::Command::new("sleep");
         c.arg("30");
         let t0 = std::time::Instant::now();
-        let mut canal = CanalDeProcesso::iniciar(c)
+        let mut chan = CanalDeProcesso::iniciar(c)
             .unwrap()
             .com_prazo(Some(std::time::Duration::from_millis(200)));
-        let e = canal.receber().unwrap_err();
+        let e = chan.receber().unwrap_err();
         assert!(e.contains("não respondeu"), "{e}");
         assert!(t0.elapsed() < std::time::Duration::from_secs(10));
-        assert!(canal.receber().is_err());
+        assert!(chan.receber().is_err());
     }
 
     #[test]

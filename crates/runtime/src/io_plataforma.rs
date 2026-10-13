@@ -6,34 +6,34 @@
 // ---------------------------------------------------------------------------
 // Bytes aleatórios do sistema (`Crypto::GetRandomBytes`).
 
-/// Preenche `destino` com bytes do gerador seguro do sistema:
+/// Preenche `dest` com bytes do gerador seguro do sistema:
 /// `getentropy` no Unix (em blocos de 256, o máximo por chamada) e
 /// `BCryptGenRandom` no Windows.
 #[cfg(unix)]
-fn bytes_aleatorios_do_sistema(destino: &mut [u8]) -> ResultadoIo<()> {
+fn system_random_bytes(dest: &mut [u8]) -> IoResult<()> {
     unsafe extern "C" {
         fn getentropy(buf: *mut std::ffi::c_void, n: usize) -> i32;
     }
-    for bloco in destino.chunks_mut(256) {
-        // SAFETY: `bloco` é um trecho gravável de até 256 bytes.
-        if unsafe { getentropy(bloco.as_mut_ptr().cast(), bloco.len()) } != 0 {
-            return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+    for block in dest.chunks_mut(256) {
+        // SAFETY: `block` é um trecho gravável de até 256 bytes.
+        if unsafe { getentropy(block.as_mut_ptr().cast(), block.len()) } != 0 {
+            return Err(OsError::de(&std::io::Error::last_os_error()));
         }
     }
     Ok(())
 }
 #[cfg(windows)]
-fn bytes_aleatorios_do_sistema(destino: &mut [u8]) -> ResultadoIo<()> {
+fn system_random_bytes(dest: &mut [u8]) -> IoResult<()> {
     #[link(name = "bcrypt")]
     unsafe extern "system" {
         fn BCryptGenRandom(alg: *mut std::ffi::c_void, buf: *mut u8, n: u32, flags: u32) -> i32;
     }
     const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 2;
-    for bloco in destino.chunks_mut(u32::MAX as usize) {
-        // SAFETY: `bloco` é gravável com o tamanho passado.
-        let status = unsafe { BCryptGenRandom(std::ptr::null_mut(), bloco.as_mut_ptr(), bloco.len() as u32, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
+    for block in dest.chunks_mut(u32::MAX as usize) {
+        // SAFETY: `block` é gravável com o tamanho passado.
+        let status = unsafe { BCryptGenRandom(std::ptr::null_mut(), block.as_mut_ptr(), block.len() as u32, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
         if status != 0 {
-            return Err(ErroDoSo::do_codigo(status));
+            return Err(OsError::from_code(status));
         }
     }
     Ok(())
@@ -43,16 +43,16 @@ fn bytes_aleatorios_do_sistema(destino: &mut [u8]) -> ResultadoIo<()> {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Crypto_GetRandomBytes(n: i64) -> i64 {
     if !(0..=4096).contains(&n) {
-        let msg = alocar_str("Invalid argument: count must be a positive int less than or equal to 4096.");
-        com_raizes(&[msg], || dartforge_exception_throw(msg, 3));
+        let msg = allocate_str("Invalid argument: count must be a positive int less than or equal to 4096.");
+        with_roots(&[msg], || dartforge_exception_throw(msg, 3));
         return 0;
     }
     let mut b = vec![0u8; n as usize];
-    match bytes_aleatorios_do_sistema(&mut b) {
+    match system_random_bytes(&mut b) {
         Ok(()) => dart_bytes(b),
         Err(e) => {
-            let erro = e.para_dart();
-            com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
+            let error = e.to_dart();
+            with_roots(&[error], || dartforge_exception_throw(error, 3));
             0
         }
     }
@@ -70,34 +70,34 @@ pub extern "C" fn dartforge_preparar_embedder() {
     let Some(iniciar) = ajudante("_dartforgeIniciarIo") else {
         return;
     };
-    preparar_sinais_do_processo();
+    prepare_process_signals();
     // SAFETY: registrada pela biblioteca `dart:io` da sobreposição com a
     // assinatura (`String`) → `Object`.
-    let iniciar = { let alvo_dart: usize = iniciar; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
+    let iniciar = { let dart_target: usize = iniciar; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     // O script: o que o hospedeiro definiu (o `.dart` que o JIT roda, como o
     // `dart run`), senão o `argv[0]` do executável (o AOT, como a VM).
-    let definido = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let script = definido.unwrap_or_else(|| std::env::args_os().next().map(|a| bytes_de_caminho(std::path::Path::new(&a))).unwrap_or_default());
-    let script = dart_texto_de_bytes(&script);
-    let gancho = com_raizes(&[script], || iniciar(script));
+    let defined = program_script().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let script = defined.unwrap_or_else(|| std::env::args_os().next().map(|a| path_bytes_of(std::path::Path::new(&a))).unwrap_or_default());
+    let script = dart_string_from_bytes(&script);
+    let hook = with_roots(&[script], || iniciar(script));
     if dartforge_exception_pending() != 0 {
         return;
     }
-    if let Some(definir) = ajudante("_dartforgeDefinirUriBase") {
+    if let Some(define) = ajudante("_dartforgeDefinirUriBase") {
         // SAFETY: registrada pela biblioteca `dart:core` da sobreposição com
         // a assinatura (`Uri Function()`) → `void`.
-        let definir = { let alvo_dart: usize = definir; move |a0: i64| { dart_v1(alvo_dart, a0) } };
-        com_raizes(&[gancho], || definir(gancho));
+        let define = { let dart_target: usize = define; move |a0: i64| { dart_v1(dart_target, a0) } };
+        with_roots(&[hook], || define(hook));
     }
 }
 
 /// O `Platform::Initialize` da VM: escrever num pipe ou soquete fechado dá
 /// o erro `EPIPE` em vez de matar o processo (SIGPIPE ignorado).
-fn preparar_sinais_do_processo() {
+fn prepare_process_signals() {
     #[cfg(unix)]
     {
         unsafe extern "C" {
-            fn signal(sinal: i32, tratador: usize) -> usize;
+            fn signal(sig_num: i32, handler: usize) -> usize;
         }
         // SAFETY: SIGPIPE = 13, SIG_IGN = 1.
         unsafe { signal(13, 1) };
@@ -109,21 +109,21 @@ fn preparar_sinais_do_processo() {
 
 /// A versão do SDK Dart que o programa compilou (`Platform.version`),
 /// gravada pela entrada do programa.
-static VERSAO_DO_SDK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static SDK_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Registra a versão do SDK (o arquivo `version` dele).
 ///
 /// # Safety
-/// `texto` aponta para `n` bytes UTF-8 legíveis.
+/// `text` aponta para `n` bytes UTF-8 legíveis.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_registrar_versao_do_sdk(texto: *const u8, n: i64) {
+pub unsafe extern "C" fn dartforge_registrar_versao_do_sdk(text: *const u8, n: i64) {
     // SAFETY: constante do módulo com `n` bytes.
-    let b = unsafe { std::slice::from_raw_parts(texto, n as usize) };
-    let _ = VERSAO_DO_SDK.set(String::from_utf8_lossy(b).into_owned());
+    let b = unsafe { std::slice::from_raw_parts(text, n as usize) };
+    let _ = SDK_VERSION.set(String::from_utf8_lossy(b).into_owned());
 }
 
 /// O nome do sistema como o Dart o informa (`Platform.operatingSystem`).
-const NOME_DO_SISTEMA: &str = if cfg!(target_os = "linux") {
+const SYSTEM_NAME: &str = if cfg!(target_os = "linux") {
     "linux"
 } else if cfg!(target_os = "macos") {
     "macos"
@@ -141,7 +141,7 @@ const NOME_DO_SISTEMA: &str = if cfg!(target_os = "linux") {
 
 /// A arquitetura como a VM a escreve em `Platform.version` (`x64`,
 /// `arm64`…).
-const NOME_DA_ARQUITETURA: &str = if cfg!(target_arch = "x86_64") {
+const ARCHITECTURE_NAME: &str = if cfg!(target_arch = "x86_64") {
     "x64"
 } else if cfg!(target_arch = "aarch64") {
     "arm64"
@@ -156,9 +156,9 @@ const NOME_DA_ARQUITETURA: &str = if cfg!(target_arch = "x86_64") {
 };
 
 #[cfg(unix)]
-fn numero_de_processadores() -> i64 {
+fn processor_count() -> i64 {
     unsafe extern "C" {
-        fn sysconf(nome: i32) -> std::ffi::c_long;
+        fn sysconf(name_str: i32) -> std::ffi::c_long;
     }
     #[cfg(target_os = "linux")]
     const SC_NPROCESSORS_ONLN: i32 = 84;
@@ -168,20 +168,20 @@ fn numero_de_processadores() -> i64 {
     unsafe { sysconf(SC_NPROCESSORS_ONLN) as i64 }
 }
 #[cfg(windows)]
-fn numero_de_processadores() -> i64 {
+fn processor_count() -> i64 {
     #[repr(C)]
     struct SystemInfo {
-        arquitetura: u16,
-        reservado: u16,
-        pagina: u32,
-        minimo: *mut std::ffi::c_void,
-        maximo: *mut std::ffi::c_void,
-        mascara: usize,
-        processadores: u32,
+        architecture: u16,
+        reserved: u16,
+        page: u32,
+        min: *mut std::ffi::c_void,
+        maximum: *mut std::ffi::c_void,
+        mask: usize,
+        processors: u32,
         tipo: u32,
-        granularidade: u32,
-        nivel: u16,
-        revisao: u16,
+        granularity: u32,
+        level: u16,
+        revision: u16,
     }
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -190,7 +190,7 @@ fn numero_de_processadores() -> i64 {
     // SAFETY: a estrutura é só dados; a função a preenche.
     let mut i: SystemInfo = unsafe { std::mem::zeroed() };
     unsafe { GetSystemInfo(&mut i) };
-    i64::from(i.processadores)
+    i64::from(i.processors)
 }
 
 /// `Platform::OperatingSystemVersion`: `uname` no Linux ("sysname release
@@ -198,135 +198,135 @@ fn numero_de_processadores() -> i64 {
 /// 23F79)"), e o do registro no Windows ("\"Windows 10 Pro\" 10.0 (Build
 /// 19045)").
 #[cfg(all(unix, not(target_os = "macos")))]
-fn versao_do_sistema() -> ResultadoIo<String> {
+fn system_version() -> IoResult<String> {
     #[repr(C)]
     struct Utsname {
-        campos: [[u8; 65]; 6],
+        fields: [[u8; 65]; 6],
     }
     unsafe extern "C" {
         fn uname(u: *mut Utsname) -> i32;
     }
-    let mut u = Utsname { campos: [[0; 65]; 6] };
+    let mut u = Utsname { fields: [[0; 65]; 6] };
     // SAFETY: `u` tem o tamanho da `struct utsname` do Linux.
     if unsafe { uname(&mut u) } != 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
-    let campo = |i: usize| {
-        let c = &u.campos[i];
+    let field = |i: usize| {
+        let c = &u.fields[i];
         String::from_utf8_lossy(&c[..c.iter().position(|&b| b == 0).unwrap_or(c.len())]).into_owned()
     };
-    Ok(format!("{} {} {}", campo(0), campo(2), campo(3)))
+    Ok(format!("{} {} {}", field(0), field(2), field(3)))
 }
 #[cfg(target_os = "macos")]
-fn versao_do_sistema() -> ResultadoIo<String> {
-    fn sysctl_texto(nome: &std::ffi::CStr) -> ResultadoIo<String> {
+fn system_version() -> IoResult<String> {
+    fn sysctl_string(name_str: &std::ffi::CStr) -> IoResult<String> {
         unsafe extern "C" {
-            fn sysctlbyname(nome: *const std::ffi::c_char, v: *mut std::ffi::c_void, n: *mut usize, novo: *mut std::ffi::c_void, nn: usize) -> i32;
+            fn sysctlbyname(name_str: *const std::ffi::c_char, v: *mut std::ffi::c_void, n: *mut usize, new: *mut std::ffi::c_void, nn: usize) -> i32;
         }
         let mut n = 0usize;
         // SAFETY: primeiro o tamanho, depois o valor num buffer desse tamanho.
-        if unsafe { sysctlbyname(nome.as_ptr(), std::ptr::null_mut(), &mut n, std::ptr::null_mut(), 0) } != 0 {
-            return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        if unsafe { sysctlbyname(name_str.as_ptr(), std::ptr::null_mut(), &mut n, std::ptr::null_mut(), 0) } != 0 {
+            return Err(OsError::de(&std::io::Error::last_os_error()));
         }
         let mut b = vec![0u8; n];
-        if unsafe { sysctlbyname(nome.as_ptr(), b.as_mut_ptr().cast(), &mut n, std::ptr::null_mut(), 0) } != 0 {
-            return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        if unsafe { sysctlbyname(name_str.as_ptr(), b.as_mut_ptr().cast(), &mut n, std::ptr::null_mut(), 0) } != 0 {
+            return Err(OsError::de(&std::io::Error::last_os_error()));
         }
         b.truncate(b.iter().position(|&c| c == 0).unwrap_or(n));
         Ok(String::from_utf8_lossy(&b).into_owned())
     }
-    Ok(format!("Version {} (Build {})", sysctl_texto(c"kern.osproductversion")?, sysctl_texto(c"kern.osversion")?))
+    Ok(format!("Version {} (Build {})", sysctl_string(c"kern.osproductversion")?, sysctl_string(c"kern.osversion")?))
 }
 #[cfg(windows)]
-fn versao_do_sistema() -> ResultadoIo<String> {
+fn system_version() -> IoResult<String> {
     #[link(name = "advapi32")]
     unsafe extern "system" {
         fn RegGetValueW(
-            chave: isize,
+            key: isize,
             sub: *const u16,
-            valor: *const u16,
+            value: *const u16,
             flags: u32,
             tipo: *mut u32,
-            dados: *mut std::ffi::c_void,
+            data: *mut std::ffi::c_void,
             n: *mut u32,
         ) -> i32;
     }
     const HKEY_LOCAL_MACHINE: isize = 0x8000_0002u32 as i32 as isize;
     const RRF_RT_REG_SZ: u32 = 0x2;
     const RRF_RT_REG_DWORD: u32 = 0x10;
-    let largo = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
-    let sub = largo("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
-    let texto = |nome: &str| -> ResultadoIo<String> {
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let sub = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+    let text = |name_str: &str| -> IoResult<String> {
         let mut b = [0u16; 256];
         let mut n = std::mem::size_of_val(&b) as u32;
         // SAFETY: o buffer tem `n` bytes.
-        let r = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, sub.as_ptr(), largo(nome).as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), b.as_mut_ptr().cast(), &mut n) };
+        let r = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, sub.as_ptr(), wide(name_str).as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), b.as_mut_ptr().cast(), &mut n) };
         if r != 0 {
-            return Err(ErroDoSo::do_codigo(r));
+            return Err(OsError::from_code(r));
         }
-        let fim = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-        Ok(String::from_utf16_lossy(&b[..fim]))
+        let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+        Ok(String::from_utf16_lossy(&b[..end]))
     };
-    let palavra = |nome: &str| -> Option<u32> {
+    let word = |name_str: &str| -> Option<u32> {
         let mut v = 0u32;
         let mut n = 4u32;
         // SAFETY: `v` tem 4 bytes.
-        let r = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, sub.as_ptr(), largo(nome).as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), (&mut v as *mut u32).cast(), &mut n) };
+        let r = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, sub.as_ptr(), wide(name_str).as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), (&mut v as *mut u32).cast(), &mut n) };
         (r == 0).then_some(v)
     };
-    let nome = texto("ProductName")?;
-    let numero = match palavra("CurrentMajorVersionNumber") {
-        Some(maior) => format!("{maior}.{}", palavra("CurrentMinorVersionNumber").ok_or_else(|| ErroDoSo::do_codigo(2))?),
-        None => texto("CurrentVersion")?,
+    let name_str = text("ProductName")?;
+    let number = match word("CurrentMajorVersionNumber") {
+        Some(larger) => format!("{larger}.{}", word("CurrentMinorVersionNumber").ok_or_else(|| OsError::from_code(2))?),
+        None => text("CurrentVersion")?,
     };
-    Ok(format!("\"{nome}\" {numero} (Build {})", texto("CurrentBuild")?))
+    Ok(format!("\"{name_str}\" {number} (Build {})", text("CurrentBuild")?))
 }
 
 /// `Platform::LocalHostname`.
 #[cfg(unix)]
-fn nome_do_host() -> ResultadoIo<String> {
+fn host_name() -> IoResult<String> {
     unsafe extern "C" {
-        fn gethostname(nome: *mut std::ffi::c_char, n: usize) -> i32;
+        fn gethostname(name_str: *mut std::ffi::c_char, n: usize) -> i32;
     }
     let mut b = [0u8; 256];
     // SAFETY: o buffer tem 256 bytes.
     if unsafe { gethostname(b.as_mut_ptr().cast(), b.len()) } != 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
-    let fim = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-    Ok(String::from_utf8_lossy(&b[..fim]).into_owned())
+    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    Ok(String::from_utf8_lossy(&b[..end]).into_owned())
 }
 #[cfg(windows)]
-fn nome_do_host() -> ResultadoIo<String> {
+fn host_name() -> IoResult<String> {
     #[link(name = "ws2_32")]
     unsafe extern "system" {
-        fn WSAStartup(versao: u16, dados: *mut u8) -> i32;
-        fn GetHostNameW(nome: *mut u16, n: i32) -> i32;
+        fn WSAStartup(version: u16, data: *mut u8) -> i32;
+        fn GetHostNameW(name_str: *mut u16, n: i32) -> i32;
         fn WSAGetLastError() -> i32;
     }
-    let mut dados = [0u8; 512];
+    let mut data = [0u8; 512];
     // SAFETY: `WSADATA` cabe em 512 bytes; a inicialização é contada.
-    if unsafe { WSAStartup(0x0202, dados.as_mut_ptr()) } != 0 {
-        return Err(ErroDoSo::do_codigo(unsafe { WSAGetLastError() }));
+    if unsafe { WSAStartup(0x0202, data.as_mut_ptr()) } != 0 {
+        return Err(OsError::from_code(unsafe { WSAGetLastError() }));
     }
     let mut b = [0u16; 256];
     // SAFETY: o buffer tem 256 unidades.
     if unsafe { GetHostNameW(b.as_mut_ptr(), b.len() as i32) } != 0 {
-        return Err(ErroDoSo::do_codigo(unsafe { WSAGetLastError() }));
+        return Err(OsError::from_code(unsafe { WSAGetLastError() }));
     }
-    let fim = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-    Ok(String::from_utf16_lossy(&b[..fim]))
+    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    Ok(String::from_utf16_lossy(&b[..end]))
 }
 
 /// `Platform::LocaleName`: `LANG` (ou `en_US`) no Linux; a língua preferida
 /// (ou a localidade corrente) no macOS; `GetUserDefaultLocaleName` no
 /// Windows.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn nome_da_localidade() -> ResultadoIo<String> {
+fn locale_name() -> IoResult<String> {
     Ok(std::env::var("LANG").unwrap_or_else(|_| "en_US".to_string()))
 }
 #[cfg(target_os = "macos")]
-fn nome_da_localidade() -> ResultadoIo<String> {
+fn locale_name() -> IoResult<String> {
     type Ref = *const std::ffi::c_void;
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
@@ -336,12 +336,12 @@ fn nome_da_localidade() -> ResultadoIo<String> {
         fn CFLocaleCopyCurrent() -> Ref;
         fn CFLocaleGetIdentifier(l: Ref) -> Ref;
         fn CFStringGetLength(s: Ref) -> isize;
-        fn CFStringGetMaximumSizeForEncoding(n: isize, codificacao: u32) -> isize;
-        fn CFStringGetCString(s: Ref, b: *mut std::ffi::c_char, n: isize, codificacao: u32) -> u8;
+        fn CFStringGetMaximumSizeForEncoding(n: isize, encoding: u32) -> isize;
+        fn CFStringGetCString(s: Ref, b: *mut std::ffi::c_char, n: isize, encoding: u32) -> u8;
         fn CFRelease(r: Ref);
     }
     const UTF8: u32 = 0x0800_0100;
-    fn texto(s: Ref) -> Option<String> {
+    fn text(s: Ref) -> Option<String> {
         // SAFETY: `s` é uma CFString viva; o buffer tem o tamanho máximo.
         unsafe {
             let n = CFStringGetMaximumSizeForEncoding(CFStringGetLength(s), UTF8) + 1;
@@ -355,20 +355,20 @@ fn nome_da_localidade() -> ResultadoIo<String> {
     }
     // SAFETY: objetos CoreFoundation criados e soltos aqui.
     unsafe {
-        let linguas = CFLocaleCopyPreferredLanguages();
-        let preferida = if CFArrayGetCount(linguas) >= 1 { texto(CFArrayGetValueAtIndex(linguas, 0)) } else { None };
-        CFRelease(linguas);
-        if let Some(l) = preferida {
+        let languages = CFLocaleCopyPreferredLanguages();
+        let preferred = if CFArrayGetCount(languages) >= 1 { text(CFArrayGetValueAtIndex(languages, 0)) } else { None };
+        CFRelease(languages);
+        if let Some(l) = preferred {
             return Ok(l);
         }
         let local = CFLocaleCopyCurrent();
-        let r = texto(CFLocaleGetIdentifier(local));
+        let r = text(CFLocaleGetIdentifier(local));
         CFRelease(local);
-        r.ok_or_else(|| ErroDoSo::do_codigo(codigo_do_so::INVALIDO))
+        r.ok_or_else(|| OsError::from_code(os_code::INVALID))
     }
 }
 #[cfg(windows)]
-fn nome_da_localidade() -> ResultadoIo<String> {
+fn locale_name() -> IoResult<String> {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetUserDefaultLocaleName(b: *mut u16, n: i32) -> i32;
@@ -377,76 +377,76 @@ fn nome_da_localidade() -> ResultadoIo<String> {
     // SAFETY: o buffer tem `LOCALE_NAME_MAX_LENGTH` unidades.
     let n = unsafe { GetUserDefaultLocaleName(b.as_mut_ptr(), b.len() as i32) };
     if n == 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(String::from_utf16_lossy(&b[..(n as usize).saturating_sub(1)]))
 }
 
-/// As variáveis de ambiente como `NOME=valor` (as que não são UTF-8 válido
+/// As variáveis de ambiente como `NOME=value` (as que não são UTF-8 válido
 /// ficam de fora, como na VM; no Windows, também as que começam com `=`).
-fn variaveis_de_ambiente() -> Vec<String> {
-    let mut saida = Vec::new();
+fn environment_variables() -> Vec<String> {
+    let mut out = Vec::new();
     for (k, v) in std::env::vars_os() {
         #[cfg(windows)]
         if k.to_string_lossy().starts_with('=') {
             continue;
         }
         if let (Some(k), Some(v)) = (k.to_str(), v.to_str()) {
-            saida.push(format!("{k}={v}"));
+            out.push(format!("{k}={v}"));
         }
     }
-    saida
+    out
 }
 
 /// Uma `_List` de tamanho fixo com as strings; `tipada`: `List<String>`
 /// (o `Dart_NewListOfTypeFilled` da VM), senão `List<dynamic>`.
-fn dart_lista_de_textos(textos: &[String], tipada: bool) -> i64 {
-    let lista = dart_lista_fixa(&vec![0; textos.len()]);
-    com_raizes(&[lista], || {
+fn dart_string_list(textos: &[String], tipada: bool) -> i64 {
+    let list = dart_fixed_list(&vec![0; textos.len()]);
+    with_roots(&[list], || {
         for (i, t) in textos.iter().enumerate() {
-            let s = alocar_str(t);
-            HEAP.with(|h| h.borrow_mut().lista_set(lista, i, crate::heap::Valor::Ref(s)));
+            let s = allocate_str(t);
+            HEAP.with(|h| h.borrow_mut().list_set(list, i, crate::heap::Value::Ref(s)));
         }
         if tipada {
-            let cid = HEAP.with(|h| h.borrow().classe(lista));
-            if let Some(tipo) = tipo_lista_de_textos(Some(i64::from(cid))) {
-                HEAP.with(|h| h.borrow_mut().set_metadado(lista, tipo + 1));
+            let cid = HEAP.with(|h| h.borrow().class(list));
+            if let Some(tipo) = string_list_type(Some(i64::from(cid))) {
+                HEAP.with(|h| h.borrow_mut().set_metadata(list, tipo + 1));
             }
         }
     });
-    lista
+    list
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_NumberOfProcessors() -> i64 {
-    numero_de_processadores()
+    processor_count()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_PathSeparator() -> i64 {
-    alocar_str(SEPARADOR_DE_CAMINHO)
+    allocate_str(PATH_SEPARATOR)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_OperatingSystem() -> i64 {
-    alocar_str(NOME_DO_SISTEMA)
+    allocate_str(SYSTEM_NAME)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_OperatingSystemVersion() -> i64 {
-    dart_ou_erro(versao_do_sistema(), |v| alocar_str(&v))
+    dart_or_error(system_version(), |v| allocate_str(&v))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_LocalHostname() -> i64 {
-    dart_ou_erro(nome_do_host(), |v| alocar_str(&v))
+    dart_or_error(host_name(), |v| allocate_str(&v))
 }
 
 /// `Platform_ExecutableName`: o `argv[0]` do processo.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_ExecutableName() -> i64 {
     match std::env::args_os().next() {
-        Some(a) => dart_texto_de_bytes(&bytes_de_caminho(std::path::Path::new(&a))),
+        Some(a) => dart_string_from_bytes(&path_bytes_of(std::path::Path::new(&a))),
         None => 0,
     }
 }
@@ -462,7 +462,7 @@ pub extern "C" fn dartforge_nativo_Platform_ResolvedExecutableName() -> i64 {
                 let s = p.to_string_lossy().into_owned();
                 std::path::PathBuf::from(s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s))
             };
-            dart_texto_de_bytes(&bytes_de_caminho(&p))
+            dart_string_from_bytes(&path_bytes_of(&p))
         }
         Err(_) => 0,
     }
@@ -470,87 +470,87 @@ pub extern "C" fn dartforge_nativo_Platform_ResolvedExecutableName() -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_Environment() -> i64 {
-    dart_lista_de_textos(&variaveis_de_ambiente(), false)
+    dart_string_list(&environment_variables(), false)
 }
 
 /// `Platform_ExecutableArguments`: as opções da VM antes do script — um
 /// executável AOT não tem nenhuma.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_ExecutableArguments() -> i64 {
-    dart_lista_de_textos(&[], true)
+    dart_string_list(&[], true)
 }
 
 /// Os argumentos do `main`: os da linha de comando depois do executável
-/// (AOT), ou os que o executor do JIT definiu ([`definir_argumentos_do_main`]).
-fn argumentos_do_main() -> &'static std::sync::Mutex<Option<Vec<String>>> {
+/// (AOT), ou os que o executor do JIT definiu ([`set_main_arguments`]).
+fn main_arguments() -> &'static std::sync::Mutex<Option<Vec<String>>> {
     static A: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
     &A
 }
 
 /// O `Platform.script` quando o processo não é o próprio programa (o JIT):
 /// os bytes do caminho do `.dart`.
-fn script_do_programa() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
+fn program_script() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
     static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
     &S
 }
 
 /// Define o `Platform.script` do programa (antes do `main`).
-pub fn definir_script_do_programa(caminho: Vec<u8>) {
-    *script_do_programa().lock().unwrap_or_else(|e| e.into_inner()) = Some(caminho);
+pub fn set_program_script(file_path: Vec<u8>) {
+    *program_script().lock().unwrap_or_else(|e| e.into_inner()) = Some(file_path);
 }
 
-/// [`definir_script_do_programa`] pela fronteira C (o runtime da biblioteca
+/// [`set_program_script`] pela fronteira C (o runtime da biblioteca
 /// do SDK da fonte): o caminho em UTF-8.
 ///
 /// # Safety
-/// `dados` aponta `tamanho` bytes legíveis (ou `tamanho` é 0).
+/// `data` aponta `size` bytes legíveis (ou `size` é 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_definir_script_do_programa(dados: *const u8, tamanho: usize) {
-    let bytes = if tamanho == 0 {
+pub unsafe extern "C" fn dartforge_definir_script_do_programa(data: *const u8, size: usize) {
+    let bytes = if size == 0 {
         Vec::new()
     } else {
         // SAFETY: garantido pelo chamador.
-        unsafe { std::slice::from_raw_parts(dados, tamanho) }.to_vec()
+        unsafe { std::slice::from_raw_parts(data, size) }.to_vec()
     };
-    definir_script_do_programa(bytes);
+    set_program_script(bytes);
 }
 
 /// Os argumentos que o `main(List<String> args)` recebe quando o processo
 /// não é o próprio programa (o executor do JIT).
-pub fn definir_argumentos_do_main(argumentos: Vec<String>) {
-    *argumentos_do_main().lock().unwrap_or_else(|e| e.into_inner()) = Some(argumentos);
+pub fn set_main_arguments(arguments: Vec<String>) {
+    *main_arguments().lock().unwrap_or_else(|e| e.into_inner()) = Some(arguments);
 }
 
-/// [`definir_argumentos_do_main`] pela fronteira C, para o executor do JIT
+/// [`set_main_arguments`] pela fronteira C, para o executor do JIT
 /// alcançar o runtime da biblioteca do SDK da fonte: os argumentos em UTF-8,
 /// cada um terminado em NUL.
 ///
 /// # Safety
-/// `dados` aponta `tamanho` bytes legíveis (ou `tamanho` é 0).
+/// `data` aponta `size` bytes legíveis (ou `size` é 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_definir_argumentos_do_main(dados: *const u8, tamanho: usize) {
-    let bytes = if tamanho == 0 {
+pub unsafe extern "C" fn dartforge_definir_argumentos_do_main(data: *const u8, size: usize) {
+    let bytes = if size == 0 {
         &[][..]
     } else {
         // SAFETY: garantido pelo chamador.
-        unsafe { std::slice::from_raw_parts(dados, tamanho) }
+        unsafe { std::slice::from_raw_parts(data, size) }
     };
-    let mut argumentos: Vec<String> = bytes.split(|&b| b == 0).map(|a| String::from_utf8_lossy(a).into_owned()).collect();
+    let mut arguments: Vec<String> = bytes.split(|&b| b == 0).map(|a| String::from_utf8_lossy(a).into_owned()).collect();
     // O último NUL deixa um pedaço vazio que não é argumento.
-    argumentos.pop();
-    definir_argumentos_do_main(argumentos);
+    arguments.pop();
+    set_main_arguments(arguments);
 }
 
 /// O `args` do `main`: uma `List<String>` de tamanho fixo, como a do
 /// embedder da VM (`Dart_NewListOfType`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
-    let argumentos = argumentos_do_main()
+    let arguments = main_arguments()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
         .unwrap_or_else(|| std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect());
-    dart_lista_de_textos(&argumentos, true)
+    dart_string_list(&arguments, true)
 }
 
 /// `Platform_GetVersion`: a versão do SDK, o canal e o alvo, na forma do
@@ -558,27 +558,27 @@ pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
 /// existe aqui).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_GetVersion() -> i64 {
-    let versao = VERSAO_DO_SDK.get().map_or("unknown", String::as_str);
+    let version = SDK_VERSION.get().map_or("unknown", String::as_str);
     // A versão completa, como a VM a escreve (o compilador a perguntou ao
     // `dart --version`, com o canal e a data): só o sistema falta.
-    if versao.contains(" (") {
-        return alocar_str(&format!("{versao} on \"{NOME_DO_SISTEMA}_{NOME_DA_ARQUITETURA}\""));
+    if version.contains(" (") {
+        return allocate_str(&format!("{version} on \"{SYSTEM_NAME}_{ARCHITECTURE_NAME}\""));
     }
-    let canal = if versao.contains("-edge") {
+    let chan = if version.contains("-edge") {
         "edge"
-    } else if versao.contains(".dev") || versao.contains("-dev") {
+    } else if version.contains(".dev") || version.contains("-dev") {
         "dev"
-    } else if versao.contains(".beta") || versao.contains("-beta") {
+    } else if version.contains(".beta") || version.contains("-beta") {
         "beta"
     } else {
         "stable"
     };
-    alocar_str(&format!("{versao} ({canal}) on \"{NOME_DO_SISTEMA}_{NOME_DA_ARQUITETURA}\""))
+    allocate_str(&format!("{version} ({chan}) on \"{SYSTEM_NAME}_{ARCHITECTURE_NAME}\""))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_LocaleName() -> i64 {
-    dart_ou_erro(nome_da_localidade(), |v| alocar_str(&v))
+    dart_or_error(locale_name(), |v| allocate_str(&v))
 }
 
 // ---------------------------------------------------------------------------
@@ -586,10 +586,10 @@ pub extern "C" fn dartforge_nativo_Platform_LocaleName() -> i64 {
 
 /// Os modos de `Stdin`: eco, eco da nova linha e modo de linha.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ModoDoTerminal {
-    Eco,
-    EcoDeNovaLinha,
-    Linha,
+enum TerminalMode {
+    Echo,
+    EchoNewline,
+    Line,
 }
 
 /// A `struct termios` como bytes (o layout muda entre Linux e macOS; só o
@@ -605,7 +605,7 @@ impl Termios {
         u64::from(u32::from_ne_bytes(self.0[12..16].try_into().expect("4 bytes")))
     }
     #[cfg(target_os = "linux")]
-    fn gravar_lflag(&mut self, v: u64) {
+    fn write_lflag(&mut self, v: u64) {
         self.0[12..16].copy_from_slice(&(v as u32).to_ne_bytes());
     }
     #[cfg(not(target_os = "linux"))]
@@ -613,74 +613,74 @@ impl Termios {
         u64::from_ne_bytes(self.0[24..32].try_into().expect("8 bytes"))
     }
     #[cfg(not(target_os = "linux"))]
-    fn gravar_lflag(&mut self, v: u64) {
+    fn write_lflag(&mut self, v: u64) {
         self.0[24..32].copy_from_slice(&v.to_ne_bytes());
     }
 }
 
 #[cfg(unix)]
-fn bit_do_modo(m: ModoDoTerminal) -> u64 {
+fn mode_bit(m: TerminalMode) -> u64 {
     #[cfg(target_os = "linux")]
-    let (eco, eco_nl, linha) = (0o10, 0o100, 0o2);
+    let (echo, echo_nl, line) = (0o10, 0o100, 0o2);
     #[cfg(not(target_os = "linux"))]
-    let (eco, eco_nl, linha) = (0x8, 0x10, 0x100);
+    let (echo, echo_nl, line) = (0x8, 0x10, 0x100);
     match m {
-        ModoDoTerminal::Eco => eco,
-        ModoDoTerminal::EcoDeNovaLinha => eco_nl,
-        ModoDoTerminal::Linha => linha,
+        TerminalMode::Echo => echo,
+        TerminalMode::EchoNewline => echo_nl,
+        TerminalMode::Line => line,
     }
 }
 
 #[cfg(unix)]
 unsafe extern "C" {
     fn tcgetattr(fd: i32, t: *mut Termios) -> i32;
-    fn tcsetattr(fd: i32, acao: i32, t: *const Termios) -> i32;
+    fn tcsetattr(fd: i32, action: i32, t: *const Termios) -> i32;
     fn isatty(fd: i32) -> i32;
-    fn ioctl(fd: i32, pedido: std::ffi::c_ulong, ...) -> i32;
+    fn ioctl(fd: i32, request: std::ffi::c_ulong, ...) -> i32;
 }
 
 #[cfg(unix)]
-fn atributos_do_terminal(fd: i64) -> ResultadoIo<Termios> {
+fn terminal_attributes(fd: i64) -> IoResult<Termios> {
     let mut t = Termios([0; 128]);
     // SAFETY: `t` é maior que a `struct termios` de qualquer plataforma.
     if unsafe { tcgetattr(fd as i32, &mut t) } != 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(t)
 }
 
 #[cfg(unix)]
-fn modo_do_terminal(fd: i64, m: ModoDoTerminal) -> ResultadoIo<bool> {
-    Ok(atributos_do_terminal(fd)?.lflag() & bit_do_modo(m) != 0)
+fn terminal_mode(fd: i64, m: TerminalMode) -> IoResult<bool> {
+    Ok(terminal_attributes(fd)?.lflag() & mode_bit(m) != 0)
 }
 
 #[cfg(unix)]
-fn mudar_modo_do_terminal(fd: i64, m: ModoDoTerminal, ligado: bool) -> ResultadoIo<()> {
-    let mut t = atributos_do_terminal(fd)?;
-    let bit = bit_do_modo(m);
+fn change_terminal_mode(fd: i64, m: TerminalMode, enabled_flag: bool) -> IoResult<()> {
+    let mut t = terminal_attributes(fd)?;
+    let bit = mode_bit(m);
     let f = t.lflag();
-    t.gravar_lflag(if ligado { f | bit } else { f & !bit });
+    t.write_lflag(if enabled_flag { f | bit } else { f & !bit });
     // SAFETY: `t` veio de `tcgetattr` (TCSANOW = 0).
     if unsafe { tcsetattr(fd as i32, 0, &t) } != 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(())
 }
 
 /// `TermIsKnownToSupportAnsi` e `isatty`, como a VM.
 #[cfg(unix)]
-fn suporta_ansi(fd: i64) -> bool {
-    let termo = std::env::var("TERM").unwrap_or_default();
+fn supports_ansi(fd: i64) -> bool {
+    let term = std::env::var("TERM").unwrap_or_default();
     // SAFETY: consulta sem efeitos.
-    (unsafe { isatty(fd as i32) } != 0) && ["xterm", "screen", "rxvt"].iter().any(|t| termo.contains(t))
+    (unsafe { isatty(fd as i32) } != 0) && ["xterm", "screen", "rxvt"].iter().any(|t| term.contains(t))
 }
 
 #[cfg(unix)]
-fn tamanho_do_terminal(fd: i64) -> ResultadoIo<(i64, i64)> {
+fn terminal_size(fd: i64) -> IoResult<(i64, i64)> {
     #[repr(C)]
     struct Winsize {
-        linhas: u16,
-        colunas: u16,
+        line_list: u16,
+        columns: u16,
         x: u16,
         y: u16,
     }
@@ -688,18 +688,18 @@ fn tamanho_do_terminal(fd: i64) -> ResultadoIo<(i64, i64)> {
     const TIOCGWINSZ: std::ffi::c_ulong = 0x5413;
     #[cfg(not(target_os = "linux"))]
     const TIOCGWINSZ: std::ffi::c_ulong = 0x4008_7468;
-    let mut w = Winsize { linhas: 0, colunas: 0, x: 0, y: 0 };
+    let mut w = Winsize { line_list: 0, columns: 0, x: 0, y: 0 };
     // SAFETY: `w` é a `struct winsize`.
     let r = unsafe { ioctl(fd as i32, TIOCGWINSZ, &mut w as *mut Winsize) };
-    if r == 0 && (w.colunas != 0 || w.linhas != 0) {
-        return Ok((i64::from(w.colunas), i64::from(w.linhas)));
+    if r == 0 && (w.columns != 0 || w.line_list != 0) {
+        return Ok((i64::from(w.columns), i64::from(w.line_list)));
     }
-    Err(ErroDoSo::de(&std::io::Error::last_os_error()))
+    Err(OsError::de(&std::io::Error::last_os_error()))
 }
 
 #[cfg(unix)]
-fn ler_byte_da_entrada(fd: i64) -> ResultadoIo<i64> {
-    let f = std::mem::ManuallyDrop::new(arquivo_do_descritor(fd));
+fn read_stdin_byte(fd: i64) -> IoResult<i64> {
+    let f = std::mem::ManuallyDrop::new(file_from_descriptor(fd));
     let mut b = [0u8; 1];
     loop {
         use std::io::Read;
@@ -707,7 +707,7 @@ fn ler_byte_da_entrada(fd: i64) -> ResultadoIo<i64> {
             Ok(0) => return Ok(-1),
             Ok(_) => return Ok(i64::from(b[0])),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(ErroDoSo::de(&e)),
+            Err(e) => return Err(OsError::de(&e)),
         }
     }
 }
@@ -715,67 +715,67 @@ fn ler_byte_da_entrada(fd: i64) -> ResultadoIo<i64> {
 #[cfg(windows)]
 #[link(name = "kernel32")]
 unsafe extern "system" {
-    fn GetConsoleMode(h: *mut std::ffi::c_void, modo: *mut u32) -> i32;
-    fn SetConsoleMode(h: *mut std::ffi::c_void, modo: u32) -> i32;
+    fn GetConsoleMode(h: *mut std::ffi::c_void, mode: *mut u32) -> i32;
+    fn SetConsoleMode(h: *mut std::ffi::c_void, mode: u32) -> i32;
 }
 
 #[cfg(windows)]
-fn handle_padrao(fd: i64) -> *mut std::ffi::c_void {
-    descritor_padrao(fd) as usize as *mut std::ffi::c_void
+fn default_handle_of(fd: i64) -> *mut std::ffi::c_void {
+    default_descriptor(fd) as usize as *mut std::ffi::c_void
 }
 
 #[cfg(windows)]
-fn modo_do_console(fd: i64) -> ResultadoIo<u32> {
+fn console_mode(fd: i64) -> IoResult<u32> {
     let mut m = 0u32;
     // SAFETY: consulta o modo de um handle do processo.
-    if unsafe { GetConsoleMode(handle_padrao(fd), &mut m) } == 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+    if unsafe { GetConsoleMode(default_handle_of(fd), &mut m) } == 0 {
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(m)
 }
 
 #[cfg(windows)]
-fn modo_do_terminal(_fd: i64, m: ModoDoTerminal) -> ResultadoIo<bool> {
+fn terminal_mode(_fd: i64, m: TerminalMode) -> IoResult<bool> {
     match m {
-        ModoDoTerminal::Eco => Ok(modo_do_console(0)? & 0x4 != 0), // ENABLE_ECHO_INPUT
-        ModoDoTerminal::Linha => Ok(modo_do_console(0)? & 0x2 != 0), // ENABLE_LINE_INPUT
-        ModoDoTerminal::EcoDeNovaLinha => Ok(false),
+        TerminalMode::Echo => Ok(console_mode(0)? & 0x4 != 0), // ENABLE_ECHO_INPUT
+        TerminalMode::Line => Ok(console_mode(0)? & 0x2 != 0), // ENABLE_LINE_INPUT
+        TerminalMode::EchoNewline => Ok(false),
     }
 }
 
 #[cfg(windows)]
-fn mudar_modo_do_terminal(_fd: i64, m: ModoDoTerminal, ligado: bool) -> ResultadoIo<()> {
+fn change_terminal_mode(_fd: i64, m: TerminalMode, enabled_flag: bool) -> IoResult<()> {
     let bit = match m {
-        ModoDoTerminal::Eco => 0x4,
-        ModoDoTerminal::Linha => 0x2,
-        ModoDoTerminal::EcoDeNovaLinha if ligado => return Err(ErroDoSo::do_codigo(775 /* ERROR_NOT_CAPABLE */)),
-        ModoDoTerminal::EcoDeNovaLinha => return Ok(()),
+        TerminalMode::Echo => 0x4,
+        TerminalMode::Line => 0x2,
+        TerminalMode::EchoNewline if enabled_flag => return Err(OsError::from_code(775 /* ERROR_NOT_CAPABLE */)),
+        TerminalMode::EchoNewline => return Ok(()),
     };
-    let atual = modo_do_console(0)?;
-    let novo = if ligado { atual | bit } else { atual & !bit };
+    let current = console_mode(0)?;
+    let new = if enabled_flag { current | bit } else { current & !bit };
     // SAFETY: muda o modo de um handle do processo.
-    if unsafe { SetConsoleMode(handle_padrao(0), novo) } == 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+    if unsafe { SetConsoleMode(default_handle_of(0), new) } == 0 {
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(())
 }
 
 /// `ENABLE_VIRTUAL_TERMINAL_INPUT` (entrada) / `_PROCESSING` (saída).
 #[cfg(windows)]
-fn suporta_ansi(fd: i64) -> bool {
+fn supports_ansi(fd: i64) -> bool {
     let bit = if fd == 0 { 0x200 } else { 0x4 };
-    modo_do_console(fd).is_ok_and(|m| m & bit != 0)
+    console_mode(fd).is_ok_and(|m| m & bit != 0)
 }
 
 #[cfg(windows)]
-fn tamanho_do_terminal(fd: i64) -> ResultadoIo<(i64, i64)> {
+fn terminal_size(fd: i64) -> IoResult<(i64, i64)> {
     #[repr(C)]
     struct Info {
-        tamanho: [i16; 2],
+        size: [i16; 2],
         cursor: [i16; 2],
-        atributos: u16,
-        janela: [i16; 4],
-        maximo: [i16; 2],
+        attributes: u16,
+        window: [i16; 4],
+        maximum: [i16; 2],
     }
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -783,75 +783,75 @@ fn tamanho_do_terminal(fd: i64) -> ResultadoIo<(i64, i64)> {
     }
     // SAFETY: a estrutura é só dados; a função a preenche.
     let mut i: Info = unsafe { std::mem::zeroed() };
-    if unsafe { GetConsoleScreenBufferInfo(handle_padrao(if fd == 1 { 1 } else { 2 }), &mut i) } == 0 {
-        return Err(ErroDoSo::de(&std::io::Error::last_os_error()));
+    if unsafe { GetConsoleScreenBufferInfo(default_handle_of(if fd == 1 { 1 } else { 2 }), &mut i) } == 0 {
+        return Err(OsError::de(&std::io::Error::last_os_error()));
     }
-    let [esquerda, topo, direita, base] = i.janela;
-    Ok((i64::from(direita - esquerda + 1), i64::from(base - topo + 1)))
+    let [left, top, right, base] = i.window;
+    Ok((i64::from(right - left + 1), i64::from(base - top + 1)))
 }
 
 #[cfg(windows)]
-fn ler_byte_da_entrada(_fd: i64) -> ResultadoIo<i64> {
-    let f = std::mem::ManuallyDrop::new(arquivo_do_descritor(descritor_padrao(0)));
+fn read_stdin_byte(_fd: i64) -> IoResult<i64> {
+    let f = std::mem::ManuallyDrop::new(file_from_descriptor(default_descriptor(0)));
     let mut b = [0u8; 1];
     use std::io::Read;
     match (&*f).read(&mut b) {
         Ok(0) => Ok(-1),
         Ok(_) => Ok(i64::from(b[0])),
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(-1),
-        Err(e) => Err(ErroDoSo::de(&e)),
+        Err(e) => Err(OsError::de(&e)),
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdin_ReadByte(fd: i64) -> i64 {
-    dart_ou_erro(ler_byte_da_entrada(fd), dart_int)
+    dart_or_error(read_stdin_byte(fd), dart_int)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdin_GetEchoMode(fd: i64) -> i64 {
-    dart_ou_erro(modo_do_terminal(fd, ModoDoTerminal::Eco), dart_bool)
+    dart_or_error(terminal_mode(fd, TerminalMode::Echo), dart_bool)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_SetEchoMode(fd: i64, ligado: u8) -> i64 {
-    dart_verdadeiro_ou_erro(mudar_modo_do_terminal(fd, ModoDoTerminal::Eco, ligado != 0))
+pub extern "C" fn dartforge_nativo_Stdin_SetEchoMode(fd: i64, enabled_flag: u8) -> i64 {
+    dart_true_or_error(change_terminal_mode(fd, TerminalMode::Echo, enabled_flag != 0))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdin_GetEchoNewlineMode(fd: i64) -> i64 {
-    dart_ou_erro(modo_do_terminal(fd, ModoDoTerminal::EcoDeNovaLinha), dart_bool)
+    dart_or_error(terminal_mode(fd, TerminalMode::EchoNewline), dart_bool)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_SetEchoNewlineMode(fd: i64, ligado: u8) -> i64 {
-    dart_verdadeiro_ou_erro(mudar_modo_do_terminal(fd, ModoDoTerminal::EcoDeNovaLinha, ligado != 0))
+pub extern "C" fn dartforge_nativo_Stdin_SetEchoNewlineMode(fd: i64, enabled_flag: u8) -> i64 {
+    dart_true_or_error(change_terminal_mode(fd, TerminalMode::EchoNewline, enabled_flag != 0))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdin_GetLineMode(fd: i64) -> i64 {
-    dart_ou_erro(modo_do_terminal(fd, ModoDoTerminal::Linha), dart_bool)
+    dart_or_error(terminal_mode(fd, TerminalMode::Line), dart_bool)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Stdin_SetLineMode(fd: i64, ligado: u8) -> i64 {
-    dart_verdadeiro_ou_erro(mudar_modo_do_terminal(fd, ModoDoTerminal::Linha, ligado != 0))
+pub extern "C" fn dartforge_nativo_Stdin_SetLineMode(fd: i64, enabled_flag: u8) -> i64 {
+    dart_true_or_error(change_terminal_mode(fd, TerminalMode::Line, enabled_flag != 0))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdin_AnsiSupported(fd: i64) -> i64 {
-    dart_bool(suporta_ansi(fd))
+    dart_bool(supports_ansi(fd))
 }
 
-/// `Stdout_GetTerminalSize`: `[colunas, linhas]` ou o `OSError`.
+/// `Stdout_GetTerminalSize`: `[columns, line_list]` ou o `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdout_GetTerminalSize(fd: i64) -> i64 {
-    dart_ou_erro(tamanho_do_terminal(fd), |(c, l)| dart_lista_fixa(&[dart_int(c), dart_int(l)]))
+    dart_or_error(terminal_size(fd), |(c, l)| dart_fixed_list(&[dart_int(c), dart_int(l)]))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdout_AnsiSupported(fd: i64) -> i64 {
-    dart_bool(suporta_ansi(fd))
+    dart_bool(supports_ansi(fd))
 }
 
 // ---------------------------------------------------------------------------
@@ -859,11 +859,11 @@ pub extern "C" fn dartforge_nativo_Stdout_AnsiSupported(fd: i64) -> i64 {
 
 /// O código de saída global (`Process::GlobalExitCode`), que o fim normal
 /// do programa devolve.
-static CODIGO_DE_SAIDA: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static EXIT_CODE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
 /// O código com que o processo termina quando o programa acaba sem erro.
-fn codigo_de_saida_global() -> i32 {
-    CODIGO_DE_SAIDA.load(std::sync::atomic::Ordering::Relaxed) as i32
+fn global_exit_code() -> i32 {
+    EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed) as i32
 }
 
 /// `Process_Exit`: termina o processo já (a VM usa `_exit`, sem os
@@ -878,12 +878,12 @@ pub extern "C" fn dartforge_nativo_Process_Exit(status: i64) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_SetExitCode(status: i64) {
-    CODIGO_DE_SAIDA.store(status, std::sync::atomic::Ordering::Relaxed);
+    EXIT_CODE.store(status, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_GetExitCode() -> i64 {
-    CODIGO_DE_SAIDA.load(std::sync::atomic::Ordering::Relaxed)
+    EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[unsafe(no_mangle)]
@@ -893,11 +893,11 @@ pub extern "C" fn dartforge_nativo_Process_Sleep(ms: i64) {
 
 /// `Process_Pid(process)`: o do processo corrente (com `null`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_Process_Pid(processo: i64) -> i64 {
-    if processo == 0 {
+pub extern "C" fn dartforge_nativo_Process_Pid(process: i64) -> i64 {
+    if process == 0 {
         return i64::from(std::process::id());
     }
-    campo_nativo(processo)
+    native_field(process)
 }
 
 // ---------------------------------------------------------------------------
@@ -906,11 +906,11 @@ pub extern "C" fn dartforge_nativo_Process_Pid(processo: i64) -> i64 {
 // código do console (`GetConsoleCP`) no Windows.
 
 #[cfg(unix)]
-fn do_sistema_para_utf8(b: &[u8]) -> String {
+fn system_to_utf8(b: &[u8]) -> String {
     String::from_utf8_lossy(b).into_owned()
 }
 #[cfg(unix)]
-fn de_utf8_para_o_sistema(s: &[u8]) -> Vec<u8> {
+fn utf8_to_system(s: &[u8]) -> Vec<u8> {
     s.to_vec()
 }
 
@@ -919,10 +919,10 @@ fn de_utf8_para_o_sistema(s: &[u8]) -> Vec<u8> {
 unsafe extern "system" {
     fn GetConsoleCP() -> u32;
     fn MultiByteToWideChar(cp: u32, flags: u32, s: *const u8, n: i32, w: *mut u16, nw: i32) -> i32;
-    fn WideCharToMultiByte(cp: u32, flags: u32, w: *const u16, nw: i32, s: *mut u8, n: i32, padrao: *const u8, usou: *mut i32) -> i32;
+    fn WideCharToMultiByte(cp: u32, flags: u32, w: *const u16, nw: i32, s: *mut u8, n: i32, pattern: *const u8, used_it: *mut i32) -> i32;
 }
 #[cfg(windows)]
-fn do_sistema_para_utf8(b: &[u8]) -> String {
+fn system_to_utf8(b: &[u8]) -> String {
     if b.is_empty() {
         return String::new();
     }
@@ -936,7 +936,7 @@ fn do_sistema_para_utf8(b: &[u8]) -> String {
     }
 }
 #[cfg(windows)]
-fn de_utf8_para_o_sistema(s: &[u8]) -> Vec<u8> {
+fn utf8_to_system(s: &[u8]) -> Vec<u8> {
     let w: Vec<u16> = String::from_utf8_lossy(s).encode_utf16().collect();
     if w.is_empty() {
         return Vec::new();
@@ -953,16 +953,16 @@ fn de_utf8_para_o_sistema(s: &[u8]) -> Vec<u8> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_SystemEncodingToString(bytes: i64) -> i64 {
-    let b = bytes_da_lista_tipada(bytes).unwrap_or_else(|| {
+    let b = typed_list_bytes(bytes).unwrap_or_else(|| {
         HEAP.with(|h| {
             let h = h.borrow();
-            bytes_de_lista_de_valores(&h, bytes)
+            bytes_from_value_list(&h, bytes)
         })
     });
-    alocar_str(&do_sistema_para_utf8(&b))
+    allocate_str(&system_to_utf8(&b))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_StringToSystemEncoding(texto: i64) -> i64 {
-    dart_bytes(de_utf8_para_o_sistema(&utf8_de_texto(texto)))
+pub extern "C" fn dartforge_nativo_StringToSystemEncoding(text: i64) -> i64 {
+    dart_bytes(utf8_to_system(&utf8_of_string(text)))
 }

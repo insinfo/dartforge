@@ -42,7 +42,7 @@ const FRAGMENTOS: &[&str] = &[
     // As portas Rust → Dart e a personalidade das exceções por tabelas.
     "excecoes_tabelas",
     "rastro",
-    // `DARTFORGE_EFEITOS=conferir`: a conferência da tabela de efeitos.
+    // `DARTFORGE_EFEITOS=check`: a conferência da tabela de efeitos.
     "efeitos_conferir",
     "saida",
     "strings",
@@ -131,103 +131,103 @@ fn main() {
         println!("cargo::rustc-cfg=dartforge_runtime_embutido");
     }
 
-    let manifesto =
+    let manifest =
         PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let src = manifesto.join("src");
-    conferir_lista(&src);
+    let src = manifest.join("src");
+    check_list(&src);
 
-    let mut texto = String::new();
+    let mut text = String::new();
     let mut abi = String::from("// GERADO por crates/runtime/build.rs — não editar.\n");
     for f in FRAGMENTOS {
-        let caminho = src.join(format!("{f}.rs"));
-        let conteudo = std::fs::read_to_string(&caminho)
-            .unwrap_or_else(|e| panic!("ler {}: {e}", caminho.display()));
+        let file_path = src.join(format!("{f}.rs"));
+        let content = std::fs::read_to_string(&file_path)
+            .unwrap_or_else(|e| panic!("ler {}: {e}", file_path.display()));
         assert!(
-            conteudo.ends_with('\n'),
+            content.ends_with('\n'),
             "{} não termina em fim de linha",
-            caminho.display()
+            file_path.display()
         );
-        texto.push_str(&conteudo);
-        let literal = format!("{:?}", caminho.to_str().expect("caminho UTF-8"));
+        text.push_str(&content);
+        let literal = format!("{:?}", file_path.to_str().expect("caminho UTF-8"));
         abi.push_str(&format!("include!({literal});\n"));
     }
 
-    let mut nomes = nomes_exportados(&texto);
-    let mut ordenados = nomes.clone();
-    ordenados.sort_unstable();
-    ordenados.dedup();
+    let mut names = exported_names(&text);
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
     assert!(
-        nomes.len() - ordenados.len() == 1
-            && nomes.iter().filter(|nome| nome.as_str() == "dartforge_personalidade").count() == 2
-            || ordenados.len() == nomes.len(),
+        names.len() - sorted.len() == 1
+            && names.iter().filter(|nome| nome.as_str() == "dartforge_personalidade").count() == 2
+            || sorted.len() == names.len(),
         "o runtime define algum símbolo #[unsafe(no_mangle)] duas vezes"
     );
     // As duas assinaturas da personalidade são exclusivas por plataforma.
-    let mut vistos = std::collections::HashSet::new();
-    nomes.retain(|nome| vistos.insert(nome.clone()));
+    let mut seen_set = std::collections::HashSet::new();
+    names.retain(|nome| seen_set.insert(nome.clone()));
 
-    let mut saida = String::from(
+    let mut output = String::from(
         "// GERADO por crates/runtime/build.rs a partir dos fragmentos de src/ — não editar.\n\n\
          /// Os fragmentos do runtime, na ordem em que são concatenados.\n\
          pub const FRAGMENTOS: &[&str] = &[\n",
     );
     for f in FRAGMENTOS {
-        saida.push_str(&format!("    \"{f}\",\n"));
+        output.push_str(&format!("    \"{f}\",\n"));
     }
-    saida.push_str(
+    output.push_str(
         "];\n\n\
          /// Nomes dos símbolos que o runtime exporta ao código gerado, na ordem da fonte.\n\
          pub const NOMES: &[&str] = &[\n",
     );
-    for nome in &nomes {
+    for nome in &names {
         // Só de unix, como na [`tabela`].
         if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
-            saida.push_str("    #[cfg(unix)]\n");
+            output.push_str("    #[cfg(unix)]\n");
         }
-        saida.push_str(&format!("    \"{nome}\",\n"));
+        output.push_str(&format!("    \"{nome}\",\n"));
     }
-    saida.push_str(
+    output.push_str(
         "];\n\n/// Endereço de cada função do runtime neste processo, na ordem de [`NOMES`].\n\
          pub fn tabela() -> Vec<(&'static str, usize)> {\n    vec![\n",
     );
-    for nome in &nomes {
+    for nome in &names {
         if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
-            saida.push_str("        #[cfg(unix)]\n");
+            output.push_str("        #[cfg(unix)]\n");
         }
-        saida.push_str(&format!(
+        output.push_str(&format!(
             "        (\"{nome}\", crate::abi::{nome} as *const () as usize),\n"
         ));
     }
-    saida.push_str("    ]\n}\n");
+    output.push_str("    ]\n}\n");
     // @Native para a ABI reservada precisa do runtime que atende o programa,
     // não de um homônimo no executável hospedeiro de uma biblioteca RTLD_LOCAL.
     // Gera a mesma seleção no módulo Cargo e no texto avulso do AOT.
     let mut resolver = String::from("fn endereco_nativo_do_runtime(nome: &str) -> Option<usize> {\n    match nome {\n");
-    for nome in &nomes {
+    for nome in &names {
         if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
             resolver.push_str("        #[cfg(unix)]\n");
         }
         resolver.push_str(&format!("        \"{nome}\" => Some({nome} as *const () as usize),\n"));
     }
     resolver.push_str("        _ => None,\n    }\n}\n");
-    texto.insert_str(0, &resolver);
+    text.insert_str(0, &resolver);
     abi.push_str(&resolver);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
-    std::fs::write(out.join("simbolos.rs"), saida).expect("gravar simbolos.rs");
-    std::fs::write(out.join("efeitos.rs"), tabela_de_efeitos(&manifesto, &nomes)).expect("gravar efeitos.rs");
-    std::fs::write(out.join("ownership.rs"), tabela_de_ownership(&manifesto, &nomes)).expect("gravar ownership.rs");
-    std::fs::write(out.join("runtime_main.rs"), texto).expect("gravar runtime_main.rs");
+    std::fs::write(out.join("simbolos.rs"), output).expect("gravar simbolos.rs");
+    std::fs::write(out.join("efeitos.rs"), effects_table(&manifest, &names)).expect("gravar efeitos.rs");
+    std::fs::write(out.join("ownership.rs"), ownership_table(&manifest, &names)).expect("gravar ownership.rs");
+    std::fs::write(out.join("runtime_main.rs"), text).expect("gravar runtime_main.rs");
     std::fs::write(out.join("abi.rs"), abi).expect("gravar abi.rs");
 }
 
 /// Contratos auditados ARC; não inventa contratos para as externs ainda ausentes.
 /// A coerção dos ponteiros gerados confere aridade e representação com Rust.
-fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String {
-    let caminho = manifesto.join("ownership.tsv");
-    println!("cargo::rerun-if-changed={}", caminho.display());
-    let texto = std::fs::read_to_string(caminho).expect("ler ownership.tsv");
-    let efeitos = std::fs::read_to_string(manifesto.join("efeitos.tsv")).expect("ler efeitos.tsv");
-    let mut linhas = std::collections::BTreeMap::new();
+fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
+    let file_path = manifest.join("ownership.tsv");
+    println!("cargo::rerun-if-changed={}", file_path.display());
+    let text = std::fs::read_to_string(file_path).expect("ler ownership.tsv");
+    let efeitos = std::fs::read_to_string(manifest.join("efeitos.tsv")).expect("ler efeitos.tsv");
+    let mut line_list = std::collections::BTreeMap::new();
     let tipo = |s: &str, resultado: bool| -> (&str, String) {
         if resultado
             && let Some(n) = s
@@ -237,7 +237,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             let n: usize = n.parse().expect("ownership.tsv: índice de borrow inválido");
             return ("i64", format!("ModoResultado::BorrowArg({n})"));
         }
-        let (ty, modo) = match (s, resultado) {
+        let (ty, mode) = match (s, resultado) {
             ("ref:borrow", false) => ("i64", "ModoParametro::Borrow"),
             ("ref:consume", false) => ("i64", "ModoParametro::Consume"),
             ("ref:consume-success", false) => ("i64", "ModoParametro::ConsumeSuccess"),
@@ -261,34 +261,34 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("void:scalar", true) => ("()", "ModoResultado::Void"),
             _ => panic!("ownership.tsv: tipo/contrato não suportado: {s}"),
         };
-        (ty, modo.to_string())
+        (ty, mode.to_string())
     };
-    for (n, linha) in texto.lines().enumerate() {
-        if linha.trim().is_empty() || linha.starts_with('#') {
+    for (n, line) in text.lines().enumerate() {
+        if line.trim().is_empty() || line.starts_with('#') {
             continue;
         }
-        let c: Vec<_> = linha.split('\t').collect();
+        let c: Vec<_> = line.split('\t').collect();
         assert_eq!(c.len(), 6, "ownership.tsv:{}: seis campos", n + 1);
         assert!(
-            nomes.iter().any(|nome| nome == c[0]),
+            names.iter().any(|nome| nome == c[0]),
             "ownership.tsv: símbolo desconhecido {}",
             c[0]
         );
         // Novas entradas exigem auditoria explícita. Ausência não gera default.
-        let efeito = efeitos
+        let effect = efeitos
             .lines()
-            .find(|linha| linha.split('\t').next() == Some(c[0]))
+            .find(|line| line.split('\t').next() == Some(c[0]))
             .expect("ownership.tsv: símbolo sem efeitos");
-        let efeito: Vec<_> = efeito.split('\t').collect();
+        let effect: Vec<_> = effect.split('\t').collect();
         let pode_falhar = match c[5] {
             "normal" => false,
             "pending" | "pending-dart" => true,
             _ => panic!("ownership.tsv: saída desconhecida {}", c[5]),
         };
         assert!(
-            efeito.len() == 4
-                && efeito[2] == if pode_falhar { "1" } else { "0" }
-                && efeito[3] == if c[5] == "pending-dart" { "1" } else { "0" },
+            effect.len() == 4
+                && effect[2] == if pode_falhar { "1" } else { "0" }
+                && effect[3] == if c[5] == "pending-dart" { "1" } else { "0" },
             "ownership.tsv: saídas incompatíveis com efeitos de {}",
             c[0]
         );
@@ -306,37 +306,37 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             assert!(
                 parametros
                     .get(n)
-                    .is_some_and(|(_, modo)| modo == "ModoParametro::Borrow"),
+                    .is_some_and(|(_, mode)| mode == "ModoParametro::Borrow"),
                 "ownership.tsv: resultado borrowed exige parâmetro Ref borrowed existente"
             );
         }
         assert!(
             pode_falhar
-                || parametros.iter().all(|(_, modo)| !matches!(
-                    modo.as_str(),
+                || parametros.iter().all(|(_, mode)| !matches!(
+                    mode.as_str(),
                     "ModoParametro::ConsumeSuccess" | "ModoParametro::ConsumeError"
                 )),
             "ownership.tsv: consumo por aresta exige pending"
         );
-        let marca = |s: &str| match s {
+        let mark = |s: &str| match s {
             "0" => false,
             "1" => true,
             _ => panic!("ownership.tsv: marca inválida {s}"),
         };
         let chama_dart = c[5] == "pending-dart";
-        assert!(!chama_dart || marca(c[4]), "ownership.tsv: reentrada Dart exige invalidação de borrows");
+        assert!(!chama_dart || mark(c[4]), "ownership.tsv: reentrada Dart exige invalidação de borrows");
         assert!(
-            linhas
+            line_list
                 .insert(
                     c[0],
-                    (parametros, resultado, marca(c[3]), marca(c[4]), pode_falhar, chama_dart)
+                    (parametros, resultado, mark(c[3]), mark(c[4]), pode_falhar, chama_dart)
                 )
                 .is_none(),
             "ownership.tsv: símbolo duplicado {}",
             c[0]
         );
     }
-    for nome in nomes.iter().filter(|n| {
+    for nome in names.iter().filter(|n| {
         n.starts_with("dartforge_arc_")
             || matches!(
                 n.as_str(),
@@ -355,11 +355,11 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             )
     }) {
         assert!(
-            linhas.contains_key(nome.as_str()),
+            line_list.contains_key(nome.as_str()),
             "ownership.tsv: extern auditada sem contrato {nome}"
         );
     }
-    let mut saida = String::from(
+    let mut output = String::from(
         r#"
 /// Modo semântico do argumento, independente da largura i64.
 ///
@@ -405,26 +405,26 @@ pub struct Contrato {
 pub const CONTRATOS: &[Contrato] = &[
 "#,
     );
-    for (nome, (params, (_, resultado), retencao, invalida, pode_falhar, chama_dart)) in &linhas {
-        let modos = params
+    for (nome, (params, (_, resultado), retention, invalid, pode_falhar, chama_dart)) in &line_list {
+        let modes = params
             .iter()
-            .map(|(_, modo)| modo.as_str())
+            .map(|(_, mode)| mode.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        saida.push_str(&format!("Contrato {{ nome: {nome:?}, parametros: &[{modos}], resultado: {resultado}, retencao_persistente: {retencao}, invalida_borrows: {invalida}, pode_falhar: {pode_falhar}, chama_dart: {chama_dart} }},\n"));
+        output.push_str(&format!("Contrato {{ nome: {nome:?}, parametros: &[{modes}], resultado: {resultado}, retencao_persistente: {retention}, invalida_borrows: {invalid}, pode_falhar: {pode_falhar}, chama_dart: {chama_dart} }},\n"));
     }
-    saida.push_str("];\n");
-    for (nome, (params, (ret, _), _, _, _, _)) in &linhas {
-        let tipos = params
+    output.push_str("];\n");
+    for (nome, (params, (ret, _), _, _, _, _)) in &line_list {
+        let types = params
             .iter()
             .map(|(ty, _)| *ty)
             .collect::<Vec<_>>()
             .join(", ");
-        saida.push_str(&format!(
-            "const _: unsafe extern \"C\" fn({tipos}) -> {ret} = crate::abi::{nome};\n"
+        output.push_str(&format!(
+            "const _: unsafe extern \"C\" fn({types}) -> {ret} = crate::abi::{nome};\n"
         ));
     }
-    saida
+    output
 }
 
 #[cfg(test)]
@@ -432,120 +432,120 @@ mod testes_ownership {
     use super::*;
 
     #[test]
-    fn tabela_recusa_contratos_incompletos_duplicados_e_invalidos() {
-        let raiz = std::env::temp_dir().join(format!("dartforge-ownership-{}", std::process::id()));
-        std::fs::create_dir_all(&raiz).unwrap();
-        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t0\t0\t0\n").unwrap();
-        let boa = "dartforge_arc_retain\tref:borrow\tvoid:scalar\t1\t0\tnormal\n";
-        let nomes = vec!["dartforge_arc_retain".to_string()];
-        for ruim in [
+    fn table_rejects_incomplete_duplicate_and_invalid_contracts() {
+        let root = std::env::temp_dir().join(format!("dartforge-ownership-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("efeitos.tsv"), "dartforge_arc_retain\t0\t0\t0\n").unwrap();
+        let good = "dartforge_arc_retain\tref:borrow\tvoid:scalar\t1\t0\tnormal\n";
+        let names = vec!["dartforge_arc_retain".to_string()];
+        for bad in [
             String::new(),
-            format!("{boa}{boa}"),
-            boa.replace("ref:borrow", "ref:inventado"),
-            boa.replace("\t1\t0", "\t2\t0"),
-            boa.replace("arc_retain", "arc_ausente"),
-            boa.replace("normal", "inventado"),
-            boa.replace("ref:borrow", "ref:consume-success"),
-            boa.replace("void:scalar", "ref:borrow(1)"),
-            boa.replace("ref:borrow", "i64:scalar")
+            format!("{good}{good}"),
+            good.replace("ref:borrow", "ref:inventado"),
+            good.replace("\t1\t0", "\t2\t0"),
+            good.replace("arc_retain", "arc_ausente"),
+            good.replace("normal", "inventado"),
+            good.replace("ref:borrow", "ref:consume-success"),
+            good.replace("void:scalar", "ref:borrow(1)"),
+            good.replace("ref:borrow", "i64:scalar")
                 .replace("void:scalar", "ref:borrow(0)"),
         ] {
-            std::fs::write(raiz.join("ownership.tsv"), ruim).unwrap();
-            assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
+            std::fs::write(root.join("ownership.tsv"), bad).unwrap();
+            assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
         }
-        std::fs::write(raiz.join("ownership.tsv"), boa).unwrap();
-        assert!(tabela_de_ownership(&raiz, &nomes).contains("const _: unsafe extern \"C\" fn(i64) -> () = crate::abi::dartforge_arc_retain;"));
-        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
-        assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
-        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
-        for modo in ["consume-success", "consume-error", "consume"] {
+        std::fs::write(root.join("ownership.tsv"), good).unwrap();
+        assert!(ownership_table(&root, &names).contains("const _: unsafe extern \"C\" fn(i64) -> () = crate::abi::dartforge_arc_retain;"));
+        std::fs::write(root.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
+        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
+        std::fs::write(root.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
+        for mode in ["consume-success", "consume-error", "consume"] {
             std::fs::write(
-                raiz.join("ownership.tsv"),
-                boa.replace("ref:borrow", &format!("ref:{modo}"))
+                root.join("ownership.tsv"),
+                good.replace("ref:borrow", &format!("ref:{mode}"))
                     .replace("normal", "pending"),
             )
             .unwrap();
-            let gerado = tabela_de_ownership(&raiz, &nomes);
-            assert!(gerado.contains("pode_falhar: true"));
+            let generated = ownership_table(&root, &names);
+            assert!(generated.contains("pode_falhar: true"));
         }
-        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
-        let reentrada = boa.replace("normal", "pending-dart").replace("\t1\t0\t", "\t1\t1\t");
-        std::fs::write(raiz.join("ownership.tsv"), &reentrada).unwrap();
-        assert!(tabela_de_ownership(&raiz, &nomes).contains("chama_dart: true"));
-        std::fs::write(raiz.join("ownership.tsv"), reentrada.replace("\t1\t1\t", "\t1\t0\t")).unwrap();
-        assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
-        std::fs::write(raiz.join("ownership.tsv"), &reentrada).unwrap();
-        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
-        assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
+        std::fs::write(root.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
+        let reentry = good.replace("normal", "pending-dart").replace("\t1\t0\t", "\t1\t1\t");
+        std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
+        assert!(ownership_table(&root, &names).contains("chama_dart: true"));
+        std::fs::write(root.join("ownership.tsv"), reentry.replace("\t1\t1\t", "\t1\t0\t")).unwrap();
+        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
+        std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
+        std::fs::write(root.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
+        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
         // O callback tem representação Rust própria: não aceitar um inteiro
         // ou ponteiro genérico no lugar da função que devolve a tabela estática.
-        let fabrica = "dartforge_arc_objeto_owned_t_v1".to_string();
-        std::fs::write(raiz.join("efeitos.tsv"), format!("{fabrica}\t1\t0\t0\n")).unwrap();
-        std::fs::write(raiz.join("ownership.tsv"), format!("{fabrica}\ti64:native,i64:scalar,tabela:native\tref:owned\t0\t1\tnormal\n")).unwrap();
-        let gerado = tabela_de_ownership(&raiz, &[fabrica]);
-        assert!(gerado.contains("const _: unsafe extern \"C\" fn(i64, i64, extern \"C\" fn() -> *const i64) -> i64 = crate::abi::dartforge_arc_objeto_owned_t_v1;"));
-        assert!(gerado.contains("ModoParametro::TabelaEstatica"));
-        std::fs::remove_file(raiz.join("ownership.tsv")).unwrap();
-        std::fs::remove_file(raiz.join("efeitos.tsv")).unwrap();
-        std::fs::remove_dir(raiz).unwrap();
+        let factory = "dartforge_arc_objeto_owned_t_v1".to_string();
+        std::fs::write(root.join("efeitos.tsv"), format!("{factory}\t1\t0\t0\n")).unwrap();
+        std::fs::write(root.join("ownership.tsv"), format!("{factory}\ti64:native,i64:scalar,tabela:native\tref:owned\t0\t1\tnormal\n")).unwrap();
+        let generated = ownership_table(&root, &[factory]);
+        assert!(generated.contains("const _: unsafe extern \"C\" fn(i64, i64, extern \"C\" fn() -> *const i64) -> i64 = crate::abi::dartforge_arc_objeto_owned_t_v1;"));
+        assert!(generated.contains("ModoParametro::TabelaEstatica"));
+        std::fs::remove_file(root.join("ownership.tsv")).unwrap();
+        std::fs::remove_file(root.join("efeitos.tsv")).unwrap();
+        std::fs::remove_dir(root).unwrap();
     }
 }
 
 /// A tabela de efeitos das externs (`efeitos.tsv`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8) como código para o
-/// emissor: `(nome, coleta, lança, roda Dart)`, em ordem alfabética.
+/// emissor: `(nome, collection, lança, roda Dart)`, em ordem alfabética.
 ///
 /// O arquivo é a fonte única e tem de ter exatamente uma linha por função
 /// `#[unsafe(no_mangle)]` dos fragmentos: uma extern nova sem linha, uma
 /// linha de uma extern que saiu, um nome repetido ou uma marca fora de `0`/`1`
 /// derrubam o build — uma extern sem marca seria tratada no escuro.
-/// `roda_dart = 1` exige `coleta = 1` e `lanca = 1`.
-fn tabela_de_efeitos(manifesto: &std::path::Path, nomes: &[String]) -> String {
-    let caminho = manifesto.join("efeitos.tsv");
-    println!("cargo::rerun-if-changed={}", caminho.display());
-    let texto = std::fs::read_to_string(&caminho).unwrap_or_else(|e| panic!("ler {}: {e}", caminho.display()));
-    let mut linhas: Vec<(String, bool, bool, bool)> = Vec::new();
-    for (n, linha) in texto.lines().enumerate() {
-        let linha = linha.trim_end();
-        if linha.is_empty() || linha.starts_with('#') {
+/// `roda_dart = 1` exige `collection = 1` e `throws = 1`.
+fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
+    let file_path = manifest.join("efeitos.tsv");
+    println!("cargo::rerun-if-changed={}", file_path.display());
+    let text = std::fs::read_to_string(&file_path).unwrap_or_else(|e| panic!("ler {}: {e}", file_path.display()));
+    let mut line_list: Vec<(String, bool, bool, bool)> = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim_end();
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let campos: Vec<&str> = linha.split('\t').collect();
-        let marca = |i: usize| match campos.get(i).copied() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let mark = |i: usize| match fields.get(i).copied() {
             Some("0") => false,
             Some("1") => true,
             _ => panic!("efeitos.tsv:{}: a linha é `nome<TAB>coleta<TAB>lanca<TAB>roda_dart`, com marcas 0 ou 1", n + 1),
         };
-        assert!(campos.len() == 4, "efeitos.tsv:{}: quatro campos separados por TAB", n + 1);
-        let (coleta, lanca, roda_dart) = (marca(1), marca(2), marca(3));
-        assert!(!roda_dart || (coleta && lanca), "efeitos.tsv:{}: roda_dart = 1 exige coleta = 1 e lanca = 1", n + 1);
-        linhas.push((campos[0].to_string(), coleta, lanca, roda_dart));
+        assert!(fields.len() == 4, "efeitos.tsv:{}: quatro campos separados por TAB", n + 1);
+        let (collection, throws, roda_dart) = (mark(1), mark(2), mark(3));
+        assert!(!roda_dart || (collection && throws), "efeitos.tsv:{}: roda_dart = 1 exige coleta = 1 e lanca = 1", n + 1);
+        line_list.push((fields[0].to_string(), collection, throws, roda_dart));
     }
-    linhas.sort();
-    for par in linhas.windows(2) {
-        assert!(par[0].0 != par[1].0, "efeitos.tsv: `{}` aparece duas vezes", par[0].0);
+    line_list.sort();
+    for pair in line_list.windows(2) {
+        assert!(pair[0].0 != pair[1].0, "efeitos.tsv: `{}` aparece duas vezes", pair[0].0);
     }
-    let na_tabela: std::collections::BTreeSet<&str> = linhas.iter().map(|l| l.0.as_str()).collect();
-    let no_runtime: std::collections::BTreeSet<&str> = nomes.iter().map(String::as_str).collect();
-    let sem_linha: Vec<&&str> = no_runtime.difference(&na_tabela).collect();
-    let sem_extern: Vec<&&str> = na_tabela.difference(&no_runtime).collect();
+    let in_table: std::collections::BTreeSet<&str> = line_list.iter().map(|l| l.0.as_str()).collect();
+    let in_runtime: std::collections::BTreeSet<&str> = names.iter().map(String::as_str).collect();
+    let without_line: Vec<&&str> = in_runtime.difference(&in_table).collect();
+    let without_extern: Vec<&&str> = in_table.difference(&in_runtime).collect();
     assert!(
-        sem_linha.is_empty() && sem_extern.is_empty(),
+        without_line.is_empty() && without_extern.is_empty(),
         "crates/runtime/efeitos.tsv não casa com as externs do runtime.\n  \
-         sem linha na tabela (acrescente `nome<TAB>1<TAB>1<TAB>0`, a marca conservadora): {sem_linha:?}\n  \
-         na tabela e fora do runtime (tire a linha): {sem_extern:?}"
+         sem linha na tabela (acrescente `nome<TAB>1<TAB>1<TAB>0`, a marca conservadora): {without_line:?}\n  \
+         na tabela e fora do runtime (tire a linha): {without_extern:?}"
     );
-    let mut saida = String::from(
+    let mut output = String::from(
         "// GERADO por crates/runtime/build.rs a partir de efeitos.tsv — não editar.\n\n\
          /// `(nome, coleta, lança, roda Dart)` de cada extern do runtime, em ordem\n\
          /// alfabética do nome.\n\
          pub const EFEITOS: &[(&str, bool, bool, bool)] = &[\n",
     );
-    for (nome, coleta, lanca, roda_dart) in &linhas {
-        saida.push_str(&format!("    (\"{nome}\", {coleta}, {lanca}, {roda_dart}),\n"));
+    for (nome, collection, throws, roda_dart) in &line_list {
+        output.push_str(&format!("    (\"{nome}\", {collection}, {throws}, {roda_dart}),\n"));
     }
-    saida.push_str("];\n");
-    saida
+    output.push_str("];\n");
+    output
 }
 
 /// Os arquivos de `src/` que são módulos Rust (e não fragmentos): o `lib.rs` os
@@ -556,18 +556,18 @@ fn tabela_de_efeitos(manifesto: &std::path::Path, nomes: &[String]) -> String {
 const MODULOS: &[&str] = &["heap", "hash", "arc", "layout", "espaco", "textos", "caixas", "listas", "tipadas", "tabela_rti"];
 
 /// Todo `src/*.rs` é `lib.rs`, um dos [`MODULOS`] ou um fragmento listado.
-fn conferir_lista(src: &std::path::Path) {
-    let entradas = std::fs::read_dir(src).unwrap_or_else(|e| panic!("ler {}: {e}", src.display()));
-    for entrada in entradas {
-        let caminho = entrada.expect("entrada de src/").path();
-        if caminho.extension().is_none_or(|x| x != "rs") {
+fn check_list(src: &std::path::Path) {
+    let entries = std::fs::read_dir(src).unwrap_or_else(|e| panic!("ler {}: {e}", src.display()));
+    for input in entries {
+        let file_path = input.expect("entrada de src/").path();
+        if file_path.extension().is_none_or(|x| x != "rs") {
             continue;
         }
-        let nome = caminho.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let nome = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         assert!(
             nome == "lib" || MODULOS.contains(&nome) || FRAGMENTOS.contains(&nome),
             "{} não é fragmento do runtime: acrescente \"{nome}\" a FRAGMENTOS em crates/runtime/build.rs",
-            caminho.display()
+            file_path.display()
         );
     }
 }
@@ -578,35 +578,35 @@ fn conferir_lista(src: &std::path::Path) {
 /// seguinte, `pub [unsafe] extern "C" fn nome(`. Entre as duas pode haver
 /// outros atributos (`#[cfg(...)]`). Qualquer outra forma derruba o build,
 /// porque seria um símbolo que a tabela não saberia publicar.
-fn nomes_exportados(texto: &str) -> Vec<String> {
-    let mut nomes = Vec::new();
-    let mut linhas = texto.lines();
-    while let Some(linha) = linhas.next() {
-        if linha.trim() != "#[unsafe(no_mangle)]" {
+fn exported_names(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut line_list = text.lines();
+    while let Some(line) = line_list.next() {
+        if line.trim() != "#[unsafe(no_mangle)]" {
             continue;
         }
-        let seguinte = loop {
-            match linhas.next() {
+        let next_one = loop {
+            match line_list.next() {
                 Some(l) if l.trim().starts_with("#[") => continue,
                 Some(l) => break l.trim(),
                 None => break "",
             }
         };
-        let assinatura = seguinte
+        let fn_signature = next_one
             .strip_prefix("pub unsafe extern \"C\" fn ")
-            .or_else(|| seguinte.strip_prefix("pub extern \"C\" fn "))
+            .or_else(|| next_one.strip_prefix("pub extern \"C\" fn "))
             .unwrap_or_else(|| {
                 panic!(
-                    "#[unsafe(no_mangle)] seguido de forma não reconhecida no runtime: `{seguinte}`"
+                    "#[unsafe(no_mangle)] seguido de forma não reconhecida no runtime: `{next_one}`"
                 )
             });
-        let nome: String = assinatura
+        let nome: String = fn_signature
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
             .collect();
         if nome != "main" {
-            nomes.push(nome);
+            names.push(nome);
         }
     }
-    nomes
+    names
 }
