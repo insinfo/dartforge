@@ -171,15 +171,15 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
                 }).collect();
                 cx.primary_parameters.extend(ids);
             }
-            // Initializers do not see `this` (except for access to the initialized field).
+            // Initializers do not see the members through the implicit `this`;
+            // an explicit `this` keeps the class's type (`ResolverVisitor._thisType`)
+            // and is `INVALID_REFERENCE_TO_THIS`.
             let saved_this = cx.this_type.take();
             let saved_static = cx.the_static;
             cx.the_static = true;
-            cx.untyped_this = true;
             for init in ctor.initializers.iter() {
                 initializer(inf, &mut cx, fe.class, init, &ctor.parameters, fe.const_, f);
             }
-            cx.untyped_this = false;
             // `_checkForRecursiveConstructorRedirect` (`error_verifier.dart:5047-5066`):
             // at the first `this(...)` of a generative constructor in a cycle.
             if !fe.factory

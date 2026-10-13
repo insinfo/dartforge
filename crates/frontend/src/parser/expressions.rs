@@ -388,6 +388,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(left)
     }
 
+    /// The rest of an expression whose primary the parser's recovery already
+    /// built (a rewriter's synthetic tokens): its selectors, the binary
+    /// operators, the conditional, the cascade and the assignment, as
+    /// [`Parser::parse_expression`] reads them after a primary.
+    pub(crate) fn parse_expression_after_primary(&mut self, start: Span, primary: ExprId) -> PResult<ExprId> {
+        let left = self.parse_selectors_at(start, primary, false, false)?;
+        let left = self.parse_binary_rest(start, left, LEVEL_IF_NULL)?;
+        let mut left = self.parse_conditional_rest(start, left)?;
+        if matches!(self.kind(), Kind::Op(Op::DotDot | Op::QuestionDotDot)) {
+            left = self.parse_cascade_rest(start, left)?;
+        }
+        if let Some((op, len)) = self.assignment_op_here() {
+            for _ in 0..len {
+                self.advance();
+            }
+            let value = self.parse_expression()?;
+            self.check_assignment(left, value);
+            left = self.push(start, ExprKind::Assign { op, target: left, value });
+        }
+        Ok(left)
+    }
+
     /// Cheap pre-filter for pattern assignment: an `outerPattern` (`(…)`,
     /// `[…]`, `{…}`, `<T>[…]`, `<T>{…}`, `Name(…)`, `p.Name<T>(…)`) whose
     /// closing delimiter is followed by `=`. Only then is it worth asking
@@ -568,6 +590,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_conditional(&mut self) -> PResult<ExprId> {
         let start = self.span();
         let condition = self.parse_binary(LEVEL_IF_NULL)?;
+        self.parse_conditional_rest(start, condition)
+    }
+
+    /// Continuation of [`Parser::parse_conditional`] with the condition read.
+    fn parse_conditional_rest(&mut self, start: Span, condition: ExprId) -> PResult<ExprId> {
         if !self.at_op(Op::Question) {
             return Ok(condition);
         }

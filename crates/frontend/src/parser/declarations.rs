@@ -3551,7 +3551,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `this` without `.` or `(`: `EXPECTED_TOKEN` (`.`) at what follows
                 // (`parseInitializer`, `parser_impl.dart:4098`).
                 self.expected_error(".");
-                return self.initializer_without_assignment(start);
+                return self.this_without_period(start);
             }
             let arguments = self.parse_arguments()?;
             if self.selector_after_initializer() {
@@ -3630,6 +3630,31 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
         }
+    }
+
+    /// `this` followed by neither `.` nor `(` (`parseInitializer`,
+    /// `parser_impl.dart:4097-4104`): after the `EXPECTED_TOKEN`, the rewriter
+    /// inserts a synthetic `.` and identifier after the `this`, and the final
+    /// recovery reads `this.<synthetic>` and the selectors that follow
+    /// (`this?.m()` is `<synthetic> = this.<synthetic>?.m()`).
+    fn this_without_period(&mut self, start: Span) -> PResult<Initializer> {
+        use crate::ast::{Expr, ExprKind};
+        self.error_at(codes::parser::MISSING_ASSIGNMENT_IN_INITIALIZER, start, &[]);
+        let this_span = Span { start: start.start, end: start.start + 4 };
+        let this_ = self.ast.push_expr(Expr { span: this_span, kind: ExprKind::This });
+        let synthetic = self.name_from("", Span { start: this_span.end, end: this_span.end });
+        let property = self.ast.push_expr(Expr {
+            span: this_span,
+            kind: ExprKind::Property { target: this_, name: synthetic, null_aware: false },
+        });
+        let value = self.parse_expression_after_primary(start, property)?;
+        let name = self.name_from("", Span { start: start.start, end: start.start });
+        Ok(Initializer::Field {
+            span: self.span_from(start),
+            this_: false,
+            name,
+            value,
+        })
     }
 
     fn initializer_without_assignment(&mut self, start: Span) -> PResult<Initializer> {

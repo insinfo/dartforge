@@ -290,6 +290,24 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'dart:async';\nget await => 4;\ntest1() async {\n  var y = await;\n}\n",
         &[("unused_import", 1, 8, 12), ("unused_local_variable", 4, 7, 1), ("missing_identifier", 4, 16, 1)],
     ),
+    // `this` in an initializer has the class's type; `this?.m()` is read as
+    // `this.<synthetic>?.m()` (2026-10-13).
+    (
+        "this_no_inicializador.dart",
+        "class B {\n  int x = 0;\n  B();\n  B.n();\n  B.a() : this.foo;\n  B.b() : x = this.bar;\n  B.c() : this?.n();\n}\n",
+        &[
+            ("invalid_reference_to_this", 5, 11, 4),
+            ("missing_assignment_in_initializer", 5, 11, 4),
+            ("initializer_for_non_existent_field", 5, 11, 8),
+            ("undefined_getter", 5, 16, 3),
+            ("invalid_reference_to_this", 6, 15, 4),
+            ("undefined_getter", 6, 20, 3),
+            ("invalid_reference_to_this", 7, 11, 4),
+            ("missing_assignment_in_initializer", 7, 11, 4),
+            ("expected_token", 7, 15, 2),
+            ("initializer_for_non_existent_field", 7, 11, 9),
+        ],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",

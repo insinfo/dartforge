@@ -221,9 +221,7 @@ pub(crate) struct Body {
     /// `ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER`.
     pub primary_parameters: HashSet<LocalId>,
     /// `this` without the declaration's type: the header of a primary
-    /// constructor (3.13, outside the class body) and the initializer list
-    /// (where the analyzer's parser recovery differs from ours in
-    /// `this?.x()`).
+    /// constructor (3.13, outside the class body).
     pub untyped_this: bool,
     /// Depth in `flow_ends` where the dead fragment in progress started
     /// (`_firstDeadNode`): while there is one, another unreachable node is part
