@@ -1396,9 +1396,8 @@ impl Engine {
         if self.options.persist && self.state_dirty {
             match self.save() {
                 Ok(()) => self.state_dirty = false,
-                // Kept in Portuguese: `crates/build/tests/corpus.rs` matches
-                // "não gravado".
-                Err(e) => warnings.push(format!("estado do motor não gravado: {e}")),
+                // `crates/build/tests/corpus.rs` matches "not saved".
+                Err(e) => warnings.push(format!("engine state not saved: {e}")),
             }
         }
         rel.elapsed_time = t0.elapsed();
@@ -1866,9 +1865,9 @@ impl Engine {
     /// post-processor runs on the Dart executor with the
     /// `PostProcessBuildStep` served by the engine.
     ///
-    /// The error messages that start with "pós-processador" stay in
-    /// Portuguese: `crates/build/tests/corpus.rs` matches that prefix on the
-    /// pending reasons.
+    /// The error messages start with "post-processor":
+    /// `crates/build/tests/corpus.rs` matches that prefix on the pending
+    /// reasons.
     fn post_process_action(
         &self,
         a: usize,
@@ -1940,14 +1939,14 @@ impl Engine {
                 .is_some_and(|b| b.as_ref() != bytes.as_ref())
             {
                 return Err(format!(
-                    "pós-processador Dart retornou bytes diferentes para {}",
+                    "post-processor (Dart) returned different bytes for {}",
                     id.text()
                 ));
             }
             if !service.writes.contains_key(&id) {
                 service.write(&id, bytes).map_err(|e| {
                     format!(
-                        "pós-processador escreveu asset já existente: {}",
+                        "post-processor wrote an asset that already exists: {}",
                         e.0.text()
                     )
                 })?;
@@ -1955,7 +1954,7 @@ impl Engine {
         }
         if let Some(x) = result.deleted_outputs.iter().find(|x| **x != action.input) {
             return Err(format!(
-                "pós-processador apagou {}, que não é a entrada primária",
+                "post-processor deleted {}, which is not the primary input",
                 x.text()
             ));
         }
@@ -2950,7 +2949,7 @@ impl Engine {
     /// Scoreboard against a reference (the corpus oracle, or the fallback on
     /// disk): per reference output, equal/pending/different.
     ///
-    /// The reasons that start with "pós-processador" stay in Portuguese:
+    /// The post-processor reasons start with "post-processor":
     /// `crates/build/tests/corpus.rs` matches that prefix on the pending
     /// reasons.
     pub fn scoreboard(&self, reference: &BTreeMap<AssetId, Vec<u8>>) -> Scoreboard {
@@ -2979,7 +2978,7 @@ impl Engine {
                         }
                         _ => p
                             .different
-                            .push((id.clone(), "pós-processador: difere do oficial".into())),
+                            .push((id.clone(), "post-processor: differs from the official one".into())),
                     }
                     continue;
                 }
@@ -2990,7 +2989,7 @@ impl Engine {
                 if has_post {
                     p.pending.push((
                         id.clone(),
-                        "pós-processador: saída só com o executor Dart".into(),
+                        "post-processor: output only with the Dart executor".into(),
                     ));
                 } else {
                     p.different

@@ -248,11 +248,10 @@ fn ng_incremental_equals_from_scratch() {
 /// declaration, one at a time; the live engine (which regenerates only the
 /// closure of importers) and a new engine must reach the same state.
 ///
-/// The name stays in Portuguese: `ci.yml` skips it with
-/// `--skip ng_edicao_dart_em_cada_arquivo`.
+/// `ci.yml` skips it with `--skip ng_dart_edit_in_each_file`.
 #[test]
 #[ignore = "requires `dart pub get` in corpus/ngdart; slow (one new engine per file)"]
-fn ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero() {
+fn ng_dart_edit_in_each_file_equals_from_scratch() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("corpus_ngdart");
     copy_case(&corpus(), &root);

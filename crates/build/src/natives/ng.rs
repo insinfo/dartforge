@@ -265,7 +265,7 @@ impl NativeGenerator for NgStageA {
             dartforge_ng_generator::generate_with_fallback(&package, &mut names, None, Some(&resolver));
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
-                "ngdart (stage A): queries {:.1} ms ({} files), gerar_com_apoio {:.1} ms",
+                "ngdart (stage A): queries {:.1} ms ({} files), generate_with_fallback {:.1} ms",
                 t_queries.as_secs_f64() * 1000.0,
                 v.len(),
                 (t.elapsed() - t_queries).as_secs_f64() * 1000.0

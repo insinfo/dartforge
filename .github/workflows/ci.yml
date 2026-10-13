@@ -245,7 +245,7 @@ jobs:
       #   corpus_runs_under_dart_run, ddc_matches_dart_run
       #                     o corpus diferencial inteiro — é o pesado.yml
       #   microbenchmark    medição de desempenho do heap, não correção
-      #   ng_edicao_dart_em_cada_arquivo
+      #   ng_dart_edit_in_each_file
       #                     varredura de 219 edições (≈ 5 min em debug), sob demanda
       # Os corpora do motor de build (corpus/builders, oráculo do build_runner
       # oficial), das macros (corpus/macros, o package:json) e do ngdart
@@ -299,7 +299,7 @@ jobs:
           cargo test --locked --workspace --tests --no-fail-fast --
           --ignored --skip pub_corpus --skip new_sali_type_checks --skip corpus_runs_under_dart_run
           --skip ddc_matches_dart_run --skip microbenchmark
-          --skip ng_edicao_dart_em_cada_arquivo
+          --skip ng_dart_edit_in_each_file
 
   # O backend nativo e o JIT no Linux e no macOS: compilar com os dois
   # features, os testes do emit_native e do JIT (com os ignorados) e a recarga

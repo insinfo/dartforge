@@ -265,3 +265,5 @@ outras já em inglês ficam.
 | `ng_generator::sass::{Estilo::{Expandido, Comprimido}, compilar_ativo}`, `Sheet { mapa }` | `sass::{Style::{Expanded, Compressed}, compile_asset}`, `Sheet { map }` |
 | `expr::Action::Complexa` | `expr::Action::Complex` |
 | teste `sass_formas` (a pasta de dados `tests/sass_formas/` fica) | `sass_forms` |
+| teste `ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero` (`--skip ng_edicao_dart_em_cada_arquivo` no `ci.yml`) | `ng_dart_edit_in_each_file_equals_from_scratch` (`--skip ng_dart_edit_in_each_file`) |
+| motivos `pós-processador…` e aviso `estado do motor não gravado` do motor de build | `post-processor…` e `engine state not saved` |

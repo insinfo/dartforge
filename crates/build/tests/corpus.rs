@@ -208,10 +208,10 @@ fn process(dir: &Path, persist: bool) -> (String, usize, Engine) {
             Demand::Everything,
         )
         .unwrap();
-    // "não gravado" matches the warning `engine.rs` emits when saving the state
-    // fails (kept in Portuguese there).
+    // "not saved" matches the warning `engine.rs` emits when saving the state
+    // fails.
     assert!(
-        at.warnings.iter().all(|a| !a.contains("não gravado")),
+        at.warnings.iter().all(|a| !a.contains("not saved")),
         "{:?}",
         at.warnings
     );
@@ -380,9 +380,9 @@ fn corpus_builders_plan_and_scoreboard() {
             failures.push(format!("{name}: different {}: {m}", id.text()));
         }
         for (id, m) in &p.pending {
-            // "pós-processador" matches the reasons `engine.rs` gives for
-            // post-processors (kept in Portuguese there).
-            if m.starts_with("pós-processador") {
+            // "post-processor" matches the reasons `engine.rs` gives for
+            // post-processors.
+            if m.starts_with("post-processor") {
                 println!("{name}: {} ({m})", id.text());
             }
         }

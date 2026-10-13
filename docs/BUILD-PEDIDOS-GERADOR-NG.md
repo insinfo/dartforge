@@ -125,7 +125,7 @@ por arquivo, dentro da ação de pacote:
   declaração nova em cada um dos 219 `.dart` do corpus, uma de cada vez —
   **incremental = do zero nas 219**, e 209 sem regenerar o pacote inteiro (o
   `a02`, filho de 13 casos, regenera 15 arquivos; um filho com `@Input` novo,
-  3); `ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero` e
+  3); `ng_dart_edit_in_each_file_equals_from_scratch` e
   `ng_incremental_igual_ao_do_zero` (corpo, `@Input` novo em filho, seletor,
   import novo).
 * Volta ao estágio A (pacote inteiro): arquivo novo ou apagado, parte,
