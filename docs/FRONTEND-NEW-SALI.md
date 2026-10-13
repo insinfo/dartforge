@@ -142,7 +142,7 @@ A medição compara, expressão a expressão, o tipo estático nosso com o do
     # nosso despejo (ordenado por arquivo/offset/comprimento, offsets UTF-16)
     cargo run --release -p dartforge-types --example despejo_tipos --         C:/MyDartProjects/new_sali/frontend/web/main.dart         --packages C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         -o fe.tsv --files fe_arquivos.txt --warnings fe_avisos.txt
     # oráculo: compilado uma vez (não recompila o analyzer a cada rodada)
-    dart compile exe --packages=C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         tools/oraculo_tipos/oraculo.dart -o oraculo.exe
+    dart compile exe --packages=C:/MyDartProjects/new_sali/frontend/.dart_tool/package_config.json         tools/type_oracle/oracle.dart -o oraculo.exe
     oraculo.exe C:/MyDartProjects/new_sali/frontend fe_arquivos.txt fe_oraculo.tsv
     # comparação em fluxo, agrupada pela causa
     cargo run --release -p dartforge-types --example comparar_tipos -- fe.tsv fe_oraculo.tsv
@@ -203,10 +203,10 @@ depois de chamada `Never` em `uri.dart`, `s is! String` com `s: String` em
 _compact_hash collection math convert async`.
 
 Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
-sobre `corpus/inferencia/`, no CI): programas iguais ao oráculo
+sobre `corpus/inference/`, no CI): programas iguais ao oráculo
 **0/95 → 83/95** (antes do `FutureOr` cru todo programa tinha um aviso);
 35 expressões divergentes e 3 avisos, listados em
-`corpus/inferencia/divergences.txt`.
+`corpus/inference/divergences.txt`.
 
 Avisos restantes no new_sali por causa (frontend 28 / core 15):
 

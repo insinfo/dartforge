@@ -6642,12 +6642,12 @@ Edge headless com 0 erros no console e o CSS servido.
    `docs/FRONTEND-NEW-SALI.md`): `new_sali/core` 13.431 → **15** avisos,
    `frontend` 57.883 → **28** (17 em templates gerados, legítimos);
    divergências de tipo estático por expressão 137.428 → 31 (core) e
-   316.756 → 56 (frontend); corpus `corpus/inferencia` 83/95 programas
+   316.756 → 56 (frontend); corpus `corpus/inference` 83/95 programas
    iguais ao oráculo (teste no CI). Os
    grupos restantes, por causa, estão em `docs/FRONTEND-NEW-SALI.md`.
    O contrato é `docs/INFERENCIA-ESPECIFICACAO.md` (regras do analyzer
    6.11 com arquivo:linha, e o que muda até 3.14), com o corpus de
-   conformidade `corpus/inferencia/` (95 programas, tipos gravados pelo
+   conformidade `corpus/inference/` (95 programas, tipos gravados pelo
    oráculo) e a fila de lacunas do motor em `docs/INFERENCIA-LACUNAS.md`.
 2. **Escrita em disco** no `limitless_ui`: 233 s para 484 arquivos, contra
    10,5 s de compilação. É I/O do Windows com antivírus, não compilador —

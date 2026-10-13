@@ -1,9 +1,9 @@
 //! Conformance of inference with the oracle (`package:analyzer`): dumps each
-//! program of `corpus/inferencia/` and compares it with the `.expected.tsv`
+//! program of `corpus/inference/` and compares it with the `.expected.tsv`
 //! recorded by the oracle (docs/INFERENCIA-ESPECIFICACAO.md, §0).
 //!
 //! The known divergences and warnings are kept in
-//! `corpus/inferencia/divergences.txt` (a ratchet): the test fails on a new
+//! `corpus/inference/divergences.txt` (a ratchet): the test fails on a new
 //! divergence or warning, and also on a list item that stopped happening
 //! (the list only shrinks). `UPDATE_DIVERGENCES=1` rewrites the list,
 //! preserving the header notes (`#> ` lines), which explain the divergences
@@ -40,7 +40,7 @@ fn inference_corpus_against_oracle() {
         eprintln!("Dart SDK missing: test skipped");
         return;
     };
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/inferencia");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/inference");
     let mut progs = Vec::new();
     programs(&root, &mut progs);
     assert!(!progs.is_empty(), "empty corpus in {}", root.display());
@@ -91,7 +91,7 @@ fn inference_corpus_against_oracle() {
 
     if std::env::var_os("UPDATE_DIVERGENCES").is_some() {
         let mut s = String::from(
-            "# Known divergences and warnings of corpus/inferencia against the oracle\n\
+            "# Known divergences and warnings of corpus/inference against the oracle\n\
              # (ratchet of crates/types/tests/corpus_inference.rs; it only shrinks).\n",
         );
         s.push_str(&format!("# {summary}\n"));
@@ -117,8 +117,8 @@ fn inference_corpus_against_oracle() {
     let resolved: Vec<&String> = known.difference(&current).collect();
     assert!(
         new_.is_empty() && resolved.is_empty(),
-        "corpus/inferencia changed ({summary}).\nnew ({}):\n{}\nresolved, remove from the list ({}):\n{}\n\
-         (UPDATE_DIVERGENCES=1 rewrites corpus/inferencia/divergences.txt)",
+        "corpus/inference changed ({summary}).\nnew ({}):\n{}\nresolved, remove from the list ({}):\n{}\n\
+         (UPDATE_DIVERGENCES=1 rewrites corpus/inference/divergences.txt)",
         new_.len(),
         new_.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n"),
         resolved.len(),

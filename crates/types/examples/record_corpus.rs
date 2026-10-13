@@ -1,11 +1,11 @@
 //! Records the expected types of the inference conformance corpus
-//! (`corpus/inferencia/`) with the oracle (`tools/oraculo_tipos/oraculo.dart`,
+//! (`corpus/inference/`) with the oracle (`tools/type_oracle/oracle.dart`,
 //! package:analyzer). It only orchestrates: it runs ONE `dart` process for the
 //! whole corpus and splits the output per program.
 //!
 //! ```text
 //! cargo run --release -p dartforge-types --example record_corpus -- \
-//!     --packages <package_config.json> [corpus/inferencia]
+//!     --packages <package_config.json> [corpus/inference]
 //! ```
 //!
 //! `<package_config.json>` is any one that resolves `package:analyzer` 6.11.0
@@ -48,7 +48,7 @@ fn main() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = match args.first() {
         Some(r) => PathBuf::from(r),
-        None => repo.join("corpus/inferencia"),
+        None => repo.join("corpus/inference"),
     };
     let root = std::fs::canonicalize(&root).unwrap_or(root);
     let root_txt = root.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
@@ -61,7 +61,7 @@ fn main() {
     let list = tmp.join("corpus_inferencia_arquivos.txt");
     let output = tmp.join("corpus_inferencia_oraculo.tsv");
     std::fs::write(&list, progs.join("\n") + "\n").unwrap();
-    let oracle = repo.join("tools/oraculo_tipos/oraculo.dart");
+    let oracle = repo.join("tools/type_oracle/oracle.dart");
     let st = std::process::Command::new("dart")
         .arg(format!("--packages={packages}"))
         .arg(&oracle)

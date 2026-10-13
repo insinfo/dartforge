@@ -22,7 +22,7 @@ duas inferências divergem e quem está certo) e registra o começo do passo 2.
 | Identificadores com alvo divergente | **2** (`this` em extensão, representação) |
 
 Veredito das 336 divergências de tipo contra o `package:analyzer` 3.6.2
-(`tools/oraculo_tipos`):
+(`tools/type_oracle`):
 
 | Quem acerta | Divergências |
 |---|---:|
@@ -74,7 +74,7 @@ acrescenta antes uma linha `#totais`.
     #    `analyzer` e `path`, depois de `dart pub get`)
     ls -d $PWD/corpus/js/*.dart > /tmp/arquivos.txt
     DART_SDK=<sdk 3.6.2> dart --packages=<dir>/.dart_tool/package_config.json \
-        tools/oraculo_tipos/oraculo.dart $PWD/corpus/js /tmp/arquivos.txt /tmp/oraculo.tsv
+        tools/type_oracle/oracle.dart $PWD/corpus/js /tmp/arquivos.txt /tmp/oraculo.tsv
 
     # 3. juiz: quem acerta, por categoria
     node scripts/check-js-types.mjs /tmp/div.tsv /tmp/oraculo.tsv --examples 3
@@ -205,7 +205,7 @@ contra o analyzer:
    `tipos::tipo_do_call_implicito`). `[1, 2, 3].map(somador)`, com
    `Somador.call(int) → int`, restringia `T` pelo tipo da interface e `T`
    saía `dynamic`; a coerção (*implicit call tearoff*) vem antes da restrição.
-   Resolveu também três divergências conhecidas de `corpus/inferencia`
+   Resolveu também três divergências conhecidas de `corpus/inference`
    (`mem11_call_generico`, catraca atualizada).
 
 Os testes de `crates/types` e `crates/emit_js` passam; a saída JS do corpus

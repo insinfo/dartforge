@@ -14,7 +14,7 @@ type-system/` são rascunhos defasados em relação ao código. Este documento �
 Quando as fontes divergem, vale, nesta ordem:
 
 1. **O analyzer 6.11.0 + `_fe_analyzer_shared` 76.0.0** (Dart 3.6.2) — é o que
-   o oráculo `tools/oraculo_tipos` executa e o piso da linguagem que
+   o oráculo `tools/type_oracle` executa e o piso da linguagem que
    compilamos (3.6 é o piso, não o teto).
 2. A mesma implementação em `references/dart-sdk` (3.14-dev), para o que
    mudou depois de 3.6 — cada regra que mudou traz **as duas versões**,
@@ -49,9 +49,9 @@ As linhas de `sdk:` valem para o commit de `references/dart-sdk` registrado
 em `docs/references-manifest.json`; as de `an611:`/`fas76:` são de pacotes
 imutáveis do pub.
 
-### 0.3 Corpus de conformidade (`corpus/inferencia/`)
+### 0.3 Corpus de conformidade (`corpus/inference/`)
 
-Cada regra `R-XXX-nn` tem um programa mínimo `corpus/inferencia/<seção>/
+Cada regra `R-XXX-nn` tem um programa mínimo `corpus/inference/<seção>/
 <id>_<nome>.dart` e, ao lado, `<id>_<nome>.expected.tsv` **gravado pelo
 oráculo** (nunca escrito à mão):
 
@@ -67,14 +67,14 @@ nosso despejo, `dartforge_types::despejo`), `tipo` é o
 (`KIND:dono.nome`). `marca = 1` nas expressões que começam logo depois de um
 comentário `/*@*/`: são as que a regra quer verificar; as demais linhas
 também são verdade do oráculo e podem ser comparadas. Todos os programas
-analisam sem erro no 3.6.2 (`dart analyze corpus/inferencia`); os casos que
+analisam sem erro no 3.6.2 (`dart analyze corpus/inference`); os casos que
 são **erro** no 3.6 estão só no texto, com exemplo.
 
 Uso (dono do `crates/types`): o teste `crates/types/tests/corpus_inferencia.rs`
 despeja cada programa (`dartforge_types::despejo`) e o compara com o
 `.expected.tsv` — uma divergência num programa mínimo aponta a regra exata.
 As divergências e avisos ainda conhecidos ficam em
-`corpus/inferencia/divergences.txt` (catraca: o teste falha com item novo e
+`corpus/inference/divergences.txt` (catraca: o teste falha com item novo e
 com item que deixou de acontecer; `UPDATE_DIVERGENCES=1` regrava).
 
 ### 0.4 Notação
