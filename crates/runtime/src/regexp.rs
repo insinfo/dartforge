@@ -1,23 +1,22 @@
-// Runtime nativo: o motor de expressões regulares do `RegExp` (o irregexp da
-// VM, `runtime/vm/regexp*.cc`, faz este papel lá). Semântica do ECMAScript
-// (ECMA-262 §22.2), que é a do `RegExp` do Dart, com o Anexo B no modo não
-// unicode, como o irregexp: `]` e `{` soltos são literais, escape
-// desconhecido é o próprio caractere, `\0nn` octal.
+// Native runtime: the regular expression engine of `RegExp` (the VM's irregexp,
+// `runtime/vm/regexp*.cc`, plays this role there). ECMAScript semantics
+// (ECMA-262 §22.2), which are those of Dart's `RegExp`, with Annex B in non-unicode
+// mode, like irregexp: lone `]` and `{` are literals, an unknown escape is the
+// character itself, `\0nn` is octal.
 //
-// O motor é de retrocesso com continuações, sobre as unidades UTF-16 da
-// string (os índices que o `dart:core` vê); no modo `unicode` um par de
-// surrogates é lido como um ponto de código. A repetição de um átomo de um
-// caractere sem grupos (`.*`, `\d+`, `[a-z]{2,}`) é iterativa, sem recursão
-// por caractere.
+// The engine is backtracking with continuations, over the string's UTF-16 code
+// units (the indices `dart:core` sees); in `unicode` mode a surrogate pair is read
+// as one code point. The repetition of a single-character atom without groups
+// (`.*`, `\d+`, `[a-z]{2,}`) is iterative, without per-character recursion.
 //
-// O `_RegExp` da sobreposição (`native_sdk/core/regexp_patch.dart`) compila
-// o padrão uma vez (`DartForge_regexp_compilar`) num `_ProgramaDeRegExp` (cid
-// 16, `BRUTO`+`ATTACHMENT`: o `Box<ProgramaRe>` solto pelo coletor quando o
-// `_RegExp` morre, docs/NATIVO-ESPACO-UNIFICADO.md §4.3) e pede cada
-// casamento (`DartForge_regexp_executar`); as posições do último casamento
-// são lidas por `DartForge_regexp_captura`.
+// The overlay's `_RegExp` (`native_sdk/core/regexp_patch.dart`) compiles the
+// pattern once (`DartForge_regexp_compilar`) into a `_ProgramaDeRegExp` (cid 16,
+// `BRUTO`+`ATTACHMENT`: the `Box<ProgramaRe>` released by the collector when the
+// `_RegExp` dies, docs/NATIVO-ESPACO-UNIFICADO.md §4.3) and asks for each match
+// (`DartForge_regexp_executar`); the positions of the last match are read through
+// `DartForge_regexp_captura`.
 
-/// Uma classe de caracteres (`[...]`, `\d`, `.`).
+/// A character class (`[...]`, `\d`, `.`).
 #[derive(Clone, Debug)]
 enum ReItem {
     Range(u32, u32),
@@ -27,7 +26,7 @@ enum ReItem {
     Property(ReProp, bool),
 }
 
-/// As propriedades Unicode de `\p{...}` que o motor conhece.
+/// The Unicode properties of `\p{...}` that the engine knows.
 #[derive(Clone, Copy, Debug)]
 enum ReProp {
     Letter,
@@ -59,7 +58,7 @@ enum ReNode {
         min: u32,
         max: u32,
         greedy: bool,
-        /// As capturas dentro do átomo, `[de, until)`: zeradas a cada iteração.
+        /// The captures inside the atom, `[de, until)`: cleared on each iteration.
         groups: (usize, usize),
     },
     Back(usize),
@@ -71,7 +70,7 @@ enum ReNode {
     },
 }
 
-/// Um padrão compilado.
+/// A compiled pattern.
 struct ReProgram {
     root: ReNode,
     groups: usize,
@@ -80,12 +79,12 @@ struct ReProgram {
     sensitive: bool,
     unicode: bool,
     dot_all: bool,
-    /// O padrão de origem: a cópia entre isolados recompila no destino (§2.12).
+    /// The source pattern: copying between isolates recompiles at the destination (§2.12).
     source: Vec<u16>,
 }
 
 // ---------------------------------------------------------------------------
-// Análise do padrão.
+// Pattern parsing.
 
 struct ReParser<'a> {
     s: &'a [u32],
@@ -172,8 +171,8 @@ impl<'a> ReParser<'a> {
                         return Err("Unterminated group".into());
                     }
                     let peeks = ReNode::Peek { no: Box::new(no), positive, behind };
-                    // Anexo B: lookahead pode ser quantificado no modo não
-                    // unicode; o lookbehind não.
+                    // Annex B: a lookahead may be quantified in non-unicode
+                    // mode; a lookbehind may not.
                     if behind || self.unicode {
                         return Ok(peeks);
                     }
@@ -230,7 +229,7 @@ impl<'a> ReParser<'a> {
                 if self.unicode {
                     return Err("Nothing to repeat".into());
                 }
-                // Anexo B: `{` que não começa um quantificador é literal.
+                // Annex B: a `{` that does not start a quantifier is a literal.
                 if self.brace_quantifier_at(self.i).is_some() {
                     return Err("Nothing to repeat".into());
                 }
@@ -247,7 +246,7 @@ impl<'a> ReParser<'a> {
         self.quantifier(atom, groups_before)
     }
 
-    /// Um caractere do padrão; no modo unicode, um par de surrogates.
+    /// A pattern character; in unicode mode, a surrogate pair.
     fn read_pattern_char(&mut self) -> u32 {
         let c = self.s[self.i];
         self.i += 1;
@@ -289,7 +288,7 @@ impl<'a> ReParser<'a> {
         Ok(name)
     }
 
-    /// `{n}`, `{n,}` ou `{n,m}` a partir de `i`: (min, max, índice depois).
+    /// `{n}`, `{n,}` or `{n,m}` from `i`: (min, max, index after).
     fn brace_quantifier_at(&self, mut i: usize) -> Option<(u32, u32, usize)> {
         if self.s.get(i) != Some(&('{' as u32)) {
             return None;
@@ -359,16 +358,16 @@ impl<'a> ReParser<'a> {
         })
     }
 
-    /// O escape depois de `\` fora de classe.
+    /// The escape after `\` outside a class.
     fn atom_escape(&mut self) -> ReResult<ReNode> {
         let Some(c) = self.peek() else {
             return Err("\\ at end of pattern".into());
         };
         let ch = char::from_u32(c).unwrap_or('\0');
         if ('1'..='9').contains(&ch) {
-            // Referência para trás: o número inteiro, se houver tantos
-            // grupos no padrão (conferido no fim); senão, Anexo B (octal ou
-            // o próprio dígito).
+            // Backreference: the whole number, if the pattern has that many
+            // groups (checked at the end); otherwise, Annex B (octal or the
+            // digit itself).
             let begin = self.i;
             let mut n: usize = 0;
             while let Some(d) = self.peek().filter(|d| (('0' as u32)..=('9' as u32)).contains(d)) {
@@ -399,8 +398,8 @@ impl<'a> ReParser<'a> {
         Ok(ReNode::Char(cp))
     }
 
-    /// O total de grupos de captura do padrão inteiro (para decidir se `\n`
-    /// é referência).
+    /// The total number of capture groups of the whole pattern (to decide whether
+    /// `\n` is a reference).
     fn total_groups(&self) -> usize {
         let mut n = 0;
         let mut i = 0;
@@ -434,7 +433,7 @@ impl<'a> ReParser<'a> {
         n
     }
 
-    /// Anexo B: `\0`–`\377` octal, ou `\8`/`\9` como o dígito.
+    /// Annex B: `\0`–`\377` octal, or `\8`/`\9` as the digit.
     fn octal_or_digit(&mut self) -> u32 {
         let c = self.s[self.i];
         if c >= '8' as u32 {
@@ -456,7 +455,7 @@ impl<'a> ReParser<'a> {
         v
     }
 
-    /// `\d \D \w \W \s \S \p{..} \P{..}`, ou `None` (não consome).
+    /// `\d \D \w \W \s \S \p{..} \P{..}`, or `None` (consumes nothing).
     fn common_class_escape(&mut self) -> ReResult<Option<ReItem>> {
         let Some(c) = self.peek().and_then(char::from_u32) else { return Ok(None) };
         let item = match c {
@@ -502,7 +501,7 @@ impl<'a> ReParser<'a> {
         Ok(Some(item))
     }
 
-    /// O caractere de um escape (`\n`, `\x41`, `\u{1F600}`, `\cA`, identidade).
+    /// The character of an escape (`\n`, `\x41`, `\u{1F600}`, `\cA`, identity).
     fn char_escape(&mut self, in_class: bool) -> ReResult<u32> {
         let c = self.s[self.i];
         self.i += 1;
@@ -531,7 +530,7 @@ impl<'a> ReParser<'a> {
                 }
                 _ if self.unicode => return Err("Invalid unicode escape".into()),
                 _ => {
-                    // Anexo B: `\c` sem letra é a barra e o `c`.
+                    // Annex B: `\c` without a letter is the backslash and the `c`.
                     self.i -= 1;
                     '\\' as u32
                 }
@@ -563,7 +562,7 @@ impl<'a> ReParser<'a> {
                     if hs.iter().all(Option::is_some) {
                         self.i += 4;
                         let v = hs.iter().fold(0, |a, h| a * 16 + h.unwrap());
-                        // No modo unicode, `😀` é um ponto de código.
+                        // In unicode mode, `😀` is one code point.
                         if self.unicode
                             && (0xD800..0xDC00).contains(&v)
                             && self.peek() == Some('\\' as u32)
@@ -596,7 +595,7 @@ impl<'a> ReParser<'a> {
         })
     }
 
-    /// `[...]` (o `[` já consumido).
+    /// `[...]` (the `[` already consumed).
     fn class(&mut self) -> ReResult<ReNode> {
         let negated = self.eat('^');
         let mut items = Vec::new();
@@ -623,7 +622,7 @@ impl<'a> ReParser<'a> {
                         if self.unicode {
                             return Err("Invalid character class".into());
                         }
-                        // Anexo B: `[\d-z]` é `\d`, `-` e `z`.
+                        // Annex B: `[\d-z]` is `\d`, `-` and `z`.
                         for x in [a, Ok('-' as u32), b] {
                             match x {
                                 Ok(c) => items.push(ReItem::Range(c, c)),
@@ -642,7 +641,7 @@ impl<'a> ReParser<'a> {
         Ok(ReNode::Class(items, negated))
     }
 
-    /// Um átomo de classe: um caractere (`Ok`) ou uma classe (`Err`).
+    /// A class atom: a character (`Ok`) or a class (`Err`).
     fn class_atom(&mut self) -> ReResult<Result<u32, ReItem>> {
         if self.eat('\\') {
             if self.end() {
@@ -661,7 +660,7 @@ fn hex_re(c: u32) -> Option<u32> {
     char::from_u32(c)?.to_digit(16)
 }
 
-/// Resolve `\k<nome>` e confere as referências.
+/// Resolves `\k<name>` and checks the references.
 fn resolve_re_names(no: &mut ReNode, names: &[(String, usize)]) -> ReResult<()> {
     match no {
         ReNode::NamedBack(n) => {
@@ -714,7 +713,7 @@ fn compile_re(pattern: &[u16], multiline: bool, sensitive: bool, unicode: bool, 
 }
 
 // ---------------------------------------------------------------------------
-// Casamento.
+// Matching.
 
 fn is_line_terminator(c: u32) -> bool {
     matches!(c, 0x0A | 0x0D | 0x2028 | 0x2029)
@@ -731,9 +730,9 @@ fn is_re_space(c: u32) -> bool {
     )
 }
 
-/// `Canonicalize` (ECMA-262 §22.2.2.7.3): no modo não unicode, a maiúscula
-/// simples, sem levar um não ASCII para ASCII; no unicode, a minúscula
-/// simples (aproximação do *simple case folding*).
+/// `Canonicalize` (ECMA-262 §22.2.2.7.3): in non-unicode mode, the simple
+/// uppercase, without taking a non-ASCII character to ASCII; in unicode mode, the
+/// simple lowercase (an approximation of *simple case folding*).
 fn re_canonical(c: u32, unicode: bool) -> u32 {
     let Some(ch) = char::from_u32(c) else { return c };
     if unicode {
@@ -787,8 +786,8 @@ struct ReMachine<'a> {
 type Cont<'k, 'a> = &'k mut dyn FnMut(&mut ReMachine<'a>, usize) -> bool;
 
 impl<'a> ReMachine<'a> {
-    /// O caractere que começa em `pos` (para frente) ou termina em `pos`
-    /// (para trás), e quantas unidades ocupa.
+    /// The character that starts at `pos` (forward) or ends at `pos` (backward),
+    /// and how many units it takes.
     fn do_read(&self, pos: usize, behind: bool) -> Option<(u32, usize)> {
         if behind {
             if pos == 0 {
@@ -820,7 +819,7 @@ impl<'a> ReMachine<'a> {
         if behind { pos - n } else { pos + n }
     }
 
-    /// Se o átomo de um caractere `no` aceita `c`.
+    /// Whether the single-character atom `no` accepts `c`.
     fn accepts(&self, no: &ReNode, c: u32) -> bool {
         match no {
             ReNode::Char(x) => {
@@ -954,8 +953,7 @@ impl<'a> ReMachine<'a> {
         if v.is_empty() {
             return k(self, pos);
         }
-        // Para trás (lookbehind), a sequência é casada da direita para a
-        // esquerda.
+        // Backward (lookbehind), the sequence is matched from right to left.
         let (first, rest): (&ReNode, &[ReNode]) = if behind {
             (&v[v.len() - 1], &v[..v.len() - 1])
         } else {
@@ -964,8 +962,8 @@ impl<'a> ReMachine<'a> {
         self.match_at(first, pos, behind, &mut |me: &mut ReMachine<'a>, p| me.match_seq(rest, p, behind, k))
     }
 
-    /// Repetição de um átomo de um caractere sem grupos: conta quantos
-    /// casam e tenta a continuação de cada comprimento, sem recursão.
+    /// Repetition of a single-character atom without groups: counts how many
+    /// match and tries the continuation for each length, without recursion.
     #[allow(clippy::too_many_arguments)]
     fn simple_repeat(&mut self, no: &ReNode, min: u32, max: u32, greedy: bool, pos: usize, behind: bool, k: Cont<'_, 'a>) -> bool {
         let mut positions = vec![pos];
@@ -1017,7 +1015,7 @@ impl<'a> ReMachine<'a> {
         if max == 0 {
             return k(self, pos);
         }
-        // Uma iteração vazia depois do mínimo não conta (a guarda de vazio).
+        // An empty iteration after the minimum does not count (the empty check).
         if done_count >= min && pos == previous_pos {
             return false;
         }
@@ -1037,8 +1035,8 @@ impl<'a> ReMachine<'a> {
         }
     }
 
-    /// Uma iteração do átomo de uma repetição: zera as capturas dele, casa,
-    /// e segue na repetição com um a menos no mínimo e no máximo.
+    /// One iteration of a repetition's atom: clears its captures, matches, and
+    /// goes on in the repetition with one less in the minimum and the maximum.
     #[allow(clippy::too_many_arguments)]
     fn iteration(
         &mut self,
@@ -1072,8 +1070,8 @@ impl<'a> ReMachine<'a> {
     }
 }
 
-/// Casa `p` em `s` a partir de `start` (só lá, se `sticky`). Devolve as
-/// posições `[início, end]` de cada grupo (−1 quando não participou).
+/// Matches `p` in `s` from `start` (only there, if `sticky`). Returns the
+/// positions `[start, end]` of each group (−1 when it did not participate).
 fn run_re(p: &ReProgram, s: &[u16], start: usize, sticky: bool) -> Option<Vec<i64>> {
     let mut m = ReMachine { s, p, caps: vec![-1; 2 * (p.groups + 1)] };
     let mut i = start;
@@ -1099,25 +1097,25 @@ fn run_re(p: &ReProgram, s: &[u16], start: usize, sticky: bool) -> Option<Vec<i6
 }
 
 // ---------------------------------------------------------------------------
-// Natives do `_RegExp` da sobreposição.
+// Natives of the overlay's `_RegExp`.
 
 thread_local! {
-    /// As posições do último casamento e a mensagem da última compilação que
-    /// falhou (lidas logo em seguida pelo Dart, na mesma thread).
+    /// The positions of the last match and the message of the last failed
+    /// compilation (read right after by Dart, on the same thread).
     static ULTIMO_RE: std::cell::RefCell<(Vec<i64>, String)> = const { std::cell::RefCell::new((Vec::new(), String::new())) };
 }
 
-/// Solta o programa de um `_ProgramaDeRegExp` morto (chamado pelo coletor).
+/// Releases the program of a dead `_ProgramaDeRegExp` (called by the collector).
 ///
 /// # Safety
-/// `p` saiu de `Box::into_raw` de um `Box<ProgramaRe>` em [`new_re_program`]
-/// e é solto uma vez só.
+/// `p` came from `Box::into_raw` of a `Box<ProgramaRe>` in [`new_re_program`]
+/// and is released only once.
 unsafe fn release_re_program(p: *mut u8) {
-    // SAFETY: contrato acima.
+    // SAFETY: contract above.
     drop(unsafe { Box::from_raw(p.cast::<ReProgram>()) });
 }
 
-/// Um `_ProgramaDeRegExp` com o programa `p`.
+/// A `_ProgramaDeRegExp` with the program `p`.
 fn new_re_program(p: ReProgram) -> i64 {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
@@ -1128,43 +1126,43 @@ fn new_re_program(p: ReProgram) -> i64 {
         );
         let bytes = std::mem::size_of::<ReProgram>() + 16 * p.source.len();
         let ptr = Box::into_raw(Box::new(p)).cast::<u8>();
-        // SAFETY: `release_re_program` é a única liberação de `ptr`.
+        // SAFETY: `release_re_program` is the only release of `ptr`.
         unsafe { heap.attach(h, release_re_program, ptr, bytes) };
         h
     })
 }
 
-/// O programa do `_ProgramaDeRegExp` `h`, emprestado enquanto `h` vive.
+/// The program of the `_ProgramaDeRegExp` `h`, borrowed while `h` lives.
 ///
 /// # Panics
-/// Se `h` não é um programa (bug do compilador).
+/// If `h` is not a program (compiler bug).
 fn re_program(heap: &Heap, h: i64) -> &ReProgram {
     assert!(
         crate::layout::is_object(h) && heap.class(h) == crate::layout::cid::REGEXP_PROGRAM,
-        "bug do compilador: programa de RegExp esperado
+        "compiler bug: RegExp program expected
 handle {h}"
     );
-    // SAFETY: o anexo de um programa vivo é um `ReProgram`, solto só quando o
-    // bloco morre (e o empréstimo do heap impede a coleta).
+    // SAFETY: the attachment of a live program is a `ReProgram`, released only
+    // when the block dies (and the heap borrow prevents collection).
     unsafe { &*heap.attachment(h).cast::<ReProgram>() }
 }
 
-/// O padrão e as opções `(multiline, sensível, unicode, dot_all)` do
-/// programa `h`: a cópia entre isolados recompila no destino (§2.12).
+/// The pattern and the options `(multiline, case-sensitive, unicode, dot_all)` of
+/// program `h`: copying between isolates recompiles at the destination (§2.12).
 fn re_program_pattern(heap: &Heap, h: i64) -> (Vec<u16>, [bool; 4]) {
     let p = re_program(heap, h);
     (p.source.clone(), [p.multiline, p.sensitive, p.unicode, p.dot_all])
 }
 
-/// Recompila no isolado corrente um programa copiado de outro (§2.12); o
-/// padrão já compilou uma vez, então não falha.
+/// Recompiles on the current isolate a program copied from another (§2.12); the
+/// pattern has already compiled once, so it does not fail.
 fn re_program_from_pattern(source: &[u16], options: [bool; 4]) -> i64 {
-    let p = compile_re(source, options[0], options[1], options[2], options[3]).expect("padrão de RegExp já compilado");
+    let p = compile_re(source, options[0], options[1], options[2], options[3]).expect("RegExp pattern already compiled");
     new_re_program(p)
 }
 
-/// Casa o programa `h` nas unidades `s` a partir de `start` (só lá, se
-/// `sticky`): as posições `[início, end]` de cada grupo.
+/// Matches program `h` in the units `s` from `start` (only there, if `sticky`):
+/// the positions `[start, end]` of each group.
 fn regexp_match_at(h: i64, s: &[u16], start: usize, sticky: bool) -> Option<Vec<i64>> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
@@ -1172,8 +1170,8 @@ fn regexp_match_at(h: i64, s: &[u16], start: usize, sticky: bool) -> Option<Vec<
     })
 }
 
-/// `DartForge_regexp_compilar`: compila o padrão e devolve o
-/// `_ProgramaDeRegExp`, ou null com a mensagem em `DartForge_regexp_erro`.
+/// `DartForge_regexp_compilar`: compiles the pattern and returns the
+/// `_ProgramaDeRegExp`, or null with the message in `DartForge_regexp_erro`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_compilar(
     pattern: i64,
@@ -1195,48 +1193,48 @@ pub extern "C" fn dartforge_nativo_DartForge_regexp_compilar(
     }
 }
 
-/// `DartForge_regexp_erro`: a mensagem da última compilação que falhou.
+/// `DartForge_regexp_erro`: the message of the last failed compilation.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_erro() -> i64 {
     let m = ULTIMO_RE.with(|u| u.borrow().1.clone());
     allocate_str(&m)
 }
 
-/// `DartForge_regexp_grupos`: quantos grupos de captura.
+/// `DartForge_regexp_grupos`: how many capture groups.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_grupos(program: i64) -> i64 {
     HEAP.with(|heap| re_program(&heap.borrow(), program).groups as i64)
 }
 
-/// `DartForge_regexp_n_nomes`: quantos grupos nomeados.
+/// `DartForge_regexp_n_nomes`: how many named groups.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_n_nomes(program: i64) -> i64 {
     HEAP.with(|heap| re_program(&heap.borrow(), program).names.len() as i64)
 }
 
-/// `DartForge_regexp_nome`: o nome do `i`-ésimo grupo nomeado.
+/// `DartForge_regexp_nome`: the name of the `i`-th named group.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_nome(program: i64, i: i64) -> i64 {
     let n = HEAP.with(|heap| re_program(&heap.borrow(), program).names.get(i as usize).map(|x| x.0.clone()));
     allocate_str(&n.unwrap_or_default())
 }
 
-/// `DartForge_regexp_indice_do_nome`: o índice do `i`-ésimo grupo nomeado.
+/// `DartForge_regexp_indice_do_nome`: the index of the `i`-th named group.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_indice_do_nome(program: i64, i: i64) -> i64 {
     HEAP.with(|heap| re_program(&heap.borrow(), program).names.get(i as usize).map_or(-1, |x| x.1 as i64))
 }
 
-/// `DartForge_regexp_executar`: casa a partir de `start`; as posições ficam
-/// para `DartForge_regexp_captura`. As unidades de uma `_TwoByteString` são
-/// lidas direto do bloco; as de uma `_OneByteString` são alargadas antes (o
-/// motor anda em `u16`).
+/// `DartForge_regexp_executar`: matches from `start`; the positions stay for
+/// `DartForge_regexp_captura`. The units of a `_TwoByteString` are read directly
+/// from the block; those of a `_OneByteString` are widened first (the engine
+/// walks in `u16`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_executar(program: i64, target: i64, start: i64, sticky: u8) -> u8 {
     let r = HEAP.with(|heap| {
         let heap = heap.borrow();
         let p = re_program(&heap, program);
-        let t = heap.text(target).expect("bug do compilador: string esperada");
+        let t = heap.text(target).expect("compiler bug: string expected");
         if start < 0 || start as usize > t.len() {
             return None;
         }
@@ -1257,7 +1255,7 @@ pub extern "C" fn dartforge_nativo_DartForge_regexp_executar(program: i64, targe
     }
 }
 
-/// `DartForge_regexp_captura`: a posição `i` do último casamento.
+/// `DartForge_regexp_captura`: position `i` of the last match.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_captura(i: i64) -> i64 {
     ULTIMO_RE.with(|u| u.borrow().0.get(i as usize).copied().unwrap_or(-1))

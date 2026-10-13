@@ -1,24 +1,24 @@
-// Runtime nativo: a API nativa de portas do Dart (`dart_native_api.h`) e os
-// dados de `dart_api_dl.h` — o que `NativeApi.postCObject`,
-// `NativeApi.newNativePort`, `NativeApi.closeNativePort` e
-// `NativeApi.initializeApiDLData` entregam ao código C.
+// Native runtime: Dart's native port API (`dart_native_api.h`) and the data of
+// `dart_api_dl.h` — what `NativeApi.postCObject`, `NativeApi.newNativePort`,
+// `NativeApi.closeNativePort` and `NativeApi.initializeApiDLData` hand to C code.
 //
-// * `Dart_PostCObject(port, object)`: lê a árvore `Dart_CObject` (em qualquer
-//   thread, sem heap Dart), monta a mensagem portátil (`Portable`) e a posta
-//   na porta, como `SendPort.send`. Dados externos (`kExternalTypedData`) são
-//   copiados e o finalizador do C é chamado logo em seguida — a VM o chama
-//   quando o objeto morre; aqui a mensagem já não depende da memória dele.
-// * `Dart_NewNativePort(name, handler, concorrente)`: uma porta atendida
-//   por uma thread própria, que converte cada mensagem de volta para
-//   `Dart_CObject` e chama o handler (a VM usa o pool de threads; as
-//   mensagens de uma porta chegam em ordem, uma de cada vez).
-// * `initializeApiDLData`: a tabela `DartApi` da versão 2.5 da API DL com as
-//   funções da API nativa; os nomes que dependem de `Dart_Handle` (a API
-//   completa do embedder) não constam, e `Dart_InitializeApiDL` os deixa
-//   nulos — como faria com um símbolo ausente.
+// * `Dart_PostCObject(port, object)`: reads the `Dart_CObject` tree (on any
+//   thread, without the Dart heap), builds the portable message (`Portable`) and
+//   posts it to the port, like `SendPort.send`. External data
+//   (`kExternalTypedData`) is copied and the C finalizer is called right away —
+//   the VM calls it when the object dies; here the message no longer depends on
+//   its memory.
+// * `Dart_NewNativePort(name, handler, concurrent)`: a port served by its own
+//   thread, which converts each message back to `Dart_CObject` and calls the
+//   handler (the VM uses the thread pool; the messages of one port arrive in
+//   order, one at a time).
+// * `initializeApiDLData`: the `DartApi` table of version 2.5 of the DL API with
+//   the native API functions; the names that depend on `Dart_Handle` (the full
+//   embedder API) are not listed, and `Dart_InitializeApiDL` leaves them null —
+//   as it would for a missing symbol.
 //
-// Layout do `Dart_CObject` (C, 64 bits): `type` (int32) em 0 e a união em 8,
-// com 40 bytes; os campos de cada variante seguem o cabeçalho.
+// Layout of `Dart_CObject` (C, 64 bits): `type` (int32) at 0 and the union at 8,
+// with 40 bytes; the fields of each variant follow the header.
 
 use std::ffi::{c_char, CStr, CString};
 
@@ -36,10 +36,10 @@ const KCAPABILITY: i32 = 10;
 const KNATIVE_POINTER: i32 = 11;
 const KUNMODIFIABLE_EXTERNAL_TYPED_DATA: i32 = 13;
 
-/// Tamanho de um `Dart_CObject` (o `type` e a união de 40 bytes).
+/// Size of a `Dart_CObject` (the `type` and the 40-byte union).
 const COBJECT_SIZE: usize = 48;
 
-/// `Dart_TypedData_Type` → o `TIPO_*` do runtime.
+/// `Dart_TypedData_Type` → the runtime's `TIPO_*`.
 fn typed_data_type(t: i32) -> Option<u8> {
     Some(match t {
         0 => TYPE_BYTE_DATA,
@@ -61,7 +61,7 @@ fn typed_data_type(t: i32) -> Option<u8> {
     })
 }
 
-/// O inverso de [`typed_data_type`].
+/// The inverse of [`typed_data_type`].
 fn typed_data_of_type(t: u8) -> i32 {
     match t {
         TYPE_BYTE_DATA => 0,
@@ -85,18 +85,18 @@ fn typed_data_of_type(t: u8) -> i32 {
 
 type HandleFinalizer = extern "C" fn(usize, usize);
 
-/// Lê a árvore `Dart_CObject` em `p`. `None`: tipo não suportado (a VM
-/// recusa o `Dart_PostCObject`). Os finalizadores de dados externos lidos
-/// vão para `external`, chamados só se a mensagem for postada.
+/// Reads the `Dart_CObject` tree at `p`. `None`: unsupported type (the VM rejects
+/// the `Dart_PostCObject`). The finalizers of the external data read go to
+/// `external`, called only if the message is posted.
 ///
 /// # Safety
-/// `p` aponta para um `Dart_CObject` válido do chamador.
+/// `p` points to a valid `Dart_CObject` of the caller.
 unsafe fn read_cobject(p: *const u8, external: &mut Vec<(usize, usize)>, depth: usize) -> Option<Portable> {
     if p.is_null() || depth > 10_000 {
         return None;
     }
-    // SAFETY: garantido por quem chama; cada leitura está dentro dos 48
-    // bytes do objeto, nas posições do cabeçalho.
+    // SAFETY: guaranteed by the caller; every read is within the object's 48
+    // bytes, at the header's positions.
     unsafe {
         let tipo = *(p as *const i32);
         let v = p.add(8);
@@ -145,15 +145,15 @@ unsafe fn read_cobject(p: *const u8, external: &mut Vec<(usize, usize)>, depth: 
             }
             KSEND_PORT => Portable::FromRuntime { cid: crate::layout::cid::SEND_PORT, id: *(v as *const i64) },
             KCAPABILITY => Portable::FromRuntime { cid: crate::layout::cid::CAPABILITY, id: *(v as *const i64) },
-            // O endereço chega como `int`; o finalizador fica com o C (a VM
-            // só o chama se a mensagem não for entregue).
+            // The address arrives as an `int`; the finalizer stays with C (the VM
+            // only calls it if the message is not delivered).
             KNATIVE_POINTER => Portable::Int(*(v as *const i64)),
             _ => return None,
         })
     }
 }
 
-/// Se `port` existe (aberta em algum isolado ou serviço).
+/// Whether `port` exists (open in some isolate or service).
 fn port_exists(port: i64) -> bool {
     rec().lock().unwrap_or_else(|e| e.into_inner()).contains_key(&port)
 }
@@ -161,11 +161,11 @@ fn port_exists(port: i64) -> bool {
 /// `Dart_PostCObject(port_id, message)`.
 ///
 /// # Safety
-/// `message` aponta para um `Dart_CObject` válido.
+/// `message` points to a valid `Dart_CObject`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_api_post_cobject(port: i64, message: *const u8) -> bool {
     let mut external = Vec::new();
-    // SAFETY: garantido por quem chama.
+    // SAFETY: guaranteed by the caller.
     let Some(value) = (unsafe { read_cobject(message, &mut external, 0) }) else {
         return false;
     };
@@ -174,7 +174,7 @@ pub unsafe extern "C" fn dartforge_api_post_cobject(port: i64, message: *const u
     }
     post(port, value.to_graph());
     for (f, pair) in external {
-        // SAFETY: o `Dart_HandleFinalizer` do chamador, `(isolate_data, peer)`.
+        // SAFETY: the caller's `Dart_HandleFinalizer`, `(isolate_data, peer)`.
         let f: HandleFinalizer = unsafe { std::mem::transmute(f) };
         f(0, pair);
     }
@@ -191,8 +191,7 @@ pub extern "C" fn dartforge_api_post_integer(port: i64, value: i64) -> bool {
     true
 }
 
-/// Os objetos C montados para o handler de uma porta nativa; vivos até ele
-/// voltar.
+/// The C objects built for the handler of a native port; alive until it returns.
 #[derive(Default)]
 struct CObjectArena {
     objects: Vec<Box<[u64; COBJECT_SIZE / 8]>>,
@@ -210,10 +209,10 @@ impl CObjectArena {
         p
     }
 
-    /// O `Dart_CObject` de `v`.
+    /// The `Dart_CObject` of `v`.
     fn build(&mut self, v: &Portable) -> *mut u8 {
-        // SAFETY: cada escrita fica dentro dos 48 bytes do objeto recém
-        // criado, nas posições do cabeçalho.
+        // SAFETY: every write stays within the 48 bytes of the freshly created
+        // object, at the header's positions.
         unsafe {
             match v {
                 Portable::Null | Portable::Objeto(_) => self.new(KNULL),
@@ -253,7 +252,7 @@ impl CObjectArena {
                     *(p.add(8) as *mut i32) = typed_data_of_type(t);
                     *(p.add(16) as *mut isize) = (b.len() / tamanho_do_elemento(t).max(1)) as isize;
                     self.bytes.push(b.clone());
-                    let last_one = self.bytes.last().expect("recém inserido");
+                    let last_one = self.bytes.last().expect("just inserted");
                     *(p.add(24) as *mut *const u8) = last_one.as_ptr();
                     p
                 }
@@ -269,18 +268,18 @@ impl CObjectArena {
 
 type NativePortHandler = extern "C" fn(i64, *mut u8);
 
-/// As portas nativas abertas: id → fila da thread que as atende.
+/// The open native ports: id → queue of the thread that serves them.
 fn native_ports() -> &'static std::sync::Mutex<crate::hash::HashMap<i64, std::sync::mpsc::Sender<(i64, Graph)>>> {
     static T: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i64, std::sync::mpsc::Sender<(i64, Graph)>>>> =
         std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
-/// `Dart_NewNativePort(name, handler, handle_concurrently)`: o id da porta
+/// `Dart_NewNativePort(name, handler, handle_concurrently)`: the port id
 /// (0 = `ILLEGAL_PORT`).
 ///
 /// # Safety
-/// `name` é nulo ou um texto C; `handler` é `void(Dart_Port, Dart_CObject*)`.
+/// `name` is null or a C string; `handler` is `void(Dart_Port, Dart_CObject*)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_api_new_native_port(name: *const c_char, handler: usize, _concurrent: bool) -> i64 {
     if handler == 0 {
@@ -289,10 +288,10 @@ pub unsafe extern "C" fn dartforge_api_new_native_port(name: *const c_char, hand
     let name = if name.is_null() {
         "native port".to_owned()
     } else {
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned()
     };
-    // SAFETY: a assinatura de `Dart_NativeMessageHandler`.
+    // SAFETY: the signature of `Dart_NativeMessageHandler`.
     let handler: NativePortHandler = unsafe { std::mem::transmute(handler) };
     let (tx, rx) = std::sync::mpsc::channel::<(i64, Graph)>();
     let queue = std::sync::Mutex::new(tx.clone());
@@ -321,13 +320,13 @@ pub extern "C" fn dartforge_api_close_native_port(port: i64) -> bool {
         return false;
     };
     close_native_port(port);
-    // Sem o registro nem esta ponta, a fila da thread fecha e ela termina
-    // depois das mensagens já entregues.
+    // Without the registration and this end, the thread's queue closes and the
+    // thread ends after the messages already delivered.
     drop(tx);
     true
 }
 
-/// As funções da API nativa, pelo nome de `dart_native_api.h`.
+/// The native API functions, by their name in `dart_native_api.h`.
 fn native_api_functions() -> [(&'static str, usize); 4] {
     [
         ("Dart_PostCObject", dartforge_api_post_cobject as usize),
@@ -337,7 +336,7 @@ fn native_api_functions() -> [(&'static str, usize); 4] {
     ]
 }
 
-/// `DartNativeApiFunctionPointer(name)`: o endereço da função da API nativa.
+/// `DartNativeApiFunctionPointer(name)`: the address of the native API function.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartNativeApiFunctionPointer(name: i64) -> i64 {
     let name = HEAP.with(|h| h.borrow().text(name).map(|t| t.para_string()).unwrap_or_default());
@@ -350,8 +349,8 @@ pub extern "C" fn dartforge_nativo_DartNativeApiFunctionPointer(name: i64) -> i6
     }
 }
 
-/// A versão da API DL (`DART_API_DL_MAJOR_VERSION`/`MINOR`) da VM de
-/// referência.
+/// The version of the DL API (`DART_API_DL_MAJOR_VERSION`/`MINOR`) of the
+/// reference VM.
 const DL_API_VERSION: (i32, i32) = (2, 5);
 
 #[unsafe(no_mangle)]
@@ -379,13 +378,13 @@ struct ApiData {
     functions: *const ApiEntry,
 }
 
-/// O endereço dos dados, montados uma vez e vivos o processo inteiro.
+/// The address of the data, built once and alive for the whole process.
 fn api_data() -> usize {
     static DADOS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *DADOS.get_or_init(|| {
         let mut entries: Vec<ApiEntry> = native_api_functions()
             .iter()
-            .map(|(n, f)| ApiEntry { name: CString::new(*n).expect("nome C").into_raw(), function: *f })
+            .map(|(n, f)| ApiEntry { name: CString::new(*n).expect("C name").into_raw(), function: *f })
             .collect();
         entries.push(ApiEntry { name: std::ptr::null(), function: 0 });
         let functions = Box::leak(entries.into_boxed_slice()).as_ptr();
@@ -394,7 +393,7 @@ fn api_data() -> usize {
     })
 }
 
-/// `DartApiDLInitializeData()`: o ponteiro que o C passa a
+/// `DartApiDLInitializeData()`: the pointer that C passes to
 /// `Dart_InitializeApiDL`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartApiDLInitializeData() -> i64 {

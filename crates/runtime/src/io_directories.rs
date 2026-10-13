@@ -1,16 +1,15 @@
-// Runtime nativo: o `dart:io` da VM — diretórios (`runtime/bin/directory.cc`,
-// `directory_linux.cc`…): os natives de `_Directory`, a listagem síncrona
-// (`Directory_FillWithDirectoryListing`) e a assíncrona, que o IOService
-// avança em lotes (`io_servico.rs`).
+// Native runtime: the VM's `dart:io` — directories (`runtime/bin/directory.cc`,
+// `directory_linux.cc`…): the `_Directory` natives, the synchronous listing
+// (`Directory_FillWithDirectoryListing`) and the asynchronous one, which the
+// IOService advances in batches (`io_service.rs`).
 
 /// `Directory::ExistsResult`.
 const DIRECTORY_NOT_FOUND: i64 = 0;
 const DIRECTORY_EXISTS: i64 = 1;
 
-/// `Directory::Exists`: existe, não existe, ou erro — sem permissão ou
-/// uma falha do sistema, em que não se sabe (o `UNKNOWN` da VM); os demais
-/// erros (não existe, não é diretório, laço de links, nome longo) são "não
-/// existe".
+/// `Directory::Exists`: exists, does not exist, or error — no permission or a
+/// system failure, where it is not known (the VM's `UNKNOWN`); the other errors
+/// (does not exist, not a directory, link loop, long name) are "does not exist".
 fn directory_exists(p: &std::path::Path) -> IoResult<bool> {
     match std::fs::metadata(p) {
         Ok(m) => Ok(m.is_dir()),
@@ -21,7 +20,7 @@ fn directory_exists(p: &std::path::Path) -> IoResult<bool> {
     }
 }
 
-/// `Directory::Create`: um diretório que já existe é sucesso.
+/// `Directory::Create`: a directory that already exists is a success.
 fn create_directory(p: &std::path::Path) -> IoResult<()> {
     match std::fs::create_dir(p) {
         Ok(()) => Ok(()),
@@ -36,8 +35,8 @@ fn create_directory(p: &std::path::Path) -> IoResult<()> {
     }
 }
 
-/// `Directory::CreateTemp`: o prefixo seguido de seis letras maiúsculas
-/// aleatórias, até um nome livre.
+/// `Directory::CreateTemp`: the prefix followed by six random uppercase letters,
+/// until a free name.
 fn create_temp_directory(prefix: &[u8]) -> IoResult<Vec<u8>> {
     loop {
         let mut name = prefix.to_vec();
@@ -54,8 +53,8 @@ fn create_temp_directory(prefix: &[u8]) -> IoResult<Vec<u8>> {
     }
 }
 
-/// `Directory::SystemTemp`: `TMPDIR`, `TMP` ou `/tmp`, sem a barra final
-/// (Unix); `GetTempPath` sem a barra final (Windows).
+/// `Directory::SystemTemp`: `TMPDIR`, `TMP` or `/tmp`, without the trailing slash
+/// (Unix); `GetTempPath` without the trailing slash (Windows).
 fn system_temp_directory() -> Vec<u8> {
     #[cfg(unix)]
     let mut b = {
@@ -72,10 +71,10 @@ fn system_temp_directory() -> Vec<u8> {
     b
 }
 
-/// `Directory::Delete`. Sem `recursive`: um link para diretório é apagado
-/// como link, o resto com `rmdir`. Com `recursive`: o `DeleteRecursively`
-/// da VM — o que não é diretório (links inclusive) é apagado, e diretórios
-/// são esvaziados antes.
+/// `Directory::Delete`. Without `recursive`: a link to a directory is deleted as a
+/// link, the rest with `rmdir`. With `recursive`: the VM's `DeleteRecursively` —
+/// whatever is not a directory (links included) is deleted, and directories are
+/// emptied first.
 fn delete_directory(p: &std::path::Path, recursive: bool) -> IoResult<()> {
     if !recursive {
         if path_type(p, false) == TYPE_LINK && path_type(p, true) == TYPE_DIRECTORY {
@@ -104,7 +103,7 @@ fn delete_recursively(p: &std::path::Path) -> IoResult<()> {
     Ok(std::fs::remove_dir(p)?)
 }
 
-/// `Directory::Rename`: a origem precisa ser um diretório.
+/// `Directory::Rename`: the source must be a directory.
 fn rename_directory(de: &std::path::Path, to: &std::path::Path) -> IoResult<()> {
     if !directory_exists(de)? {
         return Err(OsError::from_code(os_code::NOT_A_DIRECTORY));
@@ -118,26 +117,26 @@ fn current_directory() -> IoResult<Vec<u8>> {
 }
 
 // ---------------------------------------------------------------------------
-// A listagem (`DirectoryListing`/`DirectoryListingEntry` da VM).
+// The listing (the VM's `DirectoryListing`/`DirectoryListingEntry`).
 
-/// `ListType` da VM.
+/// The VM's `ListType`.
 const LIST_FILE: i64 = 0;
 const LIST_DIRECTORY: i64 = 1;
 const LIST_LINK: i64 = 2;
 const LIST_ERROR: i64 = 3;
 const LIST_END: i64 = 4;
 
-/// Uma entrada produzida pela listagem.
+/// An entry produced by the listing.
 enum ListingEntry {
-    /// Arquivo, diretório ou link (`ListType`) e o caminho em bytes.
+    /// File, directory or link (`ListType`) and the path in bytes.
     Item(i64, Vec<u8>),
-    /// O erro e o caminho em que ocorreu (o `CurrentPath` da VM).
+    /// The error and the path where it happened (the VM's `CurrentPath`).
     Error(OsError, Vec<u8>),
     End,
 }
 
-/// A identidade de um link seguido (dispositivo e nó), para não entrar num
-/// ciclo de links (`LinkList` da VM).
+/// The identity of a followed link (device and node), so as not to enter a link
+/// cycle (the VM's `LinkList`).
 type NodeIdentity = (u64, u64);
 
 #[cfg(unix)]
@@ -147,20 +146,20 @@ fn node_identity(m: &std::fs::Metadata) -> NodeIdentity {
 }
 #[cfg(windows)]
 fn node_identity(_m: &std::fs::Metadata) -> NodeIdentity {
-    // No Windows, o `std` não expõe o índice do arquivo estável; ciclos de
-    // links de diretório são detectados pelo caminho canônico.
+    // On Windows, `std` does not expose the stable file index; cycles of directory
+    // links are detected through the canonical path.
     (0, 0)
 }
 
-/// Um nível da pilha: o diretório aberto, o prefixo dos caminhos das
-/// entradas (com o separador final) e os links já seguidos até aqui.
+/// A stack level: the open directory, the prefix of the entries' paths (with the
+/// trailing separator) and the links followed so far.
 struct ListingLevel {
-    tls_reader: Option<std::fs::ReadDir>,
+    reader: Option<std::fs::ReadDir>,
     prefix: Vec<u8>,
     links: Vec<NodeIdentity>,
 }
 
-/// Uma listagem em andamento (`DirectoryListing`).
+/// A listing in progress (`DirectoryListing`).
 struct Listing {
     stack: Vec<ListingLevel>,
     recursive: bool,
@@ -168,10 +167,10 @@ struct Listing {
 }
 
 impl Listing {
-    /// `file_path` já traz o separador final (`_ensureTrailingPathSeparators`).
+    /// `file_path` already has the trailing separator (`_ensureTrailingPathSeparators`).
     fn new_area(file_path: Vec<u8>, recursive: bool, follow_links_flag: bool) -> Listing {
         Listing {
-            stack: vec![ListingLevel { tls_reader: None, prefix: file_path, links: Vec::new() }],
+            stack: vec![ListingLevel { reader: None, prefix: file_path, links: Vec::new() }],
             recursive,
             follow_links_flag,
         }
@@ -181,21 +180,21 @@ impl Listing {
         self.stack.is_empty()
     }
 
-    /// A próxima entrada (o `ListNext` + `DirectoryListingEntry::Next` da
-    /// VM): um diretório recursivo empilha o nível dele depois de ser
-    /// entregue; ao fim de um nível, o de cima continua.
+    /// The next entry (the VM's `ListNext` + `DirectoryListingEntry::Next`): a
+    /// recursive directory pushes its level after being delivered; at the end of a
+    /// level, the one above continues.
     fn next_item(&mut self) -> ListingEntry {
         loop {
             let Some(level) = self.stack.last_mut() else {
                 return ListingEntry::End;
             };
-            if level.tls_reader.is_none() {
+            if level.reader.is_none() {
                 match std::fs::read_dir(path_from_bytes(&level.prefix)) {
-                    Ok(r) => level.tls_reader = Some(r),
+                    Ok(r) => level.reader = Some(r),
                     Err(e) => {
-                        // O caminho do erro é o do diretório: o da raiz como
-                        // veio; o de um subdiretório sem o separador que a
-                        // VM só acrescenta depois de abri-lo.
+                        // The error's path is the directory's: the root's as it
+                        // came; a subdirectory's without the separator that the
+                        // VM only adds after opening it.
                         let mut file_path = level.prefix.clone();
                         if self.stack.len() > 1 {
                             file_path.truncate(file_path.len() - PATH_SEPARATOR.len());
@@ -206,7 +205,7 @@ impl Listing {
                 }
             }
             let prefix = level.prefix.clone();
-            let input = level.tls_reader.as_mut().expect("aberto acima").next();
+            let input = level.reader.as_mut().expect("opened above").next();
             let input = match input {
                 None => {
                     self.stack.pop();
@@ -225,7 +224,7 @@ impl Listing {
                 Err(e) => return ListingEntry::Error(e, file_path),
             };
             if tipo == LIST_DIRECTORY && self.recursive {
-                let level = self.stack.last().expect("nível corrente");
+                let level = self.stack.last().expect("current level");
                 let mut links = level.links.clone();
                 if let Ok(m) = std::fs::symlink_metadata(path_from_bytes(&file_path)) {
                     if m.file_type().is_symlink() {
@@ -236,14 +235,14 @@ impl Listing {
                 }
                 let mut sub = file_path.clone();
                 sub.extend_from_slice(PATH_SEPARATOR.as_bytes());
-                self.stack.push(ListingLevel { tls_reader: None, prefix: sub, links });
+                self.stack.push(ListingLevel { reader: None, prefix: sub, links });
             }
             return ListingEntry::Item(tipo, file_path);
         }
     }
 
-    /// O tipo de uma entrada: sem seguir links, um link é link; seguindo, o
-    /// tipo do alvo — um link quebrado ou em ciclo continua link.
+    /// The type of an entry: without following links, a link is a link; when
+    /// following, the target's type — a broken or cyclic link stays a link.
     fn classify(&self, e: &std::fs::DirEntry, file_path: &[u8]) -> IoResult<i64> {
         let t = e.file_type()?;
         if t.is_dir() {
@@ -269,7 +268,7 @@ impl Listing {
             }
             #[cfg(windows)]
             {
-                // Um link para um ancestral da listagem é um ciclo.
+                // A link to an ancestor of the listing is a cycle.
                 if let Ok(c) = std::fs::canonicalize(&p) {
                     if self.stack.iter().any(|n| std::fs::canonicalize(path_from_bytes(&n.prefix)).is_ok_and(|a| a == c)) {
                         return Ok(LIST_LINK);
@@ -281,20 +280,20 @@ impl Listing {
         Ok(LIST_FILE)
     }
 
-    /// Fecha tudo (`PopAll`).
+    /// Closes everything (`PopAll`).
     fn stop(&mut self) {
         self.stack.clear();
     }
 }
 
-/// O separador de caminho da plataforma (`File::PathSeparator`).
+/// The platform's path separator (`File::PathSeparator`).
 #[cfg(unix)]
 const PATH_SEPARATOR: &str = "/";
 #[cfg(windows)]
 const PATH_SEPARATOR: &str = "\\";
 
 // ---------------------------------------------------------------------------
-// Os natives de `_Directory`.
+// The `_Directory` natives.
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Directory_Current(_ns: i64) -> i64 {
@@ -338,9 +337,9 @@ pub extern "C" fn dartforge_nativo_Directory_Rename(_ns: i64, raw: i64, new: i64
     dart_true_or_error(rename_directory(&raw_path(raw), &path_text(new)))
 }
 
-/// `Directory_FillWithDirectoryListing`: acrescenta a `list` um
-/// `File`/`Directory`/`Link` por entrada (`fromRawPath`); o primeiro erro
-/// é lançado como `FileSystemException` ("Directory listing failed").
+/// `Directory_FillWithDirectoryListing`: appends to `list` one
+/// `File`/`Directory`/`Link` per entry (`fromRawPath`); the first error is thrown
+/// as a `FileSystemException` ("Directory listing failed").
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Directory_FillWithDirectoryListing(
     _ns: i64,
@@ -350,10 +349,10 @@ pub extern "C" fn dartforge_nativo_Directory_FillWithDirectoryListing(
     follow_links_flag: u8,
 ) {
     let (Some(input), Some(error)) = (ajudante("_dartforgeEntradaDeListagem"), ajudante("_dartforgeErroDeListagem")) else {
-        panic!("bug do compilador: dart:io sem as funções de listagem da sobreposição");
+        panic!("compiler bug: dart:io without the overlay's listing functions");
     };
-    // SAFETY: registradas pela biblioteca `dart:io` da sobreposição com
-    // estas assinaturas.
+    // SAFETY: registered by the overlay's `dart:io` library with these
+    // signatures.
     let input = { let dart_target: usize = input; move |a0: i64, a1: i64, a2: i64| { dart_v3(dart_target, a0, a1, a2) } };
     let error = { let dart_target: usize = error; move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
     let mut listing = Listing::new_area(path_bytes(raw), recursive != 0, follow_links_flag != 0);
@@ -381,10 +380,10 @@ pub extern "C" fn dartforge_nativo_Directory_FillWithDirectoryListing(
 }
 
 // ---------------------------------------------------------------------------
-// A listagem assíncrona: o objeto nativo que o IOService avança.
+// The asynchronous listing: the native object that the IOService advances.
 
-/// Uma listagem assíncrona (`AsyncDirectoryListing`), compartilhada entre o
-/// objeto Dart e as threads do IOService por contagem de referências.
+/// An asynchronous listing (`AsyncDirectoryListing`), shared between the Dart
+/// object and the IOService threads through reference counting.
 struct AsyncListing {
     listing: std::sync::Mutex<Listing>,
 }
@@ -395,26 +394,26 @@ impl AsyncListing {
     }
 
     fn retain_ref(p: i64) {
-        // SAFETY: `p` é um ponteiro vivo de `new_area`.
+        // SAFETY: `p` is a live pointer from `new_area`.
         unsafe { std::sync::Arc::increment_strong_count(p as *const AsyncListing) };
     }
 
     fn free(p: i64) {
-        // SAFETY: `p` é um ponteiro vivo de `new_area`, com esta referência.
+        // SAFETY: `p` is a live pointer from `new_area`, with this reference.
         unsafe { std::sync::Arc::decrement_strong_count(p as *const AsyncListing) };
     }
 
-    /// Toma a referência de `p` (a do pedido do IOService).
+    /// Takes the reference of `p` (the one of the IOService request).
     ///
     /// # Safety
-    /// `p` é um ponteiro de `new_area` cuja referência passa a quem chama.
+    /// `p` is a pointer from `new_area` whose reference passes to the caller.
     unsafe fn take(p: i64) -> std::sync::Arc<AsyncListing> {
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         unsafe { std::sync::Arc::from_raw(p as *const AsyncListing) }
     }
 
-    /// Até `limit` posições da resposta de `ListNext`: pares
-    /// `[tipo, file_path]` (o caminho em bytes; `null` no fim) e, num erro,
+    /// Up to `limit` positions of the `ListNext` answer: pairs `[type, file_path]`
+    /// (the path in bytes; `null` at the end) and, on an error,
     /// `[kListError, [kListError, file_path, error]]`.
     fn batch(&self, limit: usize) -> Vec<Portable> {
         let mut l = self.listing.lock().unwrap_or_else(|e| e.into_inner());
@@ -444,7 +443,7 @@ impl AsyncListing {
     }
 }
 
-/// O finalizador do objeto Dart dono de uma listagem.
+/// The finalizer of the Dart object that owns a listing.
 fn free_object_listing(pair: usize) {
     AsyncListing::free(pair as i64);
 }

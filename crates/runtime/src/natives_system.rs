@@ -1,27 +1,27 @@
-// Runtime nativo: natives do SDK da fonte que falam com o sistema — relógio,
-// fuso horário e entropia (`runtime/lib/date.cc`, `stopwatch.cc`,
-// `math.cc` da VM). Tabela em `crates/emit_native/src/nativos.rs`.
+// Native runtime: natives of the SDK from source that talk to the system — clock,
+// time zone and entropy (the VM's `runtime/lib/date.cc`, `stopwatch.cc`,
+// `math.cc`). Table in `crates/emit_native/src/nativos.rs`.
 
-/// O instante de partida do relógio monotônico do processo.
+/// The starting instant of the process's monotonic clock.
 fn monotonic_start() -> std::time::Instant {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     *START.get_or_init(std::time::Instant::now)
 }
 
-/// `Stopwatch_frequency`: tiques por segundo do relógio de `Stopwatch_now`
-/// (nanossegundos, como a VM no Linux e no macOS).
+/// `Stopwatch_frequency`: ticks per second of the `Stopwatch_now` clock
+/// (nanoseconds, like the VM on Linux and macOS).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stopwatch_frequency() -> i64 {
     1_000_000_000
 }
 
-/// `Stopwatch_now`: o relógio monotônico, em nanossegundos.
+/// `Stopwatch_now`: the monotonic clock, in nanoseconds.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stopwatch_now() -> i64 {
     monotonic_start().elapsed().as_nanos() as i64
 }
 
-/// `DateTime_currentTimeMicros`: microssegundos desde a época Unix (UTC).
+/// `DateTime_currentTimeMicros`: microseconds since the Unix epoch (UTC).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DateTime_currentTimeMicros() -> i64 {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -30,8 +30,8 @@ pub extern "C" fn dartforge_nativo_DateTime_currentTimeMicros() -> i64 {
     }
 }
 
-/// O fuso local no instante `seconds` (desde a época): deslocamento em
-/// segundos a leste de UTC e o nome abreviado — `localtime_r`, como a VM
+/// The local time zone at instant `seconds` (since the epoch): offset in seconds
+/// east of UTC and the abbreviated name — `localtime_r`, like the VM
 /// (`OS::GetTimeZoneOffsetInSeconds`/`GetTimeZoneName`).
 #[cfg(unix)]
 fn local_timezone(seconds: i64) -> (i64, String) {
@@ -67,8 +67,8 @@ fn local_timezone(seconds: i64) -> (i64, String) {
         tm_gmtoff: 0,
         tm_zone: std::ptr::null(),
     };
-    // SAFETY: `tzset` só lê o ambiente; `localtime_r` escreve em `tm`, que é
-    // válido, e devolve nulo em erro.
+    // SAFETY: `tzset` only reads the environment; `localtime_r` writes into `tm`,
+    // which is valid, and returns null on error.
     let ok = unsafe {
         tzset();
         !localtime_r(&seconds, &mut tm).is_null()
@@ -79,28 +79,28 @@ fn local_timezone(seconds: i64) -> (i64, String) {
     let name_str = if tm.tm_zone.is_null() {
         String::new()
     } else {
-        // SAFETY: `tm_zone` aponta para uma string C estática da libc.
+        // SAFETY: `tm_zone` points to a static C string of libc.
         unsafe { std::ffi::CStr::from_ptr(tm.tm_zone) }.to_string_lossy().into_owned()
     };
     (tm.tm_gmtoff as i64, name_str)
 }
 
-/// O fuso local no Windows no instante `seconds`, como a VM
+/// The local time zone on Windows at instant `seconds`, like the VM
 /// (runtime/vm/os_win.cc: `LocalTime`, `GetTimeZoneOffsetInSeconds`,
 /// `GetDaylightSavingBiasInSeconds`, `GetTimeZoneName`):
 ///
-/// * o horário de verão do INSTANTE vem das regras do fuso para o ano dele
-///   (`GetTimeZoneInformationForYear` + `SystemTimeToTzSpecificLocalTime`,
-///   convertido duas vezes — com o viés de verão e com ele zerado; horas
-///   diferentes = em horário de verão);
-/// * o deslocamento é `-_timezone` da CRT (depois do `_tzset`), menos o viés
-///   de verão ATUAL do sistema quando o instante está em horário de verão;
-/// * o nome é o `DaylightName`/`StandardName` do fuso atual.
+/// * the daylight saving time of the INSTANT comes from the zone's rules for its
+///   year (`GetTimeZoneInformationForYear` + `SystemTimeToTzSpecificLocalTime`,
+///   converted twice — with the daylight bias and with it zeroed; different hours
+///   = in daylight saving time);
+/// * the offset is the CRT's `-_timezone` (after `_tzset`), minus the system's
+///   CURRENT daylight bias when the instant is in daylight saving time;
+/// * the name is the current zone's `DaylightName`/`StandardName`.
 ///
-/// Antes usava só o estado de agora (`GetTimeZoneInformation`), para
-/// qualquer instante: `DateTime(2019)` no fuso de Brasília dava 00:00 onde a
-/// VM dá 01:00 (a meia-noite caiu no horário de verão daquele ano), e todo
-/// `DateTime` de verão de um ano passado saía com o deslocamento errado.
+/// It used to use only the current state (`GetTimeZoneInformation`), for any
+/// instant: `DateTime(2019)` in the Brasília zone gave 00:00 where the VM gives
+/// 01:00 (midnight fell into that year's daylight saving time), and every summer
+/// `DateTime` of a past year came out with the wrong offset.
 #[cfg(windows)]
 fn local_timezone(seconds: i64) -> (i64, String) {
     #[repr(C)]
@@ -138,12 +138,13 @@ fn local_timezone(seconds: i64) -> (i64, String) {
         fn _get_timezone(seconds: *mut i32) -> i32;
     }
     const TIME_ZONE_ID_INVALID: u32 = 0xFFFF_FFFF;
-    // 1601-01-01 → 1970-01-01, em unidades de 100 ns (`kTimeEpoc`).
+    // 1601-01-01 → 1970-01-01, in units of 100 ns (`kTimeEpoc`).
     const FILETIME_EPOCH: i64 = 116_444_736_000_000_000;
 
-    // `LocalTime`: o instante em horário de verão? (`None`: a conversão falhou.)
-    // SAFETY: as estruturas são só dados (zeros são válidos) e as funções
-    // escrevem nelas.
+    // `LocalTime`: is the instant in daylight saving time? (`None`: the conversion
+    // failed.)
+    // SAFETY: the structures are plain data (zeros are valid) and the functions
+    // write into them.
     let in_dst = (|| unsafe {
         let ft = FILETIME_EPOCH.checked_add(seconds.checked_mul(10_000_000)?)? as u64;
         let mut utc: SystemTime = std::mem::zeroed();
@@ -168,15 +169,15 @@ fn local_timezone(seconds: i64) -> (i64, String) {
         }
         Some(with_bias != local.hour)
     })();
-    // SAFETY: idem.
+    // SAFETY: likewise.
     let mut current: TimeZoneInformation = unsafe { std::mem::zeroed() };
     let mode = unsafe { GetTimeZoneInformation(&mut current) };
     let offset = match in_dst {
         None => 0, // "Return zero like V8 does."
         Some(dst) => {
             let mut west = 0i32;
-            // SAFETY: `_tzset` só lê o ambiente e o fuso do sistema;
-            // `_get_timezone` escreve no inteiro.
+            // SAFETY: `_tzset` only reads the environment and the system's zone;
+            // `_get_timezone` writes into the integer.
             unsafe {
                 _tzset();
                 _get_timezone(&mut west);
@@ -214,9 +215,9 @@ pub extern "C" fn dartforge_nativo_DateTime_timeZoneName(seconds: i64) -> i64 {
     HEAP.with(|h| h.borrow_mut().allocate_str(&local_timezone(seconds).1))
 }
 
-/// Entropia do sistema: o `RandomState` do Rust é semeado pelo gerador
-/// seguro do sistema operacional em cada processo; cada chamada mistura um
-/// contador, então valores seguidos diferem.
+/// System entropy: Rust's `RandomState` is seeded by the operating system's
+/// secure generator in each process; each call mixes in a counter, so
+/// consecutive values differ.
 fn entropy() -> u64 {
     use std::hash::{BuildHasher, Hasher};
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -225,32 +226,32 @@ fn entropy() -> u64 {
     h.finish()
 }
 
-/// `Random_initialSeed`: a semente de `Random()` sem argumento.
+/// `Random_initialSeed`: the seed of `Random()` without an argument.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Random_initialSeed() -> i64 {
     entropy() as i64
 }
 
-/// `SecureRandom_getBytes(n)`: `n` (1 a 8) bytes aleatórios num inteiro.
+/// `SecureRandom_getBytes(n)`: `n` (1 to 8) random bytes in an integer.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_SecureRandom_getBytes(n: i64) -> i64 {
     let v = entropy();
     if n >= 8 { v as i64 } else { (v & ((1u64 << (8 * n.max(0))) - 1)) as i64 }
 }
 
-/// `Uri_isWindowsPlatform`: se o sistema hospedeiro é o Windows (o
-/// `Uri.file` e o `Uri.base` usam as regras de caminho dele).
+/// `Uri_isWindowsPlatform`: whether the host system is Windows (`Uri.file` and
+/// `Uri.base` use its path rules).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Uri_isWindowsPlatform() -> u8 {
     u8::from(cfg!(windows))
 }
 
 // ---------------------------------------------------------------------------
-// `Object` e as referências fracas (recebidos de `nativos_listas.rs`,
-// docs/NATIVO-ESPACO-UNIFICADO.md §4.9). O hash de identidade
-// (`Object_getHash`) fica com as caixas (P2).
+// `Object` and weak references (received from `natives_lists.rs`,
+// docs/NATIVO-ESPACO-UNIFICADO.md §4.9). The identity hash (`Object_getHash`)
+// stays with the boxes (P2).
 
-/// `Object.==` (`Object_equals`): identidade.
+/// `Object.==` (`Object_equals`): identity.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Object_equals(this: i64, other_one: i64) -> u8 {
     dartforge_identical(this, other_one)
@@ -259,9 +260,9 @@ pub extern "C" fn dartforge_nativo_Object_equals(this: i64, other_one: i64) -> u
 /// `Object.toString()` (`Object_toString`): `Instance of 'Class'`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
-    // O `Object_toString` da VM também escreve os números (o `_Mint` e o
-    // `_Double` não têm `toString` próprio na fonte): pelo cid, sem desencaixar
-    // o que não é número.
+    // The VM's `Object_toString` also writes numbers (`_Mint` and `_Double` have
+    // no `toString` of their own in the source): by cid, without unboxing what is
+    // not a number.
     let (integer, real) = HEAP.with(|h| {
         let h = h.borrow();
         (h.int_of(this), h.double_of(this))
@@ -276,34 +277,34 @@ pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
         return HEAP.with(|h| h.borrow_mut().allocate_str(&t));
     }
     let cid = dartforge_value_class(this);
-    // Genérica com argumentos reificados: o nome inclui os argumentos
-    // (`Instance of 'Caixa<int>'`), como a VM; sem argumentos, o nome
-    // registrado da classe.
+    // A generic with reified arguments: the name includes the arguments
+    // (`Instance of 'Caixa<int>'`), like the VM; without arguments, the class's
+    // registered name.
     let name_str = text_with_arguments(this)
         .unwrap_or_else(|| CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default());
     HEAP.with(|h| h.borrow_mut().allocate_str(&format!("Instance of '{name_str}'")))
 }
 
-/// `Object._haveSameRuntimeType(a, b)`: a mesma classe (os argumentos de
-/// tipo ficam para a RTI).
+/// `Object._haveSameRuntimeType(a, b)`: the same class (the type arguments are
+/// left to the RTI).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Object_haveSameRuntimeType(a: i64, b: i64) -> u8 {
     u8::from(dartforge_value_class(a) == dartforge_value_class(b))
 }
 
-/// `Object.runtimeType`: usa o universo RTI, inclusive argumentos de tipo
-/// reificados, e devolve o objeto `Type` canônico do isolado.
+/// `Object.runtimeType`: uses the RTI universe, including reified type arguments,
+/// and returns the isolate's canonical `Type` object.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Object_runtimeType(this: i64) -> i64 {
     dartforge_rti_objeto_tipo(dartforge_rti_do_valor(this))
 }
 
-// Referências fracas e efêmeros (`WeakReference`, `Expando`): o estado mora
-// nas tabelas `weak_refs`/`ephemerons` do heap, por handle, que a coleta purga
-// pelo bit de marca (`heap.rs`).
+// Weak references and ephemerons (`WeakReference`, `Expando`): the state lives in
+// the heap's `weak_refs`/`ephemerons` tables, by handle, which the collection
+// purges using the mark bit (`heap.rs`).
 
-/// `WeakReference.target` (`WeakReference_getTarget`): o alvo, ou null se
-/// foi coletado.
+/// `WeakReference.target` (`WeakReference_getTarget`): the target, or null if it
+/// was collected.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_WeakReference_getTarget(this: i64) -> i64 {
     HEAP.with(|h| h.borrow().weak_refs.get(&this).copied().unwrap_or(0))

@@ -1,30 +1,30 @@
-//! O conferidor das raízes **depois** do `rewrite-statepoints-for-gc`
-//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4, no estilo do
-//! `--statepoints` do Perry), sobre a forma do §14.12: o valor `Ref` é `i64`
-//! (`%v<n>`) em todo o código, e as raízes vivas numa chamada que coleta vão
-//! no operando `"deopt"` dela — o statepoint as leva ao mapa de pilha.
+//! The root checker run **after** `rewrite-statepoints-for-gc`
+//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4, in the style of Perry's
+//! `--statepoints`), on the §14.12 form: a `Ref` value is an `i64` (`%v<n>`)
+//! throughout the code, and the roots live across a collecting call go in its
+//! `"deopt"` operand — the statepoint carries them to the stack map.
 //!
-//! A coleta só enxerga o que está no `"deopt"` do statepoint em que ela
-//! acontece. O defeito que este conferidor pega é o valor usado depois de um
-//! statepoint sem estar no `"deopt"` dele: o objeto pode ter sido liberado
-//! (o otimizador que estica a vida de um `Ref` por cima de uma chamada, o
-//! emissor que esquece o operando). Também os argumentos: um `Ref` passado à
-//! chamada do statepoint tem de estar vivo nela (contrato C1).
+//! A collection only sees what is in the `"deopt"` of the statepoint where it
+//! happens. The defect this checker catches is a value used after a statepoint
+//! without being in its `"deopt"`: the object may have been freed (the optimizer
+//! stretching the life of a `Ref` over a call, the emitter forgetting the
+//! operand). Arguments too: a `Ref` passed to the statepoint's call must be live
+//! in it (contract C1).
 //!
-//! Um nome é `Ref` quando aparece no `"deopt"` de algum statepoint da função
-//! (o `i64` não diz se é referência). Fica de fora o valor de uma carga
-//! `!invariant.load`, ou dos objetos canônicos `true`/`false` do contexto
-//! (deslocamentos 360 e 368, `layout::contexto`; a otimização que funde as
-//! cargas tira o metadado), e o `phi` só delas, como o `.lcssa` de um laço:
-//! os canônicos são estáticos da imagem do runtime, nunca coletados, e o
-//! otimizador reaproveita a carga por cima das chamadas, como deve. A conferência é por bloco, sobre o
-//! texto do módulo: um uso depois de um statepoint do mesmo bloco, de um
-//! valor que não foi definido depois dele. O valor que atravessa o
-//! statepoint para um `phi` de outro bloco não é conferido.
+//! A name is a `Ref` when it appears in the `"deopt"` of some statepoint of the
+//! function (the `i64` does not say whether it is a reference). Excluded are the
+//! value of an `!invariant.load` load, or of the context's canonical `true`/`false`
+//! objects (offsets 360 and 368, `layout::contexto`; the optimization that merges
+//! the loads drops the metadata), and a `phi` of only those, like a loop's
+//! `.lcssa`: the canonical objects are statics of the runtime image, never
+//! collected, and the optimizer reuses the load across calls, as it should. The
+//! check is per block, on the module text: a use after a statepoint of the same
+//! block, of a value that was not defined after it. A value that crosses the
+//! statepoint into a `phi` of another block is not checked.
 
 use std::collections::HashSet;
 
-/// Os nomes `%x` usados em `text` (sem o `%`).
+/// The `%x` names used in `text` (without the `%`).
 fn uses_list(text: &str) -> impl Iterator<Item = &str> {
     let b = text.as_bytes();
     let mut i = 0;
@@ -48,7 +48,7 @@ fn uses_list(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-/// O conteúdo do operando `"deopt"(…)` de uma linha, se ela o tem.
+/// The content of a line's `"deopt"(…)` operand, if it has one.
 fn deopt_operand(line: &str) -> Option<&str> {
     let k = line.find("\"deopt\"(")?;
     let rest = &line[k + "\"deopt\"(".len()..];
@@ -68,23 +68,23 @@ fn deopt_operand(line: &str) -> Option<&str> {
     Some(rest)
 }
 
-/// A linha sem os operandos (`[ … ]` depois dos argumentos).
+/// The line without the operand bundles (`[ … ]` after the arguments).
 fn without_operands(body: &str) -> &str {
     body.find(" [ \"").map_or(body, |p| &body[..p])
 }
 
-/// O nome definido pela linha (`%x = …`), sem o `%`.
+/// The name defined by the line (`%x = …`), without the `%`.
 fn defined(line: &str) -> Option<&str> {
     let l = line.trim_start().strip_prefix('%')?;
     let end = l.find(" = ")?;
     Some(&l[..end])
 }
 
-/// `refs` sem os valores de carga `!invariant.load` e sem os `phi` cujas
-/// entradas são todas desses (ou constantes).
+/// `refs` without the `!invariant.load` load values and without the `phi`s whose
+/// inputs are all of those (or constants).
 fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> HashSet<&'a str> {
-    // Os endereços dos canônicos: `getelementptr … i64 360|368`, direto ou
-    // pelo deslocamento escolhido num `select` (o `df.box_bool`).
+    // The addresses of the canonical objects: `getelementptr … i64 360|368`,
+    // directly or through the offset chosen in a `select` (`df.box_bool`).
     let selections: HashSet<&str> = line_list
         .iter()
         .filter(|l| l.contains("= select ") && l.contains("i64 360") && l.contains("i64 368"))
@@ -107,10 +107,10 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
         })
         .filter_map(|l| defined(l))
         .collect();
-    // Os `phi` (com o bloco de cada um), os `icmp eq` e os desvios
-    // condicionais de cada bloco: a entrada de um `phi` que chega pela aresta
-    // em que `X == canônico` é o próprio canônico (o otimizador troca um pelo
-    // outro).
+    // The `phi`s (with each one's block), the `icmp eq`s and the conditional
+    // branches of each block: a `phi` input that arrives through the edge where
+    // `X == canonical` is the canonical object itself (the optimizer swaps one for
+    // the other).
     let mut phis: Vec<(&str, &str, Vec<(&str, &str)>)> = Vec::new();
     let mut equal: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
     let mut branches: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
@@ -175,18 +175,18 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
     refs
 }
 
-/// Um statepoint já visto no bloco: as raízes vivas nele e os nomes
-/// definidos depois dele.
+/// A statepoint already seen in the block: the roots live in it and the names
+/// defined after it.
 struct Point<'a> {
     live_set: HashSet<&'a str>,
     after: HashSet<&'a str>,
     line: usize,
 }
 
-/// Confere o IR de um módulo depois do RS4GC.
+/// Checks the IR of a module after RS4GC.
 ///
 /// # Errors
-/// A primeira violação: a linha do uso, o valor e a do statepoint.
+/// The first violation: the line of the use, the value and the statepoint's line.
 pub fn check(ir: &str) -> Result<(), String> {
     let line_list: Vec<&str> = ir.lines().collect();
     let mut i = 0;
@@ -207,7 +207,7 @@ pub fn check(ir: &str) -> Result<(), String> {
 }
 
 fn check_function(line_list: &[&str], offset: usize) -> Result<(), String> {
-    // Os `Ref` da função: os nomes de algum `"deopt"` de statepoint.
+    // The function's `Ref`s: the names in some statepoint's `"deopt"`.
     let refs: HashSet<&str> = line_list
         .iter()
         .filter(|l| l.contains("@llvm.experimental.gc.statepoint"))
@@ -222,7 +222,7 @@ fn check_function(line_list: &[&str], offset: usize) -> Result<(), String> {
     for (k, l) in line_list.iter().enumerate().skip(1) {
         let n = offset + k + 1;
         let t = l.trim_start();
-        // Um rótulo começa um bloco novo; comentários e linhas vazias não contam.
+        // A label starts a new block; comments and empty lines do not count.
         if !l.starts_with(' ') && !t.is_empty() {
             points.clear();
             continue;
@@ -236,14 +236,14 @@ fn check_function(line_list: &[&str], offset: usize) -> Result<(), String> {
             _ => t,
         };
         let is_statepoint = body.contains("@llvm.experimental.gc.statepoint");
-        // Os usos desta linha depois dos statepoints anteriores do bloco.
+        // The uses on this line after the block's previous statepoints.
         if !body.contains("@llvm.experimental.gc.result") {
             for name in uses_list(without_operands(body)).filter(|x| refs.contains(x)) {
                 for p in &points {
                     if !p.after.contains(name) && !p.live_set.contains(name) {
                         let sp = line_list[p.line - offset - 1].trim_start();
                         return Err(format!(
-                            "conferidor do RS4GC, linha {n}: `%{name}` usado depois do statepoint da linha {} sem estar no \"deopt\" dele: `{t}`\n  {sp}",
+                            "RS4GC checker, line {n}: `%{name}` used after the statepoint on line {} without being in its \"deopt\": `{t}`\n  {sp}",
                             p.line
                         ));
                     }
@@ -252,11 +252,11 @@ fn check_function(line_list: &[&str], offset: usize) -> Result<(), String> {
         }
         if is_statepoint {
             let live_set: HashSet<&str> = deopt_operand(body).map(|d| uses_list(d).collect()).unwrap_or_default();
-            // C1: o argumento `Ref` está vivo na chamada.
+            // C1: the `Ref` argument is live in the call.
             for name in uses_list(without_operands(body)).filter(|x| refs.contains(x)) {
                 if !live_set.contains(name) {
                     return Err(format!(
-                        "conferidor do RS4GC, linha {n}: o argumento `%{name}` não está vivo na chamada (fora do \"deopt\"): `{t}`"
+                        "RS4GC checker, line {n}: the argument `%{name}` is not live in the call (outside the \"deopt\"): `{t}`"
                     ));
                 }
             }
@@ -275,8 +275,8 @@ fn check_function(line_list: &[&str], offset: usize) -> Result<(), String> {
 mod tests_mod {
     use super::*;
 
-    // Strings cruas: a indentação das instruções é o que separa uma
-    // instrução de um rótulo.
+    // Raw strings: the indentation of the instructions is what separates an
+    // instruction from a label.
     const BOM: &str = r#"define i64 @f(i64 %v1) gc "statepoint-example" {
 b0:
   %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 (i64)) @g, i32 1, i32 0, i64 %v1, i32 0, i32 0) [ "deopt"(i64 %v1) ]
@@ -291,22 +291,22 @@ b0:
         assert_eq!(check(BOM), Ok(()));
     }
 
-    /// As violações plantadas: cada uma tem de ser achada. O `%v1` continua
-    /// `Ref` pelo `"deopt"` de um segundo statepoint.
+    /// The planted violations: each one must be found. `%v1` stays a `Ref` through
+    /// the `"deopt"` of a second statepoint.
     #[test]
     fn finds_planted_violations() {
         let other_one = "  %sp2 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(void ()) @h, i32 0, i32 0, i32 0, i32 0) [ \"deopt\"(i64 %v1) ]\n  ret i64 %v3";
         let without_root = BOM.replace(r#"[ "deopt"(i64 %v1) ]"#, r#"[ "deopt"() ]"#).replace("  ret i64 %v3", other_one);
         assert_ne!(without_root, BOM);
-        // O uso depois, sem o valor entre os argumentos.
+        // The later use, without the value among the arguments.
         let only_after = without_root.replace("i32 1, i32 0, i64 %v1, i32 0, i32 0)", "i32 0, i32 0, i32 0, i32 0)");
-        assert!(check(&only_after).unwrap_err().contains("usado depois"), "{only_after}");
-        // O argumento sem raiz.
-        assert!(check(&without_root).unwrap_err().contains("argumento"), "{without_root}");
+        assert!(check(&only_after).unwrap_err().contains("used after"), "{only_after}");
+        // The argument without a root.
+        assert!(check(&without_root).unwrap_err().contains("argument"), "{without_root}");
     }
 
-    /// O valor definido depois do statepoint não precisa estar nele; um
-    /// rótulo novo zera os statepoints do bloco.
+    /// A value defined after the statepoint does not need to be in it; a new label
+    /// resets the block's statepoints.
     #[test]
     fn does_not_flag_defined_after_or_other_block() {
         let ir = r#"define i64 @f(i64 %v1) gc "statepoint-example" {
@@ -323,8 +323,8 @@ b1:
         assert_eq!(check(ir), Ok(()));
     }
 
-    /// A carga invariante (o `true` canônico do contexto) reaproveitada por
-    /// cima de um statepoint não é acusada.
+    /// An invariant load (the context's canonical `true`) reused across a
+    /// statepoint is not flagged.
     #[test]
     fn does_not_flag_invariant_load() {
         let ir = r#"define i64 @f(ptr %ctx) gc "statepoint-example" {
@@ -339,7 +339,7 @@ b0:
         assert_eq!(check(ir), Ok(()));
     }
 
-    /// O `phi` que junta o canônico com o valor que a aresta compara a ele.
+    /// The `phi` that joins the canonical object with the value the edge compares to it.
     #[test]
     fn does_not_flag_phi_guarded_by_equality() {
         let ir = r#"define i64 @f(ptr %ctx, i64 %v1) gc "statepoint-example" {
@@ -359,7 +359,7 @@ b2:
 }
 "#;
         assert_eq!(check(ir), Ok(()));
-        // Sem a guarda, o `phi` é referência e o uso depois é acusado.
+        // Without the guard, the `phi` is a reference and the later use is flagged.
         let without = ir.replace("br i1 %c, label %b2, label %b1", "br label %b2");
         assert!(check(&without).is_err());
     }

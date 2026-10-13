@@ -1,21 +1,21 @@
-// Runtime nativo: `print` e `toString` dos valores do runtime, pelo cid do
-// cabeçalho de cada bloco (docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
+// Native runtime: `print` and `toString` of runtime values, by the cid in the
+// header of each block (docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
 
-/// Imprime um inteiro assinado recebido do módulo LLVM.
-// SAFETY: o nome é reservado pelo compilador e há exatamente uma definição.
+/// Prints a signed integer received from the LLVM module.
+// SAFETY: the name is reserved by the compiler and there is exactly one definition.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_i64(value: i64) {
     println!("{value}");
 }
 
-/// Imprime o booleano representado pelo byte 0 ou 1 no contrato LLVM.
-// SAFETY: símbolo reservado; u8 evita passar um bool Rust inválido pela ABI.
+/// Prints the boolean represented by byte 0 or 1 in the LLVM contract.
+// SAFETY: reserved symbol; u8 avoids passing an invalid Rust bool through the ABI.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_bool(value: u8) {
     println!("{}", value != 0);
 }
 
-/// Imprime ponto flutuante de 64 bits (double).
+/// Prints a 64-bit floating point value (double).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_f64(value: f64) {
     if value.fract() == 0.0 && !value.is_infinite() && !value.is_nan() {
@@ -25,10 +25,10 @@ pub extern "C" fn dartforge_print_f64(value: f64) {
     }
 }
 
-/// Escreve uma linha de texto Dart na saída padrão como o
-/// `Builtin_PrintString` da VM: UTF-8 com o surrogate solto trocado por
-/// U+FFFD (`Dart_CopyUTF8EncodingOfString` → `Utf8::Encode`), escrito por
-/// bytes (NUL inclusive).
+/// Writes a line of Dart text to standard output like the VM's
+/// `Builtin_PrintString`: UTF-8 with a lone surrogate replaced by U+FFFD
+/// (`Dart_CopyUTF8EncodingOfString` → `Utf8::Encode`), written as bytes (NUL
+/// included).
 fn print_string(t: crate::textos::TextoRef<'_>) {
     use std::io::Write;
     let mut bytes = t.to_vm_utf8();
@@ -37,7 +37,7 @@ fn print_string(t: crate::textos::TextoRef<'_>) {
     let _ = out.write_all(&bytes);
 }
 
-/// Imprime qualquer objeto gerenciado pelo handle.
+/// Prints any managed object by its handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_handle(handle: i64) {
     if handle == 0 {
@@ -48,12 +48,12 @@ pub extern "C" fn dartforge_print_handle(handle: i64) {
     print_string(t.vista());
 }
 
-/// `double` como a VM imprime (`1.0`, `0.5`, `NaN`, `Infinity`).
+/// `double` as the VM prints it (`1.0`, `0.5`, `NaN`, `Infinity`).
 fn format_double(d: f64) -> String {
     vm_double_string(d)
 }
 
-/// Imprime conteúdo da string gerenciada ou null para handle zero.
+/// Prints the content of the managed string, or null for handle zero.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_string(handle: i64) {
     if handle == 0 {
@@ -69,13 +69,13 @@ pub extern "C" fn dartforge_print_string(handle: i64) {
     });
 }
 
-/// O nome registrado da classe `cid` (vazio se não houver).
+/// The registered name of class `cid` (empty if there is none).
 fn registered_name(cid: i32) -> Option<String> {
     CLASS_NAMES.with(|map| map.borrow().get(&i64::from(cid)).cloned())
 }
 
-/// A string de um campo `Ref` de um objeto (`None` para escalar, null ou
-/// não string).
+/// The string of a `Ref` field of an object (`None` for a scalar, null or a
+/// non-string).
 fn field_string(heap: &Heap, field: Option<crate::heap::Field>) -> Option<Texto> {
     match field? {
         (b, true) if b != 0 => heap.text(b).map(|t| t.to_string_fn()),
@@ -83,17 +83,17 @@ fn field_string(heap: &Heap, field: Option<crate::heap::Field>) -> Option<Texto>
     }
 }
 
-/// `Error.safeToString` do `dart:core`.
+/// `Error.safeToString` of `dart:core`.
 ///
-/// Referência: `sdk/lib/core/errors.dart`. Ela existe justamente para NÃO
-/// chamar o `toString` do objeto — um `toString` que lança dentro da
-/// construção de uma mensagem de erro esconderia o erro original. Portanto:
-/// números, `bool` e `null` pelo `toString` deles; `String` entre aspas com
-/// escapes; qualquer outra coisa pela forma de identidade do objeto.
+/// Reference: `sdk/lib/core/errors.dart`. It exists precisely so as NOT to call
+/// the object's `toString` — a `toString` that throws while an error message is
+/// being built would hide the original error. Therefore: numbers, `bool` and
+/// `null` through their `toString`; a `String` quoted with escapes; anything else
+/// through the object's identity form.
 ///
-/// As formas de identidade abaixo são as que a VM 3.6.2 imprime para as
-/// listas do núcleo (`Instance(length:N) of '_GrowableList'`), verificadas no
-/// oráculo; o corpus compara byte a byte.
+/// The identity forms below are the ones the VM 3.6.2 prints for the core lists
+/// (`Instance(length:N) of '_GrowableList'`), verified against the oracle; the
+/// corpus compares byte by byte.
 fn safe_to_string(heap: &Heap, handle: i64, output: &mut StringMut) {
     use crate::layout::cid;
     if handle == 0 {
@@ -139,25 +139,25 @@ fn safe_to_string(heap: &Heap, handle: i64, output: &mut StringMut) {
     }
 }
 
-/// [`describe_string`] como `String` do Rust, para mensagens (surrogate
-/// solto vira U+FFFD).
+/// [`describe_string`] as a Rust `String`, for messages (a lone surrogate becomes
+/// U+FFFD).
 fn describe_handle(heap: &Heap, handle: i64) -> String {
     describe_string(heap, handle).para_string()
 }
 
-/// Descreve um handle (o `toString` dos valores do runtime), em unidades
-/// UTF-16: a interpolação e o `print` de uma coleção com string que tem
-/// surrogate solto não o perdem.
+/// Describes a handle (the `toString` of runtime values), in UTF-16 code units:
+/// interpolation and the `print` of a collection with a string that has a lone
+/// surrogate do not lose it.
 ///
-/// Profundidade limitada a 4 e 101 elementos, como a abreviação do SDK 3.6.2
-/// para iteráveis; a forma exata é do subconjunto, não do SDK.
+/// Depth limited to 4 and to 101 elements, like the SDK 3.6.2 abbreviation for
+/// iterables; the exact form is the subset's, not the SDK's.
 fn describe_string(heap: &Heap, handle: i64) -> Texto {
     let mut output = StringMut::new();
     describe_value(heap, crate::heap::Value::Ref(handle), 4, &mut output);
     output.end()
 }
 
-/// Um valor sem caixa, ou a descrição de um `Ref` ([`describe_ref`]).
+/// An unboxed value, or the description of a `Ref` ([`describe_ref`]).
 fn describe_value(heap: &Heap, value: crate::heap::Value, depth: usize, output: &mut StringMut) {
     use crate::heap::Value;
     if depth == 0 {
@@ -178,8 +178,8 @@ fn describe_value(heap: &Heap, value: crate::heap::Value, depth: usize, output: 
     }
 }
 
-/// Os elementos `items` entre `opens` e `closes`, separados por vírgula, até
-/// 101 (depois, `...`).
+/// The elements `items` between `opens` and `closes`, separated by commas, up to
+/// 101 (after that, `...`).
 fn describe_sequence(heap: &Heap, items: &[crate::heap::Value], depth: usize, opens: char, closes: char, output: &mut StringMut) {
     output.push(opens);
     for (index, item) in items.iter().take(101).enumerate() {
@@ -194,7 +194,7 @@ fn describe_sequence(heap: &Heap, items: &[crate::heap::Value], depth: usize, op
     output.push(closes);
 }
 
-/// A descrição de um `Ref`, pelo cid do bloco.
+/// The description of a `Ref`, by the block's cid.
 fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     use crate::heap::Value;
     use crate::layout::cid;
@@ -202,7 +202,7 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
         output.push_str("null");
         return;
     }
-    // `Smi` (R10): o `int` que ele carrega.
+    // `Smi` (R10): the `int` it carries.
     if crate::heap::smi::is_smi(r) {
         output.push_str(&crate::heap::smi::value(r).to_string());
         return;
@@ -213,7 +213,7 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
             output.0.extend(heap.text(r).expect("string viva").unidades());
         }
         cid::LIST | cid::IMMUTABLE_LIST | cid::GROWABLE_LIST => {
-            // Até o 102º: depois do 101º só importa que há mais (a reticência).
+            // Up to the 102nd: after the 101st it only matters that there are more (the ellipsis).
             let n = heap.list_len(r);
             let items: Vec<Value> = (0..n.min(102)).map(|i| heap.list_get(r, i)).collect();
             describe_sequence(heap, &items, depth, '[', ']', output);
@@ -229,7 +229,7 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
             }
             output.push(')');
         }
-        // Caixas (R3): imprimem como o escalar que carregam.
+        // Boxes (R3): they print as the scalar they carry.
         cid::MINT => output.push_str(&heap.int_of(r).unwrap_or(0).to_string()),
         cid::DOUBLE => output.push_str(&format_double(heap.double_of(r).unwrap_or(0.0))),
         cid::BOOL => output.push_str(if heap.bool_of(r) == Some(true) { "true" } else { "false" }),
@@ -237,8 +237,8 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
             output.push_str("Instance");
         }
         c if cid::is_typed(c) || cid::is_simd(c) => {
-            // As listas tipadas e os valores SIMD têm o texto do `toString`
-            // Dart; este é o nome da classe.
+            // Typed lists and SIMD values have the text of the Dart `toString`;
+            // this is the class name.
             let name = registered_name(c).unwrap_or_default();
             output.push_str(&format!("Instance of '{name}'"));
         }
@@ -246,9 +246,9 @@ fn describe_ref(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     }
 }
 
-/// A descrição de um objeto `INSTANCIA` do programa ou do SDK: o nome da
-/// classe, e o texto da VM para as classes de erro do runtime (ids
-/// 1000–1013 e as do `dart:core` registradas pelo nome).
+/// The description of an `INSTANCIA` object of the program or the SDK: the class
+/// name, and the VM's text for the runtime's error classes (ids 1000–1013 and the
+/// `dart:core` ones registered by name).
 fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     let Some(object) = heap.object(r) else {
         let name = registered_name(heap.class(r)).unwrap_or_else(|| "Object".to_string());
@@ -264,7 +264,7 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
         return;
     }
     let name = CLASS_NAMES.with(|map| map.borrow().get(&class_id).cloned()).unwrap_or_else(|| "Object".to_string());
-    // O campo `i` como `Value` (um escalar guardado sem caixa é `int`).
+    // Field `i` as a `Value` (a scalar stored unboxed is an `int`).
     let field_value = |i: usize| -> crate::heap::Value {
         match fields.get(i) {
             Some(&(b, true)) => crate::heap::Value::Ref(b),
@@ -431,11 +431,11 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
             _ => output.push_str("Assertion failed"),
         }
     } else if name == "ConcurrentModificationError" {
-        // dart:core/errors.dart: sem `modifiedObject` o texto termina no
-        // ponto; com ele entra `Error.safeToString(modifiedObject)`, que NÃO
-        // chama o `toString` do objeto — usa a forma de identidade da VM.
-        // Por isso a VM imprime `Instance(length:4) of '_GrowableList'` e não
-        // `[1,2,3,1]`.
+        // dart:core/errors.dart: without `modifiedObject` the text ends at the
+        // period; with it comes `Error.safeToString(modifiedObject)`, which does
+        // NOT call the object's `toString` — it uses the VM's identity form.
+        // That is why the VM prints `Instance(length:4) of '_GrowableList'` and
+        // not `[1,2,3,1]`.
         let target = raw(0);
         if target == 0 {
             output.push_str("Concurrent modification during iteration.");
@@ -447,17 +447,17 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
             output.push('.');
         }
     } else if name == "TypeError" {
-        // Com a mensagem (o `as` do RTI, `tipos.rs`), o `toString` da VM é a
-        // mensagem.
+        // With the message (the RTI's `as`, `types.rs`), the VM's `toString` is
+        // the message.
         match text(0) {
             Some(t) => output.push_string(&t),
             None => output.push_str("TypeError"),
         }
     } else if name == "NoSuchMethodError" {
-        // PENDENTE: a VM imprime "NoSuchMethodError: Class 'X' has no
-        // instance getter 'y'." — para isso falta o nome da classe do
-        // receptor no ponto do lançamento. Até lá, o nome do membro já é o
-        // que torna a falha diagnosticável no placar.
+        // PENDING: the VM prints "NoSuchMethodError: Class 'X' has no instance
+        // getter 'y'." — for that the class name of the receiver is missing at
+        // the throw point. Until then, the member name is already what makes the
+        // failure diagnosable on the scoreboard.
         match text(0) {
             Some(m) => output.push_str(&format!("NoSuchMethodError: {m}")),
             None => output.push_str("NoSuchMethodError"),
@@ -465,7 +465,7 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     } else if name == "StackTrace" || name == "_StackTrace" {
         match text(0) {
             Some(m) => output.push_string(&m),
-            // §13.14: os endereços guardados, simbolizados agora.
+            // §13.14: the stored addresses, symbolized now.
             None => {
                 let returns = object_returns(heap, r);
                 output.push_str(&if returns.is_empty() { TRACE_WITHOUT_TABLE.to_string() } else { symbolize_returns(&returns) });
@@ -476,18 +476,18 @@ fn describe_object(heap: &Heap, r: i64, depth: usize, output: &mut StringMut) {
     }
 }
 
-/// `double.toString` na forma que o runtime usa hoje (`1.0`, `0.5`).
+/// `double.toString` in the form the runtime uses today (`1.0`, `0.5`).
 fn double_string(d: f64) -> String {
     vm_double_string(d)
 }
 
-/// Uma string nova do heap com `s`.
+/// A new heap string with `s`.
 fn fresh_string(s: &str) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate_str(s))
 }
 
-/// Converte um valor (bits, tag) para uma string gerenciada no heap (a ABI
-/// plana: 1 `int`, 2 `bool`, 3 `Ref`, 4 `double`).
+/// Converts a (bits, tag) value to a managed heap string (the flat ABI: 1 `int`,
+/// 2 `bool`, 3 `Ref`, 4 `double`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_tagged_to_string(bits: i64, tag: u8) -> i64 {
     match tag {
@@ -498,11 +498,11 @@ pub extern "C" fn dartforge_tagged_to_string(bits: i64, tag: u8) -> i64 {
     }
 }
 
-/// Converte um inteiro para string gerenciada no heap.
+/// Converts an integer to a managed heap string.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_to_string_i64(value: i64) -> i64 {
-    // Os dígitos direto num buffer da pilha (sem a maquinaria do `fmt` e
-    // sem a `String` intermediária).
+    // The digits go straight into a stack buffer (without the `fmt` machinery and
+    // without the intermediate `String`).
     let mut buf = [0u8; 20];
     let mut i = buf.len();
     let mut n = value.unsigned_abs();
@@ -522,24 +522,24 @@ pub extern "C" fn dartforge_to_string_i64(value: i64) -> i64 {
     }
     let d = buf.len() - i;
     text[k..k + d].copy_from_slice(&buf[i..]);
-    // Os dígitos já são a forma de um byte: sem passar por `Texto`.
+    // The digits are already in one-byte form: no need to go through `Texto`.
     HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Um(&text[..k + d])))
 }
 
-/// Converte um double para string gerenciada no heap.
+/// Converts a double to a managed heap string.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_to_string_f64(value: f64) -> i64 {
     fresh_string(&double_string(value))
 }
 
-/// Converte um booleano para string gerenciada no heap.
+/// Converts a boolean to a managed heap string.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_to_string_bool(value: u8) -> i64 {
     fresh_string(if value != 0 { "true" } else { "false" })
 }
 
-/// Converte qualquer handle (String, Object, List, Record, null) para
-/// string. Uma string é devolvida ela mesma (`String.toString` é `this`).
+/// Converts any handle (String, Object, List, Record, null) to a string. A string
+/// is returned as itself (`String.toString` is `this`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_to_string_handle(handle: i64) -> i64 {
     if handle == 0 {

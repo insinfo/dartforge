@@ -1,23 +1,22 @@
-// Runtime nativo: os formatos de chave e certificado do `SecurityContext`
-// (`runtime/bin/security_context.cc` da VM, sobre o BoringSSL), para o
-// fragmento `tls`:
+// Native runtime: the key and certificate formats of `SecurityContext` (the VM's
+// `runtime/bin/security_context.cc`, on top of BoringSSL), for the `tls`
+// fragment:
 //
-// * PEM, com a ordem de decisão da VM: os blocos PEM primeiro; só quando não
-//   há a linha de início do bloco procurado (`PEM_R_NO_START_LINE`) os bytes
-//   são lidos como PKCS#12 — um DER solto (certificado ou chave) não é aceito,
-//   como na VM;
-// * chave privada cifrada: PKCS#8 (`ENCRYPTED PRIVATE KEY`, PBES2 ou as PBE
-//   do PKCS#12) e o PEM cifrado legado do OpenSSL (`Proc-Type: 4,ENCRYPTED`,
-//   `DEK-Info`, chave pelo `EVP_BytesToKey` com MD5);
-// * PKCS#12: a MAC conferida (senha errada é `INCORRECT_PASSWORD`), as
-//   `SafeContents` abertas ou cifradas, sacos de chave (abertos e cifrados),
-//   de certificado e aninhados; BER de comprimento indefinido também.
+// * PEM, with the VM's decision order: PEM blocks first; only when there is no
+//   start line of the wanted block (`PEM_R_NO_START_LINE`) are the bytes read as
+//   PKCS#12 — a bare DER (certificate or key) is not accepted, as in the VM;
+// * encrypted private key: PKCS#8 (`ENCRYPTED PRIVATE KEY`, PBES2 or the PKCS#12
+//   PBEs) and OpenSSL's legacy encrypted PEM (`Proc-Type: 4,ENCRYPTED`,
+//   `DEK-Info`, key through `EVP_BytesToKey` with MD5);
+// * PKCS#12: the MAC checked (a wrong password is `INCORRECT_PASSWORD`), plain or
+//   encrypted `SafeContents`, key bags (plain and shrouded), certificate bags and
+//   nested ones; BER with indefinite length too.
 //
-// Os erros levam os textos do BoringSSL (a razão e o local), que a VM põe no
-// `OSError` da `TlsException`.
+// The errors carry BoringSSL's texts (the reason and the location), which the VM
+// puts in the `OSError` of the `TlsException`.
 
-/// Um valor DER/BER: a etiqueta e o conteúdo (já sem comprimento
-/// indefinido nem `OCTET STRING` segmentada quando isso importa).
+/// A DER/BER value: the tag and the content (already without indefinite length
+/// or a segmented `OCTET STRING` when that matters).
 struct Tlv<'a> {
     tag: u8,
     content: std::borrow::Cow<'a, [u8]>,
@@ -29,17 +28,16 @@ const TAG_OID: u8 = 0x06;
 const TAG_SEQUENCE: u8 = 0x30;
 const TAG_SET: u8 = 0x31;
 
-/// Lê um TLV de `b`: o valor e o resto. Aceita o comprimento indefinido do
-/// BER (até o `00 00`), e junta os pedaços de uma `OCTET STRING`
-/// construída.
+/// Reads a TLV from `b`: the value and the rest. Accepts BER's indefinite length
+/// (up to `00 00`), and joins the pieces of a constructed `OCTET STRING`.
 fn read_tlv(b: &[u8]) -> Option<(Tlv<'_>, &[u8])> {
     let (&tag, rest) = b.split_first()?;
     if tag & 0x1f == 0x1f {
-        return None; // etiquetas de vários bytes não aparecem nestes formatos
+        return None; // multi-byte tags do not appear in these formats
     }
     let (&c, mut rest) = rest.split_first()?;
     if c == 0x80 {
-        // Comprimento indefinido: os filhos até o fim de conteúdo.
+        // Indefinite length: the children up to the end-of-contents.
         if tag & 0x20 == 0 {
             return None;
         }
@@ -79,7 +77,7 @@ fn read_tlv(b: &[u8]) -> Option<(Tlv<'_>, &[u8])> {
     }
     let (content, rest) = rest.split_at(n);
     if tag == TAG_OCTETS | 0x20 {
-        // `OCTET STRING` construída (BER): a concatenação dos pedaços.
+        // Constructed `OCTET STRING` (BER): the concatenation of the pieces.
         let mut together = Vec::new();
         let mut r = content;
         while !r.is_empty() {
@@ -92,8 +90,8 @@ fn read_tlv(b: &[u8]) -> Option<(Tlv<'_>, &[u8])> {
     Some((Tlv { tag, content: std::borrow::Cow::Borrowed(content) }, rest))
 }
 
-/// Os filhos de um construído indefinido reescritos com comprimentos
-/// definidos (para ler o conteúdo como uma sequência comum).
+/// The children of an indefinite constructed value rewritten with definite
+/// lengths (to read the content as an ordinary sequence).
 fn rewrite_defined(mut b: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     while !b.is_empty() {
@@ -117,13 +115,13 @@ fn encode_length(out: &mut Vec<u8>, n: usize) {
     }
 }
 
-/// O TLV de etiqueta `tag` no início de `b`.
+/// The TLV with tag `tag` at the start of `b`.
 fn wait_for(b: &[u8], tag: u8) -> Option<(Tlv<'_>, &[u8])> {
     let (t, r) = read_tlv(b)?;
     (t.tag == tag).then_some((t, r))
 }
 
-/// Os elementos de uma sequência (ou conjunto).
+/// The elements of a sequence (or set).
 fn elements(b: &[u8]) -> Option<Vec<Tlv<'_>>> {
     let mut v = Vec::new();
     let mut r = b;
@@ -142,7 +140,7 @@ fn small_int(t: &Tlv) -> Option<u64> {
     Some(t.content.iter().fold(0u64, |a, &x| (a << 8) | u64::from(x)))
 }
 
-/// Os OIDs usados (codificação DER do conteúdo).
+/// The OIDs used (DER encoding of the content).
 mod oid {
     pub const DADOS: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01];
     pub const ENCRYPTED_DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x06];
@@ -152,7 +150,7 @@ mod oid {
     pub const SACO_DE_SACOS: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x0a, 0x01, 0x06];
     pub const X509_CERTIFICATE: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x16, 0x01];
     pub const LOCAL_KEY_ID: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x15];
-    // PBE do PKCS#12 (RFC 7292, apêndice C).
+    // PKCS#12 PBE (RFC 7292, appendix C).
     pub const PBE_SHA1_RC4_128: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x01];
     pub const PBE_SHA1_RC4_40: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x02];
     pub const PBE_SHA1_RC2_128: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x05];
@@ -171,14 +169,14 @@ mod oid {
     pub const AES256_CBC: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2a];
     pub const DES_EDE3_CBC: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x03, 0x07];
     pub const DES_CBC: &[u8] = &[0x2b, 0x0e, 0x03, 0x02, 0x07];
-    // Resumos da MAC do PKCS#12.
+    // PKCS#12 MAC digests.
     pub const SHA1: &[u8] = &[0x2b, 0x0e, 0x03, 0x02, 0x1a];
     pub const SHA256: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
     pub const SHA384: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02];
     pub const SHA512: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03];
 }
 
-/// Um `AlgorithmIdentifier`: o OID e os parâmetros (o resto da sequência).
+/// An `AlgorithmIdentifier`: the OID and the parameters (the rest of the sequence).
 fn algorithm<'a>(t: &'a Tlv) -> Option<(&'a [u8], &'a [u8])> {
     if t.tag != TAG_SEQUENCE {
         return None;
@@ -192,9 +190,9 @@ fn algorithm<'a>(t: &'a Tlv) -> Option<(&'a [u8], &'a [u8])> {
 }
 
 // ---------------------------------------------------------------------------
-// Derivação de chaves e cifras.
+// Key derivation and ciphers.
 
-/// Um resumo do `ring` com o tamanho do bloco (o `v` do PKCS#12).
+/// A `ring` digest with its block size (PKCS#12's `v`).
 fn oid_digest(o: &[u8]) -> Option<(&'static ring::digest::Algorithm, usize)> {
     Some(match o {
         oid::SHA1 => (&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, 64),
@@ -205,16 +203,16 @@ fn oid_digest(o: &[u8]) -> Option<(&'static ring::digest::Algorithm, usize)> {
     })
 }
 
-/// A senha como `BMPString` terminada em dois zeros (a do PKCS#12; a senha
-/// vazia é só o terminador).
+/// The password as a `BMPString` terminated by two zeros (PKCS#12's; the empty
+/// password is just the terminator).
 fn bmp_password(password: &str) -> Vec<u8> {
     let mut v: Vec<u8> = password.encode_utf16().flat_map(u16::to_be_bytes).collect();
     v.extend_from_slice(&[0, 0]);
     v
 }
 
-/// A derivação do PKCS#12 (RFC 7292, apêndice B.2): `n` bytes para o
-/// propósito `id` (1 chave, 2 IV, 3 MAC).
+/// The PKCS#12 derivation (RFC 7292, appendix B.2): `n` bytes for purpose `id`
+/// (1 key, 2 IV, 3 MAC).
 fn kdf_pkcs12(digest_alg: &'static ring::digest::Algorithm, v: usize, id: u8, password: &[u8], salt: &[u8], iterations: u64, n: usize) -> Vec<u8> {
     let u = digest_alg.output_len();
     let repeat = |x: &[u8]| -> Vec<u8> {
@@ -240,7 +238,7 @@ fn kdf_pkcs12(digest_alg: &'static ring::digest::Algorithm, v: usize, id: u8, pa
         if out.len() >= n {
             break;
         }
-        // I_j = (I_j + B + 1) mod 2^(8v), B = A repetido até v bytes.
+        // I_j = (I_j + B + 1) mod 2^(8v), B = A repeated up to v bytes.
         let b: Vec<u8> = a.iter().cycle().take(v).copied().collect();
         for block in i.chunks_mut(v) {
             let mut goes = 1u16;
@@ -254,8 +252,8 @@ fn kdf_pkcs12(digest_alg: &'static ring::digest::Algorithm, v: usize, id: u8, pa
     out
 }
 
-/// Decifra em CBC com o preenchimento PKCS#7 (`None`: preenchimento
-/// inválido, o sinal de senha errada).
+/// Decrypts in CBC with PKCS#7 padding (`None`: invalid padding, the sign of a
+/// wrong password).
 fn decrypt_cbc<C>(cipher_kind: C, iv: &[u8], data: &[u8]) -> Option<Vec<u8>>
 where
     C: cbc::cipher::BlockDecryptMut + cbc::cipher::BlockCipher,
@@ -268,7 +266,7 @@ where
     Some(buf)
 }
 
-/// Decifra com a cifra de `cipher_oid_of` (AES, 3DES, DES em CBC).
+/// Decrypts with the cipher of `cipher_oid_of` (AES, 3DES, DES in CBC).
 fn decrypt_with(cipher_oid_of: &[u8], key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     use cbc::cipher::KeyInit;
     match cipher_oid_of {
@@ -281,7 +279,7 @@ fn decrypt_with(cipher_oid_of: &[u8], key: &[u8], iv: &[u8], data: &[u8]) -> Opt
     }
 }
 
-/// O tamanho da chave de uma cifra do PBES2.
+/// The key size of a PBES2 cipher.
 fn key_size(cipher_oid_of: &[u8]) -> Option<usize> {
     Some(match cipher_oid_of {
         oid::AES128_CBC => 16,
@@ -293,8 +291,8 @@ fn key_size(cipher_oid_of: &[u8]) -> Option<usize> {
     })
 }
 
-/// Decifra `data` pelo algoritmo `alg` (um `AlgorithmIdentifier` de PBES2
-/// ou de PBE do PKCS#12) com a senha.
+/// Decrypts `data` with algorithm `alg` (a PBES2 or PKCS#12 PBE
+/// `AlgorithmIdentifier`) and the password.
 fn decrypt_pbe(alg: &Tlv, password: &str, data: &[u8]) -> Result<Vec<u8>, &'static str> {
     const DECODING: &str = "DECODE_ERROR(p5_pbev2.c:0)";
     let (o, params) = algorithm(alg).ok_or(DECODING)?;
@@ -334,7 +332,7 @@ fn decrypt_pbe(alg: &Tlv, password: &str, data: &[u8]) -> Result<Vec<u8>, &'stat
         ring::pbkdf2::derive(prf, iterations, &salt.content, password.as_bytes(), &mut key);
         return decrypt_with(cipher_oid, &key, &iv.content, data).ok_or("BAD_DECRYPT(cipher.c:0)");
     }
-    // As PBE do PKCS#12: SHA-1, a senha em BMP, `(salt, iterações)`.
+    // The PKCS#12 PBEs: SHA-1, the password in BMP, `(salt, iterations)`.
     let (seq, _) = wait_for(params, TAG_SEQUENCE).ok_or(DECODING)?;
     let part_list = elements(&seq.content).ok_or(DECODING)?;
     let [salt, iterations] = part_list.as_slice() else { return Err(DECODING) };
@@ -348,8 +346,8 @@ fn decrypt_pbe(alg: &Tlv, password: &str, data: &[u8]) -> Result<Vec<u8>, &'stat
         oid::PBE_SHA1_2DES => decrypt_cbc(des::TdesEde2::new_from_slice(&k(1, 16)).map_err(|_| DECODING)?, &k(2, 8), data),
         oid::PBE_SHA1_RC2_128 => decrypt_cbc(rc2::Rc2::new_with_eff_key_len(&k(1, 16), 128), &k(2, 8), data),
         oid::PBE_SHA1_RC2_40 => decrypt_cbc(rc2::Rc2::new_with_eff_key_len(&k(1, 5), 40), &k(2, 8), data),
-        // RC4 (sem IV): a chave do `http_multi_server` nos testes dele;
-        // o BoringSSL da VM a aceita.
+        // RC4 (no IV): the key of `http_multi_server` in its tests; the VM's
+        // BoringSSL accepts it.
         oid::PBE_SHA1_RC4_128 => Some(rc4(&k(1, 16), data)),
         oid::PBE_SHA1_RC4_40 => Some(rc4(&k(1, 5), data)),
         _ => return Err("UNKNOWN_ALGORITHM(algorithm.c:0)"),
@@ -357,7 +355,7 @@ fn decrypt_pbe(alg: &Tlv, password: &str, data: &[u8]) -> Result<Vec<u8>, &'stat
     r.ok_or("BAD_DECRYPT(cipher.c:0)")
 }
 
-/// RC4 (a cifra de fluxo; cifrar e decifrar são o mesmo).
+/// RC4 (the stream cipher; encrypting and decrypting are the same).
 fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut s: [u8; 256] = std::array::from_fn(|i| i as u8);
     let mut j = 0u8;
@@ -377,7 +375,7 @@ fn rc4(key: &[u8], data: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// `EncryptedPrivateKeyInfo` → o `PrivateKeyInfo` (DER) decifrado.
+/// `EncryptedPrivateKeyInfo` → the decrypted `PrivateKeyInfo` (DER).
 fn decrypt_pkcs8(der: &[u8], password: &str) -> Result<Vec<u8>, &'static str> {
     let (seq, _) = wait_for(der, TAG_SEQUENCE).ok_or("DECODE_ERROR(pkcs8.c:0)")?;
     let part_list = elements(&seq.content).ok_or("DECODE_ERROR(pkcs8.c:0)")?;
@@ -386,8 +384,8 @@ fn decrypt_pkcs8(der: &[u8], password: &str) -> Result<Vec<u8>, &'static str> {
         return Err("DECODE_ERROR(pkcs8.c:0)");
     }
     let key = decrypt_pbe(alg, password, &data.content)?;
-    // O resultado tem de ser um `PrivateKeyInfo` (senão a senha estava
-    // errada e o preenchimento acertou por acaso).
+    // The result must be a `PrivateKeyInfo` (otherwise the password was wrong
+    // and the padding matched by chance).
     wait_for(&key, TAG_SEQUENCE).filter(|(_, r)| r.is_empty()).ok_or("BAD_DECRYPT(cipher.c:0)")?;
     Ok(key)
 }
@@ -395,15 +393,14 @@ fn decrypt_pkcs8(der: &[u8], password: &str) -> Result<Vec<u8>, &'static str> {
 // ---------------------------------------------------------------------------
 // PEM.
 
-/// Um bloco PEM: o rótulo, os cabeçalhos (`Proc-Type`, `DEK-Info`) e os
-/// bytes.
+/// A PEM block: the label, the headers (`Proc-Type`, `DEK-Info`) and the bytes.
 struct PemBlock {
     label_name: String,
     headers: Vec<(String, String)>,
     data: Result<Vec<u8>, ()>,
 }
 
-/// Os blocos PEM de `bytes`, em ordem.
+/// The PEM blocks of `bytes`, in order.
 fn pem_blocks(bytes: &[u8]) -> Vec<PemBlock> {
     let text = String::from_utf8_lossy(bytes);
     let mut blocks = Vec::new();
@@ -473,9 +470,8 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// A chave de um bloco PEM cifrado do jeito legado do OpenSSL
-/// (`DEK-Info: CIFRA,IV`; chave pelo `EVP_BytesToKey` com MD5 e o IV como
-/// sal).
+/// The key of a PEM block encrypted the legacy OpenSSL way (`DEK-Info: CIFRA,IV`;
+/// key through `EVP_BytesToKey` with MD5 and the IV as salt).
 fn decrypt_legacy_pem(dek: &str, password: &str, data: &[u8]) -> Option<Vec<u8>> {
     let (name, iv_hex) = dek.split_once(',')?;
     let iv: Vec<u8> = (0..iv_hex.len() / 2).map(|i| u8::from_str_radix(iv_hex.get(2 * i..2 * i + 2)?, 16).ok()).collect::<Option<_>>()?;
@@ -503,9 +499,9 @@ fn decrypt_legacy_pem(dek: &str, password: &str, data: &[u8]) -> Option<Vec<u8>>
     decrypt_with(o, &key, &iv, data)
 }
 
-/// A primeira chave privada dos blocos PEM (`PEM_read_bio_PrivateKey`):
-/// `Ok(None)` se nenhum bloco é de chave (a linha de início não existe e a
-/// VM tenta o PKCS#12).
+/// The first private key of the PEM blocks (`PEM_read_bio_PrivateKey`):
+/// `Ok(None)` if no block is a key (the start line does not exist and the VM
+/// tries PKCS#12).
 fn pem_key(bytes: &[u8], password: &str) -> Result<Option<rustls::pki_types::PrivateKeyDer<'static>>, ()> {
     use rustls::pki_types::{PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer};
     for b in pem_blocks(bytes) {
@@ -531,8 +527,8 @@ fn pem_key(bytes: &[u8], password: &str) -> Result<Option<rustls::pki_types::Pri
     Ok(None)
 }
 
-/// Os certificados dos blocos PEM (`PEM_read_bio_X509` em laço): `Ok(None)`
-/// se não há nenhum bloco de certificado.
+/// The certificates of the PEM blocks (`PEM_read_bio_X509` in a loop):
+/// `Ok(None)` if there is no certificate block.
 fn pem_certificates(bytes: &[u8]) -> Result<Option<Vec<rustls::pki_types::CertificateDer<'static>>>, String> {
     let mut certs = Vec::new();
     for b in pem_blocks(bytes) {
@@ -548,8 +544,8 @@ fn pem_certificates(bytes: &[u8]) -> Result<Option<Vec<rustls::pki_types::Certif
 // ---------------------------------------------------------------------------
 // PKCS#12.
 
-/// O conteúdo de um PKCS#12: a chave (com o `localKeyId`) e os
-/// certificados (com o `localKeyId` de cada), na ordem do arquivo.
+/// The content of a PKCS#12: the key (with its `localKeyId`) and the certificates
+/// (with the `localKeyId` of each), in file order.
 #[derive(Default)]
 struct Pkcs12 {
     key: Option<(Vec<u8>, Option<Vec<u8>>)>,
@@ -560,7 +556,7 @@ const PKCS12_MALFORMED: &str = "BAD_PKCS12_DATA(pkcs8_x509.c:599)";
 const PKCS12_INVALID: &str = "BAD_PKCS12_DATA(pkcs8_x509.c:611)";
 const WRONG_PASSWORD: &str = "INCORRECT_PASSWORD(pkcs8_x509.c:710)";
 
-/// Lê um PKCS#12 (`PKCS12_get_key_and_certs`), conferindo a MAC.
+/// Reads a PKCS#12 (`PKCS12_get_key_and_certs`), checking the MAC.
 fn read_pkcs12(der: &[u8], password: &str) -> Result<Pkcs12, &'static str> {
     let (pfx, rest) = wait_for(der, TAG_SEQUENCE).ok_or(PKCS12_MALFORMED)?;
     if !rest.is_empty() {
@@ -578,7 +574,7 @@ fn read_pkcs12(der: &[u8], password: &str) -> Result<Pkcs12, &'static str> {
     let (explicit, _) = wait_for(content, 0xa0).ok_or(PKCS12_INVALID)?;
     let (octets, _) = wait_for(&explicit.content, TAG_OCTETS).ok_or(PKCS12_INVALID)?;
     let secure = octets.content;
-    // A MAC (sem ela o arquivo é aceito, como no BoringSSL).
+    // The MAC (without it the file is accepted, as in BoringSSL).
     if let Some((mac, _)) = wait_for(r, TAG_SEQUENCE) {
         check_mac(&mac.content, &secure, password)?;
     }
@@ -590,7 +586,7 @@ fn read_pkcs12(der: &[u8], password: &str) -> Result<Pkcs12, &'static str> {
         let bags = match tipo.content.as_ref() {
             oid::DADOS => wait_for(&explicit.content, TAG_OCTETS).ok_or(PKCS12_INVALID)?.0.content.into_owned(),
             oid::ENCRYPTED_DATA => {
-                // EncryptedData { versão, EncryptedContentInfo { tipo, alg, [0] cifrado } }
+                // EncryptedData { version, EncryptedContentInfo { type, alg, [0] encrypted } }
                 let (ed, _) = wait_for(&explicit.content, TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
                 let (_, r) = read_tlv(&ed.content).ok_or(PKCS12_INVALID)?;
                 let (eci, _) = wait_for(r, TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
@@ -601,7 +597,7 @@ fn read_pkcs12(der: &[u8], password: &str) -> Result<Pkcs12, &'static str> {
                     return Err(PKCS12_INVALID);
                 }
                 let encrypted = if encrypted.tag == 0xa0 {
-                    // `[0]` construído: os pedaços `OCTET STRING`.
+                    // Constructed `[0]`: the `OCTET STRING` pieces.
                     elements(&encrypted.content).ok_or(PKCS12_INVALID)?.iter().flat_map(|t| t.content.iter().copied()).collect()
                 } else {
                     encrypted.content.into_owned()
@@ -615,8 +611,8 @@ fn read_pkcs12(der: &[u8], password: &str) -> Result<Pkcs12, &'static str> {
     Ok(p)
 }
 
-/// Confere a `MacData` (a senha em BMP; a vazia também sem terminador, como
-/// o BoringSSL tenta).
+/// Checks the `MacData` (the password in BMP; the empty one also without the
+/// terminator, as BoringSSL tries).
 fn check_mac(mac: &[u8], data: &[u8], password: &str) -> Result<(), &'static str> {
     let part_list = elements(mac).ok_or(PKCS12_INVALID)?;
     let info = part_list.first().filter(|t| t.tag == TAG_SEQUENCE).ok_or(PKCS12_INVALID)?;
@@ -649,7 +645,7 @@ fn check_mac(mac: &[u8], data: &[u8], password: &str) -> Result<(), &'static str
     Err(WRONG_PASSWORD)
 }
 
-/// As `SafeContents` (`SEQUENCE OF SafeBag`).
+/// The `SafeContents` (`SEQUENCE OF SafeBag`).
 fn read_bags(der: &[u8], password: &str, p: &mut Pkcs12, depth: usize) -> Result<(), &'static str> {
     if depth > 3 {
         return Err(PKCS12_INVALID);
@@ -689,7 +685,7 @@ fn read_bags(der: &[u8], password: &str, p: &mut Pkcs12, depth: usize) -> Result
     Ok(())
 }
 
-/// O `localKeyId` dos atributos de um saco.
+/// The `localKeyId` among a bag's attributes.
 fn local_key_id(attributes: &[u8]) -> Option<Vec<u8>> {
     for a in elements(attributes)? {
         let (o, r) = wait_for(&a.content, TAG_OID)?;
@@ -703,8 +699,8 @@ fn local_key_id(attributes: &[u8]) -> Option<Vec<u8>> {
 }
 
 impl Pkcs12 {
-    /// `PKCS12_parse`: o certificado da chave (o de mesmo `localKeyId`, ou o
-    /// primeiro) e os demais, na ordem do arquivo.
+    /// `PKCS12_parse`: the key's certificate (the one with the same `localKeyId`,
+    /// or the first) and the others, in file order.
     fn certificate_and_rest(self) -> Vec<rustls::pki_types::CertificateDer<'static>> {
         let id = self.key.as_ref().and_then(|(_, id)| id.clone());
         let mut certs = self.certificates;
@@ -718,10 +714,10 @@ impl Pkcs12 {
 }
 
 // ---------------------------------------------------------------------------
-// O que o fragmento `tls` chama.
+// What the `tls` fragment calls.
 
-/// A chave privada de `bytes` (`GetPrivateKey` da VM): o PEM e, sem linha
-/// de início, o PKCS#12. `Err` quando não há chave (a VM lança a
+/// The private key of `bytes` (the VM's `GetPrivateKey`): PEM and, without a
+/// start line, PKCS#12. `Err` when there is no key (the VM throws the
 /// `ArgumentError` "Expected private key, but none was found").
 fn key_of(bytes: &[u8], password: &str) -> Result<rustls::pki_types::PrivateKeyDer<'static>, ()> {
     match pem_key(bytes, password)? {
@@ -734,10 +730,10 @@ fn key_of(bytes: &[u8], password: &str) -> Result<rustls::pki_types::PrivateKeyD
     }
 }
 
-/// Os certificados de `bytes` (`SetTrustedCertificatesBytes`,
-/// `UseChainBytes`, `SetClientAuthoritiesBytes` da VM): os do PEM e, sem
-/// linha de início, os do PKCS#12 (o da chave primeiro). O erro é o texto
-/// do BoringSSL.
+/// The certificates of `bytes` (the VM's `SetTrustedCertificatesBytes`,
+/// `UseChainBytes`, `SetClientAuthoritiesBytes`): those of the PEM and, without a
+/// start line, those of the PKCS#12 (the key's first). The error is BoringSSL's
+/// text.
 fn certificates_of(bytes: &[u8], password: &str) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, String> {
     match pem_certificates(bytes)? {
         Some(c) => Ok(c),
@@ -754,8 +750,8 @@ mod tests_mod {
 
     #[test]
     fn pkcs12_kdf_from_rfc() {
-        // Vetor do OpenSSL (`test/pkcs12_format_test` / RFC 7292): senha
-        // "smeg", sal 0A58CF64530D823F, 1 iteração, ID 1, 24 bytes.
+        // OpenSSL vector (`test/pkcs12_format_test` / RFC 7292): password "smeg",
+        // salt 0A58CF64530D823F, 1 iteration, ID 1, 24 bytes.
         let salt = [0x0a, 0x58, 0xcf, 0x64, 0x53, 0x0d, 0x82, 0x3f];
         let k = kdf_pkcs12(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, 64, 1, &bmp_password("smeg"), &salt, 1, 24);
         let expected = [
@@ -767,7 +763,7 @@ mod tests_mod {
 
     #[test]
     fn rc4_known_vector() {
-        // O vetor clássico: chave "Key", texto "Plaintext".
+        // The classic vector: key "Key", text "Plaintext".
         assert_eq!(rc4(b"Key", b"Plaintext"), [0xbb, 0xf3, 0x16, 0xe8, 0xd9, 0x40, 0xaf, 0x0a, 0xd3]);
     }
 
@@ -781,7 +777,7 @@ mod tests_mod {
 
     #[test]
     fn ber_indefinite_and_segmented_octets() {
-        // SEQUENCE indefinida com um INTEGER 5; OCTET STRING construída.
+        // Indefinite SEQUENCE with an INTEGER 5; constructed OCTET STRING.
         let (t, r) = read_tlv(&[0x30, 0x80, 0x02, 0x01, 0x05, 0x00, 0x00, 0xff]).unwrap();
         assert_eq!((t.tag, t.content.as_ref(), r), (0x30, &[0x02, 0x01, 0x05][..], &[0xff][..]));
         let (t, _) = read_tlv(&[0x24, 0x80, 0x04, 0x01, 0xaa, 0x04, 0x01, 0xbb, 0x00, 0x00]).unwrap();

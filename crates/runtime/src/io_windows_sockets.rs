@@ -1,11 +1,11 @@
-// Runtime nativo: a camada Winsock dos soquetes do `dart:io`
-// (`socket_win.cc` e `socket_base_win.cc` da VM), com os mesmos nomes da
-// camada Unix (`io_soquetes_unix.rs`) que os natives de `io_soquetes.rs`
-// chamam. O "descritor" é o [`Handle`] de `io_windows_eventos.rs`.
+// Native runtime: the Winsock layer of the `dart:io` sockets (the VM's
+// `socket_win.cc` and `socket_base_win.cc`), with the same names as the Unix layer
+// (`io_sockets_unix.rs`) that the natives in `io_sockets.rs` call. The
+// "descriptor" is the [`Handle`] of `io_windows_eventos.rs`.
 //
-// O Windows não tem soquetes de domínio Unix no `dart:io` (a VM responde
-// com um `OSError`); a resolução de nomes usa as funções Unicode
-// (`GetAddrInfoW`, `GetNameInfoW`).
+// Windows has no Unix domain sockets in `dart:io` (the VM answers with an
+// `OSError`); name resolution uses the Unicode functions (`GetAddrInfoW`,
+// `GetNameInfoW`).
 
 #[cfg(windows)]
 mod windows_only {
@@ -38,7 +38,7 @@ mod windows_only {
     const FILE_TYPE_CHAR: u32 = 2;
     const FILE_TYPE_PIPE: u32 = 3;
 
-    /// `ADDRINFOW` (no Windows, `ai_canonname` vem antes de `ai_addr`).
+    /// `ADDRINFOW` (on Windows, `ai_canonname` comes before `ai_addr`).
     #[repr(C)]
     struct InfoDeEndereco {
         ai_flags: i32,
@@ -51,7 +51,7 @@ mod windows_only {
         ai_next: *mut InfoDeEndereco,
     }
 
-    /// O começo de `IP_ADAPTER_ADDRESSES_LH` (até `Ipv6IfIndex`).
+    /// The beginning of `IP_ADAPTER_ADDRESSES_LH` (up to `Ipv6IfIndex`).
     #[repr(C)]
     struct Adapter {
         size: u32,
@@ -74,7 +74,7 @@ mod windows_only {
         ipv6_index: u32,
     }
 
-    /// O começo de `IP_ADAPTER_UNICAST_ADDRESS_LH`.
+    /// The beginning of `IP_ADAPTER_UNICAST_ADDRESS_LH`.
     #[repr(C)]
     struct UnicastAddress {
         size: u32,
@@ -97,37 +97,37 @@ mod windows_only {
         fn GetAdaptersAddresses(family: u32, flag_bits: u32, reserved: *mut std::ffi::c_void, addresses: *mut u8, size: *mut u32) -> u32;
     }
 
-    /// Um texto terminado em NUL em UTF-16.
+    /// A NUL-terminated UTF-16 string.
     fn wide(t: &str) -> Vec<u16> {
         t.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// O texto de um buffer UTF-16 terminado em NUL.
+    /// The text of a NUL-terminated UTF-16 buffer.
     fn from_wide(b: &[u16]) -> String {
         let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
         String::from_utf16_lossy(&b[..end])
     }
 
-    /// O texto de um ponteiro UTF-16 terminado em NUL.
+    /// The text of a NUL-terminated UTF-16 pointer.
     ///
     /// # Safety
-    /// `p` é nulo ou aponta para um texto terminado em NUL.
+    /// `p` is null or points to a NUL-terminated string.
     unsafe fn from_wide_pointer(p: *const u16) -> String {
         if p.is_null() {
             return String::new();
         }
         let mut n = 0;
-        // SAFETY: garantido por quem chama.
+        // SAFETY: guaranteed by the caller.
         while unsafe { *p.add(n) } != 0 {
             n += 1;
         }
-        // SAFETY: os `n` caracteres antes do NUL.
+        // SAFETY: the `n` characters before the NUL.
         String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, n) })
     }
 
     // -----------------------------------------------------------------------
-    // Endereços (`RawAddr`): `sockaddr_in`/`sockaddr_in6` do Winsock, com a
-    // mesma disposição dos do Linux.
+    // Addresses (`RawAddr`): Winsock's `sockaddr_in`/`sockaddr_in6`, with the
+    // same layout as Linux's.
 
     impl OsAddress {
         pub(super) fn empty() -> OsAddress {
@@ -159,7 +159,7 @@ mod windows_only {
             Some(e)
         }
 
-        /// Os soquetes de domínio Unix não existem no `dart:io` do Windows.
+        /// Unix domain sockets do not exist in Windows `dart:io`.
         pub(super) fn from_unix_path(_path: &[u8]) -> IoResult<OsAddress> {
             Err(without_unix_domain())
         }
@@ -167,7 +167,7 @@ mod windows_only {
         pub(super) fn from_pointer(p: *const u8, n: u32) -> OsAddress {
             let mut e = OsAddress::empty();
             let n = (n as usize).min(128);
-            // SAFETY: `p` aponta para um `sockaddr` de `n` bytes do sistema.
+            // SAFETY: `p` points to a system `sockaddr` of `n` bytes.
             e.bytes[..n].copy_from_slice(unsafe { std::slice::from_raw_parts(p, n) });
             e.size = n as u32;
             e
@@ -207,11 +207,11 @@ mod windows_only {
             if self.is_ipv6() { 28 } else { 16 }
         }
 
-        /// O texto numérico, com `%interface` no IPv6 de escopo local.
+        /// The numeric text, with `%interface` for link-local scoped IPv6.
         pub(super) fn text(&self) -> String {
             start_winsock();
             let mut b = [0u16; 64];
-            // SAFETY: o buffer tem 64 unidades (INET6_ADDRSTRLEN com escopo).
+            // SAFETY: the buffer has 64 units (INET6_ADDRSTRLEN with scope).
             let r = unsafe {
                 GetNameInfoW(self.bytes.as_ptr(), self.family_size() as i32, b.as_mut_ptr(), b.len() as u32, std::ptr::null_mut(), 0, NI_NUMERICHOST)
             };
@@ -224,65 +224,65 @@ mod windows_only {
     }
 
     // -----------------------------------------------------------------------
-    // Operações.
+    // Operations.
 
     pub(super) fn last_error() -> OsError {
         OsError::from_code(unsafe { WSAGetLastError() })
     }
 
-    /// Fecha `s` preservando o erro corrente.
+    /// Closes `s` preserving the current error.
     fn close_with_error(s: Bruto) -> OsError {
         let e = last_error();
-        // SAFETY: o soquete é de quem chama e não foi entregue a ninguém.
+        // SAFETY: the socket belongs to the caller and was not handed to anyone.
         unsafe { closesocket(s) };
         e
     }
 
     fn set_int_option(s: Bruto, level: i32, option: i32, value: i32) -> bool {
-        // SAFETY: `value` vive durante a chamada.
+        // SAFETY: `value` lives during the call.
         unsafe { setsockopt(s, level, option, (&value as *const i32).cast(), 4) == 0 }
     }
 
-    /// Uma opção inteira; as de multicast podem vir num byte.
+    /// An integer option; the multicast ones may come in one byte.
     fn get_int_option(s: Bruto, level: i32, option: i32) -> Option<i64> {
         let mut v = [0u8; 4];
         let mut n = 4i32;
-        // SAFETY: `v` tem 4 bytes; o sistema diz quantos usou.
+        // SAFETY: `v` has 4 bytes; the system says how many it used.
         if unsafe { getsockopt(s, level, option, v.as_mut_ptr(), &mut n) } != 0 {
             return None;
         }
         Some(if n == 1 { i64::from(v[0]) } else { i64::from(i32::from_le_bytes(v)) })
     }
 
-    /// O manipulador de um descritor de soquete (o erro, se já fechado).
+    /// The handle of a socket descriptor (the error, if already closed).
     fn sock(fd: i64) -> IoResult<Arc<Handle>> {
         handle_of(fd).ok_or_else(invalid_handle)
     }
 
-    /// O `SOCKET` de um descritor, com o erro no `WSAGetLastError` se o
-    /// soquete já foi fechado (os natives leem o erro de lá).
+    /// The `SOCKET` of a descriptor, with the error in `WSAGetLastError` if the
+    /// socket was already closed (the natives read the error from there).
     fn raw_socket(fd: i64) -> Option<Bruto> {
         match sock(fd) {
             Ok(m) => Some(m.raw),
             Err(_) => {
-                // SAFETY: só grava o erro da thread.
+                // SAFETY: only writes the thread's error.
                 unsafe { WSASetLastError(6) };
                 None
             }
         }
     }
 
-    /// `Socket::CreateConnect` e `CreateBindConnect`: `SO_LINGER` de 10 s,
-    /// o `bind` na origem e o `ConnectEx`, que conclui pela porta.
+    /// `Socket::CreateConnect` and `CreateBindConnect`: `SO_LINGER` of 10 s, the
+    /// `bind` to the source and `ConnectEx`, which completes through the port.
     fn connect_socket(dest: &OsAddress, origin: &OsAddress) -> IoResult<i64> {
         let s = new_socket(dest.family(), SOCK_STREAM, 0)?;
         let wait_entry: [u16; 2] = [1, 10];
-        // SAFETY: `linger` tem dois `u_short`.
+        // SAFETY: `linger` has two `u_short`s.
         if unsafe { setsockopt(s, SOL_SOCKET, SO_LINGER, wait_entry.as_ptr().cast(), 4) } != 0 {
             return Err(close_with_error(s));
         }
         let m = Handle::new(HandleKind::Client, s);
-        // SAFETY: `origin` é um `sockaddr` válido.
+        // SAFETY: `origin` is a valid `sockaddr`.
         if unsafe { bind(s, origin.bytes.as_ptr(), origin.family_size() as i32) } != 0 {
             let e = last_error();
             discard(&m);
@@ -309,8 +309,8 @@ mod windows_only {
         Err(without_unix_domain())
     }
 
-    /// `ServerSocket::CreateBindListen`: `SO_EXCLUSIVEADDRUSE`,
-    /// `IPV6_V6ONLY`, a porta 65535 evitada e os `AcceptEx` emitidos.
+    /// `ServerSocket::CreateBindListen`: `SO_EXCLUSIVEADDRUSE`, `IPV6_V6ONLY`,
+    /// port 65535 avoided and the `AcceptEx`s issued.
     pub(super) fn create_listener(e: &OsAddress, queue: i64, v6_only: bool) -> IoResult<i64> {
         let s = new_socket(e.family(), SOCK_STREAM, IPPROTO_TCP)?;
         if !set_int_option(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, 1) {
@@ -319,18 +319,18 @@ mod windows_only {
         if e.is_ipv6() {
             set_int_option(s, IPPROTO_IPV6, IPV6_V6ONLY, i32::from(v6_only));
         }
-        // SAFETY: `e` é um `sockaddr` válido.
+        // SAFETY: `e` is a valid `sockaddr`.
         if unsafe { bind(s, e.bytes.as_ptr(), e.family_size() as i32) } != 0 {
             return Err(close_with_error(s));
         }
         if e.port() == 0 && socket_port(s) == 65535 {
-            // Outro soquete antes de soltar este garante outra porta.
+            // Another socket before releasing this one guarantees another port.
             let new = create_listener(e, queue, v6_only);
-            // SAFETY: o soquete não foi entregue a ninguém.
+            // SAFETY: the socket was not handed to anyone.
             unsafe { closesocket(s) };
             return new;
         }
-        // SAFETY: soquete aberto.
+        // SAFETY: open socket.
         if unsafe { listen(s, if queue > 0 { queue as i32 } else { SOMAXCONN }) } != 0 {
             return Err(close_with_error(s));
         }
@@ -360,7 +360,7 @@ mod windows_only {
         if !set_int_option(s, level, name, ttl as i32) {
             return Err(close_with_error(s));
         }
-        // SAFETY: `e` é um `sockaddr` válido.
+        // SAFETY: `e` is a valid `sockaddr`.
         if unsafe { bind(s, e.bytes.as_ptr(), e.family_size() as i32) } != 0 {
             return Err(close_with_error(s));
         }
@@ -370,19 +370,19 @@ mod windows_only {
     fn socket_port(s: Bruto) -> i64 {
         let mut e = OsAddress::empty();
         let mut n = 128i32;
-        // SAFETY: `e` tem 128 bytes.
+        // SAFETY: `e` has 128 bytes.
         if unsafe { getsockname(s, e.bytes.as_mut_ptr(), &mut n) } != 0 {
             return 0;
         }
         e.port()
     }
 
-    /// `SocketBase::GetPort` (0 em erro).
+    /// `SocketBase::GetPort` (0 on error).
     pub(super) fn local_port(fd: i64) -> i64 {
         raw_socket(fd).map_or(0, socket_port)
     }
 
-    /// `SocketBase::GetRemotePeer`: o endereço que o `AcceptEx` deu, ou o
+    /// `SocketBase::GetRemotePeer`: the address that `AcceptEx` gave, or
     /// `getpeername`.
     pub(super) fn remote_peer(fd: i64) -> IoResult<(OsAddress, i64)> {
         let m = sock(fd)?;
@@ -394,7 +394,7 @@ mod windows_only {
         }
         let mut e = OsAddress::empty();
         let mut n = 128i32;
-        // SAFETY: `e` tem 128 bytes.
+        // SAFETY: `e` has 128 bytes.
         if unsafe { getpeername(m.raw, e.bytes.as_mut_ptr(), &mut n) } != 0 {
             return Err(last_error());
         }
@@ -403,7 +403,7 @@ mod windows_only {
         Ok((e, port))
     }
 
-    /// `SocketBase::GetError`: o último erro do manipulador.
+    /// `SocketBase::GetError`: the handle's last error.
     pub(super) fn pending_error(fd: i64) -> i32 {
         sock(fd).map_or(6, |m| m.estado().last_error as i32)
     }
@@ -411,7 +411,7 @@ mod windows_only {
     /// `SocketBase::GetType` (`GetFileType`).
     pub(super) fn descriptor_type(fd: i64) -> IoResult<i64> {
         let m = sock(fd)?;
-        // SAFETY: consulta o tipo de um handle aberto.
+        // SAFETY: queries the type of an open handle.
         Ok(match unsafe { GetFileType(m.raw) } {
             FILE_TYPE_CHAR => 0,
             FILE_TYPE_PIPE => 1,
@@ -431,8 +431,8 @@ mod windows_only {
         [WSAEADDRINUSE, WSAEADDRNOTAVAIL, WSAEINVAL].contains(&error)
     }
 
-    /// `Socket_GetOption`: 0 `TCP_NODELAY`, 1 laço de multicast, 2 TTL de
-    /// multicast, 4 `SO_BROADCAST`.
+    /// `Socket_GetOption`: 0 `TCP_NODELAY`, 1 multicast loop, 2 multicast TTL,
+    /// 4 `SO_BROADCAST`.
     pub(super) fn get_option(fd: i64, option: i64, v4: bool) -> Option<i64> {
         let s = raw_socket(fd)?;
         match option {
@@ -465,14 +465,14 @@ mod windows_only {
 
     pub(super) fn set_raw_option(fd: i64, level: i64, option: i64, data: &[u8]) -> bool {
         let Some(s) = raw_socket(fd) else { return false };
-        // SAFETY: `data` vive durante a chamada.
+        // SAFETY: `data` lives during the call.
         unsafe { setsockopt(s, level as i32, option as i32, data.as_ptr(), data.len() as i32) == 0 }
     }
 
     pub(super) fn get_raw_option(fd: i64, level: i64, option: i64, data: &mut Vec<u8>) -> bool {
         let Some(s) = raw_socket(fd) else { return false };
         let mut n = data.len() as i32;
-        // SAFETY: `data` é gravável com `n` bytes.
+        // SAFETY: `data` is writable with `n` bytes.
         let ok = unsafe { getsockopt(s, level as i32, option as i32, data.as_mut_ptr(), &mut n) } == 0;
         data.truncate(n.max(0) as usize);
         ok
@@ -492,9 +492,9 @@ mod windows_only {
     }
 
     // -----------------------------------------------------------------------
-    // Nomes e interfaces.
+    // Names and interfaces.
 
-    /// `SocketBase::LookupAddress` (primeiro com `AI_ADDRCONFIG`).
+    /// `SocketBase::LookupAddress` (first with `AI_ADDRCONFIG`).
     pub(super) fn resolve_name(host: &str, tipo: i64) -> IoResult<Vec<OsAddress>> {
         start_winsock();
         let name = wide(host);
@@ -514,7 +514,7 @@ mod windows_only {
             ai_next: std::ptr::null_mut(),
         };
         let mut res: *mut InfoDeEndereco = std::ptr::null_mut();
-        // SAFETY: `name`, `hints` e `res` vivem durante as chamadas.
+        // SAFETY: `name`, `hints` and `res` live during the calls.
         let mut status = unsafe { GetAddrInfoW(name.as_ptr(), std::ptr::null(), &hints, &mut res) };
         if status != 0 {
             hints.ai_flags = 0;
@@ -526,14 +526,14 @@ mod windows_only {
         let mut out = Vec::new();
         let mut current = res;
         while !current.is_null() {
-            // SAFETY: nó da lista devolvida por `GetAddrInfoW`.
+            // SAFETY: node of the list returned by `GetAddrInfoW`.
             let i = unsafe { &*current };
             if i.ai_family == i32::from(AF_INET) || i.ai_family == i32::from(AF_INET6) {
                 out.push(OsAddress::from_pointer(i.ai_addr, i.ai_addrlen as u32));
             }
             current = i.ai_next;
         }
-        // SAFETY: a lista veio de `GetAddrInfoW`.
+        // SAFETY: the list came from `GetAddrInfoW`.
         unsafe { FreeAddrInfoW(res) };
         Ok(out)
     }
@@ -542,7 +542,7 @@ mod windows_only {
     pub(super) fn address_name(e: &OsAddress) -> IoResult<String> {
         start_winsock();
         let mut b = [0u16; 1025];
-        // SAFETY: o buffer tem `NI_MAXHOST` unidades.
+        // SAFETY: the buffer has `NI_MAXHOST` units.
         let status = unsafe {
             GetNameInfoW(e.bytes.as_ptr(), e.family_size() as i32, b.as_mut_ptr(), b.len() as u32, std::ptr::null_mut(), 0, NI_NAMEREQD)
         };
@@ -552,8 +552,8 @@ mod windows_only {
         Ok(from_wide(&b))
     }
 
-    /// `SocketBase::ListInterfaces` (`GetAdaptersAddresses`, sem anycast,
-    /// multicast e DNS): (endereço, nome amigável, índice).
+    /// `SocketBase::ListInterfaces` (`GetAdaptersAddresses`, without anycast,
+    /// multicast and DNS): (address, friendly name, index).
     pub(super) fn list_interfaces(tipo: i64) -> IoResult<Vec<(OsAddress, String, i64)>> {
         start_winsock();
         const GAA_FLAG_SKIP_ANYCAST: u32 = 0x2;
@@ -565,13 +565,13 @@ mod windows_only {
             _ => 0,
         };
         let flag_bits = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
-        // O tamanho muda entre as chamadas se uma interface aparece: repete
-        // enquanto faltar espaço.
+        // The size changes between calls if an interface appears: repeat while
+        // space is missing.
         let mut size = 16 * 1024u32;
         let mut buf: Vec<u64>;
         loop {
             buf = vec![0; (size as usize).div_ceil(8)];
-            // SAFETY: o buffer tem `size` bytes, alinhado a 8.
+            // SAFETY: the buffer has `size` bytes, aligned to 8.
             let r = unsafe { GetAdaptersAddresses(family, flag_bits, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut size) };
             match r {
                 0 => break,
@@ -582,14 +582,14 @@ mod windows_only {
         let mut out = Vec::new();
         let mut a = buf.as_ptr().cast::<Adapter>();
         while !a.is_null() {
-            // SAFETY: nó da lista que o sistema gravou no buffer.
+            // SAFETY: node of the list the system wrote into the buffer.
             let ad = unsafe { &*a };
-            // SAFETY: o nome amigável é um texto terminado em NUL.
+            // SAFETY: the friendly name is a NUL-terminated string.
             let name = unsafe { from_wide_pointer(ad.friendly_name) };
             let ix = if ad.ipv6_index != 0 { ad.ipv6_index } else { ad.ix };
             let mut u = ad.first_unicast;
             while !u.is_null() {
-                // SAFETY: nó da lista de endereços do adaptador.
+                // SAFETY: node of the adapter's address list.
                 let un = unsafe { &*u };
                 out.push((OsAddress::from_pointer(un.address, un.address_size.max(0) as u32), name.clone(), i64::from(ix)));
                 u = un.next_offset;
@@ -606,7 +606,7 @@ mod windows_only {
         let mut b = [0u8; 16];
         let family = if v6 { AF_INET6 } else { AF_INET };
         let t = wide(text);
-        // SAFETY: `b` tem 16 bytes.
+        // SAFETY: `b` has 16 bytes.
         (unsafe { InetPtonW(i32::from(family), t.as_ptr(), b.as_mut_ptr()) } == 1).then(|| b[..if v6 { 16 } else { 4 }].to_vec())
     }
 }

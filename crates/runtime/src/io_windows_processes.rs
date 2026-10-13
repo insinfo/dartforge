@@ -200,8 +200,8 @@ mod windows_processes {
         let parent_writes = usage == PipeUse::ChildInput;
         let opening = if parent_writes { PIPE_ACCESS_OUTBOUND } else { PIPE_ACCESS_INBOUND } | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE;
         // SAFETY: cria o servidor do pipe com o nome único.
-        let tls_server = unsafe { CreateNamedPipeW(name.as_ptr(), opening, PIPE_REJECT_REMOTE_CLIENTS, 1, PIPE_SIZE, PIPE_SIZE, 0, std::ptr::null()) };
-        if tls_server == INVALID {
+        let server = unsafe { CreateNamedPipeW(name.as_ptr(), opening, PIPE_REJECT_REMOTE_CLIENTS, 1, PIPE_SIZE, PIPE_SIZE, 0, std::ptr::null()) };
+        if server == INVALID {
             return Err(system_error());
         }
         let (access, seg, flag_bits) = match usage {
@@ -215,10 +215,10 @@ mod windows_processes {
         if client == INVALID {
             let e = system_error();
             // SAFETY: o servidor não foi entregue a ninguém.
-            unsafe { CloseHandle(tls_server) };
+            unsafe { CloseHandle(server) };
             return Err(e);
         }
-        Ok(if parent_writes { [client, tls_server] } else { [tls_server, client] })
+        Ok(if parent_writes { [client, server] } else { [server, client] })
     }
 
     /// `OpenNul`: o `NUL` herdável (a E/S dos processos destacados).

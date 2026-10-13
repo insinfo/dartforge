@@ -1,47 +1,47 @@
-//! Recarga proporcional à edição (J04): a geração nova compila só as funções
-//! que mudaram.
+//! Reload proportional to the edit (J04): the new generation compiles only the
+//! functions that changed.
 //!
-//! O emissor escreve o programa inteiro a cada recarga, e analisar e ligar o
-//! IR inteiro é o grosso do custo dela num projeto grande (200 classes:
-//! 12 MB de IR, 0,55 s de análise e 2,0 s de ligação por edição de um corpo).
-//! Mas toda chamada entre funções do programa passa pela entrada estável
-//! (`version_definitions` troca os usos pelo trampolim), então uma função
-//! cujo código é o mesmo da implementação publicada pode continuar nela: a
-//! geração nova a **declara**, e quem a chama cai no trampolim, que aponta
-//! para a implementação viva.
+//! The emitter writes the whole program on every reload, and parsing and linking
+//! the whole IR is the bulk of its cost in a large project (200 classes: 12 MB of
+//! IR, 0.55 s of parsing and 2.0 s of linking per edit of one body). But every
+//! call between program functions goes through the stable entry
+//! (`version_definitions` replaces the uses with the trampoline), so a function
+//! whose code is the same as the published implementation's may stay in it: the
+//! new generation **declares** it, and its callers land in the trampoline, which
+//! points to the live implementation.
 //!
-//! "O mesmo código" é textual e conservador. A impressão digital de uma
-//! função é o texto dela mais o texto de tudo o que ela alcança e que é da
-//! própria geração: funções locais (`internal`/`private`, sem trampolim) e
-//! globais do módulo, transitivamente. Uma função do programa alcançada entra
-//! só pelo nome (a chamada vai ao trampolim, que publica a versão vigente).
-//! O resto do contexto que o texto não carrega é estável por construção: ids
-//! de classe (J03), índices da área de globais (só cresce), deslocamentos de
-//! campo (no texto) e o runtime.
+//! "The same code" is textual and conservative. A function's fingerprint is its
+//! text plus the text of everything it reaches that belongs to the generation
+//! itself: local functions (`internal`/`private`, without a trampoline) and module
+//! globals, transitively. A reached program function enters only by name (the
+//! call goes to the trampoline, which publishes the current version). The rest of
+//! the context that the text does not carry is stable by construction: class ids
+//! (J03), indices of the globals area (it only grows), field offsets (in the text)
+//! and the runtime.
 //!
-//! Não é mantida (é compilada de novo):
-//! * a função que alcança uma global **mutável** do módulo (o cache de um
-//!   ponto de chamada por seletor): a geração antiga guarda nele endereços de
-//!   implementações antigas;
-//! * a função que alcança uma função do programa cuja assinatura no IR novo
-//!   não é a da entrada publicada (J03: o nome passa a ser outra entrada);
-//! * as funções de registro da geração (área, tabelas, RTI), que a
-//!   publicação executa pela geração nova;
-//! * a que não tem implementação publicada com a mesma impressão digital.
+//! Not kept (compiled again):
+//! * a function that reaches a **mutable** module global (the cache of a call
+//!   site by selector): the old generation stores addresses of old
+//!   implementations in it;
+//! * a function that reaches a program function whose signature in the new IR is
+//!   not that of the published entry (J03: the name becomes another entry);
+//! * the generation's registration functions (area, tables, RTI), which
+//!   publication runs through the new generation;
+//! * one that has no published implementation with the same fingerprint.
 //!
-//! O IR que sai tem as mantidas como `declare`, sem as funções e globais
-//! locais que só elas alcançavam; qualquer coisa fora da forma que o emissor
-//! escreve faz o IR seguir inteiro, sem delta.
+//! The output IR has the kept ones as `declare`, without the local functions and
+//! globals that only they reached; anything outside the shape the emitter writes
+//! makes the IR go through whole, without a delta.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-/// O que se sabe da implementação publicada de uma entrada estável.
+/// What is known about the published implementation of a stable entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Published {
-    /// Impressão digital do código (texto e fecho local).
+    /// Fingerprint of the code (text and local closure).
     pub fingerprint: u64,
-    /// A assinatura como o IR a escreve, sem nomes de parâmetro.
+    /// The signature as the IR writes it, without parameter names.
     pub fn_signature: String,
 }
 
@@ -59,17 +59,17 @@ struct Item<'a> {
     text: &'a str,
 }
 
-/// O módulo lido pelas linhas de topo: definições de função, globais e
-/// comdats; o resto (cabeçalho, comentários, `declare`) passa como está.
+/// The module read by its top-level lines: function definitions, globals and
+/// comdats; the rest (header, comments, `declare`) passes as it is.
 struct IrModule<'a> {
-    /// Trechos na ordem do texto: `Ok(item)` ou `Err(text que passa)`.
+    /// Chunks in text order: `Ok(item)` or `Err(text that passes through)`.
     fragments: Vec<Result<usize, &'a str>>,
     items: Vec<Item<'a>>,
     by_name: HashMap<String, usize>,
 }
 
-/// O nome depois do `@` (ou `$` de comdat) no começo de `s`: entre aspas, ou
-/// até o primeiro caractere que não compõe identificador do LLVM.
+/// The name after the `@` (or the comdat `$`) at the start of `s`: quoted, or up
+/// to the first character that is not part of an LLVM identifier.
 fn name_at(s: &str) -> Option<(String, usize)> {
     if let Some(rest) = s.strip_prefix('"') {
         let end = rest.find('"')?;
@@ -82,7 +82,7 @@ fn name_at(s: &str) -> Option<(String, usize)> {
     (end > 0).then(|| (s[..end].to_string(), end))
 }
 
-/// As referências `@name` de um texto.
+/// The `@name` references of a text.
 fn references(text: &str) -> impl Iterator<Item = String> + '_ {
     text.match_indices('@').filter_map(|(i, _)| name_at(&text[i + 1..]).map(|(n, _)| n))
 }
@@ -95,7 +95,7 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
         let line_end = ir[pos..].find('\n').map_or(ir.len(), |i| pos + i + 1);
         let line = &ir[pos..line_end];
         let item = if let Some(rest) = line.strip_prefix("define ") {
-            // Até a linha `}` que fecha o corpo.
+            // Up to the `}` line that closes the body.
             let end = ir[pos..].find("\n}\n").map(|i| pos + i + 3)?;
             let at = rest.find('@')?;
             let (name, _) = name_at(&rest[at + 1..])?;
@@ -105,7 +105,7 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
         } else if let Some(rest) = line.strip_prefix('@') {
             let (name, n) = name_at(rest)?;
             let after = rest[n..].strip_prefix(" = ")?;
-            // Uma global por linha; o `declare` de dado externo é `external global`.
+            // One global per line; the `declare` of external data is `external global`.
             if after.starts_with("external ") {
                 None
             } else {
@@ -144,13 +144,14 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
     Some(m)
 }
 
-/// A assinatura de uma definição: a linha `define` sem ligação, sem nomes de
-/// parâmetro, sem `comdat` e sem o `{`. `declare <isto>` é a declaração dela.
+/// The signature of a definition: the `define` line without linkage, without
+/// parameter names, without `comdat` and without the `{`. `declare <this>` is its
+/// declaration.
 fn fn_signature(text: &str) -> Option<String> {
     let line = text.lines().next()?.strip_prefix("define ")?;
     let line = line.trim_end().strip_suffix('{')?.trim_end();
     let opens = line.find('(')?;
-    // O `)` que fecha a lista de parâmetros.
+    // The `)` that closes the parameter list.
     let mut level = 0i32;
     let mut closes = None;
     for (i, c) in line[opens..].char_indices() {
@@ -171,13 +172,13 @@ fn fn_signature(text: &str) -> Option<String> {
         .split_whitespace()
         .filter(|p| !matches!(*p, "linkonce_odr" | "internal" | "private" | "dso_local" | "weak_odr" | "linkonce"))
         .collect();
-    // `comdat` e `comdat($name)`: a declaração não pertence a comdat.
+    // `comdat` and `comdat($name)`: the declaration does not belong to a comdat.
     let after = line[closes + 1..]
         .split_whitespace()
         .filter(|p| *p != "comdat" && !p.starts_with("comdat("))
         .collect::<Vec<_>>()
         .join(" ");
-    // Parâmetros sem o nome (`%x`) de cada um, no nível de fora.
+    // Parameters without each one's name (`%x`), at the outer level.
     let mut params = Vec::new();
     let mut current = String::new();
     let mut level = 0i32;
@@ -208,17 +209,17 @@ fn fn_signature(text: &str) -> Option<String> {
     Some(s)
 }
 
-/// A infraestrutura da área de globais de cada geração: o descritor
-/// (`@df.area`) e o id do módulo (`@df.area_id`), lidos pelo `df.obter_area`
-/// local. Não entram na impressão digital nem impedem manter a função: o
-/// layout da área só cresce entre gerações, e o runtime aceita o descritor
-/// de uma geração anterior como prefixo do layout vigente, devolvendo a
-/// mesma área (`dartforge_area_de_globais`).
+/// The infrastructure of each generation's globals area: the descriptor
+/// (`@df.area`) and the module id (`@df.area_id`), read by the local
+/// `df.obter_area`. They neither enter the fingerprint nor prevent keeping the
+/// function: the area layout only grows between generations, and the runtime
+/// accepts the descriptor of a previous generation as a prefix of the current
+/// layout, returning the same area (`dartforge_area_de_globais`).
 const INFRASTRUCTURE: [&str; 2] = ["df.area", "df.area_id"];
 
-/// O fecho local de `i`: os itens da geração alcançados por ele (funções
-/// locais e globais, transitivamente), as funções do programa alcançadas
-/// (pelo nome) e se alguma global mutável está no caminho.
+/// The local closure of `i`: the generation's items it reaches (local functions
+/// and globals, transitively), the program functions reached (by name) and
+/// whether some mutable global is on the way.
 fn closure_set(m: &IrModule, i: usize) -> (BTreeSet<usize>, BTreeSet<String>, bool) {
     let mut locals = BTreeSet::new();
     let mut program = BTreeSet::new();
@@ -260,20 +261,20 @@ fn fingerprint(m: &IrModule, i: usize, locals: &BTreeSet<usize>) -> u64 {
     h.finish()
 }
 
-/// O IR da geração nova só com o que mudou.
+/// The IR of the new generation with only what changed.
 pub(crate) struct Delta {
-    /// O IR a compilar.
+    /// The IR to compile.
     pub ir: String,
-    /// As funções que continuam na implementação publicada (declaradas no IR).
+    /// The functions that stay in the published implementation (declared in the IR).
     pub kept_fns: Vec<String>,
-    /// O que a geração publica: as funções do programa definidas no IR que
-    /// sai, com a impressão digital de cada uma.
+    /// What the generation publishes: the program functions defined in the output
+    /// IR, with each one's fingerprint.
     pub new_items: HashMap<String, Published>,
 }
 
-/// O delta de `ir` contra as implementações `live_list`. `excluded`: funções que
-/// a geração nova sempre define (os registros). `None` quando o IR não está
-/// na forma esperada — então ele segue inteiro.
+/// The delta of `ir` against the implementations `live_list`. `excluded`:
+/// functions that the new generation always defines (the registrations). `None`
+/// when the IR is not in the expected shape — then it goes through whole.
 pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: &[&str]) -> Option<Delta> {
     let m = do_read(ir)?;
     let mut new_items = HashMap::new();
@@ -297,8 +298,8 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
             && live_list.get(&item.name) == Some(&published)
             && program.iter().all(|r| match (fn_signatures.get(r.as_str()), live_list.get(r)) {
                 (Some(new_area), Some(live_one)) => *new_area == live_one.fn_signature,
-                // Função do programa que o IR novo não define: a
-                // referência é a mesma que a viva já fazia.
+                // A program function the new IR does not define: the reference
+                // is the same the live one already made.
                 (None, _) => true,
                 (Some(_), None) => false,
             });
@@ -312,9 +313,9 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
     if kept_fns.is_empty() {
         return Some(Delta { ir: ir.to_string(), kept_fns: Vec::new(), new_items });
     }
-    // O que ainda é alcançado: das funções do programa que continuam
-    // definidas e das globais que não são locais (as locais só existem por
-    // quem as usa).
+    // What is still reached: from the program functions that stay defined and
+    // from the globals that are not local (the local ones only exist through
+    // their users).
     let mut live_set: HashSet<usize> = HashSet::new();
     let mut stack: Vec<usize> = m
         .items
@@ -336,7 +337,7 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
             }
         }
     }
-    // Comdat só com o membro definido.
+    // Comdat with only the defined member.
     for (i, it) in m.items.iter().enumerate() {
         if it.tipo == Type::Comdat
             && m.by_name.get(&it.name).is_some_and(|&f| live_set.contains(&f))
@@ -351,8 +352,8 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
             Ok(i) if kept_fns.contains(i) => out.push_str(&declarations[i]),
             Ok(i) if live_set.contains(i) => out.push_str(m.items[*i].text),
             Ok(i) => {
-                // Função local só alcançada pelas mantidas: some; a geração
-                // delas continua com a própria cópia.
+                // A local function reached only by the kept ones: it disappears;
+                // their generation keeps its own copy.
                 let _ = i;
             }
         }
@@ -366,9 +367,9 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
 mod tests_mod {
     use super::*;
 
-    /// O que a primeira geração de `ir` publica.
+    /// What the first generation of `ir` publishes.
     fn published_list(ir: &str) -> HashMap<String, Published> {
-        delta(ir, &HashMap::new(), &[]).expect("forma conhecida").new_items
+        delta(ir, &HashMap::new(), &[]).expect("known shape").new_items
     }
 
     const V1: &str = r#"; cabeçalho
@@ -419,13 +420,14 @@ b0:
     fn keeps_unchanged_and_compiles_rest() {
         let live_list = published_list(V1);
         assert_eq!(live_list.len(), 3, "{live_list:?}");
-        // `g` mudou: só ela é compilada; `f` (que chama `g` pelo trampolim)
-        // fica na implementação viva; `h` usa global mutável e nunca fica.
+        // `g` changed: only it is compiled; `f` (which calls `g` through the
+        // trampoline) stays in the live implementation; `h` uses a mutable global
+        // and is never kept.
         let v2 = V1.replace("  ret i64 %v0\n}\n\ndefine i64 @h", "  %y = add i64 %v0, 1\n  ret i64 %y\n}\n\ndefine i64 @h");
-        let d = delta(&v2, &live_list, &[]).expect("forma conhecida");
+        let d = delta(&v2, &live_list, &[]).expect("known shape");
         assert_eq!(d.kept_fns, vec!["f".to_string()]);
         assert!(d.ir.contains("declare i64 @f(i64, ptr)\n"), "{}", d.ir);
-        // A local só alcançada por `f` some; o comdat de `g` fica.
+        // The local reached only by `f` disappears; `g`'s comdat stays.
         assert!(!d.ir.contains("@ajuda("), "{}", d.ir);
         assert!(d.ir.contains("$\"g\" = comdat any"));
         assert!(d.ir.contains("%y = add i64 %v0, 1"));
@@ -438,7 +440,7 @@ b0:
         let live_list = published_list(V1);
         let v2 = V1.replace("c\"ab\"", "c\"xy\"");
         let d = delta(&v2, &live_list, &[]).unwrap();
-        // A string muda o fecho de `ajuda` e portanto o de `f`.
+        // The string changes the closure of `ajuda` and therefore that of `f`.
         assert!(!d.kept_fns.contains(&"f".to_string()), "{:?}", d.kept_fns);
         assert!(d.kept_fns.contains(&"g".to_string()));
     }
