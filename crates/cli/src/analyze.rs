@@ -129,7 +129,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
     } else {
         std::env::current_dir()?
     };
-    let engine = dartforge_parity::analise::Motor::descobrir()?;
+    let engine = dartforge_parity::analysis::Engine::discover()?;
     // Deep bodies recurse deeply: own stack, like `compile-js`.
     let mut diags: Vec<DiagJson> = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -137,17 +137,17 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
             let mut v = Vec::new();
             for target in &absolutes {
                 let root = package_root(target);
-                let options = dartforge_parity::filtros::Opcoes::ler(&root);
+                let options = dartforge_parity::filters::AnalysisOptions::read(&root);
                 // The package's `pubspec.yaml`, when the target is its folder.
                 if target.is_dir() && *target == root {
-                    v.extend(dartforge_parity::diagnosticos_do_pubspec(&root, &options));
-                    v.extend(dartforge_parity::diagnosticos_das_opcoes(&root));
-                    v.extend(dartforge_parity::diagnosticos_do_manifesto(&root, &options));
+                    v.extend(dartforge_parity::pubspec_diagnostics(&root, &options));
+                    v.extend(dartforge_parity::options_diagnostics(&root));
+                    v.extend(dartforge_parity::manifest_diagnostics(&root, &options));
                 }
                 let files: Vec<PathBuf> = if target.is_dir() {
-                    dartforge_parity::corpus::arquivos_dart(target)
+                    dartforge_parity::corpus::dart_files(target)
                         .into_iter()
-                        .filter(|a| dartforge_parity::oraculo::relativo(a, &root).is_some_and(|r| !options.excluido(&r)))
+                        .filter(|a| dartforge_parity::oracle::relative(a, &root).is_some_and(|r| !options.is_excluded(&r)))
                         .collect()
                 } else {
                     // The file requested on the command line is not excluded.
@@ -156,11 +156,11 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
                 let package_cfg = root.join(".dart_tool").join("package_config.json");
                 let default = requested_packages.clone().or_else(|| package_cfg.is_file().then_some(package_cfg));
                 // Nested packages (`example/`): each one with its own package_config.
-                for (pkg_root, fs) in dartforge_parity::projetos::por_pacote(&root, &files) {
+                for (pkg_root, fs) in dartforge_parity::projects::by_package(&root, &files) {
                     let c = pkg_root.join(".dart_tool").join("package_config.json");
                     let c = if c.is_file() { Some(c) } else { default.clone() };
-                    let a = engine.analisar(&root, &fs, c.as_deref());
-                    v.extend(dartforge_parity::diagnosticos_json(&a, &root, &options, !all));
+                    let a = engine.analyze(&root, &fs, c.as_deref());
+                    v.extend(dartforge_parity::json_diagnostics(&a, &root, &options, !all));
                 }
             }
             v
@@ -168,7 +168,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
         .join()
         .map_err(|_| "the analysis aborted")?;
     // A `TODO` is only shown when `errors:` promoted it (`analyze.dart:191-192`).
-    diags.retain(|d| !(d.tipo == "TODO" && d.severity == "INFO"));
+    diags.retain(|d| !(d.error_type == "TODO" && d.severity == "INFO"));
     sort(&mut diags);
     let (mut errors, mut warnings, mut infos) = (false, false, false);
     for d in &diags {
@@ -182,7 +182,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
     match format {
         Format::Json => {
             // One line, with the newline of Dart's `print` at the end.
-            println!("{}", dartforge_parity::json::escrever(diags));
+            println!("{}", dartforge_parity::json::write(diags));
         }
         Format::Machine => {
             // No diagnostics, no output.
@@ -191,7 +191,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
                 println!(
                     "{}|{}|{}|{}|{}|{}|{}|{}",
                     d.severity,
-                    d.tipo,
+                    d.error_type,
                     d.code.to_uppercase(),
                     escape_for_machine(&native_path(&d.location.file)),
                     d.location.range.start.line,

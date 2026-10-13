@@ -4,13 +4,13 @@
 //! the project, with the oracle re-recorded over the mutant.
 //!
 //! Nothing is written to the owner's project: each project is copied to
-//! `target/scratch-paridade/projetos/<name>` (only the `.dart` files, the
+//! `target/scratch-paridade/projects/<name>` (only the `.dart` files, the
 //! `pubspec.yaml`, the `analysis_options.yaml` and a `package_config.json` with
 //! absolute roots), and the copy is what gets mutated. The record lives in
-//! `corpus/diagnosticos/projetos.json` and `corpus/diagnosticos/mutacoes.jsonl`;
+//! `corpus/diagnosticos/projects.json` and `corpus/diagnosticos/mutacoes.jsonl`;
 //! a mutation whose original file changed (hash) is flagged as stale.
 
-use crate::oraculo::{FNV_START, Record, OracleSdk, fnv};
+use crate::oracle::{FNV_START, Record, OracleSdk, fnv};
 use dartforge_frontend::ast::{DirectiveKind, ExprKind, TypeKind, UnaryOp};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -18,17 +18,20 @@ use std::path::{Path, PathBuf};
 /// A real project.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
-    pub nome: String,
-    pub caminho: PathBuf,
+    #[serde(rename = "nome")]
+    pub name: String,
+    #[serde(rename = "caminho")]
+    pub path: PathBuf,
     pub sdk: OracleSdk,
     /// The oracle's diagnostics over the whole project (recorded).
     #[serde(default)]
-    pub oraculo: Option<usize>,
+    #[serde(rename = "oraculo")]
+    pub oracle: Option<usize>,
 }
 
 /// The plan's three projects.
 pub fn default_projects() -> Vec<Project> {
-    let p = |name: &str, c: &str| Project { nome: name.into(), caminho: c.into(), sdk: OracleSdk::V362, oraculo: None };
+    let p = |name: &str, c: &str| Project { name: name.into(), path: c.into(), sdk: OracleSdk::V362, oracle: None };
     vec![
         p("new_sali-core", "C:/MyDartProjects/new_sali/core"),
         p("new_sali-frontend", "C:/MyDartProjects/new_sali/frontend"),
@@ -42,22 +45,29 @@ pub const KINDS: &[&str] = &["nome", "import", "tipo", "bang", "await"];
 /// A mutation and what the oracle said about the mutated file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mutation {
-    pub projeto: String,
+    #[serde(rename = "projeto")]
+    pub project: String,
     /// Relative to the project's root, with `/`.
-    pub arquivo: String,
-    pub tipo: String,
+    #[serde(rename = "arquivo")]
+    pub file: String,
+    #[serde(rename = "tipo")]
+    pub kind: String,
     /// Bytes replaced in the original.
-    pub inicio: usize,
-    pub fim: usize,
-    pub inserir: String,
+    #[serde(rename = "inicio")]
+    pub start: usize,
+    #[serde(rename = "fim")]
+    pub end: usize,
+    #[serde(rename = "inserir")]
+    pub insert: String,
     /// FNV-1a of the original file.
     pub hash_original: String,
-    pub oraculo: Vec<Record>,
+    #[serde(rename = "oraculo")]
+    pub oracle: Vec<Record>,
 }
 
 impl Mutation {
     pub fn apply(&self, original: &str) -> String {
-        format!("{}{}{}", &original[..self.inicio], self.inserir, &original[self.fim..])
+        format!("{}{}{}", &original[..self.start], self.insert, &original[self.end..])
     }
 }
 
@@ -66,10 +76,10 @@ pub fn text_hash(t: &str) -> String {
 }
 
 /// The project's `.dart` files that `dart analyze` would see (without `exclude`).
-pub fn arquivos(root: &Path, opcoes: &crate::filtros::Opcoes) -> Vec<PathBuf> {
-    crate::corpus::arquivos_dart(root)
+pub fn files(root: &Path, options: &crate::filters::AnalysisOptions) -> Vec<PathBuf> {
+    crate::corpus::dart_files(root)
         .into_iter()
-        .filter(|a| crate::oraculo::relativo(a, root).is_some_and(|r| !opcoes.excluido(&r)))
+        .filter(|a| crate::oracle::relative(a, root).is_some_and(|r| !options.is_excluded(&r)))
         .collect()
 }
 
@@ -78,26 +88,26 @@ pub fn arquivos(root: &Path, opcoes: &crate::filtros::Opcoes) -> Vec<PathBuf> {
 /// Returns the path of the copy's `package_config.json`.
 pub fn copy(p: &Project, dest: &Path) -> Result<PathBuf, String> {
     let _ = std::fs::remove_dir_all(dest);
-    for a in crate::corpus::arquivos_dart(&p.caminho) {
-        let r = a.strip_prefix(&p.caminho).map_err(|_| "prefix")?;
+    for a in crate::corpus::dart_files(&p.path) {
+        let r = a.strip_prefix(&p.path).map_err(|_| "prefix")?;
         let d = dest.join(r);
         std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;
         std::fs::copy(&a, &d).map_err(|e| e.to_string())?;
     }
     // build_runner outputs: the analyzer sees them (ngdart's `.template.dart`).
-    let generated = p.caminho.join(".dart_tool/build/generated");
+    let generated = p.path.join(".dart_tool/build/generated");
     for a in crate::corpus::all_dart_files(&generated) {
-        let r = a.strip_prefix(&p.caminho).map_err(|_| "prefix")?;
+        let r = a.strip_prefix(&p.path).map_err(|_| "prefix")?;
         let d = dest.join(r);
         std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;
         std::fs::copy(&a, &d).map_err(|e| e.to_string())?;
     }
     for f in ["pubspec.yaml", "analysis_options.yaml"] {
-        if p.caminho.join(f).is_file() {
-            std::fs::copy(p.caminho.join(f), dest.join(f)).map_err(|e| e.to_string())?;
+        if p.path.join(f).is_file() {
+            std::fs::copy(p.path.join(f), dest.join(f)).map_err(|e| e.to_string())?;
         }
     }
-    let orig = p.caminho.join(".dart_tool/package_config.json");
+    let orig = p.path.join(".dart_tool/package_config.json");
     let text = std::fs::read_to_string(&orig).map_err(|e| format!("{}: {e}", orig.display()))?;
     let mut cfg: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     let base = orig.parent().expect("parent");
@@ -107,8 +117,8 @@ pub fn copy(p: &Project, dest: &Path) -> Result<PathBuf, String> {
             let abs = if root.starts_with("file:") {
                 root.clone()
             } else {
-                let target = crate::analise::chave(&base.join(&root));
-                if target == crate::analise::chave(&p.caminho) {
+                let target = crate::analysis::key(&base.join(&root));
+                if target == crate::analysis::key(&p.path) {
                     "../".to_string()
                 } else {
                     format!("file:///{}", target.to_string_lossy().replace('\\', "/"))
@@ -125,7 +135,7 @@ pub fn copy(p: &Project, dest: &Path) -> Result<PathBuf, String> {
 
 /// Groups `files` by owning package (the nearest directory, going up to
 /// `root`, that has a `pubspec.yaml`), in path order.
-pub fn por_pacote(root: &Path, files: &[PathBuf]) -> Vec<(PathBuf, Vec<PathBuf>)> {
+pub fn by_package(root: &Path, files: &[PathBuf]) -> Vec<(PathBuf, Vec<PathBuf>)> {
     let mut groups: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> = Default::default();
     for a in files {
         let mut d = a.parent();
@@ -135,7 +145,7 @@ pub fn por_pacote(root: &Path, files: &[PathBuf]) -> Vec<(PathBuf, Vec<PathBuf>)
                 owner = x.to_path_buf();
                 break;
             }
-            if crate::analise::chave(x) == crate::analise::chave(root) {
+            if crate::analysis::key(x) == crate::analysis::key(root) {
                 break;
             }
             d = x.parent();
@@ -218,7 +228,7 @@ pub fn choose(p: &Project, copy_root: &Path, files: &[PathBuf], per_kind: usize)
     // Only `lib/`: it is the owner's code that the editor shows.
     let libs: Vec<&PathBuf> = files
         .iter()
-        .filter(|a| crate::oraculo::relativo(a, copy_root).is_some_and(|r| r.starts_with("lib/") && !r.ends_with(".g.dart")))
+        .filter(|a| crate::oracle::relative(a, copy_root).is_some_and(|r| r.starts_with("lib/") && !r.ends_with(".g.dart")))
         .collect();
     if libs.is_empty() {
         return out;
@@ -239,21 +249,21 @@ pub fn choose(p: &Project, copy_root: &Path, files: &[PathBuf], per_kind: usize)
             if s.is_empty() {
                 continue;
             }
-            let rel = crate::oraculo::relativo(a, copy_root).expect("relative");
-            if out.iter().any(|m: &Mutation| m.arquivo == rel) {
+            let rel = crate::oracle::relative(a, copy_root).expect("relative");
+            if out.iter().any(|m: &Mutation| m.file == rel) {
                 continue;
             }
             let h = fnv(rel.as_bytes(), FNV_START) as usize;
             let (start, end, insert) = s[h % s.len()].clone();
             out.push(Mutation {
-                projeto: p.nome.clone(),
-                arquivo: rel,
-                tipo: kind.to_string(),
-                inicio: start,
-                fim: end,
-                inserir: insert,
+                project: p.name.clone(),
+                file: rel,
+                kind: kind.to_string(),
+                start,
+                end,
+                insert,
                 hash_original: text_hash(&text),
-                oraculo: Vec::new(),
+                oracle: Vec::new(),
             });
             n += 1;
         }
@@ -275,14 +285,14 @@ mod tests {
         let ty = sites(t, "tipo");
         assert_eq!(ty.len(), 2, "{ty:?}"); // the `int` of `Future<int>` and the local `String`
         let m = Mutation {
-            projeto: "p".into(),
-            arquivo: "a".into(),
-            tipo: "await".into(),
-            inicio: sites(t, "await")[0].0,
-            fim: sites(t, "await")[0].1,
-            inserir: String::new(),
+            project: "p".into(),
+            file: "a".into(),
+            kind: "await".into(),
+            start: sites(t, "await")[0].0,
+            end: sites(t, "await")[0].1,
+            insert: String::new(),
             hash_original: String::new(),
-            oraculo: vec![],
+            oracle: vec![],
         };
         assert!(m.apply(t).contains("return gg(xx)"));
     }

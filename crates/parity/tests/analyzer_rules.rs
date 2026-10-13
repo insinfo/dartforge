@@ -1,13 +1,13 @@
 //! Minimal cases of the rules ported in the 2026-09-30 parity round
 //! (docs/ANALISADOR-PARIDADE-PLANO.md). Each case was checked against
-//! `dart analyze` 3.6.2 with `examples/sonda_arquivos.rs --livre`: the
+//! `dart analyze` 3.6.2 with `examples/probe_files.rs --livre`: the
 //! expectation below is what the oracle reported (code, line, column,
 //! length), and nothing beyond that may come out.
 
-use dartforge_parity::analise::Motor;
+use dartforge_parity::analysis::Engine;
 use dartforge_parity::corpus::{self, Group};
-use dartforge_parity::oraculo::OracleSdk;
-use dartforge_parity::{Execution, filtros, run_ours};
+use dartforge_parity::oracle::OracleSdk;
+use dartforge_parity::{Execution, filters, run_ours};
 use std::path::PathBuf;
 
 const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
@@ -287,7 +287,7 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
 
 #[test]
 fn ported_rules_give_what_analyzer_3_6_2_gives() {
-    let Ok(engine) = Motor::descobrir() else {
+    let Ok(engine) = Engine::discover() else {
         eprintln!("SDK missing: test skipped");
         return;
     };
@@ -295,7 +295,7 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("pubspec.yaml"), "name: regras\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
-    let g = Group { sdk: OracleSdk::V362, pacotes: Vec::new(), origem: String::new() };
+    let g = Group { sdk: OracleSdk::V362, packages: Vec::new(), origin: String::new() };
     let cfg = corpus::prepare(&root, "regras", &g).unwrap();
     let mut sources = Vec::new();
     for (name, text, _) in CASES {
@@ -310,13 +310,13 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
         isolate: None,
         max_time: std::time::Duration::from_secs(600),
     };
-    let r = run_ours(&engine, &root, &sources, Some(&cfg), &filtros::Opcoes::default(), &ex);
+    let r = run_ours(&engine, &root, &sources, Some(&cfg), &filters::AnalysisOptions::default(), &ex);
     let _ = std::fs::remove_dir_all(&root);
     for (name, _, expected) in CASES {
         let mut found: Vec<(String, usize, usize, usize)> = r
             .records
             .iter()
-            .filter(|x| x.arquivo == *name)
+            .filter(|x| x.file == *name)
             .map(|x| (x.code.clone(), x.line, x.column, x.length))
             .collect();
         found.sort();

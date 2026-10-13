@@ -4,16 +4,16 @@
 //! the syntactic diagnostics right away (parser + local checkers of
 //! `crates/analysis`) and asks this worker for the full analysis of the
 //! document's package. The analysis is **the same** as `dartforge analyze`'s:
-//! [`dartforge_parity::analise::Engine`] (load, outline, `crates/types`
+//! [`dartforge_parity::analysis::Engine`] (load, outline, `crates/types`
 //! inference and the `crates/analysis` checkers) followed by
-//! [`dartforge_parity::publicaveis`] (the publication rule of
+//! [`dartforge_parity::publishable`] (the publication rule of
 //! `verificados.txt`, `analysis_options.yaml` and `// ignore:`). No rule is
 //! duplicated here: this only chooses which files to analyze and discards
 //! what became stale.
 //!
 //! * **One program per package.** All open documents of the package (plus
 //!   the owning library of each open part) go into a single
-//!   `Engine::analisar_com`, with the open texts winning over the disk. So
+//!   `Engine::analyze_with`, with the open texts winning over the disk. So
 //!   editing an imported file reanalyzes whoever imports it, directly or
 //!   transitively, without a dependency graph of its own.
 //! * **Version.** Each result carries the version of the analyzed text; the
@@ -28,11 +28,11 @@
 //!   library names) and a copy of the current text of each open document.
 //!   Program, trees and type table live for one analysis and drop with it.
 //!
-//! [`Engine`]: dartforge_parity::analise::Motor
+//! [`Engine`]: dartforge_parity::analysis::Engine
 
 use crate::{Analyzer, SyntacticAnalyzer};
 use dartforge_diagnostics::Diagnostic;
-use dartforge_parity::analise::{Motor, chave, e_parte};
+use dartforge_parity::analysis::{Engine, key, is_part};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -173,7 +173,7 @@ impl Typed {
         let mut e = self.state();
         let root = package_root(&path, &e.folders);
         e.dirty.insert(root.clone());
-        e.changed.entry(root.clone()).or_default().insert(chave(&path));
+        e.changed.entry(root.clone()).or_default().insert(key(&path));
         e.documents.insert(
             uri.to_string(),
             Document {
@@ -226,7 +226,7 @@ impl Typed {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if matches!(name, "analysis_options.yaml" | "pubspec.yaml" | "package_config.json") {
             e.publish_all.insert(root.clone());
-            e.changed.entry(root.clone()).or_default().insert(chave(path));
+            e.changed.entry(root.clone()).or_default().insert(key(path));
             e.dirty.insert(root);
             self.shared.1.notify_all();
             return;
@@ -235,10 +235,10 @@ impl Typed {
             return;
         }
         // An open document counts through the editor.
-        if e.documents.values().any(|d| chave(&d.path) == chave(path)) {
+        if e.documents.values().any(|d| key(&d.path) == key(path)) {
             return;
         }
-        e.changed.entry(root.clone()).or_default().insert(chave(path));
+        e.changed.entry(root.clone()).or_default().insert(key(path));
         e.dirty.insert(root);
         self.shared.1.notify_all();
     }
@@ -252,7 +252,7 @@ impl Typed {
             // analysis (Dart's `removeOverlay`), and so did those that depend on it.
             let inside = e.folders.iter().any(|p| d.path.starts_with(p));
             if inside || e.documents.values().any(|o| o.root == d.root) {
-                e.changed.entry(d.root.clone()).or_default().insert(chave(&d.path));
+                e.changed.entry(d.root.clone()).or_default().insert(key(&d.path));
                 e.dirty.insert(d.root);
                 self.shared.1.notify_all();
             }
@@ -321,7 +321,7 @@ fn work(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     };
-    let mut engine: Option<Motor> = None;
+    let mut engine: Option<Engine> = None;
     loop {
         let (root, open, texts, config, changed) = {
             let mut e = block();
@@ -344,7 +344,7 @@ fn work(
             let texts: HashMap<PathBuf, String> = e
                 .documents
                 .values()
-                .map(|d| (chave(&d.path), d.text.clone()))
+                .map(|d| (key(&d.path), d.text.clone()))
                 .collect();
             e.running = Some(root.clone());
             let config = AnalysisConfiguration { all: e.all, all_types: e.all_types.clone(), excluded: e.excluded.clone() };
@@ -356,7 +356,7 @@ fn work(
             (root, open, texts, config, (in_workspace, all, changed_))
         };
         if engine.is_none() {
-            match Motor::novo(sdk_lib) {
+            match Engine::new(sdk_lib) {
                 Ok(m) => engine = Some(m),
                 Err(error) => {
                     eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
@@ -422,7 +422,7 @@ struct AnalysisConfiguration {
 fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
     let mut v: BTreeSet<PathBuf> = BTreeSet::new();
     for p in folders {
-        for a in dartforge_parity::corpus::arquivos_dart(p) {
+        for a in dartforge_parity::corpus::dart_files(p) {
             v.insert(package_root(&a, folders));
         }
     }
@@ -432,11 +432,11 @@ fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
 /// The files `affected` by a change in `changed`: they and, through the
 /// directives (`import`, `export`, `part`, `part of`), those that depend on
 /// them, transitively (those that Dart's driver reanalyzes and republishes).
-fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analise::Arquivo>, changed: &BTreeSet<PathBuf>, packages: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
+fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analysis::FileAnalysis>, changed: &BTreeSet<PathBuf>, packages: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
     let mut dependents: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for (path, a) in files {
         let mut names = dartforge_intern::Interner::new();
-        let analyzed = dartforge_frontend::parser::parse(&a.texto, &mut names);
+        let analyzed = dartforge_frontend::parser::parse(&a.text, &mut names);
         let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
         for d in &analyzed.unit.directives {
             use dartforge_frontend::ast::DirectiveKind as K;
@@ -455,7 +455,7 @@ fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analis
             } else {
                 base.join(&*text)
             };
-            dependents.entry(chave(&target)).or_default().push(path.clone());
+            dependents.entry(key(&target)).or_default().push(path.clone());
         }
     }
     let mut output: BTreeSet<PathBuf> = changed.iter().cloned().collect();
@@ -478,7 +478,7 @@ fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analis
 /// cancelled.
 #[allow(clippy::type_complexity)]
 fn analyze_package(
-    engine: &Motor,
+    engine: &Engine,
     root: &Path,
     open: &[(String, i32, PathBuf, String)],
     texts: &HashMap<PathBuf, String>,
@@ -496,11 +496,11 @@ fn analyze_package(
         .collect();
     let open: Vec<(String, i32, PathBuf, String)> = open.iter().filter(|(_, _, c, _)| !excluded(c)).cloned().collect();
     let open = &open[..];
-    let options = dartforge_parity::filtros::Opcoes::ler(root);
+    let options = dartforge_parity::filters::AnalysisOptions::read(root);
     // The package's `.dart` files that `dart analyze` would see (outside the
     // exclusions of `analysis_options.yaml` and of `analysisExcludedFolders`).
     let of_package: Vec<PathBuf> = if in_workspace {
-        dartforge_parity::projetos::arquivos(root, &options).into_iter().filter(|a| !excluded(a)).collect()
+        dartforge_parity::projects::files(root, &options).into_iter().filter(|a| !excluded(a)).collect()
     } else {
         Vec::new()
     };
@@ -510,47 +510,47 @@ fn analyze_package(
     let mut files: Vec<PathBuf> = of_package.clone();
     for (_, _, path, text) in open {
         // A part comes in through its owning library (the engine does not import parts).
-        if e_parte(text)
+        if is_part(text)
             && let Some(owning) = crate::semantic::owning_library(path, text, None)
         {
             files.push(owning);
         }
         files.push(path.clone());
     }
-    files.sort_by_key(|a| chave(a));
-    files.dedup_by_key(|a| chave(a));
+    files.sort_by_key(|a| key(a));
+    files.dedup_by_key(|a| key(a));
     let package_config = root.join(".dart_tool").join("package_config.json");
     let package_config = package_config.is_file().then_some(package_config);
     let packages = package_config.as_deref().and_then(|c| dartforge_elements::PackageConfig::load(c).ok());
-    let Some(analysis) = engine.analisar_com(root, &files, package_config.as_deref(), texts, cancelled)
+    let Some(analysis) = engine.analyze_with(root, &files, package_config.as_deref(), texts, cancelled)
     else {
         return Vec::new();
     };
     let mut syntactic = SyntacticAnalyzer::new();
     let mut output = Vec::new();
     // The files not open to publish.
-    let open_keys: BTreeSet<PathBuf> = open.iter().map(|(_, _, c, _)| chave(c)).collect();
+    let open_keys: BTreeSet<PathBuf> = open.iter().map(|(_, _, c, _)| key(c)).collect();
     let publish: BTreeSet<PathBuf> = if all {
-        of_package.iter().map(|a| chave(a)).collect()
+        of_package.iter().map(|a| key(a)).collect()
     } else {
-        affected(&analysis.arquivos, changed, packages.as_ref())
+        affected(&analysis.files, changed, packages.as_ref())
     };
     let mut targets: Vec<(String, Option<i32>, PathBuf, String)> = open.iter().map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), t.clone())).collect();
     for a in &of_package {
-        let k = chave(a);
+        let k = key(a);
         if open_keys.contains(&k) || !publish.contains(&k) {
             continue;
         }
-        let Some(file_) = analysis.arquivos.get(&k) else { continue };
+        let Some(file_) = analysis.files.get(&k) else { continue };
         let Ok(u) = url::Url::from_file_path(a) else { continue };
-        targets.push((u.to_string(), None, a.clone(), file_.texto.clone()));
+        targets.push((u.to_string(), None, a.clone(), file_.text.clone()));
     }
     for (uri, version, path, text) in &targets {
-        let Some(file) = analysis.arquivos.get(&chave(path)) else {
+        let Some(file) = analysis.files.get(&key(path)) else {
             continue;
         };
-        if dartforge_parity::oraculo::relativo(path, root)
-            .is_some_and(|rel| options.excluido(&rel))
+        if dartforge_parity::oracle::relative(path, root)
+            .is_some_and(|rel| options.is_excluded(&rel))
         {
             continue;
         }
@@ -562,13 +562,13 @@ fn analyze_package(
         // INFO by `analysis_options.yaml`), each at the position where the analyzer
         // reported it.
         let published: Vec<Diagnostic> =
-            dartforge_parity::publicaveis(file, &options, true)
+            dartforge_parity::publishable(file, &options, true)
                 .into_iter()
                 .filter(|(_, syntax)| !syntax)
                 .map(|(d, _)| d)
                 .collect();
         let mut semantic: Vec<Diagnostic> = Vec::new();
-        for (d, syntax) in dartforge_parity::publicaveis(file, &options, false) {
+        for (d, syntax) in dartforge_parity::publishable(file, &options, false) {
             if syntax {
                 continue;
             }
@@ -607,13 +607,13 @@ fn analyze_package(
     if in_workspace {
         let options_yaml = root.join("analysis_options.yaml");
         let pubspec_yaml = root.join("pubspec.yaml");
-        let changed_ = |p: &Path| all || changed.contains(&chave(p));
+        let changed_ = |p: &Path| all || changed.contains(&key(p));
         let mut yaml: Vec<(PathBuf, Vec<dartforge_parity::json::DiagJson>)> = Vec::new();
         if options_yaml.is_file() && changed_(&options_yaml) {
-            yaml.push((options_yaml.clone(), dartforge_parity::diagnosticos_das_opcoes(root)));
+            yaml.push((options_yaml.clone(), dartforge_parity::options_diagnostics(root)));
         }
         if pubspec_yaml.is_file() && (changed_(&pubspec_yaml) || changed_(&options_yaml)) {
-            yaml.push((pubspec_yaml.clone(), dartforge_parity::diagnosticos_do_pubspec(root, &options)));
+            yaml.push((pubspec_yaml.clone(), dartforge_parity::pubspec_diagnostics(root, &options)));
         }
         for (path, diagnostics) in yaml {
             let Ok(text) = std::fs::read_to_string(&path) else { continue };

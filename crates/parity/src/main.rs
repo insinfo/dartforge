@@ -13,12 +13,12 @@
 //! Exit code: 0 complete report; 1 oracle missing/out of date or
 //! nondeterministic results; 2 invalid usage.
 
-use dartforge_parity::analise::Motor;
+use dartforge_parity::analysis::Engine;
 use dartforge_parity::corpus::{self, Group};
-use dartforge_parity::oraculo::{self, Meta, Record};
-use dartforge_parity::projetos::{self, Mutation, Project};
+use dartforge_parity::oracle::{self, Meta, Record};
+use dartforge_parity::projects::{self, Mutation, Project};
 use dartforge_parity::scoreboard::Scoreboard;
-use dartforge_parity::{Execution, filtros, run_ours};
+use dartforge_parity::{Execution, filters, run_ours};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -178,8 +178,8 @@ fn chosen_groups(a: &Args) -> Vec<(String, Group)> {
     corpus::groups(&a.corpus).into_iter().filter(|(n, _)| a.groups.is_empty() || a.groups.contains(n)).collect()
 }
 
-fn engine() -> Motor {
-    Motor::descobrir().unwrap_or_else(|e| {
+fn engine() -> Engine {
+    Engine::discover().unwrap_or_else(|e| {
         eprintln!("error: SDK: {e}");
         std::process::exit(2)
     })
@@ -196,10 +196,10 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
     let mut panics = Vec::new();
     let mut ambiguous = 0;
     let groups = chosen_groups(a);
-    let new_syntax = oraculo::read_new_syntax(&a.corpus);
+    let new_syntax = oracle::read_new_syntax(&a.corpus);
     for (name, g) in &groups {
         let dir = a.corpus.join(name);
-        let (oracle, meta) = match oraculo::read(&dir) {
+        let (oracle, meta) = match oracle::read(&dir) {
             Ok(x) => x,
             Err(e) => {
                 let _ = writeln!(body, "group {name}: NO RECORDED ORACLE ({e}) — run `dartforge-parity oraculo --grupo {name}`");
@@ -219,11 +219,11 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
                 continue;
             }
         };
-        let sources = corpus::arquivos_dart(&dir);
+        let sources = corpus::dart_files(&dir);
         let t = Instant::now();
         eprintln!("group {name}: {} files", sources.len());
         let batch = if a.batch > 0 { a.batch } else { 12 };
-        let r = run_ours(&engine, &dir, &sources, Some(&cfg), &filtros::Opcoes::ler(&dir), &execution(workers, batch));
+        let r = run_ours(&engine, &dir, &sources, Some(&cfg), &filters::AnalysisOptions::read(&dir), &execution(workers, batch));
         eprintln!("group {name}: {:.1} s", t.elapsed().as_secs_f64());
         files += r.files;
         batches += r.batches;
@@ -251,8 +251,8 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
         );
         // T2, done criterion: our parser's reference marker against the list
         // the 3.13.4 parser produced for the group.
-        if meta.sdk == oraculo::OracleSdk::V362 {
-            let ours = oraculo::marker_3_13(&dir, &sources);
+        if meta.sdk == oracle::OracleSdk::V362 {
+            let ours = oracle::marker_3_13(&dir, &sources);
             let from_oracle: std::collections::BTreeSet<String> =
                 new_syntax.get(name.as_str()).map(|v| v.iter().cloned().collect()).unwrap_or_default();
             let only_ours: Vec<&String> = ours.difference(&from_oracle).collect();
@@ -385,8 +385,8 @@ fn rerecord_oracle(a: &Args) -> ExitCode {
         let newly_excluded = excluded.clone();
         // Files removed in earlier recordings stay out of the group (the file
         // was already deleted); the list records why it is missing.
-        if let Ok((_, previous)) = oraculo::read(&dir) {
-            excluded.extend(previous.excluidos.into_iter().filter(|e| !dir.join(e).exists()));
+        if let Ok((_, previous)) = oracle::read(&dir) {
+            excluded.extend(previous.excluded.into_iter().filter(|e| !dir.join(e).exists()));
         }
         excluded.sort();
         excluded.dedup();
@@ -395,11 +395,11 @@ fn rerecord_oracle(a: &Args) -> ExitCode {
             let _ = std::fs::remove_file(dir.join(e));
         }
         // Diagnostics in removed files do not count.
-        regs.retain(|r| !excluded.contains(&r.arquivo));
+        regs.retain(|r| !excluded.contains(&r.file));
         // Files with syntax 3.6.2 does not know: the 3.13.4 record.
-        let list = oraculo::read_new_syntax(&a.corpus).remove(&name).unwrap_or_default();
-        if g.sdk == oraculo::OracleSdk::V362 && !list.is_empty() {
-            if oraculo::OracleSdk::V3134.available() {
+        let list = oracle::read_new_syntax(&a.corpus).remove(&name).unwrap_or_default();
+        if g.sdk == oracle::OracleSdk::V362 && !list.is_empty() {
+            if oracle::OracleSdk::V3134.available() {
                 eprintln!("oracle 3.13.4 on {name} ({} file(s) with new syntax)…", list.len());
                 let (new, _) = oracle_313_for_group(&dir);
                 replace_files(&mut regs, new, &list);
@@ -411,7 +411,7 @@ fn rerecord_oracle(a: &Args) -> ExitCode {
                     "SDK 3.13.4 missing: {} file(s) with new syntax in {name} keep the previous record",
                     list.len()
                 );
-                let previous = oraculo::read(&dir).map(|(r, _)| r).unwrap_or_default();
+                let previous = oracle::read(&dir).map(|(r, _)| r).unwrap_or_default();
                 replace_files(&mut regs, previous, &list);
             }
         }
@@ -420,19 +420,19 @@ fn rerecord_oracle(a: &Args) -> ExitCode {
         let meta = Meta {
             sdk: g.sdk,
             hash: corpus::sources_hash(&dir),
-            arquivos: corpus::arquivos_dart(&dir).len(),
-            diagnosticos: regs.len(),
-            excluidos: excluded,
+            files: corpus::dart_files(&dir).len(),
+            diagnostics: regs.len(),
+            excluded,
         };
-        if let Err(e) = oraculo::write(&dir, regs, &meta) {
+        if let Err(e) = oracle::write(&dir, regs, &meta) {
             eprintln!("{name}: {e}");
             failed = true;
             continue;
         }
         println!(
             "{name}: {} files, {} diagnostics from oracle {} ({} slice(s), {:.0} s)",
-            meta.arquivos,
-            meta.diagnosticos,
+            meta.files,
+            meta.diagnostics,
             g.sdk.version(),
             slices.len(),
             t.elapsed().as_secs_f64()
@@ -442,13 +442,13 @@ fn rerecord_oracle(a: &Args) -> ExitCode {
 }
 
 /// 3.13.4 over the whole group, with the group's package as it is (the
-/// language stays the group's): the same slices as `oraculo`. Also returns
+/// language stays the group's): the same slices as `oracle`. Also returns
 /// the files that crash it (relative to `dir`).
 fn oracle_313_for_group(dir: &Path) -> (Vec<Record>, Vec<String>) {
     let mut regs = Vec::new();
     let mut excluded = Vec::new();
     for target in slices(dir, 2500) {
-        bisect(oraculo::OracleSdk::V3134, dir, target, &mut regs, &mut excluded);
+        bisect(oracle::OracleSdk::V3134, dir, target, &mut regs, &mut excluded);
     }
     (regs, excluded)
 }
@@ -456,20 +456,20 @@ fn oracle_313_for_group(dir: &Path) -> (Vec<Record>, Vec<String>) {
 /// Replaces, in `regs`, the records of the files in `list` with those of `new`.
 fn replace_files(regs: &mut Vec<Record>, new: Vec<Record>, list: &[String]) {
     let list: std::collections::BTreeSet<&str> = list.iter().map(String::as_str).collect();
-    regs.retain(|r| !list.contains(r.arquivo.as_str()));
-    regs.extend(new.into_iter().filter(|r| list.contains(r.arquivo.as_str())));
+    regs.retain(|r| !list.contains(r.file.as_str()));
+    regs.extend(new.into_iter().filter(|r| list.contains(r.file.as_str())));
 }
 
 /// `sintaxe-nova`: runs 3.13.4 over each 3.6.2 group, picks the files where
-/// it flags a feature 3.6.2 does not know ([`oraculo::uses_new_syntax`]),
+/// it flags a feature 3.6.2 does not know ([`oracle::uses_new_syntax`]),
 /// writes the list to `sintaxe-nova.json` and replaces only those files'
-/// records in the group's `oraculo.jsonl`. The hash and the other metadata of
+/// records in the group's `oracle.jsonl`. The hash and the other metadata of
 /// the group stay as they are.
 fn classify_new_syntax(a: &Args) -> ExitCode {
-    let mut list = oraculo::read_new_syntax(&a.corpus);
+    let mut list = oracle::read_new_syntax(&a.corpus);
     let mut failed = false;
     for (name, g) in chosen_groups(a) {
-        if g.sdk != oraculo::OracleSdk::V362 {
+        if g.sdk != oracle::OracleSdk::V362 {
             continue;
         }
         let dir = a.corpus.join(&name);
@@ -488,23 +488,23 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
         let chosen_313: std::collections::BTreeSet<&str> = new
             .iter()
             .filter(|r| r.code == "experiment_not_enabled")
-            .map(|r| r.arquivo.as_str())
+            .map(|r| r.file.as_str())
             .collect();
-        let all = corpus::arquivos_dart(&dir);
-        for e in oraculo::marker_3_13(&dir, &all) {
+        let all = corpus::dart_files(&dir);
+        for e in oracle::marker_3_13(&dir, &all) {
             if !chosen_313.contains(e.as_str())
                 && !crashed.contains(&e)
-                && oraculo::run(oraculo::OracleSdk::V3134, &dir, &[dir.join(&e)], &oracle_cache()).is_err()
+                && oracle::run(oracle::OracleSdk::V3134, &dir, &[dir.join(&e)], &oracle_cache()).is_err()
             {
                 crashed.push(e);
             }
         }
         // A file where 3.13.4 crashes and that our parser marks with the
         // 3.13.4 reference has no reference behaviour: it leaves the group,
-        // like the one that crashes the 3.6.2 oracle (`oraculo`). The others
+        // like the one that crashes the 3.6.2 oracle (`oracle`). The others
         // keep the 3.6.2 record.
         let sources: Vec<PathBuf> = crashed.iter().map(|e| dir.join(e)).collect();
-        let marked = oraculo::marker_3_13(&dir, &sources);
+        let marked = oracle::marker_3_13(&dir, &sources);
         for e in &crashed {
             if marked.contains(e) {
                 eprintln!("  3.13.4 crashes on {e}, which has new syntax; removed from the group");
@@ -515,11 +515,11 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
         }
         let mut by_file: std::collections::BTreeMap<&str, Vec<&Record>> = std::collections::BTreeMap::new();
         for r in &new {
-            by_file.entry(r.arquivo.as_str()).or_default().push(r);
+            by_file.entry(r.file.as_str()).or_default().push(r);
         }
         let chosen: Vec<String> =
-            by_file.iter().filter(|(_, rs)| oraculo::uses_new_syntax(rs)).map(|(f, _)| f.to_string()).collect();
-        let (mut regs, mut meta) = match oraculo::read(&dir) {
+            by_file.iter().filter(|(_, rs)| oracle::uses_new_syntax(rs)).map(|(f, _)| f.to_string()).collect();
+        let (mut regs, mut meta) = match oracle::read(&dir) {
             Ok(x) => x,
             Err(e) => {
                 eprintln!("{name}: {e}");
@@ -528,18 +528,18 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
             }
         };
         replace_files(&mut regs, new.clone(), &chosen);
-        regs.retain(|r| !marked.contains(&r.arquivo));
-        meta.excluidos.extend(marked.iter().cloned());
-        meta.excluidos.sort();
-        meta.excluidos.dedup();
+        regs.retain(|r| !marked.contains(&r.file));
+        meta.excluded.extend(marked.iter().cloned());
+        meta.excluded.sort();
+        meta.excluded.dedup();
         if !marked.is_empty() {
             meta.hash = corpus::sources_hash(&dir);
-            meta.arquivos = corpus::arquivos_dart(&dir).len();
+            meta.files = corpus::dart_files(&dir).len();
         }
         regs.sort();
         regs.dedup();
-        meta.diagnosticos = regs.len();
-        if let Err(e) = oraculo::write(&dir, regs, &meta) {
+        meta.diagnostics = regs.len();
+        if let Err(e) = oracle::write(&dir, regs, &meta) {
             eprintln!("{name}: {e}");
             failed = true;
             continue;
@@ -551,7 +551,7 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
             list.insert(name, chosen);
         }
     }
-    if let Err(e) = oraculo::write_new_syntax(&a.corpus, &list) {
+    if let Err(e) = oracle::write_new_syntax(&a.corpus, &list) {
         eprintln!("sintaxe-nova.json: {e}");
         failed = true;
     }
@@ -562,13 +562,13 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
 /// half (a lone directory becomes its children) until the files that crash
 /// it are isolated, which go to `excluded` (relative to `dir`).
 fn bisect(
-    sdk: oraculo::OracleSdk,
+    sdk: oracle::OracleSdk,
     dir: &Path,
     targets: Vec<PathBuf>,
     regs: &mut Vec<Record>,
     excluded: &mut Vec<String>,
 ) {
-    match oraculo::run(sdk, dir, &targets, &oracle_cache()) {
+    match oracle::run(sdk, dir, &targets, &oracle_cache()) {
         Ok(ds) => regs.extend(ds.iter().filter_map(|d| Record::from_json(d, dir))),
         Err(e) => {
             if targets.len() > 1 {
@@ -593,7 +593,7 @@ fn bisect(
                     bisect(sdk, dir, children, regs, excluded);
                 }
             } else {
-                excluded.push(oraculo::relativo(&targets[0], dir).unwrap_or_default());
+                excluded.push(oracle::relative(&targets[0], dir).unwrap_or_default());
             }
         }
     }
@@ -603,7 +603,7 @@ fn bisect(
 /// subdirectories grouped up to `max` files per run (analysis server
 /// memory). `dart analyze` accepts several targets at once.
 fn slices(dir: &Path, max: usize) -> Vec<Vec<PathBuf>> {
-    if corpus::arquivos_dart(dir).len() <= max {
+    if corpus::dart_files(dir).len() <= max {
         return vec![vec![dir.to_path_buf()]];
     }
     let mut subs: Vec<(PathBuf, usize)> = Vec::new();
@@ -613,7 +613,7 @@ fn slices(dir: &Path, max: usize) -> Vec<Vec<PathBuf>> {
             let p = e.path();
             let n = e.file_name().to_string_lossy().into_owned();
             if p.is_dir() && !n.starts_with('.') {
-                subs.push((p.clone(), corpus::arquivos_dart(&p).len()));
+                subs.push((p.clone(), corpus::dart_files(&p).len()));
             } else if n.ends_with(".dart") {
                 loose = true;
             }
@@ -640,7 +640,7 @@ fn read_projects(corpus: &Path) -> Vec<(Project, Vec<Record>)> {
     let path = corpus.join("projetos.json");
     match std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
         Some(v) => v,
-        None => projetos::default_projects().into_iter().map(|p| (p, Vec::new())).collect(),
+        None => projects::default_projects().into_iter().map(|p| (p, Vec::new())).collect(),
     }
 }
 
@@ -652,38 +652,38 @@ fn cmd_projects(a: &Args) -> ExitCode {
     let mut total = Scoreboard::default();
     let mut s = String::new();
     for (p, oracle_regs) in registry.iter_mut() {
-        if !p.caminho.join("pubspec.yaml").is_file() {
-            let _ = writeln!(s, "{}: missing at {} (skipped)", p.nome, p.caminho.display());
+        if !p.path.join("pubspec.yaml").is_file() {
+            let _ = writeln!(s, "{}: missing at {} (skipped)", p.name, p.path.display());
             continue;
         }
-        let options = filtros::Opcoes::ler(&p.caminho);
+        let options = filters::AnalysisOptions::read(&p.path);
         if a.oracle {
             let t = Instant::now();
-            eprintln!("{}: oracle {}…", p.nome, p.sdk.version());
-            match oraculo::run(p.sdk, &p.caminho, &[p.caminho.clone()], &oracle_cache()) {
+            eprintln!("{}: oracle {}…", p.name, p.sdk.version());
+            match oracle::run(p.sdk, &p.path, &[p.path.clone()], &oracle_cache()) {
                 Ok(ds) => {
-                    *oracle_regs = ds.iter().filter_map(|d| Record::from_json(d, &p.caminho)).collect();
+                    *oracle_regs = ds.iter().filter_map(|d| Record::from_json(d, &p.path)).collect();
                     oracle_regs.sort();
-                    p.oraculo = Some(oracle_regs.len());
+                    p.oracle = Some(oracle_regs.len());
                     eprintln!("  {} diagnostics, {:.0} s", oracle_regs.len(), t.elapsed().as_secs_f64());
                 }
                 Err(e) => {
-                    let _ = writeln!(s, "{}: oracle failed: {e}", p.nome);
+                    let _ = writeln!(s, "{}: oracle failed: {e}", p.name);
                     continue;
                 }
             }
         }
-        let files = projetos::arquivos(&p.caminho, &options);
-        let cfg = p.caminho.join(".dart_tool/package_config.json");
+        let files = projects::files(&p.path, &options);
+        let cfg = p.path.join(".dart_tool/package_config.json");
         let t = Instant::now();
-        eprintln!("{}: our side, {} files…", p.nome, files.len());
+        eprintln!("{}: our side, {} files…", p.name, files.len());
         // Nested packages (`example/` with its own pubspec) are separate
         // analysis contexts in the analyzer: each with its own package_config.
         let mut r = dartforge_parity::Run::default();
-        for (pkg_root, fs) in projetos::por_pacote(&p.caminho, &files) {
+        for (pkg_root, fs) in projects::by_package(&p.path, &files) {
             let c = pkg_root.join(".dart_tool/package_config.json");
             let c = if c.is_file() { c } else { cfg.clone() };
-            let partial = run_ours(&engine, &p.caminho, &fs, Some(&c), &options, &execution(workers, batch));
+            let partial = run_ours(&engine, &p.path, &fs, Some(&c), &options, &execution(workers, batch));
             r.records.extend(partial.records);
             r.files += partial.files;
             r.batches += partial.batches;
@@ -697,14 +697,14 @@ fn cmd_projects(a: &Args) -> ExitCode {
         let published = r
             .records
             .iter()
-            .filter(|x| x.tipo == "SYNTACTIC_ERROR" || dartforge_parity::verified().contains(&x.code.as_str()))
+            .filter(|x| x.error_type == "SYNTACTIC_ERROR" || dartforge_parity::verified().contains(&x.code.as_str()))
             .count();
         let _ = writeln!(
             s,
             "{} (oracle {}: {} diagnostics; {} files, {:.0} s): ours {} | FP {} | hits {} | published by the rule {} | panics {}",
-            p.nome,
+            p.name,
             p.sdk.version(),
-            p.oraculo.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+            p.oracle.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
             r.files,
             t.elapsed().as_secs_f64(),
             tg.ours,
@@ -737,7 +737,7 @@ samples:
     ExitCode::SUCCESS
 }
 
-fn mutations(a: &Args, engine: &Motor, list: &[Project]) -> String {
+fn mutations(a: &Args, engine: &Engine, list: &[Project]) -> String {
     let file = a.corpus.join("mutacoes.jsonl");
     let mut recorded: Vec<Mutation> = std::fs::read_to_string(&file)
         .map(|t| t.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
@@ -748,28 +748,28 @@ fn mutations(a: &Args, engine: &Motor, list: &[Project]) -> String {
     let mut stale = 0;
     let mut new = Vec::new();
     for p in list {
-        if !p.caminho.join("pubspec.yaml").is_file() {
+        if !p.path.join("pubspec.yaml").is_file() {
             continue;
         }
-        let copy = scratch.join(&p.nome);
-        let cfg = match projetos::copy(p, &copy) {
+        let copy = scratch.join(&p.name);
+        let cfg = match projects::copy(p, &copy) {
             Ok(c) => c,
             Err(e) => {
-                let _ = writeln!(s, "{}: copy failed: {e}", p.nome);
+                let _ = writeln!(s, "{}: copy failed: {e}", p.name);
                 continue;
             }
         };
-        let options = filtros::Opcoes::ler(&copy);
-        let files = projetos::arquivos(&copy, &options);
+        let options = filters::AnalysisOptions::read(&copy);
+        let files = projects::files(&copy, &options);
         let mut ms: Vec<Mutation> = if a.rerecord {
-            projetos::choose(p, &copy, &files, a.mutations.max(1))
+            projects::choose(p, &copy, &files, a.mutations.max(1))
         } else {
-            recorded.iter().filter(|m| m.projeto == p.nome).cloned().collect()
+            recorded.iter().filter(|m| m.project == p.name).cloned().collect()
         };
         for m in ms.iter_mut() {
-            let target = copy.join(&m.arquivo);
+            let target = copy.join(&m.file);
             let Ok(original) = std::fs::read_to_string(&target) else { continue };
-            if projetos::text_hash(&original) != m.hash_original {
+            if projects::text_hash(&original) != m.hash_original {
                 stale += 1;
                 continue;
             }
@@ -778,25 +778,25 @@ fn mutations(a: &Args, engine: &Motor, list: &[Project]) -> String {
                 continue;
             }
             if a.rerecord {
-                eprintln!("mutation {} {} {}…", p.nome, m.tipo, m.arquivo);
-                match oraculo::run(p.sdk, &copy, std::slice::from_ref(&target), &oracle_cache()) {
+                eprintln!("mutation {} {} {}…", p.name, m.kind, m.file);
+                match oracle::run(p.sdk, &copy, std::slice::from_ref(&target), &oracle_cache()) {
                     Ok(ds) => {
-                        m.oraculo = ds
+                        m.oracle = ds
                             .iter()
                             .filter_map(|d| Record::from_json(d, &copy))
-                            .filter(|r| r.arquivo == m.arquivo)
+                            .filter(|r| r.file == m.file)
                             .collect();
-                        m.oraculo.sort();
+                        m.oracle.sort();
                     }
                     Err(e) => eprintln!("  oracle failed: {e}"),
                 }
             }
-            let r = engine.analisar(&copy, std::slice::from_ref(&target), Some(&cfg));
+            let r = engine.analyze(&copy, std::slice::from_ref(&target), Some(&cfg));
             let ours: Vec<Record> = dartforge_parity::records(&r, &copy, &options, false)
                 .into_iter()
-                .filter(|x| x.arquivo == m.arquivo)
+                .filter(|x| x.file == m.file)
                 .collect();
-            scoreboard.compare(&m.oraculo, &ours);
+            scoreboard.compare(&m.oracle, &ours);
             let _ = std::fs::write(&target, &original);
         }
         new.extend(ms);

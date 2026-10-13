@@ -3,8 +3,8 @@
 //! message), `-` (oracle only) or `+` (ours only).
 //!
 //! ```text
-//! cargo run --release -p dartforge-parity --example sonda_arquivos -- <group> <relative file>...
-//! cargo run --release -p dartforge-parity --example sonda_arquivos -- --livre <dir> [<relative file>...]
+//! cargo run --release -p dartforge-parity --example probe_files -- <group> <relative file>...
+//! cargo run --release -p dartforge-parity --example probe_files -- --livre <dir> [<relative file>...]
 //! ```
 //!
 //! With a corpus group, the oracle is the recorded one. With `--livre`, `<dir>`
@@ -15,17 +15,17 @@
 //! (as in the scoreboard, each one is its own library), without the
 //! publication filters.
 
-use dartforge_parity::analise::Motor;
+use dartforge_parity::analysis::Engine;
 use dartforge_parity::corpus::{self, Group};
-use dartforge_parity::oraculo::{self, Record, OracleSdk};
-use dartforge_parity::{Execution, filtros, run_ours};
+use dartforge_parity::oracle::{self, Record, OracleSdk};
+use dartforge_parity::{Execution, filters, run_ours};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some((first, rest)) = args.split_first() else {
-        eprintln!("usage: sonda_arquivos <group> <file>... | --livre <dir> [<file>...]");
+        eprintln!("usage: probe_files <group> <file>... | --livre <dir> [<file>...]");
         std::process::exit(2);
     };
     let (dir, cfg, oracle, rels) = if first == "--livre" {
@@ -37,7 +37,7 @@ fn main() {
     } else {
         from_corpus(first, rest)
     };
-    let engine = Motor::descobrir().expect("SDK");
+    let engine = Engine::discover().expect("SDK");
     let sources: Vec<PathBuf> = rels.iter().map(|r| dir.join(r)).collect();
     let ex = Execution {
         workers: 1,
@@ -46,17 +46,17 @@ fn main() {
         isolate: None,
         max_time: std::time::Duration::from_secs(600),
     };
-    let r = run_ours(&engine, &dir, &sources, Some(&cfg), &filtros::Opcoes::ler(&dir), &ex);
+    let r = run_ours(&engine, &dir, &sources, Some(&cfg), &filters::AnalysisOptions::read(&dir), &ex);
     let mut sum = [0usize; 4];
     for rel in &rels {
         let rel = rel.replace('\\', "/");
         println!("== {rel}");
         // (offset, length, code, side) → record; side 0 oracle, 1 ours.
         let mut lines: BTreeMap<(usize, usize, String, u8), &Record> = BTreeMap::new();
-        for o in oracle.iter().filter(|o| o.arquivo == rel) {
+        for o in oracle.iter().filter(|o| o.file == rel) {
             lines.insert((o.offset, o.length, o.code.clone(), 0), o);
         }
-        for n in r.records.iter().filter(|n| n.arquivo == rel) {
+        for n in r.records.iter().filter(|n| n.file == rel) {
             lines.insert((n.offset, n.length, n.code.clone(), 1), n);
         }
         let mut seen = BTreeSet::new();
@@ -98,7 +98,7 @@ fn from_corpus(group: &str, rels: &[String]) -> Setup {
     };
     let dir = root.join(group);
     let cfg = corpus::prepare(&dir, group, &g).expect("prepare the group");
-    let (oracle, _) = oraculo::read(&dir).expect("recorded oracle");
+    let (oracle, _) = oracle::read(&dir).expect("recorded oracle");
     (dir, cfg, oracle, rels.to_vec())
 }
 
@@ -108,16 +108,16 @@ fn free(d: &Path, rels: &[String]) -> Setup {
     let name = "sonda_livre";
     std::fs::write(dir.join("pubspec.yaml"), format!("name: {name}\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n"))
         .expect("pubspec");
-    let g = Group { sdk: OracleSdk::V362, pacotes: Vec::new(), origem: String::new() };
+    let g = Group { sdk: OracleSdk::V362, packages: Vec::new(), origin: String::new() };
     let cfg = corpus::prepare(&dir, name, &g).expect("package_config");
     let rels: Vec<String> = if rels.is_empty() {
-        corpus::arquivos_dart(&dir).iter().filter_map(|a| oraculo::relativo(a, &dir)).collect()
+        corpus::dart_files(&dir).iter().filter_map(|a| oracle::relative(a, &dir)).collect()
     } else {
         rels.to_vec()
     };
     let targets: Vec<PathBuf> = rels.iter().map(|r| dir.join(r)).collect();
     let cache = std::env::temp_dir().join("dartforge-sonda-cache");
-    let diags = oraculo::run(OracleSdk::V362, &dir, &targets, &cache).expect("dart analyze 3.6.2");
+    let diags = oracle::run(OracleSdk::V362, &dir, &targets, &cache).expect("dart analyze 3.6.2");
     let regs = diags.iter().filter_map(|j| Record::from_json(j, &dir)).collect();
     (dir, cfg, regs, rels)
 }

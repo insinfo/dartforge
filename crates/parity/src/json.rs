@@ -27,7 +27,7 @@ pub struct DiagJson {
     pub code: String,
     pub severity: String,
     #[serde(rename = "type")]
-    pub tipo: String,
+    pub error_type: String,
     pub location: Local,
     pub problem_message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,17 +49,17 @@ pub struct ContextJson {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Local {
     pub file: String,
-    pub range: Faixa,
+    pub range: JsonRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Faixa {
-    pub start: Ponto,
-    pub end: Ponto,
+pub struct JsonRange {
+    pub start: JsonPosition,
+    pub end: JsonPosition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Ponto {
+pub struct JsonPosition {
     pub offset: usize,
     pub line: usize,
     pub column: usize,
@@ -67,7 +67,7 @@ pub struct Ponto {
 
 /// Converts UTF-8 byte offsets to (UTF-16 offset, line, column), like the
 /// analyzer's `LineInfo`: line breaks are `\n`, `\r\n` and a lone `\r`.
-pub struct Linhas<'a> {
+pub struct LineIndex<'a> {
     text: &'a str,
     /// The first byte of each line.
     starts: Vec<usize>,
@@ -75,7 +75,7 @@ pub struct Linhas<'a> {
     starts16: Vec<usize>,
 }
 
-impl<'a> Linhas<'a> {
+impl<'a> LineIndex<'a> {
     pub fn new(text: &'a str) -> Self {
         let mut starts = vec![0];
         let mut starts16 = vec![0];
@@ -108,13 +108,13 @@ impl<'a> Linhas<'a> {
     }
 
     /// The point of byte `byte` (clamped to the end of the text and to a character boundary).
-    pub fn ponto(&self, byte: usize) -> Ponto {
+    pub fn position(&self, byte: usize) -> JsonPosition {
         // Past the end (the fasta scanner reports the missing closer at the
         // end of the file with length 1): the last line continues.
         if byte > self.text.len() {
-            let p = self.ponto(self.text.len());
+            let p = self.position(self.text.len());
             let extra = byte - self.text.len();
-            return Ponto { offset: p.offset + extra, line: p.line, column: p.column + extra };
+            return JsonPosition { offset: p.offset + extra, line: p.line, column: p.column + extra };
         }
         let mut byte = byte;
         while !self.text.is_char_boundary(byte) {
@@ -122,14 +122,14 @@ impl<'a> Linhas<'a> {
         }
         let line = self.starts.partition_point(|&s| s <= byte) - 1;
         let col16: usize = self.text[self.starts[line]..byte].chars().map(char::len_utf16).sum();
-        Ponto { offset: self.starts16[line] + col16, line: line + 1, column: col16 + 1 }
+        JsonPosition { offset: self.starts16[line] + col16, line: line + 1, column: col16 + 1 }
     }
 }
 
 /// Converts one of our diagnostics to JSON v1. Without a code, the `code`
 /// field is `dartforge_sem_codigo` (it never matches the oracle: it counts as
 /// a false positive in the scoreboard).
-pub fn to_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> DiagJson {
+pub fn to_json(file: &str, lines: &LineIndex<'_>, d: &Diagnostic, syntax: bool) -> DiagJson {
     let (code, kind, doc) = match d.code {
         Some(c) => {
             let i = c.info();
@@ -143,10 +143,10 @@ pub fn to_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> 
     DiagJson {
         code,
         severity: d.severity.name().to_string(),
-        tipo: kind,
+        error_type: kind,
         location: Local {
             file: file.to_string(),
-            range: Faixa { start: lines.ponto(d.span.start), end: lines.ponto(d.span.end.max(d.span.start)) },
+            range: JsonRange { start: lines.position(d.span.start), end: lines.position(d.span.end.max(d.span.start)) },
         },
         problem_message: d.message.clone(),
         correction_message: d.correction(),
@@ -158,7 +158,7 @@ pub fn to_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> 
             .map(|c| ContextJson {
                 location: Local {
                     file: c.file.as_deref().unwrap_or(file).to_string(),
-                    range: Faixa { start: lines.ponto(c.span.start), end: lines.ponto(c.span.end.max(c.span.start)) },
+                    range: JsonRange { start: lines.position(c.span.start), end: lines.position(c.span.end.max(c.span.start)) },
                 },
                 message: c.message.to_string(),
             })
@@ -177,7 +177,7 @@ fn priority(sev: &str) -> u8 {
 }
 
 /// dartdev's order (`DiagnosticWithPath.compareTo`).
-pub fn ordenar(v: &mut [DiagJson]) {
+pub fn sort(v: &mut [DiagJson]) {
     v.sort_by(|a, b| {
         priority(&a.severity)
             .cmp(&priority(&b.severity))
@@ -189,7 +189,7 @@ pub fn ordenar(v: &mut [DiagJson]) {
 }
 
 /// Serializes like `dart analyze` (compact JSON, no trailing newline).
-pub fn escrever(diags: Vec<DiagJson>) -> String {
+pub fn write(diags: Vec<DiagJson>) -> String {
     serde_json::to_string(&Report { version: 1, diagnostics: diags }).expect("JSON")
 }
 
@@ -200,11 +200,11 @@ mod tests {
     #[test]
     fn lines_utf16_and_breaks() {
         let t = "a\r\nb\u{1F600}c\rd\n";
-        let l = Linhas::new(t);
-        assert_eq!(l.ponto(0), Ponto { offset: 0, line: 1, column: 1 });
-        assert_eq!(l.ponto(3), Ponto { offset: 3, line: 2, column: 1 });
+        let l = LineIndex::new(t);
+        assert_eq!(l.position(0), JsonPosition { offset: 0, line: 1, column: 1 });
+        assert_eq!(l.position(3), JsonPosition { offset: 3, line: 2, column: 1 });
         // after the emoji (4 bytes, 2 UTF-16 code units)
-        assert_eq!(l.ponto(8), Ponto { offset: 6, line: 2, column: 4 });
-        assert_eq!(l.ponto(10), Ponto { offset: 8, line: 3, column: 1 });
+        assert_eq!(l.position(8), JsonPosition { offset: 6, line: 2, column: 4 });
+        assert_eq!(l.position(10), JsonPosition { offset: 8, line: 3, column: 1 });
     }
 }

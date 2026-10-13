@@ -16,7 +16,7 @@
 //! one on) that contains it; outline, the unit with a node (expression,
 //! statement, type or pattern) of the exact range, or the batch unit whose
 //! top-level declaration contains it. Cases with more than one candidate are
-//! counted in [`Analise::ambiguos`] — the scoreboard shows them.
+//! counted in [`AnalysisResult::ambiguous`] — the scoreboard shows them.
 
 use crate::bridge;
 use dartforge_diagnostics::{Diagnostic, Span, codes};
@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 pub const ENTRY: &str = "__dartforge_analise__.dart";
 
 /// The SDK, loaded once and reused by every analysis.
-pub struct Motor {
+pub struct Engine {
     sdk: SdkLayout,
     /// Every `dart:` library the analyzer knows: those of any section of
     /// `libraries.json` (the analyzer is not limited to DDC).
@@ -39,8 +39,8 @@ pub struct Motor {
 
 /// The diagnostics of a file, with its text (to convert positions).
 #[derive(Debug, Default)]
-pub struct Arquivo {
-    pub texto: String,
+pub struct FileAnalysis {
+    pub text: String,
     pub diags: Vec<Diagnostic>,
     /// How many of the first `diags` are syntactic (always published).
     pub syntactic_count: usize,
@@ -60,7 +60,7 @@ pub struct Arquivo {
 pub struct SemanticLint {
     /// The code's unique name (`LinterLintCode`), which is also the key in
     /// `dartforge_analysis::lints::codes_g::ALL`.
-    pub unico: &'static str,
+    pub unique: &'static str,
     pub span: dartforge_diagnostics::Span,
     pub args: Vec<String>,
 }
@@ -101,18 +101,18 @@ fn with_phase<A, I: IntoIterator<Item = (A, Diagnostic)>>(f: u16, it: I) -> impl
 
 /// The result of an analysis: per normalized absolute path.
 #[derive(Debug, Default)]
-pub struct Analise {
-    pub arquivos: BTreeMap<PathBuf, Arquivo>,
+pub struct AnalysisResult {
+    pub files: BTreeMap<PathBuf, FileAnalysis>,
     /// Diagnostics with more than one candidate unit.
-    pub ambiguos: usize,
-    /// The phase of each report of `arquivos[k].diags`, in the same order.
+    pub ambiguous: usize,
+    /// The phase of each report of `files[k].diags`, in the same order.
     phases: BTreeMap<PathBuf, Vec<u16>>,
 }
 
-impl Analise {
+impl AnalysisResult {
     /// Reports `d` in file `k`, in phase `f`.
     fn report(&mut self, k: &Path, d: Diagnostic, f: u16) {
-        if let Some(a) = self.arquivos.get_mut(k) {
+        if let Some(a) = self.files.get_mut(k) {
             a.diags.push(d);
             self.phases.entry(k.to_path_buf()).or_default().push(f);
         }
@@ -121,7 +121,7 @@ impl Analise {
     /// Each file's list (except the syntactic ones, which come first) in
     /// phase order, stable.
     fn sort_by_phases(&mut self) {
-        for (k, a) in self.arquivos.iter_mut() {
+        for (k, a) in self.files.iter_mut() {
             let phases = self.phases.remove(k).unwrap_or_default();
             let n = a.syntactic_count.min(a.diags.len());
             let rest: Vec<Diagnostic> = a.diags.drain(n..).collect();
@@ -134,13 +134,13 @@ impl Analise {
 }
 
 /// Normalized path (lexical, without `\\?\`), the comparison key of files.
-pub fn chave(p: &Path) -> PathBuf {
+pub fn key(p: &Path) -> PathBuf {
     dartforge_elements::generated::key(p)
 }
 
 /// Is the file a part (`part of`)? Looks at the directives before the first
 /// declaration.
-pub fn e_parte(text: &str) -> bool {
+pub fn is_part(text: &str) -> bool {
     let mut in_block = false;
     for line in text.lines() {
         let t = line.trim();
@@ -197,7 +197,7 @@ fn part_has_library(
     let mut names = dartforge_intern::Interner::new();
     let parsed = dartforge_frontend::parser::parse(text, &mut names);
     let base = a.parent().map(Path::to_path_buf).unwrap_or_default();
-    let target = chave(a);
+    let target = key(a);
     // Does library `lib` (text) include `target` through `part`?
     let includes = |lib_path: &Path, lib_text: &str| -> bool {
         let mut n2 = dartforge_intern::Interner::new();
@@ -206,7 +206,7 @@ fn part_has_library(
         lib.unit.directives.iter().any(|d| match &d.kind {
             DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
                 .and_then(|u| resolve_directive_uri(&u, &lib_base, config))
-                .is_some_and(|c| chave(&c) == target),
+                .is_some_and(|c| key(&c) == target),
             _ => false,
         })
     };
@@ -215,13 +215,13 @@ fn part_has_library(
         if let Some(lit) = uri {
             let Some(u) = dartforge_elements::load::string_lit_value(lit) else { return false };
             let Some(lib_path) = resolve_directive_uri(&u, &base, config) else { return false };
-            let lib_text = texts.get(&chave(&lib_path)).cloned().or_else(|| std::fs::read_to_string(&lib_path).ok());
-            return lib_text.is_some_and(|t| !e_parte(&t) && includes(&lib_path, &t));
+            let lib_text = texts.get(&key(&lib_path)).cloned().or_else(|| std::fs::read_to_string(&lib_path).ok());
+            return lib_text.is_some_and(|t| !is_part(&t) && includes(&lib_path, &t));
         }
         // `part of a.b;`: a library of the batch with that name that includes it.
         let wanted: Vec<String> = name.iter().map(|n| names.resolve(n.sym).to_string()).collect();
         return batch.iter().any(|(_, c, t)| {
-            if e_parte(t) {
+            if is_part(t) {
                 return false;
             }
             let mut n3 = dartforge_intern::Interner::new();
@@ -252,9 +252,9 @@ fn library_outside_batch(
     let mut names = dartforge_intern::Interner::new();
     let parsed = dartforge_frontend::parser::parse(text, &mut names);
     let base = a.parent().map(Path::to_path_buf).unwrap_or_default();
-    let target = chave(a);
-    let in_batch = |c: &Path| batch.iter().any(|(_, x, _)| chave(x) == chave(c));
-    let read = |c: &Path| texts.get(&chave(c)).cloned().or_else(|| std::fs::read_to_string(c).ok());
+    let target = key(a);
+    let in_batch = |c: &Path| batch.iter().any(|(_, x, _)| key(x) == key(c));
+    let read = |c: &Path| texts.get(&key(c)).cloned().or_else(|| std::fs::read_to_string(c).ok());
     let includes = |lib_path: &Path, lib_text: &str| -> bool {
         let mut n2 = dartforge_intern::Interner::new();
         let lib = dartforge_frontend::parser::parse(lib_text, &mut n2);
@@ -262,7 +262,7 @@ fn library_outside_batch(
         lib.unit.directives.iter().any(|d| match &d.kind {
             DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
                 .and_then(|u| resolve_directive_uri(&u, &lib_base, config))
-                .is_some_and(|c| chave(&c) == target),
+                .is_some_and(|c| key(&c) == target),
             _ => false,
         })
     };
@@ -272,7 +272,7 @@ fn library_outside_batch(
         let u = dartforge_elements::load::string_lit_value(lit)?;
         let path = resolve_directive_uri(&u, &base, config)?;
         let t = read(&path)?;
-        return (!in_batch(&path) && !e_parte(&t) && includes(&path, &t)).then_some(path);
+        return (!in_batch(&path) && !is_part(&t) && includes(&path, &t)).then_some(path);
     }
     let wanted: Vec<String> = name.iter().map(|n| names.resolve(n.sym).to_string()).collect();
     if wanted.is_empty() {
@@ -284,11 +284,11 @@ fn library_outside_batch(
         .unwrap_or_default();
     siblings.sort();
     for c in siblings {
-        if in_batch(&c) || chave(&c) == target {
+        if in_batch(&c) || key(&c) == target {
             continue;
         }
         let Some(t) = read(&c) else { continue };
-        if e_parte(&t) || !t.contains(wanted.last().map(String::as_str).unwrap_or("")) {
+        if is_part(&t) || !t.contains(wanted.last().map(String::as_str).unwrap_or("")) {
             continue;
         }
         let mut n3 = dartforge_intern::Interner::new();
@@ -324,8 +324,8 @@ fn generated_by_build(c: &dartforge_elements::PackageConfig, target: &Path) -> b
         })
 }
 
-impl Motor {
-    pub fn novo(sdk_lib: &Path) -> Result<Motor, String> {
+impl Engine {
+    pub fn new(sdk_lib: &Path) -> Result<Engine, String> {
         let mut sdk = SdkLayout::load(sdk_lib, "dartdevc")?;
         // `dart analyze` uses no compilation profile: it sees every public
         // library of the platform, from source and without patches. Those the
@@ -377,48 +377,48 @@ impl Motor {
                 }
             }
         }
-        Ok(Motor { sdk, sdk_libraries })
+        Ok(Engine { sdk, sdk_libraries })
     }
 
     /// The SDK from `DARTFORGE_SDK_LIB`/`DART_SDK`/`PATH`, or the machine's
     /// default 3.6.2.
-    pub fn descobrir() -> Result<Motor, String> {
+    pub fn discover() -> Result<Engine, String> {
         let lib = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
-        Motor::novo(&lib)
+        Engine::new(&lib)
     }
 
     /// Analyzes `files` (absolute, inside `root`), each as its own library.
     /// `packages` is the `package_config.json`.
-    pub fn analisar(&self, root: &Path, files: &[PathBuf], packages: Option<&Path>) -> Analise {
-        self.analisar_com(root, files, packages, &HashMap::new(), &|| false)
+    pub fn analyze(&self, root: &Path, files: &[PathBuf], packages: Option<&Path>) -> AnalysisResult {
+        self.analyze_with(root, files, packages, &HashMap::new(), &|| false)
             .expect("without cancellation, the analysis always completes")
     }
 
-    /// Like [`Engine::analisar`], with in-memory texts and cancellation.
+    /// Like [`Engine::analyze`], with in-memory texts and cancellation.
     ///
-    /// `texts` (keyed by the path's [`chave`]) takes precedence over the disk,
+    /// `texts` (keyed by the path's [`key`]) takes precedence over the disk,
     /// both for `files` and for any file the loading reaches: it is what the
     /// LSP passes with the open documents not yet saved. `cancelled` is
     /// consulted between phases (loading, verifiers, each library in body
     /// inference); when it answers true, the analysis stops there and returns
     /// `None` — the LSP discards it because the text changed. The engine
     /// retains nothing between calls.
-    pub fn analisar_com(
+    pub fn analyze_with(
         &self,
         root: &Path,
         files: &[PathBuf],
         packages: Option<&Path>,
         texts: &HashMap<PathBuf, String>,
         cancelled: &dyn Fn() -> bool,
-    ) -> Option<Analise> {
-        let mut analysis = Analise::default();
+    ) -> Option<AnalysisResult> {
+        let mut analysis = AnalysisResult::default();
         let mut own: BTreeMap<PathBuf, String> = BTreeMap::new();
         let mut imports = String::new();
         let read: Vec<(usize, &PathBuf, String)> = files
             .iter()
             .enumerate()
             .filter_map(|(i, a)| {
-                let text = match texts.get(&chave(a)) {
+                let text = match texts.get(&key(a)) {
                     Some(t) => t.clone(),
                     None => std::fs::read_to_string(a).ok()?,
                 };
@@ -431,7 +431,7 @@ impl Motor {
             // A part whose library is not known (the `part of` does not point
             // to a library that includes it) is analyzed as its own library
             // (`FileKind.asLibrary`; INFRA III.5 item 1).
-            let part = e_parte(&text);
+            let part = is_part(&text);
             let as_library = !part || !part_has_library(a, &text, &read, package_config.as_ref(), texts);
             // A part requested without its library in the batch (the analysis
             // of a single file: the LSP, the mutations): the analyzer knows
@@ -444,7 +444,7 @@ impl Motor {
             {
                 let rel = lib.strip_prefix(root).unwrap_or(&lib).to_string_lossy().replace('\\', "/").replace(' ', "%20");
                 imports.push_str(&format!("import '{rel}' as _dfb{i};\n"));
-                own.insert(chave(a), text);
+                own.insert(key(a), text);
                 continue;
             }
             if as_library {
@@ -455,10 +455,10 @@ impl Motor {
                     .collect();
                 imports.push_str(&format!("import '{rel}' as _dfp{i};\n"));
             }
-            own.insert(chave(a), text);
+            own.insert(key(a), text);
         }
         for (p, t) in &own {
-            analysis.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), syntactic_count: 0, semantic_lints: Vec::new(), lint_reports: None });
+            analysis.files.insert(p.clone(), FileAnalysis { text: t.clone(), diags: Vec::new(), syntactic_count: 0, semantic_lints: Vec::new(), lint_reports: None });
         }
         if imports.is_empty() {
             return Some(analysis);
@@ -489,7 +489,7 @@ impl Motor {
         let mut unit_of: HashMap<PathBuf, UnitId> = HashMap::new();
         for (i, u) in program.units.iter().enumerate() {
             if let Some(p) = &u.path {
-                let k = chave(p);
+                let k = key(p);
                 if own.contains_key(&k) && !program.library(u.library).is_sdk {
                     unit_of.insert(k, UnitId(i as u32));
                 }
@@ -515,7 +515,7 @@ impl Motor {
                     let syntactic = raw.code.is_none_or(|c| c.info().error_type == dartforge_diagnostics::ErrorType::SyntacticError);
                     if syntactic {
                         analysis.report(k, bridge::encode_syntax(&raw), phase::PARSER);
-                        analysis.arquivos.get_mut(k).expect("own").syntactic_count += 1;
+                        analysis.files.get_mut(k).expect("own").syntactic_count += 1;
                     } else {
                         semantic_from_load.push((k.clone(), raw));
                     }
@@ -550,7 +550,7 @@ impl Motor {
                     analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
-                if texts.contains_key(&chave(&base.join(&uri))) {
+                if texts.contains_key(&key(&base.join(&uri))) {
                     continue;
                 }
                 if self.directive_without_target(&uri, &base, config.as_ref(), i.literal, false).is_some() {
@@ -572,7 +572,7 @@ impl Motor {
                     analysis.report(k, d, phase::DIRECTIVES);
                     continue;
                 }
-                if texts.contains_key(&chave(&base.join(&text))) {
+                if texts.contains_key(&key(&base.join(&text))) {
                     // An open document not saved yet: it exists for the editor.
                     continue;
                 }
@@ -596,7 +596,7 @@ impl Motor {
         // that of the fragments the parser skipped, where fasta's recovery
         // would have read what ours discarded.
         // The outline comes before the declaration checks: the clauses' gate
-        // (`analise::clausulas`) uses the mixin decisions, which need types
+        // (`analysis::clausulas`) uses the mixin decisions, which need types
         // (`dartforge_types::phase_mixins`).
         let mut table = dartforge_types::TypeTable::new();
         // Messages with the `typedef` alias and the `Never?` as written (C9).
@@ -692,7 +692,7 @@ impl Motor {
             deferred_privates.insert(*lib, deferred.into_iter().map(|(i, d)| (ids[i], d, phase::UNUSED_LOCAL_ELEMENTS)).collect());
             for (i, d, f) in found {
                 if let Some(p) = &program.unit(ids[i]).path {
-                    analysis.report(&chave(p), d, f);
+                    analysis.report(&key(p), d, f);
                 }
             }
             for (u, d, f) in with_phase(phase::DIRECTIVES, dartforge_analysis::imports::deferred_extensions(&program, *lib))
@@ -718,12 +718,12 @@ impl Motor {
                 })
             {
                 if let Some(p) = &program.unit(u).path {
-                    analysis.report(&chave(p), d, f);
+                    analysis.report(&key(p), d, f);
                 }
             }
             for (u, d, f) in with_phase(phase::RESOLVER_VISITOR, dartforge_analysis::modifiers::outside_library(&program, *lib, &interner)) {
                 if let Some(p) = &program.unit(u).path {
-                    analysis.report(&chave(p), d, f);
+                    analysis.report(&key(p), d, f);
                 }
             }
             for (u, d, f) in with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::clauses::check(&program, *lib, &interner))
@@ -732,7 +732,7 @@ impl Motor {
                 .chain(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::simple_bounds::check(&program, *lib, &interner, &simple_bounds)))
             {
                 if let Some(p) = &program.unit(u).path {
-                    analysis.report(&chave(p), d, f);
+                    analysis.report(&key(p), d, f);
                 }
             }
         }
@@ -795,7 +795,7 @@ impl Motor {
                 init_diags.len()
             } else {
                 // The prefix changed: it cannot be separated; counts as ambiguous.
-                analysis.ambiguos += 1;
+                analysis.ambiguous += 1;
                 0
             };
             let units: Vec<UnitId> = program.library(*lib).units.clone();
@@ -827,7 +827,7 @@ impl Motor {
                 }
                 None => {
                     if let Some((u, amb)) = index.attribute(d.span) {
-                        analysis.ambiguos += usize::from(amb);
+                        analysis.ambiguous += usize::from(amb);
                         attributed.push((u, d.clone(), phase::RESOLVER_VISITOR));
                     }
                 }
@@ -984,9 +984,9 @@ impl Motor {
             // the rule enabled.
             for (u, span, name) in dartforge_types::phase_override::missing_override_annotation(&program, &interner, &mut table, &core, &outline, *lib) {
                 if let Some(p) = &program.unit(u).path
-                    && let Some(a) = analysis.arquivos.get_mut(&chave(p))
+                    && let Some(a) = analysis.files.get_mut(&key(p))
                 {
-                    a.semantic_lints.push(SemanticLint { unico: "annotate_overrides", span, args: vec![name] });
+                    a.semantic_lints.push(SemanticLint { unique: "annotate_overrides", span, args: vec![name] });
                 }
             }
             // `MustCallSuperVerifier`.
@@ -1072,9 +1072,9 @@ impl Motor {
                 from_lints.extend(dartforge_types::phase_deprecated::same_package_lint(&program, &interner, &table, Some(body), u, &same_package));
                 if !from_lints.is_empty()
                     && let Some(p) = &program.unit(u).path
-                    && let Some(a) = analysis.arquivos.get_mut(&chave(p))
+                    && let Some(a) = analysis.files.get_mut(&key(p))
                 {
-                    a.semantic_lints.extend(from_lints.into_iter().map(|(span, unico, args)| SemanticLint { unico, span, args }));
+                    a.semantic_lints.extend(from_lints.into_iter().map(|(span, unique, args)| SemanticLint { unique, span, args }));
                 }
                 // The tree lint rules, over the program's tree and with the
                 // engine's semantics.
@@ -1094,7 +1094,7 @@ impl Motor {
                     let tree = dartforge_analysis::Unit { ast: &un.ast, unit: &un.unit, source: &un.source };
                     let reports = dartforge_analysis::lints::run_with(tree, &interner, &|_| true, Some(&sem));
                     if let Some(p) = &un.path
-                        && let Some(a) = analysis.arquivos.get_mut(&chave(p))
+                        && let Some(a) = analysis.files.get_mut(&key(p))
                     {
                         a.lint_reports = Some(reports);
                     }
@@ -1137,7 +1137,7 @@ impl Motor {
         }
         // In the types of `extends`/`implements`/`with` the analyzer reports
         // neither an undefined name nor a name that is not a type: the error
-        // is the `*_non_class` of `analise::clausulas`.
+        // is the `*_non_class` of `analysis::clausulas`.
         let clause_names: BTreeSet<(UnitId, usize)> = own_libs
             .iter()
             .flat_map(|lib| dartforge_analysis::clauses::clause_name_starts(&program, *lib))
@@ -1175,7 +1175,7 @@ impl Motor {
             if !seen.insert((unit, coded.code, coded.span.start, coded.span.end, coded.message.clone())) {
                 continue;
             }
-            let k = chave(program.unit(unit).path.as_deref().expect("an own unit has a path"));
+            let k = key(program.unit(unit).path.as_deref().expect("an own unit has a path"));
             analysis.report(&k, coded, *emitter_phase);
         }
 
@@ -1183,15 +1183,15 @@ impl Motor {
         // library's diagnostics).
         for lib in &own_libs {
             let keys: Vec<PathBuf> =
-                program.library(*lib).units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(chave)).collect();
+                program.library(*lib).units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(key)).collect();
             let existing: Vec<Diagnostic> = keys
                 .iter()
-                .filter_map(|k| analysis.arquivos.get(k))
+                .filter_map(|k| analysis.files.get(k))
                 .flat_map(|a| a.diags.iter().cloned())
                 .collect();
             for (u, d) in dartforge_analysis::imports::unused(&program, *lib, &interner, &existing, bodies.as_ref()) {
                 if let Some(p) = &program.unit(u).path {
-                    analysis.report(&chave(p), d, phase::IMPORTS_VERIFIER);
+                    analysis.report(&key(p), d, phase::IMPORTS_VERIFIER);
                 }
             }
         }
@@ -1212,11 +1212,11 @@ impl Motor {
                 let units: Vec<UnitId> = program.library(*lib).units.clone();
                 for u in &units {
                     if let Some(p) = &program.unit(*u).path {
-                        library_units.insert(chave(p), units.clone());
+                        library_units.insert(key(p), units.clone());
                     }
                 }
             }
-            for (k, a) in analysis.arquivos.iter_mut() {
+            for (k, a) in analysis.files.iter_mut() {
                 let Some(units) = library_units.get(k) else { continue };
                 let Some(&own_unit) = unit_of.get(k) else { continue };
                 let source = program.unit(own_unit).source.as_str();
@@ -1246,7 +1246,7 @@ impl Motor {
         // and message) — the `_checkDuplicateIdentifier` of a repeated mutable
         // variable asks for the same error through the getter and the setter,
         // and the result has only one.
-        for (k, a) in analysis.arquivos.iter_mut() {
+        for (k, a) in analysis.files.iter_mut() {
             // T2's single point: each diagnostic comes out with the name, text
             // and arguments of the analyzer that is the file's reference. No
             // emitter consults the reference; they just pass, after the 3.6
@@ -1295,7 +1295,7 @@ impl Motor {
         for lib in &crashed {
             for u in &program.library(*lib).units {
                 if let Some(p) = &program.unit(*u).path
-                    && let Some(a) = analysis.arquivos.get_mut(&chave(p))
+                    && let Some(a) = analysis.files.get_mut(&key(p))
                 {
                     a.diags.clear();
                     a.syntactic_count = 0;
@@ -1330,8 +1330,8 @@ impl Motor {
         } else {
             base.join(uri)
         };
-        let k = chave(&path);
-        let loaded = program.units.iter().find(|u| u.path.as_deref().map(chave).as_ref() == Some(&k));
+        let k = key(&path);
+        let loaded = program.units.iter().find(|u| u.path.as_deref().map(key).as_ref() == Some(&k));
         let has_part_of = |directives: &[dartforge_frontend::ast::Directive]| directives.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }));
         let part = match (texts.get(&k), loaded) {
             (Some(text), _) => {
@@ -1394,7 +1394,7 @@ impl Motor {
             // Other schemes (`dart-ext:`, `http:`): out of scope.
             return None;
         } else {
-            let target = chave(&resolve_directive_uri(uri, base, config).unwrap_or_else(|| base.join(uri)));
+            let target = key(&resolve_directive_uri(uri, base, config).unwrap_or_else(|| base.join(uri)));
             target.is_file() || config.is_some_and(|c| generated_by_build(c, &target))
         };
         if exists {
@@ -1408,7 +1408,7 @@ impl Motor {
         // In a `part` with a relative URI, the analyzer shows the resolved URI
         // (`file:///…/a.dart`); in `import`/`export`, the directive's text.
         if part && !uri.contains(':') {
-            let abs = chave(&base.join(uri)).to_string_lossy().replace('\\', "/");
+            let abs = key(&base.join(uri)).to_string_lossy().replace('\\', "/");
             let file_uri = format!("file://{}{abs}", if abs.starts_with('/') { "" } else { "/" });
             return Some(Diagnostic::with_code(code, span, [file_uri.as_str()]));
         }
@@ -1587,15 +1587,15 @@ mod tests {
 
     #[test]
     fn part_by_first_directive() {
-        assert!(e_parte("// c\n/* x\n y */\npart of 'a.dart';\n"));
-        assert!(!e_parte("library a;\npart 'b.dart';\n"));
-        assert!(!e_parte("void main() {}\n"));
+        assert!(is_part("// c\n/* x\n y */\npart of 'a.dart';\n"));
+        assert!(!is_part("library a;\npart 'b.dart';\n"));
+        assert!(!is_part("void main() {}\n"));
     }
 
     #[test]
     fn in_memory_texts_and_cancellation() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("../../target/tmp-agent/motor-memoria-{}", std::process::id()));
+            .join(format!("../../target/tmp-agent/engine-memory-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
         std::fs::write(root.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
@@ -1605,16 +1605,16 @@ mod tests {
         // On disk, all fine; in memory, `b.dart` changes the type of `x`.
         std::fs::write(&a, "import 'b.dart';\nvoid f() { if (x) {} }\n").unwrap();
         std::fs::write(&b, "bool x = true;\n").unwrap();
-        let engine = Motor::novo(&root.join("sdk/lib")).unwrap();
-        let non_bool = |r: &Analise| {
-            r.arquivos[&chave(&a)].diags.iter().filter(|d| d.code == Some(codes::compile_time_error::NON_BOOL_CONDITION)).count()
+        let engine = Engine::new(&root.join("sdk/lib")).unwrap();
+        let non_bool = |r: &AnalysisResult| {
+            r.files[&key(&a)].diags.iter().filter(|d| d.code == Some(codes::compile_time_error::NON_BOOL_CONDITION)).count()
         };
-        let disk = engine.analisar(&root, std::slice::from_ref(&a), None);
+        let disk = engine.analyze(&root, std::slice::from_ref(&a), None);
         assert_eq!(non_bool(&disk), 0);
-        let texts = HashMap::from([(chave(&b), "int x = 0;\n".to_string())]);
-        let memory = engine.analisar_com(&root, std::slice::from_ref(&a), None, &texts, &|| false).unwrap();
-        assert_eq!(non_bool(&memory), 1, "{:?}", memory.arquivos[&chave(&a)].diags);
-        assert!(engine.analisar_com(&root, std::slice::from_ref(&a), None, &texts, &|| true).is_none());
+        let texts = HashMap::from([(key(&b), "int x = 0;\n".to_string())]);
+        let memory = engine.analyze_with(&root, std::slice::from_ref(&a), None, &texts, &|| false).unwrap();
+        assert_eq!(non_bool(&memory), 1, "{:?}", memory.files[&key(&a)].diags);
+        assert!(engine.analyze_with(&root, std::slice::from_ref(&a), None, &texts, &|| true).is_none());
         let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&root).unwrap();
@@ -1623,7 +1623,7 @@ mod tests {
     #[test]
     fn inherited_conflict_reaches_the_right_file_in_the_engine() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("../../target/tmp-agent/motor-heranca-{}", std::process::id()));
+            .join(format!("../../target/tmp-agent/engine-inheritance-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
         std::fs::write(root.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
@@ -1631,9 +1631,9 @@ mod tests {
         let entry = root.join("main.dart");
         let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/conflicting_static_and_instance/ConflictingStaticAndInstanceClass__inSu_7966ede4.dart"));
         std::fs::write(&entry, source).unwrap();
-        let engine = Motor::novo(&root.join("sdk/lib")).unwrap();
-        let result = engine.analisar(&root, std::slice::from_ref(&entry), None);
-        let file = &result.arquivos[&chave(&entry)];
+        let engine = Engine::new(&root.join("sdk/lib")).unwrap();
+        let result = engine.analyze(&root, std::slice::from_ref(&entry), None);
+        let file = &result.files[&key(&entry)];
         let found: Vec<_> = file.diags.iter().filter(|d| d.code == Some(codes::compile_time_error::CONFLICTING_STATIC_AND_INSTANCE)).collect();
         assert_eq!(found.len(), 1, "{:?}", file.diags);
         assert_eq!(&source[found[0].span.start as usize..found[0].span.end as usize], "foo");

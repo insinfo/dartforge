@@ -4,7 +4,7 @@
 //! `.dart_tool/package_config.json` is written by [`prepare`] and stays out of
 //! git) with a `grupo.json` that says which SDK is the oracle and which
 //! support packages (`corpus/diagnosticos/pacotes/<name>`) it sees. The
-//! expectation is **always** what the oracle recorded (`oraculo.jsonl`); the
+//! expectation is **always** what the oracle recorded (`oracle.jsonl`); the
 //! annotations in the sources the cases came from (`// [analyzer] ...`,
 //! `[diag.x]`) are from SDK `main` and only served as seeds.
 //!
@@ -18,7 +18,7 @@
 //! * `*-3.13`: the files that declare `// @dart = 3.7` or later, whose oracle
 //!   is 3.13.4.
 
-use crate::oraculo::{FNV_START, OracleSdk, fnv};
+use crate::oracle::{FNV_START, OracleSdk, fnv};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -29,10 +29,12 @@ pub struct Group {
     pub sdk: OracleSdk,
     /// Support packages in `corpus/diagnosticos/pacotes/`.
     #[serde(default)]
-    pub pacotes: Vec<String>,
+    #[serde(rename = "pacotes")]
+    pub packages: Vec<String>,
     /// Where the cases came from (free text, for the report).
     #[serde(default)]
-    pub origem: String,
+    #[serde(rename = "origem")]
+    pub origin: String,
 }
 
 /// The corpus root in the repository.
@@ -59,7 +61,7 @@ pub fn groups(root: &Path) -> Vec<(String, Group)> {
 /// The `.dart` files of a directory, recursively, sorted, like
 /// `ContextRootImpl.analyzedFiles` (INFRA §4.5): folders and files starting
 /// with `.` are left out (`.dart_tool`, `.git`, `.x.dart`); `build` is in.
-pub fn arquivos_dart(dir: &Path) -> Vec<PathBuf> {
+pub fn dart_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
@@ -104,8 +106,8 @@ pub fn all_dart_files(dir: &Path) -> Vec<PathBuf> {
 /// Hash of the group's sources (relative path + contents, in order).
 pub fn sources_hash(dir: &Path) -> String {
     let mut h = FNV_START;
-    for a in arquivos_dart(dir) {
-        let rel = crate::oraculo::relativo(&a, dir).unwrap_or_default();
+    for a in dart_files(dir) {
+        let rel = crate::oracle::relative(&a, dir).unwrap_or_default();
         h = fnv(rel.as_bytes(), h);
         h = fnv(&[0], h);
         h = fnv(&std::fs::read(&a).unwrap_or_default(), h);
@@ -120,7 +122,7 @@ pub fn prepare(dir: &Path, name: &str, g: &Group) -> std::io::Result<PathBuf> {
     let mut pkgs = vec![serde_json::json!({
         "name": package, "rootUri": "../", "packageUri": "lib/", "languageVersion": g.sdk.language()
     })];
-    for p in &g.pacotes {
+    for p in &g.packages {
         pkgs.push(serde_json::json!({
             "name": p, "rootUri": format!("../../pacotes/{p}"), "packageUri": "lib/", "languageVersion": "3.4"
         }));
@@ -182,7 +184,7 @@ fn relative_uris(text: &str) -> Vec<String> {
 }
 
 fn normal(p: &Path) -> PathBuf {
-    crate::analise::chave(p)
+    crate::analysis::key(p)
 }
 
 /// Builds the groups from `references` (replacing their `.dart` files; the
@@ -197,7 +199,7 @@ pub fn generate(references: &Path, dest: &Path, pub_cache: &Path) -> Result<Stri
     // --- language
     let base = references.join("dart-sdk/tests/language");
     let mut seeds = BTreeSet::new();
-    for a in arquivos_dart(&base) {
+    for a in dart_files(&base) {
         let t = std::fs::read_to_string(&a).unwrap_or_default();
         if t.contains("// [analyzer]") {
             seeds.insert(normal(&a));
@@ -238,8 +240,8 @@ pub fn generate(references: &Path, dest: &Path, pub_cache: &Path) -> Result<Stri
                 g,
                 &Group {
                     sdk,
-                    pacotes: packages.clone(),
-                    origem: "references/dart-sdk/tests/language (// [analyzer] marks + import closure)".into(),
+                    packages: packages.clone(),
+                    origin: "references/dart-sdk/tests/language (// [analyzer] marks + import closure)".into(),
                 },
             )
             .map_err(|e| e.to_string())?;
@@ -259,7 +261,7 @@ pub fn generate(references: &Path, dest: &Path, pub_cache: &Path) -> Result<Stri
     let mut n_files = 0;
     let mut n_snippets: BTreeMap<&str, usize> = BTreeMap::new();
     let mut n_skipped = 0;
-    for a in arquivos_dart(&base) {
+    for a in dart_files(&base) {
         if a.parent() != Some(base.as_path()) {
             continue;
         }
@@ -293,8 +295,8 @@ pub fn generate(references: &Path, dest: &Path, pub_cache: &Path) -> Result<Stri
                 g,
                 &Group {
                     sdk,
-                    pacotes: packages.clone(),
-                    origem: "references/dart-sdk/pkg/analyzer/test/src/diagnostics (one file per snippet)".into(),
+                    packages: packages.clone(),
+                    origin: "references/dart-sdk/pkg/analyzer/test/src/diagnostics (one file per snippet)".into(),
                 },
             )
             .map_err(|e| e.to_string())?;
@@ -324,29 +326,29 @@ pub fn short_name(stem: &str) -> String {
 /// the oracle record (the offsets do not change; only the path). Returns how
 /// many.
 pub fn shorten(dir: &Path) -> Result<usize, String> {
-    let (mut regs, mut meta) = crate::oraculo::read(dir)?;
+    let (mut regs, mut meta) = crate::oracle::read(dir)?;
     let mut map = std::collections::BTreeMap::new();
     // The language tests import each other by name: nothing is renamed there
     // (the record is only rewritten with the sources' hash).
     let rename = !dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with("linguagem"));
-    for a in arquivos_dart(dir).into_iter().filter(|_| rename) {
+    for a in dart_files(dir).into_iter().filter(|_| rename) {
         let stem = a.file_stem().expect("name").to_string_lossy().into_owned();
         let new = short_name(&stem);
         if new != stem {
             let dest = a.with_file_name(format!("{new}.dart"));
             std::fs::rename(&a, &dest).map_err(|e| e.to_string())?;
-            let from = crate::oraculo::relativo(&a, dir).expect("relative");
-            let to = crate::oraculo::relativo(&dest, dir).expect("relative");
+            let from = crate::oracle::relative(&a, dir).expect("relative");
+            let to = crate::oracle::relative(&dest, dir).expect("relative");
             map.insert(from, to);
         }
     }
     for r in regs.iter_mut() {
-        if let Some(n) = map.get(&r.arquivo) {
-            r.arquivo = n.clone();
+        if let Some(n) = map.get(&r.file) {
+            r.file = n.clone();
         }
     }
     meta.hash = sources_hash(dir);
-    crate::oraculo::write(dir, regs, &meta).map_err(|e| e.to_string())?;
+    crate::oracle::write(dir, regs, &meta).map_err(|e| e.to_string())?;
     Ok(map.len())
 }
 
@@ -357,7 +359,7 @@ fn short_class(class: &str) -> String {
 
 fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     let _ = std::fs::remove_dir_all(to);
-    for a in arquivos_dart(from) {
+    for a in dart_files(from) {
         let r = a.strip_prefix(from).map_err(|_| "prefix")?;
         let d = to.join(r);
         std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;

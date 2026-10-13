@@ -1511,8 +1511,8 @@ impl<A: Analyzer> Server<A> {
                             let finals = std::path::Path::new(&file).parent().is_some_and(|_| {
                                 let path = std::path::Path::new(&file);
                                 let root = crate::project::project_root(path);
-                                let options = dartforge_parity::filtros::Opcoes::de_subpasta(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
-                                dartforge_parity::filtros::Opcoes::ler_arquivo(&options).regras.get("prefer_final_locals").copied().unwrap_or(false)
+                                let options = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
+                                dartforge_parity::filters::AnalysisOptions::read_file(&options).rules.get("prefer_final_locals").copied().unwrap_or(false)
                             });
                             let mut matcher = crate::fuzzy_matcher::Matcher::new(prefix, crate::fuzzy_matcher::Style::Text);
                             for (pre, label, doc, body) in crate::completion_item::snippets(context, &indent, eol, in_tests, finals) {
@@ -2774,7 +2774,7 @@ impl<A: Analyzer> Server<A> {
             targets.iter().filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())).collect();
         let mut seen: HashSet<std::path::PathBuf> = HashSet::new();
         for root in &self.roots {
-            for file in dartforge_parity::corpus::arquivos_dart(root) {
+            for file in dartforge_parity::corpus::dart_files(root) {
                 if open.contains(&file) || !seen.insert(file.clone()) {
                     continue;
                 }
@@ -3204,7 +3204,7 @@ impl<A: Analyzer> Server<A> {
         let items: Vec<Value> = diagnostics
             .iter()
             .map(|d| {
-                let dot = |p: &dartforge_parity::json::Ponto| json!({"line": p.line.saturating_sub(1), "character": p.column.saturating_sub(1)});
+                let dot = |p: &dartforge_parity::json::JsonPosition| json!({"line": p.line.saturating_sub(1), "character": p.column.saturating_sub(1)});
                 let severity = match d.severity.as_str() {
                     "ERROR" => SEVERITY_ERROR,
                     "WARNING" => 2,

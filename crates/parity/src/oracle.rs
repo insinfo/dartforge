@@ -3,9 +3,9 @@
 //!
 //! Two SDKs, chosen by the library's language version (plan §2.4): 3.6.2 for
 //! libraries up to 3.6, 3.13.4 for those declaring 3.7 or later
-//! (`// @dart = 3.7`). The record (`oraculo.jsonl`) holds one diagnostic per
+//! (`// @dart = 3.7`). The record (`oracle.jsonl`) holds one diagnostic per
 //! line, with the path relative to the group; CI compares against it without
-//! needing `dart`. `oraculo.json` holds the SDK and the hash of the sources: a
+//! needing `dart`. `oracle.json` holds the SDK and the hash of the sources: a
 //! source changed without re-recording is flagged by the scoreboard.
 
 use crate::json::{DiagJson, Report};
@@ -68,13 +68,14 @@ impl OracleSdk {
 #[serde(rename_all = "camelCase")]
 pub struct Record {
     /// Path relative to the group's root, with `/`.
-    pub arquivo: String,
+    #[serde(rename = "arquivo")]
+    pub file: String,
     pub offset: usize,
     pub length: usize,
     pub code: String,
     pub severity: String,
     #[serde(rename = "type")]
-    pub tipo: String,
+    pub error_type: String,
     pub line: usize,
     pub column: usize,
     pub problem_message: String,
@@ -86,18 +87,18 @@ impl Record {
     /// From a JSON v1 diagnostic, relative to `root` (`None` outside it or
     /// outside `.dart` files).
     pub fn from_json(d: &DiagJson, root: &Path) -> Option<Record> {
-        let file = relativo(Path::new(&d.location.file), root)?;
+        let file = relative(Path::new(&d.location.file), root)?;
         if !file.ends_with(".dart") {
             return None;
         }
         let r = &d.location.range;
         Some(Record {
-            arquivo: file,
+            file,
             offset: r.start.offset,
             length: r.end.offset.saturating_sub(r.start.offset),
             code: d.code.clone(),
             severity: d.severity.clone(),
-            tipo: d.tipo.clone(),
+            error_type: d.error_type.clone(),
             line: r.start.line,
             column: r.start.column,
             problem_message: without_root(&d.problem_message, root),
@@ -113,13 +114,13 @@ impl Record {
 /// ran; normalized on both sides, the record holds on any machine.
 ///
 /// ```
-/// use dartforge_parity::oraculo::without_root;
+/// use dartforge_parity::oracle::without_root;
 /// use std::path::Path;
 /// let m = without_root("Target of URI doesn't exist: 'file:///g/x/a.dart'.", Path::new("/g/x"));
 /// assert_eq!(m, "Target of URI doesn't exist: '<raiz>/a.dart'.");
 /// ```
 pub fn without_root(msg: &str, root: &Path) -> String {
-    let slash = crate::analise::chave(root).to_string_lossy().replace('\\', "/");
+    let slash = crate::analysis::key(root).to_string_lossy().replace('\\', "/");
     let slash = slash.trim_end_matches('/');
     if slash.is_empty() {
         return msg.to_string();
@@ -146,9 +147,9 @@ pub fn without_root(msg: &str, root: &Path) -> String {
 }
 
 /// Relative path with `/`, ignoring case in the root (Windows).
-pub fn relativo(p: &Path, root: &Path) -> Option<String> {
-    let p = crate::analise::chave(p).to_string_lossy().replace('\\', "/");
-    let r = crate::analise::chave(root).to_string_lossy().replace('\\', "/");
+pub fn relative(p: &Path, root: &Path) -> Option<String> {
+    let p = crate::analysis::key(p).to_string_lossy().replace('\\', "/");
+    let r = crate::analysis::key(root).to_string_lossy().replace('\\', "/");
     let r = r.trim_end_matches('/');
     if p.len() > r.len() && p[..r.len()].eq_ignore_ascii_case(r) && p.as_bytes()[r.len()] == b'/' {
         Some(p[r.len() + 1..].to_string())
@@ -163,12 +164,15 @@ pub struct Meta {
     pub sdk: OracleSdk,
     /// Hash (FNV-1a 64, hexadecimal) of the group's `.dart` sources.
     pub hash: String,
-    pub arquivos: usize,
-    pub diagnosticos: usize,
+    #[serde(rename = "arquivos")]
+    pub files: usize,
+    #[serde(rename = "diagnosticos")]
+    pub diagnostics: usize,
     /// Files removed from the group because they crash the oracle's analysis
     /// server (there is nothing to compare).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub excluidos: Vec<String>,
+    #[serde(rename = "excluidos")]
+    pub excluded: Vec<String>,
 }
 
 /// FNV-1a 64: stable across Rust versions (`DefaultHasher` is not).
@@ -284,7 +288,7 @@ pub fn marker_3_13(dir: &Path, sources: &[std::path::PathBuf]) -> std::collectio
         let mut names = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_with(&text, &mut names, features);
         if parsed.reference == dartforge_diagnostics::AnalyzerReference::V3_13
-            && let Some(r) = relativo(f, dir)
+            && let Some(r) = relative(f, dir)
         {
             marked.insert(r);
         }

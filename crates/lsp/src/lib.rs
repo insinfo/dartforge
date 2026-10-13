@@ -775,12 +775,12 @@ impl Analyzer for SyntacticAnalyzer {
             .chain(dartforge_analysis::externals::initializers(unit))
             .chain(dartforge_analysis::operators::arity(unit, &names));
         // `// ignore:` as in `dartforge analyze` (the same filter).
-        let ignored = dartforge_parity::filtros::Ignorados::de_texto(text);
-        let lines = dartforge_parity::json::Linhas::new(text);
+        let ignored = dartforge_parity::filters::IgnoreComments::from_text(text);
+        let lines = dartforge_parity::json::LineIndex::new(text);
         output.extend(
             semantic
                 .filter(|d| dartforge_analysis::publication::is_published(d, false))
-                .filter(|d| !ignored.ignora(d, lines.ponto(d.span.start).line)),
+                .filter(|d| !ignored.ignores(d, lines.position(d.span.start).line)),
         );
         // Last, the name and text of the reference analyzer (T2): the filters above
         // know the codes by their 3.6 names.

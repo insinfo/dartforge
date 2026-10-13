@@ -22,10 +22,10 @@ use yaml_rust2::{Yaml, YamlLoader};
 /// (docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.4 to §4.6 and III.2.4): read with
 /// a real YAML reader, with the `include:`s merged.
 #[derive(Debug, Default, Clone)]
-pub struct Opcoes {
+pub struct AnalysisOptions {
     /// The options file's folder: the `exclude` globs are relative to it.
     /// `None` for options made from a loose text.
-    pub pasta: Option<PathBuf>,
+    pub folder: Option<PathBuf>,
     /// `analyzer: exclude:` globs, relative to the options' directory.
     pub exclude: Vec<String>,
     /// `analyzer: errors:` — code → `None` (ignore) or the new severity.
@@ -40,9 +40,9 @@ pub struct Opcoes {
     /// `analyzer: language: strict-raw-types`.
     pub strict_raw_types: bool,
     /// `analyzer: enable-experiment:`.
-    pub experimentos: Vec<String>,
+    pub experiments: Vec<String>,
     /// `linter: rules:` — rule → enabled (the list form enables each item).
-    pub regras: BTreeMap<String, bool>,
+    pub rules: BTreeMap<String, bool>,
     /// `analyzer: optional-checks: chrome-os-manifest-checks`: enables the
     /// `AndroidManifest.xml` validator.
     pub chrome_os_manifest_checks: bool,
@@ -140,36 +140,36 @@ fn map_from_file(file: &Path, packages: &dyn Fn(&str) -> Option<PathBuf>, visite
     }
 }
 
-impl Opcoes {
+impl AnalysisOptions {
     /// Reads `<root>/analysis_options.yaml`, if it exists, with the
     /// `include:`s (the `package:` ones through the `package_config.json`
     /// above the root).
-    pub fn ler(root: &Path) -> Opcoes {
-        Opcoes::ler_arquivo(&root.join("analysis_options.yaml"))
+    pub fn read(root: &Path) -> AnalysisOptions {
+        AnalysisOptions::read_file(&root.join("analysis_options.yaml"))
     }
 
     /// Reads an options file with the `include:`s merged.
-    pub fn ler_arquivo(file: &Path) -> Opcoes {
+    pub fn read_file(file: &Path) -> AnalysisOptions {
         if !file.is_file() {
-            return Opcoes::default();
+            return AnalysisOptions::default();
         }
         let config = dartforge_elements::config::PackageConfig::discover(file)
             .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
         let packages = |uri: &str| config.as_ref().and_then(|c| c.resolve_package_uri(uri).ok());
         let map = map_from_file(file, &packages, &mut Vec::new());
-        let mut o = Opcoes::from_map(&map);
-        o.pasta = file.parent().map(Path::to_path_buf);
+        let mut o = AnalysisOptions::from_map(&map);
+        o.folder = file.parent().map(Path::to_path_buf);
         o
     }
 
     /// The options of a loose text (without following `include:`).
-    pub fn de_texto(text: &str) -> Opcoes {
-        Opcoes::from_map(&map_from_text(text))
+    pub fn from_text(text: &str) -> AnalysisOptions {
+        AnalysisOptions::from_map(&map_from_text(text))
     }
 
     /// `applyOptions` (`apply_options.dart:179-237`) over the already merged map.
-    fn from_map(map: &Yaml) -> Opcoes {
-        let mut o = Opcoes::default();
+    fn from_map(map: &Yaml) -> AnalysisOptions {
+        let mut o = AnalysisOptions::default();
         let analyzer = &map["analyzer"];
         if let Some(errors) = analyzer["errors"].as_hash() {
             for (k, v) in errors.iter() {
@@ -198,18 +198,18 @@ impl Opcoes {
         o.strict_casts = language["strict-casts"].as_bool().unwrap_or(false);
         o.strict_inference = language["strict-inference"].as_bool().unwrap_or(false);
         o.strict_raw_types = language["strict-raw-types"].as_bool().unwrap_or(false);
-        o.experimentos = strings(&analyzer["enable-experiment"]).into_iter().map(str::to_string).collect();
+        o.experiments = strings(&analyzer["enable-experiment"]).into_iter().map(str::to_string).collect();
         let checks = &analyzer["optional-checks"];
         o.chrome_os_manifest_checks = checks.as_str() == Some("chrome-os-manifest-checks")
             || checks["chrome-os-manifest-checks"].as_bool().unwrap_or(false);
         let rules = &map["linter"]["rules"];
         for r in strings(rules) {
-            o.regras.insert(r.to_string(), true);
+            o.rules.insert(r.to_string(), true);
         }
         if let Some(m) = rules.as_hash() {
             for (k, v) in m.iter() {
                 if let (Some(k), Some(v)) = (k.as_str(), v.as_bool()) {
-                    o.regras.insert(k.to_string(), v);
+                    o.rules.insert(k.to_string(), v);
                 }
             }
         }
@@ -218,7 +218,7 @@ impl Opcoes {
 
     /// The options file nearest to `file`, going up, strictly below `root`
     /// (§4.5: subfolder options). `None` when the root's applies.
-    pub fn de_subpasta(file: &Path, root: &Path) -> Option<PathBuf> {
+    pub fn from_subfolder(file: &Path, root: &Path) -> Option<PathBuf> {
         let mut folder = file.parent();
         while let Some(p) = folder {
             if p == root || !p.starts_with(root) {
@@ -236,7 +236,7 @@ impl Opcoes {
     /// Is the file (absolute path) excluded by these options' globs, which
     /// are relative to their folder?
     pub fn excludes_file(&self, file: &Path) -> bool {
-        let Some(folder) = &self.pasta else { return false };
+        let Some(folder) = &self.folder else { return false };
         let Ok(rel) = file.strip_prefix(folder) else { return false };
         let rel = rel.to_string_lossy().replace('\\', "/");
         self.exclude.iter().any(|g| glob(g, &rel))
@@ -245,7 +245,7 @@ impl Opcoes {
     /// Can an `// ignore:` silence `d`? Not if the code is in
     /// `cannot-ignore`, or its severity (the one from `errors:`, if changed
     /// there; otherwise the default) is (`AnalysisOptionsImpl.unignorableNames`).
-    pub fn ignoravel(&self, d: &Diagnostic) -> bool {
+    pub fn is_ignorable(&self, d: &Diagnostic) -> bool {
         if self.unignorable.is_empty() {
             return true;
         }
@@ -283,12 +283,12 @@ impl Opcoes {
     /// Is `rel` (relative to the root, with `/`) outside the analysis? It
     /// matches some `exclude`, or some path component starts with `.`
     /// (`ContextRootImpl._isExcluded`, steps 1 and 3).
-    pub fn excluido(&self, rel: &str) -> bool {
+    pub fn is_excluded(&self, rel: &str) -> bool {
         rel.split('/').any(|c| c.starts_with('.') && c != "." && c != "..") || self.exclude.iter().any(|g| glob(g, rel))
     }
 
     /// Applies `errors:` to a diagnostic: `None` if ignored.
-    pub fn processar(&self, mut d: Diagnostic) -> Option<Diagnostic> {
+    pub fn process(&self, mut d: Diagnostic) -> Option<Diagnostic> {
         let Some(c) = d.code else { return Some(d) };
         match self.errors.get(c.info().name) {
             None => Some(d),
@@ -415,7 +415,7 @@ enum Ignored {
 /// whole file. The comments come from a scan of the source that knows strings
 /// and block comments — a `//` inside a string is not a comment.
 #[derive(Debug, Default)]
-pub struct Ignorados {
+pub struct IgnoreComments {
     by_line: BTreeMap<usize, Vec<Ignored>>,
     file: Vec<Ignored>,
     /// The repeated names (`IgnoreValidator`, `duplicate_ignore`): the name
@@ -574,9 +574,9 @@ fn comment_elements(lexeme: &str, base: usize) -> Vec<Ignored> {
     }
 }
 
-impl Ignorados {
-    pub fn de_texto(text: &str) -> Ignorados {
-        let mut ig = Ignorados::default();
+impl IgnoreComments {
+    pub fn from_text(text: &str) -> IgnoreComments {
+        let mut ig = IgnoreComments::default();
         // The start of each line, to find the line of an offset.
         let mut starts: Vec<usize> = vec![0];
         starts.extend(text.bytes().enumerate().filter(|(_, c)| *c == b'\n').map(|(i, _)| i + 1));
@@ -641,7 +641,7 @@ impl Ignorados {
 
     /// The file's `duplicate_ignore`s (`IgnoreValidator`: in 3.6.2 it is its
     /// only report).
-    pub fn duplicados(&self) -> Vec<Diagnostic> {
+    pub fn duplicates(&self) -> Vec<Diagnostic> {
         self.repeated
             .iter()
             .map(|(name, span)| Diagnostic::with_code(dartforge_diagnostics::codes::warning::DUPLICATE_IGNORE, *span, [name.as_str()]))
@@ -653,14 +653,14 @@ impl Ignorados {
     /// Any severity: the `LibraryAnalyzer._filterIgnoredErrors` of analyzer
     /// 6.11.0 does not consult `ErrorCode.isIgnorable` (which rejects
     /// `ERROR`); only the options' `cannot-ignore` prevents it
-    /// ([`Opcoes::ignoravel`]). Checked against `dart analyze` 3.6.2 and
+    /// ([`AnalysisOptions::is_ignorable`]). Checked against `dart analyze` 3.6.2 and
     /// 3.13.4: `// ignore_for_file: uri_has_not_been_generated` silences the
     /// error.
     ///
     /// A name matches the code's emitted name or the unique name without the
     /// class prefix (`IgnoredDiagnosticName.matches`); `type=` only knows
     /// `hint`, `lint` and `warning` (the latter being `STATIC_WARNING`).
-    pub fn ignora(&self, d: &Diagnostic, line: usize) -> bool {
+    pub fn ignores(&self, d: &Diagnostic, line: usize) -> bool {
         let Some(c) = d.code else { return false };
         let info = c.info();
         // The catalog's 3.13.4 shapes carry the `_3_13` suffix only to tell
@@ -703,22 +703,22 @@ mod tests {
 
     #[test]
     fn new_sali_options() {
-        let o = Opcoes::de_texto(
+        let o = AnalysisOptions::from_text(
             "analyzer:\n  exclude:\n    - build/**\n    - 'lib/**.g.dart'\n  errors:\n    uri_has_not_been_generated: ignore\n    deprecated_member_use: ignore # x\n    dead_code: info\n",
         );
         assert_eq!(o.exclude, vec!["build/**", "build", "lib/**.g.dart"]);
         assert_eq!(o.errors.get("uri_has_not_been_generated"), Some(&None));
         assert_eq!(o.errors.get("dead_code"), Some(&Some(Severity::Info)));
-        assert!(o.excluido("build/x/y.dart"));
-        assert!(o.excluido("lib/a/b.g.dart"));
-        assert!(!o.excluido("lib/a/b.dart"));
+        assert!(o.is_excluded("build/x/y.dart"));
+        assert!(o.is_excluded("lib/a/b.g.dart"));
+        assert!(!o.is_excluded("lib/a/b.dart"));
     }
 
     /// Real YAML: flow style, quotes, comments, `language:`, lints in both
     /// forms, and what `errors:` accepts.
     #[test]
     fn real_yaml() {
-        let o = Opcoes::de_texto(
+        let o = AnalysisOptions::from_text(
             "analyzer: {exclude: ['gen/**', \"x # y.dart\"], language: {strict-casts: true}}
 linter:
   rules:
@@ -727,18 +727,18 @@ linter:
         );
         assert_eq!(o.exclude, vec!["gen/**", "gen", "x # y.dart"]);
         assert!(o.strict_casts && !o.strict_inference);
-        assert_eq!(o.regras.get("a_regra"), Some(&true));
-        let map = Opcoes::de_texto("linter:
+        assert_eq!(o.rules.get("a_regra"), Some(&true));
+        let map = AnalysisOptions::from_text("linter:
   rules:
     a_regra: false
 ");
-        assert_eq!(map.regras.get("a_regra"), Some(&false));
+        assert_eq!(map.rules.get("a_regra"), Some(&false));
         // Invalid YAML leaves the default options.
-        assert!(Opcoes::de_texto("analyzer: [
+        assert!(AnalysisOptions::from_text("analyzer: [
 ").exclude.is_empty());
         // Hidden folders and files are left out.
-        assert!(Opcoes::default().excluido(".dart_tool/x.dart"));
-        assert!(Opcoes::default().excluido("lib/.oculto.dart"));
+        assert!(AnalysisOptions::default().is_excluded(".dart_tool/x.dart"));
+        assert!(AnalysisOptions::default().is_excluded("lib/.oculto.dart"));
     }
 
     /// `Merger`: the including file wins; lists concatenate without repeats;
@@ -761,42 +761,42 @@ linter:
   rules:
     r2: false
 ");
-        let o = Opcoes::from_map(&merge(base, top));
+        let o = AnalysisOptions::from_map(&merge(base, top));
         assert_eq!(o.exclude, vec!["a", "b", "c"]);
         assert_eq!(o.errors.get("dead_code"), Some(&Some(Severity::Error)));
         assert_eq!(o.errors.get("todo"), Some(&None));
-        assert_eq!(o.regras.get("r1"), Some(&true));
-        assert_eq!(o.regras.get("r2"), Some(&false));
+        assert_eq!(o.rules.get("r1"), Some(&true));
+        assert_eq!(o.rules.get("r2"), Some(&false));
     }
 
     /// `// ignore:` and `// ignore_for_file:` apply to errors too
-    /// (`v01/min/ignora`: `dart analyze` 3.6.2 and 3.13.4 give "No issues
+    /// (`v01/min/ignores`: `dart analyze` 3.6.2 and 3.13.4 give "No issues
     /// found!"), except what `cannot-ignore` lists.
     #[test]
     fn ignore_applies_to_errors_except_cannot_ignore() {
         use dartforge_diagnostics::codes::compile_time_error as c;
         let d = Diagnostic::with_code(c::URI_HAS_NOT_BEEN_GENERATED, dartforge_diagnostics::Span { start: 0, end: 1 }, ["a.template.dart"]);
-        let file = Ignorados::de_texto("// ignore_for_file: uri_has_not_been_generated\nimport 'a.template.dart';\n");
-        assert!(file.ignora(&d, 2));
-        let line = Ignorados::de_texto("// ignore: uri_has_not_been_generated\nimport 'a.template.dart';\n");
-        assert!(line.ignora(&d, 2));
-        assert!(!line.ignora(&d, 3));
-        assert!(Opcoes::default().ignoravel(&d));
-        let by_name = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - uri_has_not_been_generated\n");
-        assert!(!by_name.ignoravel(&d));
-        let by_severity = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - error\n");
-        assert!(!by_severity.ignoravel(&d));
+        let file = IgnoreComments::from_text("// ignore_for_file: uri_has_not_been_generated\nimport 'a.template.dart';\n");
+        assert!(file.ignores(&d, 2));
+        let line = IgnoreComments::from_text("// ignore: uri_has_not_been_generated\nimport 'a.template.dart';\n");
+        assert!(line.ignores(&d, 2));
+        assert!(!line.ignores(&d, 3));
+        assert!(AnalysisOptions::default().is_ignorable(&d));
+        let by_name = AnalysisOptions::from_text("analyzer:\n  cannot-ignore:\n    - uri_has_not_been_generated\n");
+        assert!(!by_name.is_ignorable(&d));
+        let by_severity = AnalysisOptions::from_text("analyzer:\n  cannot-ignore:\n    - error\n");
+        assert!(!by_severity.is_ignorable(&d));
         // The downgraded one stays unignorable through the default severity
         // and also becomes so through the new one (checked on the 3.6.2
         // binary, §4.3 c).
-        let downgraded = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - error\n");
-        assert!(!downgraded.ignoravel(&d));
-        let by_new = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - warning\n");
-        assert!(!by_new.ignoravel(&d));
-        let other = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - info\n");
-        assert!(other.ignoravel(&d));
+        let downgraded = AnalysisOptions::from_text("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - error\n");
+        assert!(!downgraded.is_ignorable(&d));
+        let by_new = AnalysisOptions::from_text("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - warning\n");
+        assert!(!by_new.is_ignorable(&d));
+        let other = AnalysisOptions::from_text("analyzer:\n  cannot-ignore:\n    - info\n");
+        assert!(other.is_ignorable(&d));
         // Lints, only by name.
-        let lint = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - avoid_print\n    - info\n");
+        let lint = AnalysisOptions::from_text("analyzer:\n  cannot-ignore:\n    - avoid_print\n    - info\n");
         assert!(!lint.lint_ignorable("avoid_print", "avoid_print"));
         assert!(lint.lint_ignorable("empty_catches", "empty_catches"));
     }
@@ -808,7 +808,7 @@ linter:
     fn oracle_table() {
         use dartforge_diagnostics::codes::warning as w;
         let d = Diagnostic::with_code(w::UNUSED_LOCAL_VARIABLE, dartforge_diagnostics::Span { start: 0, end: 1 }, ["x"]);
-        let silences = |text: &str, line: usize| Ignorados::de_texto(text).ignora(&d, line);
+        let silences = |text: &str, line: usize| IgnoreComments::from_text(text).ignores(&d, line);
         assert!(silences("// ignore: type=warning
 var x = 1;
 ", 2));
@@ -845,20 +845,20 @@ var x = 1;
         // 0         1         2         3         4
         // 01234567890123456789012345678901234567890123456789
         // // ignore: dead_code, dead_code
-        let ig = Ignorados::de_texto("// ignore: dead_code, dead_code
+        let ig = IgnoreComments::from_text("// ignore: dead_code, dead_code
 var x = 1;
 ");
-        let ds = ig.duplicados();
+        let ds = ig.duplicates();
         assert_eq!(ds.len(), 1);
         assert_eq!((ds[0].span.start, ds[0].span.end), (22, 31));
-        let ig = Ignorados::de_texto("// ignore_for_file: dead_code
+        let ig = IgnoreComments::from_text("// ignore_for_file: dead_code
 // ignore: dead_code
 var x = 1;
 ");
-        assert_eq!(ig.duplicados().len(), 1);
-        assert!(Ignorados::de_texto("// ignore: a, dead_code
+        assert_eq!(ig.duplicates().len(), 1);
+        assert!(IgnoreComments::from_text("// ignore: a, dead_code
 var x = 1;
-").duplicados().is_empty());
+").duplicates().is_empty());
     }
 
     #[test]

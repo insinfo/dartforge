@@ -234,3 +234,8 @@ outras já em inglês ficam.
 | `publicacao::{VERIFICADOS, verificados, publicado}` | `publication::{VERIFIED, verified, is_published}` (o arquivo `verificados.txt` fica) |
 | `lints::{CodigoLint, InfoRegra, EstadoDaRegra, Conjunto, REGRAS, TODOS}`, `codigos_g`, `tabela_g` | `lints::{LintCode, RuleInfo, RuleState, RuleSet, RULES, ALL}`, `codes_g`, `table_g` |
 | `naodart::{CodigoNaoDart, NOMES_DE_CODIGO}`, `yaml::{No, Valor, ler}` | `non_dart::{NonDartCode, CODE_NAMES}`, `yaml::{Node, Value, parse}` |
+| `parity::analise::{Motor, Analise, Arquivo}` (`descobrir`, `analisar`, `analisar_com`) | `parity::analysis::{Engine, AnalysisResult, FileAnalysis}` (`discover`, `analyze`, `analyze_with`) |
+| `parity::filtros::{Opcoes, Ignorados}` (`ler`, `ler_arquivo`, `de_texto`, `de_subpasta`, `ignoravel`, `ignora`, `excluido`) | `parity::filters::{AnalysisOptions, IgnoreComments}` (`read`, `read_file`, `from_text`, `from_subfolder`, `is_ignorable`, `ignores`, `is_excluded`) |
+| `parity::json::{Faixa, Ponto, Linhas}` (`ponto`, `ordenar`, `escrever`) | `parity::json::{JsonRange, JsonPosition, LineIndex}` (`position`, `sort`, `write`) |
+| `parity::{oraculo, projetos}`, `diagnosticos_json`, `diagnosticos_do_pubspec`… | `parity::{oracle, projects}`, `json_diagnostics`, `pubspec_diagnostics`… (as chaves dos JSON gravados — `arquivo`, `nome`, `caminho`, `pacotes`… — ficam, via `#[serde(rename)]`) |
+| exemplo `sonda_arquivos`; testes `sonda`, `regras_do_analyzer` | `probe_files`; `probe`, `analyzer_rules` |

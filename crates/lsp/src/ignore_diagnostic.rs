@@ -44,11 +44,11 @@ fn starts_with_ignore(line: &str) -> bool {
 
 /// The options that apply to the file and the path of the
 /// `analysis_options.yaml` (`analysisOptions.file`), when it exists.
-pub(crate) fn file_options(path: &Path) -> (dartforge_parity::filtros::Opcoes, Option<PathBuf>) {
+pub(crate) fn file_options(path: &Path) -> (dartforge_parity::filters::AnalysisOptions, Option<PathBuf>) {
     let root = crate::project::project_root(path);
-    let file = dartforge_parity::filtros::Opcoes::de_subpasta(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
+    let file = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
     let exists = file.is_file();
-    (dartforge_parity::filtros::Opcoes::ler_arquivo(&file), exists.then_some(file))
+    (dartforge_parity::filters::AnalysisOptions::read_file(&file), exists.then_some(file))
 }
 
 /// The three fixes of each `HintCode`/`WarningCode` diagnostic on lines
@@ -58,7 +58,7 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
     let path = crate::project::uri_file(uri);
     let (options, options_file) = match path.as_deref() {
         Some(c) => file_options(c),
-        None => (dartforge_parity::filtros::Opcoes::default(), None),
+        None => (dartforge_parity::filters::AnalysisOptions::default(), None),
     };
     let tx = crate::refactorings_exec::Text::new(text);
     let eol = tx.eol();
@@ -76,7 +76,7 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
             continue;
         }
         // `_isCodeUnignorable`.
-        if !options.ignoravel(d) || matches!(options.errors.get(info.name), Some(None)) {
+        if !options.is_ignorable(d) || matches!(options.errors.get(info.name), Some(None)) {
             continue;
         }
         let code = info.name;

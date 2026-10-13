@@ -9,8 +9,8 @@
 //! the page width.
 //!
 //! ```
-//! use dartforge_formatter::{formatar, Opcoes};
-//! let output = formatar("main(){print( 'oi' );}", &Opcoes::default()).unwrap();
+//! use dartforge_formatter::{formatar, AnalysisOptions};
+//! let output = formatar("main(){print( 'oi' );}", &AnalysisOptions::default()).unwrap();
 //! assert_eq!(output, "main() {\n  print('oi');\n}\n");
 //! ```
 pub mod short;

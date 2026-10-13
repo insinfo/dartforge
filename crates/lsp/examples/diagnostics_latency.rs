@@ -48,7 +48,7 @@ fn wait_typed(server: &mut Server<SemanticAnalyzer>, uri: &str) -> Option<Value>
 }
 
 /// Compares the typed publication with what `dartforge analyze` publishes
-/// for the same file (same code path: `Engine` + `diagnosticos_json`), by
+/// for the same file (same code path: `Engine` + `json_diagnostics`), by
 /// (code, line, column).
 fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
     let mut root = file.parent().unwrap().to_path_buf();
@@ -61,13 +61,13 @@ fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
             }
         }
     }
-    let engine = dartforge_parity::analise::Motor::descobrir().expect("SDK");
+    let engine = dartforge_parity::analysis::Engine::discover().expect("SDK");
     let config = root.join(".dart_tool/package_config.json");
     let config = config.is_file().then_some(config);
-    let options = dartforge_parity::filtros::Opcoes::ler(&root);
-    let analysis = engine.analisar(&root, &[file.to_path_buf()], config.as_deref());
+    let options = dartforge_parity::filters::AnalysisOptions::read(&root);
+    let analysis = engine.analyze(&root, &[file.to_path_buf()], config.as_deref());
     let mut cli: Vec<(String, u64, u64)> =
-        dartforge_parity::diagnosticos_json(&analysis, &root, &options, true)
+        dartforge_parity::json_diagnostics(&analysis, &root, &options, true)
             .iter()
             .map(|d| {
                 (

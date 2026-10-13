@@ -20,7 +20,7 @@ fn seven_error_probe_matches_the_oracle() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/sonda");
     let source = std::fs::read_to_string(root.join("lib/a.dart")).expect("probe");
     let expected = std::fs::read_to_string(root.join("dart-analyze.json")).expect("recorded oracle");
-    let lines = json::Linhas::new(&source);
+    let lines = json::LineIndex::new(&source);
     let diags = [
         d("CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION", 41, 44, &["String", "int", "f"]),
         d("CompileTimeErrorCode.UNDEFINED_FUNCTION", 83, 84, &["h"]),
@@ -30,8 +30,8 @@ fn seven_error_probe_matches_the_oracle() {
         d("CompileTimeErrorCode.UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE", 148, 154, &["length"]),
         d("WarningCode.UNUSED_LOCAL_VARIABLE", 162, 167, &["nunca"]),
     ];
-    // Deliberately shuffled order: the reporting order comes from `json::ordenar`.
+    // Deliberately shuffled order: the reporting order comes from `json::sort`.
     let mut v: Vec<_> = diags.iter().rev().map(|x| json::to_json("<SONDA>", &lines, x, false)).collect();
-    json::ordenar(&mut v);
-    assert_eq!(json::escrever(v), expected.trim_end());
+    json::sort(&mut v);
+    assert_eq!(json::write(v), expected.trim_end());
 }

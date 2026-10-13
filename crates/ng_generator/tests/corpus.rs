@@ -1,5 +1,5 @@
 //! The ngdart corpus: one shape per file, with the `.template.dart` of the
-//! official compiler next to it, in `corpus/ngdart/oraculo/`.
+//! official compiler next to it, in `corpus/ngdart/oracle/`.
 //!
 //! The contract is the same as the JS backend corpus: what we generate **must**
 //! come out byte for byte equal to the official output. A shape we cannot

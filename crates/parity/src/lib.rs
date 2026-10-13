@@ -1,11 +1,11 @@
 //! Diagnostic parity with the official `dart analyze` (plan A1/A2).
 //!
 //! * [`json`]: the JSON v1 of `dart analyze --format=json`, read and written.
-//! * [`analise`]: our side — a batch of files becomes one program, with
+//! * [`analysis`]: our side — a batch of files becomes one program, with
 //!   diagnostics per file, with codes.
 //! * [`bridge`]: codes for the diagnostics that still come out as text only.
-//! * [`filtros`]: `analysis_options.yaml` and `// ignore:`.
-//! * [`oraculo`]: running and recording the oracle (SDK 3.6.2 and 3.13.4).
+//! * [`filters`]: `analysis_options.yaml` and `// ignore:`.
+//! * [`oracle`]: running and recording the oracle (SDK 3.6.2 and 3.13.4).
 //! * [`corpus`]: the groups of `corpus/diagnosticos/`.
 //! * [`scoreboard`]: the per-code comparison.
 //!
@@ -15,18 +15,18 @@
 //! real projects; false negatives are allowed). The rest exists internally and
 //! only goes to the scoreboard.
 
-pub mod analise;
+pub mod analysis;
 pub mod corpus;
-pub mod filtros;
+pub mod filters;
 pub mod json;
-pub mod oraculo;
+pub mod oracle;
 pub mod scoreboard;
 pub mod bridge;
-pub mod projetos;
+pub mod projects;
 pub mod output;
 
-use analise::{Analise, Motor};
-use oraculo::Record;
+use analysis::{AnalysisResult, Engine};
+use oracle::Record;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -36,20 +36,20 @@ pub use dartforge_analysis::publication::{VERIFIED, is_published, verified};
 /// The analysis diagnostics in JSON v1, with the filters applied (the root
 /// `analysis_options.yaml` and `// ignore:`). `only_published` applies the
 /// publication rule.
-pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opcoes, only_published: bool) -> Vec<json::DiagJson> {
+pub fn json_diagnostics(analysis: &AnalysisResult, root: &Path, options: &filters::AnalysisOptions, only_published: bool) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
     // Subfolder options (INFRA §4.5): the nearest `analysis_options.yaml`
     // above the file, below the root, applies to it; its `exclude`s add to
     // the root's.
-    let mut by_subfolder: std::collections::HashMap<std::path::PathBuf, filtros::Opcoes> = std::collections::HashMap::new();
-    for (p, a) in &analysis.arquivos {
-        if oraculo::relativo(p, root).is_some_and(|rel| options.excluido(&rel)) {
+    let mut by_subfolder: std::collections::HashMap<std::path::PathBuf, filters::AnalysisOptions> = std::collections::HashMap::new();
+    for (p, a) in &analysis.files {
+        if oracle::relative(p, root).is_some_and(|rel| options.is_excluded(&rel)) {
             continue;
         }
-        let own: Option<&filtros::Opcoes> = match filtros::Opcoes::de_subpasta(p, root) {
+        let own: Option<&filters::AnalysisOptions> = match filters::AnalysisOptions::from_subfolder(p, root) {
             Some(file) => {
                 if !by_subfolder.contains_key(&file) {
-                    let read = filtros::Opcoes::ler_arquivo(&file);
+                    let read = filters::AnalysisOptions::read_file(&file);
                     by_subfolder.insert(file.clone(), read);
                 }
                 by_subfolder.get(&file)
@@ -60,32 +60,32 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
             continue;
         }
         let options = own.unwrap_or(options);
-        let lines = json::Linhas::new(&a.texto);
+        let lines = json::LineIndex::new(&a.text);
         let path = p.to_string_lossy();
-        for (d, syntax) in publicaveis(a, options, only_published) {
+        for (d, syntax) in publishable(a, options, only_published) {
             out.push(json::to_json(&path, &lines, &d, syntax));
         }
         // The lint rules enabled in `linter: rules:` (INFRA §8), over the
         // text's tree, with the `// ignore:` comments and the options'
         // `errors:` (which silences the rule or changes its severity).
-        if options.regras.values().any(|enabled| *enabled) {
-            let enabled = |rule: &str| options.regras.get(rule).copied().unwrap_or(false);
-            let ignored = filtros::Ignorados::de_texto(&a.texto);
+        if options.rules.values().any(|enabled| *enabled) {
+            let enabled = |rule: &str| options.rules.get(rule).copied().unwrap_or(false);
+            let ignored = filters::IgnoreComments::from_text(&a.text);
             // The reports over the program's tree, with semantics; without it
             // (a file outside the program), over the text's tree.
             let mut reports = match &a.lint_reports {
                 Some(r) => r.iter().filter(|x| enabled(x.code.name)).cloned().collect::<Vec<_>>(),
                 None => {
                     let mut names = dartforge_intern::Interner::new();
-                    let parsed = dartforge_frontend::parser::parse(&a.texto, &mut names);
-                    let unit = dartforge_analysis::Unit { ast: &parsed.ast, unit: &parsed.unit, source: &a.texto };
+                    let parsed = dartforge_frontend::parser::parse(&a.text, &mut names);
+                    let unit = dartforge_analysis::Unit { ast: &parsed.ast, unit: &parsed.unit, source: &a.text };
                     dartforge_analysis::lints::run(unit, &names, &enabled)
                 }
             };
             // Those of the rules that need the resolved program, already
             // computed by the engine.
             for l in &a.semantic_lints {
-                if let Some(code) = dartforge_analysis::lints::codes_g::ALL.iter().copied().find(|k| k.unique == l.unico)
+                if let Some(code) = dartforge_analysis::lints::codes_g::ALL.iter().copied().find(|k| k.unique == l.unique)
                     && enabled(code.name)
                 {
                     reports.push(dartforge_analysis::lints::rules::LintReport { code, span: l.span, args: l.args.clone() });
@@ -104,17 +104,17 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
                 };
                 // `cannot-ignore` with the lint's name: `// ignore:` does not silence it.
                 if options.lint_ignorable(r.code.name, r.code.unique)
-                    && ignored.ignores_lint(r.code.name, r.code.unique, lines.ponto(r.span.start).line)
+                    && ignored.ignores_lint(r.code.name, r.code.unique, lines.position(r.span.start).line)
                 {
                     continue;
                 }
                 out.push(json::DiagJson {
                     code: r.code.name.to_string(),
                     severity: severity.to_string(),
-                    tipo: "LINT".to_string(),
+                    error_type: "LINT".to_string(),
                     location: json::Local {
                         file: path.to_string(),
-                        range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
+                        range: json::JsonRange { start: lines.position(r.span.start), end: lines.position(r.span.end.max(r.span.start)) },
                     },
                     problem_message: r.message(),
                     correction_message: r.correction(),
@@ -124,19 +124,19 @@ pub fn diagnosticos_json(analysis: &Analise, root: &Path, options: &filtros::Opc
             }
         }
     }
-    json::ordenar(&mut out);
+    json::sort(&mut out);
     out
 }
 
 /// A report on a non-Dart file, in JSON v1.
-fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::non_dart::Report) -> json::DiagJson {
+fn report_to_json(file: &str, lines: &json::LineIndex<'_>, r: &dartforge_analysis::non_dart::Report) -> json::DiagJson {
     json::DiagJson {
         code: r.code.name.to_string(),
         severity: r.code.severity.name().to_string(),
-        tipo: r.code.error_type.name().to_string(),
+        error_type: r.code.error_type.name().to_string(),
         location: json::Local {
             file: file.to_string(),
-            range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
+            range: json::JsonRange { start: lines.position(r.span.start), end: lines.position(r.span.end.max(r.span.start)) },
         },
         problem_message: r.message(),
         correction_message: r.correction(),
@@ -149,7 +149,7 @@ fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::
 /// `ManifestValidator`, `dartforge_analysis::non_dart::manifest`), in JSON v1.
 /// Only with `analyzer: optional-checks: chrome-os-manifest-checks` in the
 /// options; hidden folders are skipped.
-pub fn diagnosticos_do_manifesto(root: &Path, options: &filtros::Opcoes) -> Vec<json::DiagJson> {
+pub fn manifest_diagnostics(root: &Path, options: &filters::AnalysisOptions) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
     if !options.chrome_os_manifest_checks {
         return out;
@@ -173,7 +173,7 @@ pub fn diagnosticos_do_manifesto(root: &Path, options: &filtros::Opcoes) -> Vec<
     found.sort();
     for file in found {
         let Ok(text) = std::fs::read_to_string(&file) else { continue };
-        let lines = json::Linhas::new(&text);
+        let lines = json::LineIndex::new(&text);
         let path = file.to_string_lossy();
         out.extend(dartforge_analysis::non_dart::manifest::validate(&text).iter().map(|r| report_to_json(&path, &lines, r)));
     }
@@ -185,7 +185,7 @@ pub fn diagnosticos_do_manifesto(root: &Path, options: &filtros::Opcoes) -> Vec<
 /// JSON v1. An `include:` is relative to the including file, or `package:`
 /// through the `package_config.json` found above the root. The SDK constraint
 /// is not passed: a lint rule removed with `since` is not reported.
-pub fn diagnosticos_das_opcoes(root: &Path) -> Vec<json::DiagJson> {
+pub fn options_diagnostics(root: &Path) -> Vec<json::DiagJson> {
     let file = root.join("analysis_options.yaml");
     let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
     let config = dartforge_elements::config::PackageConfig::discover(&file)
@@ -204,7 +204,7 @@ pub fn diagnosticos_das_opcoes(root: &Path) -> Vec<json::DiagJson> {
         resolver: &resolver,
         sdk_allows: None,
     };
-    let lines = json::Linhas::new(&text);
+    let lines = json::LineIndex::new(&text);
     let path = file.to_string_lossy();
     dartforge_analysis::non_dart::options::analyze(&text, &ctx).iter().map(|r| report_to_json(&path, &lines, r)).collect()
 }
@@ -216,10 +216,10 @@ pub fn diagnosticos_das_opcoes(root: &Path) -> Vec<json::DiagJson> {
 /// `IgnoreInfo.forYaml` at the end of `validatePubspec`). Without the file,
 /// nothing. The validator's warnings come out as it gives them; the lints
 /// take the options' `errors:`.
-pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<json::DiagJson> {
+pub fn pubspec_diagnostics(root: &Path, options: &filters::AnalysisOptions) -> Vec<json::DiagJson> {
     let file = root.join("pubspec.yaml");
     let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
-    let lines = json::Linhas::new(&text);
+    let lines = json::LineIndex::new(&text);
     let path = file.to_string_lossy();
     let ignored = dartforge_analysis::lints::pubspec::YamlIgnores::parse(&text);
     let mut out: Vec<json::DiagJson> = dartforge_analysis::non_dart::pubspec::validate(&text, root)
@@ -228,10 +228,10 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
         .map(|r| json::DiagJson {
             code: r.code.name.to_string(),
             severity: r.code.severity.name().to_string(),
-            tipo: r.code.error_type.name().to_string(),
+            error_type: r.code.error_type.name().to_string(),
             location: json::Local {
                 file: path.to_string(),
-                range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
+                range: json::JsonRange { start: lines.position(r.span.start), end: lines.position(r.span.end.max(r.span.start)) },
             },
             problem_message: r.message(),
             correction_message: r.correction(),
@@ -239,8 +239,8 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
             documentation: r.code.documented.then(|| format!("https://dart.dev/diagnostics/{}", r.code.name)),
         })
         .collect();
-    if options.regras.values().any(|enabled| *enabled) {
-        let enabled = |rule: &str| options.regras.get(rule).copied().unwrap_or(false);
+    if options.rules.values().any(|enabled| *enabled) {
+        let enabled = |rule: &str| options.rules.get(rule).copied().unwrap_or(false);
         for r in dartforge_analysis::lints::pubspec::run(&text, &enabled) {
             if ignored.ignores(r.code.name, r.code.unique, r.span.start) {
                 continue;
@@ -253,10 +253,10 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
             out.push(json::DiagJson {
                 code: r.code.name.to_string(),
                 severity: severity.to_string(),
-                tipo: "LINT".to_string(),
+                error_type: "LINT".to_string(),
                 location: json::Local {
                     file: path.to_string(),
-                    range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
+                    range: json::JsonRange { start: lines.position(r.span.start), end: lines.position(r.span.end.max(r.span.start)) },
                 },
                 problem_message: r.message(),
                 correction_message: r.correction(),
@@ -272,9 +272,9 @@ pub fn diagnosticos_do_pubspec(root: &Path, options: &filtros::Opcoes) -> Vec<js
 /// publication rule (with `only_published`), the `analysis_options.yaml`
 /// (`options`) and the text's `// ignore:` comments. It is the filter shared by
 /// `dartforge analyze` and the LSP.
-pub fn publicaveis(a: &analise::Arquivo, options: &filtros::Opcoes, only_published: bool) -> Vec<(dartforge_diagnostics::Diagnostic, bool)> {
-    let lines = json::Linhas::new(&a.texto);
-    let ignored = filtros::Ignorados::de_texto(&a.texto);
+pub fn publishable(a: &analysis::FileAnalysis, options: &filters::AnalysisOptions, only_published: bool) -> Vec<(dartforge_diagnostics::Diagnostic, bool)> {
+    let lines = json::LineIndex::new(&a.text);
+    let ignored = filters::IgnoreComments::from_text(&a.text);
     let mut out = Vec::new();
     for (i, d) in a.diags.iter().enumerate() {
         let syntax = i < a.syntactic_count;
@@ -289,33 +289,33 @@ pub fn publicaveis(a: &analise::Arquivo, options: &filtros::Opcoes, only_publish
         {
             continue;
         }
-        let Some(d) = options.processar(d.clone()) else { continue };
-        let line = lines.ponto(d.span.start).line;
-        if options.ignoravel(&d) && ignored.ignora(&d, line) {
+        let Some(d) = options.process(d.clone()) else { continue };
+        let line = lines.position(d.span.start).line;
+        if options.is_ignorable(&d) && ignored.ignores(&d, line) {
             continue;
         }
         out.push((d, syntax));
     }
     // `IgnoreValidator` (the unit's last phase): the names repeated in the
     // `ignore` comments.
-    for d in ignored.duplicados() {
+    for d in ignored.duplicates() {
         if only_published && !is_published(&d, false) {
             continue;
         }
-        if let Some(d) = options.processar(d) {
+        if let Some(d) = options.process(d) {
             out.push((d, false));
         }
     }
     out
 }
 
-/// Like [`diagnosticos_json`], as records relative to `root`, with what
+/// Like [`json_diagnostics`], as records relative to `root`, with what
 /// `dart analyze` (the oracle) prints: a `TODO` only comes out when `errors:`
 /// promoted it (`analyze.dart:191-192`, the same filter as our CLI).
-pub fn records(analysis: &Analise, root: &Path, options: &filtros::Opcoes, only_published: bool) -> Vec<Record> {
-    let mut out: Vec<Record> = diagnosticos_json(analysis, root, options, only_published)
+pub fn records(analysis: &AnalysisResult, root: &Path, options: &filters::AnalysisOptions, only_published: bool) -> Vec<Record> {
+    let mut out: Vec<Record> = json_diagnostics(analysis, root, options, only_published)
         .iter()
-        .filter(|j| !(j.tipo == "TODO" && j.severity == "INFO"))
+        .filter(|j| !(j.error_type == "TODO" && j.severity == "INFO"))
         .filter_map(|j| Record::from_json(j, root))
         .collect();
     out.sort();
@@ -353,11 +353,11 @@ pub struct Execution {
 /// order of the files, not by the workers: the result is the same with 1, 4
 /// or 8.
 pub fn run_ours(
-    motor: &Motor,
+    engine: &Engine,
     root: &Path,
     files: &[PathBuf],
     packages: Option<&Path>,
-    options: &filtros::Opcoes,
+    options: &filters::AnalysisOptions,
     ex: &Execution,
 ) -> Run {
     let batches: Vec<&[PathBuf]> = files.chunks(ex.batch_size.max(1)).collect();
@@ -373,7 +373,7 @@ pub fn run_ours(
             }
             let r = match &ex.isolate {
                 Some(exe) => isolated_batch(exe, root, batches[i], packages, ex.max_time),
-                None => analyze_batch(motor, root, batches[i], packages),
+                None => analyze_batch(engine, root, batches[i], packages),
             };
             results.lock().expect("results")[i] = Some(r);
             let n = done.fetch_add(1, Ordering::SeqCst) + 1;
@@ -403,7 +403,7 @@ pub fn run_ours(
     run.records = run
         .records
         .into_iter()
-        .filter(|r| !options.excluido(&r.arquivo))
+        .filter(|r| !options.is_excluded(&r.file))
         .filter_map(|mut r| match options.errors.get(&r.code) {
             None => Some(r),
             Some(None) => None,
@@ -419,11 +419,11 @@ pub fn run_ours(
 }
 
 /// A batch on the same thread; on a panic, each file on its own.
-fn analyze_batch(motor: &Motor, root: &Path, batch: &[PathBuf], packages: Option<&Path>) -> (Vec<Record>, Vec<String>, usize) {
+fn analyze_batch(engine: &Engine, root: &Path, batch: &[PathBuf], packages: Option<&Path>) -> (Vec<Record>, Vec<String>, usize) {
     let attempt = |files: &[PathBuf]| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let a = motor.analisar(root, files, packages);
-            (records(&a, root, &filtros::Opcoes::default(), false), a.ambiguos)
+            let a = engine.analyze(root, files, packages);
+            (records(&a, root, &filters::AnalysisOptions::default(), false), a.ambiguous)
         }))
     };
     if let Ok((r, amb)) = attempt(batch) {
@@ -438,7 +438,7 @@ fn analyze_batch(motor: &Motor, root: &Path, batch: &[PathBuf], packages: Option
                 regs.extend(r);
                 amb += x;
             }
-            Err(_) => panics.push(oraculo::relativo(a, root).unwrap_or_else(|| a.display().to_string())),
+            Err(_) => panics.push(oracle::relative(a, root).unwrap_or_else(|| a.display().to_string())),
         }
     }
     (regs, panics, amb)
@@ -464,7 +464,7 @@ fn isolated_batch(
                 regs.extend(r);
                 amb += x;
             }
-            None => panics.push(oraculo::relativo(a, root).unwrap_or_else(|| a.display().to_string())),
+            None => panics.push(oracle::relative(a, root).unwrap_or_else(|| a.display().to_string())),
         }
     }
     (regs, panics, amb)
@@ -550,7 +550,7 @@ pub fn run_child_batch(
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
     });
-    let motor = match Motor::descobrir() {
+    let engine = match Engine::discover() {
         Ok(m) => m,
         Err(_) => return 2,
     };
@@ -558,8 +558,8 @@ pub fn run_child_batch(
     let finished = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let a = motor.analisar(&r2, &a2, p2.as_deref());
-            (records(&a, &r2, &filtros::Opcoes::default(), false), a.ambiguos)
+            let a = engine.analyze(&r2, &a2, p2.as_deref());
+            (records(&a, &r2, &filters::AnalysisOptions::default(), false), a.ambiguous)
         })
         .expect("thread")
         .join();

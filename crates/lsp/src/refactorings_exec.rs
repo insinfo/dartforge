@@ -383,8 +383,8 @@ pub(crate) fn enabled_rule(p: &Project, unit: UnitId, name: &str) -> bool {
 /// Like [`enabled_rule`], by file path.
 pub(crate) fn rule_enabled_in(path: &std::path::Path, name: &str) -> bool {
     let root = crate::project::project_root(path);
-    let file = dartforge_parity::filtros::Opcoes::de_subpasta(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
-    dartforge_parity::filtros::Opcoes::ler_arquivo(&file).regras.get(name).copied().unwrap_or(false)
+    let file = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
+    dartforge_parity::filters::AnalysisOptions::read_file(&file).rules.get(name).copied().unwrap_or(false)
 }
 
 /// `options['name'] as String` with `options != null`: the name, or the

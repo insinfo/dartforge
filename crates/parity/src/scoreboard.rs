@@ -8,7 +8,7 @@
 //! Everything is in `BTreeMap`s: the scoreboard text does not depend on the
 //! order in which the batches finished.
 
-use crate::oraculo::Record;
+use crate::oracle::Record;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -89,7 +89,7 @@ impl Scoreboard {
     fn sample(&mut self, code: &str, cat: &'static str, r: &Record, extra: &str) {
         let v = self.samples.entry((code.to_string(), cat)).or_default();
         if v.len() < sample_limit() {
-            v.push(format!("{}:{}:{} {}{extra}", r.arquivo, r.line, r.column, r.problem_message));
+            v.push(format!("{}:{}:{} {}{extra}", r.file, r.line, r.column, r.problem_message));
         }
     }
 
@@ -99,10 +99,10 @@ impl Scoreboard {
         type Sides<'r> = (Vec<&'r Record>, Vec<&'r Record>);
         let mut sides: BTreeMap<(&str, &str), Sides<'_>> = BTreeMap::new();
         for r in oracle {
-            sides.entry((&r.arquivo, &r.code)).or_default().0.push(r);
+            sides.entry((&r.file, &r.code)).or_default().0.push(r);
         }
         for r in ours {
-            sides.entry((&r.arquivo, &r.code)).or_default().1.push(r);
+            sides.entry((&r.file, &r.code)).or_default().1.push(r);
         }
         for ((_, code), (mut o, mut n)) in sides {
             o.sort();
@@ -199,12 +199,12 @@ mod tests {
 
     fn r(file: &str, code: &str, off: usize, len: usize, msg: &str) -> Record {
         Record {
-            arquivo: file.into(),
+            file: file.into(),
             offset: off,
             length: len,
             code: code.into(),
             severity: "ERROR".into(),
-            tipo: "COMPILE_TIME_ERROR".into(),
+            error_type: "COMPILE_TIME_ERROR".into(),
             line: 1,
             column: off + 1,
             problem_message: msg.into(),
