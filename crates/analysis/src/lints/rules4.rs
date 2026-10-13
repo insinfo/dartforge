@@ -1,24 +1,24 @@
-//! O quarto lote de regras de lint que só olham a árvore e o texto
+//! The fourth batch of lint rules that only look at the tree and the text
 //! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8): `prefer_if_null_operators`,
 //! `avoid_single_cascade_in_expression_statements`,
 //! `use_function_type_syntax_for_parameters`,
-//! `no_leading_underscores_for_local_identifiers` e
+//! `no_leading_underscores_for_local_identifiers` and
 //! `prefer_function_declarations_over_variables`.
 //!
-//! Escritas com os emissores do `main` do SDK abertos e depois conferidas
-//! contra os da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter`, extraído
-//! da tag em 2026-10-05). Na 3.6.2,
-//! `use_function_type_syntax_for_parameters` só olha o parâmetro comum
-//! (`FunctionTypedFormalParameter`), não o `this.f(…)` nem o `super.f(…)`.
-//! `no_leading_underscores_for_local_identifiers` olha também o `for`/`for-in`
-//! de coleção, as variáveis de padrão de declaração e as listas de
-//! parâmetros dos tipos `Function(…)` e dos typedefs antigos;
-//! `prefer_function_declarations_over_variables` relata fora de corpo de
-//! função só a lista `final` (o `isFinal`, sem `const`) e, dentro, o local
-//! que nenhuma escrita na unidade muda (`isPotentiallyMutatedInScope`, pelo
-//! elemento: pede a semântica da unidade); `prefer_if_null_operators`
-//! compara o `toString` dos nós (`dartforge_frontend::fonte`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written with the emitters of the SDK's `main` open and then checked
+//! against those of 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter`,
+//! extracted from the tag on 2026-10-05). In 3.6.2,
+//! `use_function_type_syntax_for_parameters` only looks at the plain
+//! parameter (`FunctionTypedFormalParameter`), not `this.f(…)` nor
+//! `super.f(…)`. `no_leading_underscores_for_local_identifiers` also looks at
+//! a collection `for`/`for-in`, declaration pattern variables and the
+//! parameter lists of `Function(…)` types and old-style typedefs;
+//! `prefer_function_declarations_over_variables` reports outside a function
+//! body only a `final` list (`isFinal`, without `const`) and, inside, a local
+//! that no write in the unit changes (`isPotentiallyMutatedInScope`, by
+//! element: it needs the unit's semantics); `prefer_if_null_operators`
+//! compares the nodes' `toString` (`dartforge_frontend::fonte`).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -30,115 +30,115 @@ use dartforge_frontend::ast::{
 };
 use dartforge_intern::Interner;
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let fonte = u.fonte;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.fonte;
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    // O `toString` de uma expressão.
-    let fonte_de = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, fonte, interner, e) };
-    // Todas as listas de parâmetros da unidade, com as aninhadas.
-    fn listas<'x>(lista: &'x [ast::Parameter], saida: &mut Vec<&'x [ast::Parameter]>) {
-        saida.push(lista);
-        for p in lista {
-            if let Some(internos) = &p.function_parameters {
-                listas(internos, saida);
+    // The `toString` of an expression.
+    let source_of = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, source, interner, e) };
+    // All the unit's parameter lists, with the nested ones.
+    fn collect_lists<'x>(list: &'x [ast::Parameter], out: &mut Vec<&'x [ast::Parameter]>) {
+        out.push(list);
+        for p in list {
+            if let Some(inner) = &p.function_parameters {
+                collect_lists(inner, out);
             }
         }
     }
-    let mut de_parametros: Vec<&[ast::Parameter]> = Vec::new();
+    let mut param_lists: Vec<&[ast::Parameter]> = Vec::new();
     for f in a.functions.iter() {
         if let Some(ps) = &f.parameters {
-            listas(ps, &mut de_parametros);
+            collect_lists(ps, &mut param_lists);
         }
     }
     for m in a.members.iter() {
         if let MemberKind::Constructor(k) = &m.kind {
-            listas(&k.parameters, &mut de_parametros);
+            collect_lists(&k.parameters, &mut param_lists);
         }
     }
     for d in a.decls.iter() {
         if let DeclKind::Typedef(x) = &d.kind
             && let ast::TypedefKind::Legacy { parameters, .. } = &x.kind
         {
-            listas(parameters, &mut de_parametros);
+            collect_lists(parameters, &mut param_lists);
         }
     }
     for t in a.types.iter() {
         if let ast::TypeKind::Function { parameters, .. } = &t.kind {
-            listas(parameters, &mut de_parametros);
+            collect_lists(parameters, &mut param_lists);
         }
     }
 
-    // `prefer_if_null_operators`: `a == null ? b : a` e `a != null ? a : b`.
-    if ligada("prefer_if_null_operators") {
+    // `prefer_if_null_operators`: `a == null ? b : a` and `a != null ? a : b`.
+    if enabled("prefer_if_null_operators") {
         for e in a.exprs.iter() {
             let ExprKind::Conditional { condition, then, else_ } = &e.kind else { continue };
             let ExprKind::Binary { op, left, right } = &a.expr(*condition).kind else { continue };
             if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
                 continue;
             }
-            let testada = if matches!(a.expr(*left).kind, ExprKind::Null) {
+            let tested = if matches!(a.expr(*left).kind, ExprKind::Null) {
                 *right
             } else if matches!(a.expr(*right).kind, ExprKind::Null) {
                 *left
             } else {
                 continue;
             };
-            let ramo = if *op == BinaryOp::Eq { *else_ } else { *then };
-            if fonte_de(ramo) == fonte_de(testada) {
-                relatar(&c::PREFER_IF_NULL_OPERATORS, e.span, &[]);
+            let branch = if *op == BinaryOp::Eq { *else_ } else { *then };
+            if source_of(branch) == source_of(tested) {
+                report(&c::PREFER_IF_NULL_OPERATORS, e.span, &[]);
             }
         }
     }
-    // `avoid_single_cascade_in_expression_statements`: `a..b();` sozinho.
-    if ligada("avoid_single_cascade_in_expression_statements") {
+    // `avoid_single_cascade_in_expression_statements`: a lone `a..b();`.
+    if enabled("avoid_single_cascade_in_expression_statements") {
         for s in a.stmts.iter() {
             if let StmtKind::Expression(e) = &s.kind
                 && let ExprKind::Cascade { sections, null_aware, .. } = &a.expr(*e).kind
                 && sections.len() == 1
             {
-                relatar(&c::AVOID_SINGLE_CASCADE_IN_EXPRESSION_STATEMENTS, a.expr(*e).span, &[if *null_aware { "?." } else { "." }]);
+                report(&c::AVOID_SINGLE_CASCADE_IN_EXPRESSION_STATEMENTS, a.expr(*e).span, &[if *null_aware { "?." } else { "." }]);
             }
         }
     }
     // `use_function_type_syntax_for_parameters`: `void f(int g(int x))`.
-    if ligada("use_function_type_syntax_for_parameters") {
-        for lista in &de_parametros {
-            for p in lista.iter().filter(|p| p.function_parameters.is_some() && !p.this_ && !p.super_) {
-                relatar(&c::USE_FUNCTION_TYPE_SYNTAX_FOR_PARAMETERS, p.span, &[p.name.map_or("", |n| interner.resolve(n.sym))]);
+    if enabled("use_function_type_syntax_for_parameters") {
+        for list in &param_lists {
+            for p in list.iter().filter(|p| p.function_parameters.is_some() && !p.this_ && !p.super_) {
+                report(&c::USE_FUNCTION_TYPE_SYNTAX_FOR_PARAMETERS, p.span, &[p.name.map_or("", |n| interner.resolve(n.sym))]);
             }
         }
     }
     // `no_leading_underscores_for_local_identifiers`.
-    if ligada("no_leading_underscores_for_local_identifiers") {
-        let mut checar = |n: ast::Name| {
-            let texto = interner.resolve(n.sym);
-            if texto.starts_with('_') && !texto.bytes().all(|b| b == b'_') {
-                relatar(&c::NO_LEADING_UNDERSCORES_FOR_LOCAL_IDENTIFIERS, n.span, &[texto]);
+    if enabled("no_leading_underscores_for_local_identifiers") {
+        let mut check = |n: ast::Name| {
+            let text = interner.resolve(n.sym);
+            if text.starts_with('_') && !text.bytes().all(|b| b == b'_') {
+                report(&c::NO_LEADING_UNDERSCORES_FOR_LOCAL_IDENTIFIERS, n.span, &[text]);
             }
         };
-        let da_lista = |l: &VariableList, checar: &mut dyn FnMut(ast::Name)| {
+        let from_list = |l: &VariableList, check: &mut dyn FnMut(ast::Name)| {
             for v in l.variables.iter() {
-                checar(v.name);
+                check(v.name);
             }
         };
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => da_lista(l, &mut checar),
-                StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => checar(*name),
+                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => from_list(l, &mut check),
+                StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => check(*name),
                 StmtKind::Function(f) => {
                     if let Some(n) = a.function(*f).name {
-                        checar(n);
+                        check(n);
                     }
                 }
                 StmtKind::Try { catches, .. } => {
                     for k in catches.iter() {
                         for n in k.exception.iter().chain(k.stack_trace.iter()) {
-                            checar(*n);
+                            check(*n);
                         }
                     }
                 }
@@ -147,93 +147,93 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         }
         // `visitDeclaredVariablePattern`.
         for n in super::rules::pattern_declared_variables(a) {
-            checar(n);
+            check(n);
         }
-        // `visitForPartsWithDeclarations` e `visitDeclaredIdentifier` do
-        // `for` e do `for-in` de coleção.
-        fn de_colecao(el: &ast::CollectionElement, saida: &mut Vec<ast::Name>) {
+        // `visitForPartsWithDeclarations` and `visitDeclaredIdentifier` of a
+        // collection `for` and `for-in`.
+        fn from_collection(el: &ast::CollectionElement, out: &mut Vec<ast::Name>) {
             match el {
                 ast::CollectionElement::For { init, body, .. } => {
                     if let Some(ForInit::Variables(l)) = init {
-                        saida.extend(l.variables.iter().map(|v| v.name));
+                        out.extend(l.variables.iter().map(|v| v.name));
                     }
-                    de_colecao(body, saida);
+                    from_collection(body, out);
                 }
                 ast::CollectionElement::ForIn { target, body, .. } => {
                     if let ForInTarget::Declared { name, .. } = target {
-                        saida.push(*name);
+                        out.push(*name);
                     }
-                    de_colecao(body, saida);
+                    from_collection(body, out);
                 }
                 ast::CollectionElement::If { then, else_, .. } => {
-                    de_colecao(then, saida);
+                    from_collection(then, out);
                     if let Some(x) = else_ {
-                        de_colecao(x, saida);
+                        from_collection(x, out);
                     }
                 }
                 _ => {}
             }
         }
-        let mut de_colecoes = Vec::new();
+        let mut from_collections = Vec::new();
         for e in a.exprs.iter() {
             if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
                 for el in elements.iter() {
-                    de_colecao(el, &mut de_colecoes);
+                    from_collection(el, &mut from_collections);
                 }
             }
         }
-        for n in de_colecoes {
-            checar(n);
+        for n in from_collections {
+            check(n);
         }
-        // Os parâmetros não nomeados; a lista é abandonada no primeiro
-        // `this.x` ou `super.x` (o `return` do original).
-        for lista in &de_parametros {
-            for p in lista.iter() {
+        // The unnamed parameters; the list is abandoned at the first `this.x`
+        // or `super.x` (the original's `return`).
+        for list in &param_lists {
+            for p in list.iter() {
                 if p.this_ || p.super_ {
                     break;
                 }
                 if let (false, Some(n)) = (p.kind == ParameterKind::Named, p.name) {
-                    checar(n);
+                    check(n);
                 }
             }
         }
     }
     // `prefer_function_declarations_over_variables`.
-    if ligada("prefer_function_declarations_over_variables") {
-        let mut checar = |l: &VariableList, local: bool| {
+    if enabled("prefer_function_declarations_over_variables") {
+        let mut check = |l: &VariableList, local: bool| {
             for v in l.variables.iter() {
-                let Some(inicial) = v.initializer else { continue };
-                if !matches!(a.expr(inicial).kind, ExprKind::FunctionExpression(_)) {
+                let Some(init) = v.initializer else { continue };
+                if !matches!(a.expr(init).kind, ExprKind::FunctionExpression(_)) {
                     continue;
                 }
-                // Dentro de corpo de função, o elemento não mudado; fora, a
-                // lista `final`.
-                let relata = if local { sem.is_some_and(|s| !super::is_mutated(s, a, v.name.span.start)) } else { l.final_ };
-                if relata {
-                    relatar(&c::PREFER_FUNCTION_DECLARATIONS_OVER_VARIABLES, Span { start: v.name.span.start, end: a.expr(inicial).span.end }, &[]);
+                // Inside a function body, the unchanged element; outside, the
+                // `final` list.
+                let reported = if local { sem.is_some_and(|s| !super::is_mutated(s, a, v.name.span.start)) } else { l.final_ };
+                if reported {
+                    report(&c::PREFER_FUNCTION_DECLARATIONS_OVER_VARIABLES, Span { start: v.name.span.start, end: a.expr(init).span.end }, &[]);
                 }
             }
         };
         for d in a.decls.iter() {
             if let DeclKind::Variables(l) = &d.kind {
-                checar(l, false);
+                check(l, false);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Field(l) = &m.kind {
-                checar(l, false);
+                check(l, false);
             }
         }
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => checar(l, true),
+                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => check(l, true),
                 _ => {}
             }
         }
-        // As listas do `for` de coleção (dentro de corpo de função ou de
-        // inicializador: a de inicializador de campo ou de topo fica fora
-        // de corpo).
-        let corpos: Vec<Span> = a
+        // The lists of a collection `for` (inside a function body or an
+        // initializer: that of a field or top-level initializer is outside a
+        // body).
+        let bodies: Vec<Span> = a
             .functions
             .iter()
             .filter_map(|f| match &f.body {
@@ -250,19 +250,19 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 _ => None,
             }))
             .collect();
-        fn listas_de_colecao<'x>(el: &'x ast::CollectionElement, saida: &mut Vec<&'x VariableList>) {
+        fn collection_lists<'x>(el: &'x ast::CollectionElement, out: &mut Vec<&'x VariableList>) {
             match el {
                 ast::CollectionElement::For { init, body, .. } => {
                     if let Some(ForInit::Variables(l)) = init {
-                        saida.push(l);
+                        out.push(l);
                     }
-                    listas_de_colecao(body, saida);
+                    collection_lists(body, out);
                 }
-                ast::CollectionElement::ForIn { body, .. } => listas_de_colecao(body, saida),
+                ast::CollectionElement::ForIn { body, .. } => collection_lists(body, out),
                 ast::CollectionElement::If { then, else_, .. } => {
-                    listas_de_colecao(then, saida);
+                    collection_lists(then, out);
                     if let Some(x) = else_ {
-                        listas_de_colecao(x, saida);
+                        collection_lists(x, out);
                     }
                 }
                 _ => {}
@@ -272,11 +272,11 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
                 let mut ls = Vec::new();
                 for el in elements.iter() {
-                    listas_de_colecao(el, &mut ls);
+                    collection_lists(el, &mut ls);
                 }
-                let local = corpos.iter().any(|c| c.start <= e.span.start && e.span.end <= c.end);
+                let local = bodies.iter().any(|c| c.start <= e.span.start && e.span.end <= c.end);
                 for l in ls {
-                    checar(l, local);
+                    check(l, local);
                 }
             }
         }
@@ -285,33 +285,33 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn achados(fonte: &str) -> Vec<(&'static str, String)> {
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut relatos = run(u, &nomes, &|_| true, None);
-        relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.code.nome, fonte[r.span.start..r.span.end].to_string())).collect()
+    fn findings(source: &str) -> Vec<(&'static str, String)> {
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let mut reports = run(u, &names, &|_| true, None);
+        reports.sort_by_key(|r| (r.span.start, r.span.end));
+        reports.into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
-    fn expressoes() {
-        assert_eq!(achados("int f(int? a) => a == null ? 0 : a;\n"), vec![("prefer_if_null_operators", "a == null ? 0 : a".to_string())]);
-        assert!(achados("int f(int? a, int b) => a == null ? 0 : b;\n").is_empty());
+    fn expressions() {
+        assert_eq!(findings("int f(int? a) => a == null ? 0 : a;\n"), vec![("prefer_if_null_operators", "a == null ? 0 : a".to_string())]);
+        assert!(findings("int f(int? a, int b) => a == null ? 0 : b;\n").is_empty());
         assert_eq!(
-            achados("void f(List<int> l) {\n  l..add(1);\n}\n"),
+            findings("void f(List<int> l) {\n  l..add(1);\n}\n"),
             vec![("avoid_single_cascade_in_expression_statements", "l..add(1)".to_string())]
         );
     }
 
     #[test]
-    fn nomes_e_parametros() {
-        assert_eq!(achados("void f(int g(int x)) {}\n"), vec![("use_function_type_syntax_for_parameters", "int g(int x)".to_string())]);
+    fn names_and_parameters() {
+        assert_eq!(findings("void f(int g(int x)) {}\n"), vec![("use_function_type_syntax_for_parameters", "int g(int x)".to_string())]);
         assert_eq!(
-            achados("void f(int _a, {int? _b}) {\n  var _c = 1;\n  var __ = 2;\n}\n"),
+            findings("void f(int _a, {int? _b}) {\n  var _c = 1;\n  var __ = 2;\n}\n"),
             vec![
                 ("no_leading_underscores_for_local_identifiers", "_a".to_string()),
                 ("no_leading_underscores_for_local_identifiers", "_c".to_string()),
@@ -320,9 +320,9 @@ mod testes {
     }
 
     #[test]
-    fn funcoes_em_variaveis() {
-        assert_eq!(achados("final f = () {};\nvar g = () {};\n"), vec![("prefer_function_declarations_over_variables", "f = () {}".to_string())]);
-        // O local pede a semântica da unidade (a mutação é pelo elemento).
-        assert!(achados("void m() {\n  var a = () {};\n  var b = () {};\n  b = () {};\n}\n").is_empty());
+    fn functions_in_variables() {
+        assert_eq!(findings("final f = () {};\nvar g = () {};\n"), vec![("prefer_function_declarations_over_variables", "f = () {}".to_string())]);
+        // The local needs the unit's semantics (the mutation is by element).
+        assert!(findings("void m() {\n  var a = () {};\n  var b = () {};\n  b = () {};\n}\n").is_empty());
     }
 }
