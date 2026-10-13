@@ -14,7 +14,7 @@
 //!   com a assinatura na representação da HIR (R1) dos tipos Dart
 //!   declarados: `int` → `i64`, `double` → `double`, `bool` → `i8`, o resto
 //!   (receptor inclusive) → `Ref`. Erros saem pela exceção pendente.
-//! * [`State::Pendente`]: ainda sem implementação; o lowering de P5d
+//! * [`State::Pending`]: ainda sem implementação; o lowering de P5d
 //!   transforma a chamada em diagnóstico (N1), nunca em chamada a símbolo
 //!   inexistente.
 //!
@@ -35,7 +35,7 @@ pub enum State {
     /// Função do runtime `dartforge_nativo_<Nome>`.
     Runtime,
     /// Sem implementação ainda: chamar é diagnóstico.
-    Pendente,
+    Pending,
     /// O lowering gera o código no lugar da chamada (`Internal_unsafeCast`
     /// é o próprio valor).
     Builtin,
@@ -54,18 +54,18 @@ pub const CONSERVATIVE: Effects = Effects { allocates: true, throws: true, calls
 
 /// Um native de `@pragma("vm:external-name", name)`.
 #[derive(Debug, Clone, Copy)]
-pub struct Nativo {
+pub struct NativeEntry {
     pub name: &'static str,
     pub state: State,
     pub effects: Effects,
 }
 
-const fn runtime(name: &'static str) -> Nativo {
-    Nativo { name, state: State::Runtime, effects: CONSERVATIVE }
+const fn runtime(name: &'static str) -> NativeEntry {
+    NativeEntry { name, state: State::Runtime, effects: CONSERVATIVE }
 }
 
-const fn embedded(name: &'static str) -> Nativo {
-    Nativo { name, state: State::Builtin, effects: CONSERVATIVE }
+const fn embedded(name: &'static str) -> NativeEntry {
+    NativeEntry { name, state: State::Builtin, effects: CONSERVATIVE }
 }
 
 /// Natives que o SDK declara com retornos diferentes conforme o ponto de uso
@@ -176,13 +176,13 @@ pub fn intrinsic(member: &str) -> Option<&'static str> {
     INTRINSICS.iter().find(|(m, _)| *m == member).map(|(_, n)| *n)
 }
 
-const fn pending(name: &'static str) -> Nativo {
-    Nativo { name, state: State::Pendente, effects: CONSERVATIVE }
+const fn pending(name: &'static str) -> NativeEntry {
+    NativeEntry { name, state: State::Pending, effects: CONSERVATIVE }
 }
 
 /// Todo native das bibliotecas da fonte com a sobreposição `native_sdk/`,
 /// em ordem de bytes (a de `str`, que a busca binária usa). Os `DartForge_*` são os da sobreposição.
-pub const NATIVES: &[Nativo] = &[
+pub const NATIVES: &[NativeEntry] = &[
     pending("AbstractType_equality"),
     pending("AbstractType_getHashCode"),
     pending("AbstractType_toString"),
@@ -727,7 +727,7 @@ pub const NATIVES: &[Nativo] = &[
 ];
 
 /// A entrada de um native, se existe.
-pub fn native(name: &str) -> Option<&'static Nativo> {
+pub fn native(name: &str) -> Option<&'static NativeEntry> {
     NATIVES.binary_search_by(|n| n.name.cmp(name)).ok().map(|i| &NATIVES[i])
 }
 

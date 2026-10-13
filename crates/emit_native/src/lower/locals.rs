@@ -55,7 +55,7 @@ impl std::ops::DerefMut for LocalScope {
 
 /// Onde um local visível mora.
 #[derive(Debug, Clone)]
-pub enum Modo {
+pub enum Mode {
     /// `alloca` na representação do local.
     Memory(Operand),
     /// Valor imutável já calculado (o parâmetro de uma closure baixada em
@@ -75,7 +75,7 @@ pub enum Modo {
 /// Um local visível.
 #[derive(Debug, Clone)]
 pub struct Local {
-    pub mode: Modo,
+    pub mode: Mode,
     pub ty: Type,
     /// Tipo Dart antes de apagar a representação, para obrigações léxicas
     /// como Finalizable. None indica informação ainda não fornecida; não
@@ -162,7 +162,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.insert_local(
             sym,
             Local {
-                mode: Modo::Memory(ptr.clone()),
+                mode: Mode::Memory(ptr.clone()),
                 ty,
                 static_type: None,
                 finalizable: None,
@@ -222,7 +222,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.insert_local(
                 sym,
                 Local {
-                    mode: Modo::Memory(ptr),
+                    mode: Mode::Memory(ptr),
                     ty,
                     static_type,
                     finalizable,
@@ -250,7 +250,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.insert_local(
             sym,
             Local {
-                mode: Modo::Cell(ptr),
+                mode: Mode::Cell(ptr),
                 ty,
                 static_type,
                 finalizable,
@@ -266,7 +266,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn configure_late_local(&mut self, sym: SymbolId, final_: bool, init: Option<ExprId>) -> bool {
         let Some(local) = self.lookup_local(sym) else { return false };
         let (state, cell) = match &local.mode {
-            Modo::Memory(_) => {
+            Mode::Memory(_) => {
                 let state = self.entry_alloca(Type::I8);
                 self.emit(
                     Instruction::Store { ptr: state.clone(), val: Operand::Constant(Constant::Int(0)) },
@@ -274,7 +274,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 (state, false)
             }
-            Modo::Cell(_) if init.is_none() => (self.local_cell(&local).expect("célula late"), true),
+            Mode::Cell(_) if init.is_none() => (self.local_cell(&local).expect("célula late"), true),
             _ => return false,
         };
         let name = self.ctx.symbol_name(sym).to_string();
@@ -353,7 +353,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.insert_local(
             sym,
             Local {
-                mode: Modo::Environment {
+                mode: Mode::Environment {
                     env,
                     index,
                     cell,
@@ -380,7 +380,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.insert_local(
             sym,
             Local {
-                mode: Modo::Value(value),
+                mode: Mode::Value(value),
                 ty,
                 static_type: None,
                 finalizable: None,
@@ -413,14 +413,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// vindo do ambiente); `None` se o local não é célula.
     pub fn local_cell(&mut self, local: &Local) -> Option<Operand> {
         match &local.mode {
-            Modo::Cell(ptr) => Some(self.emit(
+            Mode::Cell(ptr) => Some(self.emit(
                 Instruction::Load {
                     ptr: ptr.clone(),
                     ty: Type::Ref,
                 },
                 Type::Ref,
             )),
-            Modo::Environment {
+            Mode::Environment {
                 env,
                 index,
                 cell: true,
@@ -462,7 +462,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.exception_targets.pop();
                 let value = self.coerce(value, local.ty);
-                let Modo::Memory(ptr) = &local.mode else { unreachable!("late capturado recusado") };
+                let Mode::Memory(ptr) = &local.mode else { unreachable!("late capturado recusado") };
                 self.emit(Instruction::Store { ptr: ptr.clone(), val: value }, Type::Void);
                 self.define_late_state(late, 1);
                 self.terminate(Terminator::Branch(b_verify));
@@ -497,22 +497,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.emit(Instruction::CellGet { cell: c }, local.ty);
         }
         match &local.mode {
-            Modo::Memory(ptr) => self.emit(
+            Mode::Memory(ptr) => self.emit(
                 Instruction::Load {
                     ptr: ptr.clone(),
                     ty: local.ty,
                 },
                 local.ty,
             ),
-            Modo::Value(v) => v.clone(),
-            Modo::Environment { env, index, .. } => self.emit(
+            Mode::Value(v) => v.clone(),
+            Mode::Environment { env, index, .. } => self.emit(
                 Instruction::EnvGet {
                     env: env.clone(),
                     index: *index,
                 },
                 local.ty,
             ),
-            Modo::Cell(_) => unreachable!("célula tratada acima"),
+            Mode::Cell(_) => unreachable!("célula tratada acima"),
         }
     }
 
@@ -565,7 +565,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(v);
         }
         match local.mode {
-            Modo::Memory(ptr) => {
+            Mode::Memory(ptr) => {
                 self.emit(
                     Instruction::Store {
                         ptr,
@@ -574,16 +574,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Void,
                 );
             }
-            Modo::Value(_) => {
+            Mode::Value(_) => {
                 // Valor imutável religado no escopo onde ele mora.
                 for e in self.scopes.iter_mut().rev() {
                     if let Some(l) = e.get_mut(&sym) {
-                        l.mode = Modo::Value(v.clone());
+                        l.mode = Mode::Value(v.clone());
                         break;
                     }
                 }
             }
-            Modo::Environment { .. } | Modo::Cell(_) => return None,
+            Mode::Environment { .. } | Mode::Cell(_) => return None,
         }
         Some(v)
     }
@@ -596,7 +596,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(local) = self.lookup_local(sym) else {
             return;
         };
-        let Modo::Cell(ptr) = &local.mode else {
+        let Mode::Cell(ptr) = &local.mode else {
             return;
         };
         let old = self.emit(
@@ -803,7 +803,7 @@ void main() {}
                 assert_eq!(scalars.len(), 3);
                 b.terminate(Terminator::Return(Some(Operand::Val(b.func.params[0].0))));
                 let mut module = Module::new();
-                b.finalizar(&mut module);
+                b.finish(&mut module);
                 assert_eq!(module.dart_scalar_parameters["escalares"].len(), 3);
                 assert!(!module.dart_scalar_parameters["escalares"].contains(&native));
                 assert!(module.dart_rti_parameters["escalares"].contains(&native));

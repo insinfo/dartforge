@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 // Transporta elegibilidade para a guarda física, sem provar ownership/layout.
 // Cada SCC exige âncora Ref/Null e todas as dependências externas conferidas.
 fn propagate_ref_entries(f: &Function, entries: &mut HashSet<ValueId>) {
-    let nos: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, i, t)| {
+    let nodes: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, i, t)| {
         if *t != Type::Ref { return None; }
         let ops: Vec<_> = match i {
             Instruction::ArcCopy { value } | Instruction::ArcMove { value } => vec![value],
@@ -23,11 +23,11 @@ fn propagate_ref_entries(f: &Function, entries: &mut HashSet<ValueId>) {
         };
         Some((*v, ops))
     }).collect();
-    let idx_value: HashMap<_, _> = nos.iter().enumerate().map(|(i, (v, _))| (*v, i)).collect();
-    let mut graph = vec![Vec::new(); nos.len()];
-    let mut anchors = vec![false; nos.len()];
-    let mut invalid_set = vec![false; nos.len()];
-    for (i, (_, ops)) in nos.iter().enumerate() {
+    let idx_value: HashMap<_, _> = nodes.iter().enumerate().map(|(i, (v, _))| (*v, i)).collect();
+    let mut graph = vec![Vec::new(); nodes.len()];
+    let mut anchors = vec![false; nodes.len()];
+    let mut invalid_set = vec![false; nodes.len()];
+    for (i, (_, ops)) in nodes.iter().enumerate() {
         for op in ops {
             match op {
                 Operand::Constant(Constant::Null) => anchors[i] = true,
@@ -38,7 +38,7 @@ fn propagate_ref_entries(f: &Function, entries: &mut HashSet<ValueId>) {
         }
     }
     let sccs = super::super::scc::components(&graph);
-    let mut component = vec![usize::MAX; nos.len()];
+    let mut component = vec![usize::MAX; nodes.len()];
     for (i, scc) in sccs.iter().enumerate() { for &v in scc { component[v] = i; } }
     let mut valid_set = vec![false; sccs.len()];
     for (i, scc) in sccs.iter().enumerate() {
@@ -50,36 +50,36 @@ fn propagate_ref_entries(f: &Function, entries: &mut HashSet<ValueId>) {
             }
         }
         valid_set[i] = valid && anchor;
-        if valid_set[i] { for &v in scc { entries.insert(nos[v].0); } }
+        if valid_set[i] { for &v in scc { entries.insert(nodes[v].0); } }
     }
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
-struct Origem {
+struct Origin {
     sites: HashSet<ValueId>,
     unknown: bool,
 }
 
-fn origin(op: &Operand, origins: &HashMap<ValueId, Origem>) -> Origem {
+fn origin(op: &Operand, origins: &HashMap<ValueId, Origin>) -> Origin {
     match op {
-        Operand::Val(v) => origins.get(v).cloned().unwrap_or(Origem {
+        Operand::Val(v) => origins.get(v).cloned().unwrap_or(Origin {
             unknown: true,
             ..Default::default()
         }),
-        _ => Origem {
+        _ => Origin {
             unknown: true,
             ..Default::default()
         },
     }
 }
 
-fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&HashMap<ValueId, u32>>) -> (HashMap<ValueId, Origem>, HashMap<ValueId, u32>) {
+fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&HashMap<ValueId, u32>>) -> (HashMap<ValueId, Origin>, HashMap<ValueId, u32>) {
     let mut map = HashMap::new();
     let mut classes = HashMap::new();
     for (v, _, _) in &f.params {
         map.insert(
             *v,
-            Origem {
+            Origin {
                 unknown: true,
                 ..Default::default()
             },
@@ -88,14 +88,14 @@ fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&H
     if let Some(receivers) = receivers {
         for (v, cid) in receivers {
             classes.insert(*v, *cid);
-            map.insert(*v, Origem { sites: HashSet::from([*v]), unknown: false });
+            map.insert(*v, Origin { sites: HashSet::from([*v]), unknown: false });
         }
     }
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         let o = match inst {
             Instruction::AllocObject { class_id, .. } => {
                 classes.insert(*v, *class_id);
-                Origem {
+                Origin {
                     sites: HashSet::from([*v]),
                     unknown: false,
                 }
@@ -116,15 +116,15 @@ fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&H
                 };
                 if let Some(cid) = class {
                     classes.insert(*v, cid);
-                    Origem { sites: HashSet::from([*v]), unknown: false }
+                    Origin { sites: HashSet::from([*v]), unknown: false }
                 } else {
-                    Origem { unknown: true, ..Default::default() }
+                    Origin { unknown: true, ..Default::default() }
                 }
             }
             Instruction::ArcCopy { .. } | Instruction::ArcMove { .. } | Instruction::Phi { .. } => {
-                Origem::default()
+                Origin::default()
             }
-            _ => Origem {
+            _ => Origin {
                 unknown: true,
                 ..Default::default()
             },
@@ -139,7 +139,7 @@ fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&H
                 Instruction::Phi { incoming, .. } => incoming.iter().map(|(_, o)| o).collect(),
                 _ => continue,
             };
-            let mut new = Origem::default();
+            let mut new = Origin::default();
             for op in ops {
                 let o = origin(op, &map);
                 new.sites.extend(o.sites);
@@ -160,7 +160,7 @@ fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&H
 fn representation(
     receiver: &Operand,
     index: usize,
-    origins: &HashMap<ValueId, Origem>,
+    origins: &HashMap<ValueId, Origin>,
     classes: &HashMap<ValueId, u32>,
     layouts: &HashMap<u32, Vec<Type>>,
     escape: &HashSet<ValueId>,
@@ -175,7 +175,7 @@ fn representation(
 // A parte desconhecida da junção exige guarda física. A parte nominal
 // continua obrigatória: não esconder um layout contraditório atrás da guarda.
 fn known_representation(
-    o: &Origem, index: usize, classes: &HashMap<ValueId, u32>,
+    o: &Origin, index: usize, classes: &HashMap<ValueId, u32>,
     layouts: &HashMap<u32, Vec<Type>>,
 ) -> Result<Type, String> {
     let mut repr = None;

@@ -194,7 +194,7 @@ pub fn promote(func: &mut Function) -> bool {
             .collect();
         b.instructions.splice(0..0, new_set);
     }
-    let resolver = |mut o: Operand| {
+    let solve = |mut o: Operand| {
         let mut steps = 0;
         while let Operand::Val(v) = &o {
             match swap.get(v) {
@@ -207,7 +207,7 @@ pub fn promote(func: &mut Function) -> bool {
         }
         o
     };
-    let resolved_set: HashMap<ValueId, Operand> = swap.keys().map(|&k| (k, resolver(Operand::Val(k)))).collect();
+    let resolved_set: HashMap<ValueId, Operand> = swap.keys().map(|&k| (k, solve(Operand::Val(k)))).collect();
     replace(func, &|v| resolved_set.get(&v).cloned());
     prune_phis(func, &phis.iter().flatten().map(|&(_, p)| p).collect());
     true

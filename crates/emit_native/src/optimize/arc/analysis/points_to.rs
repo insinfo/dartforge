@@ -32,9 +32,9 @@ pub struct ArcField {
 /// assert!(matches!(copia, Restricao::Copiar { .. }));
 /// ```
 #[derive(Debug, Clone)]
-pub enum Restricao {
+pub enum Constraint {
     /// Inclui uma origem nominal possível na variável.
-    Seed { dest: usize, no: AbstractNode },
+    Seed { dest: usize, node: AbstractNode },
     /// Valor opaco/informação invalidada, nunca ausência de aliases.
     Unknown { dest: usize },
     /// Copy, movimento, cast de referência ou uma entrada de Phi.
@@ -115,11 +115,11 @@ impl PointsToResult {
     /// assert!(r.campo(&NoAbstrato::Global("x".into()), &CampoArc { layout: "L".into(), posicao: 0 }).is_none());
     /// # Ok::<(), String>(())
     /// ```
-    pub fn field(&self, no: &AbstractNode, field: &ArcField) -> Option<&PointSet> {
+    pub fn field(&self, node: &AbstractNode, field: &ArcField) -> Option<&PointSet> {
         if self.opaque_fields.contains(field) {
             None
         } else {
-            self.fields.get(&(no.clone(), field.clone()))
+            self.fields.get(&(node.clone(), field.clone()))
         }
     }
 }
@@ -144,22 +144,22 @@ impl PointsToResult {
 /// assert_eq!(r.variavel(0), r.variavel(1));
 /// # Ok::<(), String>(())
 /// ```
-pub fn resolver(
+pub fn solve(
     n: usize,
     limit: usize,
-    constraints: &[Restricao],
+    constraints: &[Constraint],
 ) -> Result<PointsToResult, String> {
     let mut dependents = vec![Vec::new(); n];
     let mut readers: BTreeMap<ArcField, Vec<usize>> = BTreeMap::new();
     for (id, r) in constraints.iter().enumerate() {
         let (uses, dest) = match r {
-            Restricao::Seed { dest, .. } | Restricao::Unknown { dest } => {
+            Constraint::Seed { dest, .. } | Constraint::Unknown { dest } => {
                 (vec![], Some(*dest))
             }
-            Restricao::Copy { origin, dest } => (vec![*origin], Some(*dest)),
-            Restricao::Write { object, value, .. }
-            | Restricao::WriteBySchema { object, value, .. } => (vec![*object, *value], None),
-            Restricao::Read {
+            Constraint::Copy { origin, dest } => (vec![*origin], Some(*dest)),
+            Constraint::Write { object, value, .. }
+            | Constraint::WriteBySchema { object, value, .. } => (vec![*object, *value], None),
+            Constraint::Read {
                 object,
                 field,
                 dest,
@@ -167,8 +167,8 @@ pub fn resolver(
                 readers.entry(field.clone()).or_default().push(id);
                 (vec![*object], Some(*dest))
             }
-            Restricao::UnknownField { .. } => (vec![], None),
-            Restricao::ReadBySchema {
+            Constraint::UnknownField { .. } => (vec![], None),
+            Constraint::ReadBySchema {
                 object,
                 schemas,
                 index,
@@ -180,8 +180,8 @@ pub fn resolver(
                 (vec![*object], Some(*dest))
             }
         };
-        if let Restricao::ReadBySchema { schemas, .. }
-        | Restricao::WriteBySchema { schemas, .. } = r
+        if let Constraint::ReadBySchema { schemas, .. }
+        | Constraint::WriteBySchema { schemas, .. } = r
             && schemas
                 .values()
                 .any(|cs| cs.iter().enumerate().any(|(i, c)| c.position as usize != i))
@@ -211,33 +211,33 @@ pub fn resolver(
             let mut changed_variable = None;
             let mut changed_fields = BTreeSet::new();
             match r {
-                Restricao::Seed { dest, no } => {
-                    if result.variables[*dest].include(no.clone()) {
+                Constraint::Seed { dest, node } => {
+                    if result.variables[*dest].include(node.clone()) {
                         changed_variable = Some(*dest);
                     }
                 }
-                Restricao::Unknown { dest } => {
+                Constraint::Unknown { dest } => {
                     if result.variables[*dest].join_set(&PointSet::unknown(limit)) {
                         changed_variable = Some(*dest);
                     }
                 }
-                Restricao::Copy { origin, dest } => {
+                Constraint::Copy { origin, dest } => {
                     let origin = result.variables[*origin].clone();
                     if result.variables[*dest].join_set(&origin) {
                         changed_variable = Some(*dest);
                     }
                 }
-                Restricao::Write {
+                Constraint::Write {
                     object,
                     field,
                     value,
                 } => {
-                    if let Some(nos) = result.variables[*object].nos() {
+                    if let Some(nodes) = result.variables[*object].nodes() {
                         let value = &result.variables[*value];
-                        for no in nos {
+                        for node in nodes {
                             let dests = result
                                 .fields
-                                .entry((no.clone(), field.clone()))
+                                .entry((node.clone(), field.clone()))
                                 .or_insert_with(|| PointSet::empty(limit));
                             if dests.join_set(value) {
                                 changed_fields.insert(field);
@@ -247,23 +247,23 @@ pub fn resolver(
                         changed_fields.insert(field);
                     }
                 }
-                Restricao::UnknownField { field } => {
+                Constraint::UnknownField { field } => {
                     if result.opaque_fields.insert(field.clone()) {
                         changed_fields.insert(field);
                     }
                 }
-                Restricao::Read {
+                Constraint::Read {
                     object,
                     field,
                     dest,
                 } => {
                     let mut value = PointSet::empty(limit);
-                    if let Some(nos) = result.variables[*object]
-                        .nos()
+                    if let Some(nodes) = result.variables[*object]
+                        .nodes()
                         .filter(|_| !result.opaque_fields.contains(field))
                     {
-                        for no in nos {
-                            if let Some(c) = result.fields.get(&(no.clone(), field.clone())) {
+                        for node in nodes {
+                            if let Some(c) = result.fields.get(&(node.clone(), field.clone())) {
                                 value.join_set(c);
                             }
                         }
@@ -274,22 +274,22 @@ pub fn resolver(
                         changed_variable = Some(*dest);
                     }
                 }
-                Restricao::ReadBySchema {
+                Constraint::ReadBySchema {
                     object,
                     schemas,
                     index,
                     dest,
                 }
-                | Restricao::WriteBySchema {
+                | Constraint::WriteBySchema {
                     object,
                     schemas,
                     index,
                     value: dest,
                 } => {
-                    let nos = result.variables[*object].nos();
-                    let boundary = nos.is_none_or(|ns| {
+                    let nodes = result.variables[*object].nodes();
+                    let boundary = nodes.is_none_or(|ns| {
                         ns.iter()
-                            .any(|no| schemas.get(no).and_then(|cs| cs.get(*index)).is_none())
+                            .any(|node| schemas.get(node).and_then(|cs| cs.get(*index)).is_none())
                     });
                     if boundary {
                         for field in schemas.values().flatten() {
@@ -298,20 +298,20 @@ pub fn resolver(
                             }
                         }
                     }
-                    if matches!(r, Restricao::ReadBySchema { .. }) {
+                    if matches!(r, Constraint::ReadBySchema { .. }) {
                         let mut value = if boundary {
                             PointSet::unknown(limit)
                         } else {
                             PointSet::empty(limit)
                         };
-                        if let Some(nos) = nos {
-                            for no in nos {
-                                if let Some(field) = schemas.get(no).and_then(|cs| cs.get(*index))
+                        if let Some(nodes) = nodes {
+                            for node in nodes {
+                                if let Some(field) = schemas.get(node).and_then(|cs| cs.get(*index))
                                 {
                                     if result.opaque_fields.contains(field) {
                                         value.join_set(&PointSet::unknown(limit));
                                     } else if let Some(c) =
-                                        result.fields.get(&(no.clone(), field.clone()))
+                                        result.fields.get(&(node.clone(), field.clone()))
                                     {
                                         value.join_set(c);
                                     }
@@ -321,13 +321,13 @@ pub fn resolver(
                         if result.variables[*dest].join_set(&value) {
                             changed_variable = Some(*dest);
                         }
-                    } else if !boundary && let Some(nos) = nos {
+                    } else if !boundary && let Some(nodes) = nodes {
                         let value = &result.variables[*dest];
-                        for no in nos {
-                            let field = &schemas[no][*index];
+                        for node in nodes {
+                            let field = &schemas[node][*index];
                             if result
                                 .fields
-                                .entry((no.clone(), field.clone()))
+                                .entry((node.clone(), field.clone()))
                                 .or_insert_with(|| PointSet::empty(limit))
                                 .join_set(value)
                             {
@@ -358,19 +358,19 @@ pub fn resolver(
         let mut events: BTreeSet<usize> = BTreeSet::new();
         for r in constraints {
             let (object, schemas, dest) = match r {
-                Restricao::ReadBySchema {
+                Constraint::ReadBySchema {
                     object,
                     schemas,
                     dest,
                     ..
                 } => (*object, schemas, Some(*dest)),
-                Restricao::WriteBySchema {
+                Constraint::WriteBySchema {
                     object, schemas, ..
                 } => (*object, schemas, None),
                 _ => continue,
             };
             if result.variables[object]
-                .nos()
+                .nodes()
                 .is_some_and(|ns| ns.is_empty())
             {
                 if let Some(dest) = dest
@@ -420,7 +420,7 @@ pub fn resolver(
 pub fn verify(
     n: usize,
     limit: usize,
-    constraints: &[Restricao],
+    constraints: &[Constraint],
     r: &PointsToResult,
 ) -> Result<(), String> {
     if r.variables.len() != n {
@@ -429,7 +429,7 @@ pub fn verify(
     if r.variables
         .iter()
         .chain(r.fields.values())
-        .any(|p| p.internal_limit() != limit || p.nos().is_some_and(|nos| nos.len() > limit))
+        .any(|p| p.internal_limit() != limit || p.nodes().is_some_and(|nodes| nodes.len() > limit))
     {
         return Err("verificador points-to: budget incompatível".into());
     }
@@ -440,59 +440,59 @@ pub fn verify(
                 .ok_or_else(|| format!("verificador points-to: índice na restrição {id}"))
         };
         let valid = match constraint {
-            Restricao::Seed { dest, no } => {
-                variable(*dest)?.nos().is_none_or(|nos| nos.contains(no))
+            Constraint::Seed { dest, node } => {
+                variable(*dest)?.nodes().is_none_or(|nodes| nodes.contains(node))
             }
-            Restricao::Unknown { dest } => variable(*dest)?.nos().is_none(),
-            Restricao::Copy { origin, dest } => {
+            Constraint::Unknown { dest } => variable(*dest)?.nodes().is_none(),
+            Constraint::Copy { origin, dest } => {
                 includes(variable(*dest)?, variable(*origin)?)
             }
-            Restricao::UnknownField { field } => r.opaque_fields.contains(field),
-            Restricao::Write {
+            Constraint::UnknownField { field } => r.opaque_fields.contains(field),
+            Constraint::Write {
                 object,
                 field,
                 value,
             } => {
                 let receiver = variable(*object)?;
                 let value = variable(*value)?;
-                match receiver.nos() {
+                match receiver.nodes() {
                     None => r.opaque_fields.contains(field),
-                    Some(nos) => {
+                    Some(nodes) => {
                         r.opaque_fields.contains(field)
-                            || nos.iter().all(|no| {
+                            || nodes.iter().all(|node| {
                                 r.fields
-                                    .get(&(no.clone(), field.clone()))
+                                    .get(&(node.clone(), field.clone()))
                                     .is_some_and(|p| includes(p, value))
                             })
                     }
                 }
             }
-            Restricao::Read {
+            Constraint::Read {
                 object,
                 field,
                 dest,
             } => {
                 let receiver = variable(*object)?;
                 let dest = variable(*dest)?;
-                if r.opaque_fields.contains(field) || receiver.nos().is_none() {
-                    dest.nos().is_none()
+                if r.opaque_fields.contains(field) || receiver.nodes().is_none() {
+                    dest.nodes().is_none()
                 } else {
-                    receiver.nos().unwrap().iter().all(|no| {
+                    receiver.nodes().unwrap().iter().all(|node| {
                         // Ausente é bottom só no sistema de restrições; não
                         // prova inicialização vazia de um campo do heap real.
                         r.fields
-                            .get(&(no.clone(), field.clone()))
+                            .get(&(node.clone(), field.clone()))
                             .is_none_or(|p| includes(dest, p))
                     })
                 }
             }
-            Restricao::ReadBySchema {
+            Constraint::ReadBySchema {
                 object,
                 schemas,
                 index,
                 dest,
             }
-            | Restricao::WriteBySchema {
+            | Constraint::WriteBySchema {
                 object,
                 schemas,
                 index,
@@ -506,34 +506,34 @@ pub fn verify(
                 }
                 let receiver = variable(*object)?;
                 let value = variable(*dest)?;
-                let boundary = receiver.nos().is_none_or(|ns| {
+                let boundary = receiver.nodes().is_none_or(|ns| {
                     ns.is_empty()
                         || ns
                             .iter()
-                            .any(|no| schemas.get(no).and_then(|cs| cs.get(*index)).is_none())
+                            .any(|node| schemas.get(node).and_then(|cs| cs.get(*index)).is_none())
                 });
                 if boundary {
                     schemas
                         .values()
                         .flatten()
                         .all(|c| r.opaque_fields.contains(c))
-                        && (!matches!(constraint, Restricao::ReadBySchema { .. })
-                            || value.nos().is_none())
+                        && (!matches!(constraint, Constraint::ReadBySchema { .. })
+                            || value.nodes().is_none())
                 } else {
-                    receiver.nos().unwrap().iter().all(|no| {
-                        let field = &schemas[no][*index];
-                        if matches!(constraint, Restricao::ReadBySchema { .. }) {
+                    receiver.nodes().unwrap().iter().all(|node| {
+                        let field = &schemas[node][*index];
+                        if matches!(constraint, Constraint::ReadBySchema { .. }) {
                             if r.opaque_fields.contains(field) {
-                                value.nos().is_none()
+                                value.nodes().is_none()
                             } else {
                                 r.fields
-                                    .get(&(no.clone(), field.clone()))
+                                    .get(&(node.clone(), field.clone()))
                                     .is_none_or(|c| includes(value, c))
                             }
                         } else {
                             r.opaque_fields.contains(field)
                                 || r.fields
-                                    .get(&(no.clone(), field.clone()))
+                                    .get(&(node.clone(), field.clone()))
                                     .is_some_and(|c| includes(c, value))
                         }
                     })
@@ -550,7 +550,7 @@ pub fn verify(
 }
 
 fn includes(dest: &PointSet, origin: &PointSet) -> bool {
-    match (dest.nos(), origin.nos()) {
+    match (dest.nodes(), origin.nodes()) {
         (None, _) => true,
         (Some(_), None) => false,
         (Some(d), Some(o)) => o.is_subset(d),
@@ -565,7 +565,7 @@ mod tests {
     fn schema_reads_match_walks_in_343_graphs() {
         let schemas = Arc::new(
             (0..3)
-                .map(|i| (no(&format!("n{i}")), vec![field(&format!("L{i}"))]))
+                .map(|i| (node(&format!("n{i}")), vec![field(&format!("L{i}"))]))
                 .collect::<BTreeMap<_, _>>(),
         );
         let mut checked_set = 0;
@@ -578,7 +578,7 @@ mod tests {
             checked_set += 1;
             let mut rs = Vec::new();
             for step in 0..7 {
-                rs.push(Restricao::ReadBySchema {
+                rs.push(Constraint::ReadBySchema {
                     object: if step == 0 { 0 } else { 2 + step },
                     schemas: schemas.clone(),
                     index: 0,
@@ -588,16 +588,16 @@ mod tests {
             for v in 0..3 {
                 for w in 0..3 {
                     if mask & (1 << (3 * v + w)) != 0 {
-                        rs.push(Restricao::Write {
+                        rs.push(Constraint::Write {
                             object: v,
                             field: field(&format!("L{v}")),
                             value: w,
                         });
                     }
                 }
-                rs.push(Restricao::Seed {
+                rs.push(Constraint::Seed {
                     dest: v,
-                    no: no(&format!("n{v}")),
+                    node: node(&format!("n{v}")),
                 });
             }
             // Oráculo de caminhadas de comprimento exato no grafo original;
@@ -611,15 +611,15 @@ mod tests {
                 expected_set.push(
                     current_ones
                         .iter()
-                        .map(|i| no(&format!("n{i}")))
+                        .map(|i| node(&format!("n{i}")))
                         .collect::<BTreeSet<_>>(),
                 );
             }
             for _ in 0..2 {
-                let r = resolver(10, 8, &rs).unwrap();
+                let r = solve(10, 8, &rs).unwrap();
                 for (step, expected) in expected_set.iter().enumerate() {
                     assert_eq!(
-                        r.variable(3 + step).unwrap().nos().unwrap(),
+                        r.variable(3 + step).unwrap().nodes().unwrap(),
                         expected,
                         "grafo {mask}, passo {step}"
                     );
@@ -634,89 +634,89 @@ mod tests {
     #[test]
     fn schema_selection_preserves_layouts_weak_write_and_late_aliases() {
         let schemas = Arc::new(BTreeMap::from([
-            (no("a"), vec![field("A")]),
-            (no("b"), vec![field("B")]),
+            (node("a"), vec![field("A")]),
+            (node("b"), vec![field("B")]),
         ]));
         let mut rs = vec![
-            Restricao::ReadBySchema {
+            Constraint::ReadBySchema {
                 object: 0,
                 schemas: schemas.clone(),
                 index: 0,
                 dest: 3,
             },
-            Restricao::ReadBySchema {
+            Constraint::ReadBySchema {
                 object: 6,
                 schemas: schemas.clone(),
                 index: 0,
                 dest: 7,
             },
-            Restricao::WriteBySchema {
+            Constraint::WriteBySchema {
                 object: 0,
                 schemas,
                 index: 0,
                 value: 4,
             },
-            Restricao::Write {
+            Constraint::Write {
                 object: 5,
                 field: field("A"),
                 value: 1,
             },
-            Restricao::Write {
+            Constraint::Write {
                 object: 6,
                 field: field("B"),
                 value: 2,
             },
             // Mesmo índice, outro layout: esta aresta não é lida em b.B.
-            Restricao::Write {
+            Constraint::Write {
                 object: 6,
                 field: field("A"),
                 value: 1,
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 5,
-                no: no("a"),
+                node: node("a"),
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 6,
-                no: no("b"),
+                node: node("b"),
             },
-            Restricao::Copy {
+            Constraint::Copy {
                 origin: 5,
                 dest: 0,
             },
-            Restricao::Copy {
+            Constraint::Copy {
                 origin: 6,
                 dest: 0,
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 1,
-                no: no("x"),
+                node: node("x"),
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 2,
-                no: no("y"),
+                node: node("y"),
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 4,
-                no: no("z"),
+                node: node("z"),
             },
         ];
         for _ in 0..2 {
-            let mut r = resolver(8, 8, &rs).unwrap();
+            let mut r = solve(8, 8, &rs).unwrap();
             assert_eq!(
-                r.variable(3).unwrap().nos().unwrap(),
-                &BTreeSet::from([no("x"), no("y"), no("z")])
+                r.variable(3).unwrap().nodes().unwrap(),
+                &BTreeSet::from([node("x"), node("y"), node("z")])
             );
             assert_eq!(
-                r.variable(7).unwrap().nos().unwrap(),
-                &BTreeSet::from([no("y"), no("z")])
+                r.variable(7).unwrap().nodes().unwrap(),
+                &BTreeSet::from([node("y"), node("z")])
             );
             assert!(r.opaque_fields.is_empty());
             r.variables[3] = PointSet::empty(8);
             assert!(verify(8, 8, &rs, &r).is_err());
-            r = resolver(8, 8, &rs).unwrap();
+            r = solve(8, 8, &rs).unwrap();
             r.fields
-                .insert((no("b"), field("B")), PointSet::empty(8));
+                .insert((node("b"), field("B")), PointSet::empty(8));
             assert!(verify(8, 8, &rs, &r).is_err());
             rs.reverse();
         }
@@ -724,9 +724,9 @@ mod tests {
 
     #[test]
     fn schema_selection_closes_boundaries_and_verifier_rejects_erased_opacity() {
-        let schemas = Arc::new(BTreeMap::from([(no("a"), vec![field("A")])]));
+        let schemas = Arc::new(BTreeMap::from([(node("a"), vec![field("A")])]));
         for case in 0..5 {
-            let mut rs = vec![Restricao::ReadBySchema {
+            let mut rs = vec![Constraint::ReadBySchema {
                 object: 0,
                 schemas: schemas.clone(),
                 index: if case == 3 { 1 } else { 0 },
@@ -734,46 +734,46 @@ mod tests {
             }];
             match case {
                 0 => {} // Receiver vazio só é fechado após os aliases convergirem.
-                1 => rs.push(Restricao::Unknown { dest: 0 }),
-                2 => rs.push(Restricao::Seed {
+                1 => rs.push(Constraint::Unknown { dest: 0 }),
+                2 => rs.push(Constraint::Seed {
                     dest: 0,
-                    no: no("sem esquema"),
+                    node: node("sem esquema"),
                 }),
-                3 | 4 => rs.push(Restricao::Seed {
+                3 | 4 => rs.push(Constraint::Seed {
                     dest: 0,
-                    no: no("a"),
+                    node: node("a"),
                 }),
                 _ => unreachable!(),
             }
             let limit = if case == 4 { 0 } else { 8 };
-            let mut r = resolver(2, limit, &rs).unwrap();
-            assert!(r.variable(1).unwrap().nos().is_none(), "caso {case}");
+            let mut r = solve(2, limit, &rs).unwrap();
+            assert!(r.variable(1).unwrap().nodes().is_none(), "caso {case}");
             assert!(r.opaque_fields.contains(&field("A")));
             r.opaque_fields.clear();
             assert!(verify(2, limit, &rs, &r).is_err());
         }
-        let rs = [Restricao::WriteBySchema {
+        let rs = [Constraint::WriteBySchema {
             object: 0,
             schemas,
             index: 0,
             value: 1,
         }];
-        let mut r = resolver(2, 8, &rs).unwrap();
+        let mut r = solve(2, 8, &rs).unwrap();
         assert!(r.opaque_fields.contains(&field("A")));
         r.opaque_fields.clear();
         assert!(verify(2, 8, &rs, &r).is_err());
         let invalid = Arc::new(BTreeMap::from([(
-            no("a"),
+            node("a"),
             vec![ArcField {
                 layout: "A".into(),
                 position: 9,
             }],
         )]));
         assert!(
-            resolver(
+            solve(
                 2,
                 8,
-                &[Restricao::ReadBySchema {
+                &[Constraint::ReadBySchema {
                     object: 0,
                     schemas: invalid,
                     index: 0,
@@ -786,33 +786,33 @@ mod tests {
     #[test]
     fn verifier_rejects_erased_truncation_copy_and_unknown() {
         let rs = vec![
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 0,
-                no: no("a"),
+                node: node("a"),
             },
-            Restricao::Copy {
+            Constraint::Copy {
                 origin: 0,
                 dest: 1,
             },
-            Restricao::Unknown { dest: 2 },
+            Constraint::Unknown { dest: 2 },
         ];
-        let mut r = resolver(3, 8, &rs).unwrap();
+        let mut r = solve(3, 8, &rs).unwrap();
         r.variables[1] = PointSet::empty(8);
         assert!(verify(3, 8, &rs, &r).is_err());
-        r = resolver(3, 8, &rs).unwrap();
+        r = solve(3, 8, &rs).unwrap();
         r.variables[0] = PointSet::empty(8);
         assert!(verify(3, 8, &rs, &r).is_err());
-        r = resolver(3, 8, &rs).unwrap();
+        r = solve(3, 8, &rs).unwrap();
         r.variables[2] = PointSet::empty(8);
         assert!(verify(3, 8, &rs, &r).is_err());
-        r = resolver(3, 8, &rs).unwrap();
+        r = solve(3, 8, &rs).unwrap();
         assert!(verify(3, 7, &rs, &r).is_err());
         assert!(verify(2, 8, &rs, &r).is_err());
         assert!(
             verify(
                 3,
                 8,
-                &[Restricao::Copy {
+                &[Constraint::Copy {
                     origin: 99,
                     dest: 0
                 }],
@@ -828,38 +828,38 @@ mod tests {
     #[test]
     fn verifier_rejects_omitted_store_read_and_opacity_edges() {
         let rs = vec![
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 0,
-                no: no("obj"),
+                node: node("obj"),
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 1,
-                no: no("filho"),
+                node: node("filho"),
             },
-            Restricao::Write {
+            Constraint::Write {
                 object: 0,
                 field: field("L"),
                 value: 1,
             },
-            Restricao::Read {
+            Constraint::Read {
                 object: 0,
                 field: field("L"),
                 dest: 2,
             },
         ];
-        let mut r = resolver(3, 8, &rs).unwrap();
+        let mut r = solve(3, 8, &rs).unwrap();
         r.fields.clear();
         assert!(verify(3, 8, &rs, &r).is_err());
-        r = resolver(3, 8, &rs).unwrap();
+        r = solve(3, 8, &rs).unwrap();
         r.fields
-            .insert((no("obj"), field("L")), PointSet::empty(8));
+            .insert((node("obj"), field("L")), PointSet::empty(8));
         assert!(verify(3, 8, &rs, &r).is_err());
-        r = resolver(3, 8, &rs).unwrap();
+        r = solve(3, 8, &rs).unwrap();
         r.variables[2] = PointSet::empty(8);
         assert!(verify(3, 8, &rs, &r).is_err());
         let mut opaque_set = rs;
-        opaque_set.push(Restricao::UnknownField { field: field("L") });
-        r = resolver(3, 8, &opaque_set).unwrap();
+        opaque_set.push(Constraint::UnknownField { field: field("L") });
+        r = solve(3, 8, &opaque_set).unwrap();
         r.opaque_fields.clear();
         assert!(verify(3, 8, &opaque_set, &r).is_err());
     }
@@ -867,23 +867,23 @@ mod tests {
     #[test]
     fn top_receiver_requires_global_opacity_for_future_receivers() {
         let rs = vec![
-            Restricao::Unknown { dest: 0 },
-            Restricao::Write {
+            Constraint::Unknown { dest: 0 },
+            Constraint::Write {
                 object: 0,
                 field: field("L"),
                 value: 1,
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 2,
-                no: no("tardio"),
+                node: node("tardio"),
             },
-            Restricao::Read {
+            Constraint::Read {
                 object: 2,
                 field: field("L"),
                 dest: 3,
             },
         ];
-        let mut r = resolver(4, 8, &rs).unwrap();
+        let mut r = solve(4, 8, &rs).unwrap();
         r.opaque_fields.clear();
         assert!(verify(4, 8, &rs, &r).is_err());
     }
@@ -895,14 +895,14 @@ mod tests {
             let mut reachability = [[false; 3]; 3];
             for v in 0..3 {
                 reachability[v][v] = true;
-                rs.push(Restricao::Seed {
+                rs.push(Constraint::Seed {
                     dest: v,
-                    no: no(&v.to_string()),
+                    node: node(&v.to_string()),
                 });
                 for w in 0..3 {
                     if mask & (1 << (3 * v + w)) != 0 {
                         reachability[v][w] = true;
-                        rs.push(Restricao::Copy {
+                        rs.push(Constraint::Copy {
                             origin: v,
                             dest: w,
                         });
@@ -917,13 +917,13 @@ mod tests {
                 }
             }
             for limit in 1..=3 {
-                let r = resolver(3, limit, &rs).unwrap();
+                let r = solve(3, limit, &rs).unwrap();
                 for w in 0..3 {
                     let expected: BTreeSet<_> = (0..3)
                         .filter(|&v| reachability[v][w])
-                        .map(|v| no(&v.to_string()))
+                        .map(|v| node(&v.to_string()))
                         .collect();
-                    let obtained = r.variable(w).unwrap().nos();
+                    let obtained = r.variable(w).unwrap().nodes();
                     if expected.len() > limit {
                         assert!(obtained.is_none());
                     } else {
@@ -933,7 +933,7 @@ mod tests {
             }
         }
     }
-    fn no(n: &str) -> AbstractNode {
+    fn node(n: &str) -> AbstractNode {
         AbstractNode::Global(n.into())
     }
     fn field(n: &str) -> ArcField {
@@ -946,38 +946,38 @@ mod tests {
     #[test]
     fn fields_and_late_aliases_converge_without_erasing_edges() {
         let mut rs = vec![
-            Restricao::Read {
+            Constraint::Read {
                 object: 2,
                 field: field("L"),
                 dest: 3,
             },
-            Restricao::Write {
+            Constraint::Write {
                 object: 0,
                 field: field("L"),
                 value: 1,
             },
-            Restricao::Copy {
+            Constraint::Copy {
                 origin: 0,
                 dest: 2,
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 0,
-                no: no("a"),
+                node: node("a"),
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 1,
-                no: no("b"),
+                node: node("b"),
             },
-            Restricao::Seed {
+            Constraint::Seed {
                 dest: 1,
-                no: no("c"),
+                node: node("c"),
             },
         ];
-        let r = resolver(4, 8, &rs).unwrap();
+        let r = solve(4, 8, &rs).unwrap();
         assert_eq!(r.variable(3), r.variable(1));
-        assert_eq!(r.field(&no("a"), &field("L")), r.variable(1));
+        assert_eq!(r.field(&node("a"), &field("L")), r.variable(1));
         rs.reverse();
-        let inverse = resolver(4, 8, &rs).unwrap();
+        let inverse = solve(4, 8, &rs).unwrap();
         assert_eq!(r.variables, inverse.variables);
         assert_eq!(r.fields, inverse.fields);
     }
@@ -986,51 +986,51 @@ mod tests {
     fn opaque_writer_and_budget_invalidate_readers_without_contaminating_other_layout() {
         for opaque in [true, false] {
             let rs = vec![
-                Restricao::Read {
+                Constraint::Read {
                     object: 0,
                     field: field("L"),
                     dest: 3,
                 },
-                Restricao::Read {
+                Constraint::Read {
                     object: 0,
                     field: field("Outro"),
                     dest: 4,
                 },
-                Restricao::Write {
+                Constraint::Write {
                     object: 0,
                     field: field("Outro"),
                     value: 2,
                 },
-                Restricao::Write {
+                Constraint::Write {
                     object: 1,
                     field: field("L"),
                     value: 2,
                 },
-                Restricao::Seed {
+                Constraint::Seed {
                     dest: 0,
-                    no: no("a"),
+                    node: node("a"),
                 },
-                Restricao::Seed {
+                Constraint::Seed {
                     dest: 1,
-                    no: no("a"),
+                    node: node("a"),
                 },
-                Restricao::Seed {
+                Constraint::Seed {
                     dest: 2,
-                    no: no("b"),
+                    node: node("b"),
                 },
                 if opaque {
-                    Restricao::Unknown { dest: 1 }
+                    Constraint::Unknown { dest: 1 }
                 } else {
-                    Restricao::Seed {
+                    Constraint::Seed {
                         dest: 1,
-                        no: no("c"),
+                        node: node("c"),
                     }
                 },
             ];
-            let r = resolver(5, 1, &rs).unwrap();
-            assert!(r.variable(3).unwrap().nos().is_none());
+            let r = solve(5, 1, &rs).unwrap();
+            assert!(r.variable(3).unwrap().nodes().is_none());
             assert_eq!(r.variable(4), r.variable(2));
-            assert!(r.field(&no("a"), &field("L")).is_none());
+            assert!(r.field(&node("a"), &field("L")).is_none());
         }
     }
 
@@ -1039,31 +1039,31 @@ mod tests {
         let n = 20_000;
         let mut rs: Vec<_> = (1..n)
             .rev()
-            .map(|v| Restricao::Copy {
+            .map(|v| Constraint::Copy {
                 origin: v - 1,
                 dest: v,
             })
             .collect();
-        rs.push(Restricao::Copy {
+        rs.push(Constraint::Copy {
             origin: n - 1,
             dest: 0,
         });
-        rs.push(Restricao::Seed {
+        rs.push(Constraint::Seed {
             dest: 0,
-            no: no("raiz"),
+            node: node("raiz"),
         });
-        let r = resolver(n, 1, &rs).unwrap();
+        let r = solve(n, 1, &rs).unwrap();
         assert!(r.variables.iter().all(|p| p == &r.variables[0]));
-        assert_eq!(r.variables[0].nos().unwrap().len(), 1);
+        assert_eq!(r.variables[0].nodes().unwrap().len(), 1);
     }
 
     #[test]
     fn invalid_indices_are_errors_and_never_empty_facts() {
         assert!(
-            resolver(
+            solve(
                 1,
                 8,
-                &[Restricao::Copy {
+                &[Constraint::Copy {
                     origin: 1,
                     dest: 0
                 }]
@@ -1071,10 +1071,10 @@ mod tests {
             .is_err()
         );
         assert!(
-            resolver(
+            solve(
                 1,
                 8,
-                &[Restricao::Read {
+                &[Constraint::Read {
                     object: 0,
                     field: field("L"),
                     dest: 1

@@ -46,7 +46,7 @@
 //! nome, que um bloco de dentro pode ter sombreado.
 
 use super::fn_builder::FnBuilder;
-use super::locals::{Local, Modo};
+use super::locals::{Local, Mode};
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, FunctionBody, FunctionId};
@@ -96,8 +96,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Como a variável `l` passa para uma função direta declarada aqui.
     fn passing_of(&self, l: &Local) -> Passing {
         match &l.mode {
-            Modo::Cell(_) | Modo::Environment { cell: true, .. } => Passing::Cell,
-            Modo::Memory(_)
+            Mode::Cell(_) | Mode::Environment { cell: true, .. } => Passing::Cell,
+            Mode::Memory(_)
                 if l.offset.is_some_and(|o| self.assigned.contains(&o) || self.pointers.contains(&o)) =>
             {
                 Passing::Address
@@ -187,20 +187,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let local = match c.passing {
                 Passing::Value => {
                     let v = b.add_param_dart(name_p, c.ty);
-                    Local { mode: Modo::Value(Operand::Val(v)), ty: c.ty, static_type: c.local.static_type, finalizable: c.local.finalizable, scope: 0, offset: c.local.offset, late: None }
+                    Local { mode: Mode::Value(Operand::Val(v)), ty: c.ty, static_type: c.local.static_type, finalizable: c.local.finalizable, scope: 0, offset: c.local.offset, late: None }
                 }
                 Passing::Address => {
                     let v = b.add_param(name_p, Type::Ptr);
                     if let Some(o) = c.local.offset {
                         b.pointers.insert(o);
                     }
-                    Local { mode: Modo::Memory(Operand::Val(v)), ty: c.ty, static_type: c.local.static_type, finalizable: c.local.finalizable, scope: 0, offset: c.local.offset, late: None }
+                    Local { mode: Mode::Memory(Operand::Val(v)), ty: c.ty, static_type: c.local.static_type, finalizable: c.local.finalizable, scope: 0, offset: c.local.offset, late: None }
                 }
                 Passing::Cell => {
                     let v = b.add_param(name_p, Type::Ref);
                     let ptr = b.entry_alloca(Type::Ref);
                     b.emit(Instruction::Store { ptr: ptr.clone(), val: Operand::Val(v) }, Type::Void);
-                    Local { mode: Modo::Cell(ptr), ty: c.ty, static_type: c.local.static_type, finalizable: c.local.finalizable, scope: 0, offset: c.local.offset, late: None }
+                    Local { mode: Mode::Cell(ptr), ty: c.ty, static_type: c.local.static_type, finalizable: c.local.finalizable, scope: 0, offset: c.local.offset, late: None }
                 }
             };
             linked_set.push((identity(&c.local), local.clone()));
@@ -288,7 +288,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.coerce(v, c.ty)
                 }
                 Passing::Address => match &c.local.mode {
-                    Modo::Memory(ptr) => ptr.clone(),
+                    Mode::Memory(ptr) => ptr.clone(),
                     _ => unreachable!("captura por endereço fora da memória"),
                 },
                 Passing::Cell => self.local_cell(&c.local).unwrap_or(Operand::Constant(Constant::Null)),

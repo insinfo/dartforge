@@ -480,11 +480,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // avaliado depois do receptor, como em Dart.
                         let recv_op = self.lower_expr(ast, *recv);
                         let cur = composite.then(|| self.call_by_name(
-                            recv_op.clone(), super::sdk_source::Tipo::Read, &n, &[],
+                            recv_op.clone(), super::sdk_source::AccessKind::Read, &n, &[],
                         ));
                         let v = self.combine(ast, op, cur, value);
                         self.call_by_name(
-                            recv_op, super::sdk_source::Tipo::Write, &n,
+                            recv_op, super::sdk_source::AccessKind::Write, &n,
                             &[(None, v.clone())],
                         );
                         return v;
@@ -573,7 +573,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return v;
                     }
                     let v = if simd.is_some() { self.coerce(v, Type::Ref) } else { v };
-                    self.call_by_name_typed(t_op, *t, super::sdk_source::Tipo::Call, "[]=", &[(None, i_op), (None, v.clone())]);
+                    self.call_by_name_typed(t_op, *t, super::sdk_source::AccessKind::Call, "[]=", &[(None, i_op), (None, v.clone())]);
                     return v;
                 }
                 // `[]=` (e o `[]` do composto) de classe do programa: pelos
@@ -592,13 +592,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return v;
                 }
                 // `[]`/`[]=` do SDK pela classe dinâmica.
-                use super::sdk_source::Tipo;
-                let cur = composite.then(|| self.call_by_name_typed(t_op.clone(), *t, Tipo::Call, "[]", &[(None, i_op.clone())]));
+                use super::sdk_source::AccessKind;
+                let cur = composite.then(|| self.call_by_name_typed(t_op.clone(), *t, AccessKind::Call, "[]", &[(None, i_op.clone())]));
                 let v = self.combine(ast, op, cur, value);
                 if !composite && let Rhs::Expr(e) = value {
                     self.implicit_operator_cast(e, &v, *t, "[]=", 1);
                 }
-                self.call_by_name_typed(t_op, *t, Tipo::Call, "[]=", &[(None, i_op), (None, v.clone())]);
+                self.call_by_name_typed(t_op, *t, AccessKind::Call, "[]=", &[(None, i_op), (None, v.clone())]);
                 v
             }
             _ => self.unsupported("alvo de atribuição", span),

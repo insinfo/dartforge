@@ -43,7 +43,7 @@ pub enum AbstractNode {
         context: String,
     },
     /// Placeholder do argumento, incluindo o receptor quando aplicável.
-    Parametro {
+    Parameter {
         /// Símbolo do resumo que define o argumento.
         function: String,
         /// Posição na ABI semântica do resumo.
@@ -128,9 +128,9 @@ impl PointSet {
     /// use dartforge_emit_native::optimize::arc::analise::modelo::ConjuntoPontos;
     /// assert_eq!(ConjuntoPontos::vazio(8).nos().unwrap().len(), 0);
     /// ```
-    pub fn nos(&self) -> Option<&BTreeSet<AbstractNode>> {
+    pub fn nodes(&self) -> Option<&BTreeSet<AbstractNode>> {
         match &self.points {
-            Points::KnownSet(nos) => Some(nos),
+            Points::KnownSet(nodes) => Some(nodes),
             Points::Top => None,
         }
     }
@@ -144,17 +144,17 @@ impl PointSet {
     /// assert!(pt.incluir(NoAbstrato::Global("raiz".into())));
     /// assert!(!pt.incluir(NoAbstrato::Global("outra".into())));
     /// ```
-    pub fn include(&mut self, no: AbstractNode) -> bool {
-        let Points::KnownSet(nos) = &mut self.points else {
+    pub fn include(&mut self, node: AbstractNode) -> bool {
+        let Points::KnownSet(nodes) = &mut self.points else {
             return false;
         };
-        if nos.contains(&no) {
+        if nodes.contains(&node) {
             return false;
         }
-        if nos.len() == self.limit {
+        if nodes.len() == self.limit {
             self.points = Points::Top;
         } else {
-            nos.insert(no);
+            nodes.insert(node);
         }
         true
     }
@@ -173,14 +173,14 @@ impl PointSet {
         if matches!(self.points, Points::Top) {
             return false;
         }
-        let Some(nos) = other.nos() else {
+        let Some(nodes) = other.nodes() else {
             self.points = Points::Top;
             return true;
         };
         let mut changed = false;
-        for no in nos {
-            changed |= self.include(no.clone());
-            if self.nos().is_none() {
+        for node in nodes {
+            changed |= self.include(node.clone());
+            if self.nodes().is_none() {
                 break;
             }
         }
@@ -235,11 +235,11 @@ mod tests {
     fn unknown_never_becomes_empty_and_smaller_limit_does_not_truncate_aliases() {
         let mut pt = PointSet::empty(1);
         assert!(pt.join_set(&set(3, 3)));
-        assert!(pt.nos().is_none());
+        assert!(pt.nodes().is_none());
         assert!(!pt.join_set(&PointSet::empty(8)));
         let mut empty = PointSet::empty(8);
         assert!(empty.join_set(&PointSet::unknown(0)));
-        assert!(empty.nos().is_none());
+        assert!(empty.nodes().is_none());
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
             specialization: "T".into(),
         };
         let mut pt = PointSet::empty(5);
-        for no in [
+        for node in [
             AbstractNode::Allocation {
                 site: site.clone(),
                 context: "a".into(),
@@ -259,7 +259,7 @@ mod tests {
                 site: site.clone(),
                 context: "b".into(),
             },
-            AbstractNode::Parametro {
+            AbstractNode::Parameter {
                 function: "f".into(),
                 index: 1,
             },
@@ -270,8 +270,8 @@ mod tests {
                 role: "celula".into(),
             },
         ] {
-            assert!(pt.include(no));
+            assert!(pt.include(node));
         }
-        assert_eq!(pt.nos().unwrap().len(), 5);
+        assert_eq!(pt.nodes().unwrap().len(), 5);
     }
 }

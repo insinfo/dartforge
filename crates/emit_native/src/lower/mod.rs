@@ -551,7 +551,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                             builder.unsupported(&format!("external `{name}` sem native"), ast_func.span);
                             builder.terminate(Terminator::Return(None));
                         }
-                        builder.finalizar(module);
+                        builder.finish(module);
                     }
                     // Abstrato ou externo: não há corpo a compilar.
                     return;
@@ -660,7 +660,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 // o símbolo fica (tabelas e entradas o citam), o corpo lança.
                 if ctx.pruned_function(f_idx) {
                     builder.pruned_body();
-                    builder.finalizar(module);
+                    builder.finish(module);
                     return;
                 }
                 match ast_func.modifier {
@@ -687,7 +687,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         );
                     }
                 }
-                builder.finalizar(module);
+                builder.finish(module);
             }
             FunctionRef::Constructor { unit, member } => {
                 let ast = &ctx.program.unit(unit).ast;
@@ -710,7 +710,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                     );
                     builder.declare_parameters(f_idx, false);
                     builder.lower_constructor_te(ast, cid, ctor, ast.member(member).span);
-                    builder.finalizar(module);
+                    builder.finish(module);
                     return;
                 }
                 if func_elem.factory {
@@ -810,7 +810,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                             _ => {}
                         }
                     }
-                    builder.finalizar(module);
+                    builder.finish(module);
                 } else {
                     let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Void);
                     builder.prepare_captures(
@@ -824,7 +824,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                     builder.declare_parameters(f_idx, true);
                     builder.enclosing_class = Some(cid);
                     builder.lower_constructor(ast, cid, ctor, ast.member(member).span);
-                    builder.finalizar(module);
+                    builder.finish(module);
                 }
             }
             FunctionRef::None => {
@@ -840,7 +840,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 builder.enclosing_class = Some(cid);
                 let ast = &ctx.program.unit(decl.unit).ast;
                 builder.lower_synthetic_constructor(ast, cid);
-                builder.finalizar(module);
+                builder.finish(module);
             }
         }
     }
@@ -874,11 +874,11 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             // Campo fora do mundo fechado (C7): ninguém o lê.
             if ctx.pruned_field(vid) {
                 b.pruned_body();
-                b.finalizar(m);
+                b.finish(m);
                 return;
             }
             b.lower_late_field_getter(obj, vid, ctx.program.unit(unit).ast.member(member).span);
-            b.finalizar(m);
+            b.finish(m);
         };
         // O getter que não baixa vira recusa, como os outros membros
         // (`sdk_source::lower_function_or_reject`).
@@ -909,7 +909,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
                 Type::Ref,
             );
             builder.lower_enum_value(vid);
-            builder.finalizar(&mut module);
+            builder.finish(&mut module);
             continue;
         }
         let ty = members::variable_type(ctx, vid);
@@ -953,7 +953,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         let clo = Operand::Val(b.add_param("closure".to_string(), Type::Ref));
         let r = b.call_function_value(clo, &[]);
         b.terminate(Terminator::Return(Some(r)));
-        b.finalizar(&mut module);
+        b.finish(&mut module);
         // Sob ARC, o runtime a chama como porta Dart (`dart_r1`, o laço de
         // eventos): um callback com retorno Owned, que o escopo nativo solta.
         if ctx.arc_memory {
@@ -1004,11 +1004,11 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         };
         let mut builder = fn_builder::FnBuilder::new(ctx, u, symbol, "toString".to_string(), Type::Ref);
         builder.lower_shape_to_string(k);
-        builder.finalizar(&mut module);
+        builder.finish(&mut module);
         let hash_symbol = format!("df.$registro.{k}.hashCode");
         let mut builder = fn_builder::FnBuilder::new(ctx, u, hash_symbol, "hashCode".to_string(), Type::I64);
         builder.lower_shape_hash(k);
-        builder.finalizar(&mut module);
+        builder.finish(&mut module);
     }
     if !ctx.record_shapes.is_empty()
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
@@ -1021,7 +1021,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             Type::I1,
         );
         builder.lower_record_equality();
-        builder.finalizar(&mut module);
+        builder.finish(&mut module);
     }
 
     // `toString()` padrão dos enums do programa (`Enum.value`), quando o
@@ -1043,7 +1043,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         );
         let mut builder = fn_builder::FnBuilder::new(ctx, decl.unit, symbol.clone(), "toString".to_string(), Type::Ref);
         builder.lower_enum_to_string(cid);
-        builder.finalizar(&mut module);
+        builder.finish(&mut module);
         if let Some(c) = module.classes.iter_mut().find(|c| c.id == id) {
             c.to_string_symbol = Some(symbol);
         }

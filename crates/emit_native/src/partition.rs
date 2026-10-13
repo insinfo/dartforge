@@ -50,7 +50,7 @@ pub fn limits() -> Option<(usize, usize)> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Tipo {
+enum ItemKind {
     Function,
     Global,
 }
@@ -58,7 +58,7 @@ enum Tipo {
 /// Um item definido no módulo.
 struct Item<'a> {
     name: &'a str,
-    ty: Tipo,
+    ty: ItemKind,
     text: &'a str,
     local: bool,
     /// `internal global` (não `constant`): estado, não pode ser copiado.
@@ -171,7 +171,7 @@ fn read(ir: &str) -> Module<'_> {
             let local = hdr.contains(" internal ") || hdr.contains(" private ");
             let comdat = line_comdat(line, name);
             m.index.insert(name, m.items.len());
-            m.items.push(Item { name, ty: Tipo::Function, text: &ir[pos..end], local, mutable: false, comdat });
+            m.items.push(Item { name, ty: ItemKind::Function, text: &ir[pos..end], local, mutable: false, comdat });
             pos = end;
             continue;
         }
@@ -183,7 +183,7 @@ fn read(ir: &str) -> Module<'_> {
             let mutable = local && global_head(after).0 == "global";
             let comdat = line_comdat(line, name);
             m.index.insert(name, m.items.len());
-            m.items.push(Item { name, ty: Tipo::Global, text: line, local, mutable, comdat });
+            m.items.push(Item { name, ty: ItemKind::Global, text: line, local, mutable, comdat });
         } else if line.starts_with("declare ") {
             let hdr = &line[..line.find('(').unwrap_or(line.len())];
             let name = hdr.rfind('@').map_or("", |a| name_in(&hdr[a + 1..]));
@@ -237,7 +237,7 @@ fn type_at_start(s: &str) -> &str {
 /// A declaração de um item definido em outra parte.
 fn declaration(item: &Item) -> String {
     match item.ty {
-        Tipo::Global => {
+        ItemKind::Global => {
             let r = &item.text[1 + name_and_width(&item.text[1..]).1..];
             let r = r.trim_start().trim_start_matches('=').trim_start();
             let (word, after) = global_head(r);
@@ -247,7 +247,7 @@ fn declaration(item: &Item) -> String {
             let tls = if r[..r.len() - after.len()].split_whitespace().any(|w| w == "thread_local") { "thread_local " } else { "" };
             format!("@{} = external {tls}{word} {ty}\n", item.name)
         }
-        Tipo::Function => {
+        ItemKind::Function => {
             let line = item.text.lines().next().unwrap_or("");
             let a = line.find('@').unwrap_or(0);
             let before = &line["define ".len()..a];

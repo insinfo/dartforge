@@ -209,16 +209,16 @@ fn compute_validated(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, Stri
 
 fn reachability(a: &HirAnalysis, roots: &PointSet) -> PointSet {
     let mut result = roots.clone();
-    let Some(nos) = roots.nos() else {
+    let Some(nodes) = roots.nodes() else {
         return result;
     };
-    let mut queue: VecDeque<_> = nos.iter().cloned().collect();
+    let mut queue: VecDeque<_> = nodes.iter().cloned().collect();
     let mut seen_set = BTreeSet::new();
-    while let Some(no) = queue.pop_front() {
-        if !seen_set.insert(no.clone()) {
+    while let Some(node) = queue.pop_front() {
+        if !seen_set.insert(node.clone()) {
             continue;
         }
-        let Some(fields) = a.schemas.get(&no) else {
+        let Some(fields) = a.schemas.get(&node) else {
             return PointSet::unknown(a.limit);
         };
         // As inclusões podem representar referências laterais (anexos), sem
@@ -227,36 +227,36 @@ fn reachability(a: &HirAnalysis, roots: &PointSet) -> PointSet {
             let Some(dests) = a.points().variable(value) else {
                 return PointSet::unknown(a.limit);
             };
-            if dests.nos().is_some_and(|ns| ns.is_empty()) {
+            if dests.nodes().is_some_and(|ns| ns.is_empty()) {
                 continue;
             }
-            let Some(origins) = a.points().variable(object).and_then(|p| p.nos()) else {
+            let Some(origins) = a.points().variable(object).and_then(|p| p.nodes()) else {
                 return PointSet::unknown(a.limit);
             };
-            if !origins.contains(&no) {
+            if !origins.contains(&node) {
                 continue;
             }
-            let Some(nos) = dests.nos() else {
+            let Some(nodes) = dests.nodes() else {
                 return PointSet::unknown(a.limit);
             };
-            queue.extend(nos.iter().cloned());
+            queue.extend(nodes.iter().cloned());
             result.join_set(dests);
-            if result.nos().is_none() {
+            if result.nodes().is_none() {
                 return result;
             }
         }
         for field in fields {
-            let Some(dests) = a.points().field(&no, field) else {
+            let Some(dests) = a.points().field(&node, field) else {
                 return PointSet::unknown(a.limit);
             };
-            let Some(nos) = dests.nos() else {
+            let Some(nodes) = dests.nodes() else {
                 return PointSet::unknown(a.limit);
             };
-            for child in nos {
+            for child in nodes {
                 queue.push_back(child.clone());
             }
             result.join_set(dests);
-            if result.nos().is_none() {
+            if result.nodes().is_none() {
                 return result;
             }
         }
@@ -289,7 +289,7 @@ mod tests {
             facts.objects.insert(
                 ValueId(v),
                 ObjectOrigin {
-                    no: AbstractNode::Allocation {
+                    node: AbstractNode::Allocation {
                         site: ArcSite {
                             function: "f".into(),
                             origin: v as u64,
@@ -358,10 +358,10 @@ mod tests {
             }
             let expected: BTreeSet<_> = live_set
                 .iter()
-                .map(|v| facts.objects[&ValueId(*v as u32)].no.clone())
+                .map(|v| facts.objects[&ValueId(*v as u32)].node.clone())
                 .collect();
             assert_eq!(
-                r.publications[&EscapeCause::Return].nos().unwrap(),
+                r.publications[&EscapeCause::Return].nodes().unwrap(),
                 &expected
             );
         }
@@ -373,7 +373,7 @@ mod tests {
         f.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(0)));
         let a = analyze(&f, &facts, 3).unwrap();
         let r = compute(&f, &a).unwrap();
-        assert_eq!(r.publications[&EscapeCause::Exception].nos().unwrap().len(), 2);
+        assert_eq!(r.publications[&EscapeCause::Exception].nodes().unwrap().len(), 2);
         f.blocks[0].terminator = Terminator::Return(Some(Operand::Constant(Constant::Null)));
         assert!(compute(&f, &a).is_err());
     }
@@ -392,17 +392,17 @@ mod tests {
         ));
         let a = analyze(&f, &facts, 3).unwrap();
         let r = compute(&f, &a).unwrap();
-        assert!(r.publications[&EscapeCause::Return].nos().is_none());
+        assert!(r.publications[&EscapeCause::Return].nodes().is_none());
         assert!(
             r.publications[&EscapeCause::OpaqueOperation(9)]
-                .nos()
+                .nodes()
                 .is_none()
         );
         f.blocks[0].instructions.pop();
         let a = analyze(&f, &facts, 1).unwrap();
         assert!(
             compute(&f, &a).unwrap().publications[&EscapeCause::Return]
-                .nos()
+                .nodes()
                 .is_none()
         );
         let a = analyze(
@@ -416,7 +416,7 @@ mod tests {
         .unwrap();
         assert!(
             compute(&f, &a).unwrap().publications[&EscapeCause::Return]
-                .nos()
+                .nodes()
                 .is_none()
         );
     }
@@ -441,12 +441,12 @@ mod tests {
         // fabricar precisão transitiva antes de possuir esse contrato.
         assert!(
             r.publications[&EscapeCause::Global("g".into())]
-                .nos()
+                .nodes()
                 .is_none()
         );
         assert!(
             r.publications[&EscapeCause::Return]
-                .nos()
+                .nodes()
                 .unwrap()
                 .is_empty()
         );

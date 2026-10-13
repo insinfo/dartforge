@@ -319,7 +319,7 @@ fn emit_ir_internal(
 
     let mut interner = Interner::new();
     // Com o motor de build (DF-BUILD-009): uma carga tolerante sem os
-    // gerados serve de `BuildStep.resolver`; a geração volta em memória e
+    // gerados serve de `BuildStep.solve`; a geração volta em memória e
     // a carga de verdade a lê antes do disco.
     let (program, elements_diags) = match options.gerador {
         Some(gerar) => {

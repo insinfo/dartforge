@@ -1166,7 +1166,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.coerce(r, repr);
                 }
                 // `[]` do SDK pela classe dinâmica.
-                let r = self.call_by_name_typed(target_op, *target, super::sdk_source::Tipo::Call, "[]", &[(None, idx_op)]);
+                let r = self.call_by_name_typed(target_op, *target, super::sdk_source::AccessKind::Call, "[]", &[(None, idx_op)]);
                 let repr = self.expression_repr(expr_id).unwrap_or(Type::Ref);
                 self.coerce(r, repr)
             }
@@ -1408,7 +1408,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: dartforge_diagnostics::Span,
     ) -> Operand {
         let _ = (expr_id, span);
-        self.call_by_name(target_op, super::sdk_source::Tipo::Read, prop_name, &[])
+        self.call_by_name(target_op, super::sdk_source::AccessKind::Read, prop_name, &[])
     }
 
     /// Membro implícito (`x` = `this.x`) que é do SDK (a extensão sobre um

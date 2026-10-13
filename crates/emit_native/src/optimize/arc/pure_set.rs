@@ -98,7 +98,7 @@ pub(super) fn check(
                     Operand::Constant(Constant::Bool(_)) => Some(Type::I1),
                     _ => None,
                 };
-                let larguras_validas = if matches!(inst, Instruction::ZExt { .. }) {
+                let valid_widths = if matches!(inst, Instruction::ZExt { .. }) {
                     matches!(
                         (from, to),
                         (Type::I1, Type::I8 | Type::I64) | (Type::I8, Type::I64)
@@ -109,7 +109,7 @@ pub(super) fn check(
                         (Type::I64, Type::I1 | Type::I8) | (Type::I8, Type::I1)
                     )
                 };
-                origin != Some(*from) || !larguras_validas
+                origin != Some(*from) || !valid_widths
             }
             Instruction::Bitcast { op, to } => {
                 let origin = match op {

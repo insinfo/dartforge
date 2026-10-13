@@ -17,7 +17,7 @@ use dartforge_frontend::ast::{self, ExprId, ExprKind};
 use dartforge_types::table::Type as T;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Primitivo {
+enum PrimitiveKind {
     Int,
     Double,
 }
@@ -27,14 +27,14 @@ fn c(n: i64) -> Operand {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    fn primitive(&self, e: ExprId) -> Option<Primitivo> {
+    fn primitive(&self, e: ExprId) -> Option<PrimitiveKind> {
         let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, e)?) else {
             return None;
         };
         if Some(*class) == self.ctx.core.int_class {
-            Some(Primitivo::Int)
+            Some(PrimitiveKind::Int)
         } else if Some(*class) == self.ctx.core.double_class {
-            Some(Primitivo::Double)
+            Some(PrimitiveKind::Double)
         } else {
             None
         }
@@ -113,10 +113,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let p = self.primitive(recv)?;
         let name_str = self.ctx.symbol_name(name_str);
         let shape = match (p, name_str, call) {
-            (Primitivo::Int, "isEven" | "isOdd" | "isNegative", false) => name_str,
-            (Primitivo::Int, "toDouble" | "abs" | "toInt" | "floor" | "ceil" | "round" | "truncate", true) => name_str,
-            (Primitivo::Double, "isNaN" | "isInfinite" | "isFinite" | "isNegative", false) => name_str,
-            (Primitivo::Double, "toDouble" | "abs" | "toInt" | "truncate", true) => name_str,
+            (PrimitiveKind::Int, "isEven" | "isOdd" | "isNegative", false) => name_str,
+            (PrimitiveKind::Int, "toDouble" | "abs" | "toInt" | "floor" | "ceil" | "round" | "truncate", true) => name_str,
+            (PrimitiveKind::Double, "isNaN" | "isInfinite" | "isFinite" | "isNegative", false) => name_str,
+            (PrimitiveKind::Double, "toDouble" | "abs" | "toInt" | "truncate", true) => name_str,
             _ => return None,
         };
         let v = self.lower_expr(ast, recv);
@@ -124,8 +124,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Operand::Constant(Constant::Null));
         }
         Some(match p {
-            Primitivo::Int => self.int_intrinsic(v, shape),
-            Primitivo::Double => self.double_intrinsic(v, shape),
+            PrimitiveKind::Int => self.int_intrinsic(v, shape),
+            PrimitiveKind::Double => self.double_intrinsic(v, shape),
         })
     }
 
@@ -151,7 +151,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         let arg = arguments.args[0].value;
-        if self.primitive(*recv) != Some(Primitivo::Int) || self.primitive(arg) != Some(Primitivo::Int) {
+        if self.primitive(*recv) != Some(PrimitiveKind::Int) || self.primitive(arg) != Some(PrimitiveKind::Int) {
             return None;
         }
         let a = self.lower_expr(ast, *recv);
@@ -263,7 +263,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(join));
 
         self.set_block(slow);
-        self.call_by_name(list, super::sdk_source::Tipo::Call, "add", &[(None, v)]);
+        self.call_by_name(list, super::sdk_source::AccessKind::Call, "add", &[(None, v)]);
         if !self.is_terminated() {
             self.terminate(Terminator::Branch(join));
         }
@@ -350,7 +350,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Branch(join));
                 self.set_block(slow);
                 let boxed = self.coerce(boxed, Type::Ref);
-                let s = self.call_by_name(boxed, super::sdk_source::Tipo::Call, shape, &[]);
+                let s = self.call_by_name(boxed, super::sdk_source::AccessKind::Call, shape, &[]);
                 let s = self.coerce(s, Type::I64);
                 let slow_end = self.current_block;
                 if self.is_terminated() {

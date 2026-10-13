@@ -47,7 +47,7 @@ const TYPE: u32 = 1;
 impl DebugInfo {
     pub(super) fn new_one() -> DebugInfo {
         DebugInfo {
-            // Os dois primeiros são preenchidos em `finalizar`.
+            // Os dois primeiros são preenchidos em `finish`.
             metadata: vec![String::new(), "!DISubroutineType(types: !{})".to_string()],
             files: HashMap::new(),
             locals: HashMap::new(),
@@ -116,7 +116,7 @@ impl DebugInfo {
     }
 
     /// Os metadados do módulo (nada, se nenhuma função foi anotada).
-    pub(super) fn finalizar(mut self, out: &mut String) {
+    pub(super) fn finish(mut self, out: &mut String) {
         let Some(file) = self.unit_file else { return };
         self.metadata[UNIT as usize] = format!(
             "distinct !DICompileUnit(language: DW_LANG_C99, file: !{file}, producer: \"dartforge\", \

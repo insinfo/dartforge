@@ -380,7 +380,7 @@ impl StackTrace {
     }
 
     /// As constantes do módulo (as urls e os registros das funções).
-    pub(super) fn finalizar(self, out: &mut String) {
+    pub(super) fn finish(self, out: &mut String) {
         if self.records.is_empty() {
             return;
         }
@@ -469,7 +469,7 @@ mod tests {
         let asm = exit.find("asm sideeffect").expect("rótulo");
         assert!(asm < exit.find("@df.lib.g()").expect("chamada"), "{exit}");
         let mut out = String::new();
-        r.finalizar(&mut out);
+        r.finish(&mut out);
         assert!(out.contains("@df.pcu.0 ") && out.contains("c\"file:\\2F\\2F\\2Fx\\2Fa.dart\\00\""), "{out}");
         assert!(out.contains("@df.pcf.0 ") && out.contains("i8 0, [2 x i8] c\"f\\00\""), "{out}");
         // A chamada direta a uma função Dart não recebe o inlining do LLVM.

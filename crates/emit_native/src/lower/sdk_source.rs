@@ -34,7 +34,7 @@ use dartforge_frontend::ast::ParameterKind;
 
 /// O que o seletor faz com o membro.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tipo {
+pub enum AccessKind {
     /// `o.m(…)`.
     Call,
     /// `o.x`.
@@ -47,11 +47,11 @@ pub enum Tipo {
 /// `@<library>` (dois `_m` de bibliotecas diferentes são membros
 /// diferentes). O `_=` da chave de um setter nas tabelas do elemento sai
 /// (`==` e `[]=` são operadores, não setters).
-pub fn selector_string(ctx: &Context, ty: Tipo, name_str: &str, lib: LibraryId) -> String {
+pub fn selector_string(ctx: &Context, ty: AccessKind, name_str: &str, lib: LibraryId) -> String {
     let p = match ty {
-        Tipo::Call => "c",
-        Tipo::Read => "g",
-        Tipo::Write => "s",
+        AccessKind::Call => "c",
+        AccessKind::Read => "g",
+        AccessKind::Write => "s",
     };
     let name_str = name_str.strip_suffix("_=").unwrap_or(name_str);
     if name_str.starts_with('_') {
@@ -143,7 +143,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `recv.name(evaluated)` pelo seletor, com o nome privado da biblioteca
     /// da unidade corrente.
-    pub fn call_by_name(&mut self, recv: Operand, ty: Tipo, name_str: &str, evaluated: &[Evaluated]) -> Operand {
+    pub fn call_by_name(&mut self, recv: Operand, ty: AccessKind, name_str: &str, evaluated: &[Evaluated]) -> Operand {
         let lib = self.ctx.program.unit(self.unit_id).library;
         let s = selector_string(self.ctx, ty, name_str, lib);
         self.call_by_selector(recv, s, evaluated)
@@ -156,7 +156,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         &mut self,
         recv: Operand,
         alvo: dartforge_frontend::ast::ExprId,
-        ty: Tipo,
+        ty: AccessKind,
         name_str: &str,
         evaluated: &[Evaluated],
     ) -> Operand {
@@ -170,13 +170,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         &mut self,
         recv: Operand,
         typed_receiver: bool,
-        ty: Tipo,
+        ty: AccessKind,
         name_str: &str,
         evaluated: &[Evaluated],
     ) -> Operand {
         let lib = self.ctx.program.unit(self.unit_id).library;
         let s = selector_string(self.ctx, ty, name_str, lib);
-        let s = if typed_receiver && matches!(ty, Tipo::Call | Tipo::Write) && self.all_checked(evaluated) {
+        let s = if typed_receiver && matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
             super::typed_entry::typed_selector(&s)
         } else {
             s
@@ -221,11 +221,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) });
         }
         let ty = match f.kind {
-            FunctionKind::Getter => Tipo::Read,
-            FunctionKind::Setter => Tipo::Write,
-            FunctionKind::ImplicitAccessor if evaluated.len() == 1 => Tipo::Write,
-            FunctionKind::ImplicitAccessor => Tipo::Read,
-            _ => Tipo::Call,
+            FunctionKind::Getter => AccessKind::Read,
+            FunctionKind::Setter => AccessKind::Write,
+            FunctionKind::ImplicitAccessor if evaluated.len() == 1 => AccessKind::Write,
+            FunctionKind::ImplicitAccessor => AccessKind::Read,
+            _ => AccessKind::Call,
         };
         if is_sdk && closed_member(self.ctx, cid, &name_str) {
             let ret = match self.return_repr(decl_fid) {
@@ -240,7 +240,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let s = selector_string(self.ctx, ty, &name_str, f.library);
         // Receptor tipado e argumentos garantidos: a entrada que só confere
         // os covariantes (`typed_entry.rs`).
-        let s = if matches!(ty, Tipo::Call | Tipo::Write) && self.all_checked(evaluated) {
+        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
             super::typed_entry::typed_selector(&s)
         } else {
             s
@@ -272,7 +272,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         recv: &Operand,
         cid: ClassId,
         key: &str,
-        ty: Tipo,
+        ty: AccessKind,
         library: dartforge_elements::model::LibraryId,
         evaluated: &[Evaluated],
         ret: Type,
@@ -288,7 +288,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         // Chamar um campo (uma closure guardada) fica com o seletor.
-        if ty == Tipo::Call && distinct.iter().any(|i| matches!(i, Implementation::Field(_))) {
+        if ty == AccessKind::Call && distinct.iter().any(|i| matches!(i, Implementation::Field(_))) {
             return None;
         }
         let recv = self.coerce(recv.clone(), Type::Ref);
@@ -313,7 +313,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for (i, &b) in distinct.iter().zip(&blocks) {
             self.set_block(b);
             let r = match (*i, ty) {
-                (Implementation::Field(vid), Tipo::Write) => {
+                (Implementation::Field(vid), AccessKind::Write) => {
                     let v = evaluated.first().map(|(_, v)| v.clone()).unwrap_or(Operand::Constant(Constant::Null));
                     let v = self.coerce(v, self.field_repr(vid));
                     self.store_field(recv.clone(), vid, v, span);
@@ -336,7 +336,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(pattern);
         let name_str = key.strip_suffix("_=").unwrap_or(key);
         let s = selector_string(self.ctx, ty, name_str, library);
-        let s = if matches!(ty, Tipo::Call | Tipo::Write) && self.all_checked(evaluated) {
+        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
             super::typed_entry::typed_selector(&s)
         } else {
             s
@@ -384,11 +384,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let repr = self.field_repr(vid);
         if is_sdk && closed_member(self.ctx, cid, &name_str)
-            && let Some(r) = self.class_dispatch(&obj, cid, &name_str, Tipo::Read, v.library, &[], repr)
+            && let Some(r) = self.class_dispatch(&obj, cid, &name_str, AccessKind::Read, v.library, &[], repr)
         {
             return Some(r);
         }
-        let s = selector_string(self.ctx, Tipo::Read, &name_str, v.library);
+        let s = selector_string(self.ctx, AccessKind::Read, &name_str, v.library);
         let r = self.call_by_selector(obj, s, &[]);
         let repr = self.field_repr(vid);
         Some(self.coerce(r, repr))
@@ -414,12 +414,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         if is_sdk && closed_member(self.ctx, cid, &name_str)
             && self
-                .class_dispatch(&obj, cid, &format!("{name_str}_="), Tipo::Write, v.library, &[(None, value.clone())], Type::Ref)
+                .class_dispatch(&obj, cid, &format!("{name_str}_="), AccessKind::Write, v.library, &[(None, value.clone())], Type::Ref)
                 .is_some()
         {
             return true;
         }
-        let s = selector_string(self.ctx, Tipo::Write, &name_str, v.library);
+        let s = selector_string(self.ctx, AccessKind::Write, &name_str, v.library);
         self.call_by_selector(obj, s, &[(None, value)]);
         true
     }
@@ -716,7 +716,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 match crate::natives::native(&n).map(|x| x.state) {
                     Some(crate::natives::State::Runtime) => {}
                     Some(crate::natives::State::Builtin) => return Some(self.embedded_native(&n, fid, args)),
-                    Some(crate::natives::State::Pendente) => {
+                    Some(crate::natives::State::Pending) => {
                         return Some(self.unsupported(&format!("native pendente `{n}` ({member})"), span));
                     }
                     None => return Some(self.unsupported(&format!("native desconhecido `{n}` ({member})"), span)),
@@ -1165,7 +1165,7 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
             // dinâmica a ele cai no `noSuchMethod`, como a que o mundo diz
             // que não acontece.
             let live = !ctx.pruned_member(fid);
-            let mut by = |ty: Tipo, a: Adapter, base: &str| {
+            let mut by = |ty: AccessKind, a: Adapter, base: &str| {
                 let s = selector_string(ctx, ty, name_str, f.library);
                 if seen_set.insert(s.clone()) && live {
                     if typed && a != Adapter::Read {
@@ -1177,24 +1177,24 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
             if let Some(v) = f.variable {
                 let base = field_symbol(ctx, v);
                 if is_setter {
-                    by(Tipo::Write, Adapter::Write, &base);
+                    by(AccessKind::Write, Adapter::Write, &base);
                 } else {
-                    by(Tipo::Read, Adapter::Read, &base);
-                    by(Tipo::Call, Adapter::Call, &base);
+                    by(AccessKind::Read, Adapter::Read, &base);
+                    by(AccessKind::Call, Adapter::Call, &base);
                 }
                 continue;
             }
             let base = super::symbol_of(ctx, fid);
             match f.kind {
-                FunctionKind::Setter => by(Tipo::Write, Adapter::Write, &base),
+                FunctionKind::Setter => by(AccessKind::Write, Adapter::Write, &base),
                 FunctionKind::Getter => {
-                    by(Tipo::Read, Adapter::Read, &base);
-                    by(Tipo::Call, Adapter::Call, &base);
+                    by(AccessKind::Read, Adapter::Read, &base);
+                    by(AccessKind::Call, Adapter::Call, &base);
                 }
                 FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {}
                 _ => {
-                    by(Tipo::Call, Adapter::Call, &base);
-                    by(Tipo::Read, Adapter::Read, &base);
+                    by(AccessKind::Call, Adapter::Call, &base);
+                    by(AccessKind::Read, Adapter::Read, &base);
                 }
             }
         }
@@ -1222,7 +1222,7 @@ fn has_own_no_such_method(ctx: &Context, cid: ClassId) -> bool {
 /// Os membros de instância das superinterfaces de `cid` (superclasses,
 /// mixins, `implements`, `on`, transitivamente) cujo seletor a tabela não
 /// tem: (seletor, uso, membro declarado).
-fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -> Vec<(String, Tipo, usize)> {
+fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -> Vec<(String, AccessKind, usize)> {
     let mut seen_set: std::collections::HashSet<String> = table.iter().map(|(s, _)| s.clone()).collect();
     let mut exit = Vec::new();
     let mut stack = vec![cid];
@@ -1245,12 +1245,12 @@ fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -
                 continue;
             }
             let name_str = key.strip_suffix("_=").unwrap_or(key);
-            let uses: &[Tipo] = match f.kind {
-                FunctionKind::Setter => &[Tipo::Write],
-                FunctionKind::Getter => &[Tipo::Read],
-                FunctionKind::ImplicitAccessor if key.ends_with("_=") => &[Tipo::Write],
-                FunctionKind::ImplicitAccessor => &[Tipo::Read],
-                _ => &[Tipo::Call],
+            let uses: &[AccessKind] = match f.kind {
+                FunctionKind::Setter => &[AccessKind::Write],
+                FunctionKind::Getter => &[AccessKind::Read],
+                FunctionKind::ImplicitAccessor if key.ends_with("_=") => &[AccessKind::Write],
+                FunctionKind::ImplicitAccessor => &[AccessKind::Read],
+                _ => &[AccessKind::Call],
             };
             for &use_site in uses {
                 let s = selector_string(ctx, use_site, name_str, f.library);
@@ -1267,7 +1267,7 @@ fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -
 /// desempacota os argumentos como o membro declara (os padrões dos
 /// opcionais omitidos), e o runtime monta o `Invocation` na ordem da
 /// declaração e chama o `noSuchMethod` do receptor.
-fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symbol: &str, fid: usize, ty: Tipo) {
+fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symbol: &str, fid: usize, ty: AccessKind) {
     let f = &ctx.program.functions[fid];
     let name_str = ctx.symbol_name(f.name).to_string();
     let mut b = FnBuilder::new(ctx, unit, symbol.to_string(), name_str.clone(), Type::Ref);
@@ -1276,10 +1276,10 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
     let desc = Operand::Val(b.add_param_vector(DartEntryVector::Descriptor));
     b.declare_arc_uniform_return();
     let (code, values, names, tuple) = match ty {
-        Tipo::Call => {
+        AccessKind::Call => {
             let infos = b.function_params(fid);
             let Some(vals) = b.unpack(&infos, args.clone(), desc.clone()) else {
-                b.finalizar(module);
+                b.finish(module);
                 return;
             };
             let names: Vec<String> = infos
@@ -1298,8 +1298,8 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
             };
             (0, vals, names, tuple)
         }
-        Tipo::Read => (1, Vec::new(), Vec::new(), Operand::Constant(Constant::Int(0))),
-        Tipo::Write => {
+        AccessKind::Read => (1, Vec::new(), Vec::new(), Operand::Constant(Constant::Int(0))),
+        AccessKind::Write => {
             let v = b.emit(Instruction::LoadIndexed { base: args.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
             (2, vec![v], Vec::new(), Operand::Constant(Constant::Int(0)))
         }
@@ -1331,7 +1331,7 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
         Type::Ref,
     );
     b.terminate(Terminator::Return(Some(r)));
-    b.finalizar(module);
+    b.finish(module);
 }
 
 /// As entradas uniformes de um membro de instância (ou campo) do módulo.
@@ -1373,7 +1373,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
         let r = match (a, f.kind) {
             (Adapter::Read, FunctionKind::Getter) => {
                 if b.unpack(&[], args, desc).is_none() {
-                    b.finalizar(module);
+                    b.finish(module);
                     continue;
                 }
                 b.call_direct(fid, Some(recv), Vec::new())
@@ -1385,7 +1385,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
             }
             (Adapter::Read, _) => {
                 if b.unpack(&[], args, desc).is_none() {
-                    b.finalizar(module);
+                    b.finish(module);
                     continue;
                 }
                 b.method_tearoff(recv, fid, span)
@@ -1393,7 +1393,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
             _ => {
                 let infos = b.function_params(fid);
                 let Some(vals) = b.unpack(&infos, args.clone(), desc.clone()) else {
-                    b.finalizar(module);
+                    b.finish(module);
                     continue;
                 };
                 // A VM confere os argumentos na entrada do método, antes do
@@ -1424,7 +1424,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
         };
         let r = if matches!(b.operand_type(&r), Type::Void) { Operand::Constant(Constant::Null) } else { b.coerce(r, Type::Ref) };
         b.terminate(Terminator::Return(Some(r)));
-        b.finalizar(module);
+        b.finish(module);
     }
 }
 
@@ -1453,7 +1453,7 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
         let r = match a {
             Adapter::Read => {
                 if b.unpack(&[], args, desc).is_none() {
-                    b.finalizar(module);
+                    b.finish(module);
                     continue;
                 }
                 b.read_field_with_late(recv, vid, span)
@@ -1468,10 +1468,10 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
                     name: None,
                     kind: ParameterKind::Required,
                     required: true,
-                    pattern: super::closures::Padrao::Nenhum,
+                    pattern: super::closures::DefaultValue::Absent,
                 }];
                 let Some(vals) = b.unpack(&one, args, desc) else {
-                    b.finalizar(module);
+                    b.finish(module);
                     continue;
                 };
                 b.store_field(recv, vid, vals[0].clone(), span);
@@ -1480,7 +1480,7 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
         };
         let r = b.coerce(r, Type::Ref);
         b.terminate(Terminator::Return(Some(r)));
-        b.finalizar(module);
+        b.finish(module);
     }
 }
 
@@ -1642,7 +1642,7 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
                     if ctx.arc_memory {
                         b.dart_ref_returns.insert(symbol.clone());
                     }
-                    b.finalizar(module);
+                    b.finish(module);
                 }
                 Ok(b) => {
                     let reason = b.errors[0].clone();
@@ -1727,7 +1727,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                     ret_ty: Type::Ref,
                 }, Type::Ref);
                 b.terminate(Terminator::Return(Some(text)));
-                b.finalizar(module);
+                b.finish(module);
                 table.retain(|(s, _)| s != "c:toString");
                 table.push(("c:toString".to_string(), symbol));
             }
@@ -1756,7 +1756,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                     ret_ty: Type::Ref,
                 }, Type::Ref);
                 b.terminate(Terminator::Return(Some(name_str)));
-                b.finalizar(module);
+                b.finish(module);
                 table.retain(|(s, _)| s != "g:_name@dart:core");
                 table.push(("g:_name@dart:core".to_string(), symbol));
                 // `index` (campo 0) pelo seletor: `x.index` com `x` de tipo
@@ -1782,7 +1782,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 }, Type::I64);
                 let index = b.coerce(index, Type::Ref);
                 b.terminate(Terminator::Return(Some(index)));
-                b.finalizar(module);
+                b.finish(module);
                 table.retain(|(s, _)| s != "g:index");
                 table.push(("g:index".to_string(), symbol));
             }
@@ -1809,7 +1809,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                     Type::Ref,
                 );
                 b.terminate(Terminator::Return(Some(text)));
-                b.finalizar(module);
+                b.finish(module);
                 table.retain(|(s, _)| s != "c:toString");
                 table.push(("c:toString".to_string(), symbol));
             }
@@ -1907,7 +1907,7 @@ fn adapters_or_reject(ctx: &Context, module: &mut Module, gerar: impl FnOnce(&mu
         b.terminate(Terminator::Unreachable);
         module.rejected.push((symbol, reason.clone()));
         // Com os fatos da ABI uniforme (vetores e retorno) declarados acima.
-        b.finalizar(module);
+        b.finish(module);
     }
 }
 /// O getter de um campo `late` com inicializador do SDK da fonte, ou a
@@ -1972,7 +1972,7 @@ pub fn lower_pruned_global(
     let getter = super::global_symbol(ctx, vid);
     let mut b = FnBuilder::new(ctx, unit, getter.clone(), name_str.clone(), repr);
     b.pruned_body();
-    b.finalizar(module);
+    b.finish(module);
     let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), name_str, Type::Void);
     let v = s.add_param("v".to_string(), repr);
     // O valor chega na representação do tipo Dart da global: escalar se não é Ref.
@@ -1981,7 +1981,7 @@ pub fn lower_pruned_global(
     }
     s.store_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
     s.terminate(Terminator::Return(None));
-    s.finalizar(module);
+    s.finish(module);
 }
 
 pub fn lower_global_or_reject(
@@ -1998,7 +1998,7 @@ pub fn lower_global_or_reject(
         m.sdk_mode = true;
         let mut b = FnBuilder::new(ctx, unit, getter.clone(), name_str.clone(), repr);
         b.lower_global_getter(vid, repr);
-        b.finalizar(&mut m);
+        b.finish(&mut m);
         if m.errors.is_empty() {
             let problems = super::verifier::verify(&m);
             m.errors.extend(problems);
@@ -2037,7 +2037,7 @@ pub fn lower_global_or_reject(
     }
     s.store_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
     s.terminate(Terminator::Return(None));
-    s.finalizar(module);
+    s.finish(module);
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -2437,7 +2437,7 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
             Type::Ref,
         );
         b.terminate(Terminator::Return(Some(r)));
-        b.finalizar(module);
+        b.finish(module);
         // ==$c
         let mut b = FnBuilder::new(ctx, u, format!("{base}.$3d$3d$c"), "==".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
@@ -2455,7 +2455,7 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
         );
         let r = b.coerce(r, Type::Ref);
         b.terminate(Terminator::Return(Some(r)));
-        b.finalizar(module);
+        b.finish(module);
         // hashCode$g: o hash acompanha a igualdade estrutural do record.
         let mut b = FnBuilder::new(ctx, u, format!("{base}.hashCode$g"), "hashCode".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
@@ -2468,7 +2468,7 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
         );
         let r = b.coerce(r, Type::Ref);
         b.terminate(Terminator::Return(Some(r)));
-        b.finalizar(module);
+        b.finish(module);
         let mut table: Vec<(String, String)> = vec![
             ("c:toString".to_string(), format!("{base}.toString$c")),
             ("c:==".to_string(), format!("{base}.$3d$3d$c")),

@@ -8,7 +8,7 @@
 //! `double` → `double`, `bool` → `i8` — o `bool` da ABI C —, o resto,
 //! receptor inclusive, → `Ref`). O erro sai pela exceção pendente.
 //!
-//! O native que a tabela ainda marca `Pendente` é diagnóstico (N1) — só
+//! O native que a tabela ainda marca `Pending` é diagnóstico (N1) — só
 //! vale se a poda mantiver a função (`source.rs`).
 
 use super::fn_builder::FnBuilder;

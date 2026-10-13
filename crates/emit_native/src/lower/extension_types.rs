@@ -18,7 +18,7 @@
 //!   representação, chamada como uma fábrica (a tupla da criação no fim);
 //! * estáticos → como os de uma classe.
 
-use super::closures::{Padrao, EntryParam};
+use super::closures::{DefaultValue, EntryParam};
 use super::fn_builder::FnBuilder;
 use crate::context::Context;
 use crate::hir::*;
@@ -223,7 +223,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Argumentos));
             let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
             e.declare_arc_uniform_return();
-            let infos = [EntryParam { name: rep_name, kind: ParameterKind::Required, required: true, pattern: Padrao::Nenhum }];
+            let infos = [EntryParam { name: rep_name, kind: ParameterKind::Required, required: true, pattern: DefaultValue::Absent }];
             if let Some(vals) = e.unpack(&infos, args, desc) {
                 let v = e.coerce(vals[0].clone(), Type::Ref);
                 e.terminate(Terminator::Return(Some(v)));

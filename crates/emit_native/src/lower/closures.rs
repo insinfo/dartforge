@@ -28,7 +28,7 @@
 
 use super::capture::{self, Root};
 use super::fn_builder::FnBuilder;
-use super::locals::Modo;
+use super::locals::Mode;
 use super::members::Evaluated;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
@@ -51,9 +51,9 @@ pub fn hash_name(name: &str) -> i64 {
 
 /// De onde vem o valor padrão de um parâmetro opcional ausente.
 #[derive(Clone, Copy)]
-pub enum Padrao {
+pub enum DefaultValue {
     /// Sem padrão: null.
-    Nenhum,
+    Absent,
     /// A expressão escrita na declaração da closure.
     Expr(UnitId, ExprId),
     /// O padrão do parâmetro `i` da função `fid` (o de `super.x` inclusive).
@@ -66,7 +66,7 @@ pub struct EntryParam {
     pub name: Option<String>,
     pub kind: ParameterKind,
     pub required: bool,
-    pub pattern: Padrao,
+    pub pattern: DefaultValue,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -128,7 +128,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: p.name.map(|n| self.ctx.symbol_name(n.sym).to_string()),
                 kind: p.kind,
                 required: p.kind == ParameterKind::Required || p.required,
-                pattern: p.default_value.map_or(Padrao::Nenhum, |e| Padrao::Expr(unit, e)),
+                pattern: p.default_value.map_or(DefaultValue::Absent, |e| DefaultValue::Expr(unit, e)),
             })
             .collect()
     }
@@ -235,7 +235,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 (true, []) => true,
                 (false, [(_, l)]) => {
                     l.late.is_none()
-                        && (matches!(l.mode, Modo::Cell(_) | Modo::Environment { cell: true, .. }) || l.ty == Type::Ref)
+                        && (matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. }) || l.ty == Type::Ref)
                 }
                 _ => false,
             };
@@ -243,7 +243,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             shape.push_str("direto;");
         }
         for (sym, l) in &captures {
-            let cell = matches!(l.mode, Modo::Cell(_) | Modo::Environment { cell: true, .. });
+            let cell = matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. });
             shape.push_str(&format!("{}:{cell}:{:?};", self.ctx.symbol_name(*sym), l.ty));
         }
         for p in f.parameters.as_deref().unwrap_or(&[]) {
@@ -285,7 +285,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .map(|(i, (_, l))| crate::hir::WaitLink {
                     index: if direct { 0 } else { base + i },
                     direct,
-                    cell: matches!(l.mode, Modo::Cell(_) | Modo::Environment { cell: true, .. }),
+                    cell: matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. }),
                 });
         }
         let env_b = Operand::Val(b.add_param("env".to_string(), Type::Ref));
@@ -295,13 +295,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.enclosing_class = self.enclosing_class;
         } else if direct {
             let (sym, l) = &captures[0];
-            let cell = matches!(l.mode, Modo::Cell(_) | Modo::Environment { cell: true, .. });
+            let cell = matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. });
             let mode = if cell {
                 let ptr = b.entry_alloca(Type::Ref);
                 b.emit(Instruction::Store { ptr: ptr.clone(), val: env_b.clone() }, Type::Void);
-                Modo::Cell(ptr)
+                Mode::Cell(ptr)
             } else {
-                Modo::Value(env_b.clone())
+                Mode::Value(env_b.clone())
             };
             b.bind_local_as(*sym, super::locals::Local { mode, ty: l.ty, static_type: l.static_type, finalizable: l.finalizable, scope: 0, offset: None, late: None });
         } else if with_this {
@@ -319,7 +319,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for (i, (sym, l)) in captures.iter().enumerate().filter(|_| !direct) {
             let cell = matches!(
                 l.mode,
-                Modo::Cell(_) | Modo::Environment { cell: true, .. }
+                Mode::Cell(_) | Mode::Environment { cell: true, .. }
             );
             // Um vetor SIMD capturado vai no ambiente na caixa (a posição
             // tem 64 bits).
@@ -735,9 +735,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.terminate(Terminator::Branch(b_end));
             self.set_block(b_no);
             let v_no = match p.pattern {
-                Padrao::Nenhum => Operand::Constant(Constant::Null),
-                Padrao::Expr(unit, e) => self.lower_expr_of(unit, e),
-                Padrao::OfFunction(fid, i) => self
+                DefaultValue::Absent => Operand::Constant(Constant::Null),
+                DefaultValue::Expr(unit, e) => self.lower_expr_of(unit, e),
+                DefaultValue::OfFunction(fid, i) => self
                     .default_value(fid, i)
                     .unwrap_or(Operand::Constant(Constant::Null)),
             };
@@ -961,7 +961,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: p.name.map(|n| self.ctx.symbol_name(n).to_string()),
                 kind: p.kind,
                 required: p.kind == ParameterKind::Required || p.required,
-                pattern: Padrao::OfFunction(fid, i),
+                pattern: DefaultValue::OfFunction(fid, i),
             })
             .collect()
     }
@@ -1048,7 +1048,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let f = &self.ctx.program.functions[fid];
                 let selector = super::sdk_source::selector_string(
                     self.ctx,
-                    super::sdk_source::Tipo::Call,
+                    super::sdk_source::AccessKind::Call,
                     self.ctx.symbol_name(f.name),
                     f.library,
                 );

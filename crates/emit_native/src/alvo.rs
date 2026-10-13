@@ -406,8 +406,8 @@ pub const fn system_libraries() -> &'static [&'static str] {
 /// distribuição não a usa: leva os `.tbd` no sysroot de ligação
 /// (`ligador_macos.rs`). `None` fora do macOS ou sem Xcode.
 pub fn macos_sdk_root() -> Option<&'static std::path::Path> {
-    static RAIZ: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
-    RAIZ.get_or_init(|| {
+    static ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
         if sistema() != Sistema::MacOs {
             return None;
         }

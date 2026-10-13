@@ -236,7 +236,7 @@ pub struct Definition {
 /// pares `(hash, entry)`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SummarizedTable {
-    pub no: u32,
+    pub node: u32,
     pub cid: i64,
     pub pairs: Vec<(i64, u32)>,
 }
@@ -297,7 +297,7 @@ impl Summary {
             .unwrap();
         }
         for t in &self.tables {
-            writeln!(s, "T\t{}\t{}\t{}", t.no, t.cid, join(&mut t.pairs.iter().map(|(h, f)| format!("{h}:{f}")))).unwrap();
+            writeln!(s, "T\t{}\t{}\t{}", t.node, t.cid, join(&mut t.pairs.iter().map(|(h, f)| format!("{h}:{f}")))).unwrap();
         }
         for e in &self.externals {
             writeln!(s, "X\t{e}").unwrap();
@@ -305,8 +305,8 @@ impl Summary {
         for (h, t) in &self.selectors {
             writeln!(s, "S\t{h}\t{t}").unwrap();
         }
-        for (no, t) in &self.recipes {
-            writeln!(s, "R\t{no}\t{t}").unwrap();
+        for (node, t) in &self.recipes {
+            writeln!(s, "R\t{node}\t{t}").unwrap();
         }
         s
     }
@@ -348,14 +348,14 @@ impl Summary {
                     r.definitions.push(Definition { name, refs, calls });
                 }
                 Some("T") => {
-                    let no = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
                     let cid = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
                     let mut pairs = Vec::new();
                     for p in c.next().unwrap_or_default().split(' ').filter(|x| !x.is_empty()) {
                         let (h, f) = p.split_once(':').ok_or_else(|| bad(l))?;
                         pairs.push((h.parse().map_err(|_| bad(l))?, f.parse().map_err(|_| bad(l))?));
                     }
-                    r.tables.push(SummarizedTable { no, cid, pairs });
+                    r.tables.push(SummarizedTable { node, cid, pairs });
                 }
                 Some("X") => r.externals.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
                 Some("S") => {
@@ -363,8 +363,8 @@ impl Summary {
                     r.selectors.push((h, c.next().unwrap_or_default().to_string()));
                 }
                 Some("R") => {
-                    let no = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    r.recipes.push((no, c.next().unwrap_or_default().to_string()));
+                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    r.recipes.push((node, c.next().unwrap_or_default().to_string()));
                 }
                 _ if l.is_empty() => {}
                 _ => return Err(bad(l)),
@@ -372,7 +372,7 @@ impl Summary {
         }
         let n = r.names.len() as u32;
         let outside = r.definitions.iter().any(|d| d.name >= n || d.refs.iter().any(|&x| x >= n))
-            || r.tables.iter().any(|t| t.no >= n || t.pairs.iter().any(|&(_, f)| f >= n))
+            || r.tables.iter().any(|t| t.node >= n || t.pairs.iter().any(|&(_, f)| f >= n))
             || r.externals.iter().any(|&e| e >= n);
         if outside {
             return Err("resumo de poda com índice fora da tabela de nomes".to_string());
@@ -483,23 +483,23 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
         }
         if let Some((n, _, rest)) = global_name(l) {
             let k = key(n);
-            let no = r.id(&k);
+            let node = r.id(&k);
             if n.starts_with("df.mt.")
                 && n.ends_with("$d")
                 && let Some((cid, pairs)) = line_table(rest)
             {
                 let pairs = pairs.iter().map(|(h, f)| (*h, r.id(&key(f)))).collect();
-                r.tables.push(SummarizedTable { no, cid, pairs });
+                r.tables.push(SummarizedTable { node, cid, pairs });
                 continue;
             }
             let refs: Vec<String> = cited(rest).map(key).collect();
             let refs = refs.iter().map(|x| r.id(x)).collect();
-            r.definitions.push(Definition { name: no, refs, calls: Vec::new() });
+            r.definitions.push(Definition { name: node, refs, calls: Vec::new() });
         }
     }
     for (cid, sym_name, methods) in externals {
         let function = r.id(sym_name);
-        let no = r.id(&format!("{sym_name}$d"));
+        let node = r.id(&format!("{sym_name}$d"));
         let pairs: Vec<(i64, u32)> = table_pairs(*cid, methods)
             .into_iter()
             .map(|(h, s, f)| {
@@ -509,13 +509,13 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                 (h, r.id(&f))
             })
             .collect();
-        r.definitions.push(Definition { name: function, refs: vec![no], calls: Vec::new() });
-        r.tables.push(SummarizedTable { no, cid: i64::from(*cid), pairs });
+        r.definitions.push(Definition { name: function, refs: vec![node], calls: Vec::new() });
+        r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
         r.externals.push(function);
     }
     for (n, t) in recipes {
-        let no = r.id(&key(n));
-        r.recipes.push((no, t));
+        let node = r.id(&key(n));
+        r.recipes.push((node, t));
     }
     r
 }
@@ -698,8 +698,8 @@ pub struct Reach {
 }
 
 impl Reach {
-    pub fn live(&self, no: u32) -> bool {
-        self.causes.contains_key(&no)
+    pub fn live(&self, node: u32) -> bool {
+        self.causes.contains_key(&node)
     }
 
     pub fn live_pair(&self, h: i64) -> bool {
@@ -754,8 +754,8 @@ impl Graph {
             }
             for t in &r.tables {
                 let pairs = t.pairs.iter().map(|&(h, f)| (h, map[f as usize])).collect();
-                g.tables.insert(map[t.no as usize], (t.cid, pairs));
-                g.defined.insert(map[t.no as usize]);
+                g.tables.insert(map[t.node as usize], (t.cid, pairs));
+                g.defined.insert(map[t.node as usize]);
             }
             for (h, s) in &r.selectors {
                 g.strings.entry(*h).or_insert_with(|| s.clone());
@@ -788,35 +788,35 @@ impl Graph {
             callees.insert(selector_hash(s), None);
         }
         let by_name: HashSet<u32> = CALL_BY_NAME.iter().filter_map(|n| self.index.get(*n).copied()).collect();
-        while let Some((no, cause)) = queue.pop() {
-            if causes.contains_key(&no) {
+        while let Some((node, cause)) = queue.pop() {
+            if causes.contains_key(&node) {
                 continue;
             }
-            causes.insert(no, cause);
-            if by_name.contains(&no) && !all {
+            causes.insert(node, cause);
+            if by_name.contains(&node) && !all {
                 all = true;
                 for (h, v) in pending_set.drain() {
                     queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Tabela(t, h))));
                 }
             }
-            for &h in &self.calls[no as usize] {
+            for &h in &self.calls[node as usize] {
                 if let std::collections::hash_map::Entry::Vacant(e) = callees.entry(h) {
-                    e.insert(Some(no));
+                    e.insert(Some(node));
                     if let Some(v) = pending_set.remove(&h) {
                         queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Tabela(t, h))));
                     }
                 }
             }
-            if let Some((_, pairs)) = self.tables.get(&no) {
+            if let Some((_, pairs)) = self.tables.get(&node) {
                 for &(h, f) in pairs {
                     if all || callees.contains_key(&h) {
-                        queue.push((f, Cause::Tabela(no, h)));
+                        queue.push((f, Cause::Tabela(node, h)));
                     } else {
-                        pending_set.entry(h).or_default().push((no, f));
+                        pending_set.entry(h).or_default().push((node, f));
                     }
                 }
             }
-            queue.extend(self.refs[no as usize].iter().map(|&r| (r, Cause::Ref(no))));
+            queue.extend(self.refs[node as usize].iter().map(|&r| (r, Cause::Ref(node))));
         }
         Reach { names: self.names, causes, callees, all_pairs: all, strings: self.strings }
     }
@@ -834,7 +834,7 @@ pub struct Statistics {
     pub live_tables: usize,
     pub pairs: usize,
     pub live_pairs: usize,
-    pub nos: usize,
+    pub nodes: usize,
     pub live_nodes: usize,
     /// Definições do programa tiradas antes da geração (§3.12).
     pub pruned_functions: usize,
@@ -866,12 +866,12 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     all.push(&program);
     let reachability = reach(&all, prune);
     let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
-    let mut st = Statistics { nos: reachability.names.len(), live_nodes: reachability.causes.len(), ..Default::default() };
+    let mut st = Statistics { nodes: reachability.names.len(), live_nodes: reachability.causes.len(), ..Default::default() };
     // Os pares vivos de uma tabela, escritos como no IR.
-    let live_pairs = |no: Option<u32>, pairs: &[(i64, String)], st: &mut Statistics| -> Vec<(i64, String)> {
+    let live_pairs = |node: Option<u32>, pairs: &[(i64, String)], st: &mut Statistics| -> Vec<(i64, String)> {
         st.tables += 1;
         st.pairs += pairs.len();
-        if !no.is_some_and(|n| reachability.live(n)) {
+        if !node.is_some_and(|n| reachability.live(n)) {
             return Vec::new();
         }
         st.live_tables += 1;
@@ -893,7 +893,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
             return false;
         }
         let key = if local { format!("{PROGRAM}#{n}") } else { n.to_string() };
-        index.get(key.as_str()).is_some_and(|&no| !reachability.live(no))
+        index.get(key.as_str()).is_some_and(|&node| !reachability.live(node))
     };
     let mut skipping = false;
     for l in ir.split_inclusive('\n') {
@@ -945,22 +945,22 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     exit.push_str("\n; Tabelas de métodos do SDK montadas na ligação (docs/NATIVO-PODA-DE-TABELAS.md)\n");
     let mut declare: Vec<String> = Vec::new();
     for r in summaries {
-        let table_of: HashMap<u32, &SummarizedTable> = r.tables.iter().map(|t| (t.no, t)).collect();
+        let table_of: HashMap<u32, &SummarizedTable> = r.tables.iter().map(|t| (t.node, t)).collect();
         for &e in &r.externals {
             let function = &r.names[e as usize];
-            let Some(t) = r.index.get(&format!("{function}$d")).and_then(|no| table_of.get(no)) else {
+            let Some(t) = r.index.get(&format!("{function}$d")).and_then(|node| table_of.get(node)) else {
                 return Err(format!("o resumo de {} cita a tabela {function} sem o conteúdo dela", r.module));
             };
-            let no = &r.names[t.no as usize];
+            let node = &r.names[t.node as usize];
             let pairs: Vec<(i64, String)> = t.pairs.iter().map(|&(h, f)| (h, llvm_name(&r.names[f as usize]))).collect();
-            let live_set = live_pairs(index.get(no.as_str()).copied(), &pairs, &mut st);
+            let live_set = live_pairs(index.get(node.as_str()).copied(), &pairs, &mut st);
             for (_, f) in &live_set {
                 let name = f.trim_start_matches('@').trim_matches('"');
                 if declared_set.insert(name.to_string()) {
                     declare.push(format!("declare i64 {f}(i64, ptr, ptr)\n"));
                 }
             }
-            let data = llvm_name(no);
+            let data = llvm_name(node);
             exit.push_str(&table_line(&format!("{data} = private unnamed_addr constant "), t.cid, &live_set));
             writeln!(exit, "define ptr {}() {{\nb0:\n  ret ptr {data}\n}}", llvm_name(function)).unwrap();
         }
@@ -979,12 +979,12 @@ pub fn report(reachability: &Reach) -> String {
     let mut lines: Vec<String> = reachability
         .causes
         .iter()
-        .map(|(&no, cause)| match cause {
-            Cause::Root => format!("{}\traiz\t-\t-\t-", name(no)),
-            Cause::Ref(p) => format!("{}\tref\t{}\t-\t-", name(no), name(*p)),
+        .map(|(&node, cause)| match cause {
+            Cause::Root => format!("{}\traiz\t-\t-\t-", name(node)),
+            Cause::Ref(p) => format!("{}\tref\t{}\t-\t-", name(node), name(*p)),
             Cause::Tabela(t, h) => {
                 let who = reachability.callees.get(h).copied().flatten().map_or("raiz", name);
-                format!("{}\ttabela\t{}\t{}\t{}", name(no), name(*t), text(*h), who)
+                format!("{}\ttabela\t{}\t{}\t{}", name(node), name(*t), text(*h), who)
             }
         })
         .collect();
@@ -1044,7 +1044,7 @@ pub fn assemble_production(ir: &str, files: &[PathBuf], timings: bool) -> Result
             e.live_pairs,
             e.pairs,
             e.live_nodes,
-            e.nos,
+            e.nodes,
             e.pruned_functions,
             e.pruned_globals,
             e.pruned_bytes / 1_000_000,
@@ -1141,7 +1141,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
     // As tabelas de métodos do programa (`df.mt.X` devolve `df.mt.X$d`).
     for (cid, sym_name, methods) in &m.method_tables {
         let function = r.id(sym_name);
-        let no = r.id(&format!("{sym_name}$d"));
+        let node = r.id(&format!("{sym_name}$d"));
         let pairs: Vec<(i64, u32)> = table_pairs(*cid, methods)
             .into_iter()
             .map(|(h, s, f)| {
@@ -1151,8 +1151,8 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
                 (h, r.id(&f))
             })
             .collect();
-        r.definitions.push(Definition { name: function, refs: vec![no], calls: Vec::new() });
-        r.tables.push(SummarizedTable { no, cid: i64::from(*cid), pairs });
+        r.definitions.push(Definition { name: function, refs: vec![node], calls: Vec::new() });
+        r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
     }
     // A entrada: o que o emissor cita sem instrução da HIR.
     let mut roots: Vec<String> = Vec::new();
@@ -1216,8 +1216,8 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
         let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
         let before = live_ffis.len();
         for r in &all {
-            for (no, t) in &r.recipes {
-                if index.get(r.names[*no as usize].as_str()).is_some_and(|&i| reachability.live(i)) {
+            for (node, t) in &r.recipes {
+                if index.get(r.names[*node as usize].as_str()).is_some_and(|&i| reachability.live(i)) {
                     recipe_ffi_keys(t, &letters, &composites, &mut live_ffis);
                 }
             }
@@ -1512,7 +1512,7 @@ mod tests {
     }
 
     #[test]
-    fn relatorio_diz_a_causa() {
+    fn report_tells_the_cause() {
         let s = sdk();
         let m = assemble(&program("c:usado"), &[&s], true).unwrap();
         let r = report(&m.reachability);

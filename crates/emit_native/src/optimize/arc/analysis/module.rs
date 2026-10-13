@@ -62,7 +62,7 @@ pub fn analyze_in_module(
             }
         })
         .collect();
-    let summaries = super::calls::resolver(m, &calls, limit)?;
+    let summaries = super::calls::solve(m, &calls, limit)?;
     let facts = facts_in_module(m, f)?;
     // A seleção acompanha aliases e campos na mesma solução. Não refinar
     // topo de uma primeira passagem nem pressupor um layout único do Phi.
@@ -145,7 +145,7 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
                 if types[v] != Type::Ref {
                     return Err(format!("points-to: unidade sintética não Ref v{}", v.0));
                 }
-                let no = AbstractNode::SyntheticUnit {
+                let node = AbstractNode::SyntheticUnit {
                     site: site.clone(),
                     context: String::new(),
                     role: role.into(),
@@ -156,7 +156,7 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
                         position: position as u32,
                     })
                     .collect();
-                facts.objects.insert(*v, ObjectOrigin { no, fields: field_list });
+                facts.objects.insert(*v, ObjectOrigin { node, fields: field_list });
                 continue;
             }
             let (class, quantity) = match i {
@@ -172,12 +172,12 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
             if layout.len() != quantity {
                 return Err(format!("points-to: layout incompatível v{}", v.0));
             }
-            let no = AbstractNode::Allocation {
+            let node = AbstractNode::Allocation {
                 site: site.clone(),
                 context: String::new(),
             };
             if classes
-                .insert(no.clone(), class)
+                .insert(node.clone(), class)
                 .is_some_and(|previous| previous != class)
             {
                 return Err("points-to: origem com classes conflitantes".into());
@@ -188,7 +188,7 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
                     position: position as u32,
                 })
                 .collect();
-            facts.objects.insert(*v, ObjectOrigin { no, fields: field_list });
+            facts.objects.insert(*v, ObjectOrigin { node, fields: field_list });
         }
     }
     Ok(facts)
@@ -283,7 +283,7 @@ mod tests {
         let owner = a
             .value(ValueId(0))
             .unwrap()
-            .nos()
+            .nodes()
             .unwrap()
             .first()
             .unwrap()
@@ -291,7 +291,7 @@ mod tests {
         let action = a
             .value(ValueId(1))
             .unwrap()
-            .nos()
+            .nodes()
             .unwrap()
             .first()
             .unwrap()
@@ -301,8 +301,8 @@ mod tests {
             .unwrap();
         assert_eq!(g.edges()[&owner], BTreeSet::from([action.clone()]));
         assert_eq!(g.edges()[&action], BTreeSet::from([owner.clone()]));
-        assert!(g.components().any(|(nos, cycle)| cycle
-            && nos.iter().cloned().collect::<BTreeSet<_>>()
+        assert!(g.components().any(|(nodes, cycle)| cycle
+            && nodes.iter().cloned().collect::<BTreeSet<_>>()
                 == BTreeSet::from([owner.clone(), action.clone()])));
         assert!(g.opaque());
         g.check_in_module(&m, "anexo_local").unwrap();
@@ -397,17 +397,17 @@ mod tests {
         ];
         m.functions = vec![caller, wrapper, attach.clone()];
         super::super::origins::register(&mut m, 0, true);
-        let no = |id| AbstractNode::Allocation {
+        let node = |id| AbstractNode::Allocation {
             site: m.arc_sites["caller"][&ValueId(id)].clone(),
             context: String::new(),
         };
-        let owner = no(0);
-        let action = no(1);
+        let owner = node(0);
+        let action = node(1);
         for reverse in [false, true] {
             if reverse {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
             let WriteInclusions::Partial(edges) = &r["wrapper"].1.write_inclusions else {
                 panic!("anexo não pode certificar cobertura completa");
             };
@@ -422,14 +422,14 @@ mod tests {
             assert!(a.schemas[&action].is_empty());
             let e = super::super::escape::compute_in_module(&m, "caller", &a).unwrap();
             assert_eq!(
-                e.publications[&super::super::escape::EscapeCause::Return].nos(),
+                e.publications[&super::super::escape::EscapeCause::Return].nodes(),
                 Some(&BTreeSet::from([owner.clone(), action.clone()]))
             );
             let a = analyze_in_module(&m, "caller", 1).unwrap().unwrap();
             let e = super::super::escape::compute_in_module(&m, "caller", &a).unwrap();
             assert!(
                 e.publications[&super::super::escape::EscapeCause::Return]
-                    .nos()
+                    .nodes()
                     .is_none()
             );
         }
@@ -531,14 +531,14 @@ mod tests {
         super::super::origins::register(&mut m, 0, true);
         let a = analyze_in_module(&m, "captura", 8).unwrap().unwrap();
         assert_eq!(a.value(ValueId(4)), a.value(ValueId(2)));
-        let mut expected_set = a.value(ValueId(0)).unwrap().nos().unwrap().clone();
-        expected_set.extend(a.value(ValueId(1)).unwrap().nos().unwrap().iter().cloned());
-        assert_eq!(a.value(ValueId(6)).unwrap().nos(), Some(&expected_set));
+        let mut expected_set = a.value(ValueId(0)).unwrap().nodes().unwrap().clone();
+        expected_set.extend(a.value(ValueId(1)).unwrap().nodes().unwrap().iter().cloned());
+        assert_eq!(a.value(ValueId(6)).unwrap().nodes(), Some(&expected_set));
         assert!(a.unknown_set().is_empty());
         let g = super::super::graph::build_local_in_module(&m, "captura", 8)
             .unwrap()
             .unwrap();
-        let cell = a.value(ValueId(2)).unwrap().nos().unwrap().first().unwrap();
+        let cell = a.value(ValueId(2)).unwrap().nodes().unwrap().first().unwrap();
         assert_eq!(g.edges()[cell], expected_set);
         g.check_in_module(&m, "captura").unwrap();
         // Nem o bit escalar nem índice ausente viram referência null precisa.
@@ -549,8 +549,8 @@ mod tests {
                 *alvo = index;
             }
             let a = analyze_in_module(&m, "captura", 8).unwrap().unwrap();
-            assert!(a.value(ValueId(4)).unwrap().nos().is_none());
-            assert!(a.value(ValueId(6)).unwrap().nos().is_none());
+            assert!(a.value(ValueId(4)).unwrap().nodes().is_none());
+            assert!(a.value(ValueId(6)).unwrap().nodes().is_none());
         }
         if let Instruction::EnvGet { index, .. } = &mut m.functions[0].blocks[0].instructions[4].1 {
             *index = 1;
@@ -561,7 +561,7 @@ mod tests {
         }
         let a = analyze_in_module(&m, "captura", 8).unwrap().unwrap();
         assert_eq!(
-            a.value(ValueId(6)).unwrap().nos(),
+            a.value(ValueId(6)).unwrap().nodes(),
             Some(&BTreeSet::from([AbstractNode::Allocation {
                 site: m.arc_sites["captura"][&ValueId(0)].clone(),
                 context: String::new()
@@ -688,7 +688,7 @@ mod tests {
                 );
                 assert!(g.opaque());
                 let a = analyze_in_module(&m, "criar", 8).unwrap().unwrap();
-                assert!(a.value(ValueId(4)).unwrap().nos().unwrap().is_empty());
+                assert!(a.value(ValueId(4)).unwrap().nodes().unwrap().is_empty());
                 assert!(!a.schemas.keys().any(|n| matches!(n,
                     AbstractNode::SyntheticUnit { site, .. }
                         if site == &m.arc_sites["criar"][&ValueId(4)])));
@@ -795,7 +795,7 @@ mod tests {
             assert!(g.opaque());
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
             assert_eq!(
-                a.value(ValueId(1)).unwrap().nos(),
+                a.value(ValueId(1)).unwrap().nodes(),
                 Some(&BTreeSet::from([parent.clone()]))
             );
             // A aresta conhecida não torna o campo importado completamente conhecido.
@@ -808,7 +808,7 @@ mod tests {
                             position: 0
                         }
                     )
-                    .is_none_or(|p| p.nos().is_none())
+                    .is_none_or(|p| p.nodes().is_none())
             );
         }
         let g = build_local_in_module(&m, "caller", 8).unwrap().unwrap();
@@ -882,7 +882,7 @@ mod tests {
         super::super::origins::register(&mut m, 0, true);
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(
-            a.value(ValueId(0)).unwrap().nos(),
+            a.value(ValueId(0)).unwrap().nodes(),
             Some(&std::collections::BTreeSet::from([AbstractNode::Allocation {
                 site: m.arc_sites["criar"][&ValueId(37)].clone(),
                 context: String::new(),
@@ -987,13 +987,13 @@ mod tests {
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
             let e = compute_in_module(&m, "caller", &a).unwrap();
             assert_eq!(
-                e.publications[&EscapeCause::Global("g".into())].nos(),
+                e.publications[&EscapeCause::Global("g".into())].nodes(),
                 Some(&expected)
             );
-            assert_eq!(e.publications[&EscapeCause::Exception].nos(), Some(&expected));
+            assert_eq!(e.publications[&EscapeCause::Exception].nodes(), Some(&expected));
             assert!(
                 e.publications[&EscapeCause::OpaqueOperation(0)]
-                    .nos()
+                    .nodes()
                     .is_none()
             );
             let g = build_local_in_module(&m, "caller", 8).unwrap().unwrap();
@@ -1017,7 +1017,7 @@ mod tests {
         }
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         let e = compute_in_module(&m, "caller", &a).unwrap();
-        assert!(e.publications[&EscapeCause::Exception].nos().is_none());
+        assert!(e.publications[&EscapeCause::Exception].nodes().is_none());
     }
 
     #[test]
@@ -1122,37 +1122,37 @@ mod tests {
         };
         m.functions = vec![caller, create];
         super::super::origins::register(&mut m, 0, true);
-        let no = |function: &str, id| AbstractNode::Allocation {
+        let node = |function: &str, id| AbstractNode::Allocation {
             site: m.arc_sites[function][&ValueId(id)].clone(),
             context: String::new(),
         };
-        let allocated = no("criar", 37);
-        let parameter = no("caller", 0);
+        let allocated = node("criar", 37);
+        let parameter = node("caller", 0);
         for reverse in [false, true] {
             if reverse {
                 m.functions.reverse();
             }
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
             assert_eq!(
-                a.value(ValueId(1)).unwrap().nos(),
+                a.value(ValueId(1)).unwrap().nodes(),
                 Some(&std::collections::BTreeSet::from([
                     parameter.clone(),
                     allocated.clone()
                 ]))
             );
             assert_eq!(
-                a.value(ValueId(2)).unwrap().nos(),
+                a.value(ValueId(2)).unwrap().nodes(),
                 Some(&std::collections::BTreeSet::from([allocated.clone()]))
             );
-            assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+            assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
             assert!(
                 compute_in_module(&m, "caller", &a).unwrap().publications
                     [&EscapeCause::OpaqueOperation(1)]
-                    .nos()
+                    .nodes()
                     .is_none()
             );
             let a = analyze_in_module(&m, "caller", 1).unwrap().unwrap();
-            assert!(a.value(ValueId(1)).unwrap().nos().is_none());
+            assert!(a.value(ValueId(1)).unwrap().nodes().is_none());
         }
         let create = m
             .functions
@@ -1173,12 +1173,12 @@ mod tests {
         }
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(
-            a.value(ValueId(1)).unwrap().nos(),
+            a.value(ValueId(1)).unwrap().nodes(),
             Some(&std::collections::BTreeSet::from([allocated]))
         );
         m.arc_sites.remove("criar");
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-        assert!(a.value(ValueId(1)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(1)).unwrap().nodes().is_none());
         m.arc_memory = false;
         assert!(analyze_in_module(&m, "caller", 8).unwrap().is_none());
     }
@@ -1256,12 +1256,12 @@ mod tests {
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         let e = compute_in_module(&m, "caller", &a).unwrap();
         assert_eq!(
-            e.publications[&EscapeCause::Exception].nos(),
-            a.value(ValueId(0)).unwrap().nos()
+            e.publications[&EscapeCause::Exception].nodes(),
+            a.value(ValueId(0)).unwrap().nodes()
         );
         assert!(
             e.publications[&EscapeCause::OpaqueOperation(1)]
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.functions[2].blocks[0].terminator =
@@ -1269,12 +1269,12 @@ mod tests {
         assert!(compute_in_module(&m, "caller", &a).is_err());
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         let e = compute_in_module(&m, "caller", &a).unwrap();
-        assert!(e.publications[&EscapeCause::Exception].nos().is_none());
+        assert!(e.publications[&EscapeCause::Exception].nodes().is_none());
         let a = analyze_in_module(&m, "caller", 0).unwrap().unwrap();
         let e = compute_in_module(&m, "caller", &a).unwrap();
         assert!(
             e.publications[&EscapeCause::OpaqueOperation(1)]
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.arc_memory = false;
@@ -1346,12 +1346,12 @@ mod tests {
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
             let e = compute_in_module(&m, "caller", &a).unwrap();
             assert_eq!(
-                e.publications[&EscapeCause::Global("g".into())].nos(),
-                a.value(ValueId(0)).unwrap().nos()
+                e.publications[&EscapeCause::Global("g".into())].nodes(),
+                a.value(ValueId(0)).unwrap().nodes()
             );
             assert!(
                 e.publications[&EscapeCause::OpaqueOperation(1)]
-                    .nos()
+                    .nodes()
                     .is_none()
             );
             // Ordem nominal das declarações não muda a premissa; duplicação muda.
@@ -1373,7 +1373,7 @@ mod tests {
             let e = compute_in_module(&m, "caller", &n).unwrap();
             assert!(
                 e.publications[&EscapeCause::Global("g".into())]
-                    .nos()
+                    .nodes()
                     .unwrap()
                     .is_empty()
             );
@@ -1415,13 +1415,13 @@ mod tests {
         let e = compute_in_module(&m, "pub", &a).unwrap();
         assert!(
             e.publications[&EscapeCause::Global("g".into())]
-                .nos()
+                .nodes()
                 .unwrap()
                 .is_empty()
         );
         assert!(
             e.publications[&EscapeCause::OpaqueOperation(0)]
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.globals[0].1 = Type::I64;
@@ -1467,14 +1467,14 @@ mod tests {
         };
         m.functions = vec![caller, id];
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-        assert!(a.value(ValueId(0)).unwrap().nos().unwrap().is_empty());
+        assert!(a.value(ValueId(0)).unwrap().nodes().unwrap().is_empty());
         if let Instruction::CallStatic { args, .. } =
             &mut m.functions[0].blocks[0].instructions[0].1
         {
             args[0] = Operand::Constant(Constant::Int(0));
         }
         let b = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-        assert!(b.value(ValueId(0)).unwrap().nos().is_none());
+        assert!(b.value(ValueId(0)).unwrap().nodes().is_none());
         if let Instruction::CallStatic { args, .. } =
             &mut m.functions[0].blocks[0].instructions[0].1
         {
@@ -1491,12 +1491,12 @@ mod tests {
         m.functions[1].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
         assert!(super::super::escape::compute_in_module(&m, "caller", &a).is_err());
         let c = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-        assert!(c.value(ValueId(0)).unwrap().nos().is_none());
+        assert!(c.value(ValueId(0)).unwrap().nodes().is_none());
         assert_eq!(c.unknown_set(), &[ValueId(0)]);
         let e = super::super::escape::compute_in_module(&m, "caller", &c).unwrap();
         assert!(
             e.publications[&super::super::escape::EscapeCause::OpaqueOperation(0)]
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.arc_memory = false;
@@ -1588,7 +1588,7 @@ mod tests {
             *index = 1;
         }
         let a = analyze_in_module(&m, "cadeia", 8).unwrap().unwrap();
-        assert!(a.value(ValueId(5)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(5)).unwrap().nodes().is_none());
         assert!(a.unknown_set().contains(&ValueId(5)));
     }
 
@@ -1635,7 +1635,7 @@ mod tests {
         assert!(a.unknown_set().is_empty()); // A folha id é coberta.
         assert!(
             compute_in_module(&m, "f", &a).unwrap().publications[&EscapeCause::ImplicitEmission]
-                .nos()
+                .nodes()
                 .is_none()
         );
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
@@ -1672,7 +1672,7 @@ mod tests {
             if checks {
                 assert!(
                     e.publications[&EscapeCause::ImplicitEmission]
-                        .nos()
+                        .nodes()
                         .is_none()
                 );
             } else {
@@ -1693,7 +1693,7 @@ mod tests {
         let a = analyze_in_module(&m, "f", 8).unwrap().unwrap();
         assert!(
             compute_in_module(&m, "f", &a).unwrap().publications[&EscapeCause::ImplicitEmission]
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.arc_memory = false;
@@ -1803,7 +1803,7 @@ mod tests {
         super::super::origins::register(&mut m, 0, true);
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(a.value(ValueId(0)), a.value(ValueId(3)));
-        assert_eq!(a.value(ValueId(3)).unwrap().nos().unwrap().len(), 1);
+        assert_eq!(a.value(ValueId(3)).unwrap().nodes().unwrap().len(), 1);
         let e = super::super::escape::compute_in_module(&m, "caller", &a).unwrap();
         assert!(
             !e.publications
@@ -1820,7 +1820,7 @@ mod tests {
         let e = super::super::escape::compute_in_module(&m, "caller", &discarded).unwrap();
         assert!(
             e.publications[&super::super::escape::EscapeCause::Return]
-                .nos()
+                .nodes()
                 .unwrap()
                 .is_empty()
         );
@@ -1846,7 +1846,7 @@ mod tests {
                 .unwrap()
                 .value(ValueId(3))
                 .unwrap()
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.excecoes_por_tabelas = false;
@@ -1869,7 +1869,7 @@ mod tests {
                 .unwrap()
                 .value(ValueId(3))
                 .unwrap()
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.functions[1] = leaf.clone();
@@ -1889,7 +1889,7 @@ mod tests {
         let e = super::super::escape::compute_in_module(&m, "caller", &global).unwrap();
         assert!(
             e.publications[&super::super::escape::EscapeCause::OpaqueOperation(2)]
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.functions[1] = leaf;
@@ -1922,7 +1922,7 @@ mod tests {
                     .unwrap()
                     .value(ValueId(3))
                     .unwrap()
-                    .nos()
+                    .nodes()
                     .is_none()
             );
         }
@@ -2010,27 +2010,27 @@ mod tests {
         super::super::origins::register(&mut m, 0, true);
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(a.value(ValueId(0)), a.value(ValueId(1)));
-        assert_eq!(a.value(ValueId(1)).unwrap().nos().unwrap().len(), 1);
+        assert_eq!(a.value(ValueId(1)).unwrap().nodes().unwrap().len(), 1);
         // Devolver o argumento não garante que o campo continue null:
         // o callee acima escreve uma autoaresta antes do retorno normal.
-        assert!(a.value(ValueId(2)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(2)).unwrap().nodes().is_none());
         assert_eq!(a.unknown_set(), &[ValueId(1)]);
         assert!(super::super::escape::compute(&m.functions[0], &a).is_err());
         let r = super::super::escape::compute_in_module(&m, "caller", &a).unwrap();
         assert!(
             r.publications[&super::super::escape::EscapeCause::OpaqueOperation(1)]
-                .nos()
+                .nodes()
                 .is_none()
         );
         m.functions[1].blocks[0].terminator =
             Terminator::Return(Some(Operand::Constant(Constant::Null)));
         assert!(super::super::escape::compute_in_module(&m, "caller", &a).is_err());
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-        assert!(a.value(ValueId(1)).unwrap().nos().unwrap().is_empty());
+        assert!(a.value(ValueId(1)).unwrap().nodes().unwrap().is_empty());
         m.functions.pop();
         assert!(super::super::escape::compute_in_module(&m, "caller", &a).is_err());
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-        assert!(a.value(ValueId(1)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(1)).unwrap().nodes().is_none());
     }
 
     #[test]
@@ -2083,7 +2083,7 @@ mod tests {
         super::super::origins::register(&mut m, 0, true);
         let a = analyze_in_module(&m, "criar", 8).unwrap().unwrap();
         assert_eq!(a.value(ValueId(0)), a.value(ValueId(2)));
-        assert_eq!(a.value(ValueId(0)).unwrap().nos().unwrap().len(), 1);
+        assert_eq!(a.value(ValueId(0)).unwrap().nodes().unwrap().len(), 1);
         assert!(a.unknown_set().is_empty());
         assert!(super::super::escape::compute(&m.functions[0], &a).is_err());
         assert!(super::super::escape::compute_in_module(&m, "criar", &a).is_ok());
@@ -2128,7 +2128,7 @@ mod tests {
             *ret_ty = Type::I64;
         }
         let a = analyze_in_module(&m, "criar", 8).unwrap().unwrap();
-        assert!(a.value(ValueId(0)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(0)).unwrap().nodes().is_none());
         if let Instruction::CallRuntime { ret_ty, .. } =
             &mut m.functions[0].blocks[0].instructions[0].1
         {
@@ -2136,7 +2136,7 @@ mod tests {
         }
         m.arc_field_layouts.clear();
         let a = analyze_in_module(&m, "criar", 8).unwrap().unwrap();
-        assert!(a.value(ValueId(2)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(2)).unwrap().nodes().is_none());
         m.arc_memory = false;
         assert!(analyze_in_module(&m, "criar", 8).unwrap().is_none());
     }

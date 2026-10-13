@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 /// Resume corpos alcançáveis pelas chamadas diretas das raízes fornecidas.
 /// Alvos externos não são inventados. Bottom é interno: ciclos sem evidência
 /// de retorno normal são elevados a topo antes de disponibilizar a SCC.
-pub(super) fn resolver<'a>(
+pub(super) fn solve<'a>(
     m: &'a Module,
     roots: &HashSet<&str>,
     limit: usize,
@@ -361,7 +361,7 @@ mod tests {
             m.functions.push(scalar(&format!("f{v}"), alvo.as_deref()));
         }
         for _ in 0..2 {
-            let r = resolver(&m, &HashSet::from(["f0"]), 8).unwrap();
+            let r = solve(&m, &HashSet::from(["f0"]), 8).unwrap();
             assert_eq!(r.len(), 1000);
             for (_, resumo) in r.values() {
                 assert_eq!(
@@ -404,7 +404,7 @@ mod tests {
                 }
                 _ => unreachable!(),
             }
-            let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+            let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
             assert_eq!(
                 r["f"].1.fields(),
                 ArcHeapFields::UnknownSet,
@@ -435,16 +435,16 @@ mod tests {
             ],
         ] {
             m.tables = tables;
-            let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+            let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
             assert_eq!(r["f"].1.fields(), ArcHeapFields::UnknownSet);
             assert_eq!(r["g"].1.publications(), ArcHeapPublications::UnknownValues);
         }
         m.tables = vec![FunctionTables::default(); 2];
-        let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
         assert_eq!(r["f"].1.fields(), ArcHeapFields::Preserved);
         // Alterar o próprio prólogo impede a propagação mesmo com g coberto.
         m.tables[0].checks_stack = true;
-        let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
         assert_eq!(r["f"].1.fields(), ArcHeapFields::UnknownSet);
         assert_eq!(r["g"].1.fields(), ArcHeapFields::Preserved);
     }
@@ -554,7 +554,7 @@ mod tests {
         ));
         m.functions[64].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
         for _ in 0..2 {
-            let r = resolver(&m, &HashSet::from(["f0"]), 8).unwrap();
+            let r = solve(&m, &HashSet::from(["f0"]), 8).unwrap();
             for (_, resumo) in r.values() {
                 assert_eq!(resumo.fields(), ArcHeapFields::Preserved);
                 assert_eq!(resumo.publications(), ArcHeapPublications::ResultOnly);
@@ -562,10 +562,10 @@ mod tests {
             }
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
             assert_eq!(a.value(ValueId(0)), a.value(ValueId(3)));
-            assert_eq!(a.value(ValueId(3)).unwrap().nos().unwrap().len(), 1);
+            assert_eq!(a.value(ValueId(3)).unwrap().nodes().unwrap().len(), 1);
             assert!(a.unknown_set().is_empty());
             // Resultado I64 não recebe prova de representação trivial/frescor.
-            assert!(a.value(ValueId(2)).unwrap().nos().is_none());
+            assert!(a.value(ValueId(2)).unwrap().nodes().is_none());
             assert!(
                 !compute_in_module(&m, "caller", &a)
                     .unwrap()
@@ -589,7 +589,7 @@ mod tests {
             m.functions[64].blocks[0].instructions[0].1 = i;
             assert!(compute_in_module(&m, "caller", &previous).is_err());
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-            assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+            assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
             assert_eq!(a.unknown_set(), &[ValueId(2)]);
             assert!(
                 compute_in_module(&m, "caller", &a)
@@ -613,7 +613,7 @@ mod tests {
                 args[0] = Operand::Constant(arg);
             }
             let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
-            assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+            assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
             assert_eq!(a.unknown_set(), &[ValueId(2)]);
         }
         m.arc_memory = false;
@@ -713,7 +713,7 @@ mod tests {
                 }
             }
             for limit in 0..=2 {
-                let r = resolver(&m, &HashSet::from(["f0", "f1", "f2"]), limit).unwrap();
+                let r = solve(&m, &HashSet::from(["f0", "f1", "f2"]), limit).unwrap();
                 for (v, line) in reachability.iter().enumerate() {
                     let parameters: BTreeSet<_> =
                         (0..3).filter(|&w| line[w]).map(|w| w % 2).collect();
@@ -751,13 +751,13 @@ mod tests {
             args.swap(0, 1);
         }
         m.functions.push(g);
-        let r = resolver(&m, &HashSet::from(["f"]), 2).unwrap();
+        let r = solve(&m, &HashSet::from(["f"]), 2).unwrap();
         assert!(r.values().all(|(_, r)| r.ret()
             == &ArcHeapReturn::Aliases {
                 parameters: BTreeSet::from([0, 1]),
                 null: false,
             }));
-        let r = resolver(&m, &HashSet::from(["f"]), 1).unwrap();
+        let r = solve(&m, &HashSet::from(["f"]), 1).unwrap();
         assert!(
             r.values()
                 .all(|(_, r)| r.ret() == &ArcHeapReturn::UnknownValue)
@@ -773,7 +773,7 @@ mod tests {
             Some(Operand::Constant(Constant::Null)),
             &["f".into()],
         ));
-        let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
         for (_, resumo) in r.values() {
             assert_eq!(
                 resumo.ret(),
@@ -784,13 +784,13 @@ mod tests {
             );
         }
         m.functions[1] = body("g", None, &["f".into()]);
-        let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
         assert!(
             r.values()
                 .all(|(_, r)| r.ret() == &ArcHeapReturn::UnknownValue)
         );
         m.functions[1] = body("g", Some(Operand::Val(ValueId(0))), &["externo".into()]);
-        let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
         assert!(
             r.values()
                 .all(|(_, r)| r.ret() == &ArcHeapReturn::UnknownValue)
@@ -809,7 +809,7 @@ mod tests {
             });
         }
         for _ in 0..2 {
-            let r = resolver(&m, &HashSet::from(["f0"]), 8).unwrap();
+            let r = solve(&m, &HashSet::from(["f0"]), 8).unwrap();
             assert_eq!(r.len(), 2000);
             assert!(r.values().all(|(_, r)| r.ret()
                 == &ArcHeapReturn::Aliases {

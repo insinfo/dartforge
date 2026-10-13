@@ -30,7 +30,7 @@
 //! assinatura com parâmetros opcionais, nomeados ou genéricos — vira erro do
 //! runtime com o motivo, nunca uma chamada com a ABI errada.
 
-use super::closures::{Padrao, EntryParam};
+use super::closures::{DefaultValue, EntryParam};
 use super::fn_builder::FnBuilder;
 use crate::context::Context;
 use crate::hir::*;
@@ -562,7 +562,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let infos: Vec<EntryParam> = a
             .params
             .iter()
-            .map(|_| EntryParam { name: None, kind: ParameterKind::Required, required: true, pattern: Padrao::Nenhum })
+            .map(|_| EntryParam { name: None, kind: ParameterKind::Required, required: true, pattern: DefaultValue::Absent })
             .collect();
         let Some(values) = self.unpack(&infos, args, desc) else {
             return;

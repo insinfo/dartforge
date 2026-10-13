@@ -10,11 +10,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum PathOrigin {
-    Parametro(usize),
+    Parameter(usize),
     // Contexto insensível: chamadas repetidas podem representar muitas
     // instâncias. Esquema acompanha a origem; não é prova de singleton.
     Allocation {
-        no: AbstractNode,
+        node: AbstractNode,
         fields: Vec<ArcField>,
     },
 }
@@ -28,7 +28,7 @@ pub(super) struct SummaryPath {
 impl SummaryPath {
     fn root(parameter: usize) -> Self {
         Self {
-            origin: PathOrigin::Parametro(parameter),
+            origin: PathOrigin::Parameter(parameter),
             fields: Vec::new(),
         }
     }
@@ -49,7 +49,7 @@ impl SummaryPath {
         limit: usize,
     ) -> Result<AliasPaths, String> {
         match &self.origin {
-            PathOrigin::Parametro(p) => {
+            PathOrigin::Parameter(p) => {
                 let arg = args.get(*p).ok_or("resumo ARC: parâmetro inválido")?;
                 Ok(extend(operand(arg), &self.fields, limit))
             }
@@ -354,7 +354,7 @@ pub(super) fn extract_with_origins<'a>(
                     let origin = &origins[v];
                     Some(BTreeSet::from([SummaryPath {
                         origin: PathOrigin::Allocation {
-                            no: origin.no.clone(),
+                            node: origin.node.clone(),
                             fields: origin.fields.clone(),
                         },
                         fields: Vec::new(),
@@ -427,7 +427,7 @@ pub(super) fn extract_with_origins<'a>(
                         if let Some(paths) = &ret.paths {
                             let mut a = Some(BTreeSet::new());
                             for path in paths {
-                                if let PathOrigin::Parametro(p) = &path.origin {
+                                if let PathOrigin::Parameter(p) = &path.origin {
                                     let arg =
                                         args.get(*p).ok_or("resumo ARC: parâmetro inválido")?;
                                     new_null |= null(arg, &nulls);
@@ -784,12 +784,12 @@ mod tests {
             if reverse {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
             assert_eq!(
                 r["wrapper"].1.write_inclusions,
                 WriteInclusions::Known(BTreeSet::from([ParameterWrite {
                     object: SummaryPath {
-                        origin: PathOrigin::Parametro(1),
+                        origin: PathOrigin::Parameter(1),
                         fields: vec![3]
                     },
                     index: Some(0),
@@ -799,7 +799,7 @@ mod tests {
             assert_eq!(
                 r["wrapper"].1.return_paths.paths,
                 Some(BTreeSet::from([SummaryPath {
-                    origin: PathOrigin::Parametro(1),
+                    origin: PathOrigin::Parameter(1),
                     fields: vec![3, 0]
                 }]))
             );
@@ -817,7 +817,7 @@ mod tests {
         if let Instruction::CellSet { value, .. } = &mut f.blocks[0].instructions[1].1 {
             *value = Operand::Constant(Constant::Int(41));
         }
-        let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+        let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
         assert_eq!(
             r["wrapper"].1.write_inclusions,
             WriteInclusions::UnknownValues
@@ -879,21 +879,21 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
             assert_eq!(
                 r["wrapper"].1.publication_inclusions,
                 PublicationInclusions::Known(BTreeMap::from([
                     (
                         EscapeCause::Exception,
                         Some(BTreeSet::from([SummaryPath {
-                            origin: PathOrigin::Parametro(0),
+                            origin: PathOrigin::Parameter(0),
                             fields: vec![9, 2]
                         }]))
                     ),
                     (
                         EscapeCause::Global("Excecao".into()),
                         Some(BTreeSet::from([SummaryPath {
-                            origin: PathOrigin::Parametro(0),
+                            origin: PathOrigin::Parameter(0),
                             fields: vec![9]
                         }]))
                     ),
@@ -903,7 +903,7 @@ mod tests {
                 r["wrapper"].1.publications(),
                 ArcHeapPublications::UnknownValues
             );
-            let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 3).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 3).unwrap();
             assert_eq!(
                 r["wrapper"].1.publication_inclusions,
                 PublicationInclusions::UnknownValues
@@ -944,13 +944,13 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
             assert_eq!(
                 r["wrapper"].1.publication_inclusions,
                 PublicationInclusions::Known(BTreeMap::from([(
                     EscapeCause::Global("g".into()),
                     Some(BTreeSet::from([SummaryPath {
-                        origin: PathOrigin::Parametro(0),
+                        origin: PathOrigin::Parameter(0),
                         fields: vec![9, 2]
                     }]))
                 )]))
@@ -964,7 +964,7 @@ mod tests {
         if let Instruction::ArcStoreStrong { value, .. } = &mut g.blocks[0].instructions[1].1 {
             *value = Operand::Constant(Constant::Null);
         }
-        let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+        let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
         assert_eq!(
             r["wrapper"].1.publication_inclusions,
             PublicationInclusions::Known(BTreeMap::from([(
@@ -1010,7 +1010,7 @@ mod tests {
             m.arc_memory = true;
             m.functions.push(f);
             m.globals.push((0, Type::Ref, "g".into()));
-            let r = super::super::calls::resolver(&m, &HashSet::from(["pub"]), 3).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["pub"]), 3).unwrap();
             assert_eq!(
                 r["pub"].1.publication_inclusions,
                 PublicationInclusions::Known(BTreeMap::from([(
@@ -1021,18 +1021,18 @@ mod tests {
                     ]))
                 )]))
             );
-            let r = super::super::calls::resolver(&m, &HashSet::from(["pub"]), 2).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["pub"]), 2).unwrap();
             assert_eq!(
                 r["pub"].1.publication_inclusions,
                 PublicationInclusions::UnknownValues
             );
             m.globals.push((0, Type::Ref, "g".into()));
-            assert!(super::super::calls::resolver(&m, &HashSet::from(["pub"]), 0).is_err());
+            assert!(super::super::calls::solve(&m, &HashSet::from(["pub"]), 0).is_err());
             m.globals.pop();
             m.globals[0].1 = Type::I64;
-            assert!(super::super::calls::resolver(&m, &HashSet::from(["pub"]), 8).is_err());
+            assert!(super::super::calls::solve(&m, &HashSet::from(["pub"]), 8).is_err());
             m.globals.clear();
-            assert!(super::super::calls::resolver(&m, &HashSet::from(["pub"]), 8).is_err());
+            assert!(super::super::calls::solve(&m, &HashSet::from(["pub"]), 8).is_err());
         }
     }
 
@@ -1110,12 +1110,12 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["writer"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["writer"]), 8).unwrap();
             assert_eq!(
                 r["wrapper"].1.return_paths,
                 ReturnPaths {
                     paths: Some(BTreeSet::from([SummaryPath {
-                        origin: PathOrigin::Parametro(0),
+                        origin: PathOrigin::Parameter(0),
                         fields: vec![9, 2]
                     }])),
                     null: true,
@@ -1125,7 +1125,7 @@ mod tests {
                 r["writer"].1.write_inclusions,
                 WriteInclusions::Known(BTreeSet::from([ParameterWrite {
                     object: SummaryPath {
-                        origin: PathOrigin::Parametro(0),
+                        origin: PathOrigin::Parameter(0),
                         fields: vec![9, 2]
                     },
                     index: Some(0),
@@ -1211,7 +1211,7 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["rec", "sem_base"]), 3)
+            let r = super::super::calls::solve(&m, &HashSet::from(["rec", "sem_base"]), 3)
                 .unwrap();
             assert_eq!(r["rec"].1.return_paths, ReturnPaths::unknown());
             assert_eq!(
@@ -1301,12 +1301,12 @@ mod tests {
         let expected = |prefix: Vec<usize>| {
             WriteInclusions::Known(BTreeSet::from([ParameterWrite {
                 object: SummaryPath {
-                    origin: PathOrigin::Parametro(0),
+                    origin: PathOrigin::Parameter(0),
                     fields: prefix,
                 },
                 index: Some(4),
                 value: SummaryPath {
-                    origin: PathOrigin::Parametro(1),
+                    origin: PathOrigin::Parameter(1),
                     fields: vec![2],
                 },
             }]))
@@ -1343,7 +1343,7 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["wrapper"]), 8).unwrap();
             assert_eq!(r["wrapper"].1.write_inclusions, expected(vec![9, 0, 1]));
             assert_eq!(r["wrapper"].1.fields(), ArcHeapFields::UnknownSet);
             assert_eq!(
@@ -1376,7 +1376,7 @@ mod tests {
         let mut m = Module::new();
         m.arc_memory = true;
         m.functions.push(f);
-        let r = super::super::calls::resolver(&m, &HashSet::from(["recursivo"]), 4).unwrap();
+        let r = super::super::calls::solve(&m, &HashSet::from(["recursivo"]), 4).unwrap();
         assert_eq!(
             r["recursivo"].1.write_inclusions,
             WriteInclusions::Exceeded
@@ -1515,19 +1515,19 @@ mod tests {
         m.arc_memory = true;
         m.functions = vec![f, id];
         let roots = HashSet::from(["ligar"]);
-        let r = super::super::calls::resolver(&m, &roots, 8).unwrap();
+        let r = super::super::calls::solve(&m, &roots, 8).unwrap();
         assert_eq!(r["ligar"].1.write_inclusions, expected_set(&[(0, 1)]));
         // Representação igual em bits não autoriza converter um argumento
         // I64 em Ref para sustentar o resumo de stores.
         m.functions[0].params[1].2 = Type::I64;
-        assert!(super::super::calls::resolver(&m, &roots, 8).is_err());
+        assert!(super::super::calls::solve(&m, &roots, 8).is_err());
         m.functions[0].params[1].2 = Type::Ref;
         let Instruction::CallStatic { args, .. } = &mut m.functions[0].blocks[0].instructions[1].1
         else {
             unreachable!()
         };
         args[0] = Operand::Constant(Constant::Int(7));
-        let r = super::super::calls::resolver(&m, &roots, 8).unwrap();
+        let r = super::super::calls::solve(&m, &roots, 8).unwrap();
         assert_eq!(
             r["ligar"].1.write_inclusions,
             WriteInclusions::UnknownValues
@@ -1627,7 +1627,7 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["s0000"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["s0000"]), 8).unwrap();
             assert_eq!(r.len(), 1000);
             for n in 0..1000 {
                 let expected = if (999 - n) % 2 == 0 { (0, 1) } else { (1, 0) };
@@ -1664,13 +1664,13 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["f"]), 8).unwrap();
             for (_, resumo) in r.values() {
                 assert_eq!(resumo.write_inclusions, expected_set(&[(0, 1), (1, 0)]));
                 assert_eq!(resumo.fields(), ArcHeapFields::UnknownSet);
                 assert_eq!(resumo.publications(), ArcHeapPublications::UnknownValues);
             }
-            let r = super::super::calls::resolver(&m, &HashSet::from(["f"]), 1).unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["f"]), 1).unwrap();
             assert!(
                 r.values()
                     .all(|(_, r)| r.write_inclusions == WriteInclusions::Exceeded)
@@ -1686,7 +1686,7 @@ mod tests {
             },
             Type::Void,
         ));
-        let r = super::super::calls::resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        let r = super::super::calls::solve(&m, &HashSet::from(["f"]), 8).unwrap();
         let WriteInclusions::Known(positive_set) = expected_set(&[(0, 1), (1, 0)]) else {
             unreachable!()
         };

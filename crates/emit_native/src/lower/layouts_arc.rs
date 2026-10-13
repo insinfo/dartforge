@@ -183,10 +183,10 @@ void main() { Base().exercitar(Object()); }
                     let mut allocations = 0;
                     for (v, i, _) in main.blocks.iter().flat_map(|b| &b.instructions) {
                         if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new") {
-                            if let Some(nos) = analysis.value(*v).and_then(|p| p.nos()) {
-                                assert_eq!(nos.len(), 1);
+                            if let Some(nodes) = analysis.value(*v).and_then(|p| p.nodes()) {
+                                assert_eq!(nodes.len(), 1);
                                 let expected = &module.arc_sites[&main.symbol][v];
-                                assert!(nos.iter().all(|n| matches!(n,
+                                assert!(nodes.iter().all(|n| matches!(n,
                                     crate::optimize::arc::analysis::model::AbstractNode::Allocation { site, .. }
                                         if site == expected)));
                                 allocations += 1;

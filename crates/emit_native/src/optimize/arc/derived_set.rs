@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) const KEEP_ALIVE: &str = "df.manter_vivo";
 
 #[derive(Clone, Copy, PartialEq)]
-struct Origem {
+struct Origin {
     /// A lista da qual o endereço deriva.
     list: ValueId,
     /// A leitura do endereço (o ajudante).
@@ -25,7 +25,7 @@ struct Origem {
     core: bool,
 }
 
-fn origins(f: &Function) -> HashMap<ValueId, Origem> {
+fn origins(f: &Function) -> HashMap<ValueId, Origin> {
     let mut der = HashMap::new();
     loop {
         let before = der.len();
@@ -39,7 +39,7 @@ fn origins(f: &Function) -> HashMap<ValueId, Origem> {
                 {
                     match args.as_slice() {
                         [(Operand::Val(list), Type::Ref)] => {
-                            Some(Origem { list: *list, root: *v, core: name == "df.nucleo_armazenamento" })
+                            Some(Origin { list: *list, root: *v, core: name == "df.nucleo_armazenamento" })
                         }
                         _ => None,
                     }
@@ -146,7 +146,7 @@ pub(super) fn keep_live(f: &mut Function) -> Result<(), String> {
 
 /// As leituras de armazenamento do núcleo ainda válidas na entrada de cada
 /// bloco: valem em todo caminho desde a leitura, sem barreira no meio.
-fn valid_storages(f: &Function, der: &HashMap<ValueId, Origem>) -> Vec<HashSet<ValueId>> {
+fn valid_storages(f: &Function, der: &HashMap<ValueId, Origin>) -> Vec<HashSet<ValueId>> {
     let roots: HashSet<ValueId> = der.values().filter(|o| o.core).map(|o| o.root).collect();
     let cfg = Cfg::new(f);
     let transfer = |bi: usize, mut state: HashSet<ValueId>| {

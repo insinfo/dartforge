@@ -333,7 +333,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let writable_length =
                             (shape != super::typed_items::SHAPE_GENERAL).then(|| self.core_writable_length(&list, shape));
                         let key = match self.lookup_local(local).map(|l| l.mode) {
-                            Some(super::locals::Modo::Memory(p)) => p,
+                            Some(super::locals::Mode::Memory(p)) => p,
                             _ => unreachable!("o laço de lista exige um local em memória"),
                         };
                         self.fixed_lists.push(FixedList { key, length: n, data, shape, writable_length });
@@ -1085,7 +1085,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Identifier(n) => {
                 !stored_set.contains(&n.sym)
                     && self.lookup_local(n.sym).is_some_and(|l| {
-                        matches!(l.mode, super::locals::Modo::Memory(_) | super::locals::Modo::Value(_) | super::locals::Modo::Environment { cell: false, .. })
+                        matches!(l.mode, super::locals::Mode::Memory(_) | super::locals::Mode::Value(_) | super::locals::Mode::Environment { cell: false, .. })
                     })
             }
             _ => false,
@@ -1118,7 +1118,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && fixed_local(*target)
                     && matches!(alvo, Some(super::typed_items::Indexable::Core { .. }))
                     && let ExprKind::Identifier(n) = &ast.expr(*target).kind
-                    && self.lookup_local(n.sym).is_some_and(|l| matches!(l.mode, super::locals::Modo::Memory(_)))
+                    && self.lookup_local(n.sym).is_some_and(|l| matches!(l.mode, super::locals::Mode::Memory(_)))
                     && self.body_without_calls(ast, body, n.sym, i)
                 {
                     return Some(Counted::Lista { alvo: *target, local: n.sym });
@@ -1188,7 +1188,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 continue;
             }
             let Some(local) = self.lookup_local(n.sym) else { continue };
-            if local.late.is_some() || !matches!(local.mode, super::locals::Modo::Memory(_)) {
+            if local.late.is_some() || !matches!(local.mode, super::locals::Mode::Memory(_)) {
                 continue;
             }
             // O tipo do acesso é o declarado do local (não uma promoção,
@@ -1343,7 +1343,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) {
         use super::fn_builder::ProvenTyped;
         let int = |x: i64| Operand::Constant(Constant::Int(x));
-        let Some(super::locals::Modo::Memory(counter)) = self.lookup_local(t.counter).map(|l| l.mode) else {
+        let Some(super::locals::Mode::Memory(counter)) = self.lookup_local(t.counter).map(|l| l.mode) else {
             // Numa célula (capturado): as voltas de sempre.
             self.for_iterations(ast, init, condition, updates, body, true, label_list);
             return;
@@ -1362,7 +1362,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for l in &t.lists {
             self.set_block(next);
             let ix = self.indexable(self.ctx.get_type(self.unit_id, l.alvo)).expect("lista tipada conferida");
-            let Some(super::locals::Modo::Memory(key)) = self.lookup_local(l.local).map(|x| x.mode) else {
+            let Some(super::locals::Mode::Memory(key)) = self.lookup_local(l.local).map(|x| x.mode) else {
                 unreachable!("lista do laço versionado num `alloca`")
             };
             let list = self.read_local_by_name(l.local).expect("lista declarada");

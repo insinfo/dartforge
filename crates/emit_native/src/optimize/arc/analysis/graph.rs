@@ -95,7 +95,7 @@ impl ArcHeapGraph {
     pub fn components(&self) -> impl Iterator<Item = (&[AbstractNode], bool)> {
         self.components
             .iter()
-            .map(|(nos, cycle)| (nos.as_slice(), *cycle))
+            .map(|(nodes, cycle)| (nodes.as_slice(), *cycle))
     }
 }
 
@@ -134,7 +134,7 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
         .schemas
         .keys()
         .cloned()
-        .map(|no| (no, BTreeSet::new()))
+        .map(|node| (node, BTreeSet::new()))
         .collect();
     let mut opaque = !a.unknown_set().is_empty() || a.opaque_implicit_emission;
     // Valores que podem ser handles/endereços sem origem fechada conservam
@@ -146,20 +146,20 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
             .map(|(v, _, t)| (v, t)),
     ) {
         if matches!(t, Type::Ref | Type::I64 | Type::Ptr)
-            && a.value(*v).is_none_or(|p| p.nos().is_none())
+            && a.value(*v).is_none_or(|p| p.nodes().is_none())
         {
             opaque = true;
         }
     }
-    for (no, fields) in &a.schemas {
+    for (node, fields) in &a.schemas {
         for field in fields {
-            let Some(dests) = a.points().field(no, field).and_then(|p| p.nos()) else {
+            let Some(dests) = a.points().field(node, field).and_then(|p| p.nodes()) else {
                 opaque = true;
                 continue;
             };
             for dest in dests {
                 edges
-                    .entry(no.clone())
+                    .entry(node.clone())
                     .or_default()
                     .insert(dest.clone());
                 edges.entry(dest.clone()).or_default();
@@ -174,8 +174,8 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
     // isso não fecha a fronteira ou fornece uma prova de não participação.
     for &(object, value) in &a.write_inclusions {
         match (
-            a.points().variable(object).and_then(|p| p.nos()),
-            a.points().variable(value).and_then(|p| p.nos()),
+            a.points().variable(object).and_then(|p| p.nodes()),
+            a.points().variable(value).and_then(|p| p.nodes()),
         ) {
             (Some(origins), Some(dests)) => {
                 for origin in origins {
@@ -191,17 +191,17 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
             _ => opaque = true,
         }
     }
-    let nos: Vec<_> = edges.keys().cloned().collect();
-    let ids: BTreeMap<_, _> = nos.iter().enumerate().map(|(i, no)| (no, i)).collect();
-    let adjacent: Vec<Vec<_>> = nos
+    let nodes: Vec<_> = edges.keys().cloned().collect();
+    let ids: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, node)| (node, i)).collect();
+    let adjacent: Vec<Vec<_>> = nodes
         .iter()
-        .map(|no| edges[no].iter().map(|dest| ids[dest]).collect())
+        .map(|node| edges[node].iter().map(|dest| ids[dest]).collect())
         .collect();
     let components = crate::optimize::scc::components(&adjacent)
         .into_iter()
         .map(|c| {
             let cycle = c.len() > 1 || adjacent[c[0]].contains(&c[0]);
-            let mut members: Vec<_> = c.into_iter().map(|v| nos[v].clone()).collect();
+            let mut members: Vec<_> = c.into_iter().map(|v| nodes[v].clone()).collect();
             members.sort();
             (members, cycle)
         })
@@ -235,18 +235,18 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
             .map(|(v, _, t)| (v, t)),
     ) {
         if matches!(t, Type::Ref | Type::I64 | Type::Ptr)
-            && a.value(*v).is_none_or(|p| p.nos().is_none())
+            && a.value(*v).is_none_or(|p| p.nodes().is_none())
         {
             require_opaque()?;
         }
     }
-    for (no, fields) in &a.schemas {
+    for (node, fields) in &a.schemas {
         let exits = g
             .edges
-            .get(no)
+            .get(node)
             .ok_or("grafo ARC: nó de esquema omitido")?;
         for field in fields {
-            match a.points().field(no, field).and_then(|p| p.nos()) {
+            match a.points().field(node, field).and_then(|p| p.nodes()) {
                 None => require_opaque()?,
                 Some(dests) => {
                     for dest in dests {
@@ -260,8 +260,8 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
     }
     for &(object, value) in &a.write_inclusions {
         match (
-            a.points().variable(object).and_then(|p| p.nos()),
-            a.points().variable(value).and_then(|p| p.nos()),
+            a.points().variable(object).and_then(|p| p.nodes()),
+            a.points().variable(value).and_then(|p| p.nodes()),
         ) {
             (Some(origins), Some(dests)) => {
                 for origin in origins {
@@ -279,8 +279,8 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
     }
     // Inclui nós extras de sobreaproximações: um destino sem esquema não
     // pode ser tratado como folha fechada só por não ter arestas explícitas.
-    for (no, exits) in &g.edges {
-        if !a.schemas.contains_key(no) {
+    for (node, exits) in &g.edges {
+        if !a.schemas.contains_key(node) {
             require_opaque()?;
         }
         if exits
@@ -294,18 +294,18 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
         .edges
         .keys()
         .enumerate()
-        .map(|(i, no)| (no, i))
+        .map(|(i, node)| (node, i))
         .collect();
     let adjacent: Vec<Vec<_>> = g
         .edges
         .values()
-        .map(|exits| exits.iter().map(|no| ids[no]).collect())
+        .map(|exits| exits.iter().map(|node| ids[node]).collect())
         .collect();
     let mut cs = Vec::new();
     for (members, cycle) in &g.components {
         let c: Vec<_> = members
             .iter()
-            .map(|no| ids.get(no).copied().ok_or("grafo ARC: membro SCC ausente"))
+            .map(|node| ids.get(node).copied().ok_or("grafo ARC: membro SCC ausente"))
             .collect::<Result<_, _>>()?;
         if c.is_empty() {
             return Err("grafo ARC: SCC vazia".into());
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn stores_por_chamada_preservam_os_512_grafos_sem_fechar_fronteiras() {
+    fn per_call_stores_preserve_the_512_graphs_without_closing_boundaries() {
         for mask in 0..512 {
             let mut m = module(mask);
             for (_, i, _) in &mut m.functions[0].blocks[0].instructions {
@@ -409,7 +409,7 @@ mod tests {
             let mut g = build_local_in_module(&m, "f", 16).unwrap().unwrap();
             assert!(g.opaque());
             assert_eq!(g.edges.len(), 3);
-            let nos: Vec<_> = (0..3)
+            let nodes: Vec<_> = (0..3)
                 .map(|v| AbstractNode::Allocation {
                     site: m.arc_sites["f"][&ValueId(v)].clone(),
                     context: "".into(),
@@ -419,11 +419,11 @@ mod tests {
             for v in 0..3 {
                 for w in 0..3 {
                     reachability[v][w] = mask & (1 << (3 * v + w)) != 0;
-                    assert_eq!(g.edges[&nos[v]].contains(&nos[w]), reachability[v][w]);
+                    assert_eq!(g.edges[&nodes[v]].contains(&nodes[w]), reachability[v][w]);
                     if reachability[v][w] {
-                        g.edges.get_mut(&nos[v]).unwrap().remove(&nos[w]);
+                        g.edges.get_mut(&nodes[v]).unwrap().remove(&nodes[w]);
                         assert!(g.check_in_module(&m, "f").is_err());
-                        g.edges.get_mut(&nos[v]).unwrap().insert(nos[w].clone());
+                        g.edges.get_mut(&nodes[v]).unwrap().insert(nodes[w].clone());
                     }
                 }
             }
@@ -439,7 +439,7 @@ mod tests {
                     let together = g
                         .components
                         .iter()
-                        .any(|(c, _)| c.contains(&nos[v]) && c.contains(&nos[w]));
+                        .any(|(c, _)| c.contains(&nodes[v]) && c.contains(&nodes[w]));
                     assert_eq!(together, v == w || (reachability[v][w] && reachability[w][v]));
                 }
             }
@@ -466,7 +466,7 @@ mod tests {
             // pilha do prólogo permanece opaca, sem apagar as arestas.
             assert!(g.opaque());
             assert_eq!(g.edges().len(), 3);
-            let nos: Vec<_> = (0..3)
+            let nodes: Vec<_> = (0..3)
                 .map(|v| AbstractNode::Allocation {
                     site: m.arc_sites["f"][&ValueId(v)].clone(),
                     context: "".into(),
@@ -476,22 +476,22 @@ mod tests {
             for (v, line) in reachability.iter_mut().enumerate() {
                 for (w, dest) in line.iter_mut().enumerate() {
                     *dest = mask & (1 << (3 * v + w)) != 0;
-                    assert_eq!(g.edges()[&nos[v]].contains(&nos[w]), *dest);
+                    assert_eq!(g.edges()[&nodes[v]].contains(&nodes[w]), *dest);
                 }
             }
             // Adulterações são conferidas contra as obrigações inferidas,
             // não contra uma nova execução do produtor/Tarjan.
             g.check_in_module(&m, "f").unwrap();
-            for no in &nos {
-                let dests: Vec<_> = g.edges[no].iter().cloned().collect();
+            for node in &nodes {
+                let dests: Vec<_> = g.edges[node].iter().cloned().collect();
                 for dest in dests {
-                    g.edges.get_mut(no).unwrap().remove(&dest);
+                    g.edges.get_mut(node).unwrap().remove(&dest);
                     assert!(g.check_in_module(&m, "f").is_err());
-                    g.edges.get_mut(no).unwrap().insert(dest);
+                    g.edges.get_mut(node).unwrap().insert(dest);
                 }
-                let exits = g.edges.remove(no).unwrap();
+                let exits = g.edges.remove(node).unwrap();
                 assert!(g.check_in_module(&m, "f").is_err());
-                g.edges.insert(no.clone(), exits);
+                g.edges.insert(node.clone(), exits);
             }
             g.opaque = false;
             assert!(g.check_in_module(&m, "f").is_err());
@@ -515,8 +515,8 @@ mod tests {
             }
             let mut owners = [usize::MAX; 3];
             for (id, (members, cycle)) in g.components().enumerate() {
-                for no in members {
-                    let v = nos.iter().position(|n| n == no).unwrap();
+                for node in members {
+                    let v = nodes.iter().position(|n| n == node).unwrap();
                     assert_eq!(owners[v], usize::MAX);
                     owners[v] = id;
                     assert_eq!(cycle, reachability[v][v], "grafo {mask}, nó {v}");
@@ -537,42 +537,42 @@ mod tests {
     fn check_graph_accepts_supergraph_and_rejects_tampered_sccs() {
         let m = module(0);
         let mut g = build_local_in_module(&m, "f", 8).unwrap().unwrap();
-        let nos: Vec<_> = g.edges.keys().cloned().collect();
-        g.edges.get_mut(&nos[0]).unwrap().insert(nos[1].clone());
+        let nodes: Vec<_> = g.edges.keys().cloned().collect();
+        g.edges.get_mut(&nodes[0]).unwrap().insert(nodes[1].clone());
         g.components = vec![
-            (vec![nos[1].clone()], false),
-            (vec![nos[0].clone()], false),
-            (vec![nos[2].clone()], false),
+            (vec![nodes[1].clone()], false),
+            (vec![nodes[0].clone()], false),
+            (vec![nodes[2].clone()], false),
         ];
         g.check_in_module(&m, "f").unwrap();
         // União de nós sem alcance de volta não é componente forte.
         g.components = vec![
-            (vec![nos[0].clone(), nos[1].clone()], true),
-            (vec![nos[2].clone()], false),
+            (vec![nodes[0].clone(), nodes[1].clone()], true),
+            (vec![nodes[2].clone()], false),
         ];
         assert!(g.check_in_module(&m, "f").is_err());
         // Acrescentar aresta de volta torna a união forte, sem executar Tarjan.
-        g.edges.get_mut(&nos[1]).unwrap().insert(nos[0].clone());
+        g.edges.get_mut(&nodes[1]).unwrap().insert(nodes[0].clone());
         g.check_in_module(&m, "f").unwrap();
         // Dividir o ciclo em duas SCCs é inválido mesmo com cobertura única.
         g.components = vec![
-            (vec![nos[1].clone()], false),
-            (vec![nos[0].clone()], false),
-            (vec![nos[2].clone()], false),
+            (vec![nodes[1].clone()], false),
+            (vec![nodes[0].clone()], false),
+            (vec![nodes[2].clone()], false),
         ];
         assert!(g.check_in_module(&m, "f").is_err());
         g.components = vec![
-            (vec![nos[0].clone(), nos[1].clone()], true),
-            (vec![nos[2].clone()], false),
+            (vec![nodes[0].clone(), nodes[1].clone()], true),
+            (vec![nodes[2].clone()], false),
         ];
-        g.components.push((vec![nos[2].clone()], false));
+        g.components.push((vec![nodes[2].clone()], false));
         assert!(g.check_in_module(&m, "f").is_err());
         g.components.pop();
         g.components.push((vec![], false));
         assert!(g.check_in_module(&m, "f").is_err());
         g.components.pop();
         let external = AbstractNode::Global("externo".into());
-        g.edges.get_mut(&nos[0]).unwrap().insert(external.clone());
+        g.edges.get_mut(&nodes[0]).unwrap().insert(external.clone());
         assert!(g.check_in_module(&m, "f").is_err());
         g.edges.insert(external.clone(), BTreeSet::new());
         // Nó extra sem esquema exige fronteira opaca e partição completa.

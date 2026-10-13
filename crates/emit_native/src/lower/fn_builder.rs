@@ -542,7 +542,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
-    pub fn finalizar(mut self, module: &mut Module) {
+    pub fn finish(mut self, module: &mut Module) {
         self.close_stack_trace();
         // P6: o diagnóstico de uma função da fonte só vale se a poda a
         // mantiver (`source::prune`).

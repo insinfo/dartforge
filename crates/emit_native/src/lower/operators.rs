@@ -291,7 +291,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // `String.*` da fonte do SDK (`_StringBase.operator *`).
             let a = self.coerce(lop, Type::Ref);
             let n = self.coerce(rop, Type::Ref);
-            let r = self.call_by_name(a, super::sdk_source::Tipo::Call, "*", &[(None, n)]);
+            let r = self.call_by_name(a, super::sdk_source::AccessKind::Call, "*", &[(None, n)]);
             return self.coerce(r, Type::Ref);
         }
         match op {

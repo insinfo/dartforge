@@ -41,7 +41,7 @@
 //! tupla de tipos, parâmetros…, locais…, temporários…]`.
 
 use super::fn_builder::FnBuilder;
-use super::locals::{Local, Modo};
+use super::locals::{Local, Mode};
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, FunctionBody};
@@ -212,13 +212,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     continue;
                 }
                 match l.mode {
-                    Modo::Environment { .. } => env.push((*s, l.clone())),
+                    Mode::Environment { .. } => env.push((*s, l.clone())),
                     _ => others.push((*s, l.clone())),
                 }
             }
         }
         env.sort_by_key(|(_, l)| match l.mode {
-            Modo::Environment { index: idx_value, .. } => idx_value,
+            Mode::Environment { index: idx_value, .. } => idx_value,
             _ => 0,
         });
         others.sort_by_key(|(s, l)| (l.offset, self.ctx.symbol_name(*s).to_string()));
@@ -281,7 +281,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !captures.is_empty() {
             let from_outside = b.read_position(frame.clone(), Q_ENV, Type::Ref);
             for (sym, l) in &captures {
-                if let Modo::Environment { index: idx_value, cell, .. } = l.mode {
+                if let Mode::Environment { index: idx_value, cell, .. } = l.mode {
                     b.bind_env(*sym, from_outside.clone(), idx_value, cell, l.ty, l);
                 }
             }
@@ -454,7 +454,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: Some("iterador".to_string()),
                 kind: ast::ParameterKind::Required,
                 required: true,
-                pattern: super::closures::Padrao::Nenhum,
+                pattern: super::closures::DefaultValue::Absent,
             });
         }
         infos.extend([
@@ -462,13 +462,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: Some("codigo".to_string()),
                 kind: ast::ParameterKind::Required,
                 required: true,
-                pattern: super::closures::Padrao::Nenhum,
+                pattern: super::closures::DefaultValue::Absent,
             },
             super::closures::EntryParam {
                 name: Some("resultado".to_string()),
                 kind: ast::ParameterKind::Required,
                 required: true,
-                pattern: super::closures::Padrao::Nenhum,
+                pattern: super::closures::DefaultValue::Absent,
             },
         ]);
         let symbol_ent = format!("{body_symbol}$ent");
@@ -501,7 +501,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         fields[Q_ENV] = captures
             .iter()
             .find_map(|(_, l)| match &l.mode {
-                Modo::Environment { env, .. } => Some(env.clone()),
+                Mode::Environment { env, .. } => Some(env.clone()),
                 _ => None,
             })
             .unwrap_or(Operand::Constant(Constant::Null));

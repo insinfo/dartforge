@@ -40,7 +40,7 @@ impl FnBuilder<'_, '_> {
             return None;
         }
         let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(alvo).kind else { return None };
-        let super::locals::Modo::Memory(key) = self.lookup_local(n.sym)?.mode else { return None };
+        let super::locals::Mode::Memory(key) = self.lookup_local(n.sym)?.mode else { return None };
         self.fixed_lists.iter().rev().find(|f| f.key == key).cloned()
     }
 
@@ -61,7 +61,7 @@ impl FnBuilder<'_, '_> {
         let address = |e: dartforge_frontend::ast::ExprId| {
             let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(e).kind else { return None };
             match self.lookup_local(n.sym)?.mode {
-                super::locals::Modo::Memory(p) => Some(p),
+                super::locals::Mode::Memory(p) => Some(p),
                 _ => None,
             }
         };
@@ -247,7 +247,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: ok, then_block: join, else_block: slow });
         self.set_block(slow);
         let args: Vec<super::members::Evaluated> = ops[1..].iter().map(|o| (None, o.clone())).collect();
-        self.call_by_name(ops[0].clone(), super::sdk_source::Tipo::Call, "fillRange", &args);
+        self.call_by_name(ops[0].clone(), super::sdk_source::AccessKind::Call, "fillRange", &args);
         if !self.is_terminated() {
             self.terminate(Terminator::Branch(join));
         }
@@ -334,7 +334,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(fast_block);
         self.terminate(Terminator::Branch(join));
         self.set_block(slow_block);
-        let s = self.call_by_name(list, super::sdk_source::Tipo::Read, "length", &[]);
+        let s = self.call_by_name(list, super::sdk_source::AccessKind::Read, "length", &[]);
         let s = self.coerce(s, Type::I64);
         let slow_end = self.current_block;
         if self.is_terminated() {
@@ -464,7 +464,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut slow = |s: &mut Self| {
             // O receptor tem tipo estático (a lista indexável): o seletor
             // tipado (`typed_entry.rs`).
-            s.call_by_name_with_typed_receiver(list2.clone(), true, super::sdk_source::Tipo::Call, "[]", &[(None, index2.clone())])
+            s.call_by_name_with_typed_receiver(list2.clone(), true, super::sdk_source::AccessKind::Call, "[]", &[(None, index2.clone())])
         };
         Some(self.branch_indexed(&list, &index, ix, false, repr, &mut fast, &mut slow))
     }
@@ -534,7 +534,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             s.call_by_name_with_typed_receiver(
                 list2.clone(),
                 true,
-                super::sdk_source::Tipo::Call,
+                super::sdk_source::AccessKind::Call,
                 "[]=",
                 &[(None, index2.clone()), (None, value)],
             );
@@ -632,7 +632,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let r = self.call_by_name_with_typed_receiver(
             list.clone(),
             true,
-            super::sdk_source::Tipo::Call,
+            super::sdk_source::AccessKind::Call,
             "[]",
             &[(None, index.clone())],
         );
@@ -672,8 +672,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for k in shapes {
             let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, f.clone(), Operand::Constant(Constant::Int(k))), Type::I1);
             let yes = self.new_block();
-            let no = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: ok, then_block: yes, else_block: no });
+            let node = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: ok, then_block: yes, else_block: node });
             self.set_block(yes);
             let v = self.load_in_shape(list, &data, index, k);
             let v = self.coerce(v, repr);
@@ -681,7 +681,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 entries.push((self.current_block, v));
                 self.terminate(Terminator::Branch(join));
             }
-            self.set_block(no);
+            self.set_block(node);
         }
         let v = self.element_by_sdk(list, index, repr);
         if !self.is_terminated() {

@@ -21,7 +21,7 @@ use std::collections::{BTreeSet, HashMap};
 #[derive(Debug, Clone)]
 pub struct ObjectOrigin {
     /// Nó nominal produzido para a alocação, nunca placeholder de parâmetro.
-    pub no: AbstractNode,
+    pub node: AbstractNode,
     /// Campos nas posições físicas do inicializador, incluindo campos triviais.
     pub fields: Vec<ArcField>,
 }
@@ -267,7 +267,7 @@ pub(crate) fn analyze_with_summaries(
                 .enumerate()
                 .any(|(i, c)| c.position as usize != i)
             || !matches!(
-                origin.no,
+                origin.node,
                 AbstractNode::Allocation { .. } | AbstractNode::SyntheticUnit { .. }
             )
         {
@@ -293,7 +293,7 @@ pub(crate) fn analyze_with_summaries(
     let ids: HashMap<_, _> = value_list.iter().enumerate().map(|(i, v)| (*v, i)).collect();
     let empty = ids.len();
     let opaque = empty + 1;
-    let mut rs = vec![Restricao::Unknown { dest: opaque }];
+    let mut rs = vec![Constraint::Unknown { dest: opaque }];
     let mut write_inclusions = Vec::new();
     let mut publication_inclusions = Vec::new();
     let mut variable_count = ids.len() + 2;
@@ -304,14 +304,14 @@ pub(crate) fn analyze_with_summaries(
     };
     for (v, _, ty) in &f.params {
         if matches!(ty, Type::Ref | Type::I64 | Type::Ptr) {
-            rs.push(Restricao::Unknown { dest: ids[v] });
+            rs.push(Constraint::Unknown { dest: ids[v] });
         }
     }
     let mut unknown_set = Vec::new();
     let mut schemas_by_index = std::collections::BTreeMap::new();
     for origin in facts.objects.values() {
         if schemas_by_index
-            .insert(origin.no.clone(), origin.fields.clone())
+            .insert(origin.node.clone(), origin.fields.clone())
             .is_some_and(|previous| previous != origin.fields)
         {
             return Err("points-to HIR: esquemas conflitantes para a mesma origem".into());
@@ -333,9 +333,9 @@ pub(crate) fn analyze_with_summaries(
             }
         }
         for path in paths {
-            if let super::writes::PathOrigin::Allocation { no, fields: field_list } = &path.origin {
+            if let super::writes::PathOrigin::Allocation { node, fields: field_list } = &path.origin {
                 if schemas_by_index
-                    .insert(no.clone(), field_list.clone())
+                    .insert(node.clone(), field_list.clone())
                     .is_some_and(|previous| previous != *field_list)
                 {
                     return Err("points-to HIR: esquema de alocação importada conflitante".into());
@@ -346,7 +346,7 @@ pub(crate) fn analyze_with_summaries(
                     field_list
                         .iter()
                         .cloned()
-                        .map(|field| Restricao::UnknownField { field }),
+                        .map(|field| Constraint::UnknownField { field }),
                 );
             }
         }
@@ -363,22 +363,22 @@ pub(crate) fn analyze_with_summaries(
         let dest = ids[v];
         match i {
             Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
-                rs.push(Restricao::Unknown { dest });
+                rs.push(Constraint::Unknown { dest });
                 invalidate_fields(*v, &field_list, &mut unknown_set, &mut rs);
             }
             Instruction::Const(_) if matches!(ty, Type::F64 | Type::I1 | Type::I8) => {}
-            Instruction::Const(c) => rs.push(Restricao::Copy {
+            Instruction::Const(c) => rs.push(Constraint::Copy {
                 origin: operand(&Operand::Constant(c.clone())),
                 dest,
             }),
             Instruction::ArcCopy { value } | Instruction::ArcMove { value } => {
-                rs.push(Restricao::Copy {
+                rs.push(Constraint::Copy {
                     origin: operand(value),
                     dest,
                 })
             }
             Instruction::CheckNotNull(value) => {
-                rs.push(Restricao::Copy {
+                rs.push(Constraint::Copy {
                     origin: operand(value),
                     dest,
                 });
@@ -386,7 +386,7 @@ pub(crate) fn analyze_with_summaries(
             }
             Instruction::Phi { incoming, .. } => {
                 for (_, o) in incoming {
-                    rs.push(Restricao::Copy {
+                    rs.push(Constraint::Copy {
                         origin: operand(o),
                         dest,
                     });
@@ -395,22 +395,22 @@ pub(crate) fn analyze_with_summaries(
                     .iter()
                     .any(|(_, o)| !super::summaries::exact_argument(o, *ty, &types))
                 {
-                    rs.push(Restricao::Unknown { dest });
+                    rs.push(Constraint::Unknown { dest });
                     invalidate_fields(*v, &field_list, &mut unknown_set, &mut rs);
                 }
             }
             Instruction::Bitcast {
                 op: Operand::Val(origin),
                 ..
-            } if *ty == Type::Ref && types[origin] == Type::Ref => rs.push(Restricao::Copy {
+            } if *ty == Type::Ref && types[origin] == Type::Ref => rs.push(Constraint::Copy {
                 origin: ids[origin],
                 dest,
             }),
             i if facts.objects.contains_key(v) => {
                 let origin = &facts.objects[v];
-                rs.push(Restricao::Seed {
+                rs.push(Constraint::Seed {
                     dest,
-                    no: origin.no.clone(),
+                    node: origin.node.clone(),
                 });
                 let initial_set = match i {
                     Instruction::AllocObject { fields, .. } => {
@@ -424,12 +424,12 @@ pub(crate) fn analyze_with_summaries(
                 };
                 for (o, field) in initial_set.iter().zip(&origin.fields) {
                     let Some(o) = o else {
-                        rs.push(Restricao::UnknownField {
+                        rs.push(Constraint::UnknownField {
                             field: field.clone(),
                         });
                         continue;
                     };
-                    rs.push(Restricao::Write {
+                    rs.push(Constraint::Write {
                         object: dest,
                         field: field.clone(),
                         value: operand(o),
@@ -471,10 +471,10 @@ pub(crate) fn analyze_with_summaries(
                             &mut variable_count,
                             &mut rs,
                         )?;
-                        rs.push(Restricao::Copy { origin, dest });
+                        rs.push(Constraint::Copy { origin, dest });
                     }
                 } else if *ty != Type::Void {
-                    rs.push(Restricao::Unknown { dest });
+                    rs.push(Constraint::Unknown { dest });
                 }
                 body_dependencies.insert(symbol.clone(), body_signature(callee));
                 if exact_abi
@@ -521,7 +521,7 @@ pub(crate) fn analyze_with_summaries(
                             &mut rs,
                         )?;
                         if let Some(idx_value) = write.index {
-                            rs.push(Restricao::WriteBySchema {
+                            rs.push(Constraint::WriteBySchema {
                                 object: obj_ref,
                                 schemas: schemas_by_index.clone(),
                                 index: idx_value,
@@ -540,7 +540,7 @@ pub(crate) fn analyze_with_summaries(
                 }
                 if !exact_abi || resumo.fields() != super::summaries::ArcHeapFields::Preserved {
                     for field in &field_list {
-                        rs.push(Restricao::UnknownField {
+                        rs.push(Constraint::UnknownField {
                             field: field.clone(),
                         });
                     }
@@ -554,7 +554,7 @@ pub(crate) fn analyze_with_summaries(
             {
                 let (object, index) = field_read(i).unwrap();
                 selected_accesses.push((*v, operand(object), index));
-                rs.push(Restricao::ReadBySchema {
+                rs.push(Constraint::ReadBySchema {
                     object: operand(object),
                     schemas: schemas_by_index.clone(),
                     index: index,
@@ -570,7 +570,7 @@ pub(crate) fn analyze_with_summaries(
             {
                 let (object, index, value) = field_write(i).unwrap();
                 selected_accesses.push((*v, operand(object), index));
-                rs.push(Restricao::WriteBySchema {
+                rs.push(Constraint::WriteBySchema {
                     object: operand(object),
                     schemas: schemas_by_index.clone(),
                     index: index,
@@ -579,14 +579,14 @@ pub(crate) fn analyze_with_summaries(
                 write_inclusions.push((operand(object), operand(value)));
             }
             Instruction::GetField { object, .. } if facts.accesses.contains_key(v) => {
-                rs.push(Restricao::Read {
+                rs.push(Constraint::Read {
                     object: operand(object),
                     field: facts.accesses[v].clone(),
                     dest,
                 })
             }
             Instruction::SetField { object, value, .. } if facts.accesses.contains_key(v) => {
-                rs.push(Restricao::Write {
+                rs.push(Constraint::Write {
                     object: operand(object),
                     field: facts.accesses[v].clone(),
                     value: operand(value),
@@ -605,23 +605,23 @@ pub(crate) fn analyze_with_summaries(
                 }
                 unknown_set.push(*v);
                 if *ty != Type::Void {
-                    rs.push(Restricao::Unknown { dest });
+                    rs.push(Constraint::Unknown { dest });
                 }
                 for field in &field_list {
-                    rs.push(Restricao::UnknownField {
+                    rs.push(Constraint::UnknownField {
                         field: field.clone(),
                     });
                 }
             }
         }
     }
-    let points = resolver(variable_count, limit, &rs)?;
+    let points = solve(variable_count, limit, &rs)?;
     for (v, obj_ref, idx_value) in selected_accesses {
-        if points.variable(obj_ref).unwrap().nos().is_none_or(|ns| {
+        if points.variable(obj_ref).unwrap().nodes().is_none_or(|ns| {
             ns.is_empty()
-                || ns.iter().any(|no| {
+                || ns.iter().any(|node| {
                     schemas_by_index
-                        .get(no)
+                        .get(node)
                         .and_then(|cs| cs.get(idx_value))
                         .is_none()
                 })
@@ -632,9 +632,9 @@ pub(crate) fn analyze_with_summaries(
     unknown_set.sort_by_key(|v| v.0);
     unknown_set.dedup();
     let mut schemas: HashMap<_, BTreeSet<_>> = HashMap::new();
-    for (no, field_list) in schemas_by_index.iter() {
+    for (node, field_list) in schemas_by_index.iter() {
         schemas
-            .entry(no.clone())
+            .entry(node.clone())
             .or_default()
             .extend(field_list.iter().cloned());
     }
@@ -660,21 +660,21 @@ fn materialize_summary(
     operand: &impl Fn(&Operand) -> usize,
     schemas: &std::sync::Arc<std::collections::BTreeMap<AbstractNode, Vec<ArcField>>>,
     variable_count: &mut usize,
-    rs: &mut Vec<Restricao>,
+    rs: &mut Vec<Constraint>,
 ) -> Result<usize, String> {
     let origin = match &path.origin {
-        super::writes::PathOrigin::Parametro(p) => operand(
+        super::writes::PathOrigin::Parameter(p) => operand(
             args.get(*p)
                 .ok_or("points-to: parâmetro de resumo inválido")?,
         ),
-        super::writes::PathOrigin::Allocation { no, .. } => {
+        super::writes::PathOrigin::Allocation { node, .. } => {
             let origin = *variable_count;
             *variable_count = variable_count
                 .checked_add(1)
                 .ok_or("points-to: variáveis auxiliares demais")?;
-            rs.push(Restricao::Seed {
+            rs.push(Constraint::Seed {
                 dest: origin,
-                no: no.clone(),
+                node: node.clone(),
             });
             origin
         }
@@ -690,7 +690,7 @@ fn materialize_path(
     field_list: &[usize],
     schemas: &std::sync::Arc<std::collections::BTreeMap<AbstractNode, Vec<ArcField>>>,
     variable_count: &mut usize,
-    rs: &mut Vec<Restricao>,
+    rs: &mut Vec<Constraint>,
 ) -> Result<usize, String> {
     let mut obj_ref = origin;
     for &idx_value in field_list {
@@ -698,7 +698,7 @@ fn materialize_path(
         *variable_count = variable_count
             .checked_add(1)
             .ok_or("points-to: variáveis auxiliares demais")?;
-        rs.push(Restricao::ReadBySchema {
+        rs.push(Constraint::ReadBySchema {
             object: obj_ref,
             schemas: schemas.clone(),
             index: idx_value,
@@ -713,14 +713,14 @@ fn invalidate_fields(
     v: ValueId,
     field_list: &BTreeSet<ArcField>,
     unknown_set: &mut Vec<ValueId>,
-    rs: &mut Vec<Restricao>,
+    rs: &mut Vec<Constraint>,
 ) {
     unknown_set.push(v);
     rs.extend(
         field_list
             .iter()
             .cloned()
-            .map(|field| Restricao::UnknownField { field }),
+            .map(|field| Constraint::UnknownField { field }),
     );
 }
 
@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn instantiated_path_includes_late_stores_and_both_previous_destinations() {
-        let nos = [
+        let nodes = [
             AbstractNode::Global("a".into()),
             AbstractNode::Global("b".into()),
             AbstractNode::Global("c".into()),
@@ -848,23 +848,23 @@ mod tests {
             })
             .collect();
         let schemas = std::sync::Arc::new(
-            nos.iter()
+            nodes.iter()
                 .cloned()
                 .zip(field_list.iter().cloned().map(|c| vec![c]))
                 .collect(),
         );
-        let mut rs: Vec<_> = nos
+        let mut rs: Vec<_> = nodes
             .iter()
             .enumerate()
-            .map(|(dest, no)| Restricao::Seed {
+            .map(|(dest, node)| Constraint::Seed {
                 dest,
-                no: no.clone(),
+                node: node.clone(),
             })
             .collect();
         let mut variables = 3;
         let read = materialize_path(0, &[0, 0], &schemas, &mut variables, &mut rs).unwrap();
         for (obj_ref, val_ref) in [(0, 1), (1, 2), (2, 0), (0, 2)] {
-            rs.push(Restricao::WriteBySchema {
+            rs.push(Constraint::WriteBySchema {
                 object: obj_ref,
                 schemas: schemas.clone(),
                 index: 0,
@@ -873,17 +873,17 @@ mod tests {
         }
         // a.filho pode ser b ou c; a.filho.filho pode ser c ou a. Uma
         // leitura congelada antes do store tardio a.filho=c perderia a.
-        let expected = BTreeSet::from([nos[0].clone(), nos[2].clone()]);
+        let expected = BTreeSet::from([nodes[0].clone(), nodes[2].clone()]);
         for order in [false, true] {
             if order {
                 rs.reverse();
             }
-            let p = resolver(variables, 8, &rs).unwrap();
-            assert_eq!(p.variable(read).unwrap().nos().unwrap(), &expected);
+            let p = solve(variables, 8, &rs).unwrap();
+            assert_eq!(p.variable(read).unwrap().nodes().unwrap(), &expected);
             super::super::points_to::verify(variables, 8, &rs, &p).unwrap();
         }
-        let p = resolver(variables, 1, &rs).unwrap();
-        assert!(p.variable(read).unwrap().nos().is_none());
+        let p = solve(variables, 1, &rs).unwrap();
+        assert!(p.variable(read).unwrap().nodes().is_none());
     }
 
     fn fixture() -> (Function, HirFacts) {
@@ -896,7 +896,7 @@ mod tests {
             facts.objects.insert(
                 ValueId(v),
                 ObjectOrigin {
-                    no: AbstractNode::Allocation {
+                    node: AbstractNode::Allocation {
                         site: ArcSite {
                             function: "ligar".into(),
                             origin: v as u64,
@@ -1000,11 +1000,11 @@ mod tests {
                 .insert(3, (ValueId(4), operation, t));
             let a = analyze(&f, &facts, 8).unwrap();
             assert_eq!(a.unknown_set(), &[ValueId(4)]);
-            assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+            assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
             assert!(
                 super::super::escape::compute(&f, &a).unwrap().publications
                     [&super::super::escape::EscapeCause::OpaqueOperation(4)]
-                    .nos()
+                    .nodes()
                     .is_none()
             );
         }
@@ -1022,7 +1022,7 @@ mod tests {
         );
         let a = analyze(&f, &facts, 8).unwrap();
         assert!(a.unknown_set().is_empty());
-        assert!(a.value(ValueId(4)).unwrap().nos().unwrap().is_empty());
+        assert!(a.value(ValueId(4)).unwrap().nodes().unwrap().is_empty());
         assert_eq!(a.value(ValueId(3)), a.value(ValueId(1)));
     }
 
@@ -1065,7 +1065,7 @@ mod tests {
         });
         let a = analyze(&f, &facts, 8).unwrap();
         assert_eq!(a.unknown_set(), &[ValueId(4)]);
-        assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
         f.blocks[3].instructions[0].2 = Type::Ref;
         if let Instruction::Phi { ty, .. } = &mut f.blocks[3].instructions[0].1 {
             *ty = Type::Ref;
@@ -1076,7 +1076,7 @@ mod tests {
         }
         let a = analyze(&f, &facts, 8).unwrap();
         assert!(a.unknown_set().is_empty());
-        assert_eq!(a.value(ValueId(4)).unwrap().nos().unwrap().len(), 2);
+        assert_eq!(a.value(ValueId(4)).unwrap().nodes().unwrap().len(), 2);
         assert_eq!(a.value(ValueId(3)), a.value(ValueId(1)));
     }
 
@@ -1088,7 +1088,7 @@ mod tests {
         assert_eq!(a.value(ValueId(3)), a.value(ValueId(1)));
         assert_eq!(
             a.points
-                .field(&facts.objects[&ValueId(1)].no, &facts.accesses[&ValueId(3)]),
+                .field(&facts.objects[&ValueId(1)].node, &facts.accesses[&ValueId(3)]),
             a.value(ValueId(0))
         );
     }
@@ -1110,12 +1110,12 @@ mod tests {
         );
         let a = analyze(&f, &facts, 8).unwrap();
         assert_eq!(a.unknown_set, vec![ValueId(4)]);
-        assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
         f.blocks[0].instructions.remove(3);
         facts.objects.remove(&ValueId(1));
         let a = analyze(&f, &facts, 8).unwrap();
-        assert!(a.value(ValueId(1)).unwrap().nos().is_none());
-        assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(1)).unwrap().nodes().is_none());
+        assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
     }
 
     #[test]
@@ -1135,7 +1135,7 @@ mod tests {
             fields[0] = Operand::Constant(Constant::Int(42));
         }
         let a = analyze(&f, &facts, 8).unwrap();
-        assert!(a.value(ValueId(3)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(3)).unwrap().nodes().is_none());
         let f = Function {
             symbol: "bits".into(),
             name: "bits".into(),
@@ -1156,7 +1156,7 @@ mod tests {
             }],
         };
         let a = analyze(&f, &HirFacts::default(), 8).unwrap();
-        assert!(a.value(ValueId(0)).unwrap().nos().is_none());
-        assert!(a.value(ValueId(1)).unwrap().nos().is_none());
+        assert!(a.value(ValueId(0)).unwrap().nodes().is_none());
+        assert!(a.value(ValueId(1)).unwrap().nodes().is_none());
     }
 }

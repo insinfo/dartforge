@@ -1389,14 +1389,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // (classe com `noSuchMethod` que não o declara). Pelo
                 // seletor, a falta na tabela chega ao `noSuchMethod` do
                 // receptor com o `Invocation`, como na VM.
-                use super::sdk_source::Tipo;
+                use super::sdk_source::AccessKind;
                 let f = &self.ctx.program.functions[decl_fid];
                 let ty = match f.kind {
-                    FunctionKind::Getter => Tipo::Read,
-                    FunctionKind::Setter => Tipo::Write,
-                    FunctionKind::ImplicitAccessor if evaluated.len() == 1 => Tipo::Write,
-                    FunctionKind::ImplicitAccessor => Tipo::Read,
-                    _ => Tipo::Call,
+                    FunctionKind::Getter => AccessKind::Read,
+                    FunctionKind::Setter => AccessKind::Write,
+                    FunctionKind::ImplicitAccessor if evaluated.len() == 1 => AccessKind::Write,
+                    FunctionKind::ImplicitAccessor => AccessKind::Read,
+                    _ => AccessKind::Call,
                 };
                 let name_str = self.ctx.symbol_name(f.name).to_string();
                 let s = super::sdk_source::selector_string(self.ctx, ty, &name_str, f.library);
@@ -1407,7 +1407,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 // O encaminhador da VM passa todos os parâmetros do membro,
                 // com os padrões dos opcionais omitidos.
-                let complete_set: Vec<Evaluated> = if matches!(ty, Tipo::Call) {
+                let complete_set: Vec<Evaluated> = if matches!(ty, AccessKind::Call) {
                     let values = self.match_args(decl_fid, evaluated);
                     self.ctx.outline.functions[decl_fid]
                         .parameters

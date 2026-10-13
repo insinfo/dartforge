@@ -395,7 +395,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut hash = Operand::Constant(Constant::Int(i64::from(SHAPE_BASE_ID) + k as i64));
         for i in 0..npos + names.len() {
             let field = self.shape_field(this.clone(), i);
-            let code = self.call_by_name(field, super::sdk_source::Tipo::Read, "hashCode", &[]);
+            let code = self.call_by_name(field, super::sdk_source::AccessKind::Read, "hashCode", &[]);
             let code = self.coerce(code, Type::I64);
             let multiplied = self.emit(
                 Instruction::Mul(hash, Operand::Constant(Constant::Int(31))),

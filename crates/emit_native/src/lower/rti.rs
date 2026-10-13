@@ -779,7 +779,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (code, name_str, end) = match context {
             CastContext::How => (0, Operand::Constant(Constant::Null), None),
             CastContext::Implicit => (1, Operand::Constant(Constant::Null), None),
-            CastContext::Parametro(n) => {
+            CastContext::Parameter(n) => {
                 let ok = self.test_rti(v.clone(), ty.clone());
                 let b_fail = self.new_block();
                 let b_end = self.new_block();
@@ -831,7 +831,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             let name_str = p.name.map(|n| self.ctx.symbol_name(n).to_string()).unwrap_or_default();
             let ty = self.type_rti(p.ty);
-            self.cast_rti_in(v.clone(), ty, CastContext::Parametro(name_str));
+            self.cast_rti_in(v.clone(), ty, CastContext::Parameter(name_str));
         }
     }
 
@@ -1320,7 +1320,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             Type::Ref,
         );
         t.terminate(Terminator::Return(Some(s)));
-        t.finalizar(module);
+        t.finish(module);
         // Corpo sintetizado: a convenção Dart (retorno Ref Owned) não vem de
         // `lower_function`; o chamador uniforme `toString$c` a exige.
         if ctx.arc_memory {
@@ -1338,7 +1338,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         let equal = equality.emit(Instruction::ICmp(ICmpOp::Eq, recv, other), Type::I1);
         let equal = equality.coerce(equal, Type::Ref);
         equality.terminate(Terminator::Return(Some(equal)));
-        equality.finalizar(module);
+        equality.finish(module);
         let mut text = FnBuilder::new(ctx, u, "df.$tipo.toString$c".to_string(), "toString".to_string(), Type::Ref);
         let recv = Operand::Val(text.add_param("this".to_string(), Type::Ref));
         text.add_param_vector(DartEntryVector::Argumentos);
@@ -1349,7 +1349,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             Type::Ref,
         );
         text.terminate(Terminator::Return(Some(value)));
-        text.finalizar(module);
+        text.finish(module);
         let mut methods = vec![
             ("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string()),
             ("c:toString".to_string(), "df.$tipo.toString$c".to_string()),
@@ -1527,7 +1527,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         Type::Void,
     );
     b.terminate(Terminator::Return(None));
-    b.finalizar(module);
+    b.finish(module);
     module.start_rti = Some("dartforge_rti_iniciar".to_string());
 }
 
@@ -1586,5 +1586,5 @@ pub enum CastContext {
     /// Atribuição implícita de um `dynamic`: sem sufixo.
     Implicit,
     /// O parâmetro de uma chamada dinâmica ou covariante: " of 'nome'".
-    Parametro(String),
+    Parameter(String),
 }

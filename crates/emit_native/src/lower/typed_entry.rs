@@ -431,7 +431,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (self.this_param, self.enclosing_class, self.class_by_tuple, self.type_tuple) = saved;
             let name = p.name.map(|n| self.ctx.symbol_name(n).to_string()).unwrap_or_default();
             let v = self.coerce(v, Type::Ref);
-            self.cast_rti_in(v, typ, super::rti::CastContext::Parametro(name));
+            self.cast_rti_in(v, typ, super::rti::CastContext::Parameter(name));
         }
     }
 

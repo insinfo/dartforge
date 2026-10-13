@@ -15,7 +15,7 @@
 //! atribuição por padrão, `for-in` com padrão) estão no fim.
 
 use super::fn_builder::FnBuilder;
-use super::locals::Modo;
+use super::locals::Mode;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind};
@@ -585,16 +585,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let val_ref = self.read_local(&case_scopes[i][&name_str]);
                 let val_ref = self.coerce(val_ref, dest.ty);
                 match &dest.mode {
-                    Modo::Memory(ptr) => {
+                    Mode::Memory(ptr) => {
                         self.emit(Instruction::Store { ptr: ptr.clone(), val: val_ref }, Type::Void);
                     }
-                    Modo::Cell(ptr) => {
+                    Mode::Cell(ptr) => {
                         // O último case não executou seu declarador neste
                         // caminho: crie a célula que o corpo capturado usa.
                         let cell = self.emit(Instruction::AllocCell { value: val_ref }, Type::Ref);
                         self.emit(Instruction::Store { ptr: ptr.clone(), val: cell }, Type::Void);
                     }
-                    Modo::Value(_) | Modo::Environment { .. } => unreachable!("variável declarada por case"),
+                    Mode::Value(_) | Mode::Environment { .. } => unreachable!("variável declarada por case"),
                 }
             }
             self.terminate(Terminator::Branch(bodies[i]));

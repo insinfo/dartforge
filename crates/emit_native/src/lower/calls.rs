@@ -584,10 +584,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 variables: args.variables,
             });
             let lib = self.ctx.program.unit(self.unit_id).library;
-            let s = super::sdk_source::selector_string(self.ctx, super::sdk_source::Tipo::Call, m_name, lib);
+            let s = super::sdk_source::selector_string(self.ctx, super::sdk_source::AccessKind::Call, m_name, lib);
             return self.call_by_selector_with_tuple(recv_op, s, &ev, tuple);
         }
-        self.call_by_name(recv_op, super::sdk_source::Tipo::Call, m_name, &ev)
+        self.call_by_name(recv_op, super::sdk_source::AccessKind::Call, m_name, &ev)
     }
 
     /// `alvo.m(args)` quando `m` não é membro estático do tipo do alvo: o

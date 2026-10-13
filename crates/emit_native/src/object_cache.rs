@@ -165,7 +165,7 @@ impl ObjectCache {
             loop {
                 if whole_exists(&final_) {
                     drop(progress);
-                    tocar(&final_);
+                    touch(&final_);
                     self.in_use.lock().unwrap_or_else(|e| e.into_inner()).insert(final_.clone());
                     return Ok((final_, true));
                 }
@@ -289,7 +289,7 @@ fn whole_exists(p: &Path) -> bool {
 
 /// Marca o uso de um objeto (a poda apaga os menos usados primeiro). Falha em
 /// silêncio: o objeto pode estar aberto pelo ligador de outro processo.
-fn tocar(p: &Path) {
+fn touch(p: &Path) {
     if let Ok(f) = std::fs::File::options().write(true).open(p) {
         let _ = f.set_modified(SystemTime::now());
     }

@@ -545,10 +545,10 @@ impl<'a> LlvmEmitter<'a> {
             self.emit_external_declarations();
             self.close_maps();
             if let Some(r) = self.vm_stack_trace.take() {
-                r.finalizar(&mut self.out);
+                r.finish(&mut self.out);
             }
             if let Some(d) = self.debug_info.take() {
-                d.finalizar(&mut self.out);
+                d.finish(&mut self.out);
             }
             return self.out;
         }
@@ -585,10 +585,10 @@ impl<'a> LlvmEmitter<'a> {
         self.emit_external_declarations();
         self.close_maps();
         if let Some(r) = self.vm_stack_trace.take() {
-            r.finalizar(&mut self.out);
+            r.finish(&mut self.out);
         }
         if let Some(d) = self.debug_info.take() {
-            d.finalizar(&mut self.out);
+            d.finish(&mut self.out);
         }
         self.out
     }

@@ -244,7 +244,7 @@ pub(super) fn extract_with_calls<'a>(
     let ids: HashMap<_, _> = values.iter().enumerate().map(|(i, v)| (*v, i)).collect();
     let null_val = ids.len();
     let opaque = null_val + 1;
-    let mut rs = vec![Restricao::Unknown { dest: opaque }];
+    let mut rs = vec![Constraint::Unknown { dest: opaque }];
     let op = |o: &Operand| match o {
         Operand::Val(v) => ids[v],
         Operand::Constant(Constant::Null) => null_val,
@@ -252,15 +252,15 @@ pub(super) fn extract_with_calls<'a>(
     };
     for (index, (v, _, t)) in f.params.iter().enumerate() {
         if *t == Type::Ref {
-            rs.push(Restricao::Seed {
+            rs.push(Constraint::Seed {
                 dest: ids[v],
-                no: AbstractNode::Parametro {
+                node: AbstractNode::Parameter {
                     function: f.symbol.clone(),
                     index: u32::try_from(index).map_err(|_| "resumo: parâmetros demais")?,
                 },
             });
         } else {
-            rs.push(Restricao::Unknown { dest: ids[v] });
+            rs.push(Constraint::Unknown { dest: ids[v] });
         }
     }
     let mut copies = Vec::new();
@@ -309,15 +309,15 @@ pub(super) fn extract_with_calls<'a>(
                         copies.push((null_val, dest));
                     }
                 }
-                _ => rs.push(Restricao::Unknown { dest }),
+                _ => rs.push(Constraint::Unknown { dest }),
             },
-            _ => rs.push(Restricao::Unknown { dest }),
+            _ => rs.push(Constraint::Unknown { dest }),
         }
     }
     for &(origin, dest) in &copies {
-        rs.push(Restricao::Copy { origin, dest });
+        rs.push(Constraint::Copy { origin, dest });
     }
-    let points = resolver(ids.len() + 2, limit, &rs)?;
+    let points = solve(ids.len() + 2, limit, &rs)?;
     // Nulabilidade tem worklist própria e não cria um nó físico para null.
     let mut dependents = vec![Vec::new(); ids.len() + 2];
     for (origin, dest) in copies {
@@ -343,11 +343,11 @@ pub(super) fn extract_with_calls<'a>(
             normal = true;
             let id = op(o);
             may_be_null |= nulls[id];
-            match points.variable(id).unwrap().nos() {
+            match points.variable(id).unwrap().nodes() {
                 None => unknown = true,
-                Some(nos) => {
-                    for no in nos {
-                        if let AbstractNode::Parametro { index, .. } = no {
+                Some(nodes) => {
+                    for node in nodes {
+                        if let AbstractNode::Parameter { index, .. } = node {
                             parameters.insert(*index as usize);
                         } else {
                             unknown = true;
@@ -747,11 +747,11 @@ mod tests {
         arg.include(AbstractNode::Global("a".into()));
         arg.include(AbstractNode::Global("b".into()));
         assert_eq!(r.instantiate(&f, &[arg.clone()], 8).unwrap(), arg);
-        assert!(r.instantiate(&f, &[arg], 1).unwrap().nos().is_none());
+        assert!(r.instantiate(&f, &[arg], 1).unwrap().nodes().is_none());
         assert!(
             r.instantiate(&f, &[PointSet::unknown(8)], 8)
                 .unwrap()
-                .nos()
+                .nodes()
                 .is_none()
         );
         assert!(r.instantiate(&f, &[], 8).is_err());

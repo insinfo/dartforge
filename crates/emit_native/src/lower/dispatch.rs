@@ -56,7 +56,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.unsupported("operador sobre num/dynamic/objeto", span);
         };
         let typed = self.all_checked(&[(None, a.clone())]);
-        let r = self.call_by_name_with_typed_receiver(a, typed, super::sdk_source::Tipo::Call, name, &[(None, b)]);
+        let r = self.call_by_name_with_typed_receiver(a, typed, super::sdk_source::AccessKind::Call, name, &[(None, b)]);
         // Comparação: o contexto quer o `bool`.
         if matches!(op, BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq) {
             return self.coerce(r, Type::I1);
@@ -67,7 +67,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `-a`/`~a` sobre uma referência: pela classe dinâmica.
     pub fn dynamic_unary(&mut self, op: UnaryOp, a: Operand) -> Operand {
         let name = if op == UnaryOp::Neg { "unary-" } else { "~" };
-        self.call_by_name(a, super::sdk_source::Tipo::Call, name, &[])
+        self.call_by_name(a, super::sdk_source::AccessKind::Call, name, &[])
     }
 
     /// O receptor não tem tipo estático útil para achar o membro: sem tipo

@@ -69,7 +69,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// elemento já garante. O conjunto usa o `add` do `_Set`.
     fn append(&mut self, alvo: Operand, typ: Collection, v: Operand) {
         if typ == Collection::Set {
-            self.call_by_name(alvo, super::sdk_source::Tipo::Call, "add", &[(None, v)]);
+            self.call_by_name(alvo, super::sdk_source::AccessKind::Call, "add", &[(None, v)]);
             return;
         }
         let v = self.coerce(v, Type::Ref);
@@ -85,7 +85,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Acrescenta uma entrada ao mapa (o `[]=` do `_Map`).
     fn append_entry(&mut self, alvo: Operand, k: Operand, v: Operand) {
-        self.call_by_name(alvo, super::sdk_source::Tipo::Call, "[]=", &[(None, k), (None, v)]);
+        self.call_by_name(alvo, super::sdk_source::AccessKind::Call, "[]=", &[(None, k), (None, v)]);
     }
 
     /// Literal de coleção com elementos de controle (ou de conjunto).
@@ -495,7 +495,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let source = self.coerce(source, Type::Ref);
                 // `...e` é o `addAll` da coleção (§17.9.1).
                 let spread = |s: &mut Self, f: Operand| {
-                    s.call_by_name(alvo.clone(), super::sdk_source::Tipo::Call, "addAll", &[(None, f)]);
+                    s.call_by_name(alvo.clone(), super::sdk_source::AccessKind::Call, "addAll", &[(None, f)]);
                 };
                 if *null_aware {
                     self.if_non_null(source, spread);
