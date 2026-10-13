@@ -877,7 +877,7 @@ impl Engine {
                     attributed.push((inits[i].0, d.clone(), phase::RESOLVER_VISITOR));
                 }
                 None => {
-                    if let Some((u, amb)) = index.attribute(d.span) {
+                    if let Some((u, amb)) = index.attribute(&program, d.span) {
                         analysis.ambiguous += usize::from(amb);
                         attributed.push((u, d.clone(), phase::RESOLVER_VISITOR));
                     }
@@ -1580,12 +1580,15 @@ fn initializers(program: &Program) -> Vec<(UnitId, Span)> {
 /// answer "which units have a node with exactly this range", so they go into
 /// one sorted vector of `(start, end, unit)`: 12 bytes per node instead of a
 /// map entry with its own vector (on `new_sali`'s frontend, ~100 MiB of the
-/// analysis peak).
+/// analysis peak). That vector is only built when a diagnostic needs it (one
+/// without a unit, outside every initializer), which most analyses never have.
 struct Index {
     exact: HashMap<(usize, usize), Vec<UnitId>>,
+    /// The libraries whose units are in `exact`.
+    own_libraries: BTreeSet<LibraryId>,
     /// The `(start, end, unit)` of the nodes of the other non-SDK units, sorted,
-    /// one per range and unit.
-    others: Vec<(u32, u32, u32)>,
+    /// one per range and unit; built on the first query.
+    others: std::cell::OnceCell<Vec<(u32, u32, u32)>>,
     /// The ranges of the top-level declarations of the batch's units.
     top: Vec<(UnitId, Span)>,
     own: BTreeSet<UnitId>,
@@ -1595,41 +1598,17 @@ impl Index {
     fn new(program: &Program, own: &BTreeSet<UnitId>) -> Index {
         let own_libraries: BTreeSet<LibraryId> = own.iter().map(|u| program.unit(*u).library).collect();
         let mut exact: HashMap<(usize, usize), Vec<UnitId>> = HashMap::new();
-        let mut others: Vec<(u32, u32, u32)> = Vec::new();
         let mut top = Vec::new();
         for (i, u) in program.units.iter().enumerate() {
-            if program.library(u.library).is_sdk {
+            if program.library(u.library).is_sdk || !Self::in_map(&own_libraries, u) {
                 continue;
             }
             let id = UnitId(i as u32);
-            let spans = u
-                .ast
-                .exprs
-                .iter()
-                .map(|e| e.span)
-                .chain(u.ast.stmts.iter().map(|e| e.span))
-                .chain(u.ast.types.iter().map(|e| e.span))
-                .chain(u.ast.patterns.iter().map(|e| e.span));
-            // A range that does not fit in 32 bits stays in the map.
-            if own_libraries.contains(&u.library) || u.source.len() > u32::MAX as usize {
-                for s in spans {
-                    let v = exact.entry((s.start, s.end)).or_default();
-                    if v.last() != Some(&id) {
-                        v.push(id);
-                    }
+            for s in Self::spans(u) {
+                let v = exact.entry((s.start, s.end)).or_default();
+                if v.last() != Some(&id) {
+                    v.push(id);
                 }
-            } else {
-                let first = others.len();
-                others.extend(spans.map(|s| (s.start as u32, s.end as u32, id.0)));
-                others[first..].sort_unstable();
-                let mut kept = first;
-                for j in first..others.len() {
-                    if kept == first || others[kept - 1] != others[j] {
-                        others[kept] = others[j];
-                        kept += 1;
-                    }
-                }
-                others.truncate(kept);
             }
             if own.contains(&id) {
                 for d in &u.unit.declarations {
@@ -1637,18 +1616,52 @@ impl Index {
                 }
             }
         }
-        others.sort_unstable();
-        others.shrink_to_fit();
-        Index { exact, others, top, own: own.clone() }
+        Index { exact, own_libraries, others: std::cell::OnceCell::new(), top, own: own.clone() }
+    }
+
+    /// The unit goes into the map: it is of the batch's libraries, or a range of
+    /// it does not fit in 32 bits.
+    fn in_map(own_libraries: &BTreeSet<LibraryId>, u: &dartforge_elements::model::Unit) -> bool {
+        own_libraries.contains(&u.library) || u.source.len() > u32::MAX as usize
+    }
+
+    /// The ranges of a unit's expressions, statements, types and patterns.
+    fn spans(u: &dartforge_elements::model::Unit) -> impl Iterator<Item = Span> + '_ {
+        u.ast
+            .exprs
+            .iter()
+            .map(|e| e.span)
+            .chain(u.ast.stmts.iter().map(|e| e.span))
+            .chain(u.ast.types.iter().map(|e| e.span))
+            .chain(u.ast.patterns.iter().map(|e| e.span))
+    }
+
+    /// The other units' ranges, built on the first call.
+    fn others(&self, program: &Program) -> &[(u32, u32, u32)] {
+        self.others.get_or_init(|| {
+            let mut others: Vec<(u32, u32, u32)> = Vec::new();
+            for (i, u) in program.units.iter().enumerate() {
+                if program.library(u.library).is_sdk || Self::in_map(&self.own_libraries, u) {
+                    continue;
+                }
+                others.extend(Self::spans(u).map(|s| (s.start as u32, s.end as u32, i as u32)));
+            }
+            // One per range and unit (the map's lists hold each unit once).
+            others.sort_unstable();
+            others.dedup();
+            others.shrink_to_fit();
+            others
+        })
     }
 
     /// The units with a node of exactly range `s`, in unit order (as the
     /// map's lists): those of the batch's libraries and the others.
-    fn with_range(&self, s: Span) -> Vec<UnitId> {
+    fn with_range(&self, program: &Program, s: Span) -> Vec<UnitId> {
         let mut v: Vec<UnitId> = self.exact.get(&(s.start, s.end)).cloned().unwrap_or_default();
         if let (Ok(start), Ok(end)) = (u32::try_from(s.start), u32::try_from(s.end)) {
-            let from = self.others.partition_point(|&(a, b, _)| (a, b) < (start, end));
-            v.extend(self.others[from..].iter().take_while(|&&(a, b, _)| (a, b) == (start, end)).map(|&(_, _, u)| UnitId(u)));
+            let others = self.others(program);
+            let from = others.partition_point(|&(a, b, _)| (a, b) < (start, end));
+            v.extend(others[from..].iter().take_while(|&&(a, b, _)| (a, b) == (start, end)).map(|&(_, _, u)| UnitId(u)));
         }
         v.sort_unstable();
         v
@@ -1673,8 +1686,8 @@ impl Index {
     }
 
     /// The diagnostic's unit and whether there was more than one candidate.
-    fn attribute(&self, s: Span) -> Option<(UnitId, bool)> {
-        let v = self.with_range(s);
+    fn attribute(&self, program: &Program, s: Span) -> Option<(UnitId, bool)> {
+        let v = self.with_range(program, s);
         if !v.is_empty() {
             let chosen = v.iter().copied().find(|u| self.own.contains(u)).unwrap_or(v[0]);
             return Some((chosen, v.len() > 1));
