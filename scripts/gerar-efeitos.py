@@ -8,7 +8,7 @@ import re, os
 R = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'crates').replace(os.sep, '/') + '/'
 src = R + 'runtime/src/'
 build = open(R + 'runtime/build.rs', encoding='utf-8').read()
-frag = re.search(r'const FRAGMENTOS: &\[&str\] = &\[(.*?)\n\];', build, re.S).group(1)
+frag = re.search(r'const FRAGMENTS: &\[&str\] = &\[(.*?)\n\];', build, re.S).group(1)
 fragmentos = re.findall(r'^\s*"(\w+)",', frag, re.M)
 nomes = []
 for f in fragmentos:
