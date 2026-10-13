@@ -15,7 +15,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -28,20 +28,20 @@ use dartforge_types::resolved::Resolved;
 use dartforge_types::table::Type;
 use std::collections::HashSet;
 
-fn classe_da_decl(s: &super::Semantica<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == d))
+fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
 /// Os padrões de variável declarada sem tipo (ou `dynamic`/`Null`) dentro de
 /// `p`.
-fn padroes_sem_tipo(s: &super::Semantica<'_>, a: &Ast, p: PatternId, saida: &mut Vec<Span>) {
+fn padroes_sem_tipo(s: &super::Semantics<'_>, a: &Ast, p: PatternId, saida: &mut Vec<Span>) {
     let mut vs = Vec::new();
     super::rules9::variaveis_do_padrao(a, p, &mut vs);
     for x in vs {
         let PatternKind::Variable { ty, .. } = &a.pattern(x).kind else { continue };
         let sem_tipo = match ty {
             None => true,
-            Some(t) => s.corpo.tipos_de_anotacoes.get(t).is_none_or(|t| matches!(s.table.get(*t), Type::Dynamic | Type::Null)),
+            Some(t) => s.body.tipos_de_anotacoes.get(t).is_none_or(|t| matches!(s.table.get(*t), Type::Dynamic | Type::Null)),
         };
         if sem_tipo {
             saida.push(a.pattern(x).span);
@@ -50,14 +50,14 @@ fn padroes_sem_tipo(s: &super::Semantica<'_>, a: &Ast, p: PatternId, saida: &mut
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let program = s.program;
     let table = s.table;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `specify_nonobvious_local_variable_types`.
@@ -66,7 +66,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         let obvio = |e: ExprId| super::obvious::tem_tipo_obvio(s, interner, a, e);
         let lista = |l: &dartforge_frontend::ast::VariableList, inicio: usize, achados: &mut Vec<Span>| {
             if let Some(t) = l.ty
-                && s.corpo.tipos_de_anotacoes.get(&t).is_some_and(|x| !matches!(table.get(*x), Type::Null))
+                && s.body.tipos_de_anotacoes.get(&t).is_some_and(|x| !matches!(table.get(*x), Type::Null))
             {
                 return;
             }
@@ -99,7 +99,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     lista(l, ini, &mut achados);
                 }
                 StmtKind::ForIn { target: ForInTarget::Declared { ty, name, .. }, iterable, .. } => {
-                    let tipado = ty.and_then(|t| s.corpo.tipos_de_anotacoes.get(&t)).is_some_and(|x| !matches!(table.get(*x), Type::Dynamic));
+                    let tipado = ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t)).is_some_and(|x| !matches!(table.get(*x), Type::Dynamic));
                     if tipado || obvio(*iterable) {
                         continue;
                     }
@@ -180,14 +180,14 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         if !matches!(a.expr(*target).kind, ExprKind::Identifier(_)) {
                             continue;
                         }
-                        let Some(&escrita) = s.corpo.tipos_de_escrita.get(&x) else { continue };
+                        let Some(&escrita) = s.body.tipos_de_escrita.get(&x) else { continue };
                         if !e_string(escrita) {
                             continue;
                         }
                         if matches!(op, AssignOp::Compound(_)) {
                             // O elemento escrito é uma local do corpo?
-                            let local = match s.corpo.get_resolved(*target) {
-                                Some(Resolved::Local(_)) => s.corpo.declaracao_local(*target).is_some_and(|d| locais.contains(&d)),
+                            let local = match s.body.get_resolved(*target) {
+                                Some(Resolved::Local(_)) => s.body.declaracao_local(*target).is_some_and(|d| locais.contains(&d)),
                                 _ => false,
                             };
                             if !local {
@@ -206,7 +206,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                                         _ => break,
                                     },
                                     ExprKind::Identifier(_) => {
-                                        if s.corpo.get_resolved(y).is_none() {
+                                        if s.body.get_resolved(y).is_none() {
                                             achados.push(a.expr(*target).span);
                                         }
                                         break;
@@ -227,7 +227,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
 
     // `use_enums` (com `enhanced-enums`, 2.17).
-    if ligada("use_enums") && program.library(program.unit(s.unidade).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 17) {
+    if ligada("use_enums") && program.library(program.unit(s.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 17) {
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
             if d.augment || x.modifiers.abstract_ || x.mixin_application {
@@ -258,7 +258,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                                 continue;
                             }
                             let Some(i) = v.initializer else { continue };
-                            let Some(Resolved::Constructor(f)) = s.corpo.get_resolved(i) else { continue };
+                            let Some(Resolved::Constructor(f)) = s.body.get_resolved(i) else { continue };
                             if !matches!(a.expr(i).kind, ExprKind::InstanceCreation { .. } | ExprKind::Call { .. }) {
                                 continue;
                             }
@@ -288,7 +288,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             // Nenhuma outra criação geradora da classe (na unidade, fora as
             // das constantes), nem subclasse que a estenda, implemente ou
             // misture.
-            let geradora = |e: ExprId| match s.corpo.get_resolved(e) {
+            let geradora = |e: ExprId| match s.body.get_resolved(e) {
                 Some(Resolved::Constructor(f)) => {
                     let g = program.function(*f);
                     !g.factory && g.class == Some(classe)
@@ -309,7 +309,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let usada = (0..program.classes.len()).map(|i| ClassId(i as u32)).any(|cl| {
                 let kx = program.class(cl);
                 cl != classe
-                    && kx.decl.is_some_and(|r| r.unit == s.unidade)
+                    && kx.decl.is_some_and(|r| r.unit == s.unit)
                     && (kx.supertype_class == Some(classe) || kx.interface_classes.contains(&classe) || kx.mixin_classes.contains(&classe))
             });
             if usada {

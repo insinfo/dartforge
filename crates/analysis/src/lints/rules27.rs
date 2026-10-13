@@ -18,7 +18,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::rules16::e_invocacao_de_metodo;
 use super::CodigoLint;
 use crate::Unidade;
@@ -32,15 +32,15 @@ use std::collections::HashSet;
 
 /// O `canonicalElement` de um elemento.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Canonico {
+enum Canonical {
     Local(usize),
-    Parametro(usize),
-    Variavel(VariableId),
-    Funcao(FunctionElementId),
+    Parameter(usize),
+    Variable(VariableId),
+    Function(FunctionElementId),
     /// O par getter/setter escrito sem variável no modelo: a variável
     /// sintética do analyzer.
-    Acessor(Option<ClassId>, Option<ExtensionId>, LibraryId, SymbolId),
-    Elemento(Element),
+    Accessor(Option<ClassId>, Option<ExtensionId>, LibraryId, SymbolId),
+    Element(Element),
 }
 
 /// O parâmetro `nome` da função ou do construtor mais de dentro que contém
@@ -72,20 +72,20 @@ fn parametro_declarado(a: &Ast, e: Span, nome: SymbolId) -> Option<usize> {
     melhor.map(|(_, d)| d)
 }
 
-fn canonico_da_funcao(s: &super::Semantica<'_>, f: FunctionElementId) -> Canonico {
+fn function_canonical(s: &super::Semantics<'_>, f: FunctionElementId) -> Canonical {
     let g = s.program.function(f);
     match g.kind {
         FunctionKind::Getter | FunctionKind::Setter => match g.variable {
-            Some(v) => Canonico::Variavel(v),
-            None => Canonico::Acessor(g.class, g.extension, g.library, g.name),
+            Some(v) => Canonical::Variable(v),
+            None => Canonical::Accessor(g.class, g.extension, g.library, g.name),
         },
-        _ => Canonico::Funcao(f),
+        _ => Canonical::Function(f),
     }
 }
 
 /// `AstNode.canonicalElement`: o identificador (simples ou prefixado) e o
 /// `PropertyAccess`, sem parênteses.
-fn canonico(s: &super::Semantica<'_>, a: &Ast, mut e: ExprId) -> Option<Canonico> {
+fn canonical(s: &super::Semantics<'_>, a: &Ast, mut e: ExprId) -> Option<Canonical> {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
@@ -97,15 +97,15 @@ fn canonico(s: &super::Semantica<'_>, a: &Ast, mut e: ExprId) -> Option<Canonico
 
 /// O `staticElement?.canonicalElement` do nó `e` (identificador ou nome de
 /// propriedade).
-fn elemento(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> Option<Canonico> {
-    Some(match s.corpo.get_resolved(e)? {
-        Resolved::Local(_) => Canonico::Local(s.corpo.declaracao_local(e)?),
-        Resolved::Parameter { name, .. } => Canonico::Parametro(parametro_declarado(a, a.expr(e).span, *name)?),
-        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Canonico::Variavel(*v),
-        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => canonico_da_funcao(s, *f),
-        Resolved::ExtensionMember { member, .. } => canonico_da_funcao(s, *member),
-        Resolved::Constructor(f) => Canonico::Funcao(*f),
-        Resolved::Element(x) => Canonico::Elemento(*x),
+fn elemento(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Option<Canonical> {
+    Some(match s.body.get_resolved(e)? {
+        Resolved::Local(_) => Canonical::Local(s.body.declaracao_local(e)?),
+        Resolved::Parameter { name, .. } => Canonical::Parameter(parametro_declarado(a, a.expr(e).span, *name)?),
+        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Canonical::Variable(*v),
+        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => function_canonical(s, *f),
+        Resolved::ExtensionMember { member, .. } => function_canonical(s, *member),
+        Resolved::Constructor(f) => Canonical::Function(*f),
+        Resolved::Element(x) => Canonical::Element(*x),
         _ => return None,
     })
 }
@@ -113,7 +113,7 @@ fn elemento(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> Option<Canonico> {
 /// `_CascadableExpression`.
 #[derive(Clone, Default)]
 struct Cascavel {
-    elemento: Option<Canonico>,
+    elemento: Option<Canonical>,
     /// Os intervalos dos nós críticos.
     criticos: Vec<Span>,
     junta: bool,
@@ -122,11 +122,11 @@ struct Cascavel {
     critico: bool,
 }
 
-fn de_instrucao(s: &super::Semantica<'_>, a: &Ast, st: &ast::Stmt) -> Cascavel {
+fn de_instrucao(s: &super::Semantics<'_>, a: &Ast, st: &ast::Stmt) -> Cascavel {
     match &st.kind {
         StmtKind::Variables(l) => {
             let elemento = match &l.variables[..] {
-                [v] if !v.initializer.is_some_and(|i| matches!(a.expr(i).kind, ExprKind::Await(_))) => Some(Canonico::Local(v.name.span.start)),
+                [v] if !v.initializer.is_some_and(|i| matches!(a.expr(i).kind, ExprKind::Await(_))) => Some(Canonical::Local(v.name.span.start)),
                 _ => None,
             };
             Cascavel { elemento, recebe: true, critico: true, ..Default::default() }
@@ -142,7 +142,7 @@ fn de_instrucao(s: &super::Semantica<'_>, a: &Ast, st: &ast::Stmt) -> Cascavel {
     }
 }
 
-fn de_expressao(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> Cascavel {
+fn de_expressao(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Cascavel {
     match &a.expr(e).kind {
         ExprKind::Assign { op, target, value } => {
             let mut esq = *target;
@@ -161,8 +161,8 @@ fn de_expressao(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> Cascavel {
                 _ => None,
             };
             let e_variavel_de_instancia = match variavel {
-                Some(Canonico::Local(_) | Canonico::Parametro(_)) => true,
-                Some(Canonico::Variavel(v)) => !s.program.variable(v).static_,
+                Some(Canonical::Local(_) | Canonical::Parameter(_)) => true,
+                Some(Canonical::Variable(v)) => !s.program.variable(v).static_,
                 _ => false,
             };
             Cascavel { elemento: variavel, criticos, junta: true, recebe: *op != AssignOp::Compound(dartforge_frontend::ast::BinaryOp::IfNull) && e_variavel_de_instancia, cascateavel: true, critico: false }
@@ -171,7 +171,7 @@ fn de_expressao(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> Cascavel {
             // `_getExecutableElementFromMethodInvocation`: só com `.`.
             let ExprKind::Property { target: alvo, null_aware: false, .. } = &a.expr(*target).kind else { return Cascavel::default() };
             let nao_estatico = match elemento(s, a, *target) {
-                Some(Canonico::Funcao(f)) => {
+                Some(Canonical::Function(f)) => {
                     let g = s.program.function(f);
                     !g.static_ && (g.class.is_some() || g.extension.is_some())
                 }
@@ -181,12 +181,12 @@ fn de_expressao(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> Cascavel {
                 return Cascavel::default();
             }
             let simples = matches!(a.expr(*alvo).kind, ExprKind::Identifier(_));
-            Cascavel { elemento: canonico(s, a, *alvo), criticos: vec![arguments.span], junta: simples, recebe: simples, cascateavel: true, critico: false }
+            Cascavel { elemento: canonical(s, a, *alvo), criticos: vec![arguments.span], junta: simples, recebe: simples, cascateavel: true, critico: false }
         }
         ExprKind::Cascade { target, sections, .. } => {
             let simples = matches!(a.expr(*target).kind, ExprKind::Identifier(_));
             Cascavel {
-                elemento: canonico(s, a, *target),
+                elemento: canonical(s, a, *target),
                 criticos: sections.iter().map(|x| a.expr(*x).span).collect(),
                 junta: simples,
                 recebe: simples,
@@ -200,7 +200,7 @@ fn de_expressao(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> Cascavel {
                 Cascavel { elemento: elemento(s, a, *target), junta: true, recebe: true, cascateavel: true, ..Default::default() }
             } else {
                 // `PropertyAccess` com `.`.
-                Cascavel { elemento: canonico(s, a, *target), cascateavel: true, ..Default::default() }
+                Cascavel { elemento: canonical(s, a, *target), cascateavel: true, ..Default::default() }
             }
         }
         _ => Cascavel::default(),
@@ -255,12 +255,12 @@ impl Tokens {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let _ = interner;
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let mut relatar = |codigo: &'static CodigoLint, span: Span| {
-        out.push(RelatoDeLint { codigo, span, args: Vec::new() });
+        out.push(LintReport { codigo, span, args: Vec::new() });
     };
 
     // `cascade_invocations`.

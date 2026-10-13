@@ -20,7 +20,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::{e_lower_camel_case, RelatoDeLint};
+use super::rules::{is_lower_camel_case, LintReport};
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -54,12 +54,12 @@ fn palavra_em(fonte: &str, de: usize, ate: usize, palavra: &str) -> Option<Span>
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // Sem comentário: só brancos entre as chaves de um bloco vazio.
     let bloco_vazio = |s: dartforge_frontend::ast::StmtId| {
@@ -107,7 +107,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("constant_identifier_names") {
         let mut checar = |n: dartforge_frontend::ast::Name| {
             let texto = interner.resolve(n.sym);
-            if !e_lower_camel_case(texto) {
+            if !is_lower_camel_case(texto) {
                 relatar(&c::CONSTANT_IDENTIFIER_NAMES, n.span, &[texto]);
             }
         };
@@ -165,7 +165,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         }
         de_colecoes.into_iter().for_each(&mut checar);
         // `visitDeclaredVariablePattern`.
-        for n in super::rules::variaveis_declaradas_em_padroes(a) {
+        for n in super::rules::pattern_declared_variables(a) {
             checar(n);
         }
     }
@@ -285,7 +285,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if !matches!(a.expr(*x).kind, ExprKind::Identifier(_)) {
                 continue;
             }
-            let Some(declaracao) = sem.corpo.declaracao_local(*x) else { continue };
+            let Some(declaracao) = sem.body.declaracao_local(*x) else { continue };
             // O `catch` mais interno que contém o `throw`.
             let Some(k) = clausulas
                 .iter()

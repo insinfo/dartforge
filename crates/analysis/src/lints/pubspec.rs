@@ -13,7 +13,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::naodart::yaml::{self, No, Valor};
 use dartforge_diagnostics::Span;
@@ -182,12 +182,12 @@ fn esquema(t: &str) -> Option<String> {
 }
 
 /// Os lints do `pubspec.yaml` com o texto `fonte`.
-pub fn executar(fonte: &str, ligada: &dyn Fn(&str) -> bool) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(fonte: &str, ligada: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Ok(Some(raiz)) = yaml::ler(fonte) else { return out };
     let p = ler(&raiz);
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let listas = [&p.dependencies, &p.dev_dependencies, &p.dependency_overrides];
 

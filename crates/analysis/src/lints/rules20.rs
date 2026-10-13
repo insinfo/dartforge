@@ -20,7 +20,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -41,18 +41,18 @@ fn anulavel(table: &TypeTable, t: TypeId) -> bool {
     }
 }
 
-fn nome_da_biblioteca(s: &super::Semantica<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
+fn nome_da_biblioteca(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
 /// `isSameAs`.
-fn mesma(s: &super::Semantica<'_>, interner: &Interner, c: ClassId, nome: &str, lib: &str) -> bool {
+fn mesma(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, nome: &str, lib: &str) -> bool {
     let k = s.program.class(c);
     interner.resolve(k.name) == nome && nome_da_biblioteca(s, interner, k.library).as_deref() == Some(lib)
 }
 
 /// `extendsClass`: a cadeia de superclasses.
-fn estende(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, nome: &str, lib: &str) -> bool {
+fn estende(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, nome: &str, lib: &str) -> bool {
     let Type::Interface { class, .. } = s.table.get(t) else { return false };
     let mut vistos = std::collections::HashSet::new();
     let mut atual = Some(*class);
@@ -69,7 +69,7 @@ fn estende(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, nome: &str,
 }
 
 /// `isWidgetProperty`.
-pub(super) fn propriedade_de_widget(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, prof: u32) -> bool {
+pub(super) fn propriedade_de_widget(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, prof: u32) -> bool {
     if prof > 8 {
         return false;
     }
@@ -176,12 +176,12 @@ fn token_null_aware(fonte: &str, fim_do_alvo: usize, tamanho: usize) -> Span {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `document_ignores`.
@@ -241,10 +241,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("sort_child_properties_last") {
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
-            if !matches!(s.corpo.get_resolved(id), Some(Resolved::Constructor(_))) {
+            if !matches!(s.body.get_resolved(id), Some(Resolved::Constructor(_))) {
                 continue;
             }
-            if !s.corpo.get_type(id).is_some_and(|t| super::flutter::e_widget_tipo(s, interner, t)) {
+            if !s.body.get_type(id).is_some_and(|t| super::flutter::e_widget_tipo(s, interner, t)) {
                 continue;
             }
             let args = match &e.kind {
@@ -253,7 +253,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             };
             let e_filho = |x: &dartforge_frontend::ast::Argument| {
                 x.name.is_some_and(|n| matches!(interner.resolve(n.sym), "child" | "children"))
-                    && s.corpo.get_type(x.value).is_some_and(|t| propriedade_de_widget(s, interner, t, 0))
+                    && s.body.get_type(x.value).is_some_and(|t| propriedade_de_widget(s, interner, t, 0))
             };
             let n = args.args.len();
             if n < 2 || e_filho(&args.args[n - 1]) || args.args.iter().filter(|x| e_filho(x)).count() != 1 {
@@ -330,7 +330,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             };
             let classe = (0..program.classes.len())
                 .map(|i| ClassId(i as u32))
-                .find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl.0 as usize == k));
+                .find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl.0 as usize == k));
             for &mid in membros {
                 let MemberKind::Constructor(kc) = &a.member(mid).kind else { continue };
                 let posicionais: Vec<&dartforge_frontend::ast::Parameter> = kc.parameters.iter().filter(|p| p.super_ && p.kind != ParameterKind::Named).collect();
@@ -368,7 +368,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     // `unnecessary_null_aware_operator_on_extension_on_nullable`.
     if ligada("unnecessary_null_aware_operator_on_extension_on_nullable") {
         let extensao_anulavel = |e: ExprId| -> bool {
-            match s.corpo.get_resolved(e) {
+            match s.body.get_resolved(e) {
                 Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|x| anulavel(table, x.on)),
                 _ => false,
             }
@@ -410,7 +410,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind else { continue };
             let metodo = interner.resolve(name.sym);
             if arguments.args.is_empty() {
-                let Some(t) = s.corpo.get_type(*alvo) else { continue };
+                let Some(t) = s.body.get_type(*alvo) else { continue };
                 let arquivo = estende(s, interner, t, "File", "dart.io") && matches!(metodo, "lastModified" | "exists" | "stat");
                 let diretorio = estende(s, interner, t, "Directory", "dart.io") && matches!(metodo, "exists" | "stat");
                 if arquivo {
@@ -420,7 +420,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     relatar(&c::AVOID_SLOW_ASYNC_IO, e.span, &[]);
                 }
             } else if matches!(a.expr(*alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                && let Some(Resolved::Element(Element::Class(cl))) = s.corpo.get_resolved(*alvo)
+                && let Some(Resolved::Element(Element::Class(cl))) = s.body.get_resolved(*alvo)
                 && interner.resolve(program.class(*cl).name) == "FileSystemEntity"
                 && matches!(metodo, "isDirectory" | "isFile" | "isLink" | "type")
             {
@@ -445,10 +445,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 };
                 let Some(x) = identificador else { continue };
                 let ExprKind::Identifier(n) = &a.expr(x).kind else { continue };
-                if !s.corpo.get_type(x).is_some_and(|t| anulavel(table, t)) {
+                if !s.body.get_type(x).is_some_and(|t| anulavel(table, t)) {
                     continue;
                 }
-                if !matches!(s.corpo.get_resolved(x), Some(Resolved::Parameter { .. })) {
+                if !matches!(s.body.get_resolved(x), Some(Resolved::Parameter { .. })) {
                     continue;
                 }
                 if let Some(p) = kc.parameters.iter().find(|p| p.name.is_some_and(|q| q.sym == n.sym))

@@ -5,13 +5,13 @@
 //!
 //! `parameter_assignments` liga o identificador e a variável do padrão ao
 //! parâmetro pelo elemento, e o "potencialmente mutado" é o do analyzer
-//! (`super::mutado`); pede a semântica da unidade. A isenção do `_` curinga
+//! (`super::is_mutated`); pede a semântica da unidade. A isenção do `_` curinga
 //! de `avoid_shadowing_type_parameters` depende do recurso da 3.7, que uma
 //! biblioteca da 3.6 não liga.
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -67,11 +67,11 @@ fn ancestrais_de<'x>(
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `avoid_shadowing_type_parameters`.
@@ -184,7 +184,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             for p in ps.iter() {
                 let Some(n) = p.name else { continue };
                 let decl = n.span.start;
-                if !super::mutado(sem, a, decl) {
+                if !super::is_mutated(sem, a, decl) {
                     continue;
                 }
                 // `SimpleFormalParameter` sem `DefaultFormalParameter` (o
@@ -198,9 +198,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     continue;
                 }
                 let o_parametro = |e: dartforge_frontend::ast::ExprId| {
-                    matches!(a.expr(e).kind, ExprKind::Identifier(_)) && sem.corpo.declaracao_local(e) == Some(decl)
+                    matches!(a.expr(e).kind, ExprKind::Identifier(_)) && sem.body.declaracao_local(e) == Some(decl)
                 };
-                let padrao_e_o_parametro = |q: PatternId| sem.corpo.declaracoes_de_padroes.get(&q) == Some(&decl);
+                let padrao_e_o_parametro = |q: PatternId| sem.body.declaracoes_de_padroes.get(&q) == Some(&decl);
                 let nome = interner.resolve(n.sym).to_string();
                 let mut ja_atribuido = false;
                 // Em ordem de fonte (o `RecursiveAstVisitor`).

@@ -17,7 +17,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::rules14::{depois_das_anotacoes, doc_de, sem_augment};
 use super::CodigoLint;
 use crate::Unidade;
@@ -29,8 +29,8 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !ligada("public_member_api_docs") {
         return out;
@@ -40,7 +40,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let program = s.program;
     // `package.canHavePublicApi` (só o pacote pub) e `isInLibDir` (pela
     // unidade que define a biblioteca).
-    let lib = program.library(program.unit(s.unidade).library);
+    let lib = program.library(program.unit(s.unit).library);
     let Some(arquivo) = lib.units.first().and_then(|x| program.unit(*x).path.clone()) else { return out };
     let Some(raiz) = arquivo.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf) else { return out };
     if !arquivo.starts_with(raiz.join("lib")) {
@@ -48,10 +48,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     let comentarios = Comentarios::de(fonte);
     let privado = |n: SymbolId| interner.resolve(n).starts_with('_');
-    let interno = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, m, "meta", "internal"));
+    let interno = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
     let documentado = |metadata: &[Annotation], pos: usize| doc_de(fonte, &comentarios, metadata, pos).is_some();
     let classe_da_decl = |d: DeclId| -> Option<ClassId> {
-        (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == d))
+        (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
     };
     // `overriddenMember`: o nome entre os membros de instância dos
     // supertipos da classe que contém (o setter com `_=`).
@@ -341,6 +341,6 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     out
 }
 
-fn relatar(out: &mut Vec<RelatoDeLint>, codigo: &'static CodigoLint, span: Span) {
-    out.push(RelatoDeLint { codigo, span, args: Vec::new() });
+fn relatar(out: &mut Vec<LintReport>, codigo: &'static CodigoLint, span: Span) {
+    out.push(LintReport { codigo, span, args: Vec::new() });
 }

@@ -33,13 +33,13 @@ use std::collections::HashSet;
 
 /// Um relato de lint.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelatoDeLint {
+pub struct LintReport {
     pub codigo: &'static CodigoLint,
     pub span: Span,
     pub args: Vec<String>,
 }
 
-impl RelatoDeLint {
+impl LintReport {
     /// A mensagem com os argumentos no lugar.
     pub fn mensagem(&self) -> String {
         let mut saida = self.codigo.mensagem.to_string();
@@ -67,7 +67,7 @@ impl RelatoDeLint {
 /// `AssignedVariablePattern`), salvo a que é direto o padrão de um campo
 /// `:nome`. Num padrão refutável (`case`, `if-case`), o nome solto (sem
 /// `var`, `final` nem tipo) é um padrão constante, não variável.
-pub fn variaveis_declaradas_em_padroes(a: &ast::Ast) -> Vec<ast::Name> {
+pub fn pattern_declared_variables(a: &ast::Ast) -> Vec<ast::Name> {
     let mut de_atribuicao: HashSet<ast::PatternId> = HashSet::new();
     let mut pilha: Vec<ast::PatternId> = a
         .exprs
@@ -170,7 +170,7 @@ pub fn variaveis_declaradas_em_padroes(a: &ast::Ast) -> Vec<ast::Name> {
 }
 
 /// `isCamelCase`: `^_*(?:\$+_+)*[$?A-Z][$?a-zA-Z\d]*$`.
-pub fn e_camel_case(nome: &str) -> bool {
+pub fn is_camel_case(nome: &str) -> bool {
     let mut resto = nome.trim_start_matches('_');
     // Grupos `$…_…`, só quando há sublinhado depois dos cifrões.
     loop {
@@ -187,7 +187,7 @@ pub fn e_camel_case(nome: &str) -> bool {
 
 /// `isLowerCamelCase`: uma maiúscula sozinha, `_`, ou
 /// `^_*[?$a-z][a-z\d?$]*(?:(?:[A-Z]|_\d)[a-z\d?$]*)*_?$`.
-pub fn e_lower_camel_case(nome: &str) -> bool {
+pub fn is_lower_camel_case(nome: &str) -> bool {
     if nome == "_" || (nome.len() == 1 && nome.as_bytes()[0].is_ascii_uppercase()) {
         return true;
     }
@@ -214,7 +214,7 @@ struct Ctx<'a> {
     u: Unidade<'a>,
     interner: &'a Interner,
     ligada: &'a dyn Fn(&str) -> bool,
-    out: Vec<RelatoDeLint>,
+    out: Vec<LintReport>,
 }
 
 impl<'a> Ctx<'a> {
@@ -223,7 +223,7 @@ impl<'a> Ctx<'a> {
     }
 
     fn relatar(&mut self, codigo: &'static CodigoLint, span: Span, args: &[&str]) {
-        self.out.push(RelatoDeLint { codigo, span, args: args.iter().map(|a| a.to_string()).collect() });
+        self.out.push(LintReport { codigo, span, args: args.iter().map(|a| a.to_string()).collect() });
     }
 
     /// `camel_case_types` e `camel_case_extensions`.
@@ -245,7 +245,7 @@ impl<'a> Ctx<'a> {
             };
             let Some(nome) = nome else { continue };
             let texto = self.texto(nome);
-            if e_camel_case(texto) {
+            if is_camel_case(texto) {
                 continue;
             }
             if de_extensao && extensoes {
@@ -261,7 +261,7 @@ impl<'a> Ctx<'a> {
         if sublinhados_valem && !texto.is_empty() && texto.bytes().all(|b| b == b'_') {
             return;
         }
-        if !e_lower_camel_case(texto) {
+        if !is_lower_camel_case(texto) {
             self.relatar(&c::NON_CONSTANT_IDENTIFIER_NAMES, nome.span, &[texto]);
         }
     }
@@ -389,7 +389,7 @@ impl<'a> Ctx<'a> {
             self.identificador(n, false);
         }
         // `visitDeclaredVariablePattern` e `visitPatternField`.
-        for n in variaveis_declaradas_em_padroes(a) {
+        for n in pattern_declared_variables(a) {
             self.identificador(n, false);
         }
         // `visitExtensionTypeDeclaration`: o nome do construtor da
@@ -439,7 +439,7 @@ impl<'a> Ctx<'a> {
                 ast::TypeKind::Record { positional, named } => {
                     for &p in positional.iter() {
                         if let Some((span, texto)) = self.nome_posicional(p)
-                            && !e_lower_camel_case(texto)
+                            && !is_lower_camel_case(texto)
                         {
                             self.relatar(&c::NON_CONSTANT_IDENTIFIER_NAMES, span, &[texto]);
                         }
@@ -593,12 +593,12 @@ impl<'a> Ctx<'a> {
     /// `provide_deprecation_message`: toda anotação sem argumentos cujo
     /// elemento é o `deprecated` do `dart:core` (`isDeprecated`). Pede a
     /// semântica da unidade.
-    fn deprecados_sem_mensagem(&mut self, sem: Option<&super::Semantica<'_>>) {
+    fn deprecados_sem_mensagem(&mut self, sem: Option<&super::Semantics<'_>>) {
         let Some(sem) = sem else { return };
         let interner = self.interner;
         let achados: Vec<Span> = dartforge_frontend::pais::todas_as_anotacoes(self.u.ast, self.u.unit)
             .into_iter()
-            .filter(|m| m.arguments.is_none() && dartforge_types::anotacoes::e_deprecated_do_core(sem.program, interner, sem.unidade, m))
+            .filter(|m| m.arguments.is_none() && dartforge_types::anotacoes::e_deprecated_do_core(sem.program, interner, sem.unit, m))
             .map(|m| m.span)
             .collect();
         for span in achados {
@@ -608,7 +608,7 @@ impl<'a> Ctx<'a> {
 }
 
 /// Roda as regras ligadas (`ligada(nome)`) sobre uma unidade.
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut ctx = Ctx { u, interner, ligada, out: Vec::new() };
     if ligada("camel_case_types") || ligada("camel_case_extensions") {
         ctx.nomes_de_tipos();
@@ -646,10 +646,10 @@ mod testes {
 
     #[test]
     fn formas_dos_nomes() {
-        assert!(e_camel_case("Foo") && e_camel_case("_Foo") && e_camel_case("$Foo") && e_camel_case("F"));
-        assert!(!e_camel_case("foo") && !e_camel_case("Foo_Bar"));
-        assert!(e_lower_camel_case("foo") && e_lower_camel_case("_fooBar") && e_lower_camel_case("foo_1") && e_lower_camel_case("A"));
-        assert!(!e_lower_camel_case("Foo") && !e_lower_camel_case("foo_bar") && !e_lower_camel_case("__"));
+        assert!(is_camel_case("Foo") && is_camel_case("_Foo") && is_camel_case("$Foo") && is_camel_case("F"));
+        assert!(!is_camel_case("foo") && !is_camel_case("Foo_Bar"));
+        assert!(is_lower_camel_case("foo") && is_lower_camel_case("_fooBar") && is_lower_camel_case("foo_1") && is_lower_camel_case("A"));
+        assert!(!is_lower_camel_case("Foo") && !is_lower_camel_case("foo_bar") && !is_lower_camel_case("__"));
     }
 
     #[test]

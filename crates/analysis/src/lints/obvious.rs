@@ -43,7 +43,7 @@ pub fn substituir_sem_criar(table: &TypeTable, t: TypeId, mapa: &HashMap<TypePar
 }
 
 /// O argumento `i` de `t.asInstanceOf(alvo)`, sem criar tipos.
-pub fn argumento_como_instancia(s: &super::Semantica<'_>, t: TypeId, alvo: ClassId, i: usize) -> Option<TypeId> {
+pub fn argumento_como_instancia(s: &super::Semantics<'_>, t: TypeId, alvo: ClassId, i: usize) -> Option<TypeId> {
     let table = s.table;
     let (Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. }) = table.get(t) else { return None };
     if *class == alvo {
@@ -58,7 +58,7 @@ pub fn argumento_como_instancia(s: &super::Semantica<'_>, t: TypeId, alvo: Class
 
 /// `elementTypeOfIterable`: o argumento do `Iterable` entre as interfaces
 /// implementadas (ela própria e os supertipos).
-pub fn tipo_do_elemento_do_iteravel(s: &super::Semantica<'_>, interner: &Interner, t: Option<TypeId>) -> Option<TypeId> {
+pub fn tipo_do_elemento_do_iteravel(s: &super::Semantics<'_>, interner: &Interner, t: Option<TypeId>) -> Option<TypeId> {
     let t = t?;
     let iteravel = s.core.iterable_class?;
     let _ = interner;
@@ -76,23 +76,23 @@ pub fn tipo_do_elemento_do_iteravel(s: &super::Semantica<'_>, interner: &Interne
 
 /// O tipo de um elemento de coleção (`elementType`): o da expressão, o do
 /// `then` de um `if`, o do iterável de um `...`; nada para os outros.
-fn tipo_do_elemento(s: &super::Semantica<'_>, interner: &Interner, el: &CollectionElement) -> Option<TypeId> {
+fn tipo_do_elemento(s: &super::Semantics<'_>, interner: &Interner, el: &CollectionElement) -> Option<TypeId> {
     match el {
-        CollectionElement::Expression(e) => s.corpo.get_type(*e),
+        CollectionElement::Expression(e) => s.body.get_type(*e),
         CollectionElement::If { then, .. } => tipo_do_elemento(s, interner, then),
-        CollectionElement::Spread { value, .. } => tipo_do_elemento_do_iteravel(s, interner, s.corpo.get_type(*value)),
+        CollectionElement::Spread { value, .. } => tipo_do_elemento_do_iteravel(s, interner, s.body.get_type(*value)),
         _ => None,
     }
 }
 
-fn chave_e_valor(s: &super::Semantica<'_>, el: &CollectionElement) -> (Option<TypeId>, Option<TypeId>) {
+fn chave_e_valor(s: &super::Semantics<'_>, el: &CollectionElement) -> (Option<TypeId>, Option<TypeId>) {
     match el {
-        CollectionElement::MapEntry { key, value, .. } => (s.corpo.get_type(*key), s.corpo.get_type(*value)),
+        CollectionElement::MapEntry { key, value, .. } => (s.body.get_type(*key), s.body.get_type(*value)),
         _ => (None, None),
     }
 }
 
-fn elemento_obvio(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, el: &CollectionElement) -> bool {
+fn elemento_obvio(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, el: &CollectionElement) -> bool {
     match el {
         CollectionElement::Expression(e) => tem_tipo_obvio(s, interner, a, *e),
         CollectionElement::MapEntry { key, value, .. } => tem_tipo_obvio(s, interner, a, *key) && tem_tipo_obvio(s, interner, a, *value),
@@ -104,7 +104,7 @@ fn elemento_obvio(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, el: &C
 }
 
 /// `Expression.hasObviousType`.
-pub fn tem_tipo_obvio(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, e: ExprId) -> bool {
+pub fn tem_tipo_obvio(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, e: ExprId) -> bool {
     let mesmo_ou_nada = |x: Option<TypeId>, y: Option<TypeId>| x.is_none() || y.is_none() || x == y;
     match &a.expr(e).kind {
         ExprKind::List { type_args, elements, .. } | ExprKind::SetOrMap { type_args, elements, .. } => {
@@ -125,7 +125,7 @@ pub fn tem_tipo_obvio(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, e:
                     return false;
                 }
             }
-            tipo_do_elemento_do_iteravel(s, interner, s.corpo.get_type(e)) == obvio
+            tipo_do_elemento_do_iteravel(s, interner, s.body.get_type(e)) == obvio
         }
         ExprKind::Record { positional, named, .. } => {
             positional.iter().all(|x| tem_tipo_obvio(s, interner, a, *x)) && named.iter().all(|(_, x)| tem_tipo_obvio(s, interner, a, *x))
@@ -134,29 +134,29 @@ pub fn tem_tipo_obvio(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, e:
         ExprKind::Bool(_) | ExprKind::Double(_) | ExprKind::Null | ExprKind::String(_) | ExprKind::Symbol(_) => true,
         ExprKind::Identifier(_) => {
             // Uma variável local (não parâmetro) sem promoção.
-            if !matches!(s.corpo.get_resolved(e), Some(Resolved::Local(_))) {
+            if !matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) {
                 return false;
             }
-            let Some(decl) = s.corpo.declaracao_local(e) else { return false };
+            let Some(decl) = s.body.declaracao_local(e) else { return false };
             let e_funcao = a.stmts.iter().any(|x| matches!(&x.kind, dartforge_frontend::ast::StmtKind::Function(f) if a.function(*f).name.is_some_and(|n| n.span.start == decl)));
             if e_funcao {
                 return false;
             }
-            s.corpo.get_type(e).is_some() && s.corpo.get_type(e) == s.corpo.tipo_local(decl)
+            s.body.get_type(e).is_some() && s.body.get_type(e) == s.body.tipo_local(decl)
         }
         ExprKind::InstanceCreation { ty, .. } => match &a.ty(*ty).kind {
             TypeKind::Named { args, .. } if !args.is_empty() => true,
-            _ => match s.corpo.get_type(e).map(|t| s.table.get(t)) {
+            _ => match s.body.get_type(e).map(|t| s.table.get(t)) {
                 Some(Type::Interface { class, .. }) => s.outline.classes.get(class.0 as usize).is_none_or(|d| d.type_params.is_empty()),
                 Some(_) => true,
                 None => false,
             },
         },
-        ExprKind::Call { target, .. } if matches!(s.corpo.get_resolved(e), Some(Resolved::Constructor(_))) => {
+        ExprKind::Call { target, .. } if matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))) => {
             if matches!(a.expr(*target).kind, ExprKind::TypeArguments { .. }) {
                 return true;
             }
-            match s.corpo.get_type(e).map(|t| s.table.get(t)) {
+            match s.body.get_type(e).map(|t| s.table.get(t)) {
                 Some(Type::Interface { class, .. }) => s.outline.classes.get(class.0 as usize).is_none_or(|d| d.type_params.is_empty()),
                 Some(_) => true,
                 None => false,
@@ -165,7 +165,7 @@ pub fn tem_tipo_obvio(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, e:
         ExprKind::Cascade { target, .. } => tem_tipo_obvio(s, interner, a, *target),
         ExprKind::As { .. } | ExprKind::Is { .. } | ExprKind::Throw(_) | ExprKind::This => true,
         ExprKind::Conditional { then, else_, .. } => {
-            tem_tipo_obvio(s, interner, a, *then) && tem_tipo_obvio(s, interner, a, *else_) && s.corpo.get_type(*then) == s.corpo.get_type(*else_)
+            tem_tipo_obvio(s, interner, a, *then) && tem_tipo_obvio(s, interner, a, *else_) && s.body.get_type(*then) == s.body.get_type(*else_)
         }
         ExprKind::Parenthesized(x) => tem_tipo_obvio(s, interner, a, *x),
         ExprKind::Property { name, .. } => interner.resolve(name.sym) == "hashCode",

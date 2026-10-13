@@ -20,7 +20,7 @@
 
 use super::codigos_g as c;
 use super::strings::{comentarios, decodificar, literais, Literal};
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -104,12 +104,12 @@ fn so_escapa_barra_e_cifrao(conteudo: &str) -> bool {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let regras = [
         "prefer_single_quotes",

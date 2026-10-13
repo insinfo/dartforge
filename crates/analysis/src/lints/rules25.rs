@@ -13,7 +13,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -24,23 +24,23 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::{Type, TypeId};
 use std::collections::HashSet;
 
-fn classe_da_decl(s: &super::Semantica<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == d))
+fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
 /// A chamada é `MethodInvocation` (e não `FunctionExpressionInvocation`).
-fn e_invocacao_de_metodo(s: &super::Semantica<'_>, a: &Ast, alvo: ExprId) -> bool {
+fn e_invocacao_de_metodo(s: &super::Semantics<'_>, a: &Ast, alvo: ExprId) -> bool {
     if !matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
         return false;
     }
     let nao_getter = |f: dartforge_elements::model::FunctionElementId| s.program.function(f).kind != FunctionKind::Getter;
-    match s.corpo.get_resolved(alvo) {
+    match s.body.get_resolved(alvo) {
         Some(Resolved::Member { member: MemberRef::Function(f), .. }) => nao_getter(*f),
         Some(Resolved::Member { member: MemberRef::Variable(_), .. }) => false,
         Some(Resolved::Element(Element::Function(f))) => nao_getter(*f),
         Some(Resolved::Element(_)) => false,
         Some(Resolved::ExtensionMember { member, .. }) => nao_getter(*member),
-        Some(Resolved::Local(_)) => s.corpo.declaracao_local(alvo).is_some_and(|d| {
+        Some(Resolved::Local(_)) => s.body.declaracao_local(alvo).is_some_and(|d| {
             a.stmts.iter().any(|x| matches!(&x.kind, StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d)))
         }),
         Some(Resolved::Parameter { .. }) => false,
@@ -49,14 +49,14 @@ fn e_invocacao_de_metodo(s: &super::Semantica<'_>, a: &Ast, alvo: ExprId) -> boo
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let program = s.program;
     let table = s.table;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `discarded_futures`.
@@ -70,7 +70,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             matches!(table.get(r), Type::Interface { class, .. } if Some(*class) == s.core.future_class) || matches!(table.get(r), Type::FutureOr { .. })
         };
         let escrito_future = |t: Option<dartforge_frontend::ast::TypeId>| {
-            t.and_then(|t| s.corpo.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unidade, t)).copied())).is_some_and(e_future)
+            t.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, t)).copied())).is_some_and(e_future)
         };
         let assincrono = |m: AsyncModifier| matches!(m, AsyncModifier::Async | AsyncModifier::AsyncStar);
         // Os corpos verificados: (região, ok).
@@ -141,7 +141,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         let mut nao_visitar: Vec<Span> = assincronas.clone();
         for e in a.exprs.iter() {
             if let ExprKind::Call { target, .. } = &e.kind
-                && let Some(Resolved::Element(Element::Function(f))) = s.corpo.get_resolved(*target)
+                && let Some(Resolved::Element(Element::Function(f))) = s.body.get_resolved(*target)
                 && interner.resolve(program.function(*f).name) == "unawaited"
                 && program.library(program.function(*f).library).uri == "dart:async"
             {
@@ -154,7 +154,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let ExprKind::Call { target, .. } = &e.kind else { continue };
-            if matches!(s.corpo.get_resolved(id), Some(Resolved::Constructor(_))) {
+            if matches!(s.body.get_resolved(id), Some(Resolved::Constructor(_))) {
                 continue;
             }
             // Algum corpo verificado alcança a chamada sem passar por uma
@@ -163,7 +163,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if !alcancada {
                 continue;
             }
-            let Some(t) = s.corpo.get_type(id) else { continue };
+            let Some(t) = s.body.get_type(id) else { continue };
             let retorna_future = matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == s.core.future_class) || matches!(table.get(t), Type::FutureOr { .. });
             if !retorna_future {
                 continue;
@@ -215,7 +215,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                             continue;
                         }
                         let Some(n) = f.name else { continue };
-                        let tipo = f.return_type.and_then(|t| s.outline.tipos_escritos.get(&(s.unidade, t)).copied());
+                        let tipo = f.return_type.and_then(|t| s.outline.tipos_escritos.get(&(s.unit, t)).copied());
                         if interner.resolve(n.sym).starts_with('_') || herdado(n.sym) || tipo.is_some_and(|t| super::rules20::propriedade_de_widget(s, interner, t, 0)) {
                             continue;
                         }
@@ -226,7 +226,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                             continue;
                         }
                         for (index, v) in l.variables.iter().enumerate() {
-                            let r = dartforge_elements::model::VariableRef::Field { unit: s.unidade, member: mid, index };
+                            let r = dartforge_elements::model::VariableRef::Field { unit: s.unit, member: mid, index };
                             let tipo = program.variables.iter().position(|y| y.node == r).and_then(|i| s.outline.variables.get(i)).and_then(|d| d.declared_type.or(d.inferred));
                             if interner.resolve(v.name.sym).starts_with('_') || herdado(v.name.sym) || tipo.is_some_and(|t| super::rules20::propriedade_de_widget(s, interner, t, 0)) {
                                 continue;

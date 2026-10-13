@@ -29,7 +29,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -61,16 +61,16 @@ fn nao_anulavel(table: &TypeTable, t: TypeId) -> bool {
     }
 }
 
-fn nome_da_biblioteca(s: &super::Semantica<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
+fn nome_da_biblioteca(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
-fn classe_da_decl(s: &super::Semantica<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == d))
+fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
 /// O tipo é a classe `nome` do `dart:core`/`dart:async` (o elemento).
-fn e_classe(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, nome: &str, lib: &str) -> bool {
+fn e_classe(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, nome: &str, lib: &str) -> bool {
     match s.table.get(t) {
         Type::Interface { class, .. } => {
             let k = s.program.class(*class);
@@ -114,16 +114,16 @@ fn em_corpo_assincrono(a: &Ast, sp: Span) -> bool {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let fonte = u.fonte;
     let program = s.program;
     let table = s.table;
-    let lib = program.unit(s.unidade).library;
+    let lib = program.unit(s.unit).library;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `omit_obvious_local_variable_types`.
@@ -134,11 +134,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 StmtKind::Variables(l) => listas.push(l),
                 StmtKind::For { init: Some(ForInit::Variables(l)), .. } => listas.push(l),
                 StmtKind::ForIn { target: ForInTarget::Declared { ty: Some(ty), .. }, iterable, .. } => {
-                    let Some(&tl) = s.corpo.tipos_de_anotacoes.get(ty) else { continue };
+                    let Some(&tl) = s.body.tipos_de_anotacoes.get(ty) else { continue };
                     if matches!(table.get(tl), Type::Dynamic) || !super::obvious::tem_tipo_obvio(s, interner, a, *iterable) {
                         continue;
                     }
-                    if super::obvious::tipo_do_elemento_do_iteravel(s, interner, s.corpo.get_type(*iterable)) == Some(tl) {
+                    if super::obvious::tipo_do_elemento_do_iteravel(s, interner, s.body.get_type(*iterable)) == Some(tl) {
                         relatar(&c::OMIT_OBVIOUS_LOCAL_VARIABLE_TYPES, a.ty(*ty).span, &[]);
                     }
                 }
@@ -147,12 +147,12 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         }
         for l in listas {
             let Some(ty) = l.ty else { continue };
-            let Some(&tl) = s.corpo.tipos_de_anotacoes.get(&ty) else { continue };
+            let Some(&tl) = s.body.tipos_de_anotacoes.get(&ty) else { continue };
             if matches!(table.get(tl), Type::Null) {
                 continue;
             }
             let todas = l.variables.iter().all(|v| match v.initializer {
-                Some(i) => super::obvious::tem_tipo_obvio(s, interner, a, i) && s.corpo.get_type(i) == Some(tl),
+                Some(i) => super::obvious::tem_tipo_obvio(s, interner, a, i) && s.body.get_type(i) == Some(tl),
                 None => false,
             });
             if todas {
@@ -180,7 +180,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     continue;
                 }
                 let Some(rt) = f.return_type else { continue };
-                let Some(&tr) = s.outline.tipos_escritos.get(&(s.unidade, rt)) else { continue };
+                let Some(&tr) = s.outline.tipos_escritos.get(&(s.unit, rt)) else { continue };
                 let e_this = match table.get(tr) {
                     Type::Interface { class, nullable: false, .. } => *class == classe,
                     Type::ExtensionType { decl, nullable: false, .. } => *decl == classe,
@@ -200,7 +200,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     .map(|i| ExprId(i as u32))
                     .filter(|e| {
                         let sp = a.expr(*e).span;
-                        sp.start >= corpo.start && sp.end <= corpo.end && matches!(s.corpo.get_resolved(*e), Some(Resolved::Constructor(_)))
+                        sp.start >= corpo.start && sp.end <= corpo.end && matches!(s.body.get_resolved(*e), Some(Resolved::Constructor(_)))
                     })
                     .collect();
                 criacoes.sort_by_key(|e| (a.expr(*e).span.start, usize::MAX - a.expr(*e).span.end));
@@ -211,7 +211,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     if pular.is_some_and(|p| sp.start >= p.start && sp.end <= p.end) {
                         continue;
                     }
-                    achou = s.corpo.get_type(e) == Some(tr);
+                    achou = s.body.get_type(e) == Some(tr);
                     if achou {
                         pular = Some(sp);
                     }
@@ -236,11 +236,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     ExprKind::Call { target, .. } => {
                         // A criação sem `const` (constante pelo contexto) ou
                         // o `identical` do `dart:core`.
-                        if matches!(s.corpo.get_resolved(x), Some(Resolved::Constructor(_))) {
+                        if matches!(s.body.get_resolved(x), Some(Resolved::Constructor(_))) {
                             true
                         } else {
                             matches!(&a.expr(*target).kind, ExprKind::Identifier(n) if interner.resolve(n.sym) == "identical")
-                                && matches!(s.corpo.get_resolved(*target), Some(Resolved::Element(Element::Function(f))) if program.library(program.function(*f).library).uri == "dart:core")
+                                && matches!(s.body.get_resolved(*target), Some(Resolved::Element(Element::Function(f))) if program.library(program.function(*f).library).uri == "dart:core")
                         }
                     }
                     ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot, operand } => !matches!(a.expr(*operand).kind, ExprKind::Int(_)),
@@ -249,7 +249,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         // `PropertyAccess` (não `a.b` com `a` identificador).
                         !matches!(a.expr(*target).kind, ExprKind::Identifier(_))
                             && interner.resolve(name.sym) == "length"
-                            && match s.corpo.get_resolved(x) {
+                            && match s.body.get_resolved(x) {
                                 Some(Resolved::Member { member: MemberRef::Function(f), .. }) => program.library(program.function(*f).library).uri == "dart:core",
                                 _ => false,
                             }
@@ -291,7 +291,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             };
             let e_o_parametro = |e: ExprId| {
                 let e = sem_parenteses(a, e);
-                matches!(&a.expr(e).kind, ExprKind::Identifier(n) if n.sym == pn.sym) && matches!(s.corpo.get_resolved(e), Some(Resolved::Parameter { .. }))
+                matches!(&a.expr(e).kind, ExprKind::Identifier(n) if n.sym == pn.sym) && matches!(s.body.get_resolved(e), Some(Resolved::Parameter { .. }))
             };
             let e_nulo = |e: ExprId| matches!(a.expr(sem_parenteses(a, e)).kind, ExprKind::Null);
             for e in a.exprs.iter() {
@@ -322,11 +322,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("sized_box_shrink_expand") {
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
-            let Some(Resolved::Constructor(f)) = s.corpo.get_resolved(id) else { continue };
+            let Some(Resolved::Constructor(f)) = s.body.get_resolved(id) else { continue };
             if !interner.resolve(program.function(*f).name).is_empty() {
                 continue;
             }
-            if !s.corpo.get_type(id).is_some_and(|t| super::flutter::e_sized_box(s, interner, t)) {
+            if !s.body.get_type(id).is_some_and(|t| super::flutter::e_sized_box(s, interner, t)) {
                 continue;
             }
             let args = match &e.kind {
@@ -385,7 +385,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         for (k, d) in a.decls.iter().enumerate() {
             let DeclKind::Class(x) = &d.kind else { continue };
             let Some(classe) = classe_da_decl(s, DeclId(k as u32)) else { continue };
-            if d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, m, "meta", "reopen")) {
+            if d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "reopen")) {
                 continue;
             }
             let m = &x.modifiers;
@@ -453,11 +453,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         _ => continue,
                     };
                     let metodo = interner.resolve(nome.sym);
-                    let tipo = alvo.filter(|t| !matches!(a.expr(*t).kind, ExprKind::CascadeTarget)).and_then(|t| s.corpo.get_type(t));
+                    let tipo = alvo.filter(|t| !matches!(a.expr(*t).kind, ExprKind::CascadeTarget)).and_then(|t| s.body.get_type(t));
                     match tipo {
                         None => {
                             // `print(x.toString())`.
-                            let e_print = matches!(s.corpo.get_resolved(*target), Some(Resolved::Element(Element::Function(f))) if interner.resolve(program.function(*f).name) == "print" && program.library(program.function(*f).library).uri == "dart:core");
+                            let e_print = matches!(s.body.get_resolved(*target), Some(Resolved::Element(Element::Function(f))) if interner.resolve(program.function(*f).name) == "print" && program.library(program.function(*f).library).uri == "dart:core");
                             if alvo.is_none()
                                 && e_print
                                 && let [x] = &arguments.args[..]
@@ -500,17 +500,17 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if matches!(a.expr(*e).kind, ExprKind::Assign { .. }) {
                 continue;
             }
-            let Some(t) = s.corpo.get_type(*e) else { continue };
+            let Some(t) = s.body.get_type(*e) else { continue };
             if !implementa_future(t) {
                 continue;
             }
             // `Future.delayed(d, f)` e o `putIfAbsent` de `Map`.
-            let atrasado = matches!(s.corpo.get_resolved(*e), Some(Resolved::Constructor(f)) if interner.resolve(program.function(*f).name) == "delayed")
+            let atrasado = matches!(s.body.get_resolved(*e), Some(Resolved::Constructor(f)) if interner.resolve(program.function(*f).name) == "delayed")
                 && e_future(t)
                 && matches!(&a.expr(*e).kind, ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } if arguments.args.len() == 2);
             let put_if_absent = match &a.expr(*e).kind {
                 ExprKind::Call { target, .. } => match &a.expr(*target).kind {
-                    ExprKind::Property { name, .. } if interner.resolve(name.sym) == "putIfAbsent" => match s.corpo.get_resolved(*target) {
+                    ExprKind::Property { name, .. } if interner.resolve(name.sym) == "putIfAbsent" => match s.body.get_resolved(*target) {
                         Some(Resolved::Member { class, .. }) => {
                             let k = program.class(*class);
                             interner.resolve(k.name) == "Map" && nome_da_biblioteca(s, interner, k.library).as_deref() == Some("dart.core")
@@ -532,7 +532,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if matches!(a.expr(x).kind, ExprKind::Assign { .. }) {
                 return;
             }
-            if s.corpo.get_type(x).is_some_and(e_future) && em_corpo_assincrono(a, a.expr(x).span) {
+            if s.body.get_type(x).is_some_and(e_future) && em_corpo_assincrono(a, a.expr(x).span) {
                 relatar(a.expr(x).span);
             }
         };
@@ -597,7 +597,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 }
                 // O tipo de retorno do elemento é a própria classe.
                 let retorno = (0..program.functions.len()).find_map(|i| match program.functions[i].node {
-                    dartforge_elements::model::FunctionRef::Function { unit, function } if unit == s.unidade && function == *fid => s.outline.functions.get(i).map(|d| d.return_type),
+                    dartforge_elements::model::FunctionRef::Function { unit, function } if unit == s.unit && function == *fid => s.outline.functions.get(i).map(|d| d.return_type),
                     _ => None,
                 });
                 let e_propria = retorno.is_some_and(|t| matches!(table.get(t), Type::Interface { class, .. } if *class == classe));

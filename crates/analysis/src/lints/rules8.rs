@@ -10,7 +10,7 @@
 //! Com o mesmo dado do original (as que pedem o elemento ou o tipo só
 //! relatam com a semântica da unidade):
 //! - `prefer_conditional_assignment` e `join_return_with_assignment`: o
-//!   `canonicalElementsFromIdentifiersAreEqual` (`super::mesmos_elementos`).
+//!   `canonicalElementsFromIdentifiersAreEqual` (`super::same_elements`).
 //! - `avoid_unused_constructor_parameters`: o uso pelo elemento do
 //!   parâmetro, e o `@deprecated`/`@Deprecated(…)` resolvido.
 //! - `avoid_init_to_null`: o `isNullable` do tipo do elemento (do local do
@@ -25,7 +25,7 @@
 
 use super::codigos_g as c;
 use super::strings::{literais, valor_de_string};
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -183,12 +183,12 @@ fn comparar_diretivas(x: &str, y: &str) -> std::cmp::Ordering {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // O número da linha (a partir de 0) de um lugar.
     // `LineInfo`: `\n`, `\r\n` e `\r` sozinho terminam linha.
@@ -208,10 +208,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("prefer_conditional_assignment")
         && let Some(s) = sem
     {
-        fn atribui(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, st: StmtId, testada: ExprId) -> bool {
+        fn atribui(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, st: StmtId, testada: ExprId) -> bool {
             match &a.stmt(st).kind {
                 StmtKind::Expression(e) => {
-                    matches!(&a.expr(*e).kind, ExprKind::Assign { target, .. } if super::mesmos_elementos(s, interner, a, Some(*target), Some(testada)))
+                    matches!(&a.expr(*e).kind, ExprKind::Assign { target, .. } if super::same_elements(s, interner, a, Some(*target), Some(testada)))
                 }
                 StmtKind::Block(ss) if ss.len() == 1 => atribui(s, interner, a, ss[0], testada),
                 _ => false,
@@ -256,8 +256,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let StmtKind::Return(Some(devolvida)) = &a.stmt(ss[n - 1]).kind else { continue };
             let Some(penultimo) = alvo(ss[n - 2]) else { continue };
             let antepenultimo = if n >= 3 { alvo(ss[n - 3]) } else { None };
-            if !super::mesmos_elementos(s, interner, a, Some(penultimo), antepenultimo)
-                && super::mesmos_elementos(s, interner, a, Some(*devolvida), Some(penultimo))
+            if !super::same_elements(s, interner, a, Some(penultimo), antepenultimo)
+                && super::same_elements(s, interner, a, Some(*devolvida), Some(penultimo))
             {
                 relatar(&c::JOIN_RETURN_WITH_ASSIGNMENT, a.stmt(ss[n - 2]).span, &[]);
             }
@@ -317,11 +317,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let MemberKind::Constructor(k) = &m.kind else { continue };
             for (pi, p) in k.parameters.iter().enumerate() {
                 let Some(t) = p.ty else { continue };
-                let Some(escrito) = super::tipo_escrito(s, t) else { continue };
+                let Some(escrito) = super::written_type(s, t) else { continue };
                 let alvo = if p.this_ {
-                    p.name.and_then(|n| super::campo_da_classe(s, MemberId(mi as u32), n.sym)).and_then(|v| super::tipo_da_variavel(s, v))
+                    p.name.and_then(|n| super::class_field(s, MemberId(mi as u32), n.sym)).and_then(|v| super::variable_type(s, v))
                 } else if p.super_ {
-                    super::parametro_do_super(s, interner, MemberId(mi as u32), pi)
+                    super::super_parameter(s, interner, MemberId(mi as u32), pi)
                         .and_then(|(f, j)| s.outline.functions.get(f.0 as usize).and_then(|d| d.parameters.get(j)).map(|x| x.ty))
                 } else {
                     continue;
@@ -345,10 +345,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         for (i, v) in s.program.variables.iter().enumerate() {
             let id = dartforge_elements::model::VariableId(i as u32);
             match v.node {
-                dartforge_elements::model::VariableRef::TopLevel { unit, decl, index } if unit == s.unidade => {
+                dartforge_elements::model::VariableRef::TopLevel { unit, decl, index } if unit == s.unit => {
                     de_topo.insert((decl.0 as usize, index), id);
                 }
-                dartforge_elements::model::VariableRef::Field { unit, member, index } if unit == s.unidade => {
+                dartforge_elements::model::VariableRef::Field { unit, member, index } if unit == s.unit => {
                     de_campo.insert((member.0 as usize, index), id);
                 }
                 _ => {}
@@ -370,15 +370,15 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         };
         for (di, d) in a.decls.iter().enumerate() {
             if let DeclKind::Variables(l) = &d.kind {
-                da_lista(l, &|k, _| de_topo.get(&(di, k)).and_then(|v| super::tipo_da_variavel(s, *v)), &mut achados);
+                da_lista(l, &|k, _| de_topo.get(&(di, k)).and_then(|v| super::variable_type(s, *v)), &mut achados);
             }
         }
         for (mi, m) in a.members.iter().enumerate() {
             if let MemberKind::Field(l) = &m.kind {
-                da_lista(l, &|k, _| de_campo.get(&(mi, k)).and_then(|v| super::tipo_da_variavel(s, *v)), &mut achados);
+                da_lista(l, &|k, _| de_campo.get(&(mi, k)).and_then(|v| super::variable_type(s, *v)), &mut achados);
             }
         }
-        let local = |_: usize, n: ast::Name| s.corpo.tipo_local(n.span.start);
+        let local = |_: usize, n: ast::Name| s.body.tipo_local(n.span.start);
         for st in a.stmts.iter() {
             match &st.kind {
                 StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => da_lista(l, &local, &mut achados),
@@ -390,17 +390,17 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         // superclasse).
         let tipo_do_parametro = |mi: Option<usize>, pi: usize, p: &ast::Parameter| -> Option<dartforge_types::table::TypeId> {
             let n = p.name?;
-            if let Some(t) = s.corpo.tipo_local(n.span.start) {
+            if let Some(t) = s.body.tipo_local(n.span.start) {
                 return Some(t);
             }
             if let Some(t) = p.ty {
-                return super::tipo_escrito(s, t);
+                return super::written_type(s, t);
             }
             if p.this_ {
-                return super::campo_da_classe(s, MemberId(mi? as u32), n.sym).and_then(|v| super::tipo_da_variavel(s, v));
+                return super::class_field(s, MemberId(mi? as u32), n.sym).and_then(|v| super::variable_type(s, v));
             }
             if p.super_ {
-                return super::parametro_do_super(s, interner, MemberId(mi? as u32), pi)
+                return super::super_parameter(s, interner, MemberId(mi? as u32), pi)
                     .and_then(|(f, j)| s.outline.functions.get(f.0 as usize).and_then(|d| d.parameters.get(j)).map(|x| x.ty));
             }
             if p.function_parameters.is_some() {
@@ -412,7 +412,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         };
         // O padrão do parâmetro da superclasse é `null` (ou falta).
         let padrao_do_super_nulo = |mi: usize, pi: usize| -> bool {
-            let Some((f, j)) = super::parametro_do_super(s, interner, MemberId(mi as u32), pi) else { return false };
+            let Some((f, j)) = super::super_parameter(s, interner, MemberId(mi as u32), pi) else { return false };
             let dartforge_elements::model::FunctionRef::Constructor { unit, member } = s.program.function(f).node else { return true };
             let au = &s.program.unit(unit).ast;
             let MemberKind::Constructor(kk) = &au.member(member).kind else { return true };
@@ -518,12 +518,12 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 .iter()
                 .enumerate()
                 .filter(|(_, e)| matches!(e.kind, ExprKind::Identifier(_)) && regioes.iter().any(|r| r.start <= e.span.start && e.span.end <= r.end))
-                .filter_map(|(k, _)| s.corpo.declaracao_local(ExprId(k as u32)))
+                .filter_map(|(k, _)| s.body.declaracao_local(ExprId(k as u32)))
                 .collect();
             for p in k.parameters.iter().filter(|p| !p.this_ && !p.super_) {
                 let Some(n) = p.name else { continue };
                 let texto = interner.resolve(n.sym);
-                let depreciado = p.metadata.iter().any(|x| dartforge_types::anotacoes::e_deprecated(s.program, interner, s.unidade, x));
+                let depreciado = p.metadata.iter().any(|x| dartforge_types::anotacoes::e_deprecated(s.program, interner, s.unit, x));
                 if depreciado || texto.bytes().all(|b| b == b'_') || usados.contains(&n.span.start) {
                     continue;
                 }
@@ -651,7 +651,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     // record em contexto constante (`inConstantContext`); a coleção que é
     // direto a expressão de um padrão constante fica fora.
     if ligada("unnecessary_const") {
-        let versao_antiga = sem.is_some_and(|s| !super::versao_ao_menos(s, 3, 0));
+        let versao_antiga = sem.is_some_and(|s| !super::version_at_least(s, 3, 0));
         let pais = dartforge_frontend::pais::Pais::novo(a, u.unit, fonte, versao_antiga);
         for (k, n) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);

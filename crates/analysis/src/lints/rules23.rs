@@ -18,7 +18,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -30,8 +30,8 @@ use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::table::Type;
 use std::collections::HashSet;
 
-fn classe_da_decl(s: &super::Semantica<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == d))
+fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
 /// O dono de um comentário de documentação e o escopo dele.
@@ -76,7 +76,7 @@ enum Elem {
 }
 
 /// O membro `nome` (instância, estático ou construtor nomeado) da classe.
-fn membro_da_classe(s: &super::Semantica<'_>, interner: &Interner, c: ClassId, nome: &str, herdados: bool) -> bool {
+fn membro_da_classe(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, nome: &str, herdados: bool) -> bool {
     let program = s.program;
     let Some(sym) = interner.lookup(nome) else { return false };
     let setter = interner.lookup(&format!("{nome}_="));
@@ -98,7 +98,7 @@ fn membro_da_classe(s: &super::Semantica<'_>, interner: &Interner, c: ClassId, n
     false
 }
 
-fn membro_da_extensao(s: &super::Semantica<'_>, interner: &Interner, e: ExtensionId, nome: &str) -> bool {
+fn membro_da_extensao(s: &super::Semantics<'_>, interner: &Interner, e: ExtensionId, nome: &str) -> bool {
     let x = &s.program.extensions[e.0 as usize];
     let Some(sym) = interner.lookup(nome) else { return false };
     let setter = interner.lookup(&format!("{nome}_="));
@@ -106,16 +106,16 @@ fn membro_da_extensao(s: &super::Semantica<'_>, interner: &Interner, e: Extensio
 }
 
 /// `_resolveSimpleIdentifier`.
-fn resolver_simples(s: &super::Semantica<'_>, interner: &Interner, dono: &Dono<'_>, nome: &str) -> Elem {
+fn resolver_simples(s: &super::Semantics<'_>, interner: &Interner, dono: &Dono<'_>, nome: &str) -> Elem {
     let program = s.program;
     if let Some(sym) = interner.lookup(nome) {
         if dono.proprios.contains(&sym) || dono.da_classe.contains(&sym) {
             return Elem::Outro;
         }
-        if program.prefixos_na_unidade(s.unidade).contains_key(&sym) {
+        if program.prefixos_na_unidade(s.unit).contains_key(&sym) {
             return Elem::Prefixo;
         }
-        if let Some(b) = program.lookup_na_unidade(s.unidade, sym)
+        if let Some(b) = program.lookup_na_unidade(s.unit, sym)
             && let Some(e) = b.getter.or(b.setter)
         {
             return match e {
@@ -152,14 +152,14 @@ fn resolver_simples(s: &super::Semantica<'_>, interner: &Interner, dono: &Dono<'
 }
 
 /// A referência resolve.
-fn resolve(s: &super::Semantica<'_>, interner: &Interner, dono: &Dono<'_>, partes: &[&str]) -> bool {
+fn resolve(s: &super::Semantics<'_>, interner: &Interner, dono: &Dono<'_>, partes: &[&str]) -> bool {
     let program = s.program;
     match partes {
         [x] => resolver_simples(s, interner, dono, x) != Elem::Nada,
         [p, x] => match resolver_simples(s, interner, dono, p) {
             Elem::Prefixo => {
                 let (Some(ps), Some(xs)) = (interner.lookup(p), interner.lookup(x)) else { return false };
-                program.lookup_prefixed_na_unidade(s.unidade, ps, xs).is_some()
+                program.lookup_prefixed_na_unidade(s.unit, ps, xs).is_some()
             }
             Elem::Classe(c) => membro_da_classe(s, interner, c, x, true),
             Elem::Extensao(e) => membro_da_extensao(s, interner, e, x),
@@ -170,7 +170,7 @@ fn resolve(s: &super::Semantica<'_>, interner: &Interner, dono: &Dono<'_>, parte
                 return false;
             }
             let (Some(ps), Some(ks)) = (interner.lookup(p), interner.lookup(k)) else { return false };
-            match program.lookup_prefixed_na_unidade(s.unidade, ps, ks).and_then(|b| b.getter.or(b.setter)) {
+            match program.lookup_prefixed_na_unidade(s.unit, ps, ks).and_then(|b| b.getter.or(b.setter)) {
                 Some(Element::Class(c)) => membro_da_classe(s, interner, c, x, false),
                 Some(Element::Extension(e)) => membro_da_extensao(s, interner, e, x),
                 _ => false,
@@ -266,15 +266,15 @@ fn referencias(fonte: &str, linhas: &[(usize, &str)], em_bloco: &dyn Fn(usize) -
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let fonte = u.fonte;
     let program = s.program;
     let table = s.table;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `comment_references`.
@@ -316,7 +316,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             };
             let classe = if matches!(d.kind, DeclKind::Extension(_)) { None } else { classe_da_decl(s, did) };
             let extensao = if matches!(d.kind, DeclKind::Extension(_)) {
-                program.extensions.iter().position(|x| x.decl.unit == s.unidade && x.decl.decl == did).map(|i| ExtensionId(i as u32))
+                program.extensions.iter().position(|x| x.decl.unit == s.unit && x.decl.decl == did).map(|i| ExtensionId(i as u32))
             } else {
                 None
             };
@@ -502,7 +502,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if excluidos.contains(&id) || aumentados.iter().any(|sp| t.span.start >= sp.start && t.span.end <= sp.end) {
                 continue;
             }
-            let tipo = s.corpo.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unidade, id)).copied());
+            let tipo = s.body.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, id)).copied());
             if tipo.is_some_and(|x| matches!(table.get(x), Type::Null)) {
                 relatar(&c::PREFER_VOID_TO_NULL, name[name.len() - 1].span, &[]);
             }
@@ -542,7 +542,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 if privado(v.name.sym) || l.const_ {
                     continue;
                 }
-                let inferido = v.initializer.and_then(|i| s.corpo.get_type(i)).is_some_and(|t| !matches!(table.get(t), Type::Dynamic | Type::Null));
+                let inferido = v.initializer.and_then(|i| s.body.get_type(i)).is_some_and(|t| !matches!(table.get(t), Type::Dynamic | Type::Null));
                 if l.final_ && inferido {
                     continue;
                 }

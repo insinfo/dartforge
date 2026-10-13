@@ -35,7 +35,7 @@
 use super::walk::{andar, No};
 use super::codigos_g as c;
 use super::scope::{Escopos, Especie};
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -49,12 +49,12 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::{Type, TypeId, TypeTable};
 use std::collections::{HashMap, HashSet};
 
-fn nome_da_biblioteca(s: &super::Semantica<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
+fn nome_da_biblioteca(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
 /// `isSameAs(nome, biblioteca)`: o elemento do tipo de interface.
-fn classe_e(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, nome: &str, biblioteca: &str) -> bool {
+fn classe_e(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, nome: &str, biblioteca: &str) -> bool {
     match s.table.get(t) {
         Type::Interface { class, .. } => {
             let k = s.program.class(*class);
@@ -65,7 +65,7 @@ fn classe_e(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, nome: &str
 }
 
 /// `implementsInterface(nome, biblioteca)`.
-fn implementa(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, nome: &str, biblioteca: &str) -> bool {
+fn implementa(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, nome: &str, biblioteca: &str) -> bool {
     let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = s.table.get(t) else { return false };
     let e = |k: ClassId| {
         let x = s.program.class(k);
@@ -76,18 +76,18 @@ fn implementa(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, nome: &s
 
 /// A chamada é `MethodInvocation` no analyzer (o nome resolvido a variável
 /// ou a getter vira `FunctionExpressionInvocation`).
-pub(super) fn e_invocacao_de_metodo(s: &super::Semantica<'_>, a: &Ast, alvo: ExprId) -> bool {
+pub(super) fn e_invocacao_de_metodo(s: &super::Semantics<'_>, a: &Ast, alvo: ExprId) -> bool {
     if !matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
         return false;
     }
     let nao_getter = |f: FunctionElementId| s.program.function(f).kind != FunctionKind::Getter;
-    match s.corpo.get_resolved(alvo) {
+    match s.body.get_resolved(alvo) {
         Some(Resolved::Member { member: MemberRef::Function(f), .. }) => nao_getter(*f),
         Some(Resolved::Member { member: MemberRef::Variable(_), .. }) => false,
         Some(Resolved::Element(Element::Function(f))) => nao_getter(*f),
         Some(Resolved::Element(_)) => false,
         Some(Resolved::ExtensionMember { member, .. }) => nao_getter(*member),
-        Some(Resolved::Local(_)) => s.corpo.declaracao_local(alvo).is_some_and(|d| {
+        Some(Resolved::Local(_)) => s.body.declaracao_local(alvo).is_some_and(|d| {
             a.stmts.iter().any(|x| matches!(&x.kind, StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d)))
         }),
         Some(Resolved::Parameter { .. }) => false,
@@ -120,8 +120,8 @@ pub(super) fn nao_anulavel(table: &TypeTable, t: TypeId) -> bool {
 }
 
 /// O `ClassId` de uma declaração da unidade.
-fn classe_da_decl(s: &super::Semantica<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == d))
+fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
 /// Os segmentos do caminho de uma URI (`Uri.pathSegments`).
@@ -178,31 +178,31 @@ pub(super) fn pais_da_unidade(u: Unidade<'_>, guardar: &dyn Fn(ExprId) -> bool) 
 }
 
 /// O tipo de retorno escrito de uma função (`returnType?.type`).
-fn retorno_escrito(s: &super::Semantica<'_>, a: &Ast, f: dartforge_frontend::ast::FunctionId) -> Option<TypeId> {
+fn retorno_escrito(s: &super::Semantics<'_>, a: &Ast, f: dartforge_frontend::ast::FunctionId) -> Option<TypeId> {
     let t = a.function(f).return_type?;
-    s.corpo.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unidade, t)).copied())
+    s.body.tipos_de_anotacoes.get(&t).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, t)).copied())
 }
 
 /// O tipo de retorno do elemento de uma função declarada (método, de topo
 /// ou local).
-fn retorno_do_elemento(s: &super::Semantica<'_>, a: &Ast, f: dartforge_frontend::ast::FunctionId) -> Option<TypeId> {
+fn retorno_do_elemento(s: &super::Semantics<'_>, a: &Ast, f: dartforge_frontend::ast::FunctionId) -> Option<TypeId> {
     for (k, fe) in s.program.functions.iter().enumerate() {
         if let FunctionRef::Function { unit, function } = fe.node
-            && unit == s.unidade
+            && unit == s.unit
             && function == f
         {
             return s.outline.functions.get(k).map(|d| d.return_type);
         }
     }
     let n = a.function(f).name?;
-    match s.table.get(s.corpo.tipo_local(n.span.start)?) {
+    match s.table.get(s.body.tipo_local(n.span.start)?) {
         Type::Function { ret, .. } => Some(*ret),
         _ => None,
     }
 }
 
 /// `_expectedReturnableOrYieldableType`.
-fn retornavel(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, f: dartforge_frontend::ast::FunctionId, ret: Option<TypeId>) -> Option<TypeId> {
+fn retornavel(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, f: dartforge_frontend::ast::FunctionId, ret: Option<TypeId>) -> Option<TypeId> {
     let ret = ret?;
     if !matches!(s.table.get(ret), Type::Interface { .. }) {
         return None;
@@ -222,7 +222,7 @@ fn retornavel(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, f: dartfor
 }
 
 /// `FunctionBody.expectedReturnType` do corpo da função `f`.
-fn retorno_esperado(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, pais: &Pais, f: dartforge_frontend::ast::FunctionId) -> Option<TypeId> {
+fn retorno_esperado(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, pais: &Pais, f: dartforge_frontend::ast::FunctionId) -> Option<TypeId> {
     let e_metodo = a.members.iter().any(|m| matches!(m.kind, MemberKind::Method(g) if g == f));
     let literal = a.exprs.iter().position(|e| matches!(e.kind, ExprKind::FunctionExpression(g) if g == f)).map(|k| ExprId(k as u32));
     if e_metodo {
@@ -243,7 +243,7 @@ fn retorno_esperado(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, pais
 }
 
 /// `approximateContextType` (`extensions.dart:377`).
-pub(super) fn contexto_aproximado(s: &super::Semantica<'_>, interner: &Interner, a: &Ast, pais: &Pais, eu: ExprId) -> Contexto {
+pub(super) fn contexto_aproximado(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, pais: &Pais, eu: ExprId) -> Contexto {
     let mut filho = eu;
     let mut pai = pais.expr.get(&eu).copied();
     while let Some(No::Expr(p)) = pai {
@@ -255,7 +255,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantica<'_>, interner: &Interner,
         filho = p;
         pai = pais.expr.get(&p).copied();
     }
-    let tipo = |e: ExprId| s.corpo.get_type(e).map_or(Contexto::Nenhum, Contexto::Tipo);
+    let tipo = |e: ExprId| s.body.get_type(e).map_or(Contexto::Nenhum, Contexto::Tipo);
     match pai {
         Some(No::Expr(p)) => match &a.expr(p).kind {
             // Argumento (posicional ou nomeado).
@@ -267,7 +267,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantica<'_>, interner: &Interner,
                 if arg.name.is_none() && filho != eu {
                     return Contexto::Invalido;
                 }
-                s.corpo.tipos_de_parametros.get(&chave).copied().map_or(Contexto::Invalido, Contexto::Tipo)
+                s.body.tipos_de_parametros.get(&chave).copied().map_or(Contexto::Invalido, Contexto::Tipo)
             }
             ExprKind::Assign { .. } | ExprKind::Conditional { .. } => tipo(p),
             _ => Contexto::Nenhum,
@@ -314,7 +314,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantica<'_>, interner: &Interner,
                 if let MemberKind::Field(l) = &a.member(mm).kind
                     && let Some(index) = l.variables.iter().position(|x| x.name.sym == nome.sym)
                 {
-                    return tipo_de_variavel(s, VariableRef::Field { unit: s.unidade, member: mm, index }).map_or(Contexto::Nenhum, Contexto::Tipo);
+                    return tipo_de_variavel(s, VariableRef::Field { unit: s.unit, member: mm, index }).map_or(Contexto::Nenhum, Contexto::Tipo);
                 }
             }
             Contexto::Nenhum
@@ -336,11 +336,11 @@ pub(super) fn contexto_aproximado(s: &super::Semantica<'_>, interner: &Interner,
                 if l.ty.is_none() {
                     return Contexto::Nenhum;
                 }
-                let t = l.ty.and_then(|t| s.corpo.tipos_de_anotacoes.get(&t).copied());
+                let t = l.ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied());
                 t.map_or(Contexto::Nenhum, Contexto::Tipo)
             }
             StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
-                l.ty.and_then(|t| s.corpo.tipos_de_anotacoes.get(&t).copied()).map_or(Contexto::Nenhum, Contexto::Tipo)
+                l.ty.and_then(|t| s.body.tipos_de_anotacoes.get(&t).copied()).map_or(Contexto::Nenhum, Contexto::Tipo)
             }
             _ => Contexto::Nenhum,
         },
@@ -351,7 +351,7 @@ pub(super) fn contexto_aproximado(s: &super::Semantica<'_>, interner: &Interner,
 
 /// O tipo escrito da lista de variáveis (campo ou de topo) que inicializa
 /// `filho`.
-fn variavel_de_lista(s: &super::Semantica<'_>, a: &Ast, m: Option<dartforge_frontend::ast::MemberId>, d: Option<DeclId>, filho: ExprId) -> Contexto {
+fn variavel_de_lista(s: &super::Semantics<'_>, a: &Ast, m: Option<dartforge_frontend::ast::MemberId>, d: Option<DeclId>, filho: ExprId) -> Contexto {
     let lista = match (m, d) {
         (Some(m), _) => match &a.member(m).kind {
             MemberKind::Field(l) => l,
@@ -367,18 +367,18 @@ fn variavel_de_lista(s: &super::Semantica<'_>, a: &Ast, m: Option<dartforge_fron
         return Contexto::Nenhum;
     }
     let Some(t) = lista.ty else { return Contexto::Nenhum };
-    s.outline.tipos_escritos.get(&(s.unidade, t)).copied().map_or(Contexto::Nenhum, Contexto::Tipo)
+    s.outline.tipos_escritos.get(&(s.unit, t)).copied().map_or(Contexto::Nenhum, Contexto::Tipo)
 }
 
 /// O tipo do elemento de uma variável de topo ou campo.
-pub(super) fn tipo_de_variavel(s: &super::Semantica<'_>, r: VariableRef) -> Option<TypeId> {
+pub(super) fn tipo_de_variavel(s: &super::Semantics<'_>, r: VariableRef) -> Option<TypeId> {
     let v = s.program.variables.iter().position(|x| x.node == r)?;
     let d = s.outline.variables.get(v)?;
     d.declared_type.or(d.inferred)
 }
 
 /// O `VariableId` do campo escrito por `e` (`writeElement.canonicalElement`).
-fn campo_escrito(s: &super::Semantica<'_>, corpo: &dartforge_types::resolved::UnitBodyTypes, e: ExprId) -> Option<VariableId> {
+fn campo_escrito(s: &super::Semantics<'_>, corpo: &dartforge_types::resolved::UnitBodyTypes, e: ExprId) -> Option<VariableId> {
     match corpo.get_resolved(e)? {
         Resolved::Member { member: MemberRef::Variable(v), .. } => Some(*v),
         Resolved::Member { member: MemberRef::Function(f), .. } => s.program.function(*f).variable,
@@ -389,15 +389,15 @@ fn campo_escrito(s: &super::Semantica<'_>, corpo: &dartforge_types::resolved::Un
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let fonte = u.fonte;
     let program = s.program;
     let table = s.table;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let regras = [
         "avoid_function_literals_in_foreach_calls",
@@ -417,7 +417,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let pais = pais_da_unidade(u, &|e| {
         matches!(a.expr(e).kind, ExprKind::Call { .. } | ExprKind::InstanceCreation { .. } | ExprKind::This)
     });
-    let lib = program.unit(s.unidade).library;
+    let lib = program.unit(s.unit).library;
     let doc = dartforge_frontend::comentarios::Comentarios::de(fonte);
     let tem_doc = |metadata: &[dartforge_frontend::ast::Annotation], inicio: usize| {
         let depois = match metadata.last() {
@@ -461,7 +461,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if primeiro.name.is_some() || !matches!(a.expr(primeiro.value).kind, ExprKind::FunctionExpression(_)) {
                 continue;
             }
-            if !s.corpo.get_type(*alvo).is_some_and(|t| implementa(s, interner, t, "Iterable", "dart.core")) {
+            if !s.body.get_type(*alvo).is_some_and(|t| implementa(s, interner, t, "Iterable", "dart.core")) {
                 continue;
             }
             if *null_aware || null_aware_na_cadeia(a, *alvo) {
@@ -564,9 +564,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     // `implementation_imports`.
     if ligada("implementation_imports") {
-        let fonte_uri = program.unit(s.unidade).uri.clone();
+        let fonte_uri = program.unit(s.unit).uri.clone();
         if fonte_uri.starts_with("package:") {
-            for imp in program.library(lib).imports.iter().filter(|i| i.unit == s.unidade) {
+            for imp in program.library(lib).imports.iter().filter(|i| i.unit == s.unit) {
                 let Some(d) = u.unit.directives.get(imp.directive) else { continue };
                 let DirectiveKind::Import { uri, .. } = &d.kind else { continue };
                 let importada = &program.library(imp.library).uri;
@@ -649,12 +649,12 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             // Criação de instância.
-            if let Some(Resolved::Constructor(f)) = s.corpo.get_resolved(id)
+            if let Some(Resolved::Constructor(f)) = s.body.get_resolved(id)
                 && let ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } = &e.kind
             {
                 let nome_do_construtor = interner.resolve(program.function(*f).name);
                 let nome_do_construtor = (!nome_do_construtor.is_empty()).then_some(nome_do_construtor);
-                let Some(t) = s.corpo.get_type(id) else { continue };
+                let Some(t) = s.body.get_type(id) else { continue };
                 for (biblioteca, tipo, nome, posicoes, nomes) in CONSTRUTORES {
                     if nome != nome_do_construtor {
                         continue;
@@ -693,7 +693,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
             let metodo = interner.resolve(name.sym);
             // Alvo que é uma classe: os estáticos.
-            let classe_alvo = match (&a.expr(*alvo).kind, s.corpo.get_resolved(*alvo)) {
+            let classe_alvo = match (&a.expr(*alvo).kind, s.body.get_resolved(*alvo)) {
                 (ExprKind::Identifier(_) | ExprKind::Property { .. }, Some(Resolved::Element(Element::Class(cl)))) if program.class(*cl).kind == ClassKind::Class => Some(*cl),
                 _ => None,
             };
@@ -706,7 +706,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 }
                 continue;
             }
-            let Some(t) = s.corpo.get_type(*alvo) else { continue };
+            let Some(t) = s.body.get_type(*alvo) else { continue };
             let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = table.get(t) else { continue };
             if program.class(*class).decl.is_none() && program.class(*class).kind == ClassKind::MixinApplication {
                 continue;
@@ -741,14 +741,14 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments,
                         _ => continue,
                     };
-                    if let Some(Resolved::Constructor(f)) = s.corpo.get_resolved(id) {
+                    if let Some(Resolved::Constructor(f)) = s.body.get_resolved(id) {
                         // O tipo escrito que é um `typedef`.
                         let escrito_alias = match &e.kind {
                             ExprKind::InstanceCreation { ty, .. } => match &a.ty(*ty).kind {
                                 dartforge_frontend::ast::TypeKind::Named { name, .. } => {
                                     let elemento = match &name[..] {
-                                        [n] => program.lookup_na_unidade(s.unidade, n.sym),
-                                        [p, n] => program.lookup_prefixed_na_unidade(s.unidade, p.sym, n.sym),
+                                        [n] => program.lookup_na_unidade(s.unit, n.sym),
+                                        [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym),
                                         _ => None,
                                     };
                                     matches!(elemento.and_then(|b| b.getter), Some(Element::Typedef(_)))
@@ -764,14 +764,14 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                                     },
                                     _ => None,
                                 };
-                                raiz.is_some_and(|n| matches!(program.lookup_na_unidade(s.unidade, n.sym).and_then(|b| b.getter), Some(Element::Typedef(_))))
+                                raiz.is_some_and(|n| matches!(program.lookup_na_unidade(s.unit, n.sym).and_then(|b| b.getter), Some(Element::Typedef(_))))
                             }
                             _ => false,
                         };
                         if escrito_alias {
                             continue;
                         }
-                        let Some(t) = s.corpo.get_type(id) else { continue };
+                        let Some(t) = s.body.get_type(id) else { continue };
                         let nome_do_construtor = interner.resolve(program.function(*f).name);
                         let sem_nome = nome_do_construtor.is_empty();
                         let e_hash_map = classe_e(s, interner, t, "LinkedHashMap", "dart.collection");
@@ -856,7 +856,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
             _ => false,
         };
-        let e_string = |e: ExprId| s.corpo.get_type(e).is_some_and(|t| classe_e(s, interner, t, "String", "dart.core"));
+        let e_string = |e: ExprId| s.body.get_type(e).is_some_and(|t| classe_e(s, interner, t, "String", "dart.core"));
         for (k, e) in a.exprs.iter().enumerate() {
             if !matches!(e.kind, ExprKind::Binary { op: BinaryOp::Add, .. }) {
                 continue;
@@ -886,7 +886,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if !final_ou_const {
                 return;
             }
-            let (Some(i), Some(d)) = (init.and_then(|i| s.corpo.get_type(i)), declarado) else { return };
+            let (Some(i), Some(d)) = (init.and_then(|i| s.body.get_type(i)), declarado) else { return };
             if matches!(table.get(d), Type::Dynamic) {
                 return;
             }
@@ -898,7 +898,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             match &d.kind {
                 DeclKind::Variables(l) => {
                     for (index, v) in l.variables.iter().enumerate() {
-                        let t = tipo_de_variavel(s, VariableRef::TopLevel { unit: s.unidade, decl: DeclId(k as u32), index });
+                        let t = tipo_de_variavel(s, VariableRef::TopLevel { unit: s.unit, decl: DeclId(k as u32), index });
                         conferir(l.final_ || l.const_, v.name, v.initializer, t);
                     }
                 }
@@ -910,7 +910,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let MemberKind::Field(l) = &m.kind else { continue };
             for (index, v) in l.variables.iter().enumerate() {
                 if interner.resolve(v.name.sym).starts_with('_') || l.static_ {
-                    let t = tipo_de_variavel(s, VariableRef::Field { unit: s.unidade, member: dartforge_frontend::ast::MemberId(k as u32), index });
+                    let t = tipo_de_variavel(s, VariableRef::Field { unit: s.unit, member: dartforge_frontend::ast::MemberId(k as u32), index });
                     conferir(l.final_ || l.const_, v.name, v.initializer, t);
                 }
             }
@@ -918,7 +918,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         for st in a.stmts.iter() {
             if let StmtKind::Variables(l) = &st.kind {
                 for v in l.variables.iter() {
-                    conferir(l.final_ || l.const_, v.name, v.initializer, s.corpo.tipo_local(v.name.span.start));
+                    conferir(l.final_ || l.const_, v.name, v.initializer, s.body.tipo_local(v.name.span.start));
                 }
             }
         }
@@ -945,7 +945,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             };
             for f in filhos {
                 let PatternKind::Variable { name, .. } = &a.pattern(f).kind else { continue };
-                let (Some(t), Some(&valor)) = (s.corpo.tipo_local(name.span.start), s.corpo.tipos_casados.get(&f)) else { continue };
+                let (Some(t), Some(&valor)) = (s.body.tipo_local(name.span.start), s.body.tipos_casados.get(&f)) else { continue };
                 if matches!(table.get(t), Type::Dynamic) {
                     continue;
                 }
@@ -996,7 +996,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             // `PropertyAccess` (o `propertyName`) ou `MethodInvocation` (o
             // `methodName`): o elemento da propriedade.
             let setter = escritos.contains(&p);
-            let elemento = s.corpo.get_resolved(p);
+            let elemento = s.body.get_resolved(p);
             let dono_do_elemento: Option<(u32, DeclId)> = match elemento {
                 Some(Resolved::Member { class, .. }) => program.class(*class).decl.map(|r| (r.unit.0, r.decl)),
                 Some(Resolved::ExtensionMember { extension, .. }) => {
@@ -1024,7 +1024,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
             let relata = if achadas.is_empty() {
                 // O escopo da unidade.
-                match program.lookup_na_unidade(s.unidade, name.sym) {
+                match program.lookup_na_unidade(s.unit, name.sym) {
                     // Um elemento de topo (o pedido ou o outro acessor) não é o
                     // membro, nem é de classe.
                     None => true,
@@ -1032,7 +1032,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 }
             } else if let Some(r) = pedido.first() {
                 match r.especie {
-                    Especie::Membro { classe, .. } => dono_do_elemento == Some((s.unidade.0, classe)),
+                    Especie::Membro { classe, .. } => dono_do_elemento == Some((s.unit.0, classe)),
                     _ => false,
                 }
             } else if let Some(r) = outro.first() {
@@ -1077,7 +1077,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     if !texto.starts_with('_') {
                         continue;
                     }
-                    let Some(vid) = program.variables.iter().position(|x| x.node == VariableRef::Field { unit: s.unidade, member: mid, index }) else { continue };
+                    let Some(vid) = program.variables.iter().position(|x| x.node == VariableRef::Field { unit: s.unit, member: mid, index }) else { continue };
                     // `overridesField`: um setter concreto herdado.
                     let sobrescreve = classe.is_some_and(|cl| {
                         let chave = interner.lookup(&format!("{texto}_="));
@@ -1117,7 +1117,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             // As escritas de toda a biblioteca.
             let mut mutados: HashSet<VariableId> = HashSet::new();
             for &un in &program.library(lib).units {
-                let Some(corpo) = s.corpos.units.get(un.0 as usize) else { continue };
+                let Some(corpo) = s.bodies.units.get(un.0 as usize) else { continue };
                 let a2 = &program.unit(un).ast;
                 for e in a2.exprs.iter() {
                     let alvo = match &e.kind {
@@ -1220,7 +1220,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
 /// A ordem do `_findAllSupertypesAndMixins` (classe) ou do
 /// `_findAllSupertypesInMixin` (mixin), sem repetição e sem a própria classe.
-fn supertipos_e_mixins(s: &super::Semantica<'_>, classe: ClassId) -> Vec<ClassId> {
+fn supertipos_e_mixins(s: &super::Semantics<'_>, classe: ClassId) -> Vec<ClassId> {
     let program = s.program;
     let object = s.core.object_class;
     // `f(I)`: [superclasse, mixins de I, f(superclasse)…].

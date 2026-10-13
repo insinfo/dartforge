@@ -20,7 +20,7 @@ pub fn exatamente(program: &Program, interner: &Interner, c: ClassId, nome: &str
 }
 
 /// O elemento ou algum supertipo é exatamente `nome` de `uri`.
-fn ou_supertipo(s: &super::Semantica<'_>, interner: &Interner, c: ClassId, nome: &str, uri: &str) -> bool {
+fn ou_supertipo(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, nome: &str, uri: &str) -> bool {
     exatamente(s.program, interner, c, nome, uri)
         || s.outline.hierarchy.get(c).is_some_and(|d| d.supertypes.keys().any(|k| exatamente(s.program, interner, *k, nome, uri)))
 }
@@ -33,42 +33,42 @@ fn classe(table: &TypeTable, t: TypeId) -> Option<ClassId> {
 }
 
 /// `isWidgetType`.
-pub fn e_widget_tipo(s: &super::Semantica<'_>, interner: &Interner, t: TypeId) -> bool {
+pub fn e_widget_tipo(s: &super::Semantics<'_>, interner: &Interner, t: TypeId) -> bool {
     classe(s.table, t).is_some_and(|c| ou_supertipo(s, interner, c, "Widget", FRAMEWORK))
 }
 
 /// `isWidget(element)`.
-pub fn e_widget(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> bool {
+pub fn e_widget(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     ou_supertipo(s, interner, c, "Widget", FRAMEWORK)
 }
 
 /// `isExactWidgetTypeContainer`.
-pub fn e_container(s: &super::Semantica<'_>, interner: &Interner, t: TypeId) -> bool {
+pub fn e_container(s: &super::Semantics<'_>, interner: &Interner, t: TypeId) -> bool {
     classe(s.table, t).is_some_and(|c| exatamente(s.program, interner, c, "Container", CONTAINER))
 }
 
 /// `isExactWidgetTypeSizedBox`.
-pub fn e_sized_box(s: &super::Semantica<'_>, interner: &Interner, t: TypeId) -> bool {
+pub fn e_sized_box(s: &super::Semantics<'_>, interner: &Interner, t: TypeId) -> bool {
     classe(s.table, t).is_some_and(|c| exatamente(s.program, interner, c, "SizedBox", BASIC))
 }
 
 /// `isState`.
-pub fn e_state(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> bool {
+pub fn e_state(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     ou_supertipo(s, interner, c, "State", FRAMEWORK)
 }
 
 /// `isStatefulWidget`.
-pub fn e_stateful_widget(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> bool {
+pub fn e_stateful_widget(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     ou_supertipo(s, interner, c, "StatefulWidget", FRAMEWORK)
 }
 
 /// `isExactWidget`.
-pub fn e_widget_exato(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> bool {
+pub fn e_widget_exato(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     exatamente(s.program, interner, c, "Widget", FRAMEWORK)
 }
 
 /// `isBuildContext(type, skipNullable)`.
-pub fn e_build_context(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, pular_anulavel: bool) -> bool {
+pub fn e_build_context(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, pular_anulavel: bool) -> bool {
     match s.table.get(t) {
         Type::Interface { class, nullable, .. } => !(pular_anulavel && *nullable) && exatamente(s.program, interner, *class, "BuildContext", FRAMEWORK),
         _ => false,
@@ -76,7 +76,7 @@ pub fn e_build_context(s: &super::Semantica<'_>, interner: &Interner, t: TypeId,
 }
 
 /// `hasWidgetAsAscendant`: a cadeia de superclasses chega a `Widget`.
-pub fn tem_widget_ascendente(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> bool {
+pub fn tem_widget_ascendente(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     let mut vistos = std::collections::HashSet::new();
     let mut atual = Some(c);
     while let Some(x) = atual {

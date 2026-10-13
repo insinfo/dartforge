@@ -88,7 +88,7 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
                 if let Some(code) = dartforge_analysis::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
                     && enabled(code.nome)
                 {
-                    reports.push(dartforge_analysis::lints::rules::RelatoDeLint { codigo: code, span: l.span, args: l.args.clone() });
+                    reports.push(dartforge_analysis::lints::rules::LintReport { codigo: code, span: l.span, args: l.args.clone() });
                 }
             }
             reports.sort_by_key(|r| (r.span.start, r.span.end, r.codigo.unico));

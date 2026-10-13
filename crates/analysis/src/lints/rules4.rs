@@ -21,7 +21,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -31,12 +31,12 @@ use dartforge_frontend::ast::{
 use dartforge_intern::Interner;
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // O `toString` de uma expressão.
     let fonte_de = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, fonte, interner, e) };
@@ -146,7 +146,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
         }
         // `visitDeclaredVariablePattern`.
-        for n in super::rules::variaveis_declaradas_em_padroes(a) {
+        for n in super::rules::pattern_declared_variables(a) {
             checar(n);
         }
         // `visitForPartsWithDeclarations` e `visitDeclaredIdentifier` do
@@ -208,7 +208,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 }
                 // Dentro de corpo de função, o elemento não mudado; fora, a
                 // lista `final`.
-                let relata = if local { sem.is_some_and(|s| !super::mutado(s, a, v.name.span.start)) } else { l.final_ };
+                let relata = if local { sem.is_some_and(|s| !super::is_mutated(s, a, v.name.span.start)) } else { l.final_ };
                 if relata {
                     relatar(&c::PREFER_FUNCTION_DECLARATIONS_OVER_VARIABLES, Span { start: v.name.span.start, end: a.expr(inicial).span.end }, &[]);
                 }

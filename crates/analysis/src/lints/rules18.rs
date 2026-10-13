@@ -35,7 +35,7 @@
 
 use super::walk::{andar, No};
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -57,16 +57,16 @@ fn anulavel(table: &TypeTable, t: TypeId) -> bool {
     }
 }
 
-fn nome_da_biblioteca(s: &super::Semantica<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
+fn nome_da_biblioteca(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> Option<String> {
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
-fn classe_da_decl(s: &super::Semantica<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == d))
+fn classe_da_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
+    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
 }
 
 /// `hasDeprecated`: `@deprecated` ou `@Deprecated(…)` do `dart:core`.
-fn obsoleto(s: &super::Semantica<'_>, interner: &Interner, u: dartforge_elements::model::UnitId, metadata: &[Annotation]) -> bool {
+fn obsoleto(s: &super::Semantics<'_>, interner: &Interner, u: dartforge_elements::model::UnitId, metadata: &[Annotation]) -> bool {
     metadata.iter().any(|m| {
         dartforge_types::anotacoes::e_getter_de(s.program, interner, u, m, "dart.core", "deprecated")
             || dartforge_types::anotacoes::e_construtor_de(s.program, interner, u, m, "dart.core", "Deprecated")
@@ -100,8 +100,8 @@ fn nome_do_construtor(a: &Ast, e: ExprId) -> Span {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     // `package_api_docs`: o emissor da 3.6.2 volta sem relatar.
     let _ = ligada("package_api_docs");
     let Some(s) = sem else { return out };
@@ -110,14 +110,14 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let program = s.program;
     let table = s.table;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    let lib = program.unit(s.unidade).library;
+    let lib = program.unit(s.unit).library;
     let criacoes: Vec<(ExprId, dartforge_elements::model::FunctionElementId)> = a
         .exprs
         .iter()
         .enumerate()
-        .filter_map(|(k, _)| match s.corpo.get_resolved(ExprId(k as u32)) {
+        .filter_map(|(k, _)| match s.body.get_resolved(ExprId(k as u32)) {
             Some(Resolved::Constructor(f)) => Some((ExprId(k as u32), *f)),
             _ => None,
         })
@@ -169,7 +169,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("unnecessary_null_checks") {
         for (k, p) in a.patterns.iter().enumerate() {
             if let PatternKind::NullAssert(_) = &p.kind
-                && let Some(&t) = s.corpo.tipos_casados.get(&PatternId(k as u32))
+                && let Some(&t) = s.body.tipos_casados.get(&PatternId(k as u32))
                 && anulavel(table, t)
             {
                 relatar(&c::UNNECESSARY_NULL_CHECKS, Span { start: p.span.end - 1, end: p.span.end }, &[]);
@@ -219,9 +219,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     // `avoid_unnecessary_containers`.
     if ligada("avoid_unnecessary_containers") {
-        let pais = super::rules16::pais_da_unidade(u, &|e| matches!(s.corpo.get_resolved(e), Some(Resolved::Constructor(_))));
+        let pais = super::rules16::pais_da_unidade(u, &|e| matches!(s.body.get_resolved(e), Some(Resolved::Constructor(_))));
         for &(e, _) in &criacoes {
-            if !s.corpo.get_type(e).is_some_and(|t| super::flutter::e_widget_tipo(s, interner, t)) {
+            if !s.body.get_type(e).is_some_and(|t| super::flutter::e_widget_tipo(s, interner, t)) {
                 continue;
             }
             let Some(No::Expr(p)) = pais.expr.get(&e).copied() else { continue };
@@ -231,18 +231,18 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 continue;
             }
             // A criação mais próxima que contém o argumento.
-            let dona = if matches!(s.corpo.get_resolved(p), Some(Resolved::Constructor(_))) {
+            let dona = if matches!(s.body.get_resolved(p), Some(Resolved::Constructor(_))) {
                 Some(p)
             } else {
                 pais.ancestrais.get(&e).and_then(|anc| {
                     anc.iter().rev().find_map(|n| match n {
-                        No::Expr(x) if matches!(s.corpo.get_resolved(*x), Some(Resolved::Constructor(_))) => Some(*x),
+                        No::Expr(x) if matches!(s.body.get_resolved(*x), Some(Resolved::Constructor(_))) => Some(*x),
                         _ => None,
                     })
                 })
             };
             if let Some(d) = dona
-                && s.corpo.get_type(d).is_some_and(|t| super::flutter::e_container(s, interner, t))
+                && s.body.get_type(d).is_some_and(|t| super::flutter::e_container(s, interner, t))
             {
                 relatar(&c::AVOID_UNNECESSARY_CONTAINERS, nome_do_construtor(a, d), &[]);
             }
@@ -277,7 +277,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         for d in a.decls.iter() {
             let DeclKind::Class(x) = &d.kind else { continue };
             for &t in x.implements.iter() {
-                if let Some(&tipo) = s.outline.tipos_escritos.get(&(s.unidade, t))
+                if let Some(&tipo) = s.outline.tipos_escritos.get(&(s.unit, t))
                     && let Type::Interface { class, .. } = table.get(tipo)
                     && sobrescreve_igual(*class)
                 {
@@ -324,7 +324,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let Some(&ultimo) = cmds.last() else { continue };
             let StmtKind::Expression(e) = &a.stmt(ultimo).kind else { continue };
             let ExprKind::Call { target, .. } = &a.expr(*e).kind else { continue };
-            let e_fail = match s.corpo.get_resolved(*target) {
+            let e_fail = match s.body.get_resolved(*target) {
                 Some(Resolved::Element(Element::Function(f))) => {
                     let g = program.function(*f);
                     interner.resolve(g.name) == "fail" && g.class.is_none() && program.library(g.library).uri == "package:test_api/src/frontend/expect.dart"
@@ -345,7 +345,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 continue;
             }
             let nome = interner.resolve(g.name);
-            let Some(t) = s.corpo.get_type(e) else { continue };
+            let Some(t) = s.body.get_type(e) else { continue };
             let Type::Interface { class, .. } = table.get(t) else { continue };
             let cl = program.class(*class);
             if program.library(cl.library).uri != "dart:core" {
@@ -364,7 +364,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         let bool_anulavel = |t: TypeId| matches!(table.get(t), Type::Interface { class, nullable: true, .. } if Some(*class) == s.core.bool_class);
         for e in a.exprs.iter() {
             let ExprKind::Binary { op, left, right } = &e.kind else { continue };
-            let Some(t) = s.corpo.get_type(*left) else { continue };
+            let Some(t) = s.body.get_type(*left) else { continue };
             if !bool_anulavel(t) {
                 continue;
             }
@@ -388,7 +388,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             // herdados).
             let mut nomes: HashSet<dartforge_intern::SymbolId> = HashSet::new();
             for &t in x.implements.iter() {
-                let Some(&tipo) = s.outline.tipos_escritos.get(&(s.unidade, t)) else { continue };
+                let Some(&tipo) = s.outline.tipos_escritos.get(&(s.unit, t)) else { continue };
                 let (Type::Interface { class: ic, .. } | Type::ExtensionType { decl: ic, .. }) = table.get(tipo) else { continue };
                 let mut todas = vec![*ic];
                 if let Some(h) = s.outline.hierarchy.get(*ic) {
@@ -415,7 +415,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     continue;
                 }
                 let Some(n) = f.name else { continue };
-                if m.metadata.iter().any(|x| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, x, "meta", "redeclare")) {
+                if m.metadata.iter().any(|x| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, x, "meta", "redeclare")) {
                     continue;
                 }
                 let texto = interner.resolve(n.sym);
@@ -447,7 +447,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 if !matches!(a.ty(ty).kind, TypeKind::Named { .. }) {
                     continue;
                 }
-                let dinamico = s.corpo.tipos_de_anotacoes.get(&ty).is_some_and(|x| matches!(table.get(*x), Type::Dynamic));
+                let dinamico = s.body.tipos_de_anotacoes.get(&ty).is_some_and(|x| matches!(table.get(*x), Type::Dynamic));
                 if !dinamico {
                     relatar(&c::AVOID_TYPES_ON_CLOSURE_PARAMETERS, a.ty(ty).span, &[]);
                 }
@@ -465,11 +465,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 DeclKind::ExtensionType(x) => (&x.members, x.name),
                 _ => continue,
             };
-            let classe_obsoleta = obsoleto(s, interner, s.unidade, &d.metadata);
+            let classe_obsoleta = obsoleto(s, interner, s.unit, &d.metadata);
             for &mid in membros {
                 let m = a.member(mid);
                 let MemberKind::Constructor(k) = &m.kind else { continue };
-                if classe_obsoleta && !obsoleto(s, interner, s.unidade, &m.metadata) {
+                if classe_obsoleta && !obsoleto(s, interner, s.unit, &m.metadata) {
                     let alvo = k.name.unwrap_or(k.class_name).span;
                     relatar(&c::DEPRECATED_CONSISTENCY_CONSTRUCTOR, alvo, &[]);
                 }
@@ -484,8 +484,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         _ => None,
                     });
                     let Some((mc, nome_campo)) = campo else { continue };
-                    let campo_obsoleto = obsoleto(s, interner, s.unidade, &a.member(mc).metadata);
-                    let param_obsoleto = obsoleto(s, interner, s.unidade, &p.metadata);
+                    let campo_obsoleto = obsoleto(s, interner, s.unit, &a.member(mc).metadata);
+                    let param_obsoleto = obsoleto(s, interner, s.unit, &p.metadata);
                     if campo_obsoleto && !param_obsoleto {
                         relatar(&c::DEPRECATED_CONSISTENCY_FIELD, p.span, &[]);
                     }

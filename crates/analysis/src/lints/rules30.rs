@@ -19,7 +19,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::rules16::{nao_anulavel, tipo_de_variavel};
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -31,7 +31,7 @@ use std::collections::HashSet;
 
 /// A variável do modelo que o elemento resolvido canoniza (o acessor vira
 /// a variável).
-fn variavel(s: &super::Semantica<'_>, corpo: &UnitBodyTypes, e: ExprId) -> Option<VariableId> {
+fn variavel(s: &super::Semantics<'_>, corpo: &UnitBodyTypes, e: ExprId) -> Option<VariableId> {
     match corpo.get_resolved(e)? {
         Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Some(*v),
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => s.program.function(*f).variable,
@@ -55,8 +55,8 @@ fn excluidas(a: &Ast) -> Vec<Span> {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !ligada("use_late_for_private_fields_and_variables") {
         return out;
@@ -64,13 +64,13 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let program = s.program;
     let table = s.table;
     let privado = |n: dartforge_intern::SymbolId| interner.resolve(n).starts_with('_');
-    let biblioteca = program.unit(s.unidade).library;
+    let biblioteca = program.unit(s.unit).library;
     let unidades: Vec<UnitId> = program.library(biblioteca).units.clone();
     // Os acessos anuláveis da biblioteca.
     let mut anulaveis: HashSet<VariableId> = HashSet::new();
     for &x in unidades.iter() {
         let a = &program.unit(x).ast;
-        let corpo = &s.corpos.units[x.0 as usize];
+        let corpo = &s.bodies.units[x.0 as usize];
         let fora = excluidas(a);
         let visitado = |sp: Span| !fora.iter().any(|f| f.start <= sp.start && sp.end <= f.end);
         let mut escritos: HashSet<ExprId> = HashSet::new();
@@ -111,7 +111,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 }
                 ExprKind::Assign { op, target, value } => {
                     if let Some(v) = variavel(s, corpo, *target) {
-                        let nao_nulo = *op == AssignOp::Assign && s.corpos.units[x.0 as usize].get_type(*value).is_some_and(|t| nao_anulavel(table, t));
+                        let nao_nulo = *op == AssignOp::Assign && s.bodies.units[x.0 as usize].get_type(*value).is_some_and(|t| nao_anulavel(table, t));
                         if !nao_nulo {
                             anulaveis.insert(v);
                         }
@@ -150,7 +150,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             DeclKind::Variables(l) => {
                 for (i, x) in l.variables.iter().enumerate() {
                     if privado(x.name.sym) {
-                        candidata(VariableRef::TopLevel { unit: s.unidade, decl: id, index: i }, l, i, &mut achados);
+                        candidata(VariableRef::TopLevel { unit: s.unit, decl: id, index: i }, l, i, &mut achados);
                     }
                 }
             }
@@ -169,7 +169,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     }
                     for (i, x) in l.variables.iter().enumerate() {
                         if extensao_privada || privado(x.name.sym) {
-                            candidata(VariableRef::Field { unit: s.unidade, member: m, index: i }, l, i, &mut achados);
+                            candidata(VariableRef::Field { unit: s.unit, member: m, index: i }, l, i, &mut achados);
                         }
                     }
                 }
@@ -177,7 +177,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         }
     }
     for sp in achados {
-        out.push(RelatoDeLint { codigo: &c::USE_LATE_FOR_PRIVATE_FIELDS_AND_VARIABLES, span: sp, args: Vec::new() });
+        out.push(LintReport { codigo: &c::USE_LATE_FOR_PRIVATE_FIELDS_AND_VARIABLES, span: sp, args: Vec::new() });
     }
     out
 }

@@ -14,7 +14,7 @@
 //! relatam com a semântica da unidade):
 //! - `avoid_returning_null_for_void`: o tipo de retorno do elemento da
 //!   função mais próxima (literal, declarada ou método), inferido ou herdado
-//!   (`super::retorno_da_funcao`), `void`, ou `Future<void>` em corpo
+//!   (`super::function_return`), `void`, ou `Future<void>` em corpo
 //!   assíncrono.
 //! - `unnecessary_breaks`: só com padrões (a biblioteca na 3.0 ou mais).
 //! - `unnecessary_constructor_name`: a criação sem `new`/`const` é a
@@ -30,7 +30,7 @@
 
 use super::walk::{andar, No};
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -130,12 +130,12 @@ fn identificador(a: &Ast, e: ExprId) -> Option<(Option<SymbolId>, SymbolId)> {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let de_metodo: HashSet<FunctionId> = a
         .members
@@ -205,7 +205,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             // (pela semântica da unidade).
             let vazio = |t: ast::TypeId| {
                 matches!(a.ty(t).kind, TypeKind::Void)
-                    || sem.is_some_and(|s| super::tipo_escrito(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Void)))
+                    || sem.is_some_and(|s| super::written_type(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Void)))
             };
             if f.modifier != AsyncModifier::Async || !f.return_type.is_some_and(vazio) {
                 continue;
@@ -259,7 +259,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         // semântica da unidade).
         let dinamico = |t: ast::TypeId| {
             matches!(a.ty(t).kind, TypeKind::Named { .. })
-                && sem.is_some_and(|s| super::tipo_escrito(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Dynamic)))
+                && sem.is_some_and(|s| super::written_type(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Dynamic)))
         };
         for lista in todas {
             // O parâmetro comum, o `this.x` e o `super.x` (também com lista):
@@ -330,7 +330,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     if let ExprKind::Property { name, null_aware: false, .. } = &a.expr(*target).kind
                         && e_new(*name)
                         && let Some(s) = sem
-                        && matches!(s.corpo.get_resolved(ExprId(k as u32)), Some(dartforge_types::resolved::Resolved::Constructor(_)))
+                        && matches!(s.body.get_resolved(ExprId(k as u32)), Some(dartforge_types::resolved::Resolved::Constructor(_)))
                     {
                         relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, name.span, &[]);
                     }
@@ -341,7 +341,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     // `unnecessary_breaks`: o `break` sem rótulo que fecha um caso de mais
     // de um comando.
-    if ligada("unnecessary_breaks") && sem.is_some_and(|s| super::versao_ao_menos(s, 3, 0)) {
+    if ligada("unnecessary_breaks") && sem.is_some_and(|s| super::version_at_least(s, 3, 0)) {
         for s in a.stmts.iter() {
             let StmtKind::Switch { cases, .. } = &s.kind else { continue };
             for k in cases.iter() {
@@ -481,7 +481,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         && let Some(s) = sem
     {
         // As unidades da biblioteca (`context.allUnits`).
-        let unidades = &s.program.library(s.program.unit(s.unidade).library).units;
+        let unidades = &s.program.library(s.program.unit(s.unit).library).units;
         for d in a.decls.iter() {
             let DeclKind::Typedef(x) = &d.kind else { continue };
             let elegivel = match &x.kind {
@@ -498,7 +498,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             for &uu in unidades.iter() {
                 let au = &s.program.unit(uu).ast;
                 usos += au.types.iter().filter(|t| matches!(&t.kind, TypeKind::Named { name, .. } if name.last().is_some_and(|n| n.sym == x.name.sym))).count();
-                if let Some(cu) = s.corpos.units.get(uu.0 as usize) {
+                if let Some(cu) = s.bodies.units.get(uu.0 as usize) {
                     usos += au
                         .exprs
                         .iter()
@@ -535,7 +535,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 })
             })?;
             let funcao = a.function(f);
-            let retorno = super::retorno_da_funcao(s, f)?;
+            let retorno = super::function_return(s, f)?;
             let assincrona = matches!(funcao.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar);
             let vazio = |t: dartforge_types::table::TypeId| matches!(s.table.get(t), dartforge_types::table::Type::Void);
             let devolve = match s.table.get(retorno) {

@@ -105,27 +105,27 @@ pub fn executar(
     u: crate::Unidade<'_>,
     interner: &dartforge_intern::Interner,
     ligada: &dyn Fn(&str) -> bool,
-) -> Vec<rules::RelatoDeLint> {
-    executar_com(u, interner, ligada, None)
+) -> Vec<rules::LintReport> {
+    run_with(u, interner, ligada, None)
 }
 
 /// A semântica de uma unidade cuja árvore é a do programa resolvido: o que
 /// as regras que o original decide pelo elemento ou pelo tipo (e não pelo
 /// nome) leem. Sem ela, essas regras não relatam.
 #[derive(Clone, Copy)]
-pub struct Semantica<'a> {
+pub struct Semantics<'a> {
     pub program: &'a dartforge_elements::model::Program,
-    pub unidade: dartforge_elements::model::UnitId,
-    pub corpo: &'a dartforge_types::resolved::UnitBodyTypes,
+    pub unit: dartforge_elements::model::UnitId,
+    pub body: &'a dartforge_types::resolved::UnitBodyTypes,
     /// Os corpos de todas as unidades (as regras que olham a biblioteca
     /// inteira).
-    pub corpos: &'a dartforge_types::resolved::BodyTypes,
+    pub bodies: &'a dartforge_types::resolved::BodyTypes,
     pub table: &'a dartforge_types::table::TypeTable,
     pub core: &'a dartforge_types::table::CoreTypes,
     pub outline: &'a dartforge_types::resolve::OutlineTypes,
     /// O `canBeConst` das criações, literais e construtores da unidade
     /// (`dartforge_types::lints_tipados6`), quando calculado.
-    pub pode_ser_const: Option<&'a dartforge_types::lints_tipados6::PodemSerConst>,
+    pub can_be_const: Option<&'a dartforge_types::lints_tipados6::PodemSerConst>,
 }
 
 /// `FunctionBody.isPotentiallyMutatedInScope` do local declarado em
@@ -134,9 +134,9 @@ pub struct Semantica<'a> {
 /// o lado esquerdo de uma atribuição (de qualquer operador), o operando de
 /// `++`/`--`, a variável de `for (x in …)` e a variável de um padrão de
 /// atribuição.
-pub fn mutado(sem: &Semantica<'_>, a: &dartforge_frontend::ast::Ast, declaracao: usize) -> bool {
+pub fn is_mutated(sem: &Semantics<'_>, a: &dartforge_frontend::ast::Ast, declaracao: usize) -> bool {
     use dartforge_frontend::ast::{CollectionElement, ExprKind, ForInTarget, StmtKind, UnaryOp};
-    let e_ele = |x: dartforge_frontend::ast::ExprId| sem.corpo.declaracao_local(x) == Some(declaracao);
+    let e_ele = |x: dartforge_frontend::ast::ExprId| sem.body.declaracao_local(x) == Some(declaracao);
     for e in a.exprs.iter() {
         match &e.kind {
             ExprKind::Assign { target, .. } if e_ele(*target) => return true,
@@ -164,7 +164,7 @@ pub fn mutado(sem: &Semantica<'_>, a: &dartforge_frontend::ast::Ast, declaracao:
     if a.stmts.iter().any(|s| matches!(&s.kind, StmtKind::ForIn { target: ForInTarget::Expression(x), .. } if e_ele(*x))) {
         return true;
     }
-    sem.corpo.declaracoes_de_padroes.values().any(|d| *d == declaracao)
+    sem.body.declaracoes_de_padroes.values().any(|d| *d == declaracao)
 }
 
 /// O `canonicalElement` de um elemento resolvido: o local pela declaração;
@@ -172,64 +172,64 @@ pub fn mutado(sem: &Semantica<'_>, a: &dartforge_frontend::ast::Ast, declaracao:
 /// pela propriedade sintética que o analyzer cria para ele; o resto pelo
 /// próprio elemento.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Canonico {
+pub enum Canonical {
     Local(usize),
-    Parametro(dartforge_intern::SymbolId),
-    Variavel(dartforge_elements::model::VariableId),
+    Parameter(dartforge_intern::SymbolId),
+    Variable(dartforge_elements::model::VariableId),
     /// O par `get x`/`set x` explícito: o dono (classe, extensão ou
     /// biblioteca) e o nome sem `=`.
-    Propriedade(Dono, dartforge_intern::SymbolId),
-    Funcao(dartforge_elements::model::FunctionElementId),
-    Elemento(dartforge_elements::model::Element),
-    ParametroDeTipo(dartforge_types::table::TypeParamId),
-    Prefixo(dartforge_elements::model::LibraryId),
+    Property(PropertyOwner, dartforge_intern::SymbolId),
+    Function(dartforge_elements::model::FunctionElementId),
+    Element(dartforge_elements::model::Element),
+    TypeParameter(dartforge_types::table::TypeParamId),
+    Prefix(dartforge_elements::model::LibraryId),
 }
 
 /// O dono de uma propriedade sintética.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Dono {
-    Classe(dartforge_elements::model::ClassId),
-    Extensao(dartforge_elements::model::ExtensionId),
-    Biblioteca(dartforge_elements::model::LibraryId),
+pub enum PropertyOwner {
+    Class(dartforge_elements::model::ClassId),
+    Extension(dartforge_elements::model::ExtensionId),
+    Library(dartforge_elements::model::LibraryId),
 }
 
 /// O canônico da função `f` (o acessor vale pela variável/propriedade).
-fn canonico_da_funcao(sem: &Semantica<'_>, interner: &dartforge_intern::Interner, f: dartforge_elements::model::FunctionElementId) -> Canonico {
+fn function_canonical(sem: &Semantics<'_>, interner: &dartforge_intern::Interner, f: dartforge_elements::model::FunctionElementId) -> Canonical {
     use dartforge_elements::model::FunctionKind;
     let g = sem.program.function(f);
     if let Some(v) = g.variable {
-        return Canonico::Variavel(v);
+        return Canonical::Variable(v);
     }
     if matches!(g.kind, FunctionKind::Getter | FunctionKind::Setter) {
         let texto = interner.resolve(g.name);
         let base = texto.strip_suffix("_=").or_else(|| texto.strip_suffix('=')).unwrap_or(texto);
         let nome = interner.lookup(base).unwrap_or(g.name);
         let dono = match (g.class, g.extension) {
-            (Some(c), _) => Dono::Classe(c),
-            (None, Some(x)) => Dono::Extensao(x),
-            (None, None) => Dono::Biblioteca(g.library),
+            (Some(c), _) => PropertyOwner::Class(c),
+            (None, Some(x)) => PropertyOwner::Extension(x),
+            (None, None) => PropertyOwner::Library(g.library),
         };
-        return Canonico::Propriedade(dono, nome);
+        return Canonical::Property(dono, nome);
     }
-    Canonico::Funcao(f)
+    Canonical::Function(f)
 }
 
 /// `node.staticElement?.canonicalElement` (ou o de escrita, no lado
 /// esquerdo de uma atribuição: `getWriteOrReadElement`) da expressão `e`.
-pub fn canonico(sem: &Semantica<'_>, interner: &dartforge_intern::Interner, e: dartforge_frontend::ast::ExprId) -> Option<Canonico> {
+pub fn canonical(sem: &Semantics<'_>, interner: &dartforge_intern::Interner, e: dartforge_frontend::ast::ExprId) -> Option<Canonical> {
     use dartforge_elements::model::Element;
     use dartforge_types::resolved::{MemberRef, Resolved};
-    Some(match sem.corpo.get_resolved(e)? {
-        Resolved::Local(_) => Canonico::Local(sem.corpo.declaracao_local(e)?),
-        Resolved::Parameter { name, .. } => Canonico::Parametro(*name),
-        Resolved::TypeParameter(p) => Canonico::ParametroDeTipo(*p),
-        Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => Canonico::Variavel(*v),
+    Some(match sem.body.get_resolved(e)? {
+        Resolved::Local(_) => Canonical::Local(sem.body.declaracao_local(e)?),
+        Resolved::Parameter { name, .. } => Canonical::Parameter(*name),
+        Resolved::TypeParameter(p) => Canonical::TypeParameter(*p),
+        Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => Canonical::Variable(*v),
         Resolved::Element(Element::Function(f))
         | Resolved::Member { member: MemberRef::Function(f), .. }
         | Resolved::ExtensionMember { member: f, .. }
-        | Resolved::Constructor(f) => canonico_da_funcao(sem, interner, *f),
-        Resolved::Element(x) => Canonico::Elemento(*x),
-        Resolved::Prefix(lib) => Canonico::Prefixo(*lib),
+        | Resolved::Constructor(f) => function_canonical(sem, interner, *f),
+        Resolved::Element(x) => Canonical::Element(*x),
+        Resolved::Prefix(lib) => Canonical::Prefix(*lib),
         Resolved::Dynamic => return None,
     })
 }
@@ -238,8 +238,8 @@ pub fn canonico(sem: &Semantica<'_>, interner: &dartforge_intern::Interner, e: d
 /// simples, prefixados ou acessos de propriedade (sem os parênteses) com os
 /// mesmos elementos canônicos (e os mesmos prefixos/alvos). Dois elementos
 /// desconhecidos são iguais (`null == null`).
-pub fn mesmos_elementos(
-    sem: &Semantica<'_>,
+pub fn same_elements(
+    sem: &Semantics<'_>,
     interner: &dartforge_intern::Interner,
     a: &dartforge_frontend::ast::Ast,
     x: Option<dartforge_frontend::ast::ExprId>,
@@ -260,13 +260,13 @@ pub fn mesmos_elementos(
         _ => None,
     };
     match (&a.expr(x).kind, &a.expr(y).kind) {
-        (ExprKind::Identifier(_), ExprKind::Identifier(_)) => canonico(sem, interner, x) == canonico(sem, interner, y),
+        (ExprKind::Identifier(_), ExprKind::Identifier(_)) => canonical(sem, interner, x) == canonical(sem, interner, y),
         (ExprKind::Identifier(_), _) | (_, ExprKind::Identifier(_)) => false,
         (ExprKind::Property { target: t1, .. }, ExprKind::Property { target: t2, .. }) => match (prefixado(x), prefixado(y)) {
-            (Some(p1), Some(p2)) => canonico(sem, interner, p1) == canonico(sem, interner, p2) && canonico(sem, interner, x) == canonico(sem, interner, y),
+            (Some(p1), Some(p2)) => canonical(sem, interner, p1) == canonical(sem, interner, p2) && canonical(sem, interner, x) == canonical(sem, interner, y),
             (Some(_), None) | (None, Some(_)) => false,
             // `PropertyAccess`: os alvos pela mesma regra, e a propriedade.
-            (None, None) => mesmos_elementos(sem, interner, a, Some(*t1), Some(*t2)) && canonico(sem, interner, x) == canonico(sem, interner, y),
+            (None, None) => same_elements(sem, interner, a, Some(*t1), Some(*t2)) && canonical(sem, interner, x) == canonical(sem, interner, y),
         },
         _ => false,
     }
@@ -275,7 +275,7 @@ pub fn mesmos_elementos(
 /// `TypeSystem.isNullable`: `dynamic`, `void`, `Null`, o tipo inválido ou
 /// desconhecido, o tipo com `?`, o `FutureOr` de anulável e o parâmetro de
 /// tipo promovido a anulável.
-pub fn anulavel(sem: &Semantica<'_>, t: dartforge_types::table::TypeId) -> bool {
+pub fn anulavel(sem: &Semantics<'_>, t: dartforge_types::table::TypeId) -> bool {
     use dartforge_types::table::Type;
     if sem.core.is_unknown(sem.table, t) {
         return true;
@@ -290,16 +290,16 @@ pub fn anulavel(sem: &Semantica<'_>, t: dartforge_types::table::TypeId) -> bool 
 
 /// O tipo do elemento da variável de topo ou do campo `v`: o escrito, ou o
 /// inferido (que a inferência dos corpos completa).
-pub fn tipo_da_variavel(sem: &Semantica<'_>, v: dartforge_elements::model::VariableId) -> Option<dartforge_types::table::TypeId> {
+pub fn variable_type(sem: &Semantics<'_>, v: dartforge_elements::model::VariableId) -> Option<dartforge_types::table::TypeId> {
     let d = sem.outline.variables.get(v.0 as usize)?;
     d.declared_type.or(d.inferred)
 }
 
 /// O elemento da função `f` da árvore da unidade (de topo, método,
 /// acessor).
-pub fn elemento_da_funcao(sem: &Semantica<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_elements::model::FunctionElementId> {
+pub fn function_element(sem: &Semantics<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_elements::model::FunctionElementId> {
     let i = sem.program.functions.iter().position(|e| {
-        matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == sem.unidade && function == f)
+        matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == sem.unit && function == f)
     })?;
     Some(dartforge_elements::model::FunctionElementId(i as u32))
 }
@@ -310,8 +310,8 @@ pub fn elemento_da_funcao(sem: &Semantica<'_>, f: dartforge_frontend::ast::Funct
 /// acessível numa classe da cadeia que não `c`
 /// (`lookUpInheritedConcreteSetter`); sem, há um getter `nome` acessível em
 /// alguma da cadeia (`lookUpGetter`, também estático ou abstrato).
-pub fn busca_na_cadeia(
-    sem: &Semantica<'_>,
+pub fn lookup_in_chain(
+    sem: &Semantics<'_>,
     interner: &dartforge_intern::Interner,
     c: dartforge_elements::model::ClassId,
     nome: dartforge_intern::SymbolId,
@@ -350,10 +350,10 @@ pub fn busca_na_cadeia(
 
 /// A classe (classe, enum ou tipo de extensão) que declara o membro `m` da
 /// unidade.
-pub fn classe_do_membro(sem: &Semantica<'_>, m: dartforge_frontend::ast::MemberId) -> Option<dartforge_elements::model::ClassId> {
+pub fn member_class(sem: &Semantics<'_>, m: dartforge_frontend::ast::MemberId) -> Option<dartforge_elements::model::ClassId> {
     use dartforge_frontend::ast::DeclKind;
     let p = sem.program;
-    let a = &p.unit(sem.unidade).ast;
+    let a = &p.unit(sem.unit).ast;
     let (di, _) = a.decls.iter().enumerate().find(|(_, d)| match &d.kind {
         DeclKind::Class(x) => x.members.contains(&m),
         DeclKind::Enum(x) => x.members.contains(&m),
@@ -361,14 +361,14 @@ pub fn classe_do_membro(sem: &Semantica<'_>, m: dartforge_frontend::ast::MemberI
         DeclKind::Mixin(x) => x.members.contains(&m),
         _ => false,
     })?;
-    let i = p.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == sem.unidade && r.decl.0 as usize == di))?;
+    let i = p.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == sem.unit && r.decl.0 as usize == di))?;
     Some(dartforge_elements::model::ClassId(i as u32))
 }
 
 /// `FieldFormalParameterElement.field`: o campo de nome `nome` declarado na
 /// classe do construtor `m`.
-pub fn campo_da_classe(sem: &Semantica<'_>, m: dartforge_frontend::ast::MemberId, nome: dartforge_intern::SymbolId) -> Option<dartforge_elements::model::VariableId> {
-    let c = classe_do_membro(sem, m)?;
+pub fn class_field(sem: &Semantics<'_>, m: dartforge_frontend::ast::MemberId, nome: dartforge_intern::SymbolId) -> Option<dartforge_elements::model::VariableId> {
+    let c = member_class(sem, m)?;
     sem.program.class(c).fields.iter().copied().find(|v| sem.program.variable(*v).name == nome)
 }
 
@@ -377,17 +377,17 @@ pub fn campo_da_classe(sem: &Semantica<'_>, m: dartforge_frontend::ast::MemberId
 /// `super(…)`/`super.nome(…)` dos inicializadores, ou o sem nome) e o
 /// parâmetro dele (o posicional pela ordem entre os `super.` posicionais, o
 /// nomeado pelo nome).
-pub fn parametro_do_super(
-    sem: &Semantica<'_>,
+pub fn super_parameter(
+    sem: &Semantics<'_>,
     interner: &dartforge_intern::Interner,
     m: dartforge_frontend::ast::MemberId,
     i: usize,
 ) -> Option<(dartforge_elements::model::FunctionElementId, usize)> {
     use dartforge_frontend::ast::{Initializer, MemberKind, ParameterKind};
     let p = sem.program;
-    let a = &p.unit(sem.unidade).ast;
+    let a = &p.unit(sem.unit).ast;
     let MemberKind::Constructor(k) = &a.member(m).kind else { return None };
-    let sup = p.class(classe_do_membro(sem, m)?).supertype_class?;
+    let sup = p.class(member_class(sem, m)?).supertype_class?;
     let nome = k
         .initializers
         .iter()
@@ -425,37 +425,37 @@ pub fn parametro_do_super(
 
 /// `TypeAnnotation.type` da anotação `t` da unidade: a do outline
 /// (assinaturas) ou a dos corpos.
-pub fn tipo_escrito(sem: &Semantica<'_>, t: dartforge_frontend::ast::TypeId) -> Option<dartforge_types::table::TypeId> {
-    sem.outline.tipos_escritos.get(&(sem.unidade, t)).copied().or_else(|| sem.corpo.tipos_de_anotacoes.get(&t).copied())
+pub fn written_type(sem: &Semantics<'_>, t: dartforge_frontend::ast::TypeId) -> Option<dartforge_types::table::TypeId> {
+    sem.outline.tipos_escritos.get(&(sem.unit, t)).copied().or_else(|| sem.body.tipos_de_anotacoes.get(&t).copied())
 }
 
 /// O tipo de retorno do elemento da função `f` da unidade
 /// (`ExecutableElement.returnType`): o inferido da função literal ou local,
 /// ou o do outline (escrito, ou herdado da sobrescrita).
-pub fn retorno_da_funcao(sem: &Semantica<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_types::table::TypeId> {
-    if let Some(t) = sem.corpo.tipo_de_execucao_de_funcao(f)
+pub fn function_return(sem: &Semantics<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_types::table::TypeId> {
+    if let Some(t) = sem.body.tipo_de_execucao_de_funcao(f)
         && let dartforge_types::table::Type::Function { ret, .. } = sem.table.get(t)
     {
         return Some(*ret);
     }
     let i = sem.program.functions.iter().position(|e| {
-        matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == sem.unidade && function == f)
+        matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == sem.unit && function == f)
     })?;
     sem.outline.functions.get(i).map(|d| d.return_type)
 }
 
 /// A biblioteca da unidade tem a versão de linguagem `maior.menor` ou mais.
-pub fn versao_ao_menos(sem: &Semantica<'_>, maior: u16, menor: u16) -> bool {
+pub fn version_at_least(sem: &Semantics<'_>, maior: u16, menor: u16) -> bool {
     let p = sem.program;
-    p.library(p.unit(sem.unidade).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(maior, menor)
+    p.library(p.unit(sem.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(maior, menor)
 }
 
 /// `LinterContext.isInTestDirectory`: a unidade que define a biblioteca da
 /// unidade está no `test/` do pacote pub dela (a pasta do `pubspec.yaml`
 /// mais próximo acima do arquivo; sem um, não há pacote).
-pub fn em_teste_do_pacote(sem: &Semantica<'_>) -> bool {
+pub fn in_package_test(sem: &Semantics<'_>) -> bool {
     let p = sem.program;
-    let lib = p.library(p.unit(sem.unidade).library);
+    let lib = p.library(p.unit(sem.unit).library);
     let Some(caminho) = lib.units.first().and_then(|d| p.unit(*d).path.as_ref()) else { return false };
     let Some(raiz) = caminho.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()) else { return false };
     caminho.starts_with(raiz.join("test"))
@@ -463,12 +463,12 @@ pub fn em_teste_do_pacote(sem: &Semantica<'_>) -> bool {
 
 /// Como [`executar`], com a semântica da unidade (`u` tem de ser a árvore
 /// do programa de `sem`, com o `interner` dele).
-pub fn executar_com(
+pub fn run_with(
     u: crate::Unidade<'_>,
     interner: &dartforge_intern::Interner,
     ligada: &dyn Fn(&str) -> bool,
-    sem: Option<&Semantica<'_>>,
-) -> Vec<rules::RelatoDeLint> {
+    sem: Option<&Semantics<'_>>,
+) -> Vec<rules::LintReport> {
     let mut out = rules::executar(u, interner, ligada, sem);
     out.extend(rules2::executar(u, interner, ligada, sem));
     out.extend(rules3::executar(u, interner, ligada, sem));

@@ -20,7 +20,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -39,12 +39,12 @@ pub fn e_nome_de_biblioteca(nome: &str) -> bool {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `unnecessary_new`: na palavra `new`.
@@ -116,7 +116,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
             let texto = interner.resolve(nome.sym);
             if de_metodo.contains(&id) {
-                let de_teste = (texto.starts_with("test_") || texto.starts_with("solo_test_")) && sem.is_some_and(super::em_teste_do_pacote);
+                let de_teste = (texto.starts_with("test_") || texto.starts_with("solo_test_")) && sem.is_some_and(super::in_package_test);
                 if texto != "[]=" && !de_teste {
                     relatar(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_METHODS, nome.span, &[texto]);
                 }

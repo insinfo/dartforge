@@ -22,7 +22,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::arvore_analyzer::{Arvore, Ligacao, Marca};
 use crate::Unidade;
@@ -52,7 +52,7 @@ const CORPOS: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyF
 struct Cx<'a> {
     arv: &'a Arvore,
     fonte: &'a str,
-    s: &'a super::Semantica<'a>,
+    s: &'a super::Semantics<'a>,
     interner: &'a Interner,
 }
 
@@ -97,13 +97,13 @@ impl<'a> Cx<'a> {
 
     /// O `staticType` do nó.
     fn tipo(&self, n: usize) -> Option<TypeId> {
-        self.s.corpo.get_type(self.expr(n)?)
+        self.s.body.get_type(self.expr(n)?)
     }
 
     /// O elemento resolvido de um identificador (a marca dele).
     fn resolvido(&self, n: usize) -> Option<&'a Resolved> {
         match self.arv.nos[n].marca {
-            Marca::Expr(e) => self.s.corpo.get_resolved(e),
+            Marca::Expr(e) => self.s.body.get_resolved(e),
             _ => None,
         }
     }
@@ -173,7 +173,7 @@ impl<'a> Cx<'a> {
 
 /// O valor de uma constante booleana de topo ou estática pelo inicializador
 /// literal.
-fn booleano_da_constante(s: &super::Semantica<'_>, v: VariableId, prof: u32) -> Option<bool> {
+fn booleano_da_constante(s: &super::Semantics<'_>, v: VariableId, prof: u32) -> Option<bool> {
     if prof > 8 {
         return None;
     }
@@ -213,15 +213,15 @@ fn elemento_sai(cx: &Cx<'_>, m: usize) -> bool {
         }
         Some(Resolved::Local(_)) => {
             let Marca::Expr(e) = cx.arv.nos[m].marca else { return false };
-            let Some(d) = s.corpo.declaracao_local(e) else { return false };
-            matches!(s.corpo.tipo_local(d).map(|t| s.table.get(t)), Some(Type::Function { ret, .. }) if matches!(s.table.get(*ret), Type::Never))
+            let Some(d) = s.body.declaracao_local(e) else { return false };
+            matches!(s.body.tipo_local(d).map(|t| s.table.get(t)), Some(Type::Function { ret, .. }) if matches!(s.table.get(*ret), Type::Never))
         }
         _ => false,
     }
 }
 
 /// As anotações da declaração de uma função, método ou construtor.
-fn anotacoes_da_funcao<'p>(s: &super::Semantica<'p>, f: FunctionElementId) -> Option<(&'p [dartforge_frontend::ast::Annotation], dartforge_elements::model::UnitId)> {
+fn anotacoes_da_funcao<'p>(s: &super::Semantics<'p>, f: FunctionElementId) -> Option<(&'p [dartforge_frontend::ast::Annotation], dartforge_elements::model::UnitId)> {
     let program: &'p dartforge_elements::model::Program = s.program;
     match program.function(f).node {
         FunctionRef::Constructor { unit, member } => Some((&program.unit(unit).ast.member(member).metadata[..], unit)),
@@ -853,7 +853,7 @@ fn elemento_de_contexto(cx: &Cx<'_>, interner: &Interner, mut n: usize) -> Optio
         "SimpleIdentifier" | "PrefixedIdentifier" => {
             let id = if cx.especie(n) == "PrefixedIdentifier" { *cx.filhos(n).last()? } else { n };
             let Marca::Expr(e) = cx.arv.nos[id].marca else { return None };
-            let r = s.corpo.get_resolved(e)?;
+            let r = s.body.get_resolved(e)?;
             let funcao = match r {
                 Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) | Resolved::ExtensionMember { member: f, .. } => Some(*f),
                 _ => None,
@@ -874,8 +874,8 @@ fn elemento_de_contexto(cx: &Cx<'_>, interner: &Interner, mut n: usize) -> Optio
                     // O identificador lido resolve ao getter sintético.
                     (d.declared_type.or(d.inferred)?, true, s.program.variable(*v).class)
                 }
-                Resolved::Local(_) => (s.corpo.declaracao_local(e).and_then(|d| s.corpo.tipo_local(d)).or_else(|| s.corpo.get_type(e))?, false, None),
-                Resolved::Parameter { .. } => (s.corpo.get_type(e)?, false, None),
+                Resolved::Local(_) => (s.body.declaracao_local(e).and_then(|d| s.body.tipo_local(d)).or_else(|| s.body.get_type(e))?, false, None),
+                Resolved::Parameter { .. } => (s.body.get_type(e)?, false, None),
                 _ => return None,
             };
             if !super::flutter::e_build_context(s, interner, tipo, acessor) {
@@ -891,7 +891,7 @@ fn elemento_de_contexto(cx: &Cx<'_>, interner: &Interner, mut n: usize) -> Optio
 
 /// `lookUpGetter('mounted')`: na classe, nos mixins e na cadeia de
 /// superclasses.
-fn getter_mounted(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> Option<FunctionElementId> {
+fn getter_mounted(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> Option<FunctionElementId> {
     let nome = interner.lookup("mounted")?;
     let mut vistos: Vec<ClassId> = Vec::new();
     let mut atual = Some(c);
@@ -919,7 +919,7 @@ fn getter_mounted(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> 
 }
 
 /// `associatedMountedGetter`.
-fn getter_associado(s: &super::Semantica<'_>, interner: &Interner, c: Contexto) -> Option<FunctionElementId> {
+fn getter_associado(s: &super::Semantics<'_>, interner: &Interner, c: Contexto) -> Option<FunctionElementId> {
     if let Contexto::Acessor { classe: Some(k), .. } = c
         && super::flutter::e_state(s, interner, k)
     {
@@ -935,15 +935,15 @@ fn getter_associado(s: &super::Semantica<'_>, interner: &Interner, c: Contexto) 
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !ligada("use_build_context_synchronously") {
         return out;
     }
     let program = s.program;
     // `inTestDir`, pela unidade que define a biblioteca.
-    let lib = program.library(program.unit(s.unidade).library);
+    let lib = program.library(program.unit(s.unit).library);
     if let Some(caminho) = lib.units.first().and_then(|x| program.unit(*x).path.as_ref()) {
         let texto = caminho.to_string_lossy();
         let sep = std::path::MAIN_SEPARATOR;
@@ -952,7 +952,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         }
     }
     let a = u.ast;
-    let corpo = s.corpo;
+    let corpo = s.body;
     // A árvore resolvida: as criações sem `new` e os prefixos.
     let mut construtores: HashSet<ExprId> = HashSet::new();
     let mut prefixos: HashSet<ExprId> = HashSet::new();
@@ -1133,7 +1133,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     achados.sort_by_key(|(sp, c)| (sp.start, sp.end, c.unico));
     achados.dedup_by(|x, y| x.0 == y.0 && x.1.unico == y.1.unico);
     for (span, codigo) in achados {
-        out.push(RelatoDeLint { codigo, span, args: Vec::new() });
+        out.push(LintReport { codigo, span, args: Vec::new() });
     }
     out
 }

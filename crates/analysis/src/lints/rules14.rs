@@ -44,7 +44,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -636,12 +636,12 @@ fn so_sublinhados(s: &str) -> bool {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let precisa_de_comentarios = ligada("dangling_library_doc_comments") || ligada("unintended_html_in_doc_comment");
     let comentarios = if precisa_de_comentarios { Some(Comentarios::de(fonte)) } else { None };
@@ -733,7 +733,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     // `file_names`: o nome do arquivo que define a biblioteca.
     if ligada("file_names") {
-        let lib = program.library(program.unit(s.unidade).library);
+        let lib = program.library(program.unit(s.unit).library);
         if let Some(&definidora) = lib.units.first() {
             let un = program.unit(definidora);
             let nome = match &un.path {
@@ -753,7 +753,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     // fora de `lib/`, `bin/` e dos ganchos `hook/build.dart` e
     // `hook/link.dart`, as de desenvolvimento.
     if ligada("depend_on_referenced_packages") {
-        let lib = program.library(program.unit(s.unidade).library);
+        let lib = program.library(program.unit(s.unit).library);
         let caminho_da_lib = lib.units.first().and_then(|x| program.unit(*x).path.clone());
         let raiz = caminho_da_lib.as_ref().and_then(|c| c.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf));
         if let (Some(arquivo), Some(raiz)) = (caminho_da_lib, raiz)
@@ -792,7 +792,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments,
                 _ => continue,
             };
-            let Some(dartforge_types::resolved::Resolved::Constructor(f)) = s.corpo.get_resolved(ExprId(k as u32)) else { continue };
+            let Some(dartforge_types::resolved::Resolved::Constructor(f)) = s.body.get_resolved(ExprId(k as u32)) else { continue };
             let Some(classe) = program.function(*f).class else { continue };
             let cl = program.class(classe);
             if interner.resolve(cl.name) != "RegExp" || program.library(cl.library).uri != "dart:core" {
@@ -820,10 +820,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         // `@pragma('dart2js:late:trust')`: o construtor de `pragma` do
         // `dart:core` com o nome constante.
         let pragma_late_trust = |m: &Annotation| -> bool {
-            let simples = |n: ast::Name| program.lookup_na_unidade(s.unidade, n.sym).and_then(|b| b.getter);
+            let simples = |n: ast::Name| program.lookup_na_unidade(s.unit, n.sym).and_then(|b| b.getter);
             let elemento = match &m.name[..] {
                 [n] => simples(*n),
-                [p, n] => program.lookup_prefixed_na_unidade(s.unidade, p.sym, n.sym).and_then(|b| b.getter),
+                [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym).and_then(|b| b.getter),
                 _ => None,
             };
             let Some(Element::Class(cl)) = elemento else { return false };
@@ -832,11 +832,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 return false;
             }
             let Some(arg) = m.arguments.as_ref().and_then(|x| x.args.iter().find(|y| y.name.is_none())) else { return false };
-            valor_constante_de_string(program, interner, s.unidade, a, arg.value).as_deref() == Some("dart2js:late:trust")
+            valor_constante_de_string(program, interner, s.unit, a, arg.value).as_deref() == Some("dart2js:late:trust")
         };
         let mut conferir = |metadata: &[Annotation], e_primeira: bool| {
             for m in metadata {
-                let especies = crate::meta::annotation_target_kinds(program, interner, s.unidade, m);
+                let especies = crate::meta::annotation_target_kinds(program, interner, s.unit, m);
                 if (especies.len() == 1 && especies[0] == "library" && e_primeira) || pragma_late_trust(m) {
                     relatar(&c::LIBRARY_ANNOTATIONS, m.span, &[]);
                 }
@@ -887,9 +887,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if sem_elemento.contains(&id) || !so_sublinhados(interner.resolve(n.sym)) {
                 continue;
             }
-            let local_ou_parametro = match s.corpo.get_resolved(id) {
+            let local_ou_parametro = match s.body.get_resolved(id) {
                 Some(dartforge_types::resolved::Resolved::Local(_)) => {
-                    !s.corpo.declaracao_local(id).is_some_and(|d| funcoes_locais.contains(&d))
+                    !s.body.declaracao_local(id).is_some_and(|d| funcoes_locais.contains(&d))
                 }
                 Some(dartforge_types::resolved::Resolved::Parameter { .. }) => true,
                 _ => false,
@@ -912,7 +912,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if texto.starts_with("const") && !texto.as_bytes().get(5).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$') {
                 continue;
             }
-            let Some(t) = s.corpo.get_type(*e) else { continue };
+            let Some(t) = s.body.get_type(*e) else { continue };
             if let dartforge_types::table::Type::Interface { class, .. } = s.table.get(t)
                 && Some(*class) == classe_type
             {
@@ -931,7 +931,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 // (local, membro, ou só setter) não.
                 return achadas.iter().any(|r| r.especie == super::scope::Especie::ParametroDeTipo);
             }
-            let Some(b) = program.lookup_na_unidade(s.unidade, nome) else { return false };
+            let Some(b) = program.lookup_na_unidade(s.unit, nome) else { return false };
             if b.ambiguous {
                 return false;
             }

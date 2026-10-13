@@ -23,7 +23,7 @@
 
 use super::walk::{andar, No};
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -93,7 +93,7 @@ pub(super) struct Funcoes {
 }
 
 impl Funcoes {
-    pub(super) fn de(s: &super::Semantica<'_>, a: &Ast) -> Funcoes {
+    pub(super) fn de(s: &super::Semantics<'_>, a: &Ast) -> Funcoes {
         let mut f = Funcoes { literais: HashMap::new(), locais: HashMap::new(), de_topo: HashMap::new(), metodos: Default::default() };
         for (k, e) in a.exprs.iter().enumerate() {
             if let ExprKind::FunctionExpression(g) = &e.kind {
@@ -114,7 +114,7 @@ impl Funcoes {
         }
         for (k, fe) in s.program.functions.iter().enumerate() {
             if let FunctionRef::Function { unit, function } = fe.node
-                && unit == s.unidade
+                && unit == s.unit
                 && !f.metodos.contains(&function)
             {
                 f.de_topo.insert(function, dartforge_elements::model::FunctionElementId(k as u32));
@@ -124,15 +124,15 @@ impl Funcoes {
     }
 
     /// O tipo estático da `FunctionExpression` de `g`, se `g` é uma.
-    fn tipo(&self, s: &super::Semantica<'_>, g: FunctionId) -> Option<Option<TypeId>> {
+    fn tipo(&self, s: &super::Semantics<'_>, g: FunctionId) -> Option<Option<TypeId>> {
         if self.metodos.contains(&g) {
             return None;
         }
         if let Some(&e) = self.literais.get(&g) {
-            return Some(s.corpo.get_type(e));
+            return Some(s.body.get_type(e));
         }
         if let Some(&pos) = self.locais.get(&g) {
-            return Some(s.corpo.tipo_local(pos));
+            return Some(s.body.tipo_local(pos));
         }
         if let Some(fe) = self.de_topo.get(&g) {
             return Some(s.outline.functions.get(fe.0 as usize).map(|d| d.signature));
@@ -142,19 +142,19 @@ impl Funcoes {
 }
 
 /// O tipo declarado do elemento de uma variável (`declaredElement.type`).
-fn tipo_da_variavel(s: &super::Semantica<'_>, ref_: VariableRef, nome_pos: usize, inicializador: ExprId) -> Option<TypeId> {
+fn variable_type(s: &super::Semantics<'_>, ref_: VariableRef, nome_pos: usize, inicializador: ExprId) -> Option<TypeId> {
     let v = s.program.variables.iter().position(|x| x.node == ref_)?;
     let d = s.outline.variables.get(v)?;
-    d.declared_type.or(d.inferred).or_else(|| s.corpo.get_type(inicializador)).or_else(|| s.corpo.tipo_local(nome_pos))
+    d.declared_type.or(d.inferred).or_else(|| s.body.get_type(inicializador)).or_else(|| s.body.tipo_local(nome_pos))
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let algum = ["implicit_call_tearoffs", "prefer_iterable_whereType", "null_check_on_nullable_type_parameter"].iter().any(|r| ligada(r));
     if !algum {
@@ -207,7 +207,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     // `implicit_call_tearoffs`.
     if ligada("implicit_call_tearoffs") {
-        let mut implicitas: Vec<ExprId> = s.corpo.chamadas_implicitas.iter().copied().collect();
+        let mut implicitas: Vec<ExprId> = s.body.chamadas_implicitas.iter().copied().collect();
         implicitas.sort_by_key(|e| (a.expr(*e).span.start, a.expr(*e).span.end));
         for e in implicitas {
             let mut x = e;
@@ -251,7 +251,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 continue;
             }
             let Some(alvo) = real(*alvo) else { continue };
-            if !s.corpo.get_type(alvo).is_some_and(implementa_iterable) {
+            if !s.body.get_type(alvo).is_some_and(implementa_iterable) {
                 continue;
             }
             let [arg] = &arguments.args[..] else { continue };
@@ -286,7 +286,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         // O padrão `p!`: o tipo casado.
         for (k, p) in a.patterns.iter().enumerate() {
             if let PatternKind::NullAssert(_) = &p.kind
-                && let Some(&t) = s.corpo.tipos_casados.get(&PatternId(k as u32))
+                && let Some(&t) = s.body.tipos_casados.get(&PatternId(k as u32))
                 && e_parametro_anulavel(t)
             {
                 relatar(&c::NULL_CHECK_ON_NULLABLE_TYPE_PARAMETER, Span { start: p.span.end - 1, end: p.span.end }, &[]);
@@ -297,7 +297,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         bangs.sort_by_key(|(e, _)| a.expr(**e).span.start);
         for (&no, ancestrais) in bangs {
             let ExprKind::Unary { operand, .. } = &a.expr(no).kind else { continue };
-            let Some(t) = s.corpo.get_type(*operand) else { continue };
+            let Some(t) = s.body.get_type(*operand) else { continue };
             if !e_parametro_anulavel(t) {
                 continue;
             }
@@ -327,7 +327,7 @@ fn argumento(table: &TypeTable, t: TypeId, i: usize) -> Option<TypeId> {
 /// O argumento `i` de `receptor.asInstanceOf(dc)`, quando o receptor é de
 /// interface: direto na própria classe; pelo supertipo instanciado em termos
 /// dos parâmetros da classe do receptor, nos outros casos.
-fn argumento_da_superclasse(s: &super::Semantica<'_>, receptor: TypeId, dc: ClassId, i: usize) -> Option<TypeId> {
+fn argumento_da_superclasse(s: &super::Semantics<'_>, receptor: TypeId, dc: ClassId, i: usize) -> Option<TypeId> {
     let table = s.table;
     let (rc, args) = match table.get(receptor) {
         Type::Interface { class, args, .. } => (*class, args.to_vec()),
@@ -349,7 +349,7 @@ fn argumento_da_superclasse(s: &super::Semantica<'_>, receptor: TypeId, dc: Clas
 /// `getExpectedType` (`unnecessary_null_checks.dart:15`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn tipo_esperado(
-    s: &super::Semantica<'_>,
+    s: &super::Semantics<'_>,
     a: &Ast,
     interner: &Interner,
     funcoes: &Funcoes,
@@ -436,12 +436,12 @@ pub(super) fn tipo_esperado(
                 let ExprKind::Unary { operand, .. } = &a.expr(no).kind else { return None };
                 match (nome(*target), nome(*operand)) {
                     (Some(x), Some(y)) if x == y => None,
-                    _ => s.corpo.tipos_de_escrita.get(&p).copied(),
+                    _ => s.body.tipos_de_escrita.get(&p).copied(),
                 }
             }
             // Operando direito de binário: o primeiro parâmetro do operador.
             ExprKind::Binary { right, left, .. } if *right == real => {
-                let Some(Resolved::Member { member: dartforge_types::resolved::MemberRef::Function(f), .. }) = s.corpo.get_resolved(p) else {
+                let Some(Resolved::Member { member: dartforge_types::resolved::MemberRef::Function(f), .. }) = s.body.get_resolved(p) else {
                     return None;
                 };
                 let sig = s.outline.functions.get(f.0 as usize)?.signature;
@@ -452,7 +452,7 @@ pub(super) fn tipo_esperado(
                 // correspondente do receptor (o resto não pode ser igual a um
                 // parâmetro de tipo do `!`).
                 let dono = s.program.function(*f).class;
-                match (table.get(declarado), dono, s.corpo.get_type(*left)) {
+                match (table.get(declarado), dono, s.body.get_type(*left)) {
                     (Type::TypeParameter { param, .. }, Some(dc), Some(receptor)) => {
                         let i = s.outline.classes.get(dc.0 as usize).and_then(|d| d.type_params.iter().position(|q| q == param));
                         match i {
@@ -468,11 +468,11 @@ pub(super) fn tipo_esperado(
                 if !elements.iter().any(|el| matches!(el, CollectionElement::Expression(x) if *x == real)) {
                     return None;
                 }
-                argumento(table, s.corpo.get_type(p)?, 0)
+                argumento(table, s.body.get_type(p)?, 0)
             }
             ExprKind::SetOrMap { elements, .. } => {
                 if elements.iter().any(|el| matches!(el, CollectionElement::Expression(x) if *x == real)) {
-                    let t = s.corpo.get_type(p)?;
+                    let t = s.body.get_type(p)?;
                     return if classe_e(t, "Set", "dart:core") { argumento(table, t, 0) } else { None };
                 }
                 // A entrada de mapa (também dentro de `for`/`if`).
@@ -493,12 +493,12 @@ pub(super) fn tipo_esperado(
                     None
                 }
                 let (chave, _) = entrada(elements, real)?;
-                let t = s.corpo.get_type(p)?;
+                let t = s.body.get_type(p)?;
                 argumento(table, t, if chave == no { 0 } else { 1 })
             }
             // Argumento (posicional ou nomeado).
             ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } if arguments.args.iter().any(|x| x.value == real) => {
-                if let Some(Resolved::Constructor(f)) = s.corpo.get_resolved(p) {
+                if let Some(Resolved::Constructor(f)) = s.body.get_resolved(p) {
                     // `Future.value`.
                     let g = s.program.function(*f);
                     if let Some(cl) = g.class
@@ -513,12 +513,12 @@ pub(super) fn tipo_esperado(
                     && let ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind
                     && interner.resolve(name.sym) == "complete"
                     && let Some(alvo) = real_alvo(*alvo)
-                    && let Some(t) = s.corpo.get_type(alvo)
+                    && let Some(t) = s.body.get_type(alvo)
                     && classe_e(t, "Completer", "dart:async")
                 {
                     return None;
                 }
-                s.corpo.tipos_de_parametros.get(&real).copied()
+                s.body.tipos_de_parametros.get(&real).copied()
             }
             _ => None,
         },
@@ -530,17 +530,17 @@ pub(super) fn tipo_esperado(
                 _ => return None,
             };
             let v = lista.variables.iter().find(|v| v.initializer == Some(real))?;
-            s.corpo.tipo_local(v.name.span.start).or_else(|| s.corpo.get_type(real)).filter(|t| *t != core.unknown)
+            s.body.tipo_local(v.name.span.start).or_else(|| s.body.get_type(real)).filter(|t| *t != core.unknown)
         }
         No::Membro(m) => {
             let MemberKind::Field(l) = &a.member(m).kind else { return None };
             let index = l.variables.iter().position(|v| v.initializer == Some(real))?;
-            tipo_da_variavel(s, VariableRef::Field { unit: s.unidade, member: m, index }, l.variables[index].name.span.start, real)
+            variable_type(s, VariableRef::Field { unit: s.unit, member: m, index }, l.variables[index].name.span.start, real)
         }
         No::Decl(d) => {
             let DeclKind::Variables(l) = &a.decl(d).kind else { return None };
             let index = l.variables.iter().position(|v| v.initializer == Some(real))?;
-            tipo_da_variavel(s, VariableRef::TopLevel { unit: s.unidade, decl: d, index }, l.variables[index].name.span.start, real)
+            variable_type(s, VariableRef::TopLevel { unit: s.unit, decl: d, index }, l.variables[index].name.span.start, real)
         }
         _ => None,
     }

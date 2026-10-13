@@ -21,7 +21,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::rules16::e_invocacao_de_metodo;
 use super::CodigoLint;
 use crate::Unidade;
@@ -76,8 +76,8 @@ enum Alvo {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if ligada("analyzer_use_new_elements") {
         out.extend(novos_elementos(u, interner, s));
@@ -88,7 +88,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let a = u.ast;
     let program = s.program;
     let table = s.table;
-    let corpo = s.corpo;
+    let corpo = s.body;
     // `extendsDartHtmlClass`: a classe ou uma superclasse é `nome` da
     // biblioteca `dart.dom.html`.
     let nome_da_biblioteca = |c: ClassId| -> Option<String> {
@@ -223,14 +223,14 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         }
     }
     for (span, codigo, args) in achados {
-        out.push(RelatoDeLint { codigo, span, args });
+        out.push(LintReport { codigo, span, args });
     }
     out
 }
 
 /// `_isOldModelElement`: a classe declarada na unidade
 /// `package:analyzer/dart/element/element.dart`, fora das que não migram.
-fn modelo_antigo(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> bool {
+fn modelo_antigo(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> bool {
     let k = s.program.class(c);
     let Some(r) = k.decl else { return false };
     if s.program.unit(r.unit).uri != "package:analyzer/dart/element/element.dart" {
@@ -240,7 +240,7 @@ fn modelo_antigo(s: &super::Semantica<'_>, interner: &Interner, c: ClassId) -> b
 }
 
 /// `_isOldModelType`: o `RecursiveTypeVisitor` pelos tipos de interface.
-fn tipo_antigo(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, prof: u32) -> bool {
+fn tipo_antigo(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, prof: u32) -> bool {
     if prof > 32 {
         return false;
     }
@@ -256,11 +256,11 @@ fn tipo_antigo(s: &super::Semantica<'_>, interner: &Interner, t: TypeId, prof: u
 }
 
 /// `analyzer_use_new_elements`.
-fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantica<'_>) -> Vec<RelatoDeLint> {
+fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>) -> Vec<LintReport> {
     let mut out = Vec::new();
     let program = s.program;
     // `_isEnabledForFile`: o pacote pub, o arquivo de opção e os prefixos.
-    let lib = program.library(program.unit(s.unidade).library);
+    let lib = program.library(program.unit(s.unit).library);
     let Some(arquivo) = lib.units.first().and_then(|x| program.unit(*x).path.clone()) else { return out };
     let Some(raiz) = arquivo.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf) else { return out };
     let Ok(texto) = std::fs::read_to_string(raiz.join("analyzer_use_new_elements.txt")) else { return out };
@@ -280,31 +280,31 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantica<'_>
     for t in a.types.iter() {
         let dartforge_frontend::ast::TypeKind::Named { name, .. } = &t.kind else { continue };
         let b = match &name[..] {
-            [n] => program.lookup_na_unidade(s.unidade, n.sym),
-            [p, n] => program.lookup_prefixed_na_unidade(s.unidade, p.sym, n.sym),
+            [n] => program.lookup_na_unidade(s.unit, n.sym),
+            [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym),
             _ => None,
         };
         if let Some(dartforge_elements::model::Element::Class(c)) = b.and_then(|b| b.getter)
             && modelo_antigo(s, interner, c)
             && let Some(ultimo) = name.last()
         {
-            out.push(RelatoDeLint { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: ultimo.span, args: Vec::new() });
+            out.push(LintReport { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: ultimo.span, args: Vec::new() });
         }
     }
     // Os nomes de método invocados: só pelo `visitMethodInvocation`.
     let mut nomes_de_metodo: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let ExprKind::Call { target, .. } = &e.kind else { continue };
-        if matches!(s.corpo.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) || !e_invocacao_de_metodo(s, a, *target) {
+        if matches!(s.body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) || !e_invocacao_de_metodo(s, a, *target) {
             continue;
         }
         nomes_de_metodo.insert(*target);
-        if s.corpo.get_type(ExprId(k as u32)).is_some_and(|t| tipo_antigo(s, interner, t, 0)) {
+        if s.body.get_type(ExprId(k as u32)).is_some_and(|t| tipo_antigo(s, interner, t, 0)) {
             let sp = match &a.expr(*target).kind {
                 ExprKind::Property { name, .. } => name.span,
                 _ => a.expr(*target).span,
             };
-            out.push(RelatoDeLint { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
+            out.push(LintReport { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
         }
     }
     // `visitSimpleIdentifier`: o identificador e o nome de propriedade.
@@ -318,8 +318,8 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantica<'_>
             ExprKind::Property { name, .. } => name.span,
             _ => continue,
         };
-        if s.corpo.get_type(id).is_some_and(|t| tipo_antigo(s, interner, t, 0)) {
-            out.push(RelatoDeLint { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
+        if s.body.get_type(id).is_some_and(|t| tipo_antigo(s, interner, t, 0)) {
+            out.push(LintReport { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
         }
     }
     out.sort_by_key(|r| (r.span.start, r.span.end));

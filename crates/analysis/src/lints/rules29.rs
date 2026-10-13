@@ -27,7 +27,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef, Program, TypedefId, UnitId, VariableId, VariableRef};
@@ -78,7 +78,7 @@ enum Acao {
 struct Cx<'a> {
     program: &'a Program,
     interner: &'a Interner,
-    s: &'a super::Semantica<'a>,
+    s: &'a super::Semantics<'a>,
     declaracoes: HashSet<Dec>,
     /// As regiões de topo de cada unidade: (início, fim, declaração).
     topos: HashMap<UnitId, Vec<(usize, usize, Dec)>>,
@@ -237,7 +237,7 @@ impl Cx<'_> {
                 let x = self.program.extension(e);
                 x.instance_members.get(&nome).or_else(|| x.static_members.get(&nome)).copied()
             }
-            _ => match self.program.lookup_na_unidade(self.s.unidade, nome)?.getter? {
+            _ => match self.program.lookup_na_unidade(self.s.unit, nome)?.getter? {
                 Element::Function(h) => Some(h),
                 Element::Variable(v) => return Some(Ref::Variavel(v)),
                 _ => None,
@@ -389,7 +389,7 @@ fn referencias(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Acao)> {
     let program = cx.program;
     let unidade = program.unit(u);
     let a = &unidade.ast;
-    let corpo = &cx.s.corpos.units[u.0 as usize];
+    let corpo = &cx.s.bodies.units[u.0 as usize];
     let mut out: Vec<(usize, Acao)> = Vec::new();
     // O lado esquerdo das atribuições e os operandos de `++`/`--`: sem
     // `staticElement`, entram pelos elementos de leitura e escrita.
@@ -803,14 +803,14 @@ fn nome_do_atalho(a: &Ast, mut p: ast::PatternId) -> Option<SymbolId> {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !ligada("unreachable_from_main") {
         return out;
     }
     let program = s.program;
-    let biblioteca = program.unit(s.unidade).library;
+    let biblioteca = program.unit(s.unit).library;
     let unidades: Vec<UnitId> = program.library(biblioteca).units.clone();
     let mut cx = Cx { program, interner, s, declaracoes: HashSet::new(), topos: HashMap::new() };
     let mut todas: Vec<Dec> = Vec::new();
@@ -911,9 +911,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     // Os não alcançados da unidade, públicos e sem `@visibleForTesting`.
     let a = u.ast;
-    let visivel_para_teste = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, m, "meta", "visibleForTesting"));
+    let visivel_para_teste = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "visibleForTesting"));
     let mut achados: Vec<(Span, String)> = Vec::new();
-    for d in declaracoes_da_unidade(&cx, s.unidade) {
+    for d in declaracoes_da_unidade(&cx, s.unit) {
         if usados.contains(&d) {
             continue;
         }
@@ -985,7 +985,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     achados.sort_by_key(|(sp, _)| (sp.start, sp.end));
     for (sp, nome) in achados {
-        out.push(RelatoDeLint { codigo: &c::UNREACHABLE_FROM_MAIN, span: sp, args: vec![nome] });
+        out.push(LintReport { codigo: &c::UNREACHABLE_FROM_MAIN, span: sp, args: vec![nome] });
     }
     out
 }

@@ -19,7 +19,7 @@
 
 use super::walk::No;
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::rules16::{anulavel, e_invocacao_de_metodo, pais_da_unidade, tipo_de_variavel, Pais};
 use super::CodigoLint;
 use crate::Unidade;
@@ -32,8 +32,8 @@ use dartforge_types::table::Type;
 use std::collections::HashMap;
 
 /// O elemento resolvido é um `GetterElement` escrito (não sintético).
-fn getter_escrito(s: &super::Semantica<'_>, e: ExprId) -> bool {
-    let f = match s.corpo.get_resolved(e) {
+fn getter_escrito(s: &super::Semantics<'_>, e: ExprId) -> bool {
+    let f = match s.body.get_resolved(e) {
         Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => *f,
         Some(Resolved::ExtensionMember { member, .. }) => *member,
         _ => return false,
@@ -44,7 +44,7 @@ fn getter_escrito(s: &super::Semantica<'_>, e: ExprId) -> bool {
 
 /// `_ReportNoClearEffectVisitor`: relata `e` (ou as partes dele) quando não
 /// tem efeito claro.
-fn sem_efeito(s: &super::Semantica<'_>, a: &Ast, e: ExprId, out: &mut Vec<Span>) {
+fn sem_efeito(s: &super::Semantics<'_>, a: &Ast, e: ExprId, out: &mut Vec<Span>) {
     match &a.expr(e).kind {
         ExprKind::As { .. }
         | ExprKind::Assign { .. }
@@ -142,7 +142,7 @@ impl Pai {
 /// O papel de `eu` num elemento de coleção; `direto`: o elemento é filho
 /// do literal (o pai é a `Expression` do literal) e não de um
 /// `IfElement`/`ForElement`.
-fn papel_na_colecao(s: &super::Semantica<'_>, x: &CollectionElement, eu: ExprId, direto: bool) -> Option<Pai> {
+fn papel_na_colecao(s: &super::Semantics<'_>, x: &CollectionElement, eu: ExprId, direto: bool) -> Option<Pai> {
     match x {
         CollectionElement::Expression(e) if *e == eu => Some(if direto { Pai::OutraExpressao } else { Pai::Outro }),
         CollectionElement::NullAwareExpression(e) if *e == eu => Some(Pai::Outro),
@@ -162,7 +162,7 @@ fn papel_na_colecao(s: &super::Semantica<'_>, x: &CollectionElement, eu: ExprId,
             match init {
                 Some(ForInit::Variables(l)) => {
                     if let Some(v) = l.variables.iter().find(|v| v.initializer == Some(eu)) {
-                        return Some(Pai::Variavel(s.corpo.tipo_local(v.name.span.start)));
+                        return Some(Pai::Variavel(s.body.tipo_local(v.name.span.start)));
                     }
                 }
                 Some(ForInit::Expression(e)) if *e == eu => return Some(Pai::Outro),
@@ -245,7 +245,7 @@ fn argumentos_por_intervalo(a: &Ast) -> HashMap<(usize, usize), &ast::Arguments>
 }
 
 /// O pai (do analyzer) dos parênteses `eu`.
-fn pai_de(s: &super::Semantica<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMap<(usize, usize), &ast::Arguments>, eu: ExprId) -> Pai {
+fn pai_de(s: &super::Semantics<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMap<(usize, usize), &ast::Arguments>, eu: ExprId) -> Pai {
     let Some(no) = pais.expr.get(&eu).copied() else { return Pai::Outro };
     match no {
         No::Expr(p) => match &a.expr(p).kind {
@@ -311,7 +311,7 @@ fn pai_de(s: &super::Semantica<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
             StmtKind::DoWhile { condition, .. } if *condition == eu => Pai::CondicaoDoDo,
             StmtKind::Switch { value, .. } if *value == eu => Pai::SwitchInstrucao,
             StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => match l.variables.iter().find(|v| v.initializer == Some(eu)) {
-                Some(v) => Pai::Variavel(s.corpo.tipo_local(v.name.span.start)),
+                Some(v) => Pai::Variavel(s.body.tipo_local(v.name.span.start)),
                 None => Pai::Outro,
             },
             _ => Pai::Outro,
@@ -334,14 +334,14 @@ fn pai_de(s: &super::Semantica<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
                 Pai::Outro
             }
             MemberKind::Field(l) => match l.variables.iter().position(|v| v.initializer == Some(eu)) {
-                Some(index) => Pai::Variavel(tipo_de_variavel(s, VariableRef::Field { unit: s.unidade, member: m, index })),
+                Some(index) => Pai::Variavel(tipo_de_variavel(s, VariableRef::Field { unit: s.unit, member: m, index })),
                 None => Pai::Outro,
             },
             _ => Pai::Outro,
         },
         No::Decl(d) => match &a.decl(d).kind {
             DeclKind::Variables(l) => match l.variables.iter().position(|v| v.initializer == Some(eu)) {
-                Some(index) => Pai::Variavel(tipo_de_variavel(s, VariableRef::TopLevel { unit: s.unidade, decl: d, index })),
+                Some(index) => Pai::Variavel(tipo_de_variavel(s, VariableRef::TopLevel { unit: s.unit, decl: d, index })),
                 None => Pai::Outro,
             },
             _ => Pai::Outro,
@@ -358,7 +358,7 @@ fn pai_de(s: &super::Semantica<'_>, a: &Ast, pais: &Pais, por_intervalo: &HashMa
 }
 
 /// `containsNullAwareInvocationInChain`.
-fn cadeia_null_aware(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> bool {
+fn cadeia_null_aware(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
     match &a.expr(e).kind {
         // `PropertyAccess` (o `a.b` simples é `PrefixedIdentifier`).
         ExprKind::Property { target, null_aware, .. } => {
@@ -377,7 +377,7 @@ fn cadeia_null_aware(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> bool {
 }
 
 /// `directlyContainsWhitespace`.
-fn tem_espaco(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> bool {
+fn tem_espaco(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> bool {
     match &a.expr(e).kind {
         ExprKind::As { .. } | ExprKind::Assign { .. } | ExprKind::Await(_) | ExprKind::Binary { .. } | ExprKind::Is { .. } => true,
         ExprKind::InstanceCreation { keyword, .. } => keyword.is_some(),
@@ -392,13 +392,13 @@ fn tem_espaco(s: &super::Semantica<'_>, a: &Ast, e: ExprId) -> bool {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
     let table = s.table;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `unnecessary_statements`.
@@ -427,7 +427,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 if !matches!(a.expr(*sec).kind, ExprKind::Property { .. }) {
                     continue;
                 }
-                if !s.corpo.get_type(*sec).is_some_and(|t| matches!(table.get(t), Type::Function { .. })) {
+                if !s.body.get_type(*sec).is_some_and(|t| matches!(table.get(t), Type::Function { .. })) {
                     continue;
                 }
                 let sp = a.expr(*sec).span;
@@ -462,7 +462,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 continue;
             }
             // O `staticParameterElement` do argumento (posicional ou nomeado).
-            if matches!(pai, Pai::Argumento { .. } | Pai::Nomeado) && e_registro(s.corpo.tipos_de_parametros.get(&no).copied()) && !literal_de_registro {
+            if matches!(pai, Pai::Argumento { .. } | Pai::Nomeado) && e_registro(s.body.tipos_de_parametros.get(&no).copied()) && !literal_de_registro {
                 continue;
             }
             // Já entre delimitadores: sempre relata.
@@ -487,12 +487,12 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
             // O `TypeLiteral` (`List<int>`).
             if let ExprKind::TypeArguments { target, .. } = interno
-                && matches!(s.corpo.get_resolved(*target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))))
+                && matches!(s.body.get_resolved(*target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))))
             {
                 continue;
             }
             if matches!(interno, ExprKind::Identifier(_)) || cadeia_null_aware(s, a, x) {
-                let extensao_anulavel = |nome: ExprId| match s.corpo.get_resolved(nome) {
+                let extensao_anulavel = |nome: ExprId| match s.body.get_resolved(nome) {
                     Some(Resolved::ExtensionMember { extension, .. }) => s.outline.extensions.get(extension.0 as usize).is_some_and(|d| anulavel(table, d.on)),
                     _ => false,
                 };
@@ -525,7 +525,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 continue;
             }
             // `ConstructorReference`: o tear-off de construtor.
-            let referencia_de_construtor = !matches!(interno, ExprKind::Call { .. } | ExprKind::InstanceCreation { .. }) && matches!(s.corpo.get_resolved(x), Some(Resolved::Constructor(_)));
+            let referencia_de_construtor = !matches!(interno, ExprKind::Call { .. } | ExprKind::InstanceCreation { .. }) && matches!(s.body.get_resolved(x), Some(Resolved::Constructor(_)));
             if referencia_de_construtor && !matches!(pai, Pai::InvocacaoDeFuncao { args_de_tipo: true }) {
                 relatar(&c::UNNECESSARY_PARENTHESIS, e.span, &[]);
                 continue;

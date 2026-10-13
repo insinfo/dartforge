@@ -18,7 +18,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -97,12 +97,12 @@ fn expressao_unica(a: &Ast, corpo: &FunctionBody, de_retorno: bool) -> Option<Ex
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let com_tipo = |tem: bool| if tem { &c::UNNECESSARY_FINAL_WITH_TYPE } else { &c::UNNECESSARY_FINAL_WITHOUT_TYPE };
 
@@ -242,7 +242,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 }
             }
             // Os membros da classe inteira (com as augmentations).
-            let classe = sem.and_then(|s| d.membros.first().and_then(|&m| super::classe_do_membro(s, m)).map(|c| (s, c)));
+            let classe = sem.and_then(|s| d.membros.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
             let tem_metodo = |nome: &str| match classe {
                 Some((s, c)) => simbolo(nome).and_then(|x| s.program.class(c).instance_members.get(&x)).is_some_and(|f| {
                     matches!(s.program.function(*f).kind, dartforge_elements::model::FunctionKind::Function | dartforge_elements::model::FunctionKind::Operator)
@@ -281,14 +281,14 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         use dartforge_types::resolved::{MemberRef, Resolved};
         // O campo (de acessor sintético) que a expressão lê ou escreve.
         let campo_sintetico = |e: ExprId| -> Option<dartforge_elements::model::VariableId> {
-            match s.corpo.get_resolved(e)? {
+            match s.body.get_resolved(e)? {
                 Resolved::Member { member: MemberRef::Variable(v), .. } => Some(*v),
                 Resolved::Member { member: MemberRef::Function(f), .. } => s.program.function(*f).variable,
                 _ => None,
             }
         };
         for d in declaracoes.iter().filter(|d| (d.classe || d.tipo_de_extensao) && !d.aumento) {
-            let Some(classe) = d.membros.first().and_then(|&m| super::classe_do_membro(s, m)) else { continue };
+            let Some(classe) = d.membros.first().and_then(|&m| super::member_class(s, m)) else { continue };
             let mut getters: HashMap<SymbolId, MemberId> = HashMap::new();
             let mut setters: HashMap<SymbolId, MemberId> = HashMap::new();
             for &m in d.membros {
@@ -330,11 +330,11 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     }
                     let Some(v) = campo_sintetico(*target) else { return false };
                     let Some([parametro]) = setter.parameters.as_deref() else { return false };
-                    let mesmo_tipo = match (super::tipo_da_variavel(s, v), s.corpo.get_type(*value)) {
+                    let mesmo_tipo = match (super::variable_type(s, v), s.body.get_type(*value)) {
                         (Some(x), Some(y)) => s.table.canonico(x) == s.table.canonico(y),
                         _ => false,
                     };
-                    mesmo_tipo && parametro.name.is_some_and(|n| s.corpo.declaracao_local(*value) == Some(n.span.start))
+                    mesmo_tipo && parametro.name.is_some_and(|n| s.body.declaracao_local(*value) == Some(n.span.start))
                 });
                 if devolve_campo && atribui_campo && let Some(n) = getter.name {
                     achados.push(n.span);
@@ -361,10 +361,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 if k.factory {
                     continue;
                 }
-                let Some(classe) = super::classe_do_membro(s, m) else { continue };
+                let Some(classe) = super::member_class(s, m) else { continue };
                 // O parâmetro do construtor que a expressão lê.
                 let parametro = |e: ExprId| -> Option<&ast::Parameter> {
-                    let decl = s.corpo.declaracao_local(e)?;
+                    let decl = s.body.declaracao_local(e)?;
                     k.parameters.iter().find(|p| p.name.is_some_and(|n| n.span.start == decl))
                 };
                 if let FunctionBody::Block(corpo) = &k.body
@@ -373,7 +373,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     for &st in comandos.iter() {
                         let StmtKind::Expression(e) = &a.stmt(st).kind else { continue };
                         let ExprKind::Assign { target, value, .. } = &a.expr(*e).kind else { continue };
-                        let Some(super::Canonico::Variavel(v)) = super::canonico(s, interner, *target) else { continue };
+                        let Some(super::Canonical::Variable(v)) = super::canonical(s, interner, *target) else { continue };
                         let campo = s.program.variable(v);
                         let Some(p) = parametro(*value).filter(|_| matches!(a.expr(*value).kind, ExprKind::Identifier(_))) else { continue };
                         let Some(n) = p.name else { continue };
@@ -387,7 +387,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     if let Initializer::Field { span, name, value, .. } = i
                         && matches!(&a.expr(*value).kind, ExprKind::Identifier(v) if v.sym == name.sym)
                         && parametro(*value).is_some()
-                        && super::campo_da_classe(s, m, name.sym).is_some()
+                        && super::class_field(s, m, name.sym).is_some()
                         && !interner.resolve(name.sym).starts_with('_')
                     {
                         relatar(&c::PREFER_INITIALIZING_FORMALS, *span, &[interner.resolve(name.sym)]);
@@ -404,7 +404,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         && let Some(s) = sem
     {
         use dartforge_types::resolved::{MemberRef, Resolved};
-        let versao_antiga = !super::versao_ao_menos(s, 3, 0);
+        let versao_antiga = !super::version_at_least(s, 3, 0);
         let pais = dartforge_frontend::pais::Pais::novo(a, u.unit, u.fonte, versao_antiga);
         // Os getters (sem lista de parâmetros) e o elemento de cada um.
         let mut getters: Vec<(Span, dartforge_elements::model::FunctionElementId, SymbolId)> = Vec::new();
@@ -413,7 +413,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 continue;
             }
             let Some(n) = f.name else { continue };
-            let Some(e) = super::elemento_da_funcao(s, FunctionId(i as u32)) else { continue };
+            let Some(e) = super::function_element(s, FunctionId(i as u32)) else { continue };
             let corpo = match &f.body {
                 FunctionBody::Block(b) => a.stmt(*b).span,
                 FunctionBody::Expression(x) => a.expr(*x).span,
@@ -421,7 +421,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             };
             getters.push((corpo, e, n.sym));
         }
-        let do_getter = |e: ExprId, alvo: dartforge_elements::model::FunctionElementId| match s.corpo.get_resolved(e) {
+        let do_getter = |e: ExprId, alvo: dartforge_elements::model::FunctionElementId| match s.body.get_resolved(e) {
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(dartforge_elements::model::Element::Function(f))) => {
                 *f == alvo
             }

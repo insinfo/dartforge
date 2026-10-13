@@ -19,7 +19,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -50,12 +50,12 @@ fn corpo_de_uma_expressao(a: &Ast, b: &FunctionBody) -> bool {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `prefer_if_elements_to_conditional_expressions`: `c ? a : b`
@@ -109,7 +109,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments,
                 _ => continue,
             };
-            let Some(dartforge_types::resolved::Resolved::Constructor(f)) = s.corpo.get_resolved(ExprId(k as u32)) else { continue };
+            let Some(dartforge_types::resolved::Resolved::Constructor(f)) = s.body.get_resolved(ExprId(k as u32)) else { continue };
             let g = s.program.function(*f);
             if interner.resolve(g.name) != "fromIterable" || g.class != s.core.map_class {
                 continue;
@@ -136,7 +136,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     continue;
                 }
                 let Some(n) = p.name else { continue };
-                if super::mutado(s, a, n.span.start) {
+                if super::is_mutated(s, a, n.span.start) {
                     continue;
                 }
                 // O nó do parâmetro sem o valor padrão.
@@ -178,7 +178,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         for st in a.stmts.iter() {
             let StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, body, .. } = &st.kind else { continue };
             let variavel = name.span.start;
-            let e_a_variavel = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Identifier(_)) && s.corpo.declaracao_local(e) == Some(variavel);
+            let e_a_variavel = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Identifier(_)) && s.body.declaracao_local(e) == Some(variavel);
             let mut corpo = *body;
             while let StmtKind::Block(l) = &a.stmt(corpo).kind {
                 let [unico] = &l[..] else { break };
@@ -219,7 +219,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         use dartforge_types::resolved::{MemberRef, Resolved};
         let p = s.program;
         let classe_da_decl = |d: ast::DeclId| {
-            p.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == s.unidade && r.decl == d)).map(|i| ClassId(i as u32))
+            p.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == s.unit && r.decl == d)).map(|i| ClassId(i as u32))
         };
         let conjunto_de = |c: ClassId| {
             let mut v: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
@@ -259,9 +259,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 for (i, q) in k.parameters.iter().enumerate() {
                     let Some(n) = q.name else { continue };
                     if q.this_ {
-                        campos.extend(super::campo_da_classe(s, m, n.sym));
+                        campos.extend(super::class_field(s, m, n.sym));
                     } else if q.super_
-                        && let Some((f, j)) = super::parametro_do_super(s, interner, m, i)
+                        && let Some((f, j)) = super::super_parameter(s, interner, m, i)
                         && let dartforge_elements::model::FunctionRef::Constructor { unit, member } = p.function(f).node
                         && let MemberKind::Constructor(kk) = &p.unit(unit).ast.member(member).kind
                         && let Some(qq) = kk.parameters.get(j)
@@ -273,7 +273,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     }
                 }
                 let pede_instancia = |e: ExprId| -> bool {
-                    match s.corpo.get_resolved(e) {
+                    match s.body.get_resolved(e) {
                         Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
                             let g = p.function(*f);
                             match g.kind {

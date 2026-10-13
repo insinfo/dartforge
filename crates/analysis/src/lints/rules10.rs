@@ -12,14 +12,14 @@
 //!   construtores, métodos e campos da classe inteira; sem a semântica, só a
 //!   classe sem `extends`, `with` nem `implements`.
 //! - `prefer_final_in_for_each`: a mutação pelo elemento
-//!   (`super::mutado`), só dentro de corpo de função.
+//!   (`super::is_mutated`), só dentro de corpo de função.
 //! - `avoid_field_initializers_in_const_classes`: o uso de parâmetro pelo
 //!   elemento e os construtores da classe inteira.
 //! - `prefer_spread_collections`: a lista-alvo fora de contexto constante.
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -49,11 +49,11 @@ fn lacos_de_colecao<'x>(a: &Ast, el: &'x CollectionElement, saida: &mut Vec<(&'x
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `prefer_inlined_adds` e `prefer_spread_collections`: a primeira seção
@@ -61,7 +61,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let (inlinar, espalhar) = (ligada("prefer_inlined_adds"), ligada("prefer_spread_collections"));
     if inlinar || espalhar {
         // `target.inConstantContext` (só para `prefer_spread_collections`).
-        let pais = dartforge_frontend::pais::Pais::novo(a, u.unit, u.fonte, sem.is_some_and(|s| !super::versao_ao_menos(s, 3, 0)));
+        let pais = dartforge_frontend::pais::Pais::novo(a, u.unit, u.fonte, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
         for e in a.exprs.iter() {
             let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
             if !matches!(a.expr(*target).kind, ExprKind::List { .. }) {
@@ -98,7 +98,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 .collect();
             // Os construtores da classe inteira (`allConstructors`, com as
             // augmentations): pela semântica; sem ela, os desta declaração.
-            let classe = sem.and_then(|s| x.members.first().and_then(|&m| super::classe_do_membro(s, m)).map(|c| (s, c)));
+            let classe = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
             let (quantos, algum_const) = match classe {
                 Some((s, c)) => {
                     let k = &s.program.class(c).constructors;
@@ -139,7 +139,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                                 matches!(e.kind, ExprKind::Identifier(_))
                                     && regiao.start <= e.span.start
                                     && e.span.end <= regiao.end
-                                    && s.corpo.declaracao_local(ast::ExprId(j as u32)).is_some_and(|dd| declaracoes.contains(&dd))
+                                    && s.body.declaracao_local(ast::ExprId(j as u32)).is_some_and(|dd| declaracoes.contains(&dd))
                             });
                             if !usa {
                                 relatar(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, *span, &[]);
@@ -163,7 +163,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if x.modifiers.sealed {
                 continue;
             }
-            let classe = sem.and_then(|s| x.members.first().and_then(|&m| super::classe_do_membro(s, m)).map(|c| (s, c)));
+            let classe = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
             let relata = match classe {
                 Some((s, c)) => {
                     use dartforge_elements::model::{ClassKind, FunctionKind as Especie};
@@ -241,10 +241,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         && let Some(s) = sem
     {
         // `potentiallyMutates`: só a variável declarada e não mutada passa.
-        let quieto = |p: PatternId| matches!(&a.pattern(p).kind, PatternKind::Variable { name, .. } if !super::mutado(s, a, name.span.start));
+        let quieto = |p: PatternId| matches!(&a.pattern(p).kind, PatternKind::Variable { name, .. } if !super::is_mutated(s, a, name.span.start));
         let mut conferir = |alvo: &ForInTarget| match alvo {
             ForInTarget::Declared { final_: false, name, .. } => {
-                if !super::mutado(s, a, name.span.start) {
+                if !super::is_mutated(s, a, name.span.start) {
                     relatar(&c::PREFER_FINAL_IN_FOR_EACH_VARIABLE, name.span, &[interner.resolve(name.sym)]);
                 }
             }

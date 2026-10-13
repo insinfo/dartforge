@@ -29,7 +29,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -78,12 +78,12 @@ fn nao_anulavel(table: &TypeTable, t: dartforge_types::table::TypeId) -> bool {
     }
 }
 
-fn nome_da_biblioteca(s: &super::Semantica<'_>, interner: &Interner, l: dartforge_elements::model::LibraryId) -> Option<String> {
+fn nome_da_biblioteca(s: &super::Semantics<'_>, interner: &Interner, l: dartforge_elements::model::LibraryId) -> Option<String> {
     s.program.library(l).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
 }
 
 /// `implementsInterface(nome, biblioteca)`.
-fn implementa(s: &super::Semantica<'_>, interner: &Interner, t: dartforge_types::table::TypeId, nome: &str, biblioteca: &str) -> bool {
+fn implementa(s: &super::Semantics<'_>, interner: &Interner, t: dartforge_types::table::TypeId, nome: &str, biblioteca: &str) -> bool {
     let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = s.table.get(t) else { return false };
     let e = |k: ClassId| {
         let x = s.program.class(k);
@@ -95,7 +95,7 @@ fn implementa(s: &super::Semantica<'_>, interner: &Interner, t: dartforge_types:
 /// O `Validator` do `library_private_types_in_public_api`.
 struct Validador<'a, 'b> {
     a: &'a Ast,
-    s: &'a super::Semantica<'b>,
+    s: &'a super::Semantics<'b>,
     interner: &'a Interner,
     /// Os parâmetros de tipo em escopo (nomes).
     tps: Vec<SymbolId>,
@@ -114,8 +114,8 @@ impl Validador<'_, '_> {
             TypeKind::Named { name, args } => {
                 let ultimo = name[name.len() - 1];
                 let existe = match &name[..] {
-                    [n] => self.tps.contains(&n.sym) || self.s.program.lookup_na_unidade(self.s.unidade, n.sym).is_some(),
-                    [p, n] => self.s.program.lookup_prefixed_na_unidade(self.s.unidade, p.sym, n.sym).is_some(),
+                    [n] => self.tps.contains(&n.sym) || self.s.program.lookup_na_unidade(self.s.unit, n.sym).is_some(),
+                    [p, n] => self.s.program.lookup_prefixed_na_unidade(self.s.unit, p.sym, n.sym).is_some(),
                     _ => false,
                 };
                 if existe && privado(self.nome(ultimo.sym)) {
@@ -197,7 +197,7 @@ impl Validador<'_, '_> {
         };
         if p.this_ {
             let v = program.variables.iter().position(|x| {
-                x.name == nome && matches!(x.node, VariableRef::Field { unit, member, .. } if unit == s.unidade && self.mesma_classe(member, p.span))
+                x.name == nome && matches!(x.node, VariableRef::Field { unit, member, .. } if unit == s.unit && self.mesma_classe(member, p.span))
             });
             let t = v.and_then(|v| s.outline.variables.get(v)).and_then(|d| d.declared_type.or(d.inferred));
             return t.is_some_and(privada);
@@ -218,7 +218,7 @@ impl Validador<'_, '_> {
             return false;
         };
         let did = dartforge_frontend::ast::DeclId(decl_idx as u32);
-        let Some(classe) = (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unidade && r.decl == did)) else {
+        let Some(classe) = (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == did)) else {
             return false;
         };
         let Some(sup) = program.class(classe).supertype_class else { return false };
@@ -321,12 +321,12 @@ fn dentro(a: Span, b: Span) -> bool {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `package_prefixed_library_names`: o emissor da 3.6.2 volta sem relatar.
@@ -379,7 +379,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     // `library_private_types_in_public_api`.
     if ligada("library_private_types_in_public_api") {
-        let arquivo_privado = program.unit(s.unidade).path.as_ref().and_then(|p| p.file_name()).is_some_and(|n| n.to_string_lossy().starts_with('_'));
+        let arquivo_privado = program.unit(s.unit).path.as_ref().and_then(|p| p.file_name()).is_some_and(|n| n.to_string_lossy().starts_with('_'));
         if !arquivo_privado {
             let mut v = Validador { a, s, interner, tps: Vec::new(), achados: Vec::new() };
             for &did in &u.unit.declarations {
@@ -401,7 +401,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         v.parametros_de_tipo(&x.type_params);
                         // `isEffectivelyPrivate` do construtor: `@internal`,
                         // `sealed`, `abstract final`, `abstract interface`.
-                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, m, "meta", "internal"));
+                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
                         let m = &x.modifiers;
                         let efetivamente = interno || m.sealed || (m.abstract_ && (m.final_ || m.interface));
                         v.membros(&x.members, Some(&d.kind), efetivamente);
@@ -421,7 +421,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         v.tps = x.type_params.iter().map(|t| t.name.sym).collect();
                         v.parametros_de_tipo(&x.type_params);
                         v.tipo(x.on);
-                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, m, "meta", "internal"));
+                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
                         v.membros(&x.members, Some(&d.kind), interno);
                     }
                     DeclKind::ExtensionType(x) => {
@@ -433,7 +433,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         if !privado(interner.resolve(x.representation_name.sym)) {
                             v.tipo(x.representation_type);
                         }
-                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, m, "meta", "internal"));
+                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
                         v.membros(&x.members, Some(&d.kind), interno);
                     }
                     DeclKind::Mixin(x) => {
@@ -445,7 +445,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                             v.tipo(*t);
                         }
                         v.parametros_de_tipo(&x.type_params);
-                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unidade, m, "meta", "internal"));
+                        let interno = d.metadata.iter().any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, s.unit, m, "meta", "internal"));
                         v.membros(&x.members, Some(&d.kind), interno);
                     }
                     DeclKind::Function(f) => {
@@ -521,7 +521,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     let t = s.outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred));
                     (nome, init, t, Some(v), None)
                 }
-                Alvo::Local { nome, init } => (nome, init, s.corpo.tipo_local(nome.span.start), None, Some(nome.span.start)),
+                Alvo::Local { nome, init } => (nome, init, s.body.tipo_local(nome.span.start), None, Some(nome.span.start)),
             };
             // `variable.equals != null && initializer is SimpleIdentifier`.
             if init.is_some_and(|i| matches!(a.expr(i).kind, ExprKind::Identifier(_))) {
@@ -534,8 +534,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             // O elemento do identificador é a variável (ou o acessor dela).
             let e_a_variavel = |e: ExprId| -> bool {
                 match (local, campo) {
-                    (Some(pos), _) => matches!(s.corpo.get_resolved(e), Some(Resolved::Local(_))) && s.corpo.declaracao_local(e) == Some(pos),
-                    (_, Some(v)) => match s.corpo.get_resolved(e) {
+                    (Some(pos), _) => matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) && s.body.declaracao_local(e) == Some(pos),
+                    (_, Some(v)) => match s.body.get_resolved(e) {
                         Some(Resolved::Member { member: MemberRef::Variable(x), .. }) => *x == v,
                         Some(Resolved::Member { member: MemberRef::Function(f), .. }) => program.function(*f).variable == Some(v),
                         _ => false,
@@ -546,8 +546,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             // O elemento é a própria variável (não o acessor).
             let e_o_elemento = |e: ExprId| -> bool {
                 match (local, campo) {
-                    (Some(pos), _) => matches!(s.corpo.get_resolved(e), Some(Resolved::Local(_))) && s.corpo.declaracao_local(e) == Some(pos),
-                    (_, Some(v)) => matches!(s.corpo.get_resolved(e), Some(Resolved::Member { member: MemberRef::Variable(x), .. }) if *x == v),
+                    (Some(pos), _) => matches!(s.body.get_resolved(e), Some(Resolved::Local(_))) && s.body.declaracao_local(e) == Some(pos),
+                    (_, Some(v)) => matches!(s.body.get_resolved(e), Some(Resolved::Member { member: MemberRef::Variable(x), .. }) if *x == v),
                     _ => false,
                 }
             };
@@ -563,7 +563,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("erase_dart_type_extension_types") {
         for e in a.exprs.iter() {
             let ExprKind::Is { ty, .. } = &e.kind else { continue };
-            if let Some(&t) = s.corpo.tipos_de_anotacoes.get(ty)
+            if let Some(&t) = s.body.tipos_de_anotacoes.get(ty)
                 && implementa(s, interner, t, "DartType", "kernel.ast")
             {
                 relatar(&c::ERASE_DART_TYPE_EXTENSION_TYPES, e.span, &[]);
@@ -573,7 +573,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     // `conditional_uri_does_not_exist`.
     if ligada("conditional_uri_does_not_exist") {
-        let arquivo = program.unit(s.unidade).path.clone();
+        let arquivo = program.unit(s.unit).path.clone();
         let base = arquivo.as_ref().and_then(|p| p.parent().map(std::path::Path::to_path_buf));
         let config = arquivo.as_ref().and_then(|p| p.ancestors().skip(1).find(|d| d.join(".dart_tool").join("package_config.json").is_file()).map(|d| d.join(".dart_tool").join("package_config.json")));
         let pacotes = config.and_then(|c| dartforge_elements::PackageConfig::load(&c).ok());
@@ -614,7 +614,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 _ => continue,
             };
             for &t in com {
-                let Some(&tipo) = s.outline.tipos_escritos.get(&(s.unidade, t)) else { continue };
+                let Some(&tipo) = s.outline.tipos_escritos.get(&(s.unit, t)) else { continue };
                 let Type::Interface { class, .. } = table.get(tipo) else { continue };
                 let k = program.class(*class);
                 if k.kind == ClassKind::Class && !k.modifiers.mixin {
@@ -632,7 +632,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let StmtKind::Try { catches, .. } = &st.kind else { continue };
             for k in catches.iter() {
                 let Some(on) = k.on_type else { continue };
-                let Some(&t) = s.corpo.tipos_de_anotacoes.get(&on) else { continue };
+                let Some(&t) = s.body.tipos_de_anotacoes.get(&on) else { continue };
                 if !implementa(s, interner, t, "Error", "dart.core") {
                     continue;
                 }
@@ -649,7 +649,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     // `avoid_web_libraries_in_flutter`.
     if ligada("avoid_web_libraries_in_flutter") {
-        let arquivo = program.library(program.unit(s.unidade).library).units.first().and_then(|x| program.unit(*x).path.clone());
+        let arquivo = program.library(program.unit(s.unit).library).units.first().and_then(|x| program.unit(*x).path.clone());
         let pubspec = arquivo.as_ref().and_then(|p| p.ancestors().skip(1).map(|d| d.join("pubspec.yaml")).find(|f| f.is_file()));
         let tem_flutter = pubspec.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|t| {
             let Ok(Some(raiz)) = crate::naodart::yaml::ler(&t) else { return false };
@@ -672,7 +672,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("cast_nullable_to_non_nullable") {
         for e in a.exprs.iter() {
             let ExprKind::As { value, ty } = &e.kind else { continue };
-            let (Some(te), Some(&tt)) = (s.corpo.get_type(*value), s.corpo.tipos_de_anotacoes.get(ty)) else { continue };
+            let (Some(te), Some(&tt)) = (s.body.get_type(*value), s.body.tipos_de_anotacoes.get(ty)) else { continue };
             if matches!(table.get(te), Type::Dynamic) || s.core.is_unknown(table, te) {
                 continue;
             }
@@ -693,12 +693,12 @@ enum Alvo {
 
 /// Os campos (com a unidade toda por contêiner) e as variáveis locais (com
 /// o corpo da função mais próxima).
-fn candidatos_de_vazamento(s: &super::Semantica<'_>, a: &Ast) -> Vec<(Alvo, Option<Span>)> {
+fn candidatos_de_vazamento(s: &super::Semantics<'_>, a: &Ast) -> Vec<(Alvo, Option<Span>)> {
     let mut v = Vec::new();
     for (k, m) in a.members.iter().enumerate() {
         let MemberKind::Field(l) = &m.kind else { continue };
         for (index, x) in l.variables.iter().enumerate() {
-            let r = VariableRef::Field { unit: s.unidade, member: dartforge_frontend::ast::MemberId(k as u32), index };
+            let r = VariableRef::Field { unit: s.unit, member: dartforge_frontend::ast::MemberId(k as u32), index };
             if let Some(i) = s.program.variables.iter().position(|y| y.node == r) {
                 v.push((Alvo::Campo { v: VariableId(i as u32), nome: x.name, init: x.initializer }, None));
             }
@@ -734,7 +734,7 @@ fn candidatos_de_vazamento(s: &super::Semantica<'_>, a: &Ast) -> Vec<(Alvo, Opti
 /// O `_ValidUseVisitor`: algum uso válido no contêiner (`None`: a unidade).
 #[allow(clippy::too_many_arguments)]
 fn uso_valido(
-    s: &super::Semantica<'_>,
+    s: &super::Semantics<'_>,
     a: &Ast,
     interner: &Interner,
     conteiner: Option<Span>,
@@ -811,7 +811,7 @@ fn uso_valido(
                 // do campo.
                 if campo.is_some()
                     && matches!(a.expr(alvo).kind, ExprKind::Identifier(_))
-                    && matches!(s.corpo.get_resolved(alvo), Some(Resolved::Member { member: MemberRef::Function(_), .. }))
+                    && matches!(s.body.get_resolved(alvo), Some(Resolved::Member { member: MemberRef::Function(_), .. }))
                     && e_a_variavel(alvo)
                 {
                     return true;

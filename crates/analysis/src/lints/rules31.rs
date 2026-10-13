@@ -15,7 +15,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::rules::RelatoDeLint;
+use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
@@ -35,8 +35,8 @@ fn token_antes(t: &[Token], pos: usize) -> Option<Span> {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
-    let mut out: Vec<RelatoDeLint> = Vec::new();
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+    let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !ligada("always_specify_types") {
         return out;
@@ -46,7 +46,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let fonte = u.fonte;
     let program = s.program;
     let table = s.table;
-    let corpo = s.corpo;
+    let corpo = s.body;
     let ex = Exibidor { table, interner, program };
     // O argumento `DartType` (com alias) e o texto de `getDisplayString()`.
     let tipo = |t: TypeId| ex.tipo(t, true);
@@ -167,13 +167,13 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         if !args.is_empty() || em_is.contains(&id) {
             continue;
         }
-        let Some(r) = corpo.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unidade, id)).copied()) else { continue };
+        let Some(r) = corpo.tipos_de_anotacoes.get(&id).copied().or_else(|| s.outline.tipos_escritos.get(&(s.unit, id)).copied()) else { continue };
         if !de_interface(r) {
             continue;
         }
         let b = match &name[..] {
-            [n] => program.lookup_na_unidade(s.unidade, n.sym),
-            [p, n] => program.lookup_prefixed_na_unidade(s.unidade, p.sym, n.sym),
+            [n] => program.lookup_na_unidade(s.unit, n.sym),
+            [p, n] => program.lookup_prefixed_na_unidade(s.unit, p.sym, n.sym),
             _ => None,
         };
         let Some(el) = b.and_then(|b| b.getter) else { continue };
@@ -225,7 +225,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     // O tipo do elemento de cada parâmetro: o da função declarada, o do
     // construtor, o inferido da closure, o da função local.
     let tipos_da_funcao = |f: ast::FunctionId| -> Option<Vec<TypeId>> {
-        let fid = program.functions.iter().position(|x| matches!(x.node, FunctionRef::Function { unit, function } if unit == s.unidade && function == f));
+        let fid = program.functions.iter().position(|x| matches!(x.node, FunctionRef::Function { unit, function } if unit == s.unit && function == f));
         if let Some(i) = fid {
             return s.outline.functions.get(i).map(|d| d.parameters.iter().map(|p| p.ty).collect());
         }
@@ -262,7 +262,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     for (k, m) in a.members.iter().enumerate() {
         if let MemberKind::Constructor(kc) = &m.kind {
-            let fid = program.functions.iter().position(|x| matches!(x.node, FunctionRef::Constructor { unit, member } if unit == s.unidade && member == ast::MemberId(k as u32)));
+            let fid = program.functions.iter().position(|x| matches!(x.node, FunctionRef::Constructor { unit, member } if unit == s.unit && member == ast::MemberId(k as u32)));
             let tipos = fid.and_then(|i| s.outline.functions.get(i)).map(|d| d.parameters.iter().map(|p| p.ty).collect());
             listas.push((&kc.parameters, tipos));
         }
@@ -415,7 +415,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
 
     achados.sort_by_key(|(sp, _, _)| (sp.start, sp.end));
     for (span, codigo, args) in achados {
-        out.push(RelatoDeLint { codigo, span, args });
+        out.push(LintReport { codigo, span, args });
     }
     out
 }

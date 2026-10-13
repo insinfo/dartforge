@@ -49,10 +49,10 @@ pub struct Arquivo {
     /// options.
     pub semantic_lints: Vec<SemanticLint>,
     /// The reports of every lint rule over the program's tree, with the
-    /// engine's semantics (`dartforge_analysis::lints::executar_com`): the
+    /// engine's semantics (`dartforge_analysis::lints::run_with`): the
     /// publisher filters by the enabled rules. `None` when the file is not a
     /// unit of the resolved program.
-    pub lint_reports: Option<Vec<dartforge_analysis::lints::rules::RelatoDeLint>>,
+    pub lint_reports: Option<Vec<dartforge_analysis::lints::rules::LintReport>>,
 }
 
 /// A lint rule finding computed with the resolved program.
@@ -1081,18 +1081,18 @@ impl Motor {
                 {
                     let can_be_const = dartforge_types::lints_tipados6::podem_ser_const(&program, &interner, &mut table, &core, &outline, all, &lint_inferred, u);
                     let un = program.unit(u);
-                    let sem = dartforge_analysis::lints::Semantica {
+                    let sem = dartforge_analysis::lints::Semantics {
                         program: &program,
-                        unidade: u,
-                        corpo: body,
-                        corpos: all,
+                        unit: u,
+                        body,
+                        bodies: all,
                         table: &table,
                         core: &core,
                         outline: &outline,
-                        pode_ser_const: Some(&can_be_const),
+                        can_be_const: Some(&can_be_const),
                     };
                     let tree = dartforge_analysis::Unidade { ast: &un.ast, unit: &un.unit, fonte: &un.source };
-                    let reports = dartforge_analysis::lints::executar_com(tree, &interner, &|_| true, Some(&sem));
+                    let reports = dartforge_analysis::lints::run_with(tree, &interner, &|_| true, Some(&sem));
                     if let Some(p) = &un.path
                         && let Some(a) = analysis.arquivos.get_mut(&chave(p))
                     {
