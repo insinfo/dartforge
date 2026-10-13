@@ -162,7 +162,7 @@ impl Scoreboard {
         let perfect = self.by_code.values().filter(|c| c.perfect()).count();
         let with_cases = self.by_code.values().filter(|c| c.oracle > 0).count();
         let _ = writeln!(s, "codes at 100% (position and message): {perfect} of {with_cases} with cases in the oracle");
-        let _ = writeln!(s, "{:<58} {:>7} {:>7} {:>7} {:>6} {:>6} {:>6} {:>6}", "código", "oracle", "ours", "hit", "msg≠", "pos≠", "FP", "FN");
+        let _ = writeln!(s, "{:<58} {:>7} {:>7} {:>7} {:>6} {:>6} {:>6} {:>6}", "code", "oracle", "ours", "hit", "msg≠", "pos≠", "FP", "FN");
         for (k, c) in &self.by_code {
             let _ = writeln!(
                 s,

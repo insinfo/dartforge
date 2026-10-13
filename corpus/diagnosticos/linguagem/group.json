@@ -1,0 +1,8 @@
+{
+  "sdk": "3.6.2",
+  "packages": [
+    "expect",
+    "meta"
+  ],
+  "origin": "references/dart-sdk/tests/language (marcas // [analyzer] + fecho de imports)"
+}

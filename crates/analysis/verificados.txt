@@ -1,7 +1,7 @@
 # Semantic codes published by `dartforge analyze` and by the LSP (plan §2.3).
 # A code enters here when nothing it emits is wrong: zero false positives,
 # zero wrong positions and zero wrong messages in the corpus
-# (`dartforge-parity placar`) and in the real projects (`dartforge-parity
+# (`dartforge-parity scoreboard`) and in the real projects (`dartforge-parity
 # projetos`). False negatives (Dart reports and we do not) are allowed. The
 # scoreboard fails a listed code that emits something wrong in the corpus.
 # Syntax is always published, so the syntactic codes do not appear here.
@@ -15,7 +15,7 @@ values_declaration_in_enum
 # 9.660/23.030) and 0 FP in 60 pub-cache packages (2,150 files: analyzer,
 # _fe_analyzer_shared, dart_style, collection, async, build_runner_core,
 # pointycastle, petitparser, rxdart…). The owner's three projects do not
-# exist on this machine: check with `projetos` there before the next cut.
+# exist on this machine: check with `projects` there before the next cut.
 abstract_field_initializer
 assignment_to_const
 assignment_to_final
@@ -71,7 +71,7 @@ subtype_of_base_or_final_is_not_base_final_or_sealed
 # 17.428/23.030): no wrong output in the corpus and 0 FP, wrong position or
 # wrong message in the 209 pub-cache packages (scripts/parity-pub-cache.py).
 # The owner's three projects do not exist on this machine: check with
-# `projetos` there before the next cut.
+# `projects` there before the next cut.
 abstract_super_member_reference
 assert_in_redirecting_constructor
 assignment_to_final_local

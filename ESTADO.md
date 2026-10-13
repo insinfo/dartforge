@@ -4584,11 +4584,11 @@ microbenchmark só valem presos a um núcleo P).
 | Pacotes do pub-cache (209): FP / mensagem errada | 46 / 33 | **35 / 2** (nenhum de código publicado) |
 | Códigos em `verificados.txt` | 167 | **477** |
 
-Como medir nesta máquina: `DARTFORGE_PARITY_SAMPLES=100000 dartforge-parity placar --details
+Como medir nesta máquina: `DARTFORGE_PARITY_SAMPLES=100000 dartforge-parity scoreboard --details
 --workers 8` (o corpus e o oráculo gravado estão no repositório); para os projetos reais, copiar
 `new_sali/{core,frontend,backend}`, `limitless_ui` e os de `2024/` para uma pasta própria (só `.dart`,
 `pubspec.*`, `analysis_options.yaml`), rodar `dart pub get` lá (os `package_config.json` dos originais
-apontam para o Windows) e `dartforge-parity projetos --oracle --corpus <pasta com projetos.json>`
+apontam para o Windows) e `dartforge-parity projects --oracle --corpus <pasta com projects.json>`
 (`--mutations 30 --rerecord` para as mutações); os pacotes do pub-cache pelo
 `scripts/parity-pub-cache.py` (`PUB_CACHE=~/tools/dart/pub-cache`). `DARTFORGE_ORACLE_3_6` aponta
 o SDK 3.6.2. Achados: FP nos projetos reais por anotação de FFI por alias de `typedef`, constante
@@ -4992,8 +4992,8 @@ com o código.
 * Oráculos em `E:\dftemp`: `cmp.py` (corpus contra `dartforge analyze`), `oraculo_lsp.py`,
   `oraculo_multi.py`, `oraculo_diag.py` (publicações de diagnóstico), `lsp\dif_metodo.py`
   (diferenças por amostra de um método do oráculo do LSP).
-* Placar: `DARTFORGE_PARITY_SAMPLES=100000 ./target/release/dartforge-parity placar --details`;
-  projetos reais: `dartforge-parity projetos`.
+* Placar: `DARTFORGE_PARITY_SAMPLES=100000 ./target/release/dartforge-parity scoreboard --details`;
+  projetos reais: `dartforge-parity projects`.
 
 ---
 
@@ -5119,10 +5119,10 @@ aumentada, `augment enum`. Detalhes, evidência e o que falta: docs/PENDENCIAS.m
 ## Paridade do analyzer sobre a inferência comum (2026-09-26)
 
 **Oráculo.** Regravado com o Dart 3.6.2 do Linux (`dartforge-parity
-oraculo`): os mesmos registros de antes, com os caminhos absolutos da raiz
+oracle`): os mesmos registros de antes, com os caminhos absolutos da raiz
 trocados por `<raiz>` nas mensagens, para o oráculo não depender da
 máquina. A regravação agora limpa o cache do `dart analyze` (o cache morno
-omitia 7 registros) e mantém os 566 arquivos de `sintaxe-nova.json` quando
+omitia 7 registros) e mantém os 566 arquivos de `new-syntax.json` quando
 o 3.13.4 não está disponível. Placar de partida, com o oráculo novo:
 **9.293/23.030 (40,4%)**, FP 1.780, FN 13.269, posição errada 468.
 
@@ -5227,12 +5227,12 @@ exatamente o que o nosso parser faz —, enquanto o **3.6.2**, que não
 conhece esses recursos, responde com cascata (`missing_identifier`,
 `expected_executable`, `missing_const_final_var_or_type`). Como a
 ferramenta é 3.13 (VERSOES-LINGUAGEM.md, D2), a referência nesses arquivos
-é o 3.13.4. O comando novo `dartforge-parity sintaxe-nova` roda o 3.13.4
+é o 3.13.4. O comando novo `dartforge-parity new-syntax` roda o 3.13.4
 sobre os grupos 3.6 **sem mudar a versão do pacote**, escolhe pelo próprio
 oráculo os arquivos em que ele acusa um recurso desconhecido do 3.6.2
 (`dot-shorthands`, `primary-constructors`, `private-named-parameters`) e
 troca só os registros deles: **498 em `analyzer` e 68 em `linguagem`**
-(`corpus/diagnosticos/sintaxe-nova.json`). O `oraculo` respeita a lista ao
+(`corpus/diagnosticos/new-syntax.json`). O `oraculo` respeita a lista ao
 regravar, e a linha de cada grupo do placar diz quantos arquivos são do
 3.13.4. Não foi `// @dart=3.13` por arquivo: os arquivos continuam
 bibliotecas 3.6.

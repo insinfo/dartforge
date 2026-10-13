@@ -36,7 +36,7 @@ reais (§3.11).
 
 ## 1. Ferramentas
 
-* `dartforge-parity placar [--batch N] [--details]` — o placar. Com
+* `dartforge-parity scoreboard [--batch N] [--details]` — o placar. Com
   `DARTFORGE_PARITY_SAMPLES=100000`, `--details` lista **todas** as
   divergências (base dos agrupamentos abaixo).
 * `crates/parity/examples/sonda_arquivos.rs` (novo) — compara arquivo a
@@ -47,7 +47,7 @@ reais (§3.11).
 * `scripts/parity-pub-cache.py` (novo) — prepara os pacotes do pub-cache
   como projetos reais (a última versão de cada, sem Flutter, linguagem ≥ 2.12;
   `lib/` copiado; um `package_config` com todos) e o registro para
-  `dartforge-parity projetos --oracle --corpus <dir>/corpus`. Nesta
+  `dartforge-parity projects --oracle --corpus <dir>/corpus`. Nesta
   máquina: 209 pacotes.
 
 ## 2. Onde está a perda (agrupamento por causa raiz)
@@ -304,9 +304,9 @@ representação de tipos; porte grande).
 
 ## 5. Verificação
 
-* `dartforge-parity placar` depois de cada família (nenhum código pode
+* `dartforge-parity scoreboard` depois de cada família (nenhum código pode
   perder acerto nem ganhar FP sem explicação; nenhum verificado com erro);
-* `dartforge-parity projetos --corpus <pub>/corpus` (0 FP de código publicado);
+* `dartforge-parity projects --corpus <pub>/corpus` (0 FP de código publicado);
 * `cargo test -p dartforge-types -p dartforge-analysis -p dartforge-parity -p dartforge-lsp`;
 * no fim, `cargo test --workspace` e `cargo run --release -p dartforge-differential`
   (o `crates/types` é comum a todos os backends).

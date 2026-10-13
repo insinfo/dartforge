@@ -1,0 +1,29 @@
+[
+  [
+    {
+      "name": "new_sali-core",
+      "path": "C:/MyDartProjects/new_sali/core",
+      "sdk": "3.6.2",
+      "oracle": 0
+    },
+    []
+  ],
+  [
+    {
+      "name": "new_sali-frontend",
+      "path": "C:/MyDartProjects/new_sali/frontend",
+      "sdk": "3.6.2",
+      "oracle": 0
+    },
+    []
+  ],
+  [
+    {
+      "name": "limitless_ui",
+      "path": "E:/references/limitless_ui",
+      "sdk": "3.6.2",
+      "oracle": 0
+    },
+    []
+  ]
+]

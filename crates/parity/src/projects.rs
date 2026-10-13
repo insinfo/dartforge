@@ -4,10 +4,10 @@
 //! the project, with the oracle re-recorded over the mutant.
 //!
 //! Nothing is written to the owner's project: each project is copied to
-//! `target/scratch-paridade/projetos/<name>` (only the `.dart` files, the
+//! `target/scratch-parity/projects/<name>` (only the `.dart` files, the
 //! `pubspec.yaml`, the `analysis_options.yaml` and a `package_config.json` with
 //! absolute roots), and the copy is what gets mutated. The record lives in
-//! `corpus/diagnosticos/projetos.json` and `corpus/diagnosticos/mutacoes.jsonl`;
+//! `corpus/diagnosticos/projects.json` and `corpus/diagnosticos/mutations.jsonl`;
 //! a mutation whose original file changed (hash) is flagged as stale.
 
 use crate::oracle::{FNV_START, Record, OracleSdk, fnv};
@@ -18,14 +18,11 @@ use std::path::{Path, PathBuf};
 /// A real project.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
-    #[serde(rename = "nome")]
     pub name: String,
-    #[serde(rename = "caminho")]
     pub path: PathBuf,
     pub sdk: OracleSdk,
     /// The oracle's diagnostics over the whole project (recorded).
     #[serde(default)]
-    #[serde(rename = "oraculo")]
     pub oracle: Option<usize>,
 }
 
@@ -40,28 +37,21 @@ pub fn default_projects() -> Vec<Project> {
 }
 
 /// Mutation kinds.
-pub const KINDS: &[&str] = &["nome", "import", "tipo", "bang", "await"];
+pub const KINDS: &[&str] = &["name", "import", "type", "bang", "await"];
 
 /// A mutation and what the oracle said about the mutated file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mutation {
-    #[serde(rename = "projeto")]
     pub project: String,
     /// Relative to the project's root, with `/`.
-    #[serde(rename = "arquivo")]
     pub file: String,
-    #[serde(rename = "tipo")]
     pub kind: String,
     /// Bytes replaced in the original.
-    #[serde(rename = "inicio")]
     pub start: usize,
-    #[serde(rename = "fim")]
     pub end: usize,
-    #[serde(rename = "inserir")]
     pub insert: String,
     /// FNV-1a of the original file.
     pub hash_original: String,
-    #[serde(rename = "oraculo")]
     pub oracle: Vec<Record>,
 }
 
@@ -166,7 +156,7 @@ pub fn sites(text: &str, kind: &str) -> Vec<(usize, usize, String)> {
     let source = |s: dartforge_diagnostics::Span| text.get(s.start..s.end).unwrap_or("");
     let mut v = Vec::new();
     match kind {
-        "nome" => {
+        "name" => {
             for e in &ast.exprs {
                 if let ExprKind::Identifier(n) = &e.kind {
                     let t = source(n.span);
@@ -183,7 +173,7 @@ pub fn sites(text: &str, kind: &str) -> Vec<(usize, usize, String)> {
                 }
             }
         }
-        "tipo" => {
+        "type" => {
             for t in &ast.types {
                 if let TypeKind::Named { name, args } = &t.kind {
                     if name.len() == 1 && args.is_empty() && !t.nullable {
@@ -279,10 +269,10 @@ mod tests {
     fn sites_of_each_kind() {
         let t = "import 'dart:async';\nFuture<int> f(String? ss) async { String xx = ss!; return await gg(xx); }\n";
         assert_eq!(sites(t, "import").len(), 1);
-        assert!(!sites(t, "nome").is_empty());
+        assert!(!sites(t, "name").is_empty());
         assert_eq!(sites(t, "bang").len(), 1);
         assert_eq!(sites(t, "await").len(), 1);
-        let ty = sites(t, "tipo");
+        let ty = sites(t, "type");
         assert_eq!(ty.len(), 2, "{ty:?}"); // the `int` of `Future<int>` and the local `String`
         let m = Mutation {
             project: "p".into(),

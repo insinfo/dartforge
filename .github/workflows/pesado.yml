@@ -829,7 +829,7 @@ jobs:
   # Paridade de diagnósticos com o `dart analyze` (crates/parity, plano A1):
   # o nosso analisador sobre corpus/diagnosticos contra o oráculo GRAVADO em
   # disco (oraculo.jsonl de cada grupo, regravado localmente pelo
-  # `dartforge-parity oraculo` com os SDKs 3.6.2 e 3.13.4) — o runner não
+  # `dartforge-parity oracle` com os SDKs 3.6.2 e 3.13.4) — o runner não
   # roda `dart analyze`. O SDK 3.6.2 do setup-dart só dá o `lib/` que o nosso
   # lado carrega. Critério: placar completo (código 0: oráculo em dia, nenhum
   # código de `verificados.txt` divergindo) e relatório idêntico com 1, 4 e 8
@@ -848,7 +848,7 @@ jobs:
         with:
           name: binarios
           path: ${{ github.workspace }}
-      - name: dartforge-parity determinismo --workers 1,4,8
+      - name: dartforge-parity determinism --workers 1,4,8
         id: rodar
         shell: pwsh
         run: |
@@ -856,14 +856,14 @@ jobs:
           New-Item -ItemType Directory -Force $dir | Out-Null
           $rel = Join-Path $dir 'relatorio.txt'
           $inicio = Get-Date
-          $p = Start-Process -FilePath target/release/dartforge-parity.exe -ArgumentList 'determinismo --workers 1,4,8 --details' `
+          $p = Start-Process -FilePath target/release/dartforge-parity.exe -ArgumentList 'determinism --workers 1,4,8 --details' `
             -RedirectStandardOutput $rel -RedirectStandardError (Join-Path $dir 'progresso.txt') -NoNewWindow -PassThru -Wait
           $codigo = $p.ExitCode
           $dur = (Get-Date) - $inicio
           $tempo = '{0} min {1:D2} s' -f [int][math]::Floor($dur.TotalMinutes), $dur.Seconds
           $texto = Get-Content $rel -Encoding utf8
-          $linha = $texto | Where-Object { $_ -match '^placar paridade: ' } | Select-Object -First 1
-          $det = $texto | Where-Object { $_ -match '^determinismo: ' } | Select-Object -First 1
+          $linha = $texto | Where-Object { $_ -match '^parity scoreboard: ' } | Select-Object -First 1
+          $det = $texto | Where-Object { $_ -match '^determinism: ' } | Select-Object -First 1
           $tabela = $texto | Where-Object { $_ -notmatch '^\s+\[' }
           $md = @('### Paridade com o dart analyze (corpus/diagnosticos)', '', "$det", '', '```text') + $tabela + @('```', '', "Código de saída: $codigo. Tempo: $tempo.")
           Add-Content $env:GITHUB_STEP_SUMMARY ($md -join "`n") -Encoding utf8
@@ -879,11 +879,11 @@ jobs:
           retention-days: 14
       # Etapa III.1 da docs/ANALYZER-ESPECIFICACAO-INFRA.md: a saída inteira do
       # `analyze` (três formatos e código de saída) contra a gravada.
-      - name: dartforge-parity saida (corpus/saida-analyze)
+      - name: dartforge-parity output (corpus/saida-analyze)
         if: always()
         shell: pwsh
         run: |
-          & target/release/dartforge-parity.exe saida corpus/saida-analyze
+          & target/release/dartforge-parity.exe output corpus/saida-analyze
           exit $LASTEXITCODE
 
 

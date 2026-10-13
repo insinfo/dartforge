@@ -3,9 +3,9 @@
 //!
 //! Two SDKs, chosen by the library's language version (plan §2.4): 3.6.2 for
 //! libraries up to 3.6, 3.13.4 for those declaring 3.7 or later
-//! (`// @dart = 3.7`). The record (`oraculo.jsonl`) holds one diagnostic per
+//! (`// @dart = 3.7`). The record (`oracle.jsonl`) holds one diagnostic per
 //! line, with the path relative to the group; CI compares against it without
-//! needing `dart`. `oraculo.json` holds the SDK and the hash of the sources: a
+//! needing `dart`. `oracle.json` holds the SDK and the hash of the sources: a
 //! source changed without re-recording is flagged by the scoreboard.
 
 use crate::json::{DiagJson, Report};
@@ -68,7 +68,6 @@ impl OracleSdk {
 #[serde(rename_all = "camelCase")]
 pub struct Record {
     /// Path relative to the group's root, with `/`.
-    #[serde(rename = "arquivo")]
     pub file: String,
     pub offset: usize,
     pub length: usize,
@@ -164,14 +163,11 @@ pub struct Meta {
     pub sdk: OracleSdk,
     /// Hash (FNV-1a 64, hexadecimal) of the group's `.dart` sources.
     pub hash: String,
-    #[serde(rename = "arquivos")]
     pub files: usize,
-    #[serde(rename = "diagnosticos")]
     pub diagnostics: usize,
     /// Files removed from the group because they crash the oracle's analysis
     /// server (there is nothing to compare).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[serde(rename = "excluidos")]
     pub excluded: Vec<String>,
 }
 
@@ -232,17 +228,17 @@ pub fn write(dir: &Path, mut regs: Vec<Record>, meta: &Meta) -> std::io::Result<
         s.push_str(&serde_json::to_string(r).expect("JSON"));
         s.push('\n');
     }
-    std::fs::write(dir.join("oraculo.jsonl"), s)?;
-    std::fs::write(dir.join("oraculo.json"), serde_json::to_string_pretty(meta).expect("JSON") + "\n")
+    std::fs::write(dir.join("oracle.jsonl"), s)?;
+    std::fs::write(dir.join("oracle.json"), serde_json::to_string_pretty(meta).expect("JSON") + "\n")
 }
 
 /// Reads a group's record and metadata.
 pub fn read(dir: &Path) -> Result<(Vec<Record>, Meta), String> {
     let meta: Meta = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("oraculo.json")).map_err(|e| format!("{}: {e}", dir.display()))?,
+        &std::fs::read_to_string(dir.join("oracle.json")).map_err(|e| format!("{}: {e}", dir.display()))?,
     )
     .map_err(|e| e.to_string())?;
-    let text = std::fs::read_to_string(dir.join("oraculo.jsonl")).map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(dir.join("oracle.jsonl")).map_err(|e| e.to_string())?;
     let mut regs = Vec::new();
     for l in text.lines().filter(|l| !l.is_empty()) {
         regs.push(serde_json::from_str(l).map_err(|e| format!("{l}: {e}"))?);
@@ -296,10 +292,10 @@ pub fn marker_3_13(dir: &Path, sources: &[std::path::PathBuf]) -> std::collectio
     marked
 }
 
-/// `corpus/diagnosticos/sintaxe-nova.json`: per group, the files whose oracle
+/// `corpus/diagnosticos/new-syntax.json`: per group, the files whose oracle
 /// is 3.13.4 (see [`uses_new_syntax`]).
 pub fn read_new_syntax(root: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
-    std::fs::read_to_string(root.join("sintaxe-nova.json"))
+    std::fs::read_to_string(root.join("new-syntax.json"))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default()
@@ -307,5 +303,5 @@ pub fn read_new_syntax(root: &Path) -> std::collections::BTreeMap<String, Vec<St
 
 /// Writes the list of [`read_new_syntax`].
 pub fn write_new_syntax(root: &Path, list: &std::collections::BTreeMap<String, Vec<String>>) -> std::io::Result<()> {
-    std::fs::write(root.join("sintaxe-nova.json"), serde_json::to_string_pretty(list).expect("JSON") + "\n")
+    std::fs::write(root.join("new-syntax.json"), serde_json::to_string_pretty(list).expect("JSON") + "\n")
 }

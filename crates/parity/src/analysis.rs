@@ -512,7 +512,7 @@ impl Engine {
         for (path, text) in texts {
             c.put(path.clone(), text.clone(), "lsp", vec![]);
         }
-        c.put(entry.clone(), imports, "paridade", vec![]);
+        c.put(entry.clone(), imports, "parity", vec![]);
         let generation = c.finish(1).ok();
         let cache = dartforge_elements::SdkCache::open_or_build(&self.sdk, "dartdevc").ok().map(|(c, _)| c);
         let mut interner = dartforge_intern::Interner::new();

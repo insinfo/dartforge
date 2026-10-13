@@ -6,11 +6,11 @@ fora os que dependem do Flutter e os de linguagem anterior a 2.12 (o Dart 3
 não os analisa com null safety). De cada um, `lib/` e o `pubspec.yaml` vão
 para `<destino>/pacotes/<nome>` (sem `analysis_options.yaml`: os lints não são
 da paridade), com um `package_config.json` que resolve todos os escolhidos
-pelas cópias. O registro `projetos.json` do corpus alternativo
-`<destino>/corpus` lista os pacotes para o `dartforge-parity projetos`:
+pelas cópias. O registro `projects.json` do corpus alternativo
+`<destino>/corpus` lista os pacotes para o `dartforge-parity projects`:
 
     python scripts/parity-pub-cache.py E:/dftemp/analise/pub
-    dartforge-parity projetos --oracle --corpus E:/dftemp/analise/pub/corpus
+    dartforge-parity projects --oracle --corpus E:/dftemp/analise/pub/corpus
 
 (o `--oracle` roda o `dart analyze` 3.6.2 de cada pacote; sem ele, o
 registro gravado é reaproveitado). Nada é escrito no pub-cache.
@@ -96,14 +96,14 @@ def main():
         os.makedirs(os.path.join(alvo, ".dart_tool"), exist_ok=True)
         with open(os.path.join(alvo, ".dart_tool", "package_config.json"), "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
-        registro.append([{"nome": nome, "caminho": alvo.replace("\\", "/"), "sdk": "3.6.2"}, []])
+        registro.append([{"name": nome, "path": alvo.replace("\\", "/"), "sdk": "3.6.2"}, []])
     corpus = os.path.join(destino, "corpus")
     os.makedirs(corpus, exist_ok=True)
-    antigo = os.path.join(corpus, "projetos.json")
+    antigo = os.path.join(corpus, "projects.json")
     if os.path.exists(antigo):
         # Mantém o oráculo gravado dos pacotes que continuam na lista.
-        gravados = {p["nome"]: (p, regs) for p, regs in json.load(open(antigo, encoding="utf-8"))}
-        registro = [list(gravados.get(p["nome"], (p, regs))) for p, regs in registro]
+        gravados = {p["name"]: (p, regs) for p, regs in json.load(open(antigo, encoding="utf-8"))}
+        registro = [list(gravados.get(p["name"], (p, regs))) for p, regs in registro]
     with open(antigo, "w", encoding="utf-8") as f:
         json.dump(registro, f, indent=1)
     print(f"{len(escolhidos)} pacotes em {pacotes}; registro em {antigo}")

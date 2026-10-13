@@ -339,13 +339,13 @@ corrigido lá e vale este.
   (a lista só encolhe).
 * Placar do analyzer (`crates/parity`, `corpus/diagnosticos`): os grupos
   `analyzer` e `linguagem` são bibliotecas 3.6 com oráculo 3.6.2, exceto os
-  arquivos listados em `corpus/diagnosticos/sintaxe-nova.json`, gravados
+  arquivos listados em `corpus/diagnosticos/new-syntax.json`, gravados
   pelo **3.13.4 sobre o mesmo pacote 3.6**. São os que usam sintaxe que o
   3.6.2 não conhece (atalhos de ponto, construtores primários, nomeados
   privados): o 3.6.2 responde com cascata de sintaxe, o 3.13.4 com
   `experiment_not_enabled` e segue analisando — o comportamento de uma
   ferramenta cuja versão corrente é a 3.13 (D2). A lista é escolhida pelo
-  próprio oráculo (`dartforge-parity sintaxe-nova`), não pelo nosso
+  próprio oráculo (`dartforge-parity new-syntax`), não pelo nosso
   parser, e o `oraculo` a respeita ao regravar. `augment` fica de fora: sem
   o experimento, os dois SDKs o tratam como identificador.
 * CI (`.github/workflows/pesado.yml`): a ação `.github/actions/dart` instala

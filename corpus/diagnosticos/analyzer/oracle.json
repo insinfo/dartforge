@@ -1,9 +1,9 @@
 {
   "sdk": "3.6.2",
   "hash": "59aef144876332bd",
-  "arquivos": 8253,
-  "diagnosticos": 10690,
-  "excluidos": [
+  "files": 8253,
+  "diagnostics": 10690,
+  "excluded": [
     "number_literals_with_separators/NumberLiteralsWithSeparators__missing_number_after_e_1.dart",
     "number_literals_with_separators/NumberLiteralsWithSeparators__missing_number_after_e_2.dart",
     "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_1.dart",

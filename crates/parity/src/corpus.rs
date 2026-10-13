@@ -2,9 +2,9 @@
 //!
 //! Each group is a Dart package (versioned `pubspec.yaml`; the
 //! `.dart_tool/package_config.json` is written by [`prepare`] and stays out of
-//! git) with a `grupo.json` that says which SDK is the oracle and which
+//! git) with a `group.json` that says which SDK is the oracle and which
 //! support packages (`corpus/diagnosticos/pacotes/<name>`) it sees. The
-//! expectation is **always** what the oracle recorded (`oraculo.jsonl`); the
+//! expectation is **always** what the oracle recorded (`oracle.jsonl`); the
 //! annotations in the sources the cases came from (`// [analyzer] ...`,
 //! `[diag.x]`) are from SDK `main` and only served as seeds.
 //!
@@ -23,17 +23,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// `grupo.json`.
+/// `group.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
     pub sdk: OracleSdk,
     /// Support packages in `corpus/diagnosticos/pacotes/`.
     #[serde(default)]
-    #[serde(rename = "pacotes")]
     pub packages: Vec<String>,
     /// Where the cases came from (free text, for the report).
     #[serde(default)]
-    #[serde(rename = "origem")]
     pub origin: String,
 }
 
@@ -47,7 +45,7 @@ pub fn groups(root: &Path) -> Vec<(String, Group)> {
     let mut v = Vec::new();
     let Ok(ents) = std::fs::read_dir(root) else { return v };
     for e in ents.flatten() {
-        let g = e.path().join("grupo.json");
+        let g = e.path().join("group.json");
         if let Ok(t) = std::fs::read_to_string(&g) {
             if let Ok(group) = serde_json::from_str::<Group>(&t) {
                 v.push((e.file_name().to_string_lossy().into_owned(), group));
@@ -145,7 +143,7 @@ fn write_group(dir: &Path, name: &str, g: &Group) -> std::io::Result<()> {
         dir.join("pubspec.yaml"),
         format!("name: {}\npublish_to: none\nenvironment:\n  sdk: {}\n", package_name(name), g.sdk.constraint()),
     )?;
-    std::fs::write(dir.join("grupo.json"), serde_json::to_string_pretty(g).expect("JSON") + "\n")
+    std::fs::write(dir.join("group.json"), serde_json::to_string_pretty(g).expect("JSON") + "\n")
 }
 
 /// `// @dart = 3.7` or later at the start of the file (before code)?

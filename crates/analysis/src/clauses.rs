@@ -1955,7 +1955,7 @@ mod tests {
     }
 
     /// The `class_used_as_mixin` cases of the corpus, with what analyzer 3.6.2
-    /// reports (`oraculo.jsonl`): a class with a written constructor gives
+    /// reports (`oracle.jsonl`): a class with a written constructor gives
     /// `mixin_class_declares_constructor`, which closes the gate.
     #[test]
     fn class_as_mixin_follows_the_oracle() {

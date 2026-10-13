@@ -4493,13 +4493,13 @@ Hoje o placar (`crates/parity`) compara **registros** (código, arquivo,
 offset, mensagem) contra um oráculo gravado. Falta comparar a **saída do
 comando**.
 
-1. Comando novo `dartforge-parity saida <dir-de-casos>`: cada caso é uma
+1. Comando novo `dartforge-parity output <dir-de-casos>`: cada caso é uma
    pasta com um projeto mínimo (`pubspec.yaml`, `.dart_tool/package_config.json`
    gravado, `analysis_options.yaml` opcional, fontes) e um arquivo
    `ESPERADO.<formato>.txt` por formato (`default`, `json`, `machine`), mais
    `ESPERADO.codigo` (o código de saída) e `ARGS` (os argumentos, um por linha,
    relativos à pasta).
-2. Gravação do oráculo: `dartforge-parity saida --write` roda
+2. Gravação do oráculo: `dartforge-parity output --write` roda
    `dart analyze` do 3.6.2 com `ANALYZER_STATE_LOCATION_OVERRIDE` numa pasta
    temporária de E:, com stdout **redirecionado para arquivo** (sem terminal: é
    o modo sem ANSI da §5.4), e normaliza só o que depende da máquina: o
@@ -4515,7 +4515,7 @@ comando**.
 SDK: contra o esperado gravado) e reprova qualquer diferença de byte.
 
 **Estado em 2026-10-05 (escrito, não compilado).** `crates/parity/src/saida.rs` e o subcomando
-`dartforge-parity saida [DIR] [--write]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
+`dartforge-parity output [DIR] [--write]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
 esperados; a comparação roda o `dartforge` ao lado do executável, normaliza o caminho do projeto para
 `<raiz>` e o separador de caminho dos dois lados (o CI é Windows e Linux), e relata a primeira linha
 diferente por caso e formato, mais o código de saída quando há `ESPERADO.codigo`. As sondas `s1`–`s7` foram

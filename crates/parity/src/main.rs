@@ -1,13 +1,13 @@
 //! `dartforge-parity`: diagnostic parity scoreboard against `dart analyze`.
 //!
 //! ```text
-//! dartforge-parity placar [--group G]... [--workers N] [--batch N] [--details]
-//! dartforge-parity determinismo [--workers 1,4,8] [--group G]...
-//! dartforge-parity oraculo [--group G]...          (re-records; needs dart)
-//! dartforge-parity sintaxe-nova [--group G]...     (3.13.4 on files with syntax 3.6.2 does not know)
-//! dartforge-parity gerar-corpus [--references DIR] [--pub-cache DIR]
-//! dartforge-parity projetos [--oracle] [--mutations N] [--rerecord] [--workers N] [--batch N]
-//! dartforge-parity saida [DIR] [--write]          (whole `analyze` output, three formats)
+//! dartforge-parity scoreboard [--group G]... [--workers N] [--batch N] [--details]
+//! dartforge-parity determinism [--workers 1,4,8] [--group G]...
+//! dartforge-parity oracle [--group G]...           (re-records; needs dart)
+//! dartforge-parity new-syntax [--group G]...       (3.13.4 on files with syntax 3.6.2 does not know)
+//! dartforge-parity generate-corpus [--references DIR] [--pub-cache DIR]
+//! dartforge-parity projects [--oracle] [--mutations N] [--rerecord] [--workers N] [--batch N]
+//! dartforge-parity output [DIR] [--write]          (whole `analyze` output, three formats)
 //! ```
 //!
 //! Exit code: 0 complete report; 1 oracle missing/out of date or
@@ -47,7 +47,7 @@ fn execution(workers: usize, batch_size: usize) -> Execution {
     }
 }
 
-/// `_lote <root> <packages|->`, files on standard input (internal use).
+/// `_batch <root> <packages|->`, files on standard input (internal use).
 fn child_batch(args: &[String]) -> ExitCode {
     let (Some(root), Some(pk)) = (args.first(), args.get(1)) else { return ExitCode::from(2) };
     let mut input = String::new();
@@ -128,12 +128,12 @@ fn read_args() -> Option<Args> {
 
 fn main() -> ExitCode {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    if raw.first().is_some_and(|c| c == "_lote") {
+    if raw.first().is_some_and(|c| c == "_batch") {
         dartforge_parity::silence_panics();
         return child_batch(&raw[1..]);
     }
-    // `exit_detector [DIR] [--write]`: the project parity harness (III.1).
-    if raw.first().is_some_and(|c| c == "saida") {
+    // `output [DIR] [--write]`: the project parity harness (III.1).
+    if raw.first().is_some_and(|c| c == "output") {
         let write = raw.iter().any(|x| x == "--write");
         let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::corpus_root().join("saida-analyze"));
         let ok = if write { dartforge_parity::output::record(&dir) } else { dartforge_parity::output::compare(&dir) };
@@ -142,15 +142,15 @@ fn main() -> ExitCode {
     let Some(a) = read_args() else { return usage() };
     dartforge_parity::silence_panics();
     match a.cmd.as_str() {
-        "placar" => {
+        "scoreboard" => {
             let (text, ok) = scoreboard(&a, a.workers.first().copied().unwrap_or(4));
             print!("{text}");
             if ok { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
-        "determinismo" => determinism(&a),
-        "oraculo" => rerecord_oracle(&a),
-        "sintaxe-nova" => classify_new_syntax(&a),
-        "gerar-corpus" => match corpus::generate(&a.references, &a.corpus, &a.pub_cache) {
+        "determinism" => determinism(&a),
+        "oracle" => rerecord_oracle(&a),
+        "new-syntax" => classify_new_syntax(&a),
+        "generate-corpus" => match corpus::generate(&a.references, &a.corpus, &a.pub_cache) {
             Ok(r) => {
                 print!("{r}");
                 ExitCode::SUCCESS
@@ -160,8 +160,8 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        "projetos" => cmd_projects(&a),
-        "encurtar" => {
+        "projects" => cmd_projects(&a),
+        "shorten" => {
             for (name, _) in chosen_groups(&a) {
                 match corpus::shorten(&a.corpus.join(&name)) {
                     Ok(n) => println!("{name}: {n} files renamed"),
@@ -202,7 +202,7 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
         let (oracle, meta) = match oracle::read(&dir) {
             Ok(x) => x,
             Err(e) => {
-                let _ = writeln!(body, "group {name}: NO RECORDED ORACLE ({e}) — run `dartforge-parity oraculo --group {name}`");
+                let _ = writeln!(body, "group {name}: NO RECORDED ORACLE ({e}) — run `dartforge-parity oracle --group {name}`");
                 ok = false;
                 continue;
             }
@@ -277,10 +277,10 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
     let t = total.total();
     let pct = if t.oracle > 0 { 100.0 * t.hits as f64 / t.oracle as f64 } else { 0.0 };
     let mut s = String::new();
-    // The `placar paridade: ` prefix is matched by CI (`pesado.yml`).
+    // The `parity scoreboard: ` prefix is matched by CI (`pesado.yml`).
     let _ = writeln!(
         s,
-        "placar paridade: {}/{} oracle diagnostics at the exact position ({pct:.1}%), {} with the same message; FP {}, FN {}, wrong position {}",
+        "parity scoreboard: {}/{} oracle diagnostics at the exact position ({pct:.1}%), {} with the same message; FP {}, FN {}, wrong position {}",
         t.hits,
         t.oracle,
         t.hits - t.wrong_message,
@@ -340,13 +340,13 @@ fn determinism(a: &Args) -> ExitCode {
         eprintln!("  {:.1} s", t.elapsed().as_secs_f64());
     }
     let same = texts.windows(2).all(|w| w[0] == w[1]);
-    // The `determinismo: ` prefix is matched by CI (`pesado.yml`).
+    // The `determinism: ` prefix is matched by CI (`pesado.yml`).
     if same {
-        println!("determinismo: identical with {ns:?} workers");
+        println!("determinism: identical with {ns:?} workers");
         print!("{}", texts[0]);
         ExitCode::SUCCESS
     } else {
-        println!("determinismo: DIVERGENT between {ns:?} workers");
+        println!("determinism: DIVERGENT between {ns:?} workers");
         for (i, t) in texts.iter().enumerate() {
             println!("--- {} workers\n{t}", ns[i]);
         }
@@ -355,7 +355,7 @@ fn determinism(a: &Args) -> ExitCode {
 }
 
 fn oracle_cache() -> PathBuf {
-    let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/paridade-cache-dart");
+    let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/parity-cache-dart");
     let _ = std::fs::create_dir_all(&d);
     d
 }
@@ -460,10 +460,10 @@ fn replace_files(regs: &mut Vec<Record>, new: Vec<Record>, list: &[String]) {
     regs.extend(new.into_iter().filter(|r| list.contains(r.file.as_str())));
 }
 
-/// `sintaxe-nova`: runs 3.13.4 over each 3.6.2 group, picks the files where
+/// `new-syntax`: runs 3.13.4 over each 3.6.2 group, picks the files where
 /// it flags a feature 3.6.2 does not know ([`oracle::uses_new_syntax`]),
-/// writes the list to `sintaxe-nova.json` and replaces only those files'
-/// records in the group's `oraculo.jsonl`. The hash and the other metadata of
+/// writes the list to `new-syntax.json` and replaces only those files'
+/// records in the group's `oracle.jsonl`. The hash and the other metadata of
 /// the group stay as they are.
 fn classify_new_syntax(a: &Args) -> ExitCode {
     let mut list = oracle::read_new_syntax(&a.corpus);
@@ -552,7 +552,7 @@ fn classify_new_syntax(a: &Args) -> ExitCode {
         }
     }
     if let Err(e) = oracle::write_new_syntax(&a.corpus, &list) {
-        eprintln!("sintaxe-nova.json: {e}");
+        eprintln!("new-syntax.json: {e}");
         failed = true;
     }
     if failed { ExitCode::from(1) } else { ExitCode::SUCCESS }
@@ -637,7 +637,7 @@ fn slices(dir: &Path, max: usize) -> Vec<Vec<PathBuf>> {
     out
 }
 fn read_projects(corpus: &Path) -> Vec<(Project, Vec<Record>)> {
-    let path = corpus.join("projetos.json");
+    let path = corpus.join("projects.json");
     match std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
         Some(v) => v,
         None => projects::default_projects().into_iter().map(|p| (p, Vec::new())).collect(),
@@ -725,8 +725,8 @@ samples:
     }
     if a.oracle {
         let text = serde_json::to_string_pretty(&registry).expect("JSON") + "\n";
-        if let Err(e) = std::fs::write(a.corpus.join("projetos.json"), text) {
-            eprintln!("projetos.json: {e}");
+        if let Err(e) = std::fs::write(a.corpus.join("projects.json"), text) {
+            eprintln!("projects.json: {e}");
         }
     }
     if a.mutations > 0 || a.rerecord {
@@ -738,11 +738,11 @@ samples:
 }
 
 fn mutations(a: &Args, engine: &Engine, list: &[Project]) -> String {
-    let file = a.corpus.join("mutacoes.jsonl");
+    let file = a.corpus.join("mutations.jsonl");
     let mut recorded: Vec<Mutation> = std::fs::read_to_string(&file)
         .map(|t| t.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
         .unwrap_or_default();
-    let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/scratch-paridade/projetos");
+    let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/scratch-parity/projects");
     let mut s = String::new();
     let mut scoreboard = Scoreboard::default();
     let mut stale = 0;

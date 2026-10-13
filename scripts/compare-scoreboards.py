@@ -1,39 +1,39 @@
-"""Compara duas saídas de `dartforge-parity placar --details` código a código.
+"""Compares two outputs of `dartforge-parity scoreboard --details` code by code.
 
-Uso: python scripts/compare-scoreboards.py <placar-a> <placar-b>
-Imprime os códigos cujo acerto, FP ou FN mudou de A para B, piores primeiro.
+Usage: python scripts/compare-scoreboards.py <scoreboard-a> <scoreboard-b>
+Prints the codes whose hits, FP or FN changed from A to B, worst first.
 """
 import re
 import sys
 
 
-def tabela(caminho):
-    linhas = {}
-    dentro = False
-    for l in open(caminho, encoding='utf-8'):
-        if l.startswith('código '):
-            dentro = True
+def table(path):
+    rows = {}
+    inside = False
+    for l in open(path, encoding='utf-8'):
+        if l.startswith('code '):
+            inside = True
             continue
-        if not dentro:
+        if not inside:
             continue
         m = re.match(r'^(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)', l)
         if not m:
             if l.strip() == '':
-                dentro = False
+                inside = False
             continue
-        cod, oraculo, nosso, acerto, msg, pos, fp, fn = m.groups()
-        linhas[cod] = (int(acerto), int(fp), int(fn), int(pos))
-    return linhas
+        code, oracle, ours, hit, msg, pos, fp, fn = m.groups()
+        rows[code] = (int(hit), int(fp), int(fn), int(pos))
+    return rows
 
 
-a, b = tabela(sys.argv[1]), tabela(sys.argv[2])
-mudancas = []
-for cod in sorted(set(a) | set(b)):
-    va, vb = a.get(cod, (0, 0, 0, 0)), b.get(cod, (0, 0, 0, 0))
+a, b = table(sys.argv[1]), table(sys.argv[2])
+changes = []
+for code in sorted(set(a) | set(b)):
+    va, vb = a.get(code, (0, 0, 0, 0)), b.get(code, (0, 0, 0, 0))
     if va != vb:
-        # Piora: menos acertos ou mais FP.
-        peso = (vb[0] - va[0]) - (vb[1] - va[1])
-        mudancas.append((peso, cod, va, vb))
-mudancas.sort()
-for peso, cod, va, vb in mudancas:
-    print(f'{cod:55} acerto {va[0]:5}->{vb[0]:5}  FP {va[1]:4}->{vb[1]:4}  FN {va[2]:4}->{vb[2]:4}  pos {va[3]:3}->{vb[3]:3}')
+        # Worse: fewer hits or more FP.
+        weight = (vb[0] - va[0]) - (vb[1] - va[1])
+        changes.append((weight, code, va, vb))
+changes.sort()
+for weight, code, va, vb in changes:
+    print(f'{code:55} hit {va[0]:5}->{vb[0]:5}  FP {va[1]:4}->{vb[1]:4}  FN {va[2]:4}->{vb[2]:4}  pos {va[3]:3}->{vb[3]:3}')

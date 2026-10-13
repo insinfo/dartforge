@@ -340,7 +340,7 @@ pub struct Execution {
     pub workers: usize,
     pub batch_size: usize,
     pub progress: bool,
-    /// `Some(exe)`: each batch in a child process (`exe _lote ...`), so that
+    /// `Some(exe)`: each batch in a child process (`exe _batch ...`), so that
     /// a stack overflow, out-of-memory or infinite loop in one analysis does
     /// not take the scoreboard down. `None`: on the same thread (only panics
     /// are contained).
@@ -470,7 +470,7 @@ fn isolated_batch(
     (regs, panics, amb)
 }
 
-/// The executable with the `_lote` subcommand, the files on standard input.
+/// The executable with the `_batch` subcommand, the files on standard input.
 /// `None` if the child does not finish successfully within the time limit.
 fn child(
     exe: &Path,
@@ -483,7 +483,7 @@ fn child(
     use std::process::{Command, Stdio};
     let pk = packages.map(|p| p.as_os_str().to_owned()).unwrap_or_else(|| "-".into());
     let mut c = Command::new(exe)
-        .arg("_lote")
+        .arg("_batch")
         .arg(root)
         .arg(pk)
         .stdin(Stdio::piped())

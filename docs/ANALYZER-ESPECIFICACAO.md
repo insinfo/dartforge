@@ -70,7 +70,7 @@ F (`undefined_class` em `augment mixin/extension`), A (membros resolvidos).
 
 ### T2. Qual oráculo julga cada arquivo (3.6.2 × 3.13.4)
 
-Os arquivos de sintaxe nova são julgados pelo 3.13.4 (`corpus/diagnosticos/sintaxe-nova.json`
+Os arquivos de sintaxe nova são julgados pelo 3.13.4 (`corpus/diagnosticos/new-syntax.json`
 e a regra do parser em §E: versão da biblioteca > 3.6, ou uso de
 dot-shorthands/primary-constructors/private-named-parameters). Códigos e
 mensagens mudaram entre as versões: `unused_element_parameter` (3.13) ×
@@ -781,7 +781,7 @@ O `assert(…)` como expressão é `FunctionExpressionInvocation` e o avaliador 
 - **No DartForge:** existe (66). FN `static_extension_internal_basename_shadowing:402-410`: campo `final` estático de **extensão** atribuído por nome implícito dentro de membro da extensão. **Mudança:** procurar os campos estáticos da extensão envolvente no lookup de escrita.
 
 ##### `assignment_to_primary_constructor_parameter` (perda 40: FN 40; feito, 40/40)
-- **Não existe no analyzer 3.6.2** (ausente de `analyzer/messages.yaml` e de `codes.g.dart` da 3.6.2). Todos os casos vêm de arquivos com **construtores primários** (sintaxe nova, `primary_constructors/*`, `AssignmentToPrimaryConstructorParameter_*`), classificados em `corpus/diagnosticos/sintaxe-nova.json` e julgados pelo oráculo 3.13.4.
+- **Não existe no analyzer 3.6.2** (ausente de `analyzer/messages.yaml` e de `codes.g.dart` da 3.6.2). Todos os casos vêm de arquivos com **construtores primários** (sintaxe nova, `primary_constructors/*`, `AssignmentToPrimaryConstructorParameter_*`), classificados em `corpus/diagnosticos/new-syntax.json` e julgados pelo oráculo 3.13.4.
 - **Mensagem (3.13):** `A primary constructor parameter can't be assigned to in an initializer.` — o parâmetro de construtor primário (declarado no cabeçalho `class C(int x)`) atribuído (`x = …`, `x++`, `x += …`) dentro de inicializador de campo/inicializador do construtor.
 - **Posição (pelo oráculo):** o identificador atribuído (ou a expressão de atribuição; `2:27`, `65:6`/`65:11` = duas atribuições na mesma linha).
 - **Emissor (checkout main, `pkg/analyzer/lib/src/generated/error_verifier.dart:3302-3327`):** `_checkForAssignmentToPrimaryConstructorParameter(node, element)`: o elemento escrito (o `writeElement` da atribuição, do `++`/`--` e do `??=`, ou o do `AssignedVariablePattern`) é um `FormalParameterElement` cujo dono é o construtor primário, e `_thisContext` é `constructorInitializers` ou `instanceFieldDeclaration`. O contexto não muda ao entrar numa função dentro do inicializador (`var f = () { x = 0; };` e `this : f = (() { x = 0; })` relatam). O corpo `this { x = 0; }` não relata; o campo `late` não vê o parâmetro (`undefined_identifier`). Chamadas: `visitAssignedVariablePattern` (`:443-446`), `visitAssignmentExpression` (`:456-457`), atribuição composta e `??=` (`:725-735`, `:948-956`, `:1598-1608`) e `++`/`--` (`:1712-1719`).
@@ -5450,7 +5450,7 @@ relatos iguais do analyzer contam um.
   enum não-augmentation sem constantes próprias (e sem augmentations reais com constantes) relata.
 - **Posição:** o token do nome do enum (`node.name`), comprimento do nome.
 - **Mensagem:** 3.6.2: "The enum must have at least one constant." (correção "Try declaring a
-  constant."), sem argumentos. **Oráculo 3.13.4** (arquivos de `sintaxe-nova.json`): "The enum must have
+  constant."), sem argumentos. **Oráculo 3.13.4** (arquivos de `new-syntax.json`): "The enum must have
   at least one enum constant." / "Try declaring an enum constant." (7 casos no corpus).
 - **Supressões e ordem:** nenhuma específica; sai mesmo com erro de sintaxe no arquivo (todos os 55
   casos têm `expected_token`/`missing_const_final_var_or_type` na linha do `augment`). Sai junto de
@@ -6233,7 +6233,7 @@ Grupo: 22 códigos, perda somada 292. Citações do fonte 3.6.2: `analyzer/lib/s
 (em `E:\references\dart-sdk-3.6.2\pkg`). Abreviações: **EV** = `analyzer/lib/src/generated/error_verifier.dart`;
 **CFV** = `analyzer/lib/src/error/constructor_fields_verifier.dart`; **ER** = `analyzer/lib/src/generated/element_resolver.dart`.
 
-Rótulos das amostras (script de classificação): **NOVA** = arquivo em `sintaxe-nova.json` (oráculo 3.13.4);
+Rótulos das amostras (script de classificação): **NOVA** = arquivo em `new-syntax.json` (oráculo 3.13.4);
 **AUG** = arquivo com `augment class/enum/extension type` **sem** o experimento — no 3.6.2 o `augment` vira
 identificador: no topo, `augment` é uma variável sem `;` (`expected_token` + `missing_const_final_var_or_type`
 ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`duplicate_definition`); no corpo,
@@ -6726,7 +6726,7 @@ registrar/implementar.
 
 Fonte: `E:\references\dart-sdk-3.6.2\pkg` (citado como `analyzer/lib/...:linha`,
 `_fe_analyzer_shared/lib/...:linha`). Amostras: `placar-base-r3.txt`. "SN" = arquivo listado em
-`corpus/diagnosticos/sintaxe-nova.json` (oráculo **3.13.4**, não 3.6.2).
+`corpus/diagnosticos/new-syntax.json` (oráculo **3.13.4**, não 3.6.2).
 
 **Estado em 2026-10-05 (escrito, não compilado).** Em `crates/types/src/inferencia/funcoes.rs`:
 - `alvo_de_factory_redirecionadora` foi reescrita sobre `resolver_alvo_escrito`, que resolve o nome do
@@ -7165,7 +7165,7 @@ percorre classes.
 Grupo: 33 códigos, perda total **153** (todos FN: hoje o DartForge não emite nenhum `FfiCode`; os
 códigos já existem na tabela, `crates/diagnostics/src/codigos_g.rs:2828-2878`, `c::ffi::*`, mas
 ninguém os usa). Todos os casos estão no grupo `analyzer` do corpus (oráculo 3.6.2); nenhum arquivo
-FFI está em `sintaxe-nova.json`.
+FFI está em `new-syntax.json`.
 
 #### Visão geral (vale para todos os códigos)
 
@@ -8423,12 +8423,12 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   — o 3.13 não relata `dot_shorthand_undefined_member` quando o lado esquerdo do `==` é uma
   sobreposição de extensão (o contexto não é tipo de interface utilizável); nós resolvemos o shorthand
   contra `int`. Descrever pelo corpus: ver os `// [analyzer]` do arquivo.
-- **Diagnóstico de 2026-10-07:** o arquivo não está no `sintaxe-nova.json` (o 3.13.4 não o classificou, embora
+- **Diagnóstico de 2026-10-07:** o arquivo não está no `new-syntax.json` (o 3.13.4 não o classificou, embora
   o nosso parser o marque: é o "só nosso 1" da linha de referência 3.13.4 de `linguagem`), então o oráculo é o
   3.6.2, que recupera `.member` como acesso a um identificador sintético (`MISSING_IDENTIFIER` no `.`, e
   `.new()` como `UNDEFINED_METHOD` em `'<unknown>'`). Nas outras unidades a regra `super == .member` do 3.13.4
   é atalho; a diferença está no oráculo, não numa regra do analyzer. Fica pendente regravar o oráculo desse
-  arquivo com o 3.13.4 (`dartforge-parity sintaxe-nova`).
+  arquivo com o 3.13.4 (`dartforge-parity new-syntax`).
 
 ### Rodada 4 — família C
 
@@ -15817,7 +15817,7 @@ Base r3: placar 18535/23030.
 
 **T1 — Qual analyzer é o oráculo de um arquivo.** O oráculo é o 3.13.4 quando (a) a biblioteca tem
 versão de linguagem > 3.6 (grupo `*-3.13`, marcador `@dart` novo) ou (b) a unidade usa sintaxe que o
-3.6.2 não conhece (`corpus/diagnosticos/sintaxe-nova.json`); senão é o 3.6.2. O parser consegue
+3.6.2 não conhece (`corpus/diagnosticos/new-syntax.json`); senão é o 3.6.2. O parser consegue
 decidir isso sozinho no fim da unidade: (a) é `features.versao() > PISO`; (b) é "há algum
 `experiment_not_enabled` com recurso em {dot-shorthands, primary-constructors,
 private-named-parameters}" (a mesma lista de `analise::duplicatas::RECURSOS_POSTERIORES_AO_3_6`).
@@ -17866,7 +17866,7 @@ identificador e a declaração é lida como campo `augment` + a declaração seg
     tabela "recurso anterior ao piso → versão" consultada só quando `features.versao()` é menor que
     ela, com os tokens da tabela do AstBuilder.
   - **FP 8** `dot_shorthands/equality/equality_extension_override_error_test` (oráculo 3.6.2, o
-    arquivo não está em `sintaxe-nova.json`): `e == .a` — relatamos `dot-shorthands` no `.`
+    arquivo não está em `new-syntax.json`): `e == .a` — relatamos `dot-shorthands` no `.`
     (`expressions.rs:1323`); o 3.6.2 dá `MISSING_IDENTIFIER` no `.` (E.2.5).
   - Julgados pelo 3.13.4 (fora da fonte 3.6.2; não verificado aqui): `dot-shorthands` FN 39,
     `primary-constructors` FN 40 + pos 1 + FP 4 (`constructor/unnamed_new_error_test`),
@@ -18368,7 +18368,7 @@ Correções ao texto existente da família E (§E, r3-e), detalhadas nos código
 - `representation_field_modifier`: a mensagem do 3.13.4 **não** tem argumento ("arg = lexema" está
   errado): o texto é fixo, `…can't have the modifier 'var'.`, até quando o token é `final`.
 - `expected_class_member`: `unnamed_new_error_test` é julgado pelo **3.13.4** (está em
-  `sintaxe-nova.json`), não pelo 3.6.2; e `int new = 1;` não é "construtor nomeado `new`": é um campo
+  `new-syntax.json`), não pelo 3.6.2; e `int new = 1;` não é "construtor nomeado `new`": é um campo
   com nome reservado (`expected_identifier_but_got_keyword`), nas duas versões.
 - `expected_body`: os dois FN de `test_runner/impl/*part*.dart` não são do parser: o arquivo é uma
   parte cuja biblioteca não está no corpus e nunca é carregada (`crates/parity/src/analise.rs:192`).
@@ -21210,7 +21210,7 @@ bloco **inteiro**, também antes da declaração: em `a.Future? x = null; int a 
 
 ##### `unused_field_from_primary_constructor` (perda 39: FN 39, FP 0, msg 0, pos 0; feito, 30/39)
 
-Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibliotecas em `sintaxe-nova.json`).
+Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibliotecas em `new-syntax.json`).
 
 - **Emissão [3.13]:** `UnusedLocalElementsVerifier.visitPrimaryConstructorDeclaration` (`analyzer/lib/src/error/unused_local_elements_verifier.dart:1022-1057`), em `_computeWarnings` (`library_analyzer.dart:572`), sem portão de sintaxe.
 - **Condição [3.13]:**
@@ -27389,7 +27389,7 @@ escritos", **não existem no disco** — eram do trabalho revertido; `grep` em
 `E:\dftemp\analise\wip-2026-10-02.patch` também não acha os dois nomes. No disco só há `exigir` e
 `exigir_no_ast`. (b) `const_constructor_with_non_const_super` não mudou de **texto** (o molde é
 idêntico nas duas versões); mudou o **argumento** (classe do construtor → superclasse). (c) O
-DartForge **não lê** `sintaxe-nova.json` na análise: o marcador de hoje é derivado dos diagnósticos
+DartForge **não lê** `new-syntax.json` na análise: o marcador de hoje é derivado dos diagnósticos
 do nosso próprio parser. (d) `ambiguous_import` mudou no main (3.14), **não** no 3.13.4.
 
 ##### 1. Comportamento oficial preciso
@@ -27407,10 +27407,10 @@ oraculo(arquivo, grupo):
   senão                                                   -> 3.6.2, linguagem do pacote 3.6
 ```
 
-- `corpus/diagnosticos/sintaxe-nova.json`: objeto `{ "<grupo>": ["<caminho relativo ao grupo>", …] }`,
+- `corpus/diagnosticos/new-syntax.json`: objeto `{ "<grupo>": ["<caminho relativo ao grupo>", …] }`,
   duas chaves: `analyzer` (498 arquivos) e `linguagem` (68) — 566 no total. Gravado por
   `oraculo::gravar_sintaxe_nova` (`crates/parity/src/oraculo.rs:276`), lido por `ler_sintaxe_nova` (`:268`).
-- Grupos `*-3.13` (`grupo.json` com `"sdk": "3.13.4"`): `analyzer-3.13` tem 2 arquivos
+- Grupos `*-3.13` (`group.json` com `"sdk": "3.13.4"`): `analyzer-3.13` tem 2 arquivos
   (`invalid_language_override/InvalidLanguageOverride__correct_11_12.dart`, `…correct_3_190.dart`),
   `linguagem-3.13` tem 5 (`extension_type/regress_53625_error_test.dart`, `final/param_test.dart`,
   `nnbd/syntax/required_modifier_error_test.dart`, `primary_constructors/feature_disabled_error_test.dart`,
@@ -27845,7 +27845,7 @@ implementar, não escolha de texto): `assignment_to_primary_constructor_paramete
   parser. Onde os dois discordam, o arquivo é julgado por um e nós respondemos como o outro
   (§E: `dot_shorthands/equality/equality_extension_override_error_test.dart` não está na lista e nós
   relatamos o recurso — 8 FP). O passo 9 torna a discordância visível; ela é erro do parser (§E) ou
-  do corpus, nunca motivo para ler `sintaxe-nova.json` no motor (o LSP não tem a lista).
+  do corpus, nunca motivo para ler `new-syntax.json` no motor (o LSP não tem a lista).
 - **Biblioteca com várias unidades**: a regra é por arquivo no corpus e por biblioteca no 3.13.4
   real; unidade A só com null-aware e unidade B com atalho de ponto dão `3.6.0` em A pelo corpus e
   `3.8.0` pelo 3.13.4 real. Não há caso assim no corpus (não verificado por varredura); ficar com a
