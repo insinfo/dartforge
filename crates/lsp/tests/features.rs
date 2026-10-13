@@ -279,3 +279,23 @@ fn call_hierarchy() {
         assert!(names.contains(&expected), "{names:?}");
     }
 }
+
+#[test]
+fn implementation_follows_the_index_relations() {
+    // `appendAllSubtypes` walks the index: a mixin written through a `typedef`
+    // is recorded on the alias (no subtype), a class alias is a subtype.
+    let mut p = Project::new("implementacao-indice");
+    let text = "mixin class M {\n  void m() {}\n}\ntypedef MA = M;\nclass ViaAlias with MA {\n  @override\n  void m() {}\n}\nclass Direct with M {\n  @override\n  void m() {}\n}\nclass Named = Object with M;\n";
+    p.open("lib/i.dart", text);
+    let lines = |r: &Value| {
+        let mut v: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
+        v.sort();
+        v
+    };
+    let (l, c) = location(text, "M {", 0, 0);
+    let r = p.in_position("textDocument/implementation", "lib/i.dart", l, c, json!({}))["result"].clone();
+    assert_eq!(lines(&r), vec![8, 12], "Direct and Named, not ViaAlias: {r}");
+    let (l, c) = location(text, "m() {}", 0, 0);
+    let r = p.in_position("textDocument/implementation", "lib/i.dart", l, c, json!({}))["result"].clone();
+    assert_eq!(lines(&r), vec![10], "only Direct's override: {r}");
+}

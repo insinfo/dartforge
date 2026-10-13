@@ -536,3 +536,28 @@ fn uri_with_different_case_than_disk() {
     let r = p.request("textDocument/hover", json!({"textDocument": {"uri": uri}, "position": {"line": l, "character": c + 1}}));
     assert!(r["result"]["contents"].to_string().contains("int get length"), "{r}");
 }
+
+#[test]
+fn references_follow_the_searched_elements() {
+    let mut p = Project::new("nav-ref-elementos");
+    // `d.toString()` on `dynamic` resolves to `Object.toString`
+    // (`_resolveReceiverDynamicBounded`), so it is a reference of the family.
+    let a = "class S {\n  @override\n  String toString() => 's';\n}\nvoid f(dynamic d) {\n  d.toString();\n  d.toString(1);\n  print(d.hashCode);\n}\n";
+    p.open("lib/a.dart", a);
+    let refs = references(&mut p, "lib/a.dart", a, "toString() =>", 0, false);
+    assert!(refs.contains(&("lib/a.dart".to_string(), 5, 4)), "{refs:?}");
+    // Not with arguments that do not match `Object.toString()`.
+    assert!(!refs.contains(&("lib/a.dart".to_string(), 6, 4)), "{refs:?}");
+    // The `[x]` of a constructor with `this.x` cites the parameter, and the
+    // `super.x` that points to it is a reference of the parameter: both count
+    // for the field itself, not for an override in a subclass.
+    let b = "class P {\n  final int x;\n  /// Takes [x].\n  P(this.x);\n}\nclass R extends P {\n  R(super.x);\n  @override\n  int get x => 1;\n}\n";
+    p.open("lib/b.dart", b);
+    let doc = ("lib/b.dart".to_string(), 2, 13);
+    let sup = ("lib/b.dart".to_string(), 6, 10);
+    let refs = references(&mut p, "lib/b.dart", b, "x;", 0, false);
+    assert!(refs.contains(&doc) && refs.contains(&sup), "{refs:?}");
+    let refs = references(&mut p, "lib/b.dart", b, "x => 1", 0, false);
+    assert!(!refs.contains(&doc) && !refs.contains(&sup), "{refs:?}");
+    assert!(refs.contains(&("lib/b.dart".to_string(), 3, 9)), "the `this.x` writes the family's field: {refs:?}");
+}

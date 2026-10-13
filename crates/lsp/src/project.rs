@@ -62,7 +62,13 @@ pub(crate) struct Project {
     /// ([`Project::unit_occurrences`]), with the stamp (text size and number of
     /// expressions) it came from.
     pub(crate) occurrences_by_unit: std::sync::Mutex<std::collections::HashMap<UnitId, StampedOccurrences>>,
+    /// [`Project::written_subtypes`], computed once and forgotten whenever a
+    /// unit's text changes ([`Project::forget_unit`]).
+    pub(crate) written_subtypes: std::sync::Mutex<Option<std::sync::Arc<WrittenSubtypes>>>,
 }
+
+/// The direct subtypes of each class through the index relations.
+pub(crate) type WrittenSubtypes = std::collections::HashMap<ClassId, Vec<ClassId>>;
 
 /// The comments of a unit with the size of the text they came from.
 pub(crate) type ReadComments = (usize, std::sync::Arc<Vec<dartdoc::Comment>>);
@@ -418,6 +424,7 @@ fn load_project_with(
         reverse_index: Default::default(),
         comments: Default::default(),
         occurrences_by_unit: Default::default(),
+        written_subtypes: Default::default(),
     })
 }
 
@@ -441,6 +448,7 @@ pub(crate) fn load_library(
         reverse_index: Default::default(),
         comments: Default::default(),
         occurrences_by_unit: Default::default(),
+        written_subtypes: Default::default(),
     })
 }
 
@@ -628,6 +636,12 @@ impl Project {
             // `A.name(…)` and `A(…)` without `new`: the constructor resolution is on
             // the call, not on its target.
             let constructor = call_constructor(ast, bodies, id);
+            if matches!(bodies.get_resolved(id), None | Some(Resolved::Dynamic))
+                && constructor.is_none()
+                && let Some(f) = self.object_member_on_dynamic(unit, id, Self::call_arguments(ast, id))
+            {
+                return denoted(self.function_member(f), Some(id), Some(self.function_concrete(f)));
+            }
             let resolved = match (bodies.get_resolved(id), constructor) {
                 (None, Some(f)) => Some(Resolved::Constructor(f)),
                 (Some(Resolved::Element(Element::Class(c))), Some(f)) => {
@@ -862,6 +876,45 @@ impl Project {
             return denoted(target_, None, concrete);
         }
         Ok(None)
+    }
+
+    /// `Object`'s member that the name of the access `id` denotes when its
+    /// target is `dynamic` (`MethodInvocationResolver._resolveReceiverDynamicBounded`
+    /// and `TypePropertyResolver` on a dynamic receiver): an invoked method of
+    /// `Object` whose positional arguments match its parameters
+    /// (`_hasMatchingObjectMethod`: `toString()`, `noSuchMethod(i)`), or, without
+    /// a call, a getter or a method tear-off of `Object`. `InvalidType` targets
+    /// resolve to nothing.
+    pub(crate) fn object_member_on_dynamic(&self, unit: UnitId, id: ast::ExprId, call: Option<&ast::Arguments>) -> Option<FunctionElementId> {
+        let ast = &self.program().unit(unit).ast;
+        let ExprKind::Property { target, name, .. } = &ast.expr(id).kind else { return None };
+        let bodies = &self.query.bodies.units[unit.0 as usize];
+        let t = *bodies.static_types.get(target.0 as usize)?;
+        if !matches!(self.query.table.get(t), dartforge_types::Type::Dynamic) || self.query.table.is_invalid(t) {
+            return None;
+        }
+        let object = self.program().class(self.query.core.object_class?);
+        let f = *object.instance_members.get(&name.sym)?;
+        let kind = self.program().function(f).kind;
+        match call {
+            Some(arguments) => {
+                let parameters = match self.name(name.sym) {
+                    "toString" => 0,
+                    "noSuchMethod" => 1,
+                    _ => return None,
+                };
+                (kind == FunctionKind::Function && arguments.args.len() == parameters && arguments.args.iter().all(|a| a.name.is_none())).then_some(f)
+            }
+            None => matches!(kind, FunctionKind::Function | FunctionKind::Getter).then_some(f),
+        }
+    }
+
+    /// The arguments of the call whose target is `id`, if any.
+    fn call_arguments(ast: &Ast, id: ast::ExprId) -> Option<&ast::Arguments> {
+        ast.exprs.iter().find_map(|e| match &e.kind {
+            ExprKind::Call { target, arguments } if *target == id => Some(&**arguments),
+            _ => None,
+        })
     }
 
     /// Local at offset `declaration`; a `this.x` parameter becomes field `x`.
@@ -1792,6 +1845,23 @@ impl Project {
         refuse_external: bool,
         filter: Option<&HashSet<UnitId>>,
     ) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
+        self.occurrences_with(target, refuse_external, filter, false)
+    }
+
+    /// [`Project::occurrences`] as the member rename sees them
+    /// (`RenameClassMemberRefactoringImpl.fillChange`): the references of the
+    /// `this.x` parameters of every renamed field, not only of the pivot's.
+    pub(crate) fn rename_occurrences(&self, target: &Target) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
+        self.occurrences_with(target, false, None, true)
+    }
+
+    fn occurrences_with(
+        &self,
+        target: &Target,
+        refuse_external: bool,
+        filter: Option<&HashSet<UnitId>>,
+        family_parameters: bool,
+    ) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
         let mut output = BTreeSet::new();
         let mut by = |u: UnitId, s: Span| {
             output.insert((u, s.start, s.end));
@@ -1810,7 +1880,7 @@ impl Project {
                 owner,
                 name,
                 is_static,
-            } => self.member_occurrences(*owner, name, *is_static, refuse_external, filter, &mut by)?,
+            } => self.member_occurrences(*owner, name, *is_static, refuse_external, family_parameters, filter, &mut by)?,
             Target::Constructor(f) => self.constructor_occurrences(*f, filter, &mut by),
             Target::Prefix { library, name } => {
                 self.prefix_occurrences(*library, *name, &mut by)
@@ -1820,8 +1890,20 @@ impl Project {
                 declaration,
             } => self.type_parameter_occurrences(*unit, *declaration, &mut by),
         }
-        // Documentation references.
-        for (u, s) in self.documentation_references(target, filter, |a| self.same_target(a, target), true) {
+        // Documentation references: what the reference resolves to must be one
+        // of the elements searched (`_getRefElements`), so a member of a class the
+        // index does not see as a subtype (`with MapMixin`) stays out even when
+        // its own family reaches the target.
+        let family = match target {
+            Target::Member { owner, name, is_static } => self.family(*owner, name, *is_static, false).ok(),
+            _ => None,
+        };
+        let matches_ = |a: &Target, concrete: Option<Concrete>| match (&family, concrete) {
+            (Some(f), Some(Concrete::Function(x))) => f.functions.contains(&x),
+            (Some(f), Some(Concrete::Variable(x))) => f.variables.contains(&x),
+            _ => self.same_target(a, target),
+        };
+        for (u, s) in self.documentation_references(target, filter, matches_, true) {
             by(u, s);
         }
         Ok(output)
@@ -1986,7 +2068,7 @@ impl Project {
 
     /// The documentation `[ref]`s that resolve to `target`.
     fn docs_that_refer(&self, target: &Target) -> Vec<(UnitId, Span)> {
-        self.documentation_references(target, None, |a| a == target, false)
+        self.documentation_references(target, None, |a, _| a == target, false)
     }
 
     /// The documentation `[ref]`s of the units (of `filter`, when there is one)
@@ -1998,7 +2080,13 @@ impl Project {
     /// `index`, the `visitCommentReference` rule: an `[A]`/`[A.b]` that resolves
     /// to a constructor only cites the constructor, and the `[A.name]` of a
     /// constructor goes from the end of the prefix to the end.
-    fn documentation_references(&self, target: &Target, filter: Option<&HashSet<UnitId>>, matches_: impl Fn(&Target) -> bool, index: bool) -> Vec<(UnitId, Span)> {
+    ///
+    /// With `index`, a `[x]` in the documentation of a constructor that has a
+    /// `this.x` parameter cites the parameter (`ConstructorInitializerScope`),
+    /// which the search only includes for the field itself
+    /// (`includeParametersForFields`): it counts only when the target is a
+    /// member of the field's class.
+    fn documentation_references(&self, target: &Target, filter: Option<&HashSet<UnitId>>, matches_: impl Fn(&Target, Option<Concrete>) -> bool, index: bool) -> Vec<(UnitId, Span)> {
         let word = self.target_word(target);
         let mut v = Vec::new();
         for u in self.units_in(filter) {
@@ -2021,8 +2109,9 @@ impl Project {
                         if word.as_deref().is_some_and(|w| r[i].1 != w) {
                             continue;
                         }
-                        if let Some((a, _)) = self.resolve_doc_reference(u, c.span, &r[..=i])
-                            && matches_(&a)
+                        if let Some((a, concrete)) = self.resolve_doc_reference(u, c.span, &r[..=i])
+                            && matches_(&a, concrete)
+                            && !(index && i == 0 && self.cites_foreign_field_parameter(u, c.span, &r[0].1, target, concrete))
                         {
                             let s = r[i].0;
                             let s = if index && matches!(target, Target::Constructor(_)) && i > 0 { Span { start: r[i - 1].0.end, end: s.end } } else { s };
@@ -2033,6 +2122,22 @@ impl Project {
             }
         }
         v
+    }
+
+    /// The single-name reference `name` of `comment` is a `this.x` parameter of
+    /// the documented constructor whose field (`concrete`) is not a member of
+    /// `target`'s class: the index records it on the parameter, not the field.
+    fn cites_foreign_field_parameter(&self, unit: UnitId, comment: Span, name: &str, target: &Target, concrete: Option<Concrete>) -> bool {
+        let Some(Concrete::Variable(v)) = concrete else { return false };
+        let ast = &self.program().unit(unit).ast;
+        let Some(Documented::Member(m)) = self.documented(unit, comment) else { return false };
+        let MemberKind::Constructor(k) = &ast.member(m).kind else { return false };
+        let source = &self.program().unit(unit).source;
+        let is_field_parameter = k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| &source[n.span.start..n.span.end] == name));
+        if !is_field_parameter {
+            return false;
+        }
+        !matches!(target, Target::Member { owner: Owner::Class(c), .. } if self.program().variable(v).class == Some(*c))
     }
 
     /// The name every occurrence of `target` writes (the identifier's text);
@@ -2067,13 +2172,31 @@ impl Project {
         }
         let bodies = &self.query.bodies.units[u.0 as usize];
         let mut index = UnitOccurrences::default();
+        let mut calls: Option<std::collections::HashMap<ast::ExprId, &ast::Arguments>> = None;
         for (i, e) in unit.ast.exprs.iter().enumerate() {
             let s = match &e.kind {
                 ExprKind::Identifier(n) => n.span,
                 ExprKind::Property { name, .. } => name.span,
                 _ => continue,
             };
-            match bodies.get_resolved(ast::ExprId(i as u32)) {
+            let id = ast::ExprId(i as u32);
+            if matches!(e.kind, ExprKind::Property { .. }) && matches!(bodies.get_resolved(id), None | Some(Resolved::Dynamic)) {
+                let calls = calls.get_or_insert_with(|| {
+                    unit.ast
+                        .exprs
+                        .iter()
+                        .filter_map(|e| match &e.kind {
+                            ExprKind::Call { target, arguments } => Some((*target, &**arguments)),
+                            _ => None,
+                        })
+                        .collect()
+                });
+                if let Some(f) = self.object_member_on_dynamic(u, id, calls.get(&id).copied()) {
+                    index.functions.entry(f).or_default().push(s);
+                }
+                continue;
+            }
+            match bodies.get_resolved(id) {
                 Some(Resolved::Element(r)) => index.elements.entry(*r).or_default().push(s),
                 Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
                     index.functions.entry(*f).or_default().push(s)
@@ -2191,6 +2314,7 @@ impl Project {
         name_: &str,
         is_static: bool,
         refuse_external: bool,
+        family_parameters: bool,
         filter: Option<&HashSet<UnitId>>,
         by: &mut impl FnMut(UnitId, Span),
     ) -> Result<(), String> {
@@ -2265,14 +2389,29 @@ impl Project {
             // of each optional positional argument (length 0, the index's
             // `visitExpression`) and the `super.x`s that point to them
             // (`superConstructorParameter`).
+            // References: only the parameters of the pivot field itself
+            // (`parameter.field == member` in `getHierarchyMembersAndParameters`),
+            // those of the owner's constructors when it declares the field. Rename
+            // ([`Project::rename_occurrences`]) renames those of every class of the
+            // family.
             let mut parameters: Vec<(FunctionElementId, Option<usize>)> = Vec::new();
-            let mut classes: Vec<ClassId> = family.classes.clone();
-            for v in family.variables.iter() {
-                if let Some(c) = self.program().variable(*v).class
-                    && !classes.contains(&c)
-                {
-                    classes.push(c);
+            let mut classes: Vec<ClassId> = Vec::new();
+            if family_parameters {
+                classes = family.classes.clone();
+                for v in family.variables.iter() {
+                    if let Some(c) = self.program().variable(*v).class
+                        && !classes.contains(&c)
+                    {
+                        classes.push(c);
+                    }
                 }
+            } else if let Owner::Class(c) = owner
+                && self.program().class(c).fields.iter().any(|v| {
+                    let ve = self.program().variable(*v);
+                    !ve.static_ && self.name(ve.name) == name_
+                })
+            {
+                classes.push(c);
             }
             for c in classes {
                 for (u, m) in self.program().class_members(c) {
@@ -2986,7 +3125,18 @@ impl Project {
     /// `with`/`implements` of an enum and `implements` of an extension type; a
     /// supertype written through a `typedef` and the implicit `Object` do not
     /// count.
-    pub(crate) fn written_subtypes(&self) -> std::collections::HashMap<ClassId, Vec<ClassId>> {
+    pub(crate) fn written_subtypes(&self) -> std::sync::Arc<WrittenSubtypes> {
+        if let Some(m) = self.written_subtypes.lock().ok().and_then(|m| m.clone()) {
+            return m;
+        }
+        let m = std::sync::Arc::new(self.compute_written_subtypes());
+        if let Ok(mut c) = self.written_subtypes.lock() {
+            *c = Some(m.clone());
+        }
+        m
+    }
+
+    fn compute_written_subtypes(&self) -> WrittenSubtypes {
         let p = self.program();
         let mut m: std::collections::HashMap<ClassId, Vec<ClassId>> = std::collections::HashMap::new();
         // The index's `visitClassDeclaration`: a class without `extends` has the

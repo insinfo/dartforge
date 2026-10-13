@@ -666,7 +666,7 @@ impl Project {
     /// The references (without the declarations) of a target, as (unit, range).
     fn target_references(&self, target: &Target) -> Vec<(UnitId, Span)> {
         let declarations = self.declarations(target);
-        let Ok(oc) = self.occurrences(target, false) else { return Vec::new() };
+        let Ok(oc) = self.rename_occurrences(target) else { return Vec::new() };
         // `searchReferences` goes through `Search._addResults`: only the candidate
         // files (those that cite the name and those of the library), with Dart's
         // gaps (a factory redirection does not cite the name).

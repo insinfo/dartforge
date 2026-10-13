@@ -623,12 +623,12 @@ impl Analyzer for SemanticAnalyzer {
         }
         let Some(sdk) = self.sdk.as_ref() else { return Vec::new() };
         let Some(project) = crate::project::load_library(sdk, documents, uri) else { return Vec::new() };
-        let crate::project::Project { query, root, mut libraries, referenced_names, reverse_index, comments, occurrences_by_unit } = project;
+        let crate::project::Project { query, root, mut libraries, referenced_names, reverse_index, comments, occurrences_by_unit, written_subtypes } = project;
         let mut list: Vec<dartforge_elements::model::LibraryId> = libraries.iter().copied().chain(extras.iter().copied()).collect();
         list.sort();
         list.dedup();
         libraries.extend(extras);
-        let mut project = crate::project::Project { query: query.reinfer(&list), root, libraries, referenced_names, reverse_index, comments, occurrences_by_unit };
+        let mut project = crate::project::Project { query: query.reinfer(&list), root, libraries, referenced_names, reverse_index, comments, occurrences_by_unit, written_subtypes };
         let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
         project.colors(unit)
     }

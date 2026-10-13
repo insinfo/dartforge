@@ -345,6 +345,9 @@ impl Project {
         if let Ok(mut m) = self.occurrences_by_unit.lock() {
             m.remove(&u);
         }
+        if let Ok(mut m) = self.written_subtypes.lock() {
+            *m = None;
+        }
         if let Ok(mut i) = self.reverse_index.lock()
             && i.indexed.remove(&u)
             && let Some(old) = old

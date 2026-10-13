@@ -341,7 +341,7 @@ impl Project {
         };
         let mut seen = BTreeSet::new();
         let mut output = Vec::new();
-        for x in self.subtypes(class, false) {
+        for x in self.index_all_subtypes(class) {
             let local = match &member {
                 Some(_) if needs_member && (is_extension_type(class) || is_extension_type(x)) => None,
                 Some((name, _)) if needs_member => self.implementation_member(x, name, kind, pivot_library, pivot),
@@ -351,6 +351,27 @@ impl Project {
                 && seen.insert((u, s.start))
             {
                 output.push((u, s));
+            }
+        }
+        output
+    }
+
+    /// `SearchEngineImpl.appendAllSubtypes`: the transitive subtypes of `c`
+    /// through the index relations ([`Project::written_subtypes`]), so a
+    /// supertype written through a `typedef` (`with MapMixin<K, V>`) does not
+    /// make a subtype, a class alias (`class A = B with M;`) does, and the
+    /// implicit `Object` only counts in the files that cite the name.
+    pub(crate) fn index_all_subtypes(&self, c: ClassId) -> Vec<ClassId> {
+        let direct = self.written_subtypes();
+        let mut seen: BTreeSet<ClassId> = BTreeSet::new();
+        let mut output = Vec::new();
+        let mut stack = vec![c];
+        while let Some(x) = stack.pop() {
+            for &s in direct.get(&x).map(|v| &v[..]).unwrap_or(&[]) {
+                if s != c && seen.insert(s) {
+                    output.push(s);
+                    stack.push(s);
+                }
             }
         }
         output
