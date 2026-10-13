@@ -16,7 +16,7 @@ use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
 /// The helper function, declared at the top of the file.
-const HELPERS: &str = "var t$P = function(f, c) { f.prototype = c.prototype; };\nvar t$O = function(o, k, d) { return o && k in o ? o[k] : d; };\n";
+const HELPERS: &str = "var t$P = function(f, c) { f.prototype = c.prototype; };\nvar t$O = function(o, k, d) { return o && k in o ? o[k] : d; };\nvar t$G = function(s, g, c, f) { s(c, () => Object.setPrototypeOf(f(), g(c.__proto__))); };\n";
 
 struct Finder<'s> {
     source: &'s str,
@@ -34,6 +34,8 @@ impl<'a> Visit<'a> for Finder<'_> {
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         if let Some(t) = prototype_form(self.source, it) {
             self.edits.extend(t);
+        } else if let Some(t) = signature_form(self.source, it) {
+            self.edits.push(t);
         }
         walk::walk_expression_statement(self, it);
     }
@@ -125,6 +127,69 @@ fn prototype_form(source: &str, it: &ExpressionStatement<'_>) -> Option<[(u32, u
         (p.span.start, p.span.start + 1, "t$P(".to_string()),
         (p.span.end - 1, it.span.end, format!(", {class});")),
     ])
+}
+
+/// A class signature, `S(C, () => ({__proto__: G(C.__proto__), m: …}))`
+/// (`dart.setMethodSignature(C, …)` with `dart.getMethods`, already
+/// flattened to variables): `t$G(S, G, C, () => ({m: …}))`, whose function
+/// sets the same prototype on the object the thunk builds
+/// (`Object.setPrototypeOf` returns it). `G(C.__proto__)` now runs after the
+/// entries instead of before; both only read signatures and evaluate rtis.
+/// One replacement, up to the second property, so that the ones inside the
+/// entries still apply.
+fn signature_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u32, String)> {
+    use oxc_ast::ast::{ObjectPropertyKind, PropertyKey};
+    let Expression::CallExpression(call) = &it.expression else {
+        return None;
+    };
+    let Expression::Identifier(setter) = &call.callee else {
+        return None;
+    };
+    let [class, thunk] = &call.arguments[..] else {
+        return None;
+    };
+    let (Some(class), Some(Expression::ArrowFunctionExpression(arrow))) = (class.as_expression(), thunk.as_expression()) else {
+        return None;
+    };
+    if arrow.r#async || !arrow.params.items.is_empty() {
+        return None;
+    }
+    let object = match arrow.body.as_expression()? {
+        Expression::ParenthesizedExpression(p) => &p.expression,
+        e => e,
+    };
+    let Expression::ObjectExpression(object) = object else {
+        return None;
+    };
+    let [ObjectPropertyKind::ObjectProperty(proto), second, ..] = &object.properties[..] else {
+        return None;
+    };
+    if proto.computed || proto.shorthand || !matches!(&proto.key, PropertyKey::StaticIdentifier(k) if k.name == "__proto__") {
+        return None;
+    }
+    let Expression::CallExpression(get) = &proto.value else {
+        return None;
+    };
+    let Expression::Identifier(getter) = &get.callee else {
+        return None;
+    };
+    let [arg] = &get.arguments[..] else {
+        return None;
+    };
+    let Some(Expression::StaticMemberExpression(sup)) = arg.as_expression() else {
+        return None;
+    };
+    let text = |s: oxc_span::Span| &source[s.start as usize..s.end as usize];
+    let c = text(class.span());
+    // The class must be the same expression, and a simple one (no effect
+    // when read twice).
+    if sup.property.name != "__proto__"
+        || text(sup.object.span()) != c
+        || !c.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'.'))
+    {
+        return None;
+    }
+    Some((call.span.start, second.span().start, format!("t$G({}, {}, {c}, () => ({{", setter.name, getter.name)))
 }
 
 /// The prologue of a named parameter, `o && "k" in o ? o.k : d`, with `d` a
@@ -297,5 +362,13 @@ mod tests {
             "{s}"
         );
         assert!(s.contains(HELPERS), "{s}");
+    }
+
+    #[test]
+    fn class_signature() {
+        let js = "(function () {\nvar C = class {};\nS(C, () => ({__proto__: G(C.__proto__), m: _ti => R, [k]: X}));\nS(C, () => ({__proto__: G(D.__proto__), m: X}));\n})();\n";
+        let s = apply(js).unwrap();
+        assert!(s.contains("t$G(S, G, C, () => ({m: _ti => R, [k]: X}));"), "{s}");
+        assert!(s.contains("S(C, () => ({__proto__: G(D.__proto__), m: X}));"), "{s}");
     }
 }
