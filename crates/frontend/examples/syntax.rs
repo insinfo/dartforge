@@ -1,10 +1,10 @@
-//! Mede o parser novo contra diretórios de fontes Dart.
+//! Measures the new parser against directories of Dart sources.
 //!
-//! `cargo run -q -p dartforge-frontend --example sintaxe -- C:/tools/dartsdk-3.6.2/lib references/pub`
+//! `cargo run -q -p dartforge-frontend --example syntax -- C:/tools/dartsdk-3.6.2/lib references/pub`
 //!
-//! Imprime cada diagnóstico com arquivo, linha e a linha de código, e no fim o
-//! total de arquivos aceitos e a contagem por mensagem. Com `--so-summary` só
-//! imprime o resumo.
+//! Prints each diagnostic with file, line and the line of code, and at the
+//! end the total of accepted files and the count per message. With
+//! `--summary-only` it only prints the summary.
 use std::path::{Path, PathBuf};
 
 fn collect(dir: &Path, output: &mut Vec<PathBuf>) {
@@ -25,7 +25,7 @@ fn main() {
     let mut roots = Vec::new();
     let mut summary_only = false;
     for arg in std::env::args().skip(1) {
-        if arg == "--so-resumo" {
+        if arg == "--summary-only" {
             summary_only = true;
         } else {
             roots.push(arg);
@@ -76,7 +76,7 @@ fn main() {
             }
         }
     }
-    println!("\n== {accepted}/{total} arquivos aceitos pelo parser ==");
+    println!("\n== {accepted}/{total} files accepted by the parser ==");
     let mut ordenado: Vec<_> = count.into_iter().collect();
     ordenado.sort_by_key(|a| std::cmp::Reverse(a.1));
     for (message, n) in ordenado.iter().take(40) {

@@ -1,14 +1,14 @@
-//! A referência de uma unidade (docs/ANALYZER-ESPECIFICACAO.md, T2): qual
-//! analyzer dá o nome e o texto dos diagnósticos do arquivo. Os casos são os
-//! de `corpus/especificacao/t2/v`, com as saídas dos dois oráculos vivos.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The reference of a unit (docs/ANALYZER-ESPECIFICACAO.md, T2): which
+//! analyzer gives the name and text of the file's diagnostics. The cases are
+//! those of `corpus/especificacao/t2/v`, with the outputs of both live
+//! oracles. Written without compiling or running (2026-10-05).
 
 use dartforge_frontend::features::{LibraryFeatures, Referencia};
 use dartforge_frontend::parser::parse_com;
 use dartforge_intern::Interner;
 
-/// A referência da unidade numa biblioteca 3.6 e, já na forma dela, cada
-/// diagnóstico: código, trecho, mensagem e correção.
+/// The unit's reference in a 3.6 library and, already in its form, each
+/// diagnostic: code, excerpt, message and fix.
 fn ler(fonte: &str) -> (Referencia, Vec<(&'static str, String, String, String)>) {
     let mut names = Interner::new();
     let lido = parse_com(fonte, &mut names, LibraryFeatures::piso());
@@ -26,8 +26,8 @@ fn ler(fonte: &str) -> (Referencia, Vec<(&'static str, String, String, String)>)
     (referencia, v)
 }
 
-/// c01: `null-aware-elements` o 3.6.2 conhece (sem versão de lançamento), e
-/// escreve `3.6.0` na correção; o arquivo continua dele.
+/// c01: 3.6.2 knows `null-aware-elements` (without a release version), and
+/// writes `3.6.0` in the fix; the file stays with it.
 #[test]
 fn null_element_stays_with_3_6() {
     let (referencia, v) = ler("void f(int? a) {\n  var x = [?a];\n  print(x);\n}\n");
@@ -38,7 +38,7 @@ fn null_element_stays_with_3_6() {
     assert!(v[0].3.contains("to 3.6.0 or higher"), "{}", v[0].3);
 }
 
-/// c08 e c18: sintaxe que o 3.6.2 não conhece passa o arquivo para o 3.13.4.
+/// c08 and c18: syntax 3.6.2 does not know moves the file to 3.13.4.
 #[test]
 fn unknown_syntax_falls_to_3_13() {
     let (referencia, v) = ler("enum E { a, b }\n\nvoid f() {\n  E e = .a;\n  print(e);\n}\n");
@@ -51,28 +51,29 @@ fn unknown_syntax_falls_to_3_13() {
     assert!(v.iter().any(|d| d.0 == "experiment_not_enabled" && d.1.ends_with("_x") && d.3.contains("3.12.0")), "{v:?}");
 }
 
-/// c02: o `final` do campo de representação, no texto do 3.6.2.
+/// c02: the `final` of the representation field, in 3.6.2's text.
 #[test]
 fn representation_modifier_in_3_6() {
     let (referencia, v) = ler("extension type E(final int i) {}\n");
     assert_eq!(referencia, Referencia::V3_6);
     assert_eq!(v, [("representation_field_modifier", "final".to_string(), "Representation fields can't have modifiers.".to_string(), "Try removing the modifier.".to_string())]);
 
-    // Sem tipo, o 3.6.2 relata o tipo que falta no próprio `final` (c23, F).
+    // Without a type, 3.6.2 reports the missing type at the `final` itself
+    // (c23, F).
     let (referencia, v) = ler("extension type F(final i) {}\n");
     assert_eq!(referencia, Referencia::V3_6);
     let v: Vec<(&str, &str)> = v.iter().map(|d| (d.0, d.1.as_str())).collect();
     assert_eq!(v, [("expected_representation_type", "final"), ("representation_field_modifier", "final")]);
 
-    // Com dois campos, o 3.6.2 relata o modificador e a vírgula (c23, G).
+    // With two fields, 3.6.2 reports the modifier and the comma (c23, G).
     let (_, v) = ler("extension type G(final int i, final int j) {}\n");
     let v: Vec<(&str, &str)> = v.iter().map(|d| (d.0, d.1.as_str())).collect();
     assert_eq!(v, [("multiple_representation_fields", ","), ("representation_field_modifier", "final")]);
 }
 
-/// c23 inteiro: o `var` declarante faz do 3.13.4 a referência, e então o
-/// modificador sai com o texto novo, o tipo que falta vai para o nome e o
-/// modificador de `G` não sai.
+/// All of c23: the declaring `var` makes 3.13.4 the reference, and then the
+/// modifier comes out with the new text, the missing type moves to the name
+/// and the modifier of `G` is not reported.
 #[test]
 fn representation_with_var_in_3_13() {
     let fonte = "extension type E(var int i) {}\n\nextension type F(final i) {}\n\nextension type G(final int i, final int j) {}\n";
@@ -94,7 +95,7 @@ fn representation_with_var_in_3_13() {
     assert!(feature.3.contains("to 3.13 or higher"), "{}", feature.3);
 }
 
-/// Acima da 3.6 a referência é sempre o 3.13.4.
+/// Above 3.6 the reference is always 3.13.4.
 #[test]
 fn new_library_is_from_3_13() {
     let mut names = Interner::new();
@@ -104,8 +105,8 @@ fn new_library_is_from_3_13() {
     assert_eq!(lido.referencia, Referencia::V3_6);
 }
 
-/// `named_function_expression` (docs/ANALYZER-ESPECIFICACAO.md, família E):
-/// os exemplos do oráculo vivo 3.6.2, com a posição do nome.
+/// `named_function_expression` (docs/ANALYZER-ESPECIFICACAO.md, family E):
+/// the examples from the live 3.6.2 oracle, with the position of the name.
 #[test]
 fn function_literal_with_name() {
     let named_ones = |fonte: &str| -> Vec<(usize, usize)> {
@@ -120,9 +121,9 @@ fn function_literal_with_name() {
     assert_eq!(named_ones("f() { var f = void g() {}; }\n"), [(19, 1)]);
     assert_eq!(named_ones("f() { var f = g() {}; }\n"), [(14, 1)]);
     assert_eq!(named_ones("f() { var f = int g<T>() => 1; }\n"), [(18, 1)]);
-    // Chamada comum, função local e inicializador de construtor: nada.
+    // Plain call, local function and constructor initializer: nothing.
     assert!(named_ones("f() { g(); h() {} var x = g(); }\n").is_empty());
     assert!(named_ones("class A {\n  int x;\n  A() : x = g() {}\n}\nint g() => 0;\n").is_empty());
-    // A guarda de um caso de `switch` expressão.
+    // The guard of a `switch` expression case.
     assert!(named_ones("int f(int o) => switch (o) { _ when g(o) => 1, _ => 0 };\nbool g(int o) => true;\n").is_empty());
 }

@@ -1,30 +1,30 @@
-//! Texto de string Dart: unidades UTF-16, guardadas em WTF-8.
+//! Dart string text: UTF-16 units, stored as WTF-8.
 //!
-//! Uma `String` do Dart é uma sequência de unidades de código UTF-16, e a
-//! linguagem permite escrever unidades que não formam um escalar Unicode:
-//! `'\uD800'` é um literal válido de comprimento 1. `str` do Rust exige UTF-8
-//! válido e não tem como guardar isso. A saída é WTF-8 — UTF-8 generalizado
-//! em que um *surrogate* solto (U+D800–U+DFFF) é codificado como qualquer
-//! outro ponto de código, em três bytes. Texto sem surrogates soltos é UTF-8
-//! comum, e [`DartStr::as_str`] devolve o `&str` sem cópia.
+//! A Dart `String` is a sequence of UTF-16 code units, and the language
+//! allows writing units that do not form a Unicode scalar: `'\uD800'` is a
+//! valid literal of length 1. Rust's `str` requires valid UTF-8 and has no
+//! way to store that. The way out is WTF-8 — generalized UTF-8 in which a
+//! lone *surrogate* (U+D800–U+DFFF) is encoded like any other code point, in
+//! three bytes. Text without lone surrogates is plain UTF-8, and
+//! [`DartStr::as_str`] returns the `&str` without copying.
 //!
-//! Semântica preservada: o par de escapes de surrogate D83D+DC6D e
-//! `'\u{1F46D}'` são a mesma string em Dart (dois code units, um ponto de
-//! código), e aqui também — o construtor funde par alto+baixo num escalar.
-//! Um alto e um baixo em literais adjacentes também formam o par, por
-//! concatenação de unidades.
+//! Preserved semantics: the surrogate escape pair D83D+DC6D and
+//! `'\u{1F46D}'` are the same string in Dart (two code units, one code
+//! point), and here too — the builder merges a high+low pair into a scalar.
+//! A high and a low surrogate in adjacent literals also form the pair, by
+//! concatenation of units.
 use std::fmt;
 
-/// Texto de string Dart em WTF-8. Imutável; construído pelo lexer.
+/// Dart string text in WTF-8. Immutable; built by the lexer.
 #[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DartStr(Box<[u8]>);
 
-/// Acumula unidades UTF-16 e escalares em WTF-8, fundindo pares de
-/// surrogates quando eles chegam em sequência.
+/// Accumulates UTF-16 units and scalars in WTF-8, merging surrogate pairs
+/// when they arrive in sequence.
 #[derive(Default)]
 pub struct DartStrBuilder {
     bytes: Vec<u8>,
-    /// Surrogate alto ainda sem par; decide-se ao chegar a próxima unidade.
+    /// High surrogate still without a pair; decided when the next unit arrives.
     pending_high: Option<u16>,
 }
 
@@ -36,7 +36,7 @@ impl DartStrBuilder {
         }
     }
 
-    /// Acrescenta um escalar Unicode (`char`).
+    /// Appends a Unicode scalar (`char`).
     pub fn push_char(&mut self, c: char) {
         self.flush_pending();
         let mut buf = [0u8; 4];
@@ -44,14 +44,14 @@ impl DartStrBuilder {
             .extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
     }
 
-    /// Acrescenta texto UTF-8 já válido.
+    /// Appends already valid UTF-8 text.
     pub fn push_str(&mut self, s: &str) {
         self.flush_pending();
         self.bytes.extend_from_slice(s.as_bytes());
     }
 
-    /// Acrescenta um ponto de código de escape `\u`/`\x`, que pode ser um
-    /// surrogate. Fora do intervalo Unicode devolve falso e não altera nada.
+    /// Appends a code point from a `\u`/`\x` escape, which may be a surrogate.
+    /// Outside the Unicode range returns false and changes nothing.
     pub fn push_code_point(&mut self, value: u32) -> bool {
         if let Some(c) = char::from_u32(value) {
             self.push_char(c);
@@ -67,14 +67,14 @@ impl DartStrBuilder {
         true
     }
 
-    /// Acrescenta uma unidade UTF-16, fundindo com o surrogate alto pendente
-    /// quando formam par.
+    /// Appends a UTF-16 unit, merging it with the pending high surrogate when
+    /// they form a pair.
     pub fn push_unit(&mut self, unit: u16) {
         match (self.pending_high.take(), unit) {
             (Some(high), low @ 0xDC00..=0xDFFF) => {
                 let scalar =
                     0x10000 + ((u32::from(high) - 0xD800) << 10) + (u32::from(low) - 0xDC00);
-                let c = char::from_u32(scalar).expect("par de surrogates forma escalar válido");
+                let c = char::from_u32(scalar).expect("a surrogate pair forms a valid scalar");
                 self.push_char(c);
             }
             (high, unit) => {
@@ -104,7 +104,7 @@ impl DartStrBuilder {
     }
 }
 
-/// Codifica um surrogate solto em três bytes, como WTF-8 manda.
+/// Encodes a lone surrogate in three bytes, as WTF-8 prescribes.
 fn push_wtf8_surrogate(bytes: &mut Vec<u8>, unit: u16) {
     let v = u32::from(unit);
     bytes.push(0xE0 | (v >> 12) as u8);
@@ -113,33 +113,33 @@ fn push_wtf8_surrogate(bytes: &mut Vec<u8>, unit: u16) {
 }
 
 impl DartStr {
-    /// Texto vazio.
+    /// Empty text.
     pub fn empty() -> Self {
         DartStr(Box::default())
     }
 
-    /// Bytes WTF-8; UTF-8 válido quando não há surrogates soltos.
+    /// WTF-8 bytes; valid UTF-8 when there are no lone surrogates.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    /// `&str` quando o texto não contém surrogates soltos — o caso comum,
-    /// sem cópia. `None` quando contém: o chamador precisa de UTF-16.
+    /// The `&str` when the text has no lone surrogates — the common case,
+    /// without copying. `None` when it does: the caller needs UTF-16.
     pub fn as_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.0).ok()
     }
 
-    /// Verdadeiro sem unidades.
+    /// True when there are no units.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// Comprimento como o Dart mede: unidades UTF-16 (`'\u{1F46D}'.length == 2`).
+    /// Length as Dart measures it: UTF-16 units (`'\u{1F46D}'.length == 2`).
     pub fn utf16_len(&self) -> usize {
         self.code_units().count()
     }
 
-    /// Unidades UTF-16, na ordem — o valor observável de uma `String` Dart.
+    /// UTF-16 units, in order — the observable value of a Dart `String`.
     pub fn code_units(&self) -> impl Iterator<Item = u16> + '_ {
         let mut i = 0;
         std::iter::from_fn(move || {
@@ -176,7 +176,7 @@ impl DartStr {
         .flatten()
     }
 
-    /// Texto legível: cada surrogate solto vira um U+FFFD. Só para mensagens.
+    /// Readable text: each lone surrogate becomes U+FFFD. Only for messages.
     pub fn to_string_lossy(&self) -> String {
         match self.as_str() {
             Some(s) => s.to_owned(),
@@ -185,8 +185,8 @@ impl DartStr {
     }
 }
 
-/// Byte de continuação em `i`, ou 0 quando ausente (não ocorre em WTF-8
-/// bem formado, que é o único que o construtor produz).
+/// Continuation byte at `i`, or 0 when absent (does not happen in
+/// well-formed WTF-8, the only kind the builder produces).
 fn cont(bytes: &[u8], i: usize) -> u32 {
     u32::from(bytes.get(i).copied().unwrap_or(0) & 0x3F)
 }

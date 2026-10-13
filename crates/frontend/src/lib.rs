@@ -1,17 +1,18 @@
-//! Front-end completo de Dart 3.6: léxico, árvore sintática e parser.
+//! Complete Dart 3.6 front end: lexer, syntax tree and parser.
 //!
-//! Esta trilha existe para a meta governante do PLANO.md: compilar qualquer
-//! projeto Dart 3.6 válido no dart2js/DDC. O parser daqui **não resolve
-//! nada**: `Foo<Bar>` é sintaxe válida sem saber o que `Foo` é. Resolução,
-//! tipos e emissão vêm em fases posteriores sobre a árvore produzida aqui.
+//! This track exists for the governing goal of PLANO.md: compiling any valid
+//! Dart 3.6 project the way dart2js/DDC do. The parser here **resolves
+//! nothing**: `Foo<Bar>` is valid syntax without knowing what `Foo` is.
+//! Resolution, types and emission come in later phases on top of the tree
+//! produced here.
 //!
-//! O parser antigo (`crates/parser`/`crates/syntax`), que resolvia tipos
-//! enquanto analisava, saiu do repositório quando a emissão migrou para esta
-//! trilha; está preservado na branch `exploracao-inicial`.
+//! The old parser (`crates/parser`/`crates/syntax`), which resolved types
+//! while parsing, left the repository when emission moved to this track; it
+//! is preserved in the `exploracao-inicial` branch.
 //!
-//! Desenho de memória, conforme a meta de cadeia de ferramentas própria:
-//! nós vivem em arenas indexadas por `u32` ([`ast::Ast`]), identificadores são
-//! [`dartforge_intern::SymbolId`], e nenhum nó empresta da fonte.
+//! Memory design, following the goal of an in-house toolchain: nodes live in
+//! arenas indexed by `u32` ([`ast::Ast`]), identifiers are
+//! [`dartforge_intern::SymbolId`], and no node borrows from the source.
 pub mod grouping;
 pub mod ast;
 pub mod comentarios;

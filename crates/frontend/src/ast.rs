@@ -1,15 +1,15 @@
-//! Árvore sintática completa de Dart 3.6, em arenas indexadas.
+//! Complete Dart 3.6 syntax tree, in indexed arenas.
 //!
-//! Nenhum nó empresta da fonte: nomes são [`SymbolId`], conteúdo de literais
-//! fica como [`Span`] para decodificação posterior, e filhos são índices em
-//! [`Ast`]. Os nomes dos tipos seguem os não-terminais da especificação da
-//! linguagem (§ da gramática de Dart 3.6) para que a correspondência com a
-//! gramática seja verificável.
+//! No node borrows from the source: names are [`SymbolId`], literal content
+//! stays as a [`Span`] for later decoding, and children are indices into
+//! [`Ast`]. Type names follow the non-terminals of the language
+//! specification (§ of the Dart 3.6 grammar) so that the correspondence with
+//! the grammar can be verified.
 //!
-//! A árvore é **puramente sintática**: `dynamic`, `Function`, `Never` e `Object`
-//! são [`TypeKind::Named`] como qualquer outro nome; `int.parse` é um
-//! [`ExprKind::Property`] sobre um identificador. Decidir o que cada nome é
-//! pertence à resolução.
+//! The tree is **purely syntactic**: `dynamic`, `Function`, `Never` and
+//! `Object` are [`TypeKind::Named`] like any other name; `int.parse` is an
+//! [`ExprKind::Property`] on an identifier. Deciding what each name is
+//! belongs to resolution.
 use crate::text::{DartStr, DartStrBuilder};
 use dartforge_diagnostics::Span;
 use dartforge_intern::SymbolId;
@@ -22,23 +22,23 @@ macro_rules! id {
     };
 }
 
-id!(/// Índice em [`Ast::exprs`].
+id!(/// Index into [`Ast::exprs`].
     ExprId);
-id!(/// Índice em [`Ast::stmts`].
+id!(/// Index into [`Ast::stmts`].
     StmtId);
-id!(/// Índice em [`Ast::types`].
+id!(/// Index into [`Ast::types`].
     TypeId);
-id!(/// Índice em [`Ast::patterns`].
+id!(/// Index into [`Ast::patterns`].
     PatternId);
-id!(/// Índice em [`Ast::decls`].
+id!(/// Index into [`Ast::decls`].
     DeclId);
-id!(/// Índice em [`Ast::members`].
+id!(/// Index into [`Ast::members`].
     MemberId);
-id!(/// Índice em [`Ast::functions`] (assinatura + corpo compartilhados por
-    /// funções de topo, métodos, funções locais e expressões de função).
+id!(/// Index into [`Ast::functions`] (signature + body shared by
+    /// top-level functions, methods, local functions and function expressions).
     FunctionId);
 
-/// Arenas de uma unidade de compilação.
+/// Arenas of a compilation unit.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Ast {
     pub exprs: Vec<Expr>,
@@ -48,23 +48,24 @@ pub struct Ast {
     pub decls: Vec<Decl>,
     pub members: Vec<Member>,
     pub functions: Vec<Function>,
-    /// A metadata das declarações locais anotadas (`@pragma('x') final a =
-    /// 1;`, função local anotada), pela instrução: os nós de instrução não
-    /// têm campo para ela (o `VariableDeclarationStatement.variables.metadata`
-    /// e o `FunctionDeclaration.metadata` do analyzer).
+    /// The metadata of annotated local declarations (`@pragma('x') final a =
+    /// 1;`, an annotated local function), by statement: the statement nodes
+    /// have no field for it (the analyzer's
+    /// `VariableDeclarationStatement.variables.metadata` and
+    /// `FunctionDeclaration.metadata`).
     #[serde(default)]
     pub metadados_locais: Vec<(StmtId, Box<[Annotation]>)>,
-    /// As chamadas `assert(…)` lidas como expressão
-    /// (`parseAssert(Assert.Expression)`): o `AstBuilder.endAssert` as monta
-    /// como `FunctionExpressionInvocation` de um `SimpleIdentifier` `assert`,
-    /// não como `MethodInvocation`.
+    /// The `assert(…)` calls read as an expression
+    /// (`parseAssert(Assert.Expression)`): `AstBuilder.endAssert` builds them as
+    /// a `FunctionExpressionInvocation` of a `SimpleIdentifier` `assert`, not as
+    /// a `MethodInvocation`.
     #[serde(default)]
     pub invocacoes_de_assert: Vec<ExprId>,
-    /// As chamadas `C<T>.nome(…)` e `p.C<T>.nome(…)` que o
-    /// `parseUnaryExpression` do fasta lê como criação implícita
-    /// (`parseImplicitCreationExpression`, `parser_impl.dart:6426-6447`): no
-    /// analyzer são `InstanceCreationExpression`, que o `AstRewriter` só
-    /// desfaz quando o nome não é tipo.
+    /// The `C<T>.name(…)` and `p.C<T>.name(…)` calls that fasta's
+    /// `parseUnaryExpression` reads as an implicit creation
+    /// (`parseImplicitCreationExpression`, `parser_impl.dart:6426-6447`): in the
+    /// analyzer they are an `InstanceCreationExpression`, which the
+    /// `AstRewriter` only undoes when the name is not a type.
     #[serde(default)]
     pub criacoes_implicitas: Vec<ExprId>,
 }
@@ -119,10 +120,10 @@ impl Ast {
         self.functions.push(function);
         FunctionId(self.functions.len() as u32 - 1)
     }
-    /// O atalho de ponto (`.id`, Dart 3.10) na raiz da cadeia de seletores
-    /// que `e` é — `e` mesmo, ou o alvo mais interno de `.x`, `(args)`,
-    /// `[i]`, `<T>` e `!`. O tipo de contexto da cadeia inteira é o
-    /// *shorthand context* dele (spec, "Type inference").
+    /// The dot shorthand (`.id`, Dart 3.10) at the root of the selector chain
+    /// that `e` is — `e` itself, or the innermost target of `.x`, `(args)`,
+    /// `[i]`, `<T>` and `!`. The context type of the whole chain is its
+    /// *shorthand context* (spec, "Type inference").
     pub fn raiz_de_atalho(&self, e: ExprId) -> Option<ExprId> {
         let mut cur = e;
         loop {
@@ -141,8 +142,8 @@ impl Ast {
         }
     }
 
-    /// Devolve ao alocador a capacidade não usada de cada arena. Chamado ao
-    /// fim da análise, quando a árvore deixa de crescer.
+    /// Returns each arena's unused capacity to the allocator. Called at the end
+    /// of parsing, when the tree stops growing.
     pub fn shrink_to_fit(&mut self) {
         self.exprs.shrink_to_fit();
         self.stmts.shrink_to_fit();
@@ -154,7 +155,7 @@ impl Ast {
     }
 }
 
-/// Identificador com posição.
+/// Identifier with a position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Name {
     pub sym: SymbolId,
@@ -162,10 +163,10 @@ pub struct Name {
 }
 
 // ---------------------------------------------------------------------------
-// Unidade e diretivas
+// Unit and directives
 // ---------------------------------------------------------------------------
 
-/// `libraryDefinition` ou `partDeclaration`: um arquivo `.dart`.
+/// `libraryDefinition` or `partDeclaration`: a `.dart` file.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct CompilationUnit {
     pub script_tag: Option<Span>,
@@ -173,11 +174,11 @@ pub struct CompilationUnit {
     pub declarations: Vec<DeclId>,
 }
 
-/// Anotação `@nome`, `@nome.member`, `@p.Nome<T>.ctor(args)`.
+/// Annotation `@name`, `@name.member`, `@p.Name<T>.ctor(args)`.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Annotation {
     pub span: Span,
-    /// `nome`, `p.nome` ou `p.Nome.ctor` — até três partes, na ordem escrita.
+    /// `name`, `p.name` or `p.Name.ctor` — up to three parts, in written order.
     pub name: Vec<Name>,
     pub type_args: Vec<TypeId>,
     pub arguments: Option<Arguments>,
@@ -192,7 +193,7 @@ pub struct Directive {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum DirectiveKind {
-    /// `library;` ou `library a.b.c;`
+    /// `library;` or `library a.b.c;`
     Library { name: Vec<Name> },
     /// `import 'uri' if (cond) 'uri' deferred as p show a hide b;`
     Import {
@@ -210,18 +211,19 @@ pub enum DirectiveKind {
     },
     /// `part 'uri';`
     Part { uri: StringLit },
-    /// `part of 'uri';` ou `part of a.b.c;`
+    /// `part of 'uri';` or `part of a.b.c;`
     PartOf {
         uri: Option<StringLit>,
         name: Vec<Name>,
     },
-    /// `import augment 'uri';` — biblioteca de augmentation na forma do SDK
-    /// 3.6 (experimento `macros`, `working/augmentation-libraries` até a
-    /// v1.20): a unidade apontada pertence a esta biblioteca e aumenta as
-    /// declarações dela (docs/AUGMENTATIONS.md).
+    /// `import augment 'uri';` — an augmentation library in the SDK 3.6 form
+    /// (`macros` experiment, `working/augmentation-libraries` up to v1.20): the
+    /// unit pointed to belongs to this library and augments its declarations
+    /// (docs/AUGMENTATIONS.md).
     ImportAugment { uri: StringLit },
-    /// `augment library 'uri';` — o cabeçalho da unidade de augmentation, o
-    /// par de [`DirectiveKind::ImportAugment`] (como `part of` para `part`).
+    /// `augment library 'uri';` — the header of the augmentation unit, the
+    /// counterpart of [`DirectiveKind::ImportAugment`] (like `part of` for
+    /// `part`).
     AugmentLibrary { uri: StringLit },
 }
 
@@ -241,7 +243,7 @@ pub enum Combinator {
 }
 
 // ---------------------------------------------------------------------------
-// Declarações de topo e membros
+// Top-level declarations and members
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -249,9 +251,9 @@ pub struct Decl {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub kind: DeclKind,
-    /// `augment` (experimentos `augmentations`/`macros`): a declaração aumenta
-    /// a declaração de mesmo nome que vem antes dela na biblioteca
-    /// (docs/AUGMENTATIONS.md), em vez de introduzir um nome.
+    /// `augment` (`augmentations`/`macros` experiments): the declaration
+    /// augments the declaration of the same name that comes before it in the
+    /// library (docs/AUGMENTATIONS.md), instead of introducing a name.
     pub augment: bool,
 }
 
@@ -263,13 +265,13 @@ pub enum DeclKind {
     Extension(ExtensionDecl),
     ExtensionType(ExtensionTypeDecl),
     Typedef(TypedefDecl),
-    /// Função, getter ou setter de topo.
+    /// Top-level function, getter or setter.
     Function(FunctionId),
-    /// `int a = 1, b;` de topo (uma declaração por lista).
+    /// Top-level `int a = 1, b;` (one declaration per list).
     Variables(VariableList),
 }
 
-/// Modificadores de classe (Dart 3).
+/// Class modifiers (Dart 3).
 #[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct ClassModifiers {
     pub abstract_: bool,
@@ -279,9 +281,9 @@ pub struct ClassModifiers {
     pub sealed: bool,
     /// `mixin class`
     pub mixin: bool,
-    /// `macro class` (experimento `macros`): a classe é uma macro, e uma
-    /// anotação que resolve para um construtor dela é uma aplicação de macro
-    /// (docs/MACROS-PROTOCOLO.md).
+    /// `macro class` (`macros` experiment): the class is a macro, and an
+    /// annotation that resolves to one of its constructors is a macro
+    /// application (docs/MACROS-PROTOCOLO.md).
     pub macro_: bool,
 }
 
@@ -293,13 +295,13 @@ pub struct ClassDecl {
     pub extends: Option<TypeId>,
     pub with: Box<[TypeId]>,
     pub implements: Box<[TypeId]>,
-    /// `class C = S with M implements I;` — sem corpo.
+    /// `class C = S with M implements I;` — without a body.
     pub mixin_application: bool,
     pub members: Vec<MemberId>,
-    /// O construtor primário (Dart 3.13) já elaborado: o membro `k2` em
-    /// `members`. Os inicializadores de campo não-`late` desta classe são
-    /// avaliados no escopo dos parâmetros dele (spec, "primary initializer
-    /// scope"); fora isso, é um construtor comum.
+    /// The primary constructor (Dart 3.13), already elaborated: member `k2` in
+    /// `members`. The non-`late` field initializers of this class are evaluated
+    /// in the scope of its parameters (spec, "primary initializer scope");
+    /// otherwise, it is a regular constructor.
     pub primary_constructor: Option<MemberId>,
 }
 
@@ -321,11 +323,11 @@ pub struct EnumDecl {
     pub implements: Box<[TypeId]>,
     pub constants: Vec<EnumConstant>,
     pub members: Vec<MemberId>,
-    /// Construtor primário elaborado (Dart 3.13), como em [`ClassDecl`].
+    /// Elaborated primary constructor (Dart 3.13), as in [`ClassDecl`].
     pub primary_constructor: Option<MemberId>,
 }
 
-/// `@meta nome<T>.ctor(args)` dentro de um `enum`.
+/// `@meta name<T>.ctor(args)` inside an `enum`.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct EnumConstant {
     pub span: Span,
@@ -349,14 +351,14 @@ pub struct ExtensionTypeDecl {
     pub const_: bool,
     pub name: Name,
     pub type_params: Box<[TypeParameter]>,
-    /// Nome do construtor primário: `extension type E.name(int x)`.
+    /// Name of the primary constructor: `extension type E.name(int x)`.
     pub constructor: Option<Name>,
     pub representation_metadata: Box<[Annotation]>,
     pub representation_type: TypeId,
     pub representation_name: Name,
-    /// A lista `( … )` inteira do construtor primário. O que ela tem além da
-    /// representação (parâmetros descartados pela recuperação, com os
-    /// defaults) não pertence a declaração nenhuma.
+    /// The whole `( … )` list of the primary constructor. What it has besides
+    /// the representation (parameters discarded by recovery, with the defaults)
+    /// belongs to no declaration.
     pub representation_span: Span,
     pub implements: Box<[TypeId]>,
     pub members: Vec<MemberId>,
@@ -371,17 +373,17 @@ pub struct TypedefDecl {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum TypedefKind {
-    /// `typedef F<T> = int Function(T);` — qualquer tipo.
+    /// `typedef F<T> = int Function(T);` — any type.
     Alias(TypeId),
-    /// `typedef int F<T>(T x);` — forma antiga, só tipo de função.
+    /// `typedef int F<T>(T x);` — old form, function types only.
     Legacy {
         return_type: Option<TypeId>,
         parameters: Box<[Parameter]>,
     },
 }
 
-/// Modificador de variância de um parâmetro de tipo (`in`, `out`, `inout`),
-/// do experimento `variance`.
+/// Variance modifier of a type parameter (`in`, `out`, `inout`), from the
+/// `variance` experiment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Variance {
     In,
@@ -390,7 +392,7 @@ pub enum Variance {
 }
 
 impl Variance {
-    /// O modificador pelo texto.
+    /// The modifier by its text.
     pub fn from_text_(texto: &str) -> Option<Variance> {
         match texto {
             "in" => Some(Variance::In),
@@ -400,7 +402,7 @@ impl Variance {
         }
     }
 
-    /// O texto do modificador.
+    /// The modifier's text.
     pub fn texto(self) -> &'static str {
         match self {
             Variance::In => "in",
@@ -410,21 +412,21 @@ impl Variance {
     }
 }
 
-/// `T extends Bound` numa lista `<...>`, com metadata.
+/// `T extends Bound` in a `<...>` list, with metadata.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TypeParameter {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub name: Name,
     pub bound: Option<TypeId>,
-    /// O modificador de variância escrito (`class C<out T>`), com o seu
-    /// token. Como no analyzer (`TypeParameter.varianceKeyword`), é guardado
-    /// mesmo com o experimento desligado: o parser relata o experimento e a
-    /// posição de uso continua conferida.
+    /// The variance modifier as written (`class C<out T>`), with its token. As
+    /// in the analyzer (`TypeParameter.varianceKeyword`), it is kept even with
+    /// the experiment disabled: the parser reports the experiment and the use
+    /// site is still checked.
     pub variance: Option<(Variance, Span)>,
 }
 
-/// Lista `kind a = 1, b;` com os modificadores comuns.
+/// List `kind a = 1, b;` with the common modifiers.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct VariableList {
     pub external: bool,
@@ -434,7 +436,7 @@ pub struct VariableList {
     pub late: bool,
     pub final_: bool,
     pub const_: bool,
-    /// `var` foi escrito (então `ty` é `None`).
+    /// `var` was written (so `ty` is `None`).
     pub var_: bool,
     pub ty: Option<TypeId>,
     pub variables: Box<[Variable]>,
@@ -451,15 +453,15 @@ pub struct Member {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub kind: MemberKind,
-    /// `augment`: o membro aumenta o membro de mesmo nome que vem antes dele
-    /// na cadeia da classe (docs/AUGMENTATIONS.md).
+    /// `augment`: the member augments the member of the same name that comes
+    /// before it in the class chain (docs/AUGMENTATIONS.md).
     pub augment: bool,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum MemberKind {
     Field(VariableList),
-    /// Método, getter, setter ou operador; `static`/`abstract` na função.
+    /// Method, getter, setter or operator; `static`/`abstract` on the function.
     Method(FunctionId),
     Constructor(Constructor),
 }
@@ -469,23 +471,23 @@ pub struct Constructor {
     pub external: bool,
     pub const_: bool,
     pub factory: bool,
-    /// Nome da classe como escrito (`C` em `C.named`).
+    /// Class name as written (`C` in `C.named`).
     pub class_name: Name,
-    /// `named` em `C.named`; `None` para o construtor sem nome.
+    /// `named` in `C.named`; `None` for the unnamed constructor.
     pub name: Option<Name>,
     pub parameters: Box<[Parameter]>,
     pub initializers: Box<[Initializer]>,
-    /// `= Outra<T>.ctor` (factory redirecionadora) ou `: this.x()` fica em
-    /// `initializers` como [`Initializer::Redirect`].
+    /// `= Other<T>.ctor` (redirecting factory) or `: this.x()` stays in
+    /// `initializers` as [`Initializer::Redirect`].
     pub redirect: Option<RedirectTarget>,
     pub body: FunctionBody,
-    /// `this : inits { body_node }` (Dart 3.13): a parte de corpo de um
-    /// construtor primário, antes da elaboração. Depois dela só sobra onde é
-    /// erro (sem cabeçalho primário, ou repetida).
+    /// `this : inits { body }` (Dart 3.13): the body part of a primary
+    /// constructor, before elaboration. After it, only what is an error remains
+    /// (without a primary header, or repeated).
     pub parte_primaria: bool,
 }
 
-/// Alvo de `factory C() = Outra.nome;`
+/// Target of `factory C() = Other.name;`
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RedirectTarget {
     pub span: Span,
@@ -495,20 +497,20 @@ pub struct RedirectTarget {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Initializer {
-    /// `this.x = e` ou `x = e`.
+    /// `this.x = e` or `x = e`.
     Field {
         span: Span,
         this_: bool,
         name: Name,
         value: ExprId,
     },
-    /// `super(args)` ou `super.nome(args)`.
+    /// `super(args)` or `super.name(args)`.
     Super {
         span: Span,
         constructor: Option<Name>,
         arguments: Arguments,
     },
-    /// `this(args)` ou `this.nome(args)` — construtor redirecionador.
+    /// `this(args)` or `this.name(args)` — redirecting constructor.
     Redirect {
         span: Span,
         constructor: Option<Name>,
@@ -523,23 +525,23 @@ pub enum Initializer {
 }
 
 // ---------------------------------------------------------------------------
-// Funções
+// Functions
 // ---------------------------------------------------------------------------
 
-/// Assinatura e corpo compartilhados por todas as formas de função.
+/// Signature and body shared by every form of function.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Function {
     pub span: Span,
     pub external: bool,
     pub static_: bool,
-    /// Declarado explicitamente `abstract` (só campos) ou sem corpo num tipo.
+    /// Explicitly declared `abstract` (fields only) or bodiless in a type.
     pub kind: FunctionKind,
-    /// `None` em expressões de função e em setters sem tipo.
+    /// `None` in function expressions and in untyped setters.
     pub return_type: Option<TypeId>,
-    /// `None` em expressões de função.
+    /// `None` in function expressions.
     pub name: Option<Name>,
     pub type_params: Box<[TypeParameter]>,
-    /// Getters não têm lista (`None`); setters e demais têm.
+    /// Getters have no list (`None`); setters and the rest do.
     pub parameters: Option<Box<[Parameter]>>,
     pub modifier: AsyncModifier,
     pub body: FunctionBody,
@@ -550,7 +552,7 @@ pub enum FunctionKind {
     Function,
     Getter,
     Setter,
-    /// `operator +`; o nome guarda o texto do operador (`[]=`, `unary-`…).
+    /// `operator +`; the name holds the operator's text (`[]=`, `unary-`…).
     Operator,
 }
 
@@ -569,19 +571,19 @@ pub enum FunctionBody {
     Block(StmtId),
     /// `=> e`
     Expression(ExprId),
-    /// `;` — abstrato, externo ou redirecionador.
+    /// `;` — abstract, external or redirecting.
     Empty,
-    /// `native 'nome';` ou `native;` (SDK).
+    /// `native 'name';` or `native;` (SDK).
     Native(Option<StringLit>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ParameterKind {
-    /// Posicional obrigatório.
+    /// Required positional.
     Required,
-    /// Entre `[ ]`.
+    /// Inside `[ ]`.
     Optional,
-    /// Entre `{ }`.
+    /// Inside `{ }`.
     Named,
 }
 
@@ -590,7 +592,7 @@ pub struct Parameter {
     pub span: Span,
     pub metadata: Box<[Annotation]>,
     pub kind: ParameterKind,
-    /// `required` (só em nomeados).
+    /// `required` (named only).
     pub required: bool,
     pub covariant: bool,
     pub final_: bool,
@@ -601,34 +603,36 @@ pub struct Parameter {
     pub this_: bool,
     /// `super.x`
     pub super_: bool,
-    /// `None` só em parâmetros de tipo de função sem nome: `int Function(int)`.
+    /// `None` only in unnamed function type parameters: `int Function(int)`.
     pub name: Option<Name>,
-    /// Forma antiga `int f(int x)`: parâmetros de tipo e lista do parâmetro-função.
+    /// Old form `int f(int x)`: type parameters and the function parameter's
+    /// list.
     pub function_type_params: Box<[TypeParameter]>,
     pub function_parameters: Option<Box<[Parameter]>>,
-    /// `int f(int x)?` — o `?` depois da lista da forma antiga.
+    /// `int f(int x)?` — the `?` after the old-form list.
     pub function_nullable: bool,
     pub default_value: Option<ExprId>,
-    /// Parâmetro nomeado privado que inicializa ou declara campo (Dart 3.12,
-    /// `{this._x}`): o nome **externo** — o da assinatura e da chamada — é
-    /// este (`x`); `name` continua o local e o do campo (`_x`).
+    /// Private named parameter that initializes or declares a field (Dart 3.12,
+    /// `{this._x}`): the **external** name — that of the signature and of the
+    /// call — is this one (`x`); `name` stays the local and field name (`_x`).
     pub public_name: Option<Name>,
-    /// Parâmetro declarante (`var`/`final` de construtor primário, 3.13)
-    /// que o parser reescreveu como `this.x`: sintaticamente é um
-    /// `SimpleFormalParameter`, não um `FieldFormalParameter`.
+    /// Declaring parameter (`var`/`final` of a primary constructor, 3.13) that
+    /// the parser rewrote as `this.x`: syntactically a `SimpleFormalParameter`,
+    /// not a `FieldFormalParameter`.
     pub declarante: bool,
 }
 
 impl Parameter {
-    /// O nome pelo qual o parâmetro é passado e aparece na assinatura: o
-    /// público de um nomeado privado (Dart 3.12), senão o próprio nome.
+    /// The name under which the parameter is passed and appears in the
+    /// signature: the public one of a private named parameter (Dart 3.12),
+    /// otherwise the name itself.
     pub fn nome_externo(&self) -> Option<Name> {
         self.public_name.or(self.name)
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tipos
+// Types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -641,10 +645,10 @@ pub struct TypeAnnotation {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum TypeKind {
-    /// `nome`, `p.nome`, com argumentos: inclui `dynamic`, `void` **não**,
-    /// `Function` cru, `Never`, `Object`.
+    /// `name`, `p.name`, with arguments: includes `dynamic`, **not** `void`, raw
+    /// `Function`, `Never`, `Object`.
     Named {
-        /// Uma ou duas partes (`p.Nome`).
+        /// One or two parts (`p.Name`).
         name: Box<[Name]>,
         args: Box<[TypeId]>,
     },
@@ -684,7 +688,7 @@ pub enum StmtKind {
         pattern: PatternId,
         value: ExprId,
     },
-    /// Função local (nomeada).
+    /// Local function (named).
     Function(FunctionId),
     Expression(ExprId),
     If {
@@ -748,10 +752,11 @@ pub enum StmtKind {
 pub enum ForInit {
     Variables(VariableList),
     Expression(ExprId),
-    /// `for (var (a, b) = e; …; …)` / `for (final [x, y] = e; …; …)`: a
-    /// declaração por padrão como inicialização (o `ForPartsWithPattern` do
-    /// analyzer). As variáveis do padrão valem na condição, nas atualizações
-    /// e no corpo, como as de [`ForInit::Variables`].
+    /// `for (var (a, b) = e; …; …)` / `for (final [x, y] = e; …; …)`: the
+    /// pattern declaration as initialization (the analyzer's
+    /// `ForPartsWithPattern`). The pattern's variables are in scope in the
+    /// condition, the updaters and the body, like those of
+    /// [`ForInit::Variables`].
     Pattern {
         final_: bool,
         pattern: PatternId,
@@ -768,13 +773,13 @@ pub enum ForInTarget {
         var_: bool,
         ty: Option<TypeId>,
         name: Name,
-        /// O `const` escrito (`for (const x in e)`, `for_in_with_const_variable`).
+        /// The written `const` (`for (const x in e)`, `for_in_with_const_variable`).
         #[serde(default)]
         const_: Option<Span>,
     },
     /// `for (final (a, b) in e)` / `for (var [x] in e)`.
     Pattern { final_: bool, pattern: PatternId },
-    /// `for (x in e)` — variável existente.
+    /// `for (x in e)` — an existing variable.
     Expression(ExprId),
 }
 
@@ -782,7 +787,7 @@ pub enum ForInTarget {
 pub struct SwitchCase {
     pub span: Span,
     pub labels: Box<[Name]>,
-    /// `case p when g:`; `None` para `default:`.
+    /// `case p when g:`; `None` for `default:`.
     pub pattern: Option<PatternId>,
     pub guard: Option<ExprId>,
     pub body: Box<[StmtId]>,
@@ -800,7 +805,7 @@ pub struct CatchClause {
 }
 
 // ---------------------------------------------------------------------------
-// Expressões
+// Expressions
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -809,29 +814,30 @@ pub struct Expr {
     pub kind: ExprKind,
 }
 
-/// Literal de string, possivelmente adjacente e interpolado.
+/// String literal, possibly adjacent and interpolated.
 ///
-/// Cada elemento de `parts` é um literal sintático (`'a' 'b'` produz dois);
-/// cada literal é uma sequência de trechos e interpolações.
+/// Each element of `parts` is a syntactic literal (`'a' 'b'` produces two);
+/// each literal is a sequence of pieces and interpolations.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StringLit {
     pub span: Span,
-    /// Tamanho exato (`Box<[T]>`): a maioria dos literais tem um trecho só.
+    /// Exact size (`Box<[T]>`): most literals have a single piece.
     pub parts: Box<[StringPart]>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StringPart {
-    /// Trecho literal, **já decodificado** (escapes resolvidos); `raw` vem sem
-    /// alteração. [`DartStr`] e não `str` porque `'\uD800'` é literal válido.
+    /// A literal piece, **already decoded** (escapes resolved); `raw` comes
+    /// unchanged. [`DartStr`] and not `str` because `'\uD800'` is a valid
+    /// literal.
     Text(DartStr),
-    /// `$x` ou `${e}`.
+    /// `$x` or `${e}`.
     Interpolation(ExprId),
 }
 
 impl StringLit {
-    /// Valor quando a string não tem interpolação. Literais adjacentes são
-    /// concatenados por unidades UTF-16, então `'\uD83D' '\uDC6D'` forma o par.
+    /// Value when the string has no interpolation. Adjacent literals are
+    /// concatenated by UTF-16 units, so `'\uD83D' '\uDC6D'` forms the pair.
     pub fn constant_value(&self) -> Option<DartStr> {
         let mut out = DartStrBuilder::default();
         for part in &self.parts {
@@ -851,9 +857,9 @@ impl StringLit {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arguments {
     pub span: Span,
-    /// `Box<[T]>` e não `Vec`: capacidade exata (o `Vec` dobrava — 4 slots
-    /// para 2 argumentos) e 16 bytes em vez de 24. Leitura igual à de um
-    /// `Vec` (`iter`, `len`, índice); só o parser constrói.
+    /// `Box<[T]>` and not `Vec`: exact capacity (the `Vec` doubled — 4 slots
+    /// for 2 arguments) and 16 bytes instead of 24. Reads the same as a `Vec`
+    /// (`iter`, `len`, index); only the parser builds it.
     pub type_args: Box<[TypeId]>,
     pub args: Box<[Argument]>,
 }
@@ -887,9 +893,9 @@ pub enum BinaryOp {
     And,
     Or,
     IfNull,
-    /// `a ~ b`: o `~` (operador de prefixo) entre dois operandos, que o
-    /// fasta lê como expressão binária no nível de prefixo (sem erro de
-    /// sintaxe) e o analyzer relata como `NOT_BINARY_OPERATOR`.
+    /// `a ~ b`: the `~` (a prefix operator) between two operands, which fasta
+    /// reads as a binary expression at prefix level (without a syntax error)
+    /// and the analyzer reports as `NOT_BINARY_OPERATOR`.
     NaoBinario,
 }
 
@@ -906,17 +912,18 @@ pub enum UnaryOp {
     NullAssert,
 }
 
-/// Operador composto de atribuição; `None` é `=`.
+/// Compound assignment operator; `None` is `=`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AssignOp {
     Assign,
     Compound(BinaryOp),
 }
 
-/// Listas dentro das variantes são `Box<[T]>` (tamanho exato, 16 bytes) e
-/// estruturas auxiliares grandes ficam em `Box`: o tamanho de `Expr` é o do
-/// maior variante vezes o número de expressões (397 mil no `new_sali`), e
-/// cada 8 bytes aqui são 3 MiB lá. Leitura igual à de `Vec`.
+/// Lists inside the variants are `Box<[T]>` (exact size, 16 bytes) and
+/// large auxiliary structures live in a `Box`: the size of `Expr` is that
+/// of the largest variant times the number of expressions (397 thousand in
+/// `new_sali`), and each 8 bytes here are 3 MiB there. Reads the same as a
+/// `Vec`.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum ExprKind {
     Int(Span),
@@ -928,7 +935,7 @@ pub enum ExprKind {
     Symbol(Box<[Name]>),
     Identifier(Name),
     This,
-    /// `super` só aparece como alvo de `.`, `[]`, operador ou chamada.
+    /// `super` only appears as the target of `.`, `[]`, an operator or a call.
     Super,
     /// `(e)`
     Parenthesized(ExprId),
@@ -938,8 +945,8 @@ pub enum ExprKind {
         type_args: Box<[TypeId]>,
         elements: Box<[CollectionElement]>,
     },
-    /// `<K, V>{k: v}` ou `<T>{a, b}`; sem argumentos de tipo a forma é
-    /// decidida pelos elementos (`{}` vazio é mapa).
+    /// `<K, V>{k: v}` or `<T>{a, b}`; without type arguments the shape is
+    /// decided by the elements (an empty `{}` is a map).
     SetOrMap {
         const_: bool,
         type_args: Box<[TypeId]>,
@@ -951,15 +958,15 @@ pub enum ExprKind {
         positional: Box<[ExprId]>,
         named: Box<[(Name, ExprId)]>,
     },
-    /// `new T<A>.nome(args)` / `const T(args)`; `new`/`const` explícitos.
+    /// `new T<A>.name(args)` / `const T(args)`; explicit `new`/`const`.
     InstanceCreation {
         keyword: Option<CreationKeyword>,
         ty: TypeId,
         constructor: Option<Name>,
-        /// Em `Box` porque `Arguments` tem 64 bytes e é a variante que
-        /// ditava o tamanho de todo `Expr` (120 → 80 bytes): só chamadas
-        /// pagam por ela. `Box` de estrutura auxiliar, não de nó — os nós
-        /// continuam em arenas.
+        /// In a `Box` because `Arguments` has 64 bytes and was the variant that
+        /// dictated the size of every `Expr` (120 → 80 bytes): only calls pay for
+        /// it. A `Box` of an auxiliary structure, not of a node — nodes stay in
+        /// arenas.
         arguments: Box<Arguments>,
     },
     /// `(params) { }`, `(params) => e`, `<T>(params) async { }`
@@ -975,14 +982,14 @@ pub enum ExprKind {
         index: ExprId,
         null_aware: bool,
     },
-    /// `f(args)`, `e.m<T>(args)`, `e?.m(args)` — o alvo é a expressão da
-    /// função (um `Property` para chamadas de método).
+    /// `f(args)`, `e.m<T>(args)`, `e?.m(args)` — the target is the function
+    /// expression (a `Property` for method calls).
     Call {
         target: ExprId,
         /// Veja [`ExprKind::InstanceCreation::arguments`].
         arguments: Box<Arguments>,
     },
-    /// `e<T>` — instanciação explícita de tearoff ou tipo genérico.
+    /// `e<T>` — explicit instantiation of a tearoff or generic type.
     TypeArguments {
         target: ExprId,
         type_args: Box<[TypeId]>,
@@ -1017,20 +1024,20 @@ pub enum ExprKind {
         target: ExprId,
         value: ExprId,
     },
-    /// `(a, b) = e` / `[x, y] = e` — atribuição por padrão.
+    /// `(a, b) = e` / `[x, y] = e` — pattern assignment.
     PatternAssign {
         pattern: PatternId,
         value: ExprId,
     },
-    /// `e..a = 1..b()` : cada seção é uma expressão cujo alvo mais interno é
-    /// o marcador [`ExprKind::CascadeTarget`]. `null_aware` é `?..` na
-    /// primeira seção.
+    /// `e..a = 1..b()` : each section is an expression whose innermost target
+    /// is the [`ExprKind::CascadeTarget`] marker. `null_aware` is `?..` in the
+    /// first section.
     Cascade {
         target: ExprId,
         sections: Box<[ExprId]>,
         null_aware: bool,
     },
-    /// Receptor implícito de uma seção de cascata (`..a` → `CascadeTarget.a`).
+    /// Implicit receiver of a cascade section (`..a` → `CascadeTarget.a`).
     CascadeTarget,
     Await(ExprId),
     Throw(ExprId),
@@ -1040,16 +1047,16 @@ pub enum ExprKind {
         value: ExprId,
         cases: Box<[SwitchExprCase]>,
     },
-    /// Atalho de ponto (Dart 3.10): o *head* `.id`, `.new`, `const .id` ou
-    /// `const .new`; seletores seguintes são nós comuns em volta dele
-    /// (`.parse('1')` é `Call { target: DotShorthand }`). Denota `D.id`, com
-    /// `D` a declaração do tipo de contexto da cadeia inteira; `types` grava
-    /// `D` em `Resolved::Element(Element::Class(D))` deste nó
+    /// Dot shorthand (Dart 3.10): the head `.id`, `.new`, `const .id` or
+    /// `const .new`; the following selectors are regular nodes around it
+    /// (`.parse('1')` is `Call { target: DotShorthand }`). Denotes `D.id`, with
+    /// `D` the declaration of the context type of the whole chain; `types`
+    /// records `D` in `Resolved::Element(Element::Class(D))` of this node
     /// (`docs/VERSOES-LINGUAGEM.md` §4.3).
     DotShorthand {
-        /// `id`, ou `new` para `.new`.
+        /// `id`, or `new` for `.new`.
         name: Name,
-        /// `const .id(…)`/`const .new(…)`: criação constante.
+        /// `const .id(…)`/`const .new(…)`: constant creation.
         const_: bool,
     },
 }
@@ -1068,13 +1075,13 @@ pub struct SwitchExprCase {
     pub body: ExprId,
 }
 
-/// Elemento de literal de lista/conjunto/mapa.
+/// List/set/map literal element.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum CollectionElement {
     Expression(ExprId),
-    /// `?e` (elementos null-aware, Dart 3.8): entra só quando não é nulo.
+    /// `?e` (null-aware elements, Dart 3.8): included only when not null.
     NullAwareExpression(ExprId),
-    /// `k: v`, `?k: v`, `k: ?v`, `?k: ?v` — os `?` são null-aware (Dart 3.8).
+    /// `k: v`, `?k: v`, `k: ?v`, `?k: ?v` — the `?` are null-aware (Dart 3.8).
     MapEntry {
         key: ExprId,
         value: ExprId,
@@ -1111,7 +1118,7 @@ pub enum CollectionElement {
 }
 
 // ---------------------------------------------------------------------------
-// Padrões
+// Patterns
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -1122,18 +1129,18 @@ pub struct Pattern {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum PatternKind {
-    /// `_` ou `int _`
+    /// `_` or `int _`
     Wildcard {
         ty: Option<TypeId>,
     },
-    /// `var x`, `final int x`, ou `x` solto dentro de um padrão de declaração.
+    /// `var x`, `final int x`, or a bare `x` inside a declaration pattern.
     Variable {
         final_: bool,
         var_: bool,
         ty: Option<TypeId>,
         name: Name,
     },
-    /// Constante: literal, `const C()`, `-1`, identificador qualificado.
+    /// Constant: literal, `const C()`, `-1`, qualified identifier.
     Constant(ExprId),
     /// `== e`, `< e`, …
     Relational {
@@ -1177,7 +1184,7 @@ pub enum PatternKind {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum ListPatternElement {
     Pattern(PatternId),
-    /// `...` ou `...p`
+    /// `...` or `...p`
     Rest(Option<PatternId>),
 }
 
@@ -1187,8 +1194,8 @@ pub struct MapPatternEntry {
     pub value: PatternId,
 }
 
-/// Campo de padrão de record/objeto. `name` ausente é posicional; `:x` é um
-/// campo com nome inferido do padrão de variável.
+/// Record/object pattern field. A missing `name` is positional; `:x` is a
+/// field with the name inferred from the variable pattern.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct PatternField {
     pub span: Span,

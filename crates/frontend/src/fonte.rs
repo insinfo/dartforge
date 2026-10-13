@@ -1,16 +1,17 @@
-//! O texto de um nó como o `toSource()` (e o `toString()`) do analyzer
-//! 3.6.2: o `ToSourceVisitor` (`analyzer/lib/src/dart/ast/to_source_visitor.dart`),
-//! nó a nó, com os mesmos separadores. Os tokens folha (números, strings,
-//! identificadores) saem com o lexema da fonte; o resto é recomposto, então
-//! brancos e comentários da fonte não aparecem.
+//! A node's text like the analyzer 3.6.2 `toSource()` (and `toString()`):
+//! the `ToSourceVisitor` (`analyzer/lib/src/dart/ast/to_source_visitor.dart`),
+//! node by node, with the same separators. Leaf tokens (numbers, strings,
+//! identifiers) come out with the source lexeme; the rest is recomposed, so
+//! the source's whitespace and comments do not appear.
 //!
-//! O que a árvore daqui não guarda e o visitante imprime é lido da fonte,
-//! no lugar exato em que o parser o consumiu: o nome do campo posicional de
-//! um tipo record, o `var`/`final` de um padrão curinga, o `const` de um
-//! padrão constante, o separador (`=` ou `:`) do valor padrão de um
-//! parâmetro, os limites das strings adjacentes e das interpolações. A
-//! metadata das declarações locais vem de `Ast::metadados_locais`.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! What the tree here does not store and the visitor prints is read from
+//! the source, at the exact place the parser consumed it: the name of a
+//! record type's positional field, the `var`/`final` of a wildcard pattern,
+//! the `const` of a constant pattern, the separator (`=` or `:`) of a
+//! parameter's default value, the bounds of adjacent strings and of
+//! interpolations. The metadata of local declarations comes from
+//! `Ast::metadados_locais`.
+//! Written without compiling or running (2026-10-05).
 
 use crate::ast::{
     Annotation, Arguments, AssignOp, Ast, BinaryOp, CatchClause, CollectionElement, CreationKeyword, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody,
@@ -19,7 +20,7 @@ use crate::ast::{
 };
 use dartforge_intern::Interner;
 
-/// Pula brancos e comentários (os de bloco aninham) a partir de `i`.
+/// Skips whitespace and comments (block comments nest) from `i`.
 pub fn pular_brancos(b: &[u8], mut i: usize) -> usize {
     loop {
         while i < b.len() && b[i].is_ascii_whitespace() {
@@ -55,16 +56,16 @@ fn identifier_part(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_' || c == b'$'
 }
 
-/// A fonte, a partir de `i`, começa com a palavra `p` inteira.
+/// The source, from `i`, starts with the whole word `p`.
 pub fn palavra_em(fonte: &str, i: usize, p: &str) -> bool {
     let b = fonte.as_bytes();
     b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes())) && !b.get(i + p.len()).is_some_and(|&c| identifier_part(c))
 }
 
-/// O fim do nó `FunctionTypedFormalParameter`/`FieldFormalParameter` com
-/// lista (sem o valor padrão do `DefaultFormalParameter` que o envolve): o
-/// `)` que fecha a lista que começa depois do nome (e dos parâmetros de
-/// tipo), e o `?` que o siga.
+/// The end of a `FunctionTypedFormalParameter`/`FieldFormalParameter` node
+/// with a list (without the default value of the enclosing
+/// `DefaultFormalParameter`): the `)` that closes the list starting after
+/// the name (and the type parameters), and the `?` that follows it.
 pub fn fim_do_parametro_funcao(fonte: &str, after_name: usize) -> usize {
     let b = fonte.as_bytes();
     let mut i = after_name;
@@ -101,50 +102,50 @@ pub fn fim_do_parametro_funcao(fonte: &str, after_name: usize) -> usize {
     b.len()
 }
 
-/// O texto do tipo `t`.
+/// The text of type `t`.
 pub fn de_tipo(a: &Ast, fonte: &str, interner: &Interner, t: TypeId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.kind(t);
     f.output
 }
 
-/// O texto da expressão `e`.
+/// The text of expression `e`.
 pub fn de_expr(a: &Ast, fonte: &str, interner: &Interner, e: ExprId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.expr(e);
     f.output
 }
 
-/// O texto da instrução `s`.
+/// The text of statement `s`.
 pub fn from_stmt(a: &Ast, fonte: &str, interner: &Interner, s: StmtId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.stmt(s);
     f.output
 }
 
-/// O texto do padrão `p`.
+/// The text of pattern `p`.
 pub fn de_padrao(a: &Ast, fonte: &str, interner: &Interner, p: PatternId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.padrao(p);
     f.output
 }
 
-/// O texto da anotação `m`.
+/// The text of annotation `m`.
 pub fn from_annotation(a: &Ast, fonte: &str, interner: &Interner, m: &Annotation) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.annotation(m);
     f.output
 }
 
-/// O texto da lista de parâmetros de tipo `ps` (o `TypeParameterList`;
-/// vazio sem nenhum).
+/// The text of the type parameter list `ps` (the `TypeParameterList`; empty
+/// when there are none).
 pub fn de_parametros_de_tipo(a: &Ast, fonte: &str, interner: &Interner, ps: &[TypeParameter]) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.type_parameters_(ps);
     f.output
 }
 
-/// O texto da lista de parâmetros `ps` (o `FormalParameterList`).
+/// The text of the parameter list `ps` (the `FormalParameterList`).
 pub fn de_parametros(a: &Ast, fonte: &str, interner: &Interner, ps: &[Parameter]) -> String {
     let mut f = Impressor::novo(a, fonte, interner);
     f.parameters_(ps);
@@ -183,8 +184,8 @@ struct Impressor<'a> {
     fonte: &'a str,
     interner: &'a Interner,
     output: String,
-    /// O operador da seção de cascata em impressão (`..` ou `?..`): o
-    /// `CascadeTarget` sai como ele.
+    /// The operator of the cascade section being printed (`..` or `?..`): the
+    /// `CascadeTarget` prints as it.
     cascade: &'static str,
 }
 
@@ -215,7 +216,7 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// A metadata de uma declaração local (`Ast::metadados_locais`).
+    /// The metadata of a local declaration (`Ast::metadados_locais`).
     fn metadata_local(&mut self, s: StmtId) {
         let a = self.a;
         if let Some((_, ms)) = a.metadados_locais.iter().find(|(x, _)| *x == s) {
@@ -224,7 +225,7 @@ impl<'a> Impressor<'a> {
     }
 
     // -----------------------------------------------------------------
-    // Tipos
+    // Types
     // -----------------------------------------------------------------
 
     fn type_arguments_(&mut self, ts: &[TypeId]) {
@@ -293,8 +294,8 @@ impl<'a> Impressor<'a> {
                         self.w(", ");
                     }
                     self.kind(p);
-                    // O nome do campo posicional: o identificador que o
-                    // parser consumiu logo depois do tipo.
+                    // The positional field's name: the identifier the parser consumed right
+                    // after the type.
                     let b = self.fonte.as_bytes();
                     let i = pular_brancos(b, a.ty(p).span.end);
                     if b.get(i).is_some_and(|&c| identifier_part(c) && !c.is_ascii_digit()) {
@@ -331,7 +332,7 @@ impl<'a> Impressor<'a> {
     }
 
     // -----------------------------------------------------------------
-    // Parâmetros
+    // Parameters
     // -----------------------------------------------------------------
 
     /// `visitFormalParameterList`.
@@ -369,7 +370,7 @@ impl<'a> Impressor<'a> {
         }
         let function = p.function_parameters.is_some();
         if p.this_ || p.super_ || !function {
-            // `keyword`: o `FunctionTypedFormalParameter` não o tem.
+            // `keyword`: the `FunctionTypedFormalParameter` does not have it.
             if p.final_ {
                 self.w("final ");
             } else if p.const_ {
@@ -415,11 +416,11 @@ impl<'a> Impressor<'a> {
                 self.nome(n);
             }
         }
-        // `visitDefaultFormalParameter`: o separador escrito.
+        // `visitDefaultFormalParameter`: the separator as written.
         if let Some(v) = p.default_value {
             let start_offset = self.a.expr(v).span.start;
             let b = self.fonte.as_bytes();
-            // O separador é o último `=` ou `:` antes do valor.
+            // The separator is the last `=` or `:` before the value.
             let mut i = start_offset;
             let mut sep = b'=';
             while i > p.span.start {
@@ -439,11 +440,11 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// `visitAnnotation`: `@`, o nome (com o prefixo), os argumentos de
-    /// tipo, `.construtor` e os argumentos.
+    /// `visitAnnotation`: `@`, the name (with the prefix), the type arguments,
+    /// `.constructor` and the arguments.
     fn annotation(&mut self, m: &Annotation) {
         self.w("@");
-        // Os argumentos de tipo vêm depois das partes escritas antes deles.
+        // The type arguments come after the parts written before them.
         let antes = match m.type_args.first() {
             Some(&t) => {
                 let start_ = self.a.ty(t).span.start;
@@ -468,8 +469,8 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// `visitArgumentList`; `with_types` imprime antes os argumentos de tipo
-    /// da invocação.
+    /// `visitArgumentList`; `with_types` prints the invocation's type arguments
+    /// first.
     fn arguments_(&mut self, args: &Arguments, with_types: bool) {
         if with_types {
             self.type_arguments_(&args.type_args);
@@ -480,7 +481,7 @@ impl<'a> Impressor<'a> {
                 self.w(", ");
             }
             if let Some(n) = x.name {
-                // `visitNamedExpression`: o rótulo `nome:` e ` value`.
+                // `visitNamedExpression`: the `name:` label and ` value`.
                 self.nome(n);
                 self.w(": ");
             }
@@ -490,7 +491,7 @@ impl<'a> Impressor<'a> {
     }
 
     // -----------------------------------------------------------------
-    // Expressões
+    // Expressions
     // -----------------------------------------------------------------
 
     fn expr(&mut self, e: ExprId) {
@@ -537,8 +538,8 @@ impl<'a> Impressor<'a> {
                 self.w("}");
             }
             ExprKind::Record { positional, named, .. } => {
-                // `visitRecordLiteral`: os campos na ordem escrita, sem o
-                // `const` e sem a vírgula final.
+                // `visitRecordLiteral`: the fields in written order, without the `const`
+                // and without the trailing comma.
                 let mut fields_: Vec<(usize, Option<crate::ast::Name>, ExprId)> = positional.iter().map(|&p| (a.expr(p).span.start, None, p)).collect();
                 fields_.extend(named.iter().map(|&(n, v)| (n.span.start, Some(n), v)));
                 fields_.sort_by_key(|c| c.0);
@@ -610,8 +611,8 @@ impl<'a> Impressor<'a> {
                     UnaryOp::PostfixDec => (false, "--"),
                     UnaryOp::NullAssert => (false, "!"),
                 };
-                // Os operandos escritos já respeitam a precedência (os
-                // parênteses estão na árvore): o `_writeOperand` não acrescenta.
+                // The written operands already respect precedence (the parentheses are in
+                // the tree): `_writeOperand` adds nothing.
                 if pre {
                     self.w(lexeme);
                     self.expr(*operand);
@@ -709,10 +710,10 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// A string, possivelmente adjacente e interpolada, pela fonte: cada
-    /// literal com o lexema (`visitSimpleStringLiteral`,
-    /// `visitInterpolationString`), os adjacentes separados por um espaço
-    /// (`visitAdjacentStrings`), cada interpolação `${e}` recomposta
+    /// The string, possibly adjacent and interpolated, from the source: each
+    /// literal with its lexeme (`visitSimpleStringLiteral`,
+    /// `visitInterpolationString`), adjacent ones separated by a space
+    /// (`visitAdjacentStrings`), each `${e}` interpolation recomposed
     /// (`visitInterpolationExpression`).
     fn string(&mut self, s: &StringLit) {
         let a = self.a;
@@ -763,7 +764,7 @@ impl<'a> Impressor<'a> {
                         self.w("${");
                         if let Some(e) = interpolations.next() {
                             self.expr(e);
-                            // Até o `}` que fecha, depois da expressão.
+                            // Up to the closing `}`, after the expression.
                             let k = pular_brancos(b, a.expr(e).span.end);
                             i = if b.get(k) == Some(&b'}') { k + 1 } else { k };
                         } else {
@@ -807,7 +808,7 @@ impl<'a> Impressor<'a> {
                 self.w("?");
                 self.expr(*x);
             }
-            // `visitMapLiteralEntry`: a 3.6.2 não imprime os `?`.
+            // `visitMapLiteralEntry`: 3.6.2 does not print the `?`.
             CollectionElement::MapEntry { key, value, .. } => {
                 self.expr(*key);
                 self.w(" : ");
@@ -920,7 +921,8 @@ impl<'a> Impressor<'a> {
         self.expr(iterable);
     }
 
-    /// `visitVariableDeclarationList` (sem a metadata, que o chamador põe).
+    /// `visitVariableDeclarationList` (without the metadata, which the caller
+    /// adds).
     fn variable_list(&mut self, l: &VariableList) {
         if l.late {
             self.w("late ");
@@ -948,8 +950,8 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// `visitFunctionExpression` (`declared`: o corpo `=> e` de uma
-    /// declaração termina em `;`).
+    /// `visitFunctionExpression` (`declared`: the `=> e` body of a declaration
+    /// ends with `;`).
     fn function(&mut self, f: FunctionId, declared: bool) {
         let a = self.a;
         let g = a.function(f);
@@ -992,7 +994,7 @@ impl<'a> Impressor<'a> {
     }
 
     // -----------------------------------------------------------------
-    // Instruções
+    // Statements
     // -----------------------------------------------------------------
 
     fn stmt(&mut self, s: StmtId) {
@@ -1023,7 +1025,7 @@ impl<'a> Impressor<'a> {
                 self.w(";");
             }
             StmtKind::Function(f) => {
-                // `visitFunctionDeclaration` de uma função local.
+                // `visitFunctionDeclaration` of a local function.
                 self.metadata_local(s);
                 let g = a.function(*f);
                 if g.external {
@@ -1202,7 +1204,7 @@ impl<'a> Impressor<'a> {
     }
 
     // -----------------------------------------------------------------
-    // Padrões
+    // Patterns
     // -----------------------------------------------------------------
 
     fn padrao(&mut self, p: PatternId) {
@@ -1210,7 +1212,7 @@ impl<'a> Impressor<'a> {
         let pt = a.pattern(p);
         match &pt.kind {
             PatternKind::Wildcard { ty } => {
-                // `visitWildcardPattern`: o `var`/`final` escrito.
+                // `visitWildcardPattern`: the `var`/`final` as written.
                 if palavra_em(self.fonte, pt.span.start, "var") {
                     self.w("var ");
                 } else if palavra_em(self.fonte, pt.span.start, "final") {
@@ -1235,8 +1237,8 @@ impl<'a> Impressor<'a> {
                 self.nome(*name);
             }
             PatternKind::Constant(e) => {
-                // `visitConstantPattern`: o `const` do padrão, quando a
-                // expressão não o imprime ela mesma.
+                // `visitConstantPattern`: the pattern's `const`, when the expression does
+                // not print it itself.
                 let antes = self.output.len();
                 let written = palavra_em(self.fonte, pt.span.start, "const");
                 self.expr(*e);
@@ -1332,8 +1334,8 @@ impl<'a> Impressor<'a> {
         }
     }
 
-    /// `visitPatternField`: `nome: p`, `: p` (o nome inferido do padrão)
-    /// ou só `p`.
+    /// `visitPatternField`: `name: p`, `: p` (the name inferred from the
+    /// pattern) or just `p`.
     fn fields_(&mut self, fields: &[crate::ast::PatternField]) {
         let a = self.a;
         for (k, f) in fields.iter().enumerate() {
@@ -1366,6 +1368,6 @@ mod tests {
     #[test]
     fn whole_word() {
         assert!(palavra_em("var x", 0, "var"));
-        assert!(!palavra_em("variavel", 0, "var"));
+        assert!(!palavra_em("variable", 0, "var"));
     }
 }

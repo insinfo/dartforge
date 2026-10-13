@@ -1,37 +1,36 @@
-//! As referências `[…]` de um comentário de documentação como o
-//! `DocCommentBuilder` do analyzer 3.6.2
-//! (`analyzer/lib/src/fasta/doc_comment_builder.dart`): o comentário é lido
-//! linha a linha (`_CharacterSequence`: depois do `///` de cada linha, ou as
-//! linhas de um `/** */` sem o `* ` da margem); um bloco indentado (quatro
-//! brancos depois de uma linha vazia), um bloco cercado por crases, uma
-//! diretiva `{@…}` conhecida, um `@docImport` e um `@nodoc` não têm
-//! referências; nas outras linhas, `_parseReferences` acha cada `[…]` que
-//! não é texto de link, e `_parseOneCommentReference` o lê com o scanner do
-//! Dart: `new` opcional, até dois prefixos com ponto e um identificador ou
-//! um operador definível (`[int.+]`, `[operator ==]`).
+//! The `[…]` references of a doc comment, like the analyzer 3.6.2
+//! `DocCommentBuilder` (`analyzer/lib/src/fasta/doc_comment_builder.dart`):
+//! the comment is read line by line (`_CharacterSequence`: after each line's
+//! `///`, or the lines of a `/** */` without the `* ` margin); an indented
+//! block (four spaces after an empty line), a backtick-fenced block, a known
+//! `{@…}` directive, a `@docImport` and a `@nodoc` have no references; in the
+//! other lines, `_parseReferences` finds each `[…]` that is not link text,
+//! and `_parseOneCommentReference` reads it with the Dart scanner: optional
+//! `new`, up to two dotted prefixes and an identifier or a user-definable
+//! operator (`[int.+]`, `[operator ==]`).
 
 use crate::Span;
 
-/// Uma referência: as partes (o intervalo e o texto de cada uma, na ordem:
-/// prefixos e o nome) e o `new` escrito antes delas.
+/// A reference: the parts (the range and text of each one, in order:
+/// prefixes and the name) and the `new` written before them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocReference {
     pub novo: bool,
     pub partes: Vec<(Span, String)>,
 }
 
-/// Os operadores definíveis (`TokenType.isUserDefinableOperator`).
+/// The user-definable operators (`TokenType.isUserDefinableOperator`).
 const OPERATORS: &[&str] = &["==", "~", "[]", "[]=", "*", "/", "%", "~/", "+", "-", "<<", ">>", ">>>", ">=", ">", "<=", "<", "&", "^", "|"];
 
-/// As palavras reservadas (`KeywordStyle.reserved`): não são identificador.
+/// The reserved words (`KeywordStyle.reserved`): they are not identifiers.
 const RESERVED_WORDS: &[&str] = &[
     "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally", "for", "if", "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while", "with",
 ];
 
-/// As diretivas `{@…}` que o builder conhece (`_parseDocDirectiveTag`).
+/// The `{@…}` directives the builder knows (`_parseDocDirectiveTag`).
 const DIRECTIVES: &[&str] = &["animation", "canonicalFor", "category", "end-inject-html", "end-tool", "endtemplate", "inject-html", "macro", "subCategory", "template", "tool", "youtube"];
 
-/// `isWhitespace` do scanner: espaço, tabulação, LF e CR.
+/// The scanner's `isWhitespace`: space, tab, LF and CR.
 fn whitespace(c: u8) -> bool {
     matches!(c, b' ' | b'\t' | b'\n' | b'\r')
 }
@@ -44,14 +43,14 @@ fn read_whitespace(content: &[u8], mut i: usize) -> usize {
     i
 }
 
-/// As linhas (`_CharacterSequence`): o deslocamento de cada conteúdo na
-/// fonte e o conteúdo. `tokens` é a cadeia de comentários a partir do token
-/// do `findDartDoc`.
+/// The lines (`_CharacterSequence`): the source offset of each content and
+/// the content. `tokens` is the comment chain starting at the `findDartDoc`
+/// token.
 fn lines_<'a>(fonte: &'a str, tokens: &[Span]) -> Vec<(usize, &'a str)> {
     let mut v = Vec::new();
     let Some(first) = tokens.first() else { return v };
     let lexeme_of = |s: &Span| {
-        // O token de `//` termina antes do CR ou do LF.
+        // The `//` token ends before the CR or the LF.
         let t = &fonte[s.start..s.end];
         let end_offset = t.find(['\r', '\n']).unwrap_or(t.len());
         (s.start, &t[..end_offset])
@@ -95,8 +94,9 @@ fn lines_<'a>(fonte: &'a str, tokens: &[Span]) -> Vec<(usize, &'a str)> {
     v
 }
 
-/// `_fencedCodeBlockDelimiter`: o índice das crases de abertura, ou `None`.
-/// A comparação é com três caracteres, e só casa quando o mínimo é três.
+/// `_fencedCodeBlockDelimiter`: the index of the opening backticks, or
+/// `None`. The comparison is against three characters, and it only matches
+/// when the minimum is three.
 fn fence(content: &[u8], minimum: usize) -> Option<usize> {
     if content.is_empty() {
         return None;
@@ -108,8 +108,8 @@ fn fence(content: &[u8], minimum: usize) -> Option<usize> {
     (minimum == 3 && &content[i..i + 3] == b"```").then_some(i)
 }
 
-/// As referências do comentário cujos tokens (a cadeia a partir do do
-/// `findDartDoc`) são `tokens`.
+/// The references of the comment whose tokens (the chain starting at the
+/// `findDartDoc` one) are `tokens`.
 pub fn referencias(fonte: &str, tokens: &[Span]) -> Vec<DocReference> {
     let ls = lines_(fonte, tokens);
     let mut output = Vec::new();
@@ -120,8 +120,8 @@ pub fn referencias(fonte: &str, tokens: &[Span]) -> Vec<DocReference> {
         let b = content.as_bytes();
         let ws = read_whitespace(b, 0);
         if blank_line_before && ws >= 4 {
-            // `_parseIndentedCodeBlock`: até a primeira linha com menos de
-            // quatro brancos, que é lida em seguida.
+            // `_parseIndentedCodeBlock`: up to the first line with fewer than four
+            // spaces, which is read next.
             k += 1;
             while k < ls.len() && read_whitespace(ls[k].1.as_bytes(), 0) >= 4 {
                 k += 1;
@@ -132,8 +132,8 @@ pub fn referencias(fonte: &str, tokens: &[Span]) -> Vec<DocReference> {
             continue;
         }
         if let Some(i) = fence(b, 3) {
-            // `_parseFencedCodeBlock`: até a linha que fecha (com o mínimo
-            // de crases da abertura), consumida.
+            // `_parseFencedCodeBlock`: up to the closing line (with at least as many
+            // backticks as the opening), consumed.
             let mut backticks = 0;
             let mut j = i;
             while j < b.len() && b[j] == b'`' {
@@ -163,7 +163,7 @@ pub fn referencias(fonte: &str, tokens: &[Span]) -> Vec<DocReference> {
     output
 }
 
-/// `_parseDocDirectiveTag`: `{@nome` com um nome conhecido.
+/// `_parseDocDirectiveTag`: `{@name` with a known name.
 fn known_directive(b: &[u8], i: usize) -> bool {
     if !b[i..].starts_with(b"{@") {
         return false;
@@ -180,8 +180,8 @@ fn known_directive(b: &[u8], i: usize) -> bool {
     DIRECTIVES.contains(&nome)
 }
 
-/// `_parseDocImport`: `@docImport ` seguido de um import (a URI entre
-/// aspas).
+/// `_parseDocImport`: `@docImport ` followed by an import (the URI in
+/// quotes).
 fn doc_import(content: &str, i: usize) -> bool {
     let Some(rest) = content[i..].strip_prefix("@docImport ") else { return false };
     rest.trim_start_matches([' ', '\t', '\n', '\r']).starts_with(['\'', '"'])
@@ -195,8 +195,8 @@ fn nodoc(b: &[u8], i: usize) -> bool {
     b.len() == i + 6 || b[i + 6] == b' '
 }
 
-/// `_findCommentReferenceEnd`: o fim de `ident` ou `ident.ident` (letras e
-/// dígitos ASCII), para o `[` sem `]` na linha.
+/// `_findCommentReferenceEnd`: the end of `ident` or `ident.ident` (ASCII
+/// letters and digits), for a `[` without `]` on the line.
 fn reference_end(b: &[u8], mut i: usize, end_offset: usize) -> usize {
     let letter = |c: u8| c.is_ascii_alphabetic();
     let letter_or_digit = |c: u8| c.is_ascii_alphanumeric();
@@ -243,7 +243,7 @@ fn link_text(b: &[u8], right: usize, can_be_link_reference: bool) -> bool {
     c == b'['
 }
 
-/// `_parseReferences` numa linha.
+/// `_parseReferences` on one line.
 fn line_references(content: &str, shift: usize, output: &mut Vec<DocReference>) {
     let b = content.as_bytes();
     let end_offset = b.len();
@@ -254,7 +254,7 @@ fn line_references(content: &str, shift: usize, output: &mut Vec<DocReference>) 
         if c == b'[' {
             i += 1;
             if i < end_offset && b[i] == b':' {
-                // `[:código:]` antigo.
+                // Old `[:code:]`.
                 match content[i + 1..].find(":]") {
                     Some(k) => i = i + 1 + k + 1,
                     None => break,
@@ -288,23 +288,23 @@ fn line_references(content: &str, shift: usize, output: &mut Vec<DocReference>) 
     }
 }
 
-/// Um token do scanner do Dart, para o que a referência precisa.
+/// A Dart scanner token, as far as the reference needs.
 #[derive(Debug, Clone)]
 enum Tk {
-    /// Identificador ou palavra-chave (o texto decide).
+    /// Identifier or keyword (the text decides).
     Word(Span, String),
     Dot,
     Operator(Span, String),
     Other,
 }
 
-/// O scanner do Dart sobre o texto de uma referência: `None` quando ele
-/// acusa erro (caractere inválido, string sem fechar).
+/// The Dart scanner over the text of a reference: `None` when it reports an
+/// error (invalid character, unterminated string).
 fn scan(texto: &str, shift: usize) -> Option<Vec<Tk>> {
     let b = texto.as_bytes();
     let mut v = Vec::new();
     let mut i = 0;
-    // Os operadores, do maior ao menor (o scanner consome o mais longo).
+    // The operators, longest first (the scanner consumes the longest one).
     const SIGNS: &[&str] = &[
         ">>>=", "...?", "<<=", ">>=", ">>>", "~/=", "??=", "...", "&&=", "||=", "==", "!=", "<=", ">=", "<<", ">>", "~/", "[]=", "[]", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "&&", "||", "++", "--", "??", "?.", "=>", "+", "-", "*",
         "/", "%", "~", "<", ">", "&", "|", "^", "!", "?", "=", ":", ";", ",", "(", ")", "[", "]", "{", "}", "@", "#",
@@ -375,7 +375,7 @@ fn scan(texto: &str, shift: usize) -> Option<Vec<Tk>> {
     Some(v)
 }
 
-/// `token.isIdentifier`: identificador, palavra embutida ou pseudo.
+/// `token.isIdentifier`: identifier, built-in word or pseudo-keyword.
 fn identifier(t: Option<&Tk>) -> bool {
     matches!(t, Some(Tk::Word(_, p)) if !RESERVED_WORDS.contains(&p.as_str()))
 }
@@ -405,10 +405,10 @@ fn one_reference(texto: &str, shift: usize) -> Option<DocReference> {
             partes.push((*s, p.clone()));
         }
         i = dot + 1;
-        // `new` depois do `.` vira identificador (o construtor sem nome).
+        // `new` after the `.` becomes an identifier (the unnamed constructor).
     }
-    // Sem nada depois: o identificador sintético da recuperação (vazio, não
-    // resolve); os prefixos antes dele são referências.
+    // Nothing after it: the recovery's synthetic identifier (empty, it does not
+    // resolve); the prefixes before it are references.
     if t(i).is_none() {
         let end_offset = partes.last()?.0.end;
         partes.push((Span { start: end_offset + 1, end: end_offset + 1 }, String::new()));
@@ -457,16 +457,17 @@ mod testes {
     #[test]
     fn like_the_doc_comment_builder() {
         assert_eq!(refs("/// [a], [b.c], [new D], [E.new], [int.+], [operator ==].\nclass X {}\n"), vec!["a", "b.c", "D", "E.new", "int.+", "=="]);
-        // Links: `[t](u)`, `[t] [r]` (o `[r]` é referência), `[r]:` no começo.
-        // `[r] [q]`: o `[r]` seguido de `[` (depois de brancos) é texto de link.
+        // Links: `[t](u)`, `[t] [r]` (the `[r]` is a reference), `[r]:` at the
+        // start. `[r] [q]`: the `[r]` followed by `[` (after whitespace) is link
+        // text.
         assert_eq!(refs("/// [t](u) [x][r] [q]: y\n/// [z]: link\n/// [x][s]\nclass X {}\n"), vec!["q", "s"]);
-        // Código entre crases, bloco cercado e bloco indentado.
+        // Backtick code, fenced block and indented block.
         assert_eq!(refs("/// `[a]` [b]\n/// ```\n/// [c]\n/// ```\n///\n///     [d]\n/// [e]\nclass X {}\n"), vec!["b", "e"]);
-        // `[a [b]`: o conteúdo vai até o primeiro `]`.
+        // `[a [b]`: the content runs up to the first `]`.
         assert_eq!(refs("/// [a [b] [c d] [ f ]\nclass X {}\n"), vec!["f"]);
-        // `//` no meio da sequência é pulado; `{@template}` não tem referência.
+        // `//` in the middle of the run is skipped; `{@template}` has no reference.
         assert_eq!(refs("/// [a]\n// [b]\n/// {@template t} [c]\n/// [d\nclass X {}\n"), vec!["a", "d"]);
-        // Bloco `/** */`.
+        // `/** */` block.
         assert_eq!(refs("/**\n * [a] e\n *\n * [b]\n */\nclass X {}\n"), vec!["a", "b"]);
     }
 }

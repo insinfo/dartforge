@@ -1,36 +1,36 @@
-//! Classificação de tokens e utilidades de recuperação portadas do parser do
-//! `_fe_analyzer_shared` (o "fasta", que o analyzer usa).
+//! Token classification and recovery helpers ported from the
+//! `_fe_analyzer_shared` parser (the "fasta" the analyzer uses).
 //!
-//! O lexer do DartForge só marca como [`Kind::Keyword`] as palavras
-//! reservadas; os identificadores embutidos (`abstract`, `get`…) e os
-//! pseudo-identificadores (`async`, `out`…) chegam como [`Kind::Ident`]. O
-//! scanner do fasta os marca todos como palavra-chave, com um estilo
-//! (`KeywordStyle` em `scanner/token.dart`), e a recuperação de erros do
-//! parser decide por esse estilo e pelas marcas `isModifier` e
-//! `isTopLevelKeyword`. As funções daqui refazem essa classificação pelo
-//! texto, com as tabelas de `token.dart` (versão 76.0.0, a do Dart 3.6).
+//! DartForge's lexer only marks reserved words as [`Kind::Keyword`]; the
+//! built-in identifiers (`abstract`, `get`…) and the pseudo-identifiers
+//! (`async`, `out`…) arrive as [`Kind::Ident`]. fasta's scanner marks all of
+//! them as keywords, with a style (`KeywordStyle` in `scanner/token.dart`),
+//! and the parser's error recovery decides by that style and by the
+//! `isModifier` and `isTopLevelKeyword` flags. The functions here redo that
+//! classification from the text, with the tables of `token.dart` (version
+//! 76.0.0, Dart 3.6's).
 //!
-//! Também fica aqui o casamento de `<` com `>` que o scanner do fasta faz
-//! (`BeginToken.endGroup` de `<`): a recuperação de listas de parâmetros de
-//! tipo pula até ele.
+//! Also here is the matching of `<` with `>` that fasta's scanner does
+//! (`BeginToken.endGroup` of `<`): the recovery of type parameter lists skips
+//! to it.
 
 use super::Parser;
 use crate::token::{Interp, Kind, Op};
 
-/// Estilo de uma palavra-chave do fasta (`KeywordStyle`).
+/// Style of a fasta keyword (`KeywordStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WordStyle {
-    /// Palavra reservada: nunca é identificador.
+    /// Reserved word: never an identifier.
     Reserved,
-    /// Identificador embutido (`isBuiltIn`): identificador, mas não nome de
-    /// tipo nem de declaração.
+    /// Built-in identifier (`isBuiltIn`): an identifier, but not a type or
+    /// declaration name.
     BuiltIn,
-    /// Pseudo-palavra (`isPseudo`): identificador em qualquer lugar.
+    /// Pseudo-keyword (`isPseudo`): an identifier anywhere.
     Pseudo,
 }
 
-/// O estilo da palavra `texto` pelas tabelas de `token.dart`, ou `None` se
-/// não for palavra-chave do fasta.
+/// The style of the word `texto` according to the `token.dart` tables, or
+/// `None` if it is not a fasta keyword.
 pub(crate) fn word_style(texto: &str) -> Option<WordStyle> {
     Some(match texto {
         "assert" | "break" | "case" | "catch" | "class" | "const" | "continue" | "default"
@@ -47,7 +47,7 @@ pub(crate) fn word_style(texto: &str) -> Option<WordStyle> {
     })
 }
 
-/// `isModifier` de `token.dart`.
+/// `isModifier` from `token.dart`.
 pub(crate) fn is_modifier(texto: &str) -> bool {
     matches!(
         texto,
@@ -64,7 +64,7 @@ pub(crate) fn is_modifier(texto: &str) -> bool {
     )
 }
 
-/// `isTopLevelKeyword` de `token.dart`.
+/// `isTopLevelKeyword` from `token.dart`.
 pub(crate) fn is_top_level_word(texto: &str) -> bool {
     matches!(
         texto,
@@ -80,14 +80,14 @@ pub(crate) fn is_top_level_word(texto: &str) -> bool {
     )
 }
 
-/// `isVariance` de `type_info_impl.dart`: `in`, `inout` ou `out`.
+/// `isVariance` from `type_info_impl.dart`: `in`, `inout` or `out`.
 pub(crate) fn is_variance(texto: &str) -> bool {
     matches!(texto, "in" | "inout" | "out")
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
-    /// O texto do token na posição absoluta `pos`, se ele é palavra ou
-    /// identificador (senão vazio).
+    /// The text of the token at absolute position `pos`, if it is a word or an
+    /// identifier (otherwise empty).
     fn word_of(&self, pos: usize) -> &'s str {
         match self.kind_of(pos) {
             Kind::Ident | Kind::Keyword(_) => self.text_of(pos),
@@ -95,7 +95,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O estilo fasta do token na posição absoluta `pos`.
+    /// The fasta style of the token at absolute position `pos`.
     pub(crate) fn word_style_of(&self, pos: usize) -> Option<WordStyle> {
         match self.kind_of(pos) {
             Kind::Ident | Kind::Keyword(_) => word_style(self.text_of(pos)),
@@ -103,8 +103,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `token.kind == IDENTIFIER_TOKEN` do fasta: identificador que não é
-    /// palavra-chave de estilo nenhum.
+    /// fasta's `token.kind == IDENTIFIER_TOKEN`: an identifier that is not a
+    /// keyword of any style.
     pub(crate) fn is_plain_identifier(&self, pos: usize) -> bool {
         self.kind_of(pos) == Kind::Ident && word_style(self.text_of(pos)).is_none()
     }
@@ -179,9 +179,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// `looksLikeTypeParamOrArg` (`type_info_impl.dart`): em declaração, um
-    /// identificador puro seguido de identificador puro, `,` ou `>` parece
-    /// mais um parâmetro de tipo depois de uma vírgula que falta.
+    /// `looksLikeTypeParamOrArg` (`type_info_impl.dart`): in a declaration, a
+    /// plain identifier followed by a plain identifier, `,` or `>` looks like
+    /// one more type parameter after a missing comma.
     pub(crate) fn looks_like_type_param_or_arg(&self, in_declaration: bool, pos: usize) -> bool {
         in_declaration
             && self.is_plain_identifier(pos)
@@ -204,17 +204,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// O `>` que o scanner do fasta casa com o `<` na posição absoluta
-    /// `lt` (`BeginToken.endGroup`), se houver.
+    /// The `>` that fasta's scanner matches with the `<` at absolute position
+    /// `lt` (`BeginToken.endGroup`), if any.
     ///
-    /// Porte de `appendBeginGroup`/`appendGt`/`discardOpenLt` de
-    /// `abstract_scanner.dart`: `<` abre grupo; `>` fecha o `<` do topo da
-    /// pilha; `;`, `{`, `[`, `${`, `this`, qualquer token que começa com `=`
-    /// e os fechos `)`/`]`/`}` descartam os `<` abertos no topo. O lexer do
-    /// DartForge separa `>=`, `>>` e `>>>`; o fasta os lê inteiros, e `>=`
-    /// não fecha grupo — por isso um `>` colado a `=` não fecha aqui.
+    /// Port of `appendBeginGroup`/`appendGt`/`discardOpenLt` from
+    /// `abstract_scanner.dart`: `<` opens a group; `>` closes the `<` on top of
+    /// the stack; `;`, `{`, `[`, `${`, `this`, any token starting with `=` and
+    /// the closers `)`/`]`/`}` discard the open `<` on top. DartForge's lexer
+    /// splits `>=`, `>>` and `>>>`; fasta reads them whole, and `>=` does not
+    /// close a group — so a `>` glued to `=` does not close here.
     pub(crate) fn lt_group_end(&self, lt: usize) -> Option<usize> {
-        // Pilha de abridores: `<`, `(`, `[`, `{`, com a posição.
+        // Opener stack: `<`, `(`, `[`, `{`, with the position.
         let mut stack: Vec<(Op, usize)> = Vec::new();
         let discard_lt = |p: &mut Vec<(Op, usize)>| {
             while p.last().is_some_and(|(a, _)| *a == Op::Lt) {
@@ -236,7 +236,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     discard_lt(&mut stack);
                     stack.push((o, i));
                 }
-                // `${`: a interpolação fecha dentro do próprio token de string.
+                // `${`: the interpolation closes inside the string token itself.
                 Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => {
                     discard_lt(&mut stack)
                 }
@@ -250,8 +250,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }
                 }
                 Kind::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
-                    // `discardBeginGroupUntil`: sem abridor correspondente, o
-                    // fecho é ignorado e a pilha fica como estava.
+                    // `discardBeginGroupUntil`: without a matching opener, the closer is
+                    // ignored and the stack stays as it was.
                     let wants = match o {
                         Op::RParen => Op::LParen,
                         Op::RBracket => Op::LBracket,
@@ -262,8 +262,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }
                 }
                 Kind::Op(Op::Semicolon | Op::Assign | Op::EqEq | Op::Arrow) => {
-                    // `>=` chega como `>` colado a `=`: o `=` ali não é
-                    // token do fasta.
+                    // `>=` arrives as `>` glued to `=`: that `=` is not a fasta token.
                     let part_of_ge = t.kind == Kind::Op(Op::Assign)
                         && i > 0
                         && self.tokens[i - 1].glued

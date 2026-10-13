@@ -1,28 +1,29 @@
-//! Lexer de Dart 3.6 completo, em passagem única, sem copiar lexemas.
+//! Complete Dart 3.6 lexer, single pass, without copying lexemes.
 //!
-//! Contrato em [`crate::token`]. Pontos que não são tradução óbvia:
+//! Contract in [`crate::token`]. Points that are not an obvious translation:
 //!
-//! * `>` sai sempre sozinho; o parser compõe `>>`, `>=` etc. pela marca
-//!   [`Token::glued`]. Isso elimina o retrocesso em `List<List<int>>`.
-//! * Strings interpoladas viram sequências `StrBegin … StrMid … StrEnd`. O
-//!   lexer guarda uma pilha de literais suspensos por `${`; a `}` que fecha a
-//!   interpolação devolve o controle ao literal, contando chaves internas de
-//!   expressões como `${ {'a': 1}['a'] }`.
-//! * `$nome` dentro de string produz um único token [`Kind::Ident`] entre os
-//!   trechos, sem pilha: o identificador termina onde termina o nome.
-//! * Números: `1`, `0x1F`, `1.5`, `1e3`, `1.5e-3`. Em Dart `1.` não é double
-//!   (é `1` seguido de `.`), e `.5` não é número.
-//! * Comentários de bloco aninham; comentários de documentação são descartados
-//!   como qualquer comentário (a árvore não os guarda por enquanto).
+//! * `>` always comes out alone; the parser composes `>>`, `>=` etc. using
+//!   the [`Token::glued`] flag. That removes backtracking in
+//!   `List<List<int>>`.
+//! * Interpolated strings become `StrBegin … StrMid … StrEnd` sequences. The
+//!   lexer keeps a stack of literals suspended by `${`; the `}` that closes
+//!   the interpolation hands control back to the literal, counting inner
+//!   braces of expressions like `${ {'a': 1}['a'] }`.
+//! * `$name` inside a string produces a single [`Kind::Ident`] token between
+//!   the pieces, without the stack: the identifier ends where the name ends.
+//! * Numbers: `1`, `0x1F`, `1.5`, `1e3`, `1.5e-3`. In Dart `1.` is not a
+//!   double (it is `1` followed by `.`), and `.5` is not a number.
+//! * Block comments nest; doc comments are discarded like any comment (the
+//!   tree does not keep them for now).
 use crate::text::{DartStr, DartStrBuilder};
 use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
 use dartforge_diagnostics::{Diagnostic, Span};
 
-/// Literal suspenso por `${`, aguardando a chave correspondente.
+/// A literal suspended by `${`, waiting for the matching brace.
 #[derive(Debug, Clone, Copy)]
 struct Suspended {
     flags: StrFlags,
-    /// Chaves abertas dentro da expressão; a interpolação fecha em zero.
+    /// Braces opened inside the expression; the interpolation closes at zero.
     depth: usize,
 }
 
@@ -34,7 +35,7 @@ struct Lexer<'s> {
     suspended: Vec<Suspended>,
 }
 
-/// Divide a fonte em tokens; o último é sempre [`Kind::Eof`].
+/// Splits the source into tokens; the last one is always [`Kind::Eof`].
 ///
 /// ```
 /// use dartforge_frontend::token::{Kind, Op};
@@ -44,11 +45,11 @@ struct Lexer<'s> {
 /// assert!(tokens[1].glued && tokens[2].glued && !tokens[3].glued);
 /// ```
 ///
-/// # Erros
-/// Hoje não falha: como o scanner do fasta, o lexer segue depois de cada
-/// erro (a string não terminada sai com [`StrFlags::aberta`], o caractere
-/// inesperado entra num identificador ou é pulado, o comentário de bloco
-/// aberto vai até o fim), e os erros saem no parser
+/// # Errors
+/// It does not fail today: like fasta's scanner, the lexer goes on after
+/// each error (an unterminated string comes out with [`StrFlags::aberta`],
+/// an unexpected character joins an identifier or is skipped, an open block
+/// comment runs to the end), and the errors come out in the parser
 /// (`parser::recoverable_scanner_errors`).
 pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
     let mut lexer = Lexer {
@@ -101,7 +102,7 @@ impl<'s> Lexer<'s> {
         while self.pos < self.bytes.len() {
             let start = self.pos;
             let b = self.bytes[self.pos];
-            // Espaço e comentários quebram a colagem do token anterior.
+            // Whitespace and comments break the gluing of the previous token.
             if b.is_ascii_whitespace() {
                 self.pos += 1;
                 self.unglue();
@@ -119,7 +120,8 @@ impl<'s> Lexer<'s> {
                 self.unglue();
                 continue;
             }
-            // O token anterior é colado a este se não houve espaço entre eles.
+            // The previous token is glued to this one if there was no whitespace
+            // between them.
             if let Some(last) = self.tokens.last_mut() {
                 last.glued = last.span.end == start;
             }
@@ -144,9 +146,9 @@ impl<'s> Lexer<'s> {
                 self.push(kind, start);
                 continue;
             }
-            // `.5` é literal `double` na gramática (`'.' DIGIT+ EXPONENT?`);
-            // `a.5` não existe em Dart, então o `.` seguido de dígito é sempre
-            // número. `..5` não ocorre: `..` já foi lido como cascata.
+            // `.5` is a `double` literal in the grammar (`'.' DIGIT+ EXPONENT?`);
+            // `a.5` does not exist in Dart, so a `.` followed by a digit is always a
+            // number. `..5` does not occur: `..` was already read as a cascade.
             if b.is_ascii_digit() || (b == b'.' && self.at(1).is_ascii_digit()) {
                 self.number(start);
                 continue;
@@ -154,8 +156,8 @@ impl<'s> Lexer<'s> {
             if b == b'}' && !self.suspended.is_empty() {
                 let top = self.suspended.len() - 1;
                 if self.suspended[top].depth == 0 {
-                    // Fecha a interpolação: o literal continua a partir daqui.
-                    let flags = self.suspended.pop().expect("pilha conferida").flags;
+                    // Closes the interpolation: the literal continues from here.
+                    let flags = self.suspended.pop().expect("checked stack").flags;
                     self.pos += 1;
                     self.string_tail(start, flags)?;
                     continue;
@@ -166,9 +168,8 @@ impl<'s> Lexer<'s> {
                 self.suspended[top].depth += 1;
             }
             if b >= 0x80 {
-                // Dart só aceita identificadores ASCII; qualquer outro
-                // caractere fora de string ou comentário é o `unexpected` do
-                // scanner do fasta, que não para.
+                // Dart only accepts ASCII identifiers; any other character outside a
+                // string or comment is fasta scanner's `unexpected`, which does not stop.
                 let ch = self.source[start..].chars().next().unwrap_or('\u{FFFD}');
                 self.unexpected(start, ch);
                 continue;
@@ -210,24 +211,24 @@ impl<'s> Lexer<'s> {
                 self.pos += 1;
             }
         }
-        // Sem o fecho, o comentário vai até o fim do arquivo e o
-        // `UNTERMINATED_MULTI_LINE_COMMENT` sai no parser
+        // Without the closer, the comment runs to the end of the file and the
+        // `UNTERMINATED_MULTI_LINE_COMMENT` comes out in the parser
         // (`parser::recoverable_scanner_errors`).
         let _ = (start, depth);
         Ok(())
     }
 
-    /// Literal numérico com os limites de token do scanner do fasta
-    /// (`tokenizeNumber`, `tokenizeHex`, `tokenizeFractionPart`), inclusive
-    /// os separadores de dígito `_` (Dart 3.6): o `_` fica dentro do token
-    /// onde o scanner o põe, mesmo fora de lugar (`100_`, `0x_1`, `3_.14`,
-    /// `1e_3`) — o parser relata `UNEXPECTED_SEPARATOR_IN_NUMBER`. `3._14` é
-    /// `3`, `.` e o identificador `_14`, como lá.
+    /// Numeric literal with the token boundaries of fasta's scanner
+    /// (`tokenizeNumber`, `tokenizeHex`, `tokenizeFractionPart`), including the
+    /// `_` digit separators (Dart 3.6): the `_` stays inside the token where the
+    /// scanner puts it, even when misplaced (`100_`, `0x_1`, `3_.14`, `1e_3`) —
+    /// the parser reports `UNEXPECTED_SEPARATOR_IN_NUMBER`. `3._14` is `3`, `.`
+    /// and the identifier `_14`, as there.
     fn number(&mut self, start: usize) {
         let digit = |b: u8| b.is_ascii_digit();
-        // `tokenizeHex`: `0x`/`0X` sempre abre o hexadecimal; sem dígito, o
-        // token sintético vale 0 e o `MISSING_HEX_DIGIT` sai no último
-        // caractere (`parser::recoverable_scanner_errors`).
+        // `tokenizeHex`: `0x`/`0X` always opens a hexadecimal; without a digit, the
+        // synthetic token is worth 0 and `MISSING_HEX_DIGIT` comes out at the last
+        // character (`parser::recoverable_scanner_errors`).
         if self.at(0) == b'0' && matches!(self.at(1), b'x' | b'X') {
             self.pos += 2;
             while self.at(0).is_ascii_hexdigit() || self.at(0) == b'_' {
@@ -237,7 +238,7 @@ impl<'s> Lexer<'s> {
             return;
         }
         if self.at(0) == b'.' {
-            // `.5`: parte fracionária direto.
+            // `.5`: fraction part directly.
             self.pos += 1;
             self.fraction(start);
             return;
@@ -246,9 +247,9 @@ impl<'s> Lexer<'s> {
             self.pos += 1;
         }
         if matches!(self.at(0), b'e' | b'E') {
-            // `tokenizeFractionPart` a partir do `e`: sem dígito no expoente,
-            // o token `double` vai até o `e` (ou o sinal) e o
-            // `MISSING_DIGIT` sai no último caractere dele.
+            // `tokenizeFractionPart` from the `e`: without a digit in the exponent, the
+            // `double` token runs up to the `e` (or the sign) and `MISSING_DIGIT` comes
+            // out at its last character.
             self.fraction(start);
             return;
         } else if self.at(0) == b'.' && digit(self.at(1)) {
@@ -259,8 +260,8 @@ impl<'s> Lexer<'s> {
         self.push(Kind::Int, start);
     }
 
-    /// `tokenizeFractionPart`: dígitos e `_`, expoente opcional; o token é
-    /// sempre `double`.
+    /// `tokenizeFractionPart`: digits and `_`, optional exponent; the token is
+    /// always `double`.
     fn fraction(&mut self, start: usize) {
         while self.at(0).is_ascii_digit() || self.at(0) == b'_' {
             self.pos += 1;
@@ -280,7 +281,7 @@ impl<'s> Lexer<'s> {
         self.push(Kind::Double, start);
     }
 
-    /// Lê um literal de string a partir da aspa de abertura.
+    /// Reads a string literal starting at the opening quote.
     fn string(&mut self, start: usize, raw: bool) -> Result<(), Diagnostic> {
         let quote = self.bytes[self.pos];
         let triple = self.at(1) == quote && self.at(2) == quote;
@@ -289,24 +290,24 @@ impl<'s> Lexer<'s> {
         self.string_body(start, flags, true)
     }
 
-    /// Continua um literal após uma interpolação (`}` ou fim de `$nome`).
+    /// Continues a literal after an interpolation (`}` or end of `$name`).
     fn string_tail(&mut self, start: usize, flags: StrFlags) -> Result<(), Diagnostic> {
         self.string_body(start, flags, false)
     }
 
-    /// Lê o corpo até a aspa de fechamento ou a próxima interpolação.
+    /// Reads the body up to the closing quote or the next interpolation.
     ///
-    /// `first` indica que este trecho começa na aspa de abertura (então o
-    /// token é `Str`/`StrBegin`; senão `StrEnd`/`StrMid`).
+    /// `first` says this piece starts at the opening quote (then the token is
+    /// `Str`/`StrBegin`; otherwise `StrEnd`/`StrMid`).
     fn string_body(
         &mut self,
         start: usize,
         flags: StrFlags,
         first: bool,
     ) -> Result<(), Diagnostic> {
-        // `unterminatedString` (`abstract_scanner.dart:2055-2067`): no fim do
-        // arquivo, ou na quebra de linha (LF ou CR) de uma string simples, o
-        // trecho acaba ali com o fecho sintético e a leitura segue na quebra.
+        // `unterminatedString` (`abstract_scanner.dart:2055-2067`): at end of
+        // file, or at the line break (LF or CR) of a simple string, the piece ends
+        // there with the synthetic closer and reading continues at the line break.
         let mut aberta = false;
         loop {
             let Some(&b) = self.bytes.get(self.pos) else {
@@ -330,10 +331,10 @@ impl<'s> Lexer<'s> {
                 break;
             }
             if b == b'\\' && !flags.raw {
-                // Um escape nunca termina a string: pula o par inteiro. Escapes
-                // `\u{...}` são validados na decodificação, não aqui. A
-                // quebra depois da barra ainda acaba a string simples
-                // (`tokenizeSingleLineString` confere o caractere seguinte).
+                // An escape never ends the string: skip the whole pair. `\u{...}` escapes
+                // are validated when decoding, not here. A line break after the backslash
+                // still ends a simple string (`tokenizeSingleLineString` checks the next
+                // character).
                 self.pos += 1;
                 if self.pos < self.bytes.len() && (flags.triple || !matches!(self.bytes[self.pos], b'\n' | b'\r')) {
                     self.pos += 1;
@@ -389,14 +390,13 @@ impl<'s> Lexer<'s> {
                         },
                         glued: false,
                     });
-                    // O trecho seguinte recomeça no byte após o nome.
+                    // The next piece restarts at the byte after the name.
                     let tail_start = self.pos;
                     return self.string_tail(tail_start, flags);
                 }
-                // `$` sem nome (nem `{`): o scanner do fasta não para; o
-                // parser relata `MISSING_IDENTIFIER` no que segue o `$` e
-                // continua (`"$"`, `"$ "`, `"$$x"`). O trecho seguinte
-                // recomeça logo depois do `$`.
+                // `$` without a name (or `{`): fasta's scanner does not stop; the parser
+                // reports `MISSING_IDENTIFIER` at what follows the `$` and goes on (`"$"`,
+                // `"$ "`, `"$$x"`). The next piece restarts right after the `$`.
                 self.pos += 1;
                 self.tokens.push(Token {
                     kind: if first {
@@ -432,16 +432,16 @@ impl<'s> Lexer<'s> {
     }
 
     fn operator(&mut self, start: usize) {
-        // Do mais longo ao mais curto; `>` nunca se combina.
+        // Longest first; `>` never combines.
         const TABLE: &[(&str, Op)] = &[
             ("...?", Op::EllipsisQuestion),
             ("~/=", Op::TildeSlashAssign),
             ("<<=", Op::LtLtAssign),
             ("??=", Op::QuestionQuestionAssign),
             ("...", Op::Ellipsis),
-            // `tokenizeEquals`/`tokenizeExclamation`: `===` e `!==` são
-            // operadores com a precedência da igualdade e o erro
-            // `UNSUPPORTED_OPERATOR` (`parser::recoverable_scanner_errors`).
+            // `tokenizeEquals`/`tokenizeExclamation`: `===` and `!==` are operators
+            // with equality precedence and the `UNSUPPORTED_OPERATOR` error
+            // (`parser::recoverable_scanner_errors`).
             ("===", Op::EqEq),
             ("!==", Op::BangEq),
             ("?..", Op::QuestionDotDot),
@@ -504,13 +504,13 @@ impl<'s> Lexer<'s> {
         self.unexpected(start, ch);
     }
 
-    /// `unexpected` (`abstract_scanner.dart:2020-2048`) com o
-    /// `buildUnexpectedCharacterToken` (`error_token.dart:25-60`). O
-    /// caractere de controle e o espaço não ASCII são só pulados; qualquer
-    /// outro vira parte de um identificador, junto do identificador colado
-    /// antes (um `Ident`, não palavra-chave) e dos caracteres de
-    /// identificador ASCII depois. O `ILLEGAL_CHARACTER` de cada um sai no
-    /// parser (`parser::recoverable_scanner_errors`).
+    /// `unexpected` (`abstract_scanner.dart:2020-2048`) with
+    /// `buildUnexpectedCharacterToken` (`error_token.dart:25-60`). A control
+    /// character and non-ASCII whitespace are just skipped; any other becomes
+    /// part of an identifier, together with the identifier glued before it (an
+    /// `Ident`, not a keyword) and the ASCII identifier characters after it.
+    /// The `ILLEGAL_CHARACTER` of each one comes out in the parser
+    /// (`parser::recoverable_scanner_errors`).
     fn unexpected(&mut self, start: usize, ch: char) {
         self.pos += ch.len_utf8();
         if skipped_char(ch) {
@@ -532,9 +532,10 @@ impl<'s> Lexer<'s> {
     }
 }
 
-/// O caractere inesperado que o scanner do fasta só pula (o erro sem token):
-/// controle ASCII (`AsciiControlCharacterToken`) e os espaços não ASCII
-/// (`NonAsciiWhitespaceToken`). Os outros viram `NonAsciiIdentifierToken`.
+/// The unexpected character that fasta's scanner only skips (the error
+/// without a token): ASCII control (`AsciiControlCharacterToken`) and
+/// non-ASCII whitespace (`NonAsciiWhitespaceToken`). The others become a
+/// `NonAsciiIdentifierToken`.
 pub(crate) fn skipped_char(ch: char) -> bool {
     (ch as u32) < 0x1f
         || matches!(
@@ -552,20 +553,20 @@ pub(crate) fn skipped_char(ch: char) -> bool {
         )
 }
 
-/// O caractere que entra num identificador sem erro (`_isIdentifierChar`
-/// com o `$`).
+/// The character that joins an identifier without error
+/// (`_isIdentifierChar` with the `$`).
 pub(crate) fn identifier_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_' || ch == '$'
 }
 
-/// Decodifica o conteúdo de um trecho de string (sem as aspas), resolvendo
-/// escapes quando `raw` é falso.
+/// Decodes the content of a string piece (without the quotes), resolving
+/// escapes when `raw` is false.
 ///
-/// `strip_leading_newline` remove a primeira quebra de linha de uma string
-/// tripla, como a especificação exige (§17.7): só o primeiro trecho de um
-/// literal triplo a recebe. O resultado é [`DartStr`] porque `\uD800` é
-/// literal válido (unidade UTF-16 sem escalar) e `String` não o representa;
-/// um par `👭` vira o escalar correspondente.
+/// `strip_leading_newline` removes the first line break of a triple string,
+/// as the specification requires (§17.7): only the first piece of a triple
+/// literal gets it. The result is a [`DartStr`] because `\uD800` is a valid
+/// literal (a UTF-16 unit without a scalar) and `String` cannot represent
+/// it; a `👭` pair becomes the corresponding scalar.
 ///
 /// ```
 /// use dartforge_frontend::lexer::decode_string;
@@ -575,8 +576,8 @@ pub(crate) fn identifier_char(ch: char) -> bool {
 /// assert_eq!(decode_string(r"\uD800", false, false).unwrap().utf16_len(), 1);
 /// ```
 ///
-/// # Erros
-/// Escape `\u`/`\x` malformado ou código fora do intervalo Unicode.
+/// # Errors
+/// A malformed `\u`/`\x` escape or a code point outside the Unicode range.
 pub fn decode_string(
     content: &str,
     raw: bool,
@@ -584,9 +585,9 @@ pub fn decode_string(
 ) -> Result<DartStr, String> {
     let mut content = content;
     if strip_leading_newline {
-        // §17.7, `lengthOfOptionalWhitespacePrefix` (`quote.dart:62-86`): a
-        // primeira linha sai se só tem espaços e tabs, cada um opcionalmente
-        // depois de um `\`, até a quebra (`\r`, `\r\n` ou `\n`).
+        // §17.7, `lengthOfOptionalWhitespacePrefix` (`quote.dart:62-86`): the first
+        // line is dropped if it only has spaces and tabs, each optionally after a
+        // `\`, up to the line break (`\r`, `\r\n` or `\n`).
         let bytes = content.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
@@ -611,8 +612,8 @@ pub fn decode_string(
             break;
         }
     }
-    // `unescapeCodeUnits` (`quote.dart:186-198`): `\r` e `\r\n` no corpo
-    // viram `\n`, também na string crua.
+    // `unescapeCodeUnits` (`quote.dart:186-198`): `\r` and `\r\n` in the body
+    // become `\n`, in raw strings too.
     if raw {
         if !content.contains('\r') {
             return Ok(DartStr::from(content));
@@ -634,7 +635,7 @@ pub fn decode_string(
             continue;
         }
         let Some(e) = chars.next() else {
-            return Err("escape no fim da string".into());
+            return Err("escape at end of string".into());
         };
         match e {
             'n' => out.push_char('\n'),
@@ -649,11 +650,11 @@ pub fn decode_string(
                     let d = chars
                         .next()
                         .and_then(|d| d.to_digit(16))
-                        .ok_or("escape \\x exige dois dígitos hexadecimais")?;
+                        .ok_or("\\x escape requires two hexadecimal digits")?;
                     value = value * 16 + d;
                 }
                 if !out.push_code_point(value) {
-                    return Err("código inválido".into());
+                    return Err("invalid code point".into());
                 }
             }
             'u' => {
@@ -667,15 +668,15 @@ pub fn decode_string(
                             Some(d) if d.is_ascii_hexdigit() => {
                                 digits += 1;
                                 if digits > 6 {
-                                    return Err("escape \\u{...} com mais de seis dígitos".into());
+                                    return Err("\\u{...} escape with more than six digits".into());
                                 }
-                                value = value * 16 + d.to_digit(16).expect("dígito conferido");
+                                value = value * 16 + d.to_digit(16).expect("checked digit");
                             }
                             _ => return Err("escape \\u{...} malformado".into()),
                         }
                     }
                     if digits == 0 {
-                        return Err("escape \\u{} vazio".into());
+                        return Err("empty \\u{} escape".into());
                     }
                     value
                 } else {
@@ -684,13 +685,13 @@ pub fn decode_string(
                         let d = chars
                             .next()
                             .and_then(|d| d.to_digit(16))
-                            .ok_or("escape \\u exige quatro dígitos hexadecimais")?;
+                            .ok_or("\\u escape requires four hexadecimal digits")?;
                         value = value * 16 + d;
                     }
                     value
                 };
                 if !out.push_code_point(value) {
-                    return Err("código Unicode inválido".into());
+                    return Err("invalid Unicode code point".into());
                 }
             }
             other => out.push_char(other),
@@ -822,7 +823,7 @@ d''' "e" "##)
 
     #[test]
     fn lexical_errors_do_not_stop() {
-        // A string sem fecho acaba na quebra de linha ou no fim do arquivo.
+        // An unterminated string ends at the line break or at end of file.
         let t = lex("'abc").unwrap();
         assert!(matches!(t[0].kind, Kind::Str(StrFlags { aberta: true, .. })));
         assert_eq!(t[0].span, Span { start: 0, end: 4 });
@@ -831,9 +832,9 @@ d''' "e" "##)
         assert_eq!(t[0].span, Span { start: 0, end: 2 });
         assert_eq!(t[1].kind, Kind::Ident);
         assert!(matches!(t[2].kind, Kind::Str(StrFlags { aberta: true, .. })));
-        // O comentário de bloco aberto vai até o fim.
+        // An open block comment runs to the end.
         assert_eq!(lex("a /* abc").unwrap().len(), 2);
-        // O caractere inesperado entra no identificador; o de controle some.
+        // The unexpected character joins the identifier; the control one vanishes.
         let s = "pisk\u{f8}de `x \u{1}y";
         let t = lex(s).unwrap();
         let texts: Vec<_> = t.iter().map(|k| k.text(s)).collect();

@@ -1,5 +1,6 @@
-//! O parser e a versão de linguagem (`docs/VERSOES-LINGUAGEM.md`): recurso
-//! desligado é diagnóstico; onde a gramática diverge, a versão decide.
+//! The parser and the language version (`docs/VERSOES-LINGUAGEM.md`): a
+//! disabled feature is a diagnostic; where the grammar diverges, the version
+//! decides.
 use dartforge_frontend::ast::{DeclKind, MemberKind};
 use dartforge_frontend::parser::{Parsed, parse_com};
 use dartforge_frontend::{LanguageVersion, LibraryFeatures};
@@ -82,7 +83,7 @@ fn final_and_var_in_plain_parameter_only_up_to_312() {
             .message
             .contains("Can't have modifier 'final' here.")
     );
-    // Tipo de função não tem parâmetro declarante nem esse erro.
+    // A function type has no declaring parameter, nor that error.
     let (p, _) = na((3, 13), "typedef F = void Function(int x);");
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
 }
@@ -113,7 +114,7 @@ fn dot_shorthand_in_310() {
             ("azul".into(), false)
         ]
     );
-    // A cadeia `.parse('4').abs()` tem o atalho na raiz.
+    // The `.parse('4').abs()` chain has the shorthand at its root.
     let init = p.ast.stmts.iter().find_map(|s| match &s.kind {
         StmtKind::Variables(v) if names.resolve(v.variables[0].name.sym) == "i" => {
             v.variables[0].initializer
@@ -141,17 +142,17 @@ fn dot_shorthand_in_310() {
     );
 }
 
-/// Os membros de uma classe elaborada, como texto: `campo final int x`,
-/// `ctor nome(params) inits body_node`.
+/// The members of an elaborated class, as text: `field final int x`,
+/// `ctor name(params) inits body`.
 fn members_(p: &Parsed, names: &Interner, i: usize) -> Vec<String> {
     let DeclKind::Class(c) = &p.ast.decl(p.unit.declarations[i]).kind else {
-        panic!("não é classe")
+        panic!("not a class")
     };
     c.members
         .iter()
         .map(|m| match &p.ast.member(*m).kind {
             MemberKind::Field(v) => format!(
-                "campo{}{}{} {}",
+                "field{}{}{} {}",
                 if v.final_ { " final" } else { "" },
                 if v.covariant { " covariant" } else { "" },
                 if v.ty.is_some() { " T" } else { "" },
@@ -181,7 +182,7 @@ fn members_(p: &Parsed, names: &Interner, i: usize) -> Vec<String> {
                 )
             }
             MemberKind::Method(f) => format!(
-                "metodo {}",
+                "method {}",
                 names.resolve(p.ast.function(*f).name.unwrap().sym)
             ),
         })
@@ -201,10 +202,10 @@ fn primary_constructor_is_elaborated_in_tree() {
     assert_eq!(
         members_(&p, &names, 0),
         vec![
-            "campo T x",
-            "campo final T y",
-            "campo covariant T z",
-            "campo final up",
+            "field T x",
+            "field final T y",
+            "field covariant T z",
+            "field final up",
             "ctor (this.x, this.y, cru, this.z) inits=1"
         ]
     );
@@ -214,7 +215,7 @@ fn primary_constructor_is_elaborated_in_tree() {
     assert_eq!(c.primary_constructor, Some(c.members[4]));
     assert_eq!(
         members_(&p, &names, 1),
-        vec!["campo final T v", "ctor const c(this.v) inits=0"]
+        vec!["field final T v", "ctor const c(this.v) inits=0"]
     );
     assert!(members_(&p, &names, 2).is_empty());
 
@@ -236,7 +237,7 @@ fn new_and_factory_without_class_name() {
     assert_eq!(
         members_(&p, &names, 0),
         vec![
-            "campo T a",
+            "field T a",
             "ctor (this.a) inits=0",
             "ctor zero() inits=1",
             "ctor factory um() inits=0",
@@ -244,11 +245,11 @@ fn new_and_factory_without_class_name() {
             "ctor factory () inits=0"
         ]
     );
-    // Antes da 3.13, `factory()` é método.
+    // Before 3.13, `factory()` is a method.
     let (p, names) = na((3, 12), "class F { int factory() => 1; }");
     assert!(p.diagnostics.is_empty(), "{:?}", messages(&p));
-    assert_eq!(members_(&p, &names, 0), vec!["metodo factory"]);
-    // `factory C(` com o nome da classe continua o construtor sem nome.
+    assert_eq!(members_(&p, &names, 0), vec!["method factory"]);
+    // `factory C(` with the class name continues the unnamed constructor.
     let (p, names) = na((3, 13), "class C { factory C() => C._(); C._(); }");
     assert_eq!(members_(&p, &names, 0)[0], "ctor factory () inits=0");
 }
@@ -256,7 +257,7 @@ fn new_and_factory_without_class_name() {
 #[test]
 fn primary_constructor_errors() {
     for (fonte, excerpt) in [
-        // Mensagens oficiais do analyzer 3.13.4 (oráculo gravado).
+        // Official analyzer 3.13.4 messages (recorded oracle).
         (
             "class C { this {} }",
             "A primary constructor body requires a primary constructor declaration.",

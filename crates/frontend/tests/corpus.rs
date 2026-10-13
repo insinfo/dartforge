@@ -1,9 +1,10 @@
-//! O parser novo aceita 100% do `lib/` do SDK 3.6.2 e do corpus de pub.dev.
+//! The new parser accepts 100% of the SDK 3.6.2 `lib/` and of the pub.dev
+//! corpus.
 //!
-//! Este é o critério de aceite do passo 1 da meta governante (PLANO.md). O
-//! teste é ignorado por padrão porque depende de arquivos fora do repositório:
-//! `DARTFORGE_SDK_LIB` (padrão `C:/tools/dartsdk-3.6.2/lib`) e
-//! `references/pub` na raiz do workspace.
+//! This is the acceptance criterion of step 1 of the governing goal
+//! (PLANO.md). The test is ignored by default because it depends on files
+//! outside the repository: `DARTFORGE_SDK_LIB` (default
+//! `C:/tools/dartsdk-3.6.2/lib`) and `references/pub` at the workspace root.
 use std::path::{Path, PathBuf};
 
 fn collect(dir: &Path, output: &mut Vec<PathBuf>) {
@@ -20,9 +21,9 @@ fn collect(dir: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-/// A versão de linguagem do pacote dono de `file`: o `x.y` do limite
-/// inferior de `sdk:` no `pubspec.yaml` mais próximo (`^3.8.0`,
-/// `'>=3.8.0 <4.0.0'`), como o `languageVersion` que o `pub get` grava.
+/// The language version of the package that owns `file`: the `x.y` of the
+/// lower bound of `sdk:` in the nearest `pubspec.yaml` (`^3.8.0`,
+/// `'>=3.8.0 <4.0.0'`), like the `languageVersion` that `pub get` writes.
 fn package_version(file: &Path) -> Option<dartforge_frontend::LanguageVersion> {
     let pubspec = file
         .ancestors()
@@ -46,10 +47,10 @@ fn package_version(file: &Path) -> Option<dartforge_frontend::LanguageVersion> {
     Some(dartforge_frontend::LanguageVersion::new(greater, less))
 }
 
-/// `by_package`: a versão de cada arquivo sem marcador vem do pubspec do
-/// pacote. No SDK não: as bibliotecas `dart:` são lidas na versão corrente
-/// do SDK, mesmo com o `pubspec.yaml` de desenvolvimento que algumas pastas
-/// trazem (`_internal/js_runtime`: `sdk: '>=2.2.2'`).
+/// `by_package`: the version of each file without a marker comes from the
+/// package's pubspec. Not in the SDK: the `dart:` libraries are read at the
+/// SDK's current version, even with the development `pubspec.yaml` some
+/// folders carry (`_internal/js_runtime`: `sdk: '>=2.2.2'`).
 fn measure(root: &Path, by_package: bool) -> (usize, usize, Vec<String>) {
     let mut files = Vec::new();
     collect(root, &mut files);
@@ -63,9 +64,9 @@ fn measure(root: &Path, by_package: bool) -> (usize, usize, Vec<String>) {
             continue;
         };
         total += 1;
-        // A versão de cada arquivo (docs/VERSOES-LINGUAGEM.md §2): o
-        // marcador; senão a do pacote, que o `pub` tira do limite inferior
-        // de `environment: sdk:` no pubspec; senão o piso 3.6 (o SDK).
+        // The version of each file (docs/VERSOES-LINGUAGEM.md §2): the marker;
+        // otherwise the package's, which `pub` takes from the lower bound of
+        // `environment: sdk:` in the pubspec; otherwise the 3.6 floor (the SDK).
         let versao = dartforge_frontend::features::marcador_versao(&fonte)
             .map(|m| m.0)
             .or_else(|| if by_package { package_version(file) } else { None })
@@ -84,33 +85,33 @@ fn measure(root: &Path, by_package: bool) -> (usize, usize, Vec<String>) {
 }
 
 #[test]
-#[ignore = "depende do SDK 3.6.2 e do corpus em references/pub"]
+#[ignore = "depends on SDK 3.6.2 and on the corpus in references/pub"]
 fn whole_sdk_lib_is_accepted() {
     let sdk = std::env::var("DARTFORGE_SDK_LIB").unwrap_or("C:/tools/dartsdk-3.6.2/lib".into());
     let (accepted, total, failures) = measure(Path::new(&sdk), false);
-    assert!(total > 0, "SDK não encontrado em {sdk}");
+    assert!(total > 0, "SDK not found at {sdk}");
     assert_eq!(
         accepted,
         total,
-        "arquivos do SDK recusados:\n{}",
+        "SDK files rejected:\n{}",
         failures.join("\n")
     );
 }
 
 #[test]
-#[ignore = "depende do SDK 3.6.2 e do corpus em references/pub"]
+#[ignore = "depends on SDK 3.6.2 and on the corpus in references/pub"]
 fn whole_pub_corpus_is_accepted() {
-    // `DARTFORGE_PUB_CORPUS` aponta outro clone (numa worktree, o do checkout
-    // principal: `references/` fica fora do git).
+    // `DARTFORGE_PUB_CORPUS` points to another clone (in a worktree, the main
+    // checkout's: `references/` is outside git).
     let root = std::env::var("DARTFORGE_PUB_CORPUS")
         .map(PathBuf::from)
         .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../references/pub"));
     let (accepted, total, failures) = measure(&root, true);
-    assert!(total > 0, "corpus não encontrado em {}", root.display());
+    assert!(total > 0, "corpus not found at {}", root.display());
     assert_eq!(
         accepted,
         total,
-        "arquivos do corpus recusados:\n{}",
+        "corpus files rejected:\n{}",
         failures.join("\n")
     );
 }

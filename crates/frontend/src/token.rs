@@ -1,28 +1,29 @@
-//! Tokens de Dart 3.6 com intervalos em bytes e sem empréstimo da fonte.
+//! Dart 3.6 tokens with byte ranges and no borrowing from the source.
 //!
-//! O contrato entre lexer e parser. Decisões que o parser depende:
+//! The contract between lexer and parser. Decisions the parser relies on:
 //!
-//! * Palavras **reservadas** (`class`, `if`, `is`…) viram [`Kind::Keyword`];
-//!   identificadores embutidos (`abstract`, `dynamic`, `get`…) e contextuais
-//!   (`async`, `show`, `when`…) viram [`Kind::Ident`] e o parser decide pelo
-//!   texto, porque em Dart eles são identificadores válidos em quase todo lugar.
-//! * `>` é sempre emitido **sozinho** ([`Op::Gt`]) com a marca [`Token::glued`]
-//!   indicando que o próximo token começa no byte seguinte. É o parser que
-//!   compõe `>>`, `>>>`, `>=`, `>>=` e `>>>=` em contexto de expressão; assim
-//!   `List<List<int>>` nunca precisa de retrocesso.
-//! * Strings interpoladas viram uma sequência: [`Kind::StrBegin`], os tokens da
-//!   expressão, [`Kind::StrMid`]… e [`Kind::StrEnd`]. Cada trecho carrega
-//!   [`Interp`] dizendo como a interpolação seguinte foi escrita — `$nome`
-//!   (então o próximo token é exatamente um [`Kind::Ident`]) ou `${expr}` (o
-//!   lexer devolve o trecho seguinte ao encontrar a `}` correspondente).
-//!   Uma string sem interpolação é um único [`Kind::Str`].
-//! * O texto de identificadores e literais **não** é copiado: o parser lê
-//!   `&source[span]`; o lexer interna identificadores em `SymbolId` só quando
-//!   o parser pede.
+//! * **Reserved** words (`class`, `if`, `is`…) become [`Kind::Keyword`];
+//!   built-in identifiers (`abstract`, `dynamic`, `get`…) and contextual ones
+//!   (`async`, `show`, `when`…) become [`Kind::Ident`] and the parser decides
+//!   by the text, because in Dart they are valid identifiers almost
+//!   everywhere.
+//! * `>` is always emitted **alone** ([`Op::Gt`]) with the [`Token::glued`]
+//!   flag saying the next token starts at the following byte. The parser
+//!   composes `>>`, `>>>`, `>=`, `>>=` and `>>>=` in expression context;
+//!   that way `List<List<int>>` never needs backtracking.
+//! * Interpolated strings become a sequence: [`Kind::StrBegin`], the
+//!   expression tokens, [`Kind::StrMid`]… and [`Kind::StrEnd`]. Each piece
+//!   carries an [`Interp`] saying how the following interpolation was
+//!   written — `$name` (then the next token is exactly one [`Kind::Ident`])
+//!   or `${expr}` (the lexer returns the following piece when it meets the
+//!   matching `}`). A string without interpolation is a single [`Kind::Str`].
+//! * The text of identifiers and literals is **not** copied: the parser
+//!   reads `&source[span]`; the lexer interns identifiers into `SymbolId`
+//!   only when the parser asks.
 use dartforge_diagnostics::Span;
 
-/// Palavras reservadas de Dart 3.6 (§17.1 da especificação), que nunca são
-/// identificadores.
+/// Dart 3.6 reserved words (§17.1 of the specification), which are never
+/// identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Keyword {
     Assert,
@@ -61,7 +62,7 @@ pub enum Keyword {
 }
 
 impl Keyword {
-    /// Reconhece uma palavra reservada pelo texto; `None` para qualquer outra.
+    /// Recognizes a reserved word by its text; `None` for anything else.
     ///
     /// ```
     /// use dartforge_frontend::token::Keyword;
@@ -107,7 +108,7 @@ impl Keyword {
         })
     }
 
-    /// Texto da palavra reservada, para mensagens.
+    /// Text of the reserved word, for messages.
     pub fn text(self) -> &'static str {
         match self {
             Keyword::Assert => "assert",
@@ -147,7 +148,8 @@ impl Keyword {
     }
 }
 
-/// Pontuação e operadores. `>` nunca se combina no lexer (ver módulo).
+/// Punctuation and operators. `>` never combines in the lexer (see the
+/// module docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Op {
     /// `(`
@@ -200,7 +202,7 @@ pub enum Op {
     BangEq,
     /// `<`
     Lt,
-    /// `>` — sempre isolado; ver [`Token::glued`].
+    /// `>` — always isolated; see [`Token::glued`].
     Gt,
     /// `<=`
     LtEq,
@@ -259,7 +261,7 @@ pub enum Op {
 }
 
 impl Op {
-    /// Texto do operador, para mensagens.
+    /// Text of the operator, for messages.
     pub fn text(self) -> &'static str {
         match self {
             Op::LParen => "(",
@@ -319,75 +321,79 @@ impl Op {
     }
 }
 
-/// Como a interpolação que segue um trecho de string foi escrita.
+/// How the interpolation that follows a string piece was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Interp {
-    /// `$nome`: o próximo token é um único [`Kind::Ident`] e depois vem o
-    /// trecho seguinte da string.
+    /// `$name`: the next token is a single [`Kind::Ident`] and then comes the
+    /// next piece of the string.
     Ident,
-    /// `${expr}`: os tokens seguintes são a expressão; o trecho seguinte da
-    /// string chega quando o lexer encontra a `}` correspondente.
+    /// `${expr}`: the following tokens are the expression; the next piece of
+    /// the string arrives when the lexer meets the matching `}`.
     Brace,
 }
 
-/// Forma do literal de string, necessária para decodificar o conteúdo.
+/// Shape of the string literal, needed to decode its content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StrFlags {
-    /// `r'...'`: sem escapes nem interpolação.
+    /// `r'...'`: no escapes or interpolation.
     pub raw: bool,
-    /// Aspas triplas: aceita quebras de linha e ignora a primeira quebra
-    /// imediatamente após a abertura.
+    /// Triple quotes: accepts line breaks and ignores the first line break
+    /// right after the opening.
     pub triple: bool,
-    /// Aspa usada: `'` ou `"`.
+    /// Quote used: `'` or `"`.
     pub quote: u8,
-    /// O trecho acaba sem a aspa de fechamento (quebra de linha numa string
-    /// simples, fim do arquivo): o `unterminatedString` do scanner do fasta
-    /// põe o fecho sintético e segue, e o erro
-    /// (`UNTERMINATED_STRING_LITERAL`) sai deste token
-    /// (`parser::recoverable_scanner_errors`). Só o último trecho a tem.
+    /// The piece ends without the closing quote (a line break in a simple
+    /// string, end of file): fasta scanner's `unterminatedString` inserts the
+    /// synthetic closer and goes on, and the error
+    /// (`UNTERMINATED_STRING_LITERAL`) comes from this token
+    /// (`parser::recoverable_scanner_errors`). Only the last piece has it.
     pub aberta: bool,
 }
 
-/// Classe do token. Texto de identificadores e literais vem de `&source[span]`.
+/// Token class. The text of identifiers and literals comes from
+/// `&source[span]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
-    /// Identificador ou identificador embutido/contextual (`abstract`, `async`…).
+    /// Identifier or built-in/contextual identifier (`abstract`, `async`…).
     Ident,
-    /// Palavra reservada.
+    /// Reserved word.
     Keyword(Keyword),
-    /// Literal inteiro decimal ou hexadecimal (`0x1F`).
+    /// Decimal or hexadecimal integer literal (`0x1F`).
     Int,
-    /// Literal double (`1.5`, `1e3`, `.5` **não** existe em Dart).
+    /// Double literal (`1.5`, `1e3`; `.5` does **not** exist in Dart).
     Double,
-    /// String inteira sem interpolação; o span inclui as aspas (e o `r`).
+    /// Whole string without interpolation; the span includes the quotes (and
+    /// the `r`).
     Str(StrFlags),
-    /// Abertura de string interpolada: da aspa inicial até o `$`/`${`.
+    /// Opening of an interpolated string: from the opening quote up to the
+    /// `$`/`${`.
     StrBegin(StrFlags, Interp),
-    /// Trecho entre duas interpolações: da `}`/fim do nome até o `$` seguinte.
+    /// Piece between two interpolations: from the `}`/end of the name up to the
+    /// next `$`.
     StrMid(StrFlags, Interp),
-    /// Trecho final: da `}`/fim do nome até a aspa de fechamento.
+    /// Final piece: from the `}`/end of the name up to the closing quote.
     StrEnd(StrFlags),
-    /// Pontuação e operadores.
+    /// Punctuation and operators.
     Op(Op),
-    /// Tag `#!...` na primeira linha do arquivo.
+    /// `#!...` tag on the first line of the file.
     ScriptTag,
-    /// Fim do arquivo; sempre o último token, com span vazio.
+    /// End of file; always the last token, with an empty span.
     Eof,
 }
 
-/// Token com posição em bytes.
+/// Token with a byte position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token {
     pub kind: Kind,
     pub span: Span,
-    /// O próximo token começa exatamente em `span.end` (sem espaço nem
-    /// comentário entre eles). O parser usa isso para compor `>>`, `>=`,
-    /// `>>>=` a partir de [`Op::Gt`] isolados.
+    /// The next token starts exactly at `span.end` (no whitespace or comment
+    /// between them). The parser uses this to compose `>>`, `>=`, `>>>=` from
+    /// isolated [`Op::Gt`].
     pub glued: bool,
 }
 
 impl Token {
-    /// Texto do token na fonte de onde veio.
+    /// Text of the token in the source it came from.
     pub fn text<'a>(&self, source: &'a str) -> &'a str {
         &source[self.span.start..self.span.end]
     }

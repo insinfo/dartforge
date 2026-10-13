@@ -1,7 +1,7 @@
-//! Recuperação de erros do parser como no fasta do `dart analyze` 3.6.2
-//! (`_fe_analyzer_shared` 76.0.0 e `AstBuilder` do analyzer 6.11.0): cada
-//! caso é uma amostra do oráculo (`corpus/diags`), com o código e o
-//! trecho exatos que o analyzer relata.
+//! Parser error recovery as in the fasta of `dart analyze` 3.6.2
+//! (`_fe_analyzer_shared` 76.0.0 and the analyzer 6.11.0 `AstBuilder`): each
+//! case is an oracle sample (`corpus/diags`), with the exact code and
+//! excerpt the analyzer reports.
 use dartforge_frontend::parser::{Parsed, parse_com};
 use dartforge_frontend::{LanguageVersion, LibraryFeatures};
 use dartforge_intern::Interner;
@@ -12,8 +12,8 @@ fn parse_in(versao: (u16, u16), fonte: &str) -> Parsed {
     parse_com(fonte, &mut names, f)
 }
 
-/// `(código, texto do excerpt)` de cada diagnóstico, em ordem de posição (e
-/// de código, no mesmo trecho).
+/// `(code, excerpt text)` of each diagnostic, in position order (and code
+/// order, for the same excerpt).
 fn errors_in(versao: (u16, u16), fonte: &str) -> Vec<(String, String)> {
     let p = parse_in(versao, fonte);
     let mut ds: Vec<_> = p
@@ -74,14 +74,14 @@ fn parameter_modifiers() {
         errors("class C { void m({covariant required int? i}) {} }"),
         vec![pair("modifier_out_of_order", "required")]
     );
-    // Válidos: nenhum diagnóstico.
+    // Valid: no diagnostics.
     assert!(errors("class C { C({required this.x, covariant int y = 0}); int x; }").is_empty());
     assert!(errors("void f({required}) {} void g(int required) {}").is_empty());
 }
 
 #[test]
 fn wrong_class_modifier_order_becomes_member() {
-    // `final abstract class` é um campo `final` sem nome seguido da classe.
+    // `final abstract class` is an unnamed `final` field followed by the class.
     assert_eq!(
         errors("final abstract class A {}"),
         vec![
@@ -99,7 +99,7 @@ fn wrong_class_modifier_order_becomes_member() {
     assert_eq!(errors("final mixin class M {}"), vec![pair("final_mixin_class", "final")]);
     assert_eq!(errors("base enum E { a }"), vec![pair("base_enum", "base")]);
     assert_eq!(errors("abstract sealed class S {}"), vec![pair("abstract_sealed_class", "sealed")]);
-    // Válidos.
+    // Valid.
     for v in [
         "abstract class A {}",
         "abstract base class A {}",
@@ -197,7 +197,7 @@ fn patterns_by_context() {
 fn interpolation_without_name_does_not_stop() {
     assert_eq!(errors("f() { var x = \"$\"; }"), vec![pair("missing_identifier", "\"")]);
     assert_eq!(errors("f(x) { var s = \"a $$x b\"; }"), vec![pair("missing_identifier", "$")]);
-    // O resto da unidade continua sendo analisado.
+    // The rest of the unit keeps being parsed.
     assert_eq!(
         errors("f() { var x = '$ '; }\nstatic g() {}"),
         vec![pair("missing_identifier", " "), pair("extraneous_modifier", "static")]

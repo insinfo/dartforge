@@ -1,11 +1,12 @@
-//! Mede memória e tempo do front-end novo sobre um projeto inteiro, com todas
-//! as árvores retidas — o que um servidor de linguagem faz com o projeto aberto.
+//! Measures memory and time of the new front end over a whole project, with
+//! every tree retained — what a language server does with the project open.
 //!
-//! `cargo run -q --release -p dartforge-frontend --example memoria_frontend -- C:/MyDartProjects/new_sali`
+//! `cargo run -q --release -p dartforge-frontend --example memory_frontend -- C:/MyDartProjects/new_sali`
 //!
-//! Imprime bytes de fonte, bytes vivos com tudo retido, pico, razão vivo/fonte,
-//! alocações e tempo. A referência que este número enfrenta está no PLANO.md:
-//! o LSP do Dart chega a ~6 GB e o `webdev` a ~10 GB neste mesmo projeto.
+//! Prints source bytes, live bytes with everything retained, peak, live/source
+//! ratio, allocations and time. The reference this number is up against is in
+//! PLANO.md: the Dart LSP reaches ~6 GB and `webdev` ~10 GB on this same
+//! project.
 #[global_allocator]
 static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
@@ -46,7 +47,7 @@ fn main() {
     let mut retained = Vec::with_capacity(files.len());
     let mut bytes_fonte = 0usize;
     let mut rejected = 0usize;
-    let mut total_tokens = 0usize;
+    let mut total_exprs = 0usize;
     for file in &files {
         let Ok(fonte) = std::fs::read_to_string(file) else {
             continue;
@@ -56,13 +57,13 @@ fn main() {
         if !output.diagnostics.is_empty() {
             rejected += 1;
         }
-        total_tokens += output.ast.exprs.len();
-        // Fonte e árvore ficam vivas, como num editor com o projeto aberto.
+        total_exprs += output.ast.exprs.len();
+        // Source and tree stay alive, as in an editor with the project open.
         retained.push((fonte, output));
     }
     let tempo = start_offset.elapsed();
-    // Onde os bytes estão: cada arena, contagem × tamanho do nó (capacidade
-    // reservada à parte, porque `Vec` cresce em potências de dois).
+    // Where the bytes are: each arena, count × node size (reserved capacity
+    // separately, because `Vec` grows in powers of two).
     {
         use dartforge_frontend::ast::*;
         use std::mem::size_of;
@@ -110,7 +111,7 @@ fn main() {
             let reserved = cap[i] * tam[i];
             total += reserved;
             println!(
-                "  {:<10} {:>8} nós × {:>3} B = {:>7.2} MiB usados, {:>7.2} MiB reservados",
+                "  {:<10} {:>8} nodes × {:>3} B = {:>7.2} MiB used, {:>7.2} MiB reserved",
                 names[i],
                 n[i],
                 tam[i],
@@ -119,11 +120,11 @@ fn main() {
             );
         }
         println!(
-            "  arenas reservadas: {:.2} MiB (o resto é Vec/Box dentro dos nós e as fontes)",
+            "  reserved arenas: {:.2} MiB (the rest is Vec/Box inside the nodes and the sources)",
             total as f64 / 1048576.0
         );
-        // Histograma de variantes de expressão, com o que cada uma carrega
-        // fora da arena (bytes de `Vec`/`Box`), para cortar onde há volume.
+        // Histogram of expression variants, with what each one carries outside the
+        // arena (`Vec`/`Box` bytes), to cut where the volume is.
         let mut hist: std::collections::BTreeMap<&'static str, (usize, usize)> = Default::default();
         for (_, output) in &retained {
             for e in &output.ast.exprs {
@@ -212,7 +213,7 @@ fn main() {
         }
         let mut order: Vec<_> = hist.into_iter().collect();
         order.sort_by_key(|(_, (n, _))| std::cmp::Reverse(*n));
-        println!("  variantes de expressão (contagem, bytes fora da arena):");
+        println!("  expression variants (count, bytes outside the arena):");
         for (nome, (n, fora)) in order.iter().take(14) {
             println!(
                 "    {:<18} {:>8}  {:>7.2} MiB fora",
@@ -227,30 +228,30 @@ fn main() {
     let allocations_ = dartforge_instrument::allocation_count() - base_allocations;
     let mib = |b: usize| b as f64 / (1024.0 * 1024.0);
     println!(
-        "arquivos: {} ({} recusados pelo parser)",
+        "files: {} ({} rejected by the parser)",
         retained.len(),
         rejected
     );
-    println!("fonte: {:.2} MiB", mib(bytes_fonte));
+    println!("source: {:.2} MiB", mib(bytes_fonte));
     println!(
-        "vivo com tudo retido: {:.2} MiB ({:.2}x a fonte)",
+        "live with everything retained: {:.2} MiB ({:.2}x the source)",
         mib(live),
         live as f64 / bytes_fonte as f64
     );
     println!("pico: {:.2} MiB", mib(pico));
     println!(
-        "nós de expressão: {total_tokens}; símbolos internados: {} ({:.2} MiB)",
+        "expression nodes: {total_exprs}; interned symbols: {} ({:.2} MiB)",
         names.len(),
         mib(names.payload_bytes())
     );
     println!(
-        "alocações: {allocations_}; tempo: {:.0} ms ({:.1} MiB/s)",
+        "allocations: {allocations_}; time: {:.0} ms ({:.1} MiB/s)",
         tempo.as_secs_f64() * 1e3,
         mib(bytes_fonte) / tempo.as_secs_f64()
     );
     drop(retained);
     println!(
-        "após descartar tudo: {} bytes acima da base",
+        "after dropping everything: {} bytes above the baseline",
         dartforge_instrument::live_bytes().saturating_sub(base)
     );
 }

@@ -1,25 +1,25 @@
-//! Modificadores de declaração lidos e denunciados como no fasta.
+//! Declaration modifiers read and reported as in fasta.
 //!
-//! Porte de `modifier_context.dart` (`_fe_analyzer_shared` 76.0.0) e do
-//! caminho rápido que o precede em `parser_impl.dart`
+//! Port of `modifier_context.dart` (`_fe_analyzer_shared` 76.0.0) and of the
+//! fast path that precedes it in `parser_impl.dart`
 //! (`parseTopLevelMemberImpl`, `parseClassOrMixinOrExtensionOrEnumMemberImpl`):
-//! o fasta lê sem erro os modificadores na ordem canônica e, quando sobra
-//! algum, passa o resto ao `ModifierContext`, que relata repetição
-//! (`DUPLICATED_MODIFIER`), ordem errada (`MODIFIER_OUT_OF_ORDER`), conflito
-//! (`CONFLICTING_MODIFIERS`, `CONST_AND_FINAL`, `FINAL_AND_VAR`,
-//! `COVARIANT_AND_STATIC`) e, por contexto, o modificador que não cabe ali
-//! (`EXTRANEOUS_MODIFIER`).
+//! fasta reads the modifiers in canonical order without error and, when any
+//! are left, hands the rest to the `ModifierContext`, which reports
+//! repetition (`DUPLICATED_MODIFIER`), wrong order (`MODIFIER_OUT_OF_ORDER`),
+//! conflicts (`CONFLICTING_MODIFIERS`, `CONST_AND_FINAL`, `FINAL_AND_VAR`,
+//! `COVARIANT_AND_STATIC`) and, by context, a modifier that does not belong
+//! there (`EXTRANEOUS_MODIFIER`).
 //!
-//! A árvore não muda: os modificadores continuam aceitos em qualquer ordem
-//! (superconjunto); aqui só se acrescentam os diagnósticos, e só quando há
-//! erro — código válido nunca chega aos ramos que relatam.
+//! The tree does not change: modifiers are still accepted in any order (a
+//! superset); here only the diagnostics are added, and only on error —
+//! valid code never reaches the branches that report.
 
 use super::Parser;
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Codigo, Span, codigos};
 
-/// Posição absoluta do token de cada modificador lido (os campos do
-/// `ModifierContext`).
+/// Absolute position of the token of each modifier read (the
+/// `ModifierContext` fields).
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct ModifierTokens {
     pub(crate) abstract_: Option<usize>,
@@ -40,35 +40,35 @@ impl ModifierTokens {
     }
 }
 
-/// O `MemberKind` do fasta que importa ao `parseFormalParameterModifiers`.
+/// The fasta `MemberKind` that matters to `parseFormalParameterModifiers`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ParameterOwner {
-    /// Função de topo ou método estático (`covariant` não cabe).
+    /// Top-level function or static method (`covariant` does not fit).
     TopLevelOrStatic,
-    /// Método de extension (`EXTRANEOUS_MODIFIER_IN_EXTENSION`).
+    /// Extension method (`EXTRANEOUS_MODIFIER_IN_EXTENSION`).
     Extension,
-    /// Método de extension type.
+    /// Extension type method.
     ExtensionType,
-    /// Construtor primário.
+    /// Primary constructor.
     PrimaryConstructor,
-    /// Tipo de função genérico (`Function(...)`): `var`/`final` viram
+    /// Generic function type (`Function(...)`): `var`/`final` become
     /// `FUNCTION_TYPED_PARAMETER_VAR`.
     FunctionTypeKind,
-    /// `typedef` da forma antiga (`MemberKind.FunctionTypeAlias`).
+    /// Old-style `typedef` (`MemberKind.FunctionTypeAlias`).
     TypeAlias,
-    /// Parâmetros de um parâmetro-função da forma antiga
+    /// Parameters of an old-style function parameter
     /// (`MemberKind.FunctionTypedParameter`).
     FunctionParameter,
-    /// Os demais (método de instância, construtor, função local, `catch`…).
+    /// The rest (instance method, constructor, local function, `catch`…).
     Other,
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
-    /// `isModifier` (`modifier_context.dart:12`): `const`/`final`/`var` sempre;
-    /// os identificadores embutidos (`abstract`, `covariant`, `external`,
-    /// `late`, `required`, `static`) só quando seguidos de palavra (que não
-    /// `in`) ou de um tipo record seguido de nome (ou de `this.`/`super.`).
-    /// `augment` fica de fora: é lido antes, por `parse_augment_opt`.
+    /// `isModifier` (`modifier_context.dart:12`): `const`/`final`/`var` always;
+    /// the built-in identifiers (`abstract`, `covariant`, `external`, `late`,
+    /// `required`, `static`) only when followed by a word (other than `in`) or
+    /// by a record type followed by a name (or by `this.`/`super.`). `augment`
+    /// is left out: it is read earlier, by `parse_augment_opt`.
     pub(crate) fn is_fasta_modifier(&self, pos: usize) -> bool {
         match self.kind_of(pos) {
             Kind::Keyword(Keyword::Const | Keyword::Final | Keyword::Var) => return true,
@@ -108,13 +108,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.tokens[pos.min(self.tokens.len() - 1)].span
     }
 
-    /// Erro sem argumentos no token em `pos`.
+    /// Error without arguments at the token at `pos`.
     pub(crate) fn error_at_token(&mut self, pos: usize, code: Codigo) {
         let span = self.span_of(pos);
         self.error_at(code, span, &[]);
     }
 
-    /// `reportExtraneousModifier`: `EXTRANEOUS_MODIFIER` com o texto do token.
+    /// `reportExtraneousModifier`: `EXTRANEOUS_MODIFIER` with the token's text.
     pub(crate) fn stray_modifier(&mut self, pos: Option<usize>) {
         if let Some(pos) = pos {
             let texto = self.text_of(pos).to_string();
@@ -129,7 +129,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.error_at(codigos::parser::DUPLICATED_MODIFIER, span, &[&texto]);
     }
 
-    /// `reportModifierOutOfOrder`: `pos` devia vir antes de `antes`.
+    /// `reportModifierOutOfOrder`: `pos` should come before `before`.
     fn out_of_order_modifier(&mut self, pos: usize, antes: &str) {
         let texto = self.text_of(pos).to_string();
         let span = self.span_of(pos);
@@ -144,10 +144,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.error_at(codigos::parser::CONFLICTING_MODIFIERS, span, &[&texto, &antes]);
     }
 
-    /// `ModifierContext._parseModifiers`: consome todos os modificadores a
-    /// partir do cursor, relatando os que repetem, conflitam ou estão fora
-    /// de ordem em relação aos já lidos em `f`. `after_factory` é o
-    /// `_afterFactory` (modificadores depois de `factory`).
+    /// `ModifierContext._parseModifiers`: consumes every modifier from the
+    /// cursor, reporting those that repeat, conflict or are out of order with
+    /// respect to the ones already read in `f`. `after_factory` is
+    /// `_afterFactory` (modifiers after `factory`).
     pub(crate) fn modifier_context(&mut self, f: &mut ModifierTokens, after_factory: bool) {
         loop {
             let pos = self.pos;
@@ -336,8 +336,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// Consome `var`/`final`/`const` ou `late final?` no cursor (o último
-    /// degrau do caminho rápido do fasta). `const` só sem `covariant`.
+    /// Consumes `var`/`final`/`const` or `late final?` at the cursor (the last
+    /// step of fasta's fast path). `const` only without `covariant`.
     fn vfc_fast_path(&mut self, f: &mut ModifierTokens) {
         if !self.is_fasta_modifier(self.pos) {
             return;
@@ -361,10 +361,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.advance();
     }
 
-    /// Modificadores de membro de topo (`parseTopLevelMemberImpl`): caminho
-    /// rápido `external`, depois `var`/`final`/`const` ou `late final?`; o
-    /// que sobrar vai ao `ModifierContext` com
-    /// `parseTopLevelMemberModifiers`.
+    /// Top-level member modifiers (`parseTopLevelMemberImpl`): fast path
+    /// `external`, then `var`/`final`/`const` or `late final?`; whatever is left
+    /// goes to the `ModifierContext` with `parseTopLevelMemberModifiers`.
     pub(crate) fn read_top_level_modifiers(&mut self) -> ModifierTokens {
         let mut f = ModifierTokens::default();
         if self.is_fasta_modifier(self.pos) && self.at_ident("external") {
@@ -372,8 +371,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.advance();
         }
         self.vfc_fast_path(&mut f);
-        // Outro `var`/`final`/`const` depois de um deles não é lido: começa
-        // a declaração seguinte (`final final class C {}`).
+        // Another `var`/`final`/`const` after one of them is not read: it starts
+        // the next declaration (`final final class C {}`).
         if f.var_final_or_const().is_some()
             && matches!(self.kind(), Kind::Keyword(Keyword::Final | Keyword::Var | Keyword::Const))
         {
@@ -389,11 +388,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         f
     }
 
-    /// Modificadores de membro de classe, mixin, enum, extension ou
-    /// extension type (`parseClassOrMixinOrExtensionOrEnumMemberImpl`):
-    /// caminho rápido `external`/`abstract`, depois `static`/`covariant`,
-    /// depois `var`/`final`/`const` ou `late final?`; o que sobrar vai ao
-    /// `ModifierContext` com `parseClassMemberModifiers`.
+    /// Member modifiers of a class, mixin, enum, extension or extension type
+    /// (`parseClassOrMixinOrExtensionOrEnumMemberImpl`): fast path
+    /// `external`/`abstract`, then `static`/`covariant`, then
+    /// `var`/`final`/`const` or `late final?`; whatever is left goes to the
+    /// `ModifierContext` with `parseClassMemberModifiers`.
     pub(crate) fn read_member_modifiers(&mut self) -> ModifierTokens {
         let mut f = ModifierTokens::default();
         if self.is_fasta_modifier(self.pos) {
@@ -422,8 +421,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         f
     }
 
-    /// `parseFormalParameterModifiers` (`modifier_context.dart:213`), depois
-    /// de o `ModifierContext` ler os modificadores de um parâmetro.
+    /// `parseFormalParameterModifiers` (`modifier_context.dart:213`), after the
+    /// `ModifierContext` reads a parameter's modifiers.
     pub(crate) fn report_parameter_modifiers(
         &mut self,
         f: &ModifierTokens,
@@ -447,8 +446,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.error_at(codigos::parser::EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE, span, &["covariant"]);
                 }
             }
-            // `modifier_context.dart:234-249` (checkout main): sem o recurso,
-            // todo `covariant`; com ele, o que não acompanha `var`.
+            // `modifier_context.dart:234-249` (main checkout): without the feature,
+            // every `covariant`; with it, those not accompanying `var`.
             ParameterOwner::PrimaryConstructor => {
                 if let Some(c) = f.covariant
                     && (!self.features.tem(crate::Feature::PrimaryConstructors) || f.var_.is_none())
@@ -475,13 +474,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.stray_modifier(f.static_);
     }
 
-    /// `reportTopLevelModifierError` + os `reportExtraneousModifier` de
-    /// `parseClassModifiers`/`parseEnumModifiers`/`parseMixinModifiers`/
+    /// `reportTopLevelModifierError` plus the `reportExtraneousModifier` calls
+    /// of `parseClassModifiers`/`parseEnumModifiers`/`parseMixinModifiers`/
     /// `parseExtensionModifiers`/`parseTypedefModifiers`/
-    /// `parseTopLevelKeywordModifiers` para os modificadores de membro que
-    /// precedem uma palavra de topo (`static class`, `const enum`…). `word`
-    /// é o texto da palavra de topo; `abstract` e `final` só valem em
-    /// `class` (e `final` também em `enum`/`mixin`/`extension`).
+    /// `parseTopLevelKeywordModifiers` for the member modifiers that precede a
+    /// top-level word (`static class`, `const enum`…). `word` is the text of the
+    /// top-level word; `abstract` and `final` are only valid on `class` (and
+    /// `final` also on `enum`/`mixin`/`extension`).
     pub(crate) fn report_modifiers_before_top_level(&mut self, f: &ModifierTokens, word: &str) {
         let class = word == "class";
         let directive_or_typedef = matches!(word, "typedef" | "library" | "import" | "export" | "part");

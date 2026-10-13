@@ -1,11 +1,10 @@
-//! Os comentários de uma unidade (o lexer daqui os descarta), achados por
-//! um varredor que conhece strings (simples, triplas, cruas) e
-//! interpolações `${…}` aninhadas, para que `//` e `/*` dentro de uma string
-//! não contem. Com eles: o `precedingComments` de um token (a sequência de
-//! comentários colados antes dele, separados só por brancos) e o
-//! `findDartDoc` do parser do analyzer 3.6.2
-//! (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:9564`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The comments of a unit (the lexer here discards them), found by a scanner
+//! that knows strings (simple, triple, raw) and nested `${…}`
+//! interpolations, so that `//` and `/*` inside a string do not count. With
+//! them: a token's `precedingComments` (the run of comments right before it,
+//! separated only by whitespace) and the `findDartDoc` of the analyzer 3.6.2
+//! parser (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:9564`).
+//! Written without compiling or running (2026-10-05).
 
 use crate::Span;
 
@@ -13,7 +12,7 @@ fn identifier_part(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_' || c == b'$'
 }
 
-/// Os comentários de uma unidade, em ordem.
+/// The comments of a unit, in order.
 pub struct Comentarios {
     spans: Vec<Span>,
 }
@@ -29,8 +28,8 @@ impl Comentarios {
         &self.spans
     }
 
-    /// `token.precedingComments`: os comentários logo antes de `pos`, só
-    /// com brancos entre eles e até `pos`, em ordem.
+    /// `token.precedingComments`: the comments right before `pos`, with only
+    /// whitespace between them and up to `pos`, in order.
     pub fn antes_de(&self, fonte: &str, pos: usize) -> Vec<Span> {
         let b = fonte.as_bytes();
         let only_whitespace = |de: usize, until: usize| b.get(de..until).is_some_and(|t| t.iter().all(u8::is_ascii_whitespace));
@@ -50,9 +49,8 @@ impl Comentarios {
         v
     }
 
-    /// `findDartDoc(token)`: entre os comentários antes de `pos`, o último
-    /// `/**`, ou o primeiro `///` da última sequência de `///` que vem
-    /// depois dele.
+    /// `findDartDoc(token)`: among the comments before `pos`, the last `/**`,
+    /// or the first `///` of the last run of `///` that comes after it.
     pub fn dart_doc(&self, fonte: &str, pos: usize) -> Option<Span> {
         let mut doc: Option<Span> = None;
         let mut multiline = false;
@@ -72,8 +70,8 @@ impl Comentarios {
     }
 }
 
-/// Varre código a partir de `i`; com `until_brace`, para depois do `}` que
-/// fecha a interpolação (devolve a posição depois dele).
+/// Scans code from `i`; with `until_brace`, stops after the `}` that closes
+/// the interpolation (returns the position after it).
 fn sweep(b: &[u8], mut i: usize, until_brace: bool, output: &mut Vec<Span>) -> usize {
     let mut level = 0usize;
     while i < b.len() {
@@ -91,7 +89,7 @@ fn sweep(b: &[u8], mut i: usize, until_brace: bool, output: &mut Vec<Span>) -> u
             continue;
         }
         if c == b'/' && b.get(i + 1) == Some(&b'*') {
-            // Os comentários de bloco aninham.
+            // Block comments nest.
             let start_ = i;
             let mut depth = 0usize;
             while i < b.len() {
@@ -130,7 +128,7 @@ fn sweep(b: &[u8], mut i: usize, until_brace: bool, output: &mut Vec<Span>) -> u
             while i < b.len() && identifier_part(b[i]) {
                 i += 1;
             }
-            // `r'…'`: a string crua.
+            // `r'…'`: the raw string.
             if &b[start_..i] == b"r" && matches!(b.get(i), Some(b'\'') | Some(b'"')) {
                 i = string(b, i, true, output);
             }
@@ -141,7 +139,8 @@ fn sweep(b: &[u8], mut i: usize, until_brace: bool, output: &mut Vec<Span>) -> u
     i
 }
 
-/// Varre a string que começa na aspa em `i`; devolve a posição depois dela.
+/// Scans the string that starts at the quote at `i`; returns the position
+/// after it.
 fn string(b: &[u8], mut i: usize, raw: bool, output: &mut Vec<Span>) -> usize {
     let q = b[i];
     let triple = b[i..].starts_with(&[q, q, q]);
@@ -151,7 +150,7 @@ fn string(b: &[u8], mut i: usize, raw: bool, output: &mut Vec<Span>) -> usize {
         if b[i] == q && (!triple || b[i..].starts_with(&[q, q, q])) {
             return i + n;
         }
-        // A string simples não passa da linha.
+        // A simple string does not go past the end of the line.
         if !triple && (b[i] == b'\n' || b[i] == b'\r') {
             return i;
         }

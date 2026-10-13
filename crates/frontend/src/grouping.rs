@@ -1,25 +1,25 @@
-//! A pilha de grouping do scanner do fasta (`abstract_scanner.dart`,
+//! The grouping stack of fasta's scanner (`abstract_scanner.dart`,
 //! `appendBeginGroup`, `appendEndGroup`, `discardBeginGroupUntil`,
 //! `insertSyntheticClosers`, `unmatchedBeginGroup`, `appendEofToken`),
-//! refeita sobre os tokens do nosso lexer: o fecho que falta vira um token
-//! sintético de comprimento zero (o `SyntheticToken`) com o erro
-//! `EXPECTED_TOKEN` do scanner (o `UnmatchedToken`, `errors.dart:71`), e o
-//! fecho que sobra fica como token comum.
+//! rebuilt over our lexer's tokens: a missing closer becomes a zero-length
+//! synthetic token (the `SyntheticToken`) with the scanner's `EXPECTED_TOKEN`
+//! error (the `UnmatchedToken`, `errors.dart:71`), and an extra closer stays
+//! as a plain token.
 //!
-//! Na recuperação, o fasta compara duas opções (inserir os fechos ou ignorar
-//! o fecho lido) reescaneando no máximo 100 chamadas do `bigSwitch` à
-//! frente e contando as recuperações (`recoveryOptionTokenizer`); aqui a
-//! contagem anda pelos mesmos tokens, com o peso de chamadas de cada um
-//! (os espaços em branco e os comentários entre eles também são chamadas).
+//! During recovery, fasta compares two options (inserting the closers or
+//! ignoring the closer read) by rescanning at most 100 `bigSwitch` calls
+//! ahead and counting the recoveries (`recoveryOptionTokenizer`); here the
+//! count walks the same tokens, with each one's call weight (the whitespace
+//! and comments between them are calls too).
 //!
-//! Diferença conhecida: o nosso lexer fecha a interpolação `${…}` na `}`
-//! que a termina e não sabe reabrir a string; quando a recuperação do fasta
-//! descartaria um grupo de interpolação, aqui o fecho lido é ignorado.
+//! Known difference: our lexer closes the `${…}` interpolation at the `}`
+//! that ends it and cannot reopen the string; when fasta's recovery would
+//! discard an interpolation group, here the closer read is ignored.
 
 use crate::token::{Interp, Keyword, Kind, Op, Token};
 use dartforge_diagnostics::{Diagnostic, Span, codigos};
 
-/// O `kind` de um `BeginToken`.
+/// The `kind` of a `BeginToken`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Group {
     Parens,
@@ -41,34 +41,34 @@ impl Group {
     }
 }
 
-/// O que uma chamada do `bigSwitch` faz com a pilha.
+/// What one `bigSwitch` call does to the stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GroupEffect {
     Nothing,
     Opens(Group),
-    /// `appendEndGroup` com o `openKind` (para `}`, também a interpolação).
+    /// `appendEndGroup` with the `openKind` (for `}`, the interpolation too).
     Closes(Group),
     /// `appendGt`, `appendGtGt`, `appendGtGtGt`.
     Greater(u8),
-    /// `discardOpenLt`: `;`, os tokens que começam com `=`, `this`.
+    /// `discardOpenLt`: `;`, the tokens starting with `=`, `this`.
     DiscardLt,
 }
 
-/// Um token nosso visto como chamadas do `bigSwitch`.
+/// One of our tokens seen as `bigSwitch` calls.
 #[derive(Debug, Clone, Copy)]
 struct Passo {
-    /// Chamadas de espaço em branco e comentário antes do token.
+    /// Whitespace and comment calls before the token.
     trivia: u32,
-    /// Chamadas do próprio token (0 quando é a continuação de outro).
+    /// Calls of the token itself (0 when it continues another one).
     calls: u32,
     first: GroupEffect,
-    /// O efeito da segunda chamada (a continuação da string depois da `}`
-    /// de uma interpolação, que pode abrir outra).
+    /// The effect of the second call (the continuation of the string after an
+    /// interpolation's `}`, which may open another one).
     second: GroupEffect,
 }
 
-/// Chamadas do `bigSwitch` no trecho entre dois tokens: cada caractere de
-/// espaço em branco (seguido dos espaços que vierem) e cada comentário.
+/// `bigSwitch` calls in the gap between two tokens: each whitespace
+/// character (followed by any further spaces) and each comment.
 fn trivia_calls(texto: &str) -> u32 {
     let b = texto.as_bytes();
     let mut i = 0;
@@ -114,7 +114,7 @@ fn trivia_calls(texto: &str) -> u32 {
 
 fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
     let mut output = Vec::with_capacity(tokens.len());
-    // A interpolação do último trecho de cada string aberta.
+    // The interpolation of the last piece of each open string.
     let mut excerpts: Vec<Interp> = Vec::new();
     let mut previous_end = 0usize;
     let mut i = 0;
@@ -139,12 +139,12 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                 };
                 let abre = if nova == Some(Interp::Brace) { GroupEffect::Opens(Group::Interpolation) } else { GroupEffect::Nothing };
                 if anterior == Some(Interp::Brace) {
-                    // A `}` e a continuação da string: duas chamadas.
+                    // The `}` and the continuation of the string: two calls.
                     p.first = GroupEffect::Closes(Group::Interpolation);
                     p.calls = 2;
                     p.second = abre;
                 } else {
-                    // Depois de `$nome`, a mesma chamada do `tokenizeString`.
+                    // After `$name`, the same `tokenizeString` call.
                     p.calls = 0;
                     p.first = abre;
                 }
@@ -169,7 +169,7 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                 Op::RBrace => p.first = GroupEffect::Closes(Group::Braces),
                 Op::Semicolon => p.first = GroupEffect::DiscardLt,
                 Op::LBracket => {
-                    // `[]` e `[]=` são o token de índice, sem grupo.
+                    // `[]` and `[]=` are the index token, without a group.
                     if t.glued && tokens.get(i + 1).is_some_and(|n| n.kind == Kind::Op(Op::RBracket)) {
                         output.push(p);
                         let mut j = i + 1;
@@ -186,8 +186,8 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                     p.first = GroupEffect::Opens(Group::Brackets);
                 }
                 Op::Gt => {
-                    // `>`, `>>`, `>>>` e, colados a um `=`, `>=`, `>>=`,
-                    // `>>>=` (sem efeito na pilha).
+                    // `>`, `>>`, `>>>` and, glued to a `=`, `>=`, `>>=`, `>>>=` (no effect on
+                    // the stack).
                     let mut n = 1usize;
                     while n < 3 && tokens[i + n - 1].glued && tokens.get(i + n).is_some_and(|x| x.kind == Kind::Op(Op::Gt)) {
                         n += 1;
@@ -203,7 +203,7 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
                     }
                     i = ultimo + 1;
                     if let Some(x) = equals_ {
-                        // O resto do token depois do `=` que o `>` levou.
+                        // The rest of the token after the `=` the `>` took.
                         let rest = &source[x.span.start + 1..x.span.end];
                         let effect = if rest.starts_with('=') {
                             GroupEffect::DiscardLt
@@ -229,13 +229,13 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Passo> {
     output
 }
 
-/// O resultado de um `discardBeginGroupUntil`.
+/// The result of a `discardBeginGroupUntil`.
 enum GroupSearch {
-    /// O grupo do topo é o esperado (depois de descartar os `<`).
+    /// The top group is the expected one (after discarding the `<`).
     Direct,
-    /// Achado mais abaixo: a altura da pilha com ele no topo.
+    /// Found further down: the stack height with it on top.
     Below(usize),
-    /// Não há abridor da espécie: a pilha volta ao que era.
+    /// There is no opener of that kind: the stack goes back to what it was.
     NoneFound,
 }
 
@@ -246,16 +246,16 @@ fn discard_less(stack: &mut Vec<(Group, usize)>) {
 }
 
 fn matches_here(closer: Group, opener: Group) -> bool {
-    // A `}` de uma interpolação é uma `}` comum para o scanner (`openKind`
-    // `{`), que aceita o `{` e o `${`.
+    // An interpolation's `}` is a plain `}` to the scanner (`openKind` `{`),
+    // which accepts the `{` and the `${`.
     match closer {
         Group::Braces | Group::Interpolation => matches!(opener, Group::Braces | Group::Interpolation),
         _ => closer == opener,
     }
 }
 
-/// O laço do `discardBeginGroupUntil`, sem decidir a recuperação. Deixa a
-/// pilha como o fasta a deixa: sem os `<` do topo no caso direto.
+/// The `discardBeginGroupUntil` loop, without deciding the recovery. Leaves
+/// the stack as fasta leaves it: without the `<` on top in the direct case.
 fn search(stack: &mut Vec<(Group, usize)>, closer: Group) -> GroupSearch {
     let original = stack.clone();
     let mut first = true;
@@ -288,11 +288,11 @@ fn apply_greater(stack: &mut Vec<(Group, usize)>, n: u8) {
     }
 }
 
-/// O `recoveryOptionTokenizer` de uma opção, a partir do passo `since`:
-/// as recuperações contadas em no máximo 101 chamadas do `bigSwitch`.
+/// The `recoveryOptionTokenizer` of an option, from step `since`: the
+/// recoveries counted in at most 101 `bigSwitch` calls.
 fn simular(steps: &[Passo], since: usize, stack: &mut Vec<(Group, usize)>, mut recoveries: usize) -> usize {
     let mut iterations = 0u32;
-    // O último passo é o `Eof`, que o laço não lê.
+    // The last step is the `Eof`, which the loop does not read.
     for p in steps.iter().take(steps.len().saturating_sub(1)).skip(since) {
         iterations += p.trivia;
         if iterations > 100 {
@@ -337,8 +337,8 @@ fn simulated_effect(effect: GroupEffect, stack: &mut Vec<(Group, usize)>, recove
                 }
                 GroupSearch::Below(h) => {
                     *recoveries += 1;
-                    // `insertSyntheticClosers`: um `unmatchedBeginGroup` por
-                    // entrada acima da achada, os `<` inclusive.
+                    // `insertSyntheticClosers`: one `unmatchedBeginGroup` per entry above the
+                    // one found, the `<` included.
                     *recoveries += height - h;
                     stack.pop();
                 }
@@ -348,24 +348,25 @@ fn simulated_effect(effect: GroupEffect, stack: &mut Vec<(Group, usize)>, recove
     }
 }
 
-/// Um fecho sintético: o `endGroup` de um abridor que o scanner não casou.
+/// A synthetic closer: the `endGroup` of an opener the scanner did not
+/// match.
 #[derive(Debug, Clone, Copy)]
 pub struct SyntheticCloser {
-    /// O início do abridor.
+    /// The start of the opener.
     pub abre: usize,
-    /// Onde o fecho está (o `charOffset` do `SyntheticToken`).
+    /// Where the closer is (the `SyntheticToken`'s `charOffset`).
     pub em: usize,
-    /// O índice do erro dele entre os erros devolvidos.
+    /// The index of its error among the returned errors.
     pub erro: usize,
 }
 
-/// Os tokens com os fechos sintéticos inseridos, os erros do scanner e os
-/// fechos (para o `moveSynthetic` do parser).
+/// The tokens with the synthetic closers inserted, the scanner errors and
+/// the closers (for the parser's `moveSynthetic`).
 pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagnostic>, Vec<SyntheticCloser>) {
     let steps = steps(source, &tokens);
     debug_assert_eq!(steps.len(), tokens.len());
     let mut stack: Vec<(Group, usize)> = Vec::new();
-    // (antes do token de índice, token sintético)
+    // (before the index token, synthetic token)
     let mut insertions: Vec<(usize, Token)> = Vec::new();
     let mut errors = Vec::new();
     let mut closers: Vec<SyntheticCloser> = Vec::new();
@@ -421,7 +422,7 @@ pub fn group_tokens(source: &str, tokens: Vec<Token>) -> (Vec<Token>, Vec<Diagno
                             };
                             let interpolation_closer = g == Group::Interpolation;
                             if !interpolation_closer && (option2 < option1 || interpolation_in_middle) {
-                                // Opção 2: o fecho fica como token comum.
+                                // Option 2: the closer stays as a plain token.
                                 stack = original;
                             } else {
                                 for &(e, opener) in original[h..].iter().rev() {
@@ -476,7 +477,7 @@ mod tests {
 
     #[test]
     fn open_less_also_gets_closer() {
-        // O `insertSyntheticClosers` olha o abridor achado, não o `<`.
+        // `insertSyntheticClosers` looks at the opener found, not at the `<`.
         let src = "void m() {\n  f(a < b, 1\n}\n";
         let (s, _) = closers(src);
         let key = src.rfind('}').unwrap();

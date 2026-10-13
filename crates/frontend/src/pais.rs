@@ -1,30 +1,30 @@
-//! O pai de cada expressão de uma unidade, no papel que as consultas de
-//! ancestral do analyzer distinguem, e o `inConstantContext` da 3.6.2
+//! The parent of each expression of a unit, in the role the analyzer's
+//! ancestor queries distinguish, and 3.6.2's `inConstantContext`
 //! (`ExpressionImpl.constantContext`, `analyzer/lib/src/dart/ast/ast.dart:6208`).
 //!
-//! O `constantContext` sobe a partir do pai da expressão: atravessa
-//! expressões, listas de argumentos, elementos `if`/`for` de coleção (pelo
-//! corpo e pela condição do `if`), entradas de mapa, `...` e declarações de
-//! variável; para com verdadeiro na anotação, nos argumentos de constante de
-//! enum, na criação/coleção/record com `const` escrito, na lista de
-//! variáveis `const`, no padrão constante com `const` e no `case` antigo
-//! (`SwitchCase`, biblioteca antes da 3.0); para com falso na lista de
-//! variáveis sem `const`, no padrão constante sem `const` e em qualquer
-//! outro pai (instrução, corpo de função, interpolação, valor padrão,
-//! inicializador de construtor, partes do `for`, guarda `when`, corpo de
-//! caso de `switch`, elemento `?e`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `constantContext` climbs from the expression's parent: it goes through
+//! expressions, argument lists, collection `if`/`for` elements (through the
+//! body and the `if` condition), map entries, `...` and variable
+//! declarations; it stops with true at an annotation, at enum constant
+//! arguments, at a creation/collection/record with `const` written, at a
+//! `const` variable list, at a constant pattern with `const` and at the old
+//! `case` (`SwitchCase`, library before 3.0); it stops with false at a
+//! variable list without `const`, at a constant pattern without `const` and
+//! at any other parent (statement, function body, interpolation, default
+//! value, constructor initializer, `for` parts, `when` guard, `switch` case
+//! body, `?e` element).
+//! Written without compiling or running (2026-10-05).
 
 use crate::ast::{
     Annotation, Arguments, Ast, CollectionElement, CompilationUnit, CreationKeyword, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, MemberKind,
     Parameter, PatternId, PatternKind, StmtKind, TypeKind, TypeParameter, TypedefKind, VariableList,
 };
 
-/// Todas as anotações escritas na unidade (o que o `visitAnnotation` de um
-/// visitante recursivo veria): das diretivas, das declarações e dos
-/// membros, das constantes de enum, da representação de tipo de extensão,
-/// dos parâmetros de tipo, dos parâmetros (também os de tipos `Function` e
-/// os aninhados), das declarações locais e das variáveis de `for-in`.
+/// Every annotation written in the unit (what a recursive visitor's
+/// `visitAnnotation` would see): those of directives, declarations and
+/// members, enum constants, the extension type representation, type
+/// parameters, parameters (including those of `Function` types and nested
+/// ones), local declarations and `for-in` variables.
 pub fn todas_as_anotacoes<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a Annotation> {
     let mut v: Vec<&'a Annotation> = Vec::new();
     fn parameters_<'a>(ps: &'a [Parameter], v: &mut Vec<&'a Annotation>) {
@@ -125,34 +125,34 @@ pub fn todas_as_anotacoes<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a 
     v
 }
 
-/// O papel do pai de uma expressão.
+/// The role of an expression's parent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pai {
-    /// Um pai que o `constantContext` não atravessa (e o que não foi visto).
+    /// A parent that `constantContext` does not go through (and one not seen).
     Fronteira,
-    /// Uma expressão que o contém por um papel transparente (operando,
-    /// alvo, argumento, elemento de coleção, condição de `if` de coleção,
-    /// campo de record, seção de cascata…).
+    /// An expression that contains it through a transparent role (operand,
+    /// target, argument, collection element, collection `if` condition, record
+    /// field, cascade section…).
     Expr(ExprId),
-    /// Argumento de anotação.
+    /// Annotation argument.
     Anotacao,
-    /// Argumento de constante de enum (`EnumConstantArguments`).
+    /// Enum constant argument (`EnumConstantArguments`).
     ConstanteDeEnum,
-    /// Inicializador de variável de uma lista (`const` escrito ou não).
+    /// Variable initializer of a list (`const` written or not).
     Variavel { constant: bool },
-    /// Expressão de um padrão constante (`const` escrito ou não) ou do
-    /// `case` antigo (constante).
+    /// Expression of a constant pattern (`const` written or not) or of the old
+    /// `case` (constant).
     PadraoConstante { constant: bool },
 }
 
-/// Os pais das expressões de uma unidade, por `ExprId`.
+/// The parents of a unit's expressions, by `ExprId`.
 pub struct Pais {
     pais: Vec<Pai>,
 }
 
 impl Pais {
-    /// `before_3`: a biblioteca é de antes da 3.0 (o `case e:` do
-    /// `switch` é o `SwitchCase` antigo, contexto constante).
+    /// `before_3`: the library predates 3.0 (the `switch`'s `case e:` is the
+    /// old `SwitchCase`, a constant context).
     pub fn novo(a: &Ast, unit: &CompilationUnit, fonte: &str, before_3: bool) -> Pais {
         let mut p = Constructor { a, fonte, pais: vec![Pai::Fronteira; a.exprs.len()] };
         p.everything(unit, before_3);
@@ -166,7 +166,8 @@ impl Pais {
     /// `Expression.inConstantContext`.
     pub fn em_contexto_constante(&self, a: &Ast, e: ExprId) -> bool {
         let mut atual = self.pai(e);
-        // A árvore é finita; o limite só protege de um ciclo por erro.
+        // The tree is finite; the limit only guards against a cycle caused by a
+        // bug.
         for _ in 0..a.exprs.len() + 1 {
             match atual {
                 Pai::Fronteira => return false,
@@ -240,7 +241,7 @@ impl Constructor<'_> {
         }
     }
 
-    /// Os elementos de coleção do literal `owner`.
+    /// The collection elements of the literal `owner`.
     fn elements_(&mut self, owner: ExprId, es: &[CollectionElement]) {
         for e in es {
             self.element(owner, e);
@@ -251,7 +252,7 @@ impl Constructor<'_> {
         let pai = Pai::Expr(owner);
         match e {
             CollectionElement::Expression(x) => self.por(*x, pai),
-            // `NullAwareElement` não é atravessado.
+            // `NullAwareElement` is not traversed.
             CollectionElement::NullAwareExpression(_) => {}
             CollectionElement::MapEntry { key, value, .. } => {
                 self.por(*key, pai);
@@ -259,8 +260,8 @@ impl Constructor<'_> {
             }
             CollectionElement::Spread { value, .. } => self.por(*value, pai),
             CollectionElement::If { condition, then, else_, .. } => {
-                // A condição é filha do `IfElement`; o padrão e a guarda,
-                // não.
+                // The condition is a child of the `IfElement`; the pattern and the guard
+                // are not.
                 self.por(*condition, pai);
                 self.element(owner, then);
                 if let Some(x) = else_ {
@@ -268,8 +269,8 @@ impl Constructor<'_> {
                 }
             }
             CollectionElement::For { init, body, .. } => {
-                // As partes do laço são filhas do `ForParts…`: fronteira; a
-                // lista de variáveis delas, pela própria regra.
+                // The loop parts are children of the `ForParts…`: a boundary; their
+                // variable list follows its own rule.
                 if let Some(ForInit::Variables(l)) = init {
                     self.list(l);
                 }
@@ -297,7 +298,7 @@ impl Constructor<'_> {
         for d in unit.directives.iter() {
             self.annotations(&d.metadata);
         }
-        // Os filhos de cada expressão.
+        // The children of each expression.
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let pai = Pai::Expr(id);
@@ -344,20 +345,20 @@ impl Constructor<'_> {
                         self.por(s, pai);
                     }
                 }
-                // O valor do `switch` é filho da expressão; a guarda e o
-                // corpo de cada caso, não.
+                // The `switch` value is a child of the expression; the guard and the body
+                // of each case are not.
                 ExprKind::Switch { value, .. } => self.por(*value, pai),
-                // As interpolações (`InterpolationExpression`) e o corpo de
-                // uma expressão de função: fronteira.
+                // Interpolations (`InterpolationExpression`) and the body of a function
+                // expression: a boundary.
                 _ => {}
             }
         }
-        // Os padrões constantes (em qualquer lugar: `case`, `if-case`,
-        // declaração, atribuição, subpadrão).
+        // Constant patterns (anywhere: `case`, `if-case`, declaration, assignment,
+        // subpattern).
         for k in 0..a.patterns.len() {
             self.constant_pattern(PatternId(k as u32), false);
         }
-        // O `case e:` antigo de `switch` (antes da 3.0): `SwitchCase`.
+        // The old `switch` `case e:` (before 3.0): `SwitchCase`.
         if before_3 {
             for s in a.stmts.iter() {
                 if let StmtKind::Switch { cases, .. } = &s.kind {
@@ -369,7 +370,7 @@ impl Constructor<'_> {
                 }
             }
         }
-        // As declarações.
+        // The declarations.
         for d in a.decls.iter() {
             self.annotations(&d.metadata);
             match &d.kind {

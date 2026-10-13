@@ -1,20 +1,21 @@
-//! Versão de linguagem e recursos ligados por biblioteca.
+//! Language version and features enabled per library.
 //!
-//! Contrato em `docs/VERSOES-LINGUAGEM.md`. Cada biblioteca Dart tem uma
-//! **versão de linguagem** (`accepted/2.8/language-versioning`): o marcador
-//! `// @dart = x.y` da própria biblioteca, senão o `languageVersion` do pacote
-//! no `package_config.json`, senão a versão corrente da ferramenta. A versão
-//! decide quais recursos da linguagem valem ali — como o `LibraryFeatures`
-//! do CFE (`front_end/lib/src/api_prototype/experimental_flags_generated.dart`).
+//! Contract in `docs/VERSOES-LINGUAGEM.md`. Each Dart library has a
+//! **language version** (`accepted/2.8/language-versioning`): the library's
+//! own `// @dart = x.y` marker, otherwise the package's `languageVersion` in
+//! `package_config.json`, otherwise the tool's current version. The version
+//! decides which language features apply there — like the CFE's
+//! `LibraryFeatures` (`front_end/lib/src/api_prototype/experimental_flags_generated.dart`).
 //!
-//! Custo: a versão é resolvida **uma vez** por biblioteca, no carregador,
-//! antes do parse; o parser e as fases seguintes só consultam um conjunto de
-//! bits ([`LibraryFeatures::tem`]). Nenhuma fase refaz a conta por nó.
+//! Cost: the version is resolved **once** per library, in the loader, before
+//! parsing; the parser and later phases only query a bit set
+//! ([`LibraryFeatures::tem`]). No phase redoes the computation per node.
 
 pub use dartforge_diagnostics::Referencia;
 use dartforge_diagnostics::Span;
 
-/// Versão de linguagem `greater.less` (a de patch não existe para a linguagem).
+/// Language version `major.minor` (there is no patch version for the
+/// language).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -28,21 +29,22 @@ impl LanguageVersion {
         LanguageVersion { major, minor }
     }
 
-    /// A menor versão que o Dart 3 aceita (`kernel_target.dart`,
-    /// `leastSupportedVersion`): abaixo dela não há null safety.
+    /// The lowest version Dart 3 accepts (`kernel_target.dart`,
+    /// `leastSupportedVersion`): below it there is no null safety.
     pub const MINIMA: LanguageVersion = LanguageVersion::new(2, 12);
 
-    /// O **piso** do DartForge e a versão da plataforma: as bibliotecas
-    /// `dart:*` são as do SDK 3.6.2 (`docs/VERSOES-LINGUAGEM.md`, D1) e são
-    /// sempre analisadas nesta versão.
+    /// DartForge's **floor** and the platform version: the `dart:*` libraries
+    /// are those of SDK 3.6.2 (`docs/VERSOES-LINGUAGEM.md`, D1) and are always
+    /// analyzed at this version.
     pub const PISO: LanguageVersion = LanguageVersion::new(3, 6);
 
-    /// A versão corrente da ferramenta (D2): a de um arquivo sem marcador e
-    /// fora de qualquer pacote, e o teto dos marcadores aceitos.
+    /// The tool's current version (D2): that of a file without a marker and
+    /// outside any package, and the ceiling of the accepted markers.
     pub const ATUAL: LanguageVersion = LanguageVersion::new(3, 13);
 
-    /// Lê `x.y` (o formato do `package_config.json` e de `--versao-linguagem`).
-    /// Espaços em volta são tolerados; qualquer outra coisa é `None`.
+    /// Reads `x.y` (the format of `package_config.json` and of
+    /// `--language-version`). Surrounding spaces are tolerated; anything else is
+    /// `None`.
     pub fn parse(texto: &str) -> Option<LanguageVersion> {
         let (a, b) = texto.trim().split_once('.')?;
         if a.is_empty()
@@ -56,7 +58,7 @@ impl LanguageVersion {
     }
 }
 
-/// A versão corrente ([`LanguageVersion::ATUAL`]).
+/// The current version ([`LanguageVersion::ATUAL`]).
 impl Default for LanguageVersion {
     fn default() -> Self {
         LanguageVersion::ATUAL
@@ -69,49 +71,53 @@ impl std::fmt::Display for LanguageVersion {
     }
 }
 
-/// Recurso de linguagem cuja presença depende da versão (ou de experimento).
+/// A language feature whose presence depends on the version (or on an
+/// experiment).
 ///
-/// Só entram aqui os recursos posteriores ao piso 3.6 e os experimentos que o
-/// DartForge acompanha. Os nomes são os de `tools/experimental_features.yaml`.
+/// Only the features after the 3.6 floor and the experiments DartForge
+/// tracks go here. The names are those of `tools/experimental_features.yaml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Feature {
-    /// 3.7 — `_` local/parâmetro/parâmetro de tipo não liga nome.
+    /// 3.7 — local/parameter/type parameter `_` does not bind a name.
     WildcardVariables,
-    /// 3.7 — inferência que combina restrições com os bounds declarados.
+    /// 3.7 — inference that combines constraints with the declared bounds.
     InferenceUsingBounds,
-    /// 3.8 — `?e` e `?k: ?v` em literais de coleção.
+    /// 3.8 — `?e` and `?k: ?v` in collection literals.
     NullAwareElements,
-    /// 3.9 — promoção, alcançabilidade e atribuição definitiva supõem null safety.
+    /// 3.9 — promotion, reachability and definite assignment assume null
+    /// safety.
     SoundFlowAnalysis,
-    /// 3.9 — deixa de ser erro o getter e o setter de tipos incompatíveis.
+    /// 3.9 — a getter and setter of incompatible types is no longer an error.
     GetterSetterError,
-    /// 3.10 — `.id`, `.new`, `const .id(…)` pelo tipo de contexto.
+    /// 3.10 — `.id`, `.new`, `const .id(…)` through the context type.
     DotShorthands,
-    /// 3.12 — `{this._x}` nomeado, chamado como `x:`.
+    /// 3.12 — named `{this._x}`, called as `x:`.
     PrivateNamedParameters,
-    /// 3.13 — construtores primários, `new`/`factory` sem o nome da classe,
-    /// corpo `;`; `var`/`final` só em parâmetro declarante.
+    /// 3.13 — primary constructors, `new`/`factory` without the class name,
+    /// `;` body; `var`/`final` only on a declaring parameter.
     PrimaryConstructors,
-    /// Experimento (sem `enabledIn`): augmentations escritas à mão.
+    /// Experiment (no `enabledIn`): hand-written augmentations.
     Augmentations,
-    /// Experimento: *part* com imports próprios.
+    /// Experiment: *parts* with their own imports.
     EnhancedParts,
-    /// Experimento: macros.
+    /// Experiment: macros.
     Macros,
-    /// 2.13 — `typedef X = T;` com `T` que não é tipo de função.
+    /// 2.13 — `typedef X = T;` with `T` not a function type.
     NonfunctionTypeAliases,
-    /// 2.14 — argumentos de tipo em anotação; tipo de função genérico como
-    /// argumento de tipo.
+    /// 2.14 — type arguments in annotations; a generic function type as a type
+    /// argument.
     GenericMetadata,
-    /// 3.0 — `base`, `interface`, `final` e `mixin` em classes (e `base mixin`).
+    /// 3.0 — `base`, `interface`, `final` and `mixin` on classes (and
+    /// `base mixin`).
     ClassModifiers,
     /// 3.0 — `sealed class`.
     SealedClass,
 }
 
 impl Feature {
-    /// Todos, na ordem da declaração (o índice é o bit em [`LibraryFeatures`]).
+    /// All of them, in declaration order (the index is the bit in
+    /// [`LibraryFeatures`]).
     pub const TODOS: [Feature; 15] = [
         Feature::WildcardVariables,
         Feature::InferenceUsingBounds,
@@ -130,8 +136,8 @@ impl Feature {
         Feature::SealedClass,
     ];
 
-    /// Nome do experimento em `tools/experimental_features.yaml` (é também o
-    /// valor de `--enable-experiment`).
+    /// Experiment name in `tools/experimental_features.yaml` (also the value of
+    /// `--enable-experiment`).
     pub const fn nome(self) -> &'static str {
         match self {
             Feature::WildcardVariables => "wildcard-variables",
@@ -152,8 +158,8 @@ impl Feature {
         }
     }
 
-    /// `enabledIn` do `experimental_features.yaml`: a versão de linguagem a
-    /// partir da qual o recurso vale sem sinal nenhum. `None` = experimento.
+    /// `enabledIn` from `experimental_features.yaml`: the language version from
+    /// which the feature applies with no flag at all. `None` = experiment.
     pub const fn enabled_in(self) -> Option<LanguageVersion> {
         match self {
             Feature::WildcardVariables | Feature::InferenceUsingBounds => {
@@ -173,16 +179,16 @@ impl Feature {
         }
     }
 
-    /// Os recursos que o analyzer 3.6.2 não conhece: o arquivo que usa a
-    /// sintaxe de um deles, numa biblioteca em que ele está desligado, tem o
-    /// 3.13.4 como referência (docs/ANALYZER-ESPECIFICACAO.md, T2 §1.1).
+    /// The features the 3.6.2 analyzer does not know: a file that uses the
+    /// syntax of one of them, in a library where it is disabled, has 3.13.4 as
+    /// its reference (docs/ANALYZER-ESPECIFICACAO.md, T2 §1.1).
     pub const DESCONHECIDOS_NO_3_6: [Feature; 3] =
         [Feature::DotShorthands, Feature::PrivateNamedParameters, Feature::PrimaryConstructors];
 
-    /// A versão que o analyzer 3.6.2 escreve na correção de
-    /// `experiment_not_enabled`, quando não é a de [`Feature::enabled_in`]:
-    /// `releaseVersion ?? 3.6.0`, e no `experiments.g.dart` do 3.6.2 estes
-    /// recursos ainda não tinham versão de lançamento (T2 §1.2).
+    /// The version the 3.6.2 analyzer writes in the `experiment_not_enabled`
+    /// fix, when it is not that of [`Feature::enabled_in`]:
+    /// `releaseVersion ?? 3.6.0`, and in 3.6.2's `experiments.g.dart` these
+    /// features had no release version yet (T2 §1.2).
     pub const fn version_reported_in_3_6(self) -> Option<LanguageVersion> {
         match self {
             Feature::NullAwareElements | Feature::WildcardVariables | Feature::InferenceUsingBounds => {
@@ -192,7 +198,7 @@ impl Feature {
         }
     }
 
-    /// O recurso pelo nome do experimento.
+    /// The feature by experiment name.
     pub fn do_nome(nome: &str) -> Option<Feature> {
         Feature::TODOS.into_iter().find(|f| f.nome() == nome)
     }
@@ -202,10 +208,10 @@ impl Feature {
     }
 }
 
-/// Os recursos ligados numa biblioteca: a versão e um conjunto de bits.
+/// The features enabled in a library: the version and a bit set.
 ///
-/// `Copy` e de 8 bytes: o parser e as fases seguintes guardam o valor, não
-/// uma referência, e a consulta é um `&` de bits.
+/// `Copy` and 8 bytes: the parser and later phases store the value, not a
+/// reference, and a query is a bitwise `&`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct LibraryFeatures {
     versao: LanguageVersion,
@@ -213,12 +219,12 @@ pub struct LibraryFeatures {
 }
 
 impl LibraryFeatures {
-    /// Os recursos de uma biblioteca na versão `versao`, mais os
-    /// `experimentos` pedidos.
+    /// The features of a library at version `versao`, plus the requested
+    /// `experimentos`.
     ///
-    /// Quem chama decide se os experimentos valem para a biblioteca: pela
-    /// regra da proposta de versionamento (`:159`), só para as que **não**
-    /// têm marcador e cuja versão padrão é a corrente. Ver
+    /// The caller decides whether the experiments apply to the library: by the
+    /// rule of the versioning proposal (`:159`), only to those that do **not**
+    /// have a marker and whose default version is the current one. See
     /// [`LibraryFeatures::for_library`].
     pub fn new(versao: LanguageVersion, experimentos: &[Feature]) -> Self {
         let mut bits = 0;
@@ -233,11 +239,11 @@ impl LibraryFeatures {
         LibraryFeatures { versao, bits }
     }
 
-    /// A regra inteira de uma biblioteca: `marker` é a versão do
-    /// `// @dart = x.y`, se houver; `padrao` a do pacote (ou a corrente, fora
-    /// de pacote); `corrente` a da ferramenta; `experimentos`, os pedidos por
-    /// `--enable-experiment`, que só valem sem marcador e com o padrão igual
-    /// à corrente.
+    /// The whole rule for a library: `marker` is the version of the
+    /// `// @dart = x.y`, if any; `padrao` the package's (or the current one,
+    /// outside a package); `corrente` the tool's; `experimentos`, those
+    /// requested with `--enable-experiment`, which only apply without a marker
+    /// and with the default equal to the current version.
     pub fn for_library(
         marker: Option<LanguageVersion>,
         padrao: LanguageVersion,
@@ -251,7 +257,7 @@ impl LibraryFeatures {
         }
     }
 
-    /// A versão corrente da ferramenta, sem experimentos.
+    /// The tool's current version, without experiments.
     pub fn atual() -> Self {
         LibraryFeatures::new(LanguageVersion::ATUAL, &[])
     }
@@ -271,16 +277,16 @@ impl LibraryFeatures {
         self.versao
     }
 
-    /// Mensagem do diagnóstico de recurso desligado.
+    /// Message of the disabled-feature diagnostic.
     pub fn disabled_message(self, f: Feature) -> String {
         match f.enabled_in() {
             Some(v) => format!(
-                "o recurso '{}' exige a versão de linguagem {v} ou superior (esta biblioteca está na {})",
+                "the '{}' feature requires language version {v} or later (this library is at {})",
                 f.nome(),
                 self.versao
             ),
             None => format!(
-                "o recurso '{}' é experimental: exige --enable-experiment={} (esta biblioteca está na {})",
+                "the '{}' feature is experimental: it requires --enable-experiment={} (this library is at {})",
                 f.nome(),
                 f.nome(),
                 self.versao
@@ -295,16 +301,16 @@ impl Default for LibraryFeatures {
     }
 }
 
-/// Procura o marcador `// @dart = x.y` no cabeçalho da fonte: antes do
-/// primeiro token, depois de um `#!` e de outros comentários.
+/// Looks for the `// @dart = x.y` marker in the source header: before the
+/// first token, after a `#!` and other comments.
 ///
-/// Segue o *scanner* do CFE
+/// Follows the CFE *scanner*
 /// (`_fe_analyzer_shared/lib/src/scanner/abstract_scanner.dart`,
-/// `tokenizeLanguageVersionOrSingleLineComment`): só `//` (não `///`),
-/// espaços (não tabulações) em volta de `@dart`, `=` e da versão, e nada
-/// depois da versão além de espaços até o fim da linha. Um marcador dentro de
-/// comentário de bloco não conta, e só o primeiro vale. Varredura pura sobre
-/// bytes, sem alocar: custa o tamanho do cabeçalho de comentários.
+/// `tokenizeLanguageVersionOrSingleLineComment`): only `//` (not `///`),
+/// spaces (not tabs) around `@dart`, `=` and the version, and nothing after
+/// the version but spaces up to the end of the line. A marker inside a block
+/// comment does not count, and only the first one applies. A pure scan over
+/// bytes, without allocating: it costs the size of the comment header.
 pub fn marcador_versao(fonte: &str) -> Option<(LanguageVersion, Span)> {
     let b = fonte.as_bytes();
     let mut i = 0;
@@ -312,7 +318,7 @@ pub fn marcador_versao(fonte: &str) -> Option<(LanguageVersion, Span)> {
     if b.starts_with(&[0xEF, 0xBB, 0xBF]) {
         i = 3;
     }
-    // `#!` só na primeira linha.
+    // `#!` only on the first line.
     if b[i..].starts_with(b"#!") {
         while i < b.len() && b[i] != b'\n' {
             i += 1;
@@ -339,7 +345,7 @@ pub fn marcador_versao(fonte: &str) -> Option<(LanguageVersion, Span)> {
             }
             i = end_offset;
         } else if b[i..].starts_with(b"/*") {
-            // Comentário de bloco, aninhado como no lexer.
+            // Block comment, nested as in the lexer.
             let mut prof = 0usize;
             loop {
                 if i >= b.len() {
@@ -364,11 +370,12 @@ pub fn marcador_versao(fonte: &str) -> Option<(LanguageVersion, Span)> {
     }
 }
 
-/// `// @dart = x.y` (sem o `\n`), com a gramática do CFE; senão `None`.
+/// `// @dart = x.y` (without the `\n`), with the CFE grammar; otherwise
+/// `None`.
 fn comment_version(line: &[u8]) -> Option<LanguageVersion> {
     let mut r = line.strip_prefix(b"//")?;
     if r.first() == Some(&b'/') {
-        return None; // `///` é documentação
+        return None; // `///` is documentation
     }
     let spaces = |r: &mut &[u8]| {
         while r.first() == Some(&b' ') {
@@ -444,18 +451,18 @@ mod testes {
     #[test]
     fn forms_that_are_not_markers() {
         for f in [
-            "/// @dart=3.6\n",      // documentação
-            "// @dart=3.6 extra\n", // lixo depois da versão
-            "//\t@dart=3.6\n",      // tabulação
-            "// @dart=3\n",         // sem menor
-            "// @dart=.6\n",        // sem maior
-            "// @ dart=3.6\n",      // espaço dentro de `@dart`
-            "/* // @dart=3.6 */ x", // dentro de bloco
+            "/// @dart=3.6\n",      // documentation
+            "// @dart=3.6 extra\n", // garbage after the version
+            "//\t@dart=3.6\n",      // tab
+            "// @dart=3\n",         // no minor
+            "// @dart=.6\n",        // no major
+            "// @ dart=3.6\n",      // space inside `@dart`
+            "/* // @dart=3.6 */ x", // inside a block
             "// @dartx=3.6\n",
         ] {
             assert_eq!(marcador_versao(f), None, "{f:?}");
         }
-        // Um comentário comum antes não impede o marcador seguinte.
+        // A plain comment before does not prevent the following marker.
         assert_eq!(
             marcador_versao("// @dart=3.6 extra\n// @dart=3.7\n").map(|m| m.0),
             Some(v(3, 7))
@@ -465,8 +472,8 @@ mod testes {
     #[test]
     fn features_by_version() {
         let f36 = LibraryFeatures::new(v(3, 6), &[]);
-        // Os posteriores ao piso estão desligados na 3.6; os anteriores
-        // (2.13, 2.14, 3.0), ligados.
+        // Those after the floor are disabled in 3.6; the earlier ones (2.13, 2.14,
+        // 3.0) are enabled.
         let old_ones = [Feature::NonfunctionTypeAliases, Feature::GenericMetadata, Feature::ClassModifiers, Feature::SealedClass];
         assert!(Feature::TODOS.iter().filter(|f| !old_ones.contains(f)).all(|f| !f36.tem(*f)));
         assert!(old_ones.iter().all(|f| f36.tem(*f)));
@@ -506,14 +513,14 @@ mod testes {
         assert!(!LibraryFeatures::for_library(None, v(3, 6), atual, &exp).tem(Feature::Macros));
     }
 
-    /// A tabela transcrita confere com o `experimental_features.yaml` do SDK,
-    /// quando o clone de referência existe (`references/` fica fora do git).
+    /// The transcribed table matches the SDK's `experimental_features.yaml`,
+    /// when the reference clone exists (`references/` is outside git).
     #[test]
     fn table_matches_the_sdk_yaml() {
         let yaml = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../references/dart-sdk/tools/experimental_features.yaml");
         let Ok(texto) = std::fs::read_to_string(&yaml) else {
-            eprintln!("{} ausente; conferência pulada", yaml.display());
+            eprintln!("{} missing; check skipped", yaml.display());
             return;
         };
         for f in Feature::TODOS {
